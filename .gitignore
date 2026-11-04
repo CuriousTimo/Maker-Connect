@@ -9,3 +9,5 @@ maker-connect-agent.json
 
 # Uploaded files of the cloud
 *-files/
+/*-downloads/
+maker-connect-agent.toml

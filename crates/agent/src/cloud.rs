@@ -7,12 +7,15 @@
 //! to the printer and says in its next report how they went, with a bed mesh if the printer
 //! printed one.
 
+use crate::config::{self, Config};
 use crate::marlin;
 use maker_connect_grbl as grbl;
+use maker_connect_label::{Label, dymo};
 use maker_connect_protocol::{
     self as protocol, CommandDone, Identity, MachineKind, MachineState, Register, Registered,
     Telemetry, TelemetryReply,
 };
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const REPORT_EVERY: Duration = Duration::from_secs(2);
@@ -38,16 +41,12 @@ enum Firmware {
     Grbl,
 }
 
+/// The options: the config file's (see [`crate::config`]), with the command line's on top.
+/// `--save` writes them into the config file.
 fn options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>> {
-    let mut options = Options {
-        cloud: String::new(),
-        name: String::new(),
-        kind: MachineKind::Fdm,
-        port: None,
-        baud: 115_200,
-        firmware: Firmware::Auto,
-        state: "maker-connect-agent.json".to_owned(),
-    };
+    let mut typed = Config::default();
+    let mut named = None;
+    let mut save = false;
     let mut args = args.iter();
     while let Some(flag) = args.next() {
         let mut value = || {
@@ -56,29 +55,69 @@ fn options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>> {
                 .ok_or_else(|| format!("expected a value after {flag}"))
         };
         match flag.as_str() {
-            "--cloud" => options.cloud = value()?.trim_end_matches('/').to_owned(),
-            "--name" => options.name = value()?,
-            "--kind" => options.kind = serde_json::from_value(serde_json::Value::String(value()?))?,
-            "--port" => options.port = Some(value()?),
-            "--baud" => options.baud = value()?.parse()?,
-            "--firmware" => {
-                options.firmware = match value()?.as_str() {
-                    "auto" => Firmware::Auto,
-                    "marlin" => Firmware::Marlin,
-                    "grbl" => Firmware::Grbl,
-                    other => {
-                        return Err(format!("--firmware auto, marlin or grbl, not {other}").into());
-                    }
-                }
-            }
-            "--state" => options.state = value()?,
+            "--cloud" => typed.cloud = Some(value()?),
+            "--name" => typed.name = Some(value()?),
+            "--kind" => typed.kind = Some(value()?),
+            "--port" => typed.port = Some(value()?),
+            "--baud" => typed.baud = Some(value()?.parse()?),
+            "--firmware" => typed.firmware = Some(value()?),
+            "--state" => typed.state = Some(value()?),
+            "--config" => named = Some(value()?),
+            "--save" => save = true,
             _ => return Err(format!("unknown option {flag}").into()),
         }
     }
-    if options.cloud.is_empty() || options.name.is_empty() {
-        return Err("run needs --cloud <address> and --name <name>".into());
+    let loaded = config::load(named.as_deref())?;
+    if let Some((path, _)) = &loaded {
+        println!("config: {}", path.display());
     }
-    Ok(options)
+    let (path, file) = loaded.unwrap_or_else(|| {
+        (
+            PathBuf::from(named.as_deref().unwrap_or(config::FILE)),
+            Config::default(),
+        )
+    });
+    let all = file.and(typed);
+    if save {
+        config::save(&path, &all)?;
+        println!("saved to {}", path.display());
+    }
+    let firmware = match all.firmware.as_deref().unwrap_or("auto") {
+        "auto" => Firmware::Auto,
+        "marlin" => Firmware::Marlin,
+        "grbl" => Firmware::Grbl,
+        other => return Err(format!("firmware: auto, marlin or grbl, not {other}").into()),
+    };
+    let kind = match all.kind.as_deref() {
+        Some(kind) => {
+            serde_json::from_value(serde_json::Value::String(kind.to_owned())).map_err(|_| {
+                format!("kind: fdm, laser, cnc, cutter, label, paper or other, not {kind}")
+            })?
+        }
+        None => MachineKind::Fdm,
+    };
+    // The credentials beside the config file, so a double-click finds them too.
+    let state = all.state.map(PathBuf::from).unwrap_or_else(|| {
+        path.parent()
+            .unwrap_or(Path::new(""))
+            .join("maker-connect-agent.json")
+    });
+    let (Some(cloud), Some(name)) = (all.cloud, all.name) else {
+        return Err(format!(
+            "run needs a cloud and a name: --cloud <address> --name <name>, or in {}",
+            config::FILE
+        )
+        .into());
+    };
+    Ok(Options {
+        cloud: cloud.trim_end_matches('/').to_owned(),
+        name,
+        kind,
+        port: all.port,
+        baud: all.baud.unwrap_or(115_200),
+        firmware,
+        state: state.to_string_lossy().into_owned(),
+    })
 }
 
 /// The agent's credentials, kept between runs.
@@ -122,10 +161,11 @@ fn show_code(registered: &Registered) {
 
 type Link = Box<dyn serialport::SerialPort>;
 
-/// The machine on the port, connected.
+/// The machine on the port (or on USB HID, a label printer), connected.
 enum Machine {
     Marlin(Box<marlin::Printer<Link>>, Known),
     Grbl(Box<grbl::GrblMachine>),
+    Dymo(Box<dymo::Printer>),
 }
 
 /// Whether the machine on a port is GRBL: it greets by name when the port opens (most
@@ -158,8 +198,21 @@ fn speaks_grbl(port: &str, baud: u32) -> bool {
         .any(|l| grbl::greets(l) || l.starts_with("[VER:"))
 }
 
-/// The machine on the port, by what it speaks.
+/// The machine on the port, by what it speaks; a label printer is found on USB.
 fn open_machine(options: &Options) -> Option<Machine> {
+    if options.kind == MachineKind::Label {
+        return match dymo::find() {
+            Ok(Some(printer)) => {
+                println!("label printer: {}", printer.product);
+                Some(Machine::Dymo(Box::new(printer)))
+            }
+            Ok(None) => None,
+            Err(error) => {
+                println!("label printer: {error}");
+                None
+            }
+        };
+    }
     let port = options.port.as_ref()?;
     let grbl = match options.firmware {
         Firmware::Grbl => true,
@@ -180,6 +233,85 @@ fn open_machine(options: &Options) -> Option<Machine> {
     } else {
         open_printer(options).map(|(printer, known)| Machine::Marlin(Box::new(printer), known))
     }
+}
+
+/// The computer the agent runs on: its name, and its address towards the cloud (the one
+/// its reports leave from: a UDP socket "connected" to the cloud sends nothing).
+fn agent_info(cloud: &str) -> protocol::AgentInfo {
+    let hostname = std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .filter(|h| !h.is_empty());
+    let host = cloud
+        .split("://")
+        .nth(1)
+        .unwrap_or(cloud)
+        .split('/')
+        .next()
+        .unwrap_or("");
+    let host = if host.contains(':') {
+        host.to_owned()
+    } else {
+        format!("{host}:80")
+    };
+    let address = std::net::ToSocketAddrs::to_socket_addrs(&host)
+        .ok()
+        .and_then(|mut a| a.next())
+        .and_then(|cloud| {
+            let local = if cloud.is_ipv4() {
+                "0.0.0.0:0"
+            } else {
+                "[::]:0"
+            };
+            let socket = std::net::UdpSocket::bind(local).ok()?;
+            socket.connect(cloud).ok()?;
+            Some(socket.local_addr().ok()?.ip().to_string())
+        });
+    protocol::AgentInfo {
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        os: std::env::consts::OS.to_owned(),
+        arch: std::env::consts::ARCH.to_owned(),
+        hostname,
+        address,
+    }
+}
+
+/// Fetches a label (a PNG) from the cloud.
+fn fetch_label(
+    options: &Options,
+    token: &str,
+    order: &protocol::JobOrder,
+) -> Result<Label, String> {
+    let response = ureq::get(&format!("{}{}", options.cloud, order.download))
+        .set("authorization", &format!("Bearer {token}"))
+        .call()
+        .map_err(|e| format!("the label did not come: {e}"))?;
+    let mut png = Vec::new();
+    std::io::Read::read_to_end(
+        &mut std::io::Read::take(response.into_reader(), 16 * 1024 * 1024),
+        &mut png,
+    )
+    .map_err(|e| format!("the label did not come: {e}"))?;
+    Label::from_png(&png)
+}
+
+/// Prints a label on a LabelManager, on the tape the cloud says is loaded.
+fn print_label(
+    options: &Options,
+    token: &str,
+    printer: &dymo::Printer,
+    order: &protocol::JobOrder,
+) -> Result<(), String> {
+    let width = order.tape_mm.unwrap_or(12);
+    let tape = dymo::Tape::d1(width).ok_or(format!("{width} mm tape does not fit this printer"))?;
+    let label = fetch_label(options, token, order)?;
+    printer.print(&label, tape, |sent, of| {
+        print!("\rlabel: part {sent} of {of}");
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+    })?;
+    println!();
+    Ok(())
 }
 
 /// Fetches a job's file from the cloud.
@@ -259,6 +391,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         options.name, options.cloud, registered.machine_id
     );
     let mut machine: Option<Machine> = None;
+    let agent = agent_info(&options.cloud);
     let mut next_look = Instant::now();
     let mut paired = None;
     // What the next report brings: how commands went, a mesh they produced, a job's end.
@@ -266,7 +399,8 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let mut mesh = None;
     let mut job_end = None;
     loop {
-        if machine.is_none() && options.port.is_some() && Instant::now() >= next_look {
+        let wants = options.port.is_some() || options.kind == MachineKind::Label;
+        if machine.is_none() && wants && Instant::now() >= next_look {
             machine = open_machine(&options);
             next_look = Instant::now() + RECONNECT_EVERY;
         }
@@ -312,8 +446,29 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     machine = None;
                 }
             }
+            Some(Machine::Dymo(printer)) => match printer.status() {
+                Ok(status) => {
+                    telemetry.state = if status.problem().is_some() {
+                        MachineState::Error
+                    } else {
+                        MachineState::Idle
+                    };
+                    telemetry.cassette = Some(status.cassette());
+                    telemetry.problem = status.problem().map(str::to_owned);
+                    telemetry.identity = Some(Identity {
+                        machine_type: Some(printer.product.clone()),
+                        ..Identity::default()
+                    });
+                }
+                // Unplugged, or switched off (on its battery, it switches itself off).
+                Err(error) => {
+                    println!("label printer lost: {error}");
+                    machine = None;
+                }
+            },
             None => {}
         }
+        telemetry.agent = Some(agent.clone());
         telemetry.done = std::mem::take(&mut done);
         telemetry.mesh = mesh.take();
         telemetry.job_end = job_end.take();
@@ -329,6 +484,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                         Some(Machine::Grbl(laser)) => {
                             laser.carry_out(&command.gcode).map(|said| (said, None))
                         }
+                        Some(Machine::Dymo(_)) => Err("a label printer takes no G-code".to_owned()),
                         None => Err("the machine is not connected".to_owned()),
                     };
                     match outcome {
@@ -361,6 +517,19 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                             }),
                         Some(Machine::Marlin(..)) => {
                             Err("printing a file over USB on a Marlin printer follows".to_owned())
+                        }
+                        // A label takes seconds: printed here, its end in the next report.
+                        Some(Machine::Dymo(printer)) => {
+                            print_label(&options, &registered.token, printer, order).map(|()| {
+                                println!("job {}: printed", order.id);
+                                job_end = Some(protocol::JobEnd {
+                                    id: order.id,
+                                    ok: true,
+                                    stopped: false,
+                                    reason: None,
+                                    restart_line: None,
+                                });
+                            })
                         }
                         None => Err("the machine is not connected".to_owned()),
                     };

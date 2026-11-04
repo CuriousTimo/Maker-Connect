@@ -30,6 +30,7 @@ pub fn routes() -> Router<Shared> {
         .route("/files/{id}/thumbnail.png", get(thumbnail))
         .route("/files/{id}/download", get(download))
         .route("/files/{id}/remove", post(remove))
+        .route("/api/files/remove", post(remove_many))
         .route("/files/{id}/print", post(print))
         .route("/files/{id}/frame", post(frame))
         .route("/machines/{id}/job", post(control_job))
@@ -42,6 +43,9 @@ pub fn fit(file: &StoredFile, machine: &Machine) -> Result<Option<String>, Strin
         && kind != machine.kind
     {
         return Err(format!("a file for a {}", kind.label().to_lowercase()));
+    }
+    if machine.kind == maker_connect_protocol::MachineKind::Label {
+        return label_check(file, machine, profile);
     }
     let mut warning = None;
     if let Some(note) = laser_check(file, machine, profile)? {
@@ -75,6 +79,48 @@ pub fn fit(file: &StoredFile, machine: &Machine) -> Result<Option<String>, Strin
         return Err(format!("busy with {}", job.file_name));
     }
     Ok(warning)
+}
+
+/// Whether a label fits a label printer now: the tape loaded (as the owner said) must be
+/// as high as the label.
+fn label_check(
+    file: &StoredFile,
+    machine: &Machine,
+    profile: Option<&profiles::Profile>,
+) -> Result<Option<String>, String> {
+    let Some([_, height]) = file.meta.label_dots else {
+        return Err("not a label".to_owned());
+    };
+    let Some(profile) = profile else {
+        return Err("choose the printer's profile under Settings".to_owned());
+    };
+    let Some(media) = machine
+        .media
+        .as_deref()
+        .and_then(|m| profiles::media(profile, m))
+    else {
+        return Err("say which tape is loaded, under Settings".to_owned());
+    };
+    let dots = maker_connect_label::dymo::Tape::d1(media.width_mm).map_or(0, |t| t.dots);
+    if height as usize > dots {
+        return Err(format!(
+            "{height} dots high; {} mm tape takes {dots}",
+            media.width_mm
+        ));
+    }
+    if !matches!(machine.link.as_str(), "virtual" | "agent") {
+        return Err("labels go through an agent".to_owned());
+    }
+    if !machine.online {
+        return Err("offline".to_owned());
+    }
+    if let Some(problem) = machine.telemetry.as_ref().and_then(|t| t.problem.as_ref()) {
+        return Err(problem.clone());
+    }
+    if let Some(job) = &machine.job {
+        return Err(format!("busy with {}", job.file_name));
+    }
+    Ok(None)
 }
 
 /// What a laser's own settings (`$$`, in its telemetry) and its profile say about a file:
@@ -129,14 +175,20 @@ struct Listed {
     #[serde(flatten)]
     file: StoredFile,
     machines: Vec<Target>,
+    /// Where it was printed, newest first (a few).
+    printed: Vec<crate::store::Printed>,
 }
 
 async fn list(State(store): State<Shared>) -> Response {
     let store = store.lock().unwrap();
-    let found = store
-        .default_space()
-        .and_then(|(space, _)| Ok((store.files(space)?, store.machines(space)?)));
-    let (files, machines) = match found {
+    let found = store.default_space().and_then(|(space, _)| {
+        Ok((
+            store.files(space)?,
+            store.machines(space)?,
+            store.prints(space, 5)?,
+        ))
+    });
+    let (files, machines, mut prints) = match found {
         Ok(found) => found,
         Err(error) => return failed(error),
     };
@@ -160,6 +212,7 @@ async fn list(State(store): State<Shared>) -> Response {
                 .collect();
             targets.sort_by_key(|t| !t.ok);
             Listed {
+                printed: prints.remove(&file.id).unwrap_or_default(),
                 file,
                 machines: targets,
             }
@@ -177,7 +230,8 @@ struct UploadQuery {
 fn clean_name(name: &str) -> Option<String> {
     let name = name.rsplit(['/', '\\']).next()?.trim();
     let lower = name.to_ascii_lowercase();
-    if !(lower.ends_with(".gcode") || lower.ends_with(".gco") || lower.ends_with(".g")) {
+    let known = [".gcode", ".gco", ".g", ".png"];
+    if !known.iter().any(|end| lower.ends_with(end)) {
         return None;
     }
     let name: String = name.chars().filter(|c| !c.is_control()).take(120).collect();
@@ -194,7 +248,7 @@ async fn upload(
     let Some(name) = clean_name(&query.name) else {
         return (
             StatusCode::BAD_REQUEST,
-            "a G-code file (.gcode); binary G-code (.bgcode) is not read yet",
+            "a G-code file (.gcode), or a label (.png); binary G-code (.bgcode) is not read yet",
         )
             .into_response();
     };
@@ -301,7 +355,7 @@ async fn download(State(store): State<Shared>, Path(id): Path<String>) -> Respon
             let stream = tokio_util_stream(handle);
             (
                 [
-                    ("content-type", "text/x.gcode".to_owned()),
+                    ("content-type", content_type(&file.name).to_owned()),
                     ("content-length", file.size.to_string()),
                     (
                         "content-disposition",
@@ -313,6 +367,15 @@ async fn download(State(store): State<Shared>, Path(id): Path<String>) -> Respon
                 .into_response()
         }
         Err(error) => failed(error),
+    }
+}
+
+/// What a file is, by its name: a label (PNG), else G-code.
+fn content_type(name: &str) -> &'static str {
+    if name.to_ascii_lowercase().ends_with(".png") {
+        "image/png"
+    } else {
+        "text/x.gcode"
     }
 }
 
@@ -341,9 +404,38 @@ async fn remove(State(store): State<Shared>, Path(id): Path<String>) -> Response
         .and_then(|(space, _)| store.remove_file(space, &id));
     match removed {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
-        Ok(false) => (StatusCode::NOT_FOUND, "no such file").into_response(),
+        Ok(false) => (
+            StatusCode::CONFLICT,
+            "not removed: no such file, or a machine runs it",
+        )
+            .into_response(),
         Err(error) => failed(error),
     }
+}
+
+#[derive(Deserialize)]
+struct Many {
+    ids: Vec<String>,
+}
+
+/// `POST /api/files/remove` with `{"ids": [...]}`: removes them all, but not one a machine
+/// runs or has queued. Says how many went, and which stayed.
+async fn remove_many(State(store): State<Shared>, Json(many): Json<Many>) -> Response {
+    let mut store = store.lock().unwrap();
+    let space = match store.default_space() {
+        Ok((space, _)) => space,
+        Err(error) => return failed(error),
+    };
+    let mut removed = 0;
+    let mut kept = Vec::new();
+    for id in many.ids.iter().take(10_000) {
+        match store.remove_file(space, id) {
+            Ok(true) => removed += 1,
+            Ok(false) => kept.push(id.clone()),
+            Err(error) => return failed(error),
+        }
+    }
+    Json(serde_json::json!({ "removed": removed, "kept": kept })).into_response()
 }
 
 #[derive(Deserialize)]
@@ -668,5 +760,99 @@ mod tests {
             .job
             .unwrap();
         assert_eq!(job.file_name, "part.gcode");
+
+        // Listed with where it went; removing many keeps the one a machine has queued.
+        let (_, list) = call(
+            &app,
+            Request::get("/api/files").body(Body::empty()).unwrap(),
+        )
+        .await;
+        let list: serde_json::Value = serde_json::from_str(&list).unwrap();
+        assert_eq!(list[0]["printed"][0]["machine_id"], mini.as_str());
+        let (status, body) = call(
+            &app,
+            Request::post("/api/files/remove")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(r#"{{"ids":["{id}","nothing"]}}"#)))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let result: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(result["removed"], 0);
+        assert_eq!(result["kept"][0], id.as_str());
+    }
+
+    /// A label (a PNG) is read as one; it goes on a label printer only once the tape loaded
+    /// is said and is high enough, and the job tells the agent the tape's width.
+    #[tokio::test]
+    async fn a_label_is_uploaded_and_printed() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = crate::app(store.clone());
+        let mut label = maker_connect_label::Label::blank(120, 40);
+        label.set(3, 3, true);
+        let (status, body) = call(
+            &app,
+            Request::post("/api/files?name=label-test.png")
+                .body(Body::from(label.to_png()))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        let file = serde_json::from_str::<serde_json::Value>(&body).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let (space, dymo, token) = {
+            let mut store = store.lock().unwrap();
+            let space = store.default_space().unwrap().0;
+            let profile = crate::profiles::find("dymo/labelmanager-pnp").unwrap();
+            let dymo = store.add_virtual(space, profile).unwrap();
+            let token = store.virtual_machines().unwrap()[0].1.clone();
+            let telemetry = maker_connect_protocol::Telemetry {
+                state: maker_connect_protocol::MachineState::Idle,
+                cassette: Some(true),
+                ..Default::default()
+            };
+            store.report(&token, &telemetry).unwrap();
+            (space, dymo, token)
+        };
+        let print = || {
+            Request::post(format!("/files/{file}/print"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(format!("machine={dymo}")))
+                .unwrap()
+        };
+        let (status, why) = call(&app, print()).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(why.contains("which tape"), "{why}");
+        // 6 mm tape takes 32 dots: too low for a label of 40.
+        store
+            .lock()
+            .unwrap()
+            .set_media(space, &dymo, Some("43613"))
+            .unwrap();
+        let (status, why) = call(&app, print()).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(why.contains("32"), "{why}");
+        store
+            .lock()
+            .unwrap()
+            .set_media(space, &dymo, Some("45013"))
+            .unwrap();
+        assert_eq!(call(&app, print()).await.0, StatusCode::NO_CONTENT);
+        let mut store = store.lock().unwrap();
+        let report = maker_connect_protocol::Telemetry {
+            state: maker_connect_protocol::MachineState::Idle,
+            ..Default::default()
+        };
+        let (order, _) = crate::agent_job(&mut store, &token, &report).unwrap();
+        let order = order.unwrap();
+        assert_eq!(order.tape_mm, Some(12));
+        assert_eq!(order.name, "label-test.png");
+        let listed = store.file(space, &file).unwrap().unwrap();
+        assert_eq!(listed.meta.label_dots, Some([120, 40]));
+        assert!(listed.meta.thumbnail);
     }
 }

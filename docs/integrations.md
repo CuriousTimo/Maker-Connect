@@ -91,3 +91,107 @@ How it fits:
 
 The cloud makes the label (template to image) and queues it; the agent prints it. Which label
 printer to start with: to be asked.
+
+### DYMO LabelManager PnP: tried (2026-11-04)
+
+On the user's LabelManager PnP (USB `0922:1001`, the only id it showed), from a Mac without
+DYMO's software: it shows a small USB stick ("LM PNP", DYMO's software for Windows) **and** a
+HID interface (interface 0, usage page `ff00`, interrupt endpoints `0x01` out, `0x81` in, 64
+bytes). No mode switch to `0922:1002` is needed: the printer listens on that HID interface as it
+is. macOS keeps the interface for its HID driver (libusb or `nusb` cannot claim it), so we talk
+to it through the system's HID API (the `hidapi` crate): no root, no driver.
+
+- Each write is one 64-byte output report (report id 0) carrying the next 64 bytes of the
+  stream; reads are 8 bytes, the first being the status.
+- `ESC A` (`1B 41`): status. `0x40` cassette in, ready; `0x60` while printing (bit 5); `0x00` no
+  cassette; `0x10` cutter jammed; `0x04` an error.
+- A label: `ESC C 0` (tape type), `ESC B 0` (dot tab), `ESC D 8` (8 bytes a column: 64 dots,
+  12 mm tape at 180 dpi; 6 for 9 mm, 4 for 6 mm with dot tab 1 or 2), then one `SYN` (`16`)
+  and 8 bytes per column of the label, top pin first (bit 7 of the first byte). Like labelle,
+  `ESC A` after every 64 columns, read before going on. Blank columns feed the tape; about
+  113 (16 mm) bring the end of the label past the cutter, which is by hand on this model.
+
+From thermal-label's protocol notes (its "D1" family) and labelle (Apache-2.0; its DYMO files
+carry Sebastian J. Bronner's permissive notice). thermal-label warns that unknown opcodes can
+hang the printer until it is switched off and on.
+
+## Roadmap: what else to connect
+
+Ideas, gathered 2026-11-04; none started unless marked. A maker's space is more than the
+machines that make things: power, air, safety and the people using it.
+
+**Power, and devices behind it**
+- **Smart plugs and power meters**: Shelly (Gen2+ RPC over HTTP, WebSocket and MQTT), Tasmota
+  (MQTT, HTTP). Switch and measure anything with a plug; the base for most of what follows.
+- **Devices behind a plug**: one or more devices hang behind a plug's channel (a printer, a
+  power strip with a dryer and a lamp). The plug's state explains theirs ("off at the plug",
+  not "disconnected"), a device can be switched on from its own page, and the plug's energy
+  counts for them. See [the device tree](#devices-in-a-tree) below.
+- **Rules between devices**: the fume extractor on while the laser runs and two minutes after;
+  the dryer on before a planned print; a printer off once it is done and cooled down; the
+  laser's power off when its flame sensor fires.
+- **Filament dryers** and **fume extractors**: mostly through a plug; dryers with their own
+  Wi-Fi (temperature, humidity, time left) where they have an open protocol.
+
+**The electronics bench**
+- **Riden RD6006W** (and the RD60xx family): bench power supply, Modbus RTU over USB serial
+  through the agent; its Wi-Fi module connects out to a server, so the cloud can be that
+  server, as with the Prusa MINI. Volts, amps, watts live, output on and off, limits.
+- **Instruments over SCPI** (LAN, USBTMC): oscilloscopes, multimeters, electronic loads
+  (Rigol, Siglent, OWON).
+- **Soldering irons** with telemetry: Pinecil (Bluetooth LE).
+
+**More machines**
+- **Klipper printers** through Moonraker's API: many hobby printers run it.
+- **Bambu Lab** printers (MQTT in LAN mode), **resin printers** (Elegoo's SDCP on the network),
+  wash and cure stations.
+- **CNC** on GRBL, grblHAL, FluidNC: close to free with `maker-connect-grbl`.
+- **Cutting plotters** (Graphtec/Silhouette GPGL, Roland HPGL), later embroidery machines.
+- **Label printers**: Brother QL and PT next (TCP 9100), then the other DYMO families.
+
+**Air, safety, the room**
+- Air quality (PM2.5, VOC) at the laser and the resin printer; temperature in enclosures.
+- A flame sensor in the laser, cutting power through a plug; the chiller's alarm (CW-5200),
+  air assist pressure; smoke detectors.
+- **Cameras** per machine (webcam, RTSP): live view, timelapses, later failure detection.
+
+**For a makerspace**
+- **Status displays**: a kiosk page (a Pi with a screen, an old tablet) with what runs where
+  and how long it still takes; small ESP32 displays reading the live events.
+- **Access**: an RFID or NFC badge per member; who has had the laser induction; a machine
+  switched on (relay or plug) only after a badge.
+- **Use and costs**: minutes, kWh and grams per member or per job.
+- **Materials**: spools tracked (Spoolman, NFC tags), a scale under the spool.
+
+**Outward**
+- **Home Assistant**, through MQTT discovery: every device as entities.
+- **Notifications**: ntfy, Telegram, Discord ("print done", "laser stopped with an alarm").
+- **Labels as output**: a label with a QR code to the job when a print is done; labels for
+  spools and bins.
+
+## Devices in a tree
+
+Designed 2026-11-04, before the first plug: devices are not a flat list. Two relations, kept
+apart because they answer different questions:
+
+1. **Powered by** (energy): a device hangs behind a channel of another device that switches
+   or measures power: a Shelly Plus 2PM has two, a Tasmota power strip four. Several devices
+   can share one channel (a dryer and a lamp on one strip), and the tree can go deeper (a
+   strip behind a wall plug). The cloud refuses a loop.
+   - A device whose plug is off shows "off at the plug", not "disconnected", and its page
+     offers to switch the plug on.
+   - Switching off is refused while something behind the plug is busy or still hot (a
+     printer's bed or nozzle above 50 °C), unless forced.
+   - The plug's power and energy are shown with the devices behind it, and count for their
+     jobs (kWh per job).
+   - A job can ask for its machine's plug to be switched on first; rules (see the roadmap)
+     build on the same link.
+2. **Reached through** (data): the agent or hub a device talks to the cloud through. Today
+   one agent drives one machine. One agent on a Pi next to a printer, a label printer and a
+   bench power supply will register each of them as a device of its own, under itself, with
+   one connection to the cloud. A Shelly reached through an MQTT broker sits under that
+   broker the same way.
+
+In the store: `machines.powered_by` (a device id) with `machines.power_channel` (a number),
+and `machines.reached_through` (a device id), all optional. A plug, a power meter or a bench
+supply is a device like any other, of its own kind (`power`, `supply`).

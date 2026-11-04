@@ -300,7 +300,12 @@ fn to_details(info: &Value) -> Details {
     }
 }
 
-async fn telemetry(State(store): State<Shared>, headers: HeaderMap, body: String) -> Response {
+async fn telemetry(
+    State(store): State<Shared>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    body: String,
+) -> Response {
     let report = match parse(&body) {
         Ok(report) => report,
         Err(refused) => return refused.into_response(),
@@ -313,6 +318,9 @@ async fn telemetry(State(store): State<Shared>, headers: HeaderMap, body: String
     telemetry.firmware = (!version.is_empty()).then(|| format!("Prusa firmware {version}"));
     if let Ok(Some(last)) = store.last_telemetry(token) {
         fill_in(&mut telemetry, last);
+    }
+    if let Some(peer) = crate::peer_address(&headers, &extensions) {
+        let _ = store.set_peer(token, &peer);
     }
     match store.report(token, &telemetry) {
         // A command goes back as the answer, G-code as text; none: an empty answer.

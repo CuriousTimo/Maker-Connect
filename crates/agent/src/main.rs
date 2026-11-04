@@ -3,9 +3,10 @@
 //! The module next to a machine: it drives the machine and reports to the Maker Connect
 //! cloud ([`maker_connect_protocol`]). This proof of concept knows printers on USB that
 //! speak the Marlin protocol ([`marlin`]): it streams G-code to them (`send`), and reports
-//! one to the cloud (`run`).
+//! one to the cloud (`run`); GRBL lasers; and a DYMO LabelManager on USB HID.
 
 mod cloud;
+mod config;
 mod marlin;
 
 use std::io::Write;
@@ -20,18 +21,35 @@ Usage:
                                                        stream a G-code file to a printer on USB
                                                        (Marlin protocol: line numbers, checksums,
                                                        ok, resend)
-  maker-connect-agent run --cloud <http://host:8460> --name <name> [--kind fdm|laser]
+  maker-connect-agent run [--config <file>] [--save]
+                          [--cloud <http://host:8460>] [--name <name>] [--kind fdm|laser|label]
                           [--port <serial port> [--baud 115200] [--firmware auto|marlin|grbl]]
                           [--state <file>]
                                                        report a machine to the cloud; shows the
                                                        pairing code to add it on the website;
                                                        carries out its commands and jobs.
                                                        --firmware auto: GRBL if it greets as GRBL
-                                                       (a laser), else Marlin (a printer)
+                                                       (a laser), else Marlin (a printer).
+                                                       --kind label: a DYMO LabelManager PnP on
+                                                       USB, found by itself (no --port)
+
+The options can live in maker-connect-agent.toml (in the current folder, or next to the
+agent): `run --save` with the options writes it. With that file, `run` needs nothing else,
+and the agent on its own (a double-click) runs.
 ";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Started on its own (a double-click on Windows): run from the config file, if there is
+    // one, and keep the window open on an error so it can be read.
+    let alone = args.is_empty();
+    if alone && config::places().iter().any(|p| p.is_file()) {
+        if let Err(error) = cloud::run(&[]) {
+            eprintln!("error: {error}");
+            wait_for_enter();
+        }
+        return ExitCode::FAILURE;
+    }
     let result = match args.first().map(String::as_str) {
         Some("ports") => ports(),
         Some("send") => send(&args[1..]),
@@ -48,6 +66,12 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Keeps a window that the agent opened (a double-click) until Enter.
+fn wait_for_enter() {
+    eprintln!("press Enter to close");
+    let _ = std::io::stdin().read_line(&mut String::new());
 }
 
 fn ports() -> Result<(), Box<dyn std::error::Error>> {

@@ -169,6 +169,30 @@ pub struct Telemetry {
     /// What the machine says it is, so the cloud can pick its profile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<Identity>,
+    /// A label printer: whether a cassette (or roll) is in. It cannot tell which: the owner
+    /// says that on the website.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cassette: Option<bool>,
+    /// Why the machine cannot work now, in its own words ("no cassette").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub problem: Option<String>,
+    /// The agent itself: where it runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<AgentInfo>,
+}
+
+/// The computer an agent runs on, as it tells.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct AgentInfo {
+    pub version: String,
+    /// `windows`, `macos`, `linux`, and the processor: `x86_64`, `aarch64`.
+    pub os: String,
+    pub arch: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
+    /// Its address on the network it reaches the cloud through.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
 }
 
 /// What a machine says it is: M115's `MACHINE_TYPE` ("Prusa-MINI"), and on a Prusa its
@@ -214,6 +238,10 @@ pub struct JobOrder {
     /// interrupted (the machine rebuilds where it was with the laser off, then goes on).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_line: Option<u64>,
+    /// A label printer's job: the width of the tape loaded, in mm, as the owner said. The
+    /// file is then a PNG, one pixel per dot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tape_mm: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

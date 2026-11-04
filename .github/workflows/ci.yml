@@ -55,3 +55,18 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --workspace --no-deps --document-private-items --locked
+
+      # The agent, built for each platform, to put next to a machine without installing
+      # Rust there: download it from the run's artifacts.
+      - name: Build the agent
+        run: cargo build --release -p maker-connect-agent --locked
+
+      - name: Keep the agent
+        uses: actions/upload-artifact@v4
+        with:
+          name: maker-connect-agent-${{ matrix.os }}
+          path: |
+            target/release/maker-connect-agent
+            target/release/maker-connect-agent.exe
+          if-no-files-found: error
+          retention-days: 30

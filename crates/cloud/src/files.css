@@ -35,3 +35,20 @@
   .drop[hidden] { display: none; }
   .drop div { padding: 40px 60px; border: 2px dashed var(--accent); border-radius: 18px; background: var(--card); font-size: 20px; font-weight: 700; }
   @media (max-width: 600px) { .page-head { flex-direction: column; align-items: stretch; } .upload-button { text-align: center; } }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 20px; }
+  .toolbar input[type=search] { flex: 1 1 220px; min-width: 0; }
+  .kinds { display: flex; gap: 4px; flex-wrap: wrap; }
+  .kinds button { background: transparent; color: var(--muted); border: 1px solid var(--line); padding: 6px 12px; font-weight: 600; font-size: 14px; }
+  .kinds button[aria-pressed=true] { color: var(--ink); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .kinds button small { margin-left: 4px; font-weight: 400; color: var(--muted); }
+  .selection { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; color: var(--muted); font-size: 14px; }
+  .selection button { padding: 5px 12px; font-size: 13px; }
+  .selection [data-count] { margin-right: 6px; }
+  button.danger { background: var(--bad); color: #fff; }
+  .file { position: relative; }
+  .file .pick { position: absolute; top: 10px; left: 10px; width: 20px; height: 20px; accent-color: var(--accent); cursor: pointer; }
+  .file.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .file .printed { color: var(--muted); font-size: 12px; }
+  .file .printed b { color: var(--ink); font-weight: 600; }
+  .file .kind { position: absolute; top: 10px; right: 10px; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; background: var(--card); color: var(--muted); border: 1px solid var(--line); }

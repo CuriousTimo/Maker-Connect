@@ -39,6 +39,10 @@ pub struct FileMeta {
     /// machine's full power (`$30`).
     #[serde(default)]
     pub max_power: Option<f64>,
+    /// A label (a PNG, one pixel per dot): its length along the tape and its height across
+    /// it, in dots.
+    #[serde(default)]
+    pub label_dots: Option<[u32; 2]>,
 }
 
 /// Files up to this size are read whole for where their moves go.
@@ -98,6 +102,11 @@ pub fn extent(lines: impl std::io::BufRead) -> (Option<[f64; 4]>, Option<f64>) {
 /// Reads a file's metadata, and its largest PNG thumbnail.
 pub fn read(path: &Path) -> io::Result<(FileMeta, Option<Vec<u8>>)> {
     let mut file = std::fs::File::open(path)?;
+    let mut magic = [0u8; 8];
+    if file.read_exact(&mut magic).is_ok() && magic == *b"\x89PNG\r\n\x1a\n" {
+        return read_label(path);
+    }
+    file.seek(SeekFrom::Start(0))?;
     let size = file.metadata()?.len();
     let mut head = Vec::new();
     (&mut file).take(HEAD_BYTES).read_to_end(&mut head)?;
@@ -116,6 +125,19 @@ pub fn read(path: &Path) -> io::Result<(FileMeta, Option<Vec<u8>>)> {
         (meta.bounds_mm, meta.max_power) = extent(std::io::BufReader::new(file));
     }
     Ok((meta, thumbnail))
+}
+
+/// A label: a PNG, one pixel per dot. It is its own thumbnail.
+fn read_label(path: &Path) -> io::Result<(FileMeta, Option<Vec<u8>>)> {
+    let png = std::fs::read(path)?;
+    let label = maker_connect_label::Label::from_png(&png).map_err(io::Error::other)?;
+    let meta = FileMeta {
+        kind: Some(MachineKind::Label),
+        label_dots: Some([label.length as u32, label.height as u32]),
+        thumbnail: true,
+        ..FileMeta::default()
+    };
+    Ok((meta, Some(png)))
 }
 
 /// The metadata in a file's start and end.

@@ -406,12 +406,38 @@ fn live_row(label: &str, key: &str, value: Option<String>) -> String {
     )
 }
 
-fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
+pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
+    let label = machine.kind == MachineKind::Label;
     let material = t
         .and_then(|t| t.material.clone())
         .or_else(|| machine.details.as_ref().and_then(|d| d.material.clone()));
-    let tiles = if heats(machine) {
+    let tiles = if label {
+        let media = profile.and_then(|p| profiles::media(p, machine.media.as_deref()?));
+        tile(
+            "Cassette",
+            "cassette",
+            t.and_then(|t| t.cassette)
+                .map(|on| if on { "In" } else { "None" }.to_owned()),
+            "",
+            "problem",
+            t.and_then(|t| t.problem.clone()).unwrap_or_default(),
+        ) + &tile(
+            "Tape",
+            "none",
+            media.map(|m| m.width_mm.to_string()),
+            "mm",
+            "none",
+            media.map_or("say which under Label".to_owned(), |m| m.name.clone()),
+        ) + &tile(
+            "Job",
+            "job",
+            machine.job.as_ref().map(|j| j.file_name.clone()),
+            "",
+            "none",
+            String::new(),
+        )
+    } else if heats(machine) {
         heater_tiles(machine)
             + &tile(
                 "Material",
@@ -454,13 +480,16 @@ fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
                 )),
             ),
             row(
-                if p.build_volume_mm[2] > 0.0 {
+                if label {
+                    "Takes"
+                } else if p.build_volume_mm[2] > 0.0 {
                     "Build volume"
                 } else {
                     "Work area"
                 },
                 Some(p.size()),
             ),
+            row("Resolution", p.dpi.map(|d| format!("{d} dpi"))),
             row("Nozzle size", p.nozzle_mm.map(|n| format!("{n} mm"))),
             row("Extruders", p.extruders.map(|n| n.to_string())),
             row("Laser", p.laser_w.map(|w| format!("{w} W"))),
@@ -475,9 +504,22 @@ fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
         .concat(),
         None => "<dt>Profile</dt><dd>Not known yet: choose one under Settings</dd>".to_owned(),
     };
+    // What was asked of it: commands for a machine that takes G-code.
+    let asked = if label {
+        String::new()
+    } else {
+        card(
+            "Latest commands",
+            "What was asked of it from here, and how it went",
+            &format!(
+                r#"<ol class="commands" data-commands>{}</ol>"#,
+                commands(machine)
+            ),
+        )
+    };
     format!(
         r#"<div class="tiles">{tiles}</div>
-<div class="grid-2">{}{}</div>"#,
+<div class="grid-2">{}{asked}</div>"#,
         card(
             "Machine",
             "",
@@ -485,14 +527,6 @@ fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
                 r#"<div class="machine-card"><div class="picture">{picture}</div><dl>{facts}</dl></div>"#
             )
         ),
-        card(
-            "Latest commands",
-            "What was asked of it from here, and how it went",
-            &format!(
-                r#"<ol class="commands" data-commands>{}</ol>"#,
-                commands(machine)
-            )
-        )
     )
 }
 
@@ -786,7 +820,53 @@ fn controller(machine: &Machine) -> String {
     )
 }
 
-fn settings(machine: &Machine) -> String {
+/// How a device reaches the cloud, the same card for every kind: the way (an agent, its own
+/// firmware, simulated), the agent's computer as it tells, the address its reports come
+/// from, and when the last came.
+fn connection(machine: &Machine) -> String {
+    let way = match machine.link.as_str() {
+        "prusa-connect" => "Its own firmware (Prusa Connect)",
+        "virtual" => "Virtual: simulated in the cloud",
+        _ => "Maker Connect agent",
+    };
+    let agent = machine.agent.as_ref();
+    let system = agent.map(|a| {
+        let os = match a.os.as_str() {
+            "windows" => "Windows",
+            "macos" => "macOS",
+            "linux" => "Linux",
+            other => other,
+        };
+        format!("{os} ({})", a.arch)
+    });
+    let last = match machine.seen_seconds_ago {
+        Some(_) if machine.online => "Now".to_owned(),
+        Some(s) => ago(s),
+        None => "Never".to_owned(),
+    };
+    let rows = [
+        row("Connected by", Some(way.to_owned())),
+        row(
+            "Agent version",
+            agent
+                .map(|a| a.version.clone())
+                .or_else(|| (machine.link == "agent").then(|| machine.agent_version.clone())),
+        ),
+        row("Computer", agent.and_then(|a| a.hostname.clone())),
+        row("System", system),
+        row("Its address", agent.and_then(|a| a.address.clone())),
+        row("Reports from", machine.peer.clone()),
+        row("Last report", Some(last)),
+    ]
+    .concat();
+    card(
+        "Connection",
+        "How it reaches the cloud",
+        &format!("<dl>{rows}</dl>"),
+    )
+}
+
+pub(crate) fn settings(machine: &Machine) -> String {
     let details = machine.details.clone().unwrap_or_default();
     let mut options = format!(
         r#"<option value=""{}>Recognise it from what it says</option>"#,
@@ -812,11 +892,6 @@ fn settings(machine: &Machine) -> String {
 <h4>Remove</h4>
 <form method="post" action="{id}/remove" onsubmit="return confirm('Remove this machine from the space?')"><button class="danger">Remove machine</button></form>"#
     );
-    let link = match machine.link.as_str() {
-        "prusa-connect" => "Built-in Prusa Connect".to_owned(),
-        "virtual" => "Virtual, simulated in the cloud".to_owned(),
-        _ => format!("Maker Connect agent {}", machine.agent_version),
-    };
     let about = [
         row("Serial number", details.serial.clone()),
         row("Printer type", details.printer_type.clone()),
@@ -828,7 +903,6 @@ fn settings(machine: &Machine) -> String {
                 .or_else(|| machine.telemetry.as_ref().and_then(|t| t.firmware.clone())),
         ),
         row("Nozzle", details.nozzle_mm.map(|n| format!("{n} mm"))),
-        row("Link", Some(link)),
     ]
     .concat();
     let storage: String = details
@@ -855,12 +929,15 @@ fn settings(machine: &Machine) -> String {
         row("Wi-Fi network", network.wifi_ssid),
     ]
     .concat();
-    let mut info = controller(machine);
-    info += &card(
-        "Machine",
-        "What it told about itself",
-        &format!("<dl>{about}</dl>"),
-    );
+    let mut info = connection(machine);
+    info += &controller(machine);
+    if !about.is_empty() {
+        info += &card(
+            "Machine",
+            "What it told about itself",
+            &format!("<dl>{about}</dl>"),
+        );
+    }
     if !storage.is_empty() {
         info += &card("Storage", "", &format!("<dl>{storage}</dl>"));
     }

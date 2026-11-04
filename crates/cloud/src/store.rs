@@ -71,6 +71,24 @@ pub struct Machine {
     pub job: Option<Job>,
     /// Its last job, when that was interrupted and can start again where it stopped.
     pub resumable: Option<Job>,
+    /// What the owner says is loaded: a label printer's tape (a media id of its profile).
+    pub media: Option<String>,
+    /// The device whose power it hangs behind (a plug's channel), if any.
+    pub powered_by: Option<PowerLink>,
+    /// The device it reaches the cloud through (an agent, a broker), if any.
+    pub reached_through: Option<String>,
+    /// The agent's computer, as it last told (kept while it is offline).
+    pub agent: Option<maker_connect_protocol::AgentInfo>,
+    /// The address its last report came from, as the cloud saw it.
+    pub peer: Option<String>,
+}
+
+/// Where a device gets its power: a channel of another device (a plug, a power strip).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PowerLink {
+    pub device: String,
+    /// The channel, from 0: a Shelly Plus 2PM has 0 and 1.
+    pub channel: u32,
 }
 
 /// What a machine tells about itself now and then, beyond its telemetry: shown on its
@@ -170,6 +188,14 @@ pub struct StoredFile {
     pub meta: crate::gcode::FileMeta,
 }
 
+/// A file put on a machine once: where, how it went, when (Unix seconds).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Printed {
+    pub machine_id: String,
+    pub state: JobState,
+    pub at: i64,
+}
+
 /// A file printed (or cut, or engraved) on a machine.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Job {
@@ -227,6 +253,9 @@ pub struct Store {
     db: Connection,
     /// Where uploaded files are kept: `<id>.gcode`, and `<id>.png` for a thumbnail.
     pub files_dir: std::path::PathBuf,
+    /// What `/downloads` offers (the agent for each platform): `maker-connect-downloads/`
+    /// beside the database.
+    pub downloads_dir: std::path::PathBuf,
     /// Commands per machine id, oldest first.
     commands: std::collections::HashMap<String, Vec<Command>>,
     next_command: u32,
@@ -299,6 +328,14 @@ impl Store {
             ("link", "TEXT NOT NULL DEFAULT 'agent'"),
             ("details", "TEXT"),
             ("mesh", "TEXT"),
+            ("media", "TEXT"),
+            // The device tree (docs/integrations.md, "Devices in a tree").
+            ("powered_by", "TEXT"),
+            ("power_channel", "INTEGER"),
+            ("reached_through", "TEXT"),
+            // What an agent tells of itself, and where its reports come from.
+            ("agent", "TEXT"),
+            ("peer", "TEXT"),
         ] {
             let present: bool = db.query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('machines') WHERE name = ?1",
@@ -330,9 +367,20 @@ impl Store {
         };
         std::fs::create_dir_all(&files_dir)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        let downloads_dir =
+            files_dir.with_file_name(files_dir.file_name().and_then(|n| n.to_str()).map_or(
+                "maker-connect-downloads".to_owned(),
+                |n| {
+                    n.replace("-files", "-downloads")
+                        .replace("-test-", "-test-downloads-")
+                },
+            ));
+        std::fs::create_dir_all(&downloads_dir)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         Ok(Self {
             db,
             files_dir,
+            downloads_dir,
             commands: Default::default(),
             // Ids that do not repeat soon after a restart, as a printer may remember the last.
             next_command: (now() % 1_000_000_000) as u32,
@@ -352,6 +400,8 @@ impl Store {
     }
 
     /// A file's place on disk.
+    /// Where a file is kept. Named `.gcode` from the first version, whatever is in it (a
+    /// label is a PNG), so stores from then keep working.
     pub fn file_path(&self, id: &str) -> std::path::PathBuf {
         self.files_dir.join(format!("{id}.gcode"))
     }
@@ -422,6 +472,15 @@ impl Store {
 
     /// Removes a file, from the store and from disk. Returns whether it was there.
     pub fn remove_file(&mut self, space: i64, id: &str) -> rusqlite::Result<bool> {
+        // Not while a machine runs it (or has it queued).
+        let in_use: i64 = self.db.query_row(
+            "SELECT COUNT(*) FROM jobs WHERE file_id = ?1 AND state IN ('queued', 'printing', 'paused', 'stopping')",
+            [id],
+            |r| r.get(0),
+        )?;
+        if in_use > 0 {
+            return Ok(false);
+        }
         let removed = self.db.execute(
             "DELETE FROM files WHERE id = ?1 AND space_id = ?2",
             params![id, space],
@@ -431,6 +490,37 @@ impl Store {
             let _ = std::fs::remove_file(self.thumbnail_path(id));
         }
         Ok(removed > 0)
+    }
+
+    /// Where each file of a space was printed, newest first, at most `per_file` times each.
+    pub fn prints(
+        &self,
+        space: i64,
+        per_file: usize,
+    ) -> rusqlite::Result<std::collections::HashMap<String, Vec<Printed>>> {
+        let mut query = self.db.prepare(
+            "SELECT file_id, machine_id, state, COALESCE(ended_at, started_at, created_at) AS at
+             FROM jobs WHERE space_id = ?1 ORDER BY at DESC, id DESC",
+        )?;
+        let rows = query.query_map([space], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                Printed {
+                    machine_id: r.get(1)?,
+                    state: JobState::parse(&r.get::<_, String>(2)?),
+                    at: r.get(3)?,
+                },
+            ))
+        })?;
+        let mut prints: std::collections::HashMap<String, Vec<Printed>> = Default::default();
+        for row in rows {
+            let (file, printed) = row?;
+            let list = prints.entry(file).or_default();
+            if list.len() < per_file {
+                list.push(printed);
+            }
+        }
+        Ok(prints)
     }
 
     /// Puts a file on a machine: its job's id, or why not (the machine has a job already).
@@ -653,6 +743,12 @@ impl Store {
                 token
             ],
         )?;
+        if let Some(agent) = &telemetry.agent {
+            self.db.execute(
+                "UPDATE machines SET agent = ?1 WHERE token = ?2",
+                params![serde_json::to_string(agent).unwrap_or_default(), token],
+            )?;
+        }
         if let Some(mesh) = &telemetry.mesh {
             let stored = StoredMesh {
                 rows: mesh.rows.clone(),
@@ -692,6 +788,16 @@ impl Store {
             .flatten();
         self.changed();
         Ok(Some(space))
+    }
+
+    /// Where a machine's reports come from, as the cloud sees it (its address, or its
+    /// router's when it is elsewhere).
+    pub fn set_peer(&self, token: &str, peer: &str) -> rusqlite::Result<()> {
+        self.db.execute(
+            "UPDATE machines SET peer = ?1 WHERE token = ?2",
+            params![peer, token],
+        )?;
+        Ok(())
     }
 
     /// A machine's id by its token, if the token is known.
@@ -939,6 +1045,87 @@ impl Store {
         Ok(removed > 0)
     }
 
+    /// The owner says what is loaded (a label printer's tape), or None. Returns whether
+    /// the machine is in the space.
+    pub fn set_media(
+        &self,
+        space: i64,
+        machine: &str,
+        media: Option<&str>,
+    ) -> rusqlite::Result<bool> {
+        let updated = self.db.execute(
+            "UPDATE machines SET media = ?1 WHERE id = ?2 AND space_id = ?3",
+            params![media, machine, space],
+        )?;
+        self.changed();
+        Ok(updated > 0)
+    }
+
+    /// The width of the tape a label printer has loaded, as its owner said.
+    pub fn loaded_tape_mm(&self, machine: &str) -> rusqlite::Result<Option<u32>> {
+        let found: Option<(Option<String>, Option<String>)> = self
+            .db
+            .query_row(
+                "SELECT profile, media FROM machines WHERE id = ?1",
+                [machine],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        Ok(found.and_then(|(profile, media)| {
+            let profile = crate::profiles::find(&profile?)?;
+            Some(crate::profiles::media(profile, &media?)?.width_mm)
+        }))
+    }
+
+    /// Hangs a device behind a channel of another of the space (None: on no plug). Refused
+    /// when the other is not in the space, or is behind this one already (a loop).
+    pub fn set_powered_by(
+        &self,
+        space: i64,
+        machine: &str,
+        power: Option<&PowerLink>,
+    ) -> rusqlite::Result<Result<(), &'static str>> {
+        let parent = |id: &str| -> rusqlite::Result<Option<Option<String>>> {
+            self.db
+                .query_row(
+                    "SELECT powered_by FROM machines WHERE id = ?1 AND space_id = ?2",
+                    params![id, space],
+                    |r| r.get(0),
+                )
+                .optional()
+        };
+        if parent(machine)?.is_none() {
+            return Ok(Err("no such device"));
+        }
+        if let Some(power) = power {
+            // Up from the new parent: reaching this device would close a loop.
+            let mut at = Some(power.device.clone());
+            let mut steps = 0;
+            while let Some(id) = at {
+                if id == machine {
+                    return Ok(Err("that device gets its power through this one"));
+                }
+                match parent(&id)? {
+                    Some(next) => at = next,
+                    None if id == power.device => {
+                        return Ok(Err("no such device to hang it behind"));
+                    }
+                    None => break,
+                }
+                steps += 1;
+                if steps > 64 {
+                    return Ok(Err("the power tree is too deep"));
+                }
+            }
+        }
+        self.db.execute(
+            "UPDATE machines SET powered_by = ?1, power_channel = ?2 WHERE id = ?3 AND space_id = ?4",
+            params![power.map(|p| &p.device), power.map(|p| p.channel), machine, space],
+        )?;
+        self.changed();
+        Ok(Ok(()))
+    }
+
     /// The owner renames a machine. Returns whether the machine is in the space.
     pub fn rename(&self, space: i64, machine: &str, name: &str) -> rusqlite::Result<bool> {
         let updated = self.db.execute(
@@ -973,7 +1160,8 @@ impl Store {
     /// A space's machines, by name.
     pub fn machines(&self, space: i64) -> rusqlite::Result<Vec<Machine>> {
         let mut query = self.db.prepare(
-            "SELECT id, name, kind, agent_version, last_seen, telemetry, profile, profile_chosen, link, details, mesh
+            "SELECT id, name, kind, agent_version, last_seen, telemetry, profile, profile_chosen, link, details, mesh,
+                    media, powered_by, power_channel, reached_through, agent, peer
              FROM machines WHERE space_id = ?1 ORDER BY name",
         )?;
         let now = now();
@@ -1005,6 +1193,16 @@ impl Store {
                 mesh: r
                     .get::<_, Option<String>>(10)?
                     .and_then(|m| serde_json::from_str(&m).ok()),
+                media: r.get(11)?,
+                powered_by: r.get::<_, Option<String>>(12)?.map(|device| PowerLink {
+                    device,
+                    channel: r.get::<_, Option<u32>>(13).ok().flatten().unwrap_or(0),
+                }),
+                reached_through: r.get(14)?,
+                agent: r
+                    .get::<_, Option<String>>(15)?
+                    .and_then(|a| serde_json::from_str(&a).ok()),
+                peer: r.get(16)?,
             })
         })?;
         let mut machines: Vec<Machine> = rows.collect::<rusqlite::Result<_>>()?;
@@ -1018,5 +1216,77 @@ impl Store {
             }
         }
         Ok(machines)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn device(store: &mut Store, space: i64, name: &str) -> String {
+        let profile = crate::profiles::find("prusa/mini").unwrap();
+        let id = store.add_virtual(space, profile).unwrap();
+        store.rename(space, &id, name).unwrap();
+        id
+    }
+
+    #[test]
+    fn devices_hang_behind_a_plug_without_loops() {
+        let mut store = Store::open(":memory:").unwrap();
+        let (space, _) = store.default_space().unwrap();
+        let wall = device(&mut store, space, "Wall plug");
+        let strip = device(&mut store, space, "Power strip");
+        let dryer = device(&mut store, space, "Dryer");
+        let lamp = device(&mut store, space, "Lamp");
+        let link = |device: &str, channel| PowerLink {
+            device: device.to_owned(),
+            channel,
+        };
+        // Two devices on one channel of the strip, the strip on the wall plug.
+        assert_eq!(
+            store
+                .set_powered_by(space, &dryer, Some(&link(&strip, 1)))
+                .unwrap(),
+            Ok(())
+        );
+        assert_eq!(
+            store
+                .set_powered_by(space, &lamp, Some(&link(&strip, 1)))
+                .unwrap(),
+            Ok(())
+        );
+        assert_eq!(
+            store
+                .set_powered_by(space, &strip, Some(&link(&wall, 0)))
+                .unwrap(),
+            Ok(())
+        );
+        let dryer_now = store.machine(space, &dryer).unwrap().unwrap();
+        assert_eq!(dryer_now.powered_by, Some(link(&strip, 1)));
+        // The wall plug behind the dryer would be a loop; so would a device behind itself.
+        assert!(
+            store
+                .set_powered_by(space, &wall, Some(&link(&dryer, 0)))
+                .unwrap()
+                .is_err()
+        );
+        assert!(
+            store
+                .set_powered_by(space, &lamp, Some(&link(&lamp, 0)))
+                .unwrap()
+                .is_err()
+        );
+        assert!(
+            store
+                .set_powered_by(space, &lamp, Some(&link("nothing", 0)))
+                .unwrap()
+                .is_err()
+        );
+        // Off the plug again.
+        assert_eq!(store.set_powered_by(space, &dryer, None).unwrap(), Ok(()));
+        assert_eq!(
+            store.machine(space, &dryer).unwrap().unwrap().powered_by,
+            None
+        );
     }
 }

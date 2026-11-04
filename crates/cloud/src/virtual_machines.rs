@@ -26,6 +26,8 @@ const LOOKAHEAD: usize = 64;
 /// Runs every virtual machine in the store, for as long as the cloud runs.
 pub async fn run(store: Shared) {
     let mut machines: HashMap<String, Sim> = HashMap::new();
+    // Virtual label printers: the job printing and the tick it is done.
+    let mut labels: HashMap<String, (i64, u32)> = HashMap::new();
     let mut tick = tokio::time::interval(Duration::from_secs_f32(TICK));
     loop {
         tick.tick().await;
@@ -38,6 +40,10 @@ pub async fn run(store: Shared) {
         for (id, token, profile) in list {
             // A GRBL profile: LaserFoundry's simulated GRBL, on a thread of its own.
             let found = profile.as_deref().and_then(profiles::find);
+            if found.is_some_and(|p| p.kind == MachineKind::Label) {
+                virtual_label(&mut store, &id, &token, &mut labels);
+                continue;
+            }
             if let Some(p) = found.filter(|p| p.firmware.as_deref() == Some("grbl")) {
                 let travel = [p.build_volume_mm[0], p.build_volume_mm[1]];
                 crate::virtual_grbl::ensure(&shared, &id, &token, Some(travel));
@@ -103,6 +109,60 @@ pub async fn run(store: Shared) {
             let _ = store.report(&token, &telemetry);
         }
     }
+}
+
+/// A virtual label printer: a cassette in, and a label "printed" at about 12 mm a second
+/// (the PnP's pace), the job then done. What it printed is the file's picture.
+fn virtual_label(
+    store: &mut crate::store::Store,
+    id: &str,
+    token: &str,
+    labels: &mut HashMap<String, (i64, u32)>,
+) {
+    let mut telemetry = Telemetry {
+        state: MachineState::Idle,
+        cassette: Some(true),
+        firmware: Some("simulated LabelManager".to_owned()),
+        ..Telemetry::default()
+    };
+    match labels.get_mut(id) {
+        Some((job, ticks)) => {
+            if *ticks == 0 {
+                let _ = store.set_job(*job, JobState::Finished, None);
+                labels.remove(id);
+            } else {
+                *ticks -= 1;
+                telemetry.state = MachineState::Busy;
+                telemetry.job_id = Some(*job);
+            }
+        }
+        None => {
+            if let Ok(Some(job)) = store.active_job(id) {
+                match job.state {
+                    JobState::Queued => {
+                        let length_mm = std::fs::read(store.file_path(&job.file_id))
+                            .ok()
+                            .and_then(|png| maker_connect_label::Label::from_png(&png).ok())
+                            .map_or(30.0, |l| l.length as f32 / 180.0 * 25.4 + 16.0);
+                        let ticks = (length_mm / 12.0 / TICK).ceil() as u32;
+                        let _ = store.set_job(job.id, JobState::Printing, None);
+                        labels.insert(id.to_owned(), (job.id, ticks));
+                        telemetry.state = MachineState::Busy;
+                        telemetry.job_id = Some(job.id);
+                    }
+                    JobState::Stopping => {
+                        let _ = store.set_job(job.id, JobState::Stopped, None);
+                    }
+                    JobState::Printing | JobState::Paused => {
+                        let reason = "the cloud restarted while it printed";
+                        let _ = store.set_job(job.id, JobState::Failed, Some(reason));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    let _ = store.report(token, &telemetry);
 }
 
 /// A line of G-code as the machine reads it: no comment, upper case, trimmed.

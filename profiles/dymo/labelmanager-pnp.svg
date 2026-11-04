@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of a DYMO LabelManager PnP">
+  <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
+  <ellipse cx="82" cy="140" rx="54" ry="5" fill="#d3d0c8"/>
+  <!-- the stand: a flat silver plate, and the foot up to the body -->
+  <path d="M40 132h86l-8 7H32z" fill="#d6d8db" stroke="#b4b7bb" stroke-width="1"/>
+  <path d="M70 120h22l6 12H62z" fill="#bfc2c6"/>
+  <!-- the silver shell: upright, a straight back, its top rising to the front -->
+  <path d="M40 66q0-10 9-15Q70 25 104 17q14-3 18 9v84q0 14-14 14H54q-14 0-14-14z" fill="#c9ccd0"/>
+  <path d="M46 55Q68 28 104 19q10-2 14 3" fill="none" stroke="#eef0f2" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- the black front, framed by the shell, which rounds out at the bottom right -->
+  <path d="M47 70q0-8 7-12Q74 32 102 28q10-1 10 5v55q-10 2-10 14v12q0 3-3 3H56q-9 0-9-9z" fill="#26272a"/>
+  <path d="M55 63Q70 44 92 36" fill="none" stroke="#3a3b3f" stroke-width="3" stroke-linecap="round"/>
+  <!-- the slot the label comes out of -->
+  <rect x="98" y="46" width="12" height="3.5" rx="1.5" fill="#0e0e10"/>
+  <!-- the small window at the bottom -->
+  <path d="M68 104l20-5v9l-20 3z" fill="#4a4b50" stroke="#5c5d62" stroke-width="1"/>
+</svg>

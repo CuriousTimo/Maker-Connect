@@ -1,0 +1,14 @@
+[package]
+name = "maker-connect-label"
+description = "Label printers for Maker Connect: labels as rasters, and the DYMO LabelManager's protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+# Printing over USB HID (the agent): the system's HID API, no driver, no root.
+hid = ["dep:hidapi"]
+
+[dependencies]
+hidapi = { version = "2", optional = true }
+png = "0.17"

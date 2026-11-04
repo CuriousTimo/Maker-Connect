@@ -6,10 +6,13 @@ license.workspace = true
 
 [dependencies]
 maker-connect-grbl = { path = "../grbl" }
+maker-connect-label = { path = "../label" }
 axum = "0.8.9"
+barcoders = { version = "2", default-features = false, features = ["std"] }
 base64 = "0.22"
 futures-util = "0.3"
 include_dir = "0.7.4"
+qrcode = { version = "0.14", default-features = false }
 maker-connect-protocol = { version = "0.1.0", path = "../protocol" }
 rand = "0.8"
 rusqlite = { version = "0.41.1", features = ["bundled"] }

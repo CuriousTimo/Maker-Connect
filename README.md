@@ -7,23 +7,25 @@
 
 # Maker Connect
 
-One place for all of a maker's machines: 3D printers, lasers, and later CNC machines, cutting
-plotters and label printers, each managed its own way today. Watch them live, control them,
+One place for all of a maker's machines: 3D printers, lasers, label printers, and later CNC
+machines and cutting plotters, each managed its own way today. Watch them live, control them,
 send them files, and see how their jobs go, from a website you host yourself (a Pi, Docker, an
 old laptop, a NAS). Shaped so that it could one day be hosted for many makerspaces at once.
 
 A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 
 <p align="center">
-  <img src="docs/screenshots/machines.png" alt="The machines of a space, grouped by kind: a Prusa MINI, an Ultimaker, a Zaribo printing a cube at 28 %, and a laser" width="860">
+  <img src="docs/screenshots/machines.png" alt="The machines of a space, grouped by kind: two Prusas, one printing a cube at 33 %, a laser and a DYMO label printer" width="860">
 </p>
 
 | | |
 |---|---|
 | ![A printer's control tab: the bed with the head where it is, X, Y and Z, the job with its thumbnail and progress, and the controls](docs/screenshots/control.png) | ![A printer's telemetry: nozzle, bed and fan tiles, and the temperatures of the last half hour](docs/screenshots/telemetry.png) |
 | **Control**: the bed with the head where it is, the job, moves, heating, the fan | **Telemetry**: temperatures and fans, live, with a table view |
-| ![The bed mesh as a surface to turn, with its range, lowest and highest point](docs/screenshots/bed-level.png) | ![The files page: G-code with its thumbnail, time and filament, and the machines it fits](docs/screenshots/files.png) |
-| **Bed level**: the mesh as a surface, a map and a table | **Files**: what the slicer wrote, and the machines a file fits |
+| ![The bed mesh as a surface to turn, with its range, lowest and highest point](docs/screenshots/bed-level.png) | ![The files page: filters by type and machine, labels and G-code with their pictures, where each was printed](docs/screenshots/files.png) |
+| **Bed level**: the mesh as a surface, a map and a table | **Files**: sorted and filtered by type and machine, where each was printed, removed many at once |
+| ![A label printer's label tab: text, font, a QR code, and the preview of the dots that will burn on 12 mm tape](docs/screenshots/label.png) | ![The downloads page: the agent for macOS and Windows, with the command to start it](docs/screenshots/downloads.png) |
+| **Label**: text, a QR code or barcode, a drawing; the preview is the dots that will burn | **Downloads**: the agent for each platform, with the command for this cloud |
 
 ## What works
 
@@ -40,6 +42,12 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
   (laser mode, full power, travel), Frame (the outline with the laser off), streaming by GRBL's
   character counting, pause, resume, stop (laser off), and starting an interrupted job again a
   little before where it stopped. Not yet tried on a real laser.
+- **Label printers (DYMO LabelManager PnP)** through the agent, over USB HID: no DYMO
+  software, no driver, no mode switch. A label printer's page draws the label as SVG (text,
+  frame, a drawing you add) at the tape's size and shows the dots that will burn; Print sends
+  them, with a QR code or a barcode (Code 128, EAN-13) on whole dots if you like. Tried on a
+  real PnP from a Mac and from a Windows laptop (12 mm tape); you say which tape is loaded, since the
+  printer only tells whether a cassette is in.
 - **Files and jobs.** Drop G-code on the Files page; the cloud reads what the slicer wrote
   (time, filament, layer height, the printer it was sliced for, the thumbnail) and offers only
   the machines it fits. Jobs show progress, time left, pause and stop.
@@ -48,10 +56,11 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
   Bed Level Visualizer does), Settings.
 - **Machine profiles** (`profiles/`, one TOML file and one drawing per model): build volume,
   bed, firmware, how a machine is recognised. Prusa MINI, MK2.5S, MK3S, Zaribo 320,
-  Ultimaker 3 Extended, Ortur Laser Master 2 Pro S2.
+  Ultimaker 3 Extended, Ortur Laser Master 2 Pro S2, DYMO LabelManager PnP (with its tapes).
 - **Virtual machines** for every profile, to try everything without a machine: printers home,
   heat, move, measure their bed and play files (ten times faster than real); virtual lasers
-  run on LaserFoundry's simulated GRBL, through the same code as a real one.
+  run on LaserFoundry's simulated GRBL, through the same code as a real one; a virtual label
+  printer takes labels and "prints" them at a real one's pace.
 
 ## Try it
 
@@ -69,8 +78,14 @@ cargo run -p maker-connect-agent -- run --cloud http://localhost:8460 --name "MK
     --port /dev/cu.usbmodem1234                   # shows a code: enter it under "Add machine"
 cargo run -p maker-connect-agent -- run --cloud http://localhost:8460 --name "Ortur" \
     --kind laser --port /dev/cu.usbserial-1420    # GRBL is recognised; choose its profile
+cargo run -p maker-connect-agent -- run --cloud http://localhost:8460 --name "Dymo" \
+    --kind label                                  # a LabelManager PnP on USB, found by itself
 ```
 
+The cloud offers the agent for each platform at `/downloads` (with the command to start it
+against this cloud): `scripts/build-downloads.sh` builds it into `maker-connect-downloads/`.
+Add `--save` once to keep the options in `maker-connect-agent.toml`; after that
+`maker-connect-agent run` is enough, and on Windows a double-click on the agent starts it.
 `maker-connect-agent ports` lists the serial ports. A Prusa MINI is pointed at the cloud with a
 settings file on its USB stick: see [docs/prusa-connect-protocol.md](docs/prusa-connect-protocol.md).
 
@@ -81,6 +96,7 @@ settings file on its USB stick: see [docs/prusa-connect-protocol.md](docs/prusa-
 | **cloud** (`crates/cloud`) | The website and the API: one binary, one SQLite file, uploaded files beside it. Every record belongs to a space |
 | **agent** (`crates/agent`) | Next to a machine: drives it over USB, reports to the cloud, carries out its commands and jobs |
 | **grbl** (`crates/grbl`) | GRBL machines (lasers), on LaserFoundry's `laserfoundry-device` and `laserfoundry-gcode`; used by the agent and by the cloud's virtual lasers |
+| **label** (`crates/label`) | Labels as rasters (PNG in, dots out), and the DYMO LabelManager's protocol over USB HID |
 | **protocol** (`crates/protocol`) | What agents and the cloud say to each other |
 
 The tools that make the jobs stay the makers' own: PrusaSlicer and Cura for printers,
@@ -90,7 +106,8 @@ LaserFoundry for lasers. Maker Connect takes it from the file on. See
 ## Not yet
 
 No login: run it where only you can reach it, since anyone who reaches it can move your
-machines. Printing over USB on a Marlin printer through the agent, files for the MINI over
+machines (and download the agent). Label printers other than the DYMO LabelManager PnP, and
+codes scanned off real labels, are still to try. Printing over USB on a Marlin printer through the agent, files for the MINI over
 Prusa Connect, binary G-code (`.bgcode`), queues and a G-code viewer are still to come. Values
 marked `# check` in the profiles are not yet confirmed on the machines.
 
@@ -106,6 +123,11 @@ power; stay with a running machine.
 - Prusa-Firmware-Buddy (GPL-3.0 code) and Prusa-Firmware: read to learn the Prusa Connect
   protocol and the printers' replies. Prusa Link and the Prusa Connect SDK ("Freeware") were
   read to understand, never copied. Notes: [docs/printer-protocols.md](docs/printer-protocols.md).
+- [thermal-label](https://thermal-label.github.io/) (MIT): the DYMO LabelManager's protocol and
+  its media list; [labelle](https://github.com/labelle-org/labelle) (Apache-2.0) for the same
+  protocol in practice. Notes: [docs/integrations.md](docs/integrations.md).
+- [qrcode](https://crates.io/crates/qrcode) and [barcoders](https://crates.io/crates/barcoders)
+  (both MIT OR Apache-2.0): QR codes and barcodes on labels.
 
 `reference/` holds read-only clones of these projects for study; it is not part of this
 repository. Maker Connect is independent of the makers of the machines and software it names.

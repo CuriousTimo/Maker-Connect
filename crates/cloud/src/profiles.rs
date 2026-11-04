@@ -18,7 +18,8 @@ pub struct Profile {
     pub brand: String,
     pub model: String,
     pub kind: MachineKind,
-    /// X, Y, Z.
+    /// X, Y, Z; none for a label printer.
+    #[serde(default)]
     pub build_volume_mm: [f64; 3],
     /// Where X0 Y0 is, from the bed's front left corner.
     #[serde(default)]
@@ -45,6 +46,28 @@ pub struct Profile {
     pub printer_models: Vec<String>,
     #[serde(default)]
     pub detect: Option<Detect>,
+    /// A label printer's resolution and the pins on its head.
+    #[serde(default)]
+    pub dpi: Option<f64>,
+    #[serde(default)]
+    pub head_dots: Option<u32>,
+    /// The media it takes (a label printer's tapes), the owner choosing which is loaded.
+    #[serde(default)]
+    pub media: Vec<Media>,
+}
+
+/// A tape or roll a label printer takes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Media {
+    /// The maker's article number, which is on the cassette (`45013`).
+    pub id: String,
+    pub name: String,
+    pub width_mm: u32,
+    /// The text and the tape: how the label looks (`#000`, `#fff`).
+    #[serde(default)]
+    pub ink: Option<String>,
+    #[serde(default)]
+    pub background: Option<String>,
 }
 
 impl Profile {
@@ -55,8 +78,16 @@ impl Profile {
             .and_then(|f| f.contents_utf8())
     }
 
-    /// "250 × 210 × 210 mm", or for a machine without Z travel "400 × 430 mm".
+    /// "250 × 210 × 210 mm", or for a machine without Z travel "400 × 430 mm"; a label
+    /// printer's tape widths ("6, 9, 12 mm tape").
     pub fn size(&self) -> String {
+        if self.kind == MachineKind::Label {
+            let mut widths: Vec<u32> = self.media.iter().map(|m| m.width_mm).collect();
+            widths.sort_unstable();
+            widths.dedup();
+            let widths: Vec<String> = widths.iter().map(u32::to_string).collect();
+            return format!("{} mm tape", widths.join(", "));
+        }
         match self.build_volume_mm {
             [x, y, z] if z > 0.0 => format!("{x} × {y} × {z} mm"),
             [x, y, _] => format!("{x} × {y} mm"),
@@ -107,6 +138,11 @@ fn toml_files<'a>(dir: &'a Dir<'a>) -> Vec<&'a include_dir::File<'a>> {
         files.extend(toml_files(sub));
     }
     files
+}
+
+/// One of a profile's media, by its id.
+pub fn media<'a>(profile: &'a Profile, id: &str) -> Option<&'a Media> {
+    profile.media.iter().find(|m| m.id == id)
 }
 
 pub fn find(id: &str) -> Option<&'static Profile> {

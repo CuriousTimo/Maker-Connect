@@ -13,9 +13,12 @@
 //!
 //! A proof of concept: no login yet, so run it where only you can reach it.
 
+mod codes;
+mod downloads;
 mod files;
 mod files_page;
 mod gcode;
+mod label_page;
 mod machine_page;
 mod profiles;
 mod prusa_connect;
@@ -71,11 +74,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(virtual_machines::run(store.clone()));
     let listener = tokio::net::TcpListener::bind(&listen).await?;
     println!("Maker Connect cloud on http://{listen} (data in {db})");
-    axum::serve(listener, app(store))
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await?;
+    axum::serve(
+        listener,
+        app(store).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await?;
     Ok(())
 }
 
@@ -92,6 +98,7 @@ pub fn app(store: Shared) -> Router {
         .route("/logo.svg", get(logo))
         .route("/machines/{id}", get(machine_page))
         .route("/machines/{id}/profile", post(choose_profile))
+        .route("/machines/{id}/media", post(choose_media))
         .route("/machines/{id}/name", post(rename))
         .route("/machines/{id}/command", post(command))
         .route("/machines/{id}/remove", post(remove))
@@ -101,6 +108,8 @@ pub fn app(store: Shared) -> Router {
         .route("/virtual", post(add_virtual))
         .merge(prusa_connect::routes())
         .merge(files::routes())
+        .merge(downloads::routes())
+        .merge(codes::routes())
         .route("/files", get(files_page::page))
         .fallback(not_found)
         .layer(axum::middleware::from_fn(prusa_connect::log))
@@ -148,6 +157,7 @@ async fn register(State(store): State<Shared>, Json(agent): Json<Register>) -> R
 async fn telemetry(
     State(store): State<Shared>,
     headers: HeaderMap,
+    extensions: axum::http::Extensions,
     Json(report): Json<Telemetry>,
 ) -> Response {
     let token = headers
@@ -171,6 +181,11 @@ async fn telemetry(
         ) {
             return failed(error);
         }
+    }
+    if let Some(peer) = peer_address(&headers, &extensions)
+        && let Err(error) = store.set_peer(token, &peer)
+    {
+        return failed(error);
     }
     match store.report(token, &report) {
         Ok(Some(space)) => {
@@ -202,6 +217,25 @@ async fn telemetry(
         Ok(None) => (StatusCode::UNAUTHORIZED, "unknown agent: register again").into_response(),
         Err(error) => failed(error),
     }
+}
+
+/// Where a request came from: the address it reached the cloud from, or, behind a reverse
+/// proxy, the first address the proxy says it forwarded for.
+pub(crate) fn peer_address(
+    headers: &HeaderMap,
+    extensions: &axum::http::Extensions,
+) -> Option<String> {
+    let forwarded = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty());
+    forwarded.or_else(|| {
+        extensions
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+            .map(|info| info.0.ip().to_string())
+    })
 }
 
 /// A job for an agent's machine, as its report stands: how one ended, a queued one to
@@ -241,6 +275,7 @@ pub(crate) fn agent_job(
                 download: format!("/files/{}/download", job.file_id),
                 size,
                 from_line: job.from_line,
+                tape_mm: store.loaded_tape_mm(&machine)?,
             };
             (Some(order), None)
         }
@@ -365,7 +400,7 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
         r##"<header><div class="bar">
   <a class="brand" href="{home}"><img src="{root}logo.svg" alt="" width="28" height="28"><h1>Maker Connect</h1></a>
   <span class="space" title="The space these machines belong to">{space}</span>
-  <nav class="nav">{machines}{files}</nav>
+  <nav class="nav">{machines}{files}{downloads}</nav>
   <div class="summary">
     <span class="count"><b data-sum="machines">–</b> machines</span>
     <span class="count"><b data-sum="online">–</b> online</span>
@@ -381,7 +416,7 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
   </div>
   <section>
     <h3>With its code</h3>
-    <p class="dialog-sub">An agent next to the machine shows a code, and so does a Prusa whose built-in Connect points here.</p>
+    <p class="dialog-sub">An agent next to the machine shows a code, and so does a Prusa whose built-in Connect points here. No agent yet? <a href="{home}downloads">Download it</a>.</p>
     <form method="post" action="/pair">
       <input name="code" maxlength="6" autocomplete="off" required aria-label="Pairing code" placeholder="ABC234">
       <button>Add</button>
@@ -431,6 +466,7 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
         options = profile_options(None),
         machines = link("", "Machines", "machines"),
         files = link("files", "Files", "files"),
+        downloads = link("downloads", "Downloads", "downloads"),
     )
 }
 
@@ -765,6 +801,41 @@ async fn choose_profile(
     }
 }
 
+#[derive(serde::Deserialize)]
+struct MediaForm {
+    /// A media id of the machine's profile, or empty: not said.
+    media: String,
+}
+
+/// The owner says which tape (or roll) is loaded.
+async fn choose_media(
+    State(store): State<Shared>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Form(form): Form<MediaForm>,
+) -> Response {
+    let store = store.lock().unwrap();
+    let space = match store.default_space() {
+        Ok((space, _)) => space,
+        Err(error) => return failed(error),
+    };
+    let machine = match store.machine(space, &id) {
+        Ok(Some(machine)) => machine,
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
+        Err(error) => return failed(error),
+    };
+    let media = Some(form.media.as_str()).filter(|m| !m.is_empty());
+    let profile = machine.profile.as_deref().and_then(profiles::find);
+    if let Some(media) = media
+        && profile.and_then(|p| profiles::media(p, media)).is_none()
+    {
+        return (StatusCode::BAD_REQUEST, "not a tape of this printer").into_response();
+    }
+    match store.set_media(space, &id, media) {
+        Ok(_) => Redirect::to(&format!("/machines/{id}")).into_response(),
+        Err(error) => failed(error),
+    }
+}
+
 /// A machine: its profile to choose (by brand), what the profile knows, and its bed.
 async fn machine_page(
     State(store): State<Shared>,
@@ -775,6 +846,9 @@ async fn machine_page(
         .default_space()
         .and_then(|(space, name)| Ok((name, store.machine(space, &id)?)));
     match found {
+        Ok((space, Some(machine))) if machine.kind == protocol::MachineKind::Label => {
+            Html(label_page::render(&space, &machine)).into_response()
+        }
         Ok((space, Some(machine))) => Html(machine_page::render(&space, &machine)).into_response(),
         Ok((_, None)) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),

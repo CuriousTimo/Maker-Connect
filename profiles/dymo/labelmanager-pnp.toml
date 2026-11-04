@@ -1,0 +1,145 @@
+brand = "DYMO"
+model = "LabelManager PnP"
+kind = "label"
+firmware = "dymo-d1"   # DYMO's D1 tape protocol, over USB HID
+dpi = 180
+head_dots = 64         # 12 mm tape; narrower tape runs in the middle of the head
+
+[detect]
+machine_type = "DYMO LabelManager PnP"   # the USB product name, as the agent reports it
+
+# D1 cassettes, from thermal-label's media list (MIT). The printer cannot tell which is in:
+# the owner chooses. Tried: 45013.
+
+[[media]]
+id = "43613"
+name = "6mm Black on White"
+width_mm = 6
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "40910"
+name = "9mm Black on Clear"
+width_mm = 9
+ink = "#000"
+background = "clear"
+
+[[media]]
+id = "41913"
+name = "9mm Black on White"
+width_mm = 9
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "45013"
+name = "12mm Black on White"
+width_mm = 12
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "45010"
+name = "12mm Black on Clear"
+width_mm = 12
+ink = "#000"
+background = "clear"
+
+[[media]]
+id = "45018"
+name = "12mm Black on Yellow"
+width_mm = 12
+ink = "#000"
+background = "#f5d90a"
+
+[[media]]
+id = "45016"
+name = "12mm Black on Blue"
+width_mm = 12
+ink = "#000"
+background = "#3b82c4"
+
+[[media]]
+id = "45019"
+name = "12mm Black on Green"
+width_mm = 12
+ink = "#000"
+background = "#3fa34d"
+
+[[media]]
+id = "45017"
+name = "12mm Black on Red"
+width_mm = 12
+ink = "#000"
+background = "#d03b33"
+
+[[media]]
+id = "45020"
+name = "12mm White on Clear"
+width_mm = 12
+ink = "#fff"
+background = "clear"
+
+[[media]]
+id = "45021"
+name = "12mm White on Black"
+width_mm = 12
+ink = "#fff"
+background = "#111"
+
+[[media]]
+id = "45014"
+name = "12mm Blue on White"
+width_mm = 12
+ink = "#1d4ed8"
+background = "#fff"
+
+[[media]]
+id = "45015"
+name = "12mm Red on White"
+width_mm = 12
+ink = "#c81e1e"
+background = "#fff"
+
+[[media]]
+id = "16955"
+name = "12mm Permanent Black on White"
+width_mm = 12
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "16953"
+name = "12mm Flexible Black on White"
+width_mm = 12
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "1978364"
+name = "12mm Durable Black on White"
+width_mm = 12
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "1978365"
+name = "12mm Durable White on Black"
+width_mm = 12
+ink = "#fff"
+background = "#111"
+
+[[media]]
+id = "1978366"
+name = "12mm Durable White on Red"
+width_mm = 12
+ink = "#fff"
+background = "#d03b33"
+
+[[media]]
+id = "1978367"
+name = "12mm Durable Black on Orange"
+width_mm = 12
+ink = "#000"
+background = "#f08a24"
