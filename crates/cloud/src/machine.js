@@ -48,6 +48,12 @@
       }
     });
   }
+  // The lines for a Klipper printer's moonraker.conf, with this cloud's address.
+  for (const pre of document.querySelectorAll("[data-moonraker-conf]")) {
+    pre.textContent = `[simplyprint]\nurl: ws://${location.host}/simplyprint/${pre.dataset.token}`;
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+    pre.parentElement.querySelector("[data-moonraker-local]").hidden = !local;
+  }
   // Enter in a temperature field sets that temperature (not the form's first button, Home).
   for (const input of document.querySelectorAll(".heat-set input")) input.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
@@ -68,6 +74,21 @@
   }
   const commandItem = (c) =>
     `<li><span>${esc(c.label)}</span><b class="badge ${c.state}">${c.state}</b>${c.reason ? ` <small>${esc(c.reason)}</small>` : ""}</li>`;
+
+  // What someone should know first, as the server draws it (machine_page::notices).
+  function noticesHtml(m, t) {
+    let html = "";
+    if (m.out_of_use) {
+      const why = m.out_of_use.reason ? `: ${esc(m.out_of_use.reason)}` : "";
+      html += `<div class="notice out"><span><b>Out of use</b>${why}. It takes no jobs until it is back.</span><form method="post" action="${esc(m.id)}/out-of-use" data-async data-done="Back in use" data-then="reload"><input type="hidden" name="action" value="back"><button class="ghost">Back in use</button></form></div>`;
+    }
+    if (m.on_bed) {
+      const warm = t.bed_c != null && t.bed_c > TAKE_BELOW_C;
+      const how = warm ? `the bed cools (${t.bed_c.toFixed(0)} °C); take it at ${TAKE_BELOW_C} °C or below` : "the bed is cool: take it off";
+      html += `<div class="notice bed"><span><b>${esc(m.on_bed.file_name)}</b> is done and on the bed: ${how}. The next job waits until it is taken.</span><form method="post" action="${esc(m.id)}/taken" data-async data-done="Print taken" data-then="reload"><button>Print taken</button></form></div>`;
+    }
+    return html;
+  }
 
   // How a heater is doing, as the page says it on the server too.
   function heatNote(now, target) {
@@ -223,6 +244,14 @@
       if (!(key in values)) continue;
       el.textContent = values[key] ?? "–";
       if (key === "state") el.className = `state ${values[key]}`;
+    }
+    // Out of use, a print on the bed: drawn again when either changes.
+    const notices = document.querySelector("[data-notices]");
+    const noticeKey = JSON.stringify([m.out_of_use, m.on_bed, m.on_bed && t.bed_c != null && t.bed_c > TAKE_BELOW_C ? Math.round(t.bed_c) : null]);
+    if (notices && notices.dataset.key !== noticeKey) {
+      const first = notices.dataset.key == null;
+      notices.dataset.key = noticeKey;
+      if (!first) notices.innerHTML = noticesHtml(m, t);
     }
     // The heaters' flames: lit while they have power, outlined while not, gone untold.
     for (const el of document.querySelectorAll("[data-heater]")) {

@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Whether machines on this link take commands from the website (yet).
 pub fn takes_commands(link: &str) -> bool {
-    matches!(link, "prusa-connect" | "virtual" | "agent")
+    matches!(link, "prusa-connect" | "virtual" | "agent" | "simplyprint")
 }
 
 /// A bed mesh as the cloud keeps it: the machine's last, and when it came.
@@ -83,7 +83,49 @@ pub struct Machine {
     pub peer: Option<String>,
     /// The agent build on the Downloads page, when this machine's agent is another.
     pub agent_update: Option<String>,
+    /// Taken out of use by its owner (broken, waiting for a part): no jobs until it is back.
+    pub out_of_use: Option<OutOfUse>,
+    /// The spool (or cassette) loaded in it, from Materials.
+    pub loaded: Option<Loaded>,
+    /// A print that finished and is still on the bed, until someone says it was taken.
+    pub on_bed: Option<OnBed>,
+    /// A printer on Klipper: the token in the address its moonraker.conf names. Shown on its
+    /// page, never in the live list.
+    #[serde(skip)]
+    pub moonraker_token: Option<String>,
+    /// A laser's optical power, as its owner says: its module (a profile names one).
+    pub laser_w: Option<f64>,
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct OutOfUse {
+    /// Why, as its owner said ("nozzle clogged, waiting for a part"); may be empty.
+    pub reason: String,
+    pub since: i64,
+}
+
+/// What is loaded in a machine, as its card says it: `S-0007 · Galaxy Black · 412 g left`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Loaded {
+    pub item: String,
+    /// The material's colour name, else its name (`Galaxy Black`, `Prusament PETG`).
+    pub name: String,
+    pub color: Option<String>,
+    pub amount: f64,
+    /// `g`, `m`, `pcs`.
+    pub unit: String,
+}
+
+/// A print on the bed: the job that made it, and when it ended.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct OnBed {
+    pub job: i64,
+    pub file_name: String,
+    pub ended_at: Option<i64>,
+}
+
+/// A print on the bed can be taken once the bed is at or below this (°C); above, it cools.
+pub const TAKE_BELOW_C: f32 = 30.0;
 
 /// The agent build the Downloads page offers.
 #[derive(Debug, Clone, PartialEq)]
@@ -321,7 +363,12 @@ impl Store {
                  telemetry TEXT
              );",
         )?;
-        for (column, definition) in [("from_line", "INTEGER"), ("restart_line", "INTEGER")] {
+        for (column, definition) in [
+            ("from_line", "INTEGER"),
+            ("restart_line", "INTEGER"),
+            // When someone took a finished print off the bed.
+            ("taken_at", "INTEGER"),
+        ] {
             let present: bool = db.query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('jobs') WHERE name = ?1",
                 [column],
@@ -332,6 +379,13 @@ impl Store {
                     &format!("ALTER TABLE jobs ADD COLUMN {column} {definition}"),
                     [],
                 )?;
+                // The prints from before were taken long ago.
+                if column == "taken_at" {
+                    db.execute(
+                        "UPDATE jobs SET taken_at = ?1 WHERE state IN ('finished', 'stopped', 'failed')",
+                        [now()],
+                    )?;
+                }
             }
         }
         // Columns added after the first version: a store from then gets them.
@@ -349,6 +403,11 @@ impl Store {
             // What an agent tells of itself, and where its reports come from.
             ("agent", "TEXT"),
             ("peer", "TEXT"),
+            // Taken out of use: why (may be empty), and since when.
+            ("out_of_use", "TEXT"),
+            ("out_of_use_at", "INTEGER"),
+            // A laser's module, as its owner says (the controller does not know it).
+            ("laser_w", "REAL"),
         ] {
             let present: bool = db.query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('machines') WHERE name = ?1",
@@ -623,6 +682,79 @@ impl Store {
         Ok(last.filter(|j| {
             matches!(j.state, JobState::Stopped | JobState::Failed) && j.restart_line.is_some()
         }))
+    }
+
+    /// A print still on the bed: the machine's last job, when it finished and nobody has
+    /// said yet that it was taken.
+    pub fn on_bed(&self, machine: &str) -> rusqlite::Result<Option<OnBed>> {
+        let last = self
+            .db
+            .query_row(
+                "SELECT id, file_name, state, ended_at, taken_at FROM jobs WHERE machine_id = ?1
+                 ORDER BY id DESC LIMIT 1",
+                [machine],
+                |r| {
+                    Ok((
+                        OnBed {
+                            job: r.get(0)?,
+                            file_name: r.get(1)?,
+                            ended_at: r.get(3)?,
+                        },
+                        r.get::<_, String>(2)?,
+                        r.get::<_, Option<i64>>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        Ok(last
+            .filter(|(_, state, taken)| state == "finished" && taken.is_none())
+            .map(|(on_bed, _, _)| on_bed))
+    }
+
+    /// Someone took the finished print off the machine's bed. Returns whether there was one.
+    pub fn print_taken(&mut self, space: i64, machine: &str) -> rusqlite::Result<bool> {
+        if self.machine(space, machine)?.is_none() {
+            return Ok(false);
+        }
+        let n = self.db.execute(
+            "UPDATE jobs SET taken_at = ?1 WHERE machine_id = ?2 AND state = 'finished' AND taken_at IS NULL",
+            params![now(), machine],
+        )?;
+        self.changed();
+        Ok(n > 0)
+    }
+
+    /// A laser's optical power as its owner says (None: the profile's). Returns whether the
+    /// machine is in the space.
+    pub fn set_laser_w(
+        &self,
+        space: i64,
+        machine: &str,
+        watts: Option<f64>,
+    ) -> rusqlite::Result<bool> {
+        let n = self.db.execute(
+            "UPDATE machines SET laser_w = ?1 WHERE id = ?2 AND space_id = ?3",
+            params![watts, machine, space],
+        )?;
+        self.changed();
+        Ok(n > 0)
+    }
+
+    /// Takes a machine out of use (with why), or back into use (None). Returns whether the
+    /// machine is in the space.
+    pub fn set_out_of_use(
+        &self,
+        space: i64,
+        machine: &str,
+        reason: Option<&str>,
+    ) -> rusqlite::Result<bool> {
+        let n = self.db.execute(
+            "UPDATE machines SET out_of_use = ?1, out_of_use_at = CASE WHEN ?1 IS NULL THEN NULL ELSE ?2 END
+             WHERE id = ?3 AND space_id = ?4",
+            params![reason, now(), machine, space],
+        )?;
+        self.changed();
+        Ok(n > 0)
     }
 
     /// A job moves on: started, paused, asked to stop, over.
@@ -1038,6 +1170,48 @@ impl Store {
         Ok(id)
     }
 
+    /// A printer on Klipper, reached through Moonraker (its SimplyPrint component pointed
+    /// here), straight into the space: its id.
+    pub fn add_moonraker(&mut self, space: i64, name: &str) -> rusqlite::Result<String> {
+        let (id, _, _) = self.register_linked(
+            &Register {
+                protocol: maker_connect_protocol::VERSION,
+                name: name.to_owned(),
+                kind: MachineKind::Fdm,
+                agent_version: "Moonraker".to_owned(),
+            },
+            "simplyprint",
+        )?;
+        self.db.execute(
+            "UPDATE machines SET space_id = ?1, pairing_code = NULL WHERE id = ?2",
+            params![space, id],
+        )?;
+        self.changed();
+        Ok(id)
+    }
+
+    /// The name of the Moonraker printer with this token, if it is one in a space.
+    pub fn moonraker_name(&self, token: &str) -> rusqlite::Result<Option<String>> {
+        self.db
+            .query_row(
+                "SELECT name FROM machines WHERE token = ?1 AND link = 'simplyprint' AND space_id IS NOT NULL",
+                [token],
+                |r| r.get(0),
+            )
+            .optional()
+    }
+
+    /// A Moonraker printer's token, for the address its config file names.
+    pub fn moonraker_token(&self, space: i64, machine: &str) -> rusqlite::Result<Option<String>> {
+        self.db
+            .query_row(
+                "SELECT token FROM machines WHERE id = ?1 AND space_id = ?2 AND link = 'simplyprint'",
+                params![machine, space],
+                |r| r.get(0),
+            )
+            .optional()
+    }
+
     /// Every virtual machine: its id, token and profile.
     pub fn virtual_machines(&self) -> rusqlite::Result<Vec<(String, String, Option<String>)>> {
         let mut query = self
@@ -1188,7 +1362,8 @@ impl Store {
     pub fn machines(&self, space: i64) -> rusqlite::Result<Vec<Machine>> {
         let mut query = self.db.prepare(
             "SELECT id, name, kind, agent_version, last_seen, telemetry, profile, profile_chosen, link, details, mesh,
-                    media, powered_by, power_channel, reached_through, agent, peer
+                    media, powered_by, power_channel, reached_through, agent, peer, out_of_use, out_of_use_at,
+                    laser_w
              FROM machines WHERE space_id = ?1 ORDER BY name",
         )?;
         let now = now();
@@ -1231,11 +1406,42 @@ impl Store {
                     .and_then(|a| serde_json::from_str(&a).ok()),
                 peer: r.get(16)?,
                 agent_update: None,
+                out_of_use: r.get::<_, Option<String>>(17)?.map(|reason| OutOfUse {
+                    reason,
+                    since: r.get::<_, Option<i64>>(18).ok().flatten().unwrap_or(0),
+                }),
+                loaded: None,
+                on_bed: None,
+                moonraker_token: None,
+                laser_w: r.get(19)?,
             })
         })?;
         let mut machines: Vec<Machine> = rows.collect::<rusqlite::Result<_>>()?;
         let offered = self.offered_build();
+        let items = self.items(space)?;
+        let materials = self.materials(space)?;
         for machine in &mut machines {
+            machine.loaded = items
+                .iter()
+                .find(|i| i.machine.as_deref() == Some(&machine.id) && i.state == "loaded")
+                .map(|item| {
+                    let material = materials.iter().find(|m| m.id == item.material);
+                    Loaded {
+                        item: item.id.clone(),
+                        name: material
+                            .map(|m| m.color_name.clone().unwrap_or_else(|| m.name.clone()))
+                            .unwrap_or_else(|| item.material.clone()),
+                        color: material.and_then(|m| m.color.clone()),
+                        amount: item.amount,
+                        unit: material.map_or("pcs".to_owned(), |m| m.unit.clone()),
+                    }
+                });
+            if machine.kind == MachineKind::Fdm {
+                machine.on_bed = self.on_bed(&machine.id)?;
+            }
+            if machine.link == "simplyprint" {
+                machine.moonraker_token = self.moonraker_token(space, &machine.id)?;
+            }
             // An agent from before builds were named is behind any build on offer.
             if let (Some(offered), Some(agent)) = (&offered, machine.agent.as_ref())
                 && agent.build.as_ref() != Some(&offered.commit)
@@ -1263,6 +1469,61 @@ mod tests {
         let id = store.add_virtual(space, profile).unwrap();
         store.rename(space, &id, name).unwrap();
         id
+    }
+
+    /// A finished print stays on the bed until taken; a machine out of use says why.
+    #[test]
+    fn a_print_on_the_bed_and_a_machine_out_of_use() {
+        let mut store = Store::open(":memory:").unwrap();
+        let (space, _) = store.default_space().unwrap();
+        let printer = device(&mut store, space, "MINI");
+        store
+            .add_file(
+                space,
+                "f1",
+                "cube.gcode",
+                10,
+                &crate::gcode::FileMeta::default(),
+            )
+            .unwrap();
+        let file = store.file(space, "f1").unwrap().unwrap();
+        let job = store
+            .add_job(space, &printer, &file, None)
+            .unwrap()
+            .unwrap();
+        store.set_job(job, JobState::Printing, None).unwrap();
+        assert_eq!(
+            store.machine(space, &printer).unwrap().unwrap().on_bed,
+            None
+        );
+        store.set_job(job, JobState::Finished, None).unwrap();
+        let on_bed = store.machine(space, &printer).unwrap().unwrap().on_bed;
+        assert_eq!(on_bed.map(|b| b.file_name), Some("cube.gcode".to_owned()));
+        assert!(store.print_taken(space, &printer).unwrap());
+        assert_eq!(
+            store.machine(space, &printer).unwrap().unwrap().on_bed,
+            None
+        );
+        assert!(!store.print_taken(space, &printer).unwrap());
+
+        assert!(
+            store
+                .set_out_of_use(space, &printer, Some("nozzle clogged"))
+                .unwrap()
+        );
+        let out = store
+            .machine(space, &printer)
+            .unwrap()
+            .unwrap()
+            .out_of_use
+            .unwrap();
+        assert_eq!(out.reason, "nozzle clogged");
+        assert!(out.since > 0);
+        assert!(store.set_out_of_use(space, &printer, None).unwrap());
+        assert_eq!(
+            store.machine(space, &printer).unwrap().unwrap().out_of_use,
+            None
+        );
     }
 
     #[test]

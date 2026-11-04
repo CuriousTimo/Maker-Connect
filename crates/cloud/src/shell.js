@@ -3,17 +3,70 @@
   const ROOT = document.querySelector(".sidebar").dataset.root;
   const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-  // The dialog to add a machine: from any [data-add-open], and at #add.
+  // The dialog to add a machine, as a wizard: how it connects, then its steps. Opened from
+  // any [data-add-open], and at #add.
   {
     const dialog = document.getElementById("add-dialog");
-    const open = () => { if (!dialog.open) dialog.showModal(); };
+    const back = dialog.querySelector("[data-wizard-back]");
+    let waiting = null;
+    function step(name) {
+      for (const s of dialog.querySelectorAll("[data-step]")) s.hidden = s.dataset.step !== name;
+      back.hidden = name === "start";
+      if (waiting && name !== "klipper-conf") { clearInterval(waiting); waiting = null; }
+      dialog.querySelector(`[data-step="${name}"] input`)?.focus();
+    }
+    const open = (at = "start") => { step(at); if (!dialog.open) dialog.showModal(); };
     document.addEventListener("click", (event) => {
       if (event.target.closest("[data-add-open]")) { event.preventDefault(); open(); }
       if (event.target.closest("[data-add-close]") || event.target === dialog) dialog.close();
     });
+    dialog.addEventListener("click", (event) => {
+      const go = event.target.closest("[data-go]");
+      if (go) step(go.dataset.go);
+    });
+    back.addEventListener("click", () => step("start"));
+    dialog.addEventListener("close", () => { if (waiting) { clearInterval(waiting); waiting = null; } });
+    // This cloud's address, as the machine must reach it.
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+    const port = location.port || (location.protocol === "https:" ? "443" : "80");
+    dialog.querySelector("[data-prusa-ini]").textContent = `[service::connect]\nhostname = ${local ? "<this computer's address>" : location.hostname}\nport = ${port}\ntls = false`;
+    // A code: added, then the list shows it.
+    for (const form of dialog.querySelectorAll("[data-pair-form]")) form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const note = form.parentElement.querySelector("[data-pair-note]");
+      const response = await fetch(form.getAttribute("action"), { method: "POST", body: new URLSearchParams(new FormData(form)), headers: { "x-requested-with": "fetch" } });
+      if (response.ok) { dialog.close(); toast("Machine added"); location.href = ROOT || "./"; }
+      else note.textContent = response.status === 404 ? "No machine waits with that code." : `Not added: ${await response.text()}`;
+    });
+    // A printer on Klipper: made, its lines shown, then it is waited for.
+    dialog.querySelector("[data-klipper-form]").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.target;
+      const response = await fetch(form.getAttribute("action"), { method: "POST", body: new URLSearchParams(new FormData(form)), headers: { "x-requested-with": "fetch" } });
+      if (!response.ok) { toast(`Not added: ${await response.text()}`, "bad"); return; }
+      const { id, token } = await response.json();
+      dialog.querySelector("[data-klipper-conf]").textContent = `[simplyprint]\nurl: ws://${location.host}/simplyprint/${token}`;
+      dialog.querySelector("[data-local-warning]").hidden = !local;
+      dialog.querySelector("[data-klipper-page]").href = `${ROOT}machines/${encodeURIComponent(id)}`;
+      const wait = dialog.querySelector("[data-klipper-wait]");
+      wait.classList.remove("done");
+      wait.lastChild.textContent = "Waiting for it to connect…";
+      step("klipper-conf");
+      waiting = setInterval(async () => {
+        try {
+          const machines = await (await fetch(`${ROOT}api/machines`)).json();
+          if (machines.find((m) => m.id === id)?.online) {
+            clearInterval(waiting); waiting = null;
+            wait.classList.add("done");
+            wait.lastChild.textContent = "Connected.";
+          }
+        } catch (error) { /* tried again */ }
+      }, 2000);
+      form.reset();
+    });
     if (location.search.includes("unknown-code")) {
-      document.querySelector("[data-add-note]").textContent = "No machine waits with that code.";
-      open();
+      open("code");
+      dialog.querySelector("[data-add-note]").textContent = "No machine waits with that code.";
     }
     if (location.hash === "#add") open();
   }
@@ -31,9 +84,21 @@
   }
   // How a machine's state is shown, the same on every page. A machine that waits for
   // someone (a label printer without a cassette) shows the reason, amber: not an error.
+  // A print on the bed can be taken at or below this (°C); as the cloud's TAKE_BELOW_C.
+  const TAKE_BELOW_C = 30;
+  // What is loaded in a machine: "S-0007 · Galaxy Black · 412 g left".
+  function loadedText(l) {
+    const amount = l.unit === "g" ? Math.round(l.amount) : l.unit === "m" ? l.amount.toFixed(1) : l.amount;
+    return `${l.item} · ${l.name} · ${amount} ${l.unit} left`;
+  }
   function shownState(m) {
+    if (m.out_of_use) return { text: "Out of use", cls: "out" };
     const t = m.online ? m.telemetry : null;
     if (!t) return { text: "Offline", cls: "offline" };
+    // A finished print on the bed: cooling, then it waits for someone to take it.
+    if (m.on_bed && t.state === "idle") {
+      return t.bed_c != null && t.bed_c > TAKE_BELOW_C ? { text: "Cooling", cls: "cooling" } : { text: "Take the print", cls: "attention" };
+    }
     if (t.state === "attention" || (t.state === "idle" && t.problem)) return { text: t.problem || "Attention", cls: "attention" };
     const names = { disconnected: "Disconnected", idle: "Idle", busy: "Busy", paused: "Paused", error: "Error" };
     return { text: names[t.state] || t.state, cls: t.state };
@@ -65,7 +130,7 @@
       machines: machines.length,
       online: machines.filter((m) => m.online).length,
       busy: machines.filter((m) => m.online && m.telemetry && m.telemetry.state === "busy").length,
-      attention: machines.filter((m) => m.online && m.telemetry && (m.telemetry.state === "attention" || m.telemetry.state === "error")).length,
+      attention: machines.filter((m) => ["attention", "error"].includes(shownState(m).cls)).length,
     };
     for (const el of document.querySelectorAll("[data-sum]")) el.textContent = count[el.dataset.sum];
     const attention = document.querySelector("[data-attention-count]");
@@ -207,6 +272,7 @@
     let profiles = null;
     const load = () => (profiles ??= fetch(`${ROOT}api/profiles`).then((r) => r.json()));
     const KINDS = { fdm: "3D printer", laser: "Laser", label: "Label printer", cnc: "CNC" };
+    const FIRMWARE = { marlin: "Marlin", klipper: "Klipper", prusa: "Prusa", "prusa-buddy": "Prusa Buddy", grbl: "GRBL", "dymo-d1": "DYMO" };
     const size = (p) => {
       if (p.kind === "label") return [...new Set(p.media.map((m) => m.width_mm))].sort((a, b) => a - b).join(", ") + " mm tape";
       const [x, y, z] = p.build_volume_mm.map((v) => Math.round(v));
@@ -217,17 +283,32 @@
       const inSettings = auto !== undefined;
       el.innerHTML = `<input type="search" class="picker-search" placeholder="Search machines: a brand, a model" aria-label="Search machines" autocomplete="off">
         <div class="picker-kinds" role="group" aria-label="Kind"></div>
+        <div class="picker-kinds" data-firmwares role="group" aria-label="Firmware"></div>
         <ul class="picker-list" role="listbox"><li class="picker-none">Loading…</li></ul>`;
       const search = el.querySelector(".picker-search"), kinds = el.querySelector(".picker-kinds"), list = el.querySelector(".picker-list");
       const all = await load();
-      let kind = "", items = [], at = 0;
-      const counts = {};
-      for (const p of all) counts[p.kind] = (counts[p.kind] || 0) + 1;
+      let kind = "", firmware = "", items = [], at = 0;
+      const counts = {}, firmwares = {};
+      for (const p of all) {
+        counts[p.kind] = (counts[p.kind] || 0) + 1;
+        if (p.firmware) firmwares[p.firmware] = (firmwares[p.firmware] || 0) + 1;
+      }
+      const byFirmware = el.querySelector("[data-firmwares]");
+      byFirmware.innerHTML = [["", "Any firmware"], ...Object.entries(firmwares).sort((a, b) => b[1] - a[1]).map(([f, n]) => [f, `${FIRMWARE[f] || f} ${n}`])]
+        .map(([f, t]) => `<button type="button" data-firmware="${escapeHtml(f)}" aria-pressed="${f === firmware}">${escapeHtml(t)}</button>`).join("");
+      byFirmware.addEventListener("click", (event) => {
+        const b = event.target.closest("[data-firmware]");
+        if (!b) return;
+        firmware = b.dataset.firmware;
+        for (const x of byFirmware.children) x.setAttribute("aria-pressed", x === b);
+        at = 0;
+        fill();
+      });
       kinds.innerHTML = [["", `All ${all.length}`], ...Object.keys(KINDS).filter((k) => counts[k]).map((k) => [k, `${KINDS[k]} ${counts[k]}`])]
         .map(([k, t]) => `<button type="button" data-kind="${k}" aria-pressed="${k === kind}">${escapeHtml(t)}</button>`).join("");
       function fill() {
         const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-        const found = all.filter((p) => (!kind || p.kind === kind) && words.every((w) => `${p.brand} ${p.model}`.toLowerCase().includes(w)));
+        const found = all.filter((p) => (!kind || p.kind === kind) && (!firmware || p.firmware === firmware) && words.every((w) => `${p.brand} ${p.model}`.toLowerCase().includes(w)));
         // The chosen one first, then by brand and model.
         found.sort((a, b) => (b.id === selected) - (a.id === selected) || a.brand.localeCompare(b.brand) || a.model.localeCompare(b.model, undefined, { numeric: true }));
         items = found.slice(0, 60);
@@ -235,7 +316,7 @@
         at = Math.min(at, Math.max(items.length - 1, 0));
         list.innerHTML = items.length ? items.map((p, n) => p.auto
           ? `<li role="option" data-n="${n}" aria-selected="${n === at}" class="${selected === "" ? "chosen" : ""}"><span class="picker-auto">≈</span><span class="picker-text"><b>Recognise it from what it says</b><small>${auto ? `now: ${escapeHtml(all.find((x) => x.id === auto)?.model || auto)}` : "the profile follows what the machine reports"}</small></span></li>`
-          : `<li role="option" data-n="${n}" aria-selected="${n === at}" class="${p.id === selected ? "chosen" : ""}"><img src="${ROOT}profiles/${p.id}.svg" alt="" loading="lazy"><span class="picker-text"><b>${escapeHtml(p.brand)} ${escapeHtml(p.model)}</b><small>${escapeHtml(size(p))}${p.firmware_version ? ` · ${escapeHtml((p.firmware || "").replace(/^./, (c) => c.toUpperCase()))} ${escapeHtml(p.firmware_version)}` : ""}</small></span>${p.id === selected ? '<span class="picker-tag">chosen</span>' : ""}</li>`).join("")
+          : `<li role="option" data-n="${n}" aria-selected="${n === at}" class="${p.id === selected ? "chosen" : ""}"><img src="${ROOT}profiles/${p.id}.svg" alt="" loading="lazy"><span class="picker-text"><b>${escapeHtml(p.brand)} ${escapeHtml(p.model)}</b><small>${escapeHtml(size(p))}${p.firmware ? ` · ${escapeHtml(FIRMWARE[p.firmware] || p.firmware)}${p.firmware_version ? ` ${escapeHtml(p.firmware_version)}` : ""}` : ""}</small></span>${p.id === selected ? '<span class="picker-tag">chosen</span>' : ""}</li>`).join("")
           + (found.length > items.length ? `<li class="picker-none">${found.length - items.length} more: type to narrow</li>` : "")
           : '<li class="picker-none">No machine matches</li>';
         list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });

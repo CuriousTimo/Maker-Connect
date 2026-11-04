@@ -1,0 +1,12 @@
+# Made from Klipper's printer configuration (printer-anycubic-kossel-2016.cfg) by
+# `cargo run -p maker-connect-import`: made again on each run. Delete the source
+# line to edit it by hand and keep it.
+brand = "AnyCubic"
+model = "Kossel"
+kind = "fdm"
+build_volume_mm = [199.6, 199.6, 273.0]
+bed_origin_mm = [0.0, 0.0]
+firmware = "klipper"
+max_nozzle_c = 260.0
+motion = "delta"
+source = "klipper-config@0cee841"

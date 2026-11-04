@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+mod klipper;
 mod prusaslicer;
 
 /// Folders of examples that are not machines to offer: tests and demos.
@@ -44,7 +45,8 @@ struct Profile {
     max_bed_c: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     extruders: Option<u32>,
-    /// The firmware version its configuration is for: `2.1.3`.
+    /// The firmware version its configuration is for: `2.1.3` (none for Klipper's).
+    #[serde(skip_serializing_if = "String::is_empty")]
     firmware_version: String,
     /// How it moves: `bedslinger`, `corexy`, `delta`: for its drawing.
     motion: &'static str,
@@ -307,6 +309,7 @@ fn list(profiles: &Path, out: &Path) -> Result<(), String> {
     tomls(profiles, &mut files);
     let mut rows: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
     let mut marlin = None;
+    let mut klipper = None;
     for file in &files {
         let text = std::fs::read_to_string(file).map_err(|e| e.to_string())?;
         let Ok(v) = text.parse::<toml::Table>() else {
@@ -360,6 +363,9 @@ fn list(profiles: &Path, out: &Path) -> Result<(), String> {
         let from = if source.starts_with("marlin-configurations@") {
             marlin = Some(source.clone());
             "Marlin's examples"
+        } else if source.starts_with("klipper-config@") {
+            klipper = Some(source.clone());
+            "Klipper's configs"
         } else {
             "by hand"
         };
@@ -373,10 +379,11 @@ fn list(profiles: &Path, out: &Path) -> Result<(), String> {
     }
     let count: usize = rows.values().map(Vec::len).sum();
     let mut page = format!(
-        "## How they connect\n\n| Devices | How they connect | What works | On real hardware |\n|---|---|---|---|\n| **Prusa MINI** (Buddy firmware) | Its own firmware speaks Prusa Connect to the cloud: no agent | Registers with a code, reports, takes commands | Yes: a MINI on firmware 6.3.0 |\n| **3D printers on Marlin**: 245 models (Creality, Anycubic, Artillery, …) | Agent, on USB | Recognised from `M115`; live temperatures with their targets and whether the heaters have power, moves, heating, bed mesh, terminal; **prints files** (pause, resume, stop) | Not yet: tested against simulated printers |\n| **Prusa on 8-bit firmware**: MK3S, MK2.5S | Agent, on USB or an MK3S's RPi port (a Raspberry Pi Zero) | As Marlin, recognised from `M862.2 Q`; bed mesh by `G80`/`G81` | Yes: an MK3S through a Pi Zero 2 W on its RPi port (home, moves, heating, terminal, bed mesh); printing a file not yet |\n| **Lasers on GRBL**: Ortur Laser Master 2 Pro S2, other GRBL 1.1 | Agent, on USB, with LaserFoundry's device crate | Homing, jogs, settings checked, Frame, jobs streamed, pause, resume, stop, restart where it stopped | Not yet: tested against LaserFoundry's simulated GRBL |\n| **Label printers**: DYMO LabelManager PnP | Agent, on USB HID: no driver, no DYMO software | Labels from the editor (text, QR codes, barcodes, drawings), tapes, cassette and battery | Yes: printed from a Mac and a Windows laptop, 12 mm tape; online through an Orange Pi PC |\n| **A virtual one of every profile** | Simulated in the cloud | Printers home, heat, measure and print; lasers on simulated GRBL; label printers print | – |\n\n| The agent runs on | Build | On real hardware |\n|---|---|---|\n| macOS, Apple silicon | `macos-aarch64` | Yes |\n| Windows 10/11, x64 | `windows-x86_64.exe` | Yes |\n| Linux ARM64: Orange Pi Zero3, Raspberry Pi 4 and 5 | `linux-aarch64` | Not yet |\n| Linux ARM 32-bit: any Raspberry Pi on a 32-bit OS (Zero W, Zero 2 W, Pi 1 to 3), Orange Pi PC | `linux-armv6` | Yes: a Pi Zero 2 W on Prusa's PrusaLink image (Raspbian 11), an Orange Pi PC on Armbian (Debian 11) |\n| Linux x86-64: a PC, a NAS | `linux-x86_64` | Not yet |\n\n## The machines\n\nEvery machine Maker Connect has a profile for: {count} machines of {} brands. A machine is recognised from what it says when its agent connects (Marlin's `M115`, a Prusa's model code, a USB name), or its profile is chosen under **Settings → Profile**. A virtual one of each can be added to try it.\n\n\
-         Most 3D printers come from [Marlin's example configurations](https://github.com/MarlinFirmware/Configurations) ({}); the others were made by hand. Made by `scripts/import-profiles.sh`.\n\n",
+        "## How they connect\n\n| Devices | How they connect | What works | On real hardware |\n|---|---|---|---|\n| **Prusa MINI** (Buddy firmware) | Its own firmware speaks Prusa Connect to the cloud: no agent | Registers with a code, reports, takes commands | Yes: a MINI on firmware 6.3.0 |\n| **3D printers on Marlin**: 245 models (Creality, Anycubic, Artillery, …) | Agent, on USB | Recognised from `M115`; live temperatures with their targets and whether the heaters have power, moves, heating, bed mesh, terminal; **prints files** (pause, resume, stop) | Not yet: tested against simulated printers |\n| **3D printers on Klipper**: Voron, FLSUN, RatRig, LulzBot, … (46 profiles), any with Moonraker | Moonraker connects by itself (its SimplyPrint component pointed here): no agent | Status, temperatures, commands with Klipper's answers, **prints files** (Moonraker fetches them), pause, resume, stop, bed mesh | Not yet: tested against a stand-in for Moonraker |\n| **Prusa on 8-bit firmware**: MK3S, MK2.5S | Agent, on USB or an MK3S's RPi port (a Raspberry Pi Zero) | As Marlin, recognised from `M862.2 Q`; bed mesh by `G80`/`G81` | Yes: an MK3S through a Pi Zero 2 W on its RPi port (home, moves, heating, terminal, bed mesh); printing a file not yet |\n| **Lasers on GRBL**: Ortur, Creality Falcon, Sculpfun, Atomstack, Longer, Two Trees (10 profiles), any GRBL 1.1 | Agent, on USB, with LaserFoundry's device crate | Its work area and name from the controller (`$$`, `$I`), homing, the jog pad, the job's origin, settings checked, Frame, jobs streamed, pause, resume, stop, restart where it stopped | Not yet: tested against LaserFoundry's simulated GRBL |\n| **Label printers**: DYMO LabelManager PnP | Agent, on USB HID: no driver, no DYMO software | Labels from the editor (text, QR codes, barcodes, drawings), tapes, cassette and battery | Yes: printed from a Mac and a Windows laptop, 12 mm tape; online through an Orange Pi PC |\n| **A virtual one of every profile** | Simulated in the cloud | Printers home, heat, measure and print; lasers on simulated GRBL; label printers print | – |\n\n| The agent runs on | Build | On real hardware |\n|---|---|---|\n| macOS, Apple silicon | `macos-aarch64` | Yes |\n| Windows 10/11, x64 | `windows-x86_64.exe` | Yes |\n| Linux ARM64: Orange Pi Zero3, Raspberry Pi 4 and 5 | `linux-aarch64` | Not yet |\n| Linux ARM 32-bit: any Raspberry Pi on a 32-bit OS (Zero W, Zero 2 W, Pi 1 to 3), Orange Pi PC | `linux-armv6` | Yes: a Pi Zero 2 W on Prusa's PrusaLink image (Raspbian 11), an Orange Pi PC on Armbian (Debian 11) |\n| Linux x86-64: a PC, a NAS | `linux-x86_64` | Not yet |\n\n## The machines\n\nEvery machine Maker Connect has a profile for: {count} machines of {} brands. A machine is recognised from what it says when its agent connects (Marlin's `M115`, a Prusa's model code, a USB name), or its profile is chosen under **Settings → Profile**. A virtual one of each can be added to try it.\n\n\
+         Most 3D printers come from [Marlin's example configurations](https://github.com/MarlinFirmware/Configurations) ({}), more from [Klipper's printer configurations](https://github.com/Klipper3d/klipper/tree/master/config) ({}: those Marlin's do not have; a printer on Klipper is not connected yet); the others were made by hand. Made by `scripts/import-profiles.sh`.\n\n",
         rows.len(),
-        marlin.as_deref().unwrap_or("not imported")
+        marlin.as_deref().unwrap_or("not imported"),
+        klipper.as_deref().unwrap_or("not imported")
     );
     for (brand, mut machines) in rows {
         machines.sort_by(|a, b| a.0.cmp(&b.0));
@@ -398,11 +405,12 @@ fn main() -> std::process::ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let done = match args.as_slice() {
         [what, repo, out] if what == "marlin" => run(Path::new(repo), Path::new(out)),
+        [what, repo, out] if what == "klipper" => klipper::run(Path::new(repo), Path::new(out)),
         [what, profiles, out] if what == "list" => list(Path::new(profiles), Path::new(out)),
         [what, bundle, out] if what == "prusaslicer" => {
             prusaslicer::run(Path::new(bundle), Path::new(out))
         }
-        _ => Err("usage: maker-connect-import marlin <Configurations repository> <profiles folder>\n       maker-connect-import list <profiles folder> <page.md>\n       maker-connect-import prusaslicer <vendor bundle .ini> <filaments/….toml>".to_owned()),
+        _ => Err("usage: maker-connect-import marlin <Configurations repository> <profiles folder>\n       maker-connect-import klipper <Klipper repository> <profiles folder>\n       maker-connect-import list <profiles folder> <page.md>\n       maker-connect-import prusaslicer <vendor bundle .ini> <filaments/….toml>".to_owned()),
     };
     match done {
         Ok(()) => std::process::ExitCode::SUCCESS,

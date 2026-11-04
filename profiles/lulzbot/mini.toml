@@ -1,0 +1,13 @@
+# Made from Klipper's printer configuration (printer-lulzbot-mini1-2016.cfg) by
+# `cargo run -p maker-connect-import`: made again on each run. Delete the source
+# line to edit it by hand and keep it.
+brand = "LulzBot"
+model = "Mini"
+kind = "fdm"
+build_volume_mm = [159.0, 173.0, 161.5]
+bed_origin_mm = [0.0, 0.0]
+firmware = "klipper"
+max_nozzle_c = 265.0
+max_bed_c = 120.0
+motion = "bedslinger"
+source = "klipper-config@0cee841"

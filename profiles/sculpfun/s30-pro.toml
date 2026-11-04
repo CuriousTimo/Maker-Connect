@@ -1,0 +1,9 @@
+# By hand, from the maker's published specs (two sources say 380 × 385 mm).
+# The controller tells its real travel ($130, $131) once it connects.
+brand = "Sculpfun"
+model = "S30 Pro"
+kind = "laser"
+build_volume_mm = [380, 385, 0]  # check
+bed_origin_mm = [0, 0]           # check: GRBL machines often home to a back corner
+firmware = "grbl"
+laser_w = 10                     # optical power of the module it is sold with

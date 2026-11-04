@@ -1,0 +1,9 @@
+# By hand, from the maker's published specs (longer3d.com: 400 × 365 mm for the 20 W).
+# The controller tells its real travel ($130, $131) once it connects.
+brand = "Longer"
+model = "Ray5 20W"
+kind = "laser"
+build_volume_mm = [400, 365, 0]  # check on the machine: its $130 and $131
+bed_origin_mm = [0, 0]           # check: GRBL machines often home to a back corner
+firmware = "grbl"
+laser_w = 20                     # optical power of the module it is sold with

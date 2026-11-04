@@ -79,6 +79,48 @@ pub struct Media {
     pub background: Option<String>,
 }
 
+/// A profile from what a machine's controller says of itself (a GRBL laser's `$130` to
+/// `$132`), for one without a profile: its work area, to draw it and check files.
+pub fn from_controller(kind: MachineKind, travel_mm: [f64; 3]) -> Profile {
+    Profile {
+        id: String::new(),
+        brand: String::new(),
+        model: "From its controller".to_owned(),
+        kind,
+        build_volume_mm: travel_mm,
+        bed_origin_mm: [0.0, 0.0],
+        nozzle_mm: None,
+        firmware: Some("grbl".to_owned()),
+        max_nozzle_c: None,
+        max_bed_c: None,
+        extruders: None,
+        laser_w: None,
+        max_speed_mm_min: None,
+        printer_models: Vec::new(),
+        detect: None,
+        dpi: None,
+        head_dots: None,
+        media: Vec::new(),
+        firmware_version: None,
+        motion: None,
+        source: None,
+    }
+}
+
+/// The drawing of a kind of machine, for one without a profile yet: a 3D printer, a laser,
+/// a CNC machine.
+pub fn generic_image(kind: MachineKind) -> Option<&'static str> {
+    let name = match kind {
+        MachineKind::Fdm => "bedslinger",
+        MachineKind::Laser => "laser",
+        MachineKind::Cnc => "cnc",
+        _ => return None,
+    };
+    FILES
+        .get_file(format!("_generic/{name}.svg"))
+        .and_then(|f| f.contents_utf8())
+}
+
 impl Profile {
     /// Its picture (`profiles/<brand>/<model>.svg`), when there is one.
     /// Its own drawing, or one of its kind and how it moves (`profiles/_generic/`).

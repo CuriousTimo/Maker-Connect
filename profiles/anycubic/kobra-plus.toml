@@ -1,0 +1,13 @@
+# Made from Klipper's printer configuration (printer-anycubic-kobra-plus-2022.cfg) by
+# `cargo run -p maker-connect-import`: made again on each run. Delete the source
+# line to edit it by hand and keep it.
+brand = "AnyCubic"
+model = "Kobra Plus"
+kind = "fdm"
+build_volume_mm = [304.0, 300.0, 350.0]
+bed_origin_mm = [0.0, 0.0]
+firmware = "klipper"
+max_nozzle_c = 260.0
+max_bed_c = 110.0
+motion = "bedslinger"
+source = "klipper-config@0cee841"

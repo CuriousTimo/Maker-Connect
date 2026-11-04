@@ -1,0 +1,13 @@
+# Made from Klipper's printer configuration (printer-robo3d-r2-2017.cfg) by
+# `cargo run -p maker-connect-import`: made again on each run. Delete the source
+# line to edit it by hand and keep it.
+brand = "Robo3D"
+model = "R2"
+kind = "fdm"
+build_volume_mm = [195.0, 195.0, 250.0]
+bed_origin_mm = [0.0, 0.0]
+firmware = "klipper"
+max_nozzle_c = 275.0
+max_bed_c = 115.0
+motion = "bedslinger"
+source = "klipper-config@0cee841"

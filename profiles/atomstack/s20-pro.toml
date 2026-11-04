@@ -1,0 +1,9 @@
+# By hand, from the maker's published specs (reviews and listings: 400 × 400 mm).
+# The controller tells its real travel ($130, $131) once it connects.
+brand = "Atomstack"
+model = "S20 Pro"
+kind = "laser"
+build_volume_mm = [400, 400, 0]  # check
+bed_origin_mm = [0, 0]           # check: GRBL machines often home to a back corner
+firmware = "grbl"
+laser_w = 20                     # optical power of the module it is sold with

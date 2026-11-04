@@ -11,7 +11,7 @@
 pub use laserfoundry_device::SimulatedGrbl;
 use laserfoundry_device::{JobState, Link, MachineState as Grbl, Snapshot, Transport};
 use maker_connect_protocol::{
-    GrblSettings, JobControl, JobEnd, JobProgress, MachineState, Telemetry,
+    GrblSettings, Identity, JobControl, JobEnd, JobProgress, MachineState, Telemetry,
 };
 use std::time::{Duration, Instant};
 
@@ -22,6 +22,8 @@ pub struct GrblMachine {
     link: Link,
     job: Option<Running>,
     firmware: Option<String>,
+    /// What its `$I` build info says it is (`Ortur Laser Master 2 Pro S2`), once heard.
+    build_info: Option<String>,
 }
 
 /// The job this machine runs.
@@ -43,10 +45,13 @@ impl GrblMachine {
         let link = Link::connect(transport);
         // The settings that matter before a job ($30, $32, $130 to $132).
         let _ = link.request_settings();
+        // Its build info: many makers put the machine's name in it.
+        let _ = link.send_line("$I");
         GrblMachine {
             link,
             job: None,
             firmware: None,
+            build_info: None,
         }
     }
 
@@ -183,6 +188,9 @@ impl GrblMachine {
         if self.firmware.is_none() {
             self.firmware = banner(&snapshot);
         }
+        if self.build_info.is_none() {
+            self.build_info = build_info(&snapshot.console);
+        }
         let mut ended = None;
         if let (Some(job), JobState::Finished(result)) = (&self.job, &snapshot.job) {
             let ok = result.is_ok() && !job.stopping;
@@ -240,6 +248,10 @@ impl GrblMachine {
                 .map(|(x, y, z)| [x as f32, y as f32, z as f32]),
             job_id: self.running(),
             job,
+            identity: self.build_info.as_ref().map(|name| Identity {
+                machine_type: Some(name.clone()),
+                ..Identity::default()
+            }),
             ..Telemetry::default()
         }
     }
@@ -320,6 +332,17 @@ fn banner(snapshot: &Snapshot) -> Option<String> {
     })
 }
 
+/// What `$I` says after the version: `[VER:1.1f.20170801:Ortur Laser Master 2]` →
+/// `Ortur Laser Master 2`. None when the maker left it empty.
+fn build_info(console: &[String]) -> Option<String> {
+    console.iter().find_map(|line| {
+        let inner = line.trim_start_matches("< ").trim().strip_prefix("[VER:")?;
+        let inner = inner.strip_suffix(']').unwrap_or(inner);
+        let (_, info) = inner.split_once(':')?;
+        Some(info.trim().to_owned()).filter(|i| !i.is_empty())
+    })
+}
+
 /// Whether a line greets as GRBL does after a reset (for telling GRBL from Marlin on a port).
 pub fn greets(line: &str) -> bool {
     line.trim_start().starts_with("Grbl ")
@@ -351,6 +374,20 @@ fn tidy(line: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_build_info_names_the_machine() {
+        let console = |l: &str| vec!["< Grbl 1.1f ['$' for help]".to_owned(), l.to_owned()];
+        assert_eq!(
+            build_info(&console(
+                "< [VER:1.1f.20170801:Ortur Laser Master 2 Pro S2]"
+            ))
+            .as_deref(),
+            Some("Ortur Laser Master 2 Pro S2")
+        );
+        assert_eq!(build_info(&console("[VER:1.1h.20190825:]")), None);
+        assert_eq!(build_info(&console("[OPT:VZL,15,128]")), None);
+    }
+
     use super::*;
     use laserfoundry_device::SimulatedGrbl;
 

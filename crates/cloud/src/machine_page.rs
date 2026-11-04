@@ -13,7 +13,21 @@ const MACHINE_SCRIPT: &str = include_str!("machine.js");
 /// How a machine's state is shown, and its badge's class: as the pages' `shownState` does.
 /// A machine that is ready but waits for something (no cassette) shows that as a notice.
 pub(crate) fn shown_state(machine: &Machine) -> (String, String) {
-    match machine.telemetry.as_ref().filter(|_| machine.online) {
+    if machine.out_of_use.is_some() {
+        return ("Out of use".to_owned(), "out".to_owned());
+    }
+    let t = machine.telemetry.as_ref().filter(|_| machine.online);
+    // A finished print on the bed: cooling, then it waits for someone to take it.
+    if machine.on_bed.is_some()
+        && let Some(t) = t.filter(|t| t.state == maker_connect_protocol::MachineState::Idle)
+    {
+        return if t.bed_c.is_some_and(|c| c > store::TAKE_BELOW_C) {
+            ("Cooling".to_owned(), "cooling".to_owned())
+        } else {
+            ("Take the print".to_owned(), "attention".to_owned())
+        };
+    }
+    match t {
         None => ("Offline".to_owned(), "offline".to_owned()),
         Some(t) => match (&t.problem, t.state) {
             (problem, maker_connect_protocol::MachineState::Attention) => (
@@ -30,12 +44,22 @@ pub(crate) fn shown_state(machine: &Machine) -> (String, String) {
 
 /// The whole page.
 pub fn render(space: &str, machine: &Machine) -> String {
-    let profile = machine.profile.as_deref().and_then(profiles::find);
+    let found = machine.profile.as_deref().and_then(profiles::find);
+    // A laser without a profile: its work area from what its controller says.
+    let told = found
+        .is_none()
+        .then(|| {
+            let travel = machine.telemetry.as_ref()?.grbl.as_ref()?.travel_mm?;
+            Some(profiles::from_controller(machine.kind, travel))
+        })
+        .flatten();
+    let profile = found.or(told.as_ref());
     let (state, state_class) = shown_state(machine);
     let kind = profile.map_or(machine.kind.label(), |p| p.model.as_str());
     let link = match machine.link.as_str() {
         "prusa-connect" => "Built-in Prusa Connect",
         "virtual" => "Virtual, in the cloud",
+        "simplyprint" => "Klipper, through Moonraker",
         _ => "Maker Connect agent",
     };
     format!(
@@ -57,6 +81,7 @@ pub fn render(space: &str, machine: &Machine) -> String {
     <span class="state {state_class}" data-live="state">{state}</span>
   </div>
   <p class="subtitle">{kind} · {link}</p>
+  <div class="notices" data-notices>{notices}</div>
   <nav class="tabs" role="tablist">
     <a href="#overview" role="tab">Overview</a>
     <a href="#control" role="tab">Control</a>
@@ -90,6 +115,7 @@ pub fn render(space: &str, machine: &Machine) -> String {
         header = crate::header(space, "../", "machines"),
         id = escape(&machine.id),
         state = escape(&state),
+        notices = notices(machine),
         kind = escape(kind),
         overview = overview(machine, profile),
         control = control(machine, profile),
@@ -113,6 +139,39 @@ pub fn render(space: &str, machine: &Machine) -> String {
             String::new()
         },
     )
+}
+
+/// What someone should know before anything else, under the title: the machine is out of
+/// use, or a finished print waits on its bed. As the page's script draws them, live.
+fn notices(machine: &Machine) -> String {
+    let id = escape(&machine.id);
+    let mut out = String::new();
+    if let Some(o) = &machine.out_of_use {
+        let why = if o.reason.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", escape(&o.reason))
+        };
+        out += &format!(
+            r#"<div class="notice out"><span><b>Out of use</b>{why}. It takes no jobs until it is back.</span><form method="post" action="{id}/out-of-use" data-async data-done="Back in use" data-then="reload"><input type="hidden" name="action" value="back"><button class="ghost">Back in use</button></form></div>"#
+        );
+    }
+    if let Some(bed) = &machine.on_bed {
+        let t = machine.telemetry.as_ref().filter(|_| machine.online);
+        let warm = t.and_then(|t| t.bed_c).filter(|c| *c > store::TAKE_BELOW_C);
+        let how = match warm {
+            Some(c) => format!(
+                "the bed cools ({c:.0} °C); take it at {:.0} °C or below",
+                store::TAKE_BELOW_C
+            ),
+            None => "the bed is cool: take it off".to_owned(),
+        };
+        out += &format!(
+            r#"<div class="notice bed"><span><b>{}</b> is done and on the bed: {how}. The next job waits until it is taken.</span><form method="post" action="{id}/taken" data-async data-done="Print taken" data-then="reload"><button>Print taken</button></form></div>"#,
+            escape(&bed.file_name)
+        );
+    }
+    out
 }
 
 /// The bed level tab: the last mesh as numbers, and as a surface, a map and a table.
@@ -517,31 +576,54 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
             )
     } else if heats(machine) {
         heater_tiles(machine)
-            + &tile(
-                "Material",
-                "material",
-                material,
-                "",
-                "none",
-                profile
-                    .and_then(|p| p.nozzle_mm)
-                    .map_or(String::new(), |n| format!("{n} mm nozzle")),
-            )
+            + &match &machine.loaded {
+                // The spool from Materials: what is left, and which it is.
+                Some(l) => tile(
+                    "Spool",
+                    "none",
+                    Some(if l.unit == "m" {
+                        format!("{:.1}", l.amount)
+                    } else {
+                        format!("{:.0}", l.amount)
+                    }),
+                    &format!("{} left", l.unit),
+                    "none",
+                    format!("{} · {}", l.item, l.name),
+                ),
+                None => tile(
+                    "Material",
+                    "material",
+                    material,
+                    "",
+                    "none",
+                    profile
+                        .and_then(|p| p.nozzle_mm)
+                        .map_or(String::new(), |n| format!("{n} mm nozzle")),
+                ),
+            }
             + &job_tile(machine)
     } else {
         position_tiles(machine)
             + &tile(
                 "Laser",
                 "none",
-                profile.and_then(|p| p.laser_w).map(|w| w.to_string()),
+                machine
+                    .laser_w
+                    .or(profile.and_then(|p| p.laser_w))
+                    .map(|w| w.to_string()),
                 "W",
                 "none",
-                "optical power".to_owned(),
+                if machine.laser_w.is_some() {
+                    "optical power, as you said".to_owned()
+                } else {
+                    "optical power".to_owned()
+                },
             )
             + &job_tile(machine)
     };
     let picture = profile
         .and_then(Profile::image)
+        .or_else(|| profiles::generic_image(machine.kind))
         .unwrap_or(r#"<div class="no-picture">No picture yet</div>"#);
     let facts = match profile {
         Some(p) => [
@@ -550,7 +632,9 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
                 Some(format!(
                     "{}{}",
                     p.model,
-                    if machine.profile_chosen {
+                    if p.id.is_empty() {
+                        ": $130 to $132; choose a profile under Settings"
+                    } else if machine.profile_chosen {
                         ""
                     } else {
                         " (recognised)"
@@ -570,7 +654,10 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
             row("Resolution", p.dpi.map(|d| format!("{d} dpi"))),
             row("Nozzle size", p.nozzle_mm.map(|n| format!("{n} mm"))),
             row("Extruders", p.extruders.map(|n| n.to_string())),
-            row("Laser", p.laser_w.map(|w| format!("{w} W"))),
+            row(
+                "Laser",
+                machine.laser_w.or(p.laser_w).map(|w| format!("{w} W")),
+            ),
             row(
                 "Max speed",
                 p.max_speed_mm_min.map(|v| format!("{v} mm/min")),
@@ -710,7 +797,7 @@ fn control(machine: &Machine, profile: Option<&Profile>) -> String {
             button("preheat-pla", "Preheat PLA"),
             button("preheat-petg", "Preheat PETG"),
             button("cooldown", "Cool down"),
-            heat_inputs(t, profile),
+            heat_inputs(t, profile) + &factor_inputs(t),
             button("fan-on", "Print fan on"),
             button("fan-off", "Print fan off"),
             button("motors-off", "Motors off"),
@@ -744,6 +831,22 @@ fn control(machine: &Machine, profile: Option<&Profile>) -> String {
                 commands(machine)
             )
         )
+    )
+}
+
+/// The speed and flow factors: a field each with its button, filled with what the machine
+/// says (or 100 %).
+fn factor_inputs(t: Option<&maker_connect_protocol::Telemetry>) -> String {
+    let field = |name: &str, label: &str, value: Option<f32>, min: u32, max: u32| {
+        format!(
+            r#"<label class="heat-set"><span>{label}</span><input type="number" name="{name}" value="{:.0}" min="{min}" max="{max}" step="1" inputmode="numeric" aria-label="{label} in percent"><small>%</small><button name="action" value="set-{name}" class="ghost">Set</button></label>"#,
+            value.unwrap_or(100.0)
+        )
+    };
+    format!(
+        r#"<h4>Speed and flow</h4><div class="heat-sets">{}{}</div><p class="hint">100 % is as the file says. Speed 10 to 300 %, flow 50 to 150 %; they hold until the printer restarts.</p>"#,
+        field("speed", "Speed", t.and_then(|t| t.speed_percent), 10, 300),
+        field("flow", "Flow", t.and_then(|t| t.flow_percent), 50, 150),
     )
 }
 
@@ -950,6 +1053,7 @@ fn connection(machine: &Machine) -> String {
     let way = match machine.link.as_str() {
         "prusa-connect" => "Its own firmware (Prusa Connect)",
         "virtual" => "Virtual: simulated in the cloud",
+        "simplyprint" => "Moonraker, by itself (its SimplyPrint component)",
         _ => "Maker Connect agent",
     };
     let agent = machine.agent.as_ref();
@@ -993,10 +1097,22 @@ fn connection(machine: &Machine) -> String {
         row("Last report", Some(last)),
     ]
     .concat();
+    // A printer on Klipper: the lines for its moonraker.conf (the address filled in by the
+    // page's script, from where it was opened).
+    let moonraker = machine
+        .moonraker_token
+        .as_deref()
+        .map_or(String::new(), |token| {
+            format!(
+                r#"<h4>On the printer</h4><p class="hint">Add this to <code>moonraker.conf</code> on the printer's computer (Mainsail or Fluidd: Machine, then moonraker.conf), save, and restart Moonraker. It then connects here by itself.</p><pre class="conf" data-moonraker-conf data-token="{token}">[simplyprint]
+url: ws://…/simplyprint/{token}</pre><p class="hint" data-moonraker-local hidden>This page was opened as <b>localhost</b>: the printer cannot reach that. Open it by this computer's address on the network, or put that address in the line yourself.</p><p class="hint">It takes the place of SimplyPrint's own cloud on that printer: a printer has one.</p>"#,
+                token = escape(token)
+            )
+        });
     card(
         "Connection",
         "How it reaches the cloud",
-        &format!("<dl>{rows}</dl>"),
+        &format!("<dl>{rows}</dl>{moonraker}"),
     )
 }
 
@@ -1048,6 +1164,41 @@ pub(crate) fn settings(machine: &Machine) -> String {
             .filter(|_| !machine.profile_chosen)
             .unwrap_or(""),
     );
+    // Out of use: why, and back; or a reason to take it out.
+    let in_use = match &machine.out_of_use {
+        Some(o) => format!(
+            r#"<p class="hint">Out of use{}{}.</p><form method="post" action="{id}/out-of-use" data-async data-done="Back in use" data-then="reload"><input type="hidden" name="action" value="back"><button>Back in use</button></form>"#,
+            if o.reason.is_empty() {
+                String::new()
+            } else {
+                format!(": {}", escape(&o.reason))
+            },
+            if o.since > 0 {
+                format!(", {}", ago(store::now() - o.since))
+            } else {
+                String::new()
+            }
+        ),
+        None => format!(
+            r#"<form method="post" action="{id}/out-of-use" data-async data-done="Out of use" data-then="reload"><input type="hidden" name="action" value="out"><input name="reason" maxlength="200" placeholder="Why: nozzle clogged, waiting for a part" aria-label="Why it is out of use"><button class="ghost">Take out of use</button></form><p class="hint">A machine out of use takes no jobs; commands still reach it, to mend it.</p>"#
+        ),
+    };
+    // A laser's module: the controller knows S1000 is full power, not how many watts.
+    let laser = if machine.kind == MachineKind::Laser {
+        let profile_w = machine
+            .profile
+            .as_deref()
+            .and_then(profiles::find)
+            .and_then(|p| p.laser_w);
+        format!(
+            r#"<h4>Laser module</h4><form method="post" action="{id}/laser" data-async data-done="Saved" data-then="reload"><input name="watts" inputmode="decimal" value="{}" placeholder="{}" aria-label="Optical power in watts" style="width:7em"><small>W</small><button class="ghost">Save</button></form><p class="hint">Its optical power, as on the module (a 10 W LU2-10A). The controller does not know it{}.</p>"#,
+            machine.laser_w.map_or(String::new(), |w| w.to_string()),
+            profile_w.map_or("watts".to_owned(), |w| w.to_string()),
+            profile_w.map_or(String::new(), |w| format!("; empty is the profile's {w} W"))
+        )
+    } else {
+        String::new()
+    };
     let forms = format!(
         r#"<h4>Name</h4>
 <form method="post" action="{id}/name" data-async data-done="Renamed" data-rename><input name="name" value="{name}" aria-label="Name" maxlength="60" required><button>Rename</button></form>
@@ -1056,6 +1207,8 @@ pub(crate) fn settings(machine: &Machine) -> String {
 <details class="change-profile"><summary class="ghost-button">Change profile</summary>
 <div class="picker in-card" data-picker data-action="{id}/profile" data-selected="{chosen}" data-auto="{auto}"></div>
 </details>
+{laser}<h4>In use</h4>
+{in_use}
 <h4>Remove</h4>
 <form method="post" action="{id}/remove" data-async data-done="Machine removed" data-confirm="Remove this machine from the space?" data-then="../"><button class="danger">Remove machine</button></form>"#
     );

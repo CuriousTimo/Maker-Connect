@@ -1,6 +1,15 @@
   .title { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
   .title h2 { margin: 0; }
   .subtitle { margin: 4px 0 0; color: var(--muted); }
+  pre.conf { margin: 8px 0; padding: 10px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+  /* What to know first: out of use, a print on the bed. */
+  .notices { display: grid; gap: 8px; margin-top: 12px; }
+  .notices:empty { display: none; }
+  .notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); }
+  .notice span { flex: 1 1 320px; }
+  .notice form { margin: 0; }
+  .notice.out { border-color: var(--off); }
+  .notice.bed { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--card)); }
   /* Scrolls sideways on a narrow screen, without a scrollbar of its own (the tabs' 1px over
      the line would otherwise show one under them, on Windows). */
   .tabs { display: flex; gap: 4px; margin: 18px 0 22px; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }

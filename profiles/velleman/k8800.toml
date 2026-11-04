@@ -1,0 +1,12 @@
+# Made from Klipper's printer configuration (printer-velleman-k8800-2017.cfg) by
+# `cargo run -p maker-connect-import`: made again on each run. Delete the source
+# line to edit it by hand and keep it.
+brand = "Velleman"
+model = "K8800"
+kind = "fdm"
+build_volume_mm = [210.0, 210.0, 295.0]
+bed_origin_mm = [0.0, 0.0]
+firmware = "klipper"
+max_nozzle_c = 280.0
+motion = "delta"
+source = "klipper-config@0cee841"

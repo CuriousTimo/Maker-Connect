@@ -1,0 +1,12 @@
+# By hand, from the stock Klipper configuration in github.com/VoronDesign/Voron-Legacy
+# (GPL-3.0): its position_max for this size, max_temp less 15 and 10 °C.
+brand = "Voron"
+model = "Legacy"
+kind = "fdm"
+build_volume_mm = [235, 230, 240]
+bed_origin_mm = [0, 0]
+nozzle_mm = 0.4
+firmware = "klipper"
+max_nozzle_c = 245
+max_bed_c = 120
+motion = "corexy"

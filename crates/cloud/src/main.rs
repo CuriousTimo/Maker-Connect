@@ -22,6 +22,7 @@ mod label_page;
 mod machine_page;
 mod profiles;
 mod prusa_connect;
+mod simplyprint;
 mod stock;
 mod store;
 mod virtual_grbl;
@@ -103,11 +104,16 @@ pub fn app(store: Shared) -> Router {
         .route("/machines/{id}/name", post(rename))
         .route("/machines/{id}/command", post(command))
         .route("/machines/{id}/remove", post(remove))
+        .route("/machines/{id}/out-of-use", post(out_of_use))
+        .route("/machines/{id}/taken", post(taken))
+        .route("/machines/{id}/laser", post(laser_power))
         .route("/api/machines/{id}/history", get(history))
         .route("/api/profiles", get(profile_list))
         .route("/profiles/{brand}/{file}", get(profile_image))
         .route("/virtual", post(add_virtual))
         .merge(prusa_connect::routes())
+        .merge(simplyprint::routes())
+        .route("/klipper", post(add_klipper))
         .merge(files::routes())
         .merge(downloads::routes())
         .merge(codes::routes())
@@ -122,7 +128,7 @@ async fn not_found(uri: axum::http::Uri) -> Response {
     (StatusCode::NOT_FOUND, format!("nothing at {uri}")).into_response()
 }
 
-fn failed(error: impl std::fmt::Display) -> Response {
+pub(crate) fn failed(error: impl std::fmt::Display) -> Response {
     (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response()
 }
 
@@ -334,12 +340,21 @@ struct PairForm {
     code: String,
 }
 
-async fn pair(State(store): State<Shared>, Form(form): Form<PairForm>) -> Response {
+async fn pair(
+    State(store): State<Shared>,
+    headers: HeaderMap,
+    Form(form): Form<PairForm>,
+) -> Response {
     let store = store.lock().unwrap();
     let paired = store
         .default_space()
         .and_then(|(space, _)| store.pair(space, &form.code));
+    let fetched = headers.contains_key("x-requested-with");
     match paired {
+        Ok(Some(_)) if fetched => StatusCode::NO_CONTENT.into_response(),
+        Ok(None) if fetched => {
+            (StatusCode::NOT_FOUND, "no machine waits with that code").into_response()
+        }
         Ok(Some(_)) => Redirect::to("/").into_response(),
         Ok(None) => Redirect::to("/?unknown-code").into_response(),
         Err(error) => failed(error),
@@ -451,21 +466,76 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
 </dialog>
 <dialog id="add-dialog" aria-labelledby="add-title">
   <div class="dialog-head">
+    <button type="button" class="back" data-wizard-back hidden aria-label="Back">←</button>
     <h2 id="add-title">Add a machine</h2>
     <button type="button" class="close" data-add-close aria-label="Close">✕</button>
   </div>
-  <section>
-    <h3>With its code</h3>
-    <p class="dialog-sub">An agent next to the machine shows a code, and so does a Prusa whose built-in Connect points here. No agent yet? <a href="{home}downloads">Download it</a>.</p>
-    <form method="post" action="/pair">
+  <section class="step" data-step="start">
+    <p class="dialog-sub">How does it connect?</p>
+    <div class="choices">
+      <button type="button" class="choice" data-go="klipper"><b>A printer on Klipper</b><small>Voron, Sovol SV08, Neptune 4… with Mainsail or Fluidd: Moonraker connects here by itself</small></button>
+      <button type="button" class="choice" data-go="prusa"><b>A Prusa with built-in Connect</b><small>MINI, MK4, XL: its own firmware connects here, no agent</small></button>
+      <button type="button" class="choice" data-go="usb"><b>A machine on USB</b><small>A Marlin printer, an MK3S, a GRBL laser, a DYMO: through the agent on a computer beside it</small></button>
+      <button type="button" class="choice" data-go="virtual"><b>A virtual one</b><small>Simulated in the cloud, to try everything without a machine</small></button>
+    </div>
+    <p class="dialog-foot">It already shows a code? <button type="button" class="link" data-go="code">Enter the code</button></p>
+  </section>
+  <section class="step" data-step="klipper" hidden>
+    <h3>A printer on Klipper</h3>
+    <p class="dialog-sub">Its name here; then two lines for its <code>moonraker.conf</code>.</p>
+    <form data-klipper-form action="{home}klipper">
+      <input name="name" maxlength="60" required aria-label="Name" placeholder="Voron 2.4">
+      <button>Next</button>
+    </form>
+  </section>
+  <section class="step" data-step="klipper-conf" hidden>
+    <h3>On the printer</h3>
+    <ol class="steps">
+      <li>Open its Mainsail or Fluidd, then <b>Machine</b> (or Configuration) and <b>moonraker.conf</b>.</li>
+      <li>Add these two lines, save, and restart Moonraker:<pre class="conf" data-klipper-conf></pre></li>
+    </ol>
+    <p class="hint" data-local-warning hidden>This page was opened as <b>localhost</b>, which the printer cannot reach: open it by this computer's address on the network, or put that address in the line.</p>
+    <p class="waiting" data-klipper-wait><i></i>Waiting for it to connect…</p>
+    <p class="dialog-foot"><a data-klipper-page href="#">Open its page</a> · the lines are on its Settings too.</p>
+  </section>
+  <section class="step" data-step="prusa" hidden>
+    <h3>A Prusa with built-in Connect</h3>
+    <ol class="steps">
+      <li>Put a file <code>prusa_printer_settings.ini</code> on its USB stick:<pre class="conf" data-prusa-ini></pre></li>
+      <li>On the printer: <b>Settings → Network → Prusa Connect → Load Settings</b>, then <b>Add printer to Connect</b>.</li>
+      <li>It shows a code: enter it here.</li>
+    </ol>
+    <form method="post" action="{home}pair" data-pair-form>
       <input name="code" maxlength="6" autocomplete="off" required aria-label="Pairing code" placeholder="ABC234">
       <button>Add</button>
     </form>
-    <p class="note" data-add-note></p>
+    <p class="note" data-pair-note></p>
   </section>
-  <section>
+  <section class="step" data-step="usb" hidden>
+    <h3>A machine on USB</h3>
+    <ol class="steps">
+      <li><a href="{home}downloads">Download the agent</a> for the computer the machine is plugged into: a Pi, a PC, a Mac.</li>
+      <li>Start it with this cloud's address and the machine's port: the Downloads page gives the command.</li>
+      <li>It shows a code: enter it here.</li>
+    </ol>
+    <form method="post" action="{home}pair" data-pair-form>
+      <input name="code" maxlength="6" autocomplete="off" required aria-label="Pairing code" placeholder="ABC234">
+      <button>Add</button>
+    </form>
+    <p class="note" data-pair-note></p>
+  </section>
+  <section class="step" data-step="code" hidden>
+    <h3>With its code</h3>
+    <p class="dialog-sub">An agent shows a code when it starts, and a Prusa when its Connect points here.</p>
+    <form method="post" action="{home}pair" data-pair-form>
+      <input name="code" maxlength="6" autocomplete="off" required aria-label="Pairing code" placeholder="ABC234">
+      <button>Add</button>
+    </form>
+    <p class="note" data-pair-note data-add-note></p>
+  </section>
+  <section class="step" data-step="virtual" hidden>
     <h3>A virtual one</h3>
-    <p class="dialog-sub">Simulated in the cloud: it moves, heats and measures its bed, to try everything without a machine.</p>
+    <p class="dialog-sub">Simulated in the cloud: it moves, heats and measures its bed. Pick its machine.</p>
     <div class="picker" data-picker data-action="{home}virtual"></div>
   </section>
 </dialog>
@@ -521,10 +591,14 @@ async fn profile_list() -> Response {
 async fn profile_image(
     axum::extract::Path((brand, file)): axum::extract::Path<(String, String)>,
 ) -> Response {
-    let image = file
-        .strip_suffix(".svg")
-        .and_then(|model| profiles::find(&format!("{brand}/{model}")))
-        .and_then(|p| p.image());
+    let image = file.strip_suffix(".svg").and_then(|model| {
+        // A machine without a profile: the drawing of its kind (`_generic/fdm.svg`).
+        if brand == "_generic" {
+            let kind = serde_json::from_value(serde_json::Value::String(model.to_owned())).ok()?;
+            return profiles::generic_image(kind);
+        }
+        profiles::find(&format!("{brand}/{model}")).and_then(|p| p.image())
+    });
     match image {
         Some(svg) => (
             [
@@ -553,6 +627,36 @@ async fn add_virtual(State(store): State<Shared>, Form(form): Form<VirtualForm>)
         .and_then(|(space, _)| store.add_virtual(space, profile))
     {
         Ok(id) => Redirect::to(&format!("/machines/{id}")).into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct KlipperForm {
+    name: String,
+}
+
+/// A printer on Klipper: made here, its Settings then give the lines for its moonraker.conf.
+async fn add_klipper(
+    State(store): State<Shared>,
+    headers: HeaderMap,
+    Form(form): Form<KlipperForm>,
+) -> Response {
+    let name = form.name.trim();
+    if name.is_empty() || name.chars().count() > 60 {
+        return (StatusCode::BAD_REQUEST, "a name of 1 to 60 characters").into_response();
+    }
+    let mut store = store.lock().unwrap();
+    let added = store.default_space().and_then(|(space, _)| {
+        let id = store.add_moonraker(space, name)?;
+        Ok((id.clone(), store.moonraker_token(space, &id)?))
+    });
+    match added {
+        // The wizard shows its lines and waits for it.
+        Ok((id, token)) if headers.contains_key("x-requested-with") => {
+            Json(serde_json::json!({ "id": id, "token": token })).into_response()
+        }
+        Ok((id, _)) => Redirect::to(&format!("/machines/{id}#settings")).into_response(),
         Err(error) => failed(error),
     }
 }
@@ -646,6 +750,10 @@ fn action(name: &str) -> Option<(&'static str, &'static str)> {
 /// The G-code that has a machine measure its bed and print the mesh, by its firmware; or
 /// why it cannot be done.
 pub(crate) fn probe_gcode(machine: &store::Machine) -> Result<&'static str, &'static str> {
+    // Klipper measures with BED_MESH_CALIBRATE; Moonraker sends the mesh by itself.
+    if machine.link == "simplyprint" {
+        return Ok("G28\nBED_MESH_CALIBRATE");
+    }
     if machine.link == "prusa-connect" {
         return Err(
             "this printer does not send its mesh over Prusa Connect: an agent on USB could read it",
@@ -661,6 +769,10 @@ pub(crate) fn probe_gcode(machine: &store::Machine) -> Result<&'static str, &'st
         Some("prusa") => Ok("G28\nG80\nG81"),
         // Marlin (and Prusa's Buddy, which is Marlin): G29 measures, M420 V prints.
         Some("marlin" | "prusa-buddy") => Ok("G28\nG29\nM420 V"),
+        // Klipper measures with BED_MESH_CALIBRATE, through Moonraker: not connected yet.
+        Some("klipper") => {
+            Err("measuring the bed of a printer on Klipper follows, with Klipper itself")
+        }
         _ => Err("choose the machine's profile first: its firmware says how to measure"),
     }
 }
@@ -683,6 +795,35 @@ struct CommandForm {
     nozzle: Option<f64>,
     #[serde(default)]
     bed: Option<f64>,
+    /// The speed and flow factors typed (%).
+    #[serde(default)]
+    speed: Option<f64>,
+    #[serde(default)]
+    flow: Option<f64>,
+}
+
+/// A speed or flow factor someone typed, as G-code: whole percents in a range a print
+/// survives (speed 10 to 300 %, flow 50 to 150 %).
+fn factor_command(
+    action: &str,
+    speed: Option<f64>,
+    flow: Option<f64>,
+) -> Option<Result<(String, String), String>> {
+    let (what, code, value, low, high) = match action {
+        "set-speed" => ("Speed", "M220", speed, 10.0, 300.0),
+        "set-flow" => ("Flow", "M221", flow, 50.0, 150.0),
+        _ => return None,
+    };
+    let Some(value) = value.filter(|v| v.is_finite()).map(f64::round) else {
+        return Some(Err(format!("{what}: type a percentage")));
+    };
+    if !(low..=high).contains(&value) {
+        return Some(Err(format!("{what}: {low} to {high} %")));
+    }
+    Some(Ok((
+        format!("{what} {value} %"),
+        format!("{code} S{value}"),
+    )))
 }
 
 /// A temperature someone typed, as G-code: whole degrees from 0 (off) to the profile's
@@ -798,6 +939,11 @@ async fn command(
         )
     } else if is_grbl && let Some(found) = grbl_action(&form.action) {
         Some(owned(found))
+    } else if let Some(found) = factor_command(&form.action, form.speed, form.flow) {
+        match found {
+            Ok(found) => Some(found),
+            Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
+        }
     } else if matches!(form.action.as_str(), "set-nozzle" | "set-bed") {
         let machine = match store.machine(space, &id) {
             Ok(Some(machine)) => machine,
@@ -894,6 +1040,96 @@ async fn rename(
     {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct OutOfUseForm {
+    /// Why it is out of use; may be empty.
+    #[serde(default)]
+    reason: String,
+    /// `out` takes it out of use, `back` brings it back.
+    action: String,
+}
+
+/// The owner takes a machine out of use, with why, or brings it back.
+async fn out_of_use(
+    State(store): State<Shared>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<OutOfUseForm>,
+) -> Response {
+    let reason = form.reason.trim();
+    if reason.chars().count() > 200 {
+        return (
+            StatusCode::BAD_REQUEST,
+            "a reason of at most 200 characters",
+        )
+            .into_response();
+    }
+    let reason = match form.action.as_str() {
+        "out" => Some(reason),
+        "back" => None,
+        _ => return (StatusCode::BAD_REQUEST, "out or back").into_response(),
+    };
+    let store = store.lock().unwrap();
+    match store
+        .default_space()
+        .and_then(|(space, _)| store.set_out_of_use(space, &id, reason))
+    {
+        Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
+        Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct LaserForm {
+    /// Watts, or empty for the profile's.
+    #[serde(default)]
+    watts: String,
+}
+
+/// A laser's module: its optical power, as the owner says.
+async fn laser_power(
+    State(store): State<Shared>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<LaserForm>,
+) -> Response {
+    let watts = match form.watts.trim().replace(',', ".") {
+        empty if empty.is_empty() => None,
+        w => match w.parse::<f64>() {
+            Ok(w) if (0.1..=200.0).contains(&w) => Some(w),
+            _ => return (StatusCode::BAD_REQUEST, "watts: 0.1 to 200").into_response(),
+        },
+    };
+    let store = store.lock().unwrap();
+    match store
+        .default_space()
+        .and_then(|(space, _)| store.set_laser_w(space, &id, watts))
+    {
+        Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
+        Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+/// Someone took the finished print off the bed: the machine can take the next job.
+async fn taken(
+    State(store): State<Shared>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let mut store = store.lock().unwrap();
+    let space = match store.default_space() {
+        Ok((space, _)) => space,
+        Err(error) => return failed(error),
+    };
+    match store.print_taken(space, &id) {
+        Ok(true) => done(&headers, &format!("/machines/{id}")),
+        Ok(false) => (StatusCode::NOT_FOUND, "no print on its bed").into_response(),
         Err(error) => failed(error),
     }
 }
@@ -1050,6 +1286,7 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--off); flex: none; }
   .dot.idle, .dot.busy { background: var(--accent); } .dot.busy { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
   .dot.paused, .dot.attention { background: var(--warn); } .dot.error { background: var(--bad); }
+  .dot.cooling { background: var(--accent); } .dot.out { background: transparent; box-shadow: inset 0 0 0 1.5px var(--off); }
   /* The counts, at the top of every page. */
   .topbar { view-transition-name: topbar; position: sticky; top: 0; z-index: 9; display: flex; justify-content: flex-end; padding: 10px 36px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
   .summary { display: flex; align-items: center; gap: 18px; color: var(--muted); font-size: 14px; white-space: nowrap; }
@@ -1113,6 +1350,24 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 0; }
   .dialog-head h2 { margin: 0; font-size: 20px; }
   dialog .close { background: transparent; color: var(--muted); font-size: 18px; padding: 4px 8px; }
+  dialog .back { background: transparent; color: var(--muted); font-size: 18px; padding: 4px 8px; margin-right: 4px; }
+  .dialog-head h2 { flex: 1; }
+  /* The add wizard: a choice, then its steps. */
+  .choices { display: grid; gap: 8px; }
+  .choice { display: grid; gap: 2px; text-align: left; padding: 12px 14px; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; font-weight: 400; }
+  .choice:hover, .choice:focus-visible { border-color: var(--accent); }
+  .choice b { font-size: 15px; }
+  .choice small { color: var(--muted); font-size: 13px; }
+  .dialog-foot { margin: 14px 0 0; color: var(--muted); font-size: 14px; }
+  button.link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
+  ol.steps { margin: 8px 0 14px; padding-left: 20px; display: grid; gap: 8px; font-size: 14px; }
+  ol.steps li { min-width: 0; }
+  pre.conf { margin: 6px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+  .waiting { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+  .waiting i { width: 10px; height: 10px; border-radius: 50%; background: var(--off); animation: wait 1.2s ease-in-out infinite; }
+  .waiting.done { color: var(--ink); font-weight: 600; }
+  .waiting.done i { background: var(--accent); animation: none; }
+  @keyframes wait { 50% { opacity: .3; } }
   dialog section { padding: 16px 22px 18px; border-top: 1px solid var(--line); margin-top: 16px; }
   dialog section + section { margin-top: 0; }
   dialog h3 { margin: 0; font-size: 16px; }
@@ -1137,11 +1392,15 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .m-col small { color: var(--muted); font-size: 13px; }
   .name { font-weight: 600 !important; font-size: 17px; }
   .machine .state { justify-self: stretch; text-align: center; }
+  .m-spool { display: flex; align-items: center; gap: 6px; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--line); flex: none; }
   @media (max-width: 900px) { .machine { grid-template-columns: 56px minmax(0, 1fr) 104px; } .m-conn, .m-seen { display: none; } .m-now { grid-column: 2; } }
   .state { justify-self: end; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; font-size: 12px; padding: 4px 10px; border-radius: 6px; background: var(--accent); color: #fff; }
   .state.offline, .state.disconnected { background: var(--off); }
   .state.error { background: var(--bad); }
   .state.attention { background: var(--warn); }
+  .state.cooling { background: var(--fdm); }
+  .state.out { background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--off); }
   .attention-count b { color: var(--warn) !important; }
   .thumb { width: 56px; height: 56px; border-radius: 10px; background: var(--line); }
   .empty { color: var(--muted); }
@@ -1180,7 +1439,7 @@ const PAGE: &str = r##"<!doctype html>
   let profiles = null;
   // A column of a machine's row: a value, and what it is under it.
   const col = (cls, value, caption) => `<div class="m-col ${cls}"><b>${esc(value ?? "–")}</b><small>${esc(caption ?? "")}</small></div>`;
-  const LINK = { virtual: "Virtual", "prusa-connect": "Prusa Connect", agent: "Agent" };
+  const LINK = { virtual: "Virtual", "prusa-connect": "Prusa Connect", agent: "Agent", simplyprint: "Moonraker" };
   // What it does now: its job, else what matters for its kind.
   function now(m, t) {
     if (t.job) {
@@ -1211,10 +1470,11 @@ const PAGE: &str = r##"<!doctype html>
         const bar = t.job ? `<div class="card-progress"><i style="width: ${percent}%"></i></div>` : "";
         const [doing, what] = now(m, t);
         const profile = profiles[m.profile];
-        const thumb = profile && profile.image ? `<img class="thumb" src="profiles/${esc(m.profile)}.svg" alt="">` : `<span class="thumb"></span>`;
+        const thumb = profile && profile.image ? `<img class="thumb" src="profiles/${esc(m.profile)}.svg" alt="">`
+          : ["fdm", "laser", "cnc"].includes(m.kind) ? `<img class="thumb" src="profiles/_generic/${esc(m.kind)}.svg" alt="">` : `<span class="thumb"></span>`;
         return `<a class="machine" href="machines/${encodeURIComponent(m.id)}">
           ${thumb}
-          <div class="m-col"><b class="name">${esc(m.name)}</b><small>${esc(profile ? (profile.model.includes(profile.brand) ? profile.model : `${profile.brand} ${profile.model}`) : KIND[m.kind] || m.kind)}</small></div>
+          <div class="m-col"><b class="name">${esc(m.name)}</b><small>${esc(profile ? (profile.model.includes(profile.brand) ? profile.model : `${profile.brand} ${profile.model}`) : KIND[m.kind] || m.kind)}</small>${m.loaded ? `<small class="m-spool"><i class="swatch" style="background:${esc(m.loaded.color || "transparent")}"></i>${esc(loadedText(m.loaded))}</small>` : ""}</div>
           ${col("m-now", doing, what)}
           ${col("m-conn", `${LINK[m.link] || m.link}${m.link === "agent" && m.agent_version ? ` ${m.agent_version}` : ""}`, t.firmware || "firmware not reported")}
           ${col("m-seen", seen(m.seen_seconds_ago), "last seen")}
@@ -1311,6 +1571,19 @@ mod tests {
             Some(Err(_))
         ));
         assert_eq!(heat_command("set-origin", None, None, mk3s), None);
+        assert_eq!(
+            factor_command("set-speed", Some(149.6), None),
+            Some(Ok(("Speed 150 %".to_owned(), "M220 S150".to_owned())))
+        );
+        assert!(matches!(
+            factor_command("set-flow", None, Some(30.0)),
+            Some(Err(_))
+        ));
+        assert!(matches!(
+            factor_command("set-speed", None, None),
+            Some(Err(_))
+        ));
+        assert_eq!(factor_command("set-bed", None, None), None);
     }
     use axum::body::Body;
     use axum::http::Request;

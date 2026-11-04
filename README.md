@@ -77,9 +77,11 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
   temperatures, up to the profile's maximum), Terminal (G-code and the machine's answers),
   Telemetry, Bed level (Prusa `G80`/`G81`, Marlin `G29`/`M420 V`, read the way the OctoPrint
   Bed Level Visualizer does), Settings.
-- **250 machine profiles of 85 brands** (`profiles/`, one TOML file per model): most 3D
+- **287 machine profiles of 92 brands** (`profiles/`, one TOML file per model): most 3D
   printers made from [Marlin's example configurations](https://github.com/MarlinFirmware/Configurations)
-  (`scripts/import-profiles.sh`), recognised from what they say to `M115`; by hand the Prusas,
+  (`scripts/import-profiles.sh`), recognised from what they say to `M115`; 37 more from
+  [Klipper's printer configurations](https://github.com/Klipper3d/klipper/tree/master/config)
+  (the printers Marlin's do not have; a printer on Klipper is not connected yet); by hand the Prusas,
   the Ortur laser and the DYMO with its tapes. Chosen with a searchable picker; listed in the
   wiki's [Supported Machines](https://github.com/CuriousTimo/Maker-Connect/wiki/Supported-Machines).
 - **Virtual machines** for every profile, to try everything without a machine: printers home,
@@ -93,8 +95,9 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 |---|---|---|---|
 | **Prusa MINI** (Buddy firmware) | Its own firmware speaks Prusa Connect to the cloud: no agent | Registers with a code, reports, takes commands | Yes: a MINI on firmware 6.3.0 |
 | **3D printers on Marlin**: 245 models (Creality, Anycubic, Artillery, …) | Agent, on USB | Recognised from `M115`; live temperatures with their targets and whether the heaters have power, moves, heating, bed mesh, terminal; **prints files** (pause, resume, stop) | Not yet: tested against simulated printers |
+| **3D printers on Klipper**: Voron, FLSUN, RatRig, LulzBot, … (46 profiles), any with Moonraker | Moonraker connects by itself (its SimplyPrint component pointed here): no agent | Status, temperatures, commands with Klipper's answers, **prints files** (Moonraker fetches them), pause, resume, stop, bed mesh | Not yet: tested against a stand-in for Moonraker |
 | **Prusa on 8-bit firmware**: MK3S, MK2.5S | Agent, on USB or an MK3S's RPi port (a Raspberry Pi Zero) | As Marlin, recognised from `M862.2 Q`; bed mesh by `G80`/`G81` | Yes: an MK3S through a Pi Zero 2 W on its RPi port (home, moves, heating, terminal, bed mesh); printing a file not yet |
-| **Lasers on GRBL**: Ortur Laser Master 2 Pro S2, other GRBL 1.1 | Agent, on USB, with LaserFoundry's device crate | Homing, the jog pad, the job's origin, settings checked, Frame, jobs streamed, pause, resume, stop, restart where it stopped | Not yet: tested against LaserFoundry's simulated GRBL |
+| **Lasers on GRBL**: Ortur, Creality Falcon, Sculpfun, Atomstack, Longer, Two Trees (10 profiles), any GRBL 1.1 | Agent, on USB, with LaserFoundry's device crate | Its work area and name from the controller (`$$`, `$I`), homing, the jog pad, the job's origin, settings checked, Frame, jobs streamed, pause, resume, stop, restart where it stopped | Not yet: tested against LaserFoundry's simulated GRBL |
 | **Label printers**: DYMO LabelManager PnP | Agent, on USB HID: no driver, no DYMO software | Labels from the editor (text, QR codes, barcodes, drawings), tapes, cassette and battery | Yes: printed from a Mac and a Windows laptop, 12 mm tape; online through an Orange Pi PC |
 | **A virtual one of every profile** | Simulated in the cloud | Printers home, heat, measure and print; lasers on simulated GRBL; label printers print | – |
 
@@ -137,7 +140,7 @@ roadmap.
 | **grbl** (`crates/grbl`) | GRBL machines (lasers), on LaserFoundry's `laserfoundry-device` and `laserfoundry-gcode`; used by the agent and by the cloud's virtual lasers |
 | **label** (`crates/label`) | Labels as rasters (PNG in, dots out), and the DYMO LabelManager's protocol over USB HID |
 | **protocol** (`crates/protocol`) | What agents and the cloud say to each other |
-| **import** (`crates/import`) | Makes machine profiles and the filament catalogue (`filaments/`) from other projects' data (Marlin's example configurations, PrusaSlicer's profiles) and the wiki's list of machines: `scripts/import-profiles.sh` |
+| **import** (`crates/import`) | Makes machine profiles and the filament catalogue (`filaments/`) from other projects' data (Marlin's example configurations, Klipper's printer configurations, PrusaSlicer's profiles) and the wiki's list of machines: `scripts/import-profiles.sh` |
 
 The tools that make the jobs stay the makers' own: PrusaSlicer and Cura for printers,
 LaserFoundry for lasers. Maker Connect takes it from the file on. See
@@ -168,6 +171,8 @@ home first, and keep hands out of the work area.
   protocol in practice. Notes: [docs/integrations.md](docs/integrations.md).
 - [Marlin's example configurations](https://github.com/MarlinFirmware/Configurations)
   (GPL-3.0): the facts (sizes, temperatures, names) the 3D printer profiles are made from.
+- [Klipper's printer configurations](https://github.com/Klipper3d/klipper/tree/master/config)
+  (GPL-3.0): the same facts for the printers Marlin's examples do not have.
 - [PrusaSlicer's vendor profiles](https://github.com/prusa3d/PrusaSlicer-settings-prusa-fff)
   (shipped with [PrusaSlicer](https://github.com/prusa3d/PrusaSlicer), AGPL-3.0): the facts
   (type, density, empty spool, temperatures, price) the filament catalogue is made from.

@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 maker-connect-grbl = { path = "../grbl" }
 maker-connect-label = { path = "../label" }
-axum = "0.8.9"
+axum = { version = "0.8.9", features = ["ws"] }
 barcoders = { version = "2", default-features = false, features = ["std"] }
 base64 = "0.22"
 fs2 = "0.4"
@@ -25,3 +25,5 @@ toml = "1.1.8"
 [dev-dependencies]
 http-body-util = "0.1.5"
 tower = { version = "0.5.3", features = ["util"] }
+# A stand-in for Moonraker in the SimplyPrint tests.
+tokio-tungstenite = "0.29"

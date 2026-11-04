@@ -1,0 +1,10 @@
+# By hand, from the maker's published specs (ortur.net FAQ: 400 × 400 mm with the 10 W LU2-10A; 400 × 380 mm with the 20 W and 40 W modules).
+# The controller tells its real travel ($130, $131) once it connects.
+brand = "Ortur"
+model = "Laser Master 3"
+kind = "laser"
+build_volume_mm = [400, 400, 0]  # check on the machine: its $130 and $131
+bed_origin_mm = [0, 0]           # check: GRBL machines often home to a back corner
+firmware = "grbl"
+max_speed_mm_min = 20000
+laser_w = 10                     # optical power of the module it is sold with

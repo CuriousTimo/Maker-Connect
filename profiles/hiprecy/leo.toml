@@ -1,0 +1,13 @@
+# Made from Klipper's printer configuration (printer-hiprecy-leo-2019.cfg) by
+# `cargo run -p maker-connect-import`: made again on each run. Delete the source
+# line to edit it by hand and keep it.
+brand = "Hiprecy"
+model = "Leo"
+kind = "fdm"
+build_volume_mm = [220.0, 230.0, 260.0]
+bed_origin_mm = [0.0, 0.0]
+firmware = "klipper"
+max_nozzle_c = 245.0
+max_bed_c = 120.0
+motion = "bedslinger"
+source = "klipper-config@0cee841"

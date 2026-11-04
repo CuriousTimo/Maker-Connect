@@ -223,6 +223,9 @@ struct Sim {
     bed_target: f32,
     /// 0-255, as M106 sets it.
     fan: u8,
+    /// The speed and flow factors (M220, M221), in percent.
+    speed: f32,
+    flow: f32,
     moves: VecDeque<Move>,
     running: Option<u32>,
     /// A mesh measured during the running command, reported once it is done.
@@ -254,6 +257,8 @@ impl Sim {
             bed: ROOM_C,
             bed_target: 0.0,
             fan: 0,
+            speed: 100.0,
+            flow: 100.0,
             moves: VecDeque::new(),
             running: None,
             mesh: None,
@@ -519,6 +524,8 @@ impl Sim {
             }
             "M106" => self.fan = value('S').unwrap_or(255.0).clamp(0.0, 255.0) as u8,
             "M107" => self.fan = 0,
+            "M220" => self.speed = value('S').unwrap_or(self.speed).clamp(10.0, 300.0),
+            "M221" => self.flow = value('S').unwrap_or(self.flow).clamp(50.0, 150.0),
             _ => {}
         }
     }
@@ -616,8 +623,8 @@ impl Sim {
             print_fan_rpm: fdm.then(|| u32::from(self.fan) * 5200 / 255),
             hotend_fan_rpm: fdm.then_some(if self.nozzle > 50.0 { 6800 } else { 0 }),
             position_mm: Some(self.position.map(round)),
-            speed_percent: Some(100.0),
-            flow_percent: fdm.then_some(100.0),
+            speed_percent: Some(self.speed),
+            flow_percent: fdm.then_some(self.flow),
             material: fdm.then(|| "PLA".to_owned()),
             ..Telemetry::default()
         }

@@ -131,6 +131,30 @@ From thermal-label's protocol notes (its "D1" family) and labelle (Apache-2.0; i
 carry Sebastian J. Bronner's permissive notice). thermal-label warns that unknown opcodes can
 hang the printer until it is switched off and on.
 
+## Klipper printers: Moonraker's SimplyPrint component
+
+Read 2026-11-04 in Moonraker (GPL-3.0, `components/simplyprint.py`), to learn its protocol;
+none of its code is used. A printer on Klipper always has a Linux computer (Klippy runs
+there), and nearly always Moonraker beside it (Mainsail and Fluidd need it). Moonraker has
+three components that connect outward by themselves:
+
+- **`[simplyprint]`** opens a WebSocket to SimplyPrint's servers, or to the address in its
+  `url` option. That option is in the code, not in Moonraker's docs, so a newer Moonraker may
+  change it. Over it: temperatures, state, job progress, the bed mesh, the computer, Klipper's
+  console; and from the server G-code, pause, resume, cancel, and a file to fetch from a URL
+  and print. Built here: `crates/cloud/src/simplyprint.rs`. The server must never send
+  `new_token` or `complete_setup`: Moonraker answers those by going back to SimplyPrint's own
+  servers. A printer has one `[simplyprint]`: pointed here, it is not on SimplyPrint.
+- **`[mqtt]`** connects to an MQTT broker and takes most of Moonraker's API over it, but not
+  files. Not used: the user prefers not to need a broker for this.
+- **`[spoolman]`** reports the filament used to a Spoolman server (`PUT /v1/spool/{id}/use`).
+  Next: Maker Connect's Materials speaks Spoolman's API, so Moonraker, the OctoPrint plugin
+  and Mainsail/Fluidd can use it as their Spoolman, and its data stays compatible for moving
+  either way.
+
+Profiles: Klipper's own `config/printer-*.cfg` (GPL-3.0) for the printers Marlin's examples
+lack (`maker-connect-import klipper`), and the Vorons by hand from VoronDesign's configs.
+
 ## Roadmap
 
 Moved to the wiki: [Roadmap](https://github.com/CuriousTimo/Maker-Connect/wiki/Roadmap).

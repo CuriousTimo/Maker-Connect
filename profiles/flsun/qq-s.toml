@@ -1,0 +1,13 @@
+# Made from Klipper's printer configuration (printer-flsun-qqs-2020.cfg) by
+# `cargo run -p maker-connect-import`: made again on each run. Delete the source
+# line to edit it by hand and keep it.
+brand = "FLSUN"
+model = "QQ-S"
+kind = "fdm"
+build_volume_mm = [250.0, 250.0, 370.0]
+bed_origin_mm = [0.0, 0.0]
+firmware = "klipper"
+max_nozzle_c = 245.0
+max_bed_c = 140.0
+motion = "delta"
+source = "klipper-config@0cee841"

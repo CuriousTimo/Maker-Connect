@@ -1,0 +1,13 @@
+# Made from Klipper's printer configuration (printer-longer-lk4x-2022.cfg) by
+# `cargo run -p maker-connect-import`: made again on each run. Delete the source
+# line to edit it by hand and keep it.
+brand = "Longer"
+model = "LK4 X"
+kind = "fdm"
+build_volume_mm = [265.0, 220.0, 250.0]
+bed_origin_mm = [0.0, 0.0]
+firmware = "klipper"
+max_nozzle_c = 245.0
+max_bed_c = 100.0
+motion = "bedslinger"
+source = "klipper-config@0cee841"

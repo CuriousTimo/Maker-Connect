@@ -1,0 +1,13 @@
+# Made from Klipper's printer configuration (printer-geeetech-301-2019.cfg) by
+# `cargo run -p maker-connect-import`: made again on each run. Delete the source
+# line to edit it by hand and keep it.
+brand = "Geeetech"
+model = "301"
+kind = "fdm"
+build_volume_mm = [188.0, 188.0, 216.0]
+bed_origin_mm = [0.0, 0.0]
+firmware = "klipper"
+max_nozzle_c = 235.0
+max_bed_c = 140.0
+motion = "delta"
+source = "klipper-config@0cee841"

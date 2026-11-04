@@ -64,10 +64,22 @@ pub fn fit(file: &StoredFile, machine: &Machine) -> Result<Option<String>, Strin
     match machine.link.as_str() {
         // An agent streams to a GRBL machine (a laser) and to a Marlin printer over USB.
         "virtual" | "agent" => {}
+        // Moonraker fetches the file from here and prints it.
+        "simplyprint" => {}
         _ => return Err("printing on a Prusa over built-in Connect follows".to_owned()),
+    }
+    if let Some(out) = &machine.out_of_use {
+        return Err(if out.reason.is_empty() {
+            "out of use".to_owned()
+        } else {
+            format!("out of use: {}", out.reason)
+        });
     }
     if !machine.online {
         return Err("offline".to_owned());
+    }
+    if machine.on_bed.is_some() {
+        return Err("a print is still on the bed: take it off first".to_owned());
     }
     if let Some(job) = &machine.job {
         return Err(format!("busy with {}", job.file_name));
