@@ -81,6 +81,8 @@ pub struct Machine {
     pub agent: Option<maker_connect_protocol::AgentInfo>,
     /// The address its last report came from, as the cloud saw it.
     pub peer: Option<String>,
+    /// The agent build on the Downloads page, when this machine's agent is another.
+    pub agent_update: Option<String>,
 }
 
 /// Where a device gets its power: a channel of another device (a plug, a power strip).
@@ -1152,6 +1154,16 @@ impl Store {
         Ok(updated > 0)
     }
 
+    /// The agent build the Downloads page offers: its commit and when it was built, from
+    /// `.build` beside the downloads (written by `scripts/build-downloads.sh`).
+    pub fn offered_build(&self) -> Option<(String, String)> {
+        let text = std::fs::read_to_string(self.downloads_dir.join(".build")).ok()?;
+        let mut lines = text.lines();
+        let commit = lines.next()?.trim().to_owned();
+        let built = lines.next().unwrap_or("").trim().to_owned();
+        (!commit.is_empty()).then_some((commit, built))
+    }
+
     /// One machine of a space.
     pub fn machine(&self, space: i64, id: &str) -> rusqlite::Result<Option<Machine>> {
         Ok(self.machines(space)?.into_iter().find(|m| m.id == id))
@@ -1203,10 +1215,19 @@ impl Store {
                     .get::<_, Option<String>>(15)?
                     .and_then(|a| serde_json::from_str(&a).ok()),
                 peer: r.get(16)?,
+                agent_update: None,
             })
         })?;
         let mut machines: Vec<Machine> = rows.collect::<rusqlite::Result<_>>()?;
+        let offered = self.offered_build();
         for machine in &mut machines {
+            if let (Some(offered), Some(running)) = (
+                &offered,
+                machine.agent.as_ref().and_then(|a| a.build.as_ref()),
+            ) && offered.0 != *running
+            {
+                machine.agent_update = Some(format!("{} ({})", offered.0, offered.1));
+            }
             machine.job = self.active_job(&machine.id)?;
             if machine.job.is_none() {
                 machine.resumable = self.resumable_job(&machine.id)?;
@@ -1286,6 +1307,46 @@ mod tests {
         assert_eq!(store.set_powered_by(space, &dryer, None).unwrap(), Ok(()));
         assert_eq!(
             store.machine(space, &dryer).unwrap().unwrap().powered_by,
+            None
+        );
+    }
+
+    #[test]
+    fn an_agent_behind_the_downloads_is_told() {
+        let mut store = Store::open(":memory:").unwrap();
+        let (space, _) = store.default_space().unwrap();
+        let id = device(&mut store, space, "Dymo");
+        let token = store.virtual_machines().unwrap()[0].1.clone();
+        let report = |build: &str| Telemetry {
+            agent: Some(maker_connect_protocol::AgentInfo {
+                version: "0.1.0".into(),
+                build: Some(build.into()),
+                ..Default::default()
+            }),
+            ..Telemetry::default()
+        };
+        store.report(&token, &report("1d5c84c")).unwrap();
+        assert_eq!(
+            store.machine(space, &id).unwrap().unwrap().agent_update,
+            None
+        );
+        std::fs::write(
+            store.downloads_dir.join(".build"),
+            "abc1234\n2026-11-04 15:00 UTC\n",
+        )
+        .unwrap();
+        assert_eq!(
+            store
+                .machine(space, &id)
+                .unwrap()
+                .unwrap()
+                .agent_update
+                .as_deref(),
+            Some("abc1234 (2026-11-04 15:00 UTC)")
+        );
+        store.report(&token, &report("abc1234")).unwrap();
+        assert_eq!(
+            store.machine(space, &id).unwrap().unwrap().agent_update,
             None
         );
     }

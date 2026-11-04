@@ -864,8 +864,19 @@ fn connection(machine: &Machine) -> String {
         row(
             "Agent version",
             agent
-                .map(|a| a.version.clone())
+                .map(|a| match (&a.build, &a.built) {
+                    (Some(build), Some(built)) => format!("{} · build {build}, {built}", a.version),
+                    (Some(build), None) => format!("{} · build {build}", a.version),
+                    _ => format!("{} (an agent from before builds were named)", a.version),
+                })
                 .or_else(|| (machine.link == "agent").then(|| machine.agent_version.clone())),
+        ),
+        row(
+            "Update",
+            machine
+                .agent_update
+                .as_ref()
+                .map(|b| format!("build {b} is on the Downloads page")),
         ),
         row("Computer", agent.and_then(|a| a.hostname.clone())),
         row("System", system),

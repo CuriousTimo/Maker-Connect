@@ -9,6 +9,12 @@ cd "$(dirname "$0")/.."
 out="${1:-maker-connect-downloads}"
 mkdir -p "$out"
 
+# The build these are, as the agent knows itself (crates/agent/build.rs): the cloud compares
+# it with what agents report, to say an update is there.
+commit=$(git rev-parse --short=7 HEAD)
+[ -n "$(git status --porcelain --untracked-files=no)" ] && commit="$commit-dirty"
+printf '%s\n%s\n' "$commit" "$(date -u '+%Y-%m-%d %H:%M UTC')" > "$out/.build"
+
 os=$(uname -s); arch=$(uname -m)
 case "$os" in Darwin) os=macos ;; Linux) os=linux ;; *) os="" ;; esac
 case "$arch" in arm64) arch=aarch64 ;; esac

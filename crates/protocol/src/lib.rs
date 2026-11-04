@@ -185,6 +185,12 @@ pub struct Telemetry {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct AgentInfo {
     pub version: String,
+    /// The git commit it was built from (`1d5c84c`, `-dirty` when files differed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<String>,
+    /// When it was built: `2026-11-04 14:35 UTC`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub built: Option<String>,
     /// `windows`, `macos`, `linux`, and the processor: `x86_64`, `aarch64`.
     pub os: String,
     pub arch: String,

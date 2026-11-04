@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 const USAGE: &str = "Maker Connect agent (proof of concept)
 
 Usage:
+  maker-connect-agent --version                        which agent this is: version, build, date
   maker-connect-agent ports                            list the serial ports
   maker-connect-agent send <port> <file.gcode> [--baud 115200]
                                                        stream a G-code file to a printer on USB
@@ -51,6 +52,10 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     let result = match args.first().map(String::as_str) {
+        Some("--version" | "version" | "-V") => {
+            println!("{}", version());
+            Ok(())
+        }
         Some("ports") => ports(),
         Some("send") => send(&args[1..]),
         Some("run") => cloud::run(&args[1..]),
@@ -66,6 +71,16 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// What this agent is: `maker-connect-agent 0.1.0 (build 1d5c84c, 2026-11-04 14:35 UTC)`.
+pub fn version() -> String {
+    format!(
+        "maker-connect-agent {} (build {}, {})",
+        env!("CARGO_PKG_VERSION"),
+        env!("MC_COMMIT"),
+        env!("MC_BUILT")
+    )
 }
 
 /// Keeps a window that the agent opened (a double-click) until Enter.

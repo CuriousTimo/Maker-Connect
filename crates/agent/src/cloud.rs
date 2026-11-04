@@ -320,6 +320,8 @@ fn agent_info(cloud: &str) -> protocol::AgentInfo {
         });
     protocol::AgentInfo {
         version: env!("CARGO_PKG_VERSION").to_owned(),
+        build: Some(env!("MC_COMMIT").to_owned()),
+        built: Some(env!("MC_BUILT").to_owned()),
         os: std::env::consts::OS.to_owned(),
         arch: std::env::consts::ARCH.to_owned(),
         hostname,
@@ -432,6 +434,7 @@ fn open_printer(options: &Options) -> Option<(marlin::Printer<Link>, Known)> {
 
 pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let options = options(args)?;
+    println!("{}", crate::version());
     let mut cloud = CloudLink::new();
     // A first run with the cloud away waits for it, rather than giving up.
     let mut registered = match kept(&options) {

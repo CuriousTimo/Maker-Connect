@@ -115,10 +115,10 @@ fn megabytes(size: u64) -> String {
 }
 
 async fn page(State(store): State<Shared>, headers: HeaderMap) -> Response {
-    let (space, dir) = {
+    let (space, dir, on_offer) = {
         let store = store.lock().unwrap();
         match store.default_space() {
-            Ok((_, space)) => (space, store.downloads_dir.clone()),
+            Ok((_, space)) => (space, store.downloads_dir.clone(), store.offered_build()),
             Err(error) => return failed(error),
         }
     };
@@ -228,6 +228,7 @@ async fn page(State(store): State<Shared>, headers: HeaderMap) -> Response {
   <h2>Downloads</h2>
   <p class="intro">The agent, for the computer next to a machine: it drives the machine and reports to this cloud. It shows a code; enter it under Add machine. With <code>--save</code> it keeps its options in <code>maker-connect-agent.toml</code>, so the next time a plain <code>run</code> (or a double-click on Windows) is enough.</p>
   {local_note}
+  {build_note}
 {body}
 </main>
 <script>
@@ -264,6 +265,11 @@ async fn page(State(store): State<Shared>, headers: HeaderMap) -> Response {
 </html>
 "##,
         header = header(&space, "", "downloads"),
+        build_note = on_offer.map_or(String::new(), |(commit, built)| format!(
+            r#"<p class="note">Build <code>{}</code>, {}. The Connection card of each machine says which build its agent runs, and when this one is newer.</p>"#,
+            escape(&commit),
+            escape(&built)
+        )),
     ))
     .into_response()
 }
