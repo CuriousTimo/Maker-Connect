@@ -167,15 +167,24 @@ mod hid {
     /// HID reports carry 64 bytes.
     const REPORT: usize = 64;
 
+    /// The time of day (UTC), for the log: `13:12:41`.
+    fn clock() -> String {
+        let s = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        format!("{:02}:{:02}:{:02} UTC", s / 3600 % 24, s / 60 % 60, s % 60)
+    }
+
     /// A LabelManager on USB.
     pub struct Printer {
         device: hidapi::HidDevice,
         /// Kept while the device is open, and asked whether it is still on USB.
         api: hidapi::HidApi,
         pub product: String,
-        /// What it last said: on opening, and around each label. It is not asked while it
-        /// has nothing to do: on HID every request is a full report, and the printer was
-        /// seen to feed tape when asked again and again while idle (2026-11-04, Windows).
+        /// What it last said, around each label. It is sent nothing while it has nothing to
+        /// do, not even on opening: on Windows it was seen to keep feeding tape (2026-11-04),
+        /// after being asked its status every report while its cassette was taken out and
+        /// put back; switched off and on, it stopped.
         pub last: Option<Status>,
     }
 
@@ -193,13 +202,13 @@ mod hid {
             .unwrap_or("DYMO LabelManager")
             .to_owned();
         let device = info.open_device(&api).map_err(|e| e.to_string())?;
-        let mut printer = Printer {
+        let printer = Printer {
             device,
             api,
             product,
             last: None,
         };
-        printer.last = Some(printer.status()?);
+        // Nothing is sent on opening: its status is asked when it prints.
         Ok(Some(printer))
     }
 
@@ -215,6 +224,12 @@ mod hid {
         }
 
         fn send(&self, bytes: &[u8]) -> Result<(), String> {
+            // Every message to the printer is said, so what it does can be set against it.
+            let what = match bytes {
+                [0x1b, b'A'] => "status request".to_owned(),
+                _ => format!("{} bytes of a label", bytes.len()),
+            };
+            println!("{} to the DYMO: {what}", clock());
             for part in bytes.chunks(REPORT) {
                 // Report id 0, then the bytes, the rest of the report zero.
                 let mut report = [0u8; REPORT + 1];
