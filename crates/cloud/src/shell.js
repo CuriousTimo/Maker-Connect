@@ -139,6 +139,7 @@
     const pages = [
       { label: "Machines", hint: "page", href: ROOT },
       { label: "Files", hint: "page", href: `${ROOT}files` },
+      { label: "Stock", hint: "page", href: `${ROOT}stock` },
       { label: "Downloads", hint: "page", href: `${ROOT}downloads` },
       { label: "Add a machine", hint: "action", run: () => document.querySelector("[data-add-open]").click() },
     ];

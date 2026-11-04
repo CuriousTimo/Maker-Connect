@@ -26,6 +26,8 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 | **Bed level**: the mesh as a surface, a map and a table | **Files**: sorted and filtered by type and machine, where each was printed, removed many at once |
 | ![A label printer's label tab: text, font, a QR code, and the preview of the dots that will burn on 12 mm tape](docs/screenshots/label.png) | ![The downloads page: the agent for macOS and Windows, with the command to start it](docs/screenshots/downloads.png) |
 | **Label**: text, a QR code or barcode, a drawing; the preview is the dots that will burn | **Downloads**: the agent for each platform, with the command for this cloud |
+| ![The stock page: filament and label tapes with their spools and cassettes, where each is, a scan box](docs/screenshots/stock.png) | |
+| **Stock**: each spool and cassette with a code and a label, where it is, what is loaded | |
 
 ## What works
 
@@ -51,6 +53,10 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
   them, with a QR code or a barcode (Code 128, EAN-13) on whole dots if you like. Tried on a
   real PnP from a Mac and from a Windows laptop (12 mm tape); you say which tape is loaded, since the
   printer only tells whether a cassette is in.
+- **Stock**: materials (filament, label tapes drawn as they look), each spool and cassette
+  an item with a code (`S-0007`) and a QR label printed on the label printer, locations
+  (`L-0003`), loading into a machine (a tape tells the label printer which it has), weighing,
+  used up; every change kept as a movement. A barcode scanner works anywhere on the page.
 - **Files and jobs.** Drop G-code on the Files page; the cloud reads what the slicer wrote
   (time, filament, layer height, the printer it was sliced for, the thumbnail) and offers only
   the machines it fits. Jobs show progress, time left, pause and stop.

@@ -271,6 +271,20 @@
     render();
   });
 
+  // Sent here with a label to make (from Stock): its text and the QR code's link.
+  {
+    const wanted = new URLSearchParams(location.search);
+    if (wanted.has("label")) {
+      text.value = wanted.get("label");
+      if (wanted.get("qr")) {
+        codeKind.value = "qr";
+        codeData.value = wanted.get("qr");
+      }
+      // The address without the label in it (a reload starts fresh); never in the way.
+      try { history.replaceState(null, "", location.pathname + location.hash); } catch {}
+    }
+  }
+
   let pending = 0;
   const later = () => { clearTimeout(pending); pending = setTimeout(render, 120); };
   for (const input of [text, font, weight, size, frame, invert, codeKind, codeData]) input.addEventListener("input", later);

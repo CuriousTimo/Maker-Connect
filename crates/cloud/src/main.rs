@@ -22,6 +22,7 @@ mod label_page;
 mod machine_page;
 mod profiles;
 mod prusa_connect;
+mod stock;
 mod store;
 mod virtual_grbl;
 mod virtual_machines;
@@ -110,6 +111,7 @@ pub fn app(store: Shared) -> Router {
         .merge(files::routes())
         .merge(downloads::routes())
         .merge(codes::routes())
+        .merge(stock::routes())
         .route("/files", get(files_page::page))
         .fallback(not_found)
         .layer(axum::middleware::from_fn(prusa_connect::log))
@@ -424,7 +426,7 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
         r##"<aside class="sidebar" data-root="{home}">
   <a class="brand" href="{home}"><img src="{root}logo.svg" alt="" width="30" height="30"><span><b>Maker Connect</b><small>{space}</small></span></a>
   <button type="button" class="search-open" data-palette-open title="Go to a machine, a file or a page"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13.2 13.2 3.8 3.8"/></svg><span>Go to…</span><kbd>⌘K</kbd></button>
-  <nav class="side-nav" aria-label="Pages">{machines}{files}{downloads}</nav>
+  <nav class="side-nav" aria-label="Pages">{machines}{files}{stock}{downloads}</nav>
   <div class="side-section">
     <div class="side-title"><span>Machines</span><button type="button" class="side-add" data-add-open title="Add a machine" aria-label="Add a machine"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11"/></svg></button></div>
     <nav class="side-machines" data-side-machines aria-label="Machines"></nav>
@@ -479,6 +481,12 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
             "Files",
             "files",
             r#"<path d="M5 2.5h6.5l3.5 3.5v11.5H5z"/><path d="M11.5 2.5V6H15"/>"#
+        ),
+        stock = link(
+            "stock",
+            "Stock",
+            "stock",
+            r#"<path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5z"/><path d="M3 6.5 10 10l7-3.5M10 10v7"/>"#
         ),
         downloads = link(
             "downloads",

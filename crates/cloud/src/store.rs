@@ -263,7 +263,7 @@ impl JobState {
 }
 
 pub struct Store {
-    db: Connection,
+    pub(crate) db: Connection,
     /// Where uploaded files are kept: `<id>.gcode`, and `<id>.png` for a thumbnail.
     pub files_dir: std::path::PathBuf,
     /// What `/downloads` offers (the agent for each platform): `maker-connect-downloads/`
@@ -362,6 +362,7 @@ impl Store {
                 )?;
             }
         }
+        crate::stock::migrate(&db)?;
         let spaces: i64 = db.query_row("SELECT COUNT(*) FROM spaces", [], |r| r.get(0))?;
         if spaces == 0 {
             db.execute("INSERT INTO spaces (name) VALUES ('My space')", [])?;
@@ -407,7 +408,7 @@ impl Store {
         self.changes.subscribe()
     }
 
-    fn changed(&self) {
+    pub(crate) fn changed(&self) {
         // Nobody listening is fine.
         let _ = self.changes.send(());
     }
