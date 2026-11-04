@@ -143,6 +143,7 @@ async fn page(State(store): State<Shared>, headers: HeaderMap) -> Response {
                 cards += &format!(
                     r#"<article class="build" data-os="{os}" data-arch="{arch}">
   <div class="build-head"><span class="os-icon {os}">{icon}</span><div><h3>{title}</h3><p>{arch_title}</p></div><span class="yours" hidden>Your system</span></div>
+  {release}
   <a class="get" href="{link}" download>Download <small>{size}</small></a>
   <p class="how">Then, in {shell}, where you saved it:</p>
   <pre><code>{command}</code></pre>
@@ -154,6 +155,12 @@ async fn page(State(store): State<Shared>, headers: HeaderMap) -> Response {
                     title = b.title(),
                     arch_title = b.arch_title(),
                     size = megabytes(*size),
+                    release = on_offer.as_ref().map_or(String::new(), |b| format!(
+                        r#"<p class="release"><b>Version {}</b> · build <code>{}</code> · {}</p>"#,
+                        escape(b.version.as_deref().unwrap_or("?")),
+                        escape(&b.commit),
+                        escape(&b.built)
+                    )),
                     shell = if b.os == "windows" {
                         "PowerShell"
                     } else {
@@ -213,6 +220,8 @@ async fn page(State(store): State<Shared>, headers: HeaderMap) -> Response {
   .yours {{ margin-left: auto; align-self: start; white-space: nowrap; padding: 2px 8px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 15%, transparent); font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--accent); }}
   .get {{ display: flex; justify-content: space-between; align-items: baseline; padding: 10px 14px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; text-decoration: none; }}
   .get small {{ font-weight: 400; opacity: .85; }}
+  .release {{ margin: 0; font-size: 14px; color: var(--muted); }}
+  .release b {{ color: var(--ink); }}
   .how {{ margin: 0; color: var(--muted); font-size: 14px; }}
   .build pre {{ margin: 0; padding: 10px 12px; background: var(--bg); border-radius: 8px; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }}
   .copy {{ justify-self: start; padding: 5px 12px; font-size: 13px; background: transparent; color: var(--ink); border: 1px solid var(--line); }}
@@ -265,11 +274,9 @@ async fn page(State(store): State<Shared>, headers: HeaderMap) -> Response {
 </html>
 "##,
         header = header(&space, "", "downloads"),
-        build_note = on_offer.map_or(String::new(), |(commit, built)| format!(
-            r#"<p class="note">Build <code>{}</code>, {}. The Connection card of each machine says which build its agent runs, and when this one is newer.</p>"#,
-            escape(&commit),
-            escape(&built)
-        )),
+        build_note = on_offer.as_ref().map_or(String::new(), |_| {
+            r#"<p class="note">The Connection card of each machine says which build its agent runs, and when the one here is newer.</p>"#.to_owned()
+        }),
     ))
     .into_response()
 }

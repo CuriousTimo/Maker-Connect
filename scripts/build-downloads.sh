@@ -13,7 +13,8 @@ mkdir -p "$out"
 # it with what agents report, to say an update is there.
 commit=$(git rev-parse --short=7 HEAD)
 [ -n "$(git status --porcelain --untracked-files=no)" ] && commit="$commit-dirty"
-printf '%s\n%s\n' "$commit" "$(date -u '+%Y-%m-%d %H:%M UTC')" > "$out/.build"
+version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+printf '%s\n%s\n%s\n' "$commit" "$(date -u '+%Y-%m-%d %H:%M UTC')" "$version" > "$out/.build"
 
 os=$(uname -s); arch=$(uname -m)
 case "$os" in Darwin) os=macos ;; Linux) os=linux ;; *) os="" ;; esac

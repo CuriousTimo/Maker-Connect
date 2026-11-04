@@ -85,6 +85,17 @@ pub struct Machine {
     pub agent_update: Option<String>,
 }
 
+/// The agent build the Downloads page offers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OfferedBuild {
+    /// The git commit: `d12d6c7`.
+    pub commit: String,
+    /// When: `2026-11-04 13:20 UTC`.
+    pub built: String,
+    /// The agent's version: `0.1.0`.
+    pub version: Option<String>,
+}
+
 /// Where a device gets its power: a channel of another device (a plug, a power strip).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PowerLink {
@@ -1156,12 +1167,15 @@ impl Store {
 
     /// The agent build the Downloads page offers: its commit and when it was built, from
     /// `.build` beside the downloads (written by `scripts/build-downloads.sh`).
-    pub fn offered_build(&self) -> Option<(String, String)> {
+    pub fn offered_build(&self) -> Option<OfferedBuild> {
         let text = std::fs::read_to_string(self.downloads_dir.join(".build")).ok()?;
-        let mut lines = text.lines();
-        let commit = lines.next()?.trim().to_owned();
-        let built = lines.next().unwrap_or("").trim().to_owned();
-        (!commit.is_empty()).then_some((commit, built))
+        let mut lines = text.lines().map(|l| l.trim().to_owned());
+        let commit = lines.next().filter(|c| !c.is_empty())?;
+        Some(OfferedBuild {
+            commit,
+            built: lines.next().unwrap_or_default(),
+            version: lines.next().filter(|v| !v.is_empty()),
+        })
     }
 
     /// One machine of a space.
@@ -1223,9 +1237,9 @@ impl Store {
         for machine in &mut machines {
             // An agent from before builds were named is behind any build on offer.
             if let (Some(offered), Some(agent)) = (&offered, machine.agent.as_ref())
-                && agent.build.as_ref() != Some(&offered.0)
+                && agent.build.as_ref() != Some(&offered.commit)
             {
-                machine.agent_update = Some(format!("{} ({})", offered.0, offered.1));
+                machine.agent_update = Some(format!("{} ({})", offered.commit, offered.built));
             }
             machine.job = self.active_job(&machine.id)?;
             if machine.job.is_none() {
