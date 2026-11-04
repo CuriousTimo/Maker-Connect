@@ -334,6 +334,13 @@ impl<L: Read + Write> Printer<L> {
         }
     }
 
+    /// Sends one line of a job and waits for its `ok`, which it returns (it carries the
+    /// temperatures on most printers).
+    pub fn send_line(&mut self, code: &str, on: &mut impl FnMut(Event)) -> io::Result<String> {
+        self.send_numbered(code)?;
+        self.wait_ok(on)
+    }
+
     /// Sends G-code, line by line, each acknowledged before the next.
     pub fn send<'a>(
         &mut self,
@@ -355,7 +362,7 @@ impl<L: Read + Write> Printer<L> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn said(text: &str) -> Vec<String> {
@@ -396,8 +403,7 @@ mod tests {
         assert_eq!(mesh(&said("Mesh bed leveling not active.\nok")), None);
         assert_eq!(mesh(&said("T:21.0 /0.0 B:20.1 /0.0\nok")), None);
     }
-    use std::cell::RefCell;
-    use std::rc::Rc;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn lines_get_a_number_and_a_checksum() {
@@ -430,7 +436,7 @@ mod tests {
     /// A printer in memory that checks what it gets as Marlin does: the line number and the
     /// checksum, asking for a resend when one is wrong; it can be told to spoil a line
     /// (as noise on the wire would) and to report busy first.
-    struct FakeMarlin {
+    pub(crate) struct FakeMarlin {
         expected: u32,
         out: VecDeque<u8>,
         input: Vec<u8>,
@@ -438,11 +444,11 @@ mod tests {
         spoil: Vec<u32>,
         busy_first: usize,
         /// The codes it accepted, in order.
-        accepted: Rc<RefCell<Vec<String>>>,
+        accepted: Arc<Mutex<Vec<String>>>,
     }
 
     impl FakeMarlin {
-        fn new(accepted: Rc<RefCell<Vec<String>>>) -> Self {
+        pub(crate) fn new(accepted: Arc<Mutex<Vec<String>>>) -> Self {
             Self {
                 expected: 0,
                 out: b"start\necho: Marlin\n".iter().copied().collect(),
@@ -485,7 +491,7 @@ mod tests {
                 "M862.2 Q" => self.say("echo:  M862.2 P302"),
                 _ => {}
             }
-            self.accepted.borrow_mut().push(code);
+            self.accepted.lock().unwrap().push(code);
             self.say("ok T:210.0 /210.0 B:60.0 /60.0");
         }
     }
@@ -528,14 +534,14 @@ mod tests {
         printer
             .send(GCODE.lines(), &mut |e| events.push(e))
             .unwrap();
-        let got = accepted.borrow().clone();
+        let got = accepted.lock().unwrap().clone();
         (got, events)
     }
 
     /// Every code line arrives once, in order, without comments or blank lines.
     #[test]
     fn a_file_is_streamed_line_by_line() {
-        let (accepted, events) = run(FakeMarlin::new(Rc::default()));
+        let (accepted, events) = run(FakeMarlin::new(Arc::default()));
         assert_eq!(
             accepted,
             ["G28", "M104 S210", "G1 X10 Y10", "G1 X20 Y10 E1.5", "M84"]
@@ -548,7 +554,7 @@ mod tests {
     /// or doubled.
     #[test]
     fn a_damaged_line_is_resent() {
-        let mut fake = FakeMarlin::new(Rc::default());
+        let mut fake = FakeMarlin::new(Arc::default());
         fake.spoil = vec![3];
         let (accepted, events) = run(fake);
         assert_eq!(
@@ -561,7 +567,7 @@ mod tests {
     /// One command and its answer: the firmware from M115, the temperatures from M105.
     #[test]
     fn firmware_and_temperatures_are_read() {
-        let mut printer = Printer::new(FakeMarlin::new(Rc::default()));
+        let mut printer = Printer::new(FakeMarlin::new(Arc::default()));
         printer.connect(&mut |_| {}).unwrap();
         let answer = printer.command("M115").unwrap();
         assert_eq!(firmware(&answer).as_deref(), Some("Prusa-Firmware 3.14.0"));
@@ -584,7 +590,7 @@ mod tests {
     /// While the printer reports busy (heating, homing) the sender waits.
     #[test]
     fn a_busy_printer_is_waited_for() {
-        let mut fake = FakeMarlin::new(Rc::default());
+        let mut fake = FakeMarlin::new(Arc::default());
         fake.busy_first = 3;
         let (accepted, _) = run(fake);
         assert_eq!(accepted.len(), 5);

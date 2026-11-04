@@ -8,6 +8,7 @@
 mod cloud;
 mod config;
 mod marlin;
+mod print;
 
 use std::io::Write;
 use std::process::ExitCode;

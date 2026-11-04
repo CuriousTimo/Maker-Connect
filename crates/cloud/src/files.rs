@@ -1,8 +1,8 @@
 //! A space's G-code files, and printing one on a machine. Files are kept on disk beside the
 //! database (`<id>.gcode`, with `<id>.png` for a thumbnail found in it); their metadata
-//! ([`crate::gcode`]) in the store. Printing makes a job on the machine; for now virtual
-//! machines take jobs ([`crate::virtual_machines`]); agents and Prusas on built-in Connect
-//! follow.
+//! ([`crate::gcode`]) in the store. Printing makes a job on the machine: virtual machines
+//! play it ([`crate::virtual_machines`]), an agent streams it (GRBL lasers, Marlin printers
+//! over USB); Prusas on built-in Connect follow.
 
 use crate::store::{JobState, Machine, StoredFile};
 use crate::{Shared, failed, profiles};
@@ -61,16 +61,9 @@ pub fn fit(file: &StoredFile, machine: &Machine) -> Result<Option<String>, Strin
     } else if file.meta.kind.is_none() {
         warning = Some("the file does not say what it is for".to_owned());
     }
-    let grbl = profile.and_then(|p| p.firmware.as_deref()) == Some("grbl");
     match machine.link.as_str() {
-        "virtual" => {}
-        // An agent streams to a GRBL machine (a laser); Marlin over USB comes next.
-        "agent" if grbl => {}
-        "agent" => {
-            return Err(
-                "an agent streams to GRBL machines so far; Marlin printers follow".to_owned(),
-            );
-        }
+        // An agent streams to a GRBL machine (a laser) and to a Marlin printer over USB.
+        "virtual" | "agent" => {}
         _ => return Err("printing on a Prusa over built-in Connect follows".to_owned()),
     }
     if !machine.online {

@@ -36,7 +36,10 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
   printer side of that protocol. Point the MINI's Connect settings at your cloud and it
   registers, reports, and takes commands. Tried on a real MINI (firmware 6.3.0).
 - **Printers on USB** through the agent: Marlin and Prusa's 8-bit firmware (line numbers,
-  checksums, resends), recognised by what they say (`M115`, `M862.2 Q`).
+  checksums, resends), recognised by what they say (`M115`, `M862.2 Q`). Files print on
+  them as jobs: streamed by the agent with progress, time left and the temperatures as it
+  goes (`M155`), paused between two lines, stopped with heaters and motors off. Tested
+  against a simulated printer; the first real print is still to come.
 - **Lasers (GRBL)** through the agent, with [LaserFoundry](https://github.com/Stitchwright/laserfoundry)'s
   device crate: homing, GRBL's own jogs, the controller's settings checked before a job
   (laser mode, full power, travel), Frame (the outline with the laser off), streaming by GRBL's
@@ -100,8 +103,7 @@ LaserFoundry for lasers. Maker Connect takes it from the file on. See
 
 No login: run it where only you can reach it, since anyone who reaches it can move your
 machines (and download the agent). Label printers other than the DYMO LabelManager PnP, and
-codes scanned off real labels, are still to try. Printing over USB on a Marlin printer through the agent, files for the MINI over
-Prusa Connect, binary G-code (`.bgcode`), queues and a G-code viewer are still to come. Values
+codes scanned off real labels, are still to try. Files for the MINI over Prusa Connect, binary G-code (`.bgcode`), queues and a G-code viewer are still to come. Values
 marked `# check` in the profiles are not yet confirmed on the machines.
 
 **Safety:** a laser and a heated printer can start a fire. Frame a laser job and start at low

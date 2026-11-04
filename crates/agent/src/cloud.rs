@@ -9,6 +9,7 @@
 
 use crate::config::{self, Config};
 use crate::marlin;
+use crate::print::PrintJob;
 use maker_connect_grbl as grbl;
 use maker_connect_label::{Label, dymo};
 use maker_connect_protocol::{
@@ -166,6 +167,8 @@ type Link = Box<dyn serialport::SerialPort>;
 /// The machine on the port (or on USB HID, a label printer), connected.
 enum Machine {
     Marlin(Box<marlin::Printer<Link>>, Known),
+    /// A Marlin printer printing a file: the job holds it until the print ends.
+    Printing(Box<PrintJob<Link>>, Known),
     Grbl(Box<grbl::GrblMachine>),
     Dymo(Box<dymo::Printer>),
 }
@@ -478,7 +481,55 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             state: MachineState::Disconnected,
             ..Telemetry::default()
         };
+        // A print that has ended hands its printer back.
+        if let Some(Machine::Printing(job, _)) = machine.as_mut()
+            && let Some((printer, end)) = job.finished()
+        {
+            println!(
+                "job {} ended: {}",
+                end.id,
+                if end.ok {
+                    "printed"
+                } else if end.stopped {
+                    "stopped"
+                } else {
+                    end.reason.as_deref().unwrap_or("failed")
+                }
+            );
+            let lost = end.reason.is_some();
+            job_end = Some(end);
+            if let Some(Machine::Printing(_, known)) = machine.take() {
+                // A printer that stopped answering is looked for again.
+                machine = (!lost).then(|| Machine::Marlin(Box::new(printer), known));
+            }
+        }
         match machine.as_mut() {
+            Some(Machine::Printing(job, known)) => {
+                let p = job.progress();
+                for said in &p.said {
+                    println!("< {said}");
+                }
+                telemetry.state = if p.paused {
+                    MachineState::Paused
+                } else {
+                    MachineState::Busy
+                };
+                telemetry.firmware = known.firmware.clone();
+                telemetry.identity = Some(known.identity.clone());
+                telemetry.nozzle_c = p.nozzle_c;
+                telemetry.bed_c = p.bed_c;
+                telemetry.job_id = Some(job.id);
+                // What is left, from how long the lines so far took.
+                let remaining_s =
+                    (p.done > 20).then(|| p.elapsed_s * (p.total - p.done) as u64 / p.done as u64);
+                telemetry.job = Some(protocol::JobProgress {
+                    file: job.name.clone(),
+                    done: p.done as u64,
+                    total: p.total as u64,
+                    elapsed_s: Some(p.elapsed_s),
+                    remaining_s,
+                });
+            }
             Some(Machine::Marlin(printer, known)) => match printer.command("M105") {
                 Ok(answer) => {
                     let (nozzle, bed) = marlin::temperatures(&answer);
@@ -598,6 +649,9 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                             laser.carry_out(&command.gcode).map(|said| (said, None))
                         }
                         Some(Machine::Dymo(_)) => Err("a label printer takes no G-code".to_owned()),
+                        Some(Machine::Printing(..)) => {
+                            Err("printing: commands wait until the print ends".to_owned())
+                        }
                         None => Err("the machine is not connected".to_owned()),
                     };
                     match outcome {
@@ -623,14 +677,39 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 }
                 if let Some(order) = &reply.job {
                     println!("job {}: {} ({} bytes)", order.id, order.name, order.size);
+                    // A Marlin printer: the file fetched, then streamed by a job that holds
+                    // the printer until it ends.
+                    if let Some(Machine::Marlin(..)) = machine {
+                        match fetch(&options, &registered.token, order) {
+                            // The printer goes to the job only once its file is here.
+                            Ok(gcode) => {
+                                if let Some(Machine::Marlin(printer, known)) = machine.take() {
+                                    let job =
+                                        PrintJob::start(order.id, &order.name, gcode, *printer);
+                                    machine = Some(Machine::Printing(Box::new(job), known));
+                                }
+                            }
+                            Err(reason) => {
+                                println!("job {}: {reason}", order.id);
+                                job_end = Some(protocol::JobEnd {
+                                    id: order.id,
+                                    ok: false,
+                                    stopped: false,
+                                    reason: Some(reason),
+                                    restart_line: None,
+                                });
+                            }
+                        }
+                    }
                     let started = match machine.as_mut() {
+                        Some(Machine::Printing(job, _)) if job.id == order.id => Ok(()),
+                        Some(Machine::Printing(..)) => Err("printing another file".to_owned()),
                         Some(Machine::Grbl(laser)) => fetch(&options, &registered.token, order)
                             .and_then(|program| {
                                 laser.start(order.id, &order.name, program, order.from_line)
                             }),
-                        Some(Machine::Marlin(..)) => {
-                            Err("printing a file over USB on a Marlin printer follows".to_owned())
-                        }
+                        // Its file did not come (said above).
+                        Some(Machine::Marlin(..)) => Ok(()),
                         // A label takes seconds: printed here, its end in the next report.
                         Some(Machine::Dymo(printer)) => {
                             print_label(&options, &registered.token, printer, order).map(|()| {
@@ -657,10 +736,18 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                         });
                     }
                 }
-                if let (Some(control), Some(Machine::Grbl(laser))) =
-                    (reply.job_control, machine.as_mut())
-                {
-                    laser.control(control);
+                match (reply.job_control, machine.as_mut()) {
+                    (Some(control), Some(Machine::Grbl(laser))) => laser.control(control),
+                    (Some(protocol::JobControl::Pause), Some(Machine::Printing(job, _))) => {
+                        job.pause(true)
+                    }
+                    (Some(protocol::JobControl::Resume), Some(Machine::Printing(job, _))) => {
+                        job.pause(false)
+                    }
+                    (Some(protocol::JobControl::Stop), Some(Machine::Printing(job, _))) => {
+                        job.stop()
+                    }
+                    _ => {}
                 }
                 if paired != Some(reply.paired) {
                     match &reply.space {
@@ -685,7 +772,8 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             Err(error) => cloud.lost(&error.to_string()),
         }
         // A job reports more often, so its progress moves on the page.
-        let busy = matches!(&machine, Some(Machine::Grbl(laser)) if laser.running().is_some());
+        let busy = matches!(&machine, Some(Machine::Grbl(laser)) if laser.running().is_some())
+            || matches!(&machine, Some(Machine::Printing(..)));
         std::thread::sleep(if busy {
             Duration::from_secs(1)
         } else {
