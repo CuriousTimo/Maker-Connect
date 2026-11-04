@@ -4,7 +4,7 @@
 //! Only files directly in that folder, by their plain name.
 //!
 //! A file named `maker-connect-agent-<os>-<arch>[.exe]` (`windows`, `macos`, `linux`;
-//! `x86_64`, `aarch64`) gets a card of its own: the system's icon, and the command that
+//! `x86_64`, `aarch64`, `armv6`) gets a card of its own: the system's icon, and the command that
 //! starts it against this cloud. Other files are listed under them.
 
 use crate::{STYLE, Shared, escape, failed, header};
@@ -62,7 +62,9 @@ fn build(name: &str) -> Option<Build> {
     let os = ["windows", "macos", "linux"]
         .into_iter()
         .find(|o| *o == os)?;
-    let arch = ["x86_64", "aarch64"].into_iter().find(|a| *a == arch)?;
+    let arch = ["x86_64", "aarch64", "armv6"]
+        .into_iter()
+        .find(|a| *a == arch)?;
     Some(Build { os, arch })
 }
 
@@ -72,6 +74,7 @@ impl Build {
             ("windows", _) => "Windows",
             ("macos", _) => "macOS",
             ("linux", "aarch64") => "Linux ARM64",
+            ("linux", "armv6") => "Linux ARM 32-bit",
             _ => "Linux x86-64",
         }
     }
@@ -81,6 +84,7 @@ impl Build {
             ("macos", "aarch64") => "Apple silicon (M1 and later)",
             ("macos", _) => "Intel",
             ("linux", "aarch64") => "Orange Pi Zero3, Raspberry Pi 4 and 5",
+            ("linux", "armv6") => "Raspberry Pi Zero W, Pi 1: on an MK3S's RPi port",
             (_, "aarch64") => "ARM 64-bit",
             ("linux", _) => "A PC, a NAS, a mini PC",
             _ => "64-bit (Intel, AMD)",

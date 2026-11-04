@@ -32,6 +32,11 @@ if command -v cargo-zigbuild >/dev/null 2>&1; then
     cp target/x86_64-pc-windows-gnu/release/maker-connect-agent.exe \
         "$out/maker-connect-agent-windows-x86_64.exe"
     echo "built $out/maker-connect-agent-windows-x86_64.exe"
+    # 32-bit ARMv6: a Raspberry Pi Zero W or Pi 1 (on an MK3S's RPi port), glibc 2.28 on.
+    cargo zigbuild --release -p maker-connect-agent --target arm-unknown-linux-gnueabihf.2.28
+    cp target/arm-unknown-linux-gnueabihf/release/maker-connect-agent \
+        "$out/maker-connect-agent-linux-armv6"
+    echo "built $out/maker-connect-agent-linux-armv6"
     for arch in aarch64 x86_64; do
         cargo zigbuild --release -p maker-connect-agent --target "$arch-unknown-linux-gnu.2.31"
         cp "target/$arch-unknown-linux-gnu/release/maker-connect-agent" \
