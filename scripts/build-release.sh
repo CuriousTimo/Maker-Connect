@@ -20,7 +20,7 @@
 # so every agent says the build the release is.
 set -e
 cd "$(dirname "$0")/.."
-tag="${1:?the release's tag, such as v0.1.0-beta.1}"
+tag="${1:?give the tag, such as v0.1.0-beta.1}"
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
     echo "Commit first: a release is built from a clean tree." >&2
     exit 1
