@@ -69,6 +69,9 @@ pub struct Material {
     /// Its colour (`#1d1d1b`): a tape's tape colour, a filament's colour.
     #[serde(default)]
     pub color: Option<String>,
+    /// Its colour as the maker names it: `Galaxy Black`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_name: Option<String>,
     /// A tape's ink.
     #[serde(default)]
     pub ink: Option<String>,
@@ -203,6 +206,28 @@ impl Store {
         )?;
         self.changed();
         Ok(material.id)
+    }
+
+    /// A material changed: false when there is no such one.
+    pub fn update_material(
+        &self,
+        space: i64,
+        id: &str,
+        mut material: Material,
+    ) -> rusqlite::Result<bool> {
+        material.id = id.to_owned();
+        let n = self.db.execute(
+            "UPDATE materials SET data = ?1 WHERE id = ?2 AND space_id = ?3",
+            params![
+                serde_json::to_string(&material).unwrap_or_default(),
+                id,
+                space
+            ],
+        )?;
+        if n > 0 {
+            self.changed();
+        }
+        Ok(n > 0)
     }
 
     pub fn locations(&self, space: i64) -> rusqlite::Result<Vec<Location>> {
@@ -412,6 +437,26 @@ impl Store {
 static FILAMENTS: include_dir::Dir =
     include_dir::include_dir!("$CARGO_MANIFEST_DIR/../../filaments");
 
+async fn change_material(
+    State(store): State<Shared>,
+    Path(id): Path<String>,
+    Json(material): Json<Material>,
+) -> Response {
+    if material.name.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, "a material needs a name").into_response();
+    }
+    let store = store.lock().unwrap();
+    let space = match space(&store) {
+        Ok(s) => s,
+        Err(r) => return *r,
+    };
+    match store.update_material(space, &id, material) {
+        Ok(true) => Json(serde_json::json!({ "id": id })).into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, "no such material").into_response(),
+        Err(e) => failed(e),
+    }
+}
+
 #[derive(Deserialize)]
 struct FilamentFile {
     source: String,
@@ -451,6 +496,7 @@ fn filaments() -> &'static [Material] {
                     name: format!("{} {} mm", f.name, f.diameter_mm),
                     // Without a colour of its own, the colour of its type.
                     color: f.color.or_else(|| type_color(&f.kind).map(str::to_owned)),
+                    color_name: None,
                     ink: None,
                     unit: "g".into(),
                     package: Some(1000.0),
@@ -495,6 +541,7 @@ fn catalogue() -> Vec<Material> {
                 brand: profile.brand.clone(),
                 name: format!("{} ({})", m.name, m.id),
                 color: m.background.clone(),
+                color_name: None,
                 ink: m.ink.clone(),
                 unit: "m".into(),
                 // A D1 cassette holds 7 m of tape.
@@ -521,6 +568,7 @@ pub fn routes() -> Router<Shared> {
         .route("/stock", get(page))
         .route("/api/stock", get(overview))
         .route("/api/stock/materials", post(new_material))
+        .route("/api/stock/materials/{id}", post(change_material))
         .route("/api/stock/locations", post(new_location))
         .route("/api/stock/receive", post(receive))
         .route("/api/stock/items/{id}/move", post(move_item))
@@ -806,7 +854,16 @@ mod tests {
             .into_iter()
             .find(|m| m.media.as_deref() == Some("dymo/labelmanager-pnp:45018"))
             .unwrap();
-        let material = store.add_material(space, tape).unwrap();
+        let material = store.add_material(space, tape.clone()).unwrap();
+        let named = Material {
+            color_name: Some("Black on Yellow".into()),
+            ..tape
+        };
+        assert!(store.update_material(space, &material, named).unwrap());
+        assert_eq!(
+            store.materials(space).unwrap()[0].color_name.as_deref(),
+            Some("Black on Yellow")
+        );
         let shelf = store.add_location(space, "Shelf B2", None).unwrap();
         assert_eq!(shelf, "L-0001");
         let items = store

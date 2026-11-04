@@ -27,8 +27,49 @@
     m.spool_g && `empty spool ${Math.round(m.spool_g)} g`,
     m.nozzle_c && `${Math.round(m.nozzle_c)} °C${m.bed_c ? `, bed ${Math.round(m.bed_c)} °C` : ""}`,
   ].filter(Boolean).join(" · ");
-  // Its brand and name, the brand once (Devil Design's names start with it).
-  const fullName = (m) => m.brand && !m.name.startsWith(m.brand) ? `${m.brand} ${m.name}` : m.name;
+  // Its brand and name, the brand once (Devil Design's names start with it), and its colour's
+  // name: Prusa Polymers Prusament PETG 1.75 mm · Galaxy Black.
+  const fullName = (m) => (m.brand && !m.name.startsWith(m.brand) ? `${m.brand} ${m.name}` : m.name)
+    + (m.color_name ? ` · ${m.color_name}` : "");
+
+  // Fuzzy search: every word typed must be found in the text, as a part of it (best at the
+  // start of a word), as its letters in order inside one word with a gap or two ("prsa",
+  // "devl"), or as a word with one letter wrong ("petq"; two in long words). Better matches
+  // score higher.
+  const words = (t) => String(t).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z0-9.%+]+/).filter(Boolean);
+  function close(a, b) {
+    if (Math.abs(a.length - b.length) > 2) return 99;
+    let row = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      const next = [i];
+      for (let j = 1; j <= b.length; j++) next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      row = next;
+    }
+    return row[b.length];
+  }
+  function fuzzy(query, hay, hayWords) {
+    let score = 0;
+    for (const q of words(query)) {
+      const at = hay.indexOf(q);
+      if (at >= 0) { score += at === 0 || !/[a-z0-9]/.test(hay[at - 1]) ? 4 : 3; continue; }
+      // Its letters in order inside one word, from the word's start: "prsa" in "prusa".
+      const within = (w) => {
+        if (w[0] !== q[0]) return false;
+        let last = 0, gaps = 0;
+        for (const ch of q.slice(1)) {
+          const n = w.indexOf(ch, last + 1);
+          if (n < 0) return false;
+          if (n > last + 1) gaps++;
+          last = n;
+        }
+        return gaps <= 2;
+      };
+      if (q.length > 2 && hayWords.some(within)) { score += 2; continue; }
+      if (q.length > 3 && hayWords.some((w) => close(q, w) <= (q.length > 6 ? 2 : 1))) { score += 1.5; continue; }
+      return 0;
+    }
+    return score;
+  }
 
   async function load() {
     data = await (await fetch("api/stock")).json();
@@ -53,7 +94,7 @@
         <summary>${swatch(m)}<span class="m-name"><b>${esc(fullName(m))}</b><small>${KINDS[m.kind] || esc(m.kind)}${facts(m) ? ` · ${esc(facts(m))}` : ""}${m.ean ? ` · EAN ${esc(m.ean)}` : ""}</small></span>
           <span class="m-count${low ? " low" : ""}">${items.length} in stock${low ? " · low" : ""}</span>
           <span class="m-amount">${amount(items.reduce((s, i) => s + i.amount, 0), m.unit)}</span>
-          <button type="button" class="ghost small" data-receive-material="${esc(m.id)}">Receive</button></summary>
+          <span class="m-actions"><button type="button" class="ghost small" data-edit-material="${esc(m.id)}">Edit</button><button type="button" class="ghost small" data-receive-material="${esc(m.id)}">Receive</button></span></summary>
         ${items.length ? `<ul class="items">${items.map((i) => `<li data-item="${esc(i.id)}"><code>${esc(i.id)}</code><span>${amount(i.amount, m.unit)}</span><span class="${i.state === "loaded" ? "loaded" : "muted"}">${esc(placeName(i))}</span></li>`).join("")}</ul>` : ""}
       </details>`;
     }).join("") : '<p class="empty">No materials yet. <b>New material</b> adds one, from the tapes your label printers take or common filaments; <b>Receive</b> then adds what came in.</p>';
@@ -131,43 +172,96 @@
     });
   }
 
-  // New material: from the catalogue (a printer's tapes; the filaments of PrusaSlicer's
-  // profiles, hundreds: found by typing) or by hand.
-  function newMaterial() {
-    const c = data.catalogue;
-    const named = new Map(c.map((m) => [fullName(m), m]));
-    show(`${head("New material")}<section>
-      <form data-new-material-form class="grid-form">
-        <label class="wide">Start from <input name="from" type="search" list="stock-catalogue" autocomplete="off" placeholder="Type: Prusament PETG, Devil Design PLA, 45013… or leave empty"><small class="hint" data-facts>${c.length} in the catalogue: tapes of your label printers, filaments from PrusaSlicer's profiles</small></label>
-        <datalist id="stock-catalogue">${c.map((m) => `<option value="${esc(fullName(m))}">${esc(m.kind === "tape" ? "label tape" : facts(m))}</option>`).join("")}</datalist>
+  // New material (or one changed): from the catalogue (a printer's tapes; the filaments of
+  // PrusaSlicer's profiles, hundreds: found by typing, fuzzily) or by hand.
+  function newMaterial(editing) {
+    const c = data.catalogue.map((m) => {
+      const text = `${fullName(m)} ${KINDS[m.kind] || m.kind} ${m.media || ""}`.toLowerCase();
+      return { m, text, words: words(text) };
+    });
+    const was = editing ? material(editing) : null;
+    show(`${head(was ? `Change ${esc(fullName(was))}` : "New material")}<section>
+      <form data-new-material-form class="grid-form" autocomplete="off">
+        <div class="wide catalogue-pick"><label>Start from <input name="from" type="search" placeholder="Type: prusament petg, devil pla, 45013… or leave empty" role="combobox" aria-expanded="false" aria-controls="stock-catalogue"></label>
+          <ul class="picker-list" id="stock-catalogue" role="listbox" hidden></ul>
+          <small class="hint" data-facts>${c.length} in the catalogue: tapes of your label printers, filaments from PrusaSlicer's profiles</small></div>
         <label>Kind <select name="kind">${Object.entries(KINDS).map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></label>
         <label>Brand <input name="brand"></label>
         <label class="wide">Name <input name="name" required></label>
         <label>Colour <input name="color" type="color" value="#cccccc"></label>
+        <label>Colour name <input name="color_name" placeholder="Galaxy Black, Jet Black, Black on Yellow"></label>
         <label>Unit <select name="unit"><option value="g">grams</option><option value="m">metres</option><option value="pcs">pieces</option></select></label>
         <label>One comes with <input name="package" type="number" step="any" min="0" value="1000"></label>
         <label>Keep at least <input name="minimum" type="number" min="0" value="1"></label>
         <label>Empty spool (g) <input name="spool_g" type="number" step="any" min="0" placeholder="weighed, to take off"></label>
         <label class="wide">EAN (its barcode, to scan it) <input name="ean" inputmode="numeric"></label>
-        <div class="wide"><button>Add material</button></div>
+        <div class="wide"><button>${was ? "Save" : "Add material"}</button></div>
       </form></section>`);
     const f = body.querySelector("form");
     const factsLine = body.querySelector("[data-facts]");
+    const list = body.querySelector("#stock-catalogue");
+    let base = was ? { ...was } : {};
+    let shown = [], at = 0;
     const fill = (m) => {
-      if (!m) return;
+      base = { ...m, id: undefined };
       for (const k of ["kind", "brand", "name", "unit", "package", "minimum"]) if (m[k] != null) f[k].value = m[k];
       f.spool_g.value = m.spool_g ?? "";
       if (m.color && m.color.startsWith("#")) f.color.value = m.color.length === 4 ? "#" + [...m.color.slice(1)].map((x) => x + x).join("") : m.color;
       factsLine.textContent = m.kind === "tape" ? "A label tape: loading it tells the printer which tape it has" : [facts(m), m.source && `from ${m.source.replace(/^prusaslicer-settings-/, "PrusaSlicer's ").replace("@", " profiles, ")}`].filter(Boolean).join(" · ");
     };
-    f.from.addEventListener("input", () => fill(named.get(f.from.value)));
+    if (was) {
+      fill(was);
+      base = { ...was };
+      f.color_name.value = was.color_name || "";
+      f.ean.value = was.ean || "";
+    }
+    const draw = () => {
+      list.innerHTML = shown.length
+        ? shown.map(({ m }, n) => `<li role="option" data-n="${n}" aria-selected="${n === at}">${swatch(m)}<span class="picker-text"><b>${esc(fullName(m))}</b><small>${esc(m.kind === "tape" ? "Label tape" : facts(m) || KINDS[m.kind])}</small></span></li>`).join("")
+        : '<li class="picker-none">Nothing matches: fill it in by hand below</li>';
+      list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+    };
+    const open = (yes) => { list.hidden = !yes; f.from.setAttribute("aria-expanded", String(yes)); };
+    const search = () => {
+      const q = f.from.value.trim();
+      shown = q
+        ? c.map((e) => ({ ...e, score: fuzzy(q, e.text, e.words) })).filter((e) => e.score > 0)
+          .sort((a, b) => b.score - a.score || a.text.length - b.text.length).slice(0, 40)
+        : c.slice(0, 40);
+      at = 0;
+      draw();
+      open(true);
+    };
+    const choose = (n) => {
+      const e = shown[n];
+      if (!e) return;
+      fill(e.m);
+      f.from.value = fullName(e.m);
+      open(false);
+      f.color_name.focus();
+    };
+    f.from.addEventListener("input", search);
+    f.from.addEventListener("focus", search);
+    f.from.addEventListener("keydown", (e) => {
+      if (list.hidden) return;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        at = Math.max(0, Math.min(shown.length - 1, at + (e.key === "ArrowDown" ? 1 : -1)));
+        draw();
+      } else if (e.key === "Enter") { e.preventDefault(); choose(at); }
+      else if (e.key === "Escape") { e.preventDefault(); open(false); }
+    });
+    // Chosen with the mouse before the field loses focus.
+    list.addEventListener("mousedown", (e) => { e.preventDefault(); const li = e.target.closest("[data-n]"); if (li) choose(Number(li.dataset.n)); });
+    f.from.addEventListener("blur", () => open(false));
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const base = named.get(f.from.value) || {};
       const v = Object.fromEntries(new FormData(f));
+      const sent = { ...base, kind: v.kind, brand: v.brand, name: v.name, unit: v.unit, color: base.color === "clear" ? "clear" : v.color, color_name: v.color_name.trim() || null, package: Number(v.package) || null, minimum: v.minimum === "" ? null : Number(v.minimum), ean: v.ean || null, spool_g: v.spool_g === "" ? null : Number(v.spool_g) };
+      delete sent.id;
       try {
-        await post("api/stock/materials", { ...base, kind: v.kind, brand: v.brand, name: v.name, unit: v.unit, color: base.color === "clear" ? "clear" : v.color, package: Number(v.package) || null, minimum: v.minimum === "" ? null : Number(v.minimum), ean: v.ean || null, spool_g: v.spool_g === "" ? null : Number(v.spool_g) });
-        toast("Material added");
+        await post(was ? `api/stock/materials/${encodeURIComponent(was.id)}` : "api/stock/materials", sent);
+        toast(was ? "Material saved" : "Material added");
         dialog.close();
         load();
       } catch (error) { toast(error.message, "bad"); }
@@ -268,6 +362,8 @@
     if (t.closest("[data-receive]")) receive();
     if (t.closest("[data-new-material]")) newMaterial();
     if (t.closest("[data-new-location]")) newLocation();
+    const em = t.closest("[data-edit-material]");
+    if (em) { e.preventDefault(); newMaterial(em.dataset.editMaterial); }
     const rm = t.closest("[data-receive-material]");
     if (rm) { e.preventDefault(); receive(rm.dataset.receiveMaterial); }
     const it = t.closest("[data-item]");
