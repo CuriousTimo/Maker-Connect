@@ -350,7 +350,7 @@ fn fetch_label(
 fn print_label(
     options: &Options,
     token: &str,
-    printer: &dymo::Printer,
+    printer: &mut dymo::Printer,
     order: &protocol::JobOrder,
 ) -> Result<(), String> {
     let width = order.tape_mm.unwrap_or(12);
@@ -509,28 +509,29 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     machine = None;
                 }
             }
-            Some(Machine::Dymo(printer)) => match printer.status() {
-                Ok(status) => {
+            // Not asked for its status while idle (see `dymo::Printer::last`): only whether
+            // it is still on USB; its cassette as it said on connecting and around labels.
+            Some(Machine::Dymo(printer)) => {
+                if printer.present() {
+                    let status = printer.last;
                     // No cassette is a known reason to wait, said as the problem; only a
                     // jammed cutter or the printer's own error bit is an error.
-                    telemetry.state = if status.cutter_jammed() || status.error() {
-                        MachineState::Error
-                    } else {
-                        MachineState::Idle
+                    telemetry.state = match status {
+                        Some(s) if s.cutter_jammed() || s.error() => MachineState::Error,
+                        _ => MachineState::Idle,
                     };
-                    telemetry.cassette = Some(status.cassette());
-                    telemetry.problem = status.problem().map(str::to_owned);
+                    telemetry.cassette = status.map(|s| s.cassette());
+                    telemetry.problem = status.and_then(|s| s.problem()).map(str::to_owned);
                     telemetry.identity = Some(Identity {
                         machine_type: Some(printer.product.clone()),
                         ..Identity::default()
                     });
-                }
-                // Unplugged, or switched off (on its battery, it switches itself off).
-                Err(error) => {
-                    println!("label printer lost: {error}");
+                } else {
+                    // Unplugged, or switched off (on its battery, it switches itself off).
+                    println!("label printer gone from USB");
                     machine = None;
                 }
-            },
+            }
             None => {}
         }
         telemetry.agent = Some(agent.clone());

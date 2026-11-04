@@ -170,9 +170,13 @@ mod hid {
     /// A LabelManager on USB.
     pub struct Printer {
         device: hidapi::HidDevice,
-        /// Kept while the device is open.
-        _api: hidapi::HidApi,
+        /// Kept while the device is open, and asked whether it is still on USB.
+        api: hidapi::HidApi,
         pub product: String,
+        /// What it last said: on opening, and around each label. It is not asked while it
+        /// has nothing to do: on HID every request is a full report, and the printer was
+        /// seen to feed tape when asked again and again while idle (2026-11-04, Windows).
+        pub last: Option<Status>,
     }
 
     /// The first LabelManager PnP on USB, opened.
@@ -189,14 +193,27 @@ mod hid {
             .unwrap_or("DYMO LabelManager")
             .to_owned();
         let device = info.open_device(&api).map_err(|e| e.to_string())?;
-        Ok(Some(Printer {
+        let mut printer = Printer {
             device,
-            _api: api,
+            api,
             product,
-        }))
+            last: None,
+        };
+        printer.last = Some(printer.status()?);
+        Ok(Some(printer))
     }
 
     impl Printer {
+        /// Whether it is still on USB (switched on, plugged in), without sending it anything.
+        pub fn present(&mut self) -> bool {
+            if self.api.refresh_devices().is_err() {
+                return true;
+            }
+            self.api
+                .device_list()
+                .any(|d| d.vendor_id() == VENDOR && PRODUCTS.contains(&d.product_id()))
+        }
+
         fn send(&self, bytes: &[u8]) -> Result<(), String> {
             for part in bytes.chunks(REPORT) {
                 // Report id 0, then the bytes, the rest of the report zero.
@@ -219,18 +236,21 @@ mod hid {
 
         /// Prints a label; `progress` hears the parts sent of all of them.
         pub fn print(
-            &self,
+            &mut self,
             label: &Label,
             tape: Tape,
             mut progress: impl FnMut(usize, usize),
         ) -> Result<(), String> {
-            if let Some(problem) = self.status()?.problem() {
+            let before = self.status()?;
+            self.last = Some(before);
+            if let Some(problem) = before.problem() {
                 return Err(problem.to_owned());
             }
             let parts = encode(label, tape)?;
             for (i, part) in parts.iter().enumerate() {
                 self.send(part)?;
                 let status = self.status()?;
+                self.last = Some(status);
                 if let Some(problem) = status.problem() {
                     return Err(problem.to_owned());
                 }
