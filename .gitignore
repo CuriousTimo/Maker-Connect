@@ -11,3 +11,6 @@ maker-connect-agent.json
 *-files/
 /*-downloads/
 maker-connect-agent.toml
+
+# Releases built by scripts/build-release.sh
+/dist/

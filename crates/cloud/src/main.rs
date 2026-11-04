@@ -54,6 +54,52 @@ Usage:
 Open http://localhost:8460 and add machines with the code their agent shows.
 ";
 
+/// What a release's archive brings beside the cloud, into the folders beside its database.
+/// Never the other way: the archive holds no data, so unpacking a new release over an old
+/// one leaves the database, the files and the backups as they were.
+///
+/// - `agents/`: the agents of this release go to the downloads when they are another build
+///   than those offered (`.build` last, so a copy cut short is done again next time).
+/// - `spoolmandb/`: SpoolmanDB as of the release, only when there is no copy yet.
+fn from_release(store: &store::Store) {
+    let Some(here) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
+    else {
+        return;
+    };
+    let agents = here.join("agents");
+    let build = |dir: &std::path::Path| std::fs::read(dir.join(".build")).ok();
+    if let Some(new) = build(&agents)
+        && build(&store.downloads_dir).as_ref() != Some(&new)
+    {
+        let copied = std::fs::read_dir(&agents)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_str()
+                    .is_some_and(|n| n.starts_with("maker-connect-agent-"))
+            })
+            .all(|e| std::fs::copy(e.path(), store.downloads_dir.join(e.file_name())).is_ok());
+        if copied && std::fs::write(store.downloads_dir.join(".build"), &new).is_ok() {
+            println!(
+                "offering this release's agents: {}",
+                String::from_utf8_lossy(&new).lines().next().unwrap_or("")
+            );
+        }
+    }
+    let seed = here.join("spoolmandb");
+    let kept = store.files_dir.join("spoolmandb");
+    if seed.join("filaments.json").is_file() && !kept.join("filaments.json").is_file() {
+        let _ = std::fs::create_dir_all(&kept);
+        for name in ["materials.json", "filaments.json"] {
+            let _ = std::fs::copy(seed.join(name), kept.join(name));
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut listen = "0.0.0.0:8460".to_owned();
@@ -74,6 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if reread > 0 {
         println!("read {reread} kept files again");
     }
+    from_release(&opened);
     // SpoolmanDB, kept beside the uploaded files and fetched every hour.
     spoolmandb::start(opened.files_dir.join("spoolmandb"));
     let store = Arc::new(Mutex::new(opened));

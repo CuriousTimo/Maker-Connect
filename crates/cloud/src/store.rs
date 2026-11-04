@@ -42,6 +42,176 @@ pub fn now() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
+/// The build this cloud is, as it writes itself into a database it opened: a release's tag
+/// (`scripts/build-release.sh` sets it), or the crate's version.
+pub const BUILD: &str = match option_env!("MAKER_CONNECT_RELEASE") {
+    Some(tag) => tag,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
+/// Before another build changes a database, a copy of it as it was:
+/// `maker-connect-backups/maker-connect-<when>-<from>-to-<to>.db` beside it. A customer's
+/// data is never only in the one file an upgrade is about to change.
+fn back_up_before_upgrade(db: &Connection, path: &str) -> rusqlite::Result<()> {
+    let has_meta: bool = db.query_row(
+        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
+        [],
+        |r| r.get(0),
+    )?;
+    let from: Option<String> = if has_meta {
+        db.query_row("SELECT value FROM meta WHERE key = 'opened_by'", [], |r| {
+            r.get(0)
+        })
+        .optional()?
+    } else {
+        None
+    };
+    if from.as_deref() == Some(BUILD) {
+        return Ok(());
+    }
+    let file = std::path::Path::new(path);
+    let stem = file
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("maker-connect");
+    let dir = file.with_file_name(format!("{stem}-backups"));
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    let safe = |s: &str| s.replace(|c: char| !c.is_ascii_alphanumeric() && c != '.', "-");
+    let copy = dir.join(format!(
+        "{stem}-{}-{}-to-{}.db",
+        crate::spoolman::iso(now()).replace(':', ""),
+        safe(from.as_deref().unwrap_or("before")),
+        safe(BUILD),
+    ));
+    db.execute("VACUUM INTO ?1", [copy.to_string_lossy()])?;
+    println!(
+        "database backed up before this build changes it: {}",
+        copy.display()
+    );
+    Ok(())
+}
+
+/// The tables as this build has them: made when missing, columns added to older ones, data
+/// moved over. Only ever adds; runs in one transaction, so a failure leaves the database as
+/// it was.
+fn migrate(db: &Connection) -> rusqlite::Result<()> {
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS meta (
+             key TEXT PRIMARY KEY,
+             value TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS spaces (
+             id INTEGER PRIMARY KEY,
+             name TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS files (
+             id TEXT PRIMARY KEY,
+             space_id INTEGER NOT NULL REFERENCES spaces(id),
+             name TEXT NOT NULL,
+             size INTEGER NOT NULL,
+             uploaded_at INTEGER NOT NULL,
+             meta TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS jobs (
+             id INTEGER PRIMARY KEY,
+             space_id INTEGER NOT NULL,
+             machine_id TEXT NOT NULL,
+             file_id TEXT NOT NULL,
+             file_name TEXT NOT NULL,
+             state TEXT NOT NULL,
+             created_at INTEGER NOT NULL,
+             started_at INTEGER,
+             ended_at INTEGER,
+             reason TEXT
+         );
+         CREATE TABLE IF NOT EXISTS machines (
+             id TEXT PRIMARY KEY,
+             space_id INTEGER REFERENCES spaces(id),
+             name TEXT NOT NULL,
+             kind TEXT NOT NULL,
+             agent_version TEXT NOT NULL,
+             token TEXT NOT NULL UNIQUE,
+             pairing_code TEXT,
+             registered_at INTEGER NOT NULL,
+             last_seen INTEGER,
+             telemetry TEXT
+         );",
+    )?;
+    for (column, definition) in [
+        ("from_line", "INTEGER"),
+        // What a job used, and of which spool (counted off when it ends).
+        ("used", "REAL"),
+        ("spool_id", "INTEGER"),
+        ("restart_line", "INTEGER"),
+        // When someone took a finished print off the bed.
+        ("taken_at", "INTEGER"),
+    ] {
+        let present: bool = db.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('jobs') WHERE name = ?1",
+            [column],
+            |r| r.get::<_, i64>(0).map(|n| n > 0),
+        )?;
+        if !present {
+            db.execute(
+                &format!("ALTER TABLE jobs ADD COLUMN {column} {definition}"),
+                [],
+            )?;
+            // The prints from before were taken long ago.
+            if column == "taken_at" {
+                db.execute(
+                    "UPDATE jobs SET taken_at = ?1 WHERE state IN ('finished', 'stopped', 'failed')",
+                    [now()],
+                )?;
+            }
+        }
+    }
+    // Columns added after the first version: a store from then gets them.
+    for (column, definition) in [
+        ("profile", "TEXT"),
+        ("profile_chosen", "INTEGER NOT NULL DEFAULT 0"),
+        ("link", "TEXT NOT NULL DEFAULT 'agent'"),
+        ("details", "TEXT"),
+        ("mesh", "TEXT"),
+        ("media", "TEXT"),
+        // The device tree (docs/integrations.md, "Devices in a tree").
+        ("powered_by", "TEXT"),
+        ("power_channel", "INTEGER"),
+        ("reached_through", "TEXT"),
+        // What an agent tells of itself, and where its reports come from.
+        ("agent", "TEXT"),
+        ("peer", "TEXT"),
+        // Taken out of use: why (may be empty), and since when.
+        ("out_of_use", "TEXT"),
+        ("out_of_use_at", "INTEGER"),
+        // A laser's module, as its owner says (the controller does not know it).
+        ("laser_w", "REAL"),
+    ] {
+        let present: bool = db.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('machines') WHERE name = ?1",
+            [column],
+            |r| r.get::<_, i64>(0).map(|n| n > 0),
+        )?;
+        if !present {
+            db.execute(
+                &format!("ALTER TABLE machines ADD COLUMN {column} {definition}"),
+                [],
+            )?;
+        }
+    }
+    crate::stock::migrate(db)?;
+    let spaces: i64 = db.query_row("SELECT COUNT(*) FROM spaces", [], |r| r.get(0))?;
+    if spaces == 0 {
+        db.execute("INSERT INTO spaces (name) VALUES ('My space')", [])?;
+    }
+    db.execute(
+        "INSERT INTO meta (key, value) VALUES ('opened_by', ?1)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        [BUILD],
+    )?;
+    Ok(())
+}
+
 /// A machine as the website shows it.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Machine {
@@ -339,112 +509,15 @@ pub struct SpoolmanEvent {
 impl Store {
     /// Opens (or creates) the store; a new one gets one space.
     pub fn open(path: &str) -> rusqlite::Result<Self> {
-        let db = Connection::open(path)?;
-        db.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             CREATE TABLE IF NOT EXISTS spaces (
-                 id INTEGER PRIMARY KEY,
-                 name TEXT NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS files (
-                 id TEXT PRIMARY KEY,
-                 space_id INTEGER NOT NULL REFERENCES spaces(id),
-                 name TEXT NOT NULL,
-                 size INTEGER NOT NULL,
-                 uploaded_at INTEGER NOT NULL,
-                 meta TEXT NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS jobs (
-                 id INTEGER PRIMARY KEY,
-                 space_id INTEGER NOT NULL,
-                 machine_id TEXT NOT NULL,
-                 file_id TEXT NOT NULL,
-                 file_name TEXT NOT NULL,
-                 state TEXT NOT NULL,
-                 created_at INTEGER NOT NULL,
-                 started_at INTEGER,
-                 ended_at INTEGER,
-                 reason TEXT
-             );
-             CREATE TABLE IF NOT EXISTS machines (
-                 id TEXT PRIMARY KEY,
-                 space_id INTEGER REFERENCES spaces(id),
-                 name TEXT NOT NULL,
-                 kind TEXT NOT NULL,
-                 agent_version TEXT NOT NULL,
-                 token TEXT NOT NULL UNIQUE,
-                 pairing_code TEXT,
-                 registered_at INTEGER NOT NULL,
-                 last_seen INTEGER,
-                 telemetry TEXT
-             );",
-        )?;
-        for (column, definition) in [
-            ("from_line", "INTEGER"),
-            // What a job used, and of which spool (counted off when it ends).
-            ("used", "REAL"),
-            ("spool_id", "INTEGER"),
-            ("restart_line", "INTEGER"),
-            // When someone took a finished print off the bed.
-            ("taken_at", "INTEGER"),
-        ] {
-            let present: bool = db.query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('jobs') WHERE name = ?1",
-                [column],
-                |r| r.get::<_, i64>(0).map(|n| n > 0),
-            )?;
-            if !present {
-                db.execute(
-                    &format!("ALTER TABLE jobs ADD COLUMN {column} {definition}"),
-                    [],
-                )?;
-                // The prints from before were taken long ago.
-                if column == "taken_at" {
-                    db.execute(
-                        "UPDATE jobs SET taken_at = ?1 WHERE state IN ('finished', 'stopped', 'failed')",
-                        [now()],
-                    )?;
-                }
-            }
+        let existed = path != ":memory:" && std::fs::metadata(path).is_ok_and(|m| m.len() > 0);
+        let mut db = Connection::open(path)?;
+        db.execute_batch("PRAGMA journal_mode = WAL;")?;
+        if existed {
+            back_up_before_upgrade(&db, path)?;
         }
-        // Columns added after the first version: a store from then gets them.
-        for (column, definition) in [
-            ("profile", "TEXT"),
-            ("profile_chosen", "INTEGER NOT NULL DEFAULT 0"),
-            ("link", "TEXT NOT NULL DEFAULT 'agent'"),
-            ("details", "TEXT"),
-            ("mesh", "TEXT"),
-            ("media", "TEXT"),
-            // The device tree (docs/integrations.md, "Devices in a tree").
-            ("powered_by", "TEXT"),
-            ("power_channel", "INTEGER"),
-            ("reached_through", "TEXT"),
-            // What an agent tells of itself, and where its reports come from.
-            ("agent", "TEXT"),
-            ("peer", "TEXT"),
-            // Taken out of use: why (may be empty), and since when.
-            ("out_of_use", "TEXT"),
-            ("out_of_use_at", "INTEGER"),
-            // A laser's module, as its owner says (the controller does not know it).
-            ("laser_w", "REAL"),
-        ] {
-            let present: bool = db.query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('machines') WHERE name = ?1",
-                [column],
-                |r| r.get::<_, i64>(0).map(|n| n > 0),
-            )?;
-            if !present {
-                db.execute(
-                    &format!("ALTER TABLE machines ADD COLUMN {column} {definition}"),
-                    [],
-                )?;
-            }
-        }
-        crate::stock::migrate(&db)?;
-        let spaces: i64 = db.query_row("SELECT COUNT(*) FROM spaces", [], |r| r.get(0))?;
-        if spaces == 0 {
-            db.execute("INSERT INTO spaces (name) VALUES ('My space')", [])?;
-        }
+        let tx = db.transaction()?;
+        migrate(&tx)?;
+        tx.commit()?;
         // Files beside the database (`maker-connect.db` keeps them in `maker-connect-files/`);
         // an in-memory store (tests) in a folder of its own.
         let files_dir = if path == ":memory:" {
@@ -1631,6 +1704,60 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_upgrade_backs_up_the_database_first() {
+        let dir = std::env::temp_dir().join(format!("maker-connect-upgrade-{}", random_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("maker-connect.db");
+        let path = path.to_str().unwrap();
+        let backups = || {
+            std::fs::read_dir(dir.join("maker-connect-backups"))
+                .map(|d| {
+                    d.flatten()
+                        .map(|e| e.file_name().into_string().unwrap())
+                        .collect()
+                })
+                .unwrap_or_else(|_| Vec::<String>::new())
+        };
+        // A new database: nothing to back up.
+        let id = {
+            let mut store = Store::open(path).unwrap();
+            device(&mut store, 1, "MINI")
+        };
+        assert!(backups().is_empty());
+        // The same build again: no copy either.
+        drop(Store::open(path).unwrap());
+        assert!(backups().is_empty());
+        // As if an older build had it last.
+        Connection::open(path)
+            .unwrap()
+            .execute(
+                "UPDATE meta SET value = '0.0.9' WHERE key = 'opened_by'",
+                [],
+            )
+            .unwrap();
+        let store = Store::open(path).unwrap();
+        let made = backups();
+        assert_eq!(made.len(), 1, "{made:?}");
+        assert!(
+            made[0].ends_with(&format!("-0.0.9-to-{BUILD}.db")),
+            "{made:?}"
+        );
+        // The copy holds the machine, and so does the database itself.
+        let copy = Connection::open(dir.join("maker-connect-backups").join(&made[0])).unwrap();
+        let kept: i64 = copy
+            .query_row("SELECT COUNT(*) FROM machines WHERE id = ?1", [&id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(kept, 1);
+        assert!(store.machine(1, &id).unwrap().is_some());
+        drop(store);
+        drop(Store::open(path).unwrap());
+        assert_eq!(backups().len(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     fn device(store: &mut Store, space: i64, name: &str) -> String {
         let profile = crate::profiles::find("prusa/mini").unwrap();
