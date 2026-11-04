@@ -17,10 +17,22 @@
   addEventListener("hashchange", show);
   show();
 
-  const tape = JSON.parse(document.getElementById("tape-data").textContent);
+  let tape = JSON.parse(document.getElementById("tape-data").textContent);
   // Without a tape said, drawn for 12 mm (64 dots at 180 dpi).
-  const H = tape ? tape.dots : 64;
-  const DPI = tape ? tape.dpi : 180;
+  let H = tape ? tape.dots : 64;
+  let DPI = tape ? tape.dpi : 180;
+  // Another tape chosen (saved in the background): the label is drawn for it at once.
+  document.querySelector("[data-tape-form]")?.addEventListener("saved", (event) => {
+    const { data, submitter } = event.detail;
+    for (const b of event.target.querySelectorAll("button[name=media]")) b.setAttribute("aria-pressed", b === submitter);
+    if (data && typeof data === "object") {
+      tape = data;
+      H = tape.dots || 64;
+      DPI = tape.dpi || 180;
+      codeKey = "";
+      render();
+    }
+  });
   const $ = (selector) => document.querySelector(selector);
   const text = $("[data-text]"), font = $("[data-font]"), weight = $("[data-weight]");
   const size = $("[data-size]"), frame = $("[data-frame]"), invert = $("[data-invert]");

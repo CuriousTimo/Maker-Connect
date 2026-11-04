@@ -1,4 +1,3 @@
-  main.wide { max-width: 1240px; }
   .title { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
   .title h2 { margin: 0; }
   .subtitle { margin: 4px 0 0; color: var(--muted); }

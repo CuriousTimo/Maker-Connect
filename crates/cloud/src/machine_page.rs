@@ -49,10 +49,9 @@ pub fn render(space: &str, machine: &Machine) -> String {
 <style>
 {STYLE}{MACHINE_STYLE}</style>
 </head>
-<body style="--page: 1240px">
+<body>
 {header}
 <main class="wide" data-id="{id}">
-  <a class="back" href="../">← All machines</a>
   <div class="title">
     <h2>{name}</h2>
     <span class="state {state_class}" data-live="state">{state}</span>
@@ -937,11 +936,11 @@ pub(crate) fn settings(machine: &Machine) -> String {
     let name = escape(&machine.name);
     let forms = format!(
         r#"<h4>Name</h4>
-<form method="post" action="{id}/name"><input name="name" value="{name}" aria-label="Name" maxlength="60" required><button>Rename</button></form>
+<form method="post" action="{id}/name" data-async data-done="Renamed" data-rename><input name="name" value="{name}" aria-label="Name" maxlength="60" required><button>Rename</button></form>
 <h4>Profile</h4>
-<form method="post" action="{id}/profile"><select name="profile" aria-label="Machine profile">{options}</select><button>Save</button></form>
+<form method="post" action="{id}/profile" data-async data-done="Profile saved" data-then="reload"><select name="profile" aria-label="Machine profile">{options}</select><button>Save</button></form>
 <h4>Remove</h4>
-<form method="post" action="{id}/remove" onsubmit="return confirm('Remove this machine from the space?')"><button class="danger">Remove machine</button></form>"#
+<form method="post" action="{id}/remove" data-async data-done="Machine removed" data-confirm="Remove this machine from the space?" data-then="../"><button class="danger">Remove machine</button></form>"#
     );
     let about = [
         row("Serial number", details.serial.clone()),

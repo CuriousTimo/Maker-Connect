@@ -231,6 +231,16 @@ async fn telemetry(
     }
 }
 
+/// The answer to a form: none for one saved in the background (`x-requested-with`), else
+/// back to the page it belongs to.
+fn done(headers: &HeaderMap, to: &str) -> Response {
+    if headers.contains_key("x-requested-with") {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        Redirect::to(to).into_response()
+    }
+}
+
 /// Where a request came from: the address it reached the cloud from, or, behind a reverse
 /// proxy, the first address the proxy says it forwarded for.
 pub(crate) fn peer_address(
@@ -400,19 +410,27 @@ async fn page(State(store): State<Shared>) -> Response {
 pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
     // An empty link is the page itself: from the root, the machines are at "./".
     let home = if root.is_empty() { "./" } else { root };
-    let link = |path: &str, name: &str, place: &str| {
+    let link = |path: &str, name: &str, place: &str, icon: &str| {
         let current = if place == here {
             r#" aria-current="page""#
         } else {
             ""
         };
-        format!(r#"<a href="{home}{path}"{current}>{name}</a>"#)
+        format!(
+            r#"<a href="{home}{path}"{current}><svg viewBox="0 0 20 20" aria-hidden="true">{icon}</svg><span>{name}</span></a>"#
+        )
     };
     format!(
-        r##"<header><div class="bar">
-  <a class="brand" href="{home}"><img src="{root}logo.svg" alt="" width="28" height="28"><h1>Maker Connect</h1></a>
-  <span class="space" title="The space these machines belong to">{space}</span>
-  <nav class="nav">{machines}{files}{downloads}</nav>
+        r##"<aside class="sidebar" data-root="{home}">
+  <a class="brand" href="{home}"><img src="{root}logo.svg" alt="" width="30" height="30"><span><b>Maker Connect</b><small>{space}</small></span></a>
+  <button type="button" class="search-open" data-palette-open title="Go to a machine, a file or a page"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13.2 13.2 3.8 3.8"/></svg><span>Go to…</span><kbd>⌘K</kbd></button>
+  <nav class="side-nav" aria-label="Pages">{machines}{files}{downloads}</nav>
+  <div class="side-section">
+    <div class="side-title"><span>Machines</span><button type="button" class="side-add" data-add-open title="Add a machine" aria-label="Add a machine"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11"/></svg></button></div>
+    <nav class="side-machines" data-side-machines aria-label="Machines"></nav>
+  </div>
+</aside>
+<div class="topbar">
   <div class="summary">
     <span class="count"><b data-sum="machines">–</b> machines</span>
     <span class="count"><b data-sum="online">–</b> online</span>
@@ -420,8 +438,13 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
     <span class="count attention-count" data-attention-count hidden><b data-sum="attention">–</b> attention</span>
     <span class="live" data-live-dot title="Live updates"><i></i>Live</span>
   </div>
-  <button type="button" class="add" data-add-open>Add machine</button>
-</div></header>
+</div>
+<div class="toasts" data-toasts aria-live="polite"></div>
+<dialog class="palette" data-palette aria-label="Go to">
+  <input type="search" data-palette-input placeholder="A machine, a file, a page…" autocomplete="off" aria-label="Search">
+  <ul class="palette-results" data-palette-results role="listbox"></ul>
+  <p class="palette-hint"><kbd>↑</kbd><kbd>↓</kbd> choose <kbd>↵</kbd> go <kbd>esc</kbd> close</p>
+</dialog>
 <dialog id="add-dialog" aria-labelledby="add-title">
   <div class="dialog-head">
     <h2 id="add-title">Add a machine</h2>
@@ -446,60 +469,27 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
   </section>
 </dialog>
 <script>
-  // The dialog to add a machine: from the button, from any [data-add-open], and at #add.
-  {{
-    const dialog = document.getElementById("add-dialog");
-    const open = () => {{ if (!dialog.open) dialog.showModal(); }};
-    document.addEventListener("click", (event) => {{
-      if (event.target.closest("[data-add-open]")) {{ event.preventDefault(); open(); }}
-      if (event.target.closest("[data-add-close]") || event.target === dialog) dialog.close();
-    }});
-    if (location.search.includes("unknown-code")) {{
-      document.querySelector("[data-add-note]").textContent = "No machine waits with that code.";
-      open();
-    }}
-    if (location.hash === "#add") open();
-  }}
-  // Called by the page with every list of machines, and when its live stream opens or drops.
-  function summarise(machines) {{
-    const count = {{
-      machines: machines.length,
-      online: machines.filter((m) => m.online).length,
-      busy: machines.filter((m) => m.online && m.telemetry && m.telemetry.state === "busy").length,
-      attention: machines.filter((m) => m.online && m.telemetry && (m.telemetry.state === "attention" || m.telemetry.state === "error")).length,
-    }};
-    for (const el of document.querySelectorAll("[data-sum]")) el.textContent = count[el.dataset.sum];
-    const attention = document.querySelector("[data-attention-count]");
-    if (attention) attention.hidden = !count.attention;
-  }}
-  // How a machine's state is shown, the same on every page. A machine that waits for
-  // someone (a label printer without a cassette) shows the reason, amber: not an error.
-  function shownState(m) {{
-    const t = m.online ? m.telemetry : null;
-    if (!t) return {{ text: "Offline", cls: "offline" }};
-    if (t.state === "attention" || (t.state === "idle" && t.problem)) return {{ text: t.problem || "Attention", cls: "attention" }};
-    const names = {{ disconnected: "Disconnected", idle: "Idle", busy: "Busy", paused: "Paused", error: "Error" }};
-    return {{ text: names[t.state] || t.state, cls: t.state }};
-  }}
-  // Puts a machine's state in every [data-live="state"], and its colour on the badges.
-  function showState(m) {{
-    const shown = shownState(m);
-    for (const el of document.querySelectorAll('[data-live="state"]')) {{
-      el.textContent = shown.text;
-      if (el.classList.contains("state")) el.className = `state ${{shown.cls}}`;
-    }}
-  }}
-  function live(on) {{
-    const dot = document.querySelector("[data-live-dot]");
-    dot.classList.toggle("on", on);
-    dot.title = on ? "Live updates" : "Reconnecting…";
-  }}
-</script>"##,
+{SHELL_SCRIPT}</script>"##,
         space = escape(space),
         options = profile_options(None),
-        machines = link("", "Machines", "machines"),
-        files = link("files", "Files", "files"),
-        downloads = link("downloads", "Downloads", "downloads"),
+        machines = link(
+            "",
+            "Machines",
+            "machines",
+            r#"<rect x="2.5" y="4" width="15" height="10" rx="2"/><path d="M7 17h6M10 14v3"/>"#
+        ),
+        files = link(
+            "files",
+            "Files",
+            "files",
+            r#"<path d="M5 2.5h6.5l3.5 3.5v11.5H5z"/><path d="M11.5 2.5V6H15"/>"#
+        ),
+        downloads = link(
+            "downloads",
+            "Downloads",
+            "downloads",
+            r#"<path d="M10 3v10M6 9.5 10 13.5l4-4M4 17h12"/>"#
+        ),
     )
 }
 
@@ -762,13 +752,14 @@ async fn command(
 async fn remove(
     State(store): State<Shared>,
     axum::extract::Path(id): axum::extract::Path<String>,
+    headers: HeaderMap,
 ) -> Response {
     let mut store = store.lock().unwrap();
     match store
         .default_space()
         .and_then(|(space, _)| store.remove(space, &id))
     {
-        Ok(true) => Redirect::to("/").into_response(),
+        Ok(true) => done(&headers, "/"),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
     }
@@ -797,6 +788,7 @@ struct NameForm {
 async fn rename(
     State(store): State<Shared>,
     axum::extract::Path(id): axum::extract::Path<String>,
+    headers: HeaderMap,
     Form(form): Form<NameForm>,
 ) -> Response {
     let name = form.name.trim();
@@ -808,7 +800,7 @@ async fn rename(
         .default_space()
         .and_then(|(space, _)| store.rename(space, &id, name))
     {
-        Ok(true) => Redirect::to(&format!("/machines/{id}#settings")).into_response(),
+        Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
     }
@@ -817,6 +809,7 @@ async fn rename(
 async fn choose_profile(
     State(store): State<Shared>,
     axum::extract::Path(id): axum::extract::Path<String>,
+    headers: HeaderMap,
     Form(form): Form<ProfileForm>,
 ) -> Response {
     let profile = Some(form.profile.as_str()).filter(|p| !p.is_empty());
@@ -828,7 +821,7 @@ async fn choose_profile(
         .default_space()
         .and_then(|(space, _)| store.set_profile(space, &id, profile))
     {
-        Ok(true) => Redirect::to(&format!("/machines/{id}#settings")).into_response(),
+        Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
     }
@@ -844,6 +837,7 @@ struct MediaForm {
 async fn choose_media(
     State(store): State<Shared>,
     axum::extract::Path(id): axum::extract::Path<String>,
+    headers: HeaderMap,
     Form(form): Form<MediaForm>,
 ) -> Response {
     let store = store.lock().unwrap();
@@ -864,6 +858,18 @@ async fn choose_media(
         return (StatusCode::BAD_REQUEST, "not a tape of this printer").into_response();
     }
     match store.set_media(space, &id, media) {
+        // Saved in the background: the page gets the tape back, to draw the label for it.
+        Ok(_) if headers.contains_key("x-requested-with") => {
+            let machine = match store.machine(space, &id) {
+                Ok(Some(machine)) => machine,
+                _ => return StatusCode::NO_CONTENT.into_response(),
+            };
+            (
+                [("content-type", "application/json")],
+                label_page::tape_json(profile, &machine),
+            )
+                .into_response()
+        }
         Ok(_) => Redirect::to(&format!("/machines/{id}#label")).into_response(),
         Err(error) => failed(error),
     }
@@ -905,25 +911,92 @@ pub(crate) fn escape(text: &str) -> String {
 
 /// The machine list: drawn by the page from `/api/machines` every two seconds.
 /// The styling both pages share.
+/// The app's shell on every page: the add dialog, the sidebar's machines, the counts, toasts,
+/// forms saved in the background, and the ⌘K palette.
+const SHELL_SCRIPT: &str = include_str!("shell.js");
+
 pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f5f2; --card: #fff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e2e0da; --accent: #2f7d6d; --off: #9a9893; --bad: #b3412e; --warn: #b7791f; }
   @media (prefers-color-scheme: dark) { :root { --bg: #111214; --card: #1b1c1f; --ink: #f2f1ee; --muted: #a3a29d; --line: #2e2f33; --accent: #5fbfa9; --off: #77767a; --bad: #e07a63; --warn: #d9a441; } }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, sans-serif; }
-  header { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
-  header .bar { max-width: var(--page, 1000px); margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; gap: 14px; }
-  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
-  .brand h1 { margin: 0; font-size: 18px; letter-spacing: -0.2px; }
-  .space { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 13px; white-space: nowrap; }
-  .nav { display: flex; gap: 4px; margin-left: 8px; }
-  .nav a { padding: 6px 12px; border-radius: 8px; color: var(--muted); text-decoration: none; font-weight: 600; font-size: 14px; }
-  .nav a:hover { color: var(--ink); }
-  .nav a[aria-current=page] { color: var(--ink); background: var(--line); }
-  .summary { margin-left: auto; display: flex; align-items: center; gap: 18px; color: var(--muted); font-size: 14px; white-space: nowrap; }
+  /* The app's shell: a sidebar beside every page, the page beside it at one width. */
+  :root { --side: 248px; --fdm: #2f7d6d; --laser: #d9692b; --label: #7d5bd6; }
+  @media (prefers-color-scheme: dark) { :root { --fdm: #5fbfa9; --laser: #f08a4b; --label: #a98bf5; } }
+  @view-transition { navigation: auto; }
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .18s; }
+  .sidebar { view-transition-name: sidebar; position: fixed; inset: 0 auto 0 0; width: var(--side); z-index: 10; display: flex; flex-direction: column; gap: 6px; padding: 16px 12px; background: color-mix(in srgb, var(--card) 70%, var(--bg)); border-right: 1px solid var(--line); overflow-y: auto; }
+  body { padding-left: var(--side); }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 10px; text-decoration: none; }
+  .brand span { display: grid; line-height: 1.2; min-width: 0; }
+  .brand b { font-size: 16px; letter-spacing: -0.2px; }
+  .brand small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sidebar svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .search-open { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; margin-bottom: 6px; background: var(--bg); color: var(--muted); border: 1px solid var(--line); font-weight: 500; font-size: 14px; }
+  .search-open span { flex: 1; text-align: left; }
+  kbd { font: 11px ui-monospace, Menlo, monospace; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); }
+  .side-nav { display: grid; gap: 2px; }
+  .side-nav a { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: var(--muted); text-decoration: none; font-weight: 600; font-size: 14px; }
+  .side-nav a:hover { color: var(--ink); background: color-mix(in srgb, var(--line) 60%, transparent); }
+  .side-nav a[aria-current=page] { color: var(--ink); background: var(--line); }
+  .side-section { margin-top: 14px; min-height: 0; }
+  .side-title { display: flex; align-items: center; justify-content: space-between; padding: 0 6px 6px 10px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+  .side-add { background: transparent; color: var(--muted); padding: 3px; border-radius: 6px; display: grid; }
+  .side-add:hover { color: var(--ink); background: var(--line); }
+  .side-add svg { width: 16px; height: 16px; }
+  .side-machines { display: grid; gap: 1px; }
+  .side-machines a { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 8px; color: var(--ink); text-decoration: none; font-size: 14px; }
+  .side-machines a:hover { background: color-mix(in srgb, var(--line) 60%, transparent); }
+  .side-machines a[aria-current=page] { background: var(--line); }
+  .side-machines a::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 2px; background: var(--k, transparent); }
+  .side-machines a[data-kind=fdm] { --k: var(--fdm); } .side-machines a[data-kind=laser] { --k: var(--laser); } .side-machines a[data-kind=label] { --k: var(--label); }
+  .side-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side-machines small { color: var(--muted); font-size: 12px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side-machines small.attention { color: var(--warn); } .side-machines small.error { color: var(--bad); }
+  .side-progress { grid-column: 2 / -1; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
+  .side-progress i { display: block; height: 100%; background: var(--accent); transition: width .5s; }
+  .side-empty { margin: 4px 10px; color: var(--muted); font-size: 13px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--off); flex: none; }
+  .dot.idle, .dot.busy { background: var(--accent); } .dot.busy { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .dot.paused, .dot.attention { background: var(--warn); } .dot.error { background: var(--bad); }
+  /* The counts, at the top of every page. */
+  .topbar { view-transition-name: topbar; position: sticky; top: 0; z-index: 9; display: flex; justify-content: flex-end; padding: 10px 36px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+  .summary { display: flex; align-items: center; gap: 18px; color: var(--muted); font-size: 14px; white-space: nowrap; }
   .summary b { color: var(--ink); font-variant-numeric: tabular-nums; }
-  .live { display: inline-flex; align-items: center; gap: 7px; }
+  .live { display: inline-flex; align-items: center; gap: 8px; }
   .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--off); }
   .live.on i { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
-  button.add { padding: 7px 14px; font-size: 14px; white-space: nowrap; }
+  .state.pulse { animation: pulse .9s ease-out; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 currentColor; } 100% { box-shadow: 0 0 0 8px transparent; } }
+  /* Toasts: what a save did, for a moment. */
+  .toasts { position: fixed; right: 20px; bottom: 20px; z-index: 50; display: grid; gap: 8px; }
+  .toast { padding: 10px 16px; border-radius: 10px; background: var(--ink); color: var(--bg); font-weight: 600; font-size: 14px; box-shadow: 0 8px 30px rgb(0 0 0 / .3); animation: toast-in .2s ease-out; transition: opacity .4s, transform .4s; }
+  .toast.bad { background: var(--bad); color: #fff; }
+  .toast.gone { opacity: 0; transform: translateY(6px); }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+  /* The palette. */
+  dialog.palette { width: min(560px, calc(100vw - 32px)); margin-top: 12vh; padding: 0; }
+  .palette input { width: 100%; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 16px 18px; font-size: 17px; background: transparent; outline: none; }
+  .palette-results { list-style: none; margin: 0; padding: 6px; max-height: 50vh; overflow-y: auto; }
+  .palette-results li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; cursor: pointer; }
+  .palette-results li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .palette-results li small { color: var(--muted); }
+  .palette-results li[aria-selected=true] { background: var(--line); }
+  .palette-results li.none { color: var(--muted); cursor: default; }
+  .palette-hint { margin: 0; padding: 8px 16px 12px; color: var(--muted); font-size: 12px; display: flex; gap: 6px; align-items: center; }
+  /* On a phone: the pages as a tab bar at the bottom. */
+  @media (max-width: 820px) {
+    body { padding-left: 0; padding-bottom: 72px; }
+    .sidebar { inset: auto 0 0 0; width: auto; height: 64px; flex-direction: row; align-items: center; justify-content: space-around; padding: 6px 8px; border-right: 0; border-top: 1px solid var(--line); overflow: visible; }
+    .sidebar .brand, .sidebar .side-section, .search-open span, .search-open kbd { display: none; }
+    .topbar { padding: 8px 16px; }
+    .summary { gap: 12px; font-size: 13px; }
+    .search-open { width: auto; margin: 0; border: 0; background: transparent; }
+    .side-nav { display: flex; gap: 4px; flex: 1; justify-content: space-around; }
+    .side-nav a { flex-direction: column; gap: 2px; font-size: 11px; padding: 6px 10px; }
+    .search-open { flex: none; padding: 8px; }
+    html, body { overflow-x: hidden; }
+    main > * { max-width: 100%; }
+  }
   dialog { width: min(520px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink); box-shadow: 0 20px 60px rgb(0 0 0 / 0.35); }
   dialog::backdrop { background: rgb(0 0 0 / 0.45); backdrop-filter: blur(2px); }
   .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 0; }
@@ -937,8 +1010,8 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   dialog select { flex: 1; }
   dialog .note:empty { display: none; }
   dialog .note { margin: 10px 0 0; }
-  @media (max-width: 720px) { .summary .count { display: none; } .space { display: none; } }
-  main { max-width: 1000px; margin: 0 auto; padding: 24px 16px; }
+  main, main.wide { max-width: 1320px; margin: 0 auto; padding: 28px 36px 40px; }
+  @media (max-width: 820px) { main, main.wide { padding: 20px 16px 28px; } }
   form { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
   input, select { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); max-width: 100%; }
   input[name=code] { width: 9em; text-transform: uppercase; letter-spacing: 2px; }
@@ -963,7 +1036,7 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   a.machine { text-decoration: none; }
   a.machine:hover { border-color: var(--accent); }
   .back { color: var(--muted); text-decoration: none; }
-  h2 { margin: 12px 0 4px; font-size: 26px; }
+  h2 { margin: 6px 0 4px; font-size: 24px; letter-spacing: -0.3px; }
   dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 18px; margin: 16px 0; }
   dt { color: var(--muted); }
   dd { margin: 0; overflow-wrap: anywhere; }

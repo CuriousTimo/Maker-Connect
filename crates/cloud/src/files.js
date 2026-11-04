@@ -77,13 +77,11 @@
     const cell = (v) => (v == null || v === "" ? '<span class="muted">–</span>' : esc(v));
     return `<tr class="file-row${selected.has(f.id) ? " picked" : ""}" data-id="${esc(f.id)}">
       <td><input type="checkbox" class="pick" aria-label="Select ${esc(f.name)}"${selected.has(f.id) ? " checked" : ""}></td>
-      <td class="thumb-cell">${picture}</td>
-      <td class="name-cell"><b title="${esc(f.name)}">${esc(f.name)}</b><small>${KINDS[kindOf(f)]}${m.slicer ? ` · ${esc(m.slicer)}` : ""}</small></td>
+      <td class="name-cell"><div class="name-wrap"><span class="thumb-cell">${picture}</span><span class="name-text"><b title="${esc(f.name)}">${esc(f.name)}</b><small>${KINDS[kindOf(f)]}${m.slicer ? ` · ${esc(m.slicer)}` : ""}</small></span></div></td>
       <td>${cell(m.printer_model)}</td>
       <td class="num">${cell(duration(m.estimated_s) || label)}</td>
-      <td class="num">${cell(m.filament_type ? `${m.filament_type} ${filament}`.trim() : filament)}</td>
-      <td class="num">${cell(m.layer_height_mm != null ? `${m.layer_height_mm} mm` : null)}</td>
-      <td class="num">${ago(f.uploaded_at)}<small class="muted"> · ${bytes(f.size)}</small></td>
+      <td class="num">${cell(m.filament_type ? `${m.filament_type} ${filament}`.trim() : filament)}${m.layer_height_mm != null ? `<small class="muted sub">${m.layer_height_mm} mm layers</small>` : ""}</td>
+      <td class="num up">${ago(f.uploaded_at)}<small class="muted sub">${bytes(f.size)}</small></td>
       <td class="num clip" title="${last ? esc(`${machineName(last.machine_id)}, ${ago(last.at)}`) : ""}">${last ? `${esc(machineName(last.machine_id))}<small class="muted"> · ${ago(last.at)}</small>` : '<span class="muted">not yet</span>'}</td>
       <td class="row-actions"><a href="files/${encodeURIComponent(f.id)}/download" title="Download" aria-label="Download"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v8.5M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a><button type="button" data-remove title="Remove" aria-label="Remove"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.6 6.5v5M9.4 6.5v5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>
       <td><form data-print>
@@ -182,7 +180,7 @@
       : !shown.length
         ? '<p class="empty">No files match.</p>'
         : view === "list"
-          ? `<div class="table-wrap"><table class="file-table"><colgroup><col class="c-pick"><col class="c-thumb"><col><col class="c-sliced"><col class="c-time"><col class="c-material"><col class="c-layer"><col class="c-uploaded"><col class="c-printed"><col class="c-icons"><col class="c-print"></colgroup><thead><tr><th></th><th></th><th>File</th><th>Sliced for</th><th>Time</th><th>Material</th><th>Layer</th><th>Uploaded</th><th>Last printed</th><th></th><th></th></tr></thead><tbody>${shown.map(row).join("")}</tbody></table></div>`
+          ? `<div class="table-wrap"><table class="file-table"><colgroup><col class="c-pick"><col><col class="c-sliced"><col class="c-time"><col class="c-material"><col class="c-uploaded up"><col class="c-printed"><col class="c-icons"><col class="c-print"></colgroup><thead><tr><th></th><th>File</th><th>Sliced for</th><th>Time</th><th>Material</th><th class="up">Uploaded</th><th>Last printed</th><th></th><th></th></tr></thead><tbody>${shown.map(row).join("")}</tbody></table></div>`
           : shown.map(card).join("");
     showSelection();
   }
@@ -209,6 +207,12 @@
       files = fresh;
       render();
       showStorage();
+      // Sent here for one file (from the palette): open it.
+      const wanted = location.hash.match(/^#file=(.+)$/);
+      if (wanted && !dialog.open) {
+        history.replaceState(null, "", location.pathname);
+        openFile(decodeURIComponent(wanted[1]));
+      }
     } catch (error) { /* tried again shortly */ }
   }
   
@@ -225,6 +229,87 @@
         `${bytes(s.used_bytes)} in files` + (free != null ? ` · ${bytes(free)} free` : "");
     } catch { /* shown on the next refresh */ }
   }
+
+  // A file in full, in a dialog: opened by clicking its card or row (not one of its
+  // controls); arrows go to the next and previous file shown, Escape closes.
+  const dialog = document.querySelector("[data-file-dialog]");
+  const dialogBody = document.querySelector("[data-fd-body]");
+  let openId = null;
+  function openFile(id) {
+    const f = files.find((x) => x.id === id);
+    if (!f) return;
+    openId = id;
+    const m = f.meta || {};
+    document.querySelector("[data-fd-name]").textContent = f.name;
+    document.querySelector("[data-fd-kind]").textContent = KINDS[kindOf(f)];
+    const row = (label, value) => (value == null || value === "" ? "" : `<dt>${label}</dt><dd>${esc(value)}</dd>`);
+    const mm = (v) => `${Number(v.toFixed(1))} mm`;
+    const facts = [
+      row("Sliced for", m.printer_model),
+      row("Slicer", m.slicer),
+      row("Time", duration(m.estimated_s)),
+      row("Filament", [m.filament_type, m.filament_g != null ? `${m.filament_g.toFixed(1)} g` : null, m.filament_m != null ? `${m.filament_m.toFixed(2)} m` : null].filter(Boolean).join(" · ")),
+      row("Layer height", m.layer_height_mm != null ? `${m.layer_height_mm} mm` : null),
+      row("Height", m.height_mm != null ? mm(m.height_mm) : null),
+      row("Nozzle", m.nozzle_mm != null ? `${m.nozzle_mm} mm` : null),
+      row("Work area", m.bounds_mm ? `${mm(m.bounds_mm[2] - m.bounds_mm[0])} × ${mm(m.bounds_mm[3] - m.bounds_mm[1])}, from X${m.bounds_mm[0].toFixed(0)} Y${m.bounds_mm[1].toFixed(0)}` : null),
+      row("Highest power", m.max_power != null ? `S${m.max_power}` : null),
+      row("Label", m.label_dots ? `${mm((m.label_dots[0] / 180) * 25.4)} long, ${m.label_dots[1]} dots high` : null),
+      row("Uploaded", `${ago(f.uploaded_at)} · ${bytes(f.size)}`),
+    ].join("");
+    const states = { finished: "Printed", stopped: "Stopped", failed: "Failed", printing: "Printing", paused: "Paused", queued: "Queued", stopping: "Stopping" };
+    const history = f.printed.length
+      ? f.printed.map((p) => `<li>${esc(states[p.state] || p.state)} on <b>${esc(machineName(p.machine_id))}</b> <span class="muted">${ago(p.at)}</span></li>`).join("")
+      : '<li class="muted">Not printed yet</li>';
+    const options = f.machines.map((t) =>
+      `<option value="${esc(t.id)}"${t.ok ? "" : " disabled"}>${esc(t.name)}${t.note ? ` — ${esc(t.note)}` : ""}</option>`).join("");
+    const ready = f.machines.some((t) => t.ok);
+    const label = kindOf(f) === "label";
+    const picture = m.thumbnail
+      ? `<img src="files/${encodeURIComponent(f.id)}/thumbnail.png" alt=""${label ? ' class="label"' : ""}>`
+      : "No picture in the file";
+    dialogBody.dataset.id = f.id;
+    dialogBody.innerHTML = `
+      <div class="fd-picture${label ? " label" : ""}">${picture}</div>
+      <div class="fd-side">
+        <dl class="fd-facts">${facts}</dl>
+        <div><h4>Printed</h4><ul class="fd-history">${history}</ul></div>
+        <div class="fd-actions">
+          <h4>Print</h4>
+          <form data-print>
+            <select name="machine" aria-label="Machine to print on"${f.machines.length ? "" : " disabled"}>
+              <option value="">${f.machines.length ? (ready ? "Print on…" : "No machine free for it") : "No machines yet"}</option>${options}
+            </select>
+            ${m.kind === "laser" ? `<button type="button" class="ghost" data-frame${ready ? "" : " disabled"} title="Run the outline with the laser off">Frame</button>` : ""}
+            <button${ready ? "" : " disabled"}>${m.kind === "laser" ? "Start" : "Print"}</button>
+          </form>
+          <p class="note" data-note role="status"></p>
+          <div class="more"><a href="files/${encodeURIComponent(f.id)}/download">Download</a><button type="button" data-remove>Remove</button></div>
+        </div>
+      </div>`;
+    if (!dialog.open) dialog.showModal();
+  }
+  function step(by) {
+    const shown = shownFiles();
+    const at = shown.findIndex((f) => f.id === openId);
+    if (at < 0 || !shown.length) return;
+    openFile(shown[(at + by + shown.length) % shown.length].id);
+  }
+  list.addEventListener("click", (event) => {
+    if (event.target.closest("a, button, input, select, label, form")) return;
+    const item = event.target.closest("[data-id]");
+    if (item) openFile(item.dataset.id);
+  });
+  document.querySelector("[data-fd-close]").addEventListener("click", () => dialog.close());
+  document.querySelector("[data-fd-prev]").addEventListener("click", () => step(-1));
+  document.querySelector("[data-fd-next]").addEventListener("click", () => step(1));
+  dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+  dialog.addEventListener("close", () => { openId = null; });
+  dialog.addEventListener("keydown", (event) => {
+    if (event.target.closest("select, input")) return;
+    if (event.key === "ArrowLeft") step(-1);
+    if (event.key === "ArrowRight") step(1);
+  });
 
   search.addEventListener("input", render);
   for (const select of [sliced, material, layer]) select.addEventListener("change", () => { save(); render(); });
@@ -277,7 +362,8 @@
     refresh();
   });
 
-  list.addEventListener("submit", async (event) => {
+  // On the list and in the dialog alike.
+  for (const root of [list, dialogBody]) root.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.target, file = form.closest("[data-id]"), note = file.querySelector("[data-note]");
     const machine = form.machine.value;
@@ -291,7 +377,8 @@
     else note.textContent = `Not started: ${await response.text()}`;
   });
   // Frame: the outline of the job with the laser off, on the chosen machine.
-  list.addEventListener("click", async (event) => {
+  // On the list and in the dialog alike.
+  for (const root of [list, dialogBody]) root.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-frame]");
     if (!button) return;
     const file = button.closest("[data-id]"), note = file.querySelector("[data-note]");
@@ -303,7 +390,8 @@
     });
     note.textContent = response.ok ? "Framing: the head runs the outline, laser off." : `Not framed: ${await response.text()}`;
   });
-  list.addEventListener("click", async (event) => {
+  // On the list and in the dialog alike.
+  for (const root of [list, dialogBody]) root.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-remove]");
     if (!button) return;
     const file = button.closest("[data-id]");
@@ -311,6 +399,7 @@
     if (!confirm(`Remove ${name}?`)) return;
     const response = await fetch(`files/${encodeURIComponent(file.dataset.id)}/remove`, { method: "POST" });
     if (!response.ok) alert(await response.text());
+    if (dialog.open) dialog.close();
     fetched = "";
     refresh();
   });

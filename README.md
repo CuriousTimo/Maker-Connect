@@ -68,7 +68,7 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 cargo run -p maker-connect-cloud                 # http://localhost:8460
 ```
 
-Then "Add machine", "A virtual one", and pick a printer, a laser or a label printer. For a real
+Then the ＋ next to "Machines" in the sidebar (or ⌘K, *Add a machine*), "A virtual one", and pick a printer, a laser or a label printer. For a real
 machine, the cloud's **Downloads** page has the agent for each platform, with the command to
 start it: [Getting Started](https://github.com/CuriousTimo/Maker-Connect/wiki/Getting-Started)
 in the wiki goes through it, [The Agent](https://github.com/CuriousTimo/Maker-Connect/wiki/The-Agent)

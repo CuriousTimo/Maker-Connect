@@ -13,7 +13,7 @@ const LABEL_STYLE: &str = include_str!("label.css");
 const LABEL_SCRIPT: &str = include_str!("label.js");
 
 /// The tape loaded, as the script needs it: width, dots across, ink and tape colours.
-fn tape_json(profile: Option<&Profile>, machine: &Machine) -> String {
+pub(crate) fn tape_json(profile: Option<&Profile>, machine: &Machine) -> String {
     let media = profile.and_then(|p| profiles::media(p, machine.media.as_deref()?));
     let Some(media) = media else {
         return "null".to_owned();
@@ -86,7 +86,7 @@ pub fn render(space: &str, machine: &Machine) -> String {
     let tape_form = if profile.is_some_and(|p| !p.media.is_empty()) {
         format!(
             r#"<p class="hint">The printer tells whether a cassette is in, not which: the article number is on the cassette. Click the one loaded.</p>
-<form method="post" action="{id}/media" class="tape-form">{}</form>"#,
+<form method="post" action="{id}/media" class="tape-form" data-async data-done="Tape changed" data-tape-form>{}</form>"#,
             media_swatches(profile, machine.media.as_deref())
         )
     } else {
@@ -103,10 +103,9 @@ pub fn render(space: &str, machine: &Machine) -> String {
 <style>
 {STYLE}{MACHINE_STYLE}{LABEL_STYLE}</style>
 </head>
-<body style="--page: 1240px">
+<body>
 {header}
 <main class="wide" data-id="{id}">
-  <a class="back" href="../">← All machines</a>
   <div class="title">
     <h2>{name}</h2>
     <span class="state {state_class}" data-live="state">{state}</span>

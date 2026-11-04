@@ -27,7 +27,7 @@ pub async fn page(State(store): State<Shared>) -> Response {
 <style>
 {STYLE}{FILES_STYLE}</style>
 </head>
-<body style="--page: 1240px">
+<body>
 {header}
 <main class="wide">
   <div class="page-head">
@@ -66,6 +66,17 @@ pub async fn page(State(store): State<Shared>) -> Response {
   </div>
   <div class="files" data-files><p class="empty">Loading…</p></div>
   <div class="drop" data-drop hidden><div>Drop to upload</div></div>
+  <dialog class="file-dialog" data-file-dialog aria-labelledby="file-title">
+    <div class="dialog-head">
+      <div class="file-dialog-title"><span class="kind" data-fd-kind></span><h2 id="file-title" data-fd-name></h2></div>
+      <div class="file-dialog-nav">
+        <button type="button" class="ghost" data-fd-prev title="Previous file (←)" aria-label="Previous file">‹</button>
+        <button type="button" class="ghost" data-fd-next title="Next file (→)" aria-label="Next file">›</button>
+        <button type="button" class="close" data-fd-close aria-label="Close">✕</button>
+      </div>
+    </div>
+    <div class="file-dialog-body" data-fd-body data-id=""></div>
+  </dialog>
 </main>
 <script>
 {FILES_SCRIPT}</script>
