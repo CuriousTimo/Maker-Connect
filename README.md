@@ -57,6 +57,9 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
   an item with a code (`S-0007`) and a QR label printed on the label printer, locations
   (`L-0003`), loading into a machine (a tape tells the label printer which it has), weighing,
   used up; every change kept as a movement. A barcode scanner works anywhere on the page.
+  **271 filaments** (Prusament, Devil Design, Fiberlogy, colorFabb…) from PrusaSlicer's
+  profiles, with density, empty spool weight and temperatures: weigh a spool and the spool
+  is taken off.
 - **Files and jobs.** Drop G-code on the Files page; the cloud reads what the slicer wrote
   (time, filament, layer height, the printer it was sliced for, the thumbnail) and offers only
   the machines it fits. Jobs show progress, time left, pause and stop.
@@ -122,7 +125,7 @@ smart plugs, a multi-tenant cloud, and consumables and stock; and the roadmap.
 | **grbl** (`crates/grbl`) | GRBL machines (lasers), on LaserFoundry's `laserfoundry-device` and `laserfoundry-gcode`; used by the agent and by the cloud's virtual lasers |
 | **label** (`crates/label`) | Labels as rasters (PNG in, dots out), and the DYMO LabelManager's protocol over USB HID |
 | **protocol** (`crates/protocol`) | What agents and the cloud say to each other |
-| **import** (`crates/import`) | Makes machine profiles from other projects' data (Marlin's example configurations) and the wiki's list of them: `scripts/import-profiles.sh` |
+| **import** (`crates/import`) | Makes machine profiles and the filament catalogue (`filaments/`) from other projects' data (Marlin's example configurations, PrusaSlicer's profiles) and the wiki's list of machines: `scripts/import-profiles.sh` |
 
 The tools that make the jobs stay the makers' own: PrusaSlicer and Cura for printers,
 LaserFoundry for lasers. Maker Connect takes it from the file on. See
@@ -152,6 +155,9 @@ power; stay with a running machine.
   protocol in practice. Notes: [docs/integrations.md](docs/integrations.md).
 - [Marlin's example configurations](https://github.com/MarlinFirmware/Configurations)
   (GPL-3.0): the facts (sizes, temperatures, names) the 3D printer profiles are made from.
+- [PrusaSlicer's vendor profiles](https://github.com/prusa3d/PrusaSlicer-settings-prusa-fff)
+  (shipped with [PrusaSlicer](https://github.com/prusa3d/PrusaSlicer), AGPL-3.0): the facts
+  (type, density, empty spool, temperatures, price) the filament catalogue is made from.
 - [qrcode](https://crates.io/crates/qrcode) and [barcoders](https://crates.io/crates/barcoders)
   (both MIT OR Apache-2.0): QR codes and barcodes on labels.
 

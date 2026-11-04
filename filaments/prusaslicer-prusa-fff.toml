@@ -1,0 +1,3504 @@
+# Made from PrusaSlicer's vendor profiles (AGPL-3.0) by `scripts/import-profiles.sh`:
+# made again on each run. Only facts: type, diameter, density, empty spool, temperatures, price.
+source = "prusaslicer-settings-prusa-fff@2.5.14"
+
+[[filament]]
+name = "3D-Fuel PET-CF"
+brand = "3D-Fuel"
+type = "PET"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+nozzle_c = 285.0
+first_layer_nozzle_c = 285.0
+bed_c = 90.0
+first_layer_bed_c = 90.0
+cost_per_kg = 29.95
+
+[[filament]]
+name = "3D-Fuel Pro PCTG"
+brand = "3D-Fuel"
+type = "PCTG"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 80.0
+first_layer_bed_c = 80.0
+cost_per_kg = 29.95
+
+[[filament]]
+name = "3D-Fuel Pro PCTG Matte Black"
+brand = "3D-Fuel"
+type = "PCTG"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 80.0
+first_layer_bed_c = 80.0
+cost_per_kg = 29.95
+
+[[filament]]
+name = "3D-Fuel Pro PETG"
+brand = "3D-Fuel"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+nozzle_c = 255.0
+first_layer_nozzle_c = 255.0
+bed_c = 85.0
+first_layer_bed_c = 85.0
+cost_per_kg = 29.95
+
+[[filament]]
+name = "3D-Fuel Standard PLA+"
+brand = "3D-Fuel"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 220.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 22.14
+
+[[filament]]
+name = "3D-Fuel Tough PLA+"
+brand = "3D-Fuel"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.22
+nozzle_c = 230.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 34.9
+
+[[filament]]
+name = "3DJAKE ecoPLA"
+brand = "3DJAKE"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 200.0
+nozzle_c = 220.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 22.0
+
+[[filament]]
+name = "Alzament Basic PLA"
+brand = "Alzament"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.26
+spool_g = 160.0
+nozzle_c = 215.0
+first_layer_nozzle_c = 220.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 10.0
+
+[[filament]]
+name = "AmazonBasics PLA"
+brand = "AmazonBasics"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 25.4
+
+[[filament]]
+name = "AmazonBasics TPU"
+brand = "AmazonBasics"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.21
+nozzle_c = 235.0
+first_layer_nozzle_c = 235.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 19.99
+color = "#008000"
+
+[[filament]]
+name = "Buddy3D ABS"
+brand = "Buddy3D"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.08
+spool_g = 230.0
+nozzle_c = 255.0
+first_layer_nozzle_c = 255.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 34.65
+color = "#FFF2EC"
+
+[[filament]]
+name = "Buddy3D ABS ESD"
+brand = "Buddy3D"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.08
+spool_g = 230.0
+nozzle_c = 255.0
+first_layer_nozzle_c = 255.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 106.65
+color = "#FFF2EC"
+
+[[filament]]
+name = "Buddy3D ABS MATT"
+brand = "Buddy3D"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.08
+spool_g = 230.0
+nozzle_c = 255.0
+first_layer_nozzle_c = 255.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 34.65
+color = "#FFF2EC"
+
+[[filament]]
+name = "Buddy3D ASA"
+brand = "Buddy3D"
+type = "ASA"
+diameter_mm = 1.75
+density_g_cm3 = 1.07
+spool_g = 278.0
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 110.0
+first_layer_bed_c = 105.0
+cost_per_kg = 23.99
+color = "#FFF2EC"
+
+[[filament]]
+name = "Buddy3D PETG"
+brand = "Buddy3D"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+spool_g = 278.0
+nozzle_c = 250.0
+first_layer_nozzle_c = 250.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 25.99
+
+[[filament]]
+name = "Buddy3D PLA"
+brand = "Buddy3D"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 278.0
+nozzle_c = 215.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 23.99
+
+[[filament]]
+name = "Buddy3D PLA SILK"
+brand = "Buddy3D"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 278.0
+nozzle_c = 225.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 25.99
+
+[[filament]]
+name = "ColorFabb ASA"
+brand = "ColorFabb"
+type = "ASA"
+diameter_mm = 1.75
+density_g_cm3 = 1.07
+spool_g = 160.0
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 105.0
+first_layer_bed_c = 105.0
+cost_per_kg = 32.29
+color = "#FFF2EC"
+
+[[filament]]
+name = "ColorFabb GlowFill"
+brand = "ColorFabb"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.3
+spool_g = 160.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 210.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 39.72
+
+[[filament]]
+name = "ColorFabb HT"
+brand = "ColorFabb"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.18
+spool_g = 236.0
+nozzle_c = 270.0
+first_layer_nozzle_c = 270.0
+bed_c = 110.0
+first_layer_bed_c = 105.0
+cost_per_kg = 65.66
+
+[[filament]]
+name = "ColorFabb PA Neat"
+brand = "ColorFabb"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.3
+nozzle_c = 280.0
+first_layer_nozzle_c = 280.0
+bed_c = 100.0
+first_layer_bed_c = 100.0
+cost_per_kg = 66.39
+color = "#ECFAFF"
+
+[[filament]]
+name = "ColorFabb PA-CF"
+brand = "ColorFabb"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.3
+nozzle_c = 270.0
+first_layer_nozzle_c = 270.0
+bed_c = 90.0
+first_layer_bed_c = 90.0
+cost_per_kg = 66.39
+color = "#ECFAFF"
+
+[[filament]]
+name = "ColorFabb PETG"
+brand = "ColorFabb"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.28
+spool_g = 221.0
+nozzle_c = 250.0
+first_layer_nozzle_c = 250.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 21.2
+
+[[filament]]
+name = "ColorFabb PLA Economy"
+brand = "ColorFabb"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 221.0
+nozzle_c = 215.0
+first_layer_nozzle_c = 220.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 16.59
+
+[[filament]]
+name = "ColorFabb PLA High Speed PRO"
+brand = "ColorFabb"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 221.0
+nozzle_c = 220.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 21.34
+
+[[filament]]
+name = "ColorFabb PLA-PHA"
+brand = "ColorFabb"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 236.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 39.98
+
+[[filament]]
+name = "ColorFabb TPU 85A"
+brand = "ColorFabb"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.2
+spool_g = 242.0
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 44.49
+color = "#008000"
+
+[[filament]]
+name = "ColorFabb TPU 95A"
+brand = "ColorFabb"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.2
+spool_g = 242.0
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 44.49
+color = "#008000"
+
+[[filament]]
+name = "ColorFabb VarioShore TPU"
+brand = "ColorFabb"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.22
+nozzle_c = 220.0
+first_layer_nozzle_c = 220.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 77.0
+color = "#BBBBBB"
+
+[[filament]]
+name = "ColorFabb Vibers"
+brand = "ColorFabb"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.3
+spool_g = 160.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 210.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 41.99
+
+[[filament]]
+name = "ColorFabb XT"
+brand = "ColorFabb"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+spool_g = 236.0
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 62.9
+
+[[filament]]
+name = "ColorFabb XT-CF20"
+brand = "ColorFabb"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.35
+spool_g = 236.0
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 90.0
+first_layer_bed_c = 90.0
+cost_per_kg = 80.65
+color = "#804040"
+
+[[filament]]
+name = "ColorFabb allPHA"
+brand = "ColorFabb"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 160.0
+nozzle_c = 200.0
+first_layer_nozzle_c = 200.0
+cost_per_kg = 33.99
+
+[[filament]]
+name = "ColorFabb bronzeFill"
+brand = "ColorFabb"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 3.9
+spool_g = 236.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 77.28
+color = "#804040"
+
+[[filament]]
+name = "ColorFabb copperFill"
+brand = "ColorFabb"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 3.9
+spool_g = 236.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 67.87
+color = "#82603E"
+
+[[filament]]
+name = "ColorFabb corkFill"
+brand = "ColorFabb"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.18
+spool_g = 236.0
+nozzle_c = 220.0
+first_layer_nozzle_c = 220.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 53.17
+color = "#634d33"
+
+[[filament]]
+name = "ColorFabb nGen"
+brand = "ColorFabb"
+type = "NGEN"
+diameter_mm = 1.75
+density_g_cm3 = 1.2
+spool_g = 236.0
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 52.46
+
+[[filament]]
+name = "ColorFabb nGen flex"
+brand = "ColorFabb"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.0
+spool_g = 236.0
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 85.0
+first_layer_bed_c = 85.0
+cost_per_kg = 58.3
+color = "#008000"
+
+[[filament]]
+name = "ColorFabb nGen-CF10"
+brand = "ColorFabb"
+type = "NGEN"
+diameter_mm = 1.75
+density_g_cm3 = 1.2
+spool_g = 160.0
+nozzle_c = 245.0
+first_layer_nozzle_c = 245.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 55.04
+
+[[filament]]
+name = "ColorFabb rPLA"
+brand = "ColorFabb"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 221.0
+nozzle_c = 215.0
+first_layer_nozzle_c = 220.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 25.0
+
+[[filament]]
+name = "ColorFabb steelFill"
+brand = "ColorFabb"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 3.13
+spool_g = 236.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 69.2
+color = "#808080"
+
+[[filament]]
+name = "ColorFabb woodFill"
+brand = "ColorFabb"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.15
+spool_g = 236.0
+nozzle_c = 200.0
+first_layer_nozzle_c = 200.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 64.98
+color = "#dfc287"
+
+[[filament]]
+name = "Cookiecad PLA"
+brand = "Cookiecad"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.25
+spool_g = 180.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 70.0
+cost_per_kg = 34.95
+color = "#D200D2"
+
+[[filament]]
+name = "Das Filament PLA"
+brand = "Das Filament"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 25.4
+
+[[filament]]
+name = "Devil Design PETG"
+brand = "Devil Design"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+spool_g = 250.0
+nozzle_c = 230.0
+first_layer_nozzle_c = 230.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 20.99
+
+[[filament]]
+name = "Devil Design PLA"
+brand = "Devil Design"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 250.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 20.99
+
+[[filament]]
+name = "Devil Design PLA Silk"
+brand = "Devil Design"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+spool_g = 250.0
+nozzle_c = 235.0
+first_layer_nozzle_c = 235.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 20.0
+
+[[filament]]
+name = "E3D Edge"
+brand = "E3D"
+type = "EDGE"
+diameter_mm = 1.75
+density_g_cm3 = 1.26
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 56.9
+
+[[filament]]
+name = "E3D PC-ABS"
+brand = "E3D"
+type = "PC"
+diameter_mm = 1.75
+density_g_cm3 = 1.05
+nozzle_c = 270.0
+first_layer_nozzle_c = 270.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+color = "#FFF2EC"
+
+[[filament]]
+name = "EUMAKERS PLA"
+brand = "EUMAKERS"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 25.4
+
+[[filament]]
+name = "Elegoo PLA"
+brand = "Elegoo"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.26
+spool_g = 160.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 22.0
+
+[[filament]]
+name = "Elegoo Rapid PETG"
+brand = "Elegoo"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.29
+spool_g = 160.0
+nozzle_c = 250.0
+first_layer_nozzle_c = 250.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 22.0
+
+[[filament]]
+name = "Elegoo Rapid PLA+"
+brand = "Elegoo"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+spool_g = 160.0
+nozzle_c = 220.0
+first_layer_nozzle_c = 220.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 22.0
+
+[[filament]]
+name = "Eolas Prints INGEO 850"
+brand = "Eolas Prints"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 25.9
+color = "#4D9398"
+
+[[filament]]
+name = "Eolas Prints INGEO 870"
+brand = "Eolas Prints"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 215.0
+first_layer_nozzle_c = 220.0
+bed_c = 65.0
+first_layer_bed_c = 68.0
+cost_per_kg = 25.9
+color = "#4D9398"
+
+[[filament]]
+name = "Eolas Prints PETG"
+brand = "Eolas Prints"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 240.0
+first_layer_nozzle_c = 235.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 29.9
+color = "#4D9398"
+
+[[filament]]
+name = "Eolas Prints PETG - UV Resistant"
+brand = "Eolas Prints"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 237.0
+first_layer_nozzle_c = 232.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 35.9
+color = "#4D9398"
+
+[[filament]]
+name = "Eolas Prints PLA"
+brand = "Eolas Prints"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 208.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 23.5
+color = "#4D9398"
+
+[[filament]]
+name = "Eolas Prints PLA Matte"
+brand = "Eolas Prints"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 212.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 25.5
+color = "#4D9398"
+
+[[filament]]
+name = "Eolas Prints TPU 93A"
+brand = "Eolas Prints"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.21
+nozzle_c = 235.0
+first_layer_nozzle_c = 240.0
+bed_c = 30.0
+first_layer_bed_c = 30.0
+cost_per_kg = 34.99
+color = "#4D9398"
+
+[[filament]]
+name = "Esun ABS"
+brand = "Esun"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.01
+spool_g = 265.0
+nozzle_c = 255.0
+first_layer_nozzle_c = 255.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 27.82
+color = "#FFF2EC"
+
+[[filament]]
+name = "Esun PLA"
+brand = "Esun"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 265.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 25.4
+
+[[filament]]
+name = "Extrudr BioFusion"
+brand = "Extrudr"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.25
+spool_g = 230.0
+nozzle_c = 220.0
+first_layer_nozzle_c = 220.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 31.23
+
+[[filament]]
+name = "Extrudr DuraPro ASA"
+brand = "Extrudr"
+type = "ASA"
+diameter_mm = 1.75
+density_g_cm3 = 1.05
+spool_g = 230.0
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 100.0
+first_layer_bed_c = 100.0
+cost_per_kg = 34.64
+color = "#FFF2EC"
+
+[[filament]]
+name = "Extrudr Flax"
+brand = "Extrudr"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.45
+spool_g = 262.0
+nozzle_c = 190.0
+first_layer_nozzle_c = 190.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 50.91
+
+[[filament]]
+name = "Extrudr Flex Hard"
+brand = "Extrudr"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.2
+spool_g = 230.0
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 39.98
+color = "#008000"
+
+[[filament]]
+name = "Extrudr Flex Medium"
+brand = "Extrudr"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.19
+spool_g = 230.0
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 39.98
+color = "#008000"
+
+[[filament]]
+name = "Extrudr Flex SemiSoft"
+brand = "Extrudr"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.18
+spool_g = 230.0
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 39.98
+color = "#008000"
+
+[[filament]]
+name = "Extrudr GreenTEC"
+brand = "Extrudr"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.3
+spool_g = 262.0
+nozzle_c = 208.0
+first_layer_nozzle_c = 208.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 50.91
+
+[[filament]]
+name = "Extrudr GreenTEC Pro"
+brand = "Extrudr"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.35
+spool_g = 230.0
+nozzle_c = 215.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 56.23
+
+[[filament]]
+name = "Extrudr GreenTEC Pro Carbon"
+brand = "Extrudr"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.2
+spool_g = 230.0
+nozzle_c = 225.0
+first_layer_nozzle_c = 225.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 62.49
+
+[[filament]]
+name = "Extrudr PETG"
+brand = "Extrudr"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.29
+spool_g = 262.0
+nozzle_c = 220.0
+first_layer_nozzle_c = 220.0
+bed_c = 78.0
+first_layer_bed_c = 78.0
+cost_per_kg = 35.45
+
+[[filament]]
+name = "Extrudr PLA NX1"
+brand = "Extrudr"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 262.0
+nozzle_c = 205.0
+first_layer_nozzle_c = 205.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 22.76
+
+[[filament]]
+name = "Extrudr PLA NX2"
+brand = "Extrudr"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.3
+spool_g = 262.0
+nozzle_c = 205.0
+first_layer_nozzle_c = 205.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 23.63
+
+[[filament]]
+name = "Extrudr XPETG CF"
+brand = "Extrudr"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.29
+spool_g = 230.0
+nozzle_c = 235.0
+first_layer_nozzle_c = 235.0
+bed_c = 78.0
+first_layer_bed_c = 78.0
+cost_per_kg = 62.49
+
+[[filament]]
+name = "Extrudr XPETG Matt"
+brand = "Extrudr"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.41
+spool_g = 262.0
+nozzle_c = 230.0
+first_layer_nozzle_c = 230.0
+bed_c = 78.0
+first_layer_bed_c = 78.0
+cost_per_kg = 29.99
+
+[[filament]]
+name = "Fiberlogy ASA"
+brand = "Fiberlogy"
+type = "ASA"
+diameter_mm = 1.75
+density_g_cm3 = 1.07
+spool_g = 330.0
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 110.0
+first_layer_bed_c = 105.0
+cost_per_kg = 33.0
+color = "#FFF2EC"
+
+[[filament]]
+name = "Fiberlogy BVOH"
+brand = "Fiberlogy"
+type = "BVOH"
+diameter_mm = 1.75
+density_g_cm3 = 1.14
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 169.8
+color = "#FFFFD7"
+
+[[filament]]
+name = "Fiberlogy CPE HT"
+brand = "Fiberlogy"
+type = "CPE"
+diameter_mm = 1.75
+density_g_cm3 = 1.18
+spool_g = 330.0
+nozzle_c = 275.0
+first_layer_nozzle_c = 275.0
+bed_c = 110.0
+first_layer_bed_c = 105.0
+cost_per_kg = 42.67
+
+[[filament]]
+name = "Fiberlogy Easy ABS"
+brand = "Fiberlogy"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.09
+spool_g = 330.0
+nozzle_c = 250.0
+first_layer_nozzle_c = 250.0
+bed_c = 100.0
+first_layer_bed_c = 100.0
+cost_per_kg = 22.67
+color = "#FFF2EC"
+
+[[filament]]
+name = "Fiberlogy Easy PET-G"
+brand = "Fiberlogy"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+spool_g = 330.0
+nozzle_c = 235.0
+first_layer_nozzle_c = 235.0
+bed_c = 80.0
+first_layer_bed_c = 80.0
+cost_per_kg = 20.0
+
+[[filament]]
+name = "Fiberlogy Easy PLA"
+brand = "Fiberlogy"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 330.0
+nozzle_c = 220.0
+first_layer_nozzle_c = 220.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 20.0
+
+[[filament]]
+name = "Fiberlogy FiberFlex 30D"
+brand = "Fiberlogy"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.07
+spool_g = 330.0
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 39.41
+color = "#008000"
+
+[[filament]]
+name = "Fiberlogy FiberFlex 40D"
+brand = "Fiberlogy"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.16
+spool_g = 330.0
+nozzle_c = 230.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 39.41
+color = "#008000"
+
+[[filament]]
+name = "Fiberlogy FiberSatin"
+brand = "Fiberlogy"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.2
+spool_g = 330.0
+nozzle_c = 215.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 32.35
+
+[[filament]]
+name = "Fiberlogy FiberSilk"
+brand = "Fiberlogy"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.22
+spool_g = 330.0
+nozzle_c = 230.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 32.35
+
+[[filament]]
+name = "Fiberlogy FiberWood"
+brand = "Fiberlogy"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+spool_g = 330.0
+nozzle_c = 185.0
+first_layer_nozzle_c = 185.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 38.66
+
+[[filament]]
+name = "Fiberlogy HD PLA"
+brand = "Fiberlogy"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 330.0
+nozzle_c = 230.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 30.59
+
+[[filament]]
+name = "Fiberlogy Impact PLA"
+brand = "Fiberlogy"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.22
+spool_g = 330.0
+nozzle_c = 230.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 27.65
+
+[[filament]]
+name = "Fiberlogy MattFlex 40D"
+brand = "Fiberlogy"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.16
+spool_g = 330.0
+nozzle_c = 230.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 49.11
+color = "#008000"
+
+[[filament]]
+name = "Fiberlogy Nylon PA12"
+brand = "Fiberlogy"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.01
+spool_g = 330.0
+nozzle_c = 265.0
+first_layer_nozzle_c = 265.0
+bed_c = 110.0
+first_layer_bed_c = 105.0
+cost_per_kg = 48.0
+color = "#FFF2EC"
+
+[[filament]]
+name = "Fiberlogy Nylon PA12+CF15"
+brand = "Fiberlogy"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.07
+spool_g = 330.0
+nozzle_c = 265.0
+first_layer_nozzle_c = 265.0
+bed_c = 110.0
+first_layer_bed_c = 105.0
+cost_per_kg = 87.5
+color = "#FFF2EC"
+
+[[filament]]
+name = "Fiberlogy Nylon PA12+GF15"
+brand = "Fiberlogy"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.13
+spool_g = 330.0
+nozzle_c = 265.0
+first_layer_nozzle_c = 265.0
+bed_c = 110.0
+first_layer_bed_c = 105.0
+cost_per_kg = 87.5
+color = "#FFF2EC"
+
+[[filament]]
+name = "Fiberlogy PCTG"
+brand = "Fiberlogy"
+type = "PCTG"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+spool_g = 330.0
+nozzle_c = 265.0
+first_layer_nozzle_c = 265.0
+bed_c = 90.0
+first_layer_bed_c = 90.0
+cost_per_kg = 29.41
+
+[[filament]]
+name = "Fiberlogy PLA Mineral"
+brand = "Fiberlogy"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.38
+spool_g = 330.0
+nozzle_c = 190.0
+first_layer_nozzle_c = 195.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 37.64
+
+[[filament]]
+name = "Fiberlogy PP"
+brand = "Fiberlogy"
+type = "PP"
+diameter_mm = 1.75
+density_g_cm3 = 1.05
+spool_g = 330.0
+nozzle_c = 245.0
+first_layer_nozzle_c = 245.0
+bed_c = 100.0
+first_layer_bed_c = 100.0
+cost_per_kg = 36.67
+color = "#FFF2EC"
+
+[[filament]]
+name = "Fiberthree F3 PA Pure Pro"
+brand = "Fiberthree"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.2
+nozzle_c = 285.0
+first_layer_nozzle_c = 285.0
+bed_c = 90.0
+first_layer_bed_c = 90.0
+cost_per_kg = 200.84
+color = "#DEE0E6"
+
+[[filament]]
+name = "Fiberthree F3 PA-CF Pro"
+brand = "Fiberthree"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.25
+nozzle_c = 285.0
+first_layer_nozzle_c = 285.0
+bed_c = 90.0
+first_layer_bed_c = 90.0
+cost_per_kg = 208.1
+color = "#DEE0E6"
+
+[[filament]]
+name = "Fiberthree F3 PA-GF Pro"
+brand = "Fiberthree"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 285.0
+first_layer_nozzle_c = 285.0
+bed_c = 90.0
+first_layer_bed_c = 90.0
+cost_per_kg = 205.68
+color = "#DEE0E6"
+
+[[filament]]
+name = "Fiberthree F3 PA-GF30 Pro"
+brand = "Fiberthree"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.35
+spool_g = 278.0
+nozzle_c = 285.0
+first_layer_nozzle_c = 275.0
+bed_c = 90.0
+first_layer_bed_c = 90.0
+cost_per_kg = 208.01
+color = "#BBBBBB"
+
+[[filament]]
+name = "Filament PM ABS"
+brand = "Filament PM"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.08
+spool_g = 230.0
+nozzle_c = 255.0
+first_layer_nozzle_c = 255.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 27.82
+color = "#FFF2EC"
+
+[[filament]]
+name = "Filament PM ASA"
+brand = "Filament PM"
+type = "ASA"
+diameter_mm = 1.75
+density_g_cm3 = 1.07
+nozzle_c = 255.0
+first_layer_nozzle_c = 255.0
+bed_c = 105.0
+first_layer_bed_c = 105.0
+cost_per_kg = 27.82
+color = "#FFF2EC"
+
+[[filament]]
+name = "Filament PM CFJet"
+brand = "Filament PM"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 255.0
+first_layer_nozzle_c = 245.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 27.82
+color = "#BBBBBB"
+
+[[filament]]
+name = "Filament PM FRJet"
+brand = "Filament PM"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 27.82
+color = "#BBBBBB"
+
+[[filament]]
+name = "Filament PM PA-CFJet"
+brand = "Filament PM"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.01
+nozzle_c = 245.0
+first_layer_nozzle_c = 245.0
+bed_c = 115.0
+first_layer_bed_c = 110.0
+cost_per_kg = 27.82
+color = "#BBBBBB"
+
+[[filament]]
+name = "Filament PM PAJet"
+brand = "Filament PM"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.01
+nozzle_c = 245.0
+first_layer_nozzle_c = 245.0
+bed_c = 115.0
+first_layer_bed_c = 110.0
+cost_per_kg = 27.82
+color = "#ECFAFF"
+
+[[filament]]
+name = "Filament PM PC-ABS"
+brand = "Filament PM"
+type = "PC"
+diameter_mm = 1.75
+density_g_cm3 = 1.19
+nozzle_c = 275.0
+first_layer_nozzle_c = 275.0
+bed_c = 110.0
+first_layer_bed_c = 110.0
+cost_per_kg = 49.9
+color = "#DEE0E6"
+
+[[filament]]
+name = "Filament PM PETG"
+brand = "Filament PM"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+spool_g = 230.0
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 27.82
+
+[[filament]]
+name = "Filament PM PLA"
+brand = "Filament PM"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 230.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 27.82
+
+[[filament]]
+name = "Filament PM PLA+"
+brand = "Filament PM"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.25
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 27.82
+
+[[filament]]
+name = "Filament PM PPJet"
+brand = "Filament PM"
+type = "PP"
+diameter_mm = 1.75
+density_g_cm3 = 0.89
+nozzle_c = 230.0
+first_layer_nozzle_c = 235.0
+bed_c = 110.0
+first_layer_bed_c = 110.0
+cost_per_kg = 33.99
+color = "#ECFAFF"
+
+[[filament]]
+name = "Filament PM TPE88 RubberJet"
+brand = "Filament PM"
+type = "FLEX"
+diameter_mm = 1.68
+density_g_cm3 = 0.89
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+cost_per_kg = 33.99
+color = "#008000"
+
+[[filament]]
+name = "Filamentworld ABS"
+brand = "Filamentworld"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.04
+nozzle_c = 230.0
+first_layer_nozzle_c = 240.0
+bed_c = 95.0
+first_layer_bed_c = 105.0
+cost_per_kg = 24.9
+color = "#FFF2EC"
+
+[[filament]]
+name = "Filamentworld PETG"
+brand = "Filamentworld"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 235.0
+first_layer_nozzle_c = 240.0
+bed_c = 70.0
+first_layer_bed_c = 85.0
+cost_per_kg = 34.9
+
+[[filament]]
+name = "Filamentworld PLA"
+brand = "Filamentworld"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 205.0
+first_layer_nozzle_c = 215.0
+bed_c = 55.0
+first_layer_bed_c = 60.0
+cost_per_kg = 24.9
+
+[[filament]]
+name = "Filatech ABS"
+brand = "Filatech"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.05
+nozzle_c = 255.0
+first_layer_nozzle_c = 255.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+color = "#FFF2EC"
+
+[[filament]]
+name = "Filatech FilaCarbon"
+brand = "Filatech"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.1
+nozzle_c = 255.0
+first_layer_nozzle_c = 255.0
+bed_c = 100.0
+first_layer_bed_c = 105.0
+color = "#FFF2EC"
+
+[[filament]]
+name = "Filatech FilaFlexible30"
+brand = "Filatech"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.15
+nozzle_c = 225.0
+first_layer_nozzle_c = 230.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 84.68
+color = "#008000"
+
+[[filament]]
+name = "Filatech FilaFlexible40"
+brand = "Filatech"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.22
+nozzle_c = 230.0
+first_layer_nozzle_c = 230.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 84.68
+color = "#008000"
+
+[[filament]]
+name = "Filatech FilaFlexible55"
+brand = "Filatech"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.18
+nozzle_c = 230.0
+first_layer_nozzle_c = 235.0
+bed_c = 60.0
+first_layer_bed_c = 50.0
+cost_per_kg = 84.68
+color = "#008000"
+
+[[filament]]
+name = "Filatech FilaPLA"
+brand = "Filatech"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.3
+nozzle_c = 230.0
+first_layer_nozzle_c = 235.0
+bed_c = 55.0
+first_layer_bed_c = 50.0
+
+[[filament]]
+name = "Filatech FilaTough"
+brand = "Filatech"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.29
+nozzle_c = 240.0
+first_layer_nozzle_c = 245.0
+bed_c = 90.0
+first_layer_bed_c = 80.0
+color = "#FFF2EC"
+
+[[filament]]
+name = "Filatech HIPS"
+brand = "Filatech"
+type = "HIPS"
+diameter_mm = 1.75
+density_g_cm3 = 1.07
+spool_g = 230.0
+nozzle_c = 225.0
+first_layer_nozzle_c = 230.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 27.3
+color = "#FFFFD7"
+
+[[filament]]
+name = "Filatech PA"
+brand = "Filatech"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.1
+nozzle_c = 275.0
+first_layer_nozzle_c = 275.0
+bed_c = 115.0
+first_layer_bed_c = 110.0
+color = "#FFF2EC"
+
+[[filament]]
+name = "Filatech PC"
+brand = "Filatech"
+type = "PC"
+diameter_mm = 1.75
+density_g_cm3 = 1.2
+nozzle_c = 275.0
+first_layer_nozzle_c = 275.0
+bed_c = 115.0
+first_layer_bed_c = 110.0
+color = "#FFF2EC"
+
+[[filament]]
+name = "Filatech PC-ABS"
+brand = "Filatech"
+type = "PC"
+diameter_mm = 1.75
+density_g_cm3 = 1.08
+nozzle_c = 270.0
+first_layer_nozzle_c = 270.0
+bed_c = 115.0
+first_layer_bed_c = 110.0
+color = "#FFF2EC"
+
+[[filament]]
+name = "Filatech PETG"
+brand = "Filatech"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 80.0
+first_layer_bed_c = 75.0
+
+[[filament]]
+name = "Filatech PLA"
+brand = "Filatech"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.25
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+
+[[filament]]
+name = "Filatech PLA+"
+brand = "Filatech"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+
+[[filament]]
+name = "Filatech TPU"
+brand = "Filatech"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.2
+nozzle_c = 235.0
+first_layer_nozzle_c = 230.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 84.68
+color = "#008000"
+
+[[filament]]
+name = "Filatech Wood-PLA"
+brand = "Filatech"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.05
+nozzle_c = 210.0
+first_layer_nozzle_c = 210.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+
+[[filament]]
+name = "Fillamentum ABS"
+brand = "Fillamentum"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.04
+spool_g = 230.0
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 32.4
+color = "#FFF2EC"
+
+[[filament]]
+name = "Fillamentum ASA"
+brand = "Fillamentum"
+type = "ASA"
+diameter_mm = 1.75
+density_g_cm3 = 1.07
+spool_g = 230.0
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 38.7
+color = "#FFF2EC"
+
+[[filament]]
+name = "Fillamentum CPE"
+brand = "Fillamentum"
+type = "CPE"
+diameter_mm = 1.75
+density_g_cm3 = 1.25
+spool_g = 230.0
+nozzle_c = 270.0
+first_layer_nozzle_c = 275.0
+bed_c = 90.0
+first_layer_bed_c = 90.0
+cost_per_kg = 46.65
+
+[[filament]]
+name = "Fillamentum Flexfill 92A"
+brand = "Fillamentum"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.2
+spool_g = 230.0
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 33.99
+color = "#008000"
+
+[[filament]]
+name = "Fillamentum Flexfill 98A"
+brand = "Fillamentum"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+spool_g = 230.0
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 82.26
+color = "#008000"
+
+[[filament]]
+name = "Fillamentum Nylon FX256"
+brand = "Fillamentum"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.01
+spool_g = 230.0
+nozzle_c = 250.0
+first_layer_nozzle_c = 250.0
+bed_c = 90.0
+first_layer_bed_c = 90.0
+cost_per_kg = 56.99
+color = "#DEE0E6"
+
+[[filament]]
+name = "Fillamentum PLA"
+brand = "Fillamentum"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 230.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 35.48
+
+[[filament]]
+name = "Fillamentum Timberfill"
+brand = "Fillamentum"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.15
+spool_g = 230.0
+nozzle_c = 190.0
+first_layer_nozzle_c = 190.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 68.0
+color = "#804040"
+
+[[filament]]
+name = "Floreon3D PLA"
+brand = "Floreon3D"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 25.4
+
+[[filament]]
+name = "FormFutura Centaur PP"
+brand = "FormFutura"
+type = "PP"
+diameter_mm = 1.75
+density_g_cm3 = 0.89
+spool_g = 212.0
+nozzle_c = 235.0
+first_layer_nozzle_c = 235.0
+bed_c = 85.0
+first_layer_bed_c = 85.0
+cost_per_kg = 70.0
+color = "#DEE0E6"
+
+[[filament]]
+name = "Ultrafuse ABS"
+brand = "Forward AM"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.04
+nozzle_c = 255.0
+first_layer_nozzle_c = 255.0
+bed_c = 100.0
+first_layer_bed_c = 100.0
+color = "#FFFFFF"
+
+[[filament]]
+name = "Ultrafuse ABS Fusion+"
+brand = "Forward AM"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.08
+nozzle_c = 270.0
+first_layer_nozzle_c = 270.0
+bed_c = 100.0
+first_layer_bed_c = 105.0
+color = "#FFF8D9"
+
+[[filament]]
+name = "Ultrafuse ASA"
+brand = "Forward AM"
+type = "ASA"
+diameter_mm = 1.75
+density_g_cm3 = 1.07
+nozzle_c = 275.0
+first_layer_nozzle_c = 275.0
+bed_c = 110.0
+first_layer_bed_c = 110.0
+color = "#FFF4CA"
+
+[[filament]]
+name = "Ultrafuse HIPS"
+brand = "Forward AM"
+type = "HIPS"
+diameter_mm = 1.75
+density_g_cm3 = 1.02
+nozzle_c = 250.0
+first_layer_nozzle_c = 255.0
+bed_c = 100.0
+first_layer_bed_c = 100.0
+color = "#FFFFFF"
+
+[[filament]]
+name = "Ultrafuse Metal"
+brand = "Forward AM"
+type = "METAL"
+diameter_mm = 1.75
+density_g_cm3 = 4.5
+nozzle_c = 250.0
+first_layer_nozzle_c = 250.0
+bed_c = 100.0
+first_layer_bed_c = 100.0
+color = "#FFFFFF"
+
+[[filament]]
+name = "Ultrafuse PA"
+brand = "Forward AM"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.12
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 70.0
+first_layer_bed_c = 80.0
+color = "#ECFAFF"
+
+[[filament]]
+name = "Ultrafuse PA6 GF30"
+brand = "Forward AM"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.17
+nozzle_c = 270.0
+first_layer_nozzle_c = 270.0
+bed_c = 100.0
+first_layer_bed_c = 100.0
+color = "#404040"
+
+[[filament]]
+name = "Ultrafuse PAHT-CF15"
+brand = "Forward AM"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+nozzle_c = 270.0
+first_layer_nozzle_c = 270.0
+bed_c = 100.0
+first_layer_bed_c = 100.0
+color = "#404040"
+
+[[filament]]
+name = "Ultrafuse PC-ABS-FR"
+brand = "Forward AM"
+type = "PC"
+diameter_mm = 1.75
+density_g_cm3 = 1.17
+nozzle_c = 275.0
+first_layer_nozzle_c = 275.0
+bed_c = 105.0
+first_layer_bed_c = 110.0
+color = "#505050"
+
+[[filament]]
+name = "Ultrafuse PET"
+brand = "Forward AM"
+type = "PET"
+diameter_mm = 1.75
+density_g_cm3 = 1.33
+nozzle_c = 215.0
+first_layer_nozzle_c = 220.0
+bed_c = 70.0
+first_layer_bed_c = 70.0
+color = "#F7F7F7"
+
+[[filament]]
+name = "Ultrafuse PET-CF15"
+brand = "Forward AM"
+type = "PET"
+diameter_mm = 1.75
+density_g_cm3 = 1.36
+nozzle_c = 270.0
+first_layer_nozzle_c = 270.0
+bed_c = 75.0
+first_layer_bed_c = 75.0
+color = "#404040"
+
+[[filament]]
+name = "Ultrafuse PLA"
+brand = "Forward AM"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.25
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+
+[[filament]]
+name = "Ultrafuse PP"
+brand = "Forward AM"
+type = "PP"
+diameter_mm = 1.75
+density_g_cm3 = 0.91
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 70.0
+first_layer_bed_c = 80.0
+color = "#F0F0F0"
+
+[[filament]]
+name = "Ultrafuse PP-GF30"
+brand = "Forward AM"
+type = "PP"
+diameter_mm = 1.75
+density_g_cm3 = 1.07
+nozzle_c = 250.0
+first_layer_nozzle_c = 260.0
+bed_c = 40.0
+first_layer_bed_c = 90.0
+color = "#404040"
+
+[[filament]]
+name = "Ultrafuse PRO1"
+brand = "Forward AM"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.25
+nozzle_c = 215.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 27.99
+color = "#FFFFFF"
+
+[[filament]]
+name = "Ultrafuse TPC-45D"
+brand = "Forward AM"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.15
+nozzle_c = 235.0
+first_layer_nozzle_c = 235.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+color = "#0035EC"
+
+[[filament]]
+name = "Ultrafuse TPU-64D"
+brand = "Forward AM"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.16
+nozzle_c = 225.0
+first_layer_nozzle_c = 230.0
+bed_c = 40.0
+first_layer_bed_c = 40.0
+color = "#0035EC"
+
+[[filament]]
+name = "Ultrafuse TPU-85A"
+brand = "Forward AM"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.11
+nozzle_c = 220.0
+first_layer_nozzle_c = 225.0
+bed_c = 40.0
+first_layer_bed_c = 40.0
+color = "#0035EC"
+
+[[filament]]
+name = "Ultrafuse TPU-95A"
+brand = "Forward AM"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.14
+nozzle_c = 225.0
+first_layer_nozzle_c = 230.0
+bed_c = 40.0
+first_layer_bed_c = 40.0
+color = "#0035EC"
+
+[[filament]]
+name = "Ultrafuse rPET"
+brand = "Forward AM"
+type = "PET"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 235.0
+first_layer_nozzle_c = 235.0
+bed_c = 75.0
+first_layer_bed_c = 80.0
+color = "#9DC5FF"
+
+[[filament]]
+name = "Generic ABS"
+brand = "Generic"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.04
+nozzle_c = 255.0
+first_layer_nozzle_c = 255.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 27.82
+color = "#FFF2EC"
+
+[[filament]]
+name = "Generic FLEX"
+brand = "Generic"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.22
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 82.0
+color = "#008000"
+
+[[filament]]
+name = "Generic HIPS"
+brand = "Generic"
+type = "HIPS"
+diameter_mm = 1.75
+density_g_cm3 = 1.04
+nozzle_c = 230.0
+first_layer_nozzle_c = 230.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 27.3
+color = "#FFFFD7"
+
+[[filament]]
+name = "Generic PETG"
+brand = "Generic"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 27.82
+
+[[filament]]
+name = "Generic PLA"
+brand = "Generic"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 25.4
+
+[[filament]]
+name = "Generic PLA Silk"
+brand = "Generic"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 220.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 25.4
+
+[[filament]]
+name = "Generic PVA"
+brand = "Generic"
+type = "PVA"
+diameter_mm = 1.75
+density_g_cm3 = 1.14
+spool_g = 235.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 159.98
+color = "#FFFFD7"
+
+[[filament]]
+name = "SemiFlex"
+brand = "Generic"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.22
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 82.26
+color = "#008000"
+
+[[filament]]
+name = "Hatchbox ABS"
+brand = "Hatchbox"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.04
+spool_g = 245.0
+nozzle_c = 255.0
+first_layer_nozzle_c = 255.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 27.82
+color = "#FFF2EC"
+
+[[filament]]
+name = "Hatchbox PLA"
+brand = "Hatchbox"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+spool_g = 245.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 25.4
+
+[[filament]]
+name = "Kimya ABS Carbon"
+brand = "Kimya"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.032
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 140.34
+color = "#804040"
+
+[[filament]]
+name = "Kimya ABS Kevlar"
+brand = "Kimya"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.037
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 140.34
+color = "#804040"
+
+[[filament]]
+name = "Kimya PEBA-S"
+brand = "Kimya"
+type = "PEBA"
+diameter_mm = 1.75
+density_g_cm3 = 1.013
+nozzle_c = 250.0
+first_layer_nozzle_c = 250.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 125.84
+
+[[filament]]
+name = "Kimya PETG Carbon"
+brand = "Kimya"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.317
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 150.02
+color = "#804040"
+
+[[filament]]
+name = "Prusa ABS"
+brand = "Made for Prusa"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.08
+spool_g = 230.0
+nozzle_c = 255.0
+first_layer_nozzle_c = 255.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 26.99
+color = "#FFF2EC"
+
+[[filament]]
+name = "Prusa HIPS"
+brand = "Made for Prusa"
+type = "HIPS"
+diameter_mm = 1.75
+density_g_cm3 = 1.04
+spool_g = 230.0
+nozzle_c = 220.0
+first_layer_nozzle_c = 220.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 27.3
+color = "#FFFFD7"
+
+[[filament]]
+name = "Prusa PETG"
+brand = "Made for Prusa"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+spool_g = 230.0
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 27.82
+
+[[filament]]
+name = "Prusa PLA"
+brand = "Made for Prusa"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 230.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 27.82
+
+[[filament]]
+name = "NinjaTek Cheetah TPU"
+brand = "NinjaTek"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.22
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 85.0
+color = "#008000"
+
+[[filament]]
+name = "NinjaTek NinjaFlex TPU"
+brand = "NinjaTek"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.19
+nozzle_c = 238.0
+first_layer_nozzle_c = 238.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 85.0
+color = "#008000"
+
+[[filament]]
+name = "Numakers ABS"
+brand = "Numakers"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.08
+nozzle_c = 255.0
+first_layer_nozzle_c = 255.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 26.99
+color = "#FFF2EC"
+
+[[filament]]
+name = "Numakers ASA"
+brand = "Numakers"
+type = "ASA"
+diameter_mm = 1.75
+density_g_cm3 = 1.07
+spool_g = 193.0
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 110.0
+first_layer_bed_c = 105.0
+cost_per_kg = 35.28
+color = "#FFF2EC"
+
+[[filament]]
+name = "Numakers PETG-HS"
+brand = "Numakers"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 230.0
+first_layer_nozzle_c = 245.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 22.0
+
+[[filament]]
+name = "Numakers PLA Matte"
+brand = "Numakers"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 230.0
+first_layer_nozzle_c = 235.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 27.99
+
+[[filament]]
+name = "Numakers PLA Silk"
+brand = "Numakers"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 225.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 20.0
+
+[[filament]]
+name = "Numakers PLA Wood"
+brand = "Numakers"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 220.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 27.99
+color = "#dfc287"
+
+[[filament]]
+name = "Numakers PLA+"
+brand = "Numakers"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 215.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 20.99
+
+[[filament]]
+name = "Numakers PLA-CF"
+brand = "Numakers"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 225.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 27.99
+
+[[filament]]
+name = "Overture High Speed TPU"
+brand = "Overture"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.19
+nozzle_c = 235.0
+first_layer_nozzle_c = 240.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 85.0
+color = "#008000"
+
+[[filament]]
+name = "Overture PETG"
+brand = "Overture"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.25
+spool_g = 155.0
+nozzle_c = 250.0
+first_layer_nozzle_c = 250.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 25.0
+
+[[filament]]
+name = "Overture PLA"
+brand = "Overture"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.21
+spool_g = 155.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 22.0
+
+[[filament]]
+name = "Fiberon PPS-CF"
+brand = "Polymaker"
+type = "PPS"
+diameter_mm = 1.75
+density_g_cm3 = 1.29
+spool_g = 197.0
+nozzle_c = 330.0
+first_layer_nozzle_c = 330.0
+bed_c = 110.0
+first_layer_bed_c = 110.0
+cost_per_kg = 124.99
+color = "#BBBBBB"
+
+[[filament]]
+name = "Fiberon PPS-GF"
+brand = "Polymaker"
+type = "PPS"
+diameter_mm = 1.75
+density_g_cm3 = 1.36
+spool_g = 197.0
+nozzle_c = 320.0
+first_layer_nozzle_c = 320.0
+bed_c = 110.0
+first_layer_bed_c = 110.0
+cost_per_kg = 124.99
+color = "#BBBBBB"
+
+[[filament]]
+name = "Polymaker PC-Max"
+brand = "Polymaker"
+type = "PC"
+diameter_mm = 1.75
+density_g_cm3 = 1.2
+nozzle_c = 270.0
+first_layer_nozzle_c = 270.0
+bed_c = 115.0
+first_layer_bed_c = 110.0
+cost_per_kg = 77.3
+color = "#FFF2EC"
+
+[[filament]]
+name = "Polymaker PolyDissolve S1"
+brand = "Polymaker"
+type = "PVA"
+diameter_mm = 1.75
+density_g_cm3 = 1.13
+spool_g = 125.0
+nozzle_c = 215.0
+first_layer_nozzle_c = 220.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 100.0
+color = "#F0EFB4"
+
+[[filament]]
+name = "Polymaker PolyTerra PLA"
+brand = "Polymaker"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.31
+spool_g = 140.0
+nozzle_c = 215.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 25.0
+
+[[filament]]
+name = "PrimaSelect PVA+"
+brand = "PrimaSelect"
+type = "PVA"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+nozzle_c = 195.0
+first_layer_nozzle_c = 195.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 122.1
+color = "#FFFFD7"
+
+[[filament]]
+name = "Print With Smile ABS"
+brand = "Print With Smile"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.08
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 535.0
+color = "#FFF2EC"
+
+[[filament]]
+name = "Print With Smile ASA"
+brand = "Print With Smile"
+type = "ASA"
+diameter_mm = 1.75
+density_g_cm3 = 1.07
+nozzle_c = 250.0
+first_layer_nozzle_c = 250.0
+bed_c = 110.0
+first_layer_bed_c = 105.0
+cost_per_kg = 625.0
+color = "#FFF4CA"
+
+[[filament]]
+name = "Print With Smile PETG"
+brand = "Print With Smile"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 245.0
+first_layer_nozzle_c = 240.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 590.0
+color = "#4D9398"
+
+[[filament]]
+name = "Print With Smile PETG CF"
+brand = "Print With Smile"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.29
+spool_g = 230.0
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 85.0
+first_layer_bed_c = 85.0
+cost_per_kg = 899.0
+
+[[filament]]
+name = "Print With Smile PLA"
+brand = "Print With Smile"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 205.0
+first_layer_nozzle_c = 205.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 535.0
+color = "#FFFF6F"
+
+[[filament]]
+name = "Print With Smile TPU96A"
+brand = "Print With Smile"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.31
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 1200.0
+color = "#008000"
+
+[[filament]]
+name = "Jessie PETG"
+brand = "Printed Solid"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 245.0
+first_layer_nozzle_c = 245.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 22.0
+
+[[filament]]
+name = "Jessie PLA"
+brand = "Printed Solid"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 21.0
+
+[[filament]]
+name = "Prusament ASA"
+brand = "Prusa Polymers"
+type = "ASA"
+diameter_mm = 1.75
+density_g_cm3 = 1.07
+spool_g = 278.0
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 110.0
+first_layer_bed_c = 105.0
+cost_per_kg = 35.28
+color = "#FFF2EC"
+
+[[filament]]
+name = "Prusament PA11"
+brand = "Prusa Polymers"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.03
+spool_g = 197.0
+nozzle_c = 275.0
+first_layer_nozzle_c = 275.0
+bed_c = 115.0
+first_layer_bed_c = 90.0
+cost_per_kg = 104.99
+color = "#DEE0E6"
+
+[[filament]]
+name = "Prusament PA11 Carbon Fiber"
+brand = "Prusa Polymers"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.11
+spool_g = 197.0
+nozzle_c = 285.0
+first_layer_nozzle_c = 275.0
+bed_c = 115.0
+first_layer_bed_c = 90.0
+cost_per_kg = 124.99
+color = "#BBBBBB"
+
+[[filament]]
+name = "Prusament PC Blend"
+brand = "Prusa Polymers"
+type = "PC"
+diameter_mm = 1.75
+density_g_cm3 = 1.22
+spool_g = 278.0
+nozzle_c = 275.0
+first_layer_nozzle_c = 275.0
+bed_c = 115.0
+first_layer_bed_c = 110.0
+cost_per_kg = 51.53
+color = "#DEE0E6"
+
+[[filament]]
+name = "Prusament PC Blend Carbon Fiber"
+brand = "Prusa Polymers"
+type = "PC"
+diameter_mm = 1.75
+density_g_cm3 = 1.22
+spool_g = 278.0
+nozzle_c = 285.0
+first_layer_nozzle_c = 285.0
+bed_c = 115.0
+first_layer_bed_c = 110.0
+cost_per_kg = 74.99
+color = "#BBBBBB"
+
+[[filament]]
+name = "Prusament PC Space Grade"
+brand = "Prusa Polymers"
+type = "PC"
+diameter_mm = 1.75
+density_g_cm3 = 1.21
+spool_g = 278.0
+nozzle_c = 290.0
+first_layer_nozzle_c = 290.0
+bed_c = 120.0
+first_layer_bed_c = 120.0
+cost_per_kg = 293.0
+color = "#BBBBBB"
+
+[[filament]]
+name = "Prusament PETG"
+brand = "Prusa Polymers"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+spool_g = 278.0
+nozzle_c = 250.0
+first_layer_nozzle_c = 250.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 29.99
+
+[[filament]]
+name = "Prusament PETG Carbon Fiber"
+brand = "Prusa Polymers"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+spool_g = 278.0
+nozzle_c = 265.0
+first_layer_nozzle_c = 260.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 54.99
+color = "#BBBBBB"
+
+[[filament]]
+name = "Prusament PETG Magnetite 40%"
+brand = "Prusa Polymers"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.82
+spool_g = 278.0
+nozzle_c = 270.0
+first_layer_nozzle_c = 265.0
+bed_c = 100.0
+first_layer_bed_c = 100.0
+cost_per_kg = 49.99
+color = "#BBBBBB"
+
+[[filament]]
+name = "Prusament PETG Ultraglow"
+brand = "Prusa Polymers"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.5
+spool_g = 278.0
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 88.0
+color = "#ADE79A"
+
+[[filament]]
+name = "Prusament PETG V0"
+brand = "Prusa Polymers"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+spool_g = 278.0
+nozzle_c = 230.0
+first_layer_nozzle_c = 230.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 54.99
+color = "#BBBBBB"
+
+[[filament]]
+name = "Prusament PETG V0 certified"
+brand = "Prusa Polymers"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+spool_g = 278.0
+nozzle_c = 230.0
+first_layer_nozzle_c = 230.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 54.99
+color = "#BBBBBB"
+
+[[filament]]
+name = "Prusament PLA"
+brand = "Prusa Polymers"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 278.0
+nozzle_c = 215.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 27.99
+
+[[filament]]
+name = "Prusament PLA Blend"
+brand = "Prusa Polymers"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 278.0
+nozzle_c = 225.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 27.99
+
+[[filament]]
+name = "Prusament PLA High Speed"
+brand = "Prusa Polymers"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 278.0
+nozzle_c = 220.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 27.99
+
+[[filament]]
+name = "Prusament PLA Lightweight"
+brand = "Prusa Polymers"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.18
+spool_g = 193.0
+nozzle_c = 230.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 56.99
+
+[[filament]]
+name = "Prusament PP Carbon Fiber"
+brand = "Prusa Polymers"
+type = "PP"
+diameter_mm = 1.75
+density_g_cm3 = 0.91
+spool_g = 278.0
+nozzle_c = 270.0
+first_layer_nozzle_c = 270.0
+bed_c = 85.0
+first_layer_bed_c = 95.0
+cost_per_kg = 121.2
+color = "#BBBBBB"
+
+[[filament]]
+name = "Prusament PP Glass Fiber"
+brand = "Prusa Polymers"
+type = "PP"
+diameter_mm = 1.75
+density_g_cm3 = 1.05
+spool_g = 278.0
+nozzle_c = 245.0
+first_layer_nozzle_c = 245.0
+bed_c = 95.0
+first_layer_bed_c = 100.0
+cost_per_kg = 121.2
+color = "#FFFFFF"
+
+[[filament]]
+name = "Prusament PVB"
+brand = "Prusa Polymers"
+type = "PVB"
+diameter_mm = 1.75
+density_g_cm3 = 1.09
+spool_g = 278.0
+nozzle_c = 215.0
+first_layer_nozzle_c = 215.0
+bed_c = 75.0
+first_layer_bed_c = 75.0
+cost_per_kg = 49.98
+color = "#FFFF6F"
+
+[[filament]]
+name = "Prusament TPU 95A"
+brand = "Prusa Polymers"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+spool_g = 278.0
+nozzle_c = 225.0
+first_layer_nozzle_c = 225.0
+bed_c = 65.0
+first_layer_bed_c = 65.0
+cost_per_kg = 77.98
+color = "#F9F3E5"
+
+[[filament]]
+name = "Prusament Woodfill"
+brand = "Prusa Polymers"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.2
+spool_g = 278.0
+nozzle_c = 195.0
+first_layer_nozzle_c = 195.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 39.9
+color = "#dfc287"
+
+[[filament]]
+name = "Prusament rPLA"
+brand = "Prusa Polymers"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 278.0
+nozzle_c = 205.0
+first_layer_nozzle_c = 205.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 37.49
+color = "#AA845D"
+
+[[filament]]
+name = "ROSA3D PETG Standard"
+brand = "ROSA3D Filaments"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.29
+spool_g = 250.0
+nozzle_c = 235.0
+first_layer_nozzle_c = 235.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 89.9
+
+[[filament]]
+name = "ROSA3D PLA Silk"
+brand = "ROSA3D Filaments"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 250.0
+nozzle_c = 215.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 109.9
+
+[[filament]]
+name = "ROSA3D PLA Starter"
+brand = "ROSA3D Filaments"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 250.0
+nozzle_c = 215.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 74.9
+
+[[filament]]
+name = "SainSmart TPU"
+brand = "SainSmart"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.21
+nozzle_c = 230.0
+first_layer_nozzle_c = 230.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+cost_per_kg = 32.99
+color = "#008000"
+
+[[filament]]
+name = "Siraya Tech PPA-CF"
+brand = "Siraya Tech"
+type = "PPA"
+diameter_mm = 1.75
+density_g_cm3 = 1.25
+spool_g = 197.0
+nozzle_c = 310.0
+first_layer_nozzle_c = 310.0
+bed_c = 110.0
+first_layer_bed_c = 110.0
+cost_per_kg = 124.99
+color = "#BBBBBB"
+
+[[filament]]
+name = "Smartfil Wood"
+brand = "Smart Materials 3D"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.58
+nozzle_c = 220.0
+first_layer_nozzle_c = 220.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 68.0
+color = "#804040"
+
+[[filament]]
+name = "Spectrum ASA 275"
+brand = "Spectrum"
+type = "ASA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 237.0
+first_layer_nozzle_c = 237.0
+bed_c = 80.0
+first_layer_bed_c = 80.0
+color = "#FFF2EC"
+
+[[filament]]
+name = "Spectrum ASA Kevlar"
+brand = "Spectrum"
+type = "ASA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 250.0
+first_layer_nozzle_c = 255.0
+bed_c = 105.0
+first_layer_bed_c = 100.0
+color = "#FFF2EC"
+
+[[filament]]
+name = "Spectrum GreenyHT"
+brand = "Spectrum"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.54
+nozzle_c = 205.0
+first_layer_nozzle_c = 205.0
+bed_c = 45.0
+first_layer_bed_c = 45.0
+
+[[filament]]
+name = "Spectrum PCTG"
+brand = "Spectrum"
+type = "PCTG"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+
+[[filament]]
+name = "Spectrum PETG HT100"
+brand = "Spectrum"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 250.0
+first_layer_nozzle_c = 250.0
+bed_c = 105.0
+first_layer_bed_c = 105.0
+
+[[filament]]
+name = "Spectrum PETG Matt"
+brand = "Spectrum"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.35
+nozzle_c = 240.0
+first_layer_nozzle_c = 230.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+
+[[filament]]
+name = "Spectrum PLA"
+brand = "Spectrum"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 21.5
+
+[[filament]]
+name = "Spectrum PLA PRO"
+brand = "Spectrum"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.22
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+
+[[filament]]
+name = "Spectrum Tough PLA"
+brand = "Spectrum"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 235.0
+first_layer_nozzle_c = 215.0
+bed_c = 45.0
+first_layer_bed_c = 60.0
+
+[[filament]]
+name = "Sunlu PETG"
+brand = "Sunlu"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+spool_g = 162.0
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 15.0
+
+[[filament]]
+name = "Sunlu PLA"
+brand = "Sunlu"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+spool_g = 162.0
+nozzle_c = 215.0
+first_layer_nozzle_c = 220.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 15.0
+
+[[filament]]
+name = "Sunlu PLA+ 2.0"
+brand = "Sunlu"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+spool_g = 162.0
+nozzle_c = 220.0
+first_layer_nozzle_c = 230.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 22.0
+
+[[filament]]
+name = "Taulman Bridge"
+brand = "Taulman"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.13
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 110.0
+first_layer_bed_c = 90.0
+cost_per_kg = 40.0
+color = "#DEE0E6"
+
+[[filament]]
+name = "Taulman T-Glase"
+brand = "Taulman"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 90.0
+first_layer_bed_c = 90.0
+cost_per_kg = 40.0
+
+[[filament]]
+name = "Tectonic-3D AURA ASA+"
+brand = "Tectonic-3D"
+type = "ASA"
+diameter_mm = 1.75
+density_g_cm3 = 1.07
+spool_g = 200.0
+nozzle_c = 260.0
+first_layer_nozzle_c = 260.0
+bed_c = 90.0
+first_layer_bed_c = 90.0
+cost_per_kg = 38.7
+color = "#FFF2EC"
+
+[[filament]]
+name = "Tectonic-3D AURA PETG"
+brand = "Tectonic-3D"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.29
+spool_g = 155.0
+nozzle_c = 245.0
+first_layer_nozzle_c = 245.0
+bed_c = 85.0
+first_layer_bed_c = 85.0
+cost_per_kg = 25.0
+
+[[filament]]
+name = "Tectonic-3D AURA PLA"
+brand = "Tectonic-3D"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 200.0
+nozzle_c = 215.0
+first_layer_nozzle_c = 220.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 22.0
+
+[[filament]]
+name = "Tectonic-3D KRATIR PA11 CF"
+brand = "Tectonic-3D"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.13
+spool_g = 200.0
+nozzle_c = 280.0
+first_layer_nozzle_c = 280.0
+bed_c = 110.0
+first_layer_bed_c = 110.0
+cost_per_kg = 124.99
+color = "#BBBBBB"
+
+[[filament]]
+name = "Tectonic-3D KRATIR PA6.66 CF"
+brand = "Tectonic-3D"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.17
+spool_g = 200.0
+nozzle_c = 265.0
+first_layer_nozzle_c = 265.0
+bed_c = 100.0
+first_layer_bed_c = 100.0
+color = "#BBBBBB"
+
+[[filament]]
+name = "Tectonic-3D KRATIR PP CF"
+brand = "Tectonic-3D"
+type = "PP"
+diameter_mm = 1.75
+density_g_cm3 = 1.07
+spool_g = 278.0
+nozzle_c = 250.0
+first_layer_nozzle_c = 250.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 100.0
+color = "#BBBBBB"
+
+[[filament]]
+name = "VOXELPETG+"
+brand = "VOXELPLA"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 245.0
+first_layer_nozzle_c = 240.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 22.0
+
+[[filament]]
+name = "VOXELPLA+"
+brand = "VOXELPLA"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.23
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 21.0
+
+[[filament]]
+name = "Verbatim ABS"
+brand = "Verbatim"
+type = "ABS"
+diameter_mm = 1.75
+density_g_cm3 = 1.05
+spool_g = 235.0
+nozzle_c = 255.0
+first_layer_nozzle_c = 255.0
+bed_c = 110.0
+first_layer_bed_c = 100.0
+cost_per_kg = 25.87
+color = "#FFF2EC"
+
+[[filament]]
+name = "Verbatim BVOH"
+brand = "Verbatim"
+type = "BVOH"
+diameter_mm = 1.75
+density_g_cm3 = 1.14
+spool_g = 235.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 159.98
+color = "#FFFFD7"
+
+[[filament]]
+name = "Verbatim PETG"
+brand = "Verbatim"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+spool_g = 235.0
+nozzle_c = 240.0
+first_layer_nozzle_c = 240.0
+bed_c = 90.0
+first_layer_bed_c = 85.0
+cost_per_kg = 27.9
+
+[[filament]]
+name = "Verbatim PLA"
+brand = "Verbatim"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+spool_g = 235.0
+nozzle_c = 210.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 42.99
+
+[[filament]]
+name = "Verbatim PP"
+brand = "Verbatim"
+type = "PP"
+diameter_mm = 1.75
+density_g_cm3 = 0.89
+spool_g = 235.0
+nozzle_c = 220.0
+first_layer_nozzle_c = 220.0
+bed_c = 100.0
+first_layer_bed_c = 100.0
+cost_per_kg = 72.0
+color = "#DEE0E6"
+
+[[filament]]
+name = "addnorth Adamant S1"
+brand = "addnorth"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.22
+nozzle_c = 250.0
+first_layer_nozzle_c = 245.0
+bed_c = 50.0
+first_layer_bed_c = 50.0
+color = "#008000"
+
+[[filament]]
+name = "addnorth Adura X"
+brand = "addnorth"
+type = "PA"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 270.0
+first_layer_nozzle_c = 265.0
+bed_c = 115.0
+first_layer_bed_c = 105.0
+cost_per_kg = 29.99
+
+[[filament]]
+name = "addnorth E-PLA"
+brand = "addnorth"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 215.0
+first_layer_nozzle_c = 215.0
+bed_c = 60.0
+first_layer_bed_c = 60.0
+cost_per_kg = 24.99
+
+[[filament]]
+name = "addnorth ESD-PETG"
+brand = "addnorth"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 265.0
+first_layer_nozzle_c = 245.0
+bed_c = 80.0
+first_layer_bed_c = 85.0
+cost_per_kg = 29.99
+
+[[filament]]
+name = "addnorth OBC Polyethylene"
+brand = "addnorth"
+type = "FLEX"
+diameter_mm = 1.75
+density_g_cm3 = 1.22
+nozzle_c = 200.0
+first_layer_nozzle_c = 195.0
+bed_c = 100.0
+first_layer_bed_c = 100.0
+cost_per_kg = 82.0
+color = "#008000"
+
+[[filament]]
+name = "addnorth PETG"
+brand = "addnorth"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 250.0
+first_layer_nozzle_c = 240.0
+bed_c = 80.0
+first_layer_bed_c = 85.0
+cost_per_kg = 29.99
+
+[[filament]]
+name = "addnorth Rigid X"
+brand = "addnorth"
+type = "PETG"
+diameter_mm = 1.75
+density_g_cm3 = 1.27
+nozzle_c = 260.0
+first_layer_nozzle_c = 250.0
+bed_c = 85.0
+first_layer_bed_c = 90.0
+cost_per_kg = 29.99
+
+[[filament]]
+name = "addnorth Textura"
+brand = "addnorth"
+type = "PLA"
+diameter_mm = 1.75
+density_g_cm3 = 1.24
+nozzle_c = 215.0
+first_layer_nozzle_c = 215.0
+bed_c = 65.0
+first_layer_bed_c = 65.0
+cost_per_kg = 24.99
+
+[[filament]]
+name = "igus® iglidur® i150"
+brand = "igus"
+type = "IGLIDUR"
+diameter_mm = 1.75
+density_g_cm3 = 1.3
+nozzle_c = 230.0
+first_layer_nozzle_c = 230.0
+bed_c = 80.0
+first_layer_bed_c = 80.0
+cost_per_kg = 66.08
+
+[[filament]]
+name = "igus® iglidur® i190"
+brand = "igus"
+type = "IGLIDUR"
+diameter_mm = 1.75
+density_g_cm3 = 1.3
+nozzle_c = 270.0
+first_layer_nozzle_c = 270.0
+bed_c = 80.0
+first_layer_bed_c = 80.0
+cost_per_kg = 94.49

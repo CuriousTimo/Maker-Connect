@@ -21,6 +21,15 @@
     ? `<span class="swatch-tape${m.color === "clear" ? " clear" : ""}" style="--tape:${m.color === "clear" ? "transparent" : esc(m.color || "#fff")};--ink:${esc(m.ink || "#000")}">Abc</span>`
     : `<span class="swatch-spool" style="--c:${esc(m.color || "#999")}"></span>`;
 
+  // A filament's facts from its slicer profile: 1.27 g/cm³ · spool 278 g · 250 °C, bed 90 °C.
+  const facts = (m) => [
+    m.density_g_cm3 && `${m.density_g_cm3} g/cm³`,
+    m.spool_g && `empty spool ${Math.round(m.spool_g)} g`,
+    m.nozzle_c && `${Math.round(m.nozzle_c)} °C${m.bed_c ? `, bed ${Math.round(m.bed_c)} °C` : ""}`,
+  ].filter(Boolean).join(" · ");
+  // Its brand and name, the brand once (Devil Design's names start with it).
+  const fullName = (m) => m.brand && !m.name.startsWith(m.brand) ? `${m.brand} ${m.name}` : m.name;
+
   async function load() {
     data = await (await fetch("api/stock")).json();
     render();
@@ -41,7 +50,7 @@
       const items = live.filter((i) => i.material === m.id);
       const low = m.minimum != null && items.length < m.minimum;
       return `<details class="material"${items.length ? " open" : ""}>
-        <summary>${swatch(m)}<span class="m-name"><b>${esc([m.brand, m.name].filter(Boolean).join(" "))}</b><small>${KINDS[m.kind] || esc(m.kind)}${m.ean ? ` · EAN ${esc(m.ean)}` : ""}</small></span>
+        <summary>${swatch(m)}<span class="m-name"><b>${esc(fullName(m))}</b><small>${KINDS[m.kind] || esc(m.kind)}${facts(m) ? ` · ${esc(facts(m))}` : ""}${m.ean ? ` · EAN ${esc(m.ean)}` : ""}</small></span>
           <span class="m-count${low ? " low" : ""}">${items.length} in stock${low ? " · low" : ""}</span>
           <span class="m-amount">${amount(items.reduce((s, i) => s + i.amount, 0), m.unit)}</span>
           <button type="button" class="ghost small" data-receive-material="${esc(m.id)}">Receive</button></summary>
@@ -87,11 +96,12 @@
     const m = material(item.material) || { name: "?", unit: "pcs" };
     const history = await (await fetch(`api/stock/items/${encodeURIComponent(id)}/movements`)).json();
     const fits = machines.filter((x) => (m.kind === "tape" ? x.kind === "label" : m.kind === "filament" ? x.kind === "fdm" : true));
-    show(`${head(`${swatch(m)} <code>${esc(id)}</code> ${esc([m.brand, m.name].filter(Boolean).join(" "))}`)}
+    show(`${head(`${swatch(m)} <code>${esc(id)}</code> ${esc(fullName(m))}`)}
       <section class="item-body">
-        <dl><dt>Left</dt><dd>${amount(item.amount, m.unit)}</dd><dt>Where</dt><dd>${esc(placeName(item))}</dd><dt>State</dt><dd>${esc(item.state)}</dd></dl>
+        <dl><dt>Left</dt><dd>${amount(item.amount, m.unit)}</dd><dt>Where</dt><dd>${esc(placeName(item))}</dd><dt>State</dt><dd>${esc(item.state)}</dd>${facts(m) ? `<dt>Prints</dt><dd>${esc(facts(m))}</dd>` : ""}</dl>
         <form data-act="move"><label>Move to <select name="location">${locationOptions(item.location)}</select></label><button>Move</button></form>
         ${fits.length ? `<form data-act="load"><label>Load into <select name="machine">${fits.map((x) => `<option value="${esc(x.id)}"${x.id === item.machine ? " selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label><button>Load</button></form>` : ""}
+        ${m.spool_g ? `<form data-act="weigh"><label>On the scale (g) <input name="gross" type="number" step="any" min="0" placeholder="${Math.round(item.amount + m.spool_g)}" required></label><button>Weigh</button><span class="hint">its empty spool, ${Math.round(m.spool_g)} g, is taken off</span></form>` : ""}
         <form data-act="amount"><label>Left (${esc(m.unit)}) <input name="amount" type="number" step="any" min="0" value="${item.amount}"></label><select name="why"><option value="weighed">weighed</option><option value="adjusted">counted</option></select><button>Set</button></form>
         <div class="item-actions"><button type="button" class="ghost" data-act-label>Print its label</button><button type="button" class="danger" data-act-used>Used up</button></div>
         <h4>History</h4>
@@ -105,12 +115,13 @@
         if (f.dataset.act === "move") await post(`api/stock/items/${id}/move`, { location: v.location });
         if (f.dataset.act === "load") await post(`api/stock/items/${id}/load`, { machine: v.machine });
         if (f.dataset.act === "amount") await post(`api/stock/items/${id}/amount`, { amount: Number(v.amount), why: v.why });
-        toast({ move: "Moved", load: "Loaded", amount: "Amount set" }[f.dataset.act]);
+        if (f.dataset.act === "weigh") await post(`api/stock/items/${id}/amount`, { amount: Math.max(0, Number(v.gross) - m.spool_g), why: "weighed" });
+        toast({ move: "Moved", load: "Loaded", amount: "Amount set", weigh: `${amount(Math.max(0, Number(v.gross) - (m.spool_g || 0)), "g")} left` }[f.dataset.act]);
         await load();
         showItem(id);
       } catch (error) { toast(error.message, "bad"); }
     }));
-    body.querySelector("[data-act-label]").addEventListener("click", () => label(`${id}\n${[m.brand, m.name].filter(Boolean).join(" ").slice(0, 28)}`, id));
+    body.querySelector("[data-act-label]").addEventListener("click", () => label(`${id}\n${fullName(m).slice(0, 28)}`, id));
     body.querySelector("[data-act-used]").addEventListener("click", async () => {
       if (!confirm(`${id} used up?`)) return;
       await post(`api/stock/items/${id}/used-up`, {});
@@ -120,12 +131,15 @@
     });
   }
 
-  // New material: from the catalogue (a printer's tapes, common filaments) or by hand.
-  function newMaterial(from) {
+  // New material: from the catalogue (a printer's tapes; the filaments of PrusaSlicer's
+  // profiles, hundreds: found by typing) or by hand.
+  function newMaterial() {
     const c = data.catalogue;
+    const named = new Map(c.map((m) => [fullName(m), m]));
     show(`${head("New material")}<section>
       <form data-new-material-form class="grid-form">
-        <label class="wide">Start from <select name="from"><option value="">By hand</option>${c.map((m, n) => `<option value="${n}"${from === n ? " selected" : ""}>${esc([m.brand, m.name].filter(Boolean).join(" "))}</option>`).join("")}</select></label>
+        <label class="wide">Start from <input name="from" type="search" list="stock-catalogue" autocomplete="off" placeholder="Type: Prusament PETG, Devil Design PLA, 45013… or leave empty"><small class="hint" data-facts>${c.length} in the catalogue: tapes of your label printers, filaments from PrusaSlicer's profiles</small></label>
+        <datalist id="stock-catalogue">${c.map((m) => `<option value="${esc(fullName(m))}">${esc(m.kind === "tape" ? "label tape" : facts(m))}</option>`).join("")}</datalist>
         <label>Kind <select name="kind">${Object.entries(KINDS).map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></label>
         <label>Brand <input name="brand"></label>
         <label class="wide">Name <input name="name" required></label>
@@ -133,23 +147,26 @@
         <label>Unit <select name="unit"><option value="g">grams</option><option value="m">metres</option><option value="pcs">pieces</option></select></label>
         <label>One comes with <input name="package" type="number" step="any" min="0" value="1000"></label>
         <label>Keep at least <input name="minimum" type="number" min="0" value="1"></label>
+        <label>Empty spool (g) <input name="spool_g" type="number" step="any" min="0" placeholder="weighed, to take off"></label>
         <label class="wide">EAN (its barcode, to scan it) <input name="ean" inputmode="numeric"></label>
         <div class="wide"><button>Add material</button></div>
       </form></section>`);
     const f = body.querySelector("form");
+    const factsLine = body.querySelector("[data-facts]");
     const fill = (m) => {
       if (!m) return;
       for (const k of ["kind", "brand", "name", "unit", "package", "minimum"]) if (m[k] != null) f[k].value = m[k];
+      f.spool_g.value = m.spool_g ?? "";
       if (m.color && m.color.startsWith("#")) f.color.value = m.color.length === 4 ? "#" + [...m.color.slice(1)].map((x) => x + x).join("") : m.color;
+      factsLine.textContent = m.kind === "tape" ? "A label tape: loading it tells the printer which tape it has" : [facts(m), m.source && `from ${m.source.replace(/^prusaslicer-settings-/, "PrusaSlicer's ").replace("@", " profiles, ")}`].filter(Boolean).join(" · ");
     };
-    f.from.addEventListener("change", () => fill(c[f.from.value]));
-    if (from != null) fill(c[from]);
+    f.from.addEventListener("input", () => fill(named.get(f.from.value)));
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const base = f.from.value !== "" ? c[f.from.value] : {};
+      const base = named.get(f.from.value) || {};
       const v = Object.fromEntries(new FormData(f));
       try {
-        await post("api/stock/materials", { ...base, kind: v.kind, brand: v.brand, name: v.name, unit: v.unit, color: base.color === "clear" ? "clear" : v.color, package: Number(v.package) || null, minimum: v.minimum === "" ? null : Number(v.minimum), ean: v.ean || null });
+        await post("api/stock/materials", { ...base, kind: v.kind, brand: v.brand, name: v.name, unit: v.unit, color: base.color === "clear" ? "clear" : v.color, package: Number(v.package) || null, minimum: v.minimum === "" ? null : Number(v.minimum), ean: v.ean || null, spool_g: v.spool_g === "" ? null : Number(v.spool_g) });
         toast("Material added");
         dialog.close();
         load();
@@ -161,7 +178,7 @@
   function receive(materialId) {
     if (!data.materials.length) { newMaterial(); return; }
     show(`${head("Receive")}<section><form class="grid-form">
-      <label class="wide">Material <select name="material">${data.materials.map((m) => `<option value="${esc(m.id)}"${m.id === materialId ? " selected" : ""}>${esc([m.brand, m.name].filter(Boolean).join(" "))}</option>`).join("")}</select></label>
+      <label class="wide">Material <select name="material">${data.materials.map((m) => `<option value="${esc(m.id)}"${m.id === materialId ? " selected" : ""}>${esc(fullName(m))}</option>`).join("")}</select></label>
       <label>How many <input name="count" type="number" min="1" max="200" value="1"></label>
       <label>Where <select name="location">${locationOptions("")}</select></label>
       <div class="wide"><button>Receive</button></div></form></section>`);

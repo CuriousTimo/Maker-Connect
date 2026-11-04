@@ -17,6 +17,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+mod prusaslicer;
+
 /// Folders of examples that are not machines to offer: tests and demos.
 const SKIP: [&str; 5] = [
     "AnimationExample",
@@ -397,7 +399,10 @@ fn main() -> std::process::ExitCode {
     let done = match args.as_slice() {
         [what, repo, out] if what == "marlin" => run(Path::new(repo), Path::new(out)),
         [what, profiles, out] if what == "list" => list(Path::new(profiles), Path::new(out)),
-        _ => Err("usage: maker-connect-import marlin <Configurations repository> <profiles folder>\n       maker-connect-import list <profiles folder> <page.md>".to_owned()),
+        [what, bundle, out] if what == "prusaslicer" => {
+            prusaslicer::run(Path::new(bundle), Path::new(out))
+        }
+        _ => Err("usage: maker-connect-import marlin <Configurations repository> <profiles folder>\n       maker-connect-import list <profiles folder> <page.md>\n       maker-connect-import prusaslicer <vendor bundle .ini> <filaments/….toml>".to_owned()),
     };
     match done {
         Ok(()) => std::process::ExitCode::SUCCESS,

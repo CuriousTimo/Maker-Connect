@@ -88,6 +88,22 @@ pub struct Material {
     pub media: Option<String>,
     #[serde(default)]
     pub width_mm: Option<u32>,
+    /// A filament's facts, from its slicer profile: what turns metres into grams, what to
+    /// take off when it is weighed on its spool, how hot it prints.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diameter_mm: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub density_g_cm3: Option<f64>,
+    /// The empty spool's weight.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spool_g: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nozzle_c: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bed_c: Option<f64>,
+    /// Where it came from: `prusaslicer-settings-prusa-fff@2.5.14`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -391,8 +407,84 @@ impl Store {
     }
 }
 
+/// The filament catalogue: `filaments/*.toml`, made from PrusaSlicer's vendor profiles by the
+/// importer, built into the binary.
+static FILAMENTS: include_dir::Dir =
+    include_dir::include_dir!("$CARGO_MANIFEST_DIR/../../filaments");
+
+#[derive(Deserialize)]
+struct FilamentFile {
+    source: String,
+    filament: Vec<Filament>,
+}
+
+#[derive(Deserialize)]
+struct Filament {
+    name: String,
+    brand: String,
+    #[serde(rename = "type")]
+    kind: String,
+    diameter_mm: f64,
+    density_g_cm3: Option<f64>,
+    spool_g: Option<f64>,
+    nozzle_c: Option<f64>,
+    bed_c: Option<f64>,
+    color: Option<String>,
+}
+
+/// The filaments of the catalogue, as materials of 1 kg spools.
+fn filaments() -> &'static [Material] {
+    static ALL: std::sync::OnceLock<Vec<Material>> = std::sync::OnceLock::new();
+    ALL.get_or_init(|| {
+        let mut out = Vec::new();
+        for file in FILAMENTS.files() {
+            if file.path().extension().is_none_or(|e| e != "toml") {
+                continue;
+            }
+            let parsed: FilamentFile = toml::from_str(file.contents_utf8().unwrap_or_default())
+                .unwrap_or_else(|e| panic!("filaments/{}: {e}", file.path().display()));
+            for f in parsed.filament {
+                out.push(Material {
+                    id: String::new(),
+                    kind: "filament".into(),
+                    brand: f.brand,
+                    name: format!("{} {} mm", f.name, f.diameter_mm),
+                    // Without a colour of its own, the colour of its type.
+                    color: f.color.or_else(|| type_color(&f.kind).map(str::to_owned)),
+                    ink: None,
+                    unit: "g".into(),
+                    package: Some(1000.0),
+                    ean: None,
+                    minimum: Some(1),
+                    media: None,
+                    width_mm: None,
+                    diameter_mm: Some(f.diameter_mm),
+                    density_g_cm3: f.density_g_cm3,
+                    spool_g: f.spool_g,
+                    nozzle_c: f.nozzle_c,
+                    bed_c: f.bed_c,
+                    source: Some(parsed.source.clone()),
+                });
+            }
+        }
+        out
+    })
+}
+
+/// A plain swatch for a type of filament.
+fn type_color(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "PLA" => "#d9d9d6",
+        "PETG" | "PET" | "PCTG" | "CPE" => "#9fc6d9",
+        "ASA" => "#e0d7c3",
+        "ABS" => "#e6e1d6",
+        "FLEX" => "#7a7a7a",
+        _ => return None,
+    })
+}
+
 /// Materials to start from: the tapes of the machine profiles (the DYMO's, drawn as they
-/// look), and common filaments.
+/// look), and the filaments of the catalogue.
 fn catalogue() -> Vec<Material> {
     let mut out = Vec::new();
     for profile in profiles::all() {
@@ -411,31 +503,16 @@ fn catalogue() -> Vec<Material> {
                 minimum: Some(1),
                 media: Some(format!("{}:{}", profile.id, m.id)),
                 width_mm: Some(m.width_mm),
+                diameter_mm: None,
+                density_g_cm3: None,
+                spool_g: None,
+                nozzle_c: None,
+                bed_c: None,
+                source: None,
             });
         }
     }
-    for (name, color) in [
-        ("PLA", "#d9d9d6"),
-        ("PETG", "#9fc6d9"),
-        ("ASA", "#e0d7c3"),
-        ("ABS", "#e6e1d6"),
-        ("TPU", "#7a7a7a"),
-    ] {
-        out.push(Material {
-            id: String::new(),
-            kind: "filament".into(),
-            brand: String::new(),
-            name: format!("{name} 1.75 mm, 1 kg"),
-            color: Some(color.into()),
-            ink: None,
-            unit: "g".into(),
-            package: Some(1000.0),
-            ean: None,
-            minimum: Some(1),
-            media: None,
-            width_mm: None,
-        });
-    }
+    out.extend(filaments().iter().cloned());
     out
 }
 
@@ -695,6 +772,29 @@ mod tests {
 
     /// Received, placed, loaded into a label printer (which then knows its tape), weighed,
     /// used up: every step in the ledger.
+    #[test]
+    fn the_catalogue_has_prusaslicers_filaments() {
+        let all = catalogue();
+        let petg = all
+            .iter()
+            .find(|m| m.brand == "Prusa Polymers" && m.name == "Prusament PETG 1.75 mm")
+            .expect("Prusament PETG");
+        assert_eq!(petg.spool_g, Some(278.0));
+        assert_eq!(petg.density_g_cm3, Some(1.27));
+        assert_eq!(petg.nozzle_c, Some(250.0));
+        assert!(
+            petg.source
+                .as_deref()
+                .unwrap()
+                .starts_with("prusaslicer-settings-prusa-fff@")
+        );
+        assert!(
+            all.iter()
+                .any(|m| m.brand == "Devil Design" && m.name.starts_with("Devil Design PETG")),
+        );
+        assert!(all.iter().filter(|m| m.kind == "filament").count() > 200);
+    }
+
     #[test]
     fn an_item_goes_through_its_life() {
         let mut store = Store::open(":memory:").unwrap();

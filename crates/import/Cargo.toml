@@ -1,6 +1,6 @@
 [package]
 name = "maker-connect-import"
-description = "Makes Maker Connect's machine profiles from other projects' data: Marlin's example configurations"
+description = "Makes Maker Connect's machine profiles from other projects' data: Marlin's example configurations, PrusaSlicer's filament profiles"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
