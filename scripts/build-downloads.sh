@@ -2,8 +2,10 @@
 # Builds the agent for the platforms this computer can build for, into the cloud's downloads
 # folder (beside its database), named so /downloads gives each a card.
 #   scripts/build-downloads.sh [folder]      default: maker-connect-downloads
-# Windows (x86_64) is cross-built with cargo-zigbuild when it is installed
-# (`cargo install cargo-zigbuild`, and Zig: `pip install ziglang`). Linux builds come from CI.
+# Windows (x86_64) and Linux (ARM64: Orange Pi Zero3, Raspberry Pi 4/5; and x86_64) are
+# cross-built with cargo-zigbuild when it is installed (`cargo install cargo-zigbuild`, and
+# Zig: `pip install ziglang`); Linux for glibc 2.31 and later (Debian 11, Ubuntu 20.04,
+# Armbian of those years on).
 set -e
 cd "$(dirname "$0")/.."
 out="${1:-maker-connect-downloads}"
@@ -30,4 +32,10 @@ if command -v cargo-zigbuild >/dev/null 2>&1; then
     cp target/x86_64-pc-windows-gnu/release/maker-connect-agent.exe \
         "$out/maker-connect-agent-windows-x86_64.exe"
     echo "built $out/maker-connect-agent-windows-x86_64.exe"
+    for arch in aarch64 x86_64; do
+        cargo zigbuild --release -p maker-connect-agent --target "$arch-unknown-linux-gnu.2.31"
+        cp "target/$arch-unknown-linux-gnu/release/maker-connect-agent" \
+            "$out/maker-connect-agent-linux-$arch"
+        echo "built $out/maker-connect-agent-linux-$arch"
+    done
 fi

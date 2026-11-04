@@ -79,7 +79,7 @@ impl Build {
         match (self.os, self.arch) {
             ("macos", "aarch64") => "Apple silicon (M1 and later)",
             ("macos", _) => "Intel",
-            ("linux", "aarch64") => "ARM 64-bit: Raspberry Pi 4 and 5",
+            ("linux", "aarch64") => "ARM 64-bit: Orange Pi Zero3, Raspberry Pi 4 and 5",
             (_, "aarch64") => "ARM 64-bit",
             _ => "64-bit (Intel, AMD)",
         }
@@ -105,6 +105,9 @@ impl Build {
         let options = format!("run --cloud {cloud} --name \"My machine\" --save");
         match self.os {
             "windows" => format!(r".\{name} {options}"),
+            "linux" => format!(
+                "chmod +x {name}\nsudo usermod -aG dialout $USER   # once: serial ports, then log in again\n./{name} {options}"
+            ),
             _ => format!("chmod +x {name}\n./{name} {options}"),
         }
     }

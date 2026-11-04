@@ -10,5 +10,12 @@ license.workspace = true
 hid = ["dep:hidapi"]
 
 [dependencies]
-hidapi = { version = "2", optional = true }
 png = "0.17"
+
+# USB HID: the system's own API on macOS and Windows; on Linux hidraw, found through /sys in
+# pure Rust (no libudev), so the agent cross-builds for a Pi.
+[target.'cfg(target_os = "linux")'.dependencies]
+hidapi = { version = "2", optional = true, default-features = false, features = ["linux-native-basic-udev"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+hidapi = { version = "2", optional = true }

@@ -11,6 +11,8 @@ maker-connect-label = { path = "../label", features = ["hid"] }
 maker-connect-protocol = { version = "0.1.0", path = "../protocol" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-serialport = "4"
+# Without libudev: on Linux the ports are read from /sys, so the agent cross-builds for a Pi
+# (an Orange Pi, a Raspberry Pi) with no Linux libraries at hand.
+serialport = { version = "4", default-features = false }
 toml = "1.1.8"
 ureq = { version = "2", features = ["json"] }
