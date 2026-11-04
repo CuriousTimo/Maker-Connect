@@ -67,6 +67,28 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
   run on LaserFoundry's simulated GRBL, through the same code as a real one; a virtual label
   printer takes labels and "prints" them at a real one's pace.
 
+## Supported devices
+
+| Devices | How they connect | What works | On real hardware |
+|---|---|---|---|
+| **Prusa MINI** (Buddy firmware) | Its own firmware speaks Prusa Connect to the cloud: no agent | Registers with a code, reports, takes commands | Yes: a MINI on firmware 6.3.0 |
+| **3D printers on Marlin**: 245 models (Creality, Anycubic, Artillery, …) | Agent, on USB | Recognised from `M115`; live temperatures, moves, heating, bed mesh, terminal; **prints files** (pause, resume, stop) | Not yet: tested against simulated printers |
+| **Prusa on 8-bit firmware**: MK3S, MK2.5S | Agent, on USB or an MK3S's RPi port (a Pi Zero W) | As Marlin, recognised from `M862.2 Q` | Not yet: an MK3S with its Pi Zero W is the first to try |
+| **Lasers on GRBL**: Ortur Laser Master 2 Pro S2, other GRBL 1.1 | Agent, on USB, with LaserFoundry's device crate | Homing, jogs, settings checked, Frame, jobs streamed, pause, resume, stop, restart where it stopped | Not yet: tested against LaserFoundry's simulated GRBL |
+| **Label printers**: DYMO LabelManager PnP | Agent, on USB HID: no driver, no DYMO software | Labels from the editor (text, QR codes, barcodes, drawings), tapes, cassette and battery | Yes: from a Mac and a Windows laptop, 12 mm tape |
+| **A virtual one of every profile** | Simulated in the cloud | Printers home, heat, measure and print; lasers on simulated GRBL; label printers print | – |
+
+| The agent runs on | Build | On real hardware |
+|---|---|---|
+| macOS, Apple silicon | `macos-aarch64` | Yes |
+| Windows 10/11, x64 | `windows-x86_64.exe` | Yes |
+| Linux ARM64: Orange Pi Zero3, Raspberry Pi 4 and 5 | `linux-aarch64` | Not yet |
+| Linux ARM 32-bit: Raspberry Pi Zero W (an MK3S's RPi port), Pi 1 | `linux-armv6` | Not yet |
+| Linux x86-64: a PC, a NAS | `linux-x86_64` | Not yet |
+
+Every machine with a profile, by brand: the wiki's
+[Supported Machines](https://github.com/CuriousTimo/Maker-Connect/wiki/Supported-Machines).
+
 ## Try it
 
 ```sh
@@ -94,6 +116,7 @@ smart plugs, a multi-tenant cloud, and consumables and stock; and the roadmap.
 | **grbl** (`crates/grbl`) | GRBL machines (lasers), on LaserFoundry's `laserfoundry-device` and `laserfoundry-gcode`; used by the agent and by the cloud's virtual lasers |
 | **label** (`crates/label`) | Labels as rasters (PNG in, dots out), and the DYMO LabelManager's protocol over USB HID |
 | **protocol** (`crates/protocol`) | What agents and the cloud say to each other |
+| **import** (`crates/import`) | Makes machine profiles from other projects' data (Marlin's example configurations) and the wiki's list of them: `scripts/import-profiles.sh` |
 
 The tools that make the jobs stay the makers' own: PrusaSlicer and Cura for printers,
 LaserFoundry for lasers. Maker Connect takes it from the file on. See

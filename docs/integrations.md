@@ -90,7 +90,8 @@ How it fits:
    at a laptop. Against "the machine connects to the cloud", so at most an extra.
 
 The cloud makes the label (template to image) and queues it; the agent prints it. Which label
-printer to start with: to be asked.
+printer to start with: the DYMO LabelManager PnP, the one at hand (below); Brother QL over the
+network next.
 
 ### DYMO LabelManager PnP: tried (2026-11-04)
 
