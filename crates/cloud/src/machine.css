@@ -60,6 +60,20 @@
   .jog { display: grid; grid-template-columns: 2em auto auto; gap: 8px; align-items: center; justify-content: start; }
   .jog button[value=home] { grid-column: 1 / -1; justify-self: start; }
   .jog span { color: var(--muted); font-weight: 600; }
+  /* The jog pad: eight directions round Home, the step and the speed beside. */
+  .jogpad { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; padding: 4px; border-radius: 12px; outline: none; }
+  .jogpad:focus-visible, .jogpad:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+  .jog-grid { display: grid; grid-template-columns: repeat(3, 48px); grid-auto-rows: 48px; gap: 6px; }
+  .jog-grid button { padding: 0; font-size: 20px; line-height: 1; }
+  .jog-grid .jog-home { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  .jog-settings { display: grid; gap: 12px; }
+  .jog-steps { display: flex; align-items: center; gap: 4px; }
+  .jog-steps input { position: absolute; opacity: 0; pointer-events: none; }
+  .jog-steps span { display: inline-block; min-width: 40px; text-align: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-variant-numeric: tabular-nums; }
+  .jog-steps input:checked + span { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); font-weight: 700; }
+  .jog-steps input:focus-visible + span { outline: 2px solid var(--accent); }
+  .jog-steps small { color: var(--muted); margin-left: 4px; }
+  .jog-speed { display: flex; gap: 8px; align-items: center; color: var(--muted); }
   .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
   .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
   button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); padding: 6px 12px; }

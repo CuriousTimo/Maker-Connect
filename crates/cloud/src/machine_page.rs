@@ -663,13 +663,17 @@ fn control(machine: &Machine, profile: Option<&Profile>) -> String {
         )
     };
     let fdm = heats(machine);
-    let mut controls = format!(
-        r#"<h4>Move</h4><div class="jog">{}{}{}{}</div><p class="hint">10 mm from where the head is. Home first.</p>"#,
-        button("home", "Home all"),
-        axis("X"),
-        axis("Y"),
-        if fdm { axis("Z") } else { String::new() }
-    );
+    let mut controls = if fdm {
+        format!(
+            r#"<h4>Move</h4><div class="jog">{}{}{}{}</div><p class="hint">10 mm from where the head is. Home first.</p>"#,
+            button("home", "Home all"),
+            axis("X"),
+            axis("Y"),
+            axis("Z")
+        )
+    } else {
+        jog_pad()
+    };
     if fdm {
         controls += &format!(
             r#"<h4>Heat</h4><div class="buttons">{}{}{}</div><h4>Fan and motors</h4><div class="buttons">{}{}{}</div>"#,
@@ -682,7 +686,9 @@ fn control(machine: &Machine, profile: Option<&Profile>) -> String {
         );
     } else {
         controls += &format!(
-            r#"<h4>Machine</h4><div class="buttons">{}{}</div><p class="hint">Unlock after an alarm ($X); Laser off switches the beam off (M5).</p>"#,
+            r#"<h4>Origin</h4><div class="buttons">{}{}</div><p class="hint">A job starts from its origin. Move the head to the corner of what you work on, then set it; the machine forgets it when it restarts.</p><h4>Machine</h4><div class="buttons">{}{}</div><p class="hint">Unlock after an alarm ($X); Laser off switches the beam off (M5).</p>"#,
+            button("set-origin", "Set origin here"),
+            button("go-origin", "Go to origin"),
             button("unlock", "Unlock"),
             button("laser-off", "Laser off")
         );
@@ -1047,6 +1053,58 @@ pub(crate) fn settings(machine: &Machine) -> String {
     format!(
         r#"<div class="grid-settings">{}<div class="stack">{info}</div></div>"#,
         card("Settings", "", &forms)
+    )
+}
+
+/// The jog pad of a laser, CNC or plotter (printers keep their buttons): eight directions and
+/// Home in the middle, a step and a speed to choose; the arrow keys move it too.
+fn jog_pad() -> String {
+    // (x, y, arrow) in the pad's order, row by row from the back.
+    const PAD: [(i8, i8, &str); 9] = [
+        (-1, 1, "↖"),
+        (0, 1, "↑"),
+        (1, 1, "↗"),
+        (-1, 0, "←"),
+        (0, 0, "⌂"),
+        (1, 0, "→"),
+        (-1, -1, "↙"),
+        (0, -1, "↓"),
+        (1, -1, "↘"),
+    ];
+    let pad: String = PAD
+        .iter()
+        .map(|&(x, y, arrow)| {
+            if (x, y) == (0, 0) {
+                format!(r#"<button name="action" value="home" class="jog-home" title="Home">{arrow}</button>"#)
+            } else {
+                let what = match (x, y) {
+                    (0, 1) => "back (Y+)",
+                    (0, -1) => "to the front (Y−)",
+                    (1, 0) => "right (X+)",
+                    (-1, 0) => "left (X−)",
+                    _ => "diagonally",
+                };
+                format!(
+                    r#"<button name="action" value="jog:{x}:{y}" title="Move {what}" aria-label="Move {what}">{arrow}</button>"#
+                )
+            }
+        })
+        .collect();
+    let steps: String = [(0.1, "0.1"), (1.0, "1"), (10.0, "10"), (50.0, "50")]
+        .iter()
+        .map(|(v, t)| {
+            format!(
+                r#"<label><input type="radio" name="step" value="{v}"{}><span>{t}</span></label>"#,
+                if *v == 10.0 { " checked" } else { "" }
+            )
+        })
+        .collect();
+    format!(
+        r#"<h4>Move</h4><div class="jogpad" tabindex="0" data-jogpad aria-label="Move the head: arrow keys move by the step">
+  <div class="jog-grid">{pad}</div>
+  <div class="jog-settings"><div class="jog-steps" role="radiogroup" aria-label="Step in mm">{steps}<small>mm</small></div>
+    <label class="jog-speed">Speed <select name="feed"><option value="600">slow</option><option value="1500">medium</option><option value="3000" selected>normal</option><option value="6000">fast</option></select></label></div>
+</div><p class="hint">Click the pad, then the arrow keys move it too. Home first. The laser stays off while it moves.</p>"#
     )
 }
 

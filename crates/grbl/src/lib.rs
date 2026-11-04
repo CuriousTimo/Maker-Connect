@@ -75,6 +75,9 @@ impl GrblMachine {
                 "$H" => self.link.home(),
                 "$X" => self.link.unlock(),
                 "$$" => self.link.request_settings(),
+                // The origin of a job where the head is, and back to it (LaserFoundry's own).
+                "G92 X0 Y0" => self.link.set_zero(),
+                "G90 G0 X0 Y0" => self.link.go_to_zero(),
                 // A jog through the link, which checks it and keeps the laser off.
                 _ if upper.starts_with("$J=") => match jog(&upper) {
                     Some(Jog::By(dx, dy, feed)) => self.link.jog(dx, dy, feed),
@@ -461,6 +464,26 @@ mod tests {
         let (telemetry, _) = wait_until(&mut machine, |t| t.position_mm == Some([25.0, 30.0, 0.0]));
         assert_eq!(telemetry.position_mm, Some([25.0, 30.0, 0.0]));
         assert!(machine.carry_out("$J=G91 Z5 F100").is_err(), "X and Y only");
+    }
+
+    /// The origin set where the head is, moved away from, gone back to.
+    #[test]
+    fn the_origin_is_set_and_gone_back_to() {
+        let mut sim = SimulatedGrbl::new();
+        sim.set_latency(Duration::from_millis(1));
+        let mut machine = GrblMachine::new(Box::new(sim));
+        wait_until(&mut machine, |t| t.grbl.is_some());
+        machine.carry_out("$J=G90 G21 X40 Y15 F3000").unwrap();
+        machine.carry_out("G92 X0 Y0").unwrap();
+        machine.carry_out("$J=G91 G21 X10 Y-5 F3000").unwrap();
+        wait_until(&mut machine, |t| t.position_mm == Some([50.0, 10.0, 0.0]));
+        machine.carry_out("G90 G0 X0 Y0").unwrap();
+        let (telemetry, _) = wait_until(&mut machine, |t| t.position_mm == Some([40.0, 15.0, 0.0]));
+        assert_eq!(
+            telemetry.position_mm,
+            Some([40.0, 15.0, 0.0]),
+            "back where the origin was set"
+        );
     }
 
     #[test]

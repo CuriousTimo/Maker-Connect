@@ -296,18 +296,6 @@
   render();
   document.fonts?.ready.then(render);
 
-  // How full a two-cell Li-ion pack is, from its voltage (as dymo::battery_percent).
-  function batteryPercent(packVolts) {
-    const curve = [[3.4, 0], [3.5, 5], [3.6, 15], [3.7, 30], [3.8, 50], [4.0, 80], [4.2, 100]];
-    const cell = packVolts / 2;
-    if (cell <= curve[0][0]) return 0;
-    for (let i = 1; i < curve.length; i++) {
-      const [v0, p0] = curve[i - 1], [v1, p1] = curve[i];
-      if (cell <= v1) return Math.round(p0 + ((p1 - p0) * (cell - v0)) / (v1 - v0));
-    }
-    return 100;
-  }
-
   // The printer, live.
   const setLive = (key, value) => {
     for (const el of document.querySelectorAll(`[data-live="${key}"]`)) el.textContent = value;

@@ -562,7 +562,8 @@ struct ProfileForm {
 }
 
 /// The same buttons on a GRBL machine: homing is `$H`, and moves are GRBL's own jogs (the
-/// laser stays off, and a jog can be cancelled).
+/// laser stays off, and a jog can be cancelled). The origin of a job can be set where the
+/// head is (`G92 X0 Y0`, as LaserFoundry does it), and gone back to.
 fn grbl_action(name: &str) -> Option<(&'static str, &'static str)> {
     Some(match name {
         "home" => ("Home", "$H"),
@@ -570,9 +571,50 @@ fn grbl_action(name: &str) -> Option<(&'static str, &'static str)> {
         "x-" => ("X −10 mm", "$J=G91 G21 X-10 F3000"),
         "y+" => ("Y +10 mm", "$J=G91 G21 Y10 F3000"),
         "y-" => ("Y −10 mm", "$J=G91 G21 Y-10 F3000"),
+        "set-origin" => ("Set origin here", "G92 X0 Y0"),
+        "go-origin" => ("Go to origin", "G90 G0 X0 Y0"),
         "settings" => ("Read settings", "$$"),
         _ => return None,
     })
+}
+
+/// The steps the jog pad offers (mm), and its speeds (mm/min): others are refused.
+const JOG_STEPS: [f64; 4] = [0.1, 1.0, 10.0, 50.0];
+const JOG_FEEDS: [f64; 4] = [600.0, 1500.0, 3000.0, 6000.0];
+
+/// A move of the jog pad (lasers, CNCs, plotters: printers keep their buttons):
+/// `jog:<x>:<y>`, each -1, 0 or 1 (diagonals too), by a step and at a speed it offers. On
+/// GRBL a jog of its own (`$J=`, the laser off), else a relative move. Its label and G-code.
+fn jog_command(action: &str, step: f64, feed: f64, grbl: bool) -> Option<(String, String)> {
+    if !JOG_STEPS.contains(&step) || !JOG_FEEDS.contains(&feed) {
+        return None;
+    }
+    let dir = |t: &str| match t {
+        "-1" => Some(-1.0),
+        "0" => Some(0.0),
+        "1" => Some(1.0),
+        _ => None,
+    };
+    let (x, y) = action.strip_prefix("jog:")?.split_once(':')?;
+    let (x, y) = (dir(x)?, dir(y)?);
+    if (x, y) == (0.0, 0.0) {
+        return None;
+    }
+    let mut axes = String::new();
+    let mut label = String::from("Move");
+    for (name, d) in [("X", x), ("Y", y)] {
+        if d != 0.0 {
+            axes += &format!(" {name}{}", d * step);
+            label += &format!(" {name}{}{step}", if d > 0.0 { "+" } else { "−" });
+        }
+    }
+    label += " mm";
+    let gcode = if grbl {
+        format!("$J=G91 G21{axes} F{feed}")
+    } else {
+        format!("G91\nG1{axes} F{feed}\nG90")
+    };
+    Some((label, gcode))
 }
 
 /// The commands the website offers: a label and its G-code. Moves are relative, 10 mm.
@@ -593,6 +635,8 @@ fn action(name: &str) -> Option<(&'static str, &'static str)> {
         "fan-on" => ("Print fan on", "M106 S255"),
         "fan-off" => ("Print fan off", "M107"),
         "motors-off" => ("Motors off", "M18"),
+        "set-origin" => ("Set origin here", "G92 X0 Y0"),
+        "go-origin" => ("Go to origin", "G90\nG0 X0 Y0"),
         _ => return None,
     })
 }
@@ -627,6 +671,11 @@ struct CommandForm {
     /// G-code typed in the terminal.
     #[serde(default)]
     gcode: String,
+    /// The jog pad's step (mm) and speed (mm/min).
+    #[serde(default)]
+    step: Option<f64>,
+    #[serde(default)]
+    feed: Option<f64>,
 }
 
 /// G-code from the terminal, tidied: its lines without blank ones, and a label (its first
@@ -693,26 +742,33 @@ async fn command(
             .and_then(|p| p.firmware.as_deref())
             == Some("grbl")
     };
-    let found = if grbl()
-        && let Some(found) = grbl_action(&form.action)
-    {
-        Some(found)
+    let owned = |(l, g): (&str, &str)| (l.to_owned(), g.to_owned());
+    let is_grbl = grbl();
+    let found = if form.action.starts_with("jog") {
+        jog_command(
+            &form.action,
+            form.step.unwrap_or(10.0),
+            form.feed.unwrap_or(3000.0),
+            is_grbl,
+        )
+    } else if is_grbl && let Some(found) = grbl_action(&form.action) {
+        Some(owned(found))
     } else if form.action == "probe-bed" {
         match store.machine(space, &id) {
             Ok(Some(machine)) => match probe_gcode(&machine) {
-                Ok(gcode) => Some(("Probe the bed", gcode)),
+                Ok(gcode) => Some(owned(("Probe the bed", gcode))),
                 Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
             },
             Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
             Err(error) => return failed(error),
         }
     } else {
-        action(&form.action)
+        action(&form.action).map(owned)
     };
     let Some((label, gcode)) = found else {
         return (StatusCode::BAD_REQUEST, "no such command").into_response();
     };
-    let queued = store.queue_command(space, &id, label, gcode);
+    let queued = store.queue_command(space, &id, &label, &gcode);
     match queued {
         // The page sends it without leaving; a plain form comes back to the page.
         Ok(Some(_)) if headers.contains_key("x-requested-with") => {
@@ -1015,18 +1071,24 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   input[name=code] { width: 9em; text-transform: uppercase; letter-spacing: 2px; }
   button { font: inherit; font-weight: 600; padding: 8px 14px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; }
   .note { color: var(--bad); }
-  .machine { display: grid; grid-template-columns: 56px 1fr auto; gap: 4px 16px; padding: 16px 18px; margin-bottom: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
-  .name { font-weight: 600; font-size: 17px; }
-  .state { justify-self: end; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; font-size: 12px; padding: 3px 10px; border-radius: 6px; background: var(--accent); color: #fff; }
+  /* A machine in the list: the same columns for every kind, so they line up down the page:
+     picture, name and model, what it does now, how it connects, last seen, its state. */
+  .machine { display: grid; grid-template-columns: 56px minmax(0, 1.5fr) minmax(0, 1.3fr) minmax(0, 1.2fr) 84px 112px; align-items: center; gap: 4px 20px; padding: 14px 18px; margin-bottom: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+  .m-col { display: grid; gap: 2px; min-width: 0; }
+  .m-col > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .m-col b { font-weight: 500; font-variant-numeric: tabular-nums; }
+  .m-col small { color: var(--muted); font-size: 13px; }
+  .name { font-weight: 600 !important; font-size: 17px; }
+  .machine .state { justify-self: stretch; text-align: center; }
+  @media (max-width: 900px) { .machine { grid-template-columns: 56px minmax(0, 1fr) 104px; } .m-conn, .m-seen { display: none; } .m-now { grid-column: 2; } }
+  .state { justify-self: end; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; font-size: 12px; padding: 4px 10px; border-radius: 6px; background: var(--accent); color: #fff; }
   .state.offline, .state.disconnected { background: var(--off); }
   .state.error { background: var(--bad); }
   .state.attention { background: var(--warn); }
   .attention-count b { color: var(--warn) !important; }
-  .thumb { grid-row: span 2; width: 56px; height: 56px; border-radius: 10px; background: var(--line); }
-  .facts { grid-column: 2 / -1; display: flex; gap: 22px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
-  .facts b { color: var(--ink); font-weight: 500; }
+  .thumb { width: 56px; height: 56px; border-radius: 10px; background: var(--line); }
   .empty { color: var(--muted); }
-  .card-progress { grid-column: 2 / -1; height: 6px; margin-top: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .card-progress { grid-column: 2 / -1; height: 6px; margin-top: 8px; border-radius: 3px; background: var(--line); overflow: hidden; }
   .card-progress i { display: block; height: 100%; background: var(--accent); transition: width 0.5s; }
   h2.group { margin: 26px 0 12px; font-size: 15px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
   h2.group span { margin-left: 6px; font-weight: 500; }
@@ -1059,7 +1121,23 @@ const PAGE: &str = r##"<!doctype html>
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const KIND = { fdm: "3D printer", laser: "Laser", cnc: "CNC", cutter: "Cutting plotter", label: "Label printer", paper: "Paper printer", other: "Machine" };
   let profiles = null;
-  function fact(label, value) { return value == null ? "" : `<span>${label} <b>${esc(value)}</b></span>`; }
+  // A column of a machine's row: a value, and what it is under it.
+  const col = (cls, value, caption) => `<div class="m-col ${cls}"><b>${esc(value ?? "–")}</b><small>${esc(caption ?? "")}</small></div>`;
+  const LINK = { virtual: "Virtual", "prusa-connect": "Prusa Connect", agent: "Agent" };
+  // What it does now: its job, else what matters for its kind.
+  function now(m, t) {
+    if (t.job) {
+      const percent = Math.round((t.job.done * 100) / Math.max(1, t.job.total));
+      return [`${percent} % · ${t.job.file}`, "job"];
+    }
+    if (t.nozzle_c != null) return [`${t.nozzle_c.toFixed(0)} °C · ${t.bed_c != null ? `${t.bed_c.toFixed(0)} °C` : "–"}`, "nozzle · bed"];
+    if (m.kind === "label") {
+      const tape = t.cassette === false ? "no cassette" : m.media ? `tape ${m.media}` : "tape not set";
+      return [`${tape}${t.battery_v != null ? ` · ${batteryPercent(t.battery_v)} %` : ""}`, t.battery_v != null ? "tape · battery" : "tape"];
+    }
+    if (t.position_mm) return [`X ${t.position_mm[0].toFixed(1)} · Y ${t.position_mm[1].toFixed(1)}`, "head, mm"];
+    return [null, "nothing reported"];
+  }
   function seen(seconds) {
     if (seconds == null) return "never";
     if (seconds < 60) return `${seconds} s ago`;
@@ -1073,15 +1151,17 @@ const PAGE: &str = r##"<!doctype html>
         const t = m.telemetry || {};
         const shown = shownState(m);
         const percent = t.job ? Math.round((t.job.done * 100) / Math.max(1, t.job.total)) : null;
-        const job = t.job ? `${t.job.file} ${percent} %` : null;
         const bar = t.job ? `<div class="card-progress"><i style="width: ${percent}%"></i></div>` : "";
+        const [doing, what] = now(m, t);
         const profile = profiles[m.profile];
         const thumb = profile && profile.image ? `<img class="thumb" src="profiles/${esc(m.profile)}.svg" alt="">` : `<span class="thumb"></span>`;
         return `<a class="machine" href="machines/${encodeURIComponent(m.id)}">
           ${thumb}
-          <div class="name">${esc(m.name)}</div>
+          <div class="m-col"><b class="name">${esc(m.name)}</b><small>${esc(profile ? (profile.model.includes(profile.brand) ? profile.model : `${profile.brand} ${profile.model}`) : KIND[m.kind] || m.kind)}</small></div>
+          ${col("m-now", doing, what)}
+          ${col("m-conn", `${LINK[m.link] || m.link}${m.link === "agent" && m.agent_version ? ` ${m.agent_version}` : ""}`, t.firmware || "firmware not reported")}
+          ${col("m-seen", seen(m.seen_seconds_ago), "last seen")}
           <div class="state ${esc(shown.cls)}">${esc(shown.text)}</div>
-          <div class="facts">${fact("Type", profile ? profile.model : KIND[m.kind] || m.kind)}${fact("Firmware", t.firmware)}${fact("Nozzle", t.nozzle_c != null ? `${t.nozzle_c.toFixed(0)} °C` : null)}${fact("Bed", t.bed_c != null ? `${t.bed_c.toFixed(0)} °C` : null)}${fact("Job", job)}${fact(m.link === "agent" ? "Agent" : "Link", { virtual: "Virtual, in the cloud", "prusa-connect": "Built-in Prusa Connect" }[m.link] || m.agent_version)}${fact("Seen", seen(m.seen_seconds_ago))}</div>
           ${bar}
         </a>`;
       };
@@ -1113,6 +1193,36 @@ const PAGE: &str = r##"<!doctype html>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The jog pad: diagonals, its steps and speeds only, GRBL's own jogs on a laser.
+    #[test]
+    fn the_jog_pad_moves_by_its_steps() {
+        assert_eq!(
+            jog_command("jog:1:-1", 0.1, 600.0, true),
+            Some((
+                "Move X+0.1 Y−0.1 mm".to_owned(),
+                "$J=G91 G21 X0.1 Y-0.1 F600".to_owned()
+            ))
+        );
+        assert_eq!(
+            jog_command("jog:-1:0", 50.0, 6000.0, false).unwrap().1,
+            "G91\nG1 X-50 F6000\nG90"
+        );
+        assert_eq!(jog_command("jog-z:1", 10.0, 3000.0, true), None, "no Z");
+        assert_eq!(jog_command("jog:0:0", 10.0, 3000.0, true), None);
+        assert_eq!(jog_command("jog:2:0", 10.0, 3000.0, true), None);
+        assert_eq!(
+            jog_command("jog:1:0", 500.0, 3000.0, true),
+            None,
+            "not a step offered"
+        );
+        assert_eq!(
+            jog_command("jog:1:0", 10.0, 1e9, true),
+            None,
+            "not a speed offered"
+        );
+        assert_eq!(grbl_action("set-origin").unwrap().1, "G92 X0 Y0");
+    }
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;

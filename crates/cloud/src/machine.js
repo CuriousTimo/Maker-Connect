@@ -27,9 +27,14 @@
       event.preventDefault();
       button.disabled = true;
       try {
+        // The jog pad's step and speed go with its moves.
+        const sent = new URLSearchParams({ action: button.value });
+        const step = form.querySelector("[name=step]:checked"), feed = form.querySelector("[name=feed]");
+        if (step) sent.set("step", step.value);
+        if (feed) sent.set("feed", feed.value);
         const response = await fetch(url, {
           method: "POST",
-          body: new URLSearchParams({ action: button.value }),
+          body: sent,
           headers: { "x-requested-with": "fetch" },
         });
         if (status) status.textContent = response.ok ? "" : `Not sent: ${await response.text()}`;
@@ -38,6 +43,18 @@
       } finally {
         button.disabled = false;
       }
+    });
+  }
+  // The arrow keys move the pad's head once it has focus: a move at a time (a key held down
+  // does not pile them up), Home on the Home key.
+  for (const pad of document.querySelectorAll("[data-jogpad]")) {
+    const keys = { ArrowUp: "jog:0:1", ArrowDown: "jog:0:-1", ArrowLeft: "jog:-1:0", ArrowRight: "jog:1:0", Home: "home" };
+    pad.addEventListener("keydown", (event) => {
+      const action = keys[event.key];
+      if (!action || event.target.matches("select")) return;
+      event.preventDefault();
+      const button = pad.querySelector(`button[value="${action}"]`);
+      if (button && !button.disabled) button.click();
     });
   }
   const commandItem = (c) =>
