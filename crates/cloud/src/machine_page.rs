@@ -335,6 +335,20 @@ fn heat_note(now: Option<f32>, target: Option<f32>) -> String {
     }
 }
 
+/// A tile with the loaded spool's colour as a spool beside its name, as Materials shows it.
+fn with_swatch(tile: String, color: Option<&str>) -> String {
+    let Some(color) = color.filter(|c| {
+        c.starts_with('#') && c.len() <= 9 && c[1..].chars().all(|ch| ch.is_ascii_hexdigit())
+    }) else {
+        return tile;
+    };
+    tile.replacen(
+        r#"<div class="label">Spool</div>"#,
+        &format!(r#"<div class="label heat-label">Spool<span class="spool-swatch" style="--c:{color}" role="img" aria-label="its colour"></span></div>"#),
+        1,
+    )
+}
+
 /// A heater's tile: its temperature, a flame beside its name while it has power (outlined
 /// while it has none, none when the machine does not tell), what it heats to below.
 fn heater_tile(
@@ -578,17 +592,31 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
         heater_tiles(machine)
             + &match &machine.loaded {
                 // The spool from Materials: what is left, and which it is.
-                Some(l) => tile(
-                    "Spool",
-                    "none",
-                    Some(if l.unit == "m" {
-                        format!("{:.1}", l.amount)
-                    } else {
-                        format!("{:.0}", l.amount)
-                    }),
-                    &format!("{} left", l.unit),
-                    "none",
-                    format!("{} · {}", l.item, l.name),
+                Some(l) => with_swatch(
+                    tile(
+                        "Spool",
+                        "none",
+                        Some(if l.unit == "m" {
+                            format!("{:.1}", l.amount)
+                        } else {
+                            format!("{:.0}", l.amount)
+                        }),
+                        &format!("{} left", l.unit),
+                        "none",
+                        {
+                            let what = match &l.material {
+                                Some(m) => format!("{} · {} · {m}", l.item, l.name),
+                                None => format!("{} · {}", l.item, l.name),
+                            };
+                            // Where it feeds from: a dry box and its slot.
+                            match (&l.place, l.slot) {
+                                (Some(p), Some(n)) => format!("{what} · from {p}, slot {n}"),
+                                (Some(p), None) => format!("{what} · from {p}"),
+                                _ => what,
+                            }
+                        },
+                    ),
+                    l.color.as_deref(),
                 ),
                 None => tile(
                     "Material",

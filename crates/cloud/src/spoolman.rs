@@ -60,6 +60,10 @@ pub fn routes() -> Router<Shared> {
         .route("/api/v1/spool/{id}/measure", put(measure_spool))
         .route("/api/v1/material", get(materials))
         .route("/api/v1/location", get(locations))
+        .route(
+            "/api/v1/location/{*name}",
+            axum::routing::patch(rename_location),
+        )
         .route("/api/v1/lot-number", get(lot_numbers))
         .route("/api/v1/article-number", get(article_numbers))
         .route("/api/v1/setting/", get(settings))
@@ -300,7 +304,7 @@ impl Store {
             .query_row(
                 "SELECT s.id, s.registered, s.first_used, s.last_used, s.price, s.filament_id,
                         s.initial_weight, s.spool_weight, s.used_weight, l.name, s.lot_nr, s.comment,
-                        s.archived, s.extra, s.machine, m.name
+                        s.archived, s.extra, s.machine, m.name, s.slot
                  FROM spool s
                  LEFT JOIN locations l ON l.id = s.location_id AND l.space_id = s.space_id
                  LEFT JOIN machines m ON m.id = s.machine
@@ -310,6 +314,10 @@ impl Store {
                     let mut extra = extra_map(r.get(13)?);
                     if let Some(machine) = r.get::<_, Option<String>>(15)? {
                         extra.insert("loaded_in".into(), extra_value(json!(machine)));
+                    }
+                    // Its slot in a dry box.
+                    if let Some(slot) = r.get::<_, Option<i64>>(16)? {
+                        extra.insert("slot".into(), extra_value(json!(slot)));
                     }
                     Ok((
                         r.get::<_, i64>(5)?,
@@ -896,6 +904,7 @@ fn spool_changes(
     store: &Store,
     space: i64,
     body: &Value,
+    spool: Option<i64>,
 ) -> Result<Vec<(&'static str, rusqlite::types::Value)>, String> {
     let mut c = Vec::new();
     if let Some(v) = body.get("filament_id") {
@@ -936,12 +945,61 @@ fn spool_changes(
                 .map_err(|e| e.to_string())?,
             None => None,
         };
-        c.push(("location_id", txt(place)));
+        c.push(("location_id", txt(place.clone())));
+        // Another place: out of its slot (unless one comes with it). Into a box (a place
+        // with slots) it stays loaded, the box feeding the printer; onto a shelf it is no
+        // longer on the printer.
+        let boxed = place.as_deref().is_some_and(|p| {
+            store
+                .db
+                .query_row(
+                    "SELECT COALESCE(slots, 0) > 0 FROM locations WHERE id = ?1",
+                    [p],
+                    |r| r.get(0),
+                )
+                .unwrap_or(false)
+        });
+        c.push(("slot", int(None)));
+        if place.is_some() && !boxed {
+            c.push(("machine", txt(None)));
+        }
+        // A dry box holds filament, not a label tape.
+        if boxed {
+            let kind: Option<String> = match (spool, body["filament_id"].as_i64()) {
+                (_, Some(f)) => store
+                    .db
+                    .query_row("SELECT kind FROM filament WHERE id = ?1", [f], |r| r.get(0))
+                    .ok(),
+                (Some(sp), None) => store
+                    .db
+                    .query_row(
+                        "SELECT f.kind FROM spool s JOIN filament f ON f.id = s.filament_id WHERE s.id = ?1",
+                        [sp],
+                        |r| r.get(0),
+                    )
+                    .ok(),
+                _ => None,
+            };
+            if kind.as_deref() == Some("tape") {
+                return Err("a dry box holds filament, not a label tape".into());
+            }
+        }
     }
     if let Some(extra) = body.get("extra").and_then(Value::as_object) {
+        if let Some(slot) = extra.get("slot") {
+            // `"3"` as Spoolman's clients send it, also `"\"3\""` and a bare 3.
+            let value = slot
+                .as_str()
+                .and_then(|t| serde_json::from_str::<Value>(t).ok())
+                .unwrap_or_else(|| slot.clone());
+            let n = value
+                .as_i64()
+                .or_else(|| value.as_str().and_then(|t| t.trim().parse().ok()));
+            c.push(("slot", int(n.filter(|n| *n > 0))));
+        }
         let rest: Map<String, Value> = extra
             .iter()
-            .filter(|(k, _)| k.as_str() != "loaded_in")
+            .filter(|(k, _)| !["loaded_in", "slot"].contains(&k.as_str()))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         c.push(("extra", txt(Some(Value::Object(rest).to_string()))));
@@ -958,7 +1016,7 @@ async fn add_spool(State(store): State<Shared>, Json(body): Json<Value>) -> Resp
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let mut changes = match spool_changes(&store, space, &body) {
+    let mut changes = match spool_changes(&store, space, &body, None) {
         Ok(c) => c,
         Err(why) => return invalid(why),
     };
@@ -1013,7 +1071,7 @@ async fn change_spool(
     let Ok(Some(before)) = store.sm_spool(space, id) else {
         return not_found("spool", id);
     };
-    let mut changes = match spool_changes(&store, space, &body) {
+    let mut changes = match spool_changes(&store, space, &body, Some(id)) {
         Ok(c) => c,
         Err(why) => return invalid(why),
     };
@@ -1257,6 +1315,48 @@ async fn locations(State(store): State<Shared>) -> Response {
         "SELECT name FROM locations WHERE space_id = ?1 ORDER BY name",
     )
 }
+/// Spoolman's rename: `PATCH /location/Shelf A` with `{"name": "Shelf B"}`.
+async fn rename_location(
+    State(store): State<Shared>,
+    Path(name): Path<String>,
+    Json(body): Json<Value>,
+) -> Response {
+    let Some(new) = body["name"]
+        .as_str()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+    else {
+        return invalid("name");
+    };
+    let store = store.lock().unwrap();
+    let space = match space(&store) {
+        Ok(s) => s,
+        Err(r) => return *r,
+    };
+    let Some(place) = store
+        .locations(space)
+        .ok()
+        .and_then(|all| all.into_iter().find(|l| l.name == name))
+    else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"message": format!("No location {name}.")})),
+        )
+            .into_response();
+    };
+    match store.update_location(
+        space,
+        &place.id,
+        new,
+        place.description.as_deref(),
+        place.slots,
+        place.model.as_deref(),
+    ) {
+        Ok(_) => Json(json!(new)).into_response(),
+        Err(e) => crate::failed(e),
+    }
+}
+
 async fn lot_numbers(State(store): State<Shared>) -> Response {
     distinct(
         &store,

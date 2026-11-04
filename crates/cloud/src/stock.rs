@@ -137,6 +137,25 @@ pub fn migrate(db: &Connection) -> rusqlite::Result<()> {
              PRIMARY KEY (space_id, entity_type, key)
          );",
     )?;
+    // A place can be a dry box with numbered slots, a spool in one of them.
+    for (table, column, definition) in [
+        ("locations", "slots", "INTEGER"),
+        ("locations", "model", "TEXT"),
+        ("locations", "description", "TEXT"),
+        ("spool", "slot", "INTEGER"),
+    ] {
+        let present: bool = db.query_row(
+            &format!("SELECT COUNT(*) > 0 FROM pragma_table_info('{table}') WHERE name = ?1"),
+            [column],
+            |r| r.get(0),
+        )?;
+        if !present {
+            db.execute(
+                &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+                [],
+            )?;
+        }
+    }
     if fresh {
         move_over(db)?;
     }
@@ -390,7 +409,132 @@ pub struct Location {
     pub id: String,
     pub name: String,
     pub parent: Option<String>,
+    /// A dry box's slots, numbered from 1; None for a shelf.
+    pub slots: Option<u32>,
+    /// The dry box it is, from [`DRYBOXES`].
+    pub model: Option<String>,
+    /// What it is or where, in words: "under the bench, left".
+    pub description: Option<String>,
 }
+
+/// A dry box someone may have: its slots for 1 kg spools, whether it heats, whether it tells
+/// its humidity. From the makers' pages; `check` where sources disagree or were not found.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Drybox {
+    pub id: &'static str,
+    pub brand: &'static str,
+    pub model: &'static str,
+    pub slots: u32,
+    pub heats: bool,
+    pub check: bool,
+}
+
+pub const DRYBOXES: [Drybox; 13] = [
+    Drybox {
+        id: "repkord-repbox-2.5",
+        brand: "Repkord",
+        model: "RepBox v2.5",
+        slots: 6,
+        heats: false,
+        check: false,
+    },
+    Drybox {
+        id: "sunlu-s4",
+        brand: "SUNLU",
+        model: "FilaDryer S4",
+        slots: 4,
+        heats: true,
+        check: false,
+    },
+    Drybox {
+        id: "sunlu-s2",
+        brand: "SUNLU",
+        model: "FilaDryer S2",
+        slots: 1,
+        heats: true,
+        check: true,
+    },
+    Drybox {
+        id: "sunlu-s1-plus",
+        brand: "SUNLU",
+        model: "FilaDryer S1 Plus",
+        slots: 1,
+        heats: true,
+        check: true,
+    },
+    Drybox {
+        id: "eibos-cyclopes",
+        brand: "EIBOS",
+        model: "Cyclopes",
+        slots: 2,
+        heats: true,
+        check: false,
+    },
+    Drybox {
+        id: "eibos-polyphemus",
+        brand: "EIBOS",
+        model: "Polyphemus",
+        slots: 2,
+        heats: true,
+        check: false,
+    },
+    Drybox {
+        id: "polymaker-polydryer",
+        brand: "Polymaker",
+        model: "PolyDryer box",
+        slots: 1,
+        heats: true,
+        check: false,
+    },
+    Drybox {
+        id: "creality-space-pi",
+        brand: "Creality",
+        model: "Space Pi",
+        slots: 1,
+        heats: true,
+        check: true,
+    },
+    Drybox {
+        id: "creality-space-pi-x4",
+        brand: "Creality",
+        model: "Space Pi X4",
+        slots: 4,
+        heats: true,
+        check: true,
+    },
+    Drybox {
+        id: "esun-ebox",
+        brand: "eSUN",
+        model: "eBOX",
+        slots: 1,
+        heats: true,
+        check: true,
+    },
+    Drybox {
+        id: "bambu-ams",
+        brand: "Bambu Lab",
+        model: "AMS",
+        slots: 4,
+        heats: false,
+        check: true,
+    },
+    Drybox {
+        id: "anycubic-ace-pro",
+        brand: "Anycubic",
+        model: "ACE Pro",
+        slots: 4,
+        heats: true,
+        check: true,
+    },
+    Drybox {
+        id: "bluerolls-drybox",
+        brand: "BlueRolls",
+        model: "Drybox",
+        slots: 1,
+        heats: false,
+        check: true,
+    },
+];
 
 /// One thing the space has.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -535,14 +679,17 @@ impl Store {
     }
 
     pub fn locations(&self, space: i64) -> rusqlite::Result<Vec<Location>> {
-        let mut q = self
-            .db
-            .prepare("SELECT id, name, parent FROM locations WHERE space_id = ?1 ORDER BY id")?;
+        let mut q = self.db.prepare(
+            "SELECT id, name, parent, slots, model, description FROM locations WHERE space_id = ?1 ORDER BY id",
+        )?;
         let rows = q.query_map([space], |r| {
             Ok(Location {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 parent: r.get(2)?,
+                slots: r.get(3)?,
+                model: r.get(4)?,
+                description: r.get(5)?,
             })
         })?;
         rows.collect()
@@ -554,13 +701,97 @@ impl Store {
         name: &str,
         parent: Option<&str>,
     ) -> rusqlite::Result<String> {
+        self.add_place(space, name, parent, None, None)
+    }
+
+    /// A place, perhaps a dry box with its slots (and which one it is): its code.
+    pub fn add_place(
+        &self,
+        space: i64,
+        name: &str,
+        parent: Option<&str>,
+        slots: Option<u32>,
+        model: Option<&str>,
+    ) -> rusqlite::Result<String> {
         let id = next_code(&self.db, "locations", "L", space)?;
         self.db.execute(
-            "INSERT INTO locations (id, space_id, name, parent) VALUES (?1, ?2, ?3, ?4)",
-            params![id, space, name, parent],
+            "INSERT INTO locations (id, space_id, name, parent, slots, model) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, space, name, parent, slots.filter(|s| *s > 0), model],
         )?;
         self.changed();
         Ok(id)
+    }
+
+    /// A location changed: its name, description, slots, which dry box. Spools in slots it no
+    /// longer has come out of them. False when there is no such location.
+    pub fn update_location(
+        &self,
+        space: i64,
+        id: &str,
+        name: &str,
+        description: Option<&str>,
+        slots: Option<u32>,
+        model: Option<&str>,
+    ) -> rusqlite::Result<bool> {
+        let n = self.db.execute(
+            "UPDATE locations SET name = ?1, description = ?2, slots = ?3, model = ?4
+             WHERE id = ?5 AND space_id = ?6",
+            params![
+                name,
+                description,
+                slots.filter(|s| *s > 0),
+                model,
+                id,
+                space
+            ],
+        )?;
+        if n > 0 {
+            self.db.execute(
+                "UPDATE spool SET slot = NULL WHERE location_id = ?1 AND slot > COALESCE(?2, 0)",
+                params![id, slots],
+            )?;
+            self.changed();
+            for spool in self.spools_at(id)? {
+                self.spoolman_event("spool", "updated", spool);
+            }
+        }
+        Ok(n > 0)
+    }
+
+    /// A location removed; what was in it has no location then (and stays loaded where it was).
+    pub fn remove_location(&self, space: i64, id: &str) -> rusqlite::Result<bool> {
+        let spools = self.spools_at(id)?;
+        self.db.execute(
+            "UPDATE spool SET location_id = NULL, slot = NULL WHERE location_id = ?1 AND space_id = ?2",
+            params![id, space],
+        )?;
+        let n = self.db.execute(
+            "DELETE FROM locations WHERE id = ?1 AND space_id = ?2",
+            params![id, space],
+        )?;
+        if n > 0 {
+            for spool in spools {
+                self.movement(
+                    space,
+                    &spool_code(spool),
+                    "moved",
+                    None,
+                    None,
+                    Some("its location was removed"),
+                )?;
+                self.spoolman_event("spool", "updated", spool);
+            }
+            self.changed();
+        }
+        Ok(n > 0)
+    }
+
+    fn spools_at(&self, location: &str) -> rusqlite::Result<Vec<i64>> {
+        let mut q = self
+            .db
+            .prepare("SELECT id FROM spool WHERE location_id = ?1")?;
+        let ids = q.query_map([location], |r| r.get(0))?;
+        ids.collect()
     }
 
     /// A location by its name (Spoolman keeps locations as names), made when missing: its code.
@@ -661,7 +892,7 @@ impl Store {
             return Ok(false);
         };
         let n = self.db.execute(
-            "UPDATE spool SET location_id = ?1, machine = NULL WHERE id = ?2 AND space_id = ?3",
+            "UPDATE spool SET location_id = ?1, machine = NULL, slot = NULL WHERE id = ?2 AND space_id = ?3",
             params![location, number, space],
         )?;
         if n > 0 {
@@ -672,8 +903,9 @@ impl Store {
         Ok(n > 0)
     }
 
-    /// Loads an item into a machine: what was loaded there goes back to stock (one spool,
-    /// one cassette at a time). A tape of the machine's profile tells the machine its tape.
+    /// Loads an item into a machine, where it is (a spool feeds a printer from its dry box):
+    /// what was loaded there is no longer (one spool, one cassette at a time). A tape of the
+    /// machine's profile tells the machine its tape.
     pub fn load_item(
         &self,
         space: i64,
@@ -686,6 +918,21 @@ impl Store {
         let Some(target) = self.machine(space, machine)? else {
             return Ok(Err("no such machine"));
         };
+        // A tape into a label printer, filament into a 3D printer.
+        let kind = self
+            .materials(space)?
+            .into_iter()
+            .find(|m| m.id == item.material)
+            .map(|m| m.kind);
+        match (kind.as_deref(), target.kind) {
+            (Some("tape"), k) if k != maker_connect_protocol::MachineKind::Label => {
+                return Ok(Err("a label tape goes into a label printer"));
+            }
+            (Some("filament"), k) if k != maker_connect_protocol::MachineKind::Fdm => {
+                return Ok(Err("filament goes into a 3D printer"));
+            }
+            _ => {}
+        }
         let others: Vec<String> = self
             .items(space)?
             .into_iter()
@@ -702,7 +949,14 @@ impl Store {
         }
         let number = spool_number(id).unwrap_or_default();
         self.db.execute(
-            "UPDATE spool SET machine = ?1, location_id = NULL WHERE id = ?2",
+            // In a box (a place with slots) it stays: the box feeds the printer. From a shelf,
+            // or from nowhere, it is on the printer now.
+            "UPDATE spool SET machine = ?1,
+                 location_id = CASE WHEN (SELECT slots FROM locations WHERE id = spool.location_id) > 0
+                     THEN location_id ELSE NULL END,
+                 slot = CASE WHEN (SELECT slots FROM locations WHERE id = spool.location_id) > 0
+                     THEN slot ELSE NULL END
+             WHERE id = ?2",
             params![machine, number],
         )?;
         self.movement(space, id, "loaded", None, Some(machine), None)?;
@@ -720,6 +974,31 @@ impl Store {
         }
         self.changed();
         Ok(Ok(()))
+    }
+
+    /// Takes an item out of its machine, leaving it where it is.
+    pub fn unload_item(&self, space: i64, id: &str) -> rusqlite::Result<bool> {
+        let Some(number) = spool_number(id) else {
+            return Ok(false);
+        };
+        let machine: Option<String> = self
+            .db
+            .query_row(
+                "SELECT machine FROM spool WHERE id = ?1 AND space_id = ?2",
+                params![number, space],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten();
+        let Some(machine) = machine else {
+            return Ok(false);
+        };
+        self.db
+            .execute("UPDATE spool SET machine = NULL WHERE id = ?1", [number])?;
+        self.movement(space, id, "unloaded", None, Some(&machine), None)?;
+        self.changed();
+        self.spoolman_event("spool", "updated", number);
+        Ok(true)
     }
 
     /// Sets what is left (weighed or counted), the difference recorded.
@@ -932,9 +1211,14 @@ pub fn routes() -> Router<Shared> {
         .route("/api/stock/materials", post(new_material))
         .route("/api/stock/materials/{id}", post(change_material))
         .route("/api/stock/locations", post(new_location))
+        .route(
+            "/api/stock/locations/{id}",
+            post(change_location).delete(remove_location),
+        )
         .route("/api/stock/receive", post(receive))
         .route("/api/stock/items/{id}/move", post(move_item))
         .route("/api/stock/items/{id}/load", post(load_item))
+        .route("/api/stock/items/{id}/unload", post(unload_item))
         .route("/api/stock/items/{id}/amount", post(set_amount))
         .route("/api/stock/items/{id}/used-up", post(use_up))
         .route("/api/stock/items/{id}/movements", get(movements))
@@ -963,6 +1247,7 @@ async fn overview(State(store): State<Shared>) -> Response {
             "items": items,
             "locations": locations,
             "catalogue": catalogue(),
+            "dryboxes": DRYBOXES,
         }))
         .into_response(),
         (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => failed(e),
@@ -989,6 +1274,74 @@ struct NewLocation {
     name: String,
     #[serde(default)]
     parent: Option<String>,
+    /// A dry box: its slots, and which one it is.
+    #[serde(default)]
+    slots: Option<u32>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ChangedLocation {
+    name: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    slots: Option<u32>,
+    #[serde(default)]
+    model: Option<String>,
+}
+
+async fn change_location(
+    State(store): State<Shared>,
+    Path(id): Path<String>,
+    Json(c): Json<ChangedLocation>,
+) -> Response {
+    let name = c.name.trim();
+    if name.is_empty() {
+        return (StatusCode::BAD_REQUEST, "a location needs a name").into_response();
+    }
+    let store = store.lock().unwrap();
+    let space = match space(&store) {
+        Ok(s) => s,
+        Err(r) => return *r,
+    };
+    if store
+        .locations(space)
+        .is_ok_and(|all| all.iter().any(|l| l.name == name && l.id != id))
+    {
+        return (StatusCode::CONFLICT, "another location has that name").into_response();
+    }
+    match store.update_location(
+        space,
+        &id,
+        name,
+        c.description
+            .as_deref()
+            .map(str::trim)
+            .filter(|d| !d.is_empty()),
+        c.slots.map(|n| n.min(64)),
+        c.model.as_deref().filter(|m| !m.is_empty()),
+    ) {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, "no such location").into_response(),
+        Err(e) => failed(e),
+    }
+}
+
+async fn remove_location(State(store): State<Shared>, Path(id): Path<String>) -> Response {
+    let store = store.lock().unwrap();
+    let space = match space(&store) {
+        Ok(s) => s,
+        Err(r) => return *r,
+    };
+    match store.remove_location(space, &id) {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, "no such location").into_response(),
+        Err(e) => failed(e),
+    }
 }
 
 async fn new_location(State(store): State<Shared>, Json(new): Json<NewLocation>) -> Response {
@@ -1000,12 +1353,27 @@ async fn new_location(State(store): State<Shared>, Json(new): Json<NewLocation>)
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.add_location(
+    match store.add_place(
         space,
         new.name.trim(),
         new.parent.as_deref().filter(|p| !p.is_empty()),
+        new.slots.map(|n| n.min(64)),
+        new.model.as_deref().filter(|m| !m.is_empty()),
     ) {
-        Ok(id) => Json(serde_json::json!({ "id": id })).into_response(),
+        Ok(id) => {
+            if let Some(d) = new
+                .description
+                .as_deref()
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+            {
+                let _ = store.db.execute(
+                    "UPDATE locations SET description = ?1 WHERE id = ?2",
+                    params![d, id],
+                );
+            }
+            Json(serde_json::json!({ "id": id })).into_response()
+        }
         Err(e) => failed(e),
     }
 }
@@ -1081,6 +1449,19 @@ async fn load_item(
     match store.load_item(space, &id, &machine) {
         Ok(Ok(())) => StatusCode::NO_CONTENT.into_response(),
         Ok(Err(why)) => (StatusCode::BAD_REQUEST, why).into_response(),
+        Err(e) => failed(e),
+    }
+}
+
+async fn unload_item(State(store): State<Shared>, Path(id): Path<String>) -> Response {
+    let store = store.lock().unwrap();
+    let space = match space(&store) {
+        Ok(s) => s,
+        Err(r) => return *r,
+    };
+    match store.unload_item(space, &id) {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, "not loaded in a machine").into_response(),
         Err(e) => failed(e),
     }
 }
@@ -1164,6 +1545,8 @@ async fn page(State(store): State<Shared>) -> Response {
       <button type="button" role="tab" data-view="locations" aria-selected="false">Locations</button>
     </nav>
     <label class="search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg><input type="search" data-search placeholder="Search, or scan: S-0007, L-0002, an EAN, a tag" aria-label="Search or scan" autocomplete="off"><button type="button" class="camera" data-camera title="Scan a QR code or barcode with the camera" aria-label="Scan with the camera"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7V4h3M14 4h3v3M17 13v3h-3M6 16H3v-3M6 10h8"/></svg></button></label>
+    <button type="button" class="ghost filter-button" data-filter-open>+ Filter</button>
+    <span class="filters" data-filters></span>
     <label class="pick">Group <select data-group><option value="filament">Filament</option><option value="vendor">Vendor</option><option value="location">Location</option><option value="material">Material</option><option value="none">None</option></select></label>
     <label class="pick">Sort <select data-sort><option value="name">Name</option><option value="remaining">Left</option><option value="last_used">Last used</option><option value="id">Newest</option></select></label>
     <label class="toggle"><input type="checkbox" data-archived> Used up</label>
@@ -1306,6 +1689,32 @@ mod tests {
         assert_eq!(store.items(space).unwrap()[0].amount, 7.0);
 
         store.load_item(space, "S-0001", &dymo).unwrap().unwrap();
+        // From a shelf it is on the printer now; from a box (a place with slots) it stays.
+        let loaded = store
+            .items(space)
+            .unwrap()
+            .into_iter()
+            .find(|i| i.id == "S-0001")
+            .unwrap();
+        assert_eq!(
+            (loaded.state.as_str(), loaded.location.as_deref()),
+            ("loaded", None)
+        );
+        let dry = store
+            .add_place(space, "RepBox", None, Some(6), Some("repkord-repbox-2.5"))
+            .unwrap();
+        store.move_item(space, "S-0001", Some(&dry)).unwrap();
+        store.load_item(space, "S-0001", &dymo).unwrap().unwrap();
+        let fed = store
+            .items(space)
+            .unwrap()
+            .into_iter()
+            .find(|i| i.id == "S-0001")
+            .unwrap();
+        assert_eq!(
+            (fed.state.as_str(), fed.location.as_deref()),
+            ("loaded", Some(dry.as_str()))
+        );
         let printer = store.machine(space, &dymo).unwrap().unwrap();
         assert_eq!(
             printer.media.as_deref(),
@@ -1330,7 +1739,12 @@ mod tests {
             .into_iter()
             .map(|m| m.kind)
             .collect();
-        assert_eq!(kinds, ["used-up", "unloaded", "loaded", "received"]);
+        assert_eq!(
+            kinds,
+            [
+                "used-up", "unloaded", "loaded", "moved", "loaded", "received"
+            ]
+        );
         let weighed = &store.movements(space, "S-0002").unwrap()[0];
         assert_eq!(
             (weighed.kind.as_str(), weighed.amount),

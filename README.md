@@ -64,7 +64,8 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
   Spoolman 0.27) and extra fields, so Moonraker's `[spoolman]`, OctoPrint's Spoolman plugin,
   Mainsail, Fluidd and scales such as SpoolmanScale use this cloud as their Spoolman. A
   library of spools grouped beside an inspector (weigh, use, move, load into a machine, label,
-  tags, history), a board of places to drag spools between, and *Add spools* searching your
+  duplicate, tags, history), a board with the machines on top and the locations below (dry
+  boxes with their slots; what does not fit is refused), and *Add spools* searching your
   filaments, your label printers' tapes and **SpoolmanDB** (thousands of filaments with their
   colours, weights and temperatures). Jobs count what they use off the loaded spool. Import
   from a running Spoolman or its export, keeping spool numbers; export or copy back. Scan

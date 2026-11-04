@@ -1402,7 +1402,7 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .name { font-weight: 600 !important; font-size: 17px; }
   .machine .state { justify-self: stretch; text-align: center; }
   .m-spool { display: flex; align-items: center; gap: 6px; }
-  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--line); flex: none; }
+  .m-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--line); flex: none; }
   @media (max-width: 900px) { .machine { grid-template-columns: 56px minmax(0, 1fr) 104px; } .m-conn, .m-seen { display: none; } .m-now { grid-column: 2; } }
   .state { justify-self: end; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; font-size: 12px; padding: 4px 10px; border-radius: 6px; background: var(--accent); color: #fff; }
   .state.offline, .state.disconnected { background: var(--off); }
@@ -1483,7 +1483,7 @@ const PAGE: &str = r##"<!doctype html>
           : ["fdm", "laser", "cnc"].includes(m.kind) ? `<img class="thumb" src="profiles/_generic/${esc(m.kind)}.svg" alt="">` : `<span class="thumb"></span>`;
         return `<a class="machine" href="machines/${encodeURIComponent(m.id)}">
           ${thumb}
-          <div class="m-col"><b class="name">${esc(m.name)}</b><small>${esc(profile ? (profile.model.includes(profile.brand) ? profile.model : `${profile.brand} ${profile.model}`) : KIND[m.kind] || m.kind)}</small>${m.loaded ? `<small class="m-spool"><i class="swatch" style="background:${esc(m.loaded.color || "transparent")}"></i>${esc(loadedText(m.loaded))}</small>` : ""}</div>
+          <div class="m-col"><b class="name">${esc(m.name)}</b><small>${esc(profile ? (profile.model.includes(profile.brand) ? profile.model : `${profile.brand} ${profile.model}`) : KIND[m.kind] || m.kind)}</small>${m.loaded ? `<small class="m-spool"><i class="m-swatch" style="background:${esc(m.loaded.color || "transparent")}"></i>${esc(loadedText(m.loaded))}</small>` : ""}</div>
           ${col("m-now", doing, what)}
           ${col("m-conn", `${LINK[m.link] || m.link}${m.link === "agent" && m.agent_version ? ` ${m.agent_version}` : ""}`, t.firmware || "firmware not reported")}
           ${col("m-seen", seen(m.seen_seconds_ago), "last seen")}

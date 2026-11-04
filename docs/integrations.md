@@ -164,9 +164,10 @@ serves `/api/v1` the way Spoolman does (`crates/cloud/src/spoolman.rs`), so Moon
 `[spoolman]` (`server: http://<cloud>:8460`; it calls `/api/v1/spool/{id}`, `/use`, and the
 `/api/v1/spool` WebSocket), OctoPrint's plugin, Mainsail, Fluidd and scales find what they
 expect. SpoolmanDB (MIT) is fetched hourly as the catalogue (`spoolmandb.rs`). A spool's id
-is its code's number (`S-0007` is 7); places are Maker Connect's (with codes and labels) and
-go out as names; Maker Connect's own fields (kind, unit, colour name, ink, width, `loaded_in`)
-go out as extra fields. Spoolman's labels (`WEB+SPOOLMAN:S-7`, `…/spool/show/7`) are read too.
+is its code's number (`S-0007` is 7); locations are Maker Connect's (with codes, labels, a
+description, and slots for a dry box) and go out as names (`PATCH /api/v1/location/{name}`
+renames one, as in Spoolman); Maker Connect's own fields (kind, unit, colour name, ink,
+width, `loaded_in`, `slot`) go out as extra fields. Spoolman's labels (`WEB+SPOOLMAN:S-7`, `…/spool/show/7`) are read too.
 
 Scales that speak to a Spoolman, and so to this cloud: SpoolmanScale (GPL-3.0, ESP32, NFC,
 touch display; FilaMan and BamBuddy too), and others to look at: Filament-Scale-Database

@@ -37,7 +37,7 @@
   .toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
 
   /* Two panes: the list, and what is chosen beside it. */
-  .library { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, 1fr); gap: 16px; align-items: start; }
+  .library { display: grid; grid-template-columns: minmax(360px, 0.9fr) minmax(0, 1.25fr); gap: 16px; align-items: start; }
   .list { display: grid; gap: 8px; min-width: 0; }
   .inspector { position: sticky; top: 64px; max-height: calc(100vh - 84px); overflow-y: auto; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
   .inspector .empty { margin: 30px 0; text-align: center; }
@@ -56,12 +56,23 @@
   .g-total small { color: var(--muted); }
   .g-total small.low { color: var(--warn); font-weight: 600; }
   .rows { list-style: none; margin: 0; padding: 0 8px 8px; display: grid; gap: 2px; }
-  .row { display: grid; grid-template-columns: 74px minmax(0, 1fr) minmax(0, 0.9fr) 64px; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  .row { display: grid; grid-template-columns: 62px minmax(0, 1.1fr) minmax(50px, 0.8fr) 62px minmax(0, 0.9fr); align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  .row .used { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .where { text-align: right; }
+  .row .left.low { color: var(--bad); }
+  .group-head { grid-template-columns: auto minmax(0, 1fr) auto 28px; }
+  .chip-material { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 5px; background: var(--line); color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .3px; vertical-align: 2px; }
+  .fold { background: none; border: 0; padding: 2px; color: var(--muted); display: grid; cursor: pointer; }
+  .fold svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; transform: rotate(-90deg); transition: transform .15s; }
+  .fold.open svg { transform: none; }
+  .filter-button { border-style: dashed; }
+  .filters { display: contents; }
+  .filters .chip { background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .row:hover { background: color-mix(in srgb, var(--line) 60%, transparent); }
   .row.archived { opacity: .55; }
   .row .where { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row .where.loaded { color: var(--accent); font-weight: 600; }
-  .row .left { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .row .left { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
   .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
   .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
   .bar.low i { background: var(--warn); }
@@ -71,8 +82,35 @@
   /* Swatches: a spool with its colour (several colours as slices), a tape with its ink. */
   .swatch-spool { display: inline-block; width: 30px; height: 30px; border-radius: 50%; flex: none; background: radial-gradient(circle, var(--card) 0 22%, transparent 23%), var(--c, #999); box-shadow: inset 0 0 0 1px rgb(0 0 0 / .2), 0 0 0 1.5px color-mix(in srgb, var(--muted) 50%, transparent); }
   .swatch-spool.big { width: 54px; height: 54px; }
+  .inspector .swatch-spool.big { border-radius: 12px; background: var(--c, #999); }
   .swatch-tape { display: inline-grid; place-items: center; width: 44px; height: 22px; border-radius: 3px; background: var(--tape); color: var(--ink); font-weight: 800; font-size: 12px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .15); flex: none; }
   .swatch-tape.clear { background: repeating-conic-gradient(#cfd3d6 0 25%, #f4f5f6 0 50%) 0 0 / 8px 8px; }
+
+  /* The inspector: where it is, what it is with its actions, what is left, and its details
+     in two columns (the spool's, editable; its filament's beside). */
+  .crumbs { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+  .crumbs .link { font-weight: 500; }
+  .i-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  .i-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .i-actions button { padding: 7px 12px; font-size: 14px; }
+  .i-used { margin-left: auto; color: var(--muted); }
+  .bar.wide { height: 8px; border-radius: 4px; margin: 4px 0 16px; }
+  .i-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 28px; border-top: 1px solid var(--line); padding-top: 4px; }
+  .i-cols form { display: block; margin: 0; }
+  .i-cols h4 { margin: 14px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .h-row { display: flex; justify-content: space-between; align-items: baseline; }
+  .h-row .link { font-size: 12px; text-transform: none; letter-spacing: 0; }
+  .fields .value { padding: 4px 0; }
+  .inline { border: 0; border-bottom: 1px dashed var(--line); border-radius: 0; background: transparent; padding: 4px 0; color: var(--ink); width: 100%; font: inherit; }
+  .inline:hover { border-bottom-color: var(--muted); }
+  .inline:focus { outline: none; border-bottom: 1px solid var(--accent); }
+  textarea.inline { resize: vertical; min-height: 28px; }
+  select.inline { cursor: pointer; }
+  .with-unit { display: flex; align-items: center; gap: 6px; }
+  .with-unit small { color: var(--muted); }
+  .with-unit input[type=color] { width: 30px; height: 26px; padding: 0; border: 0; background: none; flex: none; }
+  .dot-colour { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .2); }
+  @media (max-width: 1180px) { .i-cols { grid-template-columns: 1fr; } }
 
   /* The inspector. */
   .i-head { display: flex; gap: 14px; align-items: center; margin-bottom: 12px; }
@@ -98,8 +136,19 @@
   .badge.db { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
 
   /* The board: a column per location, spools as cards to drag between them. */
-  .board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(230px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 8px; }
-  .col { background: color-mix(in srgb, var(--line) 35%, var(--bg)); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: grid; gap: 8px; align-content: start; min-height: 180px; }
+  .board { display: block; }
+  .board-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 10px; }
+  .board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; align-items: start; }
+  /* The printers: a strip that stays in view while dragging down the places. */
+  .board-printers { position: sticky; top: 41px; z-index: 6; display: grid; gap: 8px; padding: 8px 0 12px; margin-bottom: 4px; background: var(--bg); }
+  .printer-group h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .printer-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .printer-drop { flex: 1 1 210px; max-width: 320px; display: grid; gap: 4px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 10px; background: color-mix(in srgb, var(--accent) 6%, var(--card)); font-size: 13px; }
+  .printer-drop > b { font-size: 13px; }
+  .printer-drop.target, .printer-drop.over { border-color: var(--accent); }
+  .loaded-line { display: flex; align-items: center; gap: 8px; }
+  .loaded-line .swatch-spool, .loaded-line .swatch-tape { width: 22px; height: 22px; }
+  .col { background: color-mix(in srgb, var(--line) 35%, var(--bg)); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: grid; gap: 8px; align-content: start; min-height: 120px; }
   .col.over { outline: 2px dashed var(--accent); outline-offset: -2px; }
   .col.target { outline: 2px dashed color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: -2px; cursor: pointer; }
   .col-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 2px 4px; }
@@ -135,7 +184,26 @@
     .inspector { position: fixed; inset: auto 0 0 0; top: auto; max-height: 82vh; border-radius: 18px 18px 0 0; z-index: 30; transform: translateY(105%); transition: transform .25s ease; box-shadow: 0 -12px 40px rgb(0 0 0 / .3); }
     .inspector.open { transform: none; }
     .sheet-close { display: block; position: sticky; top: 0; margin: -6px auto 8px; width: 44px; height: 5px; border-radius: 3px; background: var(--line); border: 0; padding: 0; }
-    .row { grid-template-columns: 64px minmax(0, 1fr) 56px; }
+    .row { grid-template-columns: 58px minmax(0, 1fr) 50px 58px; }
     .row .where { display: none; }
     .grid-form { grid-template-columns: 1fr; }
   }
+
+  /* A dry box's slots on the board: numbered, each a spool or a place to drop one. */
+  .slot { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 6px; align-items: center; min-height: 46px; padding: 4px; border: 1px dashed var(--line); border-radius: 10px; }
+  .slot.target, .slot.over { border-color: var(--accent); }
+  .slot-n { font: 700 13px ui-monospace, Menlo, monospace; color: var(--muted); text-align: center; }
+  .slot .card-spool { margin: 0; }
+  .machine-col { background: color-mix(in srgb, var(--accent) 7%, var(--bg)); }
+  .machine-col.over { outline: 2px dashed var(--accent); outline-offset: -2px; }
+  .feeds { color: var(--accent); font-weight: 600; }
+  /* Where the spool in hand does not fit. */
+  .board .no { opacity: .35; outline: none !important; border-style: solid; }
+
+  /* A location's tools beside its name: icons, explained when pointed at. */
+  .col-head { align-items: center; }
+  .col-head small { margin-left: auto; }
+  .col-tools { display: inline-flex; gap: 2px; margin-left: 6px; }
+  .icon-button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border-radius: 7px; background: transparent; color: var(--muted); border: 1px solid transparent; cursor: pointer; }
+  .icon-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
+  .icon-button:hover, .icon-button:focus-visible { color: var(--ink); background: var(--line); border-color: var(--line); }

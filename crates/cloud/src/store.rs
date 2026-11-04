@@ -111,6 +111,11 @@ pub struct Loaded {
     /// The material's colour name, else its name (`Galaxy Black`, `Prusament PETG`).
     pub name: String,
     pub color: Option<String>,
+    /// What it is: `PETG`, `PLA` (none for a tape).
+    pub material: Option<String>,
+    /// Where it feeds the machine from: a dry box (and its slot), a shelf.
+    pub place: Option<String>,
+    pub slot: Option<i64>,
     pub amount: f64,
     /// `g`, `m`, `pcs`.
     pub unit: String,
@@ -1568,6 +1573,33 @@ impl Store {
                             .map(|m| m.color_name.clone().unwrap_or_else(|| m.name.clone()))
                             .unwrap_or_else(|| item.material.clone()),
                         color: material.and_then(|m| m.color.clone()),
+                        material: item.material.parse::<i64>().ok().and_then(|id| {
+                            self.db
+                                .query_row(
+                                    "SELECT material FROM filament WHERE id = ?1 AND kind = 'filament'",
+                                    [id],
+                                    |r| r.get::<_, Option<String>>(0),
+                                )
+                                .ok()
+                                .flatten()
+                        }),
+                        place: item.location.as_ref().and_then(|code| {
+                            self.db
+                                .query_row(
+                                    "SELECT name FROM locations WHERE id = ?1 AND space_id = ?2",
+                                    params![code, space],
+                                    |r| r.get(0),
+                                )
+                                .ok()
+                        }),
+                        slot: crate::stock::spool_number(&item.id).and_then(|id| {
+                            self.db
+                                .query_row("SELECT slot FROM spool WHERE id = ?1", [id], |r| {
+                                    r.get::<_, Option<i64>>(0)
+                                })
+                                .ok()
+                                .flatten()
+                        }),
                         amount: item.amount,
                         unit: material.map_or("pcs".to_owned(), |m| m.unit.clone()),
                     }

@@ -89,7 +89,8 @@
   // What is loaded in a machine: "S-0007 · Galaxy Black · 412 g left".
   function loadedText(l) {
     const amount = l.unit === "g" ? Math.round(l.amount) : l.unit === "m" ? l.amount.toFixed(1) : l.amount;
-    return `${l.item} · ${l.name} · ${amount} ${l.unit} left`;
+    const from = l.place ? ` · from ${l.place}${l.slot ? `, slot ${l.slot}` : ""}` : "";
+    return `${l.item} · ${l.name}${l.material ? ` · ${l.material}` : ""} · ${amount} ${l.unit} left${from}`;
   }
   function shownState(m) {
     if (m.out_of_use) return { text: "Out of use", cls: "out" };
