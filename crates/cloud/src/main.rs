@@ -484,7 +484,7 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
         ),
         stock = link(
             "stock",
-            "Stock",
+            "Materials",
             "stock",
             r#"<path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5z"/><path d="M3 6.5 10 10l7-3.5M10 10v7"/>"#
         ),

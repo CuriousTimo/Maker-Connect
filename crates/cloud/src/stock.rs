@@ -779,7 +779,7 @@ async fn page(State(store): State<Shared>) -> Response {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Stock · Maker Connect</title>
+<title>Materials · Maker Connect</title>
 <link rel="icon" href="logo.svg" type="image/svg+xml">
 <style>
 {STYLE}{STOCK_STYLE}</style>
@@ -788,7 +788,7 @@ async fn page(State(store): State<Shared>) -> Response {
 {header}
 <main>
   <div class="page-head">
-    <div><h2>Stock</h2><p class="subtitle">Filament, tapes and the rest: each spool and cassette with a code and a label, where it is, what is loaded.</p></div>
+    <div><h2>Materials</h2><p class="subtitle">Filament, tapes and the rest: each spool and cassette with a code and a label, where it is, what is loaded.</p></div>
     <div class="page-actions">
       <button type="button" class="ghost" data-new-location>New location</button>
       <button type="button" class="ghost" data-new-material>New material</button>
@@ -800,7 +800,7 @@ async fn page(State(store): State<Shared>) -> Response {
     <input data-scan-input placeholder="Scan a code, or type one: S-0007, L-0002, an EAN" aria-label="Scan or type a code">
   </form>
   <div class="tiles" data-totals></div>
-  <section class="stock-section"><h3>Materials</h3><div data-materials><p class="empty">Loading…</p></div></section>
+  <section class="stock-section"><h3>Stock</h3><div data-materials><p class="empty">Loading…</p></div></section>
   <section class="stock-section"><h3>Locations</h3><div data-locations></div></section>
 </main>
 <dialog class="stock-dialog" data-dialog><div data-dialog-body></div></dialog>
