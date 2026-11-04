@@ -2,7 +2,10 @@
   .title { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
   .title h2 { margin: 0; }
   .subtitle { margin: 4px 0 0; color: var(--muted); }
-  .tabs { display: flex; gap: 4px; margin: 18px 0 22px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  /* Scrolls sideways on a narrow screen, without a scrollbar of its own (the tabs' 1px over
+     the line would otherwise show one under them, on Windows). */
+  .tabs { display: flex; gap: 4px; margin: 18px 0 22px; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
   .tabs a { padding: 10px 14px; text-decoration: none; color: var(--muted); font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
   .tabs a[aria-selected=true] { color: var(--ink); border-color: var(--accent); }
 
