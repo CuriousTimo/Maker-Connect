@@ -528,10 +528,11 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     let status = printer.last;
                     telemetry.raw_status =
                         (!printer.last_raw.is_empty()).then(|| dymo::hex(&printer.last_raw));
-                    // No cassette is a known reason to wait, said as the problem; only a
-                    // jammed cutter or the printer's own error bit is an error.
+                    // No cassette: it waits for someone (attention), the reason said as
+                    // the problem; only a jammed cutter or its error bit is an error.
                     telemetry.state = match status {
                         Some(s) if s.cutter_jammed() || s.error() => MachineState::Error,
+                        Some(s) if !s.cassette() => MachineState::Attention,
                         _ => MachineState::Idle,
                     };
                     telemetry.cassette = status.map(|s| s.cassette());

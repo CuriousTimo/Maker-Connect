@@ -16,8 +16,12 @@ pub(crate) fn shown_state(machine: &Machine) -> (String, String) {
     match machine.telemetry.as_ref().filter(|_| machine.online) {
         None => ("Offline".to_owned(), "offline".to_owned()),
         Some(t) => match (&t.problem, t.state) {
+            (problem, maker_connect_protocol::MachineState::Attention) => (
+                problem.clone().unwrap_or_else(|| "Attention".to_owned()),
+                "attention".to_owned(),
+            ),
             (Some(problem), maker_connect_protocol::MachineState::Idle) => {
-                (problem.clone(), "notice".to_owned())
+                (problem.clone(), "attention".to_owned())
             }
             _ => (t.state.label().to_owned(), t.state.label().to_lowercase()),
         },

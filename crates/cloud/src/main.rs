@@ -182,14 +182,17 @@ async fn telemetry(
             return failed(error);
         }
     }
-    // Agents before 2026-11-04 reported a label printer without a cassette as an error; it
-    // is a known reason to wait, not a fault.
+    // Agents before 2026-11-04 reported a label printer without a cassette as an error, or
+    // as idle with the reason: it waits for someone (attention), it is not a fault.
     let mut report = report;
     if report.cassette == Some(false)
-        && report.state == protocol::MachineState::Error
+        && matches!(
+            report.state,
+            protocol::MachineState::Error | protocol::MachineState::Idle
+        )
         && report.problem.as_deref() == Some("no cassette")
     {
-        report.state = protocol::MachineState::Idle;
+        report.state = protocol::MachineState::Attention;
     }
     if let Some(peer) = peer_address(&headers, &extensions)
         && let Err(error) = store.set_peer(token, &peer)
@@ -414,6 +417,7 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
     <span class="count"><b data-sum="machines">–</b> machines</span>
     <span class="count"><b data-sum="online">–</b> online</span>
     <span class="count"><b data-sum="busy">–</b> busy</span>
+    <span class="count attention-count" data-attention-count hidden><b data-sum="attention">–</b> attention</span>
     <span class="live" data-live-dot title="Live updates"><i></i>Live</span>
   </div>
   <button type="button" class="add" data-add-open>Add machine</button>
@@ -462,16 +466,18 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
       machines: machines.length,
       online: machines.filter((m) => m.online).length,
       busy: machines.filter((m) => m.online && m.telemetry && m.telemetry.state === "busy").length,
+      attention: machines.filter((m) => m.online && m.telemetry && (m.telemetry.state === "attention" || m.telemetry.state === "error")).length,
     }};
     for (const el of document.querySelectorAll("[data-sum]")) el.textContent = count[el.dataset.sum];
+    const attention = document.querySelector("[data-attention-count]");
+    if (attention) attention.hidden = !count.attention;
   }}
-  // How a machine's state is shown, the same on every page. A machine that is ready but
-  // waits for something (a label printer without a cassette) shows that, as a notice: not
-  // an error, since the reason is known.
+  // How a machine's state is shown, the same on every page. A machine that waits for
+  // someone (a label printer without a cassette) shows the reason, amber: not an error.
   function shownState(m) {{
     const t = m.online ? m.telemetry : null;
     if (!t) return {{ text: "Offline", cls: "offline" }};
-    if (t.state === "idle" && t.problem) return {{ text: t.problem, cls: "notice" }};
+    if (t.state === "attention" || (t.state === "idle" && t.problem)) return {{ text: t.problem || "Attention", cls: "attention" }};
     const names = {{ disconnected: "Disconnected", idle: "Idle", busy: "Busy", paused: "Paused", error: "Error" }};
     return {{ text: names[t.state] || t.state, cls: t.state }};
   }}
@@ -943,7 +949,8 @@ pub(crate) const STYLE: &str = r#"  :root { --bg: #f6f5f2; --card: #fff; --ink: 
   .state { justify-self: end; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; font-size: 12px; padding: 3px 10px; border-radius: 6px; background: var(--accent); color: #fff; }
   .state.offline, .state.disconnected { background: var(--off); }
   .state.error { background: var(--bad); }
-  .state.notice { background: var(--warn); }
+  .state.attention { background: var(--warn); }
+  .attention-count b { color: var(--warn) !important; }
   .thumb { grid-row: span 2; width: 56px; height: 56px; border-radius: 10px; background: var(--line); }
   .facts { grid-column: 2 / -1; display: flex; gap: 22px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
   .facts b { color: var(--ink); font-weight: 500; }
@@ -1186,10 +1193,10 @@ mod tests {
 
     /// An agent registers, reports unpaired, is added with its code, and then shows in the
     /// space's list with what it reported.
-    /// A label printer without a cassette waits for one: an older agent's "error" is kept as
-    /// idle, and the page shows the reason as a notice, not as an error.
+    /// A label printer without a cassette waits for someone: an older agent's "error" is
+    /// read as attention, and the page shows the reason, not an error.
     #[tokio::test]
-    async fn a_cassette_out_is_a_notice_not_an_error() {
+    async fn a_cassette_out_needs_attention_not_an_error() {
         let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
         let app = app(store.clone());
         let register = Register {
@@ -1237,14 +1244,14 @@ mod tests {
             .unwrap();
         assert_eq!(
             machine.telemetry.as_ref().unwrap().state,
-            MachineState::Idle
+            MachineState::Attention
         );
         assert_eq!(
             machine_page::shown_state(&machine),
-            ("no cassette".to_owned(), "notice".to_owned())
+            ("no cassette".to_owned(), "attention".to_owned())
         );
         let page = label_page::render("My space", &machine);
-        assert!(page.contains(r#"class="state notice""#));
+        assert!(page.contains(r#"class="state attention""#));
     }
 
     #[tokio::test]

@@ -212,7 +212,8 @@ fn to_telemetry(report: &Value) -> Telemetry {
     let state = match report["state"].as_str().unwrap_or("") {
         "PRINTING" | "BUSY" => MachineState::Busy,
         "PAUSED" => MachineState::Paused,
-        "ERROR" | "ATTENTION" => MachineState::Error,
+        "ATTENTION" => MachineState::Attention,
+        "ERROR" => MachineState::Error,
         _ => MachineState::Idle,
     };
     let job = find_number(report, &["progress"])

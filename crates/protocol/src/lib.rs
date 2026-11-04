@@ -88,6 +88,10 @@ pub enum MachineState {
     /// Running a job.
     Busy,
     Paused,
+    /// Waits for someone to do something before it can work: a label printer without a
+    /// cassette, a printer out of filament. Not an error: the reason is known
+    /// ([`Telemetry::problem`]). Prusa Connect's ATTENTION.
+    Attention,
     Error,
 }
 
@@ -98,6 +102,7 @@ impl MachineState {
             MachineState::Idle => "Idle",
             MachineState::Busy => "Busy",
             MachineState::Paused => "Paused",
+            MachineState::Attention => "Attention",
             MachineState::Error => "Error",
         }
     }
