@@ -176,6 +176,10 @@ pub struct Telemetry {
     /// Why the machine cannot work now, in its own words ("no cassette").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
+    /// The machine's own status as it answered, in hex, where it is not yet understood
+    /// in full (a DYMO's eight bytes), to find out what the rest says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_status: Option<String>,
     /// The agent itself: where it runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<AgentInfo>,

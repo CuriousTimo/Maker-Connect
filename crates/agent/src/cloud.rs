@@ -19,6 +19,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const REPORT_EVERY: Duration = Duration::from_secs(2);
+/// How often an idle DYMO is asked its status (its cassette).
+const DYMO_STATUS_EVERY: Duration = Duration::from_secs(15);
 /// How often a missing printer is looked for again.
 const RECONNECT_EVERY: Duration = Duration::from_secs(10);
 
@@ -516,7 +518,16 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             // it is still on USB; its cassette as it said on connecting and around labels.
             Some(Machine::Dymo(printer)) => {
                 if printer.present() {
+                    // Asked now and then while idle (not at every report): its cassette.
+                    let due = printer
+                        .asked_at
+                        .is_none_or(|at| at.elapsed() >= DYMO_STATUS_EVERY);
+                    if due && let Err(error) = printer.status() {
+                        println!("label printer does not answer: {error}");
+                    }
                     let status = printer.last;
+                    telemetry.raw_status =
+                        (!printer.last_raw.is_empty()).then(|| dymo::hex(&printer.last_raw));
                     // No cassette is a known reason to wait, said as the problem; only a
                     // jammed cutter or the printer's own error bit is an error.
                     telemetry.state = match status {

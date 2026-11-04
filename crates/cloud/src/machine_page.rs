@@ -929,6 +929,14 @@ pub(crate) fn settings(machine: &Machine) -> String {
                 .or_else(|| machine.telemetry.as_ref().and_then(|t| t.firmware.clone())),
         ),
         row("Nozzle", details.nozzle_mm.map(|n| format!("{n} mm"))),
+        row(
+            "Status bytes",
+            machine
+                .telemetry
+                .as_ref()
+                .filter(|_| machine.online)
+                .and_then(|t| t.raw_status.clone()),
+        ),
     ]
     .concat();
     let storage: String = details

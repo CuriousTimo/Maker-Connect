@@ -152,7 +152,7 @@ pub fn encode(label: &Label, tape: Tape) -> Result<Vec<Vec<u8>>, String> {
 }
 
 #[cfg(feature = "hid")]
-pub use hid::{Printer, find};
+pub use hid::{Printer, find, hex};
 
 #[cfg(feature = "hid")]
 mod hid {
@@ -166,6 +166,15 @@ mod hid {
     const PRODUCTS: [u16; 2] = [0x1001, 0x1002];
     /// HID reports carry 64 bytes.
     const REPORT: usize = 64;
+
+    /// Bytes as `40 00 12 64`.
+    pub fn hex(bytes: &[u8]) -> String {
+        bytes
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
 
     /// The time of day (UTC), for the log: `13:12:41`.
     fn clock() -> String {
@@ -181,11 +190,16 @@ mod hid {
         /// Kept while the device is open, and asked whether it is still on USB.
         api: hidapi::HidApi,
         pub product: String,
-        /// What it last said, around each label. It is sent nothing while it has nothing to
-        /// do, not even on opening: on Windows it was seen to keep feeding tape (2026-11-04),
-        /// after being asked its status every report while its cassette was taken out and
-        /// put back; switched off and on, it stopped.
+        /// What it last said. An idle printer is asked only now and then (the agent decides
+        /// how often): on Windows it was seen to keep feeding tape (2026-11-04) while asked
+        /// every two seconds; a battery near empty, the printer starting over and over, is
+        /// as likely a cause.
         pub last: Option<Status>,
+        /// Its whole last answer to a status request (8 bytes): only the first is known
+        /// (the status); the others are kept to find out what they say (the battery?).
+        pub last_raw: Vec<u8>,
+        /// When it was last asked, so that an idle printer is asked only now and then.
+        pub asked_at: Option<std::time::Instant>,
     }
 
     /// The first LabelManager PnP on USB, opened.
@@ -207,6 +221,8 @@ mod hid {
             api,
             product,
             last: None,
+            last_raw: Vec::new(),
+            asked_at: None,
         };
         // Nothing is sent on opening: its status is asked when it prints.
         Ok(Some(printer))
@@ -239,11 +255,22 @@ mod hid {
             Ok(())
         }
 
-        pub fn status(&self) -> Result<Status, String> {
+        /// Asks its status; keeps the whole answer, and says it when it differs from the last.
+        pub fn status(&mut self) -> Result<Status, String> {
             self.send(&STATUS_REQUEST)?;
+            self.asked_at = Some(std::time::Instant::now());
             let mut answer = [0u8; REPORT];
             match self.device.read_timeout(&mut answer, 2000) {
-                Ok(n) if n > 0 => Ok(Status(answer[0])),
+                Ok(n) if n > 0 => {
+                    let raw = answer[..n.min(8)].to_vec();
+                    if raw != self.last_raw {
+                        println!("{} the DYMO answers: {}", clock(), hex(&raw));
+                        self.last_raw = raw;
+                    }
+                    let status = Status(answer[0]);
+                    self.last = Some(status);
+                    Ok(status)
+                }
                 Ok(_) => Err("the printer does not answer".to_owned()),
                 Err(e) => Err(e.to_string()),
             }
@@ -257,7 +284,6 @@ mod hid {
             mut progress: impl FnMut(usize, usize),
         ) -> Result<(), String> {
             let before = self.status()?;
-            self.last = Some(before);
             if let Some(problem) = before.problem() {
                 return Err(problem.to_owned());
             }
@@ -265,7 +291,6 @@ mod hid {
             for (i, part) in parts.iter().enumerate() {
                 self.send(part)?;
                 let status = self.status()?;
-                self.last = Some(status);
                 if let Some(problem) = status.problem() {
                     return Err(problem.to_owned());
                 }
