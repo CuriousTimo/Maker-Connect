@@ -122,6 +122,8 @@ fn virtual_label(
     let mut telemetry = Telemetry {
         state: MachineState::Idle,
         cassette: Some(true),
+        // A healthy pack (7.4 V, two cells), as a real one charged reports.
+        battery_v: Some(8.1),
         firmware: Some("simulated LabelManager".to_owned()),
         ..Telemetry::default()
     };
