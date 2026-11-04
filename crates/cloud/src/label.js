@@ -283,10 +283,7 @@
     const machine = machines.find((m) => m.id === ID);
     if (!machine) return;
     const t = machine.online ? machine.telemetry : null;
-    const state = t ? { disconnected: "Disconnected", idle: "Idle", busy: "Busy", paused: "Paused", error: "Error" }[t.state] : "Offline";
-    setLive("state", state);
-    const badge = document.querySelector(".title .state");
-    badge.className = `state ${state.toLowerCase()}`;
+    showState(machine);
     setLive("cassette", t?.cassette == null ? "–" : t.cassette ? "In" : "None");
     setLive("job", machine.job ? `${machine.job.file_name} (${machine.job.state})` : "–");
     setLive("problem", t?.problem || "");

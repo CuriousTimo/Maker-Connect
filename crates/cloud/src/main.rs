@@ -182,6 +182,15 @@ async fn telemetry(
             return failed(error);
         }
     }
+    // Agents before 2026-11-04 reported a label printer without a cassette as an error; it
+    // is a known reason to wait, not a fault.
+    let mut report = report;
+    if report.cassette == Some(false)
+        && report.state == protocol::MachineState::Error
+        && report.problem.as_deref() == Some("no cassette")
+    {
+        report.state = protocol::MachineState::Idle;
+    }
     if let Some(peer) = peer_address(&headers, &extensions)
         && let Err(error) = store.set_peer(token, &peer)
     {
@@ -455,6 +464,24 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
       busy: machines.filter((m) => m.online && m.telemetry && m.telemetry.state === "busy").length,
     }};
     for (const el of document.querySelectorAll("[data-sum]")) el.textContent = count[el.dataset.sum];
+  }}
+  // How a machine's state is shown, the same on every page. A machine that is ready but
+  // waits for something (a label printer without a cassette) shows that, as a notice: not
+  // an error, since the reason is known.
+  function shownState(m) {{
+    const t = m.online ? m.telemetry : null;
+    if (!t) return {{ text: "Offline", cls: "offline" }};
+    if (t.state === "idle" && t.problem) return {{ text: t.problem, cls: "notice" }};
+    const names = {{ disconnected: "Disconnected", idle: "Idle", busy: "Busy", paused: "Paused", error: "Error" }};
+    return {{ text: names[t.state] || t.state, cls: t.state }};
+  }}
+  // Puts a machine's state in every [data-live="state"], and its colour on the badges.
+  function showState(m) {{
+    const shown = shownState(m);
+    for (const el of document.querySelectorAll('[data-live="state"]')) {{
+      el.textContent = shown.text;
+      if (el.classList.contains("state")) el.className = `state ${{shown.cls}}`;
+    }}
   }}
   function live(on) {{
     const dot = document.querySelector("[data-live-dot]");
@@ -872,8 +899,8 @@ pub(crate) fn escape(text: &str) -> String {
 
 /// The machine list: drawn by the page from `/api/machines` every two seconds.
 /// The styling both pages share.
-pub(crate) const STYLE: &str = r#"  :root { --bg: #f6f5f2; --card: #fff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e2e0da; --accent: #2f7d6d; --off: #9a9893; --bad: #b3412e; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #111214; --card: #1b1c1f; --ink: #f2f1ee; --muted: #a3a29d; --line: #2e2f33; --accent: #5fbfa9; --off: #77767a; --bad: #e07a63; } }
+pub(crate) const STYLE: &str = r#"  :root { --bg: #f6f5f2; --card: #fff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e2e0da; --accent: #2f7d6d; --off: #9a9893; --bad: #b3412e; --warn: #b7791f; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111214; --card: #1b1c1f; --ink: #f2f1ee; --muted: #a3a29d; --line: #2e2f33; --accent: #5fbfa9; --off: #77767a; --bad: #e07a63; --warn: #d9a441; } }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, sans-serif; }
   header { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
@@ -916,6 +943,7 @@ pub(crate) const STYLE: &str = r#"  :root { --bg: #f6f5f2; --card: #fff; --ink: 
   .state { justify-self: end; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; font-size: 12px; padding: 3px 10px; border-radius: 6px; background: var(--accent); color: #fff; }
   .state.offline, .state.disconnected { background: var(--off); }
   .state.error { background: var(--bad); }
+  .state.notice { background: var(--warn); }
   .thumb { grid-row: span 2; width: 56px; height: 56px; border-radius: 10px; background: var(--line); }
   .facts { grid-column: 2 / -1; display: flex; gap: 22px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
   .facts b { color: var(--ink); font-weight: 500; }
@@ -965,7 +993,7 @@ const PAGE: &str = r##"<!doctype html>
       if (!machines.length) { list.innerHTML = '<p class="empty">No machines yet. <a href="#add" data-add-open>Add one</a>: with the code its agent shows, or a virtual one to try everything.</p>'; return; }
       const card = (m) => {
         const t = m.telemetry || {};
-        const state = m.online ? t.state : "offline";
+        const shown = shownState(m);
         const percent = t.job ? Math.round((t.job.done * 100) / Math.max(1, t.job.total)) : null;
         const job = t.job ? `${t.job.file} ${percent} %` : null;
         const bar = t.job ? `<div class="card-progress"><i style="width: ${percent}%"></i></div>` : "";
@@ -974,7 +1002,7 @@ const PAGE: &str = r##"<!doctype html>
         return `<a class="machine" href="machines/${encodeURIComponent(m.id)}">
           ${thumb}
           <div class="name">${esc(m.name)}</div>
-          <div class="state ${esc(state)}">${esc(state)}</div>
+          <div class="state ${esc(shown.cls)}">${esc(shown.text)}</div>
           <div class="facts">${fact("Type", profile ? profile.model : KIND[m.kind] || m.kind)}${fact("Firmware", t.firmware)}${fact("Nozzle", t.nozzle_c != null ? `${t.nozzle_c.toFixed(0)} °C` : null)}${fact("Bed", t.bed_c != null ? `${t.bed_c.toFixed(0)} °C` : null)}${fact("Job", job)}${fact(m.link === "agent" ? "Agent" : "Link", { virtual: "Virtual, in the cloud", "prusa-connect": "Built-in Prusa Connect" }[m.link] || m.agent_version)}${fact("Seen", seen(m.seen_seconds_ago))}</div>
           ${bar}
         </a>`;
@@ -1158,6 +1186,67 @@ mod tests {
 
     /// An agent registers, reports unpaired, is added with its code, and then shows in the
     /// space's list with what it reported.
+    /// A label printer without a cassette waits for one: an older agent's "error" is kept as
+    /// idle, and the page shows the reason as a notice, not as an error.
+    #[tokio::test]
+    async fn a_cassette_out_is_a_notice_not_an_error() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = app(store.clone());
+        let register = Register {
+            protocol: protocol::VERSION,
+            name: "Dymo".into(),
+            kind: MachineKind::Label,
+            agent_version: "0.1.0".into(),
+        };
+        let (_, body) = call(
+            &app,
+            json(
+                protocol::REGISTER,
+                None,
+                serde_json::to_string(&register).unwrap(),
+            ),
+        )
+        .await;
+        let registered: Registered = serde_json::from_str(&body).unwrap();
+        let space = store.lock().unwrap().default_space().unwrap().0;
+        store
+            .lock()
+            .unwrap()
+            .pair(space, &registered.pairing_code)
+            .unwrap();
+        let old_agent = Telemetry {
+            state: MachineState::Error,
+            cassette: Some(false),
+            problem: Some("no cassette".into()),
+            ..Telemetry::default()
+        };
+        call(
+            &app,
+            json(
+                protocol::TELEMETRY,
+                Some(&registered.token),
+                serde_json::to_string(&old_agent).unwrap(),
+            ),
+        )
+        .await;
+        let machine = store
+            .lock()
+            .unwrap()
+            .machine(space, &registered.machine_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            machine.telemetry.as_ref().unwrap().state,
+            MachineState::Idle
+        );
+        assert_eq!(
+            machine_page::shown_state(&machine),
+            ("no cassette".to_owned(), "notice".to_owned())
+        );
+        let page = label_page::render("My space", &machine);
+        assert!(page.contains(r#"class="state notice""#));
+    }
+
     #[tokio::test]
     async fn an_agent_registers_is_paired_and_listed() {
         let app = app(Arc::new(Mutex::new(Store::open(":memory:").unwrap())));

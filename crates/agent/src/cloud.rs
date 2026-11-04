@@ -448,7 +448,9 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             }
             Some(Machine::Dymo(printer)) => match printer.status() {
                 Ok(status) => {
-                    telemetry.state = if status.problem().is_some() {
+                    // No cassette is a known reason to wait, said as the problem; only a
+                    // jammed cutter or the printer's own error bit is an error.
+                    telemetry.state = if status.cutter_jammed() || status.error() {
                         MachineState::Error
                     } else {
                         MachineState::Idle

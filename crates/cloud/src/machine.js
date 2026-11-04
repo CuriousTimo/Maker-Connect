@@ -175,7 +175,6 @@
     const t = (m.online && m.telemetry) || {};
     const p = t.position_mm;
     const values = {
-      state: m.online ? t.state : "offline",
       nozzle_n: fixed(t.nozzle_c),
       nozzle_note: heatNote(t.nozzle_c, t.nozzle_target_c),
       bed_n: fixed(t.bed_c),
@@ -486,6 +485,7 @@
       job_remaining: progress ? duration(progress.remaining_s) : null,
     };
     for (const [key, value] of Object.entries(values)) setLive(key, value);
+    showState(m);
     const bar = document.querySelector("[data-job-bar]");
     if (bar) bar.style.width = `${percent ?? 0}%`;
     for (const el of document.querySelectorAll("[data-job], [data-job-actions]")) el.hidden = !job;

@@ -68,26 +68,17 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 cargo run -p maker-connect-cloud                 # http://localhost:8460
 ```
 
-Then "Add machine", "A virtual one", and pick a printer or a laser. To print, drop a file on the
-Files page: [examples/laser](examples/laser/README.md) has two test files for a laser.
+Then "Add machine", "A virtual one", and pick a printer, a laser or a label printer. For a real
+machine, the cloud's **Downloads** page has the agent for each platform, with the command to
+start it: [Getting Started](https://github.com/CuriousTimo/Maker-Connect/wiki/Getting-Started)
+in the wiki goes through it, [The Agent](https://github.com/CuriousTimo/Maker-Connect/wiki/The-Agent)
+has its options and its config file.
 
-A real machine, through an agent on the computer it is plugged into:
+## Wiki
 
-```sh
-cargo run -p maker-connect-agent -- run --cloud http://localhost:8460 --name "MK3S Gonzo" \
-    --port /dev/cu.usbmodem1234                   # shows a code: enter it under "Add machine"
-cargo run -p maker-connect-agent -- run --cloud http://localhost:8460 --name "Ortur" \
-    --kind laser --port /dev/cu.usbserial-1420    # GRBL is recognised; choose its profile
-cargo run -p maker-connect-agent -- run --cloud http://localhost:8460 --name "Dymo" \
-    --kind label                                  # a LabelManager PnP on USB, found by itself
-```
-
-The cloud offers the agent for each platform at `/downloads` (with the command to start it
-against this cloud): `scripts/build-downloads.sh` builds it into `maker-connect-downloads/`.
-Add `--save` once to keep the options in `maker-connect-agent.toml`; after that
-`maker-connect-agent run` is enough, and on Windows a double-click on the agent starts it.
-`maker-connect-agent ports` lists the serial ports. A Prusa MINI is pointed at the cloud with a
-settings file on its USB stick: see [docs/prusa-connect-protocol.md](docs/prusa-connect-protocol.md).
+Guides and designs live in the [wiki](https://github.com/CuriousTimo/Maker-Connect/wiki):
+getting started, the agent, label printers, machine profiles; the designs for devices behind
+smart plugs, a multi-tenant cloud, and consumables and stock; and the roadmap.
 
 ## How it is built
 

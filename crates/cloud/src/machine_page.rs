@@ -10,11 +10,24 @@ use maker_connect_protocol::MachineKind;
 const MACHINE_STYLE: &str = include_str!("machine.css");
 const MACHINE_SCRIPT: &str = include_str!("machine.js");
 
+/// How a machine's state is shown, and its badge's class: as the pages' `shownState` does.
+/// A machine that is ready but waits for something (no cassette) shows that as a notice.
+pub(crate) fn shown_state(machine: &Machine) -> (String, String) {
+    match machine.telemetry.as_ref().filter(|_| machine.online) {
+        None => ("Offline".to_owned(), "offline".to_owned()),
+        Some(t) => match (&t.problem, t.state) {
+            (Some(problem), maker_connect_protocol::MachineState::Idle) => {
+                (problem.clone(), "notice".to_owned())
+            }
+            _ => (t.state.label().to_owned(), t.state.label().to_lowercase()),
+        },
+    }
+}
+
 /// The whole page.
 pub fn render(space: &str, machine: &Machine) -> String {
     let profile = machine.profile.as_deref().and_then(profiles::find);
-    let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
-    let state = telemetry.map_or("Offline", |t| t.state.label());
+    let (state, state_class) = shown_state(machine);
     let kind = profile.map_or(machine.kind.label(), |p| p.model.as_str());
     let link = match machine.link.as_str() {
         "prusa-connect" => "Built-in Prusa Connect",
@@ -73,7 +86,7 @@ pub fn render(space: &str, machine: &Machine) -> String {
         name = escape(&machine.name),
         header = crate::header(space, "../", "machines"),
         id = escape(&machine.id),
-        state_class = state.to_lowercase(),
+        state = escape(&state),
         kind = escape(kind),
         overview = overview(machine, profile),
         control = control(machine, profile),

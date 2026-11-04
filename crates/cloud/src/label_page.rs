@@ -67,7 +67,7 @@ fn media_options(profile: Option<&Profile>, chosen: Option<&str>) -> String {
 pub fn render(space: &str, machine: &Machine) -> String {
     let profile = machine.profile.as_deref().and_then(profiles::find);
     let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
-    let state = telemetry.map_or("Offline", |t| t.state.label());
+    let (state, state_class) = machine_page::shown_state(machine);
     let kind = profile.map_or(machine.kind.label(), |p| p.model.as_str());
     let link = match machine.link.as_str() {
         "virtual" => "Virtual, in the cloud",
@@ -174,7 +174,7 @@ pub fn render(space: &str, machine: &Machine) -> String {
 "##,
         name = escape(&machine.name),
         header = crate::header(space, "../", "machines"),
-        state_class = state.to_lowercase(),
+        state = escape(&state),
         kind = escape(kind),
         cassette = match telemetry.and_then(|t| t.cassette) {
             Some(true) => "In",

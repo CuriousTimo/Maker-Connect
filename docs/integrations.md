@@ -115,63 +115,14 @@ From thermal-label's protocol notes (its "D1" family) and labelle (Apache-2.0; i
 carry Sebastian J. Bronner's permissive notice). thermal-label warns that unknown opcodes can
 hang the printer until it is switched off and on.
 
-## Roadmap: what else to connect
+## Roadmap
 
-Ideas, gathered 2026-11-04; none started unless marked. A maker's space is more than the
-machines that make things: power, air, safety and the people using it.
-
-**Power, and devices behind it**
-- **Smart plugs and power meters**: Shelly (Gen2+ RPC over HTTP, WebSocket and MQTT), Tasmota
-  (MQTT, HTTP). Switch and measure anything with a plug; the base for most of what follows.
-- **Devices behind a plug**: one or more devices hang behind a plug's channel (a printer, a
-  power strip with a dryer and a lamp). The plug's state explains theirs ("off at the plug",
-  not "disconnected"), a device can be switched on from its own page, and the plug's energy
-  counts for them. See [the device tree](#devices-in-a-tree) below.
-- **Rules between devices**: the fume extractor on while the laser runs and two minutes after;
-  the dryer on before a planned print; a printer off once it is done and cooled down; the
-  laser's power off when its flame sensor fires.
-- **Filament dryers** and **fume extractors**: mostly through a plug; dryers with their own
-  Wi-Fi (temperature, humidity, time left) where they have an open protocol.
-
-**The electronics bench**
-- **Riden RD6006W** (and the RD60xx family): bench power supply, Modbus RTU over USB serial
-  through the agent; its Wi-Fi module connects out to a server, so the cloud can be that
-  server, as with the Prusa MINI. Volts, amps, watts live, output on and off, limits.
-- **Instruments over SCPI** (LAN, USBTMC): oscilloscopes, multimeters, electronic loads
-  (Rigol, Siglent, OWON).
-- **Soldering irons** with telemetry: Pinecil (Bluetooth LE).
-
-**More machines**
-- **Klipper printers** through Moonraker's API: many hobby printers run it.
-- **Bambu Lab** printers (MQTT in LAN mode), **resin printers** (Elegoo's SDCP on the network),
-  wash and cure stations.
-- **CNC** on GRBL, grblHAL, FluidNC: close to free with `maker-connect-grbl`.
-- **Cutting plotters** (Graphtec/Silhouette GPGL, Roland HPGL), later embroidery machines.
-- **Label printers**: Brother QL and PT next (TCP 9100), then the other DYMO families.
-
-**Air, safety, the room**
-- Air quality (PM2.5, VOC) at the laser and the resin printer; temperature in enclosures.
-- A flame sensor in the laser, cutting power through a plug; the chiller's alarm (CW-5200),
-  air assist pressure; smoke detectors.
-- **Cameras** per machine (webcam, RTSP): live view, timelapses, later failure detection.
-
-**For a makerspace**
-- **Status displays**: a kiosk page (a Pi with a screen, an old tablet) with what runs where
-  and how long it still takes; small ESP32 displays reading the live events.
-- **Access**: an RFID or NFC badge per member; who has had the laser induction; a machine
-  switched on (relay or plug) only after a badge.
-- **Use and costs**: minutes, kWh and grams per member or per job.
-- **Materials**: spools tracked (Spoolman, NFC tags), a scale under the spool.
-
-**Outward**
-- **Home Assistant**, through MQTT discovery: every device as entities.
-- **Notifications**: ntfy, Telegram, Discord ("print done", "laser stopped with an alarm").
-- **Labels as output**: a label with a QR code to the job when a print is done; labels for
-  spools and bins.
+Moved to the wiki: [Roadmap](https://github.com/CuriousTimo/Maker-Connect/wiki/Roadmap).
 
 ## Devices in a tree
 
-Designed 2026-11-04, before the first plug: devices are not a flat list. Two relations, kept
+The full design, with what it gives: [Devices in a Tree](https://github.com/CuriousTimo/Maker-Connect/wiki/Design:-Devices-in-a-Tree)
+in the wiki. In short, designed 2026-11-04, before the first plug: devices are not a flat list. Two relations, kept
 apart because they answer different questions:
 
 1. **Powered by** (energy): a device hangs behind a channel of another device that switches
