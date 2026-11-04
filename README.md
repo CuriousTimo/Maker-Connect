@@ -15,7 +15,7 @@ old laptop, a NAS). Shaped so that it could one day be hosted for many makerspac
 A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 
 <p align="center">
-  <img src="docs/screenshots/machines.png" alt="The machines of a space, grouped by kind: two Prusas, one printing a cube at 33 %, a laser and a DYMO label printer" width="860">
+  <img src="docs/screenshots/machines.png" alt="The machines of a space, grouped by kind, in the same columns: three printers, one printing a cube at 33 %, a laser and a DYMO label printer, each with what it does now, how it connects, when it was seen and its state" width="860">
 </p>
 
 | | |
@@ -26,8 +26,8 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 | **Bed level**: the mesh as a surface, a map and a table | **Files**: sorted and filtered by type and machine, where each was printed, removed many at once |
 | ![A label printer's label tab: text, font, a QR code, and the preview of the dots that will burn on 12 mm tape](docs/screenshots/label.png) | ![The downloads page: the agent for macOS and Windows, with the command to start it](docs/screenshots/downloads.png) |
 | **Label**: text, a QR code or barcode, a drawing; the preview is the dots that will burn | **Downloads**: the agent for each platform, with the command for this cloud |
-| ![The stock page: filament and label tapes with their spools and cassettes, where each is, a scan box](docs/screenshots/stock.png) | |
-| **Materials**: each spool and cassette with a code and a label, where it is, what is loaded | |
+| ![A laser's control tab: the work area, a jog pad with eight directions round Home, the step and speed, Set origin here and Go to origin](docs/screenshots/laser-control.png) | ![The Materials page: filament and label tapes with their spools and cassettes, where each is, a scan box](docs/screenshots/materials.png) |
+| **A laser's Control**: a jog pad (eight directions, a step from 0.1 to 50 mm, the arrow keys), the job's origin set where the head is | **Materials**: each spool and cassette with a code and a label, where it is, what is loaded |
 
 ## What works
 
@@ -43,7 +43,9 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
   goes (`M155`), paused between two lines, stopped with heaters and motors off. Tested
   against a simulated printer; the first real print is still to come.
 - **Lasers (GRBL)** through the agent, with [LaserFoundry](https://github.com/Stitchwright/laserfoundry)'s
-  device crate: homing, GRBL's own jogs, the controller's settings checked before a job
+  device crate: homing; a jog pad (eight directions, a step of 0.1, 1, 10 or 50 mm, a speed,
+  the arrow keys) moving by GRBL's own jogs with the laser off; the job's origin set where the
+  head is (`G92 X0 Y0`) and gone back to; the controller's settings checked before a job
   (laser mode, full power, travel), Frame (the outline with the laser off), streaming by GRBL's
   character counting, pause, resume, stop (laser off), and starting an interrupted job again a
   little before where it stopped. Not yet tried on a real laser.
@@ -58,11 +60,15 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
   (`L-0003`), loading into a machine (a tape tells the label printer which it has), weighing,
   used up; every change kept as a movement. A barcode scanner works anywhere on the page.
   **271 filaments** (Prusament, Devil Design, Fiberlogy, colorFabb…) from PrusaSlicer's
-  profiles, with density, empty spool weight and temperatures: weigh a spool and the spool
-  is taken off.
+  profiles, found by typing (typos forgiven), with density, empty spool weight and
+  temperatures: weigh a spool and the spool is taken off. A material has a colour and a
+  colour name (*Galaxy Black*), and can be changed later.
 - **Files and jobs.** Drop G-code on the Files page; the cloud reads what the slicer wrote
   (time, filament, layer height, the printer it was sliced for, the thumbnail) and offers only
   the machines it fits. Jobs show progress, time left, pause and stop.
+- **The machine list**: every machine in the same columns, grouped by kind: name and model,
+  what it does now (its job, temperatures, the head, the tape and battery), how it connects
+  and its firmware, when it was last seen, its state.
 - **Machine pages**: Overview, Control, Terminal (G-code and the machine's answers),
   Telemetry, Bed level (Prusa `G80`/`G81`, Marlin `G29`/`M420 V`, read the way the OctoPrint
   Bed Level Visualizer does), Settings.
@@ -83,7 +89,7 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 | **Prusa MINI** (Buddy firmware) | Its own firmware speaks Prusa Connect to the cloud: no agent | Registers with a code, reports, takes commands | Yes: a MINI on firmware 6.3.0 |
 | **3D printers on Marlin**: 245 models (Creality, Anycubic, Artillery, …) | Agent, on USB | Recognised from `M115`; live temperatures, moves, heating, bed mesh, terminal; **prints files** (pause, resume, stop) | Not yet: tested against simulated printers |
 | **Prusa on 8-bit firmware**: MK3S, MK2.5S | Agent, on USB or an MK3S's RPi port (a Pi Zero W) | As Marlin, recognised from `M862.2 Q` | Not yet: an MK3S with its Pi Zero W is the first to try |
-| **Lasers on GRBL**: Ortur Laser Master 2 Pro S2, other GRBL 1.1 | Agent, on USB, with LaserFoundry's device crate | Homing, jogs, settings checked, Frame, jobs streamed, pause, resume, stop, restart where it stopped | Not yet: tested against LaserFoundry's simulated GRBL |
+| **Lasers on GRBL**: Ortur Laser Master 2 Pro S2, other GRBL 1.1 | Agent, on USB, with LaserFoundry's device crate | Homing, the jog pad, the job's origin, settings checked, Frame, jobs streamed, pause, resume, stop, restart where it stopped | Not yet: tested against LaserFoundry's simulated GRBL |
 | **Label printers**: DYMO LabelManager PnP | Agent, on USB HID: no driver, no DYMO software | Labels from the editor (text, QR codes, barcodes, drawings), tapes, cassette and battery | Yes: from a Mac and a Windows laptop, 12 mm tape |
 | **A virtual one of every profile** | Simulated in the cloud | Printers home, heat, measure and print; lasers on simulated GRBL; label printers print | – |
 
@@ -113,8 +119,9 @@ has its options and its config file.
 ## Wiki
 
 Guides and designs live in the [wiki](https://github.com/CuriousTimo/Maker-Connect/wiki):
-getting started, the agent, label printers, machine profiles; the designs for devices behind
-smart plugs, a multi-tenant cloud, and consumables and stock; and the roadmap.
+getting started, the agent, lasers, label printers, materials, machine profiles; the designs
+for devices behind smart plugs, a multi-tenant cloud, and consumables and stock; and the
+roadmap.
 
 ## How it is built
 
@@ -139,7 +146,8 @@ codes scanned off real labels, are still to try. Files for the MINI over Prusa C
 marked `# check` in the profiles are not yet confirmed on the machines.
 
 **Safety:** a laser and a heated printer can start a fire. Frame a laser job and start at low
-power; stay with a running machine.
+power; stay with a running machine. The jog pad keeps the laser off, but it moves a real head:
+home first, and keep hands out of the work area.
 
 ## References and credits
 

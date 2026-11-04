@@ -46,7 +46,13 @@ the agent (with real serial ports) and the cloud (virtual lasers):
 
 - GRBL recognised on the port by its greeting (or `$I`); commands (`$H`, `$X`, `$$`, any line)
   with their answers for the terminal;
-- jogs as GRBL's own `$J=` through the link's `jog` and `jog_to` (laser off, checked);
+- jogs as GRBL's own `$J=` through the link's `jog` and `jog_to` (laser off, checked). The
+  website's jog pad (lasers, CNCs, plotters; printers keep their ±10 mm buttons) sends
+  `jog:<x>:<y>` with a step of 0.1, 1, 10 or 50 mm and a speed of 600 to 6000 mm/min; the cloud
+  refuses anything else and turns it into `$J=G91 G21 X… Y… F…`;
+- the job's origin: *Set origin here* is `G92 X0 Y0` and *Go to origin* `G90 G0 X0 Y0`, through
+  the link's `set_zero` and `go_to_zero` (as LaserFoundry does it). GRBL keeps a `G92` offset
+  until it restarts, so it is set again after a reset or a stop (a stop is a soft reset);
 - the settings that matter, read with `$$` on connecting: laser mode (`$32`), full power
   (`$30`), travel (`$130` to `$132`). The cloud refuses a job with laser mode off or outside the
   travel, and warns when the file's power range does not fit `$30`;
@@ -104,8 +110,17 @@ to it through the system's HID API (the `hidapi` crate): no root, no driver.
 
 - Each write is one 64-byte output report (report id 0) carrying the next 64 bytes of the
   stream; reads are 8 bytes, the first being the status.
-- `ESC A` (`1B 41`): status. `0x40` cassette in, ready; `0x60` while printing (bit 5); `0x00` no
-  cassette; `0x10` cutter jammed; `0x04` an error.
+- `ESC A` (`1B 41`): status, 8 bytes. Byte 0: `0x40` cassette in, ready; `0x60` while printing
+  (bit 5); `0x00` no cassette; `0x10` cutter jammed; `0x04` an error. The rest is not
+  documented; read on one PnP (2026-11-04), **to confirm**:
+  - bytes 4 and 5, big-endian: half the pack's voltage in mV (`0d dd` = 3549 mV, a 7.10 V
+    pack). It jitters a few mV, rose while charging and fell while not: a measured voltage.
+    The agent reports it; below 7.0 V a label waits (a weak pack under the print head makes the
+    printer start over, and feed tape), from 7.2 V on it prints again;
+  - byte 3: rose with the voltage (`40`, `4c`, then `64` = 100 while charging): perhaps DYMO's
+    own level, saturating at 100 on the charger. Not used;
+  - byte 2: always `02`, once `12` (bit 4) for one reading while charging. Perhaps "charging"
+    or a moment's busy flag; to find out by plugging and unplugging the charger.
 - A label: `ESC C 0` (tape type), `ESC B 0` (dot tab), `ESC D 8` (8 bytes a column: 64 dots,
   12 mm tape at 180 dpi; 6 for 9 mm, 4 for 6 mm with dot tab 1 or 2), then one `SYN` (`16`)
   and 8 bytes per column of the label, top pin first (bit 7 of the first byte). Like labelle,
