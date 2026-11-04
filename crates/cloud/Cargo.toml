@@ -10,6 +10,7 @@ maker-connect-label = { path = "../label" }
 axum = "0.8.9"
 barcoders = { version = "2", default-features = false, features = ["std"] }
 base64 = "0.22"
+fs2 = "0.4"
 futures-util = "0.3"
 include_dir = "0.7.4"
 qrcode = { version = "0.14", default-features = false }

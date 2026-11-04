@@ -808,7 +808,7 @@ async fn rename(
         .default_space()
         .and_then(|(space, _)| store.rename(space, &id, name))
     {
-        Ok(true) => Redirect::to(&format!("/machines/{id}")).into_response(),
+        Ok(true) => Redirect::to(&format!("/machines/{id}#settings")).into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
     }
@@ -828,7 +828,7 @@ async fn choose_profile(
         .default_space()
         .and_then(|(space, _)| store.set_profile(space, &id, profile))
     {
-        Ok(true) => Redirect::to(&format!("/machines/{id}")).into_response(),
+        Ok(true) => Redirect::to(&format!("/machines/{id}#settings")).into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
     }
@@ -864,7 +864,7 @@ async fn choose_media(
         return (StatusCode::BAD_REQUEST, "not a tape of this printer").into_response();
     }
     match store.set_media(space, &id, media) {
-        Ok(_) => Redirect::to(&format!("/machines/{id}")).into_response(),
+        Ok(_) => Redirect::to(&format!("/machines/{id}#label")).into_response(),
         Err(error) => failed(error),
     }
 }

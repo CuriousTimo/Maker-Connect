@@ -31,6 +31,7 @@ pub fn routes() -> Router<Shared> {
         .route("/files/{id}/download", get(download))
         .route("/files/{id}/remove", post(remove))
         .route("/api/files/remove", post(remove_many))
+        .route("/api/storage", get(storage))
         .route("/files/{id}/print", post(print))
         .route("/files/{id}/frame", post(frame))
         .route("/machines/{id}/job", post(control_job))
@@ -411,6 +412,26 @@ async fn remove(State(store): State<Shared>, Path(id): Path<String>) -> Response
             .into_response(),
         Err(error) => failed(error),
     }
+}
+
+/// `GET /api/storage`: what the files take, and what the disk under them has left.
+async fn storage(State(store): State<Shared>) -> Response {
+    let (dir, used, count) = {
+        let store = store.lock().unwrap();
+        let files = store
+            .default_space()
+            .and_then(|(space, _)| store.files(space))
+            .unwrap_or_default();
+        let used: u64 = files.iter().map(|f| f.size).sum();
+        (store.files_dir.clone(), used, files.len())
+    };
+    Json(serde_json::json!({
+        "files": count,
+        "used_bytes": used,
+        "free_bytes": fs2::available_space(&dir).ok(),
+        "disk_bytes": fs2::total_space(&dir).ok(),
+    }))
+    .into_response()
 }
 
 #[derive(Deserialize)]

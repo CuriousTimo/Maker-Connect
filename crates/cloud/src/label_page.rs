@@ -33,35 +33,44 @@ fn tape_json(profile: Option<&Profile>, machine: &Machine) -> String {
     .replace('<', "\\u003c")
 }
 
-/// The tapes of the profile, by width, the loaded one chosen.
-fn media_options(profile: Option<&Profile>, chosen: Option<&str>) -> String {
+/// The tapes of the profile, by width, each drawn as it looks (its ink on its tape, as
+/// thermal-label's media list shows them): a click says it is the one loaded.
+fn media_swatches(profile: Option<&Profile>, chosen: Option<&str>) -> String {
     let Some(profile) = profile else {
         return String::new();
     };
     let mut widths: Vec<u32> = profile.media.iter().map(|m| m.width_mm).collect();
     widths.sort_unstable();
     widths.dedup();
-    let mut options = format!(
-        r#"<option value=""{}>Not said</option>"#,
-        if chosen.is_none() { " selected" } else { "" }
-    );
+    let mut out = String::new();
     for width in widths {
-        options += &format!(r#"<optgroup label="{width} mm">"#);
+        out += &format!(r#"<h4>{width} mm</h4><div class="swatches">"#);
         for media in profile.media.iter().filter(|m| m.width_mm == width) {
-            options += &format!(
-                r#"<option value="{id}"{selected}>{name} ({id})</option>"#,
+            let tape = media.background.as_deref().unwrap_or("#fff");
+            let clear = tape == "clear";
+            out += &format!(
+                r#"<button name="media" value="{id}" class="swatch" aria-pressed="{pressed}" title="{name} ({id})"><span class="tape{clear}" style="--tape: {tape_colour}; --ink: {ink}; --h: {height}px">Abc</span><span class="swatch-name">{short}</span><small>{id}</small></button>"#,
                 id = escape(&media.id),
                 name = escape(&media.name),
-                selected = if chosen == Some(media.id.as_str()) {
-                    " selected"
-                } else {
-                    ""
-                },
+                pressed = chosen == Some(media.id.as_str()),
+                clear = if clear { " clear" } else { "" },
+                tape_colour = if clear { "transparent" } else { tape },
+                ink = media.ink.as_deref().unwrap_or("#000"),
+                // As wide as the tape is, relative to 12 mm.
+                height = 14 + width * 14 / 12,
+                // "12mm Black on White" as "Black on White": the width is the heading.
+                short = escape(
+                    media
+                        .name
+                        .split_once(' ')
+                        .filter(|(w, _)| w.ends_with("mm"))
+                        .map_or(media.name.as_str(), |(_, rest)| rest)
+                ),
             );
         }
-        options += "</optgroup>";
+        out += "</div>";
     }
-    options
+    out
 }
 
 pub fn render(space: &str, machine: &Machine) -> String {
@@ -76,9 +85,9 @@ pub fn render(space: &str, machine: &Machine) -> String {
     let id = escape(&machine.id);
     let tape_form = if profile.is_some_and(|p| !p.media.is_empty()) {
         format!(
-            r#"<form method="post" action="{id}/media" class="tape-form"><select name="media" aria-label="Tape loaded" data-tape-select>{}</select><button>Save</button></form>
-<p class="hint">The printer tells whether a cassette is in, not which: the article number is on the cassette.</p>"#,
-            media_options(profile, machine.media.as_deref())
+            r#"<p class="hint">The printer tells whether a cassette is in, not which: the article number is on the cassette. Click the one loaded.</p>
+<form method="post" action="{id}/media" class="tape-form">{}</form>"#,
+            media_swatches(profile, machine.media.as_deref())
         )
     } else {
         r#"<p class="empty">Choose the printer's profile under Settings.</p>"#.to_owned()

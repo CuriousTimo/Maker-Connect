@@ -36,6 +36,37 @@
   .drop div { padding: 40px 60px; border: 2px dashed var(--accent); border-radius: 18px; background: var(--card); font-size: 20px; font-weight: 700; }
   @media (max-width: 600px) { .page-head { flex-direction: column; align-items: stretch; } .upload-button { text-align: center; } }
 
+  .views { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .views button { background: transparent; padding: 7px 9px; border-radius: 0; color: var(--muted); display: grid; place-items: center; }
+  .views button svg { width: 16px; height: 16px; fill: currentColor; }
+  .views button[aria-pressed=true] { color: var(--ink); background: color-mix(in srgb, var(--accent) 15%, transparent); }
+  .storage { margin-left: auto; display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+  .storage-bar { width: 120px; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  .storage-bar i { display: block; height: 100%; width: 0; background: var(--accent); }
+
+  /* The list: one row a file, fixed columns. */
+  .files.list { display: block; }
+  .file-table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; font-size: 14px; }
+  .file-table th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .file-table td { padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .file-table tr:last-child td { border-bottom: 0; }
+  .file-table tr.picked td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .file-table .thumb-cell img, .file-table .thumb-cell span { display: block; width: 64px; height: 40px; object-fit: contain; border-radius: 6px; background: color-mix(in srgb, var(--line) 55%, var(--card)); }
+  .file-table .name-cell { max-width: 260px; }
+  .file-table .name-cell b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-table .name-cell small { display: block; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-table .num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .file-table .muted { color: var(--muted); }
+  .file-table form { display: flex; gap: 6px; flex-wrap: nowrap; }
+  .file-table form select { width: 110px; padding: 6px 8px; }
+  .file-table form button { padding: 6px 10px; }
+  .file-table td:nth-child(11) .note:empty, .file-table td:last-child .note:empty { display: none; }
+  .file-table .row-actions { white-space: nowrap; }
+  .file-table .row-actions a, .file-table .row-actions button { display: inline-grid; place-items: center; width: 30px; height: 30px; color: var(--muted); background: none; padding: 0; border-radius: 6px; }
+  .file-table .row-actions a:hover, .file-table .row-actions button:hover { color: var(--ink); background: var(--line); }
+  .file-table .row-actions svg { width: 16px; height: 16px; }
+  .file-table .thumb-cell img, .file-table .thumb-cell span { width: 56px; height: 36px; }
+  .table-wrap { overflow-x: auto; }
   .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 20px; }
   .toolbar input[type=search] { flex: 1 1 220px; min-width: 0; }
   .kinds { display: flex; gap: 4px; flex-wrap: wrap; }

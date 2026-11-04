@@ -20,8 +20,16 @@
   .svg-source { margin-top: 16px; }
   .svg-source summary { color: var(--muted); cursor: pointer; font-size: 14px; }
   .svg-source pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; max-height: 200px; overflow: auto; background: var(--bg); padding: 10px; border-radius: 8px; }
-  .tape-form { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
-  .tape-form select { flex: 1; min-width: 0; }
+  .tape-form { display: block; margin-top: 4px; }
+  .tape-form h4 { margin: 14px 0 8px; }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+  .swatch { display: grid; gap: 4px; justify-items: start; text-align: left; padding: 8px; background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: 10px; font-weight: 500; font-size: 13px; }
+  .swatch:hover { border-color: var(--muted); }
+  .swatch[aria-pressed=true] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .swatch small { color: var(--muted); font-weight: 400; }
+  /* A piece of the tape: its colour, the ink on it, as high as the tape is wide. */
+  .tape { display: grid; place-items: center; width: 100%; height: var(--h); border-radius: 3px; background: var(--tape); color: var(--ink); font-weight: 800; font-size: calc(var(--h) * .55); letter-spacing: .5px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .15); }
+  .tape.clear { background: repeating-conic-gradient(#cfd3d6 0 25%, #f4f5f6 0 50%) 0 0 / 8px 8px; }
   .hint { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
   .code-data { grid-column: span 2; }
   @media (max-width: 520px) { .code-data { grid-column: 1 / -1; } }

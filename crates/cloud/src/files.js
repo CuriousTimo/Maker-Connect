@@ -11,7 +11,8 @@
   }
   function bytes(n) {
     if (n < 1e6) return `${(n / 1e3).toFixed(0)} kB`;
-    return `${(n / 1e6).toFixed(1)} MB`;
+    if (n < 1e9) return `${(n / 1e6).toFixed(1)} MB`;
+    return `${(n / 1e9).toFixed(1)} GB`;
   }
   function ago(t) {
     const s = Date.now() / 1000 - t;
@@ -63,17 +64,67 @@
     </article>`;
   }
 
+  // A file as a row of the list: the same facts and actions as its card.
+  function row(f) {
+    const m = f.meta || {};
+    const picture = m.thumbnail ? `<img src="files/${encodeURIComponent(f.id)}/thumbnail.png" alt="">` : "<span></span>";
+    const filament = m.filament_g != null ? `${m.filament_g.toFixed(1)} g` : m.filament_m != null ? `${m.filament_m.toFixed(2)} m` : "";
+    const options = f.machines.map((t) =>
+      `<option value="${esc(t.id)}"${t.ok ? "" : " disabled"}>${esc(t.name)}${t.note ? ` — ${esc(t.note)}` : ""}</option>`).join("");
+    const ready = f.machines.some((t) => t.ok);
+    const label = m.label_dots ? `${Math.round((m.label_dots[0] / 180) * 25.4)} mm` : "";
+    const last = f.printed[0];
+    const cell = (v) => (v == null || v === "" ? '<span class="muted">–</span>' : esc(v));
+    return `<tr class="file-row${selected.has(f.id) ? " picked" : ""}" data-id="${esc(f.id)}">
+      <td><input type="checkbox" class="pick" aria-label="Select ${esc(f.name)}"${selected.has(f.id) ? " checked" : ""}></td>
+      <td class="thumb-cell">${picture}</td>
+      <td class="name-cell"><b title="${esc(f.name)}">${esc(f.name)}</b><small>${KINDS[kindOf(f)]}${m.slicer ? ` · ${esc(m.slicer)}` : ""}</small></td>
+      <td>${cell(m.printer_model)}</td>
+      <td class="num">${cell(duration(m.estimated_s) || label)}</td>
+      <td class="num">${cell(m.filament_type ? `${m.filament_type} ${filament}`.trim() : filament)}</td>
+      <td class="num">${cell(m.layer_height_mm != null ? `${m.layer_height_mm} mm` : null)}</td>
+      <td class="num">${ago(f.uploaded_at)}<small class="muted"> · ${bytes(f.size)}</small></td>
+      <td class="num">${last ? `${esc(machineName(last.machine_id))}, ${ago(last.at)}` : '<span class="muted">not yet</span>'}</td>
+      <td class="row-actions"><a href="files/${encodeURIComponent(f.id)}/download" title="Download" aria-label="Download"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v8.5M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a><button type="button" data-remove title="Remove" aria-label="Remove"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.6 6.5v5M9.4 6.5v5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>
+      <td><form data-print>
+        <select name="machine" aria-label="Machine to print on"${f.machines.length ? "" : " disabled"}>
+          <option value="">${f.machines.length ? (ready ? "Print on…" : "No machine free") : "No machines"}</option>${options}
+        </select>
+        ${m.kind === "laser" ? `<button type="button" class="ghost" data-frame${ready ? "" : " disabled"} title="Run the outline with the laser off">Frame</button>` : ""}
+        <button${ready ? "" : " disabled"}>${m.kind === "laser" ? "Start" : "Print"}</button>
+      </form><span class="note" data-note role="status"></span></td>
+    </tr>`;
+  }
+
   // What is shown: the filters and the sort, kept per browser.
   const search = document.querySelector("[data-search]");
+  const sliced = document.querySelector("[data-sliced]");
+  const material = document.querySelector("[data-material]");
+  const layer = document.querySelector("[data-layer]");
   const kinds = document.querySelector("[data-kinds]");
   const machineFilter = document.querySelector("[data-machine]");
   const sort = document.querySelector("[data-sort]");
   const saved = (() => { try { return JSON.parse(localStorage.getItem("files-view")) || {}; } catch { return {}; } })();
   let kind = saved.kind || "";
+  let view = saved.view === "list" ? "list" : "cards";
   sort.value = saved.sort || "new";
   const save = () => {
-    try { localStorage.setItem("files-view", JSON.stringify({ kind, sort: sort.value, machine: machineFilter.value })); } catch {}
+    try {
+      localStorage.setItem("files-view", JSON.stringify({
+        kind, view, sort: sort.value, machine: machineFilter.value,
+        sliced: sliced.value, material: material.value, layer: layer.value,
+      }));
+    } catch {}
   };
+  // A filter on what the files say: its values, the choice kept; hidden when there is none.
+  function fillFilter(select, all, values) {
+    const chosen = select.value || saved[select.dataset.key] || "";
+    const unique = [...new Set(values.filter((v) => v != null && v !== ""))].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+    select.hidden = !unique.length;
+    select.innerHTML = `<option value="">${all}</option>` + unique.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+    select.value = unique.map(String).includes(chosen) ? chosen : "";
+  }
+  sliced.dataset.key = "sliced"; material.dataset.key = "material"; layer.dataset.key = "layer";
   let files = [];
   const selected = new Set();
 
@@ -97,6 +148,9 @@
     return files
       .filter((f) => !kind || kindOf(f) === kind)
       .filter((f) => !machine || forMachine(f, machine))
+      .filter((f) => !sliced.value || f.meta?.printer_model === sliced.value)
+      .filter((f) => !material.value || f.meta?.filament_type === material.value)
+      .filter((f) => !layer.value || String(f.meta?.layer_height_mm) === layer.value)
       .filter((f) => !words || f.name.toLowerCase().includes(words))
       .sort(order);
   }
@@ -113,14 +167,22 @@
     machineFilter.innerHTML = `<option value="">All machines</option>` +
       machines.map((m) => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join("");
     machineFilter.value = machines.some((m) => m.id === chosen) ? chosen : "";
+    // What the files say about themselves, to filter on.
+    fillFilter(sliced, "Sliced for any", files.map((f) => f.meta?.printer_model));
+    fillFilter(material, "Any material", files.map((f) => f.meta?.filament_type));
+    fillFilter(layer, "Any layer height", files.map((f) => f.meta?.layer_height_mm));
+    for (const b of document.querySelectorAll("[data-view]")) b.setAttribute("aria-pressed", b.dataset.view === view);
     // The files.
     for (const id of [...selected]) if (!files.some((f) => f.id === id)) selected.delete(id);
     const shown = shownFiles();
+    list.classList.toggle("list", view === "list" && shown.length > 0);
     list.innerHTML = !files.length
       ? '<p class="empty">No files yet. Drop G-code here, or upload it with the button. Labels made on a label printer\'s page come here too.</p>'
-      : shown.length
-        ? shown.map(card).join("")
-        : '<p class="empty">No files match.</p>';
+      : !shown.length
+        ? '<p class="empty">No files match.</p>'
+        : view === "list"
+          ? `<div class="table-wrap"><table class="file-table"><thead><tr><th></th><th></th><th>File</th><th>Sliced for</th><th>Time</th><th>Material</th><th>Layer</th><th>Uploaded</th><th>Last printed</th><th></th><th></th></tr></thead><tbody>${shown.map(row).join("")}</tbody></table></div>`
+          : shown.map(card).join("");
     showSelection();
   }
 
@@ -145,10 +207,31 @@
       fetched = key;
       files = fresh;
       render();
+      showStorage();
     } catch (error) { /* tried again shortly */ }
   }
   
+  // What the files take, and what the disk has left.
+  async function showStorage() {
+    try {
+      const s = await (await fetch("api/storage")).json();
+      const box = document.querySelector("[data-storage]");
+      box.hidden = false;
+      const disk = s.disk_bytes || 0, free = s.free_bytes;
+      const usedOnDisk = disk && free != null ? disk - free : 0;
+      document.querySelector("[data-storage-fill]").style.width = disk ? `${Math.min(100, (usedOnDisk / disk) * 100).toFixed(1)}%` : "0";
+      document.querySelector("[data-storage-text]").textContent =
+        `${bytes(s.used_bytes)} in files` + (free != null ? ` · ${bytes(free)} free` : "");
+    } catch { /* shown on the next refresh */ }
+  }
+
   search.addEventListener("input", render);
+  for (const select of [sliced, material, layer]) select.addEventListener("change", () => { save(); render(); });
+  for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", () => {
+    view = b.dataset.view;
+    save();
+    render();
+  });
   sort.addEventListener("change", () => { save(); render(); });
   machineFilter.addEventListener("change", () => { save(); render(); });
   kinds.addEventListener("click", (event) => {
@@ -160,7 +243,7 @@
   });
   list.addEventListener("change", (event) => {
     if (!event.target.matches(".pick")) return;
-    const file = event.target.closest(".file");
+    const file = event.target.closest("[data-id]");
     if (event.target.checked) selected.add(file.dataset.id); else selected.delete(file.dataset.id);
     file.classList.toggle("picked", event.target.checked);
     showSelection();
@@ -195,7 +278,7 @@
 
   list.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = event.target, file = form.closest(".file"), note = file.querySelector("[data-note]");
+    const form = event.target, file = form.closest("[data-id]"), note = file.querySelector("[data-note]");
     const machine = form.machine.value;
     if (!machine) { note.textContent = "Choose a machine first."; return; }
     const response = await fetch(`files/${encodeURIComponent(file.dataset.id)}/print`, {
@@ -210,7 +293,7 @@
   list.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-frame]");
     if (!button) return;
-    const file = button.closest(".file"), note = file.querySelector("[data-note]");
+    const file = button.closest("[data-id]"), note = file.querySelector("[data-note]");
     const machine = file.querySelector("select").value;
     if (!machine) { note.textContent = "Choose a machine first."; return; }
     const response = await fetch(`files/${encodeURIComponent(file.dataset.id)}/frame`, {
@@ -222,8 +305,9 @@
   list.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-remove]");
     if (!button) return;
-    const file = button.closest(".file");
-    if (!confirm(`Remove ${file.querySelector("h3").textContent}?`)) return;
+    const file = button.closest("[data-id]");
+    const name = files.find((f) => f.id === file.dataset.id)?.name || "this file";
+    if (!confirm(`Remove ${name}?`)) return;
     const response = await fetch(`files/${encodeURIComponent(file.dataset.id)}/remove`, { method: "POST" });
     if (!response.ok) alert(await response.text());
     fetched = "";
