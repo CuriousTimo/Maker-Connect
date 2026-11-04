@@ -8,6 +8,7 @@ firmware = "prusa"
 max_nozzle_c = 300
 max_bed_c = 120
 
+printer_models = ["MK3S", "MK3SMMU2S"]
 [detect]
 model_code = 302
 machine_type = "Prusa i3 MK3S"  # check

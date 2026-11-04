@@ -1,0 +1,37 @@
+  main.wide { max-width: 1240px; }
+  .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-top: 8px; }
+  .page-head h2 { margin: 0; }
+  .subtitle { margin: 4px 0 0; color: var(--muted); }
+  .upload-button { padding: 9px 16px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; white-space: nowrap; }
+
+  .uploads { display: grid; gap: 8px; margin-top: 16px; }
+  .uploads:empty { display: none; }
+  .upload { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 12px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; }
+  .upload .bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .upload .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
+  .upload.failed { border-color: var(--bad); }
+  .upload span:last-child { color: var(--muted); }
+
+  .files { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 16px; margin-top: 20px; }
+  .file { display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; min-width: 0; }
+  .file .picture { aspect-ratio: 16 / 10; display: grid; place-items: center; background: color-mix(in srgb, var(--line) 55%, var(--card)); color: var(--muted); font-size: 13px; }
+  .file .picture img { width: 100%; height: 100%; object-fit: contain; image-rendering: auto; }
+  .file .body { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 16px; flex: 1; }
+  .file h3 { margin: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file .facts { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 13px; }
+  .file .facts b { color: var(--ink); font-weight: 600; }
+  .file .when { color: var(--muted); font-size: 12px; }
+  .file form { display: flex; gap: 8px; margin: auto 0 0; }
+  .file select { flex: 1; min-width: 0; }
+  .file .more { display: flex; gap: 14px; font-size: 13px; }
+  .file .more a, .file .more button { color: var(--muted); background: none; padding: 0; font-weight: 500; font-size: 13px; text-decoration: none; }
+  .file .more a:hover, .file .more button:hover { color: var(--ink); }
+  .file .note:empty { display: none; }
+  .file .note { margin: 0; font-size: 13px; }
+  button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .drop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: color-mix(in srgb, var(--bg) 70%, transparent); backdrop-filter: blur(3px); }
+  .drop[hidden] { display: none; }
+  .drop div { padding: 40px 60px; border: 2px dashed var(--accent); border-radius: 18px; background: var(--card); font-size: 20px; font-weight: 700; }
+  @media (max-width: 600px) { .page-head { flex-direction: column; align-items: stretch; } .upload-button { text-align: center; } }

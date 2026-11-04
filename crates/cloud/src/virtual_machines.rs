@@ -3,18 +3,25 @@
 //! Prusa Connect (homing, moves, heating, the fan) and report like one: their head moves
 //! at its feed rate, their nozzle and bed heat and cool, their fan spins. Asked to measure
 //! their bed (`G80`, `G29`), they visit the points of a grid and report a mesh of a gently
-//! warped bed, as a real one would.
+//! warped bed, as a real one would. Given a job, they play its file line by line: moving,
+//! heating and waiting for their heaters as it says, ten times faster than a real machine,
+//! so a print can be followed in minutes.
 
 use crate::Shared;
 use crate::profiles::{self, Profile};
-use crate::store::CommandState;
+use crate::store::{CommandState, JobState};
 use maker_connect_protocol::{MachineKind, MachineState, Telemetry};
 use std::collections::{HashMap, VecDeque};
+use std::io::BufRead;
 use std::time::Duration;
 
 /// How often the machines move on (seconds).
 const TICK: f32 = 0.5;
 const ROOM_C: f32 = 21.0;
+/// How much faster than a real machine a virtual one plays a file.
+pub const JOB_SPEED: f32 = 10.0;
+/// Moves planned ahead while playing a file.
+const LOOKAHEAD: usize = 64;
 
 /// Runs every virtual machine in the store, for as long as the cloud runs.
 pub async fn run(store: Shared) {
@@ -22,25 +29,72 @@ pub async fn run(store: Shared) {
     let mut tick = tokio::time::interval(Duration::from_secs_f32(TICK));
     loop {
         tick.tick().await;
+        let shared = store.clone();
         let mut store = store.lock().unwrap();
         let Ok(list) = store.virtual_machines() else {
             continue;
         };
         machines.retain(|id, _| list.iter().any(|(other, ..)| other == id));
         for (id, token, profile) in list {
+            // A GRBL profile: LaserFoundry's simulated GRBL, on a thread of its own.
+            let found = profile.as_deref().and_then(profiles::find);
+            if let Some(p) = found.filter(|p| p.firmware.as_deref() == Some("grbl")) {
+                let travel = [p.build_volume_mm[0], p.build_volume_mm[1]];
+                crate::virtual_grbl::ensure(&shared, &id, &token, Some(travel));
+                continue;
+            }
             let sim = machines
-                .entry(id)
+                .entry(id.clone())
                 .or_insert_with(|| Sim::new(profile.as_deref().and_then(profiles::find)));
+            // A job: taken when queued, followed when paused, resumed or stopped.
+            if let Ok(Some(job)) = store.active_job(&id) {
+                match job.state {
+                    JobState::Queued if sim.playing.is_none() && sim.running.is_none() => {
+                        match std::fs::File::open(store.file_path(&job.file_id)) {
+                            Ok(file) => {
+                                let size = file.metadata().map_or(0, |m| m.len());
+                                sim.play(job.id, &job.file_name, file, size);
+                                let _ = store.set_job(job.id, JobState::Printing, None);
+                            }
+                            Err(error) => {
+                                let reason = format!("file not found: {error}");
+                                let _ = store.set_job(job.id, JobState::Failed, Some(&reason));
+                            }
+                        }
+                    }
+                    // A job this run of the cloud did not start: it restarted mid-print.
+                    JobState::Printing | JobState::Paused if sim.playing.is_none() => {
+                        let reason = "the cloud restarted during the print";
+                        let _ = store.set_job(job.id, JobState::Failed, Some(reason));
+                    }
+                    JobState::Paused => sim.pause(true),
+                    JobState::Printing => sim.pause(false),
+                    JobState::Stopping => {
+                        sim.stop();
+                        let _ = store.set_job(job.id, JobState::Stopped, None);
+                    }
+                    _ => {}
+                }
+            }
             if sim.running.is_none()
+                && sim.playing.is_none()
                 && let Ok(Some((command, gcode))) = store.next_command(&token)
             {
                 let _ =
                     store.command_went(&token, command, CommandState::Accepted, None, Vec::new());
                 sim.start(command, &gcode);
             }
-            if let Some(done) = sim.step(TICK) {
+            let seconds = if sim.playing.is_some() {
+                TICK * JOB_SPEED
+            } else {
+                TICK
+            };
+            if let Some(done) = sim.step(seconds) {
                 let said = std::mem::take(&mut sim.said);
                 let _ = store.command_went(&token, done, CommandState::Finished, None, said);
+            }
+            if let Some(job) = sim.played(TICK) {
+                let _ = store.set_job(job, JobState::Finished, None);
             }
             let mut telemetry = sim.telemetry();
             if sim.running.is_none() {
@@ -51,6 +105,38 @@ pub async fn run(store: Shared) {
     }
 }
 
+/// A line of G-code as the machine reads it: no comment, upper case, trimmed.
+fn clean(line: &str) -> String {
+    line.split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_uppercase()
+}
+
+/// A file being played.
+#[derive(Debug)]
+struct Playing {
+    job: i64,
+    name: String,
+    lines: std::io::BufReader<std::fs::File>,
+    size: u64,
+    read: u64,
+    /// Real seconds spent printing (not paused).
+    elapsed: f32,
+    /// What the file says is left, in its own time (`M73 R`, minutes).
+    remaining_s: Option<f32>,
+    paused: bool,
+    at_end: bool,
+}
+
+/// A heater the machine waits for (`M109`, `M190`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Heater {
+    Nozzle,
+    Bed,
+}
+
 /// One move of the head: where to, at how many mm/s.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Move {
@@ -59,7 +145,7 @@ struct Move {
 }
 
 /// A virtual machine's state.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Sim {
     kind: MachineKind,
     size: [f32; 3],
@@ -86,6 +172,8 @@ struct Sim {
     model: String,
     /// This machine's own warp, so its meshes look alike from one time to the next.
     warp: [f32; 4],
+    playing: Option<Playing>,
+    waiting: Option<Heater>,
 }
 
 impl Sim {
@@ -120,7 +208,82 @@ impl Sim {
                     rng.gen_range(-0.06..0.06),
                 ]
             },
+            playing: None,
+            waiting: None,
         }
+    }
+
+    /// Starts playing a file.
+    fn play(&mut self, job: i64, name: &str, file: std::fs::File, size: u64) {
+        self.relative = false;
+        self.playing = Some(Playing {
+            job,
+            name: name.to_owned(),
+            lines: std::io::BufReader::new(file),
+            size,
+            read: 0,
+            elapsed: 0.0,
+            remaining_s: None,
+            paused: false,
+            at_end: false,
+        });
+    }
+
+    fn pause(&mut self, paused: bool) {
+        if let Some(playing) = self.playing.as_mut() {
+            playing.paused = paused;
+        }
+    }
+
+    /// Stops the job: no more moves, heaters and fan off, as a real printer does.
+    fn stop(&mut self) {
+        self.playing = None;
+        self.moves.clear();
+        self.planned = self.position;
+        self.waiting = None;
+        self.nozzle_target = 0.0;
+        self.bed_target = 0.0;
+        self.fan = 0;
+    }
+
+    /// Reads the file on while the moves ahead run low; then, once it is all done, the
+    /// job that finished. `seconds` is real time, for the job's clock.
+    fn played(&mut self, seconds: f32) -> Option<i64> {
+        let playing = self.playing.as_mut()?;
+        if playing.paused {
+            return None;
+        }
+        playing.elapsed += seconds;
+        while !self.playing.as_ref()?.at_end
+            && self.moves.len() < LOOKAHEAD
+            && self.waiting.is_none()
+        {
+            let playing = self.playing.as_mut()?;
+            let mut line = String::new();
+            match playing.lines.read_line(&mut line) {
+                Ok(0) | Err(_) => playing.at_end = true,
+                Ok(n) => {
+                    playing.read += n as u64;
+                    let line = clean(&line);
+                    if line.starts_with("M73") {
+                        let minutes = line
+                            .split_whitespace()
+                            .find_map(|w| w.strip_prefix('R')?.parse::<f32>().ok());
+                        if let Some(minutes) = minutes {
+                            playing.remaining_s = Some(minutes * 60.0);
+                        }
+                    }
+                    self.plan(&line);
+                }
+            }
+        }
+        let playing = self.playing.as_ref()?;
+        if playing.at_end && self.moves.is_empty() && self.waiting.is_none() {
+            let job = playing.job;
+            self.playing = None;
+            return Some(job);
+        }
+        None
     }
 
     /// Visits the points of an n × n grid, zigzag, and plans the mesh it will report.
@@ -222,64 +385,79 @@ impl Sim {
     fn start(&mut self, command: u32, gcode: &str) {
         self.running = Some(command);
         for line in gcode.lines() {
-            let line = line
-                .split(';')
-                .next()
-                .unwrap_or("")
-                .trim()
-                .to_ascii_uppercase();
-            let mut words = line.split_whitespace();
-            let Some(code) = words.next() else { continue };
-            self.said.push(format!("> {line}"));
-            let value = |letter: char| {
-                line.split_whitespace()
-                    .skip(1)
-                    .find_map(|w| w.strip_prefix(letter).and_then(|v| v.parse::<f32>().ok()))
+            let line = clean(line);
+            let Some(code) = line.split_whitespace().next().map(str::to_owned) else {
+                continue;
             };
-            match code {
-                "G28" => {
-                    self.planned = [0.0; 3];
-                    self.moves.push_back(Move {
-                        to: [0.0; 3],
-                        speed: 60.0,
-                    });
+            self.said.push(format!("> {line}"));
+            if !code.starts_with(['G', 'M', 'T', '$']) {
+                self.said.push(format!("echo:Unknown command: \"{line}\""));
+            }
+            self.plan(&line);
+            let answer = self.answer(&code);
+            self.said.extend(answer);
+            self.said.push("ok".to_owned());
+        }
+    }
+
+    /// Plans one line of G-code (upper case, no comment): moves, heaters, the fan.
+    fn plan(&mut self, line: &str) {
+        let mut words = line.split_whitespace();
+        let Some(code) = words.next() else { return };
+        let value = |letter: char| {
+            line.split_whitespace()
+                .skip(1)
+                .find_map(|w| w.strip_prefix(letter).and_then(|v| v.parse::<f32>().ok()))
+        };
+        match code {
+            "G28" | "$H" => {
+                self.planned = [0.0; 3];
+                self.moves.push_back(Move {
+                    to: [0.0; 3],
+                    speed: 60.0,
+                });
+            }
+            "G90" => self.relative = false,
+            "G91" => self.relative = true,
+            // Arcs go straight to where they end: near enough to watch.
+            "G0" | "G1" | "G2" | "G3" => {
+                if let Some(f) = value('F') {
+                    self.feed = f / 60.0;
                 }
-                "G90" => self.relative = false,
-                "G91" => self.relative = true,
-                "G0" | "G1" => {
-                    if let Some(f) = value('F') {
-                        self.feed = f / 60.0;
+                let mut to = self.planned;
+                let mut moved = false;
+                for (axis, letter) in ['X', 'Y', 'Z'].into_iter().enumerate() {
+                    if let Some(v) = value(letter) {
+                        let target = if self.relative { to[axis] + v } else { v };
+                        // Soft end stops: the head stays in the machine.
+                        to[axis] = target.clamp(0.0, self.size[axis].max(0.0));
+                        moved = true;
                     }
-                    let mut to = self.planned;
-                    for (axis, letter) in ['X', 'Y', 'Z'].into_iter().enumerate() {
-                        if let Some(v) = value(letter) {
-                            let target = if self.relative { to[axis] + v } else { v };
-                            // Soft end stops: the head stays in the machine.
-                            to[axis] = target.clamp(0.0, self.size[axis].max(0.0));
-                        }
-                    }
+                }
+                if moved {
                     self.planned = to;
                     self.moves.push_back(Move {
                         to,
                         speed: self.feed.max(1.0),
                     });
                 }
-                // Prusa's 8-bit firmware measures 7 × 7; Marlin here 5 × 5.
-                "G80" => self.probe(7),
-                "G29" => self.probe(5),
-                "M105" | "M114" | "M115" | "G81" | "M420" => {}
-                _ if !code.starts_with(['G', 'M', 'T']) => {
-                    self.said.push(format!("echo:Unknown command: \"{line}\""));
-                }
-                "M104" | "M109" => self.nozzle_target = value('S').unwrap_or(0.0),
-                "M140" | "M190" => self.bed_target = value('S').unwrap_or(0.0),
-                "M106" => self.fan = value('S').unwrap_or(255.0).clamp(0.0, 255.0) as u8,
-                "M107" => self.fan = 0,
-                _ => {}
             }
-            let answer = self.answer(code);
-            self.said.extend(answer);
-            self.said.push("ok".to_owned());
+            // Prusa's 8-bit firmware measures 7 × 7; Marlin here 5 × 5.
+            "G80" => self.probe(7),
+            "G29" => self.probe(5),
+            "M104" => self.nozzle_target = value('S').unwrap_or(0.0),
+            "M140" => self.bed_target = value('S').unwrap_or(0.0),
+            "M109" => {
+                self.nozzle_target = value('S').or(value('R')).unwrap_or(0.0);
+                self.waiting = (self.nozzle_target > 0.0).then_some(Heater::Nozzle);
+            }
+            "M190" => {
+                self.bed_target = value('S').or(value('R')).unwrap_or(0.0);
+                self.waiting = (self.bed_target > 0.0).then_some(Heater::Bed);
+            }
+            "M106" => self.fan = value('S').unwrap_or(255.0).clamp(0.0, 255.0) as u8,
+            "M107" => self.fan = 0,
+            _ => {}
         }
     }
 
@@ -297,10 +475,29 @@ impl Sim {
             self.nozzle = approach(self.nozzle, self.nozzle_target, 0.12, 0.03);
             self.bed = approach(self.bed, self.bed_target, 0.025, 0.006);
         }
-        let mut left = seconds;
+        // Waiting for a heater holds the moves after it, as M109 and M190 do.
+        if let Some(heater) = self.waiting {
+            let (now, target) = match heater {
+                Heater::Nozzle => (self.nozzle, self.nozzle_target),
+                Heater::Bed => (self.bed, self.bed_target),
+            };
+            if (now - target).abs() < 1.5 || target <= 0.0 {
+                self.waiting = None;
+            }
+        }
+        let mut left = if self.waiting.is_some() || self.playing.as_ref().is_some_and(|p| p.paused)
+        {
+            0.0
+        } else {
+            seconds
+        };
         while let Some(next) = self.moves.front().copied() {
             let gap: Vec<f32> = (0..3).map(|a| next.to[a] - self.position[a]).collect();
             let distance = gap.iter().map(|d| d * d).sum::<f32>().sqrt();
+            // A move that goes nowhere takes no time, even when the time is up.
+            if left <= 0.0 && distance > 0.0 {
+                break;
+            }
             let reach = next.speed * left;
             if reach >= distance {
                 self.position = next.to;
@@ -313,7 +510,7 @@ impl Sim {
                 break;
             }
         }
-        if self.moves.is_empty() {
+        if self.moves.is_empty() && self.waiting.is_none() {
             self.running.take()
         } else {
             None
@@ -324,11 +521,27 @@ impl Sim {
         let fdm = self.kind == MachineKind::Fdm;
         let round = |v: f32| (v * 10.0).round() / 10.0;
         Telemetry {
-            state: if self.running.is_some() {
-                MachineState::Busy
-            } else {
-                MachineState::Idle
+            state: match &self.playing {
+                Some(p) if p.paused => MachineState::Paused,
+                Some(_) => MachineState::Busy,
+                None if self.running.is_some() => MachineState::Busy,
+                None => MachineState::Idle,
             },
+            job: self.playing.as_ref().map(|p| {
+                let fraction = p.read as f32 / p.size.max(1) as f32;
+                // What the file says is left, at our speed; else what the pace so far says.
+                let remaining = p
+                    .remaining_s
+                    .map(|s| s / JOB_SPEED)
+                    .or_else(|| (fraction > 0.02).then(|| p.elapsed * (1.0 - fraction) / fraction));
+                maker_connect_protocol::JobProgress {
+                    file: p.name.clone(),
+                    done: p.read,
+                    total: p.size,
+                    elapsed_s: Some(p.elapsed as u64),
+                    remaining_s: remaining.map(|s| s as u64),
+                }
+            }),
             firmware: Some("Maker Connect virtual machine".to_owned()),
             nozzle_c: fdm.then(|| round(self.nozzle)),
             nozzle_target_c: fdm.then_some(self.nozzle_target),
@@ -409,6 +622,48 @@ mod tests {
             .map(|v| v.parse().unwrap())
             .collect();
         assert_eq!(back_row[0], rows[6][0].unwrap(), "the back row first");
+    }
+
+    /// A file plays: the heaters are waited for, then the moves run, and the job ends.
+    #[test]
+    fn a_virtual_printer_plays_a_file() {
+        let dir = std::env::temp_dir().join(format!("mc-play-{}", crate::store::random_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("part.gcode");
+        std::fs::write(
+            &path,
+            "; a part\nM73 P0 R1\nM190 S60\nM109 S215\nG28\nG1 X50 Y40 F6000\nG1 Z0.2\nM107\n",
+        )
+        .unwrap();
+        let file = std::fs::File::open(&path).unwrap();
+        let mut mini = Sim::new(profiles::find("prusa/mini"));
+        mini.play(
+            7,
+            "part.gcode",
+            file,
+            std::fs::metadata(&path).unwrap().len(),
+        );
+        assert_eq!(mini.played(TICK), None);
+        assert_eq!(mini.waiting, Some(Heater::Bed), "M190 holds what follows");
+        assert_eq!(mini.telemetry().state, MachineState::Busy);
+        assert_eq!(
+            mini.telemetry().job.unwrap().remaining_s,
+            Some(6),
+            "a minute at ten times"
+        );
+        let mut finished = None;
+        for _ in 0..2000 {
+            mini.step(TICK * JOB_SPEED);
+            finished = mini.played(TICK).or(finished);
+            if finished.is_some() {
+                break;
+            }
+        }
+        assert_eq!(finished, Some(7));
+        assert_eq!(mini.position, [50.0, 40.0, 0.2]);
+        assert!(mini.nozzle > 210.0, "{}", mini.nozzle);
+        assert_eq!(mini.telemetry().state, MachineState::Idle);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A laser has no temperatures to report.

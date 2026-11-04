@@ -219,8 +219,10 @@ fn to_telemetry(report: &Value) -> Telemetry {
         .filter(|_| matches!(state, MachineState::Busy | MachineState::Paused))
         .map(|percent| JobProgress {
             file: String::new(),
-            done: percent.clamp(0.0, 100.0) as u32,
+            done: percent.clamp(0.0, 100.0) as u64,
             total: 100,
+            elapsed_s: report["time_printing"].as_u64(),
+            remaining_s: report["time_remaining"].as_u64(),
         });
     let number = |key: &str| report[key].as_f64().map(|n| n as f32);
     let position = match (number("axis_x"), number("axis_y"), number("axis_z")) {

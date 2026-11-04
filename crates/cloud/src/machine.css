@@ -134,3 +134,22 @@
   form.gcode input { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .quick { margin-top: 10px; }
   .quick button { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+
+  /* The job. */
+  .job { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; align-items: center; margin-top: 14px; }
+  .job[hidden], .job-actions[hidden], .no-job[hidden] { display: none; }
+  .job-thumb { width: 96px; height: 72px; object-fit: contain; border-radius: 8px; background: color-mix(in srgb, var(--line) 55%, var(--card)); }
+  .job-thumb[hidden] { display: block; visibility: hidden; }
+  .job-main b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .progress { height: 8px; margin: 10px 0; border-radius: 4px; background: var(--line); overflow: hidden; }
+  .progress i { display: block; height: 100%; background: var(--accent); border-radius: 4px; transition: width 0.5s; }
+  .job-times { display: flex; gap: 22px; font-variant-numeric: tabular-nums; }
+  .job-times span { display: grid; }
+  .job-times small { color: var(--muted); font-size: 12px; }
+  .job-times b { font-size: 16px; }
+  .job-actions { display: flex; gap: 8px; margin: 16px 0 0; }
+  .no-job { margin: 12px 0 0; }
+  .resume { margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: color-mix(in srgb, #f2a541 14%, var(--card)); }
+  .resume[hidden] { display: none; }
+  .resume p { margin: 0 0 10px; }
+  .resume form { margin: 0; }

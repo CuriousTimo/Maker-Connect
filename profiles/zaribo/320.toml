@@ -10,3 +10,5 @@ max_nozzle_c = 300
 max_bed_c = 120
 # No [detect]: its firmware, a fork of Prusa's, reports itself as an MK3S, so the
 # owner chooses this profile on the website.
+# Sliced as an MK3S with a taller Z.
+printer_models = ["MK3S"]

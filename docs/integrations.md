@@ -1,0 +1,93 @@
+# Tools and drivers to work with
+
+Maker Connect is the machine side: it keeps the files, queues them, and gets them to the
+machines and back what they do. Designing and slicing stay in the tools makers already use.
+The same split everywhere: a tool makes the job, Maker Connect takes it from there.
+
+| Tool makes the job | Maker Connect | The machine |
+|---|---|---|
+| PrusaSlicer, Cura: G-code | files, queue, print, progress | 3D printer (agent, or built-in Prusa Connect) |
+| LaserFoundry: GRBL G-code | files, queue, stream (with its `laserfoundry-device`), progress | laser (agent, GRBL) |
+| a label template in the cloud | render, queue, print | label printer (agent) |
+
+## Lasers: LaserFoundry
+
+[LaserFoundry](https://github.com/Stitchwright/laserfoundry) (MIT OR Apache-2.0, Rust 2024,
+version 0.2.1, read at commit `3b9b9fa`, 2026-11-03): the user's choice to replace LightBurn. A
+clean-room, LightBurn-class laser application: layout, cut layers with speed, power, passes and
+fill, image dithering, nesting, a toolpath preview, GRBL G-code (and Marlin-laser and
+Smoothieware dialects); a desktop app (egui), a browser build (Web Serial) and a CLI
+(`laserfoundry-cli gcode design.svg -o job.gcode`, and an MCP server). Its status, by its own
+README: early; "everything machine-side has run against the built-in simulator only".
+
+Streaming the G-code to the machine is Maker Connect's job (user, 2026-11-04): Maker Connect
+receives the file, queues it, and the agent streams it. And LaserFoundry has the piece for that,
+apart from its UI: the crate **`laserfoundry-device`** (`crates/device`), "talking to GRBL
+controllers: a transport abstraction, a character-counting streamer, status parsing, and a
+simulated controller". Its dependencies are small (`serialport` behind a `serial` feature,
+`thiserror`, `log`, `web-time`); no UI, no OS serial code in it.
+
+- `Transport` (write bytes, read a line with a timeout): our agent's serial port can be one.
+- `stream_program` with `StreamOptions` and `Progress` (sent, acknowledged, total): GRBL's
+  character counting in its 128-byte receive buffer, lines of at most 79 bytes; `restart_line`
+  to resume a job.
+- `Link`: a persistent connection with status and position, jog, home, unlock, feed hold and
+  resume, stop (soft reset, laser off), a console, the `$$` settings; `JobState`, `Snapshot`.
+- `parse_status` (`<Idle|MPos:...>`), and GRBL's error and alarm codes with texts and hints.
+- `SimulatedGrbl`: an in-memory GRBL that models the 128-byte buffer and catches over-sending;
+  also `SimulatedMarlin`.
+
+GRBL is not Marlin: flow control by character counting, no line numbers or checksums; status
+by the realtime `?`; realtime bytes outside the stream (`!` hold, `~` resume, Ctrl-X reset);
+`$H` homing, `$$` settings, `ALARM:N` after a limit or reset.
+
+**Built (2026-11-04):** the crate `maker-connect-grbl` (`crates/grbl`) wraps its `Link`, shared by
+the agent (with real serial ports) and the cloud (virtual lasers):
+
+- GRBL recognised on the port by its greeting (or `$I`); commands (`$H`, `$X`, `$$`, any line)
+  with their answers for the terminal;
+- jogs as GRBL's own `$J=` through the link's `jog` and `jog_to` (laser off, checked);
+- the settings that matter, read with `$$` on connecting: laser mode (`$32`), full power
+  (`$30`), travel (`$130` to `$132`). The cloud refuses a job with laser mode off or outside the
+  travel, and warns when the file's power range does not fit `$30`;
+- Frame: a laser file's outline (where its moves go, read on upload) run as jogs, laser off;
+- jobs fetched and streamed by character counting, with pause, resume and stop;
+- starting again: an interrupted job says where it can start again (`restart_line`, a few lines
+  back, in the file's numbering), and the new job starts there with `laserfoundry-gcode`'s
+  `resume_from`, which first goes there with the beam off;
+- virtual lasers: `SimulatedGrbl` behind the same code, on a thread of their own in the cloud.
+
+Tested against `SimulatedGrbl`; not yet on a real laser.
+
+**Plan (as it was):** the agent uses `laserfoundry-device` as a dependency (from git, pinned to a commit;
+the licences fit AGPL-3.0) rather than writing GRBL streaming again; a GRBL machine is then a
+`Transport` over our serial port. `SimulatedGrbl` serves the agent's tests, and can stand behind
+the virtual laser. The user's Ortur on USB would be among its first real machines: Frame and
+low power first. Later: an upload from LaserFoundry to Maker Connect (it already has "Publish
+to MakerFoundry", makerfoundry.app, by the same makers), or the cloud turning an SVG into
+G-code with its engine.
+
+## Label printers: thermal-label
+
+Label printers are a real maker tool, and almost always awkward because of their software.
+[thermal-label](https://thermal-label.github.io/) (MIT, TypeScript): drivers for 83 label
+printers without vendor SDKs, with reverse-engineered wire protocols documented per family.
+
+- Brother QL and PT (USB, TCP 9100, Bluetooth), DYMO LabelWriter, LabelManager and LetraTag,
+  Marklife / Deli. Not Zebra, Niimbot or Phomemo.
+- Node (USB through libusb, TCP, serial) and the browser (WebUSB, Web Serial, Web Bluetooth);
+  a small CLI. No layout: templates, barcodes and CSV batches are left to its sister project
+  [burnmark-io](https://burnmark-io.github.io/) (not read yet).
+- Young and small (one maker, active until October 2026).
+
+How it fits:
+
+1. **As the reference (preferred).** Port the drivers needed to Rust, in the agent, from its
+   protocol documentation; MIT allows taking code too, with credit. Brother QL over the network
+   (TCP 9100) first: no USB permissions, one binary.
+2. As a helper beside the agent: the agent runs its CLI. Quick, but needs Node 24.
+3. From the browser (WebUSB, Web Bluetooth), without an agent: for a Bluetooth label printer
+   at a laptop. Against "the machine connects to the cloud", so at most an extra.
+
+The cloud makes the label (template to image) and queues it; the agent prints it. Which label
+printer to start with: to be asked.

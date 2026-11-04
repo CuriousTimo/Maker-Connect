@@ -6,3 +6,6 @@ reference/
 *.db-shm
 *.db-wal
 maker-connect-agent.json
+
+# Uploaded files of the cloud
+*-files/

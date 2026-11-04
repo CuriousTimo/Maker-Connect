@@ -8,6 +8,7 @@
 //! printed one.
 
 use crate::marlin;
+use maker_connect_grbl as grbl;
 use maker_connect_protocol::{
     self as protocol, CommandDone, Identity, MachineKind, MachineState, Register, Registered,
     Telemetry, TelemetryReply,
@@ -24,7 +25,17 @@ struct Options {
     kind: MachineKind,
     port: Option<String>,
     baud: u32,
+    firmware: Firmware,
     state: String,
+}
+
+/// What the machine on the port speaks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Firmware {
+    /// Told by what it says when the port opens (GRBL greets by name), else Marlin.
+    Auto,
+    Marlin,
+    Grbl,
 }
 
 fn options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>> {
@@ -34,6 +45,7 @@ fn options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>> {
         kind: MachineKind::Fdm,
         port: None,
         baud: 115_200,
+        firmware: Firmware::Auto,
         state: "maker-connect-agent.json".to_owned(),
     };
     let mut args = args.iter();
@@ -49,6 +61,16 @@ fn options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>> {
             "--kind" => options.kind = serde_json::from_value(serde_json::Value::String(value()?))?,
             "--port" => options.port = Some(value()?),
             "--baud" => options.baud = value()?.parse()?,
+            "--firmware" => {
+                options.firmware = match value()?.as_str() {
+                    "auto" => Firmware::Auto,
+                    "marlin" => Firmware::Marlin,
+                    "grbl" => Firmware::Grbl,
+                    other => {
+                        return Err(format!("--firmware auto, marlin or grbl, not {other}").into());
+                    }
+                }
+            }
             "--state" => options.state = value()?,
             _ => return Err(format!("unknown option {flag}").into()),
         }
@@ -99,6 +121,81 @@ fn show_code(registered: &Registered) {
 }
 
 type Link = Box<dyn serialport::SerialPort>;
+
+/// The machine on the port, connected.
+enum Machine {
+    Marlin(Box<marlin::Printer<Link>>, Known),
+    Grbl(Box<grbl::GrblMachine>),
+}
+
+/// Whether the machine on a port is GRBL: it greets by name when the port opens (most
+/// boards reset then); if it says nothing, `$I` asks (GRBL answers `[VER:...]`, Marlin that
+/// it does not know the command, which does no harm).
+fn speaks_grbl(port: &str, baud: u32) -> bool {
+    let Ok(mut link) = serialport::new(port, baud)
+        .timeout(Duration::from_millis(200))
+        .open()
+    else {
+        return false;
+    };
+    fn listen(link: &mut Link, heard: &mut String, for_how_long: Duration) {
+        let until = Instant::now() + for_how_long;
+        let mut buffer = [0u8; 256];
+        while Instant::now() < until {
+            if let Ok(n) = std::io::Read::read(link, &mut buffer) {
+                heard.push_str(&String::from_utf8_lossy(&buffer[..n]));
+            }
+        }
+    }
+    let mut heard = String::new();
+    listen(&mut link, &mut heard, Duration::from_millis(2500));
+    if !heard.lines().any(grbl::greets) {
+        let _ = std::io::Write::write_all(&mut link, b"\r\n$I\r\n");
+        listen(&mut link, &mut heard, Duration::from_millis(1500));
+    }
+    heard
+        .lines()
+        .any(|l| grbl::greets(l) || l.starts_with("[VER:"))
+}
+
+/// The machine on the port, by what it speaks.
+fn open_machine(options: &Options) -> Option<Machine> {
+    let port = options.port.as_ref()?;
+    let grbl = match options.firmware {
+        Firmware::Grbl => true,
+        Firmware::Marlin => false,
+        Firmware::Auto => speaks_grbl(port, options.baud),
+    };
+    if grbl {
+        match grbl::GrblMachine::open(port, options.baud) {
+            Ok(machine) => {
+                println!("GRBL machine on {port}");
+                Some(Machine::Grbl(Box::new(machine)))
+            }
+            Err(error) => {
+                println!("machine on {port}: {error}");
+                None
+            }
+        }
+    } else {
+        open_printer(options).map(|(printer, known)| Machine::Marlin(Box::new(printer), known))
+    }
+}
+
+/// Fetches a job's file from the cloud.
+fn fetch(options: &Options, token: &str, order: &protocol::JobOrder) -> Result<String, String> {
+    let response = ureq::get(&format!("{}{}", options.cloud, order.download))
+        .set("authorization", &format!("Bearer {token}"))
+        .call()
+        .map_err(|e| format!("the file did not come: {e}"))?;
+    let mut text = String::new();
+    std::io::Read::read_to_string(
+        &mut std::io::Read::take(response.into_reader(), 512 * 1024 * 1024),
+        &mut text,
+    )
+    .map_err(|e| format!("the file did not come: {e}"))?;
+    Ok(text)
+}
 
 /// What the printer told about itself when the agent connected.
 struct Known {
@@ -161,30 +258,24 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         "{} reports to {} as machine {}",
         options.name, options.cloud, registered.machine_id
     );
-    let mut printer = None;
+    let mut machine: Option<Machine> = None;
     let mut next_look = Instant::now();
     let mut paired = None;
-    // What the next report brings: how commands went, and a mesh they produced.
+    // What the next report brings: how commands went, a mesh they produced, a job's end.
     let mut done: Vec<CommandDone> = Vec::new();
     let mut mesh = None;
+    let mut job_end = None;
     loop {
-        if printer.is_none() && options.port.is_some() && Instant::now() >= next_look {
-            printer = open_printer(&options);
+        if machine.is_none() && options.port.is_some() && Instant::now() >= next_look {
+            machine = open_machine(&options);
             next_look = Instant::now() + RECONNECT_EVERY;
         }
         let mut telemetry = Telemetry {
             state: MachineState::Disconnected,
-            firmware: None,
-            nozzle_c: None,
-            bed_c: None,
-            job: None,
-            identity: None,
-            done: std::mem::take(&mut done),
-            mesh: mesh.take(),
             ..Telemetry::default()
         };
-        if let Some((link, known)) = printer.as_mut() {
-            match link.command("M105") {
+        match machine.as_mut() {
+            Some(Machine::Marlin(printer, known)) => match printer.command("M105") {
                 Ok(answer) => {
                     let (nozzle, bed) = marlin::temperatures(&answer);
                     telemetry.state = MachineState::Idle;
@@ -195,10 +286,37 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Err(error) => {
                     println!("printer lost: {error}");
-                    printer = None;
+                    machine = None;
+                }
+            },
+            Some(Machine::Grbl(laser)) => {
+                let (report, ended) = laser.report();
+                if let Some(end) = ended {
+                    println!(
+                        "job {} ended: {}",
+                        end.id,
+                        if end.ok {
+                            "done"
+                        } else if end.stopped {
+                            "stopped"
+                        } else {
+                            "failed"
+                        }
+                    );
+                    job_end = Some(end);
+                }
+                let lost = report.state == MachineState::Disconnected;
+                telemetry = report;
+                if lost {
+                    println!("machine lost");
+                    machine = None;
                 }
             }
+            None => {}
         }
+        telemetry.done = std::mem::take(&mut done);
+        telemetry.mesh = mesh.take();
+        telemetry.job_end = job_end.take();
         let sent = ureq::post(&format!("{}{}", options.cloud, protocol::TELEMETRY))
             .set("authorization", &format!("Bearer {}", registered.token))
             .send_json(&telemetry);
@@ -206,9 +324,12 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             Ok(response) => {
                 let reply: TelemetryReply = response.into_json()?;
                 for command in &reply.commands {
-                    let outcome = match printer.as_mut() {
-                        Some((link, _)) => carry_out(link, &command.gcode),
-                        None => Err("the printer is not connected".to_owned()),
+                    let outcome = match machine.as_mut() {
+                        Some(Machine::Marlin(printer, _)) => carry_out(printer, &command.gcode),
+                        Some(Machine::Grbl(laser)) => {
+                            laser.carry_out(&command.gcode).map(|said| (said, None))
+                        }
+                        None => Err("the machine is not connected".to_owned()),
                     };
                     match outcome {
                         Ok((output, found)) => {
@@ -231,6 +352,34 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                 }
+                if let Some(order) = &reply.job {
+                    println!("job {}: {} ({} bytes)", order.id, order.name, order.size);
+                    let started = match machine.as_mut() {
+                        Some(Machine::Grbl(laser)) => fetch(&options, &registered.token, order)
+                            .and_then(|program| {
+                                laser.start(order.id, &order.name, program, order.from_line)
+                            }),
+                        Some(Machine::Marlin(..)) => {
+                            Err("printing a file over USB on a Marlin printer follows".to_owned())
+                        }
+                        None => Err("the machine is not connected".to_owned()),
+                    };
+                    if let Err(reason) = started {
+                        println!("job {}: {reason}", order.id);
+                        job_end = Some(protocol::JobEnd {
+                            id: order.id,
+                            ok: false,
+                            stopped: false,
+                            reason: Some(reason),
+                            restart_line: None,
+                        });
+                    }
+                }
+                if let (Some(control), Some(Machine::Grbl(laser))) =
+                    (reply.job_control, machine.as_mut())
+                {
+                    laser.control(control);
+                }
                 if paired != Some(reply.paired) {
                     match &reply.space {
                         Some(space) => println!("added to {space}: reporting"),
@@ -247,7 +396,13 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             }
             Err(error) => println!("cloud not reached: {error}"),
         }
-        std::thread::sleep(REPORT_EVERY);
+        // A job reports more often, so its progress moves on the page.
+        let busy = matches!(&machine, Some(Machine::Grbl(laser)) if laser.running().is_some());
+        std::thread::sleep(if busy {
+            Duration::from_secs(1)
+        } else {
+            REPORT_EVERY
+        });
     }
 }
 

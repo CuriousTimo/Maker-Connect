@@ -20,10 +20,14 @@ Usage:
                                                        stream a G-code file to a printer on USB
                                                        (Marlin protocol: line numbers, checksums,
                                                        ok, resend)
-  maker-connect-agent run --cloud <http://host:8460> --name <name> [--kind fdm]
-                          [--port <serial port> [--baud 115200]] [--state <file>]
+  maker-connect-agent run --cloud <http://host:8460> --name <name> [--kind fdm|laser]
+                          [--port <serial port> [--baud 115200] [--firmware auto|marlin|grbl]]
+                          [--state <file>]
                                                        report a machine to the cloud; shows the
-                                                       pairing code to add it on the website
+                                                       pairing code to add it on the website;
+                                                       carries out its commands and jobs.
+                                                       --firmware auto: GRBL if it greets as GRBL
+                                                       (a laser), else Marlin (a printer)
 ";
 
 fn main() -> ExitCode {

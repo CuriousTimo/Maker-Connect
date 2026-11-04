@@ -28,6 +28,14 @@ pub const ONLINE_SECONDS: i64 = 10;
 /// Characters of a pairing code: no 0/O, 1/I, so it reads well from a small screen.
 const CODE_CHARS: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
+/// 16 hex characters, for ids nobody guesses.
+pub fn random_id() -> String {
+    let mut rng = rand::thread_rng();
+    (0..8)
+        .map(|_| format!("{:02x}", rng.r#gen::<u8>()))
+        .collect()
+}
+
 pub fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -59,6 +67,10 @@ pub struct Machine {
     pub commands: Vec<Command>,
     /// Its last bed mesh.
     pub mesh: Option<StoredMesh>,
+    /// What it is printing (or has queued, or paused).
+    pub job: Option<Job>,
+    /// Its last job, when that was interrupted and can start again where it stopped.
+    pub resumable: Option<Job>,
 }
 
 /// What a machine tells about itself now and then, beyond its telemetry: shown on its
@@ -147,8 +159,74 @@ const OUTPUT_KEPT: usize = 200;
 /// A command given to a machine that does not answer about it is given up after this.
 const COMMAND_SECONDS: i64 = 120;
 
+/// A G-code file of a space.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct StoredFile {
+    pub id: String,
+    pub name: String,
+    pub size: u64,
+    /// Unix seconds.
+    pub uploaded_at: i64,
+    pub meta: crate::gcode::FileMeta,
+}
+
+/// A file printed (or cut, or engraved) on a machine.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Job {
+    pub id: i64,
+    pub machine_id: String,
+    pub file_id: String,
+    pub file_name: String,
+    pub state: JobState,
+    pub created_at: i64,
+    pub started_at: Option<i64>,
+    pub ended_at: Option<i64>,
+    pub reason: Option<String>,
+    /// It started at this line of the file (resuming an earlier job).
+    pub from_line: Option<u64>,
+    /// Where it could start again, when it did not run to the end.
+    pub restart_line: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum JobState {
+    /// Waiting for the machine to take it.
+    Queued,
+    Printing,
+    Paused,
+    /// Asked to stop; the machine has not yet.
+    Stopping,
+    Finished,
+    Stopped,
+    Failed,
+}
+
+impl JobState {
+    pub fn active(self) -> bool {
+        matches!(
+            self,
+            JobState::Queued | JobState::Printing | JobState::Paused | JobState::Stopping
+        )
+    }
+
+    fn parse(text: &str) -> JobState {
+        serde_json::from_value(serde_json::Value::String(text.to_owned()))
+            .unwrap_or(JobState::Failed)
+    }
+
+    fn name(self) -> String {
+        serde_json::to_value(self)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .unwrap_or_default()
+    }
+}
+
 pub struct Store {
     db: Connection,
+    /// Where uploaded files are kept: `<id>.gcode`, and `<id>.png` for a thumbnail.
+    pub files_dir: std::path::PathBuf,
     /// Commands per machine id, oldest first.
     commands: std::collections::HashMap<String, Vec<Command>>,
     next_command: u32,
@@ -168,6 +246,26 @@ impl Store {
                  id INTEGER PRIMARY KEY,
                  name TEXT NOT NULL
              );
+             CREATE TABLE IF NOT EXISTS files (
+                 id TEXT PRIMARY KEY,
+                 space_id INTEGER NOT NULL REFERENCES spaces(id),
+                 name TEXT NOT NULL,
+                 size INTEGER NOT NULL,
+                 uploaded_at INTEGER NOT NULL,
+                 meta TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS jobs (
+                 id INTEGER PRIMARY KEY,
+                 space_id INTEGER NOT NULL,
+                 machine_id TEXT NOT NULL,
+                 file_id TEXT NOT NULL,
+                 file_name TEXT NOT NULL,
+                 state TEXT NOT NULL,
+                 created_at INTEGER NOT NULL,
+                 started_at INTEGER,
+                 ended_at INTEGER,
+                 reason TEXT
+             );
              CREATE TABLE IF NOT EXISTS machines (
                  id TEXT PRIMARY KEY,
                  space_id INTEGER REFERENCES spaces(id),
@@ -181,6 +279,19 @@ impl Store {
                  telemetry TEXT
              );",
         )?;
+        for (column, definition) in [("from_line", "INTEGER"), ("restart_line", "INTEGER")] {
+            let present: bool = db.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('jobs') WHERE name = ?1",
+                [column],
+                |r| r.get::<_, i64>(0).map(|n| n > 0),
+            )?;
+            if !present {
+                db.execute(
+                    &format!("ALTER TABLE jobs ADD COLUMN {column} {definition}"),
+                    [],
+                )?;
+            }
+        }
         // Columns added after the first version: a store from then gets them.
         for (column, definition) in [
             ("profile", "TEXT"),
@@ -205,8 +316,23 @@ impl Store {
         if spaces == 0 {
             db.execute("INSERT INTO spaces (name) VALUES ('My space')", [])?;
         }
+        // Files beside the database (`maker-connect.db` keeps them in `maker-connect-files/`);
+        // an in-memory store (tests) in a folder of its own.
+        let files_dir = if path == ":memory:" {
+            std::env::temp_dir().join(format!("maker-connect-test-{}", random_id()))
+        } else {
+            let db = std::path::Path::new(path);
+            let stem = db
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("maker-connect");
+            db.with_file_name(format!("{stem}-files"))
+        };
+        std::fs::create_dir_all(&files_dir)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         Ok(Self {
             db,
+            files_dir,
             commands: Default::default(),
             // Ids that do not repeat soon after a restart, as a printer may remember the last.
             next_command: (now() % 1_000_000_000) as u32,
@@ -223,6 +349,195 @@ impl Store {
     fn changed(&self) {
         // Nobody listening is fine.
         let _ = self.changes.send(());
+    }
+
+    /// A file's place on disk.
+    pub fn file_path(&self, id: &str) -> std::path::PathBuf {
+        self.files_dir.join(format!("{id}.gcode"))
+    }
+
+    pub fn thumbnail_path(&self, id: &str) -> std::path::PathBuf {
+        self.files_dir.join(format!("{id}.png"))
+    }
+
+    /// A new file of a space, already on disk at [`Store::file_path`] of `id`.
+    pub fn add_file(
+        &mut self,
+        space: i64,
+        id: &str,
+        name: &str,
+        size: u64,
+        meta: &crate::gcode::FileMeta,
+    ) -> rusqlite::Result<()> {
+        self.db.execute(
+            "INSERT INTO files (id, space_id, name, size, uploaded_at, meta) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, space, name, size as i64, now(), serde_json::to_string(meta).unwrap_or_default()],
+        )?;
+        Ok(())
+    }
+
+    /// A space's files, newest first.
+    pub fn files(&self, space: i64) -> rusqlite::Result<Vec<StoredFile>> {
+        let mut query = self.db.prepare(
+            "SELECT id, name, size, uploaded_at, meta FROM files WHERE space_id = ?1 ORDER BY uploaded_at DESC, name",
+        )?;
+        let rows = query.query_map([space], |r| {
+            let meta: String = r.get(4)?;
+            Ok(StoredFile {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                size: r.get::<_, i64>(2)? as u64,
+                uploaded_at: r.get(3)?,
+                meta: serde_json::from_str(&meta).unwrap_or_default(),
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn file(&self, space: i64, id: &str) -> rusqlite::Result<Option<StoredFile>> {
+        Ok(self.files(space)?.into_iter().find(|f| f.id == id))
+    }
+
+    /// Reads again what the cloud keeps about every file it kept before it read as much as it
+    /// does now (where the moves go, the highest power).
+    pub fn reread_files(&mut self) -> rusqlite::Result<usize> {
+        let mut query = self.db.prepare("SELECT id, meta FROM files")?;
+        let stale: Vec<String> = query
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .filter_map(Result::ok)
+            .filter(|(_, meta)| !meta.contains("bounds_mm"))
+            .map(|(id, _)| id)
+            .collect();
+        drop(query);
+        for id in &stale {
+            if let Ok((meta, _)) = crate::gcode::read(&self.file_path(id)) {
+                self.db.execute(
+                    "UPDATE files SET meta = ?1 WHERE id = ?2",
+                    params![serde_json::to_string(&meta).unwrap_or_default(), id],
+                )?;
+            }
+        }
+        Ok(stale.len())
+    }
+
+    /// Removes a file, from the store and from disk. Returns whether it was there.
+    pub fn remove_file(&mut self, space: i64, id: &str) -> rusqlite::Result<bool> {
+        let removed = self.db.execute(
+            "DELETE FROM files WHERE id = ?1 AND space_id = ?2",
+            params![id, space],
+        )?;
+        if removed > 0 {
+            let _ = std::fs::remove_file(self.file_path(id));
+            let _ = std::fs::remove_file(self.thumbnail_path(id));
+        }
+        Ok(removed > 0)
+    }
+
+    /// Puts a file on a machine: its job's id, or why not (the machine has a job already).
+    pub fn add_job(
+        &mut self,
+        space: i64,
+        machine: &str,
+        file: &StoredFile,
+        from_line: Option<u64>,
+    ) -> rusqlite::Result<Result<i64, &'static str>> {
+        if self.active_job(machine)?.is_some() {
+            return Ok(Err("the machine has a job already"));
+        }
+        self.db.execute(
+            "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at, from_line)
+             VALUES (?1, ?2, ?3, ?4, 'queued', ?5, ?6)",
+            params![space, machine, file.id, file.name, now(), from_line.map(|l| l as i64)],
+        )?;
+        self.changed();
+        Ok(Ok(self.db.last_insert_rowid()))
+    }
+
+    fn job_from(r: &rusqlite::Row) -> rusqlite::Result<Job> {
+        Ok(Job {
+            id: r.get(0)?,
+            machine_id: r.get(1)?,
+            file_id: r.get(2)?,
+            file_name: r.get(3)?,
+            state: JobState::parse(&r.get::<_, String>(4)?),
+            created_at: r.get(5)?,
+            started_at: r.get(6)?,
+            ended_at: r.get(7)?,
+            reason: r.get(8)?,
+            from_line: r.get::<_, Option<i64>>(9)?.map(|l| l as u64),
+            restart_line: r.get::<_, Option<i64>>(10)?.map(|l| l as u64),
+        })
+    }
+
+    /// A machine's job that is not over yet.
+    pub fn active_job(&self, machine: &str) -> rusqlite::Result<Option<Job>> {
+        self.db
+            .query_row(
+                "SELECT id, machine_id, file_id, file_name, state, created_at, started_at, ended_at, reason,
+                     from_line, restart_line
+                 FROM jobs WHERE machine_id = ?1 AND state IN ('queued', 'printing', 'paused', 'stopping')
+                 ORDER BY id LIMIT 1",
+                [machine],
+                Self::job_from,
+            )
+            .optional()
+    }
+
+    pub fn job(&self, id: i64) -> rusqlite::Result<Option<Job>> {
+        self.db
+            .query_row(
+                "SELECT id, machine_id, file_id, file_name, state, created_at, started_at, ended_at, reason,
+                     from_line, restart_line
+                 FROM jobs WHERE id = ?1",
+                [id],
+                Self::job_from,
+            )
+            .optional()
+    }
+
+    /// Where a job that did not run to the end could start again.
+    pub fn set_restart_line(&mut self, id: i64, line: u64) -> rusqlite::Result<()> {
+        self.db.execute(
+            "UPDATE jobs SET restart_line = ?1 WHERE id = ?2",
+            params![line as i64, id],
+        )?;
+        Ok(())
+    }
+
+    /// A machine's last job, when it was interrupted and says where to start again.
+    pub fn resumable_job(&self, machine: &str) -> rusqlite::Result<Option<Job>> {
+        let last = self
+            .db
+            .query_row(
+                "SELECT id, machine_id, file_id, file_name, state, created_at, started_at, ended_at, reason,
+                     from_line, restart_line
+                 FROM jobs WHERE machine_id = ?1 ORDER BY id DESC LIMIT 1",
+                [machine],
+                Self::job_from,
+            )
+            .optional()?;
+        Ok(last.filter(|j| {
+            matches!(j.state, JobState::Stopped | JobState::Failed) && j.restart_line.is_some()
+        }))
+    }
+
+    /// A job moves on: started, paused, asked to stop, over.
+    pub fn set_job(
+        &mut self,
+        id: i64,
+        state: JobState,
+        reason: Option<&str>,
+    ) -> rusqlite::Result<()> {
+        let now = now();
+        self.db.execute(
+            "UPDATE jobs SET state = ?1, reason = COALESCE(?2, reason),
+                 started_at = CASE WHEN ?1 = 'printing' AND started_at IS NULL THEN ?3 ELSE started_at END,
+                 ended_at = CASE WHEN ?1 IN ('finished', 'stopped', 'failed') THEN ?3 ELSE ended_at END
+             WHERE id = ?4",
+            params![state.name(), reason, now, id],
+        )?;
+        self.changed();
+        Ok(())
     }
 
     /// The space a self-hosted cloud shows: its first.
@@ -327,6 +642,7 @@ impl Store {
         let kept = Telemetry {
             done: Vec::new(),
             mesh: None,
+            job_end: None,
             ..telemetry.clone()
         };
         let updated = self.db.execute(
@@ -376,6 +692,11 @@ impl Store {
             .flatten();
         self.changed();
         Ok(Some(space))
+    }
+
+    /// A machine's id by its token, if the token is known.
+    pub fn machine_id_by_token(&self, token: &str) -> rusqlite::Result<Option<String>> {
+        self.machine_id(token)
     }
 
     fn machine_id(&self, token: &str) -> rusqlite::Result<Option<String>> {
@@ -679,6 +1000,8 @@ impl Store {
                     .get::<_, Option<String>>(9)?
                     .and_then(|d| serde_json::from_str(&d).ok()),
                 commands: Vec::new(),
+                job: None,
+                resumable: None,
                 mesh: r
                     .get::<_, Option<String>>(10)?
                     .and_then(|m| serde_json::from_str(&m).ok()),
@@ -686,6 +1009,10 @@ impl Store {
         })?;
         let mut machines: Vec<Machine> = rows.collect::<rusqlite::Result<_>>()?;
         for machine in &mut machines {
+            machine.job = self.active_job(&machine.id)?;
+            if machine.job.is_none() {
+                machine.resumable = self.resumable_job(&machine.id)?;
+            }
             if let Some(commands) = self.commands.get(&machine.id) {
                 machine.commands = commands.iter().rev().cloned().collect();
             }

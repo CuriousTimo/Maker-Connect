@@ -158,6 +158,8 @@
 
   addEventListener("resize", () => { draw(); drawMesh(); });
   addEventListener("hashchange", show);
+  // The browser scrolls to the tab's id once the page has loaded: back to the top.
+  addEventListener("load", () => scrollTo(0, 0));
   fetch(`../api/machines/${ID}/history`).then((r) => r.json()).then((s) => { samples = s; draw(); });
 
   // Live: the machine's values again on every change (server-sent events).
@@ -195,6 +197,7 @@
       el.textContent = values[key] ?? "–";
       if (key === "state") el.className = `state ${values[key]}`;
     }
+    showJob(m, t);
     const gauge = document.querySelector("[data-z-fill]");
     if (gauge && p) {
       const max = +document.querySelector("[data-z-max]").dataset.zMax;
@@ -461,5 +464,63 @@
     for (const button of document.querySelectorAll("[data-gcode-quick]")) {
       button.addEventListener("click", () => send(button.dataset.gcodeQuick));
     }
+  }
+
+  // The job: what is printing, how far, and pause, resume, stop.
+  function duration(s) {
+    if (s == null) return "–";
+    if (s < 60) return `${s} s`;
+    if (s < 3600) return `${Math.floor(s / 60)} min`;
+    return `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")} min`;
+  }
+  function showJob(m, t) {
+    const job = m.job, progress = t.job;
+    const percent = progress && progress.total ? (progress.done / progress.total) * 100 : null;
+    const left = progress && progress.remaining_s != null ? ` · ${duration(progress.remaining_s)} left` : "";
+    const values = {
+      job_pct: percent == null ? null : percent.toFixed(0),
+      job_note: job ? `${job.state} · ${job.file_name}${left}` : "no job",
+      job_name: job ? job.file_name : "",
+      job_done: percent == null ? null : `${percent.toFixed(0)} %`,
+      job_elapsed: progress ? duration(progress.elapsed_s) : null,
+      job_remaining: progress ? duration(progress.remaining_s) : null,
+    };
+    for (const [key, value] of Object.entries(values)) setLive(key, value);
+    const bar = document.querySelector("[data-job-bar]");
+    if (bar) bar.style.width = `${percent ?? 0}%`;
+    for (const el of document.querySelectorAll("[data-job], [data-job-actions]")) el.hidden = !job;
+    const none = document.querySelector("[data-no-job]");
+    if (none) none.hidden = !!job;
+    // An interrupted job that can start again where it stopped.
+    const resume = document.querySelector("[data-resume]"), last = !job && m.resumable;
+    if (resume) {
+      resume.hidden = !last;
+      if (last) {
+        setLive("resume_name", last.file_name);
+        setLive("resume_line", String(last.restart_line));
+      }
+    }
+    const thumb = document.querySelector("[data-job-thumb]");
+    if (job && thumb && !thumb.src.includes(job.file_id)) { thumb.hidden = false; thumb.src = `../files/${job.file_id}/thumbnail.png`; }
+    for (const button of document.querySelectorAll("[data-job-actions] button")) {
+      const can = { pause: job?.state === "printing", resume: job?.state === "paused", stop: !!job && job.state !== "stopping" };
+      button.hidden = !can[button.value];
+    }
+  }
+  for (const form of document.querySelectorAll("[data-restart]")) {
+    const url = new URL(form.getAttribute("action"), location.href);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!confirm("Start the job again from that line? Home first if the machine lost its position.")) return;
+      await fetch(url, { method: "POST", body: new URLSearchParams({ action: "restart" }) });
+    });
+  }
+  for (const form of document.querySelectorAll("[data-job-actions]")) {
+    const url = new URL(form.getAttribute("action"), location.href);
+    for (const button of form.querySelectorAll("button")) button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      if (button.value === "stop" && !confirm("Stop this job?")) return;
+      await fetch(url, { method: "POST", body: new URLSearchParams({ action: button.value }) });
+    });
   }
   show();

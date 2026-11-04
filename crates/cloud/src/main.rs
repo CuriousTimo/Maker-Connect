@@ -13,10 +13,14 @@
 //!
 //! A proof of concept: no login yet, so run it where only you can reach it.
 
+mod files;
+mod files_page;
+mod gcode;
 mod machine_page;
 mod profiles;
 mod prusa_connect;
 mod store;
+mod virtual_grbl;
 mod virtual_machines;
 
 use axum::{
@@ -58,7 +62,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    let store = Arc::new(Mutex::new(Store::open(&db)?));
+    let mut opened = Store::open(&db)?;
+    let reread = opened.reread_files()?;
+    if reread > 0 {
+        println!("read {reread} kept files again");
+    }
+    let store = Arc::new(Mutex::new(opened));
     tokio::spawn(virtual_machines::run(store.clone()));
     let listener = tokio::net::TcpListener::bind(&listen).await?;
     println!("Maker Connect cloud on http://{listen} (data in {db})");
@@ -91,6 +100,8 @@ pub fn app(store: Shared) -> Router {
         .route("/profiles/{brand}/{file}", get(profile_image))
         .route("/virtual", post(add_virtual))
         .merge(prusa_connect::routes())
+        .merge(files::routes())
+        .route("/files", get(files_page::page))
         .fallback(not_found)
         .layer(axum::middleware::from_fn(prusa_connect::log))
         .with_state(store)
@@ -163,23 +174,98 @@ async fn telemetry(
     }
     match store.report(token, &report) {
         Ok(Some(space)) => {
-            let commands = match store.next_command(token) {
-                Ok(next) => next
-                    .map(|(id, gcode)| protocol::MachineCommand { id, gcode })
-                    .into_iter()
-                    .collect(),
+            // No commands while a job runs: the machine is busy with it.
+            let commands = if report.job_id.is_some() {
+                Vec::new()
+            } else {
+                match store.next_command(token) {
+                    Ok(next) => next
+                        .map(|(id, gcode)| protocol::MachineCommand { id, gcode })
+                        .into_iter()
+                        .collect(),
+                    Err(error) => return failed(error),
+                }
+            };
+            let (job, job_control) = match agent_job(&mut store, token, &report) {
+                Ok(job) => job,
                 Err(error) => return failed(error),
             };
             Json(TelemetryReply {
                 paired: space.is_some(),
                 space,
                 commands,
+                job,
+                job_control,
             })
             .into_response()
         }
         Ok(None) => (StatusCode::UNAUTHORIZED, "unknown agent: register again").into_response(),
         Err(error) => failed(error),
     }
+}
+
+/// A job for an agent's machine, as its report stands: how one ended, a queued one to
+/// fetch, and pause, resume or stop for the one it runs.
+pub(crate) fn agent_job(
+    store: &mut Store,
+    token: &str,
+    report: &Telemetry,
+) -> rusqlite::Result<(Option<protocol::JobOrder>, Option<protocol::JobControl>)> {
+    use protocol::{JobControl, MachineState};
+    use store::JobState;
+    if let Some(end) = &report.job_end {
+        let state = match (end.ok, end.stopped) {
+            (true, _) => JobState::Finished,
+            (false, true) => JobState::Stopped,
+            (false, false) => JobState::Failed,
+        };
+        store.set_job(end.id, state, end.reason.as_deref())?;
+        if let Some(line) = end.restart_line {
+            store.set_restart_line(end.id, line)?;
+        }
+    }
+    let Some(machine) = store.machine_id_by_token(token)? else {
+        return Ok((None, None));
+    };
+    let Some(job) = store.active_job(&machine)? else {
+        return Ok((None, None));
+    };
+    let runs = report.job_id == Some(job.id);
+    Ok(match job.state {
+        JobState::Queued if report.job_id.is_none() && report.state == MachineState::Idle => {
+            let size = std::fs::metadata(store.file_path(&job.file_id)).map_or(0, |m| m.len());
+            store.set_job(job.id, JobState::Printing, None)?;
+            let order = protocol::JobOrder {
+                id: job.id,
+                name: job.file_name.clone(),
+                download: format!("/files/{}/download", job.file_id),
+                size,
+                from_line: job.from_line,
+            };
+            (Some(order), None)
+        }
+        JobState::Paused if runs && report.state != MachineState::Paused => {
+            (None, Some(JobControl::Pause))
+        }
+        JobState::Printing if runs && report.state == MachineState::Paused => {
+            (None, Some(JobControl::Resume))
+        }
+        JobState::Stopping if runs => (None, Some(JobControl::Stop)),
+        // Given out, but the machine does not run it (the agent restarted, or lost it).
+        JobState::Printing | JobState::Paused
+            if !runs && job.started_at.is_some_and(|t| store::now() - t > 30) =>
+        {
+            let reason = "the machine does not run it (the agent restarted?)";
+            store.set_job(job.id, JobState::Failed, Some(reason))?;
+            (None, None)
+        }
+        // Asked to stop before the agent took it up, or it no longer runs it.
+        JobState::Stopping => {
+            store.set_job(job.id, JobState::Stopped, None)?;
+            (None, None)
+        }
+        _ => (None, None),
+    })
 }
 
 #[derive(serde::Deserialize)]
@@ -252,7 +338,7 @@ async fn page(State(store): State<Shared>) -> Response {
         Ok((_, name)) => Html(
             PAGE.replace("{style}", STYLE)
                 .replace("{space}", &escape(&name))
-                .replace("{header}", &header(&name, "")),
+                .replace("{header}", &header(&name, "", "machines")),
         )
         .into_response(),
         Err(error) => failed(error),
@@ -262,12 +348,24 @@ async fn page(State(store): State<Shared>) -> Response {
 /// The bar at the top of every page: the name (back to the machines), the space, and a
 /// live count of its machines, with whether the page is getting live updates; and the
 /// button that opens the dialog to add a machine (by its code, or a virtual one). `root`
-/// leads from the page to the site's root ("" or "../").
-pub(crate) fn header(space: &str, root: &str) -> String {
+/// leads from the page to the site's root ("" or "../"); `here` is the page's place in the
+/// navigation ("machines", "files").
+pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
+    // An empty link is the page itself: from the root, the machines are at "./".
+    let home = if root.is_empty() { "./" } else { root };
+    let link = |path: &str, name: &str, place: &str| {
+        let current = if place == here {
+            r#" aria-current="page""#
+        } else {
+            ""
+        };
+        format!(r#"<a href="{home}{path}"{current}>{name}</a>"#)
+    };
     format!(
         r##"<header><div class="bar">
-  <a class="brand" href="{root}"><img src="{root}logo.svg" alt="" width="28" height="28"><h1>Maker Connect</h1></a>
+  <a class="brand" href="{home}"><img src="{root}logo.svg" alt="" width="28" height="28"><h1>Maker Connect</h1></a>
   <span class="space" title="The space these machines belong to">{space}</span>
+  <nav class="nav">{machines}{files}</nav>
   <div class="summary">
     <span class="count"><b data-sum="machines">–</b> machines</span>
     <span class="count"><b data-sum="online">–</b> online</span>
@@ -331,6 +429,8 @@ pub(crate) fn header(space: &str, root: &str) -> String {
 </script>"##,
         space = escape(space),
         options = profile_options(None),
+        machines = link("", "Machines", "machines"),
+        files = link("files", "Files", "files"),
     )
 }
 
@@ -423,6 +523,20 @@ struct ProfileForm {
     profile: String,
 }
 
+/// The same buttons on a GRBL machine: homing is `$H`, and moves are GRBL's own jogs (the
+/// laser stays off, and a jog can be cancelled).
+fn grbl_action(name: &str) -> Option<(&'static str, &'static str)> {
+    Some(match name {
+        "home" => ("Home", "$H"),
+        "x+" => ("X +10 mm", "$J=G91 G21 X10 F3000"),
+        "x-" => ("X −10 mm", "$J=G91 G21 X-10 F3000"),
+        "y+" => ("Y +10 mm", "$J=G91 G21 Y10 F3000"),
+        "y-" => ("Y −10 mm", "$J=G91 G21 Y-10 F3000"),
+        "settings" => ("Read settings", "$$"),
+        _ => return None,
+    })
+}
+
 /// The commands the website offers: a label and its G-code. Moves are relative, 10 mm.
 fn action(name: &str) -> Option<(&'static str, &'static str)> {
     Some(match name {
@@ -436,6 +550,8 @@ fn action(name: &str) -> Option<(&'static str, &'static str)> {
         "preheat-pla" => ("Preheat PLA (215/60 °C)", "M104 S215\nM140 S60"),
         "preheat-petg" => ("Preheat PETG (240/80 °C)", "M104 S240\nM140 S80"),
         "cooldown" => ("Cool down", "M104 S0\nM140 S0"),
+        "unlock" => ("Unlock", "$X"),
+        "laser-off" => ("Laser off", "M5"),
         "fan-on" => ("Print fan on", "M106 S255"),
         "fan-off" => ("Print fan off", "M107"),
         "motors-off" => ("Motors off", "M18"),
@@ -528,7 +644,22 @@ async fn command(
             Err(error) => failed(error),
         };
     }
-    let found = if form.action == "probe-bed" {
+    // A GRBL machine homes with $H, not G28.
+    let grbl = || {
+        store
+            .machine(space, &id)
+            .ok()
+            .flatten()
+            .and_then(|m| m.profile)
+            .and_then(|p| profiles::find(&p))
+            .and_then(|p| p.firmware.as_deref())
+            == Some("grbl")
+    };
+    let found = if grbl()
+        && let Some(found) = grbl_action(&form.action)
+    {
+        Some(found)
+    } else if form.action == "probe-bed" {
         match store.machine(space, &id) {
             Ok(Some(machine)) => match probe_gcode(&machine) {
                 Ok(gcode) => Some(("Probe the bed", gcode)),
@@ -676,6 +807,10 @@ pub(crate) const STYLE: &str = r#"  :root { --bg: #f6f5f2; --card: #fff; --ink: 
   .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
   .brand h1 { margin: 0; font-size: 18px; letter-spacing: -0.2px; }
   .space { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .nav { display: flex; gap: 4px; margin-left: 8px; }
+  .nav a { padding: 6px 12px; border-radius: 8px; color: var(--muted); text-decoration: none; font-weight: 600; font-size: 14px; }
+  .nav a:hover { color: var(--ink); }
+  .nav a[aria-current=page] { color: var(--ink); background: var(--line); }
   .summary { margin-left: auto; display: flex; align-items: center; gap: 18px; color: var(--muted); font-size: 14px; white-space: nowrap; }
   .summary b { color: var(--ink); font-variant-numeric: tabular-nums; }
   .live { display: inline-flex; align-items: center; gap: 7px; }
@@ -711,6 +846,8 @@ pub(crate) const STYLE: &str = r#"  :root { --bg: #f6f5f2; --card: #fff; --ink: 
   .facts { grid-column: 2 / -1; display: flex; gap: 22px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
   .facts b { color: var(--ink); font-weight: 500; }
   .empty { color: var(--muted); }
+  .card-progress { grid-column: 2 / -1; height: 6px; margin-top: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .card-progress i { display: block; height: 100%; background: var(--accent); transition: width 0.5s; }
   h2.group { margin: 26px 0 12px; font-size: 15px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
   h2.group span { margin-left: 6px; font-weight: 500; }
   a { color: inherit; }
@@ -755,7 +892,9 @@ const PAGE: &str = r##"<!doctype html>
       const card = (m) => {
         const t = m.telemetry || {};
         const state = m.online ? t.state : "offline";
-        const job = t.job ? `${t.job.file} ${Math.round((t.job.done * 100) / Math.max(1, t.job.total))} %` : null;
+        const percent = t.job ? Math.round((t.job.done * 100) / Math.max(1, t.job.total)) : null;
+        const job = t.job ? `${t.job.file} ${percent} %` : null;
+        const bar = t.job ? `<div class="card-progress"><i style="width: ${percent}%"></i></div>` : "";
         const profile = profiles[m.profile];
         const thumb = profile && profile.image ? `<img class="thumb" src="profiles/${esc(m.profile)}.svg" alt="">` : `<span class="thumb"></span>`;
         return `<a class="machine" href="machines/${encodeURIComponent(m.id)}">
@@ -763,6 +902,7 @@ const PAGE: &str = r##"<!doctype html>
           <div class="name">${esc(m.name)}</div>
           <div class="state ${esc(state)}">${esc(state)}</div>
           <div class="facts">${fact("Type", profile ? profile.model : KIND[m.kind] || m.kind)}${fact("Firmware", t.firmware)}${fact("Nozzle", t.nozzle_c != null ? `${t.nozzle_c.toFixed(0)} °C` : null)}${fact("Bed", t.bed_c != null ? `${t.bed_c.toFixed(0)} °C` : null)}${fact("Job", job)}${fact(m.link === "agent" ? "Agent" : "Link", { virtual: "Virtual, in the cloud", "prusa-connect": "Built-in Prusa Connect" }[m.link] || m.agent_version)}${fact("Seen", seen(m.seen_seconds_ago))}</div>
+          ${bar}
         </a>`;
       };
       // By kind, so a laser does not stand between the printers; by name within each.
@@ -798,6 +938,122 @@ mod tests {
     use http_body_util::BodyExt;
     use maker_connect_protocol::{MachineKind, MachineState};
     use tower::ServiceExt;
+
+    /// A laser on an agent gets a file to run, is told to pause, and says how it ended.
+    #[tokio::test]
+    async fn an_agent_runs_a_job() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = app(store.clone());
+        let laser = Register {
+            protocol: protocol::VERSION,
+            name: "Ortur".into(),
+            kind: MachineKind::Laser,
+            agent_version: "0.1.0".into(),
+        };
+        let (_, body) = call(
+            &app,
+            json(
+                protocol::REGISTER,
+                None,
+                serde_json::to_string(&laser).unwrap(),
+            ),
+        )
+        .await;
+        let registered: Registered = serde_json::from_str(&body).unwrap();
+        let space = {
+            let store = store.lock().unwrap();
+            let space = store.default_space().unwrap().0;
+            store.pair(space, &registered.pairing_code).unwrap();
+            store
+                .set_profile(space, &registered.machine_id, Some("ortur/lm2-pro-s2"))
+                .unwrap();
+            space
+        };
+        let report = |telemetry: Telemetry| {
+            let app = app.clone();
+            let token = registered.token.clone();
+            async move {
+                let (_, body) = call(
+                    &app,
+                    json(
+                        protocol::TELEMETRY,
+                        Some(&token),
+                        serde_json::to_string(&telemetry).unwrap(),
+                    ),
+                )
+                .await;
+                serde_json::from_str::<TelemetryReply>(&body).unwrap()
+            }
+        };
+        let idle = || Telemetry {
+            state: MachineState::Idle,
+            ..Telemetry::default()
+        };
+        assert_eq!(report(idle()).await.job, None);
+
+        let upload = Request::post("/api/files?name=sign.gcode")
+            .body(Body::from("G90\nM4 S0\nG1 X10 Y10 S800 F3000\nM5\n"))
+            .unwrap();
+        let (_, body) = call(&app, upload).await;
+        let file: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let print = Request::post(format!("/files/{}/print", file["id"].as_str().unwrap()))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("x-requested-with", "fetch")
+            .body(Body::from(format!("machine={}", registered.machine_id)))
+            .unwrap();
+        let (status, body) = call(&app, print).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+        let order = report(idle()).await.job.expect("the job is given out");
+        assert_eq!(order.name, "sign.gcode");
+        let (status, gcode) = call(
+            &app,
+            Request::get(&order.download).body(Body::empty()).unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(gcode.contains("M4 S0"));
+
+        let running = || Telemetry {
+            state: MachineState::Busy,
+            job_id: Some(order.id),
+            ..Telemetry::default()
+        };
+        assert_eq!(report(running()).await.job, None, "given out once");
+        store
+            .lock()
+            .unwrap()
+            .set_job(order.id, store::JobState::Paused, None)
+            .unwrap();
+        assert_eq!(
+            report(running()).await.job_control,
+            Some(protocol::JobControl::Pause)
+        );
+
+        let ended = Telemetry {
+            job_end: Some(protocol::JobEnd {
+                id: order.id,
+                ok: true,
+                stopped: false,
+                reason: None,
+                restart_line: None,
+            }),
+            ..idle()
+        };
+        report(ended).await;
+        let job = store.lock().unwrap().job(order.id).unwrap().unwrap();
+        assert_eq!(job.state, store::JobState::Finished);
+        assert!(
+            store
+                .lock()
+                .unwrap()
+                .machine(space, &registered.machine_id)
+                .unwrap()
+                .unwrap()
+                .job
+                .is_none()
+        );
+    }
 
     /// Typed G-code is tidied and kept short enough for every machine.
     #[test]

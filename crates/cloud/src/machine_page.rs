@@ -71,7 +71,7 @@ pub fn render(space: &str, machine: &Machine) -> String {
 </html>
 "##,
         name = escape(&machine.name),
-        header = crate::header(space, "../"),
+        header = crate::header(space, "../", "machines"),
         id = escape(&machine.id),
         state_class = state.to_lowercase(),
         kind = escape(kind),
@@ -271,6 +271,114 @@ fn position_tiles(machine: &Machine) -> String {
     )
 }
 
+/// "1 h 02 min", "12 min", "45 s".
+fn duration(seconds: u64) -> String {
+    match seconds {
+        s if s < 60 => format!("{s} s"),
+        s if s < 3600 => format!("{} min", s / 60),
+        s => format!("{} h {:02} min", s / 3600, s % 3600 / 60),
+    }
+}
+
+/// How far the machine's job is: percent done, and a line about it. The script says the
+/// same from the live list.
+fn job_now(machine: &Machine) -> (Option<String>, String) {
+    let Some(job) = &machine.job else {
+        return (None, "no job".to_owned());
+    };
+    let progress = machine.telemetry.as_ref().and_then(|t| t.job.as_ref());
+    let percent = progress
+        .filter(|p| p.total > 0)
+        .map(|p| format!("{:.0}", p.done as f64 / p.total as f64 * 100.0));
+    let left = progress
+        .and_then(|p| p.remaining_s)
+        .map(|s| format!(" · {} left", duration(s)))
+        .unwrap_or_default();
+    let state = serde_json::to_value(job.state)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_default();
+    (percent, format!("{state} · {}{left}", job.file_name))
+}
+
+fn job_tile(machine: &Machine) -> String {
+    let (percent, note) = job_now(machine);
+    tile("Job", "job_pct", percent, "%", "job_note", note)
+}
+
+/// The job card: the file, how far, how long, and pause, resume, stop.
+fn job_card(machine: &Machine) -> String {
+    let job = machine.job.as_ref();
+    let progress = machine.telemetry.as_ref().and_then(|t| t.job.as_ref());
+    let (percent, note) = job_now(machine);
+    let width = percent.clone().unwrap_or_else(|| "0".to_owned());
+    let time = |s: Option<u64>| s.map_or("–".to_owned(), duration);
+    let thumbnail = job.map_or(String::new(), |j| {
+        format!(
+            r#"<img class="job-thumb" data-job-thumb src="../files/{}/thumbnail.png" alt="" onerror="this.hidden=true">"#,
+            escape(&j.file_id)
+        )
+    });
+    format!(
+        r#"<div class="card job-card">
+  <div class="card-head"><div><h3>Job</h3><p class="card-sub" data-live="job_note">{note}</p></div></div>
+  <div class="job" data-job{hidden}>
+    {thumbnail}
+    <div class="job-main">
+      <b data-live="job_name">{name}</b>
+      <div class="progress"><i data-job-bar style="width: {width}%"></i></div>
+      <div class="job-times">
+        <span><small>Done</small><b data-live="job_done">{done}</b></span>
+        <span><small>Elapsed</small><b data-live="job_elapsed">{elapsed}</b></span>
+        <span><small>Left</small><b data-live="job_remaining">{remaining}</b></span>
+      </div>
+    </div>
+  </div>
+  <form class="job-actions" data-job-actions action="{id}/job"{hidden}>
+    <button name="action" value="pause">Pause</button>
+    <button name="action" value="resume">Resume</button>
+    <button name="action" value="stop" class="danger">Stop</button>
+  </form>
+  <p class="empty no-job" data-no-job{shown}>No job. <a href="../files">Print a file</a> on this machine.</p>
+  <div class="resume" data-resume{resume_hidden}>
+    <p><b>Interrupted:</b> <span data-live="resume_name">{resume_name}</span> ({resume_why}). It can start again from line <b data-live="resume_line">{resume_line}</b>, a little before where it stopped; the head goes there with the laser off first.</p>
+    <form data-restart action="{id}/job"><button name="action" value="restart">Start again from there</button></form>
+  </div>
+</div>"#,
+        note = escape(&note),
+        hidden = if job.is_some() { "" } else { " hidden" },
+        shown = if job.is_some() { " hidden" } else { "" },
+        name = escape(job.map_or("", |j| j.file_name.as_str())),
+        done = percent.map_or("–".to_owned(), |p| format!("{p} %")),
+        elapsed = time(progress.and_then(|p| p.elapsed_s)),
+        remaining = time(progress.and_then(|p| p.remaining_s)),
+        id = escape(&machine.id),
+        resume_hidden = if machine.resumable.is_some() {
+            ""
+        } else {
+            " hidden"
+        },
+        resume_name = escape(
+            machine
+                .resumable
+                .as_ref()
+                .map_or("", |j| j.file_name.as_str())
+        ),
+        resume_why = escape(
+            machine
+                .resumable
+                .as_ref()
+                .and_then(|j| j.reason.as_deref())
+                .unwrap_or("stopped")
+        ),
+        resume_line = machine
+            .resumable
+            .as_ref()
+            .and_then(|j| j.restart_line)
+            .unwrap_or(0),
+    )
+}
+
 /// A card: a title, a line under it, and what it holds.
 fn card(title: &str, sub: &str, body: &str) -> String {
     format!(
@@ -315,14 +423,7 @@ fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
                     .and_then(|p| p.nozzle_mm)
                     .map_or(String::new(), |n| format!("{n} mm nozzle")),
             )
-            + &tile(
-                "Seen",
-                "seen_n",
-                machine.seen_seconds_ago.map(|s| s.to_string()),
-                "s ago",
-                "none",
-                if machine.online { "online" } else { "offline" }.to_owned(),
-            )
+            + &job_tile(machine)
     } else {
         position_tiles(machine)
             + &tile(
@@ -333,14 +434,7 @@ fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
                 "none",
                 "optical power".to_owned(),
             )
-            + &tile(
-                "Seen",
-                "seen_n",
-                machine.seen_seconds_ago.map(|s| s.to_string()),
-                "s ago",
-                "none",
-                if machine.online { "online" } else { "offline" }.to_owned(),
-            )
+            + &job_tile(machine)
     };
     let picture = profile
         .and_then(Profile::image)
@@ -492,7 +586,7 @@ fn control(machine: &Machine, profile: Option<&Profile>) -> String {
         button("home", "Home all"),
         axis("X"),
         axis("Y"),
-        axis("Z")
+        if fdm { axis("Z") } else { String::new() }
     );
     if fdm {
         controls += &format!(
@@ -506,8 +600,9 @@ fn control(machine: &Machine, profile: Option<&Profile>) -> String {
         );
     } else {
         controls += &format!(
-            r#"<h4>Motors</h4><div class="buttons">{}</div>"#,
-            button("motors-off", "Motors off")
+            r#"<h4>Machine</h4><div class="buttons">{}{}</div><p class="hint">Unlock after an alarm ($X); Laser off switches the beam off (M5).</p>"#,
+            button("unlock", "Unlock"),
+            button("laser-off", "Laser off")
         );
     }
     let form = format!(
@@ -515,7 +610,8 @@ fn control(machine: &Machine, profile: Option<&Profile>) -> String {
         escape(&machine.id)
     );
     format!(
-        r#"<div class="grid-control">{bed}<div class="stack">{}{}</div></div>"#,
+        r#"<div class="grid-control">{bed}<div class="stack">{}{}{}</div></div>"#,
+        job_card(machine),
         card(
             "Control",
             "Sent one at a time; each shows below how it went",
@@ -636,6 +732,60 @@ fn gigabytes(bytes: u64) -> String {
     format!("{:.1} GB", bytes as f64 / 1e9)
 }
 
+/// A GRBL machine's own settings (`$$`), and what in them matters before a job.
+fn controller(machine: &Machine) -> String {
+    let Some(grbl) = machine.telemetry.as_ref().and_then(|t| t.grbl.as_ref()) else {
+        return String::new();
+    };
+    let profile = machine.profile.as_deref().and_then(profiles::find);
+    let mut notes = Vec::new();
+    if grbl.laser_mode == Some(false) {
+        notes.push("Laser mode is off ($32=0): the beam stays on where the head stops. Jobs are refused until it is on ($32=1).".to_owned());
+    }
+    if let (Some([x, y, _]), Some(p)) = (grbl.travel_mm, profile) {
+        let [w, d, _] = p.build_volume_mm;
+        if (x - w).abs() > 1.0 || (y - d).abs() > 1.0 {
+            notes.push(format!(
+                "Its travel ({x:.0} × {y:.0} mm) differs from the profile's work area ({w:.0} × {d:.0} mm): jobs are checked against its travel."
+            ));
+        }
+    }
+    let rows = [
+        row(
+            "Laser mode ($32)",
+            grbl.laser_mode
+                .map(|on| if on { "on" } else { "off" }.to_owned()),
+        ),
+        row(
+            "Full power ($30)",
+            grbl.max_power.map(|s| format!("S{s:.0}")),
+        ),
+        row(
+            "Travel ($130–$132)",
+            grbl.travel_mm
+                .map(|[x, y, z]| format!("{x:.0} × {y:.0} × {z:.0} mm")),
+        ),
+    ]
+    .concat();
+    let notes: String = notes
+        .iter()
+        .map(|n| format!(r#"<p class="note">{}</p>"#, escape(n)))
+        .collect();
+    let read = if store::takes_commands(&machine.link) {
+        format!(
+            r#"<form class="command" method="post" action="{}/command"><button name="action" value="settings" class="ghost">Read them again</button></form><p class="note" data-command-status role="status"></p>"#,
+            escape(&machine.id)
+        )
+    } else {
+        String::new()
+    };
+    card(
+        "Controller",
+        "Its GRBL settings, as it reported them ($$)",
+        &format!("<dl>{rows}</dl>{notes}{read}"),
+    )
+}
+
 fn settings(machine: &Machine) -> String {
     let details = machine.details.clone().unwrap_or_default();
     let mut options = format!(
@@ -705,7 +855,8 @@ fn settings(machine: &Machine) -> String {
         row("Wi-Fi network", network.wifi_ssid),
     ]
     .concat();
-    let mut info = card(
+    let mut info = controller(machine);
+    info += &card(
         "Machine",
         "What it told about itself",
         &format!("<dl>{about}</dl>"),

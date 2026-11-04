@@ -107,8 +107,13 @@ impl MachineState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JobProgress {
     pub file: String,
-    pub done: u32,
-    pub total: u32,
+    /// How far, as `done` of `total` (bytes of the file, or percent).
+    pub done: u64,
+    pub total: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed_s: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remaining_s: Option<u64>,
 }
 
 /// An agent's report on its machine.
@@ -146,6 +151,15 @@ pub struct Telemetry {
     /// The material loaded ("PETG"), where the machine knows it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub material: Option<String>,
+    /// The job the machine runs now (its progress is [`Telemetry::job`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<i64>,
+    /// A GRBL machine's settings, once read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grbl: Option<GrblSettings>,
+    /// A job that ended since the last report.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_end: Option<JobEnd>,
     /// Commands from the cloud carried out since the last report.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub done: Vec<CommandDone>,
@@ -180,6 +194,65 @@ pub struct TelemetryReply {
     /// Commands for the machine, in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commands: Vec<MachineCommand>,
+    /// A file to run, when the machine has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job: Option<JobOrder>,
+    /// What to do with the running job, said again each report until the machine has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_control: Option<JobControl>,
+}
+
+/// A file for the machine to run: fetched from the cloud at `download` (a path, with the
+/// agent's token), then streamed to the machine.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JobOrder {
+    pub id: i64,
+    pub name: String,
+    pub download: String,
+    pub size: u64,
+    /// Start at this 1-based line of the file, not at its start: resuming a job that was
+    /// interrupted (the machine rebuilds where it was with the laser off, then goes on).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_line: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum JobControl {
+    Pause,
+    Resume,
+    /// Stop now: motion stops, the laser or heaters go off.
+    Stop,
+}
+
+/// How a job ended.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JobEnd {
+    pub id: i64,
+    /// All of it ran.
+    pub ok: bool,
+    /// It was stopped on request (not ok, not a failure).
+    #[serde(default)]
+    pub stopped: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// Where it could start again if it did not run to the end (a 1-based line of the file).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restart_line: Option<u64>,
+}
+
+/// A GRBL controller's settings that matter before a job: read with `$$`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GrblSettings {
+    /// `$32`: laser mode. Off, the beam stays on while the head stops between moves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub laser_mode: Option<bool>,
+    /// `$30`: the `S` value for full power.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_power: Option<f64>,
+    /// `$130`, `$131`, `$132`: how far each axis travels, mm.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub travel_mm: Option<[f64; 3]>,
 }
 
 /// A command for a machine: G-code lines, sent one by one.

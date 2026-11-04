@@ -13,6 +13,7 @@ nozzle_mm = 0.4
 firmware = "prusa"                 # prusa, marlin, klipper, grbl, ...
 max_nozzle_c = 300
 max_bed_c = 120
+printer_models = ["MK3S"]          # the slicer's printer_model, to tell a file was sliced for it
 
 [detect]                           # optional: how an agent recognises it
 model_code = 302                   # Prusa's M862.2 Q

@@ -1,0 +1,16 @@
+[package]
+name = "maker-connect-grbl"
+description = "GRBL machines (lasers) for Maker Connect, through LaserFoundry's device and G-code crates"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+# The agent's real serial ports; the cloud's virtual lasers do without.
+serial = ["laserfoundry-device/serial"]
+
+[dependencies]
+maker-connect-protocol = { path = "../protocol" }
+# LaserFoundry (MIT OR Apache-2.0), pinned to the commit we read.
+laserfoundry-device = { git = "https://github.com/Stitchwright/laserfoundry", rev = "3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d" }
+laserfoundry-gcode = { git = "https://github.com/Stitchwright/laserfoundry", rev = "3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d" }

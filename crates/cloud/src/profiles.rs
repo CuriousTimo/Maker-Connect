@@ -39,6 +39,10 @@ pub struct Profile {
     pub laser_w: Option<f64>,
     #[serde(default)]
     pub max_speed_mm_min: Option<f64>,
+    /// The slicer's names for this machine (PrusaSlicer's `printer_model`), to tell whether
+    /// a file was sliced for it.
+    #[serde(default)]
+    pub printer_models: Vec<String>,
     #[serde(default)]
     pub detect: Option<Detect>,
 }
