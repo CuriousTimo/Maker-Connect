@@ -139,6 +139,11 @@ pub struct Telemetry {
     pub nozzle_target_c: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bed_target_c: Option<f32>,
+    /// Whether the heater has power now (Marlin's `@:` and `B@:` above 0), where told.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nozzle_heating: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bed_heating: Option<bool>,
     /// Fan speeds, where the machine tells them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub print_fan_rpm: Option<u32>,

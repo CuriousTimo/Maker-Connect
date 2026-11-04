@@ -40,8 +40,12 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 - **Printers on USB** through the agent: Marlin and Prusa's 8-bit firmware (line numbers,
   checksums, resends), recognised by what they say (`M115`, `M862.2 Q`). Files print on
   them as jobs: streamed by the agent with progress, time left and the temperatures as it
-  goes (`M155`), paused between two lines, stopped with heaters and motors off. Tested
-  against a simulated printer; the first real print is still to come.
+  goes (`M155`), paused between two lines, stopped with heaters and motors off. The heaters
+  are read from `M105`: each one's temperature, what it heats to, and whether it has power
+  (a flame on the page). A long command (homing, measuring the bed, heating) keeps the machine
+  online: the agent reports it busy meanwhile, and the next command waits. Tried on a real
+  MK3S through a Pi Zero 2 W on its RPi port (home, moves, heating, terminal, bed mesh); the
+  first real print is still to come.
 - **Lasers (GRBL)** through the agent, with [LaserFoundry](https://github.com/Stitchwright/laserfoundry)'s
   device crate: homing; a jog pad (eight directions, a step of 0.1, 1, 10 or 50 mm, a speed,
   the arrow keys) moving by GRBL's own jogs with the laser off; the job's origin set where the
@@ -69,7 +73,8 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 - **The machine list**: every machine in the same columns, grouped by kind: name and model,
   what it does now (its job, temperatures, the head, the tape and battery), how it connects
   and its firmware, when it was last seen, its state.
-- **Machine pages**: Overview, Control, Terminal (G-code and the machine's answers),
+- **Machine pages**: Overview, Control (moves, preheat, and your own nozzle and bed
+  temperatures, up to the profile's maximum), Terminal (G-code and the machine's answers),
   Telemetry, Bed level (Prusa `G80`/`G81`, Marlin `G29`/`M420 V`, read the way the OctoPrint
   Bed Level Visualizer does), Settings.
 - **250 machine profiles of 85 brands** (`profiles/`, one TOML file per model): most 3D
@@ -87,10 +92,10 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 | Devices | How they connect | What works | On real hardware |
 |---|---|---|---|
 | **Prusa MINI** (Buddy firmware) | Its own firmware speaks Prusa Connect to the cloud: no agent | Registers with a code, reports, takes commands | Yes: a MINI on firmware 6.3.0 |
-| **3D printers on Marlin**: 245 models (Creality, Anycubic, Artillery, …) | Agent, on USB | Recognised from `M115`; live temperatures, moves, heating, bed mesh, terminal; **prints files** (pause, resume, stop) | Not yet: tested against simulated printers |
-| **Prusa on 8-bit firmware**: MK3S, MK2.5S | Agent, on USB or an MK3S's RPi port (a Pi Zero W) | As Marlin, recognised from `M862.2 Q` | Not yet: an MK3S with its Pi Zero W is the first to try |
+| **3D printers on Marlin**: 245 models (Creality, Anycubic, Artillery, …) | Agent, on USB | Recognised from `M115`; live temperatures with their targets and whether the heaters have power, moves, heating, bed mesh, terminal; **prints files** (pause, resume, stop) | Not yet: tested against simulated printers |
+| **Prusa on 8-bit firmware**: MK3S, MK2.5S | Agent, on USB or an MK3S's RPi port (a Raspberry Pi Zero) | As Marlin, recognised from `M862.2 Q`; bed mesh by `G80`/`G81` | Yes: an MK3S through a Pi Zero 2 W on its RPi port (home, moves, heating, terminal, bed mesh); printing a file not yet |
 | **Lasers on GRBL**: Ortur Laser Master 2 Pro S2, other GRBL 1.1 | Agent, on USB, with LaserFoundry's device crate | Homing, the jog pad, the job's origin, settings checked, Frame, jobs streamed, pause, resume, stop, restart where it stopped | Not yet: tested against LaserFoundry's simulated GRBL |
-| **Label printers**: DYMO LabelManager PnP | Agent, on USB HID: no driver, no DYMO software | Labels from the editor (text, QR codes, barcodes, drawings), tapes, cassette and battery | Yes: from a Mac and a Windows laptop, 12 mm tape |
+| **Label printers**: DYMO LabelManager PnP | Agent, on USB HID: no driver, no DYMO software | Labels from the editor (text, QR codes, barcodes, drawings), tapes, cassette and battery | Yes: printed from a Mac and a Windows laptop, 12 mm tape; online through an Orange Pi PC |
 | **A virtual one of every profile** | Simulated in the cloud | Printers home, heat, measure and print; lasers on simulated GRBL; label printers print | – |
 
 | The agent runs on | Build | On real hardware |
@@ -98,7 +103,7 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 | macOS, Apple silicon | `macos-aarch64` | Yes |
 | Windows 10/11, x64 | `windows-x86_64.exe` | Yes |
 | Linux ARM64: Orange Pi Zero3, Raspberry Pi 4 and 5 | `linux-aarch64` | Not yet |
-| Linux ARM 32-bit: Raspberry Pi Zero W (an MK3S's RPi port), Pi 1 | `linux-armv6` | Not yet |
+| Linux ARM 32-bit: any Raspberry Pi on a 32-bit OS (Zero W, Zero 2 W, Pi 1 to 3), Orange Pi PC | `linux-armv6` | Yes: a Pi Zero 2 W on Prusa's PrusaLink image (Raspbian 11), an Orange Pi PC on Armbian (Debian 11) |
 | Linux x86-64: a PC, a NAS | `linux-x86_64` | Not yet |
 
 Every machine with a profile, by brand: the wiki's

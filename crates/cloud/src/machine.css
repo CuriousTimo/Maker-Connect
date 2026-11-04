@@ -16,6 +16,15 @@
   .tile .value { margin-top: 6px; font-size: 34px; line-height: 1.1; font-weight: 700; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
   .tile .value small { margin-left: 6px; font-size: 16px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
   .tile .sub { margin-top: 8px; color: var(--muted); font-size: 14px; }
+  /* A heater's flame: lit while it has power, outlined while not, gone when not told. */
+  :root { --flame: #d9692b; }
+  @media (prefers-color-scheme: dark) { :root { --flame: #f08a4b; } }
+  .heat-label { display: flex; justify-content: space-between; align-items: center; }
+  .flame { display: inline-grid; color: var(--off); }
+  .flame svg { fill: none; }
+  .flame[data-on=""] { visibility: hidden; }
+  .flame[data-on=true] { color: var(--flame); }
+  .flame[data-on=true] svg { fill: currentColor; }
   /* A machine's profile in its settings: the one it has, plainly; changing it folded away. */
   .current-profile { display: flex; align-items: center; gap: 14px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; }
   .current-picture svg { display: block; width: 64px; height: 64px; }
@@ -75,6 +84,11 @@
   .jog-steps small { color: var(--muted); margin-left: 4px; }
   .jog-speed { display: flex; gap: 8px; align-items: center; color: var(--muted); }
   .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+  .heat-sets { display: flex; gap: 10px 24px; flex-wrap: wrap; margin-top: 12px; }
+  .heat-set { display: flex; align-items: center; gap: 8px; }
+  .heat-set span { color: var(--muted); font-weight: 600; min-width: 3.6em; }
+  .heat-set input { width: 5.5em; font-variant-numeric: tabular-nums; }
+  .heat-set small { color: var(--muted); margin-right: 2px; }
   .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
   button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); padding: 6px 12px; }
   button.ghost[aria-pressed=true] { border-color: var(--accent); }

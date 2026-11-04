@@ -32,6 +32,9 @@
         const step = form.querySelector("[name=step]:checked"), feed = form.querySelector("[name=feed]");
         if (step) sent.set("step", step.value);
         if (feed) sent.set("feed", feed.value);
+        // A typed temperature goes with its own button.
+        const heat = button.closest(".heat-set")?.querySelector("input");
+        if (heat) sent.set(heat.name, heat.value);
         const response = await fetch(url, {
           method: "POST",
           body: sent,
@@ -45,6 +48,12 @@
       }
     });
   }
+  // Enter in a temperature field sets that temperature (not the form's first button, Home).
+  for (const input of document.querySelectorAll(".heat-set input")) input.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    input.closest(".heat-set").querySelector("button").click();
+  });
   // The arrow keys move the pad's head once it has focus: a move at a time (a key held down
   // does not pile them up), Home on the Home key.
   for (const pad of document.querySelectorAll("[data-jogpad]")) {
@@ -64,10 +73,12 @@
   function heatNote(now, target) {
     if (now == null) return "not reported";
     if (target > 0) {
-      if (Math.abs(now - target) < 2) return `at target, ${target.toFixed(0)} °C`;
-      return now < target ? `▲ heating to ${target.toFixed(0)} °C` : `▼ cooling to ${target.toFixed(0)} °C`;
+      const to = `${target.toFixed(0)} °C`;
+      if (Math.abs(now - target) < 2) return `target ${to}`;
+      return now < target ? `▲ heating to ${to}` : `▼ cooling to ${to}`;
     }
-    return now > 40 ? "▼ cooling, heater off" : "heater off";
+    const told = target != null ? "target off" : "no target told";
+    return now > 40 ? `${told} · ▼ cooling` : told;
   }
 
   // The temperatures over the last half hour: nozzle and bed, their targets dashed.
@@ -212,6 +223,14 @@
       if (!(key in values)) continue;
       el.textContent = values[key] ?? "–";
       if (key === "state") el.className = `state ${values[key]}`;
+    }
+    // The heaters' flames: lit while they have power, outlined while not, gone untold.
+    for (const el of document.querySelectorAll("[data-heater]")) {
+      const on = t[`${el.dataset.heater}_heating`];
+      el.dataset.on = on == null ? "" : String(on);
+      const said = on == null ? "" : on ? "Heater on" : "Heater off";
+      el.title = said;
+      el.setAttribute("aria-label", said);
     }
     showJob(m, t);
     const gauge = document.querySelector("[data-z-fill]");

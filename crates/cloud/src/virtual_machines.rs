@@ -609,6 +609,10 @@ impl Sim {
             nozzle_target_c: fdm.then_some(self.nozzle_target),
             bed_c: fdm.then(|| round(self.bed)),
             bed_target_c: fdm.then_some(self.bed_target),
+            // Power while below what it heats to, as a real heater (roughly) does.
+            nozzle_heating: fdm
+                .then_some(self.nozzle_target > 0.0 && self.nozzle < self.nozzle_target + 0.5),
+            bed_heating: fdm.then_some(self.bed_target > 0.0 && self.bed < self.bed_target + 0.5),
             print_fan_rpm: fdm.then(|| u32::from(self.fan) * 5200 / 255),
             hotend_fan_rpm: fdm.then_some(if self.nozzle > 50.0 { 6800 } else { 0 }),
             position_mm: Some(self.position.map(round)),

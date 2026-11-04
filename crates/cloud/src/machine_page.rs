@@ -253,43 +253,73 @@ fn battery_tile(volts: Option<f32>) -> String {
 }
 
 /// How a heater is doing, as the tiles say it (the script says it the same way).
+/// A heater's line under its temperature: what it heats to, and how it is getting there.
+/// (Whether it has power now is the flame beside its name.) As the page's script says it.
 fn heat_note(now: Option<f32>, target: Option<f32>) -> String {
-    match (now, target) {
-        (Some(now), Some(target)) if target > 0.0 => {
+    let Some(now) = now else {
+        return "not reported".to_owned();
+    };
+    match target {
+        Some(target) if target > 0.0 => {
             if (now - target).abs() < 2.0 {
-                format!("at target, {target:.0} °C")
+                format!("target {target:.0} °C")
             } else if now < target {
                 format!("▲ heating to {target:.0} °C")
             } else {
                 format!("▼ cooling to {target:.0} °C")
             }
         }
-        (Some(now), _) if now > 40.0 => "▼ cooling, heater off".to_owned(),
-        (Some(_), _) => "heater off".to_owned(),
-        _ => "not reported".to_owned(),
+        Some(_) if now > 40.0 => "target off · ▼ cooling".to_owned(),
+        Some(_) => "target off".to_owned(),
+        None if now > 40.0 => "no target told · ▼ cooling".to_owned(),
+        None => "no target told".to_owned(),
     }
+}
+
+/// A heater's tile: its temperature, a flame beside its name while it has power (outlined
+/// while it has none, none when the machine does not tell), what it heats to below.
+fn heater_tile(
+    label: &str,
+    key: &str,
+    now: Option<f32>,
+    target: Option<f32>,
+    heating: Option<bool>,
+) -> String {
+    format!(
+        r#"<div class="tile"><div class="label heat-label">{label}{}</div><div class="value"><span data-live="{key}_n">{}</span><small>°C</small></div><div class="sub" data-live="{key}_note">{}</div></div>"#,
+        flame(key, heating),
+        escape(&now.map_or("–".to_owned(), |v| format!("{v:.1}"))),
+        escape(&heat_note(now, target)),
+    )
+}
+
+/// The flame of a heater: `data-on` says whether it has power ("" when not told).
+fn flame(key: &str, heating: Option<bool>) -> String {
+    let (on, said) = match heating {
+        Some(true) => ("true", "Heater on"),
+        Some(false) => ("false", "Heater off"),
+        None => ("", ""),
+    };
+    format!(
+        r#"<span class="flame" data-heater="{key}" data-on="{on}" role="img" aria-label="{said}" title="{said}"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2.5c.6 3.2 2.6 4.9 4.2 6.9 1.4 1.8 2.3 3.6 2.3 5.8A6.5 6.5 0 0 1 12 21.7a6.5 6.5 0 0 1-6.5-6.5c0-2.3 1-4.2 2.6-5.7.2 1.6.9 2.8 2.1 3.5-.4-3.9.5-7.3 1.8-10.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>"#
+    )
 }
 
 /// The tiles every tab can show: temperatures for a printer, position for a laser.
 fn heater_tiles(machine: &Machine) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
-    let one = |v: Option<f32>| v.map(|v| format!("{v:.1}"));
-    let nozzle = t.and_then(|t| t.nozzle_c);
-    let bed = t.and_then(|t| t.bed_c);
-    tile(
+    heater_tile(
         "Nozzle",
-        "nozzle_n",
-        one(nozzle),
-        "°C",
-        "nozzle_note",
-        heat_note(nozzle, t.and_then(|t| t.nozzle_target_c)),
-    ) + &tile(
+        "nozzle",
+        t.and_then(|t| t.nozzle_c),
+        t.and_then(|t| t.nozzle_target_c),
+        t.and_then(|t| t.nozzle_heating),
+    ) + &heater_tile(
         "Bed",
-        "bed_n",
-        one(bed),
-        "°C",
-        "bed_note",
-        heat_note(bed, t.and_then(|t| t.bed_target_c)),
+        "bed",
+        t.and_then(|t| t.bed_c),
+        t.and_then(|t| t.bed_target_c),
+        t.and_then(|t| t.bed_heating),
     )
 }
 
@@ -676,10 +706,11 @@ fn control(machine: &Machine, profile: Option<&Profile>) -> String {
     };
     if fdm {
         controls += &format!(
-            r#"<h4>Heat</h4><div class="buttons">{}{}{}</div><h4>Fan and motors</h4><div class="buttons">{}{}{}</div>"#,
+            r#"<h4>Heat</h4><div class="buttons">{}{}{}</div>{}<h4>Fan and motors</h4><div class="buttons">{}{}{}</div>"#,
             button("preheat-pla", "Preheat PLA"),
             button("preheat-petg", "Preheat PETG"),
             button("cooldown", "Cool down"),
+            heat_inputs(t, profile),
             button("fan-on", "Print fan on"),
             button("fan-off", "Print fan off"),
             button("motors-off", "Motors off"),
@@ -713,6 +744,44 @@ fn control(machine: &Machine, profile: Option<&Profile>) -> String {
                 commands(machine)
             )
         )
+    )
+}
+
+/// Own temperatures: a field each for the nozzle and the bed, up to the profile's maximum,
+/// filled with what it is heating to (or PLA's), and a button that sets it (0 is off).
+fn heat_inputs(t: Option<&maker_connect_protocol::Telemetry>, profile: Option<&Profile>) -> String {
+    let field = |name: &str,
+                 label: &str,
+                 target: Option<f32>,
+                 fallback: f32,
+                 max: Option<f64>,
+                 default_max: f64| {
+        let value = target.filter(|v| *v > 0.0).unwrap_or(fallback);
+        let max = max.unwrap_or(default_max);
+        format!(
+            r#"<label class="heat-set"><span>{label}</span><input type="number" name="{name}" value="{value:.0}" min="0" max="{max}" step="1" inputmode="numeric" aria-label="{label} temperature"><small>°C</small><button name="action" value="set-{name}" class="ghost">Set</button></label>"#
+        )
+    };
+    format!(
+        r#"<div class="heat-sets">{}{}</div><p class="hint">Your own temperature; 0 switches it off. Up to {} / {} °C on this machine.</p>"#,
+        field(
+            "nozzle",
+            "Nozzle",
+            t.and_then(|t| t.nozzle_target_c),
+            215.0,
+            profile.and_then(|p| p.max_nozzle_c),
+            260.0
+        ),
+        field(
+            "bed",
+            "Bed",
+            t.and_then(|t| t.bed_target_c),
+            60.0,
+            profile.and_then(|p| p.max_bed_c),
+            100.0
+        ),
+        profile.and_then(|p| p.max_nozzle_c).unwrap_or(260.0),
+        profile.and_then(|p| p.max_bed_c).unwrap_or(100.0),
     )
 }
 
@@ -1115,9 +1184,12 @@ mod tests {
     #[test]
     fn a_heater_says_how_it_is_doing() {
         assert_eq!(heat_note(Some(150.0), Some(215.0)), "▲ heating to 215 °C");
-        assert_eq!(heat_note(Some(214.0), Some(215.0)), "at target, 215 °C");
-        assert_eq!(heat_note(Some(120.0), Some(0.0)), "▼ cooling, heater off");
-        assert_eq!(heat_note(Some(22.0), Some(0.0)), "heater off");
+        assert_eq!(heat_note(Some(214.0), Some(215.0)), "target 215 °C");
+        assert_eq!(heat_note(Some(120.0), Some(0.0)), "target off · ▼ cooling");
+        assert_eq!(heat_note(Some(22.0), Some(0.0)), "target off");
+        assert_eq!(heat_note(Some(22.0), None), "no target told");
         assert_eq!(heat_note(None, None), "not reported");
+        assert!(flame("bed", Some(true)).contains(r#"data-on="true""#));
+        assert!(flame("bed", None).contains(r#"data-on="""#));
     }
 }

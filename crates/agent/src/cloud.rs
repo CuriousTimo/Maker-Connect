@@ -516,8 +516,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 };
                 telemetry.firmware = known.firmware.clone();
                 telemetry.identity = Some(known.identity.clone());
-                telemetry.nozzle_c = p.nozzle_c;
-                telemetry.bed_c = p.bed_c;
+                set_heat(&mut telemetry, p.heat);
                 telemetry.job_id = Some(job.id);
                 // What is left, from how long the lines so far took.
                 let remaining_s =
@@ -532,12 +531,10 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             }
             Some(Machine::Marlin(printer, known)) => match printer.command("M105") {
                 Ok(answer) => {
-                    let (nozzle, bed) = marlin::temperatures(&answer);
                     telemetry.state = MachineState::Idle;
                     telemetry.firmware = known.firmware.clone();
                     telemetry.identity = Some(known.identity.clone());
-                    telemetry.nozzle_c = nozzle;
-                    telemetry.bed_c = bed;
+                    set_heat(&mut telemetry, marlin::heat(&answer));
                 }
                 Err(error) => {
                     println!("printer lost: {error}");
@@ -642,11 +639,27 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                         continue;
                     }
                 };
+                // What is said meanwhile: busy, with the last temperatures, so a long command
+                // (homing, measuring the bed, heating) does not look like a machine gone.
+                let busy = Telemetry {
+                    state: MachineState::Busy,
+                    done: Vec::new(),
+                    mesh: None,
+                    job_end: None,
+                    ..telemetry.clone()
+                };
                 for command in &reply.commands {
                     let outcome = match machine.as_mut() {
-                        Some(Machine::Marlin(printer, _)) => carry_out(printer, &command.gcode),
+                        Some(Machine::Marlin(printer, _)) => {
+                            while_busy(&options, &registered.token, &busy, || {
+                                carry_out(printer, &command.gcode)
+                            })
+                        }
                         Some(Machine::Grbl(laser)) => {
-                            laser.carry_out(&command.gcode).map(|said| (said, None))
+                            while_busy(&options, &registered.token, &busy, || {
+                                laser.carry_out(&command.gcode)
+                            })
+                            .map(|said| (said, None))
                         }
                         Some(Machine::Dymo(_)) => Err("a label printer takes no G-code".to_owned()),
                         Some(Machine::Printing(..)) => {
@@ -780,6 +793,37 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             REPORT_EVERY
         });
     }
+}
+
+/// The heaters as the printer told them, into the report.
+fn set_heat(telemetry: &mut Telemetry, heat: marlin::Heat) {
+    telemetry.nozzle_c = heat.nozzle_c;
+    telemetry.nozzle_target_c = heat.nozzle_target_c;
+    telemetry.bed_c = heat.bed_c;
+    telemetry.bed_target_c = heat.bed_target_c;
+    telemetry.nozzle_heating = heat.nozzle_heating;
+    telemetry.bed_heating = heat.bed_heating;
+}
+
+/// Does `work` (a command the machine takes a while over), and meanwhile reports `busy` to
+/// the cloud every [`REPORT_EVERY`], so the machine stays online there. The cloud gives a
+/// busy machine no command and no job, so its answers carry nothing to act on.
+fn while_busy<T>(options: &Options, token: &str, busy: &Telemetry, work: impl FnOnce() -> T) -> T {
+    let (done, wait) = std::sync::mpsc::channel::<()>();
+    std::thread::scope(|scope| {
+        scope.spawn(move || {
+            while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+                wait.recv_timeout(REPORT_EVERY)
+            {
+                let _ = ureq::post(&format!("{}{}", options.cloud, protocol::TELEMETRY))
+                    .set("authorization", &format!("Bearer {token}"))
+                    .send_json(busy);
+            }
+        });
+        let result = work();
+        drop(done);
+        result
+    })
 }
 
 /// What carrying out a command gave: what the printer said, and a bed mesh in it.

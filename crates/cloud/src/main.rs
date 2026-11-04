@@ -203,18 +203,20 @@ async fn telemetry(
     }
     match store.report(token, &report) {
         Ok(Some(space)) => {
-            // No commands while a job runs: the machine is busy with it.
-            let commands = if report.job_id.is_some() {
-                Vec::new()
-            } else {
-                match store.next_command(token) {
-                    Ok(next) => next
-                        .map(|(id, gcode)| protocol::MachineCommand { id, gcode })
-                        .into_iter()
-                        .collect(),
-                    Err(error) => return failed(error),
-                }
-            };
+            // No commands while a job runs, or while the machine is busy with one (an agent
+            // says so while a long command runs): one at a time.
+            let commands =
+                if report.job_id.is_some() || report.state == protocol::MachineState::Busy {
+                    Vec::new()
+                } else {
+                    match store.next_command(token) {
+                        Ok(next) => next
+                            .map(|(id, gcode)| protocol::MachineCommand { id, gcode })
+                            .into_iter()
+                            .collect(),
+                        Err(error) => return failed(error),
+                    }
+                };
             let (job, job_control) = match agent_job(&mut store, token, &report) {
                 Ok(job) => job,
                 Err(error) => return failed(error),
@@ -676,6 +678,49 @@ struct CommandForm {
     step: Option<f64>,
     #[serde(default)]
     feed: Option<f64>,
+    /// A temperature typed for the nozzle or the bed (°C).
+    #[serde(default)]
+    nozzle: Option<f64>,
+    #[serde(default)]
+    bed: Option<f64>,
+}
+
+/// A temperature someone typed, as G-code: whole degrees from 0 (off) to the profile's
+/// maximum (or a safe one without a profile).
+fn heat_command(
+    action: &str,
+    nozzle: Option<f64>,
+    bed: Option<f64>,
+    profile: Option<&profiles::Profile>,
+) -> Option<Result<(String, String), String>> {
+    let (what, code, value, max) = match action {
+        "set-nozzle" => (
+            "Nozzle",
+            "M104",
+            nozzle,
+            profile.and_then(|p| p.max_nozzle_c).unwrap_or(260.0),
+        ),
+        "set-bed" => (
+            "Bed",
+            "M140",
+            bed,
+            profile.and_then(|p| p.max_bed_c).unwrap_or(100.0),
+        ),
+        _ => return None,
+    };
+    let Some(value) = value.filter(|v| v.is_finite()) else {
+        return Some(Err(format!("{what}: type a temperature")));
+    };
+    let value = value.round();
+    if !(0.0..=max).contains(&value) {
+        return Some(Err(format!("{what}: 0 to {max} °C on this machine")));
+    }
+    let label = if value == 0.0 {
+        format!("{what} off")
+    } else {
+        format!("{what} to {value} °C")
+    };
+    Some(Ok((label, format!("{code} S{value}"))))
 }
 
 /// G-code from the terminal, tidied: its lines without blank ones, and a label (its first
@@ -753,6 +798,18 @@ async fn command(
         )
     } else if is_grbl && let Some(found) = grbl_action(&form.action) {
         Some(owned(found))
+    } else if matches!(form.action.as_str(), "set-nozzle" | "set-bed") {
+        let machine = match store.machine(space, &id) {
+            Ok(Some(machine)) => machine,
+            Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
+            Err(error) => return failed(error),
+        };
+        let profile = machine.profile.as_deref().and_then(profiles::find);
+        match heat_command(&form.action, form.nozzle, form.bed, profile) {
+            Some(Ok(found)) => Some(found),
+            Some(Err(why)) => return (StatusCode::BAD_REQUEST, why).into_response(),
+            None => None,
+        }
     } else if form.action == "probe-bed" {
         match store.machine(space, &id) {
             Ok(Some(machine)) => match probe_gcode(&machine) {
@@ -1222,6 +1279,38 @@ mod tests {
             "not a speed offered"
         );
         assert_eq!(grbl_action("set-origin").unwrap().1, "G92 X0 Y0");
+    }
+
+    /// Typed temperatures: whole degrees, up to the profile's maximum, 0 is off.
+    #[test]
+    fn typed_temperatures_stay_within_the_machine() {
+        let mk3s = profiles::find("prusa/mk3s");
+        assert!(mk3s.is_some());
+        assert_eq!(
+            heat_command("set-nozzle", Some(212.6), None, mk3s),
+            Some(Ok(("Nozzle to 213 °C".to_owned(), "M104 S213".to_owned())))
+        );
+        assert_eq!(
+            heat_command("set-bed", None, Some(0.0), mk3s),
+            Some(Ok(("Bed off".to_owned(), "M140 S0".to_owned())))
+        );
+        assert!(matches!(
+            heat_command("set-bed", None, Some(121.0), mk3s),
+            Some(Err(_))
+        ));
+        assert!(matches!(
+            heat_command("set-nozzle", Some(-5.0), None, mk3s),
+            Some(Err(_))
+        ));
+        assert!(matches!(
+            heat_command("set-nozzle", None, None, mk3s),
+            Some(Err(_))
+        ));
+        assert!(matches!(
+            heat_command("set-nozzle", Some(270.0), None, None),
+            Some(Err(_))
+        ));
+        assert_eq!(heat_command("set-origin", None, None, mk3s), None);
     }
     use axum::body::Body;
     use axum::http::Request;

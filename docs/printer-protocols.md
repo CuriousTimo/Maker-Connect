@@ -28,6 +28,26 @@ Built in `crates/agent/src/marlin.rs` with one line in flight at a time.
   (`is_planner_fed.py`) instead of waiting for each `ok`, so a resend can mean several
   lines back. To look into before a print with many short moves (curves, small features).
 
+## Learned on a real MK3S (2026-11-04)
+
+An Original Prusa MK3S (Einsy, Prusa-Firmware 3.x), driven by the agent on a Raspberry Pi
+Zero 2 W on its RPi port, at 115200 baud:
+
+- **The Pi:** Prusa's PrusaLink image is 32-bit Raspbian 11 (`armv7l`, glibc 2.31) even on
+  a Zero 2 W, so it takes the `linux-armv6` agent. Its serial port is already set up:
+  `/dev/serial0` is `ttyAMA0`, the full UART. `prusalink stop` frees the port, until the
+  next start of the Pi.
+- **`M105`** answers `ok T:24.5 /0.0 B:23.1 /0.0 T0:24.5 /0.0 @:0 B@:0 P:0.0 A:28.2`: each
+  temperature, after the `/` what it heats to (0: off), and `@:` / `B@:` the heaters' power
+  (0: none now). Read by `marlin::heat`. Near its target a heater switches on and off by
+  itself, so "has power" flickers there.
+- **`G28`** takes about a minute and says what the Trinamic drivers do while homing
+  (`tmc2130_home_enter`, `tmc2130_goto_step`, `tmc2130_home_exit`) before its `ok`.
+- **`G80`** measures a 7 × 7 mesh; **`G81`** prints it, the back row first.
+- **The agent waits for each `ok`**, so a command that takes a minute holds it. It now
+  reports *busy* every 2 s meanwhile (the cloud counts a machine offline after 10 s of
+  silence), and the cloud gives a busy machine no next command and no job.
+
 ## Prusa Connect (from the Connect SDK)
 
 - The printer registers with a code (`POST /p/register`) and gets a token.

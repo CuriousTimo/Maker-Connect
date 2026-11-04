@@ -111,17 +111,53 @@ pub fn model_code(lines: &[String]) -> Option<u32> {
     line.split_whitespace().next()?.parse().ok()
 }
 
-/// The nozzle and bed temperatures from an `M105` answer (`ok T:210.3 /210.0 B:60.1
-/// /60.0 ...`): the current values.
-pub fn temperatures(lines: &[String]) -> (Option<f32>, Option<f32>) {
-    let value = |key: &str| {
+/// The heaters from an `M105` answer, or a temperature report (`M155`, the `ok`s while
+/// heating): `ok T:210.3 /210.0 B:60.1 /60.0 T0:210.3 /210.0 @:64 B@:0`. After the `/` is
+/// what it heats to (0: off); `@:` and `B@:` are the heaters' power (0: no power now).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Heat {
+    pub nozzle_c: Option<f32>,
+    pub nozzle_target_c: Option<f32>,
+    pub bed_c: Option<f32>,
+    pub bed_target_c: Option<f32>,
+    pub nozzle_heating: Option<bool>,
+    pub bed_heating: Option<bool>,
+}
+
+pub fn heat(lines: &[String]) -> Heat {
+    // `T:210.3 /210.0`, or written together: `T:210.3/210.0`.
+    let reading = |key: &str| {
+        lines.iter().find_map(|line| {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            words.iter().enumerate().find_map(|(i, word)| {
+                let rest = word.strip_prefix(key)?;
+                let (now, target) = match rest.split_once('/') {
+                    Some((now, target)) => (now, Some(target)),
+                    None => (rest, words.get(i + 1).and_then(|w| w.strip_prefix('/'))),
+                };
+                let now: f32 = now.parse().ok()?;
+                Some((now, target.and_then(|t| t.parse::<f32>().ok())))
+            })
+        })
+    };
+    let power = |key: &str| {
         lines.iter().find_map(|line| {
             line.split_whitespace()
                 .find_map(|word| word.strip_prefix(key))
-                .and_then(|v| v.parse().ok())
+                .and_then(|v| v.parse::<f32>().ok())
+                .map(|p| p > 0.0)
         })
     };
-    (value("T:"), value("B:"))
+    let nozzle = reading("T:");
+    let bed = reading("B:");
+    Heat {
+        nozzle_c: nozzle.map(|n| n.0),
+        nozzle_target_c: nozzle.and_then(|n| n.1),
+        bed_c: bed.map(|b| b.0),
+        bed_target_c: bed.and_then(|b| b.1),
+        nozzle_heating: power("@:"),
+        bed_heating: power("B@:"),
+    }
 }
 
 /// What happened while sending, for the caller to show.
@@ -572,7 +608,23 @@ pub(crate) mod tests {
         let answer = printer.command("M115").unwrap();
         assert_eq!(firmware(&answer).as_deref(), Some("Prusa-Firmware 3.14.0"));
         let answer = printer.command("M105").unwrap();
-        assert_eq!(temperatures(&answer), (Some(24.5), Some(23.1)));
+        assert_eq!(
+            heat(&answer),
+            Heat {
+                nozzle_c: Some(24.5),
+                nozzle_target_c: Some(0.0),
+                bed_c: Some(23.1),
+                bed_target_c: Some(0.0),
+                nozzle_heating: Some(false),
+                bed_heating: Some(false),
+            }
+        );
+        // Heating, written together, and Marlin without a power for the bed.
+        let heating = heat(&["T:180.2/215.0 B:58.0 /60.0 @:127".to_owned()]);
+        assert_eq!(heating.nozzle_target_c, Some(215.0));
+        assert_eq!(heating.bed_target_c, Some(60.0));
+        assert_eq!(heating.nozzle_heating, Some(true));
+        assert_eq!(heating.bed_heating, None);
         let marlin = vec!["FIRMWARE_NAME:Marlin 2.1.2.1 (Jun 1 2024) SOURCE_CODE_URL:github.com/MarlinFirmware/Marlin PROTOCOL_VERSION:1.0".to_owned()];
         assert_eq!(firmware(&marlin).as_deref(), Some("Marlin 2.1.2.1"));
         let answer = printer.command("M115").unwrap();

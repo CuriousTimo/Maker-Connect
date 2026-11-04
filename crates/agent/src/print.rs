@@ -18,8 +18,7 @@ struct Shared {
     total: usize,
     paused: bool,
     stop: bool,
-    nozzle_c: Option<f32>,
-    bed_c: Option<f32>,
+    heat: marlin::Heat,
     /// What the printer said (errors, messages), for the agent's log.
     said: Vec<String>,
 }
@@ -38,8 +37,7 @@ pub struct Progress {
     pub done: usize,
     pub total: usize,
     pub paused: bool,
-    pub nozzle_c: Option<f32>,
-    pub bed_c: Option<f32>,
+    pub heat: marlin::Heat,
     pub elapsed_s: u64,
     pub said: Vec<String>,
 }
@@ -62,14 +60,16 @@ impl<L: Read + Write + Send + 'static> PrintJob<L> {
         let state = shared.clone();
         let thread = std::thread::spawn(move || {
             let heard = |state: &Arc<Mutex<Shared>>, line: &str| {
-                let (nozzle, bed) = marlin::temperatures(&[line.to_owned()]);
+                let heard = marlin::heat(&[line.to_owned()]);
                 let mut s = state.lock().unwrap();
-                if nozzle.is_some() {
-                    s.nozzle_c = nozzle;
-                }
-                if bed.is_some() {
-                    s.bed_c = bed;
-                }
+                let h = &mut s.heat;
+                // What this line told; the rest as last heard.
+                h.nozzle_c = heard.nozzle_c.or(h.nozzle_c);
+                h.nozzle_target_c = heard.nozzle_target_c.or(h.nozzle_target_c);
+                h.bed_c = heard.bed_c.or(h.bed_c);
+                h.bed_target_c = heard.bed_target_c.or(h.bed_target_c);
+                h.nozzle_heating = heard.nozzle_heating.or(h.nozzle_heating);
+                h.bed_heating = heard.bed_heating.or(h.bed_heating);
             };
             let mut on = |event: Event| {
                 if let Event::Said(text) = event {
@@ -147,8 +147,7 @@ impl<L: Read + Write + Send + 'static> PrintJob<L> {
             done: s.done,
             total: s.total,
             paused: s.paused,
-            nozzle_c: s.nozzle_c,
-            bed_c: s.bed_c,
+            heat: s.heat,
             elapsed_s: self.started.elapsed().as_secs(),
             said: std::mem::take(&mut s.said),
         }
@@ -208,7 +207,7 @@ mod tests {
         );
         let progress = job.progress();
         assert_eq!((progress.done, progress.total), (4, 4));
-        assert_eq!(progress.nozzle_c, Some(210.0));
+        assert_eq!(progress.heat.nozzle_c, Some(210.0));
     }
 
     /// Stopped: nothing more of the file, heaters and motors off.
