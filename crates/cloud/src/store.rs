@@ -1221,10 +1221,9 @@ impl Store {
         let mut machines: Vec<Machine> = rows.collect::<rusqlite::Result<_>>()?;
         let offered = self.offered_build();
         for machine in &mut machines {
-            if let (Some(offered), Some(running)) = (
-                &offered,
-                machine.agent.as_ref().and_then(|a| a.build.as_ref()),
-            ) && offered.0 != *running
+            // An agent from before builds were named is behind any build on offer.
+            if let (Some(offered), Some(agent)) = (&offered, machine.agent.as_ref())
+                && agent.build.as_ref() != Some(&offered.0)
             {
                 machine.agent_update = Some(format!("{} ({})", offered.0, offered.1));
             }
