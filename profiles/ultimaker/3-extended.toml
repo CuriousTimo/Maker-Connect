@@ -1,0 +1,12 @@
+brand = "Ultimaker"
+model = "Ultimaker 3 Extended"
+kind = "fdm"
+# One nozzle; with both nozzles the width is 197 mm.
+build_volume_mm = [215, 215, 300]  # check
+bed_origin_mm = [0, 0]
+nozzle_mm = 0.4
+extruders = 2
+firmware = "marlin"  # a custom Marlin build on this one
+max_nozzle_c = 280
+max_bed_c = 100
+# No [detect] yet: its custom firmware says what it was built to say.

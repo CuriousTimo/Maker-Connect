@@ -1,0 +1,16 @@
+brand = "Prusa"
+model = "Original Prusa MINI/+"
+kind = "fdm"
+build_volume_mm = [180, 180, 180]
+bed_origin_mm = [0, 0]
+nozzle_mm = 0.4
+firmware = "prusa-buddy"
+max_nozzle_c = 280
+max_bed_c = 100
+
+[detect]
+# From the MINI's firmware (Prusa-Firmware-Buddy): M862.2 Q answers P120, M115 MACHINE_TYPE:Prusa-MINI.
+model_code = 120
+machine_type = "Prusa-MINI"
+# As it registers with Prusa Connect (type 2, version 1, subversion 0).
+printer_type = "2.1.0"

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of an Ortur Laser Master 2 Pro S2">
+  <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
+  <ellipse cx="80" cy="124" rx="66" ry="8" fill="#d3d0c8"/>
+  <!-- the work piece: plywood, with a shape engraved -->
+  <path d="M30 112h86l20-44H50z" fill="#d8c29d"/>
+  <path d="M62 102l8-14h14l-8 14z" fill="none" stroke="#8a6438" stroke-width="1.6" stroke-linejoin="round"/>
+  <!-- the frame of extrusions -->
+  <path d="M20 116h98l26-56H46z" fill="none" stroke="#26272a" stroke-width="6" stroke-linejoin="round"/>
+  <!-- the gantry across, and the module on it -->
+  <path d="M30 92h102" stroke="#26272a" stroke-width="7" stroke-linecap="round"/>
+  <path d="M30 92h102" stroke="#4a4b50" stroke-width="2" stroke-linecap="round"/>
+  <rect x="70" y="62" width="20" height="32" rx="2.5" fill="#1f2023"/>
+  <path d="M73 66h14M73 70h14M73 74h14M73 78h14" stroke="#4a4b50" stroke-width="1.5"/>
+  <circle cx="80" cy="86" r="4.5" fill="#3a3b3f"/>
+  <circle cx="80" cy="86" r="1.5" fill="#c9a043"/>
+  <!-- the beam and its spot -->
+  <path d="M80 94v9" stroke="#e8432a" stroke-width="1.6"/>
+  <circle cx="80" cy="104" r="6" fill="#e8432a" opacity="0.25"/>
+  <circle cx="80" cy="104" r="2.2" fill="#e8432a"/>
+  <!-- the board at the back -->
+  <rect x="50" y="54" width="20" height="9" rx="1.5" fill="#26272a"/>
+</svg>

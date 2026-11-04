@@ -1,0 +1,9 @@
+brand = "Ortur"
+model = "Laser Master 2 Pro S2"
+kind = "laser"
+# The work area; a laser has no Z travel to speak of.
+build_volume_mm = [400, 430, 0]  # check
+bed_origin_mm = [0, 0]           # check: GRBL machines often home to a back corner
+firmware = "grbl"                # Ortur's own GRBL 1.1 build, over USB serial
+max_speed_mm_min = 15000
+laser_w = 10                     # the LU2-10A module: 10 W optical

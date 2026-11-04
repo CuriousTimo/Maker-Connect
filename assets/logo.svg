@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 200" role="img" aria-labelledby="t">
+  <title id="t">Maker Connect</title>
+  <style>
+    .maker { fill: #1d1d1b; }
+    .connect { fill: #1f6f61; }
+    text { font-family: "Inter", "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif; font-weight: 700; letter-spacing: -1px; }
+  </style>
+  <g transform="translate(20 20) scale(0.625)">
+    <rect width="256" height="256" rx="56" fill="#1f6f61"/>
+    <path d="M60 190 V74 Q60 62 70 70 L128 128 L186 70 Q196 62 196 74 V190"
+          fill="none" stroke="#ffffff" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M60 190 V74 Q60 62 70 70 L128 128 L186 70 Q196 62 196 74 V190"
+          fill="none" stroke="#1f6f61" stroke-width="4" stroke-dasharray="2 10" stroke-linecap="round" opacity="0.45"/>
+    <circle cx="60" cy="190" r="17" fill="#f2a541" stroke="#1f6f61" stroke-width="6"/>
+    <circle cx="196" cy="190" r="17" fill="#f2a541" stroke="#1f6f61" stroke-width="6"/>
+    <circle cx="128" cy="128" r="17" fill="#f2a541" stroke="#1f6f61" stroke-width="6"/>
+  </g>
+  <text x="208" y="122" font-size="76"><tspan class="maker">Maker</tspan><tspan class="connect" dx="18">Connect</tspan></text>
+</svg>

@@ -1,0 +1,12 @@
+brand = "Zaribo"
+model = "Zaribo 320 (MK3S)"
+kind = "fdm"
+# A Prusa MK3S on a taller frame: its X and Y, and 320 mm of Z (the name).
+build_volume_mm = [250, 210, 320]  # check
+bed_origin_mm = [0, 0]
+nozzle_mm = 0.4
+firmware = "prusa"
+max_nozzle_c = 300
+max_bed_c = 120
+# No [detect]: its firmware, a fork of Prusa's, reports itself as an MK3S, so the
+# owner chooses this profile on the website.

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of an Ultimaker 3 Extended">
+  <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
+  <ellipse cx="80" cy="142" rx="48" ry="5" fill="#d3d0c8"/>
+  <!-- the housing, and the build chamber behind its glass door -->
+  <rect x="40" y="12" width="80" height="128" rx="7" fill="#f7f7f5" stroke="#c8c8c3" stroke-width="1.5"/>
+  <rect x="47" y="19" width="66" height="94" rx="3" fill="#2b2c30"/>
+  <!-- gantry and the dual-nozzle head -->
+  <path d="M47 34h66M80 19v30" stroke="#8d949a" stroke-width="2"/>
+  <rect x="69" y="29" width="22" height="16" rx="2.5" fill="#f7f7f5"/>
+  <circle cx="80" cy="37" r="4" fill="#3a3b3f"/>
+  <path d="M73 45h5l-2.5 4zM82 45h5l-2.5 4z" fill="#c9a043"/>
+  <!-- a part on the glass bed -->
+  <path d="M72 92h16l-2-14h-12z" fill="#5fbfa9"/>
+  <rect x="51" y="92" width="58" height="3" fill="#a9cbd6"/>
+  <rect x="51" y="95" width="58" height="4" fill="#8d949a"/>
+  <!-- door edge highlight -->
+  <path d="M50 22v88" stroke="#ffffff" stroke-opacity="0.18" stroke-width="3"/>
+  <!-- display and wheel -->
+  <rect x="50" y="120" width="22" height="12" rx="2" fill="#1c1d20"/>
+  <rect x="53" y="123" width="16" height="6" rx="1" fill="#3d6f8a"/>
+  <circle cx="82" cy="126" r="4.5" fill="#dcdcd8" stroke="#c8c8c3"/>
+</svg>

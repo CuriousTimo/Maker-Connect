@@ -1,0 +1,8 @@
+reference/
+/target
+.DS_Store
+# Local data of the cloud and the agent
+*.db
+*.db-shm
+*.db-wal
+maker-connect-agent.json

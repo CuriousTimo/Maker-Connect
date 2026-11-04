@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of a Zaribo 320">
+  <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
+  <ellipse cx="80" cy="140" rx="62" ry="6" fill="#d3d0c8"/>
+  <!-- the frame: a plate with a window, standing up -->
+  <path fill-rule="evenodd" fill="#26272a" d="M34 10h92a4 4 0 0 1 4 4v108H30v-108a4 4 0 0 1 4-4zM44 20v74h72v-74z"/>
+  <!-- Z rods, and the X axis on them -->
+  <path d="M50 16V112M110 16V112" stroke="#c4c8cc" stroke-width="2.5"/>
+  <rect x="44" y="56" width="72" height="3" rx="1.5" fill="#c4c8cc"/>
+  <rect x="44" y="63" width="72" height="3" rx="1.5" fill="#c4c8cc"/>
+  <rect x="40" y="50" width="14" height="20" rx="2" fill="#4d6f8f"/>
+  <rect x="106" y="50" width="14" height="20" rx="2" fill="#4d6f8f"/>
+  <!-- the head -->
+  <rect x="69" y="42" width="24" height="34" rx="3.5" fill="#4d6f8f"/>
+  <circle cx="81" cy="58" r="7" fill="#2f3033"/>
+  <circle cx="81" cy="58" r="2.2" fill="#5a5b60"/>
+  <path d="M77 76h8l-4 6z" fill="#c9a043"/>
+  <!-- the bed in front, and the display below it -->
+  <path d="M24 120h112l-7-12H31z" fill="#8d949a"/>
+  <path d="M31 108h98l1.2 2H29.8z" fill="#b4babf"/>
+  <rect x="28" y="120" width="104" height="6" rx="1" fill="#2f3033"/>
+  <rect x="54" y="126" width="52" height="12" rx="2.5" fill="#4d6f8f"/>
+  <rect x="58" y="128.5" width="28" height="7" rx="1" fill="#1c1d20"/>
+  <circle cx="97" cy="132" r="3" fill="#2f3033"/>
+</svg>
