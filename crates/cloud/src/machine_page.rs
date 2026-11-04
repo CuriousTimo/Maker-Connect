@@ -935,6 +935,36 @@ pub(crate) fn settings(machine: &Machine) -> String {
         .unwrap_or("");
     let id = escape(&machine.id);
     let name = escape(&machine.name);
+    // The profile now, plainly: its drawing, name, size, and whether chosen or recognised.
+    let current = match machine.profile.as_deref().and_then(profiles::find) {
+        Some(p) => format!(
+            r#"<div class="current-profile"><div class="current-picture">{picture}</div><div><b>{brand} {model}</b><small>{size}{firmware}</small><span class="profile-how">{how}</span></div></div>"#,
+            picture = p.image().unwrap_or(""),
+            brand = escape(&p.brand),
+            model = escape(&p.model),
+            size = escape(&p.size()),
+            firmware = p
+                .firmware_version
+                .as_deref()
+                .map(|v| {
+                    // "marlin" as "Marlin".
+                    let firmware = p.firmware.as_deref().unwrap_or("");
+                    let mut name = firmware.chars();
+                    let named = name
+                        .next()
+                        .map(|c| c.to_uppercase().chain(name).collect::<String>())
+                        .unwrap_or_default();
+                    format!(" · {} {}", escape(&named), escape(v))
+                })
+                .unwrap_or_default(),
+            how = if machine.profile_chosen {
+                "Chosen here"
+            } else {
+                "Recognised from what it says"
+            },
+        ),
+        None => r#"<p class="empty">Not known yet: it is recognised when it says what it is, or choose it below.</p>"#.to_owned(),
+    };
     let chosen = escape(chosen);
     let auto = escape(
         machine
@@ -947,7 +977,10 @@ pub(crate) fn settings(machine: &Machine) -> String {
         r#"<h4>Name</h4>
 <form method="post" action="{id}/name" data-async data-done="Renamed" data-rename><input name="name" value="{name}" aria-label="Name" maxlength="60" required><button>Rename</button></form>
 <h4>Profile</h4>
+{current}
+<details class="change-profile"><summary class="ghost-button">Change profile</summary>
 <div class="picker in-card" data-picker data-action="{id}/profile" data-selected="{chosen}" data-auto="{auto}"></div>
+</details>
 <h4>Remove</h4>
 <form method="post" action="{id}/remove" data-async data-done="Machine removed" data-confirm="Remove this machine from the space?" data-then="../"><button class="danger">Remove machine</button></form>"#
     );

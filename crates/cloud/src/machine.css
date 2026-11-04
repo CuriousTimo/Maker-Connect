@@ -16,6 +16,16 @@
   .tile .value { margin-top: 6px; font-size: 34px; line-height: 1.1; font-weight: 700; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
   .tile .value small { margin-left: 6px; font-size: 16px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
   .tile .sub { margin-top: 8px; color: var(--muted); font-size: 14px; }
+  /* A machine's profile in its settings: the one it has, plainly; changing it folded away. */
+  .current-profile { display: flex; align-items: center; gap: 14px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; }
+  .current-picture svg { display: block; width: 64px; height: 64px; }
+  .current-profile b { display: block; font-size: 16px; }
+  .current-profile small { display: block; color: var(--muted); }
+  .profile-how { display: inline-block; margin-top: 4px; font-size: 12px; font-weight: 600; color: var(--accent); }
+  .change-profile { margin-top: 10px; }
+  .change-profile summary { display: inline-block; cursor: pointer; list-style: none; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; font-weight: 600; font-size: 14px; }
+  .change-profile summary::-webkit-details-marker { display: none; }
+  .change-profile[open] summary { margin-bottom: 10px; }
   /* A battery that fills: green, amber under 30 %, red under 15 %. */
   .battery-value { display: flex; align-items: center; gap: 12px; }
   .battery { width: 52px; height: 26px; flex: none; }
