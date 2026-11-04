@@ -54,6 +54,15 @@ pub struct Profile {
     /// The media it takes (a label printer's tapes), the owner choosing which is loaded.
     #[serde(default)]
     pub media: Vec<Media>,
+    /// The firmware version its data is for (`2.1.3` for Marlin's examples).
+    #[serde(default)]
+    pub firmware_version: Option<String>,
+    /// How it moves: `bedslinger`, `corexy`, `delta`; for a drawing when it has none.
+    #[serde(default)]
+    pub motion: Option<String>,
+    /// Where it was made from (`marlin-configurations@ef42fa5`), when not by hand.
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 /// A tape or roll a label printer takes.
@@ -72,9 +81,16 @@ pub struct Media {
 
 impl Profile {
     /// Its picture (`profiles/<brand>/<model>.svg`), when there is one.
+    /// Its own drawing, or one of its kind and how it moves (`profiles/_generic/`).
     pub fn image(&self) -> Option<&'static str> {
+        let generic = match self.kind {
+            MachineKind::Laser => "laser",
+            MachineKind::Cnc => "cnc",
+            _ => self.motion.as_deref().unwrap_or("bedslinger"),
+        };
         FILES
             .get_file(format!("{}.svg", self.id))
+            .or_else(|| FILES.get_file(format!("_generic/{generic}.svg")))
             .and_then(|f| f.contents_utf8())
     }
 
@@ -103,6 +119,9 @@ pub struct Detect {
     /// M115's `MACHINE_TYPE`.
     #[serde(default)]
     pub machine_type: Option<String>,
+    /// More names it may give itself (a model's variants, each with its own board).
+    #[serde(default)]
+    pub machine_types: Vec<String>,
     /// A Buddy-firmware Prusa's printer type, as it registers with Prusa Connect.
     #[serde(default)]
     pub printer_type: Option<String>,
@@ -165,13 +184,18 @@ pub fn detect(identity: &Identity) -> Option<&'static Profile> {
         return Some(profile);
     }
     let machine_type = identity.machine_type.as_deref()?.trim();
+    // A profile made by hand first, then one made from other data.
+    let named = |d: &Detect| {
+        d.machine_type
+            .iter()
+            .chain(&d.machine_types)
+            .any(|t| t.eq_ignore_ascii_case(machine_type))
+    };
     detects()
-        .find(|(_, d)| {
-            d.machine_type
-                .as_deref()
-                .is_some_and(|t| t.eq_ignore_ascii_case(machine_type))
-        })
+        .filter(|(p, d)| p.source.is_none() && named(d))
+        .chain(detects().filter(|(p, d)| p.source.is_some() && named(d)))
         .map(|(profile, _)| profile)
+        .next()
 }
 
 /// The bed, drawn to scale: the build plate with a grid every 10 mm, a stronger line and

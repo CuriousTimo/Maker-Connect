@@ -1,0 +1,11 @@
+[package]
+name = "maker-connect-import"
+description = "Makes Maker Connect's machine profiles from other projects' data: Marlin's example configurations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.1.8"

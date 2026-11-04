@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of a CNC router">
+  <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
+  <ellipse cx="80" cy="128" rx="62" ry="7" fill="#d3d0c8"/>
+  <path d="M26 118h108l-10 10H36z" fill="#3a3b3f"/>
+  <path d="M34 108h92v10H34z" fill="#c9a874"/>
+  <path d="M40 108V48M120 108V48M36 50h88" stroke="#3a3b3f" stroke-width="7" stroke-linecap="round"/>
+  <rect x="68" y="44" width="24" height="34" rx="3" fill="#26272a"/>
+  <path d="M80 78v20" stroke="#9aa0a6" stroke-width="4" stroke-linecap="round"/>
+</svg>

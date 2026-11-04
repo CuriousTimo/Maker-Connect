@@ -462,16 +462,12 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
   <section>
     <h3>A virtual one</h3>
     <p class="dialog-sub">Simulated in the cloud: it moves, heats and measures its bed, to try everything without a machine.</p>
-    <form method="post" action="/virtual">
-      <select name="profile" required aria-label="Machine"><option value="">Choose a machine…</option>{options}</select>
-      <button>Add virtual</button>
-    </form>
+    <div class="picker" data-picker data-action="{home}virtual"></div>
   </section>
 </dialog>
 <script>
 {SHELL_SCRIPT}</script>"##,
         space = escape(space),
-        options = profile_options(None),
         machines = link(
             "",
             "Machines",
@@ -493,32 +489,7 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
     )
 }
 
-/// Every profile as `<option>`s, by brand.
-pub(crate) fn profile_options(selected: Option<&str>) -> String {
-    let mut options = String::new();
-    let mut brand = "";
-    for p in profiles::all() {
-        if p.brand != brand {
-            if !brand.is_empty() {
-                options += "</optgroup>";
-            }
-            brand = &p.brand;
-            options += &format!(r#"<optgroup label="{}">"#, escape(brand));
-        }
-        options += &format!(
-            r#"<option value="{}"{}>{}</option>"#,
-            escape(&p.id),
-            if selected == Some(p.id.as_str()) {
-                " selected"
-            } else {
-                ""
-            },
-            escape(&p.model)
-        );
-    }
-    options + "</optgroup>"
-}
-
+/// Every machine profile, for the machine picker.
 async fn profile_list() -> Response {
     #[derive(serde::Serialize)]
     struct Listed<'a> {
@@ -973,6 +944,25 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .toast.bad { background: var(--bad); color: #fff; }
   .toast.gone { opacity: 0; transform: translateY(6px); }
   @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+  /* The machine picker: search, kinds, a list with drawings. */
+  .picker { display: grid; gap: 10px; }
+  .picker-search { width: 100%; }
+  .picker-kinds { display: flex; gap: 6px; flex-wrap: wrap; }
+  .picker-kinds button { background: transparent; color: var(--muted); border: 1px solid var(--line); padding: 4px 10px; font-size: 13px; }
+  .picker-kinds button[aria-pressed=true] { color: var(--ink); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .picker-list { list-style: none; margin: 0; padding: 4px; max-height: 340px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
+  .picker.in-card .picker-list { max-height: 300px; }
+  .picker-list li { display: flex; align-items: center; gap: 12px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+  .picker-list li[aria-selected=true] { background: var(--line); }
+  .picker-list li:hover { background: color-mix(in srgb, var(--line) 70%, transparent); }
+  .picker-list img, .picker-auto { width: 40px; height: 40px; border-radius: 8px; flex: none; }
+  .picker-auto { display: grid; place-items: center; background: var(--line); color: var(--muted); font-size: 20px; }
+  .picker-text { display: grid; min-width: 0; flex: 1; }
+  .picker-text b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .picker-text small { color: var(--muted); font-size: 12px; }
+  .picker-tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); }
+  .picker-list li.chosen b { color: var(--accent); }
+  .picker-none { color: var(--muted); cursor: default !important; background: none !important; font-size: 13px; padding: 10px !important; }
   /* The palette. */
   dialog.palette { width: min(560px, calc(100vw - 32px)); margin-top: 12vh; padding: 0; }
   .palette input { width: 100%; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 16px 18px; font-size: 17px; background: transparent; outline: none; }
@@ -997,7 +987,7 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
     html, body { overflow-x: hidden; }
     main > * { max-width: 100%; }
   }
-  dialog { width: min(520px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink); box-shadow: 0 20px 60px rgb(0 0 0 / 0.35); }
+  dialog { width: min(600px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink); box-shadow: 0 20px 60px rgb(0 0 0 / 0.35); }
   dialog::backdrop { background: rgb(0 0 0 / 0.45); backdrop-filter: blur(2px); }
   .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 0; }
   .dialog-head h2 { margin: 0; font-size: 20px; }

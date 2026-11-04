@@ -4,7 +4,7 @@
 
 use crate::profiles::{self, Profile};
 use crate::store::{self, Machine};
-use crate::{STYLE, escape, profile_options};
+use crate::{STYLE, escape};
 use maker_connect_protocol::MachineKind;
 
 const MACHINE_STYLE: &str = include_str!("machine.css");
@@ -927,27 +927,27 @@ fn connection(machine: &Machine) -> String {
 
 pub(crate) fn settings(machine: &Machine) -> String {
     let details = machine.details.clone().unwrap_or_default();
-    let mut options = format!(
-        r#"<option value=""{}>Recognise it from what it says</option>"#,
-        if machine.profile_chosen {
-            ""
-        } else {
-            " selected"
-        }
-    );
-    options += &profile_options(
+    // The profile: chosen from all the machines known, by searching (the shell's picker).
+    let chosen = machine
+        .profile
+        .as_deref()
+        .filter(|_| machine.profile_chosen)
+        .unwrap_or("");
+    let id = escape(&machine.id);
+    let name = escape(&machine.name);
+    let chosen = escape(chosen);
+    let auto = escape(
         machine
             .profile
             .as_deref()
-            .filter(|_| machine.profile_chosen),
+            .filter(|_| !machine.profile_chosen)
+            .unwrap_or(""),
     );
-    let id = escape(&machine.id);
-    let name = escape(&machine.name);
     let forms = format!(
         r#"<h4>Name</h4>
 <form method="post" action="{id}/name" data-async data-done="Renamed" data-rename><input name="name" value="{name}" aria-label="Name" maxlength="60" required><button>Rename</button></form>
 <h4>Profile</h4>
-<form method="post" action="{id}/profile" data-async data-done="Profile saved" data-then="reload"><select name="profile" aria-label="Machine profile">{options}</select><button>Save</button></form>
+<div class="picker in-card" data-picker data-action="{id}/profile" data-selected="{chosen}" data-auto="{auto}"></div>
 <h4>Remove</h4>
 <form method="post" action="{id}/remove" data-async data-done="Machine removed" data-confirm="Remove this machine from the space?" data-then="../"><button class="danger">Remove machine</button></form>"#
     );

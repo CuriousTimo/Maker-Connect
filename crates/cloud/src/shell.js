@@ -187,3 +187,93 @@
       }
     });
   }
+
+  // The machine picker: every machine profile known (hundreds), found by typing a brand or
+  // a model, narrowed by kind; each with its drawing and its size. In the add dialog it
+  // makes a virtual machine; on a machine's settings it chooses its profile.
+  {
+    let profiles = null;
+    const load = () => (profiles ??= fetch(`${ROOT}api/profiles`).then((r) => r.json()));
+    const KINDS = { fdm: "3D printer", laser: "Laser", label: "Label printer", cnc: "CNC" };
+    const size = (p) => {
+      if (p.kind === "label") return [...new Set(p.media.map((m) => m.width_mm))].sort((a, b) => a - b).join(", ") + " mm tape";
+      const [x, y, z] = p.build_volume_mm.map((v) => Math.round(v));
+      return z > 0 ? `${x} × ${y} × ${z} mm` : `${x} × ${y} mm`;
+    };
+    async function mount(el) {
+      const action = el.dataset.action, selected = el.dataset.selected || "", auto = el.dataset.auto;
+      const inSettings = auto !== undefined;
+      el.innerHTML = `<input type="search" class="picker-search" placeholder="Search machines: a brand, a model" aria-label="Search machines" autocomplete="off">
+        <div class="picker-kinds" role="group" aria-label="Kind"></div>
+        <ul class="picker-list" role="listbox"><li class="picker-none">Loading…</li></ul>`;
+      const search = el.querySelector(".picker-search"), kinds = el.querySelector(".picker-kinds"), list = el.querySelector(".picker-list");
+      const all = await load();
+      let kind = "", items = [], at = 0;
+      const counts = {};
+      for (const p of all) counts[p.kind] = (counts[p.kind] || 0) + 1;
+      kinds.innerHTML = [["", `All ${all.length}`], ...Object.keys(KINDS).filter((k) => counts[k]).map((k) => [k, `${KINDS[k]} ${counts[k]}`])]
+        .map(([k, t]) => `<button type="button" data-kind="${k}" aria-pressed="${k === kind}">${escapeHtml(t)}</button>`).join("");
+      function fill() {
+        const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        const found = all.filter((p) => (!kind || p.kind === kind) && words.every((w) => `${p.brand} ${p.model}`.toLowerCase().includes(w)));
+        // The chosen one first, then by brand and model.
+        found.sort((a, b) => (b.id === selected) - (a.id === selected) || a.brand.localeCompare(b.brand) || a.model.localeCompare(b.model, undefined, { numeric: true }));
+        items = found.slice(0, 60);
+        if (inSettings && !words.length) items.unshift({ id: "", auto: true });
+        at = Math.min(at, Math.max(items.length - 1, 0));
+        list.innerHTML = items.length ? items.map((p, n) => p.auto
+          ? `<li role="option" data-n="${n}" aria-selected="${n === at}" class="${selected === "" ? "chosen" : ""}"><span class="picker-auto">≈</span><span class="picker-text"><b>Recognise it from what it says</b><small>${auto ? `now: ${escapeHtml(all.find((x) => x.id === auto)?.model || auto)}` : "the profile follows what the machine reports"}</small></span></li>`
+          : `<li role="option" data-n="${n}" aria-selected="${n === at}" class="${p.id === selected ? "chosen" : ""}"><img src="${ROOT}profiles/${p.id}.svg" alt="" loading="lazy"><span class="picker-text"><b>${escapeHtml(p.brand)} ${escapeHtml(p.model)}</b><small>${escapeHtml(size(p))}${p.firmware_version ? ` · ${escapeHtml((p.firmware || "").replace(/^./, (c) => c.toUpperCase()))} ${escapeHtml(p.firmware_version)}` : ""}</small></span>${p.id === selected ? '<span class="picker-tag">chosen</span>' : ""}</li>`).join("")
+          + (found.length > items.length ? `<li class="picker-none">${found.length - items.length} more: type to narrow</li>` : "")
+          : '<li class="picker-none">No machine matches</li>';
+        list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+      }
+      async function pick(item) {
+        if (!item) return;
+        const body = new URLSearchParams({ profile: item.id });
+        if (!inSettings) {
+          // A virtual machine: made, then its page.
+          const form = Object.assign(document.createElement("form"), { method: "post", action });
+          form.innerHTML = `<input type="hidden" name="profile" value="${escapeHtml(item.id)}">`;
+          document.body.append(form);
+          form.submit();
+          return;
+        }
+        const response = await fetch(action, { method: "POST", body, headers: { "x-requested-with": "fetch" } });
+        if (!response.ok) { toast(`Not saved: ${await response.text()}`, "bad"); return; }
+        toast(item.auto ? "Recognised from what it says" : `Profile: ${item.brand} ${item.model}`);
+        setTimeout(() => location.reload(), 300);
+      }
+      search.addEventListener("input", () => { at = 0; fill(); });
+      search.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowDown") { at = Math.min(at + 1, items.length - 1); fill(); event.preventDefault(); }
+        if (event.key === "ArrowUp") { at = Math.max(at - 1, 0); fill(); event.preventDefault(); }
+        if (event.key === "Enter") { pick(items[at]); event.preventDefault(); }
+      });
+      list.addEventListener("click", (event) => pick(items[event.target.closest("[data-n]")?.dataset.n]));
+      kinds.addEventListener("click", (event) => {
+        const b = event.target.closest("[data-kind]");
+        if (!b) return;
+        kind = b.dataset.kind;
+        for (const x of kinds.children) x.setAttribute("aria-pressed", x === b);
+        at = 0;
+        fill();
+      });
+      fill();
+    }
+    // The page's own pickers come after the shell: found once the page is read.
+    const mountAll = () => { for (const el of document.querySelectorAll("[data-picker]:not([data-seen])")) {
+      el.dataset.seen = "1";
+      // In the add dialog: built when the dialog first opens.
+      const dialog = el.closest("dialog");
+      if (dialog) {
+        const once = () => { if (dialog.open && !el.dataset.ready) { el.dataset.ready = "1"; mount(el); } };
+        new MutationObserver(once).observe(dialog, { attributes: true, attributeFilter: ["open"] });
+        once();
+      } else {
+        mount(el);
+      }
+    } };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountAll);
+    else mountAll();
+  }

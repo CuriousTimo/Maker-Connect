@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of a 3D printer whose bed moves (a bed slinger)">
+  <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
+  <ellipse cx="80" cy="132" rx="58" ry="6" fill="#d3d0c8"/>
+  <!-- the frame: two uprights and the gantry across -->
+  <path d="M38 126V34M122 126V34" stroke="#3a3b3f" stroke-width="7" stroke-linecap="round"/>
+  <path d="M34 36h92" stroke="#3a3b3f" stroke-width="7" stroke-linecap="round"/>
+  <path d="M38 78h84" stroke="#4a4b50" stroke-width="5" stroke-linecap="round"/>
+  <!-- the head on the gantry -->
+  <rect x="70" y="66" width="22" height="22" rx="3" fill="#26272a"/>
+  <path d="M81 88v6" stroke="#9aa0a6" stroke-width="3"/>
+  <!-- the bed that moves, on its base -->
+  <path d="M28 120h104l-8 8H36z" fill="#3a3b3f"/>
+  <path d="M30 110h100l-6 8H36z" fill="#9aa0a6"/>
+  <rect x="62" y="100" width="22" height="10" rx="1.5" fill="#5fbfa9"/>
+</svg>

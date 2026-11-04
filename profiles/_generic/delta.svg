@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of a delta 3D printer: three columns, the head on arms">
+  <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
+  <ellipse cx="80" cy="136" rx="52" ry="6" fill="#d3d0c8"/>
+  <!-- three columns, a top and a base -->
+  <path d="M40 30v98M120 30v98M80 22v100" stroke="#3a3b3f" stroke-width="6" stroke-linecap="round"/>
+  <path d="M36 30h88M36 128h88" stroke="#3a3b3f" stroke-width="7" stroke-linecap="round"/>
+  <!-- the arms down to the head -->
+  <path d="M42 62l34 34M118 62l-34 34M80 50v40" stroke="#4a4b50" stroke-width="3" stroke-linecap="round"/>
+  <rect x="72" y="92" width="16" height="10" rx="2" fill="#26272a"/>
+  <!-- the round bed and a print -->
+  <ellipse cx="80" cy="120" rx="34" ry="5" fill="#9aa0a6"/>
+  <rect x="72" y="108" width="16" height="11" rx="1.5" fill="#5fbfa9"/>
+</svg>

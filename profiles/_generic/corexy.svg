@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of a 3D printer in a box frame (CoreXY)">
+  <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
+  <ellipse cx="80" cy="136" rx="56" ry="6" fill="#d3d0c8"/>
+  <!-- the box frame -->
+  <rect x="32" y="26" width="96" height="104" rx="4" fill="none" stroke="#3a3b3f" stroke-width="7"/>
+  <path d="M32 46h96" stroke="#3a3b3f" stroke-width="5"/>
+  <!-- the gantry and the head at the top -->
+  <path d="M38 52h84" stroke="#4a4b50" stroke-width="4" stroke-linecap="round"/>
+  <rect x="68" y="46" width="22" height="18" rx="3" fill="#26272a"/>
+  <path d="M79 64v6" stroke="#9aa0a6" stroke-width="3"/>
+  <!-- the bed that lowers, with a print on it -->
+  <path d="M40 98h80" stroke="#9aa0a6" stroke-width="6" stroke-linecap="round"/>
+  <rect x="68" y="80" width="22" height="16" rx="1.5" fill="#5fbfa9"/>
+</svg>

@@ -802,6 +802,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "maker-connect-import"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "maker-connect-label"
 version = "0.1.0"
 dependencies = [

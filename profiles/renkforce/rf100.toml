@@ -1,0 +1,18 @@
+# Made from Marlin's example configurations by
+# `cargo run -p maker-connect-import`: made again on each run. Delete the source
+# line to edit it by hand and keep it.
+brand = "Renkforce"
+model = "RF100"
+kind = "fdm"
+build_volume_mm = [105.0, 110.0, 105.0]
+bed_origin_mm = [0.0, 0.0]
+firmware = "marlin"
+max_nozzle_c = 245.0
+max_bed_c = 100.0
+extruders = 1
+firmware_version = "2.1.3"
+motion = "bedslinger"
+source = "marlin-configurations@ef42fa5"
+
+[detect]
+machine_types = ["RF100"]

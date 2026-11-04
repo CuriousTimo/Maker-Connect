@@ -1,0 +1,18 @@
+# Made from Marlin's example configurations by
+# `cargo run -p maker-connect-import`: made again on each run. Delete the source
+# line to edit it by hand and keep it.
+brand = "Geeetech"
+model = "MeCreator2"
+kind = "fdm"
+build_volume_mm = [160.0, 160.0, 162.0]
+bed_origin_mm = [0.0, 0.0]
+firmware = "marlin"
+max_nozzle_c = 260.0
+max_bed_c = 140.0
+extruders = 1
+firmware_version = "2.1.3"
+motion = "bedslinger"
+source = "marlin-configurations@ef42fa5"
+
+[detect]
+machine_types = ["MeCreator2"]

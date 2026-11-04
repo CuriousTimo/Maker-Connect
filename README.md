@@ -54,9 +54,11 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 - **Machine pages**: Overview, Control, Terminal (G-code and the machine's answers),
   Telemetry, Bed level (Prusa `G80`/`G81`, Marlin `G29`/`M420 V`, read the way the OctoPrint
   Bed Level Visualizer does), Settings.
-- **Machine profiles** (`profiles/`, one TOML file and one drawing per model): build volume,
-  bed, firmware, how a machine is recognised. Prusa MINI, MK2.5S, MK3S, Zaribo 320,
-  Ultimaker 3 Extended, Ortur Laser Master 2 Pro S2, DYMO LabelManager PnP (with its tapes).
+- **250 machine profiles of 85 brands** (`profiles/`, one TOML file per model): most 3D
+  printers made from [Marlin's example configurations](https://github.com/MarlinFirmware/Configurations)
+  (`scripts/import-profiles.sh`), recognised from what they say to `M115`; by hand the Prusas,
+  the Ortur laser and the DYMO with its tapes. Chosen with a searchable picker; listed in the
+  wiki's [Supported Machines](https://github.com/CuriousTimo/Maker-Connect/wiki/Supported-Machines).
 - **Virtual machines** for every profile, to try everything without a machine: printers home,
   heat, move, measure their bed and play files (ten times faster than real); virtual lasers
   run on LaserFoundry's simulated GRBL, through the same code as a real one; a virtual label
@@ -117,6 +119,8 @@ power; stay with a running machine.
 - [thermal-label](https://thermal-label.github.io/) (MIT): the DYMO LabelManager's protocol and
   its media list; [labelle](https://github.com/labelle-org/labelle) (Apache-2.0) for the same
   protocol in practice. Notes: [docs/integrations.md](docs/integrations.md).
+- [Marlin's example configurations](https://github.com/MarlinFirmware/Configurations)
+  (GPL-3.0): the facts (sizes, temperatures, names) the 3D printer profiles are made from.
 - [qrcode](https://crates.io/crates/qrcode) and [barcoders](https://crates.io/crates/barcoders)
   (both MIT OR Apache-2.0): QR codes and barcodes on labels.
 

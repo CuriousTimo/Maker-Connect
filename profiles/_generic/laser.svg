@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of a laser engraver">
+  <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
+  <ellipse cx="80" cy="124" rx="66" ry="8" fill="#d3d0c8"/>
+  <path d="M30 112h86l20-44H50z" fill="#d8c29d"/>
+  <path d="M20 116h98l26-56H46z" fill="none" stroke="#26272a" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M30 92h102" stroke="#26272a" stroke-width="7" stroke-linecap="round"/>
+  <rect x="70" y="64" width="20" height="30" rx="2.5" fill="#1f2023"/>
+  <path d="M80 94v9" stroke="#e8432a" stroke-width="1.6"/>
+  <circle cx="80" cy="104" r="2.2" fill="#e8432a"/>
+</svg>
