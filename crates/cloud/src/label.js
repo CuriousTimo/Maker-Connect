@@ -284,7 +284,7 @@
     if (!machine) return;
     const t = machine.online ? machine.telemetry : null;
     showState(machine);
-    setLive("cassette", t?.cassette == null ? "–" : t.cassette ? "Inserted" : "Empty");
+    setLive("cassette", t?.cassette == null ? "–" : t.cassette ? "Loaded" : "Empty");
     setLive("job", machine.job ? `${machine.job.file_name} (${machine.job.state})` : "–");
     setLive("problem", t?.problem || "");
   };

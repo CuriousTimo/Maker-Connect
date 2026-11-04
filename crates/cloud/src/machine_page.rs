@@ -431,7 +431,7 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
             "Cassette",
             "cassette",
             t.and_then(|t| t.cassette)
-                .map(|on| if on { "Inserted" } else { "Empty" }.to_owned()),
+                .map(|on| if on { "Loaded" } else { "Empty" }.to_owned()),
             "",
             "problem",
             t.and_then(|t| t.problem.clone()).unwrap_or_default(),
@@ -441,7 +441,9 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
             media.map(|m| m.width_mm.to_string()),
             "mm",
             "none",
-            media.map_or("say which under Label".to_owned(), |m| m.name.clone()),
+            media.map_or("say which under Label".to_owned(), |m| {
+                format!("{} · {}", m.name, m.id)
+            }),
         ) + &tile(
             "Job",
             "job",
