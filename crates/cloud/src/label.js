@@ -287,5 +287,9 @@
     setLive("cassette", t?.cassette == null ? "–" : t.cassette ? "Loaded" : "Empty");
     setLive("job", machine.job ? `${machine.job.file_name} (${machine.job.state})` : "–");
     setLive("problem", t?.problem || "");
+    // The battery, as the page says it on the server too (machine_page::battery_note).
+    const v = t?.battery_v;
+    setLive("battery_v", v == null ? "–" : v.toFixed(2));
+    setLive("battery_note", v == null ? "not reported" : v < 3.5 ? "too low to print reliably · reading to confirm" : v < 3.6 ? "low · reading to confirm" : "reading to confirm");
   };
 })();

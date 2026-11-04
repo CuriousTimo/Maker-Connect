@@ -72,6 +72,22 @@ pub fn columns_for_mm(mm: f64) -> usize {
     (mm / 25.4 * DPI).round() as usize
 }
 
+/// The battery's voltage, read from bytes 5 and 6 of a status answer as millivolts
+/// (`0d 6b` = 3435 mV). **Not confirmed:** found by reading the answers of one PnP
+/// (2026-11-04): they jitter a few millivolts, as a measured voltage does, and sit where an
+/// almost empty Li-ion cell would. None when the answer is short or the value is not one.
+pub fn battery_volts(raw: &[u8]) -> Option<f32> {
+    let mv = u16::from_be_bytes([*raw.get(4)?, *raw.get(5)?]);
+    (2500..=4500).contains(&mv).then(|| f32::from(mv) / 1000.0)
+}
+
+/// Below this (at rest) the battery is low: printing still works, but short of breath.
+pub const BATTERY_LOW_V: f32 = 3.6;
+/// Below this a label is not printed: the print head's current pulls a Li-ion cell this
+/// low under the point where the printer starts over (and feeds tape). Printing resumes
+/// above [`BATTERY_LOW_V`], so it does not flap around the line.
+pub const BATTERY_PRINT_MIN_V: f32 = 3.5;
+
 /// What the printer says it is doing: its status byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Status(pub u8);
@@ -156,7 +172,7 @@ pub use hid::{Printer, find, hex};
 
 #[cfg(feature = "hid")]
 mod hid {
-    use super::{STATUS_REQUEST, Status, Tape, encode};
+    use super::{STATUS_REQUEST, Status, Tape, battery_volts, encode};
     use crate::Label;
 
     const VENDOR: u16 = 0x0922;
@@ -198,6 +214,8 @@ mod hid {
         /// Its whole last answer to a status request (8 bytes): only the first is known
         /// (the status); the others are kept to find out what they say (the battery?).
         pub last_raw: Vec<u8>,
+        /// The answer last written to the log.
+        said_raw: Vec<u8>,
         /// When it was last asked, so that an idle printer is asked only now and then.
         pub asked_at: Option<std::time::Instant>,
     }
@@ -222,6 +240,7 @@ mod hid {
             product,
             last: None,
             last_raw: Vec::new(),
+            said_raw: Vec::new(),
             asked_at: None,
         };
         // Nothing is sent on opening: its status is asked when it prints.
@@ -263,10 +282,25 @@ mod hid {
             match self.device.read_timeout(&mut answer, 2000) {
                 Ok(n) if n > 0 => {
                     let raw = answer[..n.min(8)].to_vec();
-                    if raw != self.last_raw {
-                        println!("{} the DYMO answers: {}", clock(), hex(&raw));
-                        self.last_raw = raw;
+                    // Said when it changes, but not for the battery's few millivolts of jitter.
+                    let others = |r: &[u8]| {
+                        r.iter()
+                            .enumerate()
+                            .filter(|(i, _)| *i != 4 && *i != 5)
+                            .map(|(_, b)| *b)
+                            .collect::<Vec<_>>()
+                    };
+                    let volts = |r: &[u8]| battery_volts(r).unwrap_or(0.0);
+                    if others(&raw) != others(&self.said_raw)
+                        || (volts(&raw) - volts(&self.said_raw)).abs() >= 0.02
+                    {
+                        let battery = battery_volts(&raw)
+                            .map(|v| format!(" (battery {v:.2} V?)"))
+                            .unwrap_or_default();
+                        println!("{} the DYMO answers: {}{battery}", clock(), hex(&raw));
+                        self.said_raw = raw.clone();
                     }
+                    self.last_raw = raw;
                     let status = Status(answer[0]);
                     self.last = Some(status);
                     Ok(status)
@@ -338,6 +372,20 @@ mod tests {
         assert_eq!(&parts[0][6..9], &[0x1b, b'D', 4]);
         assert_eq!(&parts[0][9..14], &[0x16, 0, 0, 0, 0x02]);
         assert!(encode(&Label::blank(1, 40), tape).is_err());
+    }
+
+    #[test]
+    fn the_battery_is_read_from_the_answer() {
+        // As a PnP answered (2026-11-04): 3.435 V, a cell nearly empty.
+        let v = battery_volts(&[0x00, 0x00, 0x02, 0x64, 0x0d, 0x6b, 0x00, 0x00]).unwrap();
+        assert!((v - 3.435).abs() < 0.0005);
+        assert!(v < BATTERY_PRINT_MIN_V);
+        assert_eq!(battery_volts(&[0x40, 0x00, 0x12]), None, "too short");
+        assert_eq!(
+            battery_volts(&[0, 0, 0, 0, 0, 0, 0, 0]),
+            None,
+            "not a voltage"
+        );
     }
 
     #[test]

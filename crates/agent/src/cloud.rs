@@ -462,6 +462,8 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let agent = agent_info(&options.cloud);
     let mut next_look = Instant::now();
     let mut paired = None;
+    // A label printer's battery under the minimum to print (see `dymo::BATTERY_PRINT_MIN_V`).
+    let mut battery_too_low = false;
     // What the next report brings: how commands went, a mesh they produced, a job's end.
     let mut done: Vec<CommandDone> = Vec::new();
     let mut mesh = None;
@@ -528,15 +530,34 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     let status = printer.last;
                     telemetry.raw_status =
                         (!printer.last_raw.is_empty()).then(|| dymo::hex(&printer.last_raw));
-                    // No cassette: it waits for someone (attention), the reason said as
-                    // the problem; only a jammed cutter or its error bit is an error.
+                    // The battery: too low to print below the minimum, until it is back above
+                    // "low" (so it does not flap around the line).
+                    let battery = dymo::battery_volts(&printer.last_raw);
+                    telemetry.battery_v = battery;
+                    if let Some(v) = battery {
+                        if v < dymo::BATTERY_PRINT_MIN_V {
+                            battery_too_low = true;
+                        } else if v >= dymo::BATTERY_LOW_V {
+                            battery_too_low = false;
+                        }
+                    }
+                    // No cassette, or a battery too low: it waits for someone (attention),
+                    // the reason said as the problem; only a jammed cutter or its error bit
+                    // is an error.
                     telemetry.state = match status {
                         Some(s) if s.cutter_jammed() || s.error() => MachineState::Error,
                         Some(s) if !s.cassette() => MachineState::Attention,
+                        _ if battery_too_low => MachineState::Attention,
                         _ => MachineState::Idle,
                     };
                     telemetry.cassette = status.map(|s| s.cassette());
                     telemetry.problem = status.and_then(|s| s.problem()).map(str::to_owned);
+                    if telemetry.problem.is_none() && battery_too_low {
+                        telemetry.problem = Some(format!(
+                            "battery too low to print reliably ({:.2} V)",
+                            battery.unwrap_or_default()
+                        ));
+                    }
                     telemetry.identity = Some(Identity {
                         machine_type: Some(printer.product.clone()),
                         ..Identity::default()

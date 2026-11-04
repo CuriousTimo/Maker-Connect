@@ -224,6 +224,20 @@ fn tile(
     )
 }
 
+/// How a battery is doing, by its voltage (a Li-ion cell): as the label page's script says.
+fn battery_note(volts: Option<f32>) -> String {
+    match volts {
+        None => "not reported".to_owned(),
+        Some(v) if v < maker_connect_label::dymo::BATTERY_PRINT_MIN_V => {
+            "too low to print reliably · reading to confirm".to_owned()
+        }
+        Some(v) if v < maker_connect_label::dymo::BATTERY_LOW_V => {
+            "low · reading to confirm".to_owned()
+        }
+        Some(_) => "reading to confirm".to_owned(),
+    }
+}
+
 /// How a heater is doing, as the tiles say it (the script says it the same way).
 fn heat_note(now: Option<f32>, target: Option<f32>) -> String {
     match (now, target) {
@@ -448,6 +462,13 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
             media.map_or("say which under Label".to_owned(), |m| {
                 format!("{} · {}", m.name, m.id)
             }),
+        ) + &tile(
+            "Battery",
+            "battery_v",
+            t.and_then(|t| t.battery_v).map(|v| format!("{v:.2}")),
+            "V",
+            "battery_note",
+            battery_note(t.and_then(|t| t.battery_v)),
         ) + &tile(
             "Job",
             "job",

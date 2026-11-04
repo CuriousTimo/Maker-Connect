@@ -181,6 +181,9 @@ pub struct Telemetry {
     /// Why the machine cannot work now, in its own words ("no cassette").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
+    /// A battery-powered machine's battery, in volts (a DYMO LabelManager PnP's cell).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battery_v: Option<f32>,
     /// The machine's own status as it answered, in hex, where it is not yet understood
     /// in full (a DYMO's eight bytes), to find out what the rest says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
