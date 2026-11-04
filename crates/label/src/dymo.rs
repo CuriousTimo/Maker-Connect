@@ -72,21 +72,25 @@ pub fn columns_for_mm(mm: f64) -> usize {
     (mm / 25.4 * DPI).round() as usize
 }
 
-/// The battery's voltage, read from bytes 5 and 6 of a status answer as millivolts
-/// (`0d 6b` = 3435 mV). **Not confirmed:** found by reading the answers of one PnP
-/// (2026-11-04): they jitter a few millivolts, as a measured voltage does, and sit where an
-/// almost empty Li-ion cell would. None when the answer is short or the value is not one.
+/// The battery pack's voltage. The PnP's pack (DYMO S0895880) is 7.4 V: two Li-ion cells
+/// in series, 8.4 V full, about 6.4 V empty. Bytes 5 and 6 of a status answer read as
+/// millivolts (`0d 6b` = 3435) give half of that: one cell, or the pack through a divider.
+/// **Not confirmed:** found by reading the answers of one PnP (2026-11-04), whose pack from
+/// 2012 sat at 3.43 V a cell while charging: they jitter a few millivolts, as a measured
+/// voltage does. None when the answer is short or the value is not one.
 pub fn battery_volts(raw: &[u8]) -> Option<f32> {
     let mv = u16::from_be_bytes([*raw.get(4)?, *raw.get(5)?]);
-    (2500..=4500).contains(&mv).then(|| f32::from(mv) / 1000.0)
+    (2500..=4500)
+        .contains(&mv)
+        .then(|| 2.0 * f32::from(mv) / 1000.0)
 }
 
-/// Below this (at rest) the battery is low: printing still works, but short of breath.
-pub const BATTERY_LOW_V: f32 = 3.6;
-/// Below this a label is not printed: the print head's current pulls a Li-ion cell this
-/// low under the point where the printer starts over (and feeds tape). Printing resumes
+/// Below this (the pack, at rest; 3.6 V a cell) the battery is low: printing still works.
+pub const BATTERY_LOW_V: f32 = 7.2;
+/// Below this (3.5 V a cell) a label is not printed: the print head's current pulls the
+/// pack under the point where the printer starts over (and feeds tape). Printing resumes
 /// above [`BATTERY_LOW_V`], so it does not flap around the line.
-pub const BATTERY_PRINT_MIN_V: f32 = 3.5;
+pub const BATTERY_PRINT_MIN_V: f32 = 7.0;
 
 /// What the printer says it is doing: its status byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -292,7 +296,7 @@ mod hid {
                     };
                     let volts = |r: &[u8]| battery_volts(r).unwrap_or(0.0);
                     if others(&raw) != others(&self.said_raw)
-                        || (volts(&raw) - volts(&self.said_raw)).abs() >= 0.02
+                        || (volts(&raw) - volts(&self.said_raw)).abs() >= 0.04
                     {
                         let battery = battery_volts(&raw)
                             .map(|v| format!(" (battery {v:.2} V?)"))
@@ -376,9 +380,9 @@ mod tests {
 
     #[test]
     fn the_battery_is_read_from_the_answer() {
-        // As a PnP answered (2026-11-04): 3.435 V, a cell nearly empty.
+        // As a PnP answered (2026-11-04): 3.435 V a cell, 6.87 V the pack: nearly empty.
         let v = battery_volts(&[0x00, 0x00, 0x02, 0x64, 0x0d, 0x6b, 0x00, 0x00]).unwrap();
-        assert!((v - 3.435).abs() < 0.0005);
+        assert!((v - 6.87).abs() < 0.001);
         assert!(v < BATTERY_PRINT_MIN_V);
         assert_eq!(battery_volts(&[0x40, 0x00, 0x12]), None, "too short");
         assert_eq!(
