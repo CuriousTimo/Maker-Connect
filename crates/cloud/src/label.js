@@ -282,6 +282,18 @@
   render();
   document.fonts?.ready.then(render);
 
+  // How full a two-cell Li-ion pack is, from its voltage (as dymo::battery_percent).
+  function batteryPercent(packVolts) {
+    const curve = [[3.4, 0], [3.5, 5], [3.6, 15], [3.7, 30], [3.8, 50], [4.0, 80], [4.2, 100]];
+    const cell = packVolts / 2;
+    if (cell <= curve[0][0]) return 0;
+    for (let i = 1; i < curve.length; i++) {
+      const [v0, p0] = curve[i - 1], [v1, p1] = curve[i];
+      if (cell <= v1) return Math.round(p0 + ((p1 - p0) * (cell - v0)) / (v1 - v0));
+    }
+    return 100;
+  }
+
   // The printer, live.
   const setLive = (key, value) => {
     for (const el of document.querySelectorAll(`[data-live="${key}"]`)) el.textContent = value;
@@ -299,9 +311,16 @@
     setLive("cassette", t?.cassette == null ? "–" : t.cassette ? "Loaded" : "Empty");
     setLive("job", machine.job ? `${machine.job.file_name} (${machine.job.state})` : "–");
     setLive("problem", t?.problem || "");
-    // The battery, as the page says it on the server too (machine_page::battery_note).
+    // The battery, as the page says it on the server too (dymo::battery_percent,
+    // machine_page::battery_tile): how full, from its voltage.
     const v = t?.battery_v;
-    setLive("battery_v", v == null ? "–" : v.toFixed(2));
-    setLive("battery_note", v == null ? "not reported" : v < 7.0 ? "too low to print reliably · reading to confirm" : v < 7.2 ? "low · reading to confirm" : "reading to confirm");
+    const pct = v == null ? null : batteryPercent(v);
+    setLive("battery_pct", pct == null ? "–" : String(pct));
+    setLive("battery_note", v == null ? "not reported" : `${v.toFixed(2)} V · ${v < 7.0 ? "too low to print" : v < 7.2 ? "low" : "estimated"}`);
+    const battery = document.querySelector("[data-battery]");
+    if (battery) {
+      battery.dataset.level = pct == null ? "none" : pct < 15 ? "low" : pct < 30 ? "mid" : "ok";
+      battery.querySelector("[data-battery-fill]").setAttribute("width", ((pct || 0) * 19 / 100).toFixed(1));
+    }
   };
 })();

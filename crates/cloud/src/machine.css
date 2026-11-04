@@ -16,6 +16,14 @@
   .tile .value { margin-top: 6px; font-size: 34px; line-height: 1.1; font-weight: 700; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
   .tile .value small { margin-left: 6px; font-size: 16px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
   .tile .sub { margin-top: 8px; color: var(--muted); font-size: 14px; }
+  /* A battery that fills: green, amber under 30 %, red under 15 %. */
+  .battery-value { display: flex; align-items: center; gap: 12px; }
+  .battery { width: 52px; height: 26px; flex: none; }
+  .battery .shell { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+  .battery .nub { fill: var(--muted); }
+  .battery .charge { fill: var(--accent); transition: width .5s; }
+  .battery[data-level=mid] .charge { fill: var(--warn); }
+  .battery[data-level=low] .charge { fill: var(--bad); }
 
   /* Cards: a title, a line under it, what they hold. */
   .card { padding: 20px 24px 22px; min-width: 0; }

@@ -85,6 +85,32 @@ pub fn battery_volts(raw: &[u8]) -> Option<f32> {
         .then(|| 2.0 * f32::from(mv) / 1000.0)
 }
 
+/// How full the pack is, estimated from its voltage: a Li-ion cell's usual curve at rest
+/// (3.4 V empty, 3.7 V about 30 %, 4.2 V full), between its points in straight lines. An
+/// estimate: a cell under load or on the charger reads off it, and an old one more so.
+pub fn battery_percent(pack_volts: f32) -> u8 {
+    const CURVE: [(f32, f32); 7] = [
+        (3.40, 0.0),
+        (3.50, 5.0),
+        (3.60, 15.0),
+        (3.70, 30.0),
+        (3.80, 50.0),
+        (4.00, 80.0),
+        (4.20, 100.0),
+    ];
+    let cell = pack_volts / 2.0;
+    if cell <= CURVE[0].0 {
+        return 0;
+    }
+    for pair in CURVE.windows(2) {
+        let ((v0, p0), (v1, p1)) = (pair[0], pair[1]);
+        if cell <= v1 {
+            return (p0 + (p1 - p0) * (cell - v0) / (v1 - v0)).round() as u8;
+        }
+    }
+    100
+}
+
 /// Below this (the pack, at rest; 3.6 V a cell) the battery is low: printing still works.
 pub const BATTERY_LOW_V: f32 = 7.2;
 /// Below this (3.5 V a cell) a label is not printed: the print head's current pulls the
@@ -384,6 +410,10 @@ mod tests {
         let v = battery_volts(&[0x00, 0x00, 0x02, 0x64, 0x0d, 0x6b, 0x00, 0x00]).unwrap();
         assert!((v - 6.87).abs() < 0.001);
         assert!(v < BATTERY_PRINT_MIN_V);
+        assert_eq!(battery_percent(v), 2, "nearly empty");
+        assert_eq!(battery_percent(7.4), 30);
+        assert_eq!(battery_percent(8.4), 100);
+        assert_eq!(battery_percent(6.0), 0);
         assert_eq!(battery_volts(&[0x40, 0x00, 0x12]), None, "too short");
         assert_eq!(
             battery_volts(&[0, 0, 0, 0, 0, 0, 0, 0]),

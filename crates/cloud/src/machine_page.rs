@@ -223,18 +223,33 @@ fn tile(
     )
 }
 
-/// How a battery is doing, by its voltage (a Li-ion cell): as the label page's script says.
+/// How a battery is doing, by its voltage: as the label page's script says it.
 fn battery_note(volts: Option<f32>) -> String {
+    use maker_connect_label::dymo::{BATTERY_LOW_V, BATTERY_PRINT_MIN_V};
     match volts {
         None => "not reported".to_owned(),
-        Some(v) if v < maker_connect_label::dymo::BATTERY_PRINT_MIN_V => {
-            "too low to print reliably · reading to confirm".to_owned()
-        }
-        Some(v) if v < maker_connect_label::dymo::BATTERY_LOW_V => {
-            "low · reading to confirm".to_owned()
-        }
-        Some(_) => "reading to confirm".to_owned(),
+        Some(v) if v < BATTERY_PRINT_MIN_V => format!("{v:.2} V · too low to print"),
+        Some(v) if v < BATTERY_LOW_V => format!("{v:.2} V · low"),
+        Some(v) => format!("{v:.2} V · estimated"),
     }
+}
+
+/// A battery's tile: how full, as a percentage and a battery that fills, green, amber
+/// under 30 %, red under 15 % (the label page's script keeps it live).
+fn battery_tile(volts: Option<f32>) -> String {
+    let percent = volts.map(maker_connect_label::dymo::battery_percent);
+    let level = match percent {
+        None => "none",
+        Some(p) if p < 15 => "low",
+        Some(p) if p < 30 => "mid",
+        Some(_) => "ok",
+    };
+    let fill = f32::from(percent.unwrap_or(0)) * 19.0 / 100.0;
+    format!(
+        r#"<div class="tile"><div class="label">Battery</div><div class="value battery-value"><svg class="battery" data-battery data-level="{level}" viewBox="0 0 28 14" aria-hidden="true"><rect x="1" y="1" width="23" height="12" rx="2.5" class="shell"/><rect x="25" y="4.5" width="2" height="5" rx="1" class="nub"/><rect x="3" y="3" width="{fill:.1}" height="8" rx="1.2" class="charge" data-battery-fill/></svg><span data-live="battery_pct">{pct}</span><small>%</small></div><div class="sub" data-live="battery_note">{note}</div></div>"#,
+        pct = percent.map_or("–".to_owned(), |p| p.to_string()),
+        note = escape(&battery_note(volts)),
+    )
 }
 
 /// How a heater is doing, as the tiles say it (the script says it the same way).
@@ -461,21 +476,15 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
             media.map_or("say which under Label".to_owned(), |m| {
                 format!("{} · {}", m.name, m.id)
             }),
-        ) + &tile(
-            "Battery",
-            "battery_v",
-            t.and_then(|t| t.battery_v).map(|v| format!("{v:.2}")),
-            "V",
-            "battery_note",
-            battery_note(t.and_then(|t| t.battery_v)),
-        ) + &tile(
-            "Job",
-            "job",
-            machine.job.as_ref().map(|j| j.file_name.clone()),
-            "",
-            "none",
-            String::new(),
-        )
+        ) + &battery_tile(t.and_then(|t| t.battery_v))
+            + &tile(
+                "Job",
+                "job",
+                machine.job.as_ref().map(|j| j.file_name.clone()),
+                "",
+                "none",
+                String::new(),
+            )
     } else if heats(machine) {
         heater_tiles(machine)
             + &tile(
