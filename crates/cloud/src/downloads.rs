@@ -68,10 +68,11 @@ fn build(name: &str) -> Option<Build> {
 
 impl Build {
     fn title(&self) -> &'static str {
-        match self.os {
-            "windows" => "Windows",
-            "macos" => "macOS",
-            _ => "Linux",
+        match (self.os, self.arch) {
+            ("windows", _) => "Windows",
+            ("macos", _) => "macOS",
+            ("linux", "aarch64") => "Linux ARM64",
+            _ => "Linux x86-64",
         }
     }
 
@@ -79,8 +80,9 @@ impl Build {
         match (self.os, self.arch) {
             ("macos", "aarch64") => "Apple silicon (M1 and later)",
             ("macos", _) => "Intel",
-            ("linux", "aarch64") => "ARM 64-bit: Orange Pi Zero3, Raspberry Pi 4 and 5",
+            ("linux", "aarch64") => "Orange Pi Zero3, Raspberry Pi 4 and 5",
             (_, "aarch64") => "ARM 64-bit",
+            ("linux", _) => "A PC, a NAS, a mini PC",
             _ => "64-bit (Intel, AMD)",
         }
     }
@@ -211,13 +213,16 @@ async fn page(State(store): State<Shared>, headers: HeaderMap) -> Response {
 {STYLE}
   .intro {{ color: var(--muted); max-width: 720px; }}
   .note {{ color: var(--muted); font-size: 14px; }}
-  .builds {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin: 20px 0; }}
-  .build {{ position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }}
-  .build pre {{ flex: 1; }}
-  .build .copy {{ align-self: flex-start; }}
+  .builds {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 0 16px; margin: 20px 0; row-gap: 0; }}
+  .builds > .build {{ margin-bottom: 16px; }}
+  /* Every card in a row shares its rows (subgrid): head, version, button, how, command,
+     copy; so the buttons line up whatever the texts above them. */
+  .build {{ position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; display: grid; grid-template-rows: subgrid; grid-row: span 6; gap: 12px; align-content: start; min-width: 0; }}
+  .build pre {{ align-self: stretch; }}
+  .build .copy {{ justify-self: start; align-self: start; }}
   .build.mine {{ border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }}
   /* The same height in every card, so the buttons under it line up. */
-  .build-head {{ display: flex; align-items: center; gap: 14px; min-height: 56px; }}
+  .build-head {{ display: flex; align-items: center; gap: 14px; }}
   .build-head h3 {{ margin: 0; font-size: 18px; }}
   .build-head p {{ margin: 2px 0 0; color: var(--muted); font-size: 14px; }}
   .os-icon {{ width: 48px; height: 48px; flex: none; display: grid; place-items: center; border-radius: 12px; background: var(--bg); color: var(--ink); }}
