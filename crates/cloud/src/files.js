@@ -84,14 +84,14 @@
       <td class="num">${cell(m.filament_type ? `${m.filament_type} ${filament}`.trim() : filament)}</td>
       <td class="num">${cell(m.layer_height_mm != null ? `${m.layer_height_mm} mm` : null)}</td>
       <td class="num">${ago(f.uploaded_at)}<small class="muted"> · ${bytes(f.size)}</small></td>
-      <td class="num">${last ? `${esc(machineName(last.machine_id))}, ${ago(last.at)}` : '<span class="muted">not yet</span>'}</td>
+      <td class="num clip" title="${last ? esc(`${machineName(last.machine_id)}, ${ago(last.at)}`) : ""}">${last ? `${esc(machineName(last.machine_id))}<small class="muted"> · ${ago(last.at)}</small>` : '<span class="muted">not yet</span>'}</td>
       <td class="row-actions"><a href="files/${encodeURIComponent(f.id)}/download" title="Download" aria-label="Download"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v8.5M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a><button type="button" data-remove title="Remove" aria-label="Remove"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.6 6.5v5M9.4 6.5v5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>
       <td><form data-print>
         <select name="machine" aria-label="Machine to print on"${f.machines.length ? "" : " disabled"}>
           <option value="">${f.machines.length ? (ready ? "Print on…" : "No machine free") : "No machines"}</option>${options}
         </select>
-        ${m.kind === "laser" ? `<button type="button" class="ghost" data-frame${ready ? "" : " disabled"} title="Run the outline with the laser off">Frame</button>` : ""}
-        <button${ready ? "" : " disabled"}>${m.kind === "laser" ? "Start" : "Print"}</button>
+        ${m.kind === "laser" ? `<button type="button" class="ghost icon" data-frame${ready ? "" : " disabled"} title="Frame: run the outline with the laser off" aria-label="Frame"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.5 2"/></svg></button>` : ""}
+        <button class="icon"${ready ? "" : " disabled"} title="${m.kind === "laser" ? "Start" : "Print"}" aria-label="${m.kind === "laser" ? "Start" : "Print"}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L12.8 8z" fill="currentColor"/></svg></button>
       </form><span class="note" data-note role="status"></span></td>
     </tr>`;
   }
@@ -106,7 +106,8 @@
   const sort = document.querySelector("[data-sort]");
   const saved = (() => { try { return JSON.parse(localStorage.getItem("files-view")) || {}; } catch { return {}; } })();
   let kind = saved.kind || "";
-  let view = saved.view === "list" ? "list" : "cards";
+  // The list is the default; cards when chosen.
+  let view = saved.view === "cards" ? "cards" : "list";
   sort.value = saved.sort || "new";
   const save = () => {
     try {
@@ -181,7 +182,7 @@
       : !shown.length
         ? '<p class="empty">No files match.</p>'
         : view === "list"
-          ? `<div class="table-wrap"><table class="file-table"><thead><tr><th></th><th></th><th>File</th><th>Sliced for</th><th>Time</th><th>Material</th><th>Layer</th><th>Uploaded</th><th>Last printed</th><th></th><th></th></tr></thead><tbody>${shown.map(row).join("")}</tbody></table></div>`
+          ? `<div class="table-wrap"><table class="file-table"><colgroup><col class="c-pick"><col class="c-thumb"><col><col class="c-sliced"><col class="c-time"><col class="c-material"><col class="c-layer"><col class="c-uploaded"><col class="c-printed"><col class="c-icons"><col class="c-print"></colgroup><thead><tr><th></th><th></th><th>File</th><th>Sliced for</th><th>Time</th><th>Material</th><th>Layer</th><th>Uploaded</th><th>Last printed</th><th></th><th></th></tr></thead><tbody>${shown.map(row).join("")}</tbody></table></div>`
           : shown.map(card).join("");
     showSelection();
   }

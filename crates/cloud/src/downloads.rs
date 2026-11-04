@@ -156,7 +156,7 @@ async fn page(State(store): State<Shared>, headers: HeaderMap) -> Response {
                     arch_title = b.arch_title(),
                     size = megabytes(*size),
                     release = on_offer.as_ref().map_or(String::new(), |b| format!(
-                        r#"<p class="release"><b>Version {}</b> · build <code>{}</code> · {}</p>"#,
+                        r#"<p class="release"><b>Version {}</b> · build <code>{}</code><br>built {}</p>"#,
                         escape(b.version.as_deref().unwrap_or("?")),
                         escape(&b.commit),
                         escape(&b.built)
@@ -209,18 +209,21 @@ async fn page(State(store): State<Shared>, headers: HeaderMap) -> Response {
   .intro {{ color: var(--muted); max-width: 720px; }}
   .note {{ color: var(--muted); font-size: 14px; }}
   .builds {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin: 20px 0; }}
-  .build {{ background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; display: grid; gap: 12px; align-content: start; min-width: 0; }}
+  .build {{ position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }}
+  .build pre {{ flex: 1; }}
+  .build .copy {{ align-self: flex-start; }}
   .build.mine {{ border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }}
-  .build-head {{ display: flex; align-items: center; gap: 14px; }}
+  /* The same height in every card, so the buttons under it line up. */
+  .build-head {{ display: flex; align-items: center; gap: 14px; min-height: 56px; }}
   .build-head h3 {{ margin: 0; font-size: 18px; }}
   .build-head p {{ margin: 2px 0 0; color: var(--muted); font-size: 14px; }}
   .os-icon {{ width: 48px; height: 48px; flex: none; display: grid; place-items: center; border-radius: 12px; background: var(--bg); color: var(--ink); }}
   .os-icon svg {{ width: 30px; height: 30px; }}
   .os-icon.windows {{ color: #2f7fd1; }}
-  .yours {{ margin-left: auto; align-self: start; white-space: nowrap; padding: 2px 8px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 15%, transparent); font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--accent); }}
+  .yours {{ position: absolute; top: -11px; right: 16px; white-space: nowrap; background: var(--card) !important; border: 1px solid var(--accent); padding: 2px 8px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 15%, transparent); font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--accent); }}
   .get {{ display: flex; justify-content: space-between; align-items: baseline; padding: 10px 14px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; text-decoration: none; }}
   .get small {{ font-weight: 400; opacity: .85; }}
-  .release {{ margin: 0; font-size: 14px; color: var(--muted); }}
+  .release {{ margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
   .release b {{ color: var(--ink); }}
   .how {{ margin: 0; color: var(--muted); font-size: 14px; }}
   .build pre {{ margin: 0; padding: 10px 12px; background: var(--bg); border-radius: 8px; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }}

@@ -1,9 +1,13 @@
 name: CI
 
+# Day-to-day checks run locally (fmt, clippy, tests, docs; scripts/build-downloads.sh for
+# the agent). CI runs only for beta tags, pull requests and manual runs, not for every push
+# to main: it costs budget.
 on:
   push:
-    branches: [main]
+    tags: ["v*-beta*"]
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
