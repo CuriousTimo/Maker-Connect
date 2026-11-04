@@ -235,6 +235,56 @@ fn open_machine(options: &Options) -> Option<Machine> {
     }
 }
 
+/// Whether the cloud answers, said when it changes rather than at every report: once when it
+/// is lost, every minute while it stays away, and when it is back.
+struct CloudLink {
+    lost_at: Option<Instant>,
+    said_at: Instant,
+}
+
+impl CloudLink {
+    fn new() -> Self {
+        Self {
+            lost_at: None,
+            said_at: Instant::now(),
+        }
+    }
+
+    fn lost(&mut self, why: &str) {
+        match self.lost_at {
+            None => {
+                println!("cloud not reached: {why} (trying again every few seconds)");
+                self.lost_at = Some(Instant::now());
+                self.said_at = Instant::now();
+            }
+            Some(since) if self.said_at.elapsed() >= Duration::from_secs(60) => {
+                println!(
+                    "cloud still not reached after {}: {why}",
+                    how_long(since.elapsed())
+                );
+                self.said_at = Instant::now();
+            }
+            Some(_) => {}
+        }
+    }
+
+    fn reached(&mut self) {
+        if let Some(since) = self.lost_at.take() {
+            println!("cloud reached again after {}", how_long(since.elapsed()));
+        }
+    }
+}
+
+/// "45 s", "3 min 20 s", "2 h 5 min".
+fn how_long(time: Duration) -> String {
+    let s = time.as_secs();
+    match s {
+        s if s < 60 => format!("{s} s"),
+        s if s < 3600 => format!("{} min {} s", s / 60, s % 60),
+        s => format!("{} h {} min", s / 3600, s % 3600 / 60),
+    }
+}
+
 /// The computer the agent runs on: its name, and its address towards the cloud (the one
 /// its reports leave from: a UDP socket "connected" to the cloud sends nothing).
 fn agent_info(cloud: &str) -> protocol::AgentInfo {
@@ -382,9 +432,22 @@ fn open_printer(options: &Options) -> Option<(marlin::Printer<Link>, Known)> {
 
 pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let options = options(args)?;
+    let mut cloud = CloudLink::new();
+    // A first run with the cloud away waits for it, rather than giving up.
     let mut registered = match kept(&options) {
         Some(registered) => registered,
-        None => register(&options)?,
+        None => loop {
+            match register(&options) {
+                Ok(registered) => {
+                    cloud.reached();
+                    break registered;
+                }
+                Err(error) => {
+                    cloud.lost(&error.to_string());
+                    std::thread::sleep(REPORT_EVERY);
+                }
+            }
+        },
     };
     println!(
         "{} reports to {} as machine {}",
@@ -479,7 +542,18 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             .send_json(&telemetry);
         match sent {
             Ok(response) => {
-                let reply: TelemetryReply = response.into_json()?;
+                // An answer that does not read (a cloud restarting behind a proxy): try again.
+                let reply: TelemetryReply = match response.into_json() {
+                    Ok(reply) => {
+                        cloud.reached();
+                        reply
+                    }
+                    Err(error) => {
+                        cloud.lost(&format!("its answer did not read: {error}"));
+                        std::thread::sleep(REPORT_EVERY);
+                        continue;
+                    }
+                };
                 for command in &reply.commands {
                     let outcome = match machine.as_mut() {
                         Some(Machine::Marlin(printer, _)) => carry_out(printer, &command.gcode),
@@ -561,11 +635,17 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             }
             // The cloud no longer knows this agent (its machine was removed): start over.
             Err(ureq::Error::Status(401, _)) => {
+                cloud.reached();
                 println!("the cloud does not know this machine any more: registering again");
-                registered = register(&options)?;
-                paired = None;
+                match register(&options) {
+                    Ok(again) => {
+                        registered = again;
+                        paired = None;
+                    }
+                    Err(error) => cloud.lost(&format!("registering again failed: {error}")),
+                }
             }
-            Err(error) => println!("cloud not reached: {error}"),
+            Err(error) => cloud.lost(&error.to_string()),
         }
         // A job reports more often, so its progress moves on the page.
         let busy = matches!(&machine, Some(Machine::Grbl(laser)) if laser.running().is_some());
@@ -593,4 +673,16 @@ fn carry_out<L: std::io::Read + std::io::Write>(
     }
     let mesh = marlin::mesh(&said);
     Ok((said, mesh))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn durations_read_well() {
+        assert_eq!(how_long(Duration::from_secs(45)), "45 s");
+        assert_eq!(how_long(Duration::from_secs(200)), "3 min 20 s");
+        assert_eq!(how_long(Duration::from_secs(7500)), "2 h 5 min");
+    }
 }
