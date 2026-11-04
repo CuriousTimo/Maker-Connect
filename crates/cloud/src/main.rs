@@ -23,6 +23,8 @@ mod machine_page;
 mod profiles;
 mod prusa_connect;
 mod simplyprint;
+mod spoolman;
+mod spoolmandb;
 mod stock;
 mod store;
 mod virtual_grbl;
@@ -72,6 +74,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if reread > 0 {
         println!("read {reread} kept files again");
     }
+    // SpoolmanDB, kept beside the uploaded files and fetched every hour.
+    spoolmandb::start(opened.files_dir.join("spoolmandb"));
     let store = Arc::new(Mutex::new(opened));
     tokio::spawn(virtual_machines::run(store.clone()));
     let listener = tokio::net::TcpListener::bind(&listen).await?;
@@ -113,6 +117,8 @@ pub fn app(store: Shared) -> Router {
         .route("/virtual", post(add_virtual))
         .merge(prusa_connect::routes())
         .merge(simplyprint::routes())
+        .merge(spoolman::routes())
+        .merge(spoolmandb::routes())
         .route("/klipper", post(add_klipper))
         .merge(files::routes())
         .merge(downloads::routes())
@@ -210,19 +216,22 @@ async fn telemetry(
     match store.report(token, &report) {
         Ok(Some(space)) => {
             // No commands while a job runs, or while the machine is busy with one (an agent
-            // says so while a long command runs): one at a time.
-            let commands =
-                if report.job_id.is_some() || report.state == protocol::MachineState::Busy {
-                    Vec::new()
-                } else {
-                    match store.next_command(token) {
-                        Ok(next) => next
-                            .map(|(id, gcode)| protocol::MachineCommand { id, gcode })
-                            .into_iter()
-                            .collect(),
-                        Err(error) => return failed(error),
-                    }
-                };
+            // says so while a long command runs), or waits for someone at it: one at a time.
+            let held = matches!(
+                report.state,
+                protocol::MachineState::Busy | protocol::MachineState::Attention
+            );
+            let commands = if report.job_id.is_some() || held {
+                Vec::new()
+            } else {
+                match store.next_command(token) {
+                    Ok(next) => next
+                        .map(|(id, gcode)| protocol::MachineCommand { id, gcode })
+                        .into_iter()
+                        .collect(),
+                    Err(error) => return failed(error),
+                }
+            };
             let (job, job_control) = match agent_job(&mut store, token, &report) {
                 Ok(job) => job,
                 Err(error) => return failed(error),

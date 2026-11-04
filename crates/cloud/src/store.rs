@@ -318,6 +318,17 @@ pub struct Store {
     history: std::collections::HashMap<String, std::collections::VecDeque<Sample>>,
     /// A signal whenever a machine changes, for the pages that show them live.
     changes: tokio::sync::broadcast::Sender<()>,
+    /// A vendor, filament or spool added, changed or removed: for Spoolman's WebSockets.
+    spoolman: tokio::sync::broadcast::Sender<SpoolmanEvent>,
+}
+
+/// A change to Spoolman's data: `spool` 7 `updated`. A removed one carries what it was.
+#[derive(Debug, Clone)]
+pub struct SpoolmanEvent {
+    pub resource: &'static str,
+    pub kind: &'static str,
+    pub id: i64,
+    pub was: Option<serde_json::Value>,
 }
 
 impl Store {
@@ -365,6 +376,9 @@ impl Store {
         )?;
         for (column, definition) in [
             ("from_line", "INTEGER"),
+            // What a job used, and of which spool (counted off when it ends).
+            ("used", "REAL"),
+            ("spool_id", "INTEGER"),
             ("restart_line", "INTEGER"),
             // When someone took a finished print off the bed.
             ("taken_at", "INTEGER"),
@@ -459,12 +473,37 @@ impl Store {
             next_command: (now() % 1_000_000_000) as u32,
             history: Default::default(),
             changes: tokio::sync::broadcast::channel(16).0,
+            spoolman: tokio::sync::broadcast::channel(256).0,
         })
     }
 
     /// Signals each change to a machine from now on (some may be merged into one).
     pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<()> {
         self.changes.subscribe()
+    }
+
+    /// Spoolman's data changed: `spool` 7 `updated`.
+    pub(crate) fn spoolman_event(&self, resource: &'static str, kind: &'static str, id: i64) {
+        let _ = self.spoolman.send(SpoolmanEvent {
+            resource,
+            kind,
+            id,
+            was: None,
+        });
+    }
+
+    /// One of Spoolman's things removed, with what it was.
+    pub(crate) fn spoolman_removed(&self, resource: &'static str, id: i64, was: serde_json::Value) {
+        let _ = self.spoolman.send(SpoolmanEvent {
+            resource,
+            kind: "deleted",
+            id,
+            was: Some(was),
+        });
+    }
+
+    pub fn subscribe_spoolman(&self) -> tokio::sync::broadcast::Receiver<SpoolmanEvent> {
+        self.spoolman.subscribe()
     }
 
     pub(crate) fn changed(&self) {
@@ -772,7 +811,104 @@ impl Store {
              WHERE id = ?4",
             params![state.name(), reason, now, id],
         )?;
+        if matches!(
+            state,
+            JobState::Finished | JobState::Stopped | JobState::Failed
+        ) {
+            self.count_off(id, state)?;
+        }
         self.changed();
+        Ok(())
+    }
+
+    /// A job that ended counts what it used off the spool loaded in its machine: all of
+    /// what its file says when it finished, the part it got through when it stopped. Not when
+    /// something else counted while it ran (Moonraker's `[spoolman]` does, as it prints).
+    fn count_off(&mut self, id: i64, state: JobState) -> rusqlite::Result<()> {
+        let Some(job) = self.job(id)? else {
+            return Ok(());
+        };
+        let found: Option<(i64, i64, f64, f64, Option<String>)> = self
+            .db
+            .query_row(
+                "SELECT s.id, s.space_id, f.density, f.diameter, f.unit FROM spool s
+                 JOIN filament f ON f.id = s.filament_id
+                 WHERE s.machine = ?1 AND s.archived = 0",
+                [&job.machine_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .optional()?;
+        let Some((spool, space, density, diameter, unit)) = found else {
+            return Ok(());
+        };
+        let counted_already: bool = self.db.query_row(
+            "SELECT COUNT(*) > 0 FROM movements WHERE item = ?1 AND kind = 'used' AND note IS NULL AND at >= ?2",
+            params![crate::stock::spool_code(spool), job.started_at.unwrap_or(job.created_at)],
+            |r| r.get(0),
+        )?;
+        if counted_already {
+            return Ok(());
+        }
+        let Some(file) = self.file(space, &job.file_id)? else {
+            return Ok(());
+        };
+        let unit = unit.unwrap_or_else(|| "g".to_owned());
+        // A label: its length, and a lead before and after on the tape.
+        let whole = if unit == "m" {
+            let dpi = self
+                .machine(space, &job.machine_id)?
+                .and_then(|m| m.profile)
+                .and_then(|p| crate::profiles::find(&p))
+                .and_then(|p| p.dpi)
+                .unwrap_or(180.0);
+            file.meta
+                .label_dots
+                .map(|[w, _]| (f64::from(w) / dpi * 25.4 + 16.0) / 1000.0)
+        } else {
+            file.meta.filament_g.or_else(|| {
+                // Metres as grams: the length's volume times the density.
+                let area = std::f64::consts::PI * (diameter / 2.0).powi(2);
+                file.meta
+                    .filament_m
+                    .map(|m| m * 1000.0 * area * density / 1000.0)
+            })
+        };
+        let Some(whole) = whole.filter(|w| *w > 0.0) else {
+            return Ok(());
+        };
+        let share = match state {
+            JobState::Finished => 1.0,
+            // As far as it got: its last progress.
+            _ => self
+                .machine(space, &job.machine_id)?
+                .and_then(|m| m.telemetry)
+                .and_then(|t| t.job)
+                .filter(|j| j.total > 0)
+                .map_or(0.0, |j| (j.done as f64 / j.total as f64).clamp(0.0, 1.0)),
+        };
+        let used = whole * share;
+        if used <= 0.0 {
+            return Ok(());
+        }
+        let t = now();
+        self.db.execute(
+            "UPDATE spool SET used_weight = MAX(used_weight + ?1, 0), first_used = COALESCE(first_used, ?2),
+                 last_used = ?2 WHERE id = ?3",
+            params![used, t, spool],
+        )?;
+        self.db.execute(
+            "UPDATE jobs SET used = ?1, spool_id = ?2 WHERE id = ?3",
+            params![used, spool, id],
+        )?;
+        self.movement(
+            space,
+            &crate::stock::spool_code(spool),
+            "used",
+            Some(-used),
+            Some(&job.machine_id),
+            Some(&format!("job {}", job.file_name)),
+        )?;
+        self.spoolman_event("spool", "updated", spool);
         Ok(())
     }
 
@@ -1523,6 +1659,63 @@ mod tests {
         assert_eq!(
             store.machine(space, &printer).unwrap().unwrap().out_of_use,
             None
+        );
+    }
+
+    /// A finished print counts its filament off the loaded spool; a stopped one its part.
+    #[test]
+    fn a_job_counts_its_filament_off_the_loaded_spool() {
+        let mut store = Store::open(":memory:").unwrap();
+        let (space, _) = store.default_space().unwrap();
+        let printer = device(&mut store, space, "MINI");
+        let pla = crate::stock::Material {
+            id: String::new(),
+            kind: "filament".into(),
+            brand: "Prusament".into(),
+            name: "PLA Galaxy Black".into(),
+            color: None,
+            color_name: None,
+            ink: None,
+            unit: "g".into(),
+            package: Some(1000.0),
+            ean: None,
+            minimum: None,
+            media: None,
+            width_mm: None,
+            diameter_mm: Some(1.75),
+            density_g_cm3: Some(1.24),
+            spool_g: None,
+            nozzle_c: None,
+            bed_c: None,
+            source: None,
+        };
+        let material = store.add_material(space, pla).unwrap();
+        let spool = store
+            .receive(space, &material, 1, None)
+            .unwrap()
+            .unwrap()
+            .remove(0);
+        store.load_item(space, &spool, &printer).unwrap().unwrap();
+        let meta = crate::gcode::FileMeta {
+            filament_g: Some(12.5),
+            ..crate::gcode::FileMeta::default()
+        };
+        store
+            .add_file(space, "f1", "cube.gcode", 10, &meta)
+            .unwrap();
+        let file = store.file(space, "f1").unwrap().unwrap();
+        let job = store
+            .add_job(space, &printer, &file, None)
+            .unwrap()
+            .unwrap();
+        store.set_job(job, JobState::Printing, None).unwrap();
+        store.set_job(job, JobState::Finished, None).unwrap();
+        let left = store.items(space).unwrap()[0].amount;
+        assert_eq!(left, 987.5);
+        let last = &store.movements(space, &spool).unwrap()[0];
+        assert_eq!(
+            (last.kind.as_str(), last.note.as_deref()),
+            ("used", Some("job cube.gcode"))
         );
     }
 

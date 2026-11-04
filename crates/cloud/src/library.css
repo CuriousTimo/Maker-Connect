@@ -1,0 +1,141 @@
+  /* Materials: a library of spools (a list beside an inspector), a board of locations. */
+  main.library-page { max-width: 1320px; }
+  /* Hidden is hidden, whatever display a part has. */
+  .library-page [hidden], .stock-dialog [hidden] { display: none !important; }
+  .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+  .page-head h2 { margin: 0; }
+  .subtitle { margin: 4px 0 0; color: var(--muted); max-width: 70ch; }
+  .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  button.small { padding: 4px 10px; font-size: 13px; }
+  button.danger { background: var(--bad); }
+  button.link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+  .muted { color: var(--muted); }
+  .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  code { font: 600 13px ui-monospace, Menlo, monospace; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 18px 0 14px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px; }
+  .tile .label { color: var(--muted); font-size: 13px; }
+  .tile .value { font-size: 26px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .tile .sub { color: var(--muted); font-size: 13px; }
+  .tile .sub.low { color: var(--warn); font-weight: 600; }
+
+  /* The toolbar: the views, search (and scan), group, sort, used-up ones. */
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 14px; }
+  .views { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .views button { background: transparent; color: var(--muted); border-radius: 0; padding: 7px 14px; font-weight: 600; }
+  .views button[aria-selected=true] { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--ink); }
+  .search { flex: 1 1 260px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .search svg { width: 18px; height: 18px; fill: none; stroke: var(--muted); stroke-width: 1.8; flex: none; }
+  .search input { flex: 1; border: 0; background: transparent; padding: 9px 0; outline: none; font-size: 15px; min-width: 0; }
+  .search .camera { background: none; border: 0; padding: 4px; color: var(--muted); display: grid; }
+  .search .camera svg { stroke: currentColor; }
+  .camera-view { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 12px; background: #000; }
+  a.button { display: inline-block; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); color: var(--ink); text-decoration: none; font-weight: 600; font-size: 14px; }
+  .pick { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
+
+  /* Two panes: the list, and what is chosen beside it. */
+  .library { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, 1fr); gap: 16px; align-items: start; }
+  .list { display: grid; gap: 8px; min-width: 0; }
+  .inspector { position: sticky; top: 64px; max-height: calc(100vh - 84px); overflow-y: auto; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+  .inspector .empty { margin: 30px 0; text-align: center; }
+  .sheet-close { display: none; }
+
+  /* A group: its swatch, name, facts, how many and how much; its spools under it. */
+  .group { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .group.chosen, .row.chosen { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .group-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 14px; cursor: pointer; }
+  .group-head:hover { background: color-mix(in srgb, var(--line) 45%, transparent); }
+  .g-name { display: grid; min-width: 0; }
+  .g-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .g-name small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .g-total { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .g-total b { display: block; }
+  .g-total small { color: var(--muted); }
+  .g-total small.low { color: var(--warn); font-weight: 600; }
+  .rows { list-style: none; margin: 0; padding: 0 8px 8px; display: grid; gap: 2px; }
+  .row { display: grid; grid-template-columns: 74px minmax(0, 1fr) minmax(0, 0.9fr) 64px; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  .row:hover { background: color-mix(in srgb, var(--line) 60%, transparent); }
+  .row.archived { opacity: .55; }
+  .row .where { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .where.loaded { color: var(--accent); font-weight: 600; }
+  .row .left { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .bar.low i { background: var(--warn); }
+  .row-bar { display: grid; gap: 3px; min-width: 0; }
+  .row-bar span { font-size: 12px; color: var(--muted); }
+
+  /* Swatches: a spool with its colour (several colours as slices), a tape with its ink. */
+  .swatch-spool { display: inline-block; width: 30px; height: 30px; border-radius: 50%; flex: none; background: radial-gradient(circle, var(--card) 0 22%, transparent 23%), var(--c, #999); box-shadow: inset 0 0 0 1px rgb(0 0 0 / .2), 0 0 0 1.5px color-mix(in srgb, var(--muted) 50%, transparent); }
+  .swatch-spool.big { width: 54px; height: 54px; }
+  .swatch-tape { display: inline-grid; place-items: center; width: 44px; height: 22px; border-radius: 3px; background: var(--tape); color: var(--ink); font-weight: 800; font-size: 12px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .15); flex: none; }
+  .swatch-tape.clear { background: repeating-conic-gradient(#cfd3d6 0 25%, #f4f5f6 0 50%) 0 0 / 8px 8px; }
+
+  /* The inspector. */
+  .i-head { display: flex; gap: 14px; align-items: center; margin-bottom: 12px; }
+  .i-head h3 { margin: 0; font-size: 18px; line-height: 1.25; }
+  .i-head small { color: var(--muted); display: block; margin-top: 2px; }
+  .i-left { display: flex; align-items: baseline; gap: 8px; margin: 6px 0; }
+  .i-left b { font-size: 32px; font-variant-numeric: tabular-nums; }
+  .i-left span { color: var(--muted); }
+  .i-section { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; }
+  .i-section h4 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .act { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 8px; }
+  .act input, .act select { min-width: 0; }
+  .act input[type=number] { width: 7.5em; }
+  .fields { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; align-items: center; font-size: 14px; }
+  .fields label { color: var(--muted); }
+  .fields input, .fields select, .fields textarea { width: 100%; }
+  .fields textarea { min-height: 54px; resize: vertical; font: inherit; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; }
+  .chip button { background: none; border: 0; padding: 0 2px; color: var(--muted); cursor: pointer; }
+  .history { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; background: var(--line); color: var(--muted); }
+  .badge.db { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+
+  /* The board: a column per location, spools as cards to drag between them. */
+  .board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(230px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+  .col { background: color-mix(in srgb, var(--line) 35%, var(--bg)); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: grid; gap: 8px; align-content: start; min-height: 180px; }
+  .col.over { outline: 2px dashed var(--accent); outline-offset: -2px; }
+  .col.target { outline: 2px dashed color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: -2px; cursor: pointer; }
+  .col-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 2px 4px; }
+  .col-head b { font-size: 14px; }
+  .col-head small { color: var(--muted); }
+  .card-spool { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: center; padding: 8px 10px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; cursor: grab; font-size: 13px; }
+  .card-spool.picked { outline: 2px solid var(--accent); }
+  .card-spool .bar { grid-column: 1 / -1; }
+  .card-spool b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Dialogs. */
+  .stock-dialog { width: min(680px, calc(100vw - 24px)); }
+  .stock-dialog .dialog-head h2 { font-size: 18px; }
+  .stock-dialog section { padding: 14px 22px 20px; }
+  .grid-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0; }
+  .grid-form label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); font-weight: 600; }
+  .grid-form .wide { grid-column: 1 / -1; }
+  .grid-form input, .grid-form select { width: 100%; }
+  .grid-form input[type=color] { height: 38px; padding: 2px; }
+  .found { list-style: none; margin: 8px 0 0; padding: 4px; max-height: 300px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
+  .found li { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+  .found li[aria-selected=true], .found li:hover { background: var(--line); }
+  .found .f-text { display: grid; min-width: 0; flex: 1; }
+  .found .f-text b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .found .f-text small { color: var(--muted); font-size: 12px; }
+  .found .f-section { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; cursor: default; padding: 8px 8px 2px; }
+  .found .f-section:hover { background: none; }
+  .chosen-filament { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 10px; margin-bottom: 4px; }
+
+  @media (max-width: 860px) {
+    .library { grid-template-columns: 1fr; }
+    /* The inspector as a sheet from below, over the list. */
+    .inspector { position: fixed; inset: auto 0 0 0; top: auto; max-height: 82vh; border-radius: 18px 18px 0 0; z-index: 30; transform: translateY(105%); transition: transform .25s ease; box-shadow: 0 -12px 40px rgb(0 0 0 / .3); }
+    .inspector.open { transform: none; }
+    .sheet-close { display: block; position: sticky; top: 0; margin: -6px auto 8px; width: 44px; height: 5px; border-radius: 3px; background: var(--line); border: 0; padding: 0; }
+    .row { grid-template-columns: 64px minmax(0, 1fr) 56px; }
+    .row .where { display: none; }
+    .grid-form { grid-template-columns: 1fr; }
+  }

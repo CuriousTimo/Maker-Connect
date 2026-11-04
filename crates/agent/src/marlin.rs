@@ -13,6 +13,8 @@
 
 use std::collections::VecDeque;
 use std::io::{self, BufRead, BufReader, Read, Write};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 /// How many sent lines are kept for a resend.
@@ -49,6 +51,9 @@ pub enum Reply {
     Resend(u32),
     /// `busy: processing`, `echo:busy`: it is working; keep waiting.
     Busy,
+    /// `echo:busy: paused for user`: it waits for someone to press its knob (`M0`, `M600`,
+    /// a question on its screen). Kept waiting for, but said: nobody may be there.
+    PausedForUser,
     /// `start`: it has (re)started.
     Start,
     /// `Error:...`.
@@ -72,6 +77,9 @@ pub fn parse(line: &str) -> Reply {
         return Reply::Resend(number);
     }
     if lower.starts_with("busy:") || lower.starts_with("echo:busy") {
+        if lower.contains("paused for user") {
+            return Reply::PausedForUser;
+        }
         return Reply::Busy;
     }
     if lower == "start" {
@@ -238,6 +246,9 @@ pub struct Printer<L: Read + Write> {
     next_number: u32,
     /// The last lines sent, by number, for a resend.
     sent: VecDeque<(u32, String)>,
+    /// Whether it waits for someone at the printer (`paused for user`), until its next `ok`:
+    /// shared, so whoever reports meanwhile can say so.
+    waiting: Arc<AtomicBool>,
 }
 
 impl<L: Read + Write> Printer<L> {
@@ -246,7 +257,18 @@ impl<L: Read + Write> Printer<L> {
             reader: BufReader::new(link),
             next_number: 1,
             sent: VecDeque::new(),
+            waiting: Arc::default(),
         }
+    }
+
+    /// Whether it waits for someone at the printer, readable from another thread.
+    pub fn waiting(&self) -> Arc<AtomicBool> {
+        self.waiting.clone()
+    }
+
+    /// Shares a flag made before the printer was opened (to report while it connects).
+    pub fn set_waiting(&mut self, waiting: Arc<AtomicBool>) {
+        self.waiting = waiting;
     }
 
     /// One line from the printer, or None when it stayed silent for the read timeout.
@@ -286,6 +308,8 @@ impl<L: Read + Write> Printer<L> {
             match self.read_line()? {
                 Some(line) if !line.is_empty() => {
                     quiet_since = Instant::now();
+                    self.waiting
+                        .store(parse(&line) == Reply::PausedForUser, Ordering::Relaxed);
                     if !matches!(parse(&line), Reply::Ok) {
                         on(Event::Said(line));
                     }
@@ -346,7 +370,10 @@ impl<L: Read + Write> Printer<L> {
                 continue;
             };
             last_heard = Instant::now();
-            match parse(&line) {
+            let reply = parse(&line);
+            self.waiting
+                .store(reply == Reply::PausedForUser, Ordering::Relaxed);
+            match reply {
                 Reply::Ok => match resend.take() {
                     None => return Ok(line),
                     Some(number) => {
@@ -361,7 +388,7 @@ impl<L: Read + Write> Printer<L> {
                     }
                 },
                 Reply::Resend(number) => resend = Some(number),
-                Reply::Busy => {}
+                Reply::Busy | Reply::PausedForUser => {}
                 Reply::Start => return Err(io::Error::other("the printer restarted")),
                 Reply::Error(text) => on(Event::Said(format!("Error: {text}"))),
                 Reply::Other(text) if !text.is_empty() => on(Event::Said(text)),
@@ -462,6 +489,7 @@ pub(crate) mod tests {
         assert_eq!(parse("rs N7"), Reply::Resend(7));
         assert_eq!(parse("echo:busy: processing"), Reply::Busy);
         assert_eq!(parse("busy: processing"), Reply::Busy);
+        assert_eq!(parse("echo:busy: paused for user"), Reply::PausedForUser);
         assert_eq!(parse("start"), Reply::Start);
         assert_eq!(
             parse("Error:Line Number is not Last Line Number+1, Last Line: 3"),

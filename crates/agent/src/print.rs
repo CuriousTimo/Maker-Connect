@@ -27,6 +27,8 @@ struct Shared {
 pub struct PrintJob<L: Read + Write + Send + 'static> {
     pub id: i64,
     pub name: String,
+    /// Whether the printer waits for someone (an `M0` or a filament change in the file).
+    pub waiting: Arc<std::sync::atomic::AtomicBool>,
     shared: Arc<Mutex<Shared>>,
     thread: Option<JoinHandle<(Printer<L>, JobEnd)>>,
     started: std::time::Instant,
@@ -48,6 +50,7 @@ const STOP: [&str; 4] = ["M104 S0", "M140 S0", "M107", "M84"];
 impl<L: Read + Write + Send + 'static> PrintJob<L> {
     /// Starts streaming `gcode` to the printer, which the job holds until it ends.
     pub fn start(id: i64, name: &str, gcode: String, mut printer: Printer<L>) -> Self {
+        let waiting = printer.waiting();
         let codes: Vec<String> = gcode
             .lines()
             .filter_map(marlin::clean)
@@ -125,6 +128,7 @@ impl<L: Read + Write + Send + 'static> PrintJob<L> {
         Self {
             id,
             name: name.to_owned(),
+            waiting,
             shared,
             thread: Some(thread),
             started: std::time::Instant::now(),

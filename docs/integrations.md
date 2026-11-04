@@ -155,6 +155,24 @@ three components that connect outward by themselves:
 Profiles: Klipper's own `config/printer-*.cfg` (GPL-3.0) for the printers Marlin's examples
 lack (`maker-connect-import klipper`), and the Vorons by hand from VoronDesign's configs.
 
+## Spoolman: Materials speaks its API
+
+Read 2026-11-04 in Spoolman (github.com/Donkie/Spoolman, MIT; its models, API, tag module,
+and its client_v2 for the library's design), to be compatible, not to copy. Materials keeps
+Spoolman's model (`vendor`, `filament`, `spool` tables, extra fields, tags, settings) and
+serves `/api/v1` the way Spoolman does (`crates/cloud/src/spoolman.rs`), so Moonraker's
+`[spoolman]` (`server: http://<cloud>:8460`; it calls `/api/v1/spool/{id}`, `/use`, and the
+`/api/v1/spool` WebSocket), OctoPrint's plugin, Mainsail, Fluidd and scales find what they
+expect. SpoolmanDB (MIT) is fetched hourly as the catalogue (`spoolmandb.rs`). A spool's id
+is its code's number (`S-0007` is 7); places are Maker Connect's (with codes and labels) and
+go out as names; Maker Connect's own fields (kind, unit, colour name, ink, width, `loaded_in`)
+go out as extra fields. Spoolman's labels (`WEB+SPOOLMAN:S-7`, `…/spool/show/7`) are read too.
+
+Scales that speak to a Spoolman, and so to this cloud: SpoolmanScale (GPL-3.0, ESP32, NFC,
+touch display; FilaMan and BamBuddy too), and others to look at: Filament-Scale-Database
+(ESP32 and RFID, to Google Sheets; no licence: ideas only), spoolscale (ESP32-C3, HX711, OLED;
+no licence, no Spoolman yet).
+
 ## Roadmap
 
 Moved to the wiki: [Roadmap](https://github.com/CuriousTimo/Maker-Connect/wiki/Roadmap).

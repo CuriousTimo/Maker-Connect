@@ -17,6 +17,8 @@ use maker_connect_protocol::{
     Telemetry, TelemetryReply,
 };
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 const REPORT_EVERY: Duration = Duration::from_secs(2);
@@ -204,7 +206,7 @@ fn speaks_grbl(port: &str, baud: u32) -> bool {
 }
 
 /// The machine on the port, by what it speaks; a label printer is found on USB.
-fn open_machine(options: &Options) -> Option<Machine> {
+fn open_machine(options: &Options, waiting: &Arc<AtomicBool>) -> Option<Machine> {
     if options.kind == MachineKind::Label {
         return match dymo::find() {
             Ok(Some(printer)) => {
@@ -236,7 +238,8 @@ fn open_machine(options: &Options) -> Option<Machine> {
             }
         }
     } else {
-        open_printer(options).map(|(printer, known)| Machine::Marlin(Box::new(printer), known))
+        open_printer(options, waiting)
+            .map(|(printer, known)| Machine::Marlin(Box::new(printer), known))
     }
 }
 
@@ -395,7 +398,10 @@ struct Known {
 /// The printer on the serial port, connected, with what it says it is, or None. `M115`
 /// gives its firmware and machine type; a Prusa answers `M862.2 Q` with its model code
 /// (other firmware says it does not know the command, which does no harm).
-fn open_printer(options: &Options) -> Option<(marlin::Printer<Link>, Known)> {
+fn open_printer(
+    options: &Options,
+    waiting: &Arc<AtomicBool>,
+) -> Option<(marlin::Printer<Link>, Known)> {
     let port = options.port.as_ref()?;
     let link = serialport::new(port, options.baud)
         .timeout(Duration::from_millis(200))
@@ -403,6 +409,8 @@ fn open_printer(options: &Options) -> Option<(marlin::Printer<Link>, Known)> {
         .map_err(|error| println!("printer on {port}: {error}"))
         .ok()?;
     let mut printer = marlin::Printer::new(link);
+    // Shared before connecting: a printer waiting for its knob says so meanwhile.
+    printer.set_waiting(waiting.clone());
     if let Err(error) = printer.connect(&mut |_| {}) {
         println!("printer on {port} does not answer: {error}");
         return None;
@@ -471,10 +479,20 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let mut done: Vec<CommandDone> = Vec::new();
     let mut mesh = None;
     let mut job_end = None;
+    // The last report, sent again meanwhile while the printer keeps the agent waiting
+    // (connecting, a long command, a question on its screen).
+    let mut last = Telemetry {
+        state: MachineState::Disconnected,
+        agent: Some(agent.clone()),
+        ..Telemetry::default()
+    };
     loop {
         let wants = options.port.is_some() || options.kind == MachineKind::Label;
         if machine.is_none() && wants && Instant::now() >= next_look {
-            machine = open_machine(&options);
+            let waiting = Arc::new(AtomicBool::new(false));
+            machine = while_busy(&options, &registered.token, &last, &waiting, || {
+                open_machine(&options, &waiting)
+            });
             next_look = Instant::now() + RECONNECT_EVERY;
         }
         let mut telemetry = Telemetry {
@@ -514,6 +532,12 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     MachineState::Busy
                 };
+                // An M0 or a filament change in the file: it waits for someone.
+                if job.waiting.load(Ordering::Relaxed) {
+                    telemetry.state = MachineState::Attention;
+                    telemetry.problem =
+                        Some("waits for someone at the printer: press its knob".to_owned());
+                }
                 telemetry.firmware = known.firmware.clone();
                 telemetry.identity = Some(known.identity.clone());
                 set_heat(&mut telemetry, p.heat);
@@ -529,18 +553,24 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     remaining_s,
                 });
             }
-            Some(Machine::Marlin(printer, known)) => match printer.command("M105") {
-                Ok(answer) => {
-                    telemetry.state = MachineState::Idle;
-                    telemetry.firmware = known.firmware.clone();
-                    telemetry.identity = Some(known.identity.clone());
-                    set_heat(&mut telemetry, marlin::heat(&answer));
+            Some(Machine::Marlin(printer, known)) => {
+                let waiting = printer.waiting();
+                let answer = while_busy(&options, &registered.token, &last, &waiting, || {
+                    printer.command("M105")
+                });
+                match answer {
+                    Ok(answer) => {
+                        telemetry.state = MachineState::Idle;
+                        telemetry.firmware = known.firmware.clone();
+                        telemetry.identity = Some(known.identity.clone());
+                        set_heat(&mut telemetry, marlin::heat(&answer));
+                    }
+                    Err(error) => {
+                        println!("printer lost: {error}");
+                        machine = None;
+                    }
                 }
-                Err(error) => {
-                    println!("printer lost: {error}");
-                    machine = None;
-                }
-            },
+            }
             Some(Machine::Grbl(laser)) => {
                 let (report, ended) = laser.report();
                 if let Some(end) = ended {
@@ -619,6 +649,12 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             None => {}
         }
         telemetry.agent = Some(agent.clone());
+        last = Telemetry {
+            done: Vec::new(),
+            mesh: None,
+            job_end: None,
+            ..telemetry.clone()
+        };
         telemetry.done = std::mem::take(&mut done);
         telemetry.mesh = mesh.take();
         telemetry.job_end = job_end.take();
@@ -651,12 +687,13 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 for command in &reply.commands {
                     let outcome = match machine.as_mut() {
                         Some(Machine::Marlin(printer, _)) => {
-                            while_busy(&options, &registered.token, &busy, || {
+                            let waiting = printer.waiting();
+                            while_busy(&options, &registered.token, &busy, &waiting, || {
                                 carry_out(printer, &command.gcode)
                             })
                         }
                         Some(Machine::Grbl(laser)) => {
-                            while_busy(&options, &registered.token, &busy, || {
+                            while_busy(&options, &registered.token, &busy, &Arc::default(), || {
                                 laser.carry_out(&command.gcode)
                             })
                             .map(|said| (said, None))
@@ -808,22 +845,40 @@ fn set_heat(telemetry: &mut Telemetry, heat: marlin::Heat) {
 /// Does `work` (a command the machine takes a while over), and meanwhile reports `busy` to
 /// the cloud every [`REPORT_EVERY`], so the machine stays online there. The cloud gives a
 /// busy machine no command and no job, so its answers carry nothing to act on.
-fn while_busy<T>(options: &Options, token: &str, busy: &Telemetry, work: impl FnOnce() -> T) -> T {
+fn while_busy<T>(
+    options: &Options,
+    token: &str,
+    busy: &Telemetry,
+    waiting: &Arc<AtomicBool>,
+    work: impl FnOnce() -> T,
+) -> T {
     let (done, wait) = std::sync::mpsc::channel::<()>();
     std::thread::scope(|scope| {
         scope.spawn(move || {
             while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
                 wait.recv_timeout(REPORT_EVERY)
             {
+                let report = waiting_for_someone(busy, waiting);
                 let _ = ureq::post(&format!("{}{}", options.cloud, protocol::TELEMETRY))
                     .set("authorization", &format!("Bearer {token}"))
-                    .send_json(busy);
+                    .send_json(&report);
             }
         });
         let result = work();
         drop(done);
         result
     })
+}
+
+/// A report as it is, or, while the printer waits for someone at it (`paused for user`),
+/// as needing attention, with why.
+fn waiting_for_someone(report: &Telemetry, waiting: &AtomicBool) -> Telemetry {
+    let mut report = report.clone();
+    if waiting.load(Ordering::Relaxed) {
+        report.state = MachineState::Attention;
+        report.problem = Some("waits for someone at the printer: press its knob".to_owned());
+    }
+    report
 }
 
 /// What carrying out a command gave: what the printer said, and a bed mesh in it.

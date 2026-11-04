@@ -27,7 +27,7 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 | ![A label printer's label tab: text, font, a QR code, and the preview of the dots that will burn on 12 mm tape](docs/screenshots/label.png) | ![The downloads page: the agent for macOS and Windows, with the command to start it](docs/screenshots/downloads.png) |
 | **Label**: text, a QR code or barcode, a drawing; the preview is the dots that will burn | **Downloads**: the agent for each platform, with the command for this cloud |
 | ![A laser's control tab: the work area, a jog pad with eight directions round Home, the step and speed, Set origin here and Go to origin](docs/screenshots/laser-control.png) | ![The Materials page: filament and label tapes with their spools and cassettes, where each is, a scan box](docs/screenshots/materials.png) |
-| **A laser's Control**: a jog pad (eight directions, a step from 0.1 to 50 mm, the arrow keys), the job's origin set where the head is | **Materials**: each spool and cassette with a code and a label, where it is, what is loaded |
+| **A laser's Control**: a jog pad (eight directions, a step from 0.1 to 50 mm, the arrow keys), the job's origin set where the head is | **Materials**: spools grouped by filament, what is left of each, the chosen one in its inspector; Spoolman's API speaks here too |
 
 ## What works
 
@@ -59,14 +59,17 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
   them, with a QR code or a barcode (Code 128, EAN-13) on whole dots if you like. Tried on a
   real PnP from a Mac and from a Windows laptop (12 mm tape); you say which tape is loaded, since the
   printer only tells whether a cassette is in.
-- **Materials** (the stock): filament and label tapes (drawn as they look); each spool and cassette
-  an item with a code (`S-0007`) and a QR label printed on the label printer, locations
-  (`L-0003`), loading into a machine (a tape tells the label printer which it has), weighing,
-  used up; every change kept as a movement. A barcode scanner works anywhere on the page.
-  **271 filaments** (Prusament, Devil Design, Fiberlogy, colorFabb…) from PrusaSlicer's
-  profiles, found by typing (typos forgiven), with density, empty spool weight and
-  temperatures: weigh a spool and the spool is taken off. A material has a colour and a
-  colour name (*Galaxy Black*), and can be changed later.
+- **Materials, compatible with [Spoolman](https://github.com/Donkie/Spoolman)**: its model
+  (vendors, filaments, spools) and its API at `/api/v1`, with its WebSockets, NFC tags (as in
+  Spoolman 0.27) and extra fields, so Moonraker's `[spoolman]`, OctoPrint's Spoolman plugin,
+  Mainsail, Fluidd and scales such as SpoolmanScale use this cloud as their Spoolman. A
+  library of spools grouped beside an inspector (weigh, use, move, load into a machine, label,
+  tags, history), a board of places to drag spools between, and *Add spools* searching your
+  filaments, your label printers' tapes and **SpoolmanDB** (thousands of filaments with their
+  colours, weights and temperatures). Jobs count what they use off the loaded spool. Import
+  from a running Spoolman or its export, keeping spool numbers; export or copy back. Scan
+  `S-0007`, `L-0003`, an EAN, a tag's UID or Spoolman's own labels, with a barcode scanner or
+  the camera.
 - **Files and jobs.** Drop G-code on the Files page; the cloud reads what the slicer wrote
   (time, filament, layer height, the printer it was sliced for, the thumbnail) and offers only
   the machines it fits. Jobs show progress, time left, pause and stop.
