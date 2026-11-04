@@ -177,8 +177,8 @@ pub fn render(space: &str, machine: &Machine) -> String {
         state = escape(&state),
         kind = escape(kind),
         cassette = match telemetry.and_then(|t| t.cassette) {
-            Some(true) => "In",
-            Some(false) => "None",
+            Some(true) => "Inserted",
+            Some(false) => "Empty",
             None => "–",
         },
         job = machine

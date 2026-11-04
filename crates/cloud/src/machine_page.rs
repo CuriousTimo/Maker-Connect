@@ -431,7 +431,7 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
             "Cassette",
             "cassette",
             t.and_then(|t| t.cassette)
-                .map(|on| if on { "In" } else { "None" }.to_owned()),
+                .map(|on| if on { "Inserted" } else { "Empty" }.to_owned()),
             "",
             "problem",
             t.and_then(|t| t.problem.clone()).unwrap_or_default(),
