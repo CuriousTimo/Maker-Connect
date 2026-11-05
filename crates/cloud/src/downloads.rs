@@ -362,7 +362,7 @@ mod tests {
         std::fs::write(store.downloads_dir.join(exe), b"MZ").unwrap();
         std::fs::write(store.downloads_dir.join("notes.txt"), b"hi").unwrap();
         std::fs::write(store.downloads_dir.join(".hidden"), b"x").unwrap();
-        let app = crate::app(Arc::new(Mutex::new(store)));
+        let app = crate::auth::signed_in_app(Arc::new(Mutex::new(store)));
         let get = |path: &str| {
             let app = app.clone();
             let request = Request::get(path)

@@ -41,9 +41,18 @@ use std::time::Duration;
 pub fn routes() -> Router<Shared> {
     Router::new()
         .route("/simplyprint/{token}", get(connect))
+        // Moonraker downloads a job's file with a plain GET: the printer's token is in the address.
+        .route("/simplyprint/{token}/jobs/{job}/file", get(job_file))
         // Moonraker puts a reconnect token after the address when it was given one: never
         // from here, but taken all the same.
         .route("/simplyprint/{token}/{*rest}", get(connect_more))
+}
+
+async fn job_file(
+    State(store): State<Shared>,
+    Path((token, job)): Path<(String, i64)>,
+) -> Response {
+    crate::files::job_file(&store, &token, job).await
 }
 
 async fn connect_more(
@@ -343,7 +352,7 @@ fn report(store: &Shared, token: &str, base: &str, printer: &mut Printer) -> Vec
             printer.job = Some(order.id);
             out.push(demand(
                 "file",
-                json!({"url": format!("{base}{}", order.download), "auto_start": 1, "job_id": order.id}),
+                json!({"url": format!("{base}/simplyprint/{token}/jobs/{}/file", order.id), "auto_start": 1, "job_id": order.id}),
             ));
         }
         Ok((None, Some(control))) => out.push(demand(
@@ -381,6 +390,7 @@ mod tests {
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        // Only what the printer does, so no one is signed in.
         let app = crate::app(store.clone());
         tokio::spawn(async move {
             axum::serve(
@@ -497,11 +507,24 @@ mod tests {
             let file = s.file(space, "f1").unwrap().unwrap();
             s.add_job(space, &id, &file, None).unwrap().unwrap()
         };
+        std::fs::write(store.lock().unwrap().file_path("f1"), "G28\nG1 X1\n").unwrap();
         let file = next(&mut ws, "file").await;
+        let url = file["data"]["url"].as_str().unwrap().to_owned();
         assert_eq!(
-            file["data"]["url"],
-            format!("http://{addr}/files/f1/download")
+            url,
+            format!("http://{addr}/simplyprint/{token}/jobs/{job}/file")
         );
+        // Moonraker fetches it with a plain GET: the token in the address is enough, and
+        // only that printer's token.
+        let (got, other) = tokio::task::spawn_blocking(move || {
+            let got = ureq::get(&url).call().unwrap().into_string().unwrap();
+            let other = ureq::get(&url.replace("/simplyprint/", "/simplyprint/x")).call();
+            (got, other)
+        })
+        .await
+        .unwrap();
+        assert_eq!(got, "G28\nG1 X1\n", "10 bytes, as added");
+        assert!(matches!(other, Err(ureq::Error::Status(404, _))));
         assert_eq!(file["data"]["job_id"], job);
         ws.send(say("state_change", json!({"new": "printing"})))
             .await

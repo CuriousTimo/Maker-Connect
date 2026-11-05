@@ -23,6 +23,8 @@ tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "s
 toml = "1.1.8"
 # SpoolmanDB fetched, a Spoolman imported from or exported to.
 ureq = { version = "2", features = ["json"] }
+argon2 = "0.5"
+sha2 = "0.10"
 
 [dev-dependencies]
 http-body-util = "0.1.5"

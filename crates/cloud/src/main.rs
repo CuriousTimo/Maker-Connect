@@ -11,8 +11,11 @@
 //! - `/p/...`: the printer side of Prusa Connect, so a Buddy-firmware Prusa (a MINI)
 //!   reports here itself, with no agent ([`prusa_connect`]).
 //!
-//! A proof of concept: no login yet, so run it where only you can reach it.
+//! - `/login`, `/setup`, `/logout`: people sign in ([`auth`]); every other page and API
+//!   needs a session, except the routes machines use with their own tokens.
 
+mod accounts;
+mod auth;
 mod codes;
 mod downloads;
 mod files;
@@ -50,8 +53,13 @@ const USAGE: &str = "Maker Connect cloud (proof of concept)
 
 Usage:
   maker-connect-cloud [--listen 0.0.0.0:8460] [--db maker-connect.db]
+  maker-connect-cloud reset-password <name> [--db maker-connect.db]
 
-Open http://localhost:8460 and add machines with the code their agent shows.
+Open http://localhost:8460. On a fresh install, make the first account with the setup code
+this prints at start; then add machines with the code their agent shows.
+
+reset-password gives an account a new password (printed once) and signs it out everywhere:
+for when its owner cannot sign in any more.
 ";
 
 /// What a release's archive brings beside the cloud, into the folders beside its database.
@@ -104,11 +112,18 @@ fn from_release(store: &store::Store) {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut listen = "0.0.0.0:8460".to_owned();
     let mut db = "maker-connect.db".to_owned();
+    let mut reset: Option<String> = None;
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--listen" => listen = args.next().ok_or("expected an address after --listen")?,
             "--db" => db = args.next().ok_or("expected a file after --db")?,
+            "reset-password" => {
+                reset = Some(
+                    args.next()
+                        .ok_or("expected a sign-in name after reset-password")?,
+                )
+            }
             _ => {
                 print!("{USAGE}");
                 return Ok(());
@@ -116,6 +131,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     let mut opened = Store::open(&db)?;
+    if let Some(name) = reset {
+        let Some(user) = opened.user_id(&name)? else {
+            return Err(format!("no account named {name:?} in {db}").into());
+        };
+        let password = accounts::random_token()[..20].to_owned();
+        opened.set_password(user, &accounts::hash_password(&password))?;
+        println!(
+            "{name}'s new password: {password}\n(signed out everywhere; change it after signing in)"
+        );
+        return Ok(());
+    }
+    opened.end_old_sessions()?;
     let reread = opened.reread_files()?;
     if reread > 0 {
         println!("read {reread} kept files again");
@@ -127,6 +154,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(virtual_machines::run(store.clone()));
     let listener = tokio::net::TcpListener::bind(&listen).await?;
     println!("Maker Connect cloud on http://{listen} (data in {db})");
+    if let Some(code) = store.lock().unwrap().setup_code.clone() {
+        println!("no accounts yet: open it in a browser and make the first with setup code {code}");
+    }
     axum::serve(
         listener,
         app(store).into_make_service_with_connect_info::<std::net::SocketAddr>(),
@@ -172,7 +202,12 @@ pub fn app(store: Shared) -> Router {
         .merge(codes::routes())
         .merge(stock::routes())
         .route("/files", get(files_page::page))
+        .merge(auth::routes())
         .fallback(not_found)
+        .layer(axum::middleware::from_fn_with_state(
+            store.clone(),
+            auth::guard,
+        ))
         .layer(axum::middleware::from_fn(prusa_connect::log))
         .with_state(store)
 }
@@ -360,7 +395,7 @@ pub(crate) fn agent_job(
             let order = protocol::JobOrder {
                 id: job.id,
                 name: job.file_name.clone(),
-                download: format!("/files/{}/download", job.file_id),
+                download: format!("/api/agent/v1/jobs/{}/file", job.id),
                 size,
                 from_line: job.from_line,
                 tape_mm: store.loaded_tape_mm(&machine)?,
@@ -1388,10 +1423,18 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .palette-results li.none { color: var(--muted); cursor: default; }
   .palette-hint { margin: 0; padding: 8px 16px 12px; color: var(--muted); font-size: 12px; display: flex; gap: 6px; align-items: center; }
   /* On a phone: the pages as a tab bar at the bottom. */
+  .side-user { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 10px 4px 0 10px; border-top: 1px solid var(--line); }
+  .side-user .who { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .side-user .who b, .side-user .who small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side-user .who b { font-size: 13px; }
+  .side-user .who small { color: var(--muted); font-size: 12px; }
+  .side-user button { display: grid; place-items: center; padding: 6px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; }
+  .side-user button:hover, .side-user button:focus-visible { color: var(--ink); border-color: var(--line); }
   @media (max-width: 820px) {
     body { padding-left: 0; padding-bottom: 72px; }
     .sidebar { inset: auto 0 0 0; width: auto; height: 64px; flex-direction: row; align-items: center; justify-content: space-around; padding: 6px 8px; border-right: 0; border-top: 1px solid var(--line); overflow: visible; }
     .sidebar .brand, .sidebar .side-section, .search-open span, .search-open kbd { display: none; }
+    .side-user { margin: 0; padding: 0; border: 0; } .side-user .who { display: none; }
     .topbar { padding: 8px 16px; }
     .summary { gap: 12px; font-size: 13px; }
     .search-open { width: auto; margin: 0; border: 0; background: transparent; }
@@ -1651,7 +1694,9 @@ mod tests {
     #[tokio::test]
     async fn an_agent_runs_a_job() {
         let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = app(store.clone());
+        let app = crate::auth::signed_in_app(store.clone());
+        // The agent's own requests carry its token, no session: as from a real agent.
+        let agent = super::app(store.clone());
         let laser = Register {
             protocol: protocol::VERSION,
             name: "Ortur".into(),
@@ -1659,7 +1704,7 @@ mod tests {
             agent_version: "0.1.0".into(),
         };
         let (_, body) = call(
-            &app,
+            &agent,
             json(
                 protocol::REGISTER,
                 None,
@@ -1678,7 +1723,7 @@ mod tests {
             space
         };
         let report = |telemetry: Telemetry| {
-            let app = app.clone();
+            let app = agent.clone();
             let token = registered.token.clone();
             async move {
                 let (_, body) = call(
@@ -1714,13 +1759,26 @@ mod tests {
 
         let order = report(idle()).await.job.expect("the job is given out");
         assert_eq!(order.name, "sign.gcode");
-        let (status, gcode) = call(
-            &app,
-            Request::get(&order.download).body(Body::empty()).unwrap(),
-        )
-        .await;
+        let fetch = |token: &str| {
+            Request::get(&order.download)
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+        let (status, gcode) = call(&agent, fetch(&registered.token)).await;
         assert_eq!(status, StatusCode::OK);
         assert!(gcode.contains("M4 S0"));
+        // Not with another token, nor without one.
+        assert_eq!(
+            call(&agent, fetch("not-its-token")).await.0,
+            StatusCode::NOT_FOUND
+        );
+        let bare = Request::get(&order.download).body(Body::empty()).unwrap();
+        assert_eq!(call(&agent, bare).await.0, StatusCode::NOT_FOUND);
+        // The page's download still needs someone signed in.
+        let page_download = format!("/files/{}/download", file["id"].as_str().unwrap());
+        let bare = Request::get(&page_download).body(Body::empty()).unwrap();
+        assert_eq!(call(&agent, bare).await.0, StatusCode::UNAUTHORIZED);
 
         let running = || Telemetry {
             state: MachineState::Busy,
@@ -1797,7 +1855,7 @@ mod tests {
     #[tokio::test]
     async fn a_cassette_out_needs_attention_not_an_error() {
         let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = app(store.clone());
+        let app = crate::auth::signed_in_app(store.clone());
         let register = Register {
             protocol: protocol::VERSION,
             name: "Dymo".into(),
@@ -1855,7 +1913,8 @@ mod tests {
 
     #[tokio::test]
     async fn an_agent_registers_is_paired_and_listed() {
-        let app = app(Arc::new(Mutex::new(Store::open(":memory:").unwrap())));
+        let app =
+            crate::auth::signed_in_app(Arc::new(Mutex::new(Store::open(":memory:").unwrap())));
         let register = Register {
             protocol: protocol::VERSION,
             name: "MK3S Gonzo".into(),
@@ -1933,7 +1992,7 @@ mod tests {
     #[tokio::test]
     async fn the_list_streams_its_changes() {
         let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = app(store.clone());
+        let app = crate::auth::signed_in_app(store.clone());
         let response = app
             .oneshot(
                 Request::get("/api/machines/stream")
@@ -1970,7 +2029,8 @@ mod tests {
     /// another (a Zaribo, which says it is an MK3S), and its page draws that bed.
     #[tokio::test]
     async fn a_machine_gets_its_profile() {
-        let app = app(Arc::new(Mutex::new(Store::open(":memory:").unwrap())));
+        let app =
+            crate::auth::signed_in_app(Arc::new(Mutex::new(Store::open(":memory:").unwrap())));
         let register =
             r#"{"protocol":1,"name":"Mini","kind":"fdm","agent_version":"0.1.0"}"#.to_owned();
         let (_, body) = call(&app, json(protocol::REGISTER, None, register)).await;
@@ -2029,7 +2089,8 @@ mod tests {
     /// An unknown token is refused, and an agent of another protocol version is told so.
     #[tokio::test]
     async fn unknown_agents_and_versions_are_refused() {
-        let app = app(Arc::new(Mutex::new(Store::open(":memory:").unwrap())));
+        let app =
+            crate::auth::signed_in_app(Arc::new(Mutex::new(Store::open(":memory:").unwrap())));
         let report = r#"{"state":"idle"}"#.to_owned();
         let (status, _) = call(&app, json(protocol::TELEMETRY, Some("nope"), report)).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);

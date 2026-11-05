@@ -200,6 +200,7 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
         }
     }
     crate::stock::migrate(db)?;
+    crate::accounts::migrate(db)?;
     let spaces: i64 = db.query_row("SELECT COUNT(*) FROM spaces", [], |r| r.get(0))?;
     if spaces == 0 {
         db.execute("INSERT INTO spaces (name) VALUES ('My space')", [])?;
@@ -495,6 +496,10 @@ pub struct Store {
     changes: tokio::sync::broadcast::Sender<()>,
     /// A vendor, filament or spool added, changed or removed: for Spoolman's WebSockets.
     spoolman: tokio::sync::broadcast::Sender<SpoolmanEvent>,
+    /// While nobody has an account: the code (printed at start) that makes the first one.
+    pub setup_code: Option<String>,
+    /// Failed sign-ins per key (`ip:…`, `name:…`), Unix seconds, for slowing guessing down.
+    pub(crate) failures: std::collections::HashMap<String, Vec<i64>>,
 }
 
 /// A change to Spoolman's data: `spool` 7 `updated`. A removed one carries what it was.
@@ -542,7 +547,7 @@ impl Store {
             ));
         std::fs::create_dir_all(&downloads_dir)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-        Ok(Self {
+        let mut store = Self {
             db,
             files_dir,
             downloads_dir,
@@ -552,7 +557,13 @@ impl Store {
             history: Default::default(),
             changes: tokio::sync::broadcast::channel(16).0,
             spoolman: tokio::sync::broadcast::channel(256).0,
-        })
+            setup_code: None,
+            failures: Default::default(),
+        };
+        if !store.has_users()? {
+            store.setup_code = Some(crate::accounts::setup_code());
+        }
+        Ok(store)
     }
 
     /// Signals each change to a machine from now on (some may be merged into one).

@@ -2094,7 +2094,7 @@ mod tests {
         let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let app = crate::app(store.clone());
+        let app = crate::auth::signed_in_app(store.clone());
         tokio::spawn(async move {
             axum::serve(
                 listener,

@@ -3,6 +3,31 @@
   const ROOT = document.querySelector(".sidebar").dataset.root;
   const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
+  // Who is signed in, at the foot of the sidebar, with Sign out. A request of this site that
+  // finds the session gone (it ran out, or was ended elsewhere) sends the page to sign in.
+  {
+    const plain = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      const response = await plain(...args);
+      if (response.status === 401 && new URL(response.url, location.href).origin === location.origin) {
+        location.href = `/login?next=${encodeURIComponent(location.pathname + location.search)}`;
+      }
+      return response;
+    };
+    const foot = document.createElement("form");
+    foot.className = "side-user";
+    foot.method = "post";
+    foot.action = "/logout";
+    foot.innerHTML = `<span class="who"><b data-me-name></b><small data-me-space></small></span><button type="submit" title="Sign out" aria-label="Sign out"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 4H5v12h3M12 6.5 15.5 10 12 13.5M15.5 10H8.5"/></svg></button>`;
+    document.querySelector(".sidebar").append(foot);
+    plain("/api/me").then((r) => (r.ok ? r.json() : null)).then((me) => {
+      if (!me) return;
+      foot.querySelector("[data-me-name]").textContent = me.display_name;
+      foot.querySelector("[data-me-space]").textContent = me.name;
+      foot.title = `${me.display_name} (${me.name}) in ${me.space.name}`;
+    });
+  }
+
   // The dialog to add a machine, as a wizard: how it connects, then its steps. Opened from
   // any [data-add-open], and at #add.
   {

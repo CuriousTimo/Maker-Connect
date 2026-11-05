@@ -402,7 +402,7 @@ mod tests {
     #[tokio::test]
     async fn a_mini_registers_by_itself() {
         let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = crate::app(store.clone());
+        let app = crate::auth::signed_in_app(store.clone());
         let (status, headers) = call(
             &app,
             Request::post("/p/register")

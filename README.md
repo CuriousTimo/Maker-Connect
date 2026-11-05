@@ -168,10 +168,27 @@ The tools that make the jobs stay the makers' own: PrusaSlicer and Cura for prin
 LaserFoundry for lasers. Maker Connect takes it from the file on. See
 [docs/integrations.md](docs/integrations.md), also for label printers.
 
+## Signing in
+
+Every page and API needs someone signed in; machines prove who they are with their own tokens
+(agents, Prusa printers, Moonraker). On a fresh install the cloud prints a **setup code** at
+start: open it in a browser, and the first account (with that code) runs the server and owns
+the first space, which it names. Passwords are kept as Argon2id hashes, sessions as hashes of a
+random token in an HttpOnly cookie; a change must come from the site's own pages, and guessing
+is slowed down and then refused for a while. Locked out:
+
+```sh
+maker-connect-cloud reset-password <name> --db maker-connect.db
+```
+
+prints a new password and signs that account out everywhere. Behind a proxy with TLS, pass
+`X-Forwarded-Proto: https` so the cookie is marked `Secure`.
+
 ## Not yet
 
-No login: run it where only you can reach it, since anyone who reaches it can move your
-machines (and download the agent). Label printers other than the DYMO LabelManager PnP, and
+Roles and rights per machine: everyone who signs in can do everything in the space for
+now (see [Signing in](#signing-in)). Spoolman clients (Moonraker's `[spoolman]`, the OctoPrint plugin) cannot
+sign in yet: they need the tokens that come next. Label printers other than the DYMO LabelManager PnP, and
 codes scanned off real labels, are still to try. Files for the MINI over Prusa Connect, binary G-code (`.bgcode`), queues and a G-code viewer are still to come. Values
 marked `# check` in the profiles are not yet confirmed on the machines.
 
