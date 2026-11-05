@@ -161,11 +161,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         listener,
         app(store).into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_graceful_shutdown(async {
-        let _ = tokio::signal::ctrl_c().await;
-    })
+    .with_graceful_shutdown(stop_asked())
     .await?;
     Ok(())
+}
+
+/// Ends when someone stops the cloud (Ctrl-C, or `kill`/systemd/Docker's SIGTERM): no new
+/// connections from then on. Open pages keep their live streams open for ever, so waiting
+/// for them would never end: after a few seconds, or a second Ctrl-C, the process ends
+/// regardless (SQLite's journal keeps the database whole).
+async fn stop_asked() {
+    stop_signal().await;
+    println!("stopping (Ctrl-C again to stop at once)");
+    tokio::spawn(async {
+        tokio::select! {
+            _ = stop_signal() => {}
+            _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {}
+        }
+        println!("stopped");
+        std::process::exit(0);
+    });
+}
+
+async fn stop_signal() {
+    #[cfg(unix)]
+    {
+        let mut term =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = async {
+                match term.as_mut() {
+                    Some(term) => { term.recv().await; }
+                    None => std::future::pending::<()>().await,
+                }
+            } => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }
 
 pub fn app(store: Shared) -> Router {
