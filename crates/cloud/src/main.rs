@@ -14,6 +14,7 @@
 //! - `/login`, `/setup`, `/logout`: people sign in ([`auth`]); every other page and API
 //!   needs a session, except the routes machines use with their own tokens.
 
+mod access;
 mod accounts;
 mod auth;
 mod codes;
@@ -26,6 +27,7 @@ mod machine_page;
 mod profiles;
 mod prusa_connect;
 mod simplyprint;
+mod space_page;
 mod spoolman;
 mod spoolmandb;
 mod stock;
@@ -205,7 +207,7 @@ async fn stop_signal() {
 }
 
 pub fn app(store: Shared) -> Router {
-    Router::new()
+    let app = Router::new()
         .route(protocol::REGISTER, post(register))
         .route(protocol::TELEMETRY, post(telemetry))
         .route("/", get(page))
@@ -239,13 +241,20 @@ pub fn app(store: Shared) -> Router {
         .merge(stock::routes())
         .route("/files", get(files_page::page))
         .merge(auth::routes())
+        .merge(space_page::routes())
+        // After a route is matched: what it needs, against who asks (access::RULES).
+        .route_layer(axum::middleware::from_fn_with_state(
+            store.clone(),
+            access::permit,
+        ))
         .fallback(not_found)
+        // Before: who asks (a session, an API token), and that they are signed in.
         .layer(axum::middleware::from_fn_with_state(
             store.clone(),
             auth::guard,
         ))
-        .layer(axum::middleware::from_fn(prusa_connect::log))
-        .with_state(store)
+        .layer(axum::middleware::from_fn(prusa_connect::log));
+    auth::token_paths(app.with_state(store))
 }
 
 async fn not_found(uri: axum::http::Uri) -> Response {
@@ -470,13 +479,14 @@ struct PairForm {
 }
 
 async fn pair(
+    access: crate::access::Access,
     State(store): State<Shared>,
     headers: HeaderMap,
     Form(form): Form<PairForm>,
 ) -> Response {
     let store = store.lock().unwrap();
     let paired = store
-        .default_space()
+        .space_of(&access)
         .and_then(|(space, _)| store.pair(space, &form.code));
     let fetched = headers.contains_key("x-requested-with");
     match paired {
@@ -490,10 +500,10 @@ async fn pair(
     }
 }
 
-async fn machines(State(store): State<Shared>) -> Response {
+async fn machines(access: crate::access::Access, State(store): State<Shared>) -> Response {
     let store = store.lock().unwrap();
     match store
-        .default_space()
+        .space_of(&access)
         .and_then(|(space, _)| store.machines(space))
     {
         Ok(machines) => Json(machines).into_response(),
@@ -502,10 +512,10 @@ async fn machines(State(store): State<Shared>) -> Response {
 }
 
 /// A space's machines as JSON.
-fn machines_json(store: &Shared) -> String {
+fn machines_json(store: &Shared, access: &access::Access) -> String {
     let store = store.lock().unwrap();
     store
-        .default_space()
+        .space_of(access)
         .and_then(|(space, _)| store.machines(space))
         .map(|machines| serde_json::to_string(&machines).unwrap_or_default())
         .unwrap_or_else(|_| "[]".to_owned())
@@ -514,14 +524,15 @@ fn machines_json(store: &Shared) -> String {
 /// The machines now, and again after every change, merged over a quarter second; and every
 /// few seconds anyway, as "seen" and "online" change with time alone.
 async fn machine_stream(
+    access: access::Access,
     State(store): State<Shared>,
 ) -> Sse<impl futures_util::Stream<Item = Result<Event, std::convert::Infallible>>> {
     use std::time::Duration;
     use tokio::sync::broadcast::error::TryRecvError;
     let changes = store.lock().unwrap().subscribe();
     let stream = futures_util::stream::unfold(
-        (store, changes, true),
-        |(store, mut changes, first)| async move {
+        (store, changes, true, access),
+        |(store, mut changes, first, access)| async move {
             if !first {
                 tokio::select! {
                     _ = changes.recv() => {
@@ -531,15 +542,15 @@ async fn machine_stream(
                     _ = tokio::time::sleep(Duration::from_secs(5)) => {}
                 }
             }
-            let event = Event::default().data(machines_json(&store));
-            Some((Ok(event), (store, changes, false)))
+            let event = Event::default().data(machines_json(&store, &access));
+            Some((Ok(event), (store, changes, false, access)))
         },
     );
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
-async fn page(State(store): State<Shared>) -> Response {
-    match store.lock().unwrap().default_space() {
+async fn page(access: crate::access::Access, State(store): State<Shared>) -> Response {
+    match store.lock().unwrap().space_of(&access) {
         Ok((_, name)) => Html(
             PAGE.replace("{style}", STYLE)
                 .replace("{space}", &escape(&name))
@@ -572,7 +583,7 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
         r##"<aside class="sidebar" data-root="{home}">
   <a class="brand" href="{home}"><img src="{root}logo.svg" alt="" width="30" height="30"><span><b>Maker Connect</b><small>{space}</small></span></a>
   <button type="button" class="search-open" data-palette-open title="Go to a machine, a file or a page"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13.2 13.2 3.8 3.8"/></svg><span>Go to…</span><kbd>⌘K</kbd></button>
-  <nav class="side-nav" aria-label="Pages">{machines}{files}{stock}{downloads}</nav>
+  <nav class="side-nav" aria-label="Pages">{machines}{files}{stock}{space_link}{downloads}</nav>
   <div class="side-section">
     <div class="side-title"><span>Machines</span><button type="button" class="side-add" data-add-open title="Add a machine" aria-label="Add a machine"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11"/></svg></button></div>
     <nav class="side-machines" data-side-machines aria-label="Machines"></nav>
@@ -695,6 +706,12 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
             "downloads",
             r#"<path d="M10 3v10M6 9.5 10 13.5l4-4M4 17h12"/>"#
         ),
+        space_link = link(
+            "space",
+            "Space",
+            "space",
+            r#"<circle cx="7.5" cy="7" r="2.5"/><circle cx="13.5" cy="8" r="2"/><path d="M3 16c.6-3 2.3-4.5 4.5-4.5S11.4 13 12 16M12.5 12.2c2.2-.4 3.9.9 4.5 3.8"/>"#
+        ),
     )
 }
 
@@ -746,13 +763,17 @@ struct VirtualForm {
     profile: String,
 }
 
-async fn add_virtual(State(store): State<Shared>, Form(form): Form<VirtualForm>) -> Response {
+async fn add_virtual(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Form(form): Form<VirtualForm>,
+) -> Response {
     let Some(profile) = profiles::find(&form.profile) else {
         return (StatusCode::BAD_REQUEST, "no such profile").into_response();
     };
     let mut store = store.lock().unwrap();
     match store
-        .default_space()
+        .space_of(&access)
         .and_then(|(space, _)| store.add_virtual(space, profile))
     {
         Ok(id) => Redirect::to(&format!("/machines/{id}")).into_response(),
@@ -767,6 +788,7 @@ struct KlipperForm {
 
 /// A printer on Klipper: made here, its Settings then give the lines for its moonraker.conf.
 async fn add_klipper(
+    access: crate::access::Access,
     State(store): State<Shared>,
     headers: HeaderMap,
     Form(form): Form<KlipperForm>,
@@ -776,7 +798,7 @@ async fn add_klipper(
         return (StatusCode::BAD_REQUEST, "a name of 1 to 60 characters").into_response();
     }
     let mut store = store.lock().unwrap();
-    let added = store.default_space().and_then(|(space, _)| {
+    let added = store.space_of(&access).and_then(|(space, _)| {
         let id = store.add_moonraker(space, name)?;
         Ok((id.clone(), store.moonraker_token(space, &id)?))
     });
@@ -1021,13 +1043,14 @@ fn typed_gcode(text: &str) -> Result<(String, String), &'static str> {
 }
 
 async fn command(
+    access: crate::access::Access,
     State(store): State<Shared>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
     Form(form): Form<CommandForm>,
 ) -> Response {
     let mut store = store.lock().unwrap();
-    let space = match store.default_space() {
+    let space = match store.space_of(&access) {
         Ok((space, _)) => space,
         Err(error) => return failed(error),
     };
@@ -1117,13 +1140,14 @@ async fn command(
 }
 
 async fn remove(
+    access: crate::access::Access,
     State(store): State<Shared>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
 ) -> Response {
     let mut store = store.lock().unwrap();
     match store
-        .default_space()
+        .space_of(&access)
         .and_then(|(space, _)| store.remove(space, &id))
     {
         Ok(true) => done(&headers, "/"),
@@ -1133,12 +1157,13 @@ async fn remove(
 }
 
 async fn history(
+    access: crate::access::Access,
     State(store): State<Shared>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Response {
     let store = store.lock().unwrap();
     match store
-        .default_space()
+        .space_of(&access)
         .and_then(|(space, _)| store.history(space, &id))
     {
         Ok(Some(samples)) => Json(samples).into_response(),
@@ -1153,6 +1178,7 @@ struct NameForm {
 }
 
 async fn rename(
+    access: crate::access::Access,
     State(store): State<Shared>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
@@ -1164,7 +1190,7 @@ async fn rename(
     }
     let store = store.lock().unwrap();
     match store
-        .default_space()
+        .space_of(&access)
         .and_then(|(space, _)| store.rename(space, &id, name))
     {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
@@ -1184,6 +1210,7 @@ struct OutOfUseForm {
 
 /// The owner takes a machine out of use, with why, or brings it back.
 async fn out_of_use(
+    access: crate::access::Access,
     State(store): State<Shared>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
@@ -1204,7 +1231,7 @@ async fn out_of_use(
     };
     let store = store.lock().unwrap();
     match store
-        .default_space()
+        .space_of(&access)
         .and_then(|(space, _)| store.set_out_of_use(space, &id, reason))
     {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
@@ -1222,6 +1249,7 @@ struct LaserForm {
 
 /// A laser's module: its optical power, as the owner says.
 async fn laser_power(
+    access: crate::access::Access,
     State(store): State<Shared>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
@@ -1236,7 +1264,7 @@ async fn laser_power(
     };
     let store = store.lock().unwrap();
     match store
-        .default_space()
+        .space_of(&access)
         .and_then(|(space, _)| store.set_laser_w(space, &id, watts))
     {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
@@ -1247,12 +1275,13 @@ async fn laser_power(
 
 /// Someone took the finished print off the bed: the machine can take the next job.
 async fn taken(
+    access: crate::access::Access,
     State(store): State<Shared>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
 ) -> Response {
     let mut store = store.lock().unwrap();
-    let space = match store.default_space() {
+    let space = match store.space_of(&access) {
         Ok((space, _)) => space,
         Err(error) => return failed(error),
     };
@@ -1264,6 +1293,7 @@ async fn taken(
 }
 
 async fn choose_profile(
+    access: crate::access::Access,
     State(store): State<Shared>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
@@ -1275,7 +1305,7 @@ async fn choose_profile(
     }
     let store = store.lock().unwrap();
     match store
-        .default_space()
+        .space_of(&access)
         .and_then(|(space, _)| store.set_profile(space, &id, profile))
     {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
@@ -1292,13 +1322,14 @@ struct MediaForm {
 
 /// The owner says which tape (or roll) is loaded.
 async fn choose_media(
+    access: crate::access::Access,
     State(store): State<Shared>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
     Form(form): Form<MediaForm>,
 ) -> Response {
     let store = store.lock().unwrap();
-    let space = match store.default_space() {
+    let space = match store.space_of(&access) {
         Ok((space, _)) => space,
         Err(error) => return failed(error),
     };
@@ -1334,12 +1365,13 @@ async fn choose_media(
 
 /// A machine: its profile to choose (by brand), what the profile knows, and its bed.
 async fn machine_page(
+    access: crate::access::Access,
     State(store): State<Shared>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Response {
     let store = store.lock().unwrap();
     let found = store
-        .default_space()
+        .space_of(&access)
         .and_then(|(space, name)| Ok((name, store.machine(space, &id)?)));
     match found {
         Ok((space, Some(machine))) if machine.kind == protocol::MachineKind::Label => {
@@ -1461,18 +1493,28 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .palette-results li.none { color: var(--muted); cursor: default; }
   .palette-hint { margin: 0; padding: 8px 16px 12px; color: var(--muted); font-size: 12px; display: flex; gap: 6px; align-items: center; }
   /* On a phone: the pages as a tab bar at the bottom. */
-  .side-user { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 10px 4px 0 10px; border-top: 1px solid var(--line); }
+  .side-user { margin-top: auto; border-top: 1px solid var(--line); padding-top: 8px; position: relative; }
+  .side-user summary { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-radius: 8px; cursor: pointer; list-style: none; }
+  .side-user summary::-webkit-details-marker { display: none; }
+  .side-user summary:hover { background: color-mix(in srgb, var(--line) 60%, transparent); }
+  .side-user summary svg { color: var(--muted); }
+  .side-user[open] summary svg { transform: rotate(180deg); }
   .side-user .who { display: flex; flex-direction: column; min-width: 0; flex: 1; }
   .side-user .who b, .side-user .who small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .side-user .who b { font-size: 13px; }
   .side-user .who small { color: var(--muted); font-size: 12px; }
-  .side-user button { display: grid; place-items: center; padding: 6px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; }
-  .side-user button:hover, .side-user button:focus-visible { color: var(--ink); border-color: var(--line); }
+  .side-menu { position: absolute; bottom: calc(100% + 4px); left: 0; right: 0; display: grid; gap: 2px; padding: 6px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgb(0 0 0 / .2); z-index: 20; max-height: 60vh; overflow-y: auto; }
+  .side-menu > div { display: grid; gap: 2px; }
+  .side-menu small { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 6px 8px 2px; }
+  .side-menu button, .side-menu a { display: block; width: 100%; text-align: left; padding: 7px 8px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: inherit; font-size: 14px; font-weight: 500; text-decoration: none; cursor: pointer; }
+  .side-menu button:hover, .side-menu a:hover { background: var(--line); }
+  .side-menu button[aria-current] { color: var(--accent); font-weight: 700; }
+  .side-menu form { margin: 0; border-top: 1px solid var(--line); padding-top: 2px; display: block; }
   @media (max-width: 820px) {
     body { padding-left: 0; padding-bottom: 72px; }
     .sidebar { inset: auto 0 0 0; width: auto; height: 64px; flex-direction: row; align-items: center; justify-content: space-around; padding: 6px 8px; border-right: 0; border-top: 1px solid var(--line); overflow: visible; }
     .sidebar .brand, .sidebar .side-section, .search-open span, .search-open kbd { display: none; }
-    .side-user { margin: 0; padding: 0; border: 0; } .side-user .who { display: none; }
+    .side-user { margin: 0; padding: 0; border: 0; } .side-user .who { display: none; } .side-menu { left: auto; right: 0; width: 240px; bottom: calc(100% + 10px); }
     .topbar { padding: 8px 16px; }
     .summary { gap: 12px; font-size: 13px; }
     .search-open { width: auto; margin: 0; border: 0; background: transparent; }

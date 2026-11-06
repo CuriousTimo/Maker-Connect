@@ -1084,6 +1084,7 @@ static FILAMENTS: include_dir::Dir =
     include_dir::include_dir!("$CARGO_MANIFEST_DIR/../../filaments");
 
 async fn change_material(
+    access: crate::access::Access,
     State(store): State<Shared>,
     Path(id): Path<String>,
     Json(material): Json<Material>,
@@ -1092,7 +1093,7 @@ async fn change_material(
         return (StatusCode::BAD_REQUEST, "a material needs a name").into_response();
     }
     let store = store.lock().unwrap();
-    let space = match space(&store) {
+    let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
@@ -1240,16 +1241,14 @@ pub fn routes() -> Router<Shared> {
         .route("/api/stock/items/{id}/movements", get(movements))
 }
 
-fn space(store: &Store) -> Result<i64, Box<Response>> {
-    store
-        .default_space()
-        .map(|(s, _)| s)
-        .map_err(|e| Box::new(failed(e)))
+/// The space of the request: from who asks, never from anywhere else.
+fn space(access: &crate::access::Access) -> Result<i64, Box<Response>> {
+    Ok(access.space)
 }
 
-async fn overview(State(store): State<Shared>) -> Response {
+async fn overview(access: crate::access::Access, State(store): State<Shared>) -> Response {
     let store = store.lock().unwrap();
-    let space = match space(&store) {
+    let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
@@ -1270,12 +1269,16 @@ async fn overview(State(store): State<Shared>) -> Response {
     }
 }
 
-async fn new_material(State(store): State<Shared>, Json(material): Json<Material>) -> Response {
+async fn new_material(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Json(material): Json<Material>,
+) -> Response {
     if material.name.trim().is_empty() {
         return (StatusCode::BAD_REQUEST, "a material needs a name").into_response();
     }
     let store = store.lock().unwrap();
-    let space = match space(&store) {
+    let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
@@ -1311,6 +1314,7 @@ struct ChangedLocation {
 }
 
 async fn change_location(
+    access: crate::access::Access,
     State(store): State<Shared>,
     Path(id): Path<String>,
     Json(c): Json<ChangedLocation>,
@@ -1320,7 +1324,7 @@ async fn change_location(
         return (StatusCode::BAD_REQUEST, "a location needs a name").into_response();
     }
     let store = store.lock().unwrap();
-    let space = match space(&store) {
+    let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
@@ -1347,9 +1351,13 @@ async fn change_location(
     }
 }
 
-async fn remove_location(State(store): State<Shared>, Path(id): Path<String>) -> Response {
+async fn remove_location(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Path(id): Path<String>,
+) -> Response {
     let store = store.lock().unwrap();
-    let space = match space(&store) {
+    let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
@@ -1360,12 +1368,16 @@ async fn remove_location(State(store): State<Shared>, Path(id): Path<String>) ->
     }
 }
 
-async fn new_location(State(store): State<Shared>, Json(new): Json<NewLocation>) -> Response {
+async fn new_location(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Json(new): Json<NewLocation>,
+) -> Response {
     if new.name.trim().is_empty() {
         return (StatusCode::BAD_REQUEST, "a location needs a name").into_response();
     }
     let store = store.lock().unwrap();
-    let space = match space(&store) {
+    let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
@@ -1402,9 +1414,13 @@ struct Receive {
     location: Option<String>,
 }
 
-async fn receive(State(store): State<Shared>, Json(r): Json<Receive>) -> Response {
+async fn receive(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Json(r): Json<Receive>,
+) -> Response {
     let store = store.lock().unwrap();
-    let space = match space(&store) {
+    let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
@@ -1433,12 +1449,13 @@ struct Place {
 }
 
 async fn move_item(
+    access: crate::access::Access,
     State(store): State<Shared>,
     Path(id): Path<String>,
     Json(p): Json<Place>,
 ) -> Response {
     let store = store.lock().unwrap();
-    let space = match space(&store) {
+    let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
@@ -1450,18 +1467,25 @@ async fn move_item(
 }
 
 async fn load_item(
+    access: crate::access::Access,
     State(store): State<Shared>,
     Path(id): Path<String>,
     Json(p): Json<Place>,
 ) -> Response {
     let store = store.lock().unwrap();
-    let space = match space(&store) {
+    let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
     let Some(machine) = p.machine else {
         return (StatusCode::BAD_REQUEST, "which machine?").into_response();
     };
+    // Loading a spool or a tape is using the machine.
+    if let Err(refused) =
+        crate::access::check_machine(&store, &access, &machine, crate::access::Level::Use)
+    {
+        return *refused;
+    }
     match store.load_item(space, &id, &machine) {
         Ok(Ok(())) => StatusCode::NO_CONTENT.into_response(),
         Ok(Err(why)) => (StatusCode::BAD_REQUEST, why).into_response(),
@@ -1469,9 +1493,13 @@ async fn load_item(
     }
 }
 
-async fn unload_item(State(store): State<Shared>, Path(id): Path<String>) -> Response {
+async fn unload_item(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Path(id): Path<String>,
+) -> Response {
     let store = store.lock().unwrap();
-    let space = match space(&store) {
+    let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
@@ -1483,6 +1511,7 @@ async fn unload_item(State(store): State<Shared>, Path(id): Path<String>) -> Res
 }
 
 async fn set_amount(
+    access: crate::access::Access,
     State(store): State<Shared>,
     Path(id): Path<String>,
     Json(p): Json<Place>,
@@ -1491,7 +1520,7 @@ async fn set_amount(
         return (StatusCode::BAD_REQUEST, "how much?").into_response();
     };
     let store = store.lock().unwrap();
-    let space = match space(&store) {
+    let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
@@ -1502,9 +1531,13 @@ async fn set_amount(
     }
 }
 
-async fn use_up(State(store): State<Shared>, Path(id): Path<String>) -> Response {
+async fn use_up(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Path(id): Path<String>,
+) -> Response {
     let store = store.lock().unwrap();
-    let space = match space(&store) {
+    let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
@@ -1515,9 +1548,13 @@ async fn use_up(State(store): State<Shared>, Path(id): Path<String>) -> Response
     }
 }
 
-async fn movements(State(store): State<Shared>, Path(id): Path<String>) -> Response {
+async fn movements(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Path(id): Path<String>,
+) -> Response {
     let store = store.lock().unwrap();
-    let space = match space(&store) {
+    let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
@@ -1527,9 +1564,9 @@ async fn movements(State(store): State<Shared>, Path(id): Path<String>) -> Respo
     }
 }
 
-async fn page(State(store): State<Shared>) -> Response {
-    let space = match store.lock().unwrap().default_space() {
-        Ok((_, name)) => name,
+async fn page(access: crate::access::Access, State(store): State<Shared>) -> Response {
+    let space = match store.lock().unwrap().space_name(access.space) {
+        Ok(name) => name,
         Err(error) => return failed(error),
     };
     Html(format!(

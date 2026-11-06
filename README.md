@@ -184,11 +184,27 @@ maker-connect-cloud reset-password <name> --db maker-connect.db
 prints a new password and signs that account out everywhere. Behind a proxy with TLS, pass
 `X-Forwarded-Proto: https` so the cookie is marked `Secure`.
 
+**Organisations, spaces and roles.** An organisation (a makerspace, a club, a maker at home)
+has one or more spaces (its locations, its workshops); every space and organisation has its
+own id under the hood, apart from its name. Someone in the organisation is in all its
+spaces; someone can also be in one space only. Roles: *owner*, *admin* (machines, members,
+tokens), *member* (files, materials, machines), *guest* (looks only). A machine can need an
+**induction**: then a member may only *use* it (jobs, labels) or *operate* it (also move, heat,
+G-code) as far as an admin gave them, until a date if one is set. New people come in by an
+**invite link** (a week, once; no email needed). Everything on the **Space** page, with the
+space's **audit log** (who changed what).
+
+**API tokens** (Space page) act in a space with a role: `Authorization: Bearer mct_…`, or in the
+address for clients that send no headers, such as Moonraker's Spoolman:
+
+```ini
+[spoolman]
+server: http://maker-connect.local:8460/t/mct_…
+```
+
 ## Not yet
 
-Roles and rights per machine: everyone who signs in can do everything in the space for
-now (see [Signing in](#signing-in)). Spoolman clients (Moonraker's `[spoolman]`, the OctoPrint plugin) cannot
-sign in yet: they need the tokens that come next. The DYMO LabelWriter 450 (die-cut labels, over USB) is
+The DYMO LabelWriter 450 (die-cut labels, over USB) is
 built but not yet tried on the printer: if a label comes out mirrored, `TOP_AT_DOT_ZERO` in
 `crates/label/src/labelwriter.rs` is the other way round. Other label printers, and codes
 scanned off real labels, are still to try. Files for the MINI over Prusa Connect, binary G-code (`.bgcode`), queues and a G-code viewer are still to come. Values

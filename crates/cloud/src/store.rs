@@ -186,6 +186,8 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
         ("out_of_use_at", "INTEGER"),
         // A laser's module, as its owner says (the controller does not know it).
         ("laser_w", "REAL"),
+        // Only those with an induction (a grant) may use it (crate::access).
+        ("induction_required", "INTEGER NOT NULL DEFAULT 0"),
     ] {
         let present: bool = db.query_row(
             "SELECT COUNT(*) FROM pragma_table_info('machines') WHERE name = ?1",
@@ -200,11 +202,12 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
         }
     }
     crate::stock::migrate(db)?;
-    crate::accounts::migrate(db)?;
     let spaces: i64 = db.query_row("SELECT COUNT(*) FROM spaces", [], |r| r.get(0))?;
     if spaces == 0 {
         db.execute("INSERT INTO spaces (name) VALUES ('My space')", [])?;
     }
+    // After the first space: it gets its organisation and its id there.
+    crate::accounts::migrate(db)?;
     db.execute(
         "INSERT INTO meta (key, value) VALUES ('opened_by', ?1)
          ON CONFLICT (key) DO UPDATE SET value = excluded.value",
@@ -505,6 +508,8 @@ pub struct Store {
 /// A change to Spoolman's data: `spool` 7 `updated`. A removed one carries what it was.
 #[derive(Debug, Clone)]
 pub struct SpoolmanEvent {
+    /// Whose it is: only that space's WebSockets hear of it.
+    pub space: Option<i64>,
     pub resource: &'static str,
     pub kind: &'static str,
     pub id: i64,
@@ -573,7 +578,19 @@ impl Store {
 
     /// Spoolman's data changed: `spool` 7 `updated`.
     pub(crate) fn spoolman_event(&self, resource: &'static str, kind: &'static str, id: i64) {
+        let space = match resource {
+            "spool" | "filament" | "vendor" => self
+                .db
+                .query_row(
+                    &format!("SELECT space_id FROM {resource} WHERE id = ?1"),
+                    [id],
+                    |r| r.get(0),
+                )
+                .ok(),
+            _ => None,
+        };
         let _ = self.spoolman.send(SpoolmanEvent {
+            space,
             resource,
             kind,
             id,
@@ -582,8 +599,15 @@ impl Store {
     }
 
     /// One of Spoolman's things removed, with what it was.
-    pub(crate) fn spoolman_removed(&self, resource: &'static str, id: i64, was: serde_json::Value) {
+    pub(crate) fn spoolman_removed(
+        &self,
+        space: i64,
+        resource: &'static str,
+        id: i64,
+        was: serde_json::Value,
+    ) {
         let _ = self.spoolman.send(SpoolmanEvent {
+            space: Some(space),
             resource,
             kind: "deleted",
             id,

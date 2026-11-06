@@ -28,6 +28,9 @@ use serde::Deserialize;
 use std::net::SocketAddr;
 
 pub const COOKIE: &str = "mc_session";
+/// Where an API token from the address (`/t/<token>/…`) is put for the guard: set only by
+/// [`token_paths`], which removes any that came with the request.
+pub const TOKEN_HEADER: &str = "x-maker-connect-token";
 /// Failed sign-ins counted over this many seconds.
 const WINDOW: i64 = 15 * 60;
 /// At most this many failures from one address in the window, then a refusal.
@@ -52,6 +55,7 @@ pub fn routes() -> Router<Shared> {
 /// Routes that machines use with their own tokens, and the pages to sign in.
 pub fn public(path: &str) -> bool {
     matches!(path, "/login" | "/setup" | "/logo.svg")
+        || path.starts_with("/invite/")
         || path.starts_with("/api/agent/v1/")
         || path.starts_with("/p/")
         || path.starts_with("/simplyprint/")
@@ -68,15 +72,44 @@ pub async fn guard(State(store): State<Shared>, mut request: Request, next: Next
     if public(&path) {
         return next.run(request).await;
     }
+    // An API token: from the address (Moonraker, the OctoPrint plugin), or a header.
+    let api_token = request
+        .headers()
+        .get(TOKEN_HEADER)
+        .or_else(|| request.headers().get(header::AUTHORIZATION))
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.strip_prefix("Bearer ").unwrap_or(v).trim().to_owned())
+        .filter(|t| t.starts_with(crate::access::TOKEN_PREFIX));
+    if let Some(token) = api_token {
+        let access = match store.lock().unwrap().token_access(&token) {
+            Ok(access) => access,
+            Err(error) => return failed(error),
+        };
+        let Some(access) = access else {
+            return (
+                StatusCode::UNAUTHORIZED,
+                "that API token is not (or no longer) valid",
+            )
+                .into_response();
+        };
+        // Not a browser's cookie: another site cannot send it without knowing it.
+        request.extensions_mut().insert(access);
+        return next.run(request).await;
+    }
     let token = cookie(request.headers(), COOKIE);
-    let (signed, has_users) = {
+    let (signed, access, has_users) = {
         let store = store.lock().unwrap();
         let signed = match token.as_deref().map(|t| store.session(t)) {
             Some(Ok(signed)) => signed,
             Some(Err(error)) => return failed(error),
             None => None,
         };
-        (signed, store.has_users().unwrap_or(true))
+        let access = match signed.as_ref().map(|s| session_access(&store, s)) {
+            Some(Ok(access)) => access,
+            Some(Err(error)) => return failed(error),
+            None => None,
+        };
+        (signed, access, store.has_users().unwrap_or(true))
     };
     let Some(signed) = signed else {
         return refuse(&request, has_users);
@@ -88,19 +121,89 @@ pub async fn guard(State(store): State<Shared>, mut request: Request, next: Next
         )
             .into_response();
     }
+    // Signed in, but in no space (removed from the last one): a page says how to get in one.
+    if access.is_none() && wants_page(&request) && !matches!(path.as_str(), "/welcome" | "/logout")
+    {
+        return Redirect::to("/welcome").into_response();
+    }
     request.extensions_mut().insert(signed);
+    if let Some(access) = access {
+        request.extensions_mut().insert(access);
+    }
     next.run(request).await
 }
 
-/// No session: a page goes to sign in (or to set up, on a fresh install); the rest gets 401.
-fn refuse(request: &Request, has_users: bool) -> Response {
-    let wants_page = request.method() == Method::GET
+/// The space a session is in, with the role there: the one it was in, else the first the
+/// user belongs to (and the session moves there); `None` when they belong to none.
+fn session_access(
+    store: &crate::store::Store,
+    signed: &Signed,
+) -> rusqlite::Result<Option<crate::access::Access>> {
+    let mut space = signed.space_id;
+    let mut role = match space {
+        Some(space) => store.role_of(signed.user_id, space)?,
+        None => None,
+    };
+    if role.is_none() {
+        let Some(first) = store.spaces_of(signed.user_id)?.into_iter().next() else {
+            return Ok(None);
+        };
+        store.set_session_space(signed.session_id, first.id)?;
+        space = Some(first.id);
+        role = Some(first.role);
+    }
+    let (Some(space), Some(role)) = (space, role) else {
+        return Ok(None);
+    };
+    Ok(Some(crate::access::Access {
+        user_id: signed.user_id,
+        actor: signed.display_name.clone(),
+        space,
+        role,
+        token_id: None,
+        session_id: Some(signed.session_id),
+        instance_admin: signed.instance_admin,
+    }))
+}
+
+fn wants_page(request: &Request) -> bool {
+    request.method() == Method::GET
         && request
             .headers()
             .get(header::ACCEPT)
             .and_then(|a| a.to_str().ok())
-            .is_some_and(|a| a.contains("text/html"));
-    if !wants_page {
+            .is_some_and(|a| a.contains("text/html"))
+}
+
+/// Wraps the whole app: an address `/t/<token>/rest` is served as `/rest` with the token for
+/// the guard, so a client that cannot send headers (Moonraker's `[spoolman] server`) still
+/// signs in. Runs before routing (a layer on the router would run after it).
+pub fn token_paths(inner: Router) -> Router {
+    use tower::Layer;
+    let rewrite = axum::middleware::from_fn(|mut request: Request, next: Next| async move {
+        request.headers_mut().remove(TOKEN_HEADER);
+        let path = request.uri().path().to_owned();
+        if let Some(rest) = path.strip_prefix("/t/") {
+            let (token, after) = rest.split_once('/').unwrap_or((rest, ""));
+            if let Ok(value) = HeaderValue::from_str(token) {
+                request.headers_mut().insert(TOKEN_HEADER, value);
+            }
+            let query = request
+                .uri()
+                .query()
+                .map_or(String::new(), |q| format!("?{q}"));
+            if let Ok(uri) = format!("/{after}{query}").parse() {
+                *request.uri_mut() = uri;
+            }
+        }
+        next.run(request).await
+    });
+    Router::new().fallback_service(rewrite.layer(inner))
+}
+
+/// No session: a page goes to sign in (or to set up, on a fresh install); the rest gets 401.
+fn refuse(request: &Request, has_users: bool) -> Response {
+    if !wants_page(request) {
         return (StatusCode::UNAUTHORIZED, "sign in first").into_response();
     }
     if !has_users {
@@ -179,7 +282,7 @@ fn next_path(next: Option<&str>) -> String {
 }
 
 /// The session cookie (for `https`, also `Secure`); `None` ends it.
-fn session_cookie(token: Option<&str>, headers: &HeaderMap) -> HeaderValue {
+pub(crate) fn session_cookie(token: Option<&str>, headers: &HeaderMap) -> HeaderValue {
     let secure = headers
         .get("x-forwarded-proto")
         .is_some_and(|p| p.as_bytes() == b"https");
@@ -195,7 +298,7 @@ fn session_cookie(token: Option<&str>, headers: &HeaderMap) -> HeaderValue {
 }
 
 /// Signed in: the cookie, then on to `to`.
-fn signed_in(token: &str, headers: &HeaderMap, to: &str) -> Response {
+pub(crate) fn signed_in(token: &str, headers: &HeaderMap, to: &str) -> Response {
     let mut response = Redirect::to(to).into_response();
     response
         .headers_mut()
@@ -347,23 +450,32 @@ async fn logout(
     response
 }
 
-/// Who is signed in, and in which space.
-async fn me(State(store): State<Shared>, Extension(signed): Extension<Signed>) -> Response {
-    let space = store
-        .lock()
-        .unwrap()
-        .db
-        .query_row(
-            "SELECT name FROM spaces WHERE id = ?1",
-            [signed.space_id],
-            |r| r.get::<_, String>(0),
-        )
-        .unwrap_or_default();
+/// Who is signed in, the space they are in with their role, and the spaces they could
+/// go to: for the sidebar.
+async fn me(
+    State(store): State<Shared>,
+    Extension(signed): Extension<Signed>,
+    access: Option<Extension<crate::access::Access>>,
+) -> Response {
+    let store = store.lock().unwrap();
+    let spaces = match store.spaces_of(signed.user_id) {
+        Ok(spaces) => spaces,
+        Err(error) => return failed(error),
+    };
+    let space = access.as_ref().map(|Extension(a)| {
+        serde_json::json!({
+            "id": a.space,
+            "name": store.space_name(a.space).unwrap_or_default(),
+            "role": a.role,
+        })
+    });
     Json(serde_json::json!({
         "name": signed.name,
         "display_name": signed.display_name,
         "instance_admin": signed.instance_admin,
-        "space": { "id": signed.space_id, "name": space },
+        "space": space,
+        "spaces": spaces,
+        "may_make_spaces": signed.instance_admin || store.open_spaces(),
     }))
     .into_response()
 }
@@ -475,8 +587,11 @@ async fn setup(
     let made = (|| {
         let (space, _) = store.default_space()?;
         let user = store.create_user(&name, &display_name, &hash, true)?;
-        store.set_membership(user, space, "owner")?;
+        // Owner of the first space's organisation (all its spaces); both get the name.
+        let organisation = store.organisation_of(space)?;
+        store.set_org_membership(user, organisation, "owner")?;
         store.rename_space(space, &space_name)?;
+        store.rename_organisation(organisation, &space_name)?;
         store.create_session(user, Some(space), user_agent, &client)
     })();
     match made {
@@ -509,7 +624,7 @@ const AUTH_STYLE: &str = r#"
   .auth small { color: var(--muted); font-size: .8rem; }
 "#;
 
-fn auth_page(title: &str, body: &str) -> String {
+pub(crate) fn auth_page(title: &str, body: &str) -> String {
     format!(
         r#"<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -575,7 +690,10 @@ pub fn signed_in_app(store: Shared) -> Router {
         let store = store.lock().unwrap();
         let user = store.create_user("tester", "Tester", "x", true).unwrap();
         let space = store.default_space().unwrap().0;
-        store.set_membership(user, space, "owner").unwrap();
+        let organisation = store.organisation_of(space).unwrap();
+        store
+            .set_org_membership(user, organisation, "owner")
+            .unwrap();
         store
             .create_session(user, Some(space), "test", "127.0.0.1")
             .unwrap()
@@ -656,6 +774,7 @@ mod tests {
             include_str!("spoolman.rs"),
             include_str!("spoolmandb.rs"),
             include_str!("stock.rs"),
+            include_str!("space_page.rs"),
         ];
         let mut paths: Vec<String> = Vec::new();
         for source in sources {
@@ -791,7 +910,7 @@ mod tests {
                     false,
                 )
                 .unwrap();
-            store.set_membership(user, 1, "maker").unwrap();
+            store.set_membership(user, 1, "member").unwrap();
         }
         let app = crate::app(store.clone());
         let (status, _, body) = send(&app, form("/login", "name=ann&password=wrong")).await;

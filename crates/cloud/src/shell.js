@@ -14,17 +14,35 @@
       }
       return response;
     };
-    const foot = document.createElement("form");
+    // Who, in which space; a click lists the spaces to go to (by organisation), and signs out.
+    const foot = document.createElement("details");
     foot.className = "side-user";
-    foot.method = "post";
-    foot.action = "/logout";
-    foot.innerHTML = `<span class="who"><b data-me-name></b><small data-me-space></small></span><button type="submit" title="Sign out" aria-label="Sign out"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 4H5v12h3M12 6.5 15.5 10 12 13.5M15.5 10H8.5"/></svg></button>`;
+    foot.innerHTML = `<summary><span class="who"><b data-me-name></b><small data-me-space></small></span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></summary><div class="side-menu"><div data-me-spaces></div><a href="/space">Space, members, access</a><form method="post" action="/logout"><button type="submit">Sign out</button></form></div>`;
     document.querySelector(".sidebar").append(foot);
     plain("/api/me").then((r) => (r.ok ? r.json() : null)).then((me) => {
       if (!me) return;
       foot.querySelector("[data-me-name]").textContent = me.display_name;
-      foot.querySelector("[data-me-space]").textContent = me.name;
-      foot.title = `${me.display_name} (${me.name}) in ${me.space.name}`;
+      foot.querySelector("[data-me-space]").textContent = me.space ? me.space.name : "no space";
+      foot.title = `${me.display_name} (${me.name})${me.space ? ` in ${me.space.name}, ${me.space.role}` : ""}`;
+      const list = foot.querySelector("[data-me-spaces]");
+      let org = null;
+      for (const s of me.spaces || []) {
+        if (s.organisation !== org) {
+          org = s.organisation;
+          const head = document.createElement("small");
+          head.textContent = org;
+          list.append(head);
+        }
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = s.name;
+        if (me.space && s.id === me.space.id) b.setAttribute("aria-current", "true");
+        b.addEventListener("click", async () => {
+          const r = await plain("/spaces/switch", { method: "POST", body: new URLSearchParams({ space: s.id }), headers: { "x-requested-with": "fetch" } });
+          if (r.ok) location.href = "/";
+        });
+        list.append(b);
+      }
     });
   }
 

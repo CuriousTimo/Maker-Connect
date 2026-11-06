@@ -11,8 +11,8 @@ use axum::{
 const FILES_STYLE: &str = include_str!("files.css");
 const FILES_SCRIPT: &str = include_str!("files.js");
 
-pub async fn page(State(store): State<Shared>) -> Response {
-    let space = match store.lock().unwrap().default_space() {
+pub async fn page(access: crate::access::Access, State(store): State<Shared>) -> Response {
+    let space = match store.lock().unwrap().space_of(&access) {
         Ok((_, name)) => name,
         Err(error) => return failed(error),
     };

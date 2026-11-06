@@ -123,10 +123,14 @@ fn megabytes(size: u64) -> String {
     format!("{:.1} MB", size as f64 / 1_000_000.0)
 }
 
-async fn page(State(store): State<Shared>, headers: HeaderMap) -> Response {
+async fn page(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    headers: HeaderMap,
+) -> Response {
     let (space, dir, on_offer) = {
         let store = store.lock().unwrap();
-        match store.default_space() {
+        match store.space_of(&access) {
             Ok((_, space)) => (space, store.downloads_dir.clone(), store.offered_build()),
             Err(error) => return failed(error),
         }

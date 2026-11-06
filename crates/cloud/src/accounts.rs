@@ -64,7 +64,132 @@ pub fn migrate(db: &Connection) -> rusqlite::Result<()> {
              user_agent TEXT NOT NULL DEFAULT '',
              address TEXT NOT NULL DEFAULT ''
          );
-         CREATE INDEX IF NOT EXISTS sessions_by_user ON sessions (user_id);",
+         CREATE INDEX IF NOT EXISTS sessions_by_user ON sessions (user_id);
+         CREATE TABLE IF NOT EXISTS invites (
+             id INTEGER PRIMARY KEY,
+             token_hash TEXT NOT NULL UNIQUE,
+             space_id INTEGER NOT NULL REFERENCES spaces(id),
+             role TEXT NOT NULL,
+             created_by INTEGER NOT NULL REFERENCES users(id),
+             created_at INTEGER NOT NULL,
+             expires_at INTEGER NOT NULL,
+             used_by INTEGER REFERENCES users(id),
+             used_at INTEGER,
+             revoked INTEGER NOT NULL DEFAULT 0,
+             -- Into the whole organisation of the space (all its spaces), or this space only.
+             whole_organisation INTEGER NOT NULL DEFAULT 1
+         );
+         CREATE TABLE IF NOT EXISTS machine_grants (
+             space_id INTEGER NOT NULL REFERENCES spaces(id),
+             machine_id TEXT NOT NULL,
+             user_id INTEGER NOT NULL REFERENCES users(id),
+             level TEXT NOT NULL,
+             granted_by INTEGER,
+             granted_at INTEGER NOT NULL,
+             expires_at INTEGER,
+             PRIMARY KEY (machine_id, user_id)
+         );
+         CREATE TABLE IF NOT EXISTS api_tokens (
+             id INTEGER PRIMARY KEY,
+             token_hash TEXT NOT NULL UNIQUE,
+             space_id INTEGER NOT NULL REFERENCES spaces(id),
+             created_by INTEGER NOT NULL REFERENCES users(id),
+             name TEXT NOT NULL,
+             role TEXT NOT NULL,
+             created_at INTEGER NOT NULL,
+             last_used INTEGER,
+             revoked INTEGER NOT NULL DEFAULT 0
+         );
+         CREATE TABLE IF NOT EXISTS audit_log (
+             id INTEGER PRIMARY KEY,
+             space_id INTEGER NOT NULL,
+             at INTEGER NOT NULL,
+             user_id INTEGER,
+             token_id INTEGER,
+             actor TEXT NOT NULL,
+             action TEXT NOT NULL,
+             target TEXT NOT NULL DEFAULT '',
+             detail TEXT NOT NULL DEFAULT ''
+         );
+         CREATE INDEX IF NOT EXISTS audit_by_space ON audit_log (space_id, at);
+         CREATE TABLE IF NOT EXISTS organisations (
+             id INTEGER PRIMARY KEY,
+             uid TEXT NOT NULL UNIQUE,
+             name TEXT NOT NULL,
+             created_at INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS org_memberships (
+             user_id INTEGER NOT NULL REFERENCES users(id),
+             organisation_id INTEGER NOT NULL REFERENCES organisations(id),
+             role TEXT NOT NULL,
+             created_at INTEGER NOT NULL,
+             PRIMARY KEY (user_id, organisation_id)
+         );",
+    )?;
+    // Spaces belong to an organisation and have an id of their own under the hood (a UUID),
+    // apart from their name and from their row number (which counts up and repeats on
+    // another server).
+    for (column, definition) in [
+        ("uid", "TEXT"),
+        ("organisation_id", "INTEGER REFERENCES organisations(id)"),
+    ] {
+        let present: bool = db.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('spaces') WHERE name = ?1",
+            [column],
+            |r| r.get(0),
+        )?;
+        if !present {
+            db.execute(
+                &format!("ALTER TABLE spaces ADD COLUMN {column} {definition}"),
+                [],
+            )?;
+        }
+    }
+    db.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS spaces_by_uid ON spaces (uid);")?;
+    let bare: Vec<(i64, String, Option<String>)> = {
+        let mut q = db.prepare(
+            "SELECT id, name, uid FROM spaces WHERE uid IS NULL OR organisation_id IS NULL",
+        )?;
+        q.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?
+    };
+    for (space, name, uid) in bare {
+        // A space from before organisations: an organisation of its own, of the same name,
+        // its members that organisation's.
+        db.execute(
+            "INSERT INTO organisations (uid, name, created_at) VALUES (?1, ?2, ?3)",
+            params![new_uuid(), name, now()],
+        )?;
+        let org = db.last_insert_rowid();
+        db.execute(
+            "UPDATE spaces SET organisation_id = ?2, uid = COALESCE(uid, ?3) WHERE id = ?1",
+            params![space, org, uid.unwrap_or_else(new_uuid)],
+        )?;
+        db.execute(
+            "INSERT OR IGNORE INTO org_memberships (user_id, organisation_id, role, created_at)
+             SELECT user_id, ?2, role, created_at FROM memberships WHERE space_id = ?1",
+            params![space, org],
+        )?;
+        db.execute("DELETE FROM memberships WHERE space_id = ?1", [space])?;
+    }
+    Ok(())
+}
+
+/// An id under the hood, the same wherever the data goes and saying nothing about how many
+/// there are: a random UUID (version 4), as `0f9c2b6e-…`. People see names, not this.
+pub fn new_uuid() -> String {
+    let mut b = [0u8; 16];
+    rand::rngs::OsRng.fill_bytes(&mut b);
+    b[6] = (b[6] & 0x0f) | 0x40; // version 4
+    b[8] = (b[8] & 0x3f) | 0x80; // the RFC 4122 variant
+    let h = hex(&b);
+    format!(
+        "{}-{}-{}-{}-{}",
+        &h[..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..]
     )
 }
 
@@ -77,8 +202,8 @@ pub struct Signed {
     pub instance_admin: bool,
     #[serde(skip)]
     pub session_id: i64,
-    /// The space the session is in.
-    pub space_id: i64,
+    /// The space the session is in, when it is in one (see [`crate::access`]).
+    pub space_id: Option<i64>,
 }
 
 /// A user's password, as kept for signing in.
@@ -297,7 +422,7 @@ impl Store {
                             name: r.get(3)?,
                             display_name: r.get(4)?,
                             instance_admin: r.get(5)?,
-                            space_id: 0,
+                            space_id: None,
                         },
                     ))
                 },
@@ -312,11 +437,7 @@ impl Store {
                 params![signed.session_id, at, at + SESSION_SECONDS],
             )?;
         }
-        // Phase 1: one space, the instance's first, for everyone signed in.
-        signed.space_id = match space {
-            Some(space) => space,
-            None => self.default_space()?.0,
-        };
+        signed.space_id = space;
         Ok(Some(signed))
     }
 

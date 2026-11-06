@@ -221,7 +221,11 @@ pub fn take_into(store: &Store, space: i64, f: &Value) -> rusqlite::Result<i64> 
     Ok(id)
 }
 
-async fn take(State(store): State<Shared>, Path(external_id): Path<String>) -> Response {
+async fn take(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Path(external_id): Path<String>,
+) -> Response {
     let found = catalogue()
         .read()
         .unwrap()
@@ -233,9 +237,7 @@ async fn take(State(store): State<Shared>, Path(external_id): Path<String>) -> R
         return (StatusCode::NOT_FOUND, "not in SpoolmanDB").into_response();
     };
     let store = store.lock().unwrap();
-    let taken = store
-        .default_space()
-        .and_then(|(space, _)| take_into(&store, space, &f));
+    let taken = take_into(&store, access.space, &f);
     match taken {
         Ok(id) => Json(json!({"id": id.to_string()})).into_response(),
         Err(e) => crate::failed(e),
@@ -495,7 +497,11 @@ fn tags_into(
 }
 
 /// `{"url": "http://host:7912"}` for a running Spoolman, or its JSON export of spools.
-async fn import(State(store): State<Shared>, Json(body): Json<Value>) -> Response {
+async fn import(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Json(body): Json<Value>,
+) -> Response {
     let bundle = match (body["url"].as_str(), body.as_array()) {
         (Some(url), _) => {
             let url = url.to_owned();
@@ -515,9 +521,7 @@ async fn import(State(store): State<Shared>, Json(body): Json<Value>) -> Respons
         }
     };
     let store = store.lock().unwrap();
-    let moved = store
-        .default_space()
-        .and_then(|(space, _)| bundle.into_store(&store, space));
+    let moved = bundle.into_store(&store, access.space);
     match moved {
         Ok(m) => Json(m).into_response(),
         Err(e) => crate::failed(e),
@@ -525,7 +529,11 @@ async fn import(State(store): State<Shared>, Json(body): Json<Value>) -> Respons
 }
 
 /// Everything in Materials, written to a running Spoolman through its API.
-async fn export(State(store): State<Shared>, Json(body): Json<Value>) -> Response {
+async fn export(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Json(body): Json<Value>,
+) -> Response {
     let Some(url) = body["url"]
         .as_str()
         .map(|u| format!("{}/api/v1", u.trim_end_matches('/')))
@@ -538,9 +546,7 @@ async fn export(State(store): State<Shared>, Json(body): Json<Value>) -> Respons
     };
     let (vendors, filaments, spools) = {
         let store = store.lock().unwrap();
-        let Ok((space, _)) = store.default_space() else {
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        };
+        let space = access.space;
         let all = |r: &str| -> Vec<Value> {
             let mut q = match store.db.prepare(&format!(
                 "SELECT id FROM {r} WHERE space_id = ?1 ORDER BY id"

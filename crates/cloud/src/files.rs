@@ -195,9 +195,9 @@ struct Listed {
     printed: Vec<crate::store::Printed>,
 }
 
-async fn list(State(store): State<Shared>) -> Response {
+async fn list(access: crate::access::Access, State(store): State<Shared>) -> Response {
     let store = store.lock().unwrap();
-    let found = store.default_space().and_then(|(space, _)| {
+    let found = store.space_of(&access).and_then(|(space, _)| {
         Ok((
             store.files(space)?,
             store.machines(space)?,
@@ -257,6 +257,7 @@ fn clean_name(name: &str) -> Option<String> {
 /// `POST /api/files?name=part.gcode`, the file as the body: streamed to disk, read for its
 /// metadata and thumbnail, added to the space.
 async fn upload(
+    access: crate::access::Access,
     State(store): State<Shared>,
     Query(query): Query<UploadQuery>,
     body: Body,
@@ -270,7 +271,7 @@ async fn upload(
     };
     let (space, id, path, thumbnail_path) = {
         let store = store.lock().unwrap();
-        let space = match store.default_space() {
+        let space = match store.space_of(&access) {
             Ok((space, _)) => space,
             Err(error) => return failed(error),
         };
@@ -331,9 +332,13 @@ async fn upload(
 }
 
 /// A file of the space, or the answer to give when there is none.
-fn find(store: &Shared, id: &str) -> Result<(i64, StoredFile, std::path::PathBuf), Box<Response>> {
+fn find(
+    access: &crate::access::Access,
+    store: &Shared,
+    id: &str,
+) -> Result<(i64, StoredFile, std::path::PathBuf), Box<Response>> {
     let store = store.lock().unwrap();
-    let space = store.default_space().map_err(|e| Box::new(failed(e)))?.0;
+    let space = store.space_of(access).map_err(|e| Box::new(failed(e)))?.0;
     match store.file(space, id) {
         Ok(Some(file)) => Ok((space, file, store.files_dir.clone())),
         Ok(None) => Err(Box::new(
@@ -343,8 +348,12 @@ fn find(store: &Shared, id: &str) -> Result<(i64, StoredFile, std::path::PathBuf
     }
 }
 
-async fn thumbnail(State(store): State<Shared>, Path(id): Path<String>) -> Response {
-    let (_, file, dir) = match find(&store, &id) {
+async fn thumbnail(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Path(id): Path<String>,
+) -> Response {
+    let (_, file, dir) = match find(&access, &store, &id) {
         Ok(found) => found,
         Err(response) => return *response,
     };
@@ -361,8 +370,12 @@ async fn thumbnail(State(store): State<Shared>, Path(id): Path<String>) -> Respo
     }
 }
 
-async fn download(State(store): State<Shared>, Path(id): Path<String>) -> Response {
-    let (_, file, dir) = match find(&store, &id) {
+async fn download(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Path(id): Path<String>,
+) -> Response {
+    let (_, file, dir) = match find(&access, &store, &id) {
         Ok(found) => found,
         Err(response) => return *response,
     };
@@ -467,10 +480,14 @@ fn tokio_util_stream(
     })
 }
 
-async fn remove(State(store): State<Shared>, Path(id): Path<String>) -> Response {
+async fn remove(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Path(id): Path<String>,
+) -> Response {
     let mut store = store.lock().unwrap();
     let removed = store
-        .default_space()
+        .space_of(&access)
         .and_then(|(space, _)| store.remove_file(space, &id));
     match removed {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
@@ -484,11 +501,11 @@ async fn remove(State(store): State<Shared>, Path(id): Path<String>) -> Response
 }
 
 /// `GET /api/storage`: what the files take, and what the disk under them has left.
-async fn storage(State(store): State<Shared>) -> Response {
+async fn storage(access: crate::access::Access, State(store): State<Shared>) -> Response {
     let (dir, used, count) = {
         let store = store.lock().unwrap();
         let files = store
-            .default_space()
+            .space_of(&access)
             .and_then(|(space, _)| store.files(space))
             .unwrap_or_default();
         let used: u64 = files.iter().map(|f| f.size).sum();
@@ -510,9 +527,13 @@ struct Many {
 
 /// `POST /api/files/remove` with `{"ids": [...]}`: removes them all, but not one a machine
 /// runs or has queued. Says how many went, and which stayed.
-async fn remove_many(State(store): State<Shared>, Json(many): Json<Many>) -> Response {
+async fn remove_many(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Json(many): Json<Many>,
+) -> Response {
     let mut store = store.lock().unwrap();
-    let space = match store.default_space() {
+    let space = match store.space_of(&access) {
         Ok((space, _)) => space,
         Err(error) => return failed(error),
     };
@@ -535,16 +556,23 @@ struct PrintForm {
 
 /// Puts a file on a machine, when it fits ([`fit`]).
 async fn print(
+    access: crate::access::Access,
     State(store): State<Shared>,
     Path(id): Path<String>,
     headers: HeaderMap,
     Form(form): Form<PrintForm>,
 ) -> Response {
-    let (space, file, _) = match find(&store, &id) {
+    let (space, file, _) = match find(&access, &store, &id) {
         Ok(found) => found,
         Err(response) => return *response,
     };
     let mut store = store.lock().unwrap();
+    // Running a job, or framing one, is using the machine.
+    if let Err(refused) =
+        crate::access::check_machine(&store, &access, &form.machine, crate::access::Level::Use)
+    {
+        return *refused;
+    }
     let machine = match store.machine(space, &form.machine) {
         Ok(Some(machine)) => machine,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
@@ -565,11 +593,12 @@ async fn print(
 
 /// Runs a laser file's outline with the beam off (GRBL jogs), to see where it will go.
 async fn frame(
+    access: crate::access::Access,
     State(store): State<Shared>,
     Path(id): Path<String>,
     Form(form): Form<PrintForm>,
 ) -> Response {
-    let (space, file, dir) = match find(&store, &id) {
+    let (space, file, dir) = match find(&access, &store, &id) {
         Ok(found) => found,
         Err(response) => return *response,
     };
@@ -583,6 +612,12 @@ async fn frame(
         return (StatusCode::CONFLICT, "the file has no moves to frame").into_response();
     };
     let mut store = store.lock().unwrap();
+    // Running a job, or framing one, is using the machine.
+    if let Err(refused) =
+        crate::access::check_machine(&store, &access, &form.machine, crate::access::Level::Use)
+    {
+        return *refused;
+    }
     let machine = match store.machine(space, &form.machine) {
         Ok(Some(machine)) => machine,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
@@ -617,6 +652,7 @@ struct JobForm {
 
 /// Pause, resume or stop a machine's job.
 async fn control_job(
+    access: crate::access::Access,
     State(store): State<Shared>,
     Path(id): Path<String>,
     Form(form): Form<JobForm>,
@@ -624,7 +660,7 @@ async fn control_job(
     let mut store = store.lock().unwrap();
     // Start an interrupted job again, a little before where it stopped.
     if form.action == "restart" {
-        let space = match store.default_space() {
+        let space = match store.space_of(&access) {
             Ok((space, _)) => space,
             Err(error) => return failed(error),
         };
