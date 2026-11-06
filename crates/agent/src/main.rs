@@ -27,7 +27,7 @@ Usage:
   maker-connect-agent run [--config <file>] [--save]
                           [--cloud <http://host:8460>] [--name <name>] [--kind fdm|laser|label]
                           [--port <serial port> [--baud 115200] [--firmware auto|marlin|grbl]]
-                          [--state <file>]
+                          [--state <file>] [--new-code]
                                                        report a machine to the cloud; shows the
                                                        pairing code to add it on the website;
                                                        carries out its commands and jobs.
@@ -36,6 +36,10 @@ Usage:
                                                        --kind label: a DYMO LabelManager PnP or
                                                        LabelWriter 400/450 on USB, found by
                                                        itself (no --port)
+                                                       --new-code: register again for a new
+                                                       pairing code (to add it again, or to
+                                                       another space); a new --cloud gets one
+                                                       by itself
 
 The options can live in maker-connect-agent.toml (in the current folder, or next to the
 agent): `run --save` with the options writes it. With that file, `run` needs nothing else,

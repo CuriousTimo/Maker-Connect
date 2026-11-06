@@ -35,6 +35,8 @@ struct Options {
     baud: u32,
     firmware: Firmware,
     state: String,
+    /// Register again for a new pairing code, forgetting the credentials kept (`--new-code`).
+    new_code: bool,
 }
 
 /// What the machine on the port speaks.
@@ -52,6 +54,7 @@ fn options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>> {
     let mut typed = Config::default();
     let mut named = None;
     let mut save = false;
+    let mut new_code = false;
     let mut args = args.iter();
     while let Some(flag) = args.next() {
         let mut value = || {
@@ -69,6 +72,7 @@ fn options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>> {
             "--state" => typed.state = Some(value()?),
             "--config" => named = Some(value()?),
             "--save" => save = true,
+            "--new-code" => new_code = true,
             _ => return Err(format!("unknown option {flag}").into()),
         }
     }
@@ -122,6 +126,7 @@ fn options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>> {
         baud: all.baud.unwrap_or(115_200),
         firmware,
         state: state.to_string_lossy().into_owned(),
+        new_code,
     })
 }
 
@@ -152,6 +157,16 @@ fn register(options: &Options) -> Result<Registered, Box<dyn std::error::Error>>
 
 /// The credentials from an earlier run against the same cloud, if any.
 fn kept(options: &Options) -> Option<Registered> {
+    if options.new_code {
+        // Asked for a new code: the old credentials go, so they are not used again.
+        if std::fs::remove_file(&options.state).is_ok() {
+            println!(
+                "forgot the old registration ({}): registering again",
+                options.state
+            );
+        }
+        return None;
+    }
     let text = std::fs::read_to_string(&options.state).ok()?;
     let credentials: Credentials = serde_json::from_str(&text).ok()?;
     (credentials.cloud == options.cloud).then_some(credentials.registered)
@@ -985,6 +1000,52 @@ fn carry_out<L: std::io::Read + std::io::Write>(
 
 #[cfg(test)]
 mod tests {
+    /// `--new-code`: the registration kept is forgotten, and a new one asked; without it,
+    /// the same cloud keeps it.
+    #[test]
+    fn a_new_code_forgets_the_old_registration() {
+        let dir = std::env::temp_dir().join(format!("mc-agent-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = dir.join("maker-connect-agent.json");
+        std::fs::write(dir.join("none.toml"), "").unwrap();
+        let credentials = super::Credentials {
+            cloud: "http://pi:8460".to_owned(),
+            registered: protocol::Registered {
+                machine_id: "m1".to_owned(),
+                token: "t1".to_owned(),
+                pairing_code: "ABC234".to_owned(),
+            },
+        };
+        let write =
+            || std::fs::write(&state, serde_json::to_string(&credentials).unwrap()).unwrap();
+        let args = |more: &[&str]| {
+            let mut a: Vec<String> = [
+                "--cloud",
+                "http://pi:8460",
+                "--name",
+                "Dymo",
+                "--config",
+                dir.join("none.toml").to_str().unwrap(),
+                "--state",
+                state.to_str().unwrap(),
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+            a.extend(more.iter().map(|s| s.to_string()));
+            super::options(&a).unwrap()
+        };
+        write();
+        assert_eq!(
+            super::kept(&args(&[])).map(|r| r.token),
+            Some("t1".to_owned()),
+            "kept"
+        );
+        assert!(super::kept(&args(&["--new-code"])).is_none(), "asked anew");
+        assert!(!state.exists(), "and forgotten");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     use super::*;
 
     #[test]

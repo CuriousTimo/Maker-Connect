@@ -59,7 +59,14 @@ pub async fn run(store: Shared) {
                         match std::fs::File::open(store.file_path(&job.file_id)) {
                             Ok(file) => {
                                 let size = file.metadata().map_or(0, |m| m.len());
-                                sim.play(job.id, &job.file_name, file, size);
+                                if job.file_name.to_ascii_lowercase().ends_with(".bgcode") {
+                                    let meta = crate::gcode::read(&store.file_path(&job.file_id))
+                                        .map(|(m, _)| m)
+                                        .unwrap_or_default();
+                                    sim.play_timed(job.id, &job.file_name, file, size, &meta);
+                                } else {
+                                    sim.play(job.id, &job.file_name, file, size);
+                                }
                                 let _ = store.set_job(job.id, JobState::Printing, None);
                             }
                             Err(error) => {
@@ -192,6 +199,9 @@ struct Playing {
     remaining_s: Option<f32>,
     paused: bool,
     at_end: bool,
+    /// Binary G-code (`.bgcode`): compressed, so not read line by line; it plays for as long
+    /// as its slicer said (at our speed), in seconds, with the heaters on.
+    timed: Option<f32>,
 }
 
 /// A heater the machine waits for (`M109`, `M190`).
@@ -295,7 +305,36 @@ impl Sim {
             remaining_s: None,
             paused: false,
             at_end: false,
+            timed: None,
         });
+    }
+
+    /// Plays a binary G-code file by its time: how long its slicer said (seconds), at our
+    /// speed, the heaters at its filament's temperatures.
+    fn play_timed(
+        &mut self,
+        job: i64,
+        name: &str,
+        file: std::fs::File,
+        size: u64,
+        meta: &crate::gcode::FileMeta,
+    ) {
+        self.play(job, name, file, size);
+        let (nozzle, bed) = match meta
+            .filament_type
+            .as_deref()
+            .map(str::to_ascii_uppercase)
+            .as_deref()
+        {
+            Some("PETG") => (240.0, 85.0),
+            Some("ASA" | "ABS") => (260.0, 100.0),
+            _ => (215.0, 60.0),
+        };
+        self.nozzle_target = nozzle;
+        self.bed_target = bed;
+        if let Some(playing) = self.playing.as_mut() {
+            playing.timed = Some((meta.estimated_s.unwrap_or(600) as f32 / JOB_SPEED).max(10.0));
+        }
     }
 
     fn pause(&mut self, paused: bool) {
@@ -323,6 +362,19 @@ impl Sim {
             return None;
         }
         playing.elapsed += seconds;
+        if let Some(total) = playing.timed {
+            let done = (playing.elapsed / total).min(1.0);
+            playing.read = (playing.size as f32 * done) as u64;
+            playing.remaining_s = Some((total - playing.elapsed).max(0.0) * JOB_SPEED);
+            if done >= 1.0 {
+                let job = playing.job;
+                self.playing = None;
+                self.nozzle_target = 0.0;
+                self.bed_target = 0.0;
+                return Some(job);
+            }
+            return None;
+        }
         while !self.playing.as_ref()?.at_end
             && self.moves.len() < LOOKAHEAD
             && self.waiting.is_none()
@@ -737,6 +789,39 @@ mod tests {
         assert_eq!(finished, Some(7));
         assert_eq!(mini.position, [50.0, 40.0, 0.2]);
         assert!(mini.nozzle > 210.0, "{}", mini.nozzle);
+        assert_eq!(mini.telemetry().state, MachineState::Idle);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Binary G-code plays by the slicer's time, the heaters at its filament's temperatures.
+    #[test]
+    fn a_virtual_buddy_plays_binary_gcode_by_time() {
+        let dir = std::env::temp_dir().join(format!("mc-bg-{}", crate::store::random_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("benchy.bgcode");
+        std::fs::write(&path, vec![0u8; 1000]).unwrap();
+        let meta = crate::gcode::FileMeta {
+            estimated_s: Some(600),
+            filament_type: Some("PETG".into()),
+            ..Default::default()
+        };
+        let mut mini = Sim::new(profiles::find("prusa/mini"));
+        mini.play_timed(
+            8,
+            "benchy.bgcode",
+            std::fs::File::open(&path).unwrap(),
+            1000,
+            &meta,
+        );
+        assert_eq!((mini.nozzle_target, mini.bed_target), (240.0, 85.0));
+        assert_eq!(
+            mini.played(30.0),
+            None,
+            "half of a minute (ten minutes at ten times)"
+        );
+        let job = mini.telemetry().job.unwrap();
+        assert_eq!((job.done, job.remaining_s), (500, Some(30)));
+        assert_eq!(mini.played(30.0), Some(8));
         assert_eq!(mini.telemetry().state, MachineState::Idle);
         std::fs::remove_dir_all(dir).unwrap();
     }

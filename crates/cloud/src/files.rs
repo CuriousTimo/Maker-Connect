@@ -79,7 +79,13 @@ pub fn fit(file: &StoredFile, machine: &Machine) -> Result<Option<String>, Strin
 pub fn suits(file: &StoredFile, machine: &Machine) -> Result<Option<String>, String> {
     let profile = machine.profile.as_deref().and_then(profiles::find);
     // Binary G-code is read by Prusa's own firmware only.
-    if file.name.to_ascii_lowercase().ends_with(".bgcode") && machine.link != "prusa-connect" {
+    // A virtual Buddy printer (a MINI, an MK4, a CORE One) takes it as the real one would.
+    let virtual_buddy = machine.link == "virtual"
+        && profile.and_then(|p| p.firmware.as_deref()) == Some("prusa-buddy");
+    if file.name.to_ascii_lowercase().ends_with(".bgcode")
+        && machine.link != "prusa-connect"
+        && !virtual_buddy
+    {
         return Err("binary G-code (.bgcode) goes to a Prusa on its own Connect".to_owned());
     }
     if let Some(kind) = file.meta.kind

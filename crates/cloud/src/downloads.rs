@@ -3,6 +3,9 @@
 //! platform, so a computer next to a machine fetches it from the cloud it will report to.
 //! Only files directly in that folder, by their plain name.
 //!
+//! Without such files the agent comes from the project's GitHub releases: the release this
+//! cloud was built from, or (a build of our own) the newest one.
+//!
 //! A file named `maker-connect-agent-<os>-<arch>[.exe]` (`windows`, `macos`, `linux`;
 //! `x86_64`, `aarch64`, `armv6`) gets a card of its own: the system's icon, and the command that
 //! starts it against this cloud. Other files are listed under them.
@@ -119,6 +122,35 @@ impl Build {
     }
 }
 
+/// Where the releases are.
+const RELEASES: &str = "https://github.com/CuriousTimo/Maker-Connect/releases";
+
+/// The agent builds each release carries.
+const RELEASED: [&str; 6] = [
+    "maker-connect-agent-windows-x86_64.exe",
+    "maker-connect-agent-macos-aarch64",
+    "maker-connect-agent-macos-x86_64",
+    "maker-connect-agent-linux-x86_64",
+    "maker-connect-agent-linux-aarch64",
+    "maker-connect-agent-linux-armv6",
+];
+
+/// The release this cloud was built from (`v0.1.0-beta.1`), when it was.
+fn own_release() -> Option<&'static str> {
+    crate::store::BUILD
+        .starts_with('v')
+        .then_some(crate::store::BUILD)
+}
+
+/// A file of a release on GitHub: of this cloud's own release, else of the newest, which
+/// the page looks up (`data-asset`); till then, the list of releases.
+fn released_link(name: &str) -> String {
+    match own_release() {
+        Some(tag) => format!("{RELEASES}/download/{tag}/{name}"),
+        None => RELEASES.to_owned(),
+    }
+}
+
 fn megabytes(size: u64) -> String {
     format!("{:.1} MB", size as f64 / 1_000_000.0)
 }
@@ -149,15 +181,33 @@ async fn page(
     let files = offered(&dir);
     let mut cards = String::new();
     let mut others = String::new();
-    for (name, size) in &files {
-        let link = format!("downloads/{}", escape(name));
+    // Agent builds of our own here, or else those of the releases on GitHub.
+    let from_github = !files.iter().any(|(name, _)| build(name).is_some());
+    let mut listed: Vec<(String, Option<u64>, String)> = files
+        .iter()
+        .map(|(name, size)| {
+            (
+                name.clone(),
+                Some(*size),
+                format!("downloads/{}", escape(name)),
+            )
+        })
+        .collect();
+    if from_github {
+        listed.extend(
+            RELEASED
+                .iter()
+                .map(|name| ((*name).to_owned(), None, escape(&released_link(name)))),
+        );
+    }
+    for (name, size, link) in &listed {
         match build(name) {
             Some(b) => {
                 cards += &format!(
                     r#"<article class="build" data-os="{os}" data-arch="{arch}">
   <div class="build-head"><span class="os-icon {os}">{icon}</span><div><h3>{title}</h3><p>{arch_title}</p></div><span class="yours" hidden>Your system</span></div>
   {release}
-  <a class="get" href="{link}" download>Download <small>{size}</small></a>
+  <a class="get" href="{link}"{asset} download>Download <small>{size}</small></a>
   <p class="how">Then, in {shell}, where you saved it:</p>
   <pre><code>{command}</code></pre>
   <button type="button" class="copy" data-copy>Copy</button>
@@ -167,13 +217,28 @@ async fn page(
                     icon = b.icon(),
                     title = b.title(),
                     arch_title = b.arch_title(),
-                    size = megabytes(*size),
-                    release = on_offer.as_ref().map_or(String::new(), |b| format!(
+                    size = size.map_or("GitHub".to_owned(), megabytes),
+                    asset = if from_github && own_release().is_none() {
+                        format!(r#" data-asset="{}""#, escape(name))
+                    } else {
+                        String::new()
+                    },
+                    release = if from_github {
+                        format!(
+                            r#"<p class="release"><b>{}</b> · from <a href="{RELEASES}">GitHub</a></p>"#,
+                            own_release().map_or("The newest release".to_owned(), |t| format!(
+                                "Release {}",
+                                escape(t)
+                            ))
+                        )
+                    } else {
+                        on_offer.as_ref().map_or(String::new(), |b| format!(
                         r#"<p class="release"><b>Version {}</b> · build <code>{}</code><br>built {}</p>"#,
                         escape(b.version.as_deref().unwrap_or("?")),
                         escape(&b.commit),
                         escape(&b.built)
-                    )),
+                    ))
+                    },
                     shell = if b.os == "windows" {
                         "PowerShell"
                     } else {
@@ -186,17 +251,12 @@ async fn page(
                 others += &format!(
                     r#"<li><a href="{link}" download>{}</a> <small>{}</small></li>"#,
                     escape(name),
-                    megabytes(*size)
+                    size.map_or(String::new(), megabytes)
                 );
             }
         }
     }
-    let body = if files.is_empty() {
-        format!(
-            r#"<p class="empty">Nothing yet. Put the agent in <code>{}</code>, named <code>maker-connect-agent-&lt;os&gt;-&lt;arch&gt;</code> (<code>windows</code>, <code>macos</code>, <code>linux</code>; <code>x86_64</code>, <code>aarch64</code>), for a card of its own here.</p>"#,
-            escape(&dir.display().to_string())
-        )
-    } else {
+    let body = {
         let others = if others.is_empty() {
             String::new()
         } else {
@@ -288,6 +348,21 @@ async fn page(
     card.querySelector(".yours").hidden = false;
     card.parentElement.prepend(card);
   }})();
+  // A build of our own: the agent of the newest release (a beta too) on GitHub.
+  (async () => {{
+    const links = document.querySelectorAll("[data-asset]");
+    if (!links.length) return;
+    try {{
+      const [newest] = await (await fetch("https://api.github.com/repos/CuriousTimo/Maker-Connect/releases?per_page=1")).json();
+      for (const link of links) {{
+        const asset = newest.assets.find((a) => a.name === link.dataset.asset);
+        if (!asset) continue;
+        link.href = asset.browser_download_url;
+        link.querySelector("small").textContent = (asset.size / 1e6).toFixed(1) + " MB";
+      }}
+      for (const b of document.querySelectorAll(".release b")) b.textContent = "Release " + newest.tag_name;
+    }} catch {{}}
+  }})();
 </script>
 </body>
 </html>
@@ -357,6 +432,22 @@ mod tests {
         );
         assert!(build("maker-connect-agent-amiga-m68k").is_none());
         assert!(build("notes.txt").is_none());
+    }
+
+    /// Nothing of our own in the folder: the agent of the releases on GitHub, a card each.
+    #[tokio::test]
+    async fn without_builds_here_the_agent_comes_from_github() {
+        let store = Store::open(":memory:").unwrap();
+        let app = crate::auth::signed_in_app(Arc::new(Mutex::new(store)));
+        let response = app
+            .oneshot(Request::get("/downloads").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let page = String::from_utf8_lossy(&body);
+        assert_eq!(page.matches(r#"class="build""#).count(), RELEASED.len());
+        assert!(page.contains("github.com/CuriousTimo/Maker-Connect/releases"));
+        assert!(!page.contains("Nothing yet"));
     }
 
     #[tokio::test]
