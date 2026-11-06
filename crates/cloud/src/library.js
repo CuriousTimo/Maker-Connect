@@ -26,6 +26,11 @@
   // Spoolman's extra fields are JSON texts in strings; Maker Connect's own go out that way.
   const extra = (o, key) => { try { return o?.extra?.[key] != null ? JSON.parse(o.extra[key]) : undefined; } catch (e) { return o?.extra?.[key]; } };
   const unitOf = (f) => extra(f, "unit") || "g";
+  // What one of them is called: a spool of filament, a cassette of tape, a roll of labels.
+  const holders = (unit, n) => {
+    const one = unit === "m" ? "cassette" : unit === "labels" ? "roll" : "spool";
+    return `${n} ${n === 1 ? one : `${one}s`}`;
+  };
   const kindOf = (f) => extra(f, "kind") || "filament";
   const code = (id) => `S-${String(id).padStart(4, "0")}`;
   const numberOf = (c) => { const m = String(c).trim().toUpperCase().match(/^S-(\d+)$/); return m ? Number(m[1]) : null; };
@@ -198,7 +203,7 @@
     const groups = groupsOf(list);
     const listEl = $("[data-list]");
     if (!spools.length && !filaments.length) {
-      listEl.innerHTML = `<div class="group"><p class="empty" style="padding:24px">Nothing yet. <b>Add spools</b> finds a filament among thousands of SpoolmanDB, or your label printer's tapes; <b>Import from Spoolman</b> brings a Spoolman's spools over.</p></div>`;
+      listEl.innerHTML = `<div class="group"><p class="empty" style="padding:24px">Nothing yet. <b>Add stock</b> finds a filament among thousands of SpoolmanDB, or your label printers' tapes and labels; <b>Import from Spoolman</b> brings a Spoolman's spools over.</p></div>`;
     } else if (!groups.length) {
       listEl.innerHTML = `<p class="empty">Nothing matches “${esc(ui.search)}”.</p>`;
     } else {
@@ -214,7 +219,7 @@
         const head = ui.group === "none" ? "" : `<div class="group-head" data-group-key="${esc(g.key)}"${g.kind ? ` data-pick="${g.kind}:${g.id}"` : ""}>
             ${g.swatchFor ? swatch(g.swatchFor) : `<span class="badge">${live.length}</span>`}
             <span class="g-name"><b>${esc(g.title)} ${chip}</b>${g.sub ? `<small>${esc(g.sub)}</small>` : ""}</span>
-            <span class="g-total"><b>${amount(total, unit)}</b><small class="${low ? "low" : ""}">${live.length} ${live.length === 1 ? "spool" : "spools"}${low ? " · low" : ""}</small></span>
+            <span class="g-total"><b>${amount(total, unit)}</b><small class="${low ? "low" : ""}">${holders(unit, live.length)}${low ? " · low" : ""}</small></span>
             ${g.spools.length ? `<button type="button" class="fold${open ? " open" : ""}" data-fold="${esc(g.key)}" aria-label="${open ? "Fold" : "Unfold"}" aria-expanded="${open}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></button>` : "<span></span>"}</div>`;
         const rows = (open || ui.group === "none") && g.spools.length ? `<ul class="rows">${g.spools.map((s) => {
             const p = share(s);
@@ -409,7 +414,7 @@
         <div class="i-head">${swatch(f, true)}<div><h3>${esc(nameOf(f))} ${db}</h3><small>${esc(facts(f))}</small></div></div>
         <div class="i-actions"><button type="button" data-add-of="${f.id}">Add spools of it</button><button type="button" class="ghost" data-clone-filament="${f.id}" title="A new filament with the same settings, to change the colour or name">Duplicate</button></div>
       </div>
-      <div class="i-left"><b>${amount(live.reduce((t, s) => t + (leftOf(s) ?? 0), 0), unit)}</b><span>in ${live.length} ${live.length === 1 ? "spool" : "spools"}</span></div>
+      <div class="i-left"><b>${amount(live.reduce((t, s) => t + (leftOf(s) ?? 0), 0), unit)}</b><span>in ${holders(unit, live.length)}</span></div>
       <div class="i-cols">
         <form data-patch="filament:${f.id}">
           <h4>Filament</h4>
@@ -421,7 +426,7 @@
             ${kindOf(f) === "filament" ? `<label>Diameter</label>${editable("diameter", f.diameter, { type: "number", unit: "mm" })}<label>Density</label>${editable("density", f.density, { type: "number", unit: "g/cm³" })}` : ""}
             <label>One holds</label>${editable("weight", f.weight, { type: "number", unit })}
             ${unit === "g" ? `<label>Empty spool</label>${editable("spool_weight", f.spool_weight, { type: "number", unit: "g" })}<label>Nozzle</label>${editable("settings_extruder_temp", f.settings_extruder_temp, { type: "number", unit: "°C" })}<label>Bed</label>${editable("settings_bed_temp", f.settings_bed_temp, { type: "number", unit: "°C" })}` : ""}
-            <label>Keep at least</label>${editable("extra:minimum", extra(f, "minimum"), { type: "number", unit: "spools" })}
+            <label>Keep at least</label>${editable("extra:minimum", extra(f, "minimum"), { type: "number", unit: holders(unit, 2).split(" ")[1] })}
             <label>Article / EAN</label>${editable("article_number", f.article_number)}
             <label>Price</label>${editable("price", f.price, { type: "number", unit: currency })}
             <label>Comment</label>${editable("comment", f.comment, { type: "textarea" })}
@@ -932,15 +937,15 @@
   dialog.addEventListener("click", (e) => { if (e.target === dialog || e.target.closest("[data-close]")) dialog.close(); });
   const show = (html) => { dialogBody.innerHTML = html; if (!dialog.open) dialog.showModal(); };
   const fromDb = (x) => ({ name: x.name, material: x.material, vendor: { name: x.manufacturer }, color_hex: x.color_hex, multi_color_hexes: x.color_hexes?.join(","), diameter: x.diameter, weight: x.weight, spool_weight: x.spool_weight });
-  const fromTape = (m) => ({ name: m.name, material: "TAPE", vendor: { name: m.brand }, color_hex: (m.color || "").replace("#", ""), extra: { kind: '"tape"', unit: '"m"', ink: JSON.stringify(m.ink || "#000") }, weight: m.package });
+  const fromTape = (m) => ({ name: m.name, material: m.unit === "labels" ? "LABELS" : "TAPE", vendor: { name: m.brand }, color_hex: (m.color || "").replace("#", ""), extra: { kind: '"tape"', unit: JSON.stringify(m.unit || "m"), ink: JSON.stringify(m.ink || "#000") }, weight: m.package });
 
   async function addSpools(preset) {
     if (!materialsDb.length) api("GET", "/external/material").then((m) => { materialsDb = m; }).catch(() => {});
-    show(`${head("Add spools")}<section>
+    show(`${head("Add stock")}<section>
       <div data-step-what>
-        <label class="search" style="margin-bottom:4px"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg><input data-find placeholder="Which filament or label tape? prusament petg, polymaker pla black, dymo 12 mm, 45013…" autocomplete="off" aria-label="Find a filament or a label tape"></label>
+        <label class="search" style="margin-bottom:4px"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg><input data-find placeholder="Which filament, tape or labels? prusament petg, polymaker pla black, dymo 12 mm, 45013, 99012…" autocomplete="off" aria-label="Find a filament, a tape or labels"></label>
         <ul class="found" data-found role="listbox"></ul>
-        <p class="hint">Your own filaments, your label printers' tapes, and SpoolmanDB's. Not there? <button type="button" class="link" data-new-filament>Make a new filament</button></p>
+        <p class="hint">Your own filaments, your label printers' tapes and labels, and SpoolmanDB's. Not there? <button type="button" class="link" data-new-filament>Make a new filament</button></p>
       </div>
       <form class="grid-form" data-new-form hidden style="margin-top:10px">
         <label>Vendor <input name="vendor" list="vendors-list" required placeholder="Prusament"></label>

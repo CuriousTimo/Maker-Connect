@@ -80,6 +80,9 @@ pub struct Media {
     /// A die-cut label's length along the roll; none for tape or a continuous roll.
     #[serde(default)]
     pub length_mm: Option<u32>,
+    /// Die-cut labels on one roll, for Materials (a roll counts down label by label).
+    #[serde(default)]
+    pub per_roll: Option<u32>,
     /// The text and the tape: how the label looks (`#000`, `#fff`).
     #[serde(default)]
     pub ink: Option<String>,

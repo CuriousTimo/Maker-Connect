@@ -942,8 +942,11 @@ impl Store {
             return Ok(());
         };
         let unit = unit.unwrap_or_else(|| "g".to_owned());
-        // A label: its length, and a lead before and after on the tape.
-        let whole = if unit == "m" {
+        // A die-cut label: one off the roll, also when it went wrong half-way (it is spoilt).
+        // A label on tape: its length, and a lead before and after.
+        let whole = if unit == "labels" {
+            file.meta.label_dots.map(|_| 1.0)
+        } else if unit == "m" {
             let dpi = self
                 .machine(space, &job.machine_id)?
                 .and_then(|m| m.profile)
@@ -975,7 +978,11 @@ impl Store {
                 .filter(|j| j.total > 0)
                 .map_or(0.0, |j| (j.done as f64 / j.total as f64).clamp(0.0, 1.0)),
         };
-        let used = whole * share;
+        let used = if unit == "labels" {
+            if share > 0.0 { whole } else { 0.0 }
+        } else {
+            whole * share
+        };
         if used <= 0.0 {
             return Ok(());
         }

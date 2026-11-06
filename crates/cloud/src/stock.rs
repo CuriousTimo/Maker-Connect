@@ -918,12 +918,24 @@ impl Store {
         let Some(target) = self.machine(space, machine)? else {
             return Ok(Err("no such machine"));
         };
-        // A tape into a label printer, filament into a 3D printer.
-        let kind = self
+        // A tape into a label printer, filament into a 3D printer; a tape or roll of labels
+        // made for one printer model only into that model (a LabelManager's cassette does
+        // not go into a LabelWriter). A printer without a profile takes any.
+        let material = self
             .materials(space)?
             .into_iter()
-            .find(|m| m.id == item.material)
-            .map(|m| m.kind);
+            .find(|m| m.id == item.material);
+        let made_for = material
+            .as_ref()
+            .and_then(|m| m.media.as_deref())
+            .and_then(|media| media.split_once(':'))
+            .map(|(profile, _)| profile.to_owned());
+        if let (Some(made_for), Some(profile)) = (&made_for, &target.profile)
+            && made_for != profile
+        {
+            return Ok(Err("this tape or roll is made for another label printer"));
+        }
+        let kind = material.map(|m| m.kind);
         match (kind.as_deref(), target.kind) {
             (Some("tape"), k) if k != maker_connect_protocol::MachineKind::Label => {
                 return Ok(Err("a label tape goes into a label printer"));
@@ -1163,8 +1175,9 @@ fn type_color(kind: &str) -> Option<&'static str> {
     })
 }
 
-/// Materials to start from: the tapes of the machine profiles (the DYMO's, drawn as they
-/// look), and the filaments of the catalogue.
+/// Materials to start from: the tapes and labels of the machine profiles (the DYMOs', drawn
+/// as they look), and the filaments of the catalogue. A cassette of tape counts in metres, a
+/// roll of die-cut labels in labels.
 fn catalogue() -> Vec<Material> {
     let mut out = Vec::new();
     for profile in profiles::all() {
@@ -1177,9 +1190,12 @@ fn catalogue() -> Vec<Material> {
                 color: m.background.clone(),
                 color_name: None,
                 ink: m.ink.clone(),
-                unit: "m".into(),
-                // A D1 cassette holds 7 m of tape.
-                package: Some(7.0),
+                unit: if m.length_mm.is_some() { "labels" } else { "m" }.into(),
+                // A D1 cassette holds 7 m of tape; a roll of labels as many as it says.
+                package: match m.length_mm {
+                    Some(_) => m.per_roll.map(f64::from),
+                    None => Some(7.0),
+                },
                 ean: None,
                 minimum: Some(1),
                 media: Some(format!("{}:{}", profile.id, m.id)),
@@ -1535,7 +1551,7 @@ async fn page(State(store): State<Shared>) -> Response {
     <div class="page-actions">
       <button type="button" class="ghost" data-settings>Fields and labels</button>
       <button type="button" class="ghost" data-import>Import from Spoolman</button>
-      <button type="button" data-add-spools>Add spools</button>
+      <button type="button" data-add-spools>Add stock</button>
     </div>
   </div>
   <div class="tiles" data-totals></div>
@@ -1688,6 +1704,14 @@ mod tests {
         assert_eq!(items, ["S-0001", "S-0002"]);
         assert_eq!(store.items(space).unwrap()[0].amount, 7.0);
 
+        // Not into a LabelWriter: a LabelManager's cassette.
+        let writer = store
+            .add_virtual(space, profiles::find("dymo/labelwriter-450").unwrap())
+            .unwrap();
+        assert_eq!(
+            store.load_item(space, "S-0001", &writer).unwrap(),
+            Err("this tape or roll is made for another label printer")
+        );
         store.load_item(space, "S-0001", &dymo).unwrap().unwrap();
         // From a shelf it is on the printer now; from a box (a place with slots) it stays.
         let loaded = store
