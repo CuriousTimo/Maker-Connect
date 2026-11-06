@@ -45,6 +45,10 @@ pub(crate) fn shown_state(machine: &Machine) -> (String, String) {
 /// What the page shows beyond the machine itself: whether who looks may manage it, and its
 /// latest jobs with their numbers.
 pub struct Extra {
+    /// Who looks at it, and whether they are staff (admin, owner): they may change
+    /// everyone's prints in its queue; others only their own (crate::queue).
+    pub me: i64,
+    pub staff: bool,
     pub manage: bool,
     /// Whether the person may use it (jobs and more): by permission, whatever their role.
     pub may_use: bool,
@@ -93,7 +97,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
 </head>
 <body>
 {header}
-<main class="wide" data-id="{id}">
+<main class="wide" data-id="{id}" data-me="{me}" data-staff="{staff}">
   <div class="title">
     <h2>{name}</h2>
     <span class="state {state_class}" data-live="state">{state}</span>
@@ -103,12 +107,16 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
   {no_use}<div class="notices" data-notices>{notices}</div>
   <nav class="tabs" role="tablist">
     <a href="#overview" role="tab">Overview</a>
+    {queue_tab}<a href="#telemetry" role="tab">Telemetry</a>
     <a href="#control" role="tab">Control</a>
-    {usb_tab}<a href="#data" role="tab">Data</a>
-    <a href="#settings" role="tab">Settings</a>
+    <a href="#terminal" role="tab">Terminal</a>
+    {mesh_tab}{usb_tab}<a href="#settings" role="tab">Settings</a>
   </nav>
   <section class="tab" id="overview" role="tabpanel">
 {overview}
+  </section>
+  <section class="tab" id="queue" role="tabpanel" hidden>
+{queue}
   </section>
   <section class="tab" id="control" role="tabpanel" hidden>
 {control}
@@ -137,12 +145,17 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         id = escape(&machine.id),
         state = escape(&state),
         notices = notices(machine),
+        me = extra.me,
+        staff = extra.staff,
+        queue = queue_card(machine),
+        queue_tab = if machine.kind == maker_connect_protocol::MachineKind::Label {
+            ""
+        } else {
+            r##"<a href="#queue" role="tab">Queue <small class="tab-count" data-queue-count></small></a>
+    "##
+        },
         no_use = before_use(machine, extra),
-        overview = overview(
-            machine,
-            profile,
-            &format!("{}{}", queue_card(machine), jobs_card(machine, extra))
-        ),
+        overview = overview(machine, profile, &jobs_card(machine, extra)),
         subtitle = escape(
             &if machine.name.to_lowercase().contains(&kind.to_lowercase()) {
                 link.to_owned()
@@ -166,6 +179,12 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         },
         usb = if machine.link == "prusa-connect" {
             USB_TAB
+        } else {
+            ""
+        },
+        mesh_tab = if heats(machine) {
+            r##"<a href="#bedmesh" role="tab">Bed mesh</a>
+    "##
         } else {
             ""
         },
@@ -692,7 +711,7 @@ fn queue_card(machine: &Machine) -> String {
     }
     card(
         "Queue",
-        "Next first; it starts by itself when the machine is free and its bed clear. Drag to change the order.",
+        "Next first; it starts by itself when the machine is free and its bed clear. Drag your own prints to change their order; staff move any.",
         r#"<p class="notice q-held" data-queue-held hidden><span>The last job <b data-held-why></b>: nothing starts until the bed is clear. Is it?</span><button type="button" data-bed-clear>Bed clear: go on</button></p><ol class="queue" data-queue></ol><p class="empty" data-queue-empty>Nothing waits. "Print on" a busy machine puts a file here, or drag one from Files onto this machine in the sidebar.</p>"#,
     )
 }
@@ -817,31 +836,27 @@ fn upkeep_card(machine: &Machine, manage: bool) -> String {
 fn before_use(machine: &Machine, extra: &Extra) -> String {
     let id = escape(&machine.id);
     if !extra.may_use {
-        let what = if machine.training {
-            "a training"
+        let (says, button) = if machine.training {
+            ("This machine needs a training.", "Ask for a training")
         } else {
-            "permission"
+            (
+                "You don't have permission to use this machine.",
+                "Ask for permission",
+            )
         };
         let ask = match extra.asked {
             Some(at) => format!(
-                r#"<small>You asked the staff on {}: they will let you know.</small>"#,
+                "<small>Asked on {}.</small>",
                 crate::spoolman::iso(at)
                     .chars()
                     .take(10)
                     .collect::<String>()
             ),
             None => format!(
-                r#"<form method="post" action="{id}/ask" data-async data-then="reload" data-done="Asked: the staff will let you know"><button>Ask the staff for {what}</button></form>"#
+                r#"<form method="post" action="{id}/ask" data-async data-then="reload" data-done="Asked"><button>{button}</button></form>"#
             ),
         };
-        let yourself = if extra.manage {
-            r#" <small class="muted">(You manage it: you may also give it yourself, under <a href="../space#members">Space → Members</a>.)</small>"#
-        } else {
-            ""
-        };
-        return format!(
-            r#"<div class="notice before-use"><span>You may look at it; using it takes {what}.{yourself}</span>{ask}</div>"#
-        );
+        return format!(r#"<div class="notice before-use"><span>{says}</span>{ask}</div>"#);
     }
     if machine.ppe.is_empty() || !extra.ppe_checks {
         return String::new();

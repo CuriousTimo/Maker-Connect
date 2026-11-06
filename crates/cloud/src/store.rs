@@ -280,6 +280,9 @@ pub struct Machine {
     pub on_bed: Option<OnBed>,
     /// Files waiting to print here, next first (crate::queue).
     pub queue: Vec<crate::queue::Queued>,
+    /// What the printer asks on its screen now, when it wants someone: its title, and the
+    /// whole text (crate::printer_files).
+    pub asking: Option<(String, String)>,
     /// Its last job failed or was stopped, and nobody said yet the bed is clear: how it
     /// ended ("failed", "stopped"). Nothing starts on it until then (crate::queue).
     pub queue_held: Option<String>,
@@ -574,6 +577,9 @@ pub struct Store {
     /// Who said they have and wear a machine's PPE, until when: (user, machine) → Unix
     /// seconds (crate::safety).
     pub(crate) ppe_ok: std::collections::HashMap<(i64, String), i64>,
+    /// What a printer asks on its screen while it wants someone (a Prusa's ATTENTION: "Sliced
+    /// for another printer?"), per machine id: (title, text).
+    pub(crate) asking: std::collections::HashMap<String, (String, String)>,
     next_command: u32,
     /// Temperature history per machine id, oldest first.
     history: std::collections::HashMap<String, std::collections::VecDeque<Sample>>,
@@ -640,6 +646,7 @@ impl Store {
             downloads_dir,
             commands: Default::default(),
             ppe_ok: Default::default(),
+            asking: Default::default(),
             // Ids that do not repeat soon after a restart, as a printer may remember the last.
             next_command: (now() % 1_000_000_000) as u32,
             history: Default::default(),
@@ -1222,8 +1229,22 @@ impl Store {
             done: Vec::new(),
             mesh: None,
             job_end: None,
+            bed_clear: false,
             ..telemetry.clone()
         };
+        // "Set Ready" on the printer's own menu: the bed is clear, as on its page.
+        if telemetry.bed_clear
+            && let Some((machine, space)) = self
+                .db
+                .query_row(
+                    "SELECT id, space_id FROM machines WHERE token = ?1 AND space_id IS NOT NULL",
+                    [token],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+                )
+                .optional()?
+        {
+            self.print_taken(space, &machine)?;
+        }
         let updated = self.db.execute(
             "UPDATE machines SET last_seen = ?1, telemetry = ?2 WHERE token = ?3",
             params![
@@ -1980,6 +2001,7 @@ impl Store {
                 on_bed: None,
                 queue: Vec::new(),
                 queue_held: None,
+                asking: None,
                 usb_print_by: None,
                 moonraker_token: None,
                 laser_w: r.get(19)?,
@@ -2050,6 +2072,7 @@ impl Store {
             if machine.kind == MachineKind::Fdm {
                 machine.on_bed = self.on_bed(&machine.id)?;
                 machine.queue = self.queue_of(&machine.id)?;
+                machine.asking = self.asking.get(&machine.id).cloned();
                 machine.queue_held = if machine.job.is_some() {
                     None
                 } else {

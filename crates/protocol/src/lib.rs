@@ -186,6 +186,10 @@ pub struct Telemetry {
     /// Why the machine cannot work now, in its own words ("no cassette").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
+    /// Someone said on the printer itself that its bed is clear (Prusa's "Set Ready" in its
+    /// menu, `//action:ready`): news once, like a finished command.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bed_clear: bool,
     /// A battery-powered machine's battery, in volts (a DYMO LabelManager PnP's cell).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub battery_v: Option<f32>,

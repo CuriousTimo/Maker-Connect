@@ -505,17 +505,18 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Role(Role::Admin),
         Some("switched the PPE checks of the space"),
     ),
-    // A machine's queue (crate::queue): reordering, taking out.
+    // A machine's queue (crate::queue): reordering, taking out. Everyone may look; the
+    // handler lets people change their own prints, and staff anything.
     (
         "POST",
         "/machines/{id}/queue/order",
-        Need::Machine(Level::Use),
+        Need::Machine(Level::View),
         None,
     ),
     (
         "POST",
         "/machines/{id}/queue/{item}/remove",
-        Need::Machine(Level::Use),
+        Need::Machine(Level::View),
         Some("took a file out of the queue of"),
     ),
     // Safety: "I have and wear …" (crate::safety), and what a machine needs.
@@ -910,8 +911,10 @@ fn role_refusal(role: Role) -> &'static str {
 fn level_refusal(level: Level) -> &'static str {
     match level {
         Level::View => "not in this space",
-        Level::Use => "you may not use this machine: it needs permission from an admin",
-        Level::Operate => "you may not operate this machine: ask an admin for permission",
+        Level::Use => "you may not use this machine: it needs permission (Space → Members)",
+        Level::Operate => {
+            "moving, heating and G-code take 'operate' permission on this machine ('use' is jobs only): see Space → Members"
+        }
         Level::Manage => "only an admin or owner of the space may change this machine",
     }
 }
@@ -2364,6 +2367,7 @@ mod tests {
             StatusCode::FORBIDDEN,
             "using: not without permission"
         );
+        // He sets his own permissions in Space, like anyone's.
         assert_eq!(
             w.post(
                 &adam,
@@ -2373,7 +2377,7 @@ mod tests {
             .await
             .0,
             StatusCode::NO_CONTENT,
-            "he may give it to himself"
+            "in Space, his own too"
         );
         assert!(adam_may(Level::Operate));
         // Open to every member, and closed again: the two choices.
@@ -2399,7 +2403,7 @@ mod tests {
         );
         assert!(
             page.contains(&format!(r#"data-open-perm="{adam_id}""#)),
-            "an admin has a window of his own: the same rules"
+            "his own row too: set in Space"
         );
         assert!(
             page.contains(&format!(r#"data-open-perm="{mia_id}""#)),
@@ -2414,12 +2418,16 @@ mod tests {
             )),
             "her own row, not to change"
         );
-        // A tick in the matrix: off takes it away, on gives "use"; not for a member.
+        // A tick in the matrix: off takes it away, on gives "operate" (everything); the
+        // level under it switches to "use" (jobs only). Not for a member.
         let tick = format!("/permissions/groups/{g2}/people/{mia_id}");
         assert_eq!(w.post(&mia, &tick, "on=0").await.0, StatusCode::FORBIDDEN);
         assert_eq!(w.post(&adam, &tick, "on=0").await.0, StatusCode::OK);
         assert_eq!(level(&p3), Level::View);
         let (status, now) = w.post(&adam, &tick, "on=1").await;
+        assert_eq!((status, now.as_str()), (StatusCode::OK, "operate"));
+        assert_eq!(level(&p3), Level::Operate);
+        let (status, now) = w.post(&adam, &tick, "on=1&level=use").await;
         assert_eq!((status, now.as_str()), (StatusCode::OK, "use"));
         assert_eq!(level(&p3), Level::Use);
         assert!(
@@ -2505,6 +2513,96 @@ mod tests {
             .0,
             StatusCode::NOT_FOUND
         );
+    }
+
+    /// A queue: everyone looks; members move and take out their own prints only, and only
+    /// among themselves (the others keep their place); staff change anything.
+    #[tokio::test]
+    async fn a_queue_is_changed_by_whom_it_is_of() {
+        let w = World::new();
+        let (org, space) = {
+            let s = w.store.lock().unwrap();
+            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
+            s.create_organisation("Fablab", "Werkplaats", owner)
+                .unwrap()
+        };
+        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None);
+        let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None);
+        let (zoe_id, _) = w.person("zoe", Some((org, Role::Member)), None);
+        let (m, a, b, c) = {
+            let mut s = w.store.lock().unwrap();
+            let m = s
+                .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+                .unwrap();
+            s.db.execute(
+                "INSERT INTO files (id, space_id, name, size, uploaded_at, meta) VALUES ('f1', ?1, 'a.gcode', 10, 0, '{}')",
+                [space],
+            )
+            .unwrap();
+            let file = s.file(space, "f1").unwrap().unwrap();
+            s.queue_add(space, &m, &file, Some((mia_id, "mia")))
+                .unwrap();
+            s.queue_add(space, &m, &file, Some((zoe_id, "zoe")))
+                .unwrap();
+            s.queue_add(space, &m, &file, Some((mia_id, "mia")))
+                .unwrap();
+            let q: Vec<i64> = s.queue_of(&m).unwrap().iter().map(|q| q.id).collect();
+            (m, q[0], q[1], q[2])
+        };
+        let order = format!("/machines/{m}/queue/order");
+        let ids = |v: [i64; 3]| format!("ids={},{},{}", v[0], v[1], v[2]);
+        let now = || -> Vec<i64> {
+            w.store
+                .lock()
+                .unwrap()
+                .queue_of(&m)
+                .unwrap()
+                .iter()
+                .map(|q| q.id)
+                .collect()
+        };
+        // Mia swaps her own two: Zoe's stays second.
+        assert_eq!(
+            w.post(&mia, &order, &ids([c, b, a])).await.0,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(now(), [c, b, a]);
+        // Moving Zoe's, or getting ahead of it: no.
+        assert_eq!(
+            w.post(&mia, &order, &ids([b, c, a])).await.0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            w.post(&mia, &order, &ids([c, a, b])).await.0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(now(), [c, b, a], "unchanged");
+        // Taking out: her own, not Zoe's.
+        assert_eq!(
+            w.post(&mia, &format!("/machines/{m}/queue/{b}/remove"), "")
+                .await
+                .0,
+            StatusCode::FORBIDDEN
+        );
+        // Staff: anything.
+        assert_eq!(
+            w.post(&adam, &order, &ids([b, a, c])).await.0,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(now(), [b, a, c]);
+        assert_eq!(
+            w.post(&adam, &format!("/machines/{m}/queue/{b}/remove"), "")
+                .await
+                .0,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            w.post(&mia, &format!("/machines/{m}/queue/{a}/remove"), "")
+                .await
+                .0,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(now(), [c]);
     }
 
     /// A machine moves to another space of the organisation, by someone who is admin in both;

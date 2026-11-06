@@ -377,7 +377,8 @@ async fn event(State(store): State<Shared>, headers: HeaderMap, body: String) ->
             "FINISHED" | "FILE_INFO" | "JOB_INFO" | "INFO" | "TRANSFER_INFO" => {
                 Some(CommandState::Finished)
             }
-            "REJECTED" => Some(CommandState::Rejected),
+            // Refused at once, or taken on and then failed (Buddy's FAILED): either way not done.
+            "REJECTED" | "FAILED" => Some(CommandState::Rejected),
             _ => None,
         };
         if let Some(state) = state {

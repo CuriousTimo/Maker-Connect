@@ -289,6 +289,69 @@ impl Store {
         )
     }
 
+    /// The paths on a printer's stick that we put there (downloads that got through).
+    fn sent_paths(&self, machine: &str) -> rusqlite::Result<Vec<String>> {
+        let mut q = self.db.prepare(
+            "SELECT DISTINCT path FROM printer_transfers
+             WHERE machine_id = ?1 AND state IN ('finished', 'starting', 'printing', 'done')",
+        )?;
+        q.query_map([machine], |r| r.get(0))?.collect()
+    }
+
+    /// Where this file already is on the printer's stick, put there by us before: the same
+    /// file (and size), so it need not go again.
+    fn on_stick(&self, machine: &str, file: &str, size: u64) -> rusqlite::Result<Option<String>> {
+        use rusqlite::OptionalExtension;
+        self.db
+            .query_row(
+                "SELECT path FROM printer_transfers
+                 WHERE machine_id = ?1 AND file_id = ?2 AND size = ?3
+                   AND state IN ('finished', 'starting', 'printing', 'done')
+                 ORDER BY created_at DESC LIMIT 1",
+                params![machine, file, size as i64],
+                |r| r.get(0),
+            )
+            .optional()
+    }
+
+    /// How many downloads a job tried: not more than a few, then it fails.
+    fn transfers_of_job(&self, job: i64) -> rusqlite::Result<i64> {
+        self.db.query_row(
+            "SELECT COUNT(*) FROM printer_transfers WHERE job_id = ?1",
+            [job],
+            |r| r.get(0),
+        )
+    }
+
+    /// Prints a file that is on the stick: START_PRINT, and the transfer waits for it.
+    fn print_from_stick(&mut self, transfer: &Transfer, machine: &str) -> rusqlite::Result<()> {
+        let command = json!({"command": "START_PRINT", "kwargs": {"path": transfer.path}});
+        let label = format!("Print {}", transfer.path.rsplit('/').next().unwrap_or(""));
+        if let Some(id) =
+            self.queue_connect_command(transfer.space, machine, &label, &command, false)?
+        {
+            self.set_transfer(&transfer.iv, "starting", Some(id), None)?;
+        }
+        Ok(())
+    }
+
+    /// A job's file again, under a name not on the stick yet: after the printer said a file
+    /// by that name exists, or that the one we meant to print is gone.
+    fn send_again(&mut self, old: &Transfer, job: i64, machine: &str) -> rusqlite::Result<bool> {
+        if self.transfers_of_job(job)? >= 3 {
+            return Ok(false);
+        }
+        let Some(file) = self.file(old.space, &old.file)? else {
+            return Ok(false);
+        };
+        let mut taken = names_in(self, machine, "/usb");
+        taken.push(old.path.rsplit('/').next().unwrap_or("").to_owned());
+        let path = format!("/usb/{}", stick_name(&file.name, &taken));
+        let fresh =
+            self.create_transfer(old.space, machine, &file.id, file.size, &path, Some(job))?;
+        Ok(self.start_transfer(&fresh, &file.name)?.is_some())
+    }
+
     fn transfer_of_command(
         &self,
         machine: &str,
@@ -371,7 +434,27 @@ fn stick_name(name: &str, taken: &[String]) -> String {
 }
 
 /// The long names in a folder, as the printer last listed it.
+/// The names on the stick in a folder, as far as we know: what the printer listed, and what
+/// we put there ourselves (a listing can be older than our last upload).
 fn names_in(store: &Store, machine: &str, folder: &str) -> Vec<String> {
+    let mut names = listed_in(store, machine, folder);
+    names.extend(
+        store
+            .sent_paths(machine)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|p| {
+                p.strip_prefix(folder)
+                    .and_then(|rest| rest.strip_prefix('/'))
+                    .filter(|name| !name.contains('/'))
+                    .map(str::to_owned)
+            }),
+    );
+    names
+}
+
+/// What the printer listed in a folder of its stick, when it did.
+fn listed_in(store: &Store, machine: &str, folder: &str) -> Vec<String> {
     store
         .printer_file(machine, folder)
         .ok()
@@ -392,6 +475,33 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
     };
     let data = &event["data"];
     match name {
+        // Its state changed; while it wants someone (ATTENTION) or is in error (ERROR), it says
+        // what is on its screen (Buddy's connect/render.cpp: code, title, text, buttons).
+        "STATE_CHANGED" => {
+            let asks = matches!(event["state"].as_str(), Some("ATTENTION" | "ERROR"));
+            let text = |key: &str| {
+                data[key]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .map(str::to_owned)
+            };
+            match (asks, text("title"), text("text")) {
+                (true, title, body) if title.is_some() || body.is_some() => {
+                    let title = title.or_else(|| body.clone()).unwrap_or_default();
+                    let mut body = body.unwrap_or_default();
+                    if let Some(code) = text("code") {
+                        body = format!("{body} (#{code})").trim().to_owned();
+                    }
+                    store.asking.insert(machine.clone(), (title, body));
+                }
+                (true, ..) => {}
+                (false, ..) => {
+                    store.asking.remove(&machine);
+                }
+            }
+            store.changed();
+        }
         "FILE_INFO" => {
             if let Some(path) = data["path"].as_str().and_then(usb_path) {
                 store.set_printer_file(&machine, &path, data)?;
@@ -433,21 +543,24 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
                 println!("on the stick: {}", transfer.path);
                 store.set_transfer(&transfer.iv, "finished", None, None)?;
                 if transfer.print_after {
-                    let command =
-                        json!({"command": "START_PRINT", "kwargs": {"path": transfer.path}});
-                    let label = format!("Print {}", transfer.path.rsplit('/').next().unwrap_or(""));
-                    if let Some(id) = store.queue_connect_command(
-                        transfer.space,
-                        &machine,
-                        &label,
-                        &command,
-                        false,
-                    )? {
-                        store.set_transfer(&transfer.iv, "starting", Some(id), None)?;
-                    }
+                    store.print_from_stick(&transfer, &machine)?;
                 }
             } else {
-                let why = format!("the printer stopped the download ({name})");
+                // Why, when it says: STORAGE_FAILURE (the USB stick), NETWORK_FAILURE.
+                let why = match data["machine_reason"]
+                    .as_str()
+                    .or_else(|| event["machine_reason"].as_str())
+                    .filter(|r| !r.is_empty())
+                {
+                    Some("STORAGE_FAILURE") => format!(
+                        "the printer stopped the download ({name}): it could not write to its USB stick"
+                    ),
+                    Some("NETWORK_FAILURE") => format!(
+                        "the printer stopped the download ({name}): it could not reach the cloud"
+                    ),
+                    Some(reason) => format!("the printer stopped the download ({name}, {reason})"),
+                    None => format!("the printer stopped the download ({name})"),
+                };
                 store.set_transfer(&transfer.iv, "failed", None, Some(&why))?;
                 if let Some(job) = transfer.job {
                     store.set_job(job, JobState::Failed, Some(&why))?;
@@ -455,7 +568,8 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
             }
             store.changed();
         }
-        "REJECTED" => {
+        // Refused at once, or started and then failed: for a download or a print of ours.
+        "REJECTED" | "FAILED" => {
             if let Some(command) = event["command_id"].as_u64()
                 && let Some(transfer) = store.transfer_of_command(&machine, command as u32)?
             {
@@ -464,7 +578,13 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
                     .unwrap_or("refused by the printer")
                     .to_owned();
                 store.set_transfer(&transfer.iv, "failed", None, Some(&why))?;
-                if let Some(job) = transfer.job {
+                // A file by that name is there already (not ours, or changed), or the copy we
+                // meant to print is gone: once more, under a free name.
+                let lower = why.to_lowercase();
+                let again = lower.contains("exist") || lower.contains("not found");
+                if let Some(job) = transfer.job
+                    && !(again && store.send_again(&transfer, job, &machine)?)
+                {
                     store.set_job(job, JobState::Failed, Some(&why))?;
                 }
             }
@@ -556,6 +676,10 @@ pub fn on_report(store: &mut Store, token: &str, state: &str) -> rusqlite::Resul
     let Some((machine, space)) = store.printer_of(token)? else {
         return Ok(());
     };
+    // No longer asking, or out of its error: what it said goes.
+    if !matches!(state, "ATTENTION" | "ERROR") && store.asking.remove(&machine).is_some() {
+        store.changed();
+    }
     // A print from the stick is over once the printer is idle again (a minute on: it may
     // still be starting).
     if matches!(state, "IDLE" | "READY" | "FINISHED" | "STOPPED") {
@@ -574,6 +698,21 @@ pub fn on_report(store: &mut Store, token: &str, state: &str) -> rusqlite::Resul
             let Some(file) = store.file(space, &job.file_id)? else {
                 return store.set_job(job.id, JobState::Failed, Some("its file is gone"));
             };
+            // Sent here before and still the same file: print that copy, no download.
+            if let Some(path) = store.on_stick(&machine, &file.id, file.size)? {
+                let transfer = store.create_transfer(
+                    space,
+                    &machine,
+                    &file.id,
+                    file.size,
+                    &path,
+                    Some(job.id),
+                )?;
+                store.set_transfer(&transfer.iv, "finished", None, Some("on the stick already"))?;
+                store.print_from_stick(&transfer, &machine)?;
+                store.set_job(job.id, JobState::Printing, None)?;
+                return Ok(());
+            }
             let taken = names_in(store, &machine, "/usb");
             let path = format!("/usb/{}", stick_name(&file.name, &taken));
             let transfer =
@@ -976,6 +1115,12 @@ async fn send(
         )
             .into_response();
     }
+    // There already (sent by us, the same file): no second copy.
+    if let Ok(Some(path)) = store.on_stick(&machine, &file.id, file.size)
+        && path.rsplit_once('/').map(|(f, _)| f) == Some(folder.as_str())
+    {
+        return Json(json!({ "path": path, "already": true })).into_response();
+    }
     let taken = names_in(&store, &machine, &folder);
     let path = format!("{folder}/{}", stick_name(&file.name, &taken));
     let sent = store
@@ -1074,6 +1219,9 @@ async fn download(
         header::CONTENT_TYPE,
         "application/octet-stream".parse().unwrap(),
     );
+    // The printer takes nothing without it: it says how the body is encrypted (Buddy's
+    // transfers/download.cpp aborts the download otherwise, as TRANSFER_ABORTED).
+    h.insert("content-encryption-mode", "AES-CTR".parse().unwrap());
     if start > 0
         && let Ok(v) = format!("bytes {start}-{}/{padded}", padded - 1).parse()
     {
@@ -1407,6 +1555,10 @@ mod flow {
         };
         let (status, headers, first) = call(&app, fetch(0)).await;
         assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers["content-encryption-mode"], "AES-CTR",
+            "the printer aborts without it"
+        );
         let padded = gcode.len().div_ceil(16) * 16;
         assert_eq!(
             (
@@ -1446,7 +1598,7 @@ mod flow {
         );
         // On the stick: printed, and the job follows the printer.
         call(&app, event(json!({"event": "TRANSFER_FINISHED", "state": "IDLE", "data": {"start_cmd_id": download_id}}))).await;
-        let (_, _, body) = call(&app, report("IDLE")).await;
+        let (_, first_start, body) = call(&app, report("IDLE")).await;
         assert_eq!(
             serde_json::from_slice::<Value>(&body).unwrap(),
             json!({"command": "START_PRINT", "kwargs": {"path": "/usb/Big_part.gcode"}})
@@ -1468,6 +1620,71 @@ mod flow {
         assert!(job().is_none(), "ended");
         let ended = store.lock().unwrap().job(job_id).unwrap().unwrap();
         assert_eq!(ended.state, JobState::Finished);
+
+        // The printer said it started that print (as a real one does).
+        let first_start: u64 = first_start["command-id"].to_str().unwrap().parse().unwrap();
+        call(
+            &app,
+            event(json!({"event": "FINISHED", "command_id": first_start, "state": "IDLE"})),
+        )
+        .await;
+        // Printed again: it is on the stick already, so no download, straight to printing.
+        call(&app, post(format!("/machines/{mini}/taken"), String::new())).await;
+        let (status, _, body) = call(
+            &app,
+            post(format!("/files/{file}/print"), format!("machine={mini}")),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::NO_CONTENT,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+        // The command goes out with the printer's next report.
+        let mut answer = call(&app, report("IDLE")).await;
+        if answer.2.is_empty() {
+            answer = call(&app, report("IDLE")).await;
+        }
+        let (_, headers, body) = answer;
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"command": "START_PRINT", "kwargs": {"path": "/usb/Big_part.gcode"}}),
+            "the copy on the stick"
+        );
+        let start_id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
+        // Someone took it off the stick meanwhile: sent again, under a free name.
+        call(&app, event(json!({"event": "REJECTED", "command_id": start_id, "reason": "File not found", "state": "IDLE"}))).await;
+        let mut answer = call(&app, report("IDLE")).await;
+        if answer.2.is_empty() {
+            answer = call(&app, report("IDLE")).await;
+        }
+        let again: Value = serde_json::from_slice(&answer.2).unwrap();
+        assert_eq!(again["command"], "START_ENCRYPTED_DOWNLOAD");
+        assert_eq!(again["kwargs"]["path"], "/usb/Big_part-2.gcode");
+        assert_eq!(job().unwrap().state, JobState::Printing, "the job goes on");
+        // It asks something on its screen: shown as it says it, until it no longer asks.
+        call(&app, event(json!({"event": "STATE_CHANGED", "state": "ATTENTION", "data": {
+            "code": "17630", "title": "Sliced for another printer", "text": "The G-code was sliced for MINIIS.", "buttons": ["CONTINUE", "ABORT"]
+        }}))).await;
+        let asking = || {
+            store
+                .lock()
+                .unwrap()
+                .machine(space, &mini)
+                .unwrap()
+                .unwrap()
+                .asking
+        };
+        assert_eq!(
+            asking(),
+            Some((
+                "Sliced for another printer".to_owned(),
+                "The G-code was sliced for MINIIS. (#17630)".to_owned()
+            ))
+        );
+        call(&app, report("PRINTING")).await;
+        assert_eq!(asking(), None, "answered on the printer");
         let _ = now();
     }
 }

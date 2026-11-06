@@ -9,11 +9,18 @@
 //!   sent are kept for that;
 //! - `busy: processing` and `echo:busy` while it heats or homes: keep waiting;
 //! - opening the port resets most printers: wait for `start` (or a quiet moment), then
-//!   `M110 N0` sets the line numbers back to zero.
+//!   `M110 N0` sets the line numbers back to zero;
+//! - what is on its screen comes as host actions (Marlin's `HOST_ACTION_COMMANDS` and
+//!   `HOST_PROMPT_SUPPORT`, Prusa's firmware on the MK3 and older): a question
+//!   (`//action:prompt_begin Filament runout`, `prompt_button Continue`, `prompt_show`,
+//!   `prompt_end`), paused or stopped from its knob (`//action:pause`, `resume`, `cancel`,
+//!   `paused`, `resumed`); and its fatal errors (`Error:Thermal Runaway`, `MINTEMP`,
+//!   `Printer halted. kill() called!`). All kept in its [`Screen`].
 
 use std::collections::VecDeque;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -58,6 +65,8 @@ pub enum Reply {
     Start,
     /// `Error:...`.
     Error(String),
+    /// `//action:...`: what is on its screen, or what was done at its knob.
+    Action(Action),
     /// Anything else: temperatures, `echo:` messages.
     Other(String),
 }
@@ -88,7 +97,160 @@ pub fn parse(line: &str) -> Reply {
     if lower.starts_with("error:") {
         return Reply::Error(line[6..].trim().to_owned());
     }
+    if let Some(rest) = line.strip_prefix("//action:") {
+        let (name, text) = rest.trim().split_once(' ').unwrap_or((rest.trim(), ""));
+        let text = text.trim().to_owned();
+        return Reply::Action(match name.to_ascii_lowercase().as_str() {
+            "prompt_begin" => Action::PromptBegin(text),
+            "prompt_button" | "prompt_choice" => Action::PromptButton(text),
+            "prompt_show" => Action::PromptShow,
+            "prompt_end" => Action::PromptEnd,
+            "notification" => Action::Notification(text),
+            // Asked from its knob ("pause", "resume", "cancel": the host does it), or done
+            // by itself ("paused", "resumed": a filament change, a runout).
+            "pause" => Action::Pause,
+            "paused" => Action::Paused,
+            "resume" | "resumed" => Action::Resume,
+            "cancel" => Action::Cancel,
+            // Prusa's firmware (MK3 and older): "Set Ready" in its menu, and a print it
+            // brought back after a power cut, waiting to be resumed (Marlin_main.cpp).
+            "ready" => Action::Ready,
+            "not_ready" => Action::NotReady,
+            "uvlo_recovery_ready" | "uvlo_auto_recovery_ready" => Action::PowerLoss,
+            _ => Action::Other(rest.trim().to_owned()),
+        });
+    }
     Reply::Other(line.to_owned())
+}
+
+/// A host action: what a printer shows, or what someone did at its knob.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Action {
+    PromptBegin(String),
+    PromptButton(String),
+    PromptShow,
+    PromptEnd,
+    /// A message on its screen (`M117`).
+    Notification(String),
+    /// Pause, from its knob: the host pauses sending.
+    Pause,
+    /// It paused itself (a filament change, a runout).
+    Paused,
+    Resume,
+    /// Stopped from its own menu: the host stops sending.
+    Cancel,
+    /// "Set Ready" in its menu: its bed is clear for the next print.
+    Ready,
+    NotReady,
+    /// A print interrupted by a power cut, brought back and waiting to be resumed.
+    PowerLoss,
+    /// Anything else, `start` and `shutdown` among them: a knob on the printer does not
+    /// start jobs from here, and never shuts down the computer the agent runs on.
+    Other(String),
+}
+
+/// Whether an error stops the printer (it must be restarted), unlike a line sent wrong,
+/// which is only asked again.
+pub fn fatal(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    [
+        "kill()",
+        "printer halted",
+        "thermal runaway",
+        "mintemp",
+        "maxtemp",
+        "heating failed",
+        "printer stopped",
+        "stopped due to errors",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+}
+
+/// What is on a printer's screen, as it said over the wire: shared with whoever reports.
+#[derive(Debug, Default)]
+pub struct Screen {
+    /// `busy: paused for user`: it waits for its knob (an `M0`, a filament change).
+    pub waiting: AtomicBool,
+    state: Mutex<ScreenState>,
+}
+
+/// What a [`Screen`] holds now.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ScreenState {
+    /// The question on its screen, and its buttons ("Continue", "Purge more").
+    pub asking: Option<(String, Vec<String>)>,
+    /// A fatal error: it stopped, and waits to be restarted.
+    pub fault: Option<String>,
+    /// Paused at its knob (or by itself), until resumed.
+    pub paused: bool,
+    /// Stopped from its own menu: what is being sent stops.
+    pub cancelled: bool,
+    /// The last message on its screen.
+    pub message: Option<String>,
+    /// "Set Ready" was chosen on it, not reported yet.
+    pub ready_said: bool,
+    /// A print interrupted by a power cut waits to be resumed on it.
+    pub power_loss: bool,
+    // A question being told, not shown yet.
+    pending: Option<(String, Vec<String>)>,
+}
+
+impl Screen {
+    pub fn now(&self) -> ScreenState {
+        self.state.lock().unwrap().clone()
+    }
+
+    /// "Set Ready" from its menu, once: taken by whoever reports it.
+    pub fn take_ready(&self) -> bool {
+        std::mem::take(&mut self.state.lock().unwrap().ready_said)
+    }
+
+    /// A job ends or starts: a stop from its menu is dealt with.
+    pub fn clear_cancel(&self) {
+        self.state.lock().unwrap().cancelled = false;
+    }
+
+    /// What a line from the printer changes on its screen.
+    fn heard(&self, reply: &Reply, line: &str) {
+        self.waiting
+            .store(*reply == Reply::PausedForUser, Ordering::Relaxed);
+        let mut s = self.state.lock().unwrap();
+        match reply {
+            Reply::Start => *s = ScreenState::default(),
+            Reply::Error(text) if fatal(text) => s.fault = Some(text.clone()),
+            Reply::Other(_) if fatal(line) => {
+                s.fault = Some(line.trim_start_matches("echo:").trim().to_owned())
+            }
+            Reply::Action(action) => match action {
+                Action::PromptBegin(text) => s.pending = Some((text.clone(), Vec::new())),
+                Action::PromptButton(label) => {
+                    if let Some((_, buttons)) = s.pending.as_mut() {
+                        buttons.push(label.clone());
+                    }
+                }
+                Action::PromptShow => s.asking = s.pending.take(),
+                Action::PromptEnd => {
+                    s.asking = None;
+                    s.pending = None;
+                }
+                Action::Notification(text) => {
+                    s.message = Some(text.clone()).filter(|t| !t.is_empty())
+                }
+                Action::Pause | Action::Paused => s.paused = true,
+                Action::Resume => s.paused = false,
+                Action::Cancel => {
+                    s.cancelled = true;
+                    s.paused = false;
+                }
+                Action::Ready => s.ready_said = true,
+                Action::NotReady => s.ready_said = false,
+                Action::PowerLoss => s.power_loss = true,
+                Action::Other(_) => {}
+            },
+            _ => {}
+        }
+    }
 }
 
 /// The firmware from an `M115` answer: `FIRMWARE_NAME:Prusa-Firmware 3.14.0 based on
@@ -246,9 +408,9 @@ pub struct Printer<L: Read + Write> {
     next_number: u32,
     /// The last lines sent, by number, for a resend.
     sent: VecDeque<(u32, String)>,
-    /// Whether it waits for someone at the printer (`paused for user`), until its next `ok`:
-    /// shared, so whoever reports meanwhile can say so.
-    waiting: Arc<AtomicBool>,
+    /// What is on its screen (waiting for its knob, a question, an error, paused or stopped
+    /// at its knob): shared, so whoever reports meanwhile can say so.
+    waiting: Arc<Screen>,
 }
 
 impl<L: Read + Write> Printer<L> {
@@ -261,13 +423,13 @@ impl<L: Read + Write> Printer<L> {
         }
     }
 
-    /// Whether it waits for someone at the printer, readable from another thread.
-    pub fn waiting(&self) -> Arc<AtomicBool> {
+    /// What is on its screen, readable from another thread.
+    pub fn waiting(&self) -> Arc<Screen> {
         self.waiting.clone()
     }
 
-    /// Shares a flag made before the printer was opened (to report while it connects).
-    pub fn set_waiting(&mut self, waiting: Arc<AtomicBool>) {
+    /// Shares a screen made before the printer was opened (to report while it connects).
+    pub fn set_waiting(&mut self, waiting: Arc<Screen>) {
         self.waiting = waiting;
     }
 
@@ -308,8 +470,7 @@ impl<L: Read + Write> Printer<L> {
             match self.read_line()? {
                 Some(line) if !line.is_empty() => {
                     quiet_since = Instant::now();
-                    self.waiting
-                        .store(parse(&line) == Reply::PausedForUser, Ordering::Relaxed);
+                    self.waiting.heard(&parse(&line), &line);
                     if !matches!(parse(&line), Reply::Ok) {
                         on(Event::Said(line));
                     }
@@ -371,8 +532,7 @@ impl<L: Read + Write> Printer<L> {
             };
             last_heard = Instant::now();
             let reply = parse(&line);
-            self.waiting
-                .store(reply == Reply::PausedForUser, Ordering::Relaxed);
+            self.waiting.heard(&reply, &line);
             match reply {
                 Reply::Ok => match resend.take() {
                     None => return Ok(line),
@@ -391,6 +551,7 @@ impl<L: Read + Write> Printer<L> {
                 Reply::Busy | Reply::PausedForUser => {}
                 Reply::Start => return Err(io::Error::other("the printer restarted")),
                 Reply::Error(text) => on(Event::Said(format!("Error: {text}"))),
+                Reply::Action(_) => on(Event::Said(line.clone())),
                 Reply::Other(text) if !text.is_empty() => on(Event::Said(text)),
                 Reply::Other(_) => {}
             }
@@ -430,6 +591,65 @@ pub(crate) mod tests {
 
     fn said(text: &str) -> Vec<String> {
         text.lines().map(str::to_owned).collect()
+    }
+
+    /// What is on its screen, line by line: a question with its buttons until it ends, a
+    /// fatal error (not a line sent wrong), paused and stopped at its knob, and a restart
+    /// wiping it all.
+    #[test]
+    fn a_screen_follows_what_the_printer_says() {
+        let screen = Screen::default();
+        let hear = |line: &str| screen.heard(&parse(line), line);
+        assert_eq!(
+            parse("//action:prompt_begin Filament runout"),
+            Reply::Action(Action::PromptBegin("Filament runout".into()))
+        );
+        hear("//action:prompt_begin Filament runout");
+        hear("//action:prompt_button Continue");
+        hear("//action:prompt_button Purge more");
+        assert_eq!(screen.now().asking, None, "not shown yet");
+        hear("//action:prompt_show");
+        assert_eq!(
+            screen.now().asking,
+            Some((
+                "Filament runout".to_owned(),
+                vec!["Continue".to_owned(), "Purge more".to_owned()]
+            ))
+        );
+        hear("//action:prompt_end");
+        assert_eq!(screen.now().asking, None);
+        // A line sent wrong is no fault; a thermal runaway is.
+        hear("Error:Line Number is not Last Line Number+1, Last Line: 12");
+        assert_eq!(screen.now().fault, None);
+        hear("Error:Thermal Runaway, system stopped! Heater_ID: 0");
+        assert_eq!(
+            screen.now().fault.as_deref(),
+            Some("Thermal Runaway, system stopped! Heater_ID: 0")
+        );
+        hear("echo:busy: paused for user");
+        assert!(screen.waiting.load(Ordering::Relaxed));
+        hear("ok");
+        assert!(!screen.waiting.load(Ordering::Relaxed));
+        // Prusa's MK3 and older: paused, resumed and stopped from its knob.
+        hear("//action:pause");
+        assert!(screen.now().paused);
+        hear("//action:resume");
+        assert!(!screen.now().paused);
+        hear("//action:cancel");
+        assert!(screen.now().cancelled);
+        // "Set Ready" in its menu: once, for whoever reports.
+        hear("//action:ready");
+        assert!(screen.take_ready() && !screen.take_ready());
+        hear("//action:uvlo_recovery_ready");
+        assert!(screen.now().power_loss);
+        hear("//action:shutdown");
+        assert_eq!(
+            parse("//action:shutdown"),
+            Reply::Action(Action::Other("shutdown".into())),
+            "never acted on"
+        );
+        hear("start");
+        assert_eq!(screen.now(), ScreenState::default(), "restarted: all gone");
     }
 
     /// Prusa's G81 prints the back row first; the mesh starts at the front.

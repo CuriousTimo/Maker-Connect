@@ -291,3 +291,7 @@
   .queue .q-problem { color: var(--warn); }
   .queue .q-x { background: none; border: 0; color: var(--muted); font-size: 18px; padding: 0 6px; cursor: pointer; }
   .q-held { margin: 0 0 10px; border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); background: color-mix(in srgb, var(--warn) 8%, var(--card)); }
+  .queue li.fixed { cursor: default; }
+  .queue li.mine { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .queue .q-mine { color: var(--accent); font-weight: 600; }
+  .tab-count { color: var(--muted); font-weight: 600; margin-left: 2px; }

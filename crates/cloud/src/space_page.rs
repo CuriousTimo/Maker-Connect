@@ -121,7 +121,8 @@ pub(crate) const SPACE_STYLE: &str = r#"
   .mx-table th.mx, .mx-table td.mx { text-align: center; white-space: nowrap; }
   .mx-table td.mx label { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; min-width: 48px; }
   .mx-table td.mx input { width: 18px; height: 18px; margin: 0; }
-  .mx-table td.mx small { font-size: 11px; color: var(--muted); min-height: 1em; }
+  .mx-table td.mx .mx-level { display: block; margin: 2px auto 0; padding: 0 6px; border: 0; border-radius: 4px; background: none; color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer; text-decoration: underline dotted; }
+  .mx-table td.mx .mx-level:hover:not(:disabled) { color: var(--ink); background: var(--line); }
   .mx-table td.mx-more { text-align: right; white-space: nowrap; }
   .gcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
   .gcard { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 10px; align-content: start; }
@@ -469,18 +470,33 @@ async fn page(
   }}
   addEventListener("hashchange", showTab);
   showTab();
-  // The matrix: a tick gives (use) or takes a group's permission, at once.
+  // The matrix: a tick gives (operate) or takes a group's permission, at once; the level
+  // under it switches between operate (everything) and use (jobs only).
+  const tick = (user, group, body) => fetch(`permissions/groups/${{group}}/people/${{user}}`, {{ method: "POST", headers: {{ "x-requested-with": "fetch" }}, body: new URLSearchParams(body) }});
   document.addEventListener("change", async (e) => {{
     const box = e.target.closest("[data-mx-user]");
     if (!box) return;
-    const r = await fetch(`permissions/groups/${{box.dataset.mxGroup}}/people/${{box.dataset.mxUser}}`, {{ method: "POST", headers: {{ "x-requested-with": "fetch" }}, body: new URLSearchParams({{ on: box.checked ? "1" : "0" }}) }});
+    const level = box.closest("td").querySelector("[data-mx-level]");
+    const r = await tick(box.dataset.mxUser, box.dataset.mxGroup, {{ on: box.checked ? "1" : "0" }});
     if (r.ok) {{
-      box.nextElementSibling.textContent = box.checked ? (await r.text()) || "use" : "";
+      level.textContent = box.checked ? (await r.text()) || "operate" : "";
+      level.hidden = !box.checked;
       toast(box.checked ? "Permission given" : "Permission taken away");
     }} else {{
       box.checked = !box.checked;
       toast(`Not done: ${{await r.text()}}`, "bad");
     }}
+  }});
+  document.addEventListener("click", async (e) => {{
+    const level = e.target.closest("[data-mx-level]");
+    if (!level) return;
+    const [user, group] = level.dataset.mxLevel.split(":");
+    const next = level.textContent.trim() === "operate" ? "use" : "operate";
+    const r = await tick(user, group, {{ on: "1", level: next }});
+    if (r.ok) {{
+      level.textContent = (await r.text()) || next;
+      toast(next === "use" ? "Jobs only (use)" : "Everything (operate)");
+    }} else toast(`Not done: ${{await r.text()}}`, "bad");
   }});
   // Someone's permissions: a window per person.
   document.addEventListener("click", (e) => {{

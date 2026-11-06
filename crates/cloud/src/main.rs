@@ -511,9 +511,6 @@ async fn pair(
     let store = store.lock().unwrap();
     let paired = store.space_of(&access).and_then(|(space, _)| {
         let paired = store.pair(space, &form.code)?;
-        if let Some((id, _)) = &paired {
-            adder_may_operate(&store, &access, space, id)?;
-        }
         Ok(paired)
     });
     let fetched = headers.contains_key("x-requested-with");
@@ -614,11 +611,11 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
   <nav class="side-nav" aria-label="Pages">{now}{machines}{projects}{files}{stock}{space_link}</nav>
   <div class="top-right" data-top-right>
     <div class="summary">
-      <span class="count wide"><b data-sum="machines">–</b> machines</span>
-      <span class="count wide"><b data-sum="online">–</b> online</span>
-      <span class="count wide"><b data-sum="busy">–</b> busy</span>
-      <span class="count attention-count" data-attention-count hidden><b data-sum="attention">–</b> attention</span>
-      <span class="live" data-live-dot title="Live updates"><i></i><span>Live</span></span>
+      <span class="count" title="Machines in this space"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="10" rx="1.5"/><path d="M7 17h6M10 14v3"/></svg><b data-sum="machines">–</b><span class="sr">machines</span></span>
+      <span class="count" title="Online: reporting now"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 8a9.5 9.5 0 0 1 13 0M6 11a6 6 0 0 1 8 0"/><circle cx="10" cy="14.5" r="1.2"/></svg><b data-sum="online">–</b><span class="sr">online</span></span>
+      <span class="count busy-count" title="Busy: printing, cutting, running a job"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M10 6.5V10l2.5 2"/></svg><b data-sum="busy">–</b><span class="sr">busy</span></span>
+      <span class="count attention-count" data-attention-count hidden title="Need someone: a plate to confirm, a print to take, an error"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3.5 17 16H3z"/><path d="M10 8.5v3.5M10 14v.01"/></svg><b data-sum="attention">–</b><span class="sr">need someone</span></span>
+      <span class="live" data-live-dot title="Live updates"><i></i></span>
     </div>
     <button type="button" class="search-open" data-palette-open title="Go to a machine, a file or a page"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13.2 13.2 3.8 3.8"/></svg><span>Go to…</span><kbd>⌘K</kbd></button>
   </div>
@@ -800,28 +797,6 @@ struct VirtualForm {
     profile: String,
 }
 
-/// Whoever adds a machine may operate it: a permission like any other (in their window in
-/// Members, to take away). Everyone else, owners and admins too, starts without: a new
-/// machine needs permission.
-fn adder_may_operate(
-    store: &Store,
-    access: &access::Access,
-    space: i64,
-    machine: &str,
-) -> rusqlite::Result<()> {
-    if access.role == access::Role::Guest {
-        return Ok(());
-    }
-    store.set_grant(
-        space,
-        machine,
-        access.user_id,
-        access::Level::Operate,
-        access.user_id,
-        None,
-    )
-}
-
 async fn add_virtual(
     access: crate::access::Access,
     State(store): State<Shared>,
@@ -833,7 +808,6 @@ async fn add_virtual(
     let mut store = store.lock().unwrap();
     match store.space_of(&access).and_then(|(space, _)| {
         let id = store.add_virtual(space, profile)?;
-        adder_may_operate(&store, &access, space, &id)?;
         Ok(id)
     }) {
         Ok(id) => Redirect::to(&format!("/machines/{id}")).into_response(),
@@ -860,7 +834,6 @@ async fn add_klipper(
     let mut store = store.lock().unwrap();
     let added = store.space_of(&access).and_then(|(space, _)| {
         let id = store.add_moonraker(space, name)?;
-        adder_may_operate(&store, &access, space, &id)?;
         Ok((id.clone(), store.moonraker_token(space, &id)?))
     });
     match added {
@@ -1588,6 +1561,8 @@ async fn machine_page(
         }
         Ok((space, Some(machine))) => {
             let extra = machine_page::Extra {
+                me: access.user_id,
+                staff: access.role >= access::Role::Admin,
                 asked: store.asked(access.user_id, &machine.id).ok().flatten(),
                 ppe_until: store.ppe_until(access.user_id, &machine.id),
                 ppe_checks: store.ppe_checks(access.space),
@@ -1641,6 +1616,8 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #111214; --card: #1b1c1f; --ink: #f2f1ee; --muted: #a3a29d; --line: #2e2f33; --accent: #5fbfa9; --off: #77767a; --bad: #e07a63; --warn: #d9a441; --busy: #6ea8ff; } }
   :root[data-theme="dark"] { --bg: #111214; --card: #1b1c1f; --ink: #f2f1ee; --muted: #a3a29d; --line: #2e2f33; --accent: #5fbfa9; --off: #77767a; --bad: #e07a63; --warn: #d9a441; --busy: #6ea8ff; }
   * { box-sizing: border-box; }
+  /* Hidden is hidden, whatever display a class gives (a notice is flex). */
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, sans-serif; }
   /* The app's shell: a sidebar beside every page, the page beside it at one width. */
   :root[data-theme="light"] { color-scheme: light; } :root[data-theme="dark"] { color-scheme: dark; }
@@ -1710,11 +1687,15 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .topbar .side-user summary { padding: 4px 6px 4px 10px; }
   .topbar .side-user .who { max-width: 160px; }
   .topbar .side-menu { top: calc(100% + 8px); bottom: auto; left: auto; right: 0; width: 260px; max-height: calc(100vh - var(--top) - 24px); }
-  @media (max-width: 1400px) { .summary .count.wide { display: none; } }
-  @media (max-width: 1180px) { .brand { width: auto; } .brand span, .topbar .side-user .who small, .topbar .search-open span, .topbar .search-open kbd, .live > span { display: none; } }
+  @media (max-width: 1180px) { .brand { width: auto; } .brand span, .topbar .side-user .who small, .topbar .search-open span, .topbar .search-open kbd { display: none; } }
   @media (max-width: 980px) { .topbar .side-nav a span { display: none; } .topbar .side-user .who { display: none; } }
   .summary { display: flex; align-items: center; gap: 18px; color: var(--muted); font-size: 14px; white-space: nowrap; }
   .summary b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  /* A count is an icon and a number; the word is in its hover (and for screen readers). */
+  .summary .count { display: inline-flex; align-items: center; gap: 5px; cursor: default; }
+  .summary .count svg { width: 17px; height: 17px; }
+  .summary .busy-count svg { color: var(--busy); } .summary .attention-count svg, .summary .attention-count b { color: var(--warn); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .live { display: inline-flex; align-items: center; gap: 8px; }
   .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--off); }
   .live.on i { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }

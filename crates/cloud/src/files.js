@@ -54,7 +54,7 @@
         <form data-print>
           <select name="machine" aria-label="Machine to print on"${f.machines.length ? "" : " disabled"}>
             <option value="">${f.machines.length ? (ready ? "Print on…" : "No machine for it") : "No machines yet"}</option>${options}
-          </select>
+          </select><input type="number" name="copies" class="copies" min="1" max="50" value="1" aria-label="Copies" title="Copies: the first now, the rest in its queue"${ready ? "" : " disabled"}>
           ${m.kind === "laser" ? `<button type="button" class="ghost" data-frame${ready ? "" : " disabled"} title="Run the outline with the laser off">Frame</button>` : ""}
           <button${ready ? "" : " disabled"}>${m.kind === "laser" ? "Start" : "Print"}</button>
         </form>
@@ -87,7 +87,7 @@
       <td><form data-print>
         <select name="machine" aria-label="Machine to print on"${f.machines.length ? "" : " disabled"}>
           <option value="">${f.machines.length ? (ready ? "Print on…" : "No machine for it") : "No machines"}</option>${options}
-        </select>
+        </select><input type="number" name="copies" class="copies" min="1" max="50" value="1" aria-label="Copies" title="Copies: the first now, the rest in its queue"${ready ? "" : " disabled"}>
         ${m.kind === "laser" ? `<button type="button" class="ghost icon" data-frame${ready ? "" : " disabled"} title="Frame: run the outline with the laser off" aria-label="Frame"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.5 2"/></svg></button>` : ""}
         <button class="icon"${ready ? "" : " disabled"} title="${m.kind === "laser" ? "Start" : "Print"}" aria-label="${m.kind === "laser" ? "Start" : "Print"}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L12.8 8z" fill="currentColor"/></svg></button>
       </form><span class="note" data-note role="status"></span></td>
@@ -316,7 +316,7 @@
           <form data-print>
             <select name="machine" aria-label="Machine to print on"${f.machines.length ? "" : " disabled"}>
               <option value="">${f.machines.length ? (ready ? "Print on…" : "No machine for it") : "No machines yet"}</option>${options}
-            </select>
+            </select><input type="number" name="copies" class="copies" min="1" max="50" value="1" aria-label="Copies" title="Copies: the first now, the rest in its queue"${ready ? "" : " disabled"}>
             ${m.kind === "laser" ? `<button type="button" class="ghost" data-frame${ready ? "" : " disabled"} title="Run the outline with the laser off">Frame</button>` : ""}
             <button${ready ? "" : " disabled"}>${m.kind === "laser" ? "Start" : "Print"}</button>
           </form>
@@ -408,17 +408,23 @@
     const form = event.target, file = form.closest("[data-id]"), note = file.querySelector("[data-note]");
     const machine = form.machine.value;
     if (!machine) { note.textContent = "Choose a machine first."; return; }
+    const copies = Math.max(1, Math.min(50, Number(form.copies?.value) || 1));
     const response = await fetch(`files/${encodeURIComponent(file.dataset.id)}/print`, {
       method: "POST",
-      body: new URLSearchParams({ machine }),
+      body: new URLSearchParams({ machine, copies }),
       headers: { "x-requested-with": "fetch" },
     });
+    const name = form.machine.selectedOptions[0]?.textContent.split(" — ")[0] || "the machine";
     if (response.status === 202) {
       // Into its queue: it starts by itself when the machine is free.
-      const { queued } = await response.json();
-      const name = form.machine.selectedOptions[0]?.textContent.split(" — ")[0] || "the machine";
-      toast(`In the queue of ${name}: ${queued === 1 ? "next" : `number ${queued}`}`);
+      const { queued, copies: n } = await response.json();
+      toast(n > 1 ? `${n} copies in the queue of ${name}` : `In the queue of ${name}: ${queued === 1 ? "next" : `number ${queued}`}`);
       refresh();
+    } else if (response.status === 200) {
+      // The first prints now, the others wait in its queue.
+      const { copies: n } = await response.json();
+      toast(`Printing on ${name}; ${n - 1} more in its queue`);
+      location.href = `machines/${encodeURIComponent(machine)}#queue`;
     } else if (response.ok) location.href = `machines/${encodeURIComponent(machine)}#control`;
     else note.textContent = `Not started: ${await response.text()}`;
   });

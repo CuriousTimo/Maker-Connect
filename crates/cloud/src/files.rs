@@ -597,7 +597,12 @@ async fn remove_many(
 #[derive(Deserialize)]
 struct PrintForm {
     machine: String,
+    /// How many times: the first now (when the machine is free), the rest in its queue.
+    copies: Option<u32>,
 }
+
+/// Copies at most, in one go.
+const MAX_COPIES: u32 = 50;
 
 /// Puts a file on a machine, when it fits ([`fit`]).
 async fn print(
@@ -628,21 +633,40 @@ async fn print(
     };
     // Free, and nothing waiting before it: now. Busy, or others waiting: to the back of its
     // queue (crate::queue). Not for this machine at all: no.
+    let copies = form.copies.unwrap_or(1).clamp(1, MAX_COPIES);
+    let by = Some((access.user_id, access.actor.as_str()));
+    // Copies after the first wait in the queue, one after another.
+    let queue_rest = |store: &mut crate::store::Store, n: u32| -> rusqlite::Result<usize> {
+        let mut place = 0;
+        for _ in 0..n {
+            place = store.queue_add(space, &machine.id, &file, by)?;
+        }
+        Ok(place)
+    };
     if !machine.queue.is_empty() || fit(&file, &machine).is_err() {
         if let Err(why) = suits(&file, &machine) {
             return (StatusCode::CONFLICT, why).into_response();
         }
-        return match store.queue_add(space, &machine.id, &file, Some(&access.actor)) {
+        return match queue_rest(&mut store, copies) {
             Ok(place) if headers.contains_key("x-requested-with") => (
                 StatusCode::ACCEPTED,
-                Json(serde_json::json!({ "queued": place })),
+                Json(serde_json::json!({ "queued": place, "copies": copies })),
             )
                 .into_response(),
-            Ok(_) => Redirect::to(&format!("/machines/{}", machine.id)).into_response(),
+            Ok(_) => Redirect::to(&format!("/machines/{}#queue", machine.id)).into_response(),
             Err(error) => failed(error),
         };
     }
     match store.add_job(space, &machine.id, &file, None, Some(&access.actor)) {
+        Ok(Ok(_)) if copies > 1 => match queue_rest(&mut store, copies - 1) {
+            Ok(_) if headers.contains_key("x-requested-with") => Json(serde_json::json!({
+                "started": true,
+                "copies": copies,
+            }))
+            .into_response(),
+            Ok(_) => Redirect::to(&format!("/machines/{}#queue", machine.id)).into_response(),
+            Err(error) => failed(error),
+        },
         Ok(Ok(_)) if headers.contains_key("x-requested-with") => {
             StatusCode::NO_CONTENT.into_response()
         }
@@ -1001,6 +1025,29 @@ mod tests {
                 .queue
                 .len(),
             1
+        );
+        // Copies: two more, one after another in its queue.
+        let copies = Request::post(format!("/files/{id}/print"))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("x-requested-with", "fetch")
+            .body(Body::from(format!("machine={mini}&copies=2")))
+            .unwrap();
+        let (status, body) = call(&app, copies).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&body).unwrap()["copies"],
+            2
+        );
+        assert_eq!(
+            store
+                .lock()
+                .unwrap()
+                .machine(space, &mini)
+                .unwrap()
+                .unwrap()
+                .queue
+                .len(),
+            3
         );
         let job = store
             .lock()

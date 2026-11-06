@@ -80,7 +80,7 @@
   .file-table col.c-sliced { width: 92px; } .file-table col.c-time { width: 76px; }
   .file-table col.c-material { width: 116px; } .file-table col.c-uploaded { width: 100px; }
   .file-table col.c-printed { width: 140px; } .file-table col.c-icons { width: 84px; }
-  .file-table col.c-print { width: 190px; }
+  .file-table col.c-print { width: 250px; }
   /* Narrower: the upload date goes first (it is in the file's dialog too). */
   @media (max-width: 1400px) { .file-table .up { display: none; } .file-table col.c-uploaded { width: 0; } }
   .file-table .name-wrap { display: flex; align-items: center; gap: 12px; min-width: 0; }
@@ -144,3 +144,5 @@
   .files.list .files-group { margin: 22px 0 8px; }
   .files.list .files-group:first-child { margin-top: 0; }
   .files.list .table-wrap + .files-group { margin-top: 26px; }
+  /* How many copies: small, beside the machine. */
+  .copies { width: 3.6em; flex: none; padding: 6px 4px; text-align: center; }

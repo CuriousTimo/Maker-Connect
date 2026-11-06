@@ -18,7 +18,7 @@ use maker_connect_protocol::{
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 const REPORT_EVERY: Duration = Duration::from_secs(2);
@@ -207,7 +207,7 @@ fn speaks_grbl(port: &str, baud: u32) -> bool {
 }
 
 /// The machine on the port, by what it speaks; a label printer is found on USB.
-fn open_machine(options: &Options, waiting: &Arc<AtomicBool>) -> Option<Machine> {
+fn open_machine(options: &Options, waiting: &Arc<marlin::Screen>) -> Option<Machine> {
     if options.kind == MachineKind::Label {
         match dymo::find() {
             Ok(Some(printer)) => {
@@ -409,7 +409,7 @@ struct Known {
 /// (other firmware says it does not know the command, which does no harm).
 fn open_printer(
     options: &Options,
-    waiting: &Arc<AtomicBool>,
+    waiting: &Arc<marlin::Screen>,
 ) -> Option<(marlin::Printer<Link>, Known)> {
     let port = options.port.as_ref()?;
     let link = serialport::new(port, options.baud)
@@ -498,7 +498,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let wants = options.port.is_some() || options.kind == MachineKind::Label;
         if machine.is_none() && wants && Instant::now() >= next_look {
-            let waiting = Arc::new(AtomicBool::new(false));
+            let waiting = Arc::new(marlin::Screen::default());
             machine = while_busy(&options, &registered.token, &last, &waiting, || {
                 open_machine(&options, &waiting)
             });
@@ -541,12 +541,9 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     MachineState::Busy
                 };
-                // An M0 or a filament change in the file: it waits for someone.
-                if job.waiting.load(Ordering::Relaxed) {
-                    telemetry.state = MachineState::Attention;
-                    telemetry.problem =
-                        Some("waits for someone at the printer: press its knob".to_owned());
-                }
+                // What its screen says: a question, an error, paused at its knob, an M0 or a
+                // filament change in the file waiting for someone.
+                on_screen(&mut telemetry, &job.waiting);
                 telemetry.firmware = known.firmware.clone();
                 telemetry.identity = Some(known.identity.clone());
                 set_heat(&mut telemetry, p.heat);
@@ -907,7 +904,7 @@ fn while_busy<T>(
     options: &Options,
     token: &str,
     busy: &Telemetry,
-    waiting: &Arc<AtomicBool>,
+    waiting: &Arc<marlin::Screen>,
     work: impl FnOnce() -> T,
 ) -> T {
     let (done, wait) = std::sync::mpsc::channel::<()>();
@@ -928,15 +925,44 @@ fn while_busy<T>(
     })
 }
 
-/// A report as it is, or, while the printer waits for someone at it (`paused for user`),
-/// as needing attention, with why.
-fn waiting_for_someone(report: &Telemetry, waiting: &AtomicBool) -> Telemetry {
+/// A report as it is, with what is on the printer's screen ([`on_screen`]).
+fn waiting_for_someone(report: &Telemetry, screen: &marlin::Screen) -> Telemetry {
     let mut report = report.clone();
-    if waiting.load(Ordering::Relaxed) {
-        report.state = MachineState::Attention;
-        report.problem = Some("waits for someone at the printer: press its knob".to_owned());
-    }
+    on_screen(&mut report, screen);
     report
+}
+
+/// What the printer's screen says, put in a report, as Prusa Connect's printers say it:
+/// a fatal error (it stopped: restart it), a question and its buttons ("Filament runout:
+/// Continue / Purge more"), waiting for its knob (an `M0`, a filament change), paused at
+/// its knob.
+fn on_screen(report: &mut Telemetry, screen: &marlin::Screen) {
+    report.bed_clear |= screen.take_ready();
+    let now = screen.now();
+    if let Some(fault) = now.fault {
+        report.state = MachineState::Error;
+        report.problem = Some(fault);
+    } else if let Some((question, buttons)) = now.asking {
+        report.state = MachineState::Attention;
+        report.problem = Some(if buttons.is_empty() {
+            question
+        } else {
+            format!("{question} ({})", buttons.join(" / "))
+        });
+    } else if now.power_loss && report.state != MachineState::Busy {
+        report.state = MachineState::Attention;
+        report.problem =
+            Some("a print was interrupted by a power cut: resume it on the printer".to_owned());
+    } else if screen.waiting.load(Ordering::Relaxed) {
+        report.state = MachineState::Attention;
+        report.problem = Some(
+            now.message
+                .unwrap_or_else(|| "waits for someone at the printer: press its knob".to_owned()),
+        );
+    } else if now.paused && report.state == MachineState::Busy {
+        report.state = MachineState::Paused;
+        report.problem = Some("paused at the printer".to_owned());
+    }
 }
 
 /// What carrying out a command gave: what the printer said, and a bed mesh in it.

@@ -34,7 +34,17 @@ pub fn migrate(db: &Connection) -> rusqlite::Result<()> {
              -- Why it cannot start (the file no longer suits the machine); empty: it can.
              problem TEXT
          );",
-    )
+    )?;
+    // Who queued it, as a person: they may move and take out their own.
+    let present: bool = db.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('machine_queue') WHERE name = 'by_user'",
+        [],
+        |r| r.get::<_, i64>(0).map(|n| n > 0),
+    )?;
+    if !present {
+        db.execute("ALTER TABLE machine_queue ADD COLUMN by_user INTEGER", [])?;
+    }
+    Ok(())
 }
 
 /// A file waiting in a machine's queue.
@@ -44,6 +54,8 @@ pub struct Queued {
     pub file_id: String,
     pub file_name: String,
     pub by: Option<String>,
+    /// Who queued it: they may move and take out their own; staff any.
+    pub by_user: Option<i64>,
     pub added_at: i64,
     /// From the file: how long, and whether it has a thumbnail.
     pub estimated_s: Option<u64>,
@@ -74,7 +86,7 @@ impl Store {
     pub fn queue_of(&self, machine: &str) -> rusqlite::Result<Vec<Queued>> {
         let rows: Vec<Queued> = {
             let mut q = self.db.prepare(
-                "SELECT id, file_id, file_name, by_name, added_at, problem FROM machine_queue
+                "SELECT id, file_id, file_name, by_name, added_at, problem, by_user FROM machine_queue
                  WHERE machine_id = ?1 ORDER BY pos, id",
             )?;
             q.query_map([machine], |r| {
@@ -87,6 +99,7 @@ impl Store {
                     estimated_s: None,
                     thumbnail: false,
                     problem: r.get(5)?,
+                    by_user: r.get(6)?,
                 })
             })?
             .collect::<rusqlite::Result<_>>()?
@@ -116,7 +129,7 @@ impl Store {
         space: i64,
         machine: &str,
         file: &crate::store::StoredFile,
-        by: Option<&str>,
+        by: Option<(i64, &str)>,
     ) -> rusqlite::Result<usize> {
         let last: f64 = self.db.query_row(
             "SELECT COALESCE(MAX(pos), 0) FROM machine_queue WHERE machine_id = ?1",
@@ -124,9 +137,9 @@ impl Store {
             |r| r.get(0),
         )?;
         self.db.execute(
-            "INSERT INTO machine_queue (space_id, machine_id, file_id, file_name, by_name, pos, added_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![space, machine, file.id, file.name, by, last + 1.0, now()],
+            "INSERT INTO machine_queue (space_id, machine_id, file_id, file_name, by_name, pos, added_at, by_user)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![space, machine, file.id, file.name, by.map(|b| b.1), last + 1.0, now(), by.map(|b| b.0)],
         )?;
         self.changed();
         let n: i64 = self.db.query_row(
@@ -238,6 +251,14 @@ struct OrderForm {
     ids: String,
 }
 
+/// Staff (admins, owners) move and take out anything in a queue; anyone else only what
+/// they queued themselves.
+fn staff(access: &Access) -> bool {
+    access.role >= crate::access::Role::Admin
+}
+
+/// A new order. Someone who is not staff only swaps their own prints among themselves:
+/// everyone else's stays where it was, so nobody gets ahead of others.
 async fn order(
     access: Access,
     State(store): State<Shared>,
@@ -249,26 +270,64 @@ async fn order(
         .split(',')
         .filter_map(|s| s.trim().parse().ok())
         .collect();
-    match store
-        .lock()
-        .unwrap()
-        .queue_order(access.space, &machine, &ids)
-    {
+    let mut store = store.lock().unwrap();
+    let now: Vec<Queued> = match store.queue_of(&machine) {
+        Ok(q) => q,
+        Err(error) => return failed(error),
+    };
+    let mut same: Vec<i64> = now.iter().map(|q| q.id).collect();
+    let mut asked = ids.clone();
+    same.sort_unstable();
+    asked.sort_unstable();
+    if same != asked {
+        return (StatusCode::CONFLICT, "the queue changed: look again").into_response();
+    }
+    if !staff(&access) {
+        let theirs = |id: i64| {
+            now.iter()
+                .find(|q| q.id == id)
+                .is_some_and(|q| q.by_user != Some(access.user_id))
+        };
+        let moved = now
+            .iter()
+            .zip(&ids)
+            .any(|(was, is)| (theirs(was.id) || theirs(*is)) && was.id != *is);
+        if moved {
+            return (
+                StatusCode::FORBIDDEN,
+                "you may change the order of your own prints only; staff move the others",
+            )
+                .into_response();
+        }
+    }
+    match store.queue_order(access.space, &machine, &ids) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
     }
 }
 
+/// Takes a print out of the queue: one's own, or (staff) anyone's.
 async fn remove(
     access: Access,
     State(store): State<Shared>,
     Path((machine, item)): Path<(String, i64)>,
 ) -> Response {
-    match store
-        .lock()
-        .unwrap()
-        .queue_remove(access.space, &machine, item)
-    {
+    let mut store = store.lock().unwrap();
+    if !staff(&access) {
+        let own = store
+            .queue_of(&machine)
+            .ok()
+            .and_then(|q| q.into_iter().find(|q| q.id == item))
+            .is_some_and(|q| q.by_user == Some(access.user_id));
+        if !own {
+            return (
+                StatusCode::FORBIDDEN,
+                "you may take out your own prints only; staff take out the others",
+            )
+                .into_response();
+        }
+    }
+    match store.queue_remove(access.space, &machine, item) {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "not in its queue").into_response(),
         Err(error) => failed(error),
@@ -315,8 +374,8 @@ mod tests {
             .add_job(space, &m, &file, None, Some("Timo"))
             .unwrap()
             .unwrap();
-        assert_eq!(s.queue_add(space, &m, &file, Some("Mia")).unwrap(), 1);
-        assert_eq!(s.queue_add(space, &m, &file, Some("Mia")).unwrap(), 2);
+        assert_eq!(s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap(), 1);
+        assert_eq!(s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap(), 2);
         assert_eq!(s.start_queued().unwrap(), 0, "busy");
         // It failed: what it left may be on the bed.
         s.set_job(job, JobState::Failed, Some("spaghetti")).unwrap();
@@ -324,7 +383,16 @@ mod tests {
         assert_eq!(s.start_queued().unwrap(), 0, "the bed first");
         let machine = s.machine(space, &m).unwrap().unwrap();
         assert_eq!(machine.queue_held.as_deref(), Some("failed"));
-        assert!(s.print_taken(space, &m).unwrap());
+        // "Set Ready" on the printer's own menu says the same as "Bed clear" on its page.
+        s.report(
+            &token,
+            &Telemetry {
+                state: MachineState::Idle,
+                bed_clear: true,
+                ..Telemetry::default()
+            },
+        )
+        .unwrap();
         assert_eq!(s.start_queued().unwrap(), 1, "bed clear: the next");
         let machine = s.machine(space, &m).unwrap().unwrap();
         assert_eq!(

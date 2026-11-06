@@ -113,7 +113,8 @@ pub(crate) fn parts(store: &Store, access: &Access) -> rusqlite::Result<Parts> {
                 }
                 let grant = g.grants.iter().find(|gr| gr.user_id == m.user_id);
                 format!(
-                    r#"<td class="mx"><label title="{who} · {group}"><input type="checkbox" data-mx-user="{user}" data-mx-group="{gid}"{checked}{disabled}><small>{level}</small></label></td>"#,
+                    r#"<td class="mx"><label title="{who} · {group}"><input type="checkbox" data-mx-user="{user}" data-mx-group="{gid}"{checked}{disabled}></label><button type="button" class="mx-level" data-mx-level="{user}:{gid}" title="operate: jobs, moving, heating, G-code · use: jobs only. Click to switch."{shown}{disabled}>{level}</button></td>"#,
+                    shown = if grant.is_some() { "" } else { " hidden" },
                     group = escape(&g.name),
                     user = m.user_id,
                     gid = g.id,
@@ -609,6 +610,8 @@ async fn answer(
 struct TickForm {
     /// "1": ticked; else not.
     on: String,
+    /// `use` or `operate`: switched from the matrix; none: what they had, else operate.
+    level: Option<String>,
 }
 
 /// A tick in the matrix: someone may use a group (with "use", or as they had it), or not.
@@ -641,12 +644,22 @@ async fn tick(
         .ok()
         .and_then(|gs| gs.into_iter().find(|g| g.id == group))
         .and_then(|g| g.grants.into_iter().find(|gr| gr.user_id == user));
+    // A tick means they may use the machines fully (operate); "use" (jobs only) is chosen.
+    let asked = form
+        .level
+        .as_deref()
+        .and_then(Level::parse)
+        .filter(|l| matches!(l, Level::Use | Level::Operate));
     let done = if form.on == "1" {
-        match had {
-            Some(gr) => Ok(gr.level),
-            None => store
-                .set_group_grant(group, user, Level::Use, access.user_id, None)
-                .map(|()| Level::Use),
+        match (had, asked) {
+            (Some(gr), None) => Ok(gr.level),
+            (had, asked) => {
+                let level = asked.unwrap_or(Level::Operate);
+                let until = had.and_then(|g| g.expires_at);
+                store
+                    .set_group_grant(group, user, level, access.user_id, until)
+                    .map(|()| level)
+            }
         }
         .map(|level| {
             let _ = store.audit(

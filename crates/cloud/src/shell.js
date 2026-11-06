@@ -193,6 +193,8 @@
     if (m.on_bed && t.state === "idle") {
       return t.bed_c != null && t.bed_c > TAKE_BELOW_C ? { text: "Cooling", cls: "cooling" } : { text: "Take the print", cls: "attention" };
     }
+    // What the printer asks on its screen ("Sliced for another printer?"), when it says.
+    if ((t.state === "attention" || t.state === "error") && m.asking) return { text: m.asking[0], cls: t.state, title: m.asking[1] };
     if (t.state === "attention" || (t.state === "idle" && t.problem)) return { text: t.problem || "Attention", cls: "attention" };
     // A failed or stopped job may have left something: nothing starts until the bed is clear.
     if (m.queue_held && t.state === "idle") return { text: "Check the bed", cls: "attention" };
@@ -229,6 +231,7 @@
     const p = shown.cls === "busy" ? progressOf(m) : null;
     for (const el of document.querySelectorAll('[data-live="state"]')) {
       el.textContent = p ? p.text : shown.text;
+      el.title = shown.title || "";
       if (el.classList.contains("state")) {
         el.style.cssText = p ? p.style : "";
         const next = `state ${shown.cls}${p ? " pct" : ""}`;
@@ -265,7 +268,7 @@
       const p = s.cls === "busy" ? progressOf(m) : null;
       const pct = p ? p.pct : null;
       const sub = p ? p.text : s.cls === "idle" ? "" : s.text;
-      return `<a href="${ROOT}machines/${encodeURIComponent(m.id)}" data-mid="${escapeHtml(m.id)}" data-kind="${escapeHtml(m.kind)}"${m.id === here ? ' aria-current="page"' : ""} title="${escapeHtml(`${m.name}: ${s.text}`)}">
+      return `<a href="${ROOT}machines/${encodeURIComponent(m.id)}" data-mid="${escapeHtml(m.id)}" data-kind="${escapeHtml(m.kind)}"${m.id === here ? ' aria-current="page"' : ""} title="${escapeHtml(`${m.name}: ${s.text}${s.title ? ` — ${s.title}` : ""}`)}">
         <i class="dot ${s.cls}"></i><span class="side-name">${escapeHtml(m.name)}</span>${sub ? `<small class="${s.cls}">${escapeHtml(sub)}</small>` : ""}
         ${pct != null ? `<span class="side-progress"><i style="width:${pct}%"></i></span>` : ""}
       </a>`;

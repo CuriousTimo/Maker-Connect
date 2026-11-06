@@ -2,8 +2,8 @@
   // its table), and every [data-live] value kept live from the server-sent events.
   const ID = document.querySelector("main").dataset.id;
   // Tabs by purpose; a tab may show more than one section. Old addresses still lead there.
-  const TABS = { overview: ["overview"], control: ["control", "terminal"], usb: ["usb"], data: ["telemetry", "bedlevel"], settings: ["settings"] };
-  const OLD = { terminal: "control", telemetry: "data", bedlevel: "data" };
+  const TABS = { overview: ["overview"], queue: ["queue"], telemetry: ["telemetry"], control: ["control"], terminal: ["terminal"], bedmesh: ["bedlevel"], usb: ["usb"], settings: ["settings"] };
+  const OLD = { data: "telemetry", bedlevel: "bedmesh" };
   // Set below for a Prusa on its own Connect: opens its USB stick when its tab is shown.
   let usbOpen = null;
   function show() {
@@ -11,7 +11,8 @@
     const id = TABS[asked] ? asked : OLD[asked] || "overview";
     for (const tab of document.querySelectorAll(".tab")) tab.hidden = !TABS[id].includes(tab.id);
     for (const a of document.querySelectorAll(".tabs a")) a.setAttribute("aria-selected", a.hash === "#" + id);
-    if (id === "data") { draw(); drawMesh(); }
+    if (id === "telemetry") draw();
+    if (id === "bedmesh") drawMesh();
     if (id === "usb") usbOpen?.();
     // A tab is a page of its own: from the top, not where the browser jumped to its id.
     scrollTo(0, 0);
@@ -326,6 +327,10 @@
   // The queue (crate::queue): from the live data, unless someone is dragging in it.
   const queueList = document.querySelector("[data-queue]");
   let dragged = null, shownQueue = "";
+  // Staff move and take out any print; anyone else only their own (the server checks too).
+  const ME = Number(document.querySelector("main").dataset.me);
+  const STAFF = document.querySelector("main").dataset.staff === "true";
+  const mayChange = (it) => STAFF || it.by_user === ME;
   const minutes = (s) => (s == null ? "" : s < 3600 ? `${Math.max(1, Math.round(s / 60))} min` : `${Math.floor(s / 3600)} h ${String(Math.round((s % 3600) / 60)).padStart(2, "0")} min`);
   function showQueue(m) {
     if (!queueList || dragged) return;
@@ -333,6 +338,8 @@
     const key = JSON.stringify([q, m.queue_held]);
     if (key === shownQueue) return;
     shownQueue = key;
+    const count = document.querySelector("[data-queue-count]");
+    if (count) count.textContent = q.length ? q.length : "";
     document.querySelector("[data-queue-empty]").hidden = q.length > 0;
     // After a failed or stopped job, it waits for someone to say the bed is clear.
     const held = document.querySelector("[data-queue-held]");
@@ -345,7 +352,8 @@
       const starts = new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       at += (it.estimated_s || 0) * 1000;
       const facts = [minutes(it.estimated_s), it.by, i === 0 && t.state !== "busy" ? "next" : `starts around ${starts}`].filter(Boolean).join(" · ");
-      return `<li draggable="true" data-qid="${it.id}"><span class="q-grip" aria-hidden="true">⠿</span><span class="q-n">${i + 1}</span>${it.thumbnail ? `<img src="../files/${encodeURIComponent(it.file_id)}/thumbnail.png" alt="">` : '<span class="q-img"></span>'}<span class="q-name"><b title="${escapeHtml(it.file_name)}">${escapeHtml(it.file_name)}</b><small>${escapeHtml(facts)}${it.problem ? ` · <span class="q-problem">${escapeHtml(it.problem)}</span>` : ""}</small></span><button type="button" class="q-x" data-qremove="${it.id}" title="Take out of the queue" aria-label="Take out of the queue">×</button></li>`;
+      const mine = it.by_user === ME, change = mayChange(it);
+      return `<li${change ? ' draggable="true"' : ""} data-qid="${it.id}" data-mine="${mine}" class="${mine ? "mine" : ""}${change ? "" : " fixed"}"><span class="q-grip" aria-hidden="true">${change ? "⠿" : ""}</span><span class="q-n">${i + 1}</span>${it.thumbnail ? `<img src="../files/${encodeURIComponent(it.file_id)}/thumbnail.png" alt="">` : '<span class="q-img"></span>'}<span class="q-name"><b title="${escapeHtml(it.file_name)}">${escapeHtml(it.file_name)}</b><small>${mine ? '<span class="q-mine">yours</span> · ' : ""}${escapeHtml(facts)}${it.problem ? ` · <span class="q-problem">${escapeHtml(it.problem)}</span>` : ""}</small></span>${change ? `<button type="button" class="q-x" data-qremove="${it.id}" title="Take out of the queue" aria-label="Take out of the queue">×</button>` : "<span></span>"}</li>`;
     }).join("");
   }
   if (queueList) {
@@ -358,11 +366,20 @@
     });
     queueList.addEventListener("dragover", (e) => {
       if (!dragged) return;
-      e.preventDefault();
       const over = e.target.closest("li");
+      // Not staff: only among one's own prints, swapping places, so the others stay put.
+      if (!STAFF && over && over.dataset.mine !== "true") return;
+      e.preventDefault();
       if (!over || over === dragged) return;
-      const r = over.getBoundingClientRect();
-      over.parentNode.insertBefore(dragged, e.clientY > r.top + r.height / 2 ? over.nextSibling : over);
+      if (STAFF) {
+        const r = over.getBoundingClientRect();
+        over.parentNode.insertBefore(dragged, e.clientY > r.top + r.height / 2 ? over.nextSibling : over);
+      } else {
+        const spot = document.createElement("li");
+        dragged.replaceWith(spot);
+        over.replaceWith(dragged);
+        spot.replaceWith(over);
+      }
     });
     queueList.addEventListener("dragend", async () => {
       if (!dragged) return;

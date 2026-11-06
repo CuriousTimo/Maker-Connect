@@ -27,8 +27,9 @@ struct Shared {
 pub struct PrintJob<L: Read + Write + Send + 'static> {
     pub id: i64,
     pub name: String,
-    /// Whether the printer waits for someone (an `M0` or a filament change in the file).
-    pub waiting: Arc<std::sync::atomic::AtomicBool>,
+    /// What is on the printer's screen: waiting for someone (an `M0`, a filament change), a
+    /// question, an error, paused or stopped at its knob.
+    pub waiting: Arc<marlin::Screen>,
     shared: Arc<Mutex<Shared>>,
     thread: Option<JoinHandle<(Printer<L>, JobEnd)>>,
     started: std::time::Instant,
@@ -51,6 +52,9 @@ impl<L: Read + Write + Send + 'static> PrintJob<L> {
     /// Starts streaming `gcode` to the printer, which the job holds until it ends.
     pub fn start(id: i64, name: &str, gcode: String, mut printer: Printer<L>) -> Self {
         let waiting = printer.waiting();
+        // A stop from its menu before this job is not for this job.
+        waiting.clear_cancel();
+        let screen = waiting.clone();
         let codes: Vec<String> = gcode
             .lines()
             .filter_map(marlin::clean)
@@ -95,14 +99,27 @@ impl<L: Read + Write + Send + 'static> PrintJob<L> {
             for (n, code) in codes.iter().enumerate() {
                 // Paused: nothing more is sent until resumed (or stopped).
                 loop {
+                    // Paused or stopped here, or at the printer's own knob.
+                    let at_printer = screen.now();
                     let (paused, stop) = {
                         let s = state.lock().unwrap();
-                        (s.paused, s.stop)
+                        (
+                            s.paused || at_printer.paused,
+                            s.stop || at_printer.cancelled,
+                        )
                     };
                     if stop || !paused {
                         break;
                     }
                     std::thread::sleep(Duration::from_millis(200));
+                }
+                if screen.now().cancelled {
+                    // Stopped from its own menu: it stopped itself; nothing more goes.
+                    screen.clear_cancel();
+                    end.ok = false;
+                    end.stopped = true;
+                    end.reason = Some("stopped at the printer".to_owned());
+                    break;
                 }
                 if state.lock().unwrap().stop {
                     end.ok = false;
