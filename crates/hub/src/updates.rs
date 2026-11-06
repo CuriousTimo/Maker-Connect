@@ -362,7 +362,10 @@ pub(crate) fn order_for(
         .last_update
         .as_ref()
         .is_some_and(|o| o.to == version && o.at >= at);
-    if agent.version == version || answered {
+    // On that release or a newer one already, or it said how it went: asked no more.
+    if !update::newer(version, &agent.version) && update::Version::parse(&agent.version).is_some()
+        || answered
+    {
         store.db.execute(
             "UPDATE machines SET agent_update_to = NULL, agent_update_at = NULL WHERE id = ?1",
             [&machine],

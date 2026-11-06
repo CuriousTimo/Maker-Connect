@@ -1568,12 +1568,12 @@ fn agent_update(machine: &Machine, manage: bool) -> String {
         html += r#"<p class="hint">This agent is from before 0.2.0-beta.2 and cannot update itself. Install the new agent by hand once (Downloads); from then on it updates from here.</p>"#;
     } else if let Some(to) = &machine.agent_update_to {
         html += &format!(
-            r#"<p class="hint">Asked to update to {}: it does so once the machine is idle, and goes back by itself if the new one does not reach the hub.</p>"#,
+            r#"<p class="hint">Asked to update to {}: it does so once nothing runs on the machine, and goes back by itself if the new one does not reach the hub.</p>"#,
             escape(to.trim_start_matches("agent-"))
         );
     } else if manage {
         html += &format!(
-            r#"<form method="post" action="{}/agent/update" data-async data-done="Asked: it updates once the machine is idle" data-then="reload"><button class="ghost">Update the agent to the newest release</button></form><p class="hint">The release is checked against Maker Connect's signature, here and by the agent. It updates once the machine is idle, and goes back by itself if the new one does not reach the hub.</p>"#,
+            r#"<form method="post" action="{}/agent/update" data-async data-done="Asked: it updates once nothing runs on the machine" data-then="reload"><button class="ghost">Update the agent to the newest release</button></form><p class="hint">The release is checked against Maker Connect's signature, here and by the agent. It updates once nothing runs on the machine, and goes back by itself if the new one does not reach the hub.</p>"#,
             escape(&machine.id)
         );
     }

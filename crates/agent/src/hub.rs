@@ -447,6 +447,15 @@ fn self_update(
     )
 }
 
+/// Whether the agent may update now: no job on the machine, and it is not busy or paused.
+/// A machine that waits for someone without a job (a label printer without its cassette, a
+/// question on a printer's screen) or is not connected may: nothing of it runs.
+fn may_update(report: &Telemetry, printing: bool) -> bool {
+    !printing
+        && report.job_id.is_none()
+        && !matches!(report.state, MachineState::Busy | MachineState::Paused)
+}
+
 /// How long a new build has to reach the hub before it is rolled back (the old one waits).
 const TRIAL_S: i64 = 180;
 
@@ -859,15 +868,10 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     job_end: None,
                     ..telemetry.clone()
                 };
-                // An update, once the machine is idle: no job, nothing it is doing.
+                // An update, once nothing runs on the machine.
                 if let (Some(order), Some(exe)) = (&reply.update, &exe)
                     && trial.is_none()
-                    && telemetry.job_id.is_none()
-                    && matches!(
-                        telemetry.state,
-                        MachineState::Idle | MachineState::Disconnected
-                    )
-                    && !matches!(machine, Some(Machine::Printing(..)))
+                    && may_update(&telemetry, matches!(machine, Some(Machine::Printing(..))))
                 {
                     println!("the hub asks to update to {}", order.version);
                     match self_update(&options, &registered.token, exe, order) {
@@ -1165,6 +1169,34 @@ fn carry_out<L: std::io::Read + std::io::Write>(
 mod tests {
     /// `--new-code`: the registration kept is forgotten, and a new one asked; without it,
     /// the same hub keeps it.
+    #[test]
+    fn an_update_waits_only_for_work() {
+        let report = |state, job_id| Telemetry {
+            state,
+            job_id,
+            ..Telemetry::default()
+        };
+        assert!(super::may_update(&report(MachineState::Idle, None), false));
+        assert!(
+            super::may_update(&report(MachineState::Attention, None), false),
+            "a DYMO without its cassette"
+        );
+        assert!(super::may_update(
+            &report(MachineState::Disconnected, None),
+            false
+        ));
+        assert!(!super::may_update(&report(MachineState::Busy, None), false));
+        assert!(!super::may_update(
+            &report(MachineState::Paused, None),
+            false
+        ));
+        assert!(!super::may_update(
+            &report(MachineState::Attention, Some(4)),
+            false
+        ));
+        assert!(!super::may_update(&report(MachineState::Idle, None), true));
+    }
+
     #[test]
     fn credentials_from_before_the_hub_are_kept() {
         let old = r#"{"cloud": "http://pi:8460", "registered": {"machine_id": "m1", "token": "t1", "pairing_code": "ABC123"}}"#;
