@@ -41,7 +41,7 @@ pub async fn run(store: Shared) {
             // A GRBL profile: LaserFoundry's simulated GRBL, on a thread of its own.
             let found = profile.as_deref().and_then(profiles::find);
             if found.is_some_and(|p| p.kind == MachineKind::Label) {
-                virtual_label(&mut store, &id, &token, &mut labels);
+                virtual_label(&mut store, &id, &token, found.unwrap(), &mut labels);
                 continue;
             }
             if let Some(p) = found.filter(|p| p.firmware.as_deref() == Some("grbl")) {
@@ -111,20 +111,22 @@ pub async fn run(store: Shared) {
     }
 }
 
-/// A virtual label printer: a cassette in, and a label "printed" at about 12 mm a second
-/// (the PnP's pace), the job then done. What it printed is the file's picture.
+/// A virtual label printer: tape or labels in, and a label "printed" at about 12 mm a
+/// second (the PnP's pace), the job then done. What it printed is the file's picture. A
+/// battery only when its model has one; a cassette only for tape.
 fn virtual_label(
     store: &mut crate::store::Store,
     id: &str,
     token: &str,
+    profile: &profiles::Profile,
     labels: &mut HashMap<String, (i64, u32)>,
 ) {
     let mut telemetry = Telemetry {
         state: MachineState::Idle,
-        cassette: Some(true),
+        cassette: (profile.firmware.as_deref() == Some("dymo-d1")).then_some(true),
         // A healthy pack (7.4 V, two cells), as a real one charged reports.
-        battery_v: Some(8.1),
-        firmware: Some("simulated LabelManager".to_owned()),
+        battery_v: profile.battery.then_some(8.1),
+        firmware: Some(format!("simulated {}", profile.model)),
         ..Telemetry::default()
     };
     match labels.get_mut(id) {

@@ -42,8 +42,14 @@
   const svgSource = $("[data-svg]");
   const codeKind = $("[data-code-kind]"), codeData = $("[data-code-data]"), codeNote = $("[data-code-note]");
 
-  // Dots of tape kept blank above and below, and before and after the content.
-  const MARGIN = 3, PAD = 8, GAP = 10;
+  // Dots kept blank above and below, before and after the content, and between its parts:
+  // set for 180 dpi, scaled to the printer's. A die-cut label keeps 1.5 mm free at its
+  // edges, as DYMO's own software does (the head cannot reach them reliably).
+  const at = (dots) => Math.max(1, Math.round((dots * DPI) / 180));
+  function spacing() {
+    const edge = tape?.length_dots ? Math.round((1.5 * DPI) / 25.4) : 0;
+    return { edge, margin: Math.max(at(3), edge), pad: Math.max(at(8), edge), gap: at(10), inset: frame.checked ? at(4) : 0, leading: at(2) };
+  }
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const measure = document.createElement("canvas").getContext("2d");
   let drawing = null; // { href, w, h }
@@ -87,7 +93,7 @@
       });
       width = code.size * scale + 2 * quiet;
     } else {
-      const module = 2, quiet = 10 * module;
+      const module = at(2), quiet = 10 * module;
       const bars = code.bars;
       for (let i = 0; i < bars.length; ) {
         if (bars[i] !== "1") { i++; continue; }
@@ -103,9 +109,11 @@
 
   // The label as SVG: white is tape, black burns.
   function labelSvg() {
+    const { edge, margin, pad, gap, inset, leading: LEADING } = spacing();
+    // A die-cut label is as long as it is; tape as long as its content.
+    const fixed = tape?.length_dots || 0;
     const lines = text.value.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 3);
-    const inset = frame.checked ? 4 : 0;
-    const inner = H - 2 * MARGIN - 2 * inset;
+    const inner = H - 2 * margin - 2 * inset;
     const family = font.value, bold = weight.value;
     // The glyphs' real height, measured at 100 px, so the text fills the tape.
     measure.font = `${bold} 100px ${family}`;
@@ -115,46 +123,60 @@
       ascent = Math.max(ascent, m.actualBoundingBoxAscent);
       descent = Math.max(descent, m.actualBoundingBoxDescent);
     }
-    // Two dots between lines, so a descender does not touch the line under it.
-    const LEADING = 2;
-    const lineH = ((inner * size.value) / 100 - LEADING * Math.max(lines.length - 1, 0)) / Math.max(lines.length, 1);
-    const px = ascent + descent > 0 ? (lineH / (ascent + descent)) * 100 : lineH;
+    // A little between lines, so a descender does not touch the line under it.
+    let lineH = ((inner * size.value) / 100 - LEADING * Math.max(lines.length - 1, 0)) / Math.max(lines.length, 1);
+    let px = ascent + descent > 0 ? (lineH / (ascent + descent)) * 100 : lineH;
     measure.font = `${bold} ${px}px ${family}`;
-    const textW = Math.ceil(Math.max(0, ...lines.map((l) => measure.measureText(l).width)));
+    let textW = Math.ceil(Math.max(0, ...lines.map((l) => measure.measureText(l).width)));
     const drawH = inner, drawW = drawing ? Math.round((drawing.w / drawing.h) * drawH) : 0;
-    let x = PAD + inset;
+    let x = pad + inset;
     const parts = [];
     if (drawing) {
-      parts.push(`<image href="${esc(drawing.href)}" x="${x}" y="${MARGIN + inset}" width="${drawW}" height="${drawH}" preserveAspectRatio="xMidYMid meet"/>`);
-      x += drawW + GAP;
+      parts.push(`<image href="${esc(drawing.href)}" x="${x}" y="${margin + inset}" width="${drawW}" height="${drawH}" preserveAspectRatio="xMidYMid meet"/>`);
+      x += drawW + gap;
     }
     // The code, after the drawing; its quiet zone is the gap to the text.
-    const made = codeSvg(x, MARGIN + inset, inner);
+    const made = codeSvg(x, margin + inset, inner);
     codeNote.textContent = made.warning;
     if (made.width) {
       parts.push(made.svg);
       x += made.width;
     }
+    // On a die-cut label the text gets smaller until it fits.
+    let warning = "";
+    if (fixed) {
+      const room = fixed - pad - inset - x;
+      if (room < at(6)) warning = "Too much for this label: leave something out";
+      else if (textW > room) {
+        const k = room / textW;
+        px *= k; lineH *= k; textW = room;
+      }
+    }
     const blockH = lineH * lines.length + LEADING * Math.max(lines.length - 1, 0);
-    const top = MARGIN + inset + (inner - blockH) / 2;
+    const top = margin + inset + (inner - blockH) / 2;
     lines.forEach((line, i) => {
       const baseline = top + i * (lineH + LEADING) + (lineH - (ascent + descent) * px / 100) / 2 + ascent * px / 100;
       parts.push(`<text x="${x}" y="${baseline.toFixed(2)}" font-family="${esc(family)}" font-weight="${bold}" font-size="${px.toFixed(2)}">${esc(line)}</text>`);
     });
-    const length = Math.max(x + textW + PAD + inset, 2 * PAD + 1);
+    const natural = Math.max(x + textW + pad + inset, 2 * pad + 1);
+    const length = fixed || natural;
+    // The content in the middle of a die-cut label.
+    const shift = fixed ? Math.max(0, Math.floor((fixed - natural) / 2)) : 0;
+    const stroke = at(2), b = edge ? Math.round(edge * 0.6) : stroke * 0.75;
     const border = frame.checked
-      ? `<rect x="1.5" y="1.5" width="${length - 3}" height="${H - 3}" rx="5" fill="none" stroke="#000" stroke-width="2"/>`
+      ? `<rect x="${b}" y="${b}" width="${length - 2 * b}" height="${H - 2 * b}" rx="${at(5)}" fill="none" stroke="#000" stroke-width="${stroke}"/>`
       : "";
     return {
       length,
-      svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${length}" height="${H}" viewBox="0 0 ${length} ${H}"><rect width="${length}" height="${H}" fill="#fff"/>${border}${parts.join("")}</svg>`,
+      warning,
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${length}" height="${H}" viewBox="0 0 ${length} ${H}"><rect width="${length}" height="${H}" fill="#fff"/>${border}<g transform="translate(${shift} 0)">${parts.join("")}</g></svg>`,
     };
   }
 
   // The SVG at one pixel per dot, then each dot on or off.
   async function render() {
     await fetchCode();
-    const { svg, length } = labelSvg();
+    const { svg, length, warning } = labelSvg();
     svgSource.textContent = svg;
     const image = new Image();
     image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
@@ -170,7 +192,7 @@
       const dark = a >= 128 && (r * 3 + g * 6 + b) / 10 < 128;
       bits[i] = dark !== invert.checked ? 1 : 0;
     }
-    dots = { length, bits };
+    dots = { length, bits, warning };
     paint();
   }
 
@@ -193,13 +215,16 @@
     }
     ctx.putImageData(out, 0, 0);
     const room = preview.parentElement.clientWidth - 2;
-    const zoom = Math.max(1, Math.min(6, Math.floor(room / length)));
+    // Whole dots when there is room; a long label at 300 dpi is shown smaller.
+    const zoom = room >= length ? Math.min(6, Math.floor(room / length)) : room / length;
     preview.style.width = `${length * zoom}px`;
     preview.style.height = `${H * zoom}px`;
     const mm = (length / DPI) * 25.4;
-    note.textContent = tape
-      ? `${mm.toFixed(0)} mm long on ${tape.name} (${H} dots across, ${DPI} dpi), plus the tape the printer feeds before and after`
-      : `${mm.toFixed(0)} mm long, drawn for 12 mm tape: say which tape is loaded to print`;
+    note.textContent = !tape
+      ? `${mm.toFixed(0)} mm long, drawn for 12 mm tape: say which tape or labels are loaded to print`
+      : tape.length_dots
+        ? `${tape.name} (${H} × ${length} dots, ${DPI} dpi)${dots.warning ? `: ${dots.warning}` : ""}`
+        : `${mm.toFixed(0)} mm long on ${tape.name} (${H} dots across, ${DPI} dpi), plus the tape the printer feeds before and after`;
     printButton.disabled = !tape;
   }
 
@@ -289,7 +314,7 @@
   const later = () => { clearTimeout(pending); pending = setTimeout(render, 120); };
   for (const input of [text, font, weight, size, frame, invert, codeKind, codeData]) input.addEventListener("input", later);
   size.addEventListener("input", () => {
-    $("[data-size-note]").textContent = size.value == 100 ? "fills the tape" : `${size.value} % of the tape`;
+    $("[data-size-note]").textContent = size.value == 100 ? `fills the ${tape?.length_dots ? "label" : "tape"}` : `${size.value} % of the ${tape?.length_dots ? "label" : "tape"}`;
   });
   addEventListener("resize", () => dots && paint());
   // System fonts may load after the page: render again once they have.
@@ -311,6 +336,8 @@
     const t = machine.online ? machine.telemetry : null;
     showState(machine);
     setLive("cassette", t?.cassette == null ? "–" : t.cassette ? "Loaded" : "Empty");
+    // A LabelWriter's roll: it says only when the labels have run out.
+    setLive("roll", !t ? "–" : (t.problem || "").startsWith("no labels") ? "Empty" : "Loaded");
     setLive("job", machine.job ? `${machine.job.file_name} (${machine.job.state})` : "–");
     setLive("problem", t?.problem || "");
     // The battery, as the page says it on the server too (dymo::battery_percent,

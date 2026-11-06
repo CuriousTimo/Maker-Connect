@@ -1,0 +1,102 @@
+brand = "DYMO"
+model = "LabelWriter 450"
+kind = "label"
+firmware = "dymo-lw"   # DYMO's LabelWriter raster protocol, over USB (printer class)
+dpi = 300
+head_dots = 672        # 56 mm; a narrower label runs at one side of the head
+
+[detect]
+machine_type = "DYMO LabelWriter 450"   # as the agent reports it, from the USB product id
+
+# Die-cut labels (width across the head × length along the roll), from DYMO's PPD for the
+# 450 (dymo-cups-drivers); the printer cannot tell which roll is in: the owner chooses.
+# DYMO keeps about 1.5 mm free at the edges. 99xxx is the European number, 30xxx/11xxx
+# the American one of the same label.
+
+[[media]]
+id = "99010"
+name = "Standard Address 28 × 89 mm"
+width_mm = 28
+length_mm = 89
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "99012"
+name = "Large Address 36 × 89 mm"
+width_mm = 36
+length_mm = 89
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "11354"
+name = "Multi-Purpose 57 × 32 mm"
+width_mm = 57
+length_mm = 32
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "11352"
+name = "Return Address 25 × 54 mm"
+width_mm = 25
+length_mm = 54
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "11355"
+name = "Multi-Purpose 19 × 51 mm"
+width_mm = 19
+length_mm = 51
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "99014"
+name = "Shipping 54 × 101 mm"
+width_mm = 54
+length_mm = 101
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "30256"
+name = "Shipping 59 × 102 mm"
+width_mm = 59
+length_mm = 102
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "99015"
+name = "Diskette 54 × 70 mm"
+width_mm = 54
+length_mm = 70
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "99017"
+name = "Suspension File 12 × 50 mm"
+width_mm = 12
+length_mm = 50
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "99018"
+name = "Small Lever Arch 38 × 190 mm"
+width_mm = 38
+length_mm = 190
+ink = "#000"
+background = "#fff"
+
+[[media]]
+id = "99019"
+name = "Large Lever Arch 59 × 190 mm"
+width_mm = 59
+length_mm = 190
+ink = "#000"
+background = "#fff"

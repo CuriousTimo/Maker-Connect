@@ -562,32 +562,54 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
         .or_else(|| machine.details.as_ref().and_then(|d| d.material.clone()));
     let tiles = if label {
         let media = profile.and_then(|p| profiles::media(p, machine.media.as_deref()?));
+        // A LabelWriter: a roll of die-cut labels, mains power; a LabelManager: a cassette
+        // of tape, and a battery.
+        let die_cut = profile.is_some_and(|p| p.firmware.as_deref() == Some("dymo-lw"));
+        let has_battery =
+            profile.is_some_and(|p| p.battery) || t.is_some_and(|t| t.battery_v.is_some());
+        let roll = t.map(|t| {
+            let empty = t
+                .problem
+                .as_deref()
+                .is_some_and(|p| p.starts_with("no labels"));
+            if empty { "Empty" } else { "Loaded" }.to_owned()
+        });
         tile(
-            "Cassette",
-            "cassette",
-            t.and_then(|t| t.cassette)
-                .map(|on| if on { "Loaded" } else { "Empty" }.to_owned()),
+            if die_cut { "Roll" } else { "Cassette" },
+            if die_cut { "roll" } else { "cassette" },
+            if die_cut {
+                roll
+            } else {
+                t.and_then(|t| t.cassette)
+                    .map(|on| if on { "Loaded" } else { "Empty" }.to_owned())
+            },
             "",
             "problem",
             t.and_then(|t| t.problem.clone()).unwrap_or_default(),
         ) + &tile(
-            "Tape",
+            if die_cut { "Labels" } else { "Tape" },
             "none",
-            media.map(|m| m.width_mm.to_string()),
+            media.map(|m| match m.length_mm {
+                Some(length) => format!("{} × {length}", m.width_mm),
+                None => m.width_mm.to_string(),
+            }),
             "mm",
             "none",
             media.map_or("say which under Label".to_owned(), |m| {
                 format!("{} · {}", m.name, m.id)
             }),
-        ) + &battery_tile(t.and_then(|t| t.battery_v))
-            + &tile(
-                "Job",
-                "job",
-                machine.job.as_ref().map(|j| j.file_name.clone()),
-                "",
-                "none",
-                String::new(),
-            )
+        ) + &(if has_battery {
+            battery_tile(t.and_then(|t| t.battery_v))
+        } else {
+            String::new()
+        }) + &tile(
+            "Job",
+            "job",
+            machine.job.as_ref().map(|j| j.file_name.clone()),
+            "",
+            "none",
+            String::new(),
+        )
     } else if heats(machine) {
         heater_tiles(machine)
             + &match &machine.loaded {

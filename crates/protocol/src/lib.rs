@@ -265,6 +265,10 @@ pub struct JobOrder {
     /// file is then a PNG, one pixel per dot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tape_mm: Option<u32>,
+    /// A label printer's job on die-cut labels: how long a label is, in mm (a DYMO
+    /// LabelWriter finds the gap after it). None on tape or a continuous roll.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_length_mm: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

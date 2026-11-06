@@ -95,7 +95,7 @@ fn label_check(
     machine: &Machine,
     profile: Option<&profiles::Profile>,
 ) -> Result<Option<String>, String> {
-    let Some([_, height]) = file.meta.label_dots else {
+    let Some([length, height]) = file.meta.label_dots else {
         return Err("not a label".to_owned());
     };
     let Some(profile) = profile else {
@@ -106,13 +106,22 @@ fn label_check(
         .as_deref()
         .and_then(|m| profiles::media(profile, m))
     else {
-        return Err("say which tape is loaded, under Settings".to_owned());
+        return Err("say which tape or labels are loaded, under Settings".to_owned());
     };
-    let dots = maker_connect_label::dymo::Tape::d1(media.width_mm).map_or(0, |t| t.dots);
+    let (dots, along) = profiles::media_dots(profile, media);
     if height as usize > dots {
+        let what = if along.is_some() { "a label" } else { "tape" };
         return Err(format!(
-            "{height} dots high; {} mm tape takes {dots}",
+            "{height} dots high; {} mm {what} takes {dots}",
             media.width_mm
+        ));
+    }
+    if let Some(along) = along
+        && length as usize > along
+    {
+        return Err(format!(
+            "{length} dots long; a {} mm label takes {along}",
+            media.length_mm.unwrap_or_default()
         ));
     }
     if !matches!(machine.link.as_str(), "virtual" | "agent") {
@@ -935,5 +944,83 @@ mod tests {
         let listed = store.file(space, &file).unwrap().unwrap();
         assert_eq!(listed.meta.label_dots, Some([120, 40]));
         assert!(listed.meta.thumbnail);
+    }
+
+    /// A LabelWriter takes a die-cut label as large as the labels loaded, not larger; the
+    /// job tells the agent the label's length, so the printer finds the next gap.
+    #[tokio::test]
+    async fn a_die_cut_label_fits_its_labels() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = crate::auth::signed_in_app(store.clone());
+        // 99012 Large Address: 36 × 89 mm, 425 × 1051 dots at 300 dpi.
+        let upload = |length: usize, height: usize| {
+            let app = app.clone();
+            async move {
+                let label = maker_connect_label::Label::blank(length, height);
+                let (status, body) = call(
+                    &app,
+                    Request::post("/api/files?name=address.png")
+                        .body(Body::from(label.to_png()))
+                        .unwrap(),
+                )
+                .await;
+                assert_eq!(status, StatusCode::CREATED, "{body}");
+                serde_json::from_str::<serde_json::Value>(&body).unwrap()["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            }
+        };
+        let (fits, too_long, too_high) = (
+            upload(1051, 425).await,
+            upload(1060, 425).await,
+            upload(1051, 430).await,
+        );
+        let (writer, token) = {
+            let mut store = store.lock().unwrap();
+            let space = store.default_space().unwrap().0;
+            let profile = crate::profiles::find("dymo/labelwriter-450").unwrap();
+            let (across, along) = crate::profiles::media_dots(
+                profile,
+                crate::profiles::media(profile, "99012").unwrap(),
+            );
+            assert_eq!((across, along), (425, Some(1051)));
+            let writer = store.add_virtual(space, profile).unwrap();
+            let token = store.virtual_machines().unwrap()[0].1.clone();
+            let idle = maker_connect_protocol::Telemetry {
+                state: maker_connect_protocol::MachineState::Idle,
+                ..Default::default()
+            };
+            store.report(&token, &idle).unwrap();
+            store.set_media(space, &writer, Some("99012")).unwrap();
+            (writer, token)
+        };
+        let print = |file: &str| {
+            Request::post(format!("/files/{file}/print"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(format!("machine={writer}")))
+                .unwrap()
+        };
+        let (status, why) = call(&app, print(&too_long)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(
+            why.contains("1060 dots long") && why.contains("1051"),
+            "{why}"
+        );
+        let (status, why) = call(&app, print(&too_high)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(why.contains("a label takes 425"), "{why}");
+        assert_eq!(call(&app, print(&fits)).await.0, StatusCode::NO_CONTENT);
+        let mut store = store.lock().unwrap();
+        let report = maker_connect_protocol::Telemetry {
+            state: maker_connect_protocol::MachineState::Idle,
+            ..Default::default()
+        };
+        let order = crate::agent_job(&mut store, &token, &report)
+            .unwrap()
+            .0
+            .unwrap();
+        assert_eq!((order.tape_mm, order.label_length_mm), (Some(36), Some(89)));
     }
 }

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of a DYMO LabelWriter 450">
+  <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
+  <ellipse cx="80" cy="136" rx="58" ry="5" fill="#d3d0c8"/>
+  <!-- the dark grey body: low at the front, rising to the back over the roll -->
+  <path d="M26 128V92q0-8 6-12l26-22q8-7 20-7h34q22 0 26 20l6 42v15q0 4-4 4H30q-4 0-4-4z" fill="#3a3c40"/>
+  <!-- the smoked lid over the roll, the roll seen through it -->
+  <path d="M62 60q7-6 17-6h32q17 0 20 15l4 22H52z" fill="#5d6168" opacity=".9"/>
+  <circle cx="98" cy="76" r="13" fill="#eceae4" opacity=".55"/>
+  <circle cx="98" cy="76" r="5" fill="#2b2d31" opacity=".7"/>
+  <path d="M66 62q6-4 14-4h30" fill="none" stroke="#8a8f97" stroke-width="2" stroke-linecap="round"/>
+  <!-- the front: the slot with a label coming out and the tear bar -->
+  <path d="M26 96h110v6H26z" fill="#2a2b2f"/>
+  <path d="M44 99h46l3 15H41z" fill="#fff" stroke="#c9c6be" stroke-width="1"/>
+  <path d="M48 104h24M48 108h32" stroke="#26272a" stroke-width="1.6" stroke-linecap="round"/>
+  <rect x="30" y="94" width="102" height="3" rx="1.5" fill="#9ea2a8"/>
+  <!-- the button and its light -->
+  <circle cx="122" cy="114" r="5" fill="#26272a" stroke="#55585e" stroke-width="1.2"/>
+  <circle cx="122" cy="114" r="1.8" fill="#5fbfa9"/>
+</svg>

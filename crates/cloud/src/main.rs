@@ -428,13 +428,15 @@ pub(crate) fn agent_job(
         JobState::Queued if report.job_id.is_none() && report.state == MachineState::Idle => {
             let size = std::fs::metadata(store.file_path(&job.file_id)).map_or(0, |m| m.len());
             store.set_job(job.id, JobState::Printing, None)?;
+            let media = store.loaded_media_mm(&machine)?;
             let order = protocol::JobOrder {
                 id: job.id,
                 name: job.file_name.clone(),
                 download: format!("/api/agent/v1/jobs/{}/file", job.id),
                 size,
                 from_line: job.from_line,
-                tape_mm: store.loaded_tape_mm(&machine)?,
+                tape_mm: media.map(|(width, _)| width),
+                label_length_mm: media.and_then(|(_, length)| length),
             };
             (Some(order), None)
         }

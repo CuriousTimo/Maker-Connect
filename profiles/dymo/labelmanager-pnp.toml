@@ -4,6 +4,7 @@ kind = "label"
 firmware = "dymo-d1"   # DYMO's D1 tape protocol, over USB HID
 dpi = 180
 head_dots = 64         # 12 mm tape; narrower tape runs in the middle of the head
+battery = true         # a Li-ion pack (or six AA cells): its charge is shown
 
 [detect]
 machine_type = "DYMO LabelManager PnP"   # the USB product name, as the agent reports it

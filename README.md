@@ -188,8 +188,10 @@ prints a new password and signs that account out everywhere. Behind a proxy with
 
 Roles and rights per machine: everyone who signs in can do everything in the space for
 now (see [Signing in](#signing-in)). Spoolman clients (Moonraker's `[spoolman]`, the OctoPrint plugin) cannot
-sign in yet: they need the tokens that come next. Label printers other than the DYMO LabelManager PnP, and
-codes scanned off real labels, are still to try. Files for the MINI over Prusa Connect, binary G-code (`.bgcode`), queues and a G-code viewer are still to come. Values
+sign in yet: they need the tokens that come next. The DYMO LabelWriter 450 (die-cut labels, over USB) is
+built but not yet tried on the printer: if a label comes out mirrored, `TOP_AT_DOT_ZERO` in
+`crates/label/src/labelwriter.rs` is the other way round. Other label printers, and codes
+scanned off real labels, are still to try. Files for the MINI over Prusa Connect, binary G-code (`.bgcode`), queues and a G-code viewer are still to come. Values
 marked `# check` in the profiles are not yet confirmed on the machines.
 
 **Safety:** a laser and a heated printer can start a fire. Frame a laser job and start at low

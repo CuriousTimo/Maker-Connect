@@ -11,7 +11,7 @@ use crate::config::{self, Config};
 use crate::marlin;
 use crate::print::PrintJob;
 use maker_connect_grbl as grbl;
-use maker_connect_label::{Label, dymo};
+use maker_connect_label::{Label, dymo, labelwriter};
 use maker_connect_protocol::{
     self as protocol, CommandDone, Identity, MachineKind, MachineState, Register, Registered,
     Telemetry, TelemetryReply,
@@ -173,6 +173,7 @@ enum Machine {
     Printing(Box<PrintJob<Link>>, Known),
     Grbl(Box<grbl::GrblMachine>),
     Dymo(Box<dymo::Printer>),
+    LabelWriter(Box<labelwriter::Printer>),
 }
 
 /// Whether the machine on a port is GRBL: it greets by name when the port opens (most
@@ -208,10 +209,18 @@ fn speaks_grbl(port: &str, baud: u32) -> bool {
 /// The machine on the port, by what it speaks; a label printer is found on USB.
 fn open_machine(options: &Options, waiting: &Arc<AtomicBool>) -> Option<Machine> {
     if options.kind == MachineKind::Label {
-        return match dymo::find() {
+        match dymo::find() {
             Ok(Some(printer)) => {
                 println!("label printer: {}", printer.product);
-                Some(Machine::Dymo(Box::new(printer)))
+                return Some(Machine::Dymo(Box::new(printer)));
+            }
+            Ok(None) => {}
+            Err(error) => println!("label printer: {error}"),
+        }
+        return match labelwriter::find() {
+            Ok(Some(printer)) => {
+                println!("label printer: {}", printer.product);
+                Some(Machine::LabelWriter(Box::new(printer)))
             }
             Ok(None) => None,
             Err(error) => {
@@ -646,6 +655,34 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     machine = None;
                 }
             }
+            // A LabelWriter: on mains power, asked now and then; no labels waits for someone.
+            Some(Machine::LabelWriter(printer)) => {
+                if printer.present() {
+                    let due = printer
+                        .asked_at
+                        .is_none_or(|at| at.elapsed() >= DYMO_STATUS_EVERY);
+                    if due && let Err(error) = printer.status() {
+                        println!("label printer does not answer: {error}");
+                    }
+                    let status = printer.last;
+                    telemetry.raw_status = status.map(|s| format!("{:02x}", s.0));
+                    telemetry.state = match status {
+                        Some(s) if s.jammed() || (s.error() && !s.no_paper()) => {
+                            MachineState::Error
+                        }
+                        Some(s) if s.no_paper() => MachineState::Attention,
+                        _ => MachineState::Idle,
+                    };
+                    telemetry.problem = status.and_then(|s| s.problem()).map(str::to_owned);
+                    telemetry.identity = Some(Identity {
+                        machine_type: Some(printer.product.clone()),
+                        ..Identity::default()
+                    });
+                } else {
+                    println!("label printer gone from USB");
+                    machine = None;
+                }
+            }
             None => {}
         }
         telemetry.agent = Some(agent.clone());
@@ -698,7 +735,9 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                             })
                             .map(|said| (said, None))
                         }
-                        Some(Machine::Dymo(_)) => Err("a label printer takes no G-code".to_owned()),
+                        Some(Machine::Dymo(_) | Machine::LabelWriter(_)) => {
+                            Err("a label printer takes no G-code".to_owned())
+                        }
                         Some(Machine::Printing(..)) => {
                             Err("printing: commands wait until the print ends".to_owned())
                         }
@@ -772,6 +811,25 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                                     restart_line: None,
                                 });
                             })
+                        }
+                        Some(Machine::LabelWriter(printer)) => {
+                            fetch_label(&options, &registered.token, order)
+                                .and_then(|label| {
+                                    let length = order
+                                        .label_length_mm
+                                        .map(|mm| labelwriter::dots_for_mm(mm as f64));
+                                    printer.print(&label, length)
+                                })
+                                .map(|()| {
+                                    println!("job {}: printed", order.id);
+                                    job_end = Some(protocol::JobEnd {
+                                        id: order.id,
+                                        ok: true,
+                                        stopped: false,
+                                        reason: None,
+                                        restart_line: None,
+                                    });
+                                })
                         }
                         None => Err("the machine is not connected".to_owned()),
                     };

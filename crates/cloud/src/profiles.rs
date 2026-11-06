@@ -51,6 +51,10 @@ pub struct Profile {
     pub dpi: Option<f64>,
     #[serde(default)]
     pub head_dots: Option<u32>,
+    /// Whether it runs on a battery (the LabelManager PnP): its charge is shown. A
+    /// LabelWriter is on mains power only.
+    #[serde(default)]
+    pub battery: bool,
     /// The media it takes (a label printer's tapes), the owner choosing which is loaded.
     #[serde(default)]
     pub media: Vec<Media>,
@@ -71,7 +75,11 @@ pub struct Media {
     /// The maker's article number, which is on the cassette (`45013`).
     pub id: String,
     pub name: String,
+    /// Across the head: a tape's width, a label's width.
     pub width_mm: u32,
+    /// A die-cut label's length along the roll; none for tape or a continuous roll.
+    #[serde(default)]
+    pub length_mm: Option<u32>,
     /// The text and the tape: how the label looks (`#000`, `#fff`).
     #[serde(default)]
     pub ink: Option<String>,
@@ -100,6 +108,7 @@ pub fn from_controller(kind: MachineKind, travel_mm: [f64; 3]) -> Profile {
         detect: None,
         dpi: None,
         head_dots: None,
+        battery: false,
         media: Vec::new(),
         firmware_version: None,
         motion: None,
@@ -204,6 +213,19 @@ fn toml_files<'a>(dir: &'a Dir<'a>) -> Vec<&'a include_dir::File<'a>> {
 /// One of a profile's media, by its id.
 pub fn media<'a>(profile: &'a Profile, id: &str) -> Option<&'a Media> {
     profile.media.iter().find(|m| m.id == id)
+}
+
+/// A medium's size in dots on its printer: across the head, and along it for a die-cut
+/// label (its length is then fixed).
+pub fn media_dots(profile: &Profile, media: &Media) -> (usize, Option<usize>) {
+    use maker_connect_label::{dymo, labelwriter};
+    if profile.firmware.as_deref() == Some("dymo-lw") {
+        let across = labelwriter::dots_for_mm(media.width_mm as f64).min(labelwriter::HEAD_DOTS);
+        let along = media.length_mm.map(|l| labelwriter::dots_for_mm(l as f64));
+        (across, along)
+    } else {
+        (dymo::Tape::d1(media.width_mm).map_or(0, |t| t.dots), None)
+    }
 }
 
 pub fn find(id: &str) -> Option<&'static Profile> {

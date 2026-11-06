@@ -3,7 +3,8 @@
 //! The module next to a machine: it drives the machine and reports to the Maker Connect
 //! cloud ([`maker_connect_protocol`]). This proof of concept knows printers on USB that
 //! speak the Marlin protocol ([`marlin`]): it streams G-code to them (`send`), and reports
-//! one to the cloud (`run`); GRBL lasers; and a DYMO LabelManager on USB HID.
+//! one to the cloud (`run`); GRBL lasers; a DYMO LabelManager on USB HID, and a DYMO
+//! LabelWriter on USB.
 
 mod cloud;
 mod config;
@@ -32,8 +33,9 @@ Usage:
                                                        carries out its commands and jobs.
                                                        --firmware auto: GRBL if it greets as GRBL
                                                        (a laser), else Marlin (a printer).
-                                                       --kind label: a DYMO LabelManager PnP on
-                                                       USB, found by itself (no --port)
+                                                       --kind label: a DYMO LabelManager PnP or
+                                                       LabelWriter 400/450 on USB, found by
+                                                       itself (no --port)
 
 The options can live in maker-connect-agent.toml (in the current folder, or next to the
 agent): `run --save` with the options writes it. With that file, `run` needs nothing else,

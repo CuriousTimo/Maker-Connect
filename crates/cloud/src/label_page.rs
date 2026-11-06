@@ -18,12 +18,15 @@ pub(crate) fn tape_json(profile: Option<&Profile>, machine: &Machine) -> String 
     let Some(media) = media else {
         return "null".to_owned();
     };
-    let dots = maker_connect_label::dymo::Tape::d1(media.width_mm).map_or(0, |t| t.dots);
+    let (dots, length_dots) = profile.map_or((0, None), |p| profiles::media_dots(p, media));
     serde_json::json!({
         "id": media.id,
         "name": media.name,
         "width_mm": media.width_mm,
         "dots": dots,
+        // A die-cut label: its fixed length, and the edge kept free (DYMO: 1.5 mm).
+        "length_mm": media.length_mm,
+        "length_dots": length_dots,
         "dpi": profile.and_then(|p| p.dpi).unwrap_or(180.0),
         "ink": media.ink.as_deref().unwrap_or("#000"),
         "background": media.background.as_deref().unwrap_or("#fff"),
@@ -39,6 +42,31 @@ fn media_swatches(profile: Option<&Profile>, chosen: Option<&str>) -> String {
     let Some(profile) = profile else {
         return String::new();
     };
+    // Die-cut labels: one group, each label drawn to its own proportions (its length along).
+    if profile.media.iter().any(|m| m.length_mm.is_some()) {
+        let mut out = r#"<h4>Labels</h4><div class="swatches">"#.to_owned();
+        for media in &profile.media {
+            let (w, l) = (media.width_mm, media.length_mm.unwrap_or(media.width_mm));
+            // Scaled so the longest (190 mm) stays inside the swatch.
+            let (height, length) = (8 + w * 7 / 10, (12 + l * 45 / 100).min(96));
+            out += &format!(
+                r#"<button name="media" value="{id}" class="swatch" aria-pressed="{pressed}" title="{name} ({id})"><span class="tape die-cut" style="--tape: #fff; --ink: #000; --h: {height}px; --w: {length}px">Abc</span><span class="swatch-name">{short}</span><small>{id} · {w} × {l} mm</small></button>"#,
+                id = escape(&media.id),
+                name = escape(&media.name),
+                pressed = chosen == Some(media.id.as_str()),
+                // "Large Address 36 × 89 mm" as "Large Address": the size is under it.
+                short = escape(
+                    media
+                        .name
+                        .rsplit_once(" mm")
+                        .and_then(|(rest, _)| rest.rsplit_once(" × "))
+                        .and_then(|(rest, _)| rest.rsplit_once(' '))
+                        .map_or(media.name.as_str(), |(rest, _)| rest)
+                ),
+            );
+        }
+        return out + "</div>";
+    }
     let mut widths: Vec<u32> = profile.media.iter().map(|m| m.width_mm).collect();
     widths.sort_unstable();
     widths.dedup();
@@ -83,10 +111,28 @@ pub fn render(space: &str, machine: &Machine) -> String {
         _ => "Maker Connect agent",
     };
     let id = escape(&machine.id);
+    // A LabelWriter takes a roll of die-cut labels; a LabelManager a cassette of tape.
+    let die_cut = profile.is_some_and(|p| p.firmware.as_deref() == Some("dymo-lw"));
+    let (loaded_title, holder, holder_live) = if die_cut {
+        ("Labels loaded", "Roll", "roll")
+    } else {
+        ("Tape loaded", "Cassette", "cassette")
+    };
     let tape_form = if profile.is_some_and(|p| !p.media.is_empty()) {
+        let (hint, done) = if die_cut {
+            (
+                "The printer tells whether labels are in, not which: the number is on the roll's box. Click the one loaded.",
+                "Labels changed",
+            )
+        } else {
+            (
+                "The printer tells whether a cassette is in, not which: the article number is on the cassette. Click the one loaded.",
+                "Tape changed",
+            )
+        };
         format!(
-            r#"<p class="hint">The printer tells whether a cassette is in, not which: the article number is on the cassette. Click the one loaded.</p>
-<form method="post" action="{id}/media" class="tape-form" data-async data-done="Tape changed" data-tape-form>{}</form>"#,
+            r#"<p class="hint">{hint}</p>
+<form method="post" action="{id}/media" class="tape-form" data-async data-done="{done}" data-tape-form>{}</form>"#,
             media_swatches(profile, machine.media.as_deref())
         )
     } else {
@@ -122,7 +168,7 @@ pub fn render(space: &str, machine: &Machine) -> String {
   <section class="tab" id="label" role="tabpanel" hidden>
     <div class="grid-label">
       <div class="card">
-        <div class="card-head"><div><h3>Label</h3><p class="card-sub">Drawn at the tape's size; the preview shows the dots that will burn</p></div></div>
+        <div class="card-head"><div><h3>Label</h3><p class="card-sub">Drawn at the {medium}'s size; the preview shows the dots that will burn</p></div></div>
         <div class="label-editor">
           <label class="field wide-field"><span>Text</span><textarea data-text rows="2" maxlength="200" placeholder="Maker Connect">Maker Connect</textarea><small>A new line for a second line</small></label>
           <label class="field"><span>Font</span><select data-font>
@@ -132,7 +178,7 @@ pub fn render(space: &str, machine: &Machine) -> String {
             <option value="'Arial Narrow', 'Roboto Condensed', sans-serif-condensed, sans-serif">Narrow</option>
           </select></label>
           <label class="field"><span>Weight</span><select data-weight><option value="700">Bold</option><option value="400">Regular</option></select></label>
-          <label class="field"><span>Size</span><input type="range" data-size min="40" max="100" value="100"><small data-size-note>fills the tape</small></label>
+          <label class="field"><span>Size</span><input type="range" data-size min="40" max="100" value="100"><small data-size-note>fills the {medium}</small></label>
           <div class="field"><span>Style</span><div class="checks">
             <label><input type="checkbox" data-frame> Frame</label>
             <label><input type="checkbox" data-invert> Inverted</label>
@@ -146,7 +192,7 @@ pub fn render(space: &str, machine: &Machine) -> String {
           <label class="field code-data"><span>What it encodes</span><input data-code-data maxlength="400" placeholder="The text, when empty" autocomplete="off"><small data-code-note></small></label>
           <div class="field wide-field"><span>Drawing</span>
             <div class="drawing-row"><input type="file" accept=".svg,image/svg+xml,image/png" data-drawing aria-label="Add an SVG drawing"><button type="button" class="ghost" data-drawing-remove hidden>Remove</button></div>
-            <small>An SVG (or PNG), placed before the text at the tape's height</small></div>
+            <small>An SVG (or PNG), placed before the text at the {medium}'s height</small></div>
         </div>
         <h4>Preview</h4>
         <div class="preview-wrap"><canvas data-preview aria-label="The label as it will print"></canvas></div>
@@ -159,12 +205,12 @@ pub fn render(space: &str, machine: &Machine) -> String {
           <div class="card-head"><div><h3>Printer</h3><p class="card-sub">Live</p></div></div>
           <dl>
             <dt>State</dt><dd data-live="state">{state}</dd>
-            <dt>Cassette</dt><dd data-live="cassette">{cassette}</dd>
+            <dt>{holder}</dt><dd data-live="{holder_live}">{held}</dd>
             <dt>Job</dt><dd data-live="job">{job}</dd>
           </dl>
         </div>
         <div class="card">
-          <div class="card-head"><div><h3>Tape loaded</h3><p class="card-sub">The label is made for it</p></div></div>
+          <div class="card-head"><div><h3>{loaded_title}</h3><p class="card-sub">The label is made for it</p></div></div>
           {tape_form}
         </div>
       </div>
@@ -181,13 +227,24 @@ pub fn render(space: &str, machine: &Machine) -> String {
 </html>
 "##,
         name = escape(&machine.name),
+        medium = if die_cut { "label" } else { "tape" },
         header = crate::header(space, "../", "machines"),
         state = escape(&state),
         kind = escape(kind),
-        cassette = match telemetry.and_then(|t| t.cassette) {
-            Some(true) => "Loaded",
-            Some(false) => "Empty",
-            None => "–",
+        // A LabelWriter says only when its labels have run out.
+        held = match (die_cut, telemetry) {
+            (_, None) => "–",
+            (true, Some(t))
+                if t.problem
+                    .as_deref()
+                    .is_some_and(|p| p.starts_with("no labels")) =>
+                "Empty",
+            (true, Some(_)) => "Loaded",
+            (false, Some(t)) => match t.cassette {
+                Some(true) => "Loaded",
+                Some(false) => "Empty",
+                None => "–",
+            },
         },
         job = machine
             .job

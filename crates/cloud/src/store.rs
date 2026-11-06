@@ -1475,7 +1475,9 @@ impl Store {
     }
 
     /// The width of the tape a label printer has loaded, as its owner said.
-    pub fn loaded_tape_mm(&self, machine: &str) -> rusqlite::Result<Option<u32>> {
+    /// The tape or labels loaded in a label printer, as the owner said: (width across, a
+    /// die-cut label's length) in mm.
+    pub fn loaded_media_mm(&self, machine: &str) -> rusqlite::Result<Option<(u32, Option<u32>)>> {
         let found: Option<(Option<String>, Option<String>)> = self
             .db
             .query_row(
@@ -1486,7 +1488,8 @@ impl Store {
             .optional()?;
         Ok(found.and_then(|(profile, media)| {
             let profile = crate::profiles::find(&profile?)?;
-            Some(crate::profiles::media(profile, &media?)?.width_mm)
+            let media = crate::profiles::media(profile, &media?)?;
+            Some((media.width_mm, media.length_mm))
         }))
     }
 
