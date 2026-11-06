@@ -146,7 +146,9 @@
   .printer-drop { flex: 1 1 210px; max-width: 320px; display: grid; gap: 4px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 10px; background: color-mix(in srgb, var(--accent) 6%, var(--card)); font-size: 13px; }
   .printer-drop > b { font-size: 13px; }
   .printer-drop.target, .printer-drop.over { border-color: var(--accent); }
-  .loaded-line { display: flex; align-items: center; gap: 8px; }
+  .loaded-line { display: flex; align-items: center; gap: 8px; margin: 0 -4px; padding: 2px 4px; border-radius: 8px; cursor: grab; }
+  .loaded-line:hover { background: color-mix(in srgb, var(--line) 60%, transparent); }
+  .loaded-line.picked { outline: 2px solid var(--accent); }
   .loaded-line .swatch-spool, .loaded-line .swatch-tape { width: 22px; height: 22px; }
   .col { background: color-mix(in srgb, var(--line) 35%, var(--bg)); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: grid; gap: 8px; align-content: start; min-height: 120px; }
   .col.over { outline: 2px dashed var(--accent); outline-offset: -2px; }

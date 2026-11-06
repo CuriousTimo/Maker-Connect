@@ -810,7 +810,7 @@
     const modelOf = (k) => { const p = !field && placeOf(k); const d = p?.model && dryboxes.find((x) => x.id === p.model); return d ? `${d.brand} ${d.model}` : p?.slots ? `${p.slots} slots` : ""; };
     // The printers in a strip that stays in view, each a place to drop a spool (it loads
     // there): no scrolling sideways to reach one.
-    const drop = (m) => { const s = live.find((x) => loadedIn(x) === m.name); return `<div class="printer-drop${picked ? " target" : ""}" data-machine="${esc(m.id)}"><b>${esc(m.name)}</b>${s ? `<span class="loaded-line">${swatch(s.filament)} <span><b>${code(s.id)}</b> ${esc(nameOf(s.filament))}<br><small class="muted">${amount(leftOf(s), unitOf(s.filament))}${s.location ? ` · from ${esc(s.location)}${slotOf(s) ? ` ${slotOf(s)}` : ""}` : ""}</small></span></span>` : '<small class="muted">nothing loaded</small>'}</div>`; };
+    const drop = (m) => { const s = live.find((x) => loadedIn(x) === m.name); return `<div class="printer-drop${picked ? " target" : ""}" data-machine="${esc(m.id)}"><b>${esc(m.name)}</b>${s ? `<span class="loaded-line${picked === s.id ? " picked" : ""}" draggable="true" data-card="${s.id}" title="Drag it to a location to take it out">${swatch(s.filament)} <span><b>${code(s.id)}</b> ${esc(nameOf(s.filament))}<br><small class="muted">${amount(leftOf(s), unitOf(s.filament))}${s.location ? ` · from ${esc(s.location)}${slotOf(s) ? ` ${slotOf(s)}` : ""}` : ""}</small></span></span>` : '<small class="muted">nothing loaded</small>'}</div>`; };
     // By kind: the 3D printers, then the label printers, each under its name.
     const KINDS_OF = [["fdm", "3D printers"], ["label", "Label printers"]];
     const strip = feeders.length ? `<div class="board-printers">${KINDS_OF.map(([k, title]) => {
@@ -823,8 +823,18 @@
         ${!field && placeOf(c.key)?.description ? `<small class="muted" style="padding:0 4px">${esc(placeOf(c.key).description)}</small>` : ""}
         ${body(c)}</div>`).join("") + `</div>`;
   }
-  const moveTo = async (id, placeName, slot) => {
+  // Out of its printer when it goes elsewhere: taken from the printer, or out of the box
+  // that feeds it (to another slot of the same box it keeps feeding).
+  const leavesPrinter = (id, placeName, fromPrinter) => {
+    const s = spools.find((x) => x.id === id);
+    return !!s && !!loadedIn(s) && (fromPrinter || (s.location || "") !== (placeName || ""));
+  };
+  const moveTo = async (id, placeName, slot, fromPrinter = false) => {
     try {
+      if (leavesPrinter(id, placeName, fromPrinter)) {
+        await api("POST", `api/stock/items/${code(id)}/unload`);
+        toast(`${code(id)} taken out of ${loadedIn(spools.find((x) => x.id === id))}`);
+      }
       if (slot) { await place(id, placeName, slot); toast(`${code(id)} to ${placeName}, slot ${slot}`); return; }
       const place_ = placeName;
       const field = settings.board_field !== "location" && fields.spool.find((f) => f.key === settings.board_field);
@@ -846,7 +856,9 @@
     renderBoard();
   });
   const board = $("[data-board]");
-  board.addEventListener("dragstart", (e) => { const c = e.target.closest("[data-card]"); if (c) { e.dataTransfer.setData("text/plain", c.dataset.card); markTargets(c.dataset.card); } });
+  // Whether the spool being moved was taken from a printer (its line in the printer strip).
+  let fromPrinter = false;
+  board.addEventListener("dragstart", (e) => { const c = e.target.closest("[data-card]"); if (c) { fromPrinter = !!c.closest("[data-machine]"); e.dataTransfer.setData("text/plain", c.dataset.card); markTargets(c.dataset.card); } });
   board.addEventListener("dragend", () => markTargets(null));
   const loadInto = async (id, machine) => {
     try {
@@ -867,18 +879,18 @@
     if (!col) return;
     e.preventDefault();
     col.classList.remove("over");
-    moveTo(Number(e.dataTransfer.getData("text/plain")), col.dataset.drop, col.dataset.slot);
+    moveTo(Number(e.dataTransfer.getData("text/plain")), col.dataset.drop, col.dataset.slot, fromPrinter);
   });
   board.addEventListener("click", (e) => {
     const c = e.target.closest("[data-card]");
-    if (c) { const id = Number(c.dataset.card); picked = picked === id ? null : id; renderBoard(); markTargets(picked); return; }
+    if (c) { const id = Number(c.dataset.card); fromPrinter = !!c.closest("[data-machine]"); picked = picked === id ? null : id; renderBoard(); markTargets(picked); return; }
     const target = e.target.closest("[data-machine]") || e.target.closest("[data-slot]") || e.target.closest("[data-drop]");
     if (target && picked && !e.target.closest("button")) {
       const why = refusal(picked, target);
       if (why) { toast(why, "bad"); return; }
       const id = picked; picked = null;
       if (target.dataset.machine) loadInto(id, target.dataset.machine);
-      else moveTo(id, target.dataset.drop, target.dataset.slot);
+      else moveTo(id, target.dataset.drop, target.dataset.slot, fromPrinter);
     }
   });
 
