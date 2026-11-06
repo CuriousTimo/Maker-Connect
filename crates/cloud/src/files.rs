@@ -238,8 +238,8 @@ async fn list(access: crate::access::Access, State(store): State<Shared>) -> Res
 }
 
 #[derive(Deserialize)]
-struct UploadQuery {
-    name: String,
+pub(crate) struct UploadQuery {
+    pub(crate) name: String,
 }
 
 /// A file's name as kept: its last part, plain, at most 120 characters.
@@ -256,7 +256,7 @@ fn clean_name(name: &str) -> Option<String> {
 
 /// `POST /api/files?name=part.gcode`, the file as the body: streamed to disk, read for its
 /// metadata and thumbnail, added to the space.
-async fn upload(
+pub(crate) async fn upload(
     access: crate::access::Access,
     State(store): State<Shared>,
     Query(query): Query<UploadQuery>,

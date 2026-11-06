@@ -56,6 +56,7 @@ pub fn routes() -> Router<Shared> {
 pub fn public(path: &str) -> bool {
     matches!(path, "/login" | "/setup" | "/logo.svg")
         || path.starts_with("/invite/")
+        || path == "/api/apps/v1/info"
         || path.starts_with("/api/agent/v1/")
         || path.starts_with("/p/")
         || path.starts_with("/simplyprint/")
@@ -69,6 +70,19 @@ pub async fn guard(State(store): State<Shared>, mut request: Request, next: Next
         .map_or_else(|| "unknown".to_owned(), |c| c.0.ip().to_string());
     request.extensions_mut().insert(Client(client));
     let path = request.uri().path().to_owned();
+    // Programs may call the apps API from a page of another site (LaserFoundry's web
+    // version): with a token, never a cookie. The browser's question first, then the answer.
+    if path.starts_with(crate::apps::PREFIX) {
+        if request.method() == Method::OPTIONS {
+            return cors(StatusCode::NO_CONTENT.into_response());
+        }
+        let mut request = request;
+        if request.headers().contains_key(header::ORIGIN) {
+            // From another site: its cookie does not count here, only a token.
+            request.headers_mut().remove(header::COOKIE);
+        }
+        return cors(Box::pin(apps_guard(store, request, next)).await);
+    }
     if public(&path) {
         return next.run(request).await;
     }
@@ -131,6 +145,50 @@ pub async fn guard(State(store): State<Shared>, mut request: Request, next: Next
         request.extensions_mut().insert(access);
     }
     next.run(request).await
+}
+
+/// The rest of the guard, for the apps API.
+async fn apps_guard(store: Shared, request: Request, next: Next) -> Response {
+    if public(request.uri().path()) {
+        return next.run(request).await;
+    }
+    let token = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(|t| t.trim().to_owned());
+    let access = match token.map(|t| store.lock().unwrap().token_access(&t)) {
+        Some(Ok(access)) => access,
+        Some(Err(error)) => return failed(error),
+        None => None,
+    };
+    let Some(access) = access else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            "an API token of the space, as Authorization: Bearer mct_… (Space page → API tokens)",
+        )
+            .into_response();
+    };
+    let mut request = request;
+    request.extensions_mut().insert(access);
+    next.run(request).await
+}
+
+/// Any site may call the apps API: what it gets depends on the token it sends.
+fn cors(mut response: Response) -> Response {
+    let headers = response.headers_mut();
+    headers.insert("access-control-allow-origin", HeaderValue::from_static("*"));
+    headers.insert(
+        "access-control-allow-headers",
+        HeaderValue::from_static("authorization, content-type"),
+    );
+    headers.insert(
+        "access-control-allow-methods",
+        HeaderValue::from_static("GET, POST, OPTIONS"),
+    );
+    headers.insert("access-control-max-age", HeaderValue::from_static("600"));
+    response
 }
 
 /// The space a session is in, with the role there: the one it was in, else the first the

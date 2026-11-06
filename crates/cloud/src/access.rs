@@ -164,6 +164,14 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ),
     ("*", "/simplyprint/{token}/{*rest}", Need::Public, None),
     ("*", "/invite/{token}", Need::Public, None),
+    ("GET", "/api/apps/v1/info", Need::Public, None),
+    // Programs with an API token (crate::apps).
+    (
+        "POST",
+        "/api/apps/v1/files",
+        Need::Role(Role::Member),
+        Some("sent a file from a program"),
+    ),
     // One's own.
     ("POST", "/logout", Need::Signed, None),
     ("GET", "/api/me", Need::Signed, None),

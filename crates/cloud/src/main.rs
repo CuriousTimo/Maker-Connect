@@ -16,6 +16,7 @@
 
 mod access;
 mod accounts;
+mod apps;
 mod auth;
 mod codes;
 mod downloads;
@@ -242,6 +243,7 @@ pub fn app(store: Shared) -> Router {
         .route("/files", get(files_page::page))
         .merge(auth::routes())
         .merge(space_page::routes())
+        .merge(apps::routes())
         // After a route is matched: what it needs, against who asks (access::RULES).
         .route_layer(axum::middleware::from_fn_with_state(
             store.clone(),

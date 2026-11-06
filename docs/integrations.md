@@ -12,6 +12,11 @@ The same split everywhere: a tool makes the job, Maker Connect takes it from the
 
 ## Lasers: LaserFoundry
 
+**Sending from LaserFoundry** (or any program) goes through the apps API with a space's API
+token: [apps-api.md](apps-api.md). The file waits in Files with the laser chosen; someone at the
+laser frames and starts it. LaserFoundry's side (a plugin or a merge request to them) is still
+to do.
+
 [LaserFoundry](https://github.com/Stitchwright/laserfoundry) (MIT OR Apache-2.0, Rust 2024,
 version 0.2.1, read at commit `3b9b9fa`, 2026-11-03): the user's choice to replace LightBurn. A
 clean-room, LightBurn-class laser application: layout, cut layers with speed, power, passes and

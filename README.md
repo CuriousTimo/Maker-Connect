@@ -202,6 +202,10 @@ address for clients that send no headers, such as Moonraker's Spoolman:
 server: http://maker-connect.local:8460/t/mct_…
 ```
 
+Programs that make the work (a laser program such as LaserFoundry, a slicer, a script) send
+finished files to a space with such a token: [docs/apps-api.md](docs/apps-api.md). The file
+waits in Files with its machine chosen; nothing starts by itself.
+
 ## Not yet
 
 The DYMO LabelWriter 450 (die-cut labels, over USB) is

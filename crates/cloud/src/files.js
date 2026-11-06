@@ -207,11 +207,12 @@
       files = fresh;
       render();
       showStorage();
-      // Sent here for one file (from the palette): open it.
-      const wanted = location.hash.match(/^#file=(.+)$/);
+      // Sent here for one file (from the palette, or from an app such as LaserFoundry with
+      // the machine it was made for): open it, that machine chosen. Nothing starts by itself.
+      const wanted = location.hash.match(/^#file=([^&]+)(?:&machine=(.+))?$/);
       if (wanted && !dialog.open) {
         history.replaceState(null, "", location.pathname);
-        openFile(decodeURIComponent(wanted[1]));
+        openFile(decodeURIComponent(wanted[1]), wanted[2] && decodeURIComponent(wanted[2]));
       }
     } catch (error) { /* tried again shortly */ }
   }
@@ -235,7 +236,7 @@
   const dialog = document.querySelector("[data-file-dialog]");
   const dialogBody = document.querySelector("[data-fd-body]");
   let openId = null;
-  function openFile(id) {
+  function openFile(id, machine) {
     const f = files.find((x) => x.id === id);
     if (!f) return;
     openId = id;
@@ -287,6 +288,9 @@
           <div class="more"><a href="files/${encodeURIComponent(f.id)}/download">Download</a><button type="button" data-remove>Remove</button></div>
         </div>
       </div>`;
+    // The machine it was sent for, when it is free for it.
+    const pick = dialogBody.querySelector("[data-print] select[name=machine]");
+    if (machine && pick && f.machines.some((t) => t.id === machine && t.ok)) pick.value = machine;
     if (!dialog.open) dialog.showModal();
   }
   function step(by) {
