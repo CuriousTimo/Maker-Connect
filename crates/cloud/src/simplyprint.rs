@@ -505,7 +505,9 @@ mod tests {
             )
             .unwrap();
             let file = s.file(space, "f1").unwrap().unwrap();
-            s.add_job(space, &id, &file, None).unwrap().unwrap()
+            s.add_job(space, &id, &file, None, Some("SimplyPrint"))
+                .unwrap()
+                .unwrap()
         };
         std::fs::write(store.lock().unwrap().file_path("f1"), "G28\nG1 X1\n").unwrap();
         let file = next(&mut ws, "file").await;

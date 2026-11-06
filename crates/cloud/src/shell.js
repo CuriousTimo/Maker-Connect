@@ -17,8 +17,18 @@
     // Who, in which space; a click lists the spaces to go to (by organisation), and signs out.
     const foot = document.createElement("details");
     foot.className = "side-user";
-    foot.innerHTML = `<summary><span class="who"><b data-me-name></b><small data-me-space></small></span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></summary><div class="side-menu"><div data-me-spaces></div><a href="/space">Space, members, access</a><a href="/downloads">Downloads: the agent</a><form method="post" action="/logout"><button type="submit">Sign out</button></form></div>`;
+    foot.innerHTML = `<summary><span class="who"><b data-me-name></b><small data-me-space></small></span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></summary><div class="side-menu"><div data-me-spaces></div><a href="/space">Space, members, access</a><a href="/downloads">Downloads: the agent</a><small>Look</small><div class="theme-pick" role="group" aria-label="Look"><button type="button" data-theme-pick="system">System</button><button type="button" data-theme-pick="light">Light</button><button type="button" data-theme-pick="dark">Dark</button></div><form method="post" action="/logout"><button type="submit">Sign out</button></form></div>`;
     document.querySelector(".sidebar").append(foot);
+    // Light, dark, or as the system says; remembered in this browser only.
+    const theme = () => { try { return localStorage.getItem("theme") || "system"; } catch { return "system"; } };
+    const showTheme = () => foot.querySelectorAll("[data-theme-pick]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themePick === theme())));
+    foot.querySelectorAll("[data-theme-pick]").forEach((b) => b.addEventListener("click", () => {
+      const t = b.dataset.themePick;
+      try { if (t === "system") localStorage.removeItem("theme"); else localStorage.setItem("theme", t); } catch {}
+      if (t === "system") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+      showTheme();
+    }));
+    showTheme();
     plain("/api/me").then((r) => (r.ok ? r.json() : null)).then((me) => {
       if (!me) return;
       foot.querySelector("[data-me-name]").textContent = me.display_name;
@@ -146,8 +156,33 @@
     const day = today ? "" : `${end.toLocaleDateString([], { weekday: "short" })} `;
     return `${left} left · done ${day}${clock}`;
   }
+  // A plate for a project that ended and waits for someone (the farm): how many came off
+  // good, Set ready, or a bad print. `prefix` leads from the page to /machines/<id>.
+  function confirmHtml(m, prefix) {
+    const c = m.confirm;
+    if (!c) return "";
+    const ok = c.state === "finished";
+    const how = ok ? "is done: how many came off good?" : `${c.state === "failed" ? "failed" : "was stopped"}: did any come off good?`;
+    return `<div class="notice confirm"><span><b>${escapeHtml(c.file_name)}</b>${c.part ? ` for <b>${escapeHtml(c.part)}</b>${c.project ? ` (${escapeHtml(c.project)})` : ""}` : ""} ${how}</span>
+      <form data-confirm action="${prefix}${encodeURIComponent(m.id)}/ready"><input type="hidden" name="job" value="${c.job}">
+        <label>Good <input name="good" type="number" min="0" max="10000" value="${ok ? c.per_plate : 0}" aria-label="Parts that came off good"> / ${c.per_plate}</label>
+        <button>Set ready</button><button class="danger" formaction="${prefix}${encodeURIComponent(m.id)}/bad">Bad print</button></form></div>`;
+  }
+  document.addEventListener("submit", async (event) => {
+    const form = event.target;
+    if (!form.matches("form[data-confirm]")) return;
+    event.preventDefault();
+    const action = event.submitter?.getAttribute("formaction") || form.getAttribute("action");
+    const bad = action.endsWith("/bad");
+    if (bad && !confirm("A bad print: nothing of it counts, and the plate goes back in the queue. Sure?")) return;
+    const r = await fetch(action, { method: "POST", body: new URLSearchParams(new FormData(form)), headers: { "x-requested-with": "fetch" } });
+    if (r.ok) toast(bad ? "Bad print: the plate goes back in the queue" : `Counted: ${(await r.json()).done} made`);
+    else toast(`Not done: ${await r.text()}`, "bad");
+  });
   function shownState(m) {
     if (m.out_of_use) return { text: "Out of use", cls: "out" };
+    if (m.confirm) return { text: m.confirm.state === "finished" ? "Confirm the plate" : "Check the plate", cls: "attention" };
+    if (m.upkeep?.due && !(m.online && m.telemetry?.state === "busy")) return { text: "Service due", cls: "attention" };
     const t = m.online ? m.telemetry : null;
     if (!t) return { text: "Offline", cls: "offline" };
     // A finished print on the bed: cooling, then it waits for someone to take it.

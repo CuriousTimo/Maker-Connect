@@ -822,21 +822,10 @@ mod tests {
     /// added later is checked without anyone remembering to.
     #[tokio::test]
     async fn every_route_needs_a_session_but_the_public_ones() {
-        let sources = [
-            include_str!("main.rs"),
-            include_str!("auth.rs"),
-            include_str!("files.rs"),
-            include_str!("downloads.rs"),
-            include_str!("codes.rs"),
-            include_str!("prusa_connect.rs"),
-            include_str!("simplyprint.rs"),
-            include_str!("spoolman.rs"),
-            include_str!("spoolmandb.rs"),
-            include_str!("stock.rs"),
-            include_str!("space_page.rs"),
-        ];
+        // Every source file, read when the test runs: a new module cannot be forgotten.
+        let sources = crate::access::route_sources();
         let mut paths: Vec<String> = Vec::new();
-        for source in sources {
+        for source in &sources {
             // `.route("/path"` or `.route(\n "/path"`, the path being a literal.
             for piece in source.split(".route(").skip(1) {
                 let piece = piece.trim_start();

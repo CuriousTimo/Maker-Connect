@@ -556,6 +556,15 @@ pub fn on_report(store: &mut Store, token: &str, state: &str) -> rusqlite::Resul
     let Some((machine, space)) = store.printer_of(token)? else {
         return Ok(());
     };
+    // A print from the stick is over once the printer is idle again (a minute on: it may
+    // still be starting).
+    if matches!(state, "IDLE" | "READY" | "FINISHED" | "STOPPED") {
+        store.db.execute(
+            "UPDATE machines SET usb_print_by = NULL, usb_print_at = NULL
+             WHERE id = ?1 AND usb_print_by IS NOT NULL AND usb_print_at < ?2",
+            params![machine, crate::store::now() - 60],
+        )?;
+    }
     let Some(job) = store.active_job(&machine)? else {
         return Ok(());
     };
@@ -856,14 +865,22 @@ async fn print(
         }
     }
     let name = path.rsplit('/').next().unwrap_or("").to_owned();
-    path_command(
+    let response = path_command(
         &store,
         &access,
         &machine,
         "START_PRINT",
         format!("Print {name} from the stick"),
         &path,
-    )
+    );
+    if response.status().is_success() {
+        // Who started it, for as long as it runs (Now's "Ends next").
+        let _ = store.lock().unwrap().db.execute(
+            "UPDATE machines SET usb_print_by = ?3, usb_print_at = ?4 WHERE id = ?1 AND space_id = ?2",
+            params![machine, access.space, access.actor, crate::store::now()],
+        );
+    }
+    response
 }
 
 async fn delete(

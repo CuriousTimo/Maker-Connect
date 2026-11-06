@@ -27,7 +27,8 @@
   .tile .sub { margin-top: 8px; color: var(--muted); font-size: 14px; }
   /* A heater's flame: lit while it has power, outlined while not, gone when not told. */
   :root { --flame: #d9692b; }
-  @media (prefers-color-scheme: dark) { :root { --flame: #f08a4b; } }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --flame: #f08a4b; } }
+  :root[data-theme="dark"] { --flame: #f08a4b; }
   .heat-label { display: flex; justify-content: space-between; align-items: center; }
   .flame { display: inline-grid; color: var(--off); }
   .flame svg { fill: none; }
@@ -125,7 +126,8 @@
 
   /* The temperature chart. */
   :root { --nozzle: #00876e; --bed: #c0730d; }
-  @media (prefers-color-scheme: dark) { :root { --nozzle: #1c9e83; --bed: #c47c14; } }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --nozzle: #1c9e83; --bed: #c47c14; } }
+  :root[data-theme="dark"] { --nozzle: #1c9e83; --bed: #c47c14; }
   .chart-card { margin-bottom: 0; }
   .legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 16px; color: var(--ink); font-size: 15px; }
   .legend span { display: inline-flex; align-items: center; gap: 8px; }
@@ -157,7 +159,8 @@
 
   /* The bed mesh. */
   :root { --low: #2c6fbb; --mid: #e3e1db; --high: #c0610d; }
-  @media (prefers-color-scheme: dark) { :root { --low: #4f8fd6; --mid: #45464b; --high: #d9822b; } }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --low: #4f8fd6; --mid: #45464b; --high: #d9822b; } }
+  :root[data-theme="dark"] { --low: #4f8fd6; --mid: #45464b; --high: #d9822b; }
   .views { display: flex; gap: 6px; }
   .mesh-scale { display: flex; align-items: center; gap: 10px; margin-top: 16px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
   .mesh-scale i { width: 160px; height: 10px; border-radius: 5px; background: linear-gradient(to right, var(--low), var(--mid), var(--high)); }
@@ -234,3 +237,29 @@
   .danger-link { color: var(--bad) !important; }
   @media (max-width: 620px) { .usb-item { grid-template-columns: 96px minmax(0, 1fr); } .usb-pic { width: 96px; height: 72px; } .usb-actions { grid-column: 1 / -1; } }
   .job-ends { display: block; margin-top: 6px; color: var(--muted); font-size: 13px; }
+  /* Labels under the title, and editing them. */
+  .head-tags { margin: 8px 0 16px; align-items: center; }
+  .label-edit { display: inline-block; }
+  .label-edit summary { cursor: pointer; color: var(--muted); font-size: 13px; list-style: none; padding: 1px 6px; border: 1px dashed var(--line); border-radius: 5px; }
+  .label-edit summary::-webkit-details-marker { display: none; }
+  .label-edit form { display: inline-flex; gap: 6px; margin: 6px 0 0; }
+  .label-edit input { width: 260px; }
+  /* A machine's jobs: numbers, then the latest. */
+  .stats { display: flex; flex-wrap: wrap; gap: 8px 26px; margin: 10px 0 14px; }
+  .stats span { display: grid; }
+  .stats b { font-size: 24px; font-variant-numeric: tabular-nums; }
+  .stats small { color: var(--muted); font-size: 13px; }
+  .job-history { list-style: none; margin: 0; padding: 0; }
+  .job-history li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .job-history .j-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .job-history small { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
+  .badge.finished { color: var(--accent); } .badge.failed { color: var(--bad); } .badge.stopped, .badge.stopping { color: var(--warn); }
+  .control-more { margin-top: 16px; }
+  .loaded-spool { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px; }
+  .loaded-spool small { color: var(--muted); }
+  .ghost-link { color: var(--muted); font-size: 14px; margin-left: 6px; }
+  .stats .due b { color: var(--warn); }
+  .upkeep-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0 10px; }
+  /* A job's state in its history: words in its colour, never a filled block. */
+  .job-history .badge { background: transparent; box-shadow: inset 0 0 0 1px currentColor; color: var(--muted); padding: 1px 7px; border-radius: 5px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  .job-history .badge.finished { color: var(--accent); } .job-history .badge.failed { color: var(--bad); } .job-history .badge.stopped { color: var(--warn); }

@@ -88,8 +88,8 @@ The space's machines, or only one kind: `fdm`, `laser`, `cnc`, `cutter`, `label`
 - `max_s` and `laser_mode` are `null` while the machine is offline, or until its agent has
   read the settings.
 - `may`: what this token may do with the machine: `view`, `use`, `operate` or `manage`.
-  Sending work needs `use` or more. A machine can require an induction, and then a member
-  needs one to use it.
+  Sending work needs `use` or more. A machine can require permission, and then a member
+  needs an admin to give it before using it.
 
 ### `POST /api/apps/v1/files?name=<name>[&machine=<id>]`
 
@@ -127,7 +127,7 @@ checked against that machine, and the page you get back has it chosen.
 |---|---|
 | `400` | not a file it reads (by its name) |
 | `401` | no token, or the token is not valid |
-| `403` | the token's role is too low, or it may not use that machine (an induction) |
+| `403` | the token's role is too low, or it may not use that machine (no permission) |
 | `404` | no such machine in this space |
 
 **What the file should hold, so it shows well:**

@@ -168,7 +168,7 @@ async fn page(
             );
         }
         let members_html = format!(
-            r#"<section class="section"><h3>Members</h3><p class="sub">A role in the organisation counts in all of its spaces; a role in this space only here. The higher one counts. Owners and admins manage the space and every machine; members use the machines as far as their inductions go; guests look only.</p>
+            r#"<section class="section"><h3>Members</h3><p class="sub">A role in the organisation counts in all of its spaces; a role in this space only here. The higher one counts. Owners and admins manage the space and every machine; members use the machines as far as their permissions go; guests look only.</p>
 <table class="list"><thead><tr><th>Who</th><th>Organisation</th><th>This space</th><th>Since</th><th></th></tr></thead><tbody>{rows}</tbody></table></section>"#
         );
 
@@ -258,7 +258,7 @@ async fn page(
                 .collect();
             let controls = if admin {
                 format!(
-                    r#"<form method="post" action="machines/{id}/access" data-async data-then="reload" data-done="Saved"><label><input type="checkbox" name="induction" value="1"{checked} onchange="this.form.requestSubmit()"> Needs an induction</label></form>"#,
+                    r#"<form method="post" action="machines/{id}/access" data-async data-then="reload" data-done="Saved"><label><input type="checkbox" name="induction" value="1"{checked} onchange="this.form.requestSubmit()"> Needs permission</label></form>"#,
                     id = escape(&machine.id),
                     checked = if induction { " checked" } else { "" }
                 )
@@ -266,7 +266,7 @@ async fn page(
                 format!(
                     r#"<small>{}</small>"#,
                     if induction {
-                        "Needs an induction"
+                        "Needs permission"
                     } else {
                         "Open to members"
                     }
@@ -277,7 +277,7 @@ async fn page(
                     r#"<p class="muted" style="margin:8px 0 0;font-size:13px">No members to give one to (owners and admins need none).</p>"#.to_owned()
                 } else {
                     format!(
-                        r#"<form method="post" action="machines/{id}/grants" data-async data-then="reload" data-done="Induction given" class="switch" style="margin:8px 0 0"><select class="small" name="user" aria-label="Who">{candidates}</select><select class="small" name="level" aria-label="May"><option value="use">use (jobs, labels)</option><option value="operate">operate (also move, heat, G-code)</option></select><label class="muted" style="font-size:13px">until <input class="small" type="date" name="until"></label><button class="small">Give</button></form>"#,
+                        r#"<form method="post" action="machines/{id}/grants" data-async data-then="reload" data-done="Permission given" class="switch" style="margin:8px 0 0"><select class="small" name="user" aria-label="Who">{candidates}</select><select class="small" name="level" aria-label="May"><option value="use">use (jobs, labels)</option><option value="operate">operate (also move, heat, G-code)</option></select><label class="muted" style="font-size:13px">until <input class="small" type="date" name="until"></label><button class="small">Give</button></form>"#,
                         id = escape(&machine.id)
                     )
                 }
@@ -290,14 +290,14 @@ async fn page(
                 list = if induction && !chips.is_empty() {
                     format!(r#"<ul class="grants">{chips}</ul>"#)
                 } else if induction {
-                    r#"<p class="muted" style="margin:6px 0 0;font-size:13px">Nobody has had the induction yet.</p>"#.to_owned()
+                    r#"<p class="muted" style="margin:6px 0 0;font-size:13px">Nobody has permission yet.</p>"#.to_owned()
                 } else {
                     String::new()
                 },
             );
         }
         let machines_section = format!(
-            r#"<section class="section"><h3>Who may use which machine</h3><p class="sub">A machine open to members: every member may run jobs on it and operate it. One that needs an induction (a laser, say): only who had it, as far as it goes, until its end if it has one.</p>{}</section>"#,
+            r#"<section class="section"><h3>Who may use which machine</h3><p class="sub">A machine open to members: every member may run jobs on it and operate it. One that needs permission (a laser, say, after someone showed how it works): only members an admin gave it, as far as it goes, until its end date if it has one.</p>{}</section>"#,
             if machine_html.is_empty() {
                 r#"<p class="muted">No machines yet.</p>"#.to_owned()
             } else {
@@ -884,7 +884,7 @@ async fn ungrant(
         .remove_grant(access.space, &machine, user)
     {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
-        Ok(false) => (StatusCode::NOT_FOUND, "no such induction").into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, "no such permission").into_response(),
         Err(error) => failed(error),
     }
 }

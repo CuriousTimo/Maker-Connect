@@ -20,13 +20,16 @@ mod apps;
 mod auth;
 mod codes;
 mod downloads;
+mod farm;
 mod files;
 mod files_page;
 mod gcode;
 mod label_page;
 mod machine_page;
+mod now_page;
 mod printer_files;
 mod profiles;
+mod projects_page;
 mod prusa_connect;
 mod simplyprint;
 mod space_page;
@@ -156,6 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     spoolmandb::start(opened.files_dir.join("spoolmandb"));
     let store = Arc::new(Mutex::new(opened));
     tokio::spawn(virtual_machines::run(store.clone()));
+    tokio::spawn(farm::run(store.clone()));
     let listener = tokio::net::TcpListener::bind(&listen).await?;
     println!("Maker Connect cloud on http://{listen} (data in {db})");
     if let Some(code) = store.lock().unwrap().setup_code.clone() {
@@ -212,19 +216,21 @@ pub fn app(store: Shared) -> Router {
     let app = Router::new()
         .route(protocol::REGISTER, post(register))
         .route(protocol::TELEMETRY, post(telemetry))
-        .route("/", get(page))
         .route("/pair", post(pair))
         .route("/api/machines", get(machines))
         .route("/api/machines/stream", get(machine_stream))
-        .route("/machines", get(|| async { Redirect::to("/") }))
-        .route("/machines/", get(|| async { Redirect::to("/") }))
+        // The machine list; the home page is Now (now_page).
+        .route("/machines", get(page))
+        .route("/machines/", get(|| async { Redirect::to("/machines") }))
         .route("/logo.svg", get(logo))
         .route("/machines/{id}", get(machine_page))
         .route("/machines/{id}/profile", post(choose_profile))
         .route("/machines/{id}/media", post(choose_media))
         .route("/machines/{id}/name", post(rename))
+        .route("/machines/{id}/labels", post(set_labels))
         .route("/machines/{id}/command", post(command))
         .route("/machines/{id}/remove", post(remove))
+        .route("/machines/{id}/move", post(move_machine))
         .route("/machines/{id}/out-of-use", post(out_of_use))
         .route("/machines/{id}/taken", post(taken))
         .route("/machines/{id}/laser", post(laser_power))
@@ -246,6 +252,9 @@ pub fn app(store: Shared) -> Router {
         .merge(space_page::routes())
         .merge(apps::routes())
         .merge(printer_files::routes())
+        .merge(now_page::routes())
+        .merge(farm::routes())
+        .merge(projects_page::routes())
         // After a route is matched: what it needs, against who asks (access::RULES).
         .route_layer(axum::middleware::from_fn_with_state(
             store.clone(),
@@ -584,10 +593,11 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
         )
     };
     format!(
-        r##"<aside class="sidebar" data-root="{home}">
+        r##"<script>try {{ const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; }} catch {{}}</script>
+<aside class="sidebar" data-root="{home}">
   <a class="brand" href="{home}"><img src="{root}logo.svg" alt="" width="30" height="30"><span><b>Maker Connect</b><small>{space}</small></span></a>
   <button type="button" class="search-open" data-palette-open title="Go to a machine, a file or a page"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13.2 13.2 3.8 3.8"/></svg><span>Go to…</span><kbd>⌘K</kbd></button>
-  <nav class="side-nav" aria-label="Pages">{machines}{files}{stock}{space_link}</nav>
+  <nav class="side-nav" aria-label="Pages">{now}{machines}{projects}{files}{stock}{space_link}</nav>
   <div class="side-section">
     <div class="side-title"><span>Machines</span><button type="button" class="side-add" data-add-open title="Add a machine" aria-label="Add a machine"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11"/></svg></button></div>
     <nav class="side-machines" data-side-machines aria-label="Machines"></nav>
@@ -686,11 +696,23 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
 <script>
 {SHELL_SCRIPT}</script>"##,
         space = escape(space),
-        machines = link(
+        now = link(
             "",
+            "Now",
+            "now",
+            r#"<circle cx="10" cy="10" r="7"/><path d="M10 6v4l2.5 2.5"/>"#
+        ),
+        machines = link(
+            "machines",
             "Machines",
             "machines",
             r#"<rect x="2.5" y="4" width="15" height="10" rx="2"/><path d="M7 17h6M10 14v3"/>"#
+        ),
+        projects = link(
+            "projects",
+            "Projects",
+            "projects",
+            r#"<rect x="3" y="4" width="14" height="13" rx="2"/><path d="M7 8h6M7 11h6M7 14h3"/>"#
         ),
         files = link(
             "files",
@@ -1106,6 +1128,34 @@ async fn command(
             Some(Err(why)) => return (StatusCode::BAD_REQUEST, why).into_response(),
             None => None,
         }
+    } else if matches!(form.action.as_str(), "load-filament" | "unload-filament") {
+        // Hot first, to the loaded spool's temperature (215 °C when it is not known), then the
+        // firmware's own load or unload (Marlin's and Prusa's M701, M702).
+        let machine = match store.machine(space, &id) {
+            Ok(Some(machine)) => machine,
+            Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
+            Err(error) => return failed(error),
+        };
+        if machine.kind != protocol::MachineKind::Fdm {
+            return (StatusCode::BAD_REQUEST, "filament goes into a 3D printer").into_response();
+        }
+        let hot = machine
+            .loaded
+            .as_ref()
+            .and_then(|l| l.nozzle_c)
+            .filter(|c| (150.0..=320.0).contains(c))
+            .unwrap_or(215.0);
+        Some(if form.action == "load-filament" {
+            (
+                format!("Load filament ({hot:.0} °C)"),
+                format!("M109 S{hot:.0}\nM701"),
+            )
+        } else {
+            (
+                format!("Unload filament ({hot:.0} °C)"),
+                format!("M109 S{hot:.0}\nM702"),
+            )
+        })
     } else if form.action == "probe-bed" {
         match store.machine(space, &id) {
             Ok(Some(machine)) => match probe_gcode(&machine) {
@@ -1133,6 +1183,95 @@ async fn command(
             "no such machine, or it takes no commands",
         )
             .into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct MoveForm {
+    /// The space it goes to, by its id under the hood.
+    space: String,
+}
+
+/// The other spaces someone who manages a machine could move it to: where they are owner or
+/// admin too. (uid, "Organisation · Space"); none for a token.
+fn move_targets(store: &Store, access: &access::Access, machine: &str) -> Vec<(String, String)> {
+    let manages = store
+        .machine_level(access, machine)
+        .ok()
+        .flatten()
+        .is_some_and(|l| l >= access::Level::Manage);
+    if !manages || access.token_id.is_some() {
+        return Vec::new();
+    }
+    store
+        .spaces_of(access.user_id)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| s.id != access.space && s.role >= access::Role::Admin)
+        .map(|s| (s.uid, format!("{} · {}", s.organisation, s.name)))
+        .collect()
+}
+
+/// Moves a machine to another space of someone who manages both.
+async fn move_machine(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Form(form): Form<MoveForm>,
+) -> Response {
+    if access.token_id.is_some() {
+        return (
+            StatusCode::FORBIDDEN,
+            "a token belongs to one space: move machines signed in",
+        )
+            .into_response();
+    }
+    let mut store = store.lock().unwrap();
+    let target = match store.space_by_uid(form.space.trim()) {
+        Ok(found) => found,
+        Err(error) => return failed(error),
+    };
+    // A space they are not owner or admin of is one they may not put machines in; whether it
+    // exists is none of their business either.
+    let Some(to) = target.filter(|to| {
+        store
+            .role_of(access.user_id, *to)
+            .ok()
+            .flatten()
+            .is_some_and(|r| r >= access::Role::Admin)
+    }) else {
+        return (
+            StatusCode::FORBIDDEN,
+            "you are not owner or admin of that space",
+        )
+            .into_response();
+    };
+    let name = match store.machine(access.space, &id) {
+        Ok(Some(m)) => m.name,
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
+        Err(error) => return failed(error),
+    };
+    match store.move_machine(access.space, &id, to) {
+        Ok(Ok(())) => {
+            let (from_name, to_name) = (
+                store.space_name(access.space).unwrap_or_default(),
+                store.space_name(to).unwrap_or_default(),
+            );
+            let _ = store.audit(
+                &access,
+                "moved to another space",
+                &name,
+                &format!("to {to_name}"),
+            );
+            let there = access::Access {
+                space: to,
+                ..access.clone()
+            };
+            let _ = store.audit(&there, "moved here", &name, &format!("from {from_name}"));
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Ok(Err(why)) => (StatusCode::CONFLICT, why).into_response(),
         Err(error) => failed(error),
     }
 }
@@ -1173,6 +1312,27 @@ async fn history(
 #[derive(serde::Deserialize)]
 struct NameForm {
     name: String,
+}
+
+#[derive(serde::Deserialize)]
+struct LabelsForm {
+    /// Comma-separated: `MK4-BL, Room 2`.
+    labels: String,
+}
+
+/// A machine's labels, as typed: to find it, filter on and group by.
+async fn set_labels(
+    access: access::Access,
+    State(store): State<Shared>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Form(form): Form<LabelsForm>,
+) -> Response {
+    let labels: Vec<String> = form.labels.split(',').map(str::to_owned).collect();
+    match store.lock().unwrap().set_labels(access.space, &id, &labels) {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
+        Err(error) => failed(error),
+    }
 }
 
 async fn rename(
@@ -1373,9 +1533,26 @@ async fn machine_page(
         .and_then(|(space, name)| Ok((name, store.machine(space, &id)?)));
     match found {
         Ok((space, Some(machine))) if machine.kind == protocol::MachineKind::Label => {
-            Html(label_page::render(&space, &machine)).into_response()
+            let move_to = move_targets(&store, &access, &machine.id);
+            Html(label_page::render(&space, &machine, &move_to)).into_response()
         }
-        Ok((space, Some(machine))) => Html(machine_page::render(&space, &machine)).into_response(),
+        Ok((space, Some(machine))) => {
+            let extra = machine_page::Extra {
+                move_to: move_targets(&store, &access, &machine.id),
+                manage: store
+                    .machine_level(&access, &machine.id)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|l| l >= access::Level::Manage),
+                jobs: store
+                    .jobs_of(access.space, &machine.id, 10)
+                    .unwrap_or_default(),
+                stats: store
+                    .job_stats(access.space, &machine.id)
+                    .unwrap_or_default(),
+            };
+            Html(machine_page::render(&space, &machine, &extra)).into_response()
+        }
         Ok((_, None)) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
     }
@@ -1403,12 +1580,18 @@ pub(crate) fn escape(text: &str) -> String {
 const SHELL_SCRIPT: &str = include_str!("shell.js");
 
 pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f5f2; --card: #fff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e2e0da; --accent: #2f7d6d; --off: #9a9893; --bad: #b3412e; --warn: #b7791f; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #111214; --card: #1b1c1f; --ink: #f2f1ee; --muted: #a3a29d; --line: #2e2f33; --accent: #5fbfa9; --off: #77767a; --bad: #e07a63; --warn: #d9a441; } }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #111214; --card: #1b1c1f; --ink: #f2f1ee; --muted: #a3a29d; --line: #2e2f33; --accent: #5fbfa9; --off: #77767a; --bad: #e07a63; --warn: #d9a441; } }
+  :root[data-theme="dark"] { --bg: #111214; --card: #1b1c1f; --ink: #f2f1ee; --muted: #a3a29d; --line: #2e2f33; --accent: #5fbfa9; --off: #77767a; --bad: #e07a63; --warn: #d9a441; }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, sans-serif; }
   /* The app's shell: a sidebar beside every page, the page beside it at one width. */
+  :root[data-theme="light"] { color-scheme: light; } :root[data-theme="dark"] { color-scheme: dark; }
+  .theme-pick { display: flex; gap: 2px; padding: 4px 4px 2px; }
+  .theme-pick button { flex: 1; text-align: center !important; font-size: 13px !important; padding: 5px 4px !important; }
+  .theme-pick button[aria-pressed="true"] { background: var(--line); }
   :root { --side: 248px; --fdm: #2f7d6d; --laser: #d9692b; --label: #7d5bd6; }
-  @media (prefers-color-scheme: dark) { :root { --fdm: #5fbfa9; --laser: #f08a4b; --label: #a98bf5; } }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --fdm: #5fbfa9; --laser: #f08a4b; --label: #a98bf5; } }
+  :root[data-theme="dark"] { --fdm: #5fbfa9; --laser: #f08a4b; --label: #a98bf5; }
   @view-transition { navigation: auto; }
   ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .18s; }
   .sidebar { view-transition-name: sidebar; position: fixed; inset: 0 auto 0 0; width: var(--side); z-index: 10; display: flex; flex-direction: column; gap: 6px; padding: 16px 12px; background: color-mix(in srgb, var(--card) 70%, var(--bg)); border-right: 1px solid var(--line); overflow-y: auto; }
@@ -1573,6 +1756,53 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .name { font-weight: 600 !important; font-size: 17px; }
   .machine .state { justify-self: stretch; text-align: center; }
   .m-spool { display: flex; align-items: center; gap: 6px; }
+  /* The machine list's tools: chips with counts, a search, grouping, the view. */
+  .list-tools { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { display: inline-flex; gap: 6px; align-items: baseline; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; }
+  .chip b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .chip[aria-pressed=true] { background: var(--line); color: var(--ink); border-color: var(--muted); }
+  .chip.busy b { color: var(--accent); } .chip.needs b { color: var(--warn); } .chip.error b { color: var(--bad); } .chip.offline b, .chip.out b { color: var(--off); }
+  .list-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .list-controls input[type=search] { width: 220px; }
+  .view-switch { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .view-switch button { background: transparent; color: var(--muted); padding: 6px 8px; border-radius: 0; display: grid; }
+  .view-switch button[aria-pressed=true] { background: var(--line); color: var(--ink); }
+  .view-switch svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+  /* A plate that ended and waits for someone (the farm), on every page that shows it. */
+  .notice.confirm { display: flex; align-items: center; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; padding: 10px 14px; margin: -4px 0 12px; border-radius: 10px; border: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--card)); }
+  .notice.confirm span { flex: 1 1 300px; }
+  .notice.confirm form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0; }
+  .notice.confirm input[name=good] { width: 5em; padding: 5px 8px; }
+  .notice.confirm .danger { background: transparent; color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 50%, transparent); }
+  /* One banner per kind of trouble; none when all is well. */
+  .banners { display: grid; gap: 8px; margin-bottom: 14px; }
+  .banners:empty { display: none; }
+  .banner { padding: 10px 14px; border-radius: 10px; border: 1px solid; font-size: 14px; line-height: 1.6; }
+  .banner b { margin-right: 6px; }
+  .banner a { font-weight: 600; }
+  .banner small { color: var(--muted); }
+  .banner.needs { border-color: color-mix(in srgb, var(--warn) 50%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+  .banner.error { border-color: color-mix(in srgb, var(--bad) 50%, transparent); background: color-mix(in srgb, var(--bad) 10%, transparent); }
+  .banner.offline { border-color: var(--line); color: var(--muted); }
+  /* Labels on machines. */
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 5px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .3px; }
+  .tag.induction { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+  /* The table view. */
+  .table-wrap { overflow-x: auto; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  .machine-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .machine-table th { text-align: left; color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .machine-table td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .machine-table tr:last-child td { border-bottom: 0; }
+  .machine-table tbody tr { cursor: pointer; }
+  .machine-table tbody tr:hover { background: color-mix(in srgb, var(--line) 50%, transparent); }
+  .machine-table a { text-decoration: none; }
+  .machine-table .state { font-size: 11px; padding: 2px 8px; }
+  .machine-table small { color: var(--muted); display: block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .t-progress { width: 120px; height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; margin-bottom: 3px; }
+  .t-progress i { display: block; height: 100%; background: var(--accent); }
+  .muted { color: var(--muted); }
   .m-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--line); flex: none; }
   @media (max-width: 900px) { .machine { grid-template-columns: 56px minmax(0, 1fr) 104px; } .m-conn { display: none; } .m-now { grid-column: 2; } }
   .state { justify-self: end; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; font-size: 12px; padding: 4px 10px; border-radius: 6px; background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--line); }
@@ -1613,6 +1843,15 @@ const PAGE: &str = r##"<!doctype html>
 <body>
 {header}
 <main>
+  <div class="list-tools" data-tools hidden>
+    <div class="chips" data-chips role="toolbar" aria-label="Show"></div>
+    <div class="list-controls">
+      <input type="search" data-search placeholder="Name, model, label, file…" aria-label="Find a machine">
+      <select data-group aria-label="Group by"><option value="kind">By kind</option><option value="model">By model</option><option value="label">By label</option><option value="none">Not grouped</option></select>
+      <div class="view-switch" role="group" aria-label="View"><button type="button" data-view="cards" title="Cards" aria-label="Cards"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="5" rx="1.5"/><rect x="3" y="11" width="14" height="5" rx="1.5"/></svg></button><button type="button" data-view="table" title="Table" aria-label="Table"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14"/></svg></button></div>
+    </div>
+  </div>
+  <div class="banners" data-banners></div>
   <div id="machines"><p class="empty">Loading…</p></div>
 </main>
 <script>
@@ -1649,12 +1888,49 @@ const PAGE: &str = r##"<!doctype html>
     if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
     return `${Math.round(seconds / 3600)} h ago`;
   }
+  // What someone chose here (filter, search, grouping, view), kept in this browser only.
+  const ui = (() => { try { return { filter: "all", q: "", group: "kind", view: "cards", ...JSON.parse(localStorage.getItem("machine-list") || "{}") }; } catch { return { filter: "all", q: "", group: "kind", view: "cards" }; } })();
+  const keep = () => { try { localStorage.setItem("machine-list", JSON.stringify({ filter: ui.filter, group: ui.group, view: ui.view })); } catch { /* not kept */ } };
+  // Each machine in one bucket, for the chips: what someone would look for.
+  const BUCKETS = [["all", "All"], ["busy", "Busy"], ["free", "Free"], ["needs", "Needs someone"], ["error", "Error"], ["offline", "Offline"], ["out", "Out of use"]];
+  function bucket(m) {
+    const cls = shownState(m).cls;
+    return { busy: "busy", cooling: "busy", idle: "free", paused: "needs", attention: "needs", error: "error", offline: "offline", disconnected: "offline", out: "out" }[cls] || "free";
+  }
+  const modelOf = (m) => {
+    const p = profiles[m.profile];
+    return p ? (p.model.includes(p.brand) ? p.model : `${p.brand} ${p.model}`) : KIND[m.kind] || m.kind;
+  };
+  let all = [];
   function render(machines) {
+      all = machines;
       const list = document.getElementById("machines");
-      if (!machines.length) { list.innerHTML = '<p class="empty">No machines yet. <a href="#add" data-add-open>Add one</a>: with the code its agent shows, or a virtual one to try everything.</p>'; return; }
+      document.querySelector("[data-tools]").hidden = !machines.length;
+      if (!machines.length) { document.querySelector("[data-banners]").innerHTML = ""; list.innerHTML = '<p class="empty">No machines yet. <a href="#add" data-add-open>Add one</a>: with the code its agent shows, or a virtual one to try everything.</p>'; return; }
+      // The chips, with their counts; one with nothing in it does not show (All always does).
+      const counts = Object.fromEntries(BUCKETS.map(([k]) => [k, 0]));
+      for (const m of machines) { counts.all++; counts[bucket(m)]++; }
+      if (ui.filter !== "all" && !counts[ui.filter]) ui.filter = "all";
+      document.querySelector("[data-chips]").innerHTML = BUCKETS.filter(([k]) => k === "all" || counts[k])
+        .map(([k, name]) => `<button type="button" class="chip ${k}" data-filter="${k}" aria-pressed="${ui.filter === k}">${name} <b>${counts[k]}</b></button>`).join("");
+      // One banner per kind of trouble, its machines named; nothing when all is well.
+      const named = (ms) => ms.map((m) => `<a href="machines/${encodeURIComponent(m.id)}">${esc(m.name)}</a>${shownState(m).text && bucket(m) === "needs" ? ` <small>(${esc(shownState(m).text.toLowerCase())})</small>` : ""}`).join(", ");
+      const by = (b) => machines.filter((m) => bucket(m) === b);
+      const banners = [];
+      const needs = by("needs"), errors = by("error"), gone = by("offline");
+      if (needs.length) banners.push(`<div class="banner needs"><b>${needs.length === 1 ? "1 machine needs" : `${needs.length} machines need`} someone</b> ${named(needs)}</div>`);
+      if (errors.length) banners.push(`<div class="banner error"><b>${errors.length === 1 ? "1 machine reports" : `${errors.length} machines report`} an error</b> ${errors.map((m) => `<a href="machines/${encodeURIComponent(m.id)}">${esc(m.name)}</a>${m.telemetry?.problem ? ` <small>(${esc(m.telemetry.problem)})</small>` : ""}`).join(", ")}</div>`);
+      if (gone.length) banners.push(`<div class="banner offline"><b>${gone.length} offline</b> ${gone.map((m) => `<a href="machines/${encodeURIComponent(m.id)}">${esc(m.name)}</a> <small>(${m.seen_seconds_ago == null ? "never reported" : `seen ${seen(m.seen_seconds_ago)}`})</small>`).join(", ")}</div>`);
+      document.querySelector("[data-banners]").innerHTML = banners.join("");
+      // What is shown: the chip, then the search (name, model, labels, the file it runs).
+      const q = ui.q.trim().toLowerCase();
+      const shown = machines.filter((m) => (ui.filter === "all" || bucket(m) === ui.filter)
+        && (!q || [m.name, modelOf(m), ...(m.labels || []), m.telemetry?.job?.file || ""].some((t) => t.toLowerCase().includes(q))));
+      if (!shown.length) { list.innerHTML = '<p class="empty">No machine like that.</p>'; return; }
+      const chips = (m) => [...(m.labels || []).map((l) => `<span class="tag">${esc(l)}</span>`), m.induction_required ? '<span class="tag induction" title="Only members an admin gave permission may use it">permission</span>' : ""].join("");
       const card = (m) => {
         const t = m.telemetry || {};
-        const shown = shownState(m);
+        const shownS = shownState(m);
         const percent = t.job ? Math.round((t.job.done * 100) / Math.max(1, t.job.total)) : null;
         const bar = t.job ? `<div class="card-progress"><i style="width: ${percent}%"></i></div>` : "";
         const [doing, what] = now(m, t);
@@ -1662,24 +1938,73 @@ const PAGE: &str = r##"<!doctype html>
         const thumb = profile && profile.image ? `<img class="thumb" src="profiles/${esc(m.profile)}.svg" alt="">`
           : ["fdm", "laser", "cnc"].includes(m.kind) ? `<img class="thumb" src="profiles/_generic/${esc(m.kind)}.svg" alt="">` : `<span class="thumb"></span>`;
         // The model under the name, unless the name says it already; how it connects with it.
-        const model = profile ? (profile.model.includes(profile.brand) ? profile.model : `${profile.brand} ${profile.model}`) : KIND[m.kind] || m.kind;
+        const model = modelOf(m);
         const under = [m.name.toLowerCase().includes(model.toLowerCase()) ? null : model, LINK[m.link] || m.link].filter(Boolean).join(" · ");
+        const tags = chips(m);
         return `<a class="machine" href="machines/${encodeURIComponent(m.id)}">
           ${thumb}
-          <div class="m-col"><b class="name">${esc(m.name)}</b><small>${esc(under)}</small>${m.loaded ? `<small class="m-spool"><i class="m-swatch" style="background:${esc(m.loaded.color || "transparent")}"></i>${esc(loadedText(m.loaded))}</small>` : ""}</div>
+          <div class="m-col"><b class="name">${esc(m.name)}</b><small>${esc(under)}</small>${m.loaded ? `<small class="m-spool"><i class="m-swatch" style="background:${esc(m.loaded.color || "transparent")}"></i>${esc(loadedText(m.loaded))}</small>` : ""}${tags ? `<span class="tags">${tags}</span>` : ""}</div>
           ${col("m-now", doing, what)}
           ${trouble(m)}
-          <div class="state ${esc(shown.cls)}">${esc(shown.text)}</div>
+          <div class="state ${esc(shownS.cls)}">${esc(shownS.text)}</div>
           ${bar}
         </a>`;
       };
-      // By kind, so a laser does not stand between the printers; by name within each.
+      // The table, for many machines: one line each, the same columns for every kind.
+      const row = (m) => {
+        const t = m.telemetry || {};
+        const st = shownState(m);
+        const percent = t.job ? Math.round((t.job.done * 100) / Math.max(1, t.job.total)) : null;
+        const go = `machines/${encodeURIComponent(m.id)}`;
+        return `<tr data-go="${esc(go)}"><td><a href="${esc(go)}"><b>${esc(m.name)}</b></a></td><td><span class="state ${esc(st.cls)}">${esc(st.text)}</span></td><td>${esc(modelOf(m))}</td>
+          <td>${m.loaded ? `<span class="m-spool"><i class="m-swatch" style="background:${esc(m.loaded.color || "transparent")}"></i>${esc(m.loaded.material || m.loaded.name)}</span>` : '<span class="muted">–</span>'}</td>
+          <td>${t.job ? `<div class="t-progress"><i style="width:${percent}%"></i></div><small>${percent} % · ${esc(t.job.file)}</small>` : '<span class="muted">–</span>'}</td>
+          <td>${t.job && t.job.remaining_s != null ? esc(timeLeft(t.job.remaining_s).split(" · ")[1] || "") : '<span class="muted">–</span>'}</td>
+          <td>${chips(m) || '<span class="muted">–</span>'}</td></tr>`;
+      };
+      // Grouped: by kind (as it was), model or label (a machine with two labels is in both).
       const GROUPS = [["fdm", "3D printers"], ["laser", "Lasers"], ["cnc", "CNC machines"], ["cutter", "Cutting plotters"], ["label", "Label printers"], ["paper", "Paper printers"], ["other", "Other machines"]];
-      list.innerHTML = GROUPS.map(([kind, title]) => {
-        const group = machines.filter((m) => (GROUPS.some(([k]) => k === m.kind) ? m.kind : "other") === kind);
-        return group.length ? `<h2 class="group">${title} <span>${group.length}</span></h2>${group.map(card).join("")}` : "";
+      let groups;
+      if (ui.group === "model") {
+        const models = [...new Set(shown.map(modelOf))].sort();
+        groups = models.map((g) => [g, shown.filter((m) => modelOf(m) === g)]);
+      } else if (ui.group === "label") {
+        const labels = [...new Set(shown.flatMap((m) => m.labels || []))].sort((a, b) => a.localeCompare(b));
+        groups = [...labels.map((l) => [l, shown.filter((m) => (m.labels || []).includes(l))]), ["No label", shown.filter((m) => !(m.labels || []).length)]];
+      } else if (ui.group === "none") {
+        groups = [["", shown]];
+      } else {
+        groups = GROUPS.map(([kind, title]) => [title, shown.filter((m) => (GROUPS.some(([k]) => k === m.kind) ? m.kind : "other") === kind)]);
+      }
+      groups = groups.filter(([, ms]) => ms.length);
+      for (const b of document.querySelectorAll("[data-view]")) b.setAttribute("aria-pressed", String(b.dataset.view === ui.view));
+      list.innerHTML = groups.map(([title, ms]) => {
+        const head = title ? `<h2 class="group">${esc(title)} <span>${ms.length}</span></h2>` : "";
+        return ui.view === "table"
+          ? `${head}<div class="table-wrap"><table class="machine-table"><thead><tr><th>Machine</th><th>State</th><th>Model</th><th>Material</th><th>Progress</th><th>Done at</th><th>Labels</th></tr></thead><tbody>${ms.map(row).join("")}</tbody></table></div>`
+          : `${head}${ms.map((m) => card(m) + confirmHtml(m, "machines/")).join("")}`;
       }).join("");
   }
+  // The tools: a chip, the search, the grouping, the view.
+  document.querySelector("[data-chips]").addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-filter]");
+    if (chip) { ui.filter = chip.dataset.filter; keep(); render(all); }
+  });
+  const search = document.querySelector("[data-search]");
+  search.value = ui.q;
+  search.addEventListener("input", () => { ui.q = search.value; render(all); });
+  const group = document.querySelector("[data-group]");
+  group.value = ui.group;
+  group.addEventListener("change", () => { ui.group = group.value; keep(); render(all); });
+  document.querySelector(".view-switch").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-view]");
+    if (b) { ui.view = b.dataset.view; keep(); render(all); }
+  });
+  // A row of the table opens its machine, as a card does.
+  document.getElementById("machines").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-go]");
+    if (tr && !e.target.closest("a")) location.href = tr.dataset.go;
+  });
   // The list comes again on every change (server-sent events); the browser reconnects
   // by itself when the connection drops.
   (async () => {
@@ -1999,7 +2324,7 @@ mod tests {
             machine_page::shown_state(&machine),
             ("no cassette".to_owned(), "attention".to_owned())
         );
-        let page = label_page::render("My space", &machine);
+        let page = label_page::render("My space", &machine, &[]);
         assert!(page.contains(r#"class="state attention""#));
     }
 

@@ -265,6 +265,20 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ),
     (
         "POST",
+        "/machines/{id}/labels",
+        Need::Machine(Level::Manage),
+        Some("labelled"),
+    ),
+    // Also needs owner or admin in the space it goes to; the handler checks that, and writes
+    // the audit log of both spaces.
+    (
+        "POST",
+        "/machines/{id}/move",
+        Need::Machine(Level::Manage),
+        None,
+    ),
+    (
+        "POST",
         "/machines/{id}/remove",
         Need::Machine(Level::Manage),
         Some("removed"),
@@ -285,13 +299,13 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         "POST",
         "/machines/{id}/grants",
         Need::Machine(Level::Manage),
-        Some("gave an induction on"),
+        Some("gave permission on"),
     ),
     (
         "POST",
         "/machines/{id}/grants/{user}/remove",
         Need::Machine(Level::Manage),
-        Some("took an induction away on"),
+        Some("took permission away on"),
     ),
     (
         "POST",
@@ -359,6 +373,98 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         "/machines/{id}/usb/send",
         Need::Machine(Level::Use),
         Some("sent a file to the USB stick of"),
+    ),
+    // The farm (crate::farm): projects and parts are work; confirming a plate is using the
+    // machine; a machine joins the queue by who manages it; a count corrected by an admin.
+    (
+        "POST",
+        "/api/projects",
+        Need::Role(Role::Member),
+        Some("made a project"),
+    ),
+    (
+        "POST",
+        "/api/projects/{id}",
+        Need::Role(Role::Member),
+        Some("changed a project"),
+    ),
+    (
+        "POST",
+        "/api/projects/{id}/remove",
+        Need::Role(Role::Member),
+        Some("removed a project"),
+    ),
+    (
+        "POST",
+        "/api/projects/{id}/parts",
+        Need::Role(Role::Member),
+        Some("added a part"),
+    ),
+    (
+        "POST",
+        "/api/parts/{id}",
+        Need::Role(Role::Member),
+        Some("changed a part"),
+    ),
+    (
+        "POST",
+        "/api/parts/{id}/remove",
+        Need::Role(Role::Member),
+        Some("removed a part"),
+    ),
+    (
+        "POST",
+        "/api/parts/{id}/files",
+        Need::Role(Role::Member),
+        Some("gave a part a file"),
+    ),
+    (
+        "POST",
+        "/api/parts/{id}/files/{file}/remove",
+        Need::Role(Role::Member),
+        Some("took a file from a part"),
+    ),
+    (
+        "POST",
+        "/api/parts/{id}/count",
+        Need::Role(Role::Admin),
+        Some("corrected a part's count"),
+    ),
+    (
+        "POST",
+        "/machines/{id}/farm",
+        Need::Machine(Level::Manage),
+        Some("changed whether the queue sends work to"),
+    ),
+    (
+        "POST",
+        "/machines/{id}/sheet",
+        Need::Machine(Level::Use),
+        Some("swapped the build plate of"),
+    ),
+    (
+        "POST",
+        "/machines/{id}/upkeep",
+        Need::Machine(Level::Manage),
+        Some("set the service interval of"),
+    ),
+    (
+        "POST",
+        "/machines/{id}/serviced",
+        Need::Machine(Level::Manage),
+        Some("did the maintenance of"),
+    ),
+    (
+        "POST",
+        "/machines/{id}/ready",
+        Need::Machine(Level::Use),
+        Some("set ready"),
+    ),
+    (
+        "POST",
+        "/machines/{id}/bad",
+        Need::Machine(Level::Use),
+        Some("marked a bad print on"),
     ),
     // Files: the machine is in the form; the handler checks its right.
     (
@@ -703,8 +809,8 @@ fn role_refusal(role: Role) -> &'static str {
 fn level_refusal(level: Level) -> &'static str {
     match level {
         Level::View => "not in this space",
-        Level::Use => "you may not use this machine: it needs an induction",
-        Level::Operate => "you may not operate this machine: ask for an induction",
+        Level::Use => "you may not use this machine: it needs permission from an admin",
+        Level::Operate => "you may not operate this machine: ask an admin for permission",
         Level::Manage => "only an admin or owner of the space may change this machine",
     }
 }
@@ -931,6 +1037,13 @@ impl Store {
             .query_row("SELECT name FROM spaces WHERE id = ?1", [space], |r| {
                 r.get(0)
             })
+    }
+
+    /// A space by its id under the hood.
+    pub fn space_by_uid(&self, uid: &str) -> rusqlite::Result<Option<i64>> {
+        self.db
+            .query_row("SELECT id FROM spaces WHERE uid = ?1", [uid], |r| r.get(0))
+            .optional()
     }
 
     pub fn space_uid(&self, space: i64) -> rusqlite::Result<String> {
@@ -1489,6 +1602,21 @@ impl Store {
     }
 }
 
+/// For the tests that read every route: all of the cloud's source files.
+#[cfg(test)]
+pub(crate) fn route_sources() -> Vec<String> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut out: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "rs"))
+        .map(|e| std::fs::read_to_string(e.path()).unwrap())
+        .collect();
+    out.sort();
+    assert!(out.len() > 20, "the cloud's sources");
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1504,22 +1632,11 @@ mod tests {
     /// (or worse, through). Read from the source, so a new route is checked too.
     #[test]
     fn every_change_has_a_rule() {
-        let sources = [
-            include_str!("main.rs"),
-            include_str!("auth.rs"),
-            include_str!("files.rs"),
-            include_str!("downloads.rs"),
-            include_str!("codes.rs"),
-            include_str!("prusa_connect.rs"),
-            include_str!("simplyprint.rs"),
-            include_str!("spoolman.rs"),
-            include_str!("spoolmandb.rs"),
-            include_str!("stock.rs"),
-            include_str!("space_page.rs"),
-        ];
+        // Every source file, read when the test runs: a new module cannot be forgotten.
+        let sources = crate::access::route_sources();
         let mut missing = Vec::new();
         let mut checked = 0;
-        for source in sources {
+        for source in &sources {
             for piece in source.split(".route(").skip(1) {
                 let piece = piece.trim_start();
                 let path = match piece.strip_prefix('"').and_then(|r| r.split('"').next()) {
@@ -1606,6 +1723,114 @@ mod tests {
                     .unwrap(),
             )
             .await
+        }
+    }
+
+    /// A machine moves to another space of the organisation, by someone who is admin in both;
+    /// not while it has work, not into a space they do not manage. Permissions on it stay
+    /// behind, and so does its place in the queue.
+    #[tokio::test]
+    async fn a_machine_moves_to_another_space() {
+        let w = World::new();
+        let (org, a1, a2, b1) = {
+            let s = w.store.lock().unwrap();
+            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
+            let (org, a1) = s
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .unwrap();
+            let a2 = s.create_space(org, "Lab").unwrap();
+            let (_, b1) = s.create_organisation("Makers Zuid", "Hal", owner).unwrap();
+            (org, a1, a2, b1)
+        };
+        // Both signed in to the first space.
+        let in_first = |name: &str, role: Role| {
+            let s = w.store.lock().unwrap();
+            let user = s.create_user(name, name, "x", false).unwrap();
+            s.set_org_membership(user, org, role.as_str()).unwrap();
+            let token = s.create_session(user, Some(a1), "", "").unwrap();
+            (user, format!("{}={token}", crate::auth::COOKIE))
+        };
+        let (_, adam) = in_first("adam", Role::Admin);
+        let (mia_id, mia) = in_first("mia", Role::Member);
+        let m = {
+            let mut s = w.store.lock().unwrap();
+            let m = s
+                .add_virtual(a1, crate::profiles::find("prusa/mk3s").unwrap())
+                .unwrap();
+            s.set_takes_work(a1, &m, true).unwrap();
+            m
+        };
+        w.post(&adam, &format!("/machines/{m}/access"), "induction=1")
+            .await;
+        w.post(
+            &adam,
+            &format!("/machines/{m}/grants"),
+            &format!("user={mia_id}&level=use"),
+        )
+        .await;
+        let (uid_a2, uid_b1) = {
+            let s = w.store.lock().unwrap();
+            (s.space_uid(a2).unwrap(), s.space_uid(b1).unwrap())
+        };
+        let to = |uid: &str| format!("space={uid}");
+        let path = format!("/machines/{m}/move");
+        assert_eq!(
+            w.post(&mia, &path, &to(&uid_a2)).await.0,
+            StatusCode::FORBIDDEN,
+            "a member does not manage it"
+        );
+        assert_eq!(
+            w.post(&adam, &path, &to(&uid_b1)).await.0,
+            StatusCode::FORBIDDEN,
+            "not admin there"
+        );
+        // Work under way: not now.
+        w.store
+            .lock()
+            .unwrap()
+            .db
+            .execute(
+                "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at) VALUES (?1, ?2, 'f', 'a.gcode', 'printing', 0)",
+                params![a1, m],
+            )
+            .unwrap();
+        let (status, why) = w.post(&adam, &path, &to(&uid_a2)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{why}");
+        w.store
+            .lock()
+            .unwrap()
+            .db
+            .execute("UPDATE jobs SET state = 'stopped', taken_at = 1", [])
+            .unwrap();
+        let (status, body) = w.post(&adam, &path, &to(&uid_a2)).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        let s = w.store.lock().unwrap();
+        assert!(
+            s.machine(a1, &m).unwrap().is_none(),
+            "gone from the first space"
+        );
+        assert!(s.machine(a2, &m).unwrap().is_some(), "in the second");
+        assert!(
+            !s.takes_work(&m).unwrap(),
+            "no work from the new space's queue until someone says"
+        );
+        let grants: i64 =
+            s.db.query_row(
+                "SELECT COUNT(*) FROM machine_grants WHERE machine_id = ?1",
+                [&m],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(grants, 0, "permissions stay behind");
+        for (space, action) in [(a1, "moved to another space"), (a2, "moved here")] {
+            let n: i64 =
+                s.db.query_row(
+                    "SELECT COUNT(*) FROM audit_log WHERE space_id = ?1 AND action = ?2",
+                    params![space, action],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(n, 1, "{action} in the audit log of space {space}");
         }
     }
 

@@ -591,7 +591,7 @@ async fn print(
     if let Err(why) = fit(&file, &machine) {
         return (StatusCode::CONFLICT, why).into_response();
     }
-    match store.add_job(space, &machine.id, &file, None) {
+    match store.add_job(space, &machine.id, &file, None, Some(&access.actor)) {
         Ok(Ok(_)) if headers.contains_key("x-requested-with") => {
             StatusCode::NO_CONTENT.into_response()
         }
@@ -686,7 +686,7 @@ async fn control_job(
             Ok(None) => return (StatusCode::CONFLICT, "its file is gone").into_response(),
             Err(error) => return failed(error),
         };
-        return match store.add_job(space, &id, &file, last.restart_line) {
+        return match store.add_job(space, &id, &file, last.restart_line, Some(&access.actor)) {
             Ok(Ok(_)) => StatusCode::NO_CONTENT.into_response(),
             Ok(Err(why)) => (StatusCode::CONFLICT, why).into_response(),
             Err(error) => failed(error),

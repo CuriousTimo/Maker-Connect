@@ -146,6 +146,8 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
         ("restart_line", "INTEGER"),
         // When someone took a finished print off the bed.
         ("taken_at", "INTEGER"),
+        // Who started it: a person's or a token's name, or the queue's.
+        ("by_name", "TEXT"),
     ] {
         let present: bool = db.query_row(
             "SELECT COUNT(*) FROM pragma_table_info('jobs') WHERE name = ?1",
@@ -188,6 +190,12 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
         ("laser_w", "REAL"),
         // Only those with an induction (a grant) may use it (crate::access).
         ("induction_required", "INTEGER NOT NULL DEFAULT 0"),
+        // Labels its owners gave it, as a JSON list.
+        ("labels", "TEXT"),
+        // Who started a print from its USB stick on the website, and when (no job row:
+        // the file is the printer's).
+        ("usb_print_by", "TEXT"),
+        ("usb_print_at", "INTEGER"),
     ] {
         let present: bool = db.query_row(
             "SELECT COUNT(*) FROM pragma_table_info('machines') WHERE name = ?1",
@@ -209,6 +217,7 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
     // After the first space: it gets its organisation and its id there.
     crate::accounts::migrate(db)?;
     crate::printer_files::migrate(db)?;
+    crate::farm::migrate(db)?;
     db.execute(
         "INSERT INTO meta (key, value) VALUES ('opened_by', ?1)
          ON CONFLICT (key) DO UPDATE SET value = excluded.value",
@@ -264,12 +273,26 @@ pub struct Machine {
     pub loaded: Option<Loaded>,
     /// A print that finished and is still on the bed, until someone says it was taken.
     pub on_bed: Option<OnBed>,
+    /// Who started the print from its USB stick on the website, while it may still run.
+    pub usb_print_by: Option<String>,
     /// A printer on Klipper: the token in the address its moonraker.conf names. Shown on its
     /// page, never in the live list.
     #[serde(skip)]
     pub moonraker_token: Option<String>,
     /// A laser's optical power, as its owner says: its module (a profile names one).
     pub laser_w: Option<f64>,
+    /// Labels its owners gave it (`MK4-BL`, `Room 2`): to find it, filter on, group by.
+    pub labels: Vec<String>,
+    /// Only who had the induction may use it (crate::access).
+    pub induction_required: bool,
+    /// A plate for a part ended here and waits for someone to confirm it (crate::farm).
+    pub confirm: Option<crate::farm::Confirm>,
+    /// It takes work from the queue (crate::farm).
+    pub farm: bool,
+    /// Its upkeep: a service every so many printing hours (crate::farm).
+    pub upkeep: Option<crate::farm::Upkeep>,
+    /// The build plate on it (`Textured PEI`), as someone said (crate::farm).
+    pub sheet: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -294,6 +317,23 @@ pub struct Loaded {
     pub amount: f64,
     /// `g`, `m`, `pcs`.
     pub unit: String,
+    /// The material's nozzle temperature, for loading and unloading it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nozzle_c: Option<f64>,
+}
+
+/// A machine's jobs in numbers (ended ones): for its page.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct JobStats {
+    pub finished: i64,
+    pub stopped: i64,
+    pub failed: i64,
+    /// Seconds from start to end, over ended jobs.
+    pub seconds: i64,
+    /// Filament the finished jobs used, as their slicers said (grams).
+    pub grams: f64,
+    /// Parts people confirmed good (the farm's plates).
+    pub parts: i64,
 }
 
 /// A print on the bed: the job that made it, and when it ended.
@@ -469,6 +509,8 @@ pub struct Job {
     pub from_line: Option<u64>,
     /// Where it could start again, when it did not run to the end.
     pub restart_line: Option<u64>,
+    /// Who started it: a person's or a token's name, or "queue · project".
+    pub by: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -498,7 +540,7 @@ impl JobState {
             .unwrap_or(JobState::Failed)
     }
 
-    fn name(self) -> String {
+    pub(crate) fn name(self) -> String {
         serde_json::to_value(self)
             .ok()
             .and_then(|v| v.as_str().map(str::to_owned))
@@ -778,14 +820,15 @@ impl Store {
         machine: &str,
         file: &StoredFile,
         from_line: Option<u64>,
+        by: Option<&str>,
     ) -> rusqlite::Result<Result<i64, &'static str>> {
         if self.active_job(machine)?.is_some() {
             return Ok(Err("the machine has a job already"));
         }
         self.db.execute(
-            "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at, from_line)
-             VALUES (?1, ?2, ?3, ?4, 'queued', ?5, ?6)",
-            params![space, machine, file.id, file.name, now(), from_line.map(|l| l as i64)],
+            "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at, from_line, by_name)
+             VALUES (?1, ?2, ?3, ?4, 'queued', ?5, ?6, ?7)",
+            params![space, machine, file.id, file.name, now(), from_line.map(|l| l as i64), by],
         )?;
         self.changed();
         Ok(Ok(self.db.last_insert_rowid()))
@@ -804,6 +847,7 @@ impl Store {
             reason: r.get(8)?,
             from_line: r.get::<_, Option<i64>>(9)?.map(|l| l as u64),
             restart_line: r.get::<_, Option<i64>>(10)?.map(|l| l as u64),
+            by: r.get(11)?,
         })
     }
 
@@ -812,7 +856,7 @@ impl Store {
         self.db
             .query_row(
                 "SELECT id, machine_id, file_id, file_name, state, created_at, started_at, ended_at, reason,
-                     from_line, restart_line
+                     from_line, restart_line, by_name
                  FROM jobs WHERE machine_id = ?1 AND state IN ('queued', 'printing', 'paused', 'stopping')
                  ORDER BY id LIMIT 1",
                 [machine],
@@ -825,7 +869,7 @@ impl Store {
         self.db
             .query_row(
                 "SELECT id, machine_id, file_id, file_name, state, created_at, started_at, ended_at, reason,
-                     from_line, restart_line
+                     from_line, restart_line, by_name
                  FROM jobs WHERE id = ?1",
                 [id],
                 Self::job_from,
@@ -848,7 +892,7 @@ impl Store {
             .db
             .query_row(
                 "SELECT id, machine_id, file_id, file_name, state, created_at, started_at, ended_at, reason,
-                     from_line, restart_line
+                     from_line, restart_line, by_name
                  FROM jobs WHERE machine_id = ?1 ORDER BY id DESC LIMIT 1",
                 [machine],
                 Self::job_from,
@@ -1553,6 +1597,79 @@ impl Store {
     }
 
     /// The owner removes a machine from the space: gone, with its token.
+    /// Moves a machine to another space: what someone may do with it there is that space's
+    /// business. Refused (with the reason) while it has work under way. What goes along is
+    /// the machine itself (name, labels, plate, service interval) and its agent, which keeps
+    /// its token. What stays: its jobs (their files are the old space's), the rights given
+    /// on it (people of the old space), the spool said to be loaded (the old space's
+    /// Materials), and its place in the old space's queue.
+    pub fn move_machine(
+        &mut self,
+        from: i64,
+        machine: &str,
+        to: i64,
+    ) -> rusqlite::Result<Result<(), String>> {
+        let here: bool = self.db.query_row(
+            "SELECT COUNT(*) FROM machines WHERE id = ?1 AND space_id = ?2",
+            params![machine, from],
+            |r| r.get(0),
+        )?;
+        if !here {
+            return Ok(Err("no such machine".to_owned()));
+        }
+        if from == to {
+            return Ok(Err("it is in that space already".to_owned()));
+        }
+        if self.active_job(machine)?.is_some() {
+            return Ok(Err(
+                "it has a job that is not over: stop it, or let it finish".to_owned(),
+            ));
+        }
+        if self.waiting_confirm(machine)?.is_some() {
+            return Ok(Err(
+                "a plate on it waits to be confirmed: Set ready or Bad print first".to_owned(),
+            ));
+        }
+        if self.on_bed(machine)?.is_some() {
+            return Ok(Err(
+                "a print is still on its bed: say it was taken first".to_owned()
+            ));
+        }
+        let sending: i64 = self.db.query_row(
+            "SELECT COUNT(*) FROM printer_transfers WHERE machine_id = ?1 AND state IN ('waiting', 'sent')",
+            [machine],
+            |r| r.get(0),
+        )?;
+        if sending > 0 {
+            return Ok(Err(
+                "a file is being sent to it: wait until it is there".to_owned()
+            ));
+        }
+        let tx = self.db.transaction()?;
+        tx.execute(
+            "UPDATE machines SET space_id = ?2, farm = 0 WHERE id = ?1",
+            params![machine, to],
+        )?;
+        tx.execute(
+            "DELETE FROM machine_grants WHERE machine_id = ?1",
+            [machine],
+        )?;
+        tx.execute(
+            "UPDATE spool SET machine = NULL WHERE machine = ?1 AND space_id = ?2",
+            params![machine, from],
+        )?;
+        tx.execute(
+            "UPDATE printer_transfers SET state = 'failed', reason = 'the machine moved to another space'
+             WHERE machine_id = ?1 AND state NOT IN ('finished', 'done', 'failed')",
+            [machine],
+        )?;
+        tx.commit()?;
+        // Commands asked in the old space are not the new one's.
+        self.commands.remove(machine);
+        self.changed();
+        Ok(Ok(()))
+    }
+
     pub fn remove(&mut self, space: i64, machine: &str) -> rusqlite::Result<bool> {
         let removed = self.db.execute(
             "DELETE FROM machines WHERE id = ?1 AND space_id = ?2",
@@ -1687,6 +1804,86 @@ impl Store {
         })
     }
 
+    /// A machine's labels: trimmed, without doubles, at most 12 of at most 24 characters.
+    pub fn set_labels(
+        &mut self,
+        space: i64,
+        machine: &str,
+        labels: &[String],
+    ) -> rusqlite::Result<bool> {
+        let mut clean: Vec<String> = Vec::new();
+        for label in labels {
+            let label: String = label.trim().chars().take(24).collect();
+            if !label.is_empty()
+                && !clean.iter().any(|l| l.eq_ignore_ascii_case(&label))
+                && clean.len() < 12
+            {
+                clean.push(label);
+            }
+        }
+        let n = self.db.execute(
+            "UPDATE machines SET labels = ?3 WHERE id = ?1 AND space_id = ?2",
+            params![
+                machine,
+                space,
+                serde_json::to_string(&clean).unwrap_or_default()
+            ],
+        )?;
+        self.changed();
+        Ok(n > 0)
+    }
+
+    /// A machine's latest jobs, newest first.
+    pub fn jobs_of(&self, space: i64, machine: &str, limit: usize) -> rusqlite::Result<Vec<Job>> {
+        let ids: Vec<i64> = {
+            let mut q = self.db.prepare(
+                "SELECT id FROM jobs WHERE space_id = ?1 AND machine_id = ?2 ORDER BY created_at DESC, id DESC LIMIT ?3",
+            )?;
+            q.query_map(params![space, machine, limit as i64], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        Ok(ids
+            .into_iter()
+            .filter_map(|id| self.job(id).ok().flatten())
+            .collect())
+    }
+
+    /// A machine's ended jobs in numbers.
+    pub fn job_stats(&self, space: i64, machine: &str) -> rusqlite::Result<JobStats> {
+        let mut stats = JobStats::default();
+        let mut q = self.db.prepare(
+            "SELECT j.state, j.started_at, j.ended_at, f.meta FROM jobs j LEFT JOIN files f ON f.id = j.file_id
+             WHERE j.space_id = ?1 AND j.machine_id = ?2 AND j.ended_at IS NOT NULL",
+        )?;
+        let rows = q.query_map(params![space, machine], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<i64>>(1)?,
+                r.get::<_, Option<i64>>(2)?,
+                r.get::<_, Option<String>>(3)?,
+            ))
+        })?;
+        stats.parts = self.parts_made(machine)?;
+        for (state, started, ended, meta) in rows.flatten() {
+            if let (Some(s), Some(e)) = (started, ended) {
+                stats.seconds += (e - s).max(0);
+            }
+            match state.as_str() {
+                "\"finished\"" | "finished" => {
+                    stats.finished += 1;
+                    stats.grams += meta
+                        .and_then(|m| serde_json::from_str::<crate::gcode::FileMeta>(&m).ok())
+                        .and_then(|m| m.filament_g)
+                        .unwrap_or(0.0);
+                }
+                "\"stopped\"" | "stopped" => stats.stopped += 1,
+                "\"failed\"" | "failed" => stats.failed += 1,
+                _ => {}
+            }
+        }
+        Ok(stats)
+    }
+
     /// One machine of a space.
     pub fn machine(&self, space: i64, id: &str) -> rusqlite::Result<Option<Machine>> {
         Ok(self.machines(space)?.into_iter().find(|m| m.id == id))
@@ -1697,7 +1894,7 @@ impl Store {
         let mut query = self.db.prepare(
             "SELECT id, name, kind, agent_version, last_seen, telemetry, profile, profile_chosen, link, details, mesh,
                     media, powered_by, power_channel, reached_through, agent, peer, out_of_use, out_of_use_at,
-                    laser_w
+                    laser_w, labels, induction_required
              FROM machines WHERE space_id = ?1 ORDER BY name",
         )?;
         let now = now();
@@ -1746,8 +1943,18 @@ impl Store {
                 }),
                 loaded: None,
                 on_bed: None,
+                usb_print_by: None,
                 moonraker_token: None,
                 laser_w: r.get(19)?,
+                labels: r
+                    .get::<_, Option<String>>(20)?
+                    .and_then(|l| serde_json::from_str(&l).ok())
+                    .unwrap_or_default(),
+                induction_required: r.get(21)?,
+                confirm: None,
+                farm: false,
+                upkeep: None,
+                sheet: None,
             })
         })?;
         let mut machines: Vec<Machine> = rows.collect::<rusqlite::Result<_>>()?;
@@ -1766,6 +1973,7 @@ impl Store {
                             .map(|m| m.color_name.clone().unwrap_or_else(|| m.name.clone()))
                             .unwrap_or_else(|| item.material.clone()),
                         color: material.and_then(|m| m.color.clone()),
+                        nozzle_c: material.and_then(|m| m.nozzle_c),
                         material: item.material.parse::<i64>().ok().and_then(|id| {
                             self.db
                                 .query_row(
@@ -1799,6 +2007,24 @@ impl Store {
                 });
             if machine.kind == MachineKind::Fdm {
                 machine.on_bed = self.on_bed(&machine.id)?;
+                machine.usb_print_by = self
+                    .db
+                    .query_row(
+                        "SELECT usb_print_by FROM machines WHERE id = ?1",
+                        [&machine.id],
+                        |r| r.get(0),
+                    )
+                    .optional()?
+                    .flatten();
+                // A plate for a part waits for someone to confirm it (crate::farm): that, not
+                // "take the print".
+                machine.confirm = self.waiting_confirm(&machine.id)?;
+                if machine.confirm.is_some() {
+                    machine.on_bed = None;
+                }
+                machine.farm = self.takes_work(&machine.id)?;
+                machine.upkeep = self.upkeep(&machine.id)?;
+                machine.sheet = self.sheet_of(&machine.id)?;
             }
             if machine.link == "simplyprint" {
                 machine.moonraker_token = self.moonraker_token(space, &machine.id)?;
@@ -1908,7 +2134,7 @@ mod tests {
             .unwrap();
         let file = store.file(space, "f1").unwrap().unwrap();
         let job = store
-            .add_job(space, &printer, &file, None)
+            .add_job(space, &printer, &file, None, None)
             .unwrap()
             .unwrap();
         store.set_job(job, JobState::Printing, None).unwrap();
@@ -1989,7 +2215,7 @@ mod tests {
             .unwrap();
         let file = store.file(space, "f1").unwrap().unwrap();
         let job = store
-            .add_job(space, &printer, &file, None)
+            .add_job(space, &printer, &file, None, None)
             .unwrap()
             .unwrap();
         store.set_job(job, JobState::Printing, None).unwrap();

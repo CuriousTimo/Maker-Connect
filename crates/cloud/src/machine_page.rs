@@ -42,8 +42,18 @@ pub(crate) fn shown_state(machine: &Machine) -> (String, String) {
     }
 }
 
+/// What the page shows beyond the machine itself: whether who looks may manage it, and its
+/// latest jobs with their numbers.
+pub struct Extra {
+    pub manage: bool,
+    /// Spaces it could be moved to: (uid, label).
+    pub move_to: Vec<(String, String)>,
+    pub jobs: Vec<store::Job>,
+    pub stats: store::JobStats,
+}
+
 /// The whole page.
-pub fn render(space: &str, machine: &Machine) -> String {
+pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
     let found = machine.profile.as_deref().and_then(profiles::find);
     // A laser without a profile: its work area from what its controller says.
     let told = found
@@ -80,7 +90,8 @@ pub fn render(space: &str, machine: &Machine) -> String {
     <h2>{name}</h2>
     <span class="state {state_class}" data-live="state">{state}</span>
   </div>
-  <p class="subtitle">{kind} · {link}</p>
+  <p class="subtitle">{subtitle}</p>
+  {labels}
   <div class="notices" data-notices>{notices}</div>
   <nav class="tabs" role="tablist">
     <a href="#overview" role="tab">Overview</a>
@@ -93,6 +104,7 @@ pub fn render(space: &str, machine: &Machine) -> String {
   </section>
   <section class="tab" id="control" role="tabpanel" hidden>
 {control}
+<div class="grid-2 control-more">{filament}{sheet}</div>
   </section>
   <section class="tab" id="terminal" role="tabpanel" hidden>
 {terminal}
@@ -104,6 +116,7 @@ pub fn render(space: &str, machine: &Machine) -> String {
   {usb}
   <section class="tab" id="settings" role="tabpanel" hidden>
 {settings}
+{upkeep}
   </section>
 </main>
 <script>
@@ -116,11 +129,21 @@ pub fn render(space: &str, machine: &Machine) -> String {
         id = escape(&machine.id),
         state = escape(&state),
         notices = notices(machine),
-        kind = escape(kind),
-        overview = overview(machine, profile),
+        overview = overview(machine, profile, &jobs_card(machine, extra)),
+        subtitle = escape(
+            &if machine.name.to_lowercase().contains(&kind.to_lowercase()) {
+                link.to_owned()
+            } else {
+                format!("{kind} · {link}")
+            }
+        ),
+        labels = labels_line(machine, extra.manage),
+        filament = filament_card(machine),
+        sheet = sheet_card(machine),
+        upkeep = upkeep_card(machine, extra.manage),
         control = control(machine, profile),
         telemetry = telemetry_tab(machine),
-        settings = settings(machine),
+        settings = settings(machine, &extra.move_to),
         terminal = terminal(machine),
         usb_tab = if machine.link == "prusa-connect" {
             r##"<a href="#usb" role="tab">USB</a>
@@ -172,6 +195,46 @@ fn notices(machine: &Machine) -> String {
         };
         out += &format!(
             r#"<div class="notice out"><span><b>Out of use</b>{why}. It takes no jobs until it is back.</span><form method="post" action="{id}/out-of-use" data-async data-done="Back in use" data-then="reload"><input type="hidden" name="action" value="back"><button class="ghost">Back in use</button></form></div>"#
+        );
+    }
+    if let Some(u) = machine.upkeep.as_ref().filter(|u| u.due) {
+        out += &format!(
+            r##"<div class="notice bed"><span><b>Service due</b>: {:.0} of {:.0} printing hours. It takes no work from the queue until it is done.</span><a href="#settings">Upkeep</a></div>"##,
+            u.since_h, u.every_h
+        );
+    }
+    // A plate for a project waits for someone: the same as the script draws (confirmHtml).
+    if let Some(c) = &machine.confirm {
+        let ok = c.state == "finished";
+        out += &format!(
+            r#"<div class="notice confirm"><span><b>{file}</b>{part} {how}</span>
+      <form data-confirm action="{id}/ready"><input type="hidden" name="job" value="{job}">
+        <label>Good <input name="good" type="number" min="0" max="10000" value="{good}" aria-label="Parts that came off good"> / {per}</label>
+        <button>Set ready</button><button class="danger" formaction="{id}/bad">Bad print</button></form></div>"#,
+            file = escape(&c.file_name),
+            part = if c.part.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " for <b>{}</b>{}",
+                    escape(&c.part),
+                    if c.project.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" ({})", escape(&c.project))
+                    }
+                )
+            },
+            how = if ok {
+                "is done: how many came off good?"
+            } else if c.state == "failed" {
+                "failed: did any come off good?"
+            } else {
+                "was stopped: did any come off good?"
+            },
+            job = c.job,
+            good = if ok { c.per_plate } else { 0 },
+            per = c.per_plate,
         );
     }
     if let Some(bed) = &machine.on_bed {
@@ -573,7 +636,206 @@ fn live_row(label: &str, key: &str, value: Option<String>) -> String {
     )
 }
 
-pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
+/// Its labels under the title; who may manage it edits them there.
+fn labels_line(machine: &Machine, manage: bool) -> String {
+    let tags: String = machine
+        .labels
+        .iter()
+        .map(|l| format!(r#"<span class="tag">{}</span>"#, escape(l)))
+        .chain(machine.induction_required.then(|| {
+            r#"<span class="tag induction" title="Only members an admin gave permission may use it">permission</span>"#.to_owned()
+        }))
+        .collect();
+    let edit = if manage {
+        format!(
+            r#"<details class="label-edit"><summary>{}</summary><form method="post" action="{id}/labels" data-async data-then="reload" data-done="Labels saved"><input name="labels" value="{value}" maxlength="300" placeholder="MK4-BL, Room 2" aria-label="Labels, separated by commas"><button>Save</button></form></details>"#,
+            if machine.labels.is_empty() {
+                "Add labels"
+            } else {
+                "Edit labels"
+            },
+            id = escape(&machine.id),
+            value = escape(&machine.labels.join(", ")),
+        )
+    } else {
+        String::new()
+    };
+    if tags.is_empty() && edit.is_empty() {
+        return String::new();
+    }
+    format!(r#"<div class="tags head-tags">{tags}{edit}</div>"#)
+}
+
+/// Its jobs: the numbers, and the latest, newest first.
+fn jobs_card(machine: &Machine, extra: &Extra) -> String {
+    if machine.kind == maker_connect_protocol::MachineKind::Label {
+        return String::new();
+    }
+    let s = &extra.stats;
+    let ended = s.finished + s.stopped + s.failed;
+    let numbers = if ended == 0 {
+        r#"<p class="empty">No job has ended on it yet.</p>"#.to_owned()
+    } else {
+        let hours = s.seconds as f64 / 3600.0;
+        let rate = format!("{:.0} %", s.finished as f64 * 100.0 / ended as f64);
+        format!(
+            r#"<div class="stats"><span><b>{rate}</b><small>succeeded</small></span><span><b>{ended}</b><small>jobs run</small></span>{parts}<span><b>{hours}</b><small>printing</small></span>{grams}{service}</div>"#,
+            parts = if s.parts > 0 {
+                format!(
+                    r#"<span><b>{}</b><small>parts made</small></span>"#,
+                    s.parts
+                )
+            } else {
+                String::new()
+            },
+            service = machine.upkeep.as_ref().map_or(String::new(), |u| {
+                let left = u.every_h - u.since_h;
+                if left <= 0.0 {
+                    r#"<span class="due"><b>now</b><small>service due</small></span>"#.to_owned()
+                } else {
+                    format!(r#"<span><b>{left:.0} h</b><small>to the next service</small></span>"#)
+                }
+            }),
+            rate = rate,
+            hours = if hours < 10.0 {
+                format!("{hours:.1} h")
+            } else {
+                format!("{hours:.0} h")
+            },
+            grams = if s.grams > 0.0 {
+                format!(
+                    r#"<span><b>{:.0} g</b><small>filament (slicer)</small></span>"#,
+                    s.grams
+                )
+            } else {
+                String::new()
+            },
+        )
+    };
+    let rows: String = extra
+        .jobs
+        .iter()
+        .map(|j| {
+            let state = j.state.name();
+            let took = match (j.started_at, j.ended_at) {
+                (Some(a), Some(b)) => duration((b - a).max(0) as u64),
+                _ => String::new(),
+            };
+            format!(
+                r#"<li><span class="j-name" title="{name}">{name}</span><b class="badge {state}">{state}</b><small>{when}{by}{took}{why}</small></li>"#,
+                name = escape(&j.file_name),
+                by = j.by.as_deref().map(|b| format!(" · {}", escape(b))).unwrap_or_default(),
+                when = crate::spoolman::iso(j.created_at).replace('T', " ").chars().take(16).collect::<String>(),
+                took = if took.is_empty() { took } else { format!(" · {took}") },
+                why = j.reason.as_deref().map(|r| format!(" · {}", escape(r))).unwrap_or_default(),
+            )
+        })
+        .collect();
+    card(
+        "Jobs",
+        "What ran on it, newest first",
+        &format!(
+            r#"{numbers}<ol class="job-history">{}</ol>"#,
+            if rows.is_empty() {
+                r#"<li class="empty">None yet</li>"#.to_owned()
+            } else {
+                rows
+            }
+        ),
+    )
+}
+
+/// Its upkeep: a service every so many printing hours; who manages it sets that, and says
+/// when the service was done.
+fn upkeep_card(machine: &Machine, manage: bool) -> String {
+    let state = match &machine.upkeep {
+        None => "No service interval set.".to_owned(),
+        Some(u) if u.due => format!(
+            "<b>Service due</b>: {:.0} of {:.0} printing hours. It takes no work from the queue until it is done.",
+            u.since_h, u.every_h
+        ),
+        Some(u) => format!(
+            "{:.0} of {:.0} printing hours since the last service: {:.0} h to go.",
+            u.since_h,
+            u.every_h,
+            u.every_h - u.since_h
+        ),
+    };
+    let forms = if manage {
+        format!(
+            r#"<form method="post" action="{id}/upkeep" data-async data-done="Saved" data-then="reload" class="upkeep-form"><label>Service every <input name="every_h" type="number" min="1" step="1" value="{every}" placeholder="200" style="width:7em"> printing hours</label><button class="ghost">Save</button></form>
+<form method="post" action="{id}/serviced" data-async data-done="Maintenance noted: the count starts again" data-then="reload" data-confirm="The service is done: start counting again?"><button>Maintenance done</button></form>"#,
+            id = escape(&machine.id),
+            every = machine
+                .upkeep
+                .as_ref()
+                .map(|u| format!("{:.0}", u.every_h))
+                .unwrap_or_default(),
+        )
+    } else {
+        String::new()
+    };
+    card(
+        "Upkeep",
+        "Cleaning, lubrication, belts, nozzle: every so many hours",
+        &format!(r#"<p>{state}</p>{forms}"#),
+    )
+}
+
+/// The build plate on a 3D printer: which kind (smooth PEI, textured, satin…), so the queue
+/// only sends it plates whose file wants that kind. Plates are swapped between printers by
+/// hand; whoever does it says which is on now.
+fn sheet_card(machine: &Machine) -> String {
+    if machine.kind != MachineKind::Fdm {
+        return String::new();
+    }
+    let on = machine.sheet.as_deref().unwrap_or("");
+    card(
+        "Build plate",
+        "Swapped one? Say which is on: the queue follows it",
+        &format!(
+            r#"<p>{now}</p><form method="post" action="{id}/sheet" data-async data-done="Build plate noted" data-then="reload" class="upkeep-form"><input name="sheet" value="{on}" maxlength="40" list="sheet-kinds" placeholder="Smooth PEI" aria-label="The build plate on it"><datalist id="sheet-kinds"><option value="Smooth PEI"><option value="Textured PEI"><option value="Satin"><option value="Glass"><option value="Garolite"><option value="PEO"></datalist><button class="ghost">Save</button></form>"#,
+            now = if on.is_empty() {
+                "Not said: a file that wants a certain plate does not go to it.".to_owned()
+            } else {
+                format!("<b>{}</b> is on.", escape(on))
+            },
+            id = escape(&machine.id),
+            on = escape(on),
+        ),
+    )
+}
+
+/// A 3D printer's filament: the spool loaded (from Materials), and loading or unloading it,
+/// hot to that spool's temperature first.
+fn filament_card(machine: &Machine) -> String {
+    if machine.kind != MachineKind::Fdm || !store::takes_commands(&machine.link) {
+        return String::new();
+    }
+    let loaded = machine.loaded.as_ref().map_or(
+        r#"<p class="empty">No spool said to be loaded: <a href="../stock#board">choose one on the Materials board</a>.</p>"#.to_owned(),
+        |l| {
+            format!(
+                r#"<p class="loaded-spool"><i class="m-swatch" style="background:{color}"></i><b>{name}</b> <small>{material}{temp} · {item}</small></p>"#,
+                color = escape(l.color.as_deref().unwrap_or("transparent")),
+                name = escape(&l.name),
+                material = escape(l.material.as_deref().unwrap_or("")),
+                temp = l.nozzle_c.map(|c| format!(" · {c:.0} °C")).unwrap_or_default(),
+                item = escape(&l.item),
+            )
+        },
+    );
+    card(
+        "Filament",
+        "Loaded, unloaded: it heats to the spool's temperature first",
+        &format!(
+            r#"{loaded}<form class="command" method="post" action="{id}/command"><button name="action" value="load-filament">Load</button><button name="action" value="unload-filament" class="ghost">Unload</button> <a class="ghost-link" href="../stock#board">Change spool</a></form><p class="note" data-command-status role="status"></p>"#,
+            id = escape(&machine.id),
+        ),
+    )
+}
+
+pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
     let label = machine.kind == MachineKind::Label;
     let material = t
@@ -738,22 +1000,10 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>) -> String {
         .concat(),
         None => "<dt>Profile</dt><dd>Not known yet: choose one under Settings</dd>".to_owned(),
     };
-    // What was asked of it: commands for a machine that takes G-code.
-    let asked = if label {
-        String::new()
-    } else {
-        card(
-            "Latest commands",
-            "What was asked of it from here, and how it went",
-            &format!(
-                r#"<ol class="commands" data-commands>{}</ol>"#,
-                commands(machine)
-            ),
-        )
-    };
+    let _ = label;
     format!(
         r#"<div class="tiles">{tiles}</div>
-<div class="grid-2">{}{asked}</div>"#,
+<div class="grid-2">{}{side}</div>"#,
         card(
             "Machine",
             "",
@@ -1185,7 +1435,7 @@ url: ws://…/simplyprint/{token}</pre><p class="hint" data-moonraker-local hidd
     )
 }
 
-pub(crate) fn settings(machine: &Machine) -> String {
+pub(crate) fn settings(machine: &Machine, move_to: &[(String, String)]) -> String {
     let details = machine.details.clone().unwrap_or_default();
     // The profile: chosen from all the machines known, by searching (the shell's picker).
     let chosen = machine
@@ -1268,6 +1518,25 @@ pub(crate) fn settings(machine: &Machine) -> String {
     } else {
         String::new()
     };
+    // To another space of whoever manages it there too: a makerspace's other workshop.
+    let move_section = if move_to.is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"<h4>Move to another space</h4>
+<p class="muted">Its name, labels, build plate and service interval go along, and its agent keeps working. Its jobs, the permissions on it and the spool said to be loaded stay here; in the new space it takes no work from the queue until someone says so. Not while it has work under way.</p>
+<form method="post" action="{id}/move" data-async data-done="Moved" data-then="../" data-confirm="Move this machine to the other space? You may no longer see it here." class="switch"><select name="space" aria-label="To which space" required>{options}</select><button class="ghost">Move</button></form>
+"#,
+            options = move_to
+                .iter()
+                .map(|(uid, label)| format!(
+                    r#"<option value="{}">{}</option>"#,
+                    escape(uid),
+                    escape(label)
+                ))
+                .collect::<String>(),
+        )
+    };
     let forms = format!(
         r#"<h4>Name</h4>
 <form method="post" action="{id}/name" data-async data-done="Renamed" data-rename><input name="name" value="{name}" aria-label="Name" maxlength="60" required><button>Rename</button></form>
@@ -1278,7 +1547,7 @@ pub(crate) fn settings(machine: &Machine) -> String {
 </details>
 {laser}<h4>In use</h4>
 {in_use}
-<h4>Remove</h4>
+{move_section}<h4>Remove</h4>
 <form method="post" action="{id}/remove" data-async data-done="Machine removed" data-confirm="Remove this machine from the space?" data-then="../"><button class="danger">Remove machine</button></form>"#
     );
     let about = [
