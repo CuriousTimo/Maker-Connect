@@ -80,11 +80,18 @@ fn main() -> ExitCode {
     }
 }
 
-/// What this agent is: `maker-connect-agent 0.1.0 (build 1d5c84c, 2026-11-04 14:35 UTC)`.
+/// The release this agent is (`v0.2.0-beta.1`, set by `scripts/build-release.sh`), or the
+/// crate's version.
+pub const RELEASE: &str = match option_env!("MAKER_CONNECT_RELEASE") {
+    Some(tag) => tag,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
+/// What this agent is: `maker-connect-agent 0.2.0 (build 1d5c84c, 2026-11-04 14:35 UTC)`.
 pub fn version() -> String {
     format!(
         "maker-connect-agent {} (build {}, {})",
-        env!("CARGO_PKG_VERSION"),
+        RELEASE,
         env!("MC_COMMIT"),
         env!("MC_BUILT")
     )

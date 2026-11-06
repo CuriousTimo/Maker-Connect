@@ -3,8 +3,9 @@
 //! platform, so a computer next to a machine fetches it from the cloud it will report to.
 //! Only files directly in that folder, by their plain name.
 //!
-//! Without such files the agent comes from the project's GitHub releases: the release this
-//! cloud was built from, or (a build of our own) the newest one.
+//! Without such files the agent comes from the project's GitHub releases: the newest agent
+//! release (`agent-v…`, a beta too), which the page looks up. The agent is released apart
+//! from the cloud (`server-v…`), so no cloud knows the one agent that goes with it.
 //!
 //! A file named `maker-connect-agent-<os>-<arch>[.exe]` (`windows`, `macos`, `linux`;
 //! `x86_64`, `aarch64`, `armv6`) gets a card of its own: the system's icon, and the command that
@@ -135,22 +136,6 @@ const RELEASED: [&str; 6] = [
     "maker-connect-agent-linux-armv6",
 ];
 
-/// The release this cloud was built from (`v0.1.0-beta.1`), when it was.
-fn own_release() -> Option<&'static str> {
-    crate::store::BUILD
-        .starts_with('v')
-        .then_some(crate::store::BUILD)
-}
-
-/// A file of a release on GitHub: of this cloud's own release, else of the newest, which
-/// the page looks up (`data-asset`); till then, the list of releases.
-fn released_link(name: &str) -> String {
-    match own_release() {
-        Some(tag) => format!("{RELEASES}/download/{tag}/{name}"),
-        None => RELEASES.to_owned(),
-    }
-}
-
 fn megabytes(size: u64) -> String {
     format!("{:.1} MB", size as f64 / 1_000_000.0)
 }
@@ -197,7 +182,7 @@ async fn page(
         listed.extend(
             RELEASED
                 .iter()
-                .map(|name| ((*name).to_owned(), None, escape(&released_link(name)))),
+                .map(|name| ((*name).to_owned(), None, RELEASES.to_owned())),
         );
     }
     for (name, size, link) in &listed {
@@ -218,7 +203,7 @@ async fn page(
                     title = b.title(),
                     arch_title = b.arch_title(),
                     size = size.map_or("GitHub".to_owned(), megabytes),
-                    asset = if from_github && own_release().is_none() {
+                    asset = if from_github {
                         format!(r#" data-asset="{}""#, escape(name))
                     } else {
                         String::new()
@@ -226,10 +211,7 @@ async fn page(
                     release = if from_github {
                         format!(
                             r#"<p class="release"><b>{}</b> · from <a href="{RELEASES}">GitHub</a></p>"#,
-                            own_release().map_or("The newest release".to_owned(), |t| format!(
-                                "Release {}",
-                                escape(t)
-                            ))
+                            "The newest agent release"
                         )
                     } else {
                         on_offer.as_ref().map_or(String::new(), |b| format!(
@@ -348,19 +330,21 @@ async fn page(
     card.querySelector(".yours").hidden = false;
     card.parentElement.prepend(card);
   }})();
-  // A build of our own: the agent of the newest release (a beta too) on GitHub.
+  // The agent of the newest agent release (a beta too) on GitHub.
   (async () => {{
     const links = document.querySelectorAll("[data-asset]");
     if (!links.length) return;
     try {{
-      const [newest] = await (await fetch("https://api.github.com/repos/CuriousTimo/Maker-Connect/releases?per_page=1")).json();
+      const releases = await (await fetch("https://api.github.com/repos/CuriousTimo/Maker-Connect/releases?per_page=50")).json();
+      const newest = releases.find((r) => r.tag_name.startsWith("agent-"));
+      if (!newest) return;
       for (const link of links) {{
         const asset = newest.assets.find((a) => a.name === link.dataset.asset);
         if (!asset) continue;
         link.href = asset.browser_download_url;
         link.querySelector("small").textContent = (asset.size / 1e6).toFixed(1) + " MB";
       }}
-      for (const b of document.querySelectorAll(".release b")) b.textContent = "Release " + newest.tag_name;
+      for (const b of document.querySelectorAll(".release b")) b.textContent = "Agent " + newest.tag_name.replace(/^agent-/, "");
     }} catch {{}}
   }})();
 </script>

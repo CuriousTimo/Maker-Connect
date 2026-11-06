@@ -118,15 +118,16 @@ Every machine with a profile, by brand: the wiki's
 
 ## Try it
 
-From a [release](https://github.com/CuriousTimo/Maker-Connect/releases): download the cloud
-for the computer it will run on (macOS, Windows, Linux on a PC, a NAS or a Raspberry Pi),
+From a [server release](https://github.com/CuriousTimo/Maker-Connect/releases) (`server-v…`):
+download the cloud for the computer it will run on (macOS, Windows, Linux on a PC, a NAS or a Raspberry Pi),
 unpack it and start it in its folder:
 
 ```sh
 ./maker-connect-cloud                            # http://localhost:8460
 ```
 
-The archive brings every agent (the Downloads page offers them) and SpoolmanDB; printer
+The agent has releases of its own (`agent-v…`); the cloud's Downloads page offers the newest.
+The archive brings SpoolmanDB; printer
 profiles and filaments are inside the cloud. The data (`maker-connect.db`, and
 `maker-connect-files/`, `-downloads/`, `-backups/` beside it) is made where the database is:
 the folder it starts in, or `--db /somewhere/maker-connect.db`. To upgrade, stop it, unpack

@@ -918,7 +918,7 @@ dependencies = [
 
 [[package]]
 name = "maker-connect-agent"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "maker-connect-grbl",
  "maker-connect-label",
@@ -932,7 +932,7 @@ dependencies = [
 
 [[package]]
 name = "maker-connect-cloud"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes",
  "argon2",
@@ -963,7 +963,7 @@ dependencies = [
 
 [[package]]
 name = "maker-connect-grbl"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "laserfoundry-device",
  "laserfoundry-gcode",
@@ -972,7 +972,7 @@ dependencies = [
 
 [[package]]
 name = "maker-connect-import"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "toml",
@@ -980,7 +980,7 @@ dependencies = [
 
 [[package]]
 name = "maker-connect-label"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hidapi",
  "nusb",
@@ -989,7 +989,7 @@ dependencies = [
 
 [[package]]
 name = "maker-connect-protocol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",

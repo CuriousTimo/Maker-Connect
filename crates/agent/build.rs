@@ -53,4 +53,5 @@ fn main() {
         println!("cargo:rerun-if-changed={path}");
     }
     println!("cargo:rerun-if-changed=src");
+    println!("cargo:rerun-if-env-changed=MAKER_CONNECT_RELEASE");
 }

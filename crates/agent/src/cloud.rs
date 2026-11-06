@@ -142,7 +142,7 @@ fn register(options: &Options) -> Result<Registered, Box<dyn std::error::Error>>
         protocol: protocol::VERSION,
         name: options.name.clone(),
         kind: options.kind,
-        agent_version: env!("CARGO_PKG_VERSION").to_owned(),
+        agent_version: crate::RELEASE.to_owned(),
     };
     let registered: Registered = ureq::post(&format!("{}{}", options.cloud, protocol::REGISTER))
         .send_json(&agent)?
@@ -351,7 +351,7 @@ fn agent_info(cloud: &str) -> protocol::AgentInfo {
             Some(socket.local_addr().ok()?.ip().to_string())
         });
     protocol::AgentInfo {
-        version: env!("CARGO_PKG_VERSION").to_owned(),
+        version: crate::RELEASE.to_owned(),
         build: Some(env!("MC_COMMIT").to_owned()),
         built: Some(env!("MC_BUILT").to_owned()),
         os: std::env::consts::OS.to_owned(),
@@ -719,7 +719,11 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                         reply
                     }
                     Err(error) => {
-                        cloud.lost(&format!("its answer did not read: {error}"));
+                        // Most likely a cloud newer than this agent, with something to say
+                        // that this agent does not know.
+                        cloud.lost(&format!(
+                            "its answer did not read ({error}): is the cloud newer than this agent? Get the agent again from the cloud's Downloads page"
+                        ));
                         std::thread::sleep(REPORT_EVERY);
                         continue;
                     }

@@ -5,7 +5,7 @@ name: CI
 # to main: it costs budget.
 on:
   push:
-    tags: ["v*-beta*"]
+    tags: ["server-v*-beta*", "agent-v*-beta*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
