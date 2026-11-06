@@ -31,8 +31,8 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 | **A laser's Control**: a jog pad (eight directions, a step from 0.1 to 50 mm, the arrow keys), the job's origin set where the head is | **Materials**: spools grouped by filament, what is left of each, the chosen one in its inspector; Spoolman's API speaks here too |
 | ![The Now page: three printers busy with their progress and finish time, who started each job, and the whole fleet by kind](docs/screenshots/now.png) | ![A printer's queue: two Benchies waiting, whose they are and when each starts](docs/screenshots/queue.png) |
 | **Now**: what runs, what needs someone, what ends next and who started it, the fleet by kind; also as a wall screen | **Queue**: per machine, next first; it starts by itself once the bed is clear; drag your own prints, staff move any |
-| ![Space → Members: the members with their roles, and a matrix of who may use which machine group](docs/screenshots/permissions.png) | |
-| **Members and permissions**: roles, and who may use or operate which machine group, in one matrix | |
+| ![Space → Members: the members with their roles, and a matrix of who may use which machine group](docs/screenshots/permissions.png) | ![The About page: release and build, system, processor and memory, and Updates saying this is the newest release](docs/screenshots/about.png) |
+| **Members and permissions**: roles, and who may use or operate which machine group, in one matrix | **About**: what runs where, and **Updates** with a way back, from signed releases |
 
 ## What works
 
