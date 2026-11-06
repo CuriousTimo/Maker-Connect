@@ -592,6 +592,10 @@ impl Store {
         let mut sent = 0;
         for space in spaces {
             for machine in self.machines(space)? {
+                // A queue of its own (crate::queue) goes first.
+                if !machine.queue.is_empty() {
+                    continue;
+                }
                 if !self.takes_work(&machine.id)? || !machine.online || machine.out_of_use.is_some()
                 {
                     continue;
@@ -1037,7 +1041,7 @@ async fn list(access: Access, State(store): State<Shared>) -> Response {
                     "farm": store.takes_work(&m.id).unwrap_or(false),
                     "sheet": m.sheet,
                     "compatible": store.compatible(access.space, m).ok(),
-                    "manage": store.machine_level(&access, &m.id).ok().flatten().is_some_and(|l| l >= Level::Manage),
+                    "manage": store.may(&access, &m.id, Level::Manage).ok().flatten().unwrap_or(false),
                 })
             })
             .collect(),
@@ -1636,6 +1640,9 @@ mod flow {
             let a = s.add_virtual(space, mk3s).unwrap();
             let b = s.add_virtual(space, mk3s).unwrap();
             let c = s.add_virtual(space, mk3s).unwrap();
+            for m in [&a, &b, &c] {
+                crate::auth::tester_may_operate(&s, space, m);
+            }
             s.set_takes_work(space, &a, true).unwrap();
             s.set_takes_work(space, &b, true).unwrap();
             (space, a, b, c)

@@ -263,3 +263,31 @@
   /* A job's state in its history: words in its colour, never a filled block. */
   .job-history .badge { background: transparent; box-shadow: inset 0 0 0 1px currentColor; color: var(--muted); padding: 1px 7px; border-radius: 5px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
   .job-history .badge.finished { color: var(--accent); } .job-history .badge.failed { color: var(--bad); } .job-history .badge.stopped { color: var(--warn); }
+
+  /* Before use: permission (or ask the staff), and the PPE to tick off. */
+  .before-use { margin: 0 0 14px; border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); background: color-mix(in srgb, var(--warn) 8%, var(--card)); }
+  .before-use.ok { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 7%, var(--card)); }
+  .before-use form { margin: 0; }
+  .before-use.ppe { justify-content: flex-start; }
+  .before-use.ppe > span:first-child { flex: none; }
+  .before-use.ppe .ppe-items { flex: 1 1 auto; }
+  .ppe-items { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  .ppe-item { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; cursor: pointer; }
+  .ppe-item input { width: 18px; height: 18px; margin: 0; }
+  .ppe-setting { display: grid; gap: 10px; justify-items: start; }
+  .ppe-setting .ppe-item { font-weight: 500; }
+  .ppe-setting input[name=other] { min-width: min(360px, 100%); }
+
+  /* The queue: a row per file, dragged by its grip to another place. */
+  .queue { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .queue li { display: grid; grid-template-columns: auto auto 44px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); cursor: grab; }
+  .queue li.dragging { opacity: .5; border-style: dashed; }
+  .queue .q-grip { color: var(--muted); font-size: 16px; line-height: 1; }
+  .queue .q-n { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 1.2em; text-align: right; }
+  .queue img, .queue .q-img { width: 44px; height: 33px; object-fit: contain; border-radius: 6px; background: var(--line); }
+  .queue .q-name { display: grid; min-width: 0; }
+  .queue .q-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+  .queue .q-name small { color: var(--muted); font-size: 12px; }
+  .queue .q-problem { color: var(--warn); }
+  .queue .q-x { background: none; border: 0; color: var(--muted); font-size: 18px; padding: 0 6px; cursor: pointer; }
+  .q-held { margin: 0 0 10px; border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); background: color-mix(in srgb, var(--warn) 8%, var(--card)); }

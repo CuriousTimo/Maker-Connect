@@ -295,6 +295,56 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Machine(Level::Manage),
         Some("changed who may use"),
     ),
+    // The handlers write the audit log: on which group or machine, for whom.
+    (
+        "POST",
+        "/permissions/people/{user}",
+        Need::Role(Role::Admin),
+        None,
+    ),
+    (
+        "POST",
+        "/permissions/groups/{group}/people/{user}",
+        Need::Role(Role::Admin),
+        None,
+    ),
+    (
+        "POST",
+        "/permissions/people/{user}/permission",
+        Need::Role(Role::Admin),
+        None,
+    ),
+    ("POST", "/permissions/groups", Need::Role(Role::Admin), None),
+    (
+        "POST",
+        "/permissions/groups/{group}/remove",
+        Need::Role(Role::Admin),
+        None,
+    ),
+    (
+        "POST",
+        "/permissions/groups/{group}/machines",
+        Need::Role(Role::Admin),
+        None,
+    ),
+    (
+        "POST",
+        "/permissions/groups/{group}/machines/{machine}/remove",
+        Need::Role(Role::Admin),
+        None,
+    ),
+    (
+        "POST",
+        "/permissions/groups/{group}/grants",
+        Need::Role(Role::Admin),
+        None,
+    ),
+    (
+        "POST",
+        "/permissions/groups/{group}/grants/{user}/remove",
+        Need::Role(Role::Admin),
+        None,
+    ),
     (
         "POST",
         "/machines/{id}/grants",
@@ -436,6 +486,51 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Machine(Level::Manage),
         Some("changed whether the queue sends work to"),
     ),
+    // Asking the staff for permission on a machine one may only look at, and answering.
+    (
+        "POST",
+        "/machines/{id}/ask",
+        Need::Machine(Level::View),
+        Some("asked for permission on"),
+    ),
+    (
+        "POST",
+        "/permissions/requests/{id}/{answer}",
+        Need::Role(Role::Admin),
+        None,
+    ),
+    (
+        "POST",
+        "/space/safety",
+        Need::Role(Role::Admin),
+        Some("switched the PPE checks of the space"),
+    ),
+    // A machine's queue (crate::queue): reordering, taking out.
+    (
+        "POST",
+        "/machines/{id}/queue/order",
+        Need::Machine(Level::Use),
+        None,
+    ),
+    (
+        "POST",
+        "/machines/{id}/queue/{item}/remove",
+        Need::Machine(Level::Use),
+        Some("took a file out of the queue of"),
+    ),
+    // Safety: "I have and wear …" (crate::safety), and what a machine needs.
+    (
+        "POST",
+        "/machines/{id}/ppe",
+        Need::Machine(Level::Use),
+        Some("confirmed having and wearing the PPE for"),
+    ),
+    (
+        "POST",
+        "/machines/{id}/safety",
+        Need::Machine(Level::Manage),
+        Some("changed the PPE of"),
+    ),
     (
         "POST",
         "/machines/{id}/sheet",
@@ -472,6 +567,12 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         "/api/files",
         Need::Role(Role::Member),
         Some("uploaded a file"),
+    ),
+    (
+        "POST",
+        "/api/files/examples",
+        Need::Role(Role::Member),
+        Some("added the example files"),
     ),
     (
         "POST",
@@ -771,9 +872,9 @@ pub async fn permit(State(store): State<Shared>, request: Request, next: Next) -
             None => Err((StatusCode::FORBIDDEN, "not in a space")),
         },
         Need::Machine(level) => match (&access, param("id")) {
-            (Some(a), Some(machine)) => match store.lock().unwrap().machine_level(a, &machine) {
-                Ok(Some(have)) if have >= level => Ok(()),
-                Ok(Some(_)) => Err((StatusCode::FORBIDDEN, level_refusal(level))),
+            (Some(a), Some(machine)) => match store.lock().unwrap().may(a, &machine, level) {
+                Ok(Some(true)) => Ok(()),
+                Ok(Some(false)) => Err((StatusCode::FORBIDDEN, level_refusal(level))),
                 Ok(None) => Err((StatusCode::NOT_FOUND, "no such machine")),
                 Err(error) => return crate::failed(error),
             },
@@ -823,9 +924,9 @@ pub fn check_machine(
     machine: &str,
     level: Level,
 ) -> Result<(), Box<Response>> {
-    match store.machine_level(access, machine) {
-        Ok(Some(have)) if have >= level => Ok(()),
-        Ok(Some(_)) => Err(Box::new(
+    match store.may(access, machine, level) {
+        Ok(Some(true)) => Ok(()),
+        Ok(Some(false)) => Err(Box::new(
             (StatusCode::FORBIDDEN, level_refusal(level)).into_response(),
         )),
         Ok(None) => Err(Box::new(
@@ -893,6 +994,28 @@ pub struct Grant {
     pub by: Option<String>,
     pub granted_at: i64,
     pub expires_at: Option<i64>,
+}
+
+/// Someone asking the staff for permission (or a training) on a machine.
+#[derive(Debug, Clone, Serialize)]
+pub struct AskedFor {
+    pub id: i64,
+    pub user_id: i64,
+    pub who: String,
+    pub machine_id: String,
+    pub machine: String,
+    pub training: bool,
+    pub asked_at: i64,
+}
+
+/// A group of machines, and who has permission on all of them.
+#[derive(Debug, Clone, Serialize)]
+pub struct Group {
+    pub id: i64,
+    pub name: String,
+    /// (id, name) of its machines.
+    pub machines: Vec<(String, String)>,
+    pub grants: Vec<Grant>,
 }
 
 /// An API token of a space (the secret itself is shown once, when made).
@@ -1165,6 +1288,11 @@ impl Store {
                      AND space_id IN (SELECT id FROM spaces WHERE organisation_id = ?1)",
                 params![organisation, user],
             )?;
+            self.db.execute(
+                "DELETE FROM group_grants WHERE user_id = ?2 AND group_id IN (SELECT g.id FROM machine_groups g
+                     JOIN spaces s ON s.id = g.space_id WHERE s.organisation_id = ?1)",
+                params![organisation, user],
+            )?;
             n
         } else {
             let n = self.db.execute(
@@ -1173,6 +1301,11 @@ impl Store {
             )?;
             self.db.execute(
                 "DELETE FROM machine_grants WHERE space_id = ?1 AND user_id = ?2",
+                params![space, user],
+            )?;
+            self.db.execute(
+                "DELETE FROM group_grants WHERE user_id = ?2
+                     AND group_id IN (SELECT id FROM machine_groups WHERE space_id = ?1)",
                 params![space, user],
             )?;
             n
@@ -1184,7 +1317,27 @@ impl Store {
         Ok(n > 0)
     }
 
-    /// What `access` may do with a machine of its space; `None` when the machine is not in it.
+    /// Whether `access` may do `need` with a machine of its space; `None` when the machine is
+    /// not in it. Managing it (settings, permissions, removing) is for owners and admins;
+    /// using it (jobs, moving, heating) is by permission for everyone, whatever their role:
+    /// being owner does not mean having had the laser course.
+    pub fn may(
+        &self,
+        access: &Access,
+        machine: &str,
+        need: Level,
+    ) -> rusqlite::Result<Option<bool>> {
+        let Some(level) = self.machine_level(access, machine)? else {
+            return Ok(None);
+        };
+        Ok(Some(match need {
+            Level::Manage => access.role >= Role::Admin,
+            _ => level >= need,
+        }))
+    }
+
+    /// What `access` may do with a machine of its space as a user of it: view, use, operate
+    /// (managing is [`Store::may`]'s, by role); `None` when the machine is not in it.
     pub fn machine_level(&self, access: &Access, machine: &str) -> rusqlite::Result<Option<Level>> {
         let found: Option<bool> = self
             .db
@@ -1198,27 +1351,310 @@ impl Store {
             return Ok(None);
         };
         Ok(Some(match access.role {
-            Role::Owner | Role::Admin => Level::Manage,
             Role::Guest => Level::View,
-            Role::Member if !induction => Level::Operate,
-            Role::Member => self
+            _ if !induction => Level::Operate,
+            _ => self
                 .grant_of(machine, access.user_id)?
                 .unwrap_or(Level::View),
         }))
     }
 
-    /// A member's induction on a machine, while it lasts.
+    /// A member's permission on a machine, while it lasts: given on the machine, or on a
+    /// group it is in; the highest counts.
     fn grant_of(&self, machine: &str, user: i64) -> rusqlite::Result<Option<Level>> {
+        let mut q = self.db.prepare(
+            "SELECT level FROM machine_grants WHERE machine_id = ?1 AND user_id = ?2
+                 AND (expires_at IS NULL OR expires_at > ?3)
+             UNION ALL
+             SELECT g.level FROM group_grants g JOIN machine_group_members m ON m.group_id = g.group_id
+             WHERE m.machine_id = ?1 AND g.user_id = ?2 AND (g.expires_at IS NULL OR g.expires_at > ?3)",
+        )?;
+        let levels = q.query_map(params![machine, user, now()], |r| r.get::<_, String>(0))?;
+        Ok(levels.flatten().filter_map(|l| Level::parse(&l)).max())
+    }
+
+    /// The machine groups of a space, with their machines and who has permission on them.
+    pub fn groups(&self, space: i64) -> rusqlite::Result<Vec<Group>> {
+        let heads: Vec<(i64, String)> = {
+            let mut q = self.db.prepare(
+                "SELECT id, name FROM machine_groups WHERE space_id = ?1 ORDER BY name COLLATE NOCASE",
+            )?;
+            q.query_map([space], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        let mut groups = Vec::new();
+        for (id, name) in heads {
+            let machines = {
+                let mut q = self.db.prepare(
+                    "SELECT m.id, m.name FROM machine_group_members gm JOIN machines m ON m.id = gm.machine_id
+                     WHERE gm.group_id = ?1 AND m.space_id = ?2 ORDER BY m.name COLLATE NOCASE",
+                )?;
+                q.query_map(params![id, space], |r| Ok((r.get(0)?, r.get(1)?)))?
+                    .collect::<rusqlite::Result<_>>()?
+            };
+            let grants = {
+                let mut q = self.db.prepare(
+                    "SELECT g.user_id, u.display_name, g.level, b.display_name, g.granted_at, g.expires_at
+                     FROM group_grants g JOIN users u ON u.id = g.user_id
+                     LEFT JOIN users b ON b.id = g.granted_by
+                     WHERE g.group_id = ?1 ORDER BY u.display_name COLLATE NOCASE",
+                )?;
+                q.query_map([id], |r| {
+                    Ok(Grant {
+                        user_id: r.get(0)?,
+                        display_name: r.get(1)?,
+                        level: Level::parse(&r.get::<_, String>(2)?).unwrap_or(Level::View),
+                        by: r.get(3)?,
+                        granted_at: r.get(4)?,
+                        expires_at: r.get(5)?,
+                    })
+                })?
+                .collect::<rusqlite::Result<_>>()?
+            };
+            groups.push(Group {
+                id,
+                name,
+                machines,
+                grants,
+            });
+        }
+        Ok(groups)
+    }
+
+    /// A new group of machines; `kind` fills it with the space's machines of that kind (fdm,
+    /// laser, label), or with all of them (`all`).
+    pub fn create_group(
+        &self,
+        space: i64,
+        name: &str,
+        kind: Option<&str>,
+    ) -> rusqlite::Result<i64> {
+        self.db.execute(
+            "INSERT INTO machine_groups (space_id, name, created_at) VALUES (?1, ?2, ?3)",
+            params![space, name, now()],
+        )?;
+        let id = self.db.last_insert_rowid();
+        if kind == Some("all") {
+            self.db.execute(
+                "INSERT OR IGNORE INTO machine_group_members (group_id, machine_id)
+                 SELECT ?1, id FROM machines WHERE space_id = ?2",
+                params![id, space],
+            )?;
+        } else if let Some(kind) = kind {
+            // The kind is kept as JSON: "fdm", with its quotes.
+            self.db.execute(
+                "INSERT OR IGNORE INTO machine_group_members (group_id, machine_id)
+                 SELECT ?1, id FROM machines WHERE space_id = ?2 AND kind = ?3",
+                params![id, space, format!("\"{kind}\"")],
+            )?;
+        }
+        Ok(id)
+    }
+
+    /// What the audit log says of a person and a machine: their names.
+    pub fn names_for_log(&self, user: Option<i64>, machine: Option<&str>) -> (String, String) {
+        let user = user
+            .and_then(|u| {
+                self.db
+                    .query_row("SELECT display_name FROM users WHERE id = ?1", [u], |r| {
+                        r.get(0)
+                    })
+                    .ok()
+            })
+            .unwrap_or_default();
+        let machine = machine
+            .and_then(|m| {
+                self.db
+                    .query_row("SELECT name FROM machines WHERE id = ?1", [m], |r| r.get(0))
+                    .ok()
+            })
+            .unwrap_or_default();
+        (user, machine)
+    }
+
+    /// A group's name, when it is of the space.
+    pub fn group_name(&self, space: i64, group: i64) -> rusqlite::Result<Option<String>> {
+        self.db
+            .query_row(
+                "SELECT name FROM machine_groups WHERE id = ?1 AND space_id = ?2",
+                params![group, space],
+                |r| r.get(0),
+            )
+            .optional()
+    }
+
+    pub fn remove_group(&self, space: i64, group: i64) -> rusqlite::Result<bool> {
+        if self.group_name(space, group)?.is_none() {
+            return Ok(false);
+        }
+        self.db
+            .execute("DELETE FROM group_grants WHERE group_id = ?1", [group])?;
+        self.db.execute(
+            "DELETE FROM machine_group_members WHERE group_id = ?1",
+            [group],
+        )?;
+        self.db
+            .execute("DELETE FROM machine_groups WHERE id = ?1", [group])?;
+        Ok(true)
+    }
+
+    /// Puts a machine of the space in a group of it, or takes it out.
+    pub fn set_group_machine(
+        &self,
+        space: i64,
+        group: i64,
+        machine: &str,
+        member: bool,
+    ) -> rusqlite::Result<bool> {
+        let machine_here: bool = self.db.query_row(
+            "SELECT COUNT(*) FROM machines WHERE id = ?1 AND space_id = ?2",
+            params![machine, space],
+            |r| r.get(0),
+        )?;
+        if self.group_name(space, group)?.is_none() || !machine_here {
+            return Ok(false);
+        }
+        if member {
+            self.db.execute(
+                "INSERT OR IGNORE INTO machine_group_members (group_id, machine_id) VALUES (?1, ?2)",
+                params![group, machine],
+            )?;
+        } else {
+            self.db.execute(
+                "DELETE FROM machine_group_members WHERE group_id = ?1 AND machine_id = ?2",
+                params![group, machine],
+            )?;
+        }
+        Ok(true)
+    }
+
+    /// Gives a member permission on every machine of a group (or changes it).
+    pub fn set_group_grant(
+        &self,
+        group: i64,
+        user: i64,
+        level: Level,
+        by: i64,
+        expires_at: Option<i64>,
+    ) -> rusqlite::Result<()> {
+        self.db.execute(
+            "INSERT INTO group_grants (group_id, user_id, level, granted_by, granted_at, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT (group_id, user_id) DO UPDATE SET level = excluded.level,
+                 granted_by = excluded.granted_by, granted_at = excluded.granted_at,
+                 expires_at = excluded.expires_at",
+            params![group, user, level.as_str(), by, now(), expires_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_group_grant(&self, group: i64, user: i64) -> rusqlite::Result<bool> {
+        Ok(self.db.execute(
+            "DELETE FROM group_grants WHERE group_id = ?1 AND user_id = ?2",
+            params![group, user],
+        )? > 0)
+    }
+
+    /// Whether a machine's permission is a training (it needs training, not only permission).
+    pub fn needs_training(&self, space: i64, machine: &str) -> rusqlite::Result<bool> {
         Ok(self
             .db
             .query_row(
-                "SELECT level FROM machine_grants WHERE machine_id = ?1 AND user_id = ?2
-                     AND (expires_at IS NULL OR expires_at > ?3)",
-                params![machine, user, now()],
-                |r| r.get::<_, String>(0),
+                "SELECT induction_required = 2 FROM machines WHERE id = ?1 AND space_id = ?2",
+                params![machine, space],
+                |r| r.get(0),
             )
             .optional()?
-            .and_then(|l| Level::parse(&l)))
+            .unwrap_or(false))
+    }
+
+    /// Open to every member (0), needs permission (1), or needs training (2).
+    pub fn set_access_mode(
+        &mut self,
+        space: i64,
+        machine: &str,
+        mode: u8,
+    ) -> rusqlite::Result<bool> {
+        let n = self.db.execute(
+            "UPDATE machines SET induction_required = ?3 WHERE id = ?1 AND space_id = ?2",
+            params![machine, space, mode.min(2)],
+        )?;
+        self.changed();
+        Ok(n > 0)
+    }
+
+    /// Someone asks the staff for permission on a machine: false when they asked already
+    /// and nobody answered yet.
+    pub fn ask_permission(&self, space: i64, user: i64, machine: &str) -> rusqlite::Result<bool> {
+        if self.asked(user, machine)?.is_some() {
+            return Ok(false);
+        }
+        self.db.execute(
+            "INSERT INTO access_requests (space_id, user_id, machine_id, asked_at) VALUES (?1, ?2, ?3, ?4)",
+            params![space, user, machine, now()],
+        )?;
+        Ok(true)
+    }
+
+    /// When someone asked for a machine, while nobody answered.
+    pub fn asked(&self, user: i64, machine: &str) -> rusqlite::Result<Option<i64>> {
+        self.db
+            .query_row(
+                "SELECT asked_at FROM access_requests WHERE user_id = ?1 AND machine_id = ?2 AND state = 'open'",
+                params![user, machine],
+                |r| r.get(0),
+            )
+            .optional()
+    }
+
+    /// A space's open requests, oldest first.
+    pub fn requests(&self, space: i64) -> rusqlite::Result<Vec<AskedFor>> {
+        let mut q = self.db.prepare(
+            "SELECT r.id, r.user_id, u.display_name, r.machine_id, m.name, m.induction_required = 2, r.asked_at
+             FROM access_requests r JOIN users u ON u.id = r.user_id JOIN machines m ON m.id = r.machine_id
+             WHERE r.space_id = ?1 AND m.space_id = ?1 AND r.state = 'open' ORDER BY r.asked_at",
+        )?;
+        q.query_map([space], |r| {
+            Ok(AskedFor {
+                id: r.get(0)?,
+                user_id: r.get(1)?,
+                who: r.get(2)?,
+                machine_id: r.get(3)?,
+                machine: r.get(4)?,
+                training: r.get(5)?,
+                asked_at: r.get(6)?,
+            })
+        })?
+        .collect()
+    }
+
+    /// Answers a request: given (`use` on the machine) or declined. The request, if it was
+    /// open and of the space.
+    pub fn answer_request(
+        &self,
+        space: i64,
+        id: i64,
+        give: bool,
+        by: i64,
+    ) -> rusqlite::Result<Option<AskedFor>> {
+        let Some(request) = self.requests(space)?.into_iter().find(|r| r.id == id) else {
+            return Ok(None);
+        };
+        if give {
+            self.set_grant(
+                space,
+                &request.machine_id,
+                request.user_id,
+                Level::Use,
+                by,
+                None,
+            )?;
+        }
+        self.db.execute(
+            "UPDATE access_requests SET state = ?2, handled_by = ?3, handled_at = ?4 WHERE id = ?1",
+            params![id, if give { "given" } else { "declined" }, by, now()],
+        )?;
+        Ok(Some(request))
     }
 
     pub fn induction_required(&self, space: i64, machine: &str) -> rusqlite::Result<bool> {
@@ -1726,6 +2162,351 @@ mod tests {
         }
     }
 
+    /// Permission per group: a new machine is closed; a group of 3D printers opens them all
+    /// at once for a member, also one put in later; per machine still counts, the most wins.
+    #[tokio::test]
+    async fn groups_give_permission_on_many_machines() {
+        let w = World::new();
+        let (org, space) = {
+            let s = w.store.lock().unwrap();
+            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
+            s.create_organisation("Fablab", "Werkplaats", owner)
+                .unwrap()
+        };
+        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None);
+        let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None);
+        let (p1, p2, laser) = {
+            let mut s = w.store.lock().unwrap();
+            let mk3s = crate::profiles::find("prusa/mk3s").unwrap();
+            (
+                s.add_virtual(space, mk3s).unwrap(),
+                s.add_virtual(space, mk3s).unwrap(),
+                s.add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
+                    .unwrap(),
+            )
+        };
+        let as_mia = Access {
+            user_id: mia_id,
+            actor: "mia".into(),
+            space,
+            role: Role::Member,
+            token_id: None,
+            instance_admin: false,
+            session_id: None,
+        };
+        let level = |m: &str| {
+            w.store
+                .lock()
+                .unwrap()
+                .machine_level(&as_mia, m)
+                .unwrap()
+                .unwrap()
+        };
+        assert_eq!(level(&p1), Level::View, "a new machine needs permission");
+        // Members make no groups.
+        assert_eq!(
+            w.post(&mia, "/permissions/groups", "name=Mine&kind=fdm")
+                .await
+                .0,
+            StatusCode::FORBIDDEN
+        );
+        let (status, body) = w
+            .post(&adam, "/permissions/groups", "name=3D+printers&kind=fdm")
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        let group = w.store.lock().unwrap().groups(space).unwrap()[0].clone();
+        assert_eq!(group.machines.len(), 2, "both printers, not the laser");
+        // With all machines: the printers and the laser.
+        let all = {
+            let s = w.store.lock().unwrap();
+            let id = s.create_group(space, "Everything", Some("all")).unwrap();
+            let n = s
+                .groups(space)
+                .unwrap()
+                .into_iter()
+                .find(|g| g.id == id)
+                .unwrap()
+                .machines
+                .len();
+            s.remove_group(space, id).unwrap();
+            n
+        };
+        assert_eq!(all, 3);
+        let grants = format!("/permissions/groups/{}/grants", group.id);
+        assert_eq!(
+            w.post(&adam, &grants, &format!("user={mia_id}&level=use"))
+                .await
+                .0,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            (level(&p1), level(&p2), level(&laser)),
+            (Level::Use, Level::Use, Level::View)
+        );
+        // Per machine as well: the most counts.
+        w.post(
+            &adam,
+            &format!("/machines/{p1}/grants"),
+            &format!("user={mia_id}&level=operate"),
+        )
+        .await;
+        assert_eq!((level(&p1), level(&p2)), (Level::Operate, Level::Use));
+        // A printer put in later is opened too; one taken out is closed again.
+        let p3 = {
+            let mut s = w.store.lock().unwrap();
+            s.add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+                .unwrap()
+        };
+        assert_eq!(level(&p3), Level::View);
+        w.post(
+            &adam,
+            &format!("/permissions/groups/{}/machines", group.id),
+            &format!("machine={p3}"),
+        )
+        .await;
+        assert_eq!(level(&p3), Level::Use);
+        w.post(
+            &adam,
+            &format!("/permissions/groups/{}/machines/{p2}/remove", group.id),
+            "",
+        )
+        .await;
+        assert_eq!(level(&p2), Level::View);
+        // Ended: only what the machine itself gives is left.
+        w.post(
+            &adam,
+            &grants,
+            &format!("user={mia_id}&level=use&until=2020-01-01"),
+        )
+        .await;
+        assert_eq!((level(&p1), level(&p3)), (Level::Operate, Level::View));
+        // Removing the group takes its permissions; those per machine stay.
+        w.post(&adam, &grants, &format!("user={mia_id}&level=use"))
+            .await;
+        assert_eq!(
+            w.post(
+                &adam,
+                &format!("/permissions/groups/{}/remove", group.id),
+                ""
+            )
+            .await
+            .0,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!((level(&p1), level(&p3)), (Level::Operate, Level::View));
+        // From the Members list: on a group, or on a machine; only to members.
+        let g2 = w
+            .store
+            .lock()
+            .unwrap()
+            .create_group(space, "Printers", Some("fdm"))
+            .unwrap();
+        let give = format!("/permissions/people/{mia_id}/permission");
+        assert_eq!(
+            w.post(&adam, &give, &format!("on=g:{g2}&level=use"))
+                .await
+                .0,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(level(&p3), Level::Use);
+        assert_eq!(
+            w.post(&adam, &give, &format!("on=m:{laser}&level=operate"))
+                .await
+                .0,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(level(&laser), Level::Operate);
+        assert_eq!(
+            w.post(&mia, &give, &format!("on=m:{laser}&level=operate"))
+                .await
+                .0,
+            StatusCode::FORBIDDEN,
+            "members give no permission"
+        );
+        let adam_id: i64 = w
+            .store
+            .lock()
+            .unwrap()
+            .db
+            .query_row("SELECT id FROM users WHERE name = 'adam'", [], |r| r.get(0))
+            .unwrap();
+        // Being an admin does not mean having had the course: Adam manages the laser (its
+        // name, its permissions) but may not use it until he gives himself permission.
+        let as_adam = Access {
+            user_id: adam_id,
+            actor: "adam".into(),
+            space,
+            role: Role::Admin,
+            token_id: None,
+            instance_admin: false,
+            session_id: None,
+        };
+        let adam_may = |need: Level| {
+            w.store
+                .lock()
+                .unwrap()
+                .may(&as_adam, &laser, need)
+                .unwrap()
+                .unwrap()
+        };
+        assert!(adam_may(Level::Manage) && !adam_may(Level::Use));
+        assert_eq!(
+            w.post(&adam, &format!("/machines/{laser}/name"), "name=Laser")
+                .await
+                .0,
+            StatusCode::NO_CONTENT,
+            "managing: yes"
+        );
+        assert_eq!(
+            w.post(&adam, &format!("/machines/{laser}/command"), "gcode=G0")
+                .await
+                .0,
+            StatusCode::FORBIDDEN,
+            "using: not without permission"
+        );
+        assert_eq!(
+            w.post(
+                &adam,
+                &format!("/permissions/people/{adam_id}/permission"),
+                &format!("on=m:{laser}&level=operate")
+            )
+            .await
+            .0,
+            StatusCode::NO_CONTENT,
+            "he may give it to himself"
+        );
+        assert!(adam_may(Level::Operate));
+        // Open to every member, and closed again: the two choices.
+        w.post(&adam, &format!("/machines/{p2}/access"), "induction=0")
+            .await;
+        assert_eq!(level(&p2), Level::Operate, "open: every member operates it");
+        w.post(&adam, &format!("/machines/{p2}/access"), "induction=1")
+            .await;
+        assert_eq!(
+            level(&p2),
+            Level::Use,
+            "closed again: through the group Printers"
+        );
+        // In the Space page's Members tab: an admin sees everyone's permissions, with a
+        // Permissions… window per person; a member sees only their own, without it.
+        let (status, page) = w.get(&adam, "/space").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            page.contains(&format!(
+                r#"data-mx-user="{mia_id}" data-mx-group="{g2}" checked>"#
+            )),
+            "Mia's tick in the matrix"
+        );
+        assert!(
+            page.contains(&format!(r#"data-open-perm="{adam_id}""#)),
+            "an admin has a window of his own: the same rules"
+        );
+        assert!(
+            page.contains(&format!(r#"data-open-perm="{mia_id}""#)),
+            "her window"
+        );
+        assert!(page.contains(r#"data-panel="permissions""#));
+        let (status, page) = w.get(&mia, "/space").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            page.contains(&format!(
+                r#"data-mx-user="{mia_id}" data-mx-group="{g2}" checked disabled>"#
+            )),
+            "her own row, not to change"
+        );
+        // A tick in the matrix: off takes it away, on gives "use"; not for a member.
+        let tick = format!("/permissions/groups/{g2}/people/{mia_id}");
+        assert_eq!(w.post(&mia, &tick, "on=0").await.0, StatusCode::FORBIDDEN);
+        assert_eq!(w.post(&adam, &tick, "on=0").await.0, StatusCode::OK);
+        assert_eq!(level(&p3), Level::View);
+        let (status, now) = w.post(&adam, &tick, "on=1").await;
+        assert_eq!((status, now.as_str()), (StatusCode::OK, "use"));
+        assert_eq!(level(&p3), Level::Use);
+        assert!(
+            !page.contains(r#"data-open-perm=""#),
+            "a member changes nothing"
+        );
+        // The window saves all at once: ticked is given (its level, its end), unticked taken.
+        let save = format!("/permissions/people/{mia_id}");
+        let form = format!(
+            "on=g:{g2}&level:g:{g2}=operate&until:g:{g2}=&on=m:{p1}&level:m:{p1}=use&until:m:{p1}=2099-01-01"
+        );
+        let (status, body) = w.post(&adam, &save, &form).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        assert_eq!(
+            (level(&p3), level(&laser)),
+            (Level::Operate, Level::View),
+            "the laser's own permission: unticked, gone"
+        );
+        assert_eq!(level(&p1), Level::Operate, "the most of group and machine");
+        assert_eq!(w.post(&mia, &save, "").await.0, StatusCode::FORBIDDEN);
+        assert_eq!(w.post(&adam, &save, "").await.0, StatusCode::NO_CONTENT);
+        assert_eq!(
+            (level(&p1), level(&p3)),
+            (Level::View, Level::View),
+            "nothing ticked: nothing left"
+        );
+        // Needs training: Mia asks the staff (once, however often she clicks); the staff
+        // give it, and she may use it.
+        let p4 = w
+            .store
+            .lock()
+            .unwrap()
+            .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+            .unwrap();
+        assert_eq!(
+            w.post(&adam, &format!("/machines/{p4}/access"), "induction=2")
+                .await
+                .0,
+            StatusCode::NO_CONTENT
+        );
+        assert!(w.store.lock().unwrap().needs_training(space, &p4).unwrap());
+        assert_eq!(level(&p4), Level::View);
+        let ask = format!("/machines/{p4}/ask");
+        assert_eq!(w.post(&mia, &ask, "").await.0, StatusCode::NO_CONTENT);
+        assert_eq!(w.post(&mia, &ask, "").await.0, StatusCode::NO_CONTENT);
+        let asked = w.store.lock().unwrap().requests(space).unwrap();
+        assert_eq!(asked.len(), 1, "asked once");
+        assert!(asked[0].training);
+        let (_, page) = w.get(&adam, "/space").await;
+        assert!(page.contains("asks for a training"), "the staff see it");
+        let give = format!("/permissions/requests/{}/give", asked[0].id);
+        assert_eq!(
+            w.post(&mia, &give, "").await.0,
+            StatusCode::FORBIDDEN,
+            "not hers to give"
+        );
+        assert_eq!(w.post(&adam, &give, "").await.0, StatusCode::NO_CONTENT);
+        assert_eq!(level(&p4), Level::Use);
+        assert_eq!(
+            w.post(&adam, &give, "").await.0,
+            StatusCode::NOT_FOUND,
+            "answered"
+        );
+        assert_eq!(
+            w.post(&mia, &ask, "").await.0,
+            StatusCode::CONFLICT,
+            "she may use it now"
+        );
+        // Someone else's space's group: not found.
+        let other = {
+            let s = w.store.lock().unwrap();
+            let owner = s.create_user("zed", "Zed", "x", false).unwrap();
+            let (_, b) = s.create_organisation("Zuid", "Hal", owner).unwrap();
+            s.create_group(b, "Theirs", None).unwrap()
+        };
+        assert_eq!(
+            w.post(
+                &adam,
+                &format!("/permissions/groups/{other}/grants"),
+                &format!("user={mia_id}&level=use")
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+    }
+
     /// A machine moves to another space of the organisation, by someone who is admin in both;
     /// not while it has work, not into a space they do not manage. Permissions on it stay
     /// behind, and so does its place in the queue.
@@ -1950,12 +2731,15 @@ mod tests {
         let (_, gus) = w.person("gus", Some((org, Role::Guest)), None);
         let (_, mia) = w.person("mia", Some((org, Role::Member)), None);
         let (adam_id, adam) = w.person("adam", Some((org, Role::Admin)), None);
-        let machine = w
-            .store
-            .lock()
-            .unwrap()
-            .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
-            .unwrap();
+        let machine = {
+            let mut s = w.store.lock().unwrap();
+            let m = s
+                .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+                .unwrap();
+            // Open to every member: this test is about roles, not permissions.
+            s.set_induction_required(space, &m, false).unwrap();
+            m
+        };
         let upload = |cookie: &str| {
             HttpRequest::post("/api/files?name=cube.gcode")
                 .header("cookie", cookie)
@@ -2118,6 +2902,71 @@ mod tests {
                 .await
                 .0,
             StatusCode::NO_CONTENT
+        );
+        // A laser in a space that asks for PPE: first the glasses (crate::safety). Laser off
+        // never waits for them. (A space that does not ask: no glasses needed.)
+        assert_eq!(
+            w.post(&mia, &command, "gcode=G0").await.0,
+            StatusCode::NO_CONTENT,
+            "not asked: on"
+        );
+        assert_eq!(
+            w.post(&mia, "/space/safety", "on=1").await.0,
+            StatusCode::FORBIDDEN,
+            "an admin switches it"
+        );
+        assert_eq!(
+            w.post(&adam, "/space/safety", "on=1").await.0,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            w.post(&mia, &command, "gcode=G0").await.0,
+            StatusCode::PRECONDITION_REQUIRED
+        );
+        assert_eq!(
+            w.post(&mia, &command, "action=laser-off").await.0,
+            StatusCode::NO_CONTENT
+        );
+        let ppe = format!("/machines/{laser}/ppe");
+        assert_eq!(
+            w.post(&mia, &ppe, "").await.0,
+            StatusCode::BAD_REQUEST,
+            "nothing ticked"
+        );
+        assert_eq!(
+            w.post(&mia, &ppe, "have=Laser+safety+glasses").await.0,
+            StatusCode::OK
+        );
+        assert_eq!(
+            w.post(&mia, &command, "gcode=G0").await.0,
+            StatusCode::NO_CONTENT
+        );
+        // Its manager says it needs safety glasses and hearing protection: asked again, and
+        // both are needed.
+        assert_eq!(
+            w.post(
+                &adam,
+                &format!("/machines/{laser}/safety"),
+                "item=Safety+glasses&other=Hearing+protection"
+            )
+            .await
+            .0,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            w.post(&mia, &command, "gcode=G0").await.0,
+            StatusCode::PRECONDITION_REQUIRED
+        );
+        assert_eq!(
+            w.post(&mia, &ppe, "have=Safety+glasses").await.0,
+            StatusCode::BAD_REQUEST,
+            "not without hearing protection"
+        );
+        assert_eq!(
+            w.post(&mia, &ppe, "have=Safety+glasses&have=Hearing+protection")
+                .await
+                .0,
+            StatusCode::OK
         );
         assert_eq!(
             w.post(&mia, &command, "gcode=G0").await.0,

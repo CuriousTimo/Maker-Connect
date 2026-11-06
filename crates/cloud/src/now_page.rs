@@ -71,7 +71,7 @@ async fn page(access: Access, State(store): State<Shared>) -> Response {
   </div>
   <div class="now-numbers">
     <div class="num busy"><b data-n="busy">–</b><span>busy</span></div>
-    <div class="num"><b data-n="free">–</b><span>free</span></div>
+    <div class="num free"><b data-n="free">–</b><span>free</span></div>
     <div class="num needs"><b data-n="needs">–</b><span>need someone</span></div>
     <div class="num done"><b data-n="done">–</b><span>done today</span></div>
   </div>
@@ -107,7 +107,7 @@ async fn page(access: Access, State(store): State<Shared>) -> Response {
 }
 
 const NOW_STYLE: &str = r#"
-  .now-head { display: flex; align-items: center; gap: 20px; margin-bottom: 18px; }
+  .now-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-bottom: 18px; }
   .now-head h2 { margin: 0; }
   .now-space { margin: 2px 0 0; color: var(--muted); }
   .now-clock { margin-left: auto; text-align: right; display: grid; }
@@ -120,7 +120,8 @@ const NOW_STYLE: &str = r#"
   .num { display: flex; align-items: baseline; gap: 12px; padding: 16px 20px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; border-left-width: 4px; }
   .num b { font-size: 46px; line-height: 1; font-variant-numeric: tabular-nums; }
   .num span { color: var(--muted); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
-  .num.busy { border-left-color: var(--accent); } .num.busy b { color: var(--accent); }
+  .num.busy { border-left-color: var(--busy); } .num.busy b { color: var(--busy); }
+  .num.free { border-left-color: var(--accent); } .num.free b { color: var(--accent); }
   .num.needs.some { border-left-color: var(--warn); } .num.needs.some b { color: var(--warn); }
   .num.done b { color: var(--ink); }
   .now-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-bottom: 12px; }
@@ -136,8 +137,8 @@ const NOW_STYLE: &str = r#"
   .reason.error { background: var(--bad); } .reason.offline { background: var(--off); }
   .ends-list .who { grid-column: 2 / -1; margin-top: -6px; font-size: 13px; color: var(--muted); }
   .ends-list .who:empty { display: none; }
-  .ends-list .bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
-  .ends-list .bar i { display: block; height: 100%; background: var(--accent); }
+  .ends-list .bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--busy) 28%, transparent); overflow: hidden; }
+  .ends-list .bar i { display: block; height: 100%; background: var(--busy); }
   .ends-list .clock { font-variant-numeric: tabular-nums; font-weight: 700; }
   .projects-card { margin-bottom: 12px; }
   .np { padding: 8px 0; border-top: 1px solid var(--line); }
@@ -157,9 +158,14 @@ const NOW_STYLE: &str = r#"
   .fleet-row { display: grid; grid-template-columns: 180px minmax(0, 1fr) auto; gap: 12px; align-items: center; }
   .fleet-row > b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cells { display: flex; flex-wrap: wrap; gap: 6px; }
-  .cell { display: inline-grid; place-items: center; width: 84px; height: 40px; border-radius: 7px; font-size: 10px; color: var(--muted); background: var(--line); text-decoration: none; overflow: hidden; padding: 0 4px; text-overflow: ellipsis; white-space: nowrap; }
-  .legend .cell { width: 12px; height: 12px; border-radius: 3px; margin: 0 4px 0 12px; vertical-align: -1px; }
-  .cell.busy { background: color-mix(in srgb, var(--accent) 30%, var(--card)); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); }
+  /* A name too long ends in "…": a block, not a grid, lets it. */
+  .cell { display: inline-block; box-sizing: border-box; line-height: 40px; text-align: center; vertical-align: top; width: 84px; height: 40px; border-radius: 7px; font-size: 10px; color: var(--muted); background: var(--line); text-decoration: none; overflow: hidden; padding: 0 4px; text-overflow: ellipsis; white-space: nowrap; }
+  .legend .cell { width: 12px; height: 12px; line-height: 12px; border-radius: 3px; margin: 0 4px 0 12px; vertical-align: -1px; }
+  .cell span, .cell small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cell.pct { line-height: 15px; padding-top: 5px; background: linear-gradient(to right, color-mix(in srgb, var(--busy) 70%, var(--card)) var(--pct), color-mix(in srgb, var(--busy) 22%, var(--card)) var(--pct)) !important; }
+  .cell.pct small { font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .cell.busy { background: color-mix(in srgb, var(--busy) 30%, var(--card)); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--busy); }
+  .cell.free { background: color-mix(in srgb, var(--accent) 16%, var(--card)); color: var(--ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }
   .cell.needs { background: color-mix(in srgb, var(--warn) 30%, var(--card)); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--warn); }
   .cell.error { background: color-mix(in srgb, var(--bad) 30%, var(--card)); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--bad); }
   .cell.offline { background: transparent; box-shadow: inset 0 0 0 1px var(--line); opacity: .6; }
@@ -219,13 +225,20 @@ const NOW_SCRIPT: &str = r#"
     }).join("") : '<li class="muted">Nothing runs now.</li>';
 
     // The fleet: a row per model, a cell per machine, the counts at the end of the row.
-    const models = [...new Set(machines.map(modelOf))].sort();
-    document.querySelector("[data-fleet]").innerHTML = models.map((model) => {
-      const ms = machines.filter((m) => modelOf(m) === model);
+    // A row per device type (3D printers, lasers, label printers…), a cell per machine.
+    const TYPES = { fdm: "3D printers", laser: "Lasers", label: "Label printers", cnc: "CNC machines" };
+    const kinds = [...new Set(machines.map((m) => m.kind))].sort((a, b) => (Object.keys(TYPES).indexOf(a) + 1 || 99) - (Object.keys(TYPES).indexOf(b) + 1 || 99));
+    document.querySelector("[data-fleet]").innerHTML = kinds.map((kind) => {
+      const model = TYPES[kind] || kind;
+      const ms = machines.filter((m) => m.kind === kind).sort((a, b) => a.name.localeCompare(b.name));
       const tally = {};
       for (const m of ms) tally[bucket(m)] = (tally[bucket(m)] || 0) + 1;
       const names = { busy: "busy", free: "free", needs: "needs someone", error: "error", offline: "offline", out: "out of use" };
-      return `<div class="fleet-row"><b title="${esc(model)}">${esc(model)} <small class="muted">×${ms.length}</small></b><div class="cells">${ms.map((m) => `<a class="cell ${bucket(m)}" href="machines/${encodeURIComponent(m.id)}" title="${esc(m.name)}: ${esc(shownState(m).text)}">${esc(m.name)}</a>`).join("")}</div><div class="counts">${Object.entries(tally).map(([k, n]) => `<span>${n} ${names[k]}</span>`).join("")}</div></div>`;
+      return `<div class="fleet-row"><b title="${esc(model)}">${esc(model)} <small class="muted">×${ms.length}</small></b><div class="cells">${ms.map((m) => {
+        // Busy: two blues as far as it got, and how far and when it ends under its name.
+        const p = bucket(m) === "busy" ? progressOf(m) : null;
+        return `<a class="cell ${bucket(m)}${p ? " pct" : ""}"${p ? ` style="${p.style}"` : ""} href="machines/${encodeURIComponent(m.id)}" title="${esc(m.name)} (${esc(modelOf(m))}): ${esc(p ? `${p.pct} % done${p.eta ? `, ends ${p.eta}` : ""}` : shownState(m).text)}"><span>${esc(m.name)}</span>${p ? `<small>${esc(p.text)}</small>` : ""}</a>`;
+      }).join("")}</div><div class="counts">${Object.entries(tally).map(([k, n]) => `<span>${n} ${names[k]}</span>`).join("")}</div></div>`;
     }).join("") || '<p class="muted">No machines yet.</p>';
   }
 

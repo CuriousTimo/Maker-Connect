@@ -35,14 +35,14 @@
       : "No picture in the file";
     const filament = m.filament_g != null ? `${m.filament_g.toFixed(1)} g` : m.filament_m != null ? `${m.filament_m.toFixed(2)} m` : null;
     const options = f.machines.map((t) =>
-      `<option value="${esc(t.id)}"${t.ok ? "" : " disabled"}>${esc(t.name)}${t.note ? ` — ${esc(t.note)}` : ""}</option>`).join("");
-    const ready = f.machines.some((t) => t.ok);
+      `<option value="${esc(t.id)}"${t.ok || t.queue ? "" : " disabled"}>${esc(t.name)}${t.note ? ` — ${esc(t.note)}` : ""}</option>`).join("");
+    const ready = f.machines.some((t) => t.ok || t.queue);
     const label = m.label_dots ? `${Math.round((m.label_dots[0] / 180) * 25.4)} mm label` : null;
     const last = f.printed[0];
     const printed = last
       ? `<div class="printed">${last.state === "finished" ? "Printed" : esc(last.state)} on <b>${esc(machineName(last.machine_id))}</b> ${ago(last.at)}${f.printed.length > 1 ? ` · ${f.printed.length}${f.printed.length === 5 ? "+" : ""} times` : ""}</div>`
       : `<div class="printed">Not printed yet</div>`;
-    return `<article class="file${selected.has(f.id) ? " picked" : ""}" data-id="${esc(f.id)}">
+    return `<article class="file${selected.has(f.id) ? " picked" : ""}" data-id="${esc(f.id)}" draggable="true">
       <input type="checkbox" class="pick" aria-label="Select ${esc(f.name)}"${selected.has(f.id) ? " checked" : ""}>
       <span class="kind">${KINDS[kindOf(f)]}</span>
       <div class="picture">${picture}</div>
@@ -53,7 +53,7 @@
         ${printed}
         <form data-print>
           <select name="machine" aria-label="Machine to print on"${f.machines.length ? "" : " disabled"}>
-            <option value="">${f.machines.length ? (ready ? "Print on…" : "No machine free for it") : "No machines yet"}</option>${options}
+            <option value="">${f.machines.length ? (ready ? "Print on…" : "No machine for it") : "No machines yet"}</option>${options}
           </select>
           ${m.kind === "laser" ? `<button type="button" class="ghost" data-frame${ready ? "" : " disabled"} title="Run the outline with the laser off">Frame</button>` : ""}
           <button${ready ? "" : " disabled"}>${m.kind === "laser" ? "Start" : "Print"}</button>
@@ -70,12 +70,12 @@
     const picture = m.thumbnail ? `<img src="files/${encodeURIComponent(f.id)}/thumbnail.png" alt="">` : "<span></span>";
     const filament = m.filament_g != null ? `${m.filament_g.toFixed(1)} g` : m.filament_m != null ? `${m.filament_m.toFixed(2)} m` : "";
     const options = f.machines.map((t) =>
-      `<option value="${esc(t.id)}"${t.ok ? "" : " disabled"}>${esc(t.name)}${t.note ? ` — ${esc(t.note)}` : ""}</option>`).join("");
-    const ready = f.machines.some((t) => t.ok);
+      `<option value="${esc(t.id)}"${t.ok || t.queue ? "" : " disabled"}>${esc(t.name)}${t.note ? ` — ${esc(t.note)}` : ""}</option>`).join("");
+    const ready = f.machines.some((t) => t.ok || t.queue);
     const label = m.label_dots ? `${Math.round((m.label_dots[0] / 180) * 25.4)} mm` : "";
     const last = f.printed[0];
     const cell = (v) => (v == null || v === "" ? '<span class="muted">–</span>' : esc(v));
-    return `<tr class="file-row${selected.has(f.id) ? " picked" : ""}" data-id="${esc(f.id)}">
+    return `<tr class="file-row${selected.has(f.id) ? " picked" : ""}" data-id="${esc(f.id)}" draggable="true">
       <td><input type="checkbox" class="pick" aria-label="Select ${esc(f.name)}"${selected.has(f.id) ? " checked" : ""}></td>
       <td class="name-cell"><div class="name-wrap"><span class="thumb-cell">${picture}</span><span class="name-text"><b title="${esc(f.name)}">${esc(f.name)}</b><small>${KINDS[kindOf(f)]}${m.slicer ? ` · ${esc(m.slicer)}` : ""}</small></span></div></td>
       <td>${cell(m.printer_model)}</td>
@@ -86,7 +86,7 @@
       <td class="row-actions"><a href="files/${encodeURIComponent(f.id)}/download" title="Download" aria-label="Download"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v8.5M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a><button type="button" data-remove title="Remove" aria-label="Remove"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.6 6.5v5M9.4 6.5v5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>
       <td><form data-print>
         <select name="machine" aria-label="Machine to print on"${f.machines.length ? "" : " disabled"}>
-          <option value="">${f.machines.length ? (ready ? "Print on…" : "No machine free") : "No machines"}</option>${options}
+          <option value="">${f.machines.length ? (ready ? "Print on…" : "No machine for it") : "No machines"}</option>${options}
         </select>
         ${m.kind === "laser" ? `<button type="button" class="ghost icon" data-frame${ready ? "" : " disabled"} title="Frame: run the outline with the laser off" aria-label="Frame"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.5 2"/></svg></button>` : ""}
         <button class="icon"${ready ? "" : " disabled"} title="${m.kind === "laser" ? "Start" : "Print"}" aria-label="${m.kind === "laser" ? "Start" : "Print"}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L12.8 8z" fill="currentColor"/></svg></button>
@@ -174,14 +174,22 @@
     // The files.
     for (const id of [...selected]) if (!files.some((f) => f.id === id)) selected.delete(id);
     const shown = shownFiles();
+    // By device type: 3D printers, lasers, labels, the rest; the chosen order within each.
+    const GROUPS = { fdm: "3D printers", laser: "Lasers", label: "Labels", other: "Other files" };
+    const groups = Object.keys(GROUPS).map((k) => [k, shown.filter((f) => kindOf(f) === k)]).filter(([, fs]) => fs.length);
+    const headed = groups.length > 1;
+    // A table per group, all with the same columns; the column names on the first only.
+    const table = (fs, first) => `<div class="table-wrap"><table class="file-table"><colgroup><col class="c-pick"><col><col class="c-sliced"><col class="c-time"><col class="c-material"><col class="c-uploaded up"><col class="c-printed"><col class="c-icons"><col class="c-print"></colgroup>${first ? '<thead><tr><th></th><th>File</th><th>Sliced for</th><th>Time</th><th>Material</th><th class="up">Uploaded</th><th>Last printed</th><th></th><th></th></tr></thead>' : ""}<tbody>${fs.map(row).join("")}</tbody></table></div>`;
+    const tables = groups.map(([k, fs], i) => (headed ? `<h3 class="files-group">${GROUPS[k]} <small>${fs.length}</small></h3>` : "") + table(fs, i === 0)).join("");
+    const cards = groups.map(([k, fs]) => (headed ? `<h3 class="files-group">${GROUPS[k]} <small>${fs.length}</small></h3>` : "") + fs.map(card).join("")).join("");
     list.classList.toggle("list", view === "list" && shown.length > 0);
     list.innerHTML = !files.length
-      ? '<p class="empty">No files yet. Drop G-code here, or upload it with the button. Labels made on a label printer\'s page come here too.</p>'
+      ? '<p class="empty">No files yet. Drop G-code here, or upload it with the button; or start with the example files (3DBenchy). Labels made on a label printer\'s page come here too.</p>'
       : !shown.length
         ? '<p class="empty">No files match.</p>'
         : view === "list"
-          ? `<div class="table-wrap"><table class="file-table"><colgroup><col class="c-pick"><col><col class="c-sliced"><col class="c-time"><col class="c-material"><col class="c-uploaded up"><col class="c-printed"><col class="c-icons"><col class="c-print"></colgroup><thead><tr><th></th><th>File</th><th>Sliced for</th><th>Time</th><th>Material</th><th class="up">Uploaded</th><th>Last printed</th><th></th><th></th></tr></thead><tbody>${shown.map(row).join("")}</tbody></table></div>`
-          : shown.map(card).join("");
+          ? tables
+          : cards;
     showSelection();
   }
 
@@ -196,6 +204,34 @@
   }
 
   let fetched = "";
+  // A file dragged onto a machine in the sidebar prints there, or waits in its queue
+  // (shell.js takes the drop).
+  list.addEventListener("dragstart", (e) => {
+    const file = e.target.closest?.("[data-id]");
+    if (!file || e.target.closest("input, select, button, a")) return;
+    e.dataTransfer.setData("application/x-maker-file", file.dataset.id);
+    e.dataTransfer.effectAllowed = "copy";
+    document.body.classList.add("dragging-file");
+  });
+  list.addEventListener("dragend", () => document.body.classList.remove("dragging-file"));
+
+  // The example files from the binary (crate::samples): those not here yet.
+  document.querySelector("[data-examples]")?.addEventListener("click", async (e) => {
+    const button = e.currentTarget;
+    button.disabled = true;
+    try {
+      const r = await fetch("api/files/examples", { method: "POST", headers: { "x-requested-with": "fetch" } });
+      if (!r.ok) throw new Error(await r.text());
+      const { added } = await r.json();
+      toast(added ? `${added} example file${added === 1 ? "" : "s"} added` : "The example files are here already");
+      await refresh();
+    } catch (error) {
+      toast(`Not added: ${error.message}`, "bad");
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   async function refresh() {
     try {
       const fresh = await (await fetch("api/files")).json();
@@ -263,8 +299,8 @@
       ? f.printed.map((p) => `<li>${esc(states[p.state] || p.state)} on <b>${esc(machineName(p.machine_id))}</b> <span class="muted">${ago(p.at)}</span></li>`).join("")
       : '<li class="muted">Not printed yet</li>';
     const options = f.machines.map((t) =>
-      `<option value="${esc(t.id)}"${t.ok ? "" : " disabled"}>${esc(t.name)}${t.note ? ` — ${esc(t.note)}` : ""}</option>`).join("");
-    const ready = f.machines.some((t) => t.ok);
+      `<option value="${esc(t.id)}"${t.ok || t.queue ? "" : " disabled"}>${esc(t.name)}${t.note ? ` — ${esc(t.note)}` : ""}</option>`).join("");
+    const ready = f.machines.some((t) => t.ok || t.queue);
     const label = kindOf(f) === "label";
     const picture = m.thumbnail
       ? `<img src="files/${encodeURIComponent(f.id)}/thumbnail.png" alt=""${label ? ' class="label"' : ""}>`
@@ -279,7 +315,7 @@
           <h4>Print</h4>
           <form data-print>
             <select name="machine" aria-label="Machine to print on"${f.machines.length ? "" : " disabled"}>
-              <option value="">${f.machines.length ? (ready ? "Print on…" : "No machine free for it") : "No machines yet"}</option>${options}
+              <option value="">${f.machines.length ? (ready ? "Print on…" : "No machine for it") : "No machines yet"}</option>${options}
             </select>
             ${m.kind === "laser" ? `<button type="button" class="ghost" data-frame${ready ? "" : " disabled"} title="Run the outline with the laser off">Frame</button>` : ""}
             <button${ready ? "" : " disabled"}>${m.kind === "laser" ? "Start" : "Print"}</button>
@@ -377,7 +413,13 @@
       body: new URLSearchParams({ machine }),
       headers: { "x-requested-with": "fetch" },
     });
-    if (response.ok) location.href = `machines/${encodeURIComponent(machine)}#control`;
+    if (response.status === 202) {
+      // Into its queue: it starts by itself when the machine is free.
+      const { queued } = await response.json();
+      const name = form.machine.selectedOptions[0]?.textContent.split(" — ")[0] || "the machine";
+      toast(`In the queue of ${name}: ${queued === 1 ? "next" : `number ${queued}`}`);
+      refresh();
+    } else if (response.ok) location.href = `machines/${encodeURIComponent(machine)}#control`;
     else note.textContent = `Not started: ${await response.text()}`;
   });
   // Frame: the outline of the job with the laser off, on the chosen machine.

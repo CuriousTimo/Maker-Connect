@@ -258,6 +258,8 @@ mod tests {
             let laser = s
                 .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
                 .unwrap();
+            // Open to every member (a new machine needs permission).
+            s.set_induction_required(space, &laser, false).unwrap();
             let member = s
                 .create_token(space, owner, "LaserFoundry", Role::Member)
                 .unwrap();

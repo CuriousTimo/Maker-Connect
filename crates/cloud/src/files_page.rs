@@ -32,7 +32,7 @@ pub async fn page(access: crate::access::Access, State(store): State<Shared>) ->
 <main class="wide">
   <div class="page-head">
     <div><h2>Files</h2><p class="subtitle">G-code and labels for your machines. Drop files anywhere on this page.</p></div>
-    <label class="upload-button"><input type="file" accept=".gcode,.gco,.g,.png" multiple hidden data-pick>Upload</label>
+    <div class="head-actions"><button type="button" class="ghost" data-examples title="3DBenchy sliced for the MK3S, the MINI, an Ender 3 and a CR-10: to try printing">Add example files</button><label class="upload-button"><input type="file" accept=".gcode,.gco,.g,.png" multiple hidden data-pick>Upload</label></div>
   </div>
   <div class="uploads" data-uploads></div>
   <div class="toolbar" data-toolbar>

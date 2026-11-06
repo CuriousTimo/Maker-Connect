@@ -15,6 +15,7 @@
 //!   needs a session, except the routes machines use with their own tokens.
 
 mod access;
+mod access_page;
 mod accounts;
 mod apps;
 mod auth;
@@ -27,10 +28,14 @@ mod gcode;
 mod label_page;
 mod machine_page;
 mod now_page;
+mod permissions_page;
 mod printer_files;
 mod profiles;
 mod projects_page;
 mod prusa_connect;
+mod queue;
+mod safety;
+mod samples;
 mod simplyprint;
 mod space_page;
 mod spoolman;
@@ -160,6 +165,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = Arc::new(Mutex::new(opened));
     tokio::spawn(virtual_machines::run(store.clone()));
     tokio::spawn(farm::run(store.clone()));
+    tokio::spawn(samples::run(store.clone()));
+    tokio::spawn(queue::run(store.clone()));
     let listener = tokio::net::TcpListener::bind(&listen).await?;
     println!("Maker Connect cloud on http://{listen} (data in {db})");
     if let Some(code) = store.lock().unwrap().setup_code.clone() {
@@ -250,6 +257,10 @@ pub fn app(store: Shared) -> Router {
         .route("/files", get(files_page::page))
         .merge(auth::routes())
         .merge(space_page::routes())
+        .merge(permissions_page::routes())
+        .merge(safety::routes())
+        .merge(samples::routes())
+        .merge(queue::routes())
         .merge(apps::routes())
         .merge(printer_files::routes())
         .merge(now_page::routes())
@@ -498,9 +509,13 @@ async fn pair(
     Form(form): Form<PairForm>,
 ) -> Response {
     let store = store.lock().unwrap();
-    let paired = store
-        .space_of(&access)
-        .and_then(|(space, _)| store.pair(space, &form.code));
+    let paired = store.space_of(&access).and_then(|(space, _)| {
+        let paired = store.pair(space, &form.code)?;
+        if let Some((id, _)) = &paired {
+            adder_may_operate(&store, &access, space, id)?;
+        }
+        Ok(paired)
+    });
     let fetched = headers.contains_key("x-requested-with");
     match paired {
         Ok(Some(_)) if fetched => StatusCode::NO_CONTENT.into_response(),
@@ -594,24 +609,26 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
     };
     format!(
         r##"<script>try {{ const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; }} catch {{}}</script>
-<aside class="sidebar" data-root="{home}">
-  <a class="brand" href="{home}"><img src="{root}logo.svg" alt="" width="30" height="30"><span><b>Maker Connect</b><small>{space}</small></span></a>
-  <button type="button" class="search-open" data-palette-open title="Go to a machine, a file or a page"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13.2 13.2 3.8 3.8"/></svg><span>Go to…</span><kbd>⌘K</kbd></button>
+<header class="topbar">
+  <a class="brand" href="{home}"><img src="{root}logo.svg" alt="" width="28" height="28"><span><b>Maker Connect</b><small>{space}</small></span></a>
   <nav class="side-nav" aria-label="Pages">{now}{machines}{projects}{files}{stock}{space_link}</nav>
+  <div class="top-right" data-top-right>
+    <div class="summary">
+      <span class="count wide"><b data-sum="machines">–</b> machines</span>
+      <span class="count wide"><b data-sum="online">–</b> online</span>
+      <span class="count wide"><b data-sum="busy">–</b> busy</span>
+      <span class="count attention-count" data-attention-count hidden><b data-sum="attention">–</b> attention</span>
+      <span class="live" data-live-dot title="Live updates"><i></i><span>Live</span></span>
+    </div>
+    <button type="button" class="search-open" data-palette-open title="Go to a machine, a file or a page"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13.2 13.2 3.8 3.8"/></svg><span>Go to…</span><kbd>⌘K</kbd></button>
+  </div>
+</header>
+<aside class="sidebar" data-root="{home}">
   <div class="side-section">
     <div class="side-title"><span>Machines</span><button type="button" class="side-add" data-add-open title="Add a machine" aria-label="Add a machine"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11"/></svg></button></div>
     <nav class="side-machines" data-side-machines aria-label="Machines"></nav>
   </div>
 </aside>
-<div class="topbar">
-  <div class="summary">
-    <span class="count"><b data-sum="machines">–</b> machines</span>
-    <span class="count"><b data-sum="online">–</b> online</span>
-    <span class="count"><b data-sum="busy">–</b> busy</span>
-    <span class="count attention-count" data-attention-count hidden><b data-sum="attention">–</b> attention</span>
-    <span class="live" data-live-dot title="Live updates"><i></i>Live</span>
-  </div>
-</div>
 <div class="toasts" data-toasts aria-live="polite"></div>
 <dialog class="palette" data-palette aria-label="Go to">
   <input type="search" data-palette-input placeholder="A machine, a file, a page…" autocomplete="off" aria-label="Search">
@@ -783,6 +800,28 @@ struct VirtualForm {
     profile: String,
 }
 
+/// Whoever adds a machine may operate it: a permission like any other (in their window in
+/// Members, to take away). Everyone else, owners and admins too, starts without: a new
+/// machine needs permission.
+fn adder_may_operate(
+    store: &Store,
+    access: &access::Access,
+    space: i64,
+    machine: &str,
+) -> rusqlite::Result<()> {
+    if access.role == access::Role::Guest {
+        return Ok(());
+    }
+    store.set_grant(
+        space,
+        machine,
+        access.user_id,
+        access::Level::Operate,
+        access.user_id,
+        None,
+    )
+}
+
 async fn add_virtual(
     access: crate::access::Access,
     State(store): State<Shared>,
@@ -792,10 +831,11 @@ async fn add_virtual(
         return (StatusCode::BAD_REQUEST, "no such profile").into_response();
     };
     let mut store = store.lock().unwrap();
-    match store
-        .space_of(&access)
-        .and_then(|(space, _)| store.add_virtual(space, profile))
-    {
+    match store.space_of(&access).and_then(|(space, _)| {
+        let id = store.add_virtual(space, profile)?;
+        adder_may_operate(&store, &access, space, &id)?;
+        Ok(id)
+    }) {
         Ok(id) => Redirect::to(&format!("/machines/{id}")).into_response(),
         Err(error) => failed(error),
     }
@@ -820,6 +860,7 @@ async fn add_klipper(
     let mut store = store.lock().unwrap();
     let added = store.space_of(&access).and_then(|(space, _)| {
         let id = store.add_moonraker(space, name)?;
+        adder_may_operate(&store, &access, space, &id)?;
         Ok((id.clone(), store.moonraker_token(space, &id)?))
     });
     match added {
@@ -1074,6 +1115,15 @@ async fn command(
         Ok((space, _)) => space,
         Err(error) => return failed(error),
     };
+    // Switching things off never waits for PPE; everything else does.
+    let off = form.gcode.trim().is_empty()
+        && matches!(
+            form.action.as_str(),
+            "cooldown" | "laser-off" | "fan-off" | "motors-off"
+        );
+    if !off && let Err(refused) = crate::safety::check_ppe(&store, &access, &id) {
+        return *refused;
+    }
     if !form.gcode.trim().is_empty() {
         let (label, gcode) = match typed_gcode(&form.gcode) {
             Ok(typed) => typed,
@@ -1197,10 +1247,10 @@ struct MoveForm {
 /// admin too. (uid, "Organisation · Space"); none for a token.
 fn move_targets(store: &Store, access: &access::Access, machine: &str) -> Vec<(String, String)> {
     let manages = store
-        .machine_level(access, machine)
+        .may(access, machine, access::Level::Manage)
         .ok()
         .flatten()
-        .is_some_and(|l| l >= access::Level::Manage);
+        .unwrap_or(false);
     if !manages || access.token_id.is_some() {
         return Vec::new();
     }
@@ -1538,12 +1588,20 @@ async fn machine_page(
         }
         Ok((space, Some(machine))) => {
             let extra = machine_page::Extra {
-                move_to: move_targets(&store, &access, &machine.id),
-                manage: store
-                    .machine_level(&access, &machine.id)
+                asked: store.asked(access.user_id, &machine.id).ok().flatten(),
+                ppe_until: store.ppe_until(access.user_id, &machine.id),
+                ppe_checks: store.ppe_checks(access.space),
+                may_use: store
+                    .may(&access, &machine.id, access::Level::Use)
                     .ok()
                     .flatten()
-                    .is_some_and(|l| l >= access::Level::Manage),
+                    .unwrap_or(false),
+                move_to: move_targets(&store, &access, &machine.id),
+                manage: store
+                    .may(&access, &machine.id, access::Level::Manage)
+                    .ok()
+                    .flatten()
+                    .unwrap_or(false),
                 jobs: store
                     .jobs_of(access.space, &machine.id, 10)
                     .unwrap_or_default(),
@@ -1579,9 +1637,9 @@ pub(crate) fn escape(text: &str) -> String {
 /// forms saved in the background, and the ⌘K palette.
 const SHELL_SCRIPT: &str = include_str!("shell.js");
 
-pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f5f2; --card: #fff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e2e0da; --accent: #2f7d6d; --off: #9a9893; --bad: #b3412e; --warn: #b7791f; }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #111214; --card: #1b1c1f; --ink: #f2f1ee; --muted: #a3a29d; --line: #2e2f33; --accent: #5fbfa9; --off: #77767a; --bad: #e07a63; --warn: #d9a441; } }
-  :root[data-theme="dark"] { --bg: #111214; --card: #1b1c1f; --ink: #f2f1ee; --muted: #a3a29d; --line: #2e2f33; --accent: #5fbfa9; --off: #77767a; --bad: #e07a63; --warn: #d9a441; }
+pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f5f2; --card: #fff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e2e0da; --accent: #2f7d6d; --off: #9a9893; --bad: #b3412e; --warn: #b7791f; --busy: #2f6fd1; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #111214; --card: #1b1c1f; --ink: #f2f1ee; --muted: #a3a29d; --line: #2e2f33; --accent: #5fbfa9; --off: #77767a; --bad: #e07a63; --warn: #d9a441; --busy: #6ea8ff; } }
+  :root[data-theme="dark"] { --bg: #111214; --card: #1b1c1f; --ink: #f2f1ee; --muted: #a3a29d; --line: #2e2f33; --accent: #5fbfa9; --off: #77767a; --bad: #e07a63; --warn: #d9a441; --busy: #6ea8ff; }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, sans-serif; }
   /* The app's shell: a sidebar beside every page, the page beside it at one width. */
@@ -1594,13 +1652,15 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   :root[data-theme="dark"] { --fdm: #5fbfa9; --laser: #f08a4b; --label: #a98bf5; }
   @view-transition { navigation: auto; }
   ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .18s; }
-  .sidebar { view-transition-name: sidebar; position: fixed; inset: 0 auto 0 0; width: var(--side); z-index: 10; display: flex; flex-direction: column; gap: 6px; padding: 16px 12px; background: color-mix(in srgb, var(--card) 70%, var(--bg)); border-right: 1px solid var(--line); overflow-y: auto; }
-  body { padding-left: var(--side); }
-  .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 10px; text-decoration: none; }
+  .sidebar { view-transition-name: sidebar; position: fixed; inset: var(--top) auto 0 0; width: var(--side); z-index: 10; display: flex; flex-direction: column; gap: 6px; padding: 16px 12px; background: color-mix(in srgb, var(--card) 70%, var(--bg)); border-right: 1px solid var(--line); overflow: hidden; }
+  /* The pages in a bar at the top; the sidebar holds only the machines. */
+  :root { --top: 56px; }
+  body { padding-left: var(--side); padding-top: var(--top); }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 0 4px; text-decoration: none; width: calc(var(--side) - 28px); flex: none; }
   .brand span { display: grid; line-height: 1.2; min-width: 0; }
   .brand b { font-size: 16px; letter-spacing: -0.2px; }
   .brand small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sidebar svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .sidebar svg, .topbar svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
   .search-open { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; margin-bottom: 6px; background: var(--bg); color: var(--muted); border: 1px solid var(--line); font-weight: 500; font-size: 14px; }
   .search-open span { flex: 1; text-align: left; }
   kbd { font: 11px ui-monospace, Menlo, monospace; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); }
@@ -1608,12 +1668,13 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .side-nav a { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: var(--muted); text-decoration: none; font-weight: 600; font-size: 14px; }
   .side-nav a:hover { color: var(--ink); background: color-mix(in srgb, var(--line) 60%, transparent); }
   .side-nav a[aria-current=page] { color: var(--ink); background: var(--line); }
-  .side-section { margin-top: 14px; min-height: 0; }
+  /* Only the machine list scrolls: the pages above and the user below stay put. */
+  .side-section { margin-top: 14px; min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
   .side-title { display: flex; align-items: center; justify-content: space-between; padding: 0 6px 6px 10px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
   .side-add { background: transparent; color: var(--muted); padding: 3px; border-radius: 6px; display: grid; }
   .side-add:hover { color: var(--ink); background: var(--line); }
   .side-add svg { width: 16px; height: 16px; }
-  .side-machines { display: grid; gap: 1px; }
+  .side-machines { display: grid; gap: 1px; align-content: start; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   .side-machines a { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 8px; color: var(--ink); text-decoration: none; font-size: 14px; }
   .side-machines a:hover { background: color-mix(in srgb, var(--line) 60%, transparent); }
   .side-machines a[aria-current=page] { background: var(--line); }
@@ -1622,18 +1683,36 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .side-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .side-machines small { color: var(--muted); font-size: 12px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .side-machines small.attention { color: var(--warn); } .side-machines small.error { color: var(--bad); }
-  .side-progress { grid-column: 2 / -1; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
-  .side-progress i { display: block; height: 100%; background: var(--accent); transition: width .5s; }
+  /* A file dragged from Files: the machines take it. */
+  body.dragging-file .side-machines a { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+  .side-machines a.drop { background: color-mix(in srgb, var(--accent) 22%, transparent); box-shadow: inset 0 0 0 2px var(--accent); }
+  .side-progress { grid-column: 2 / -1; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--busy) 28%, transparent); overflow: hidden; }
+  .side-progress i { display: block; height: 100%; background: var(--busy); transition: width .5s; }
   .side-empty { margin: 4px 10px; color: var(--muted); font-size: 13px; }
   /* States, one list for badges and dots: quiet unless someone should look. Free is a ring
      (on, nothing to do), busy is filled, attention amber, an error red. */
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--off); flex: none; }
   .dot.idle { background: transparent; box-shadow: inset 0 0 0 2px var(--accent); }
-  .dot.busy { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+  /* Green: available. Blue: busy. */
+  .dot.busy { background: var(--busy); box-shadow: 0 0 0 3px color-mix(in srgb, var(--busy) 25%, transparent); }
   .dot.paused, .dot.attention { background: var(--warn); } .dot.error { background: var(--bad); }
-  .dot.cooling { background: var(--accent); } .dot.out { background: transparent; box-shadow: inset 0 0 0 1.5px var(--off); }
+  .dot.cooling { background: var(--busy); } .dot.out { background: transparent; box-shadow: inset 0 0 0 1.5px var(--off); }
   /* The counts, at the top of every page. */
-  .topbar { view-transition-name: topbar; position: sticky; top: 0; z-index: 9; display: flex; justify-content: flex-end; padding: 10px 36px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+  .topbar { view-transition-name: topbar; position: fixed; inset: 0 0 auto 0; height: var(--top); z-index: 11; display: flex; align-items: center; gap: 14px; padding: 0 16px; background: color-mix(in srgb, var(--card) 70%, var(--bg)); border-bottom: 1px solid var(--line); box-sizing: border-box; }
+  .top-right { margin-left: auto; display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .topbar .side-nav { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .topbar .side-nav::-webkit-scrollbar { display: none; }
+  .topbar .side-nav a { padding: 7px 10px; gap: 7px; white-space: nowrap; }
+  .topbar .side-nav svg { width: 17px; height: 17px; }
+  .topbar .search-open { width: auto; margin: 0; padding: 6px 10px; }
+  .topbar .search-open span { flex: none; }
+  .topbar .side-user { margin: 0; padding: 0; border: 0; }
+  .topbar .side-user summary { padding: 4px 6px 4px 10px; }
+  .topbar .side-user .who { max-width: 160px; }
+  .topbar .side-menu { top: calc(100% + 8px); bottom: auto; left: auto; right: 0; width: 260px; max-height: calc(100vh - var(--top) - 24px); }
+  @media (max-width: 1400px) { .summary .count.wide { display: none; } }
+  @media (max-width: 1180px) { .brand { width: auto; } .brand span, .topbar .side-user .who small, .topbar .search-open span, .topbar .search-open kbd, .live > span { display: none; } }
+  @media (max-width: 980px) { .topbar .side-nav a span { display: none; } .topbar .side-user .who { display: none; } }
   .summary { display: flex; align-items: center; gap: 18px; color: var(--muted); font-size: 14px; white-space: nowrap; }
   .summary b { color: var(--ink); font-variant-numeric: tabular-nums; }
   .live { display: inline-flex; align-items: center; gap: 8px; }
@@ -1677,7 +1756,7 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .palette-results li.none { color: var(--muted); cursor: default; }
   .palette-hint { margin: 0; padding: 8px 16px 12px; color: var(--muted); font-size: 12px; display: flex; gap: 6px; align-items: center; }
   /* On a phone: the pages as a tab bar at the bottom. */
-  .side-user { margin-top: auto; border-top: 1px solid var(--line); padding-top: 8px; position: relative; }
+  .side-user { flex: none; margin-top: auto; border-top: 1px solid var(--line); padding-top: 8px; position: relative; }
   .side-user summary { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-radius: 8px; cursor: pointer; list-style: none; }
   .side-user summary::-webkit-details-marker { display: none; }
   .side-user summary:hover { background: color-mix(in srgb, var(--line) 60%, transparent); }
@@ -1695,19 +1774,20 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .side-menu button[aria-current] { color: var(--accent); font-weight: 700; }
   .side-menu form { margin: 0; border-top: 1px solid var(--line); padding-top: 2px; display: block; }
   @media (max-width: 820px) {
+    /* A phone: no machine list at the side, the pages in a bar at the bottom. */
     body { padding-left: 0; padding-bottom: 72px; }
-    .sidebar { inset: auto 0 0 0; width: auto; height: 64px; flex-direction: row; align-items: center; justify-content: space-around; padding: 6px 8px; border-right: 0; border-top: 1px solid var(--line); overflow: visible; }
-    .sidebar .brand, .sidebar .side-section, .search-open span, .search-open kbd { display: none; }
-    .side-user { margin: 0; padding: 0; border: 0; } .side-user .who { display: none; } .side-menu { left: auto; right: 0; width: 240px; bottom: calc(100% + 10px); }
-    .topbar { padding: 8px 16px; }
+    .sidebar { display: none; }
+    .topbar { padding: 0 10px; gap: 8px; }
+    .topbar .side-nav { position: fixed; inset: auto 0 0 0; height: 64px; justify-content: space-around; padding: 6px 8px; background: color-mix(in srgb, var(--card) 70%, var(--bg)); border-top: 1px solid var(--line); overflow: visible; }
+    .topbar .side-nav { gap: 0; padding: 6px 2px; }
+    .topbar .side-nav a { flex: 1; min-width: 0; flex-direction: column; gap: 2px; font-size: 10.5px; padding: 6px 2px; }
+    .topbar .side-nav a span { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    .topbar .side-nav a span { display: block; }
     .summary { gap: 12px; font-size: 13px; }
-    .search-open { width: auto; margin: 0; border: 0; background: transparent; }
-    .side-nav { display: flex; gap: 4px; flex: 1; justify-content: space-around; }
-    .side-nav a { flex-direction: column; gap: 2px; font-size: 11px; padding: 6px 10px; }
-    .search-open { flex: none; padding: 8px; }
     html, body { overflow-x: hidden; }
     main > * { max-width: 100%; }
   }
+
   dialog { width: min(600px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink); box-shadow: 0 20px 60px rgb(0 0 0 / 0.35); }
   dialog::backdrop { background: rgb(0 0 0 / 0.45); backdrop-filter: blur(2px); }
   .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 0; }
@@ -1800,24 +1880,27 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .machine-table a { text-decoration: none; }
   .machine-table .state { font-size: 11px; padding: 2px 8px; }
   .machine-table small { color: var(--muted); display: block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .t-progress { width: 120px; height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; margin-bottom: 3px; }
-  .t-progress i { display: block; height: 100%; background: var(--accent); }
+  .t-progress { width: 120px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--busy) 28%, transparent); overflow: hidden; margin-bottom: 3px; }
+  .t-progress i { display: block; height: 100%; background: var(--busy); }
   .muted { color: var(--muted); }
   .m-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--line); flex: none; }
   @media (max-width: 900px) { .machine { grid-template-columns: 56px minmax(0, 1fr) 104px; } .m-conn { display: none; } .m-now { grid-column: 2; } }
   .state { justify-self: end; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; font-size: 12px; padding: 4px 10px; border-radius: 6px; background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--line); }
-  .state.busy { background: var(--accent); color: #fff; box-shadow: none; }
+  .state.busy { background: var(--busy); color: #fff; box-shadow: none; }
+  /* Busy with a known progress: dark blue as far as it got, light blue for what is left. */
+  .state.busy.pct { background: linear-gradient(to right, var(--busy) var(--pct), color-mix(in srgb, var(--busy) 38%, var(--card)) var(--pct)); letter-spacing: .3px; text-transform: none; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .state.idle { color: var(--accent); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 60%, transparent); }
   .state.paused { background: var(--warn); color: #fff; box-shadow: none; }
   .state.offline, .state.disconnected { color: var(--off); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--off) 45%, transparent); }
   .state.error { background: var(--bad); color: #fff; box-shadow: none; }
   .state.attention { background: var(--warn); color: #fff; box-shadow: none; }
-  .state.cooling { color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .state.cooling { color: var(--busy); box-shadow: inset 0 0 0 1.5px var(--busy); }
   .state.out { background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--off); }
   .attention-count b { color: var(--warn) !important; }
   .thumb { width: 56px; height: 56px; border-radius: 10px; background: var(--line); }
   .empty { color: var(--muted); }
-  .card-progress { grid-column: 2 / -1; height: 6px; margin-top: 8px; border-radius: 3px; background: var(--line); overflow: hidden; }
-  .card-progress i { display: block; height: 100%; background: var(--accent); transition: width 0.5s; }
+  .card-progress { grid-column: 2 / -1; height: 6px; margin-top: 8px; border-radius: 3px; background: color-mix(in srgb, var(--busy) 28%, transparent); overflow: hidden; }
+  .card-progress i { display: block; height: 100%; background: var(--busy); transition: width 0.5s; }
   h2.group { margin: 26px 0 12px; font-size: 15px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
   h2.group span { margin-left: 6px; font-weight: 500; }
   a { color: inherit; }
@@ -1927,7 +2010,7 @@ const PAGE: &str = r##"<!doctype html>
       const shown = machines.filter((m) => (ui.filter === "all" || bucket(m) === ui.filter)
         && (!q || [m.name, modelOf(m), ...(m.labels || []), m.telemetry?.job?.file || ""].some((t) => t.toLowerCase().includes(q))));
       if (!shown.length) { list.innerHTML = '<p class="empty">No machine like that.</p>'; return; }
-      const chips = (m) => [...(m.labels || []).map((l) => `<span class="tag">${esc(l)}</span>`), m.induction_required ? '<span class="tag induction" title="Only members an admin gave permission may use it">permission</span>' : ""].join("");
+      const chips = (m) => [...(m.labels || []).map((l) => `<span class="tag">${esc(l)}</span>`), m.queue?.length ? `<span class="tag" title="Waiting to print here, one after another">${m.queue.length} in queue</span>` : "", m.induction_required ? (m.training ? '<span class="tag induction" title="Only who had the training may use it">training</span>' : '<span class="tag induction" title="Only who has permission may use it">permission</span>') : ""].join("");
       const card = (m) => {
         const t = m.telemetry || {};
         const shownS = shownState(m);
@@ -1946,7 +2029,7 @@ const PAGE: &str = r##"<!doctype html>
           <div class="m-col"><b class="name">${esc(m.name)}</b><small>${esc(under)}</small>${m.loaded ? `<small class="m-spool"><i class="m-swatch" style="background:${esc(m.loaded.color || "transparent")}"></i>${esc(loadedText(m.loaded))}</small>` : ""}${tags ? `<span class="tags">${tags}</span>` : ""}</div>
           ${col("m-now", doing, what)}
           ${trouble(m)}
-          <div class="state ${esc(shownS.cls)}">${esc(shownS.text)}</div>
+          ${stateBadge(m)}
           ${bar}
         </a>`;
       };
@@ -1956,7 +2039,7 @@ const PAGE: &str = r##"<!doctype html>
         const st = shownState(m);
         const percent = t.job ? Math.round((t.job.done * 100) / Math.max(1, t.job.total)) : null;
         const go = `machines/${encodeURIComponent(m.id)}`;
-        return `<tr data-go="${esc(go)}"><td><a href="${esc(go)}"><b>${esc(m.name)}</b></a></td><td><span class="state ${esc(st.cls)}">${esc(st.text)}</span></td><td>${esc(modelOf(m))}</td>
+        return `<tr data-go="${esc(go)}"><td><a href="${esc(go)}"><b>${esc(m.name)}</b></a></td><td>${stateBadge(m, "span")}</td><td>${esc(modelOf(m))}</td>
           <td>${m.loaded ? `<span class="m-spool"><i class="m-swatch" style="background:${esc(m.loaded.color || "transparent")}"></i>${esc(m.loaded.material || m.loaded.name)}</span>` : '<span class="muted">–</span>'}</td>
           <td>${t.job ? `<div class="t-progress"><i style="width:${percent}%"></i></div><small>${percent} % · ${esc(t.job.file)}</small>` : '<span class="muted">–</span>'}</td>
           <td>${t.job && t.job.remaining_s != null ? esc(timeLeft(t.job.remaining_s).split(" · ")[1] || "") : '<span class="muted">–</span>'}</td>
@@ -2134,6 +2217,7 @@ mod tests {
             let store = store.lock().unwrap();
             let space = store.default_space().unwrap().0;
             store.pair(space, &registered.pairing_code).unwrap();
+            crate::auth::tester_may_operate(&store, space, &registered.machine_id);
             store
                 .set_profile(space, &registered.machine_id, Some("ortur/lm2-pro-s2"))
                 .unwrap();
@@ -2166,6 +2250,19 @@ mod tests {
             .unwrap();
         let (_, body) = call(&app, upload).await;
         let file: serde_json::Value = serde_json::from_str(&body).unwrap();
+        // A laser: the tester has and wears the glasses (crate::safety).
+        let user: i64 = store
+            .lock()
+            .unwrap()
+            .db
+            .query_row("SELECT id FROM users WHERE name = 'tester'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        store
+            .lock()
+            .unwrap()
+            .confirm_ppe(user, &registered.machine_id);
         let print = Request::post(format!("/files/{}/print", file["id"].as_str().unwrap()))
             .header("content-type", "application/x-www-form-urlencoded")
             .header("x-requested-with", "fetch")

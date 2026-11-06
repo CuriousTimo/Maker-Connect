@@ -188,8 +188,10 @@ prints a new password and signs that account out everywhere. Behind a proxy with
 has one or more spaces (its locations, its workshops); every space and organisation has its
 own id under the hood, apart from its name. Someone in the organisation is in all its
 spaces; someone can also be in one space only. Roles: *owner*, *admin* (machines, members,
-tokens), *member* (files, materials, machines), *guest* (looks only). A machine can need
-**permission**: then a member may only *use* it (jobs, labels) or *operate* it (also move, heat,
+tokens), *member* (files, materials, machines), *guest* (looks only). A new machine needs
+**permission** (a machine can also be open to every member). An admin gives it per machine
+or per **machine group** ("3D printers": every printer in it, also those added later); the
+most a member has counts. A member may only *use* it (jobs, labels) or *operate* it (also move, heat,
 G-code) as far as an admin gave them, until a date if one is set. New people come in by an
 **invite link** (a week, once; no email needed). Everything on the **Space** page, with the
 space's **audit log** (who changed what).

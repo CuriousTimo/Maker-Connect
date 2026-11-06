@@ -742,6 +742,29 @@ fn setup_html(space: &str, display_name: &str, name: &str, problem: &str) -> Str
     )
 }
 
+/// In a test: the signed-in tester may operate this machine (a new machine needs
+/// permission, owners included; a machine added through the website gives it to whoever
+/// added it).
+#[cfg(test)]
+pub fn tester_may_operate(store: &crate::store::Store, space: i64, machine: &str) {
+    let user: i64 = store
+        .db
+        .query_row("SELECT id FROM users WHERE name = 'tester'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    store
+        .set_grant(
+            space,
+            machine,
+            user,
+            crate::access::Level::Operate,
+            user,
+            None,
+        )
+        .unwrap();
+}
+
 /// For tests: the app with someone signed in on every request (an owner of the first space).
 #[cfg(test)]
 pub fn signed_in_app(store: Shared) -> Router {

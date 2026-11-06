@@ -110,7 +110,7 @@ const PROJECTS_STYLE: &str = r#"
   .tl-track { position: relative; height: 30px; background: color-mix(in srgb, var(--line) 45%, transparent); border-radius: 6px; overflow: hidden; }
   .tl-track.off { background: repeating-linear-gradient(-45deg, transparent 0 6px, color-mix(in srgb, var(--line) 60%, transparent) 6px 12px); }
   .tl-b { position: absolute; top: 3px; bottom: 3px; border-radius: 4px; font-size: 11px; line-height: 24px; padding: 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 3px; box-sizing: border-box; }
-  .tl-b.running { background: var(--accent); color: #fff; }
+  .tl-b.running { background: var(--busy); color: #fff; }
   .tl-b.planned { background: color-mix(in srgb, var(--accent) 22%, var(--card)); color: var(--ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
   .tl-name small.tl-waits { color: var(--warn); }
   .tl-now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ink); opacity: .35; }

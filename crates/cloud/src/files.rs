@@ -38,8 +38,45 @@ pub fn routes() -> Router<Shared> {
         .route("/machines/{id}/job", post(control_job))
 }
 
+/// Whether the slicer's printer model is this one: PrusaSlicer writes `MK3S`, OrcaSlicer
+/// `Prusa MK3S`; the brand in front, and the case, do not matter.
+pub(crate) fn same_model(sliced: &str, known: &str) -> bool {
+    let sliced = sliced.trim().to_ascii_lowercase();
+    let known = known.trim().to_ascii_lowercase();
+    sliced == known || sliced.ends_with(&format!(" {known}"))
+}
+
 /// Whether a file can go on a machine now: Ok with a warning, or why not.
 pub fn fit(file: &StoredFile, machine: &Machine) -> Result<Option<String>, String> {
+    let warning = suits(file, machine)?;
+    if let Some(out) = &machine.out_of_use {
+        return Err(if out.reason.is_empty() {
+            "out of use".to_owned()
+        } else {
+            format!("out of use: {}", out.reason)
+        });
+    }
+    if !machine.online {
+        return Err("offline".to_owned());
+    }
+    if machine.on_bed.is_some() {
+        return Err("a print is still on the bed: take it off first".to_owned());
+    }
+    if machine.confirm.is_some() {
+        return Err("a plate waits to be confirmed".to_owned());
+    }
+    if let Some(how) = &machine.queue_held {
+        return Err(format!("the last job {how}: is the bed clear?"));
+    }
+    if let Some(job) = &machine.job {
+        return Err(format!("busy with {}", job.file_name));
+    }
+    Ok(warning)
+}
+
+/// Whether a file is for this machine at all, whatever it does now (busy, offline, a print
+/// on its bed): then it can wait in the machine's queue (crate::queue).
+pub fn suits(file: &StoredFile, machine: &Machine) -> Result<Option<String>, String> {
     let profile = machine.profile.as_deref().and_then(profiles::find);
     // Binary G-code is read by Prusa's own firmware only.
     if file.name.to_ascii_lowercase().ends_with(".bgcode") && machine.link != "prusa-connect" {
@@ -59,7 +96,7 @@ pub fn fit(file: &StoredFile, machine: &Machine) -> Result<Option<String>, Strin
     }
     if let Some(model) = &file.meta.printer_model {
         match profile.map(|p| &p.printer_models) {
-            Some(models) if models.iter().any(|m| m == model) => {}
+            Some(models) if models.iter().any(|m| same_model(model, m)) => {}
             Some(models) if !models.is_empty() => return Err(format!("sliced for {model}")),
             _ => warning = Some(format!("sliced for {model}; not known for this machine")),
         }
@@ -75,22 +112,6 @@ pub fn fit(file: &StoredFile, machine: &Machine) -> Result<Option<String>, Strin
         // (crate::printer_files).
         "prusa-connect" => {}
         _ => return Err("this machine takes no files from here".to_owned()),
-    }
-    if let Some(out) = &machine.out_of_use {
-        return Err(if out.reason.is_empty() {
-            "out of use".to_owned()
-        } else {
-            format!("out of use: {}", out.reason)
-        });
-    }
-    if !machine.online {
-        return Err("offline".to_owned());
-    }
-    if machine.on_bed.is_some() {
-        return Err("a print is still on the bed: take it off first".to_owned());
-    }
-    if let Some(job) = &machine.job {
-        return Err(format!("busy with {}", job.file_name));
     }
     Ok(warning)
 }
@@ -190,6 +211,8 @@ struct Target {
     id: String,
     name: String,
     ok: bool,
+    /// Not now, but into its queue (busy, offline, others waiting).
+    queue: bool,
     note: Option<String>,
 }
 
@@ -221,19 +244,31 @@ async fn list(access: crate::access::Access, State(store): State<Shared>) -> Res
             let mut targets: Vec<Target> = machines
                 .iter()
                 .map(|machine| {
-                    let (ok, note) = match fit(&file, machine) {
-                        Ok(warning) => (true, warning),
-                        Err(why) => (false, Some(why)),
+                    let waiting = machine.queue.len();
+                    let (ok, queue, note) = match fit(&file, machine) {
+                        Ok(warning) if waiting == 0 => (true, false, warning),
+                        now => match suits(&file, machine) {
+                            Ok(_) => (
+                                false,
+                                true,
+                                Some(match now {
+                                    Err(why) => format!("{why}: to its queue"),
+                                    Ok(_) => format!("{waiting} waiting: to its queue"),
+                                }),
+                            ),
+                            Err(why) => (false, false, Some(why)),
+                        },
                     };
                     Target {
                         id: machine.id.clone(),
                         name: machine.name.clone(),
                         ok,
+                        queue,
                         note,
                     }
                 })
                 .collect();
-            targets.sort_by_key(|t| !t.ok);
+            targets.sort_by_key(|t| (!t.ok, !t.queue));
             Listed {
                 printed: prints.remove(&file.id).unwrap_or_default(),
                 file,
@@ -583,13 +618,29 @@ async fn print(
     {
         return *refused;
     }
+    if let Err(refused) = crate::safety::check_ppe(&store, &access, &form.machine) {
+        return *refused;
+    }
     let machine = match store.machine(space, &form.machine) {
         Ok(Some(machine)) => machine,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
     };
-    if let Err(why) = fit(&file, &machine) {
-        return (StatusCode::CONFLICT, why).into_response();
+    // Free, and nothing waiting before it: now. Busy, or others waiting: to the back of its
+    // queue (crate::queue). Not for this machine at all: no.
+    if !machine.queue.is_empty() || fit(&file, &machine).is_err() {
+        if let Err(why) = suits(&file, &machine) {
+            return (StatusCode::CONFLICT, why).into_response();
+        }
+        return match store.queue_add(space, &machine.id, &file, Some(&access.actor)) {
+            Ok(place) if headers.contains_key("x-requested-with") => (
+                StatusCode::ACCEPTED,
+                Json(serde_json::json!({ "queued": place })),
+            )
+                .into_response(),
+            Ok(_) => Redirect::to(&format!("/machines/{}", machine.id)).into_response(),
+            Err(error) => failed(error),
+        };
     }
     match store.add_job(space, &machine.id, &file, None, Some(&access.actor)) {
         Ok(Ok(_)) if headers.contains_key("x-requested-with") => {
@@ -626,6 +677,9 @@ async fn frame(
     if let Err(refused) =
         crate::access::check_machine(&store, &access, &form.machine, crate::access::Level::Use)
     {
+        return *refused;
+    }
+    if let Err(refused) = crate::safety::check_ppe(&store, &access, &form.machine) {
         return *refused;
     }
     let machine = match store.machine(space, &form.machine) {
@@ -668,6 +722,12 @@ async fn control_job(
     Form(form): Form<JobForm>,
 ) -> Response {
     let mut store = store.lock().unwrap();
+    // Starting and resuming wait for PPE; pausing and stopping never do.
+    if matches!(form.action.as_str(), "restart" | "resume")
+        && let Err(refused) = crate::safety::check_ppe(&store, &access, &id)
+    {
+        return *refused;
+    }
     // Start an interrupted job again, a little before where it stopped.
     if form.action == "restart" {
         let space = match store.space_of(&access) {
@@ -736,6 +796,19 @@ mod tests {
 
     /// A laser's own settings decide: laser mode off refuses, a file outside its travel is
     /// refused, a file made for a 0 to 255 power range is warned about.
+    /// PrusaSlicer writes `MK3S`, OrcaSlicer `Prusa MK3S`: both are the MK3S, not the MINI.
+    #[test]
+    fn a_printer_model_by_either_slicer() {
+        assert!(super::same_model("MK3S", "MK3S"));
+        assert!(super::same_model("Prusa MK3S", "MK3S"));
+        assert!(super::same_model("prusa mini", "MINI"));
+        assert!(!super::same_model("Prusa MK3S", "MINI"));
+        assert!(
+            !super::same_model("MK3S+", "MK3S"),
+            "not a model that only starts alike"
+        );
+    }
+
     #[test]
     fn a_laser_checks_its_settings() {
         use maker_connect_protocol::{
@@ -841,6 +914,8 @@ mod tests {
             let laser = store
                 .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
                 .unwrap();
+            crate::auth::tester_may_operate(&store, space, &mini);
+            crate::auth::tester_may_operate(&store, space, &laser);
             (space, mini, laser)
         };
         let (_, list) = call(
@@ -863,7 +938,7 @@ mod tests {
                 .unwrap()["note"]
                 .clone()
         };
-        assert_eq!(note(&mini), "offline");
+        assert_eq!(note(&mini), "offline: to its queue");
         assert_eq!(note(&laser), "a file for a 3d printer");
 
         let print = |machine: &str| {
@@ -873,10 +948,16 @@ mod tests {
                 .body(Body::from(format!("machine={machine}")))
                 .unwrap()
         };
+        // Offline: into its queue (crate::queue), not refused.
         assert_eq!(
             call(&app, print(&mini)).await.0,
+            StatusCode::ACCEPTED,
+            "offline: queued"
+        );
+        assert_eq!(
+            call(&app, print(&laser)).await.0,
             StatusCode::CONFLICT,
-            "offline"
+            "not for a laser, not even its queue"
         );
         {
             let mut store = store.lock().unwrap();
@@ -888,12 +969,38 @@ mod tests {
                 .unwrap()
                 .1;
             store.report(&token, &Default::default()).unwrap();
+            // Online and free: the queue starts it by itself.
+            assert_eq!(store.start_queued().unwrap(), 1);
+            assert!(
+                store
+                    .machine(space, &mini)
+                    .unwrap()
+                    .unwrap()
+                    .queue
+                    .is_empty()
+            );
         }
-        assert_eq!(call(&app, print(&mini)).await.0, StatusCode::NO_CONTENT);
+        // Busy: the next goes to its queue, and waits there.
         assert_eq!(
             call(&app, print(&mini)).await.0,
-            StatusCode::CONFLICT,
-            "busy"
+            StatusCode::ACCEPTED,
+            "busy: queued"
+        );
+        assert_eq!(
+            store.lock().unwrap().start_queued().unwrap(),
+            0,
+            "waits while busy"
+        );
+        assert_eq!(
+            store
+                .lock()
+                .unwrap()
+                .machine(space, &mini)
+                .unwrap()
+                .unwrap()
+                .queue
+                .len(),
+            1
         );
         let job = store
             .lock()
@@ -952,6 +1059,7 @@ mod tests {
             let space = store.default_space().unwrap().0;
             let profile = crate::profiles::find("dymo/labelmanager-pnp").unwrap();
             let dymo = store.add_virtual(space, profile).unwrap();
+            crate::auth::tester_may_operate(&store, space, &dymo);
             let token = store.virtual_machines().unwrap()[0].1.clone();
             let telemetry = maker_connect_protocol::Telemetry {
                 state: maker_connect_protocol::MachineState::Idle,
@@ -1040,6 +1148,7 @@ mod tests {
             );
             assert_eq!((across, along), (425, Some(1051)));
             let writer = store.add_virtual(space, profile).unwrap();
+            crate::auth::tester_may_operate(&store, space, &writer);
             let token = store.virtual_machines().unwrap()[0].1.clone();
             let idle = maker_connect_protocol::Telemetry {
                 state: maker_connect_protocol::MachineState::Idle,

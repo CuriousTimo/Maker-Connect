@@ -856,6 +856,9 @@ async fn print(
     };
     {
         let s = store.lock().unwrap();
+        if let Err(refused) = crate::safety::check_ppe(&s, &access, &machine) {
+            return *refused;
+        }
         if let Ok(Some(m)) = s.machine(access.space, &machine) {
             let state = m.telemetry.as_ref().map(|t| t.state);
             if m.job.is_some() || matches!(state, Some(maker_connect_protocol::MachineState::Busy))
@@ -1195,6 +1198,7 @@ mod flow {
             let mini = s
                 .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
                 .unwrap();
+            crate::auth::tester_may_operate(&s, space, &mini);
             let token: String =
                 s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| {
                     r.get(0)

@@ -3,7 +3,7 @@
 //! password. What each needs is in [`crate::access::RULES`]; the rules within (no role
 //! above one's own, an organisation keeps an owner) are here.
 
-use crate::access::{Access, Level, Role};
+use crate::access::{Access, Role};
 use crate::accounts::{self, Signed};
 use crate::auth::{Client, from_this_site};
 use crate::{STYLE, Shared, escape, failed, header};
@@ -28,9 +28,6 @@ pub fn routes() -> Router<Shared> {
         .route("/space/members/{user}/remove", post(remove_member))
         .route("/space/tokens", post(new_token))
         .route("/space/tokens/{id}/revoke", post(revoke_token))
-        .route("/machines/{id}/access", post(machine_access))
-        .route("/machines/{id}/grants", post(grant))
-        .route("/machines/{id}/grants/{user}/remove", post(ungrant))
         .route("/invite/{token}", get(invite_page).post(join))
         .route("/welcome", get(welcome))
         .route("/spaces/switch", post(switch))
@@ -43,11 +40,15 @@ fn refused(why: &str) -> Response {
     (StatusCode::FORBIDDEN, why.to_owned()).into_response()
 }
 
-fn day(at: i64) -> String {
+pub(crate) fn day(at: i64) -> String {
     crate::spoolman::iso(at).chars().take(10).collect()
 }
 
-const SPACE_STYLE: &str = r#"
+pub(crate) const SPACE_STYLE: &str = r#"
+  .tabs { display: flex; gap: 4px; margin: 14px 0 4px; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs a { padding: 10px 14px; text-decoration: none; color: var(--muted); font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+  .tabs a[aria-selected=true] { color: var(--ink); border-color: var(--accent); }
   .space-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
   .space-head h2 { margin: 0; }
   .section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin: 18px 0; }
@@ -66,12 +67,79 @@ const SPACE_STYLE: &str = r#"
   button.small, select.small { padding: 4px 8px; font-size: 13px; }
   .secret { margin: 10px 0 0; padding: 12px; border: 1px solid var(--accent); border-radius: 10px; background: color-mix(in srgb, var(--accent) 8%, transparent); }
   .secret pre { margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+  .pchips { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+  .pchips li { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; white-space: nowrap; }
+  .pchips li.group { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .pchips form { margin: 0; }
+  .pchips button { padding: 0 6px; background: none; color: var(--muted); font-size: 15px; border: 0; }
+  .pchips li.add { border-style: dashed; padding: 0; }
+  .pchips li.add select { border: 0; background: transparent; font-size: 13px; padding: 3px 8px; color: var(--muted); }
+  td.may { min-width: 220px; }
+  table.list td.since { white-space: nowrap; }
+  .give { margin-top: 6px; }
+  .give summary { cursor: pointer; color: var(--accent); font-size: 13px; font-weight: 600; list-style: none; display: inline-block; }
+  .give summary::-webkit-details-marker { display: none; }
+  .give form { display: flex !important; flex-wrap: wrap !important; gap: 6px; align-items: center; margin-top: 6px !important; }
+  .give label { font-size: 13px; }
+  /* A chip that opens to change it, and "+ …" that opens a small form under it. */
+  .pchips li { position: relative; }
+  .pchips details.edit summary { list-style: none; cursor: pointer; }
+  .pchips details.edit summary::-webkit-details-marker { display: none; }
+  .pchips li.add details.edit summary { color: var(--accent); font-weight: 600; padding: 2px 10px 2px 0; }
+  .pchips details.edit[open] > form { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; width: max-content; max-width: min(520px, 80vw); padding: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgb(0 0 0 / .25); }
+  .pchips details.edit form label { font-size: 13px; }
+  .gcard .g-label { margin: 0 0 -4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+  .gcard header { justify-content: space-between; }
+  .perm-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .perm-dialog { width: min(640px, calc(100vw - 32px)); }
+  .perm-dialog section { padding: 14px 22px 20px; }
+  /* Inside the Members table, but not of it: its own layout. */
+  .perm-dialog section > form { display: block !important; }
+  .perm-dialog .perm-table .pick { white-space: normal; }
+  .perm-dialog p { margin: 10px 0 0; }
+  .perm-table td { vertical-align: middle; }
+  .perm-table .pick { display: inline-flex; gap: 8px; align-items: center; cursor: pointer; }
+  .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  /* Access (planned): the design, marked as such. */
+  .chip.planned { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .a-head { display: flex; align-items: center; gap: 10px; }
+  .a-head h3 { margin: 0 0 4px; }
+  .a-flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; counter-reset: a; }
+  .a-flow li { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; }
+  .a-flow small { color: var(--muted); font-size: 13px; }
+  .a-n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--line); font-size: 12px; font-weight: 700; }
+  .a-form { display: flex; flex-wrap: wrap; gap: 8px; }
+  .a-form input { flex: 1 1 220px; }
+  .access-plan button:disabled { opacity: .45; cursor: not-allowed; }
+  .a-example { opacity: .7; }
+  .a-note { margin: 8px 0 0; font-size: 12px; }
+  .a-state { font-size: 12px; font-weight: 600; } .a-state.ok { color: var(--accent); } .a-state.warn { color: var(--warn); }
+  .a-log { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+  .a-log li { padding: 6px 0; border-top: 1px solid var(--line); } .a-log li:first-child { border-top: 0; }
+  .a-log time { color: var(--muted); margin-right: 10px; font-variant-numeric: tabular-nums; }
+  .mx-wrap { overflow-x: auto; }
+  .mx-table th.mx, .mx-table td.mx { text-align: center; white-space: nowrap; }
+  .mx-table td.mx label { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; min-width: 48px; }
+  .mx-table td.mx input { width: 18px; height: 18px; margin: 0; }
+  .mx-table td.mx small { font-size: 11px; color: var(--muted); min-height: 1em; }
+  .mx-table td.mx-more { text-align: right; white-space: nowrap; }
+  .gcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .gcard { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 10px; align-content: start; }
+  .gcard header { display: flex; align-items: baseline; gap: 8px; }
+  .gcard header small { color: var(--muted); margin-right: auto; }
+  .gcard header form { margin: 0; }
+  .gwho { margin: 0; font-size: 13px; color: var(--muted); }
+  .gnew { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .pchoice { display: inline-flex !important; gap: 14px !important; flex-wrap: wrap !important; }
+  .pchoice label { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; white-space: nowrap; cursor: pointer; }
   .machine-access { border-top: 1px solid var(--line); padding: 12px 0; }
   .machine-access:first-of-type { border-top: 0; }
   .machine-access header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .machine-access .grants { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
   .machine-access .grants li { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; }
   .machine-access .grants form { margin: 0; }
+  .machine-access .g-label { margin: 10px 0 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+  .machine-access header small { margin-right: auto; }
   .machine-access .grants button { padding: 0 6px; background: none; color: var(--muted); font-size: 15px; }
   .audit li { padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 14px; list-style: none; }
   .audit { padding: 0; margin: 0; max-height: 420px; overflow-y: auto; }
@@ -119,8 +187,9 @@ async fn page(
             out
         };
 
-        // Members.
+        // Members, with what each may use (crate::permissions_page).
         let members = store.members(space)?;
+        let access_parts = crate::permissions_page::parts(&store, &access)?;
         let mut rows = String::new();
         for m in &members {
             let you = m.user_id == access.user_id;
@@ -139,7 +208,7 @@ async fn page(
                 }
             };
             rows += &format!(
-                r#"<tr><td><b>{display}</b>{you}<br><small>{name}</small></td><td>{org}</td><td>{own}</td><td><small>{since}</small></td><td>{remove}</td></tr>"#,
+                r#"<tr><td><b>{display}</b>{you}<br><small>{name}</small></td><td>{org}</td><td>{own}</td><td class="since"><small>{since}</small></td><td>{remove}</td></tr>"#,
                 display = escape(&m.display_name),
                 you = if you { r#" <small>(you)</small>"# } else { "" },
                 name = escape(&m.name),
@@ -167,9 +236,10 @@ async fn page(
                 },
             );
         }
+        let matrix = &access_parts.matrix;
         let members_html = format!(
-            r#"<section class="section"><h3>Members</h3><p class="sub">A role in the organisation counts in all of its spaces; a role in this space only here. The higher one counts. Owners and admins manage the space and every machine; members use the machines as far as their permissions go; guests look only.</p>
-<table class="list"><thead><tr><th>Who</th><th>Organisation</th><th>This space</th><th>Since</th><th></th></tr></thead><tbody>{rows}</tbody></table></section>"#
+            r#"<section class="section"><h3>Members</h3><p class="sub">A role in the organisation counts in all of its spaces; a role in this space only here. The higher one counts. Owners and admins manage the space and every machine; using a machine takes permission, for everyone (below), unless it is open; guests look only.</p>
+<table class="list"><thead><tr><th>Who</th><th>Organisation</th><th>This space</th><th>Since</th><th></th></tr></thead><tbody>{rows}</tbody></table></section>{matrix}"#
         );
 
         // Invite links.
@@ -216,95 +286,6 @@ async fn page(
             String::new()
         };
 
-        // Machines and inductions.
-        let machines = store.machines(space)?;
-        let mut machine_html = String::new();
-        for machine in &machines {
-            let induction = store.induction_required(space, &machine.id)?;
-            let grants = store.grants(space, &machine.id)?;
-            let mut chips = String::new();
-            for g in &grants {
-                let ended = g.expires_at.is_some_and(|t| t <= crate::store::now());
-                chips += &format!(
-                    r#"<li>{who} · {level}{until}{remove}</li>"#,
-                    who = escape(&g.display_name),
-                    level = g.level.as_str(),
-                    until = g.expires_at.map_or(String::new(), |t| format!(
-                        r#" <small>{} {}</small>"#,
-                        if ended { "ended" } else { "until" },
-                        day(t)
-                    )),
-                    remove = if admin {
-                        format!(
-                            r#"<form method="post" action="machines/{m}/grants/{u}/remove" data-async data-then="reload" data-done="Taken away"><button title="Take away" aria-label="Take away">×</button></form>"#,
-                            m = escape(&machine.id),
-                            u = g.user_id
-                        )
-                    } else {
-                        String::new()
-                    },
-                );
-            }
-            let candidates: String = members
-                .iter()
-                .filter(|m| m.role == Role::Member)
-                .map(|m| {
-                    format!(
-                        r#"<option value="{}">{}</option>"#,
-                        m.user_id,
-                        escape(&m.display_name)
-                    )
-                })
-                .collect();
-            let controls = if admin {
-                format!(
-                    r#"<form method="post" action="machines/{id}/access" data-async data-then="reload" data-done="Saved"><label><input type="checkbox" name="induction" value="1"{checked} onchange="this.form.requestSubmit()"> Needs permission</label></form>"#,
-                    id = escape(&machine.id),
-                    checked = if induction { " checked" } else { "" }
-                )
-            } else {
-                format!(
-                    r#"<small>{}</small>"#,
-                    if induction {
-                        "Needs permission"
-                    } else {
-                        "Open to members"
-                    }
-                )
-            };
-            let add = if admin && induction {
-                if candidates.is_empty() {
-                    r#"<p class="muted" style="margin:8px 0 0;font-size:13px">No members to give one to (owners and admins need none).</p>"#.to_owned()
-                } else {
-                    format!(
-                        r#"<form method="post" action="machines/{id}/grants" data-async data-then="reload" data-done="Permission given" class="switch" style="margin:8px 0 0"><select class="small" name="user" aria-label="Who">{candidates}</select><select class="small" name="level" aria-label="May"><option value="use">use (jobs, labels)</option><option value="operate">operate (also move, heat, G-code)</option></select><label class="muted" style="font-size:13px">until <input class="small" type="date" name="until"></label><button class="small">Give</button></form>"#,
-                        id = escape(&machine.id)
-                    )
-                }
-            } else {
-                String::new()
-            };
-            machine_html += &format!(
-                r#"<div class="machine-access"><header><b>{name}</b>{controls}</header>{list}{add}</div>"#,
-                name = escape(&machine.name),
-                list = if induction && !chips.is_empty() {
-                    format!(r#"<ul class="grants">{chips}</ul>"#)
-                } else if induction {
-                    r#"<p class="muted" style="margin:6px 0 0;font-size:13px">Nobody has permission yet.</p>"#.to_owned()
-                } else {
-                    String::new()
-                },
-            );
-        }
-        let machines_section = format!(
-            r#"<section class="section"><h3>Who may use which machine</h3><p class="sub">A machine open to members: every member may run jobs on it and operate it. One that needs permission (a laser, say, after someone showed how it works): only members an admin gave it, as far as it goes, until its end date if it has one.</p>{}</section>"#,
-            if machine_html.is_empty() {
-                r#"<p class="muted">No machines yet.</p>"#.to_owned()
-            } else {
-                machine_html
-            }
-        );
-
         // API tokens.
         let tokens_html = if admin {
             let mut list = String::new();
@@ -344,7 +325,7 @@ async fn page(
             let mut lines = String::new();
             for line in store.audit_log(space, 150)? {
                 lines += &format!(
-                    r#"<li><time>{at}</time><b>{actor}</b> {action} {target}</li>"#,
+                    r#"<li><time>{at}</time><b>{actor}</b> {action} {target}{detail}</li>"#,
                     at = escape(
                         &crate::spoolman::iso(line.at)
                             .replace('T', " ")
@@ -355,6 +336,11 @@ async fn page(
                     actor = escape(&line.actor),
                     action = escape(&line.action),
                     target = escape(&line.target),
+                    detail = if line.detail.is_empty() {
+                        String::new()
+                    } else {
+                        format!(r#" <small class="muted">{}</small>"#, escape(&line.detail))
+                    },
                 );
             }
             format!(
@@ -414,6 +400,22 @@ async fn page(
             org = escape(&org_name)
         );
 
+        // Safety: asking for PPE before use (crate::safety).
+        let ppe_on = store.ppe_checks(space);
+        let safety_html = format!(
+            r#"<section class="section"><h3>Safety</h3><p class="sub">For a makerspace: before someone uses a machine that needs it, they tick off its PPE (laser safety glasses at a laser, safety glasses and hearing protection at a CNC). Each machine's list is in its Settings. At home you may leave it off.</p>{}</section>"#,
+            if admin {
+                format!(
+                    r#"<form method="post" action="space/safety" data-async data-then="reload" data-done="Saved"><label><input type="checkbox" name="on" value="1"{checked} onchange="this.form.requestSubmit()"> Ask for PPE before use</label></form>"#,
+                    checked = if ppe_on { " checked" } else { "" }
+                )
+            } else if ppe_on {
+                "<p>On: machines ask for their PPE before use.</p>".to_owned()
+            } else {
+                "<p>Off.</p>".to_owned()
+            }
+        );
+
         // One's own account, and the server.
         let instance_html = if signed.as_ref().is_some_and(|s| s.instance_admin) {
             format!(
@@ -447,16 +449,45 @@ async fn page(
 {header}
 <main>
   <div class="space-head"><h2>{name}</h2><span class="chip {role}">you: {role}</span></div>
-  {org_html}
-  {members_html}
-  {invites_html}
-  {machines_section}
-  {tokens_html}
-  {audit_html}
-  {account_html}
-  {instance_html}
+  <nav class="tabs" role="tablist"><a href="#members" role="tab">Members</a><a href="#permissions" role="tab">Permissions</a><a href="#access" role="tab">Access</a>{tokens_tab}{audit_tab}<a href="#general" role="tab">General</a></nav>
+  <div role="tabpanel" data-panel="members">{members_html}{invites_html}</div>
+  <div role="tabpanel" data-panel="access" hidden>{access_html}</div>
+  <div role="tabpanel" data-panel="permissions" hidden>{groups_html}{machines_html}</div>
+  <div role="tabpanel" data-panel="tokens" hidden>{tokens_html}</div>
+  <div role="tabpanel" data-panel="audit" hidden>{audit_html}</div>
+  <div role="tabpanel" data-panel="general" hidden>{org_html}{safety_html}{account_html}{instance_html}</div>
 </main>
 <script>
+  // Tabs: the address says which (#members), so a reload stays there.
+  function showTab() {{
+    const tabs = [...document.querySelectorAll(".tabs a")];
+    // Groups and machines are part of Permissions (older links said #groups, #machines).
+    const hash = ["#groups", "#machines"].includes(location.hash) ? "#permissions" : location.hash;
+    const tab = tabs.find((a) => a.hash === hash) || tabs[0];
+    for (const a of tabs) a.setAttribute("aria-selected", String(a === tab));
+    for (const p of document.querySelectorAll("[data-panel]")) p.hidden = `#${{p.dataset.panel}}` !== tab.hash;
+  }}
+  addEventListener("hashchange", showTab);
+  showTab();
+  // The matrix: a tick gives (use) or takes a group's permission, at once.
+  document.addEventListener("change", async (e) => {{
+    const box = e.target.closest("[data-mx-user]");
+    if (!box) return;
+    const r = await fetch(`permissions/groups/${{box.dataset.mxGroup}}/people/${{box.dataset.mxUser}}`, {{ method: "POST", headers: {{ "x-requested-with": "fetch" }}, body: new URLSearchParams({{ on: box.checked ? "1" : "0" }}) }});
+    if (r.ok) {{
+      box.nextElementSibling.textContent = box.checked ? (await r.text()) || "use" : "";
+      toast(box.checked ? "Permission given" : "Permission taken away");
+    }} else {{
+      box.checked = !box.checked;
+      toast(`Not done: ${{await r.text()}}`, "bad");
+    }}
+  }});
+  // Someone's permissions: a window per person.
+  document.addEventListener("click", (e) => {{
+    const open = e.target.closest("[data-open-perm]");
+    if (open) document.querySelector(`[data-perm="${{open.dataset.openPerm}}"]`).showModal();
+    if (e.target.closest("[data-close]")) e.target.closest("dialog")?.close();
+  }});
   fetch("api/machines").then((r) => r.json()).then(summarise).catch(() => {{}});
   // A link or a token made: shown once, here.
   document.addEventListener("saved", (event) => {{
@@ -479,6 +510,19 @@ async fn page(
 </html>"##,
             header = header(&name, "", "space"),
             role = access.role.as_str(),
+            groups_html = access_parts.groups,
+            access_html = crate::access_page::placeholder(),
+            machines_html = access_parts.machines,
+            tokens_tab = if tokens_html.is_empty() {
+                ""
+            } else {
+                r##"<a href="#tokens" role="tab">API tokens</a>"##
+            },
+            audit_tab = if audit_html.is_empty() {
+                ""
+            } else {
+                r##"<a href="#audit" role="tab">Audit log</a>"##
+            },
             name = escape(&name),
         ))
     })();
@@ -768,123 +812,6 @@ async fn revoke_token(
     match store.lock().unwrap().revoke_token(access.space, id) {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such token").into_response(),
-        Err(error) => failed(error),
-    }
-}
-
-#[derive(Deserialize)]
-struct AccessForm {
-    induction: Option<String>,
-}
-
-async fn machine_access(
-    access: Access,
-    State(store): State<Shared>,
-    Path(machine): Path<String>,
-    Form(form): Form<AccessForm>,
-) -> Response {
-    let on = form.induction.is_some();
-    match store
-        .lock()
-        .unwrap()
-        .set_induction_required(access.space, &machine, on)
-    {
-        Ok(true) => StatusCode::NO_CONTENT.into_response(),
-        Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
-        Err(error) => failed(error),
-    }
-}
-
-#[derive(Deserialize)]
-struct GrantForm {
-    user: i64,
-    level: String,
-    /// `2026-12-31`: the grant ends at the end of that day (UTC); empty: no end.
-    until: Option<String>,
-}
-
-async fn grant(
-    access: Access,
-    State(store): State<Shared>,
-    Path(machine): Path<String>,
-    Form(form): Form<GrantForm>,
-) -> Response {
-    let Some(level) =
-        Level::parse(&form.level).filter(|l| matches!(l, Level::Use | Level::Operate))
-    else {
-        return (StatusCode::BAD_REQUEST, "use or operate").into_response();
-    };
-    let until = match form
-        .until
-        .as_deref()
-        .map(str::trim)
-        .filter(|d| !d.is_empty())
-    {
-        None => None,
-        Some(date) => match end_of_day(date) {
-            Some(at) => Some(at),
-            None => return (StatusCode::BAD_REQUEST, "a date as 2026-12-31").into_response(),
-        },
-    };
-    let store = store.lock().unwrap();
-    if store
-        .role_of(form.user, access.space)
-        .ok()
-        .flatten()
-        .is_none()
-    {
-        return (StatusCode::BAD_REQUEST, "not a member of this space").into_response();
-    }
-    match store.set_grant(
-        access.space,
-        &machine,
-        form.user,
-        level,
-        access.user_id,
-        until,
-    ) {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => failed(error),
-    }
-}
-
-/// The end of a day (`2026-12-31`, UTC), as Unix seconds.
-fn end_of_day(date: &str) -> Option<i64> {
-    let mut parts = date.split('-');
-    let (y, m, d): (i64, i64, i64) = (
-        parts.next()?.parse().ok()?,
-        parts.next()?.parse().ok()?,
-        parts.next()?.parse().ok()?,
-    );
-    if parts.next().is_some()
-        || !(1..=12).contains(&m)
-        || !(1..=31).contains(&d)
-        || !(1970..=9999).contains(&y)
-    {
-        return None;
-    }
-    // Days since 1970-01-01 (Howard Hinnant's days_from_civil).
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    Some(days * 86_400 + 86_399)
-}
-
-async fn ungrant(
-    access: Access,
-    State(store): State<Shared>,
-    Path((machine, user)): Path<(String, i64)>,
-) -> Response {
-    match store
-        .lock()
-        .unwrap()
-        .remove_grant(access.space, &machine, user)
-    {
-        Ok(true) => StatusCode::NO_CONTENT.into_response(),
-        Ok(false) => (StatusCode::NOT_FOUND, "no such permission").into_response(),
         Err(error) => failed(error),
     }
 }
@@ -1241,7 +1168,7 @@ async fn open_spaces(State(store): State<Shared>, Form(form): Form<OpenForm>) ->
 
 #[cfg(test)]
 mod tests {
-    use super::end_of_day;
+    use crate::permissions_page::end_of_day;
 
     #[test]
     fn days_end_where_they_should() {

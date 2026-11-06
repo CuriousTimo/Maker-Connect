@@ -39,7 +39,7 @@
   /* Two panes: the list, and what is chosen beside it. */
   .library { display: grid; grid-template-columns: minmax(360px, 0.9fr) minmax(0, 1.25fr); gap: 16px; align-items: start; }
   .list { display: grid; gap: 8px; min-width: 0; }
-  .inspector { position: sticky; top: 64px; max-height: calc(100vh - 84px); overflow-y: auto; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+  .inspector { position: sticky; top: calc(var(--top) + 16px); max-height: calc(100vh - var(--top) - 32px); overflow-y: auto; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
   .inspector .empty { margin: 30px 0; text-align: center; }
   .sheet-close { display: none; }
 
@@ -140,7 +140,7 @@
   .board-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 10px; }
   .board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; align-items: start; }
   /* The printers: a strip that stays in view while dragging down the places. */
-  .board-printers { position: sticky; top: 41px; z-index: 6; display: grid; gap: 8px; padding: 8px 0 12px; margin-bottom: 4px; background: var(--bg); }
+  .board-printers { position: sticky; top: var(--top); z-index: 6; display: grid; gap: 8px; padding: 8px 0 12px; margin-bottom: 4px; background: var(--bg); }
   .printer-group h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
   .printer-row { display: flex; flex-wrap: wrap; gap: 8px; }
   .printer-drop { flex: 1 1 210px; max-width: 320px; display: grid; gap: 4px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 10px; background: color-mix(in srgb, var(--accent) 6%, var(--card)); font-size: 13px; }

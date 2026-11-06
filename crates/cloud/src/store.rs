@@ -189,7 +189,11 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
         // A laser's module, as its owner says (the controller does not know it).
         ("laser_w", "REAL"),
         // Only those with an induction (a grant) may use it (crate::access).
+        // 0: open to every member; 1: needs permission; 2: needs training (crate::access).
         ("induction_required", "INTEGER NOT NULL DEFAULT 0"),
+        // What someone must have and wear to use it, comma separated ("laser safety
+        // glasses"); empty: nothing; NULL: what its kind needs (crate::safety).
+        ("ppe", "TEXT"),
         // Labels its owners gave it, as a JSON list.
         ("labels", "TEXT"),
         // Who started a print from its USB stick on the website, and when (no job row:
@@ -218,6 +222,7 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
     crate::accounts::migrate(db)?;
     crate::printer_files::migrate(db)?;
     crate::farm::migrate(db)?;
+    crate::queue::migrate(db)?;
     db.execute(
         "INSERT INTO meta (key, value) VALUES ('opened_by', ?1)
          ON CONFLICT (key) DO UPDATE SET value = excluded.value",
@@ -273,6 +278,11 @@ pub struct Machine {
     pub loaded: Option<Loaded>,
     /// A print that finished and is still on the bed, until someone says it was taken.
     pub on_bed: Option<OnBed>,
+    /// Files waiting to print here, next first (crate::queue).
+    pub queue: Vec<crate::queue::Queued>,
+    /// Its last job failed or was stopped, and nobody said yet the bed is clear: how it
+    /// ended ("failed", "stopped"). Nothing starts on it until then (crate::queue).
+    pub queue_held: Option<String>,
     /// Who started the print from its USB stick on the website, while it may still run.
     pub usb_print_by: Option<String>,
     /// A printer on Klipper: the token in the address its moonraker.conf names. Shown on its
@@ -283,8 +293,12 @@ pub struct Machine {
     pub laser_w: Option<f64>,
     /// Labels its owners gave it (`MK4-BL`, `Room 2`): to find it, filter on, group by.
     pub labels: Vec<String>,
-    /// Only who had the induction may use it (crate::access).
+    /// Only who has permission may use it (crate::access).
     pub induction_required: bool,
+    /// The permission is a training: someone had it (crate::access).
+    pub training: bool,
+    /// What someone must have and wear to use it (crate::safety); empty: nothing.
+    pub ppe: Vec<String>,
     /// A plate for a part ended here and waits for someone to confirm it (crate::farm).
     pub confirm: Option<crate::farm::Confirm>,
     /// It takes work from the queue (crate::farm).
@@ -557,6 +571,9 @@ pub struct Store {
     pub downloads_dir: std::path::PathBuf,
     /// Commands per machine id, oldest first.
     commands: std::collections::HashMap<String, Vec<Command>>,
+    /// Who said they have and wear a machine's PPE, until when: (user, machine) → Unix
+    /// seconds (crate::safety).
+    pub(crate) ppe_ok: std::collections::HashMap<(i64, String), i64>,
     next_command: u32,
     /// Temperature history per machine id, oldest first.
     history: std::collections::HashMap<String, std::collections::VecDeque<Sample>>,
@@ -622,6 +639,7 @@ impl Store {
             files_dir,
             downloads_dir,
             commands: Default::default(),
+            ppe_ok: Default::default(),
             // Ids that do not repeat soon after a restart, as a printer may remember the last.
             next_command: (now() % 1_000_000_000) as u32,
             history: Default::default(),
@@ -930,13 +948,14 @@ impl Store {
             .map(|(on_bed, _, _)| on_bed))
     }
 
-    /// Someone took the finished print off the machine's bed. Returns whether there was one.
+    /// Someone took the print off the machine's bed (a finished one, or what a failed or
+    /// stopped job left): the bed is clear. Returns whether there was one.
     pub fn print_taken(&mut self, space: i64, machine: &str) -> rusqlite::Result<bool> {
         if self.machine(space, machine)?.is_none() {
             return Ok(false);
         }
         let n = self.db.execute(
-            "UPDATE jobs SET taken_at = ?1 WHERE machine_id = ?2 AND state = 'finished' AND taken_at IS NULL",
+            "UPDATE jobs SET taken_at = ?1 WHERE machine_id = ?2 AND state IN ('finished', 'stopped', 'failed') AND taken_at IS NULL",
             params![now(), machine],
         )?;
         self.changed();
@@ -1138,8 +1157,9 @@ impl Store {
             .map(|_| CODE_CHARS[rng.gen_range(0..CODE_CHARS.len())] as char)
             .collect();
         self.db.execute(
-            "INSERT INTO machines (id, name, kind, agent_version, token, pairing_code, registered_at, link)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            // A new machine needs permission: members get it per machine or per group.
+            "INSERT INTO machines (id, name, kind, agent_version, token, pairing_code, registered_at, link, induction_required)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)",
             params![
                 id,
                 agent.name,
@@ -1498,14 +1518,15 @@ impl Store {
 
     /// Adds the machine with this pairing code to a space: its name, or None for an
     /// unknown code. A code is used once.
-    pub fn pair(&self, space: i64, code: &str) -> rusqlite::Result<Option<String>> {
+    /// Puts the machine waiting with this code in the space: its (id, name).
+    pub fn pair(&self, space: i64, code: &str) -> rusqlite::Result<Option<(String, String)>> {
         let code = code.trim().to_ascii_uppercase();
-        let name: Option<String> = self
+        let name: Option<(String, String)> = self
             .db
             .query_row(
-                "SELECT name FROM machines WHERE pairing_code = ?1 AND space_id IS NULL",
+                "SELECT id, name FROM machines WHERE pairing_code = ?1 AND space_id IS NULL",
                 [&code],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?;
         if name.is_some() {
@@ -1655,6 +1676,10 @@ impl Store {
             [machine],
         )?;
         tx.execute(
+            "DELETE FROM machine_group_members WHERE machine_id = ?1",
+            [machine],
+        )?;
+        tx.execute(
             "UPDATE spool SET machine = NULL WHERE machine = ?1 AND space_id = ?2",
             params![machine, from],
         )?;
@@ -1675,6 +1700,16 @@ impl Store {
             "DELETE FROM machines WHERE id = ?1 AND space_id = ?2",
             params![machine, space],
         )?;
+        if removed > 0 {
+            self.db.execute(
+                "DELETE FROM machine_grants WHERE machine_id = ?1",
+                [machine],
+            )?;
+            self.db.execute(
+                "DELETE FROM machine_group_members WHERE machine_id = ?1",
+                [machine],
+            )?;
+        }
         self.commands.remove(machine);
         self.history.remove(machine);
         self.changed();
@@ -1894,7 +1929,7 @@ impl Store {
         let mut query = self.db.prepare(
             "SELECT id, name, kind, agent_version, last_seen, telemetry, profile, profile_chosen, link, details, mesh,
                     media, powered_by, power_channel, reached_through, agent, peer, out_of_use, out_of_use_at,
-                    laser_w, labels, induction_required
+                    laser_w, labels, induction_required, ppe
              FROM machines WHERE space_id = ?1 ORDER BY name",
         )?;
         let now = now();
@@ -1943,6 +1978,8 @@ impl Store {
                 }),
                 loaded: None,
                 on_bed: None,
+                queue: Vec::new(),
+                queue_held: None,
                 usb_print_by: None,
                 moonraker_token: None,
                 laser_w: r.get(19)?,
@@ -1950,7 +1987,12 @@ impl Store {
                     .get::<_, Option<String>>(20)?
                     .and_then(|l| serde_json::from_str(&l).ok())
                     .unwrap_or_default(),
-                induction_required: r.get(21)?,
+                induction_required: r.get::<_, i64>(21)? != 0,
+                training: r.get::<_, i64>(21)? == 2,
+                ppe: crate::safety::ppe_of(
+                    &r.get::<_, String>(2)?,
+                    r.get::<_, Option<String>>(22)?.as_deref(),
+                ),
                 confirm: None,
                 farm: false,
                 upkeep: None,
@@ -2007,6 +2049,12 @@ impl Store {
                 });
             if machine.kind == MachineKind::Fdm {
                 machine.on_bed = self.on_bed(&machine.id)?;
+                machine.queue = self.queue_of(&machine.id)?;
+                machine.queue_held = if machine.job.is_some() {
+                    None
+                } else {
+                    self.bed_unchecked(&machine.id)?
+                };
                 machine.usb_print_by = self
                     .db
                     .query_row(

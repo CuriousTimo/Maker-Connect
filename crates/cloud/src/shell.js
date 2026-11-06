@@ -17,8 +17,12 @@
     // Who, in which space; a click lists the spaces to go to (by organisation), and signs out.
     const foot = document.createElement("details");
     foot.className = "side-user";
-    foot.innerHTML = `<summary><span class="who"><b data-me-name></b><small data-me-space></small></span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></summary><div class="side-menu"><div data-me-spaces></div><a href="/space">Space, members, access</a><a href="/downloads">Downloads: the agent</a><small>Look</small><div class="theme-pick" role="group" aria-label="Look"><button type="button" data-theme-pick="system">System</button><button type="button" data-theme-pick="light">Light</button><button type="button" data-theme-pick="dark">Dark</button></div><form method="post" action="/logout"><button type="submit">Sign out</button></form></div>`;
-    document.querySelector(".sidebar").append(foot);
+    foot.innerHTML = `<summary><span class="who"><b data-me-name></b><small data-me-space></small></span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></summary><div class="side-menu"><div data-me-spaces></div><a href="/space#members">Members and invites</a><a href="/space#general">Your account</a><a href="/downloads">Downloads: the agent</a><small>Look</small><div class="theme-pick" role="group" aria-label="Look"><button type="button" data-theme-pick="system">System</button><button type="button" data-theme-pick="light">Light</button><button type="button" data-theme-pick="dark">Dark</button></div><form method="post" action="/logout"><button type="submit">Sign out</button></form></div>`;
+    document.querySelector("[data-top-right]").append(foot);
+    // The menu closes again: a click elsewhere, Esc, or a choice in it.
+    document.addEventListener("click", (e) => { if (foot.open && !foot.contains(e.target)) foot.open = false; });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && foot.open) { foot.open = false; foot.querySelector("summary").focus(); } });
+    foot.querySelector(".side-menu").addEventListener("click", (e) => { if (e.target.closest("a")) foot.open = false; });
     // Light, dark, or as the system says; remembered in this browser only.
     const theme = () => { try { return localStorage.getItem("theme") || "system"; } catch { return "system"; } };
     const showTheme = () => foot.querySelectorAll("[data-theme-pick]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themePick === theme())));
@@ -190,17 +194,44 @@
       return t.bed_c != null && t.bed_c > TAKE_BELOW_C ? { text: "Cooling", cls: "cooling" } : { text: "Take the print", cls: "attention" };
     }
     if (t.state === "attention" || (t.state === "idle" && t.problem)) return { text: t.problem || "Attention", cls: "attention" };
+    // A failed or stopped job may have left something: nothing starts until the bed is clear.
+    if (m.queue_held && t.state === "idle") return { text: "Check the bed", cls: "attention" };
     const names = { disconnected: "Disconnected", idle: "Idle", busy: "Busy", paused: "Paused", error: "Error" };
     return { text: names[t.state] || t.state, cls: t.state };
   }
+  // A busy machine's progress: how far (%), when it ends ("10:35", a weekday if not today),
+  // and for a badge: the text and its two blues (done, still to go) as --pct. None: not busy,
+  // or it does not say.
+  function progressOf(m) {
+    const j = m.online && m.telemetry && m.telemetry.state === "busy" ? m.telemetry.job : null;
+    if (!j || !j.total) return null;
+    const pct = Math.max(0, Math.min(100, Math.round((j.done * 100) / j.total)));
+    let eta = "";
+    if (j.remaining_s != null && isFinite(j.remaining_s)) {
+      const end = new Date(Date.now() + Math.max(0, j.remaining_s) * 1000);
+      const today = end.toDateString() === new Date().toDateString();
+      eta = `${today ? "" : `${end.toLocaleDateString([], { weekday: "short" })} `}${end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    }
+    return { pct, eta, text: eta ? `${pct} % · ${eta}` : `${pct} %`, style: `--pct:${pct}%` };
+  }
+  // A state badge: busy with a known progress fills in two blues, with "42 % · 10:35".
+  function stateBadge(m, tag = "div") {
+    const s = shownState(m), p = s.cls === "busy" ? progressOf(m) : null;
+    return p
+      ? `<${tag} class="state busy pct" style="${p.style}" title="${escapeHtml(`${p.pct} % done${p.eta ? `, ends ${p.eta}` : ""}`)}">${escapeHtml(p.text)}</${tag}>`
+      : `<${tag} class="state ${escapeHtml(s.cls)}">${escapeHtml(s.text)}</${tag}>`;
+  }
+
   // Puts a machine's state in every [data-live="state"], and its colour on the badges; a
   // badge that changes colour pulses once.
   function showState(m) {
     const shown = shownState(m);
+    const p = shown.cls === "busy" ? progressOf(m) : null;
     for (const el of document.querySelectorAll('[data-live="state"]')) {
-      el.textContent = shown.text;
+      el.textContent = p ? p.text : shown.text;
       if (el.classList.contains("state")) {
-        const next = `state ${shown.cls}`;
+        el.style.cssText = p ? p.style : "";
+        const next = `state ${shown.cls}${p ? " pct" : ""}`;
         if (el.className.replace(" pulse", "") !== next) {
           el.className = next;
           void el.offsetWidth;
@@ -231,15 +262,45 @@
     const side = document.querySelector("[data-side-machines]");
     side.innerHTML = sorted.length ? sorted.map((m) => {
       const s = shownState(m);
-      const t = (m.online && m.telemetry) || {};
-      const pct = t.job && t.job.total ? Math.round((t.job.done * 100) / t.job.total) : null;
-      const sub = pct != null ? `${pct} %` : s.cls === "idle" ? "" : s.text;
-      return `<a href="${ROOT}machines/${encodeURIComponent(m.id)}" data-kind="${escapeHtml(m.kind)}"${m.id === here ? ' aria-current="page"' : ""} title="${escapeHtml(`${m.name}: ${s.text}`)}">
+      const p = s.cls === "busy" ? progressOf(m) : null;
+      const pct = p ? p.pct : null;
+      const sub = p ? p.text : s.cls === "idle" ? "" : s.text;
+      return `<a href="${ROOT}machines/${encodeURIComponent(m.id)}" data-mid="${escapeHtml(m.id)}" data-kind="${escapeHtml(m.kind)}"${m.id === here ? ' aria-current="page"' : ""} title="${escapeHtml(`${m.name}: ${s.text}`)}">
         <i class="dot ${s.cls}"></i><span class="side-name">${escapeHtml(m.name)}</span>${sub ? `<small class="${s.cls}">${escapeHtml(sub)}</small>` : ""}
         ${pct != null ? `<span class="side-progress"><i style="width:${pct}%"></i></span>` : ""}
       </a>`;
     }).join("") : `<p class="side-empty">None yet</p>`;
   }
+  // A file from the Files page dropped on a machine here: printed now, or into its queue.
+  {
+    const side = document.querySelector("[data-side-machines]");
+    const target = (e) => e.dataTransfer?.types.includes("application/x-maker-file") && e.target.closest("a[data-mid]");
+    side.addEventListener("dragover", (e) => {
+      const a = target(e);
+      if (!a) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      for (const x of side.querySelectorAll(".drop")) if (x !== a) x.classList.remove("drop");
+      a.classList.add("drop");
+    });
+    side.addEventListener("dragleave", (e) => e.target.closest?.("a[data-mid]")?.classList.remove("drop"));
+    side.addEventListener("drop", async (e) => {
+      const a = target(e);
+      if (!a) return;
+      e.preventDefault();
+      a.classList.remove("drop");
+      document.body.classList.remove("dragging-file");
+      const file = e.dataTransfer.getData("application/x-maker-file");
+      const name = a.querySelector(".side-name")?.textContent || "the machine";
+      const r = await fetch(`${ROOT}files/${encodeURIComponent(file)}/print`, { method: "POST", body: new URLSearchParams({ machine: a.dataset.mid }), headers: { "x-requested-with": "fetch" } });
+      if (r.status === 202) {
+        const { queued } = await r.json();
+        toast(`In the queue of ${name}: ${queued === 1 ? "next" : `number ${queued}`}`);
+      } else if (r.ok) toast(`Printing on ${name}`);
+      else toast(`Not on ${name}: ${await r.text()}`, "bad");
+    });
+  }
+
   function live(on) {
     const dot = document.querySelector("[data-live-dot]");
     dot.classList.toggle("on", on);
@@ -303,9 +364,18 @@
     const results = document.querySelector("[data-palette-results]");
     let files = null, items = [], chosen = 0;
     const pages = [
-      { label: "Machines", hint: "page", href: ROOT },
+      { label: "Now", hint: "page", href: ROOT },
+      { label: "Machines", hint: "page", href: `${ROOT}machines` },
+      { label: "Projects", hint: "page", href: `${ROOT}projects` },
       { label: "Files", hint: "page", href: `${ROOT}files` },
       { label: "Materials", hint: "page", href: `${ROOT}stock` },
+      { label: "Space", hint: "page", href: `${ROOT}space` },
+      { label: "Members and invites", hint: "space", href: `${ROOT}space#members` },
+      { label: "Permissions", hint: "space: machine groups, who may use which machine", href: `${ROOT}space#permissions` },
+      { label: "Access", hint: "space: doors, badges (planned)", href: `${ROOT}space#access` },
+      { label: "General", hint: "space: organisation, your account", href: `${ROOT}space#general` },
+      { label: "API tokens", hint: "space", href: `${ROOT}space#tokens` },
+      { label: "Audit log", hint: "space", href: `${ROOT}space#audit` },
       { label: "Downloads", hint: "page", href: `${ROOT}downloads` },
       { label: "Add a machine", hint: "action", run: () => document.querySelector("[data-add-open]").click() },
     ];

@@ -1,6 +1,8 @@
   .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-top: 8px; }
   .page-head h2 { margin: 0; }
   .subtitle { margin: 4px 0 0; color: var(--muted); }
+  .head-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  [data-examples] { background: transparent; color: var(--ink); border: 1px solid var(--line); }
   .upload-button { padding: 9px 16px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; white-space: nowrap; }
 
   .uploads { display: grid; gap: 8px; margin-top: 16px; }
@@ -135,3 +137,10 @@
     .storage-bar { flex: 1; }
     .file-dialog-body { padding: 14px; }
   }
+
+  /* Files by device type: a heading per group. */
+  .files-group { grid-column: 1 / -1; margin: 10px 0 -4px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .files-group small { font-weight: 600; margin-left: 4px; }
+  .files.list .files-group { margin: 22px 0 8px; }
+  .files.list .files-group:first-child { margin-top: 0; }
+  .files.list .table-wrap + .files-group { margin-top: 26px; }

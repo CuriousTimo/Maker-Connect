@@ -323,11 +323,76 @@
   const stream = new EventSource("../api/machines/stream");
   stream.onopen = () => live(true);
   stream.onerror = () => live(false);
+  // The queue (crate::queue): from the live data, unless someone is dragging in it.
+  const queueList = document.querySelector("[data-queue]");
+  let dragged = null, shownQueue = "";
+  const minutes = (s) => (s == null ? "" : s < 3600 ? `${Math.max(1, Math.round(s / 60))} min` : `${Math.floor(s / 3600)} h ${String(Math.round((s % 3600) / 60)).padStart(2, "0")} min`);
+  function showQueue(m) {
+    if (!queueList || dragged) return;
+    const q = m.queue || [];
+    const key = JSON.stringify([q, m.queue_held]);
+    if (key === shownQueue) return;
+    shownQueue = key;
+    document.querySelector("[data-queue-empty]").hidden = q.length > 0;
+    // After a failed or stopped job, it waits for someone to say the bed is clear.
+    const held = document.querySelector("[data-queue-held]");
+    held.hidden = !m.queue_held;
+    if (m.queue_held) held.querySelector("[data-held-why]").textContent = m.queue_held;
+    // Roughly when each starts: after what runs now, and what waits before it.
+    const t = (m.online && m.telemetry) || {};
+    let at = Date.now() + ((t.state === "busy" && t.job?.remaining_s) || 0) * 1000;
+    queueList.innerHTML = q.map((it, i) => {
+      const starts = new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      at += (it.estimated_s || 0) * 1000;
+      const facts = [minutes(it.estimated_s), it.by, i === 0 && t.state !== "busy" ? "next" : `starts around ${starts}`].filter(Boolean).join(" · ");
+      return `<li draggable="true" data-qid="${it.id}"><span class="q-grip" aria-hidden="true">⠿</span><span class="q-n">${i + 1}</span>${it.thumbnail ? `<img src="../files/${encodeURIComponent(it.file_id)}/thumbnail.png" alt="">` : '<span class="q-img"></span>'}<span class="q-name"><b title="${escapeHtml(it.file_name)}">${escapeHtml(it.file_name)}</b><small>${escapeHtml(facts)}${it.problem ? ` · <span class="q-problem">${escapeHtml(it.problem)}</span>` : ""}</small></span><button type="button" class="q-x" data-qremove="${it.id}" title="Take out of the queue" aria-label="Take out of the queue">×</button></li>`;
+    }).join("");
+  }
+  if (queueList) {
+    queueList.addEventListener("dragstart", (e) => {
+      dragged = e.target.closest("li");
+      if (!dragged) return;
+      dragged.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", dragged.dataset.qid);
+    });
+    queueList.addEventListener("dragover", (e) => {
+      if (!dragged) return;
+      e.preventDefault();
+      const over = e.target.closest("li");
+      if (!over || over === dragged) return;
+      const r = over.getBoundingClientRect();
+      over.parentNode.insertBefore(dragged, e.clientY > r.top + r.height / 2 ? over.nextSibling : over);
+    });
+    queueList.addEventListener("dragend", async () => {
+      if (!dragged) return;
+      dragged.classList.remove("dragging");
+      dragged = null;
+      const ids = [...queueList.querySelectorAll("li")].map((li) => li.dataset.qid).join(",");
+      [...queueList.querySelectorAll(".q-n")].forEach((n, i) => (n.textContent = i + 1));
+      const r = await fetch(`${ID}/queue/order`, { method: "POST", body: new URLSearchParams({ ids }), headers: { "x-requested-with": "fetch" } });
+      if (!r.ok) toast(`Not moved: ${await r.text()}`, "bad");
+      shownQueue = "";
+    });
+    document.querySelector("[data-bed-clear]")?.addEventListener("click", async () => {
+      const r = await fetch(`${ID}/taken`, { method: "POST", headers: { "x-requested-with": "fetch" } });
+      toast(r.ok ? "Bed clear: the queue goes on" : `Not done: ${await r.text()}`, r.ok ? "ok" : "bad");
+      shownQueue = "";
+    });
+    queueList.addEventListener("click", async (e) => {
+      const x = e.target.closest("[data-qremove]");
+      if (!x) return;
+      const r = await fetch(`${ID}/queue/${x.dataset.qremove}/remove`, { method: "POST", headers: { "x-requested-with": "fetch" } });
+      if (r.ok) { x.closest("li").remove(); toast("Taken out of the queue"); } else toast(`Not done: ${await r.text()}`, "bad");
+    });
+  }
+
   stream.onmessage = (event) => {
     const machines = JSON.parse(event.data);
     summarise(machines);
     const m = machines.find((m) => m.id === ID);
     if (!m) return;
+    showQueue(m);
     const t = (m.online && m.telemetry) || {};
     const p = t.position_mm;
     const values = {
@@ -697,3 +762,9 @@
     });
   }
   show();
+
+// Times the page gives as Unix seconds, shown in this browser's own time.
+for (const t of document.querySelectorAll("[data-local-time]")) {
+  t.textContent = new Date(Number(t.dataset.localTime) * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+

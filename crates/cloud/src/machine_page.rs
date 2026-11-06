@@ -46,6 +46,14 @@ pub(crate) fn shown_state(machine: &Machine) -> (String, String) {
 /// latest jobs with their numbers.
 pub struct Extra {
     pub manage: bool,
+    /// Whether the person may use it (jobs and more): by permission, whatever their role.
+    pub may_use: bool,
+    /// When they asked the staff for permission, while nobody answered.
+    pub asked: Option<i64>,
+    /// Until when they confirmed having and wearing its PPE (crate::safety).
+    pub ppe_until: Option<i64>,
+    /// Whether the space asks for PPE before use.
+    pub ppe_checks: bool,
     /// Spaces it could be moved to: (uid, label).
     pub move_to: Vec<(String, String)>,
     pub jobs: Vec<store::Job>,
@@ -92,7 +100,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
   </div>
   <p class="subtitle">{subtitle}</p>
   {labels}
-  <div class="notices" data-notices>{notices}</div>
+  {no_use}<div class="notices" data-notices>{notices}</div>
   <nav class="tabs" role="tablist">
     <a href="#overview" role="tab">Overview</a>
     <a href="#control" role="tab">Control</a>
@@ -129,7 +137,12 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         id = escape(&machine.id),
         state = escape(&state),
         notices = notices(machine),
-        overview = overview(machine, profile, &jobs_card(machine, extra)),
+        no_use = before_use(machine, extra),
+        overview = overview(
+            machine,
+            profile,
+            &format!("{}{}", queue_card(machine), jobs_card(machine, extra))
+        ),
         subtitle = escape(
             &if machine.name.to_lowercase().contains(&kind.to_lowercase()) {
                 link.to_owned()
@@ -143,7 +156,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         upkeep = upkeep_card(machine, extra.manage),
         control = control(machine, profile),
         telemetry = telemetry_tab(machine),
-        settings = settings(machine, &extra.move_to),
+        settings = settings(machine, &extra.move_to, extra.ppe_checks),
         terminal = terminal(machine),
         usb_tab = if machine.link == "prusa-connect" {
             r##"<a href="#usb" role="tab">USB</a>
@@ -643,7 +656,11 @@ fn labels_line(machine: &Machine, manage: bool) -> String {
         .iter()
         .map(|l| format!(r#"<span class="tag">{}</span>"#, escape(l)))
         .chain(machine.induction_required.then(|| {
-            r#"<span class="tag induction" title="Only members an admin gave permission may use it">permission</span>"#.to_owned()
+            if machine.training {
+                r#"<span class="tag induction" title="Only who had the training may use it">training</span>"#.to_owned()
+            } else {
+                r#"<span class="tag induction" title="Only who has permission may use it">permission</span>"#.to_owned()
+            }
         }))
         .collect();
     let edit = if manage {
@@ -667,6 +684,19 @@ fn labels_line(machine: &Machine, manage: bool) -> String {
 }
 
 /// Its jobs: the numbers, and the latest, newest first.
+/// Its queue (crate::queue): drawn by machine.js from the live data, next first; dragged to
+/// another order, taken out with ×.
+fn queue_card(machine: &Machine) -> String {
+    if machine.kind == maker_connect_protocol::MachineKind::Label {
+        return String::new();
+    }
+    card(
+        "Queue",
+        "Next first; it starts by itself when the machine is free and its bed clear. Drag to change the order.",
+        r#"<p class="notice q-held" data-queue-held hidden><span>The last job <b data-held-why></b>: nothing starts until the bed is clear. Is it?</span><button type="button" data-bed-clear>Bed clear: go on</button></p><ol class="queue" data-queue></ol><p class="empty" data-queue-empty>Nothing waits. "Print on" a busy machine puts a file here, or drag one from Files onto this machine in the sidebar.</p>"#,
+    )
+}
+
 fn jobs_card(machine: &Machine, extra: &Extra) -> String {
     if machine.kind == maker_connect_protocol::MachineKind::Label {
         return String::new();
@@ -780,6 +810,63 @@ fn upkeep_card(machine: &Machine, manage: bool) -> String {
         "Cleaning, lubrication, belts, nozzle: every so many hours",
         &format!(r#"<p>{state}</p>{forms}"#),
     )
+}
+
+/// Above the tabs, when it matters: may this person use it (else: ask the staff), and the
+/// PPE to have and wear before they do (crate::safety).
+fn before_use(machine: &Machine, extra: &Extra) -> String {
+    let id = escape(&machine.id);
+    if !extra.may_use {
+        let what = if machine.training {
+            "a training"
+        } else {
+            "permission"
+        };
+        let ask = match extra.asked {
+            Some(at) => format!(
+                r#"<small>You asked the staff on {}: they will let you know.</small>"#,
+                crate::spoolman::iso(at)
+                    .chars()
+                    .take(10)
+                    .collect::<String>()
+            ),
+            None => format!(
+                r#"<form method="post" action="{id}/ask" data-async data-then="reload" data-done="Asked: the staff will let you know"><button>Ask the staff for {what}</button></form>"#
+            ),
+        };
+        let yourself = if extra.manage {
+            r#" <small class="muted">(You manage it: you may also give it yourself, under <a href="../space#members">Space → Members</a>.)</small>"#
+        } else {
+            ""
+        };
+        return format!(
+            r#"<div class="notice before-use"><span>You may look at it; using it takes {what}.{yourself}</span>{ask}</div>"#
+        );
+    }
+    if machine.ppe.is_empty() || !extra.ppe_checks {
+        return String::new();
+    }
+    match extra.ppe_until {
+        Some(until) => format!(
+            r#"<div class="notice before-use ok"><span>✓ You have and wear: {items}. <small class="muted">Until <time data-local-time="{until}"></time>.</small></span></div>"#,
+            items = escape(&machine.ppe.join(", ").to_lowercase()),
+        ),
+        None => {
+            let boxes: String = machine
+                .ppe
+                .iter()
+                .map(|item| {
+                    format!(
+                        r#"<label class="ppe-item"><input type="checkbox" name="have" value="{v}" required> {v}</label>"#,
+                        v = escape(item)
+                    )
+                })
+                .collect();
+            format!(
+                r#"<form class="notice before-use ppe" method="post" action="{id}/ppe" data-async data-then="reload" data-done="Thank you: be safe"><span><b>Before you use it:</b> I have and wear</span><span class="ppe-items">{boxes}</span><button>Confirm</button></form>"#
+            )
+        }
+    }
 }
 
 /// The build plate on a 3D printer: which kind (smooth PEI, textured, satin…), so the queue
@@ -1435,7 +1522,11 @@ url: ws://…/simplyprint/{token}</pre><p class="hint" data-moonraker-local hidd
     )
 }
 
-pub(crate) fn settings(machine: &Machine, move_to: &[(String, String)]) -> String {
+pub(crate) fn settings(
+    machine: &Machine,
+    move_to: &[(String, String)],
+    ppe_checks: bool,
+) -> String {
     let details = machine.details.clone().unwrap_or_default();
     // The profile: chosen from all the machines known, by searching (the shell's picker).
     let chosen = machine
@@ -1519,6 +1610,45 @@ pub(crate) fn settings(machine: &Machine, move_to: &[(String, String)]) -> Strin
         String::new()
     };
     // To another space of whoever manages it there too: a makerspace's other workshop.
+    // Safety: what someone must have and wear to use it; ticked off before each use.
+    let safety = {
+        let boxes: String = crate::safety::CATALOGUE
+            .iter()
+            .map(|item| {
+                format!(
+                    r#"<label class="ppe-item"><input type="checkbox" name="item" value="{v}"{c}> {v}</label>"#,
+                    v = escape(item),
+                    c = if machine.ppe.iter().any(|p| p.eq_ignore_ascii_case(item)) {
+                        " checked"
+                    } else {
+                        ""
+                    }
+                )
+            })
+            .collect();
+        let others: Vec<&str> = machine
+            .ppe
+            .iter()
+            .filter(|p| {
+                !crate::safety::CATALOGUE
+                    .iter()
+                    .any(|c| c.eq_ignore_ascii_case(p))
+            })
+            .map(String::as_str)
+            .collect();
+        format!(
+            r#"<h4>Safety</h4>
+<p class="muted">What someone must have and wear to use it. Before using it, they tick off each item; that holds for 12 hours. Stopping, pausing and switching off never wait for it.{off}</p>
+<form method="post" action="{id}/safety" data-async data-done="Saved" data-then="reload" class="ppe-setting"><span class="ppe-items">{boxes}</span><input name="other" value="{others}" maxlength="120" placeholder="Something else (comma separated)" aria-label="Other PPE"><button class="ghost">Save</button></form>
+"#,
+            others = escape(&others.join(", ")),
+            off = if ppe_checks {
+                ""
+            } else {
+                r#" <b>The space does not ask for it now</b>: switch it on under <a href="../space#general">Space → General</a>."#
+            },
+        )
+    };
     let move_section = if move_to.is_empty() {
         String::new()
     } else {
@@ -1547,7 +1677,7 @@ pub(crate) fn settings(machine: &Machine, move_to: &[(String, String)]) -> Strin
 </details>
 {laser}<h4>In use</h4>
 {in_use}
-{move_section}<h4>Remove</h4>
+{safety}{move_section}<h4>Remove</h4>
 <form method="post" action="{id}/remove" data-async data-done="Machine removed" data-confirm="Remove this machine from the space?" data-then="../"><button class="danger">Remove machine</button></form>"#
     );
     let about = [

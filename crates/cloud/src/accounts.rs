@@ -124,6 +124,39 @@ pub fn migrate(db: &Connection) -> rusqlite::Result<()> {
              role TEXT NOT NULL,
              created_at INTEGER NOT NULL,
              PRIMARY KEY (user_id, organisation_id)
+         );
+         -- Groups of machines (3D printers, say): permission on a group is permission on
+         -- every machine in it, also on those added later.
+         CREATE TABLE IF NOT EXISTS machine_groups (
+             id INTEGER PRIMARY KEY,
+             space_id INTEGER NOT NULL REFERENCES spaces(id),
+             name TEXT NOT NULL,
+             created_at INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS machine_group_members (
+             group_id INTEGER NOT NULL REFERENCES machine_groups(id),
+             machine_id TEXT NOT NULL,
+             PRIMARY KEY (group_id, machine_id)
+         );
+         -- Someone asks the staff for permission (or a training) on a machine.
+         CREATE TABLE IF NOT EXISTS access_requests (
+             id INTEGER PRIMARY KEY,
+             space_id INTEGER NOT NULL REFERENCES spaces(id),
+             user_id INTEGER NOT NULL REFERENCES users(id),
+             machine_id TEXT NOT NULL,
+             asked_at INTEGER NOT NULL,
+             state TEXT NOT NULL DEFAULT 'open',
+             handled_by INTEGER,
+             handled_at INTEGER
+         );
+         CREATE TABLE IF NOT EXISTS group_grants (
+             group_id INTEGER NOT NULL REFERENCES machine_groups(id),
+             user_id INTEGER NOT NULL REFERENCES users(id),
+             level TEXT NOT NULL,
+             granted_by INTEGER,
+             granted_at INTEGER NOT NULL,
+             expires_at INTEGER,
+             PRIMARY KEY (group_id, user_id)
          );",
     )?;
     // Spaces belong to an organisation and have an id of their own under the hood (a UUID),
@@ -131,6 +164,10 @@ pub fn migrate(db: &Connection) -> rusqlite::Result<()> {
     // another server).
     for (column, definition) in [
         ("uid", "TEXT"),
+        // Ask for PPE before a machine is used (crate::safety): for a makerspace, not at home.
+        ("ppe_checks", "INTEGER NOT NULL DEFAULT 0"),
+        // The example files went in once (crate::samples).
+        ("samples_given", "INTEGER NOT NULL DEFAULT 0"),
         ("organisation_id", "INTEGER REFERENCES organisations(id)"),
     ] {
         let present: bool = db.query_row(
