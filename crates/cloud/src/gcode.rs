@@ -99,12 +99,81 @@ pub fn extent(lines: impl std::io::BufRead) -> (Option<[f64; 4]>, Option<f64>) {
     (bounds, power)
 }
 
+/// Binary G-code (`.bgcode`, PrusaSlicer for the MINI, MK4, XL): its blocks up to the G-code,
+/// as libbgcode lays them out (a file header `GCDE`, version, checksum type; then blocks:
+/// type, compression, size, compressed size when compressed, parameters, data, a CRC32 when
+/// the file has them). Kept: the largest PNG thumbnail, and metadata blocks that are not
+/// compressed (`key=value` lines), read as a text file's `; key = value` comments are.
+fn read_binary(path: &Path) -> io::Result<(FileMeta, Option<Vec<u8>>)> {
+    let mut file = std::io::BufReader::new(std::fs::File::open(path)?);
+    let mut header = [0u8; 10];
+    file.read_exact(&mut header)?;
+    let checksum = u16::from_le_bytes([header[8], header[9]]) == 1;
+    let mut comments = String::new();
+    let mut thumbnail: Option<(u32, Vec<u8>)> = None;
+    let u16_at = |b: &[u8], i: usize| u16::from_le_bytes([b[i], b[i + 1]]);
+    for _ in 0..64 {
+        let mut head = [0u8; 8];
+        if file.read_exact(&mut head).is_err() {
+            break;
+        }
+        let (kind, compression) = (u16_at(&head, 0), u16_at(&head, 2));
+        let size = u32::from_le_bytes([head[4], head[5], head[6], head[7]]) as u64;
+        let stored = if compression != 0 {
+            let mut c = [0u8; 4];
+            file.read_exact(&mut c)?;
+            u32::from_le_bytes(c) as u64
+        } else {
+            size
+        };
+        // The G-code itself: what comes before it is all we read.
+        if kind == 1 || stored > 64 * 1024 * 1024 {
+            break;
+        }
+        let params = if kind == 5 { 6 } else { 2 };
+        let mut p = [0u8; 6];
+        file.read_exact(&mut p[..params])?;
+        let mut data = vec![0u8; stored as usize];
+        file.read_exact(&mut data)?;
+        if checksum {
+            let mut crc = [0u8; 4];
+            file.read_exact(&mut crc)?;
+        }
+        match kind {
+            // A thumbnail: format 0 is PNG.
+            5 if u16_at(&p, 0) == 0 && compression == 0 => {
+                let area = u16_at(&p, 2) as u32 * u16_at(&p, 4) as u32;
+                if thumbnail.as_ref().is_none_or(|(a, _)| area > *a) {
+                    thumbnail = Some((area, data));
+                }
+            }
+            // File, printer, print and slicer metadata, as INI lines.
+            0 | 2 | 3 | 4 if compression == 0 && u16_at(&p, 0) == 0 => {
+                for line in String::from_utf8_lossy(&data).lines() {
+                    if let Some((k, v)) = line.split_once('=') {
+                        comments += &format!("; {} = {}\n", k.trim(), v.trim());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let (mut meta, _) = parse(&comments, "");
+    // Only a printer's slicer writes binary G-code.
+    meta.kind = Some(MachineKind::Fdm);
+    meta.thumbnail = thumbnail.is_some();
+    Ok((meta, thumbnail.map(|(_, png)| png)))
+}
+
 /// Reads a file's metadata, and its largest PNG thumbnail.
 pub fn read(path: &Path) -> io::Result<(FileMeta, Option<Vec<u8>>)> {
     let mut file = std::fs::File::open(path)?;
     let mut magic = [0u8; 8];
     if file.read_exact(&mut magic).is_ok() && magic == *b"\x89PNG\r\n\x1a\n" {
         return read_label(path);
+    }
+    if magic.starts_with(b"GCDE") {
+        return read_binary(path);
     }
     file.seek(SeekFrom::Start(0))?;
     let size = file.metadata()?.len();

@@ -155,6 +155,8 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ("*", "/p/register", Need::Public, None),
     ("*", "/p/telemetry", Need::Public, None),
     ("*", "/p/events", Need::Public, None),
+    // A Prusa fetches a file sent to it: the transfer's iv in the address is its key.
+    ("GET", "/f/{iv}/raw", Need::Public, None),
     ("*", "/simplyprint/{token}", Need::Public, None),
     (
         "*",
@@ -320,6 +322,43 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         "/machines/{id}/media",
         Need::Machine(Level::Use),
         Some("said what is loaded in"),
+    ),
+    // A Prusa's USB stick (crate::printer_files).
+    (
+        "GET",
+        "/api/machines/{id}/usb",
+        Need::Machine(Level::View),
+        None,
+    ),
+    (
+        "GET",
+        "/machines/{id}/usb/preview",
+        Need::Machine(Level::View),
+        None,
+    ),
+    (
+        "POST",
+        "/machines/{id}/usb/print",
+        Need::Machine(Level::Use),
+        Some("printed from the USB stick of"),
+    ),
+    (
+        "POST",
+        "/machines/{id}/usb/delete",
+        Need::Machine(Level::Use),
+        Some("deleted from the USB stick of"),
+    ),
+    (
+        "POST",
+        "/machines/{id}/usb/folder",
+        Need::Machine(Level::Use),
+        Some("made a folder on the USB stick of"),
+    ),
+    (
+        "POST",
+        "/machines/{id}/usb/send",
+        Need::Machine(Level::Use),
+        Some("sent a file to the USB stick of"),
     ),
     // Files: the machine is in the form; the handler checks its right.
     (

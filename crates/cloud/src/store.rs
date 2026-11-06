@@ -208,6 +208,7 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
     }
     // After the first space: it gets its organisation and its id there.
     crate::accounts::migrate(db)?;
+    crate::printer_files::migrate(db)?;
     db.execute(
         "INSERT INTO meta (key, value) VALUES ('opened_by', ?1)
          ON CONFLICT (key) DO UPDATE SET value = excluded.value",
@@ -367,6 +368,12 @@ pub struct Command {
     /// What the owner asked ("Home", "X +10 mm").
     pub label: String,
     pub gcode: String,
+    /// A command of Prusa Connect's (`{"command": "START_PRINT", ...}`) rather than G-code:
+    /// only for printers on their built-in Connect.
+    pub json: bool,
+    /// Asked by the cloud itself (reading the USB stick), not by someone: not listed.
+    #[serde(skip)]
+    pub background: bool,
     /// What the machine said while carrying it out, where it tells (not over Prusa Connect).
     pub output: Vec<String>,
     pub state: CommandState,
@@ -410,6 +417,22 @@ const COMMANDS_KEPT: usize = 40;
 const OUTPUT_KEPT: usize = 200;
 /// A command given to a machine that does not answer about it is given up after this.
 const COMMAND_SECONDS: i64 = 120;
+
+/// Keeps a machine's commands to [`COMMANDS_KEPT`]: the oldest done ones go first, the
+/// cloud's own before someone's; one still waiting or on its way is never dropped.
+fn trim(commands: &mut Vec<Command>) {
+    while commands.len() > COMMANDS_KEPT {
+        let done = |c: &Command| !matches!(c.state, CommandState::Queued | CommandState::Sent);
+        let Some(i) = commands
+            .iter()
+            .position(|c| done(c) && c.background)
+            .or_else(|| commands.iter().position(done))
+        else {
+            break;
+        };
+        commands.remove(i);
+    }
+}
 
 /// A G-code file of a space.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -1271,13 +1294,14 @@ impl Store {
             id,
             label: label.to_owned(),
             gcode: gcode.to_owned(),
+            json: false,
+            background: false,
             output: Vec::new(),
             state: CommandState::Queued,
             reason: None,
             at: now(),
         });
-        let excess = commands.len().saturating_sub(COMMANDS_KEPT);
-        commands.drain(..excess);
+        trim(commands);
         self.changed();
         Ok(Some(id))
     }
@@ -1285,6 +1309,51 @@ impl Store {
     /// The next command for the machine asking with this token, once the one before is
     /// done: one at a time, as a printer takes them.
     pub fn next_command(&mut self, token: &str) -> rusqlite::Result<Option<(u32, String)>> {
+        Ok(self
+            .next_command_of_any_kind(token)?
+            .map(|(id, body, _)| (id, body)))
+    }
+
+    /// A command of Prusa Connect's for a printer on its built-in Connect (its id): queued
+    /// like G-code, sent as JSON (`SEND_FILE_INFO`, `START_PRINT`, `START_ENCRYPTED_DOWNLOAD`).
+    pub fn queue_connect_command(
+        &mut self,
+        space: i64,
+        machine: &str,
+        label: &str,
+        command: &serde_json::Value,
+        background: bool,
+    ) -> rusqlite::Result<Option<u32>> {
+        if self
+            .machine(space, machine)?
+            .is_none_or(|m| m.link != "prusa-connect")
+        {
+            return Ok(None);
+        }
+        self.next_command = self.next_command.wrapping_add(1);
+        let id = self.next_command;
+        let commands = self.commands.entry(machine.to_owned()).or_default();
+        commands.push(Command {
+            id,
+            label: label.to_owned(),
+            gcode: command.to_string(),
+            json: true,
+            background,
+            output: Vec::new(),
+            state: CommandState::Queued,
+            reason: None,
+            at: now(),
+        });
+        trim(commands);
+        self.changed();
+        Ok(Some(id))
+    }
+
+    /// The next command, with whether it is a Connect (JSON) command.
+    pub fn next_command_of_any_kind(
+        &mut self,
+        token: &str,
+    ) -> rusqlite::Result<Option<(u32, String, bool)>> {
         let Some(machine) = self.machine_id(token)? else {
             return Ok(None);
         };
@@ -1302,14 +1371,20 @@ impl Store {
             busy.state = CommandState::Rejected;
             busy.reason = Some("no answer from the machine".to_owned());
         }
-        let next = commands
-            .iter_mut()
-            .find(|c| c.state == CommandState::Queued)
-            .map(|c| {
-                c.state = CommandState::Sent;
-                c.at = now;
-                (c.id, c.gcode.clone())
+        // Someone's commands before the cloud's own (reading a USB stick in the background).
+        let at = commands
+            .iter()
+            .position(|c| c.state == CommandState::Queued && !c.background)
+            .or_else(|| {
+                commands
+                    .iter()
+                    .position(|c| c.state == CommandState::Queued)
             });
+        let next = at.map(|i| &mut commands[i]).map(|c| {
+            c.state = CommandState::Sent;
+            c.at = now;
+            (c.id, c.gcode.clone(), c.json)
+        });
         if next.is_some() {
             self.changed();
         }
@@ -1739,7 +1814,12 @@ impl Store {
                 machine.resumable = self.resumable_job(&machine.id)?;
             }
             if let Some(commands) = self.commands.get(&machine.id) {
-                machine.commands = commands.iter().rev().cloned().collect();
+                machine.commands = commands
+                    .iter()
+                    .rev()
+                    .filter(|c| !c.background)
+                    .cloned()
+                    .collect();
             }
         }
         Ok(machines)

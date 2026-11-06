@@ -323,21 +323,34 @@ async fn telemetry(
     if let Some(peer) = crate::peer_address(&headers, &extensions) {
         let _ = store.set_peer(token, &peer);
     }
-    match store.report(token, &telemetry) {
-        // A command goes back as the answer, G-code as text; none: an empty answer.
-        Ok(Some(_)) => match store.next_command(token) {
-            Ok(Some((id, gcode))) => {
+    let reported = store.report(token, &telemetry);
+    // A job for it goes to its stick when it is free; one printing follows its state.
+    if let Ok(Some(_)) = reported
+        && let Some(state) = report["state"].as_str()
+        && let Err(error) = crate::printer_files::on_report(&mut store, token, state)
+    {
+        return failed(error);
+    }
+    match reported {
+        // A command goes back as the answer, G-code as text or JSON; none: an empty answer.
+        Ok(Some(_)) => match store.next_command_of_any_kind(token) {
+            Ok(Some((id, body, json))) => {
                 println!(
                     "command {id} to the printer: {}",
-                    gcode.replace('\n', " | ")
+                    crate::printer_files::for_the_log(&body)
                 );
+                let kind = if json {
+                    "application/json"
+                } else {
+                    "text/x.gcode"
+                };
                 (
                     StatusCode::OK,
                     [
                         ("Command-Id", id.to_string()),
-                        ("Content-Type", "text/x.gcode".to_owned()),
+                        ("Content-Type", kind.to_owned()),
                     ],
-                    gcode,
+                    body,
                 )
                     .into_response()
             }
@@ -360,7 +373,10 @@ async fn event(State(store): State<Shared>, headers: HeaderMap, body: String) ->
     if let Some(id) = event["command_id"].as_u64() {
         let state = match name.as_str() {
             "ACCEPTED" => Some(CommandState::Accepted),
-            "FINISHED" => Some(CommandState::Finished),
+            // A command that asked for something is done when the answer comes.
+            "FINISHED" | "FILE_INFO" | "JOB_INFO" | "INFO" | "TRANSFER_INFO" => {
+                Some(CommandState::Finished)
+            }
             "REJECTED" => Some(CommandState::Rejected),
             _ => None,
         };
@@ -371,6 +387,10 @@ async fn event(State(store): State<Shared>, headers: HeaderMap, body: String) ->
                 return failed(error);
             }
         }
+    }
+    // Files on its stick, and transfers to it.
+    if let Err(error) = crate::printer_files::on_event(&mut store, token, &name, &event) {
+        return failed(error);
     }
     let known = match name.as_str() {
         "INFO" => store.set_details(token, &to_details(&event["data"])),

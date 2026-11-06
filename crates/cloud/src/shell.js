@@ -17,7 +17,7 @@
     // Who, in which space; a click lists the spaces to go to (by organisation), and signs out.
     const foot = document.createElement("details");
     foot.className = "side-user";
-    foot.innerHTML = `<summary><span class="who"><b data-me-name></b><small data-me-space></small></span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></summary><div class="side-menu"><div data-me-spaces></div><a href="/space">Space, members, access</a><form method="post" action="/logout"><button type="submit">Sign out</button></form></div>`;
+    foot.innerHTML = `<summary><span class="who"><b data-me-name></b><small data-me-space></small></span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></summary><div class="side-menu"><div data-me-spaces></div><a href="/space">Space, members, access</a><a href="/downloads">Downloads: the agent</a><form method="post" action="/logout"><button type="submit">Sign out</button></form></div>`;
     document.querySelector(".sidebar").append(foot);
     plain("/api/me").then((r) => (r.ok ? r.json() : null)).then((me) => {
       if (!me) return;
@@ -134,6 +134,17 @@
     const amount = l.unit === "g" ? Math.round(l.amount) : l.unit === "m" ? l.amount.toFixed(1) : l.amount;
     const from = l.place ? ` · from ${l.place}${l.slot ? `, slot ${l.slot}` : ""}` : "";
     return `${l.item} · ${l.name}${l.material ? ` · ${l.material}` : ""} · ${amount} ${l.unit} left${from}`;
+  }
+  // Time left with the clock: "45 min left · done 16:35" (with the day when not today).
+  function timeLeft(seconds) {
+    if (seconds == null || !isFinite(seconds)) return "";
+    const s = Math.max(0, Math.round(seconds));
+    const left = s < 60 ? "under a minute" : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${String(Math.round((s % 3600) / 60)).padStart(2, "0")} min`;
+    const end = new Date(Date.now() + s * 1000);
+    const today = end.toDateString() === new Date().toDateString();
+    const clock = end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const day = today ? "" : `${end.toLocaleDateString([], { weekday: "short" })} `;
+    return `${left} left · done ${day}${clock}`;
   }
   function shownState(m) {
     if (m.out_of_use) return { text: "Out of use", cls: "out" };

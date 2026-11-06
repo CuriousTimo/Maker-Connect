@@ -85,9 +85,8 @@ pub fn render(space: &str, machine: &Machine) -> String {
   <nav class="tabs" role="tablist">
     <a href="#overview" role="tab">Overview</a>
     <a href="#control" role="tab">Control</a>
-    <a href="#terminal" role="tab">Terminal</a>
-    <a href="#telemetry" role="tab">Telemetry</a>
-    {bed_tab}<a href="#settings" role="tab">Settings</a>
+    {usb_tab}<a href="#data" role="tab">Data</a>
+    <a href="#settings" role="tab">Settings</a>
   </nav>
   <section class="tab" id="overview" role="tabpanel">
 {overview}
@@ -102,6 +101,7 @@ pub fn render(space: &str, machine: &Machine) -> String {
 {telemetry}
   </section>
   {bed_level}
+  {usb}
   <section class="tab" id="settings" role="tabpanel" hidden>
 {settings}
   </section>
@@ -122,9 +122,14 @@ pub fn render(space: &str, machine: &Machine) -> String {
         telemetry = telemetry_tab(machine),
         settings = settings(machine),
         terminal = terminal(machine),
-        bed_tab = if heats(machine) {
-            r##"<a href="#bedlevel" role="tab">Bed level</a>
+        usb_tab = if machine.link == "prusa-connect" {
+            r##"<a href="#usb" role="tab">USB</a>
     "##
+        } else {
+            ""
+        },
+        usb = if machine.link == "prusa-connect" {
+            USB_TAB
         } else {
             ""
         },
@@ -140,6 +145,19 @@ pub fn render(space: &str, machine: &Machine) -> String {
         },
     )
 }
+
+/// A Prusa's USB stick (on its own Connect), filled by the page's script.
+const USB_TAB: &str = r#"<section class="tab" id="usb" role="tabpanel" hidden>
+  <div class="card usb" data-usb>
+    <div class="card-head"><div><h3 data-usb-crumbs>USB stick</h3><p class="card-sub" data-usb-status></p></div></div>
+    <div class="usb-tools">
+      <form data-usb-send class="usb-send"><select data-usb-file aria-label="A file from Files"><option value="">A file from Files…</option></select><button>Send here</button></form>
+      <form data-usb-folder class="usb-new"><input name="name" required maxlength="60" pattern="[A-Za-z0-9 _\-]+" placeholder="New folder" aria-label="Name of a new folder"><button class="ghost">Make</button></form>
+    </div>
+    <div class="usb-list" data-usb-list><p class="empty">Waiting for the printer…</p></div>
+    <p class="hint">Files come from the printer one by one, with the picture the slicer put in them. A file sent here is fetched by the printer itself, encrypted; printing a file from Files on this printer sends it here first.</p>
+  </div>
+</section>"#;
 
 /// What someone should know before anything else, under the title: the machine is out of
 /// use, or a finished print waits on its bed. As the page's script draws them, live.
@@ -480,6 +498,7 @@ fn job_card(machine: &Machine) -> String {
         <span><small>Elapsed</small><b data-live="job_elapsed">{elapsed}</b></span>
         <span><small>Left</small><b data-live="job_remaining">{remaining}</b></span>
       </div>
+      <small class="job-ends" data-live="job_ends"></small>
     </div>
   </div>
   <form class="job-actions" data-job-actions action="{id}/job"{hidden}>

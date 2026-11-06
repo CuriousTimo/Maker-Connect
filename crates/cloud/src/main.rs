@@ -25,6 +25,7 @@ mod files_page;
 mod gcode;
 mod label_page;
 mod machine_page;
+mod printer_files;
 mod profiles;
 mod prusa_connect;
 mod simplyprint;
@@ -244,6 +245,7 @@ pub fn app(store: Shared) -> Router {
         .merge(auth::routes())
         .merge(space_page::routes())
         .merge(apps::routes())
+        .merge(printer_files::routes())
         // After a route is matched: what it needs, against who asks (access::RULES).
         .route_layer(axum::middleware::from_fn_with_state(
             store.clone(),
@@ -585,7 +587,7 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
         r##"<aside class="sidebar" data-root="{home}">
   <a class="brand" href="{home}"><img src="{root}logo.svg" alt="" width="30" height="30"><span><b>Maker Connect</b><small>{space}</small></span></a>
   <button type="button" class="search-open" data-palette-open title="Go to a machine, a file or a page"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13.2 13.2 3.8 3.8"/></svg><span>Go to…</span><kbd>⌘K</kbd></button>
-  <nav class="side-nav" aria-label="Pages">{machines}{files}{stock}{space_link}{downloads}</nav>
+  <nav class="side-nav" aria-label="Pages">{machines}{files}{stock}{space_link}</nav>
   <div class="side-section">
     <div class="side-title"><span>Machines</span><button type="button" class="side-add" data-add-open title="Add a machine" aria-label="Add a machine"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11"/></svg></button></div>
     <nav class="side-machines" data-side-machines aria-label="Machines"></nav>
@@ -701,12 +703,6 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
             "Materials",
             "stock",
             r#"<path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5z"/><path d="M3 6.5 10 10l7-3.5M10 10v7"/>"#
-        ),
-        downloads = link(
-            "downloads",
-            "Downloads",
-            "downloads",
-            r#"<path d="M10 3v10M6 9.5 10 13.5l4-4M4 17h12"/>"#
         ),
         space_link = link(
             "space",
@@ -1446,8 +1442,11 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .side-progress { grid-column: 2 / -1; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
   .side-progress i { display: block; height: 100%; background: var(--accent); transition: width .5s; }
   .side-empty { margin: 4px 10px; color: var(--muted); font-size: 13px; }
+  /* States, one list for badges and dots: quiet unless someone should look. Free is a ring
+     (on, nothing to do), busy is filled, attention amber, an error red. */
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--off); flex: none; }
-  .dot.idle, .dot.busy { background: var(--accent); } .dot.busy { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .dot.idle { background: transparent; box-shadow: inset 0 0 0 2px var(--accent); }
+  .dot.busy { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
   .dot.paused, .dot.attention { background: var(--warn); } .dot.error { background: var(--bad); }
   .dot.cooling { background: var(--accent); } .dot.out { background: transparent; box-shadow: inset 0 0 0 1.5px var(--off); }
   /* The counts, at the top of every page. */
@@ -1566,7 +1565,7 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .note { color: var(--bad); }
   /* A machine in the list: the same columns for every kind, so they line up down the page:
      picture, name and model, what it does now, how it connects, last seen, its state. */
-  .machine { display: grid; grid-template-columns: 56px minmax(0, 1.5fr) minmax(0, 1.3fr) minmax(0, 1.2fr) 84px 112px; align-items: center; gap: 4px 20px; padding: 14px 18px; margin-bottom: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+  .machine { display: grid; grid-template-columns: 56px minmax(0, 1.6fr) minmax(0, 1.5fr) minmax(0, 1fr) 112px; align-items: center; gap: 4px 20px; padding: 14px 18px; margin-bottom: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
   .m-col { display: grid; gap: 2px; min-width: 0; }
   .m-col > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .m-col b { font-weight: 500; font-variant-numeric: tabular-nums; }
@@ -1575,12 +1574,14 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .machine .state { justify-self: stretch; text-align: center; }
   .m-spool { display: flex; align-items: center; gap: 6px; }
   .m-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--line); flex: none; }
-  @media (max-width: 900px) { .machine { grid-template-columns: 56px minmax(0, 1fr) 104px; } .m-conn, .m-seen { display: none; } .m-now { grid-column: 2; } }
-  .state { justify-self: end; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; font-size: 12px; padding: 4px 10px; border-radius: 6px; background: var(--accent); color: #fff; }
-  .state.offline, .state.disconnected { background: var(--off); }
-  .state.error { background: var(--bad); }
-  .state.attention { background: var(--warn); }
-  .state.cooling { background: var(--fdm); }
+  @media (max-width: 900px) { .machine { grid-template-columns: 56px minmax(0, 1fr) 104px; } .m-conn { display: none; } .m-now { grid-column: 2; } }
+  .state { justify-self: end; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; font-size: 12px; padding: 4px 10px; border-radius: 6px; background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--line); }
+  .state.busy { background: var(--accent); color: #fff; box-shadow: none; }
+  .state.paused { background: var(--warn); color: #fff; box-shadow: none; }
+  .state.offline, .state.disconnected { color: var(--off); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--off) 45%, transparent); }
+  .state.error { background: var(--bad); color: #fff; box-shadow: none; }
+  .state.attention { background: var(--warn); color: #fff; box-shadow: none; }
+  .state.cooling { color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
   .state.out { background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--off); }
   .attention-count b { color: var(--warn) !important; }
   .thumb { width: 56px; height: 56px; border-radius: 10px; background: var(--line); }
@@ -1625,7 +1626,7 @@ const PAGE: &str = r##"<!doctype html>
   function now(m, t) {
     if (t.job) {
       const percent = Math.round((t.job.done * 100) / Math.max(1, t.job.total));
-      return [`${percent} % · ${t.job.file}`, "job"];
+      return [`${percent} % · ${t.job.file}`, timeLeft(t.job.remaining_s) || "printing"];
     }
     if (t.nozzle_c != null) return [`${t.nozzle_c.toFixed(0)} °C · ${t.bed_c != null ? `${t.bed_c.toFixed(0)} °C` : "–"}`, "nozzle · bed"];
     if (m.kind === "label") {
@@ -1634,6 +1635,13 @@ const PAGE: &str = r##"<!doctype html>
     }
     if (t.position_mm) return [`X ${t.position_mm[0].toFixed(1)} · Y ${t.position_mm[1].toFixed(1)}`, "head, mm"];
     return [null, "nothing reported"];
+  }
+  // Said only when something is off: offline (since when), or late to report.
+  function trouble(m) {
+    if (m.out_of_use) return `<div class="m-col m-conn"></div>`;
+    if (!m.online) return col("m-conn", "Offline", m.seen_seconds_ago == null ? "never reported" : `last seen ${seen(m.seen_seconds_ago)}`);
+    if (m.seen_seconds_ago != null && m.seen_seconds_ago > 30) return col("m-conn", "Late", `last report ${seen(m.seen_seconds_ago)}`);
+    return `<div class="m-col m-conn"></div>`;
   }
   function seen(seconds) {
     if (seconds == null) return "never";
@@ -1653,12 +1661,14 @@ const PAGE: &str = r##"<!doctype html>
         const profile = profiles[m.profile];
         const thumb = profile && profile.image ? `<img class="thumb" src="profiles/${esc(m.profile)}.svg" alt="">`
           : ["fdm", "laser", "cnc"].includes(m.kind) ? `<img class="thumb" src="profiles/_generic/${esc(m.kind)}.svg" alt="">` : `<span class="thumb"></span>`;
+        // The model under the name, unless the name says it already; how it connects with it.
+        const model = profile ? (profile.model.includes(profile.brand) ? profile.model : `${profile.brand} ${profile.model}`) : KIND[m.kind] || m.kind;
+        const under = [m.name.toLowerCase().includes(model.toLowerCase()) ? null : model, LINK[m.link] || m.link].filter(Boolean).join(" · ");
         return `<a class="machine" href="machines/${encodeURIComponent(m.id)}">
           ${thumb}
-          <div class="m-col"><b class="name">${esc(m.name)}</b><small>${esc(profile ? (profile.model.includes(profile.brand) ? profile.model : `${profile.brand} ${profile.model}`) : KIND[m.kind] || m.kind)}</small>${m.loaded ? `<small class="m-spool"><i class="m-swatch" style="background:${esc(m.loaded.color || "transparent")}"></i>${esc(loadedText(m.loaded))}</small>` : ""}</div>
+          <div class="m-col"><b class="name">${esc(m.name)}</b><small>${esc(under)}</small>${m.loaded ? `<small class="m-spool"><i class="m-swatch" style="background:${esc(m.loaded.color || "transparent")}"></i>${esc(loadedText(m.loaded))}</small>` : ""}</div>
           ${col("m-now", doing, what)}
-          ${col("m-conn", `${LINK[m.link] || m.link}${m.link === "agent" && m.agent_version ? ` ${m.agent_version}` : ""}`, t.firmware || "firmware not reported")}
-          ${col("m-seen", seen(m.seen_seconds_ago), "last seen")}
+          ${trouble(m)}
           <div class="state ${esc(shown.cls)}">${esc(shown.text)}</div>
           ${bar}
         </a>`;

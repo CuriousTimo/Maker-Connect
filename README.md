@@ -211,7 +211,7 @@ waits in Files with its machine chosen; nothing starts by itself.
 The DYMO LabelWriter 450 (die-cut labels, over USB) is
 built but not yet tried on the printer: if a label comes out mirrored, `TOP_AT_DOT_ZERO` in
 `crates/label/src/labelwriter.rs` is the other way round. Other label printers, and codes
-scanned off real labels, are still to try. Files for the MINI over Prusa Connect, binary G-code (`.bgcode`), queues and a G-code viewer are still to come. Values
+scanned off real labels, are still to try. Queues and a G-code viewer are still to come; the MINI's files over its own Connect (USB stick, sending, printing) are built but not yet tried on the MINI itself. Values
 marked `# check` in the profiles are not yet confirmed on the machines.
 
 **Safety:** a laser and a heated printer can start a fire. Frame a laser job and start at low

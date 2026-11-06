@@ -53,12 +53,45 @@ same way. Tried on a MINI: G28, relative G1 moves on each axis, M106/M107.
 
 Fan speeds (`fan_print`, `fan_extruder`) are in the telemetry only while a job runs.
 
+## Files on its USB stick (firmware 6.3.0)
+
+Read in Prusa-Firmware-Buddy 6.3.0 (GPL; nothing copied). JSON commands, in the answer to
+telemetry like G-code, `Content-Type: application/json`, `{"command": ..., "kwargs": {...}}`:
+
+- `SEND_FILE_INFO {path}`: a `FILE_INFO` event with `command_id`. A folder has `children`:
+  `name` (the short 8.3 name: use it in paths), `display_name` (the long one), `size`,
+  `m_timestamp`, `read_only` (still arriving), `type` (`PRINT_FILE`, `FOLDER`, `FIRMWARE`,
+  `FILE`). A file has `preview`: a PNG thumbnail from the G-code, base64, the first larger
+  than 17×17. It also has the G-code's metadata as fields, for example `estimated printing
+  time (normal mode)`, `filament_type`, `filament used [g]`.
+- `START_PRINT {path}`: `JOB_INFO`, or `REJECTED` with a `reason` (`File not found`).
+- `DELETE_FILE`, `DELETE_FOLDER`, `CREATE_FOLDER {path}`: `FILE_CHANGED` with `new_path` or
+  `old_path`.
+- `START_ENCRYPTED_DOWNLOAD {path, key, iv, orig_size}` (key and iv 16 bytes, as hex):
+  - The printer fetches `GET /f/<iv as hex>/raw` from the host and port it reports to.
+    It sends no token, only `Content-Encryption-Mode: AES-CTR` and `Range: bytes=N-`
+    (N a multiple of 16, to go on after a break).
+  - It wants `200` from the start, `206` from further on, and a `Content-Length`.
+  - The file is AES-128 in CTR mode: the counter block is the iv's first 12 bytes, with the
+    block number big-endian in the last 4, from 0.
+  - Padded to whole blocks; `orig_size` cuts it off.
+  - Afterwards `TRANSFER_FINISHED`, or `TRANSFER_ABORTED` or `TRANSFER_STOPPED`, with
+    `start_cmd_id`. A path outside `/usb`, or a file that is not G-code or firmware, is
+    refused.
+
 ## In Maker Connect
 
 `crates/cloud/src/prusa_connect.rs` answers register, telemetry and events: the printer
 shows in the list with its state, temperatures and progress, its profile recognised from
-its printer type, as "Link: Prusa firmware ... (built-in Connect)". It answers telemetry with
-`204` (no command). Still to do: the WebSocket and the commands, and files (`/f/...`).
+its printer type, as "Link: Prusa firmware ... (built-in Connect)". Commands go back in the
+answer to telemetry. The machine page's **USB** tab and `crates/cloud/src/printer_files.rs`
+cover the stick:
+- looking through it, with each file's picture and details
+- printing from it, deleting, and making a folder
+- sending a file of the space to it
+
+Printing a file of the space sends it to the stick first, then `START_PRINT`; the job
+follows the printer's state to its end. Still to do: the WebSocket (newer firmware).
 
 ## Pointing a MINI here
 

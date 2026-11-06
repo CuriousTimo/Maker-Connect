@@ -1,13 +1,18 @@
   // A machine's page: tabs, commands without leaving the page, the temperature chart (and
   // its table), and every [data-live] value kept live from the server-sent events.
   const ID = document.querySelector("main").dataset.id;
-  const TABS = ["overview", "control", "terminal", "telemetry", "bedlevel", "settings"];
+  // Tabs by purpose; a tab may show more than one section. Old addresses still lead there.
+  const TABS = { overview: ["overview"], control: ["control", "terminal"], usb: ["usb"], data: ["telemetry", "bedlevel"], settings: ["settings"] };
+  const OLD = { terminal: "control", telemetry: "data", bedlevel: "data" };
+  // Set below for a Prusa on its own Connect: opens its USB stick when its tab is shown.
+  let usbOpen = null;
   function show() {
-    const id = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview";
-    for (const tab of document.querySelectorAll(".tab")) tab.hidden = tab.id !== id;
+    const asked = location.hash.slice(1);
+    const id = TABS[asked] ? asked : OLD[asked] || "overview";
+    for (const tab of document.querySelectorAll(".tab")) tab.hidden = !TABS[id].includes(tab.id);
     for (const a of document.querySelectorAll(".tabs a")) a.setAttribute("aria-selected", a.hash === "#" + id);
-    if (id === "telemetry") draw();
-    if (id === "bedlevel") drawMesh();
+    if (id === "data") { draw(); drawMesh(); }
+    if (id === "usb") usbOpen?.();
     // A tab is a page of its own: from the top, not where the browser jumped to its id.
     scrollTo(0, 0);
   }
@@ -204,6 +209,107 @@
     toggle.textContent = showTable ? "Chart" : "Table";
     if (showTable) fillTable(); else draw();
   });
+
+  // A Prusa's USB stick, through its own Connect: its folders, each file's picture (asked of
+  // the printer one at a time), print and delete, a new folder, a file of the space sent to it.
+  {
+    const usb = document.querySelector("[data-usb]");
+    if (usb) {
+      const list = usb.querySelector("[data-usb-list]");
+      const crumbs = usb.querySelector("[data-usb-crumbs]");
+      const status = usb.querySelector("[data-usb-status]");
+      const fileSelect = usb.querySelector("[data-usb-file]");
+      const api = (path) => `../api/machines/${ID}/usb?path=${encodeURIComponent(path)}`;
+      const post = (what, fields) => fetch(`../machines/${ID}/usb/${what}`, {
+        method: "POST", body: new URLSearchParams(fields), headers: { "x-requested-with": "fetch" },
+      });
+      const size = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} kB`);
+      const date = (t) => (t ? new Date(t * 1000).toLocaleDateString() : "");
+      let path = "/usb", timer = null, generation = 0;
+
+      // One request a folder: its files with what is known of each (picture, time, material),
+      // which the cloud reads ahead from the printer; asked again quickly while some are to come.
+      async function load() {
+        clearTimeout(timer);
+        const mine = ++generation;
+        let r;
+        try { r = await (await fetch(api(path))).json(); } catch { status.textContent = "The cloud does not answer."; return; }
+        if (mine !== generation) return;
+        render(r);
+        const busy = r.online && (r.asking || r.pending > 0);
+        timer = setTimeout(load, busy ? 1500 : 15000);
+      }
+      function render(r) {
+        const parts = path.split("/").filter(Boolean);
+        crumbs.innerHTML = parts.map((p, i) => {
+          const to = "/" + parts.slice(0, i + 1).join("/");
+          return i === parts.length - 1 ? `<b>${esc(i ? p : "USB stick")}</b>` : `<button type="button" class="link" data-go="${esc(to)}">${esc(i ? p : "USB stick")}</button>`;
+        }).join(" / ");
+        const children = r.data?.children;
+        const files = children ? children.filter((c) => c.type === "PRINT_FILE").length : 0;
+        if (!r.online) status.textContent = "The printer is offline: this is what it said last.";
+        else if (!children) status.textContent = r.asking ? "Asking the printer…" : "";
+        else if (r.pending > 0) status.textContent = `Pictures and details: ${files - r.pending} of ${files}, the printer sends them one by one…`;
+        else status.textContent = `${files} ${files === 1 ? "file" : "files"} to print.`;
+        if (!children) { list.innerHTML = r.asking ? '<p class="empty">Waiting for the printer…</p>' : '<p class="empty">Nothing yet.</p>'; return; }
+        const sorted = [...children].sort((a, b) => (a.type === "FOLDER") !== (b.type === "FOLDER") ? (a.type === "FOLDER" ? -1 : 1) : (a.display_name || a.name).localeCompare(b.display_name || b.name));
+        list.innerHTML = sorted.length ? sorted.map((c) => {
+          const full = `${path}/${c.name}`, name = c.display_name || c.name;
+          if (c.type === "FOLDER") return `<div class="usb-item folder"><button type="button" class="usb-open" data-go="${esc(full)}"><span class="usb-icon">📁</span><b>${esc(name)}</b></button><button type="button" class="link danger-link" data-delete="${esc(full)}" data-folder="1" data-name="${esc(name)}">Delete</button></div>`;
+          const printable = c.type === "PRINT_FILE";
+          const d = c.details;
+          const picture = d?.picture
+            ? `<img src="../machines/${ID}/usb/preview?path=${encodeURIComponent(full)}&at=${d.at}" alt="" loading="lazy">`
+            : `<span>${!printable ? esc(c.type.toLowerCase()) : d ? "no picture" : "…"}</span>`;
+          const facts = d ? [d.time, d.material, d.grams && `${d.grams.split(",")[0].trim()} g`, d.layer_mm && `${d.layer_mm} mm`].filter(Boolean).join(" · ") : "";
+          return `<div class="usb-item${printable ? "" : " other"}"><div class="usb-pic">${picture}</div><div class="usb-text"><b title="${esc(name)}">${esc(name)}</b><small>${facts ? esc(facts) : `${size(c.size)} · ${date(c.m_timestamp)}`}</small>${facts ? `<small>${size(c.size)} · ${date(c.m_timestamp)}</small>` : ""}</div><div class="usb-actions">${printable ? `<button type="button" data-print="${esc(full)}" data-name="${esc(name)}"${c.read_only ? " disabled title=\"Still arriving\"" : ""}>Print</button>` : ""}<button type="button" class="ghost" data-delete="${esc(full)}" data-name="${esc(name)}">Delete</button></div></div>`;
+        }).join("") : '<p class="empty">Empty.</p>';
+      }
+      usb.addEventListener("click", async (event) => {
+        const go = event.target.closest("[data-go]");
+        if (go) { path = go.dataset.go; list.innerHTML = '<p class="empty">Waiting for the printer…</p>'; load(); return; }
+        const print = event.target.closest("[data-print]");
+        if (print) {
+          if (!confirm(`Print ${print.dataset.name} on this printer now? Check the bed is clear.`)) return;
+          const r = await post("print", { path: print.dataset.print });
+          toast(r.ok ? `Asked to print ${print.dataset.name}` : `Not printed: ${await r.text()}`, r.ok ? "ok" : "bad");
+          return;
+        }
+        const del = event.target.closest("[data-delete]");
+        if (del) {
+          if (!confirm(`Delete ${del.dataset.name}${del.dataset.folder ? " and what is in it" : ""} from the USB stick?`)) return;
+          const fields = { path: del.dataset.delete };
+          if (del.dataset.folder) fields.folder = "1";
+          const r = await post("delete", fields);
+          toast(r.ok ? `Deleting ${del.dataset.name}` : `Not deleted: ${await r.text()}`, r.ok ? "ok" : "bad");
+          if (r.ok) setTimeout(load, 1500);
+        }
+      });
+      usb.querySelector("[data-usb-folder]").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const name = event.target.elements.name.value.trim();
+        const r = await post("folder", { path, name });
+        toast(r.ok ? `Making ${name}` : `Not made: ${await r.text()}`, r.ok ? "ok" : "bad");
+        if (r.ok) { event.target.reset(); setTimeout(load, 1500); }
+      });
+      usb.querySelector("[data-usb-send]").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!fileSelect.value) return;
+        const r = await post("send", { file: fileSelect.value, folder: path });
+        toast(r.ok ? `Sending to ${(await r.json()).path}: it shows here once on the stick` : `Not sent: ${await r.text()}`, r.ok ? "ok" : "bad");
+        if (r.ok) setTimeout(load, 3000);
+      });
+      usbOpen = async () => {
+        load();
+        // The space's G-code, to send.
+        try {
+          const files = await (await fetch("../api/files")).json();
+          const code = files.filter((f) => /\.(b?gcode|gco|g)$/i.test(f.name));
+          fileSelect.innerHTML = code.length ? `<option value="">A file from Files…</option>${code.map((f) => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join("")}` : '<option value="">No G-code in Files yet</option>';
+        } catch { /* stays as it is */ }
+      };
+    }
+  }
 
   addEventListener("resize", () => { draw(); drawMesh(); });
   addEventListener("hashchange", show);
@@ -540,7 +646,7 @@
   function showJob(m, t) {
     const job = m.job, progress = t.job;
     const percent = progress && progress.total ? (progress.done / progress.total) * 100 : null;
-    const left = progress && progress.remaining_s != null ? ` · ${duration(progress.remaining_s)} left` : "";
+    const left = progress && progress.remaining_s != null ? ` · ${timeLeft(progress.remaining_s)}` : "";
     const values = {
       job_pct: percent == null ? null : percent.toFixed(0),
       job_note: job ? `${job.state} · ${job.file_name}${left}` : "no job",
@@ -548,6 +654,7 @@
       job_done: percent == null ? null : `${percent.toFixed(0)} %`,
       job_elapsed: progress ? duration(progress.elapsed_s) : null,
       job_remaining: progress ? duration(progress.remaining_s) : null,
+      job_ends: progress ? timeLeft(progress.remaining_s) : null,
     };
     for (const [key, value] of Object.entries(values)) setLive(key, value);
     showState(m);

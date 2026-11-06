@@ -27,6 +27,8 @@ tower = { version = "0.5.3", default-features = false }
 ureq = { version = "2", features = ["json"] }
 argon2 = "0.5"
 sha2 = "0.10"
+aes = "0.8"
+ctr = "0.9"
 
 [dev-dependencies]
 http-body-util = "0.1.5"

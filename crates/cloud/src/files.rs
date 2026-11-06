@@ -41,6 +41,10 @@ pub fn routes() -> Router<Shared> {
 /// Whether a file can go on a machine now: Ok with a warning, or why not.
 pub fn fit(file: &StoredFile, machine: &Machine) -> Result<Option<String>, String> {
     let profile = machine.profile.as_deref().and_then(profiles::find);
+    // Binary G-code is read by Prusa's own firmware only.
+    if file.name.to_ascii_lowercase().ends_with(".bgcode") && machine.link != "prusa-connect" {
+        return Err("binary G-code (.bgcode) goes to a Prusa on its own Connect".to_owned());
+    }
     if let Some(kind) = file.meta.kind
         && kind != machine.kind
     {
@@ -67,7 +71,10 @@ pub fn fit(file: &StoredFile, machine: &Machine) -> Result<Option<String>, Strin
         "virtual" | "agent" => {}
         // Moonraker fetches the file from here and prints it.
         "simplyprint" => {}
-        _ => return Err("printing on a Prusa over built-in Connect follows".to_owned()),
+        // A Prusa on its own Connect fetches it onto its USB stick, then prints it
+        // (crate::printer_files).
+        "prusa-connect" => {}
+        _ => return Err("this machine takes no files from here".to_owned()),
     }
     if let Some(out) = &machine.out_of_use {
         return Err(if out.reason.is_empty() {
@@ -246,7 +253,7 @@ pub(crate) struct UploadQuery {
 fn clean_name(name: &str) -> Option<String> {
     let name = name.rsplit(['/', '\\']).next()?.trim();
     let lower = name.to_ascii_lowercase();
-    let known = [".gcode", ".gco", ".g", ".png"];
+    let known = [".gcode", ".gco", ".g", ".bgcode", ".png"];
     if !known.iter().any(|end| lower.ends_with(end)) {
         return None;
     }
@@ -265,7 +272,7 @@ pub(crate) async fn upload(
     let Some(name) = clean_name(&query.name) else {
         return (
             StatusCode::BAD_REQUEST,
-            "a G-code file (.gcode), or a label (.png); binary G-code (.bgcode) is not read yet",
+            "a G-code file (.gcode, .bgcode), or a label (.png)",
         )
             .into_response();
     };
@@ -455,8 +462,11 @@ async fn serve(file: &StoredFile, dir: &std::path::Path) -> Response {
 
 /// What a file is, by its name: a label (PNG), else G-code.
 fn content_type(name: &str) -> &'static str {
-    if name.to_ascii_lowercase().ends_with(".png") {
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(".png") {
         "image/png"
+    } else if lower.ends_with(".bgcode") {
+        "application/octet-stream"
     } else {
         "text/x.gcode"
     }
@@ -694,6 +704,14 @@ async fn control_job(
         ("stop", JobState::Printing | JobState::Paused) => JobState::Stopping,
         _ => return (StatusCode::CONFLICT, "not now").into_response(),
     };
+    // A Prusa on its built-in Connect is told so itself.
+    if let Ok(Some(machine)) = store.machine(access.space, &id)
+        && machine.link == "prusa-connect"
+        && let Err(error) =
+            crate::printer_files::job_control(&mut store, access.space, &id, &form.action)
+    {
+        return failed(error);
+    }
     match store.set_job(job.id, next, None) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
@@ -809,7 +827,7 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
-        let refused = Request::post("/api/files?name=part.bgcode")
+        let refused = Request::post("/api/files?name=part.stl")
             .body(Body::from("x"))
             .unwrap();
         assert_eq!(call(&app, refused).await.0, StatusCode::BAD_REQUEST);
