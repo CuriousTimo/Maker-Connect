@@ -135,6 +135,9 @@ fn options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>> {
 /// The agent's credentials, kept between runs.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Credentials {
+    /// The hub they are for; `cloud` in files from before 0.2.0-beta.2 (read as well, so an
+    /// agent updated by hand keeps its machine).
+    #[serde(alias = "cloud")]
     hub: String,
     registered: Registered,
 }
@@ -1162,6 +1165,14 @@ fn carry_out<L: std::io::Read + std::io::Write>(
 mod tests {
     /// `--new-code`: the registration kept is forgotten, and a new one asked; without it,
     /// the same hub keeps it.
+    #[test]
+    fn credentials_from_before_the_hub_are_kept() {
+        let old = r#"{"cloud": "http://pi:8460", "registered": {"machine_id": "m1", "token": "t1", "pairing_code": "ABC123"}}"#;
+        let kept: Credentials = serde_json::from_str(old).unwrap();
+        assert_eq!(kept.hub, "http://pi:8460");
+        assert_eq!(kept.registered.machine_id, "m1");
+    }
+
     #[test]
     fn a_new_code_forgets_the_old_registration() {
         let dir = std::env::temp_dir().join(format!("mc-agent-{}", std::process::id()));
