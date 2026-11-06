@@ -1,14 +1,18 @@
+# Sources: Prusa-Firmware (variants/MK25S-RAMBo13a): PRINTER_MK25S 252, CUSTOM_MENDEL_NAME "Prusa i3 MK2.5S", HEATER_0_MAXTEMP 305, BED_MAXTEMP 125; its menu goes to 10 and 5 below.
+# Size: PrusaSlicer-settings-prusa-fff 2.5.14 (bed_shape, max_print_height).
 brand = "Prusa"
 model = "Original Prusa i3 MK2.5S"
 kind = "fdm"
-build_volume_mm = [250, 210, 210]
+build_volume_mm = [250, 210, 200]
 bed_origin_mm = [0, 0]
 nozzle_mm = 0.4
 firmware = "prusa"
-max_nozzle_c = 300
+max_nozzle_c = 295
 max_bed_c = 120
-
+motion = "bedslinger"
+# PrusaSlicer's printer_model (and OrcaSlicer's, where it differs).
 printer_models = ["MK2.5S", "MK2.5SMMU2S"]
+
 [detect]
-model_code = 252                  # check
-machine_type = "Prusa i3 MK2.5S"  # check
+model_code = 252
+machine_type = "Prusa i3 MK2.5S"

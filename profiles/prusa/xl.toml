@@ -1,0 +1,19 @@
+# Sources: Buddy: XL, code 170, version 3.1.0; one to five tool heads (each 305 less 15, tools_xlbuddy.cpp), bed 120 (Configuration_XL.h).
+# Size: PrusaSlicer-settings-prusa-fff 2.5.14 (bed_shape, max_print_height).
+brand = "Prusa"
+model = "Original Prusa XL"
+kind = "fdm"
+build_volume_mm = [360, 360, 360]
+bed_origin_mm = [0, 0]
+nozzle_mm = 0.4
+firmware = "prusa-buddy"
+max_nozzle_c = 290
+max_bed_c = 120
+motion = "corexy"
+# PrusaSlicer's printer_model (and OrcaSlicer's, where it differs).
+printer_models = ["XL", "XLIS", "XL2", "XL2IS", "XL5", "XL5IS", "Prusa XL", "Prusa XL 5T"]
+
+[detect]
+model_code = 170
+machine_type = "Prusa-XL"
+printer_type = "3.1.0"

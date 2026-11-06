@@ -331,6 +331,92 @@ fn escape(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Prusa's whole range, MK2 to CORE One and XL: each told by what it says (its Connect
+    /// type, its model code, M115's machine type), no code twice, and a file sliced for one
+    /// fits it and not the others.
+    #[test]
+    fn the_whole_prusa_range() {
+        use maker_connect_protocol::Identity;
+        let by = |code: Option<u32>, printer_type: Option<&str>, machine_type: Option<&str>| {
+            detect(&Identity {
+                model_code: code,
+                printer_type: printer_type.map(str::to_owned),
+                machine_type: machine_type.map(str::to_owned),
+            })
+            .map(|p| p.id.as_str())
+        };
+        // Buddy, as each registers with Connect.
+        for (printer_type, id) in [
+            ("2.1.0", "prusa/mini"),
+            ("1.3.5", "prusa/mk3.5"),
+            ("1.3.6", "prusa/mk3.5s"),
+            ("1.3.9", "prusa/mk3.9"),
+            ("1.3.10", "prusa/mk3.9s"),
+            ("1.4.0", "prusa/mk4"),
+            ("1.4.1", "prusa/mk4s"),
+            ("3.1.0", "prusa/xl"),
+            ("3.1.1", "prusa/xl-plus"),
+            ("7.1.0", "prusa/coreone"),
+            ("8.1.0", "prusa/coreone-l"),
+            ("7.10.0", "prusa/coreone-indx"),
+            ("7.2.0", "prusa/signature-oak"),
+        ] {
+            assert_eq!(
+                by(None, Some(printer_type), None),
+                Some(id),
+                "{printer_type}"
+            );
+        }
+        // Prusa-Firmware over USB: M862.2's code, or M115's name.
+        for (code, id) in [
+            (200, "prusa/mk2"),
+            (202, "prusa/mk2s"),
+            (250, "prusa/mk2.5"),
+            (252, "prusa/mk2.5s"),
+            (300, "prusa/i3-mk3"),
+            (302, "prusa/mk3s"),
+            (130, "prusa/mk4"),
+        ] {
+            assert_eq!(by(Some(code), None, None), Some(id), "{code}");
+        }
+        assert_eq!(by(None, None, Some("Prusa i3 MK3")), Some("prusa/i3-mk3"));
+        assert_eq!(by(None, None, Some("Prusa-COREONE")), Some("prusa/coreone"));
+        // No code twice.
+        let mut codes: Vec<u32> = all()
+            .iter()
+            .filter_map(|p| p.detect.as_ref()?.model_code)
+            .collect();
+        let n = codes.len();
+        codes.sort_unstable();
+        codes.dedup();
+        assert_eq!(codes.len(), n, "a model code twice");
+        // Every Prusa profile is whole: size, limits, slicer names.
+        for p in all()
+            .iter()
+            .filter(|p| p.brand == "Prusa" && p.source.is_none())
+        {
+            assert!(p.build_volume_mm.iter().all(|v| *v > 0.0), "{}", p.id);
+            assert!(
+                p.max_nozzle_c.is_some() && p.max_bed_c.is_some(),
+                "{}",
+                p.id
+            );
+            assert!(!p.printer_models.is_empty(), "{}", p.id);
+        }
+        // Sliced for one: that one (by PrusaSlicer's name or OrcaSlicer's), not another.
+        let fits = |id: &str, sliced: &str| {
+            find(id)
+                .unwrap()
+                .printer_models
+                .iter()
+                .any(|m| crate::files::same_model(sliced, m))
+        };
+        assert!(fits("prusa/mini", "MINIIS") && fits("prusa/mini", "Prusa MINI IS"));
+        assert!(fits("prusa/mk4", "MK4IS") && !fits("prusa/mk4", "MK4S"));
+        assert!(fits("prusa/coreone", "COREONE") && !fits("prusa/coreone", "COREONEL"));
+        assert!(fits("prusa/xl", "XL5IS") && !fits("prusa/xl", "XLP5T"));
+    }
+
     use super::*;
 
     #[test]

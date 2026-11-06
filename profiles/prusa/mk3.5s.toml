@@ -1,0 +1,19 @@
+# Sources: Buddy: MK3.5S, code 280, version 1.3.6. PrusaSlicer slices the MK3.5 and MK3.5S alike (MK3.5).
+# Size: PrusaSlicer-settings-prusa-fff 2.5.14 (bed_shape, max_print_height).
+brand = "Prusa"
+model = "Original Prusa MK3.5S"
+kind = "fdm"
+build_volume_mm = [250, 210, 210]
+bed_origin_mm = [0, 0]
+nozzle_mm = 0.4
+firmware = "prusa-buddy"
+max_nozzle_c = 290
+max_bed_c = 120
+motion = "bedslinger"
+# PrusaSlicer's printer_model (and OrcaSlicer's, where it differs).
+printer_models = ["MK3.5", "MK3.5MMU3", "MK3.5S", "MK3.5SMMU3", "Prusa MK3.5"]
+
+[detect]
+model_code = 280
+machine_type = "Prusa-MK3.5S"
+printer_type = "1.3.6"

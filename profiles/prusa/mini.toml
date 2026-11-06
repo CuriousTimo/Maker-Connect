@@ -1,3 +1,5 @@
+# Sources: Buddy (printer_model_data.hpp): MINI, code 120, version 2.1.0. Nozzle 295 less its margin of 15 (tools_buddy.cpp, Configuration_MINI.h); bed 110 less 10.
+# Size: PrusaSlicer-settings-prusa-fff 2.5.14 (bed_shape, max_print_height).
 brand = "Prusa"
 model = "Original Prusa MINI/+"
 kind = "fdm"
@@ -7,11 +9,11 @@ nozzle_mm = 0.4
 firmware = "prusa-buddy"
 max_nozzle_c = 280
 max_bed_c = 100
+motion = "bedslinger"
+# PrusaSlicer's printer_model (and OrcaSlicer's, where it differs).
+printer_models = ["MINI", "MINIIS", "Prusa MINI", "Prusa MINI IS"]
 
-printer_models = ["MINI", "MINIIS"]  # PrusaSlicer's printer_model
 [detect]
-# From the MINI's firmware (Prusa-Firmware-Buddy): M862.2 Q answers P120, M115 MACHINE_TYPE:Prusa-MINI.
 model_code = 120
 machine_type = "Prusa-MINI"
-# As it registers with Prusa Connect (type 2, version 1, subversion 0).
 printer_type = "2.1.0"

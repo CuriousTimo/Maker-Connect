@@ -1,0 +1,17 @@
+# Sources: Prusa-Firmware: PRINTER_MK2S 202; as the MK2 otherwise.
+# Size: PrusaSlicer-settings-prusa-fff 2.5.14 (bed_shape, max_print_height).
+brand = "Prusa"
+model = "Original Prusa i3 MK2S"
+kind = "fdm"
+build_volume_mm = [250, 210, 200]
+bed_origin_mm = [0, 0]
+nozzle_mm = 0.4
+firmware = "prusa"
+max_nozzle_c = 295
+max_bed_c = 145
+motion = "bedslinger"
+# PrusaSlicer's printer_model (and OrcaSlicer's, where it differs).
+printer_models = ["MK2S", "MK2SMM"]
+
+[detect]
+model_code = 202

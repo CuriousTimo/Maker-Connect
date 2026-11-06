@@ -1,0 +1,19 @@
+# Sources: Buddy: MK4S, code 260, version 1.4.1; as the MK4.
+# Size: PrusaSlicer-settings-prusa-fff 2.5.14 (bed_shape, max_print_height).
+brand = "Prusa"
+model = "Original Prusa MK4S"
+kind = "fdm"
+build_volume_mm = [250, 210, 220]
+bed_origin_mm = [0, 0]
+nozzle_mm = 0.4
+firmware = "prusa-buddy"
+max_nozzle_c = 290
+max_bed_c = 120
+motion = "bedslinger"
+# PrusaSlicer's printer_model (and OrcaSlicer's, where it differs).
+printer_models = ["MK4S", "MK4SMMU3", "Prusa MK4S", "Prusa MK4S HF"]
+
+[detect]
+model_code = 260
+machine_type = "Prusa-MK4S"
+printer_type = "1.4.1"

@@ -1,0 +1,19 @@
+# Sources: Buddy: COREONEINDX, code 360, version 7.10.0; four or eight tools (tools_indx.cpp: 305 less 15).
+# Size: PrusaSlicer-settings-prusa-fff 2.5.14 (bed_shape, max_print_height).
+brand = "Prusa"
+model = "Prusa CORE One INDX"
+kind = "fdm"
+build_volume_mm = [248, 205, 270]
+bed_origin_mm = [0, 0]
+nozzle_mm = 0.4
+firmware = "prusa-buddy"
+max_nozzle_c = 290
+max_bed_c = 120
+motion = "corexy"
+# PrusaSlicer's printer_model (and OrcaSlicer's, where it differs).
+printer_models = ["COREONE_INDX4T", "COREONE_INDX8T"]
+
+[detect]
+model_code = 360
+machine_type = "Prusa-COREONEINDX"
+printer_type = "7.10.0"

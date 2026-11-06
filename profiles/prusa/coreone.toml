@@ -1,0 +1,19 @@
+# Sources: Buddy: COREONE, code 310, version 7.1.0. Nozzle 305 less its margin of 15, bed 125 less 5 (Configuration_COREONE.h).
+# Size: PrusaSlicer-settings-prusa-fff 2.5.14 (bed_shape, max_print_height).
+brand = "Prusa"
+model = "Prusa CORE One"
+kind = "fdm"
+build_volume_mm = [250, 220, 270]
+bed_origin_mm = [0, 0]
+nozzle_mm = 0.4
+firmware = "prusa-buddy"
+max_nozzle_c = 290
+max_bed_c = 120
+motion = "corexy"
+# PrusaSlicer's printer_model (and OrcaSlicer's, where it differs).
+printer_models = ["COREONE", "COREONEMMU3", "Prusa CORE One", "Prusa CORE One HF"]
+
+[detect]
+model_code = 310
+machine_type = "Prusa-COREONE"
+printer_type = "7.1.0"

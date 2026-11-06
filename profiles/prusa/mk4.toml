@@ -1,0 +1,19 @@
+# Sources: Buddy: MK4, code 130, version 1.4.0. Nozzle 305 less its margin of 15 (tools_xbuddy.cpp, Configuration_MK4.h), bed 125 less 5.
+# Size: PrusaSlicer-settings-prusa-fff 2.5.14 (bed_shape, max_print_height).
+brand = "Prusa"
+model = "Original Prusa MK4"
+kind = "fdm"
+build_volume_mm = [250, 210, 220]
+bed_origin_mm = [0, 0]
+nozzle_mm = 0.4
+firmware = "prusa-buddy"
+max_nozzle_c = 290
+max_bed_c = 120
+motion = "bedslinger"
+# PrusaSlicer's printer_model (and OrcaSlicer's, where it differs).
+printer_models = ["MK4", "MK4IS", "MK4ISMMU3", "Prusa MK4"]
+
+[detect]
+model_code = 130
+machine_type = "Prusa-MK4"
+printer_type = "1.4.0"

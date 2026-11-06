@@ -1,0 +1,18 @@
+# Sources: Prusa-Firmware (variants/obsolete/1_75mm_MK2-RAMBo13a): PRINTER_MK2 200, CUSTOM_MENDEL_NAME "Prusa i3 MK2", HEATER_0_MAXTEMP 305 and BED_MAXTEMP 150; its menu goes to 10 and 5 below. PrusaSlicer slices for it as MK2S. Its last firmware (3.2) has no M862, so it is told by M115.
+# Size: PrusaSlicer-settings-prusa-fff 2.5.14 (bed_shape, max_print_height).
+brand = "Prusa"
+model = "Original Prusa i3 MK2"
+kind = "fdm"
+build_volume_mm = [250, 210, 200]
+bed_origin_mm = [0, 0]
+nozzle_mm = 0.4
+firmware = "prusa"
+max_nozzle_c = 295
+max_bed_c = 145
+motion = "bedslinger"
+# PrusaSlicer's printer_model (and OrcaSlicer's, where it differs).
+printer_models = ["MK2S", "MK2SMM"]
+
+[detect]
+model_code = 200
+machine_type = "Prusa i3 MK2"
