@@ -1,9 +1,9 @@
 # The printer side of Prusa Connect
 
 How a Prusa printer with the Buddy firmware (MINI, MK4, XL) talks to Connect, so that a
-Maker Connect cloud can be its server instead. Learned by reading Prusa-Firmware-Buddy
+Maker Connect hub can be its server instead. Learned by reading Prusa-Firmware-Buddy
 (`src/connect`, GPL-3.0) and the Prusa Connect SDK (Freeware); written here in our own
-words, nothing copied. Point a printer at a Maker Connect cloud with the settings file
+words, nothing copied. Point a printer at a Maker Connect hub with the settings file
 described in [printer-protocols.md](printer-protocols.md).
 
 ## Registering: a code on the printer's screen
@@ -28,7 +28,7 @@ Seen from a MINI on 6.3.0: telemetry every second or so (`state`, `temp_nozzle`,
 `temp_bed`, targets, axes, `speed`, `flow`, `material`; now and then only `state`), and an
 `INFO` event on start and after a while again, with `sn`, `firmware`, `printer_type`,
 `nozzle_diameter`, `network_info`, `storages` (the USB stick and its free space), `tools`,
-and its Prusa Link `api_key` (a secret: the cloud's log leaves it out).
+and its Prusa Link `api_key` (a secret: the hub's log leaves it out).
 
 - `POST /p/telemetry`, JSON, every few seconds: `state` (`IDLE`, `BUSY`, `PRINTING`,
   `PAUSED`, `FINISHED`, `STOPPED`, `ERROR`, `ATTENTION`, `READY`), `temp_bed`,
@@ -81,10 +81,10 @@ telemetry like G-code, `Content-Type: application/json`, `{"command": ..., "kwar
 
 ## In Maker Connect
 
-`crates/cloud/src/prusa_connect.rs` answers register, telemetry and events: the printer
+`crates/hub/src/prusa_connect.rs` answers register, telemetry and events: the printer
 shows in the list with its state, temperatures and progress, its profile recognised from
 its printer type, as "Link: Prusa firmware ... (built-in Connect)". Commands go back in the
-answer to telemetry. The machine page's **USB** tab and `crates/cloud/src/printer_files.rs`
+answer to telemetry. The machine page's **USB** tab and `crates/hub/src/printer_files.rs`
 cover the stick:
 - looking through it, with each file's picture and details
 - printing from it, deleting, and making a folder
@@ -104,7 +104,7 @@ port = 8460
 tls = false
 ```
 
-`hostname` is the machine the cloud runs on. On the printer: Settings → Network → Prusa
+`hostname` is the machine the hub runs on. On the printer: Settings → Network → Prusa
 Connect → Load Settings, then Add printer to Connect: the printer shows a code; enter it on
 the website. Loading the file replaces all Connect settings, including the token: to go back
 to Prusa Connect, load its settings again (`buddy-a.connect.prusa3d.com`, port 443, tls

@@ -1,13 +1,13 @@
 //! # Maker Connect agent
 //!
 //! The module next to a machine: it drives the machine and reports to the Maker Connect
-//! cloud ([`maker_connect_protocol`]). This proof of concept knows printers on USB that
+//! hub ([`maker_connect_protocol`]). This proof of concept knows printers on USB that
 //! speak the Marlin protocol ([`marlin`]): it streams G-code to them (`send`), and reports
-//! one to the cloud (`run`); GRBL lasers; a DYMO LabelManager on USB HID, and a DYMO
+//! one to the hub (`run`); GRBL lasers; a DYMO LabelManager on USB HID, and a DYMO
 //! LabelWriter on USB.
 
-mod cloud;
 mod config;
+mod hub;
 mod marlin;
 mod print;
 
@@ -25,10 +25,10 @@ Usage:
                                                        (Marlin protocol: line numbers, checksums,
                                                        ok, resend)
   maker-connect-agent run [--config <file>] [--save]
-                          [--cloud <http://host:8460>] [--name <name>] [--kind fdm|laser|label]
+                          [--hub <http://host:8460>] [--name <name>] [--kind fdm|laser|label]
                           [--port <serial port> [--baud 115200] [--firmware auto|marlin|grbl]]
                           [--state <file>] [--new-code]
-                                                       report a machine to the cloud; shows the
+                                                       report a machine to the hub; shows the
                                                        pairing code to add it on the website;
                                                        carries out its commands and jobs.
                                                        --firmware auto: GRBL if it greets as GRBL
@@ -38,7 +38,7 @@ Usage:
                                                        itself (no --port)
                                                        --new-code: register again for a new
                                                        pairing code (to add it again, or to
-                                                       another space); a new --cloud gets one
+                                                       another space); a new --hub gets one
                                                        by itself
 
 The options can live in maker-connect-agent.toml (in the current folder, or next to the
@@ -52,7 +52,7 @@ fn main() -> ExitCode {
     // one, and keep the window open on an error so it can be read.
     let alone = args.is_empty();
     if alone && config::places().iter().any(|p| p.is_file()) {
-        if let Err(error) = cloud::run(&[]) {
+        if let Err(error) = hub::run(&[]) {
             eprintln!("error: {error}");
             wait_for_enter();
         }
@@ -65,7 +65,7 @@ fn main() -> ExitCode {
         }
         Some("ports") => ports(),
         Some("send") => send(&args[1..]),
-        Some("run") => cloud::run(&args[1..]),
+        Some("run") => hub::run(&args[1..]),
         _ => {
             print!("{USAGE}");
             return ExitCode::SUCCESS;

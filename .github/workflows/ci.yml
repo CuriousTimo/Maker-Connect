@@ -5,7 +5,7 @@ name: CI
 # to main: it costs budget.
 on:
   push:
-    tags: ["server-v*-beta*", "agent-v*-beta*"]
+    tags: ["hub-v*-beta*", "agent-v*-beta*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Where the agent and the cloud run: a Pi or a server (Linux), and the desktops
+        # Where the agent and the hub run: a Pi or a server (Linux), and the desktops
         # makers use next to their machines.
         os: [ubuntu-24.04, ubuntu-24.04-arm, macos-latest, windows-latest]
     steps:

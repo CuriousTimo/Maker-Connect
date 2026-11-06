@@ -8,7 +8,7 @@ The same split everywhere: a tool makes the job, Maker Connect takes it from the
 |---|---|---|
 | PrusaSlicer, Cura: G-code | files, queue, print, progress | 3D printer (agent, or built-in Prusa Connect) |
 | LaserFoundry: GRBL G-code | files, queue, stream (with its `laserfoundry-device`), progress | laser (agent, GRBL) |
-| a label template in the cloud | render, queue, print | label printer (agent) |
+| a label template in the hub | render, queue, print | label printer (agent) |
 
 ## Lasers: LaserFoundry
 
@@ -47,26 +47,26 @@ by the realtime `?`; realtime bytes outside the stream (`!` hold, `~` resume, Ct
 `$H` homing, `$$` settings, `ALARM:N` after a limit or reset.
 
 **Built (2026-11-04):** the crate `maker-connect-grbl` (`crates/grbl`) wraps its `Link`, shared by
-the agent (with real serial ports) and the cloud (virtual lasers):
+the agent (with real serial ports) and the hub (virtual lasers):
 
 - GRBL recognised on the port by its greeting (or `$I`); commands (`$H`, `$X`, `$$`, any line)
   with their answers for the terminal;
 - jogs as GRBL's own `$J=` through the link's `jog` and `jog_to` (laser off, checked). The
   website's jog pad (lasers, CNCs, plotters; printers keep their ±10 mm buttons) sends
-  `jog:<x>:<y>` with a step of 0.1, 1, 10 or 50 mm and a speed of 600 to 6000 mm/min; the cloud
+  `jog:<x>:<y>` with a step of 0.1, 1, 10 or 50 mm and a speed of 600 to 6000 mm/min; the hub
   refuses anything else and turns it into `$J=G91 G21 X… Y… F…`;
 - the job's origin: *Set origin here* is `G92 X0 Y0` and *Go to origin* `G90 G0 X0 Y0`, through
   the link's `set_zero` and `go_to_zero` (as LaserFoundry does it). GRBL keeps a `G92` offset
   until it restarts, so it is set again after a reset or a stop (a stop is a soft reset);
 - the settings that matter, read with `$$` on connecting: laser mode (`$32`), full power
-  (`$30`), travel (`$130` to `$132`). The cloud refuses a job with laser mode off or outside the
+  (`$30`), travel (`$130` to `$132`). The hub refuses a job with laser mode off or outside the
   travel, and warns when the file's power range does not fit `$30`;
 - Frame: a laser file's outline (where its moves go, read on upload) run as jogs, laser off;
 - jobs fetched and streamed by character counting, with pause, resume and stop;
 - starting again: an interrupted job says where it can start again (`restart_line`, a few lines
   back, in the file's numbering), and the new job starts there with `laserfoundry-gcode`'s
   `resume_from`, which first goes there with the beam off;
-- virtual lasers: `SimulatedGrbl` behind the same code, on a thread of their own in the cloud.
+- virtual lasers: `SimulatedGrbl` behind the same code, on a thread of their own in the hub.
 
 Tested against `SimulatedGrbl`; not yet on a real laser.
 
@@ -75,7 +75,7 @@ the licences fit AGPL-3.0) rather than writing GRBL streaming again; a GRBL mach
 `Transport` over our serial port. `SimulatedGrbl` serves the agent's tests, and can stand behind
 the virtual laser. The user's Ortur on USB would be among its first real machines: Frame and
 low power first. Later: an upload from LaserFoundry to Maker Connect (it already has "Publish
-to MakerFoundry", makerfoundry.app, by the same makers), or the cloud turning an SVG into
+to MakerFoundry", makerfoundry.app, by the same makers), or the hub turning an SVG into
 G-code with its engine.
 
 ## Label printers: thermal-label
@@ -98,9 +98,9 @@ How it fits:
    (TCP 9100) first: no USB permissions, one binary.
 2. As a helper beside the agent: the agent runs its CLI. Quick, but needs Node 24.
 3. From the browser (WebUSB, Web Bluetooth), without an agent: for a Bluetooth label printer
-   at a laptop. Against "the machine connects to the cloud", so at most an extra.
+   at a laptop. Against "the machine connects to the hub", so at most an extra.
 
-The cloud makes the label (template to image) and queues it; the agent prints it. Which label
+The hub makes the label (template to image) and queues it; the agent prints it. Which label
 printer to start with: the DYMO LabelManager PnP, the one at hand (below); Brother QL over the
 network next.
 
@@ -147,7 +147,7 @@ three components that connect outward by themselves:
   `url` option. That option is in the code, not in Moonraker's docs, so a newer Moonraker may
   change it. Over it: temperatures, state, job progress, the bed mesh, the computer, Klipper's
   console; and from the server G-code, pause, resume, cancel, and a file to fetch from a URL
-  and print. Built here: `crates/cloud/src/simplyprint.rs`. The server must never send
+  and print. Built here: `crates/hub/src/simplyprint.rs`. The server must never send
   `new_token` or `complete_setup`: Moonraker answers those by going back to SimplyPrint's own
   servers. A printer has one `[simplyprint]`: pointed here, it is not on SimplyPrint.
 - **`[mqtt]`** connects to an MQTT broker and takes most of Moonraker's API over it, but not
@@ -165,8 +165,8 @@ lack (`maker-connect-import klipper`), and the Vorons by hand from VoronDesign's
 Read 2026-11-04 in Spoolman (github.com/Donkie/Spoolman, MIT; its models, API, tag module,
 and its client_v2 for the library's design), to be compatible, not to copy. Materials keeps
 Spoolman's model (`vendor`, `filament`, `spool` tables, extra fields, tags, settings) and
-serves `/api/v1` the way Spoolman does (`crates/cloud/src/spoolman.rs`), so Moonraker's
-`[spoolman]` (`server: http://<cloud>:8460`; it calls `/api/v1/spool/{id}`, `/use`, and the
+serves `/api/v1` the way Spoolman does (`crates/hub/src/spoolman.rs`), so Moonraker's
+`[spoolman]` (`server: http://<hub>:8460`; it calls `/api/v1/spool/{id}`, `/use`, and the
 `/api/v1/spool` WebSocket), OctoPrint's plugin, Mainsail, Fluidd and scales find what they
 expect. SpoolmanDB (MIT) is fetched hourly as the catalogue (`spoolmandb.rs`). A spool's id
 is its code's number (`S-0007` is 7); locations are Maker Connect's (with codes, labels, a
@@ -174,7 +174,7 @@ description, and slots for a dry box) and go out as names (`PATCH /api/v1/locati
 renames one, as in Spoolman); Maker Connect's own fields (kind, unit, colour name, ink,
 width, `loaded_in`, `slot`) go out as extra fields. Spoolman's labels (`WEB+SPOOLMAN:S-7`, `…/spool/show/7`) are read too.
 
-Scales that speak to a Spoolman, and so to this cloud: SpoolmanScale (GPL-3.0, ESP32, NFC,
+Scales that speak to a Spoolman, and so to this hub: SpoolmanScale (GPL-3.0, ESP32, NFC,
 touch display; FilaMan and BamBuddy too), and others to look at: Filament-Scale-Database
 (ESP32 and RFID, to Google Sheets; no licence: ideas only), spoolscale (ESP32-C3, HX711, OLED;
 no licence, no Spoolman yet).
@@ -192,7 +192,7 @@ apart because they answer different questions:
 1. **Powered by** (energy): a device hangs behind a channel of another device that switches
    or measures power: a Shelly Plus 2PM has two, a Tasmota power strip four. Several devices
    can share one channel (a dryer and a lamp on one strip), and the tree can go deeper (a
-   strip behind a wall plug). The cloud refuses a loop.
+   strip behind a wall plug). The hub refuses a loop.
    - A device whose plug is off shows "off at the plug", not "disconnected", and its page
      offers to switch the plug on.
    - Switching off is refused while something behind the plug is busy or still hot (a
@@ -201,10 +201,10 @@ apart because they answer different questions:
      jobs (kWh per job).
    - A job can ask for its machine's plug to be switched on first; rules (see the roadmap)
      build on the same link.
-2. **Reached through** (data): the agent or hub a device talks to the cloud through. Today
+2. **Reached through** (data): the agent or broker a device talks to the hub through. Today
    one agent drives one machine. One agent on a Pi next to a printer, a label printer and a
    bench power supply will register each of them as a device of its own, under itself, with
-   one connection to the cloud. A Shelly reached through an MQTT broker sits under that
+   one connection to the hub. A Shelly reached through an MQTT broker sits under that
    broker the same way.
 
 In the store: `machines.powered_by` (a device id) with `machines.power_channel` (a number),

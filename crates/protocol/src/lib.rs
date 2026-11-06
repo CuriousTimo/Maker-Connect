@@ -1,4 +1,4 @@
-//! What an agent (the module next to a machine) and the cloud say to each other. Shared by
+//! What an agent (the module next to a machine) and the hub say to each other. Shared by
 //! both, so they always fit.
 //!
 //! The agent always starts the conversation, as Prusa Link does with Prusa Connect: it
@@ -6,15 +6,15 @@
 //! works behind any NAT or firewall, with no port opened at the makerspace. Commands for
 //! the machine come back in the replies.
 //!
-//! 1. `POST` [`REGISTER`] with [`Register`]: the cloud answers [`Registered`] with the
+//! 1. `POST` [`REGISTER`] with [`Register`]: the hub answers [`Registered`] with the
 //!    machine's id, a token for everything after, and a pairing code. The agent shows the
 //!    code; someone enters it on the website, which adds the machine to their space.
 //! 2. `POST` [`TELEMETRY`] with [`Telemetry`] every few seconds, the token as
-//!    `Authorization: Bearer <token>`: the cloud answers [`TelemetryReply`], with the
+//!    `Authorization: Bearer <token>`: the hub answers [`TelemetryReply`], with the
 //!    commands for the machine, if any. The next report says how they went
 //!    ([`Telemetry::done`]), and brings a bed mesh when one was measured.
 //!
-//! Every message carries [`VERSION`] (in [`Register`]), so agents and the cloud can be
+//! Every message carries [`VERSION`] (in [`Register`]), so agents and the hub can be
 //! updated apart.
 
 use serde::{Deserialize, Serialize};
@@ -170,13 +170,13 @@ pub struct Telemetry {
     /// A job that ended since the last report.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_end: Option<JobEnd>,
-    /// Commands from the cloud carried out since the last report.
+    /// Commands from the hub carried out since the last report.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub done: Vec<CommandDone>,
     /// A bed mesh, once, when the machine has just measured or reported one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mesh: Option<Mesh>,
-    /// What the machine says it is, so the cloud can pick its profile.
+    /// What the machine says it is, so the hub can pick its profile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<Identity>,
     /// A label printer: whether a cassette (or roll) is in. It cannot tell which: the owner
@@ -217,9 +217,45 @@ pub struct AgentInfo {
     pub arch: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hostname: Option<String>,
-    /// Its address on the network it reaches the cloud through.
+    /// Its address on the network it reaches the hub through.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
+    /// It updates itself when the hub asks ([`TelemetryReply::update`]); agents before
+    /// 0.2.0-beta.2 do not.
+    #[serde(default)]
+    pub can_update: bool,
+    /// How its last update went.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_update: Option<UpdateOutcome>,
+}
+
+/// How an agent's last update went: in place and working, or rolled back (why).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct UpdateOutcome {
+    /// Unix seconds.
+    pub at: i64,
+    pub from: String,
+    pub to: String,
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+}
+
+/// An agent release to update to, as the hub passes it on. The agent checks it itself: the
+/// signature over `tag` and `sums` must be the release key's, and the file's sum on the list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentUpdate {
+    /// `agent-v0.3.0`.
+    pub tag: String,
+    /// `v0.3.0`: what the agent will say it is.
+    pub version: String,
+    /// This agent's build in it: `maker-connect-agent-linux-armv6`.
+    pub file: String,
+    /// Where on the hub, with the agent's token.
+    pub download: String,
+    /// The release's `SHA256SUMS`, and its signature.
+    pub sums: String,
+    pub signature: String,
 }
 
 /// What a machine says it is: M115's `MACHINE_TYPE` ("Prusa-MINI"), and on a Prusa its
@@ -251,9 +287,12 @@ pub struct TelemetryReply {
     /// What to do with the running job, said again each report until the machine has.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_control: Option<JobControl>,
+    /// Update the agent: once its machine is idle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update: Option<AgentUpdate>,
 }
 
-/// A file for the machine to run: fetched from the cloud at `download` (a path, with the
+/// A file for the machine to run: fetched from the hub at `download` (a path, with the
 /// agent's token), then streamed to the machine.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JobOrder {

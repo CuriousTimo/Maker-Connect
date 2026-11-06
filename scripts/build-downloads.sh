@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the agent for the platforms this computer can build for, into the cloud's downloads
+# Builds the agent for the platforms this computer can build for, into the hub's downloads
 # folder (beside its database), named so /downloads gives each a card.
 #   scripts/build-downloads.sh [folder]      default: maker-connect-downloads
 # Windows (x86_64) and Linux (ARM64: Orange Pi Zero3, Raspberry Pi 4/5; and x86_64) are
@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 out="${1:-maker-connect-downloads}"
 mkdir -p "$out"
 
-# The build these are, as the agent knows itself (crates/agent/build.rs): the cloud compares
+# The build these are, as the agent knows itself (crates/agent/build.rs): the hub compares
 # it with what agents report, to say an update is there.
 commit=$(git rev-parse --short=7 HEAD)
 [ -n "$(git status --porcelain --untracked-files=no)" ] && commit="$commit-dirty"

@@ -6,7 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-# The agent's real serial ports; the cloud's virtual lasers do without.
+# The agent's real serial ports; the hub's virtual lasers do without.
 serial = ["laserfoundry-device/serial"]
 
 [dependencies]

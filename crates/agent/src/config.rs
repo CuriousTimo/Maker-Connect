@@ -1,7 +1,7 @@
 //! The agent's settings in a file, so `run` needs no long command: `maker-connect-agent.toml`.
 //!
 //! ```toml
-//! cloud = "http://192.168.1.20:8460"
+//! hub = "http://192.168.1.20:8460"
 //! name = "Dymo"
 //! kind = "label"          # fdm, laser, label, ...
 //! # port = "COM3"         # a printer or laser on a serial port
@@ -23,8 +23,9 @@ pub const FILE: &str = "maker-connect-agent.toml";
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cloud: Option<String>,
+    /// The hub's address; `cloud`, its name before 0.2.0-beta.2, still reads.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "cloud")]
+    pub hub: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,7 +44,7 @@ impl Config {
     /// This config, with what `other` says on top.
     pub fn and(self, other: Config) -> Config {
         Config {
-            cloud: other.cloud.or(self.cloud),
+            hub: other.hub.or(self.hub),
             name: other.name.or(self.name),
             kind: other.kind.or(self.kind),
             port: other.port.or(self.port),
@@ -98,7 +99,7 @@ mod tests {
     #[test]
     fn a_file_is_read_and_the_command_line_wins() {
         let file: Config = toml::from_str(
-            "cloud = \"http://192.168.1.20:8460\"\nname = \"Dymo\"\nkind = \"label\"\n",
+            "hub = \"http://192.168.1.20:8460\"\nname = \"Dymo\"\nkind = \"label\"\n",
         )
         .unwrap();
         let typed = Config {
@@ -106,7 +107,13 @@ mod tests {
             ..Config::default()
         };
         let both = file.and(typed);
-        assert_eq!(both.cloud.as_deref(), Some("http://192.168.1.20:8460"));
+        assert_eq!(both.hub.as_deref(), Some("http://192.168.1.20:8460"));
+        let old: Config = toml::from_str("cloud = \"http://10.0.0.2:8460\"\n").unwrap();
+        assert_eq!(
+            old.hub.as_deref(),
+            Some("http://10.0.0.2:8460"),
+            "its name before 0.2.0-beta.2"
+        );
         assert_eq!(both.name.as_deref(), Some("Dymo at work"));
         assert_eq!(both.kind.as_deref(), Some("label"));
         assert!(

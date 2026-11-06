@@ -1,7 +1,7 @@
 //! Bakes the build's identity into the agent: the git commit it was built from (with
 //! `-dirty` when files differed from it) and when, so every agent can say exactly what it is
-//! (`--version`, at start, and to the cloud). `scripts/build-downloads.sh` writes the same
-//! commit beside the builds it puts in the cloud's downloads.
+//! (`--version`, at start, and to the hub). `scripts/build-downloads.sh` writes the same
+//! commit beside the builds it puts in the hub's downloads.
 
 use std::process::Command;
 

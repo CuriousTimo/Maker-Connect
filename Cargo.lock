@@ -330,6 +330,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "filetime"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+dependencies = [
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -923,41 +933,11 @@ dependencies = [
  "maker-connect-grbl",
  "maker-connect-label",
  "maker-connect-protocol",
+ "maker-connect-update",
  "serde",
  "serde_json",
  "serialport",
  "toml",
- "ureq",
-]
-
-[[package]]
-name = "maker-connect-cloud"
-version = "0.2.0"
-dependencies = [
- "aes",
- "argon2",
- "axum",
- "barcoders",
- "base64",
- "ctr",
- "fs2",
- "futures-util",
- "http-body-util",
- "include_dir",
- "maker-connect-grbl",
- "maker-connect-label",
- "maker-connect-protocol",
- "qrcode",
- "rand 0.8.8",
- "rusqlite",
- "ruzstd",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
- "tokio-tungstenite",
- "toml",
- "tower",
  "ureq",
 ]
 
@@ -968,6 +948,41 @@ dependencies = [
  "laserfoundry-device",
  "laserfoundry-gcode",
  "maker-connect-protocol",
+]
+
+[[package]]
+name = "maker-connect-hub"
+version = "0.2.0"
+dependencies = [
+ "aes",
+ "argon2",
+ "axum",
+ "barcoders",
+ "base64",
+ "ctr",
+ "flate2",
+ "fs2",
+ "futures-util",
+ "http-body-util",
+ "include_dir",
+ "maker-connect-grbl",
+ "maker-connect-label",
+ "maker-connect-protocol",
+ "maker-connect-update",
+ "qrcode",
+ "rand 0.8.8",
+ "ring",
+ "rusqlite",
+ "ruzstd",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "tokio",
+ "tokio-tungstenite",
+ "toml",
+ "tower",
+ "ureq",
 ]
 
 [[package]]
@@ -993,6 +1008,17 @@ version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "maker-connect-update"
+version = "0.2.0"
+dependencies = [
+ "base64",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -1596,6 +1622,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
 ]
 
 [[package]]

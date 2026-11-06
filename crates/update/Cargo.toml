@@ -1,0 +1,13 @@
+[package]
+name = "maker-connect-update"
+description = "Maker Connect updating itself: signed releases, a trial, and a way back"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+base64 = "0.22"
+ring = "0.17"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.10"

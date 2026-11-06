@@ -1,6 +1,6 @@
 [package]
 name = "maker-connect-agent"
-description = "Maker Connect's module next to a machine: drives it and reports to the cloud"
+description = "Maker Connect's module next to a machine: drives it and reports to the hub"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,7 @@ license.workspace = true
 maker-connect-grbl = { path = "../grbl", features = ["serial"] }
 maker-connect-label = { path = "../label", features = ["hid", "usb"] }
 maker-connect-protocol = { version = "0.2.0", path = "../protocol" }
+maker-connect-update = { path = "../update" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 # Without libudev: on Linux the ports are read from /sys, so the agent cross-builds for a Pi

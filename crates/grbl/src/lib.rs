@@ -1,13 +1,13 @@
 //! A GRBL machine (a laser) on the agent's serial port, through LaserFoundry's
 //! `laserfoundry-device` (MIT OR Apache-2.0): its `Link` keeps the connection on a thread of
 //! its own, asks the status every 200 ms, streams a job by GRBL's character counting, and
-//! stops by a soft reset, which switches the laser off. Here: what the cloud asks of it, and
+//! stops by a soft reset, which switches the laser off. Here: what the hub asks of it, and
 //! what it is doing, in Maker Connect's terms. Jogs go as GRBL's own `$J=` jogs (the laser off,
 //! cancellable), the settings that matter before a job are read with `$$`, and an interrupted
 //! job can start again a little before where it stopped, with LaserFoundry's `restart_line` and
 //! `laserfoundry-gcode`'s `resume_from` (which rebuilds where it was with the beam off).
 
-/// LaserFoundry's in-memory GRBL: for tests, and behind the cloud's virtual lasers.
+/// LaserFoundry's in-memory GRBL: for tests, and behind the hub's virtual lasers.
 pub use laserfoundry_device::SimulatedGrbl;
 use laserfoundry_device::{JobState, Link, MachineState as Grbl, Snapshot, Transport};
 use maker_connect_protocol::{

@@ -1,7 +1,7 @@
 #!/bin/sh
-# Packs example files (G-code, binary G-code) into crates/cloud/samples/samples.zst: one
+# Packs example files (G-code, binary G-code) into crates/hub/samples/samples.zst: one
 # zstd stream, so files alike (the same model for two printers) share what they have in
-# common. The cloud unpacks it when someone asks for the example files (crate::samples).
+# common. The hub unpacks it when someone asks for the example files (crate::samples).
 #
 #   scripts/pack-samples.sh ../temp/GCODE          pack a folder
 #   scripts/pack-samples.sh --unpack some/folder   the files back out, byte for byte: to
@@ -14,7 +14,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 if [ "$1" = "--unpack" ]; then
   to=${2:?a folder to unpack into}
   mkdir -p "$to"
-  python3 -I - "$root/crates/cloud/samples/samples.zst" "$to" <<'PY'
+  python3 -I - "$root/crates/hub/samples/samples.zst" "$to" <<'PY'
 import subprocess, sys, os
 raw = subprocess.run(["zstd", "-dc", "--long=25", sys.argv[1]], capture_output=True, check=True).stdout
 head, _, body = raw.partition(b"\n\n")
@@ -41,9 +41,9 @@ files=$(cd "$from" && { ls *.gcode *.gco 2>/dev/null | sort; ls *.bgcode 2>/dev/
   printf '\n'
 } > "$raw"
 for f in $files; do cat "$from/$f" >> "$raw"; done
-mkdir -p "$root/crates/cloud/samples"
+mkdir -p "$root/crates/hub/samples"
 # A window over everything (--long=25: 32 MB), so the second file finds the first.
-zstd -q --ultra -22 --long=25 -f -o "$root/crates/cloud/samples/samples.zst" "$raw"
+zstd -q --ultra -22 --long=25 -f -o "$root/crates/hub/samples/samples.zst" "$raw"
 rm -f "$raw"
-chmod 644 "$root/crates/cloud/samples/samples.zst"
-ls -l "$root/crates/cloud/samples/samples.zst"
+chmod 644 "$root/crates/hub/samples/samples.zst"
+ls -l "$root/crates/hub/samples/samples.zst"

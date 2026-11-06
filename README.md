@@ -10,7 +10,8 @@
 One place for all of a maker's machines: 3D printers, lasers, label printers, and later CNC
 machines and cutting plotters, each managed its own way today. Watch them live, control them,
 send them files, and see how their jobs go, from a website you host yourself (a Pi, Docker, an
-old laptop, a NAS). Shaped so that it could one day be hosted for many makerspaces at once.
+old laptop, a NAS): **the hub**. It runs on your own network, not in someone's cloud. Shaped so
+that it could one day be hosted for many makerspaces at once.
 
 A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 
@@ -25,17 +26,21 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 | ![The bed mesh as a surface to turn, with its range, lowest and highest point](docs/screenshots/bed-level.png) | ![The files page: filters by type and machine, labels and G-code with their pictures, where each was printed](docs/screenshots/files.png) |
 | **Bed level**: the mesh as a surface, a map and a table | **Files**: sorted and filtered by type and machine, where each was printed, removed many at once |
 | ![A label printer's label tab: text, font, a QR code, and the preview of the dots that will burn on 12 mm tape](docs/screenshots/label.png) | ![The downloads page: the agent for macOS and Windows, with the command to start it](docs/screenshots/downloads.png) |
-| **Label**: text, a QR code or barcode, a drawing; the preview is the dots that will burn | **Downloads**: the agent for each platform, with the command for this cloud |
+| **Label**: text, a QR code or barcode, a drawing; the preview is the dots that will burn | **Downloads**: the agent for each platform, with the command for this hub |
 | ![A laser's control tab: the work area, a jog pad with eight directions round Home, the step and speed, Set origin here and Go to origin](docs/screenshots/laser-control.png) | ![The Materials page: filament and label tapes with their spools and cassettes, where each is, a scan box](docs/screenshots/materials.png) |
 | **A laser's Control**: a jog pad (eight directions, a step from 0.1 to 50 mm, the arrow keys), the job's origin set where the head is | **Materials**: spools grouped by filament, what is left of each, the chosen one in its inspector; Spoolman's API speaks here too |
+| ![The Now page: three printers busy with their progress and finish time, who started each job, and the whole fleet by kind](docs/screenshots/now.png) | ![A printer's queue: two Benchies waiting, whose they are and when each starts](docs/screenshots/queue.png) |
+| **Now**: what runs, what needs someone, what ends next and who started it, the fleet by kind; also as a wall screen | **Queue**: per machine, next first; it starts by itself once the bed is clear; drag your own prints, staff move any |
+| ![Space → Members: the members with their roles, and a matrix of who may use which machine group](docs/screenshots/permissions.png) | |
+| **Members and permissions**: roles, and who may use or operate which machine group, in one matrix | |
 
 ## What works
 
 - **Machines report themselves.** An agent next to a machine, or the machine's own firmware,
-  connects to the cloud: no port to open where the machine stands. Add one with the code it
+  connects to the hub: no port to open where the machine stands. Add one with the code it
   shows. Every page updates live (server-sent events).
-- **A Prusa MINI needs no agent.** Its firmware speaks Prusa Connect; the cloud speaks the
-  printer side of that protocol. Point the MINI's Connect settings at your cloud and it
+- **A Prusa MINI needs no agent.** Its firmware speaks Prusa Connect; the hub speaks the
+  printer side of that protocol. Point the MINI's Connect settings at your hub and it
   registers, reports, and takes commands. Tried on a real MINI (firmware 6.3.0).
 - **Printers on USB** through the agent: Marlin and Prusa's 8-bit firmware (line numbers,
   checksums, resends), recognised by what they say (`M115`, `M862.2 Q`). Files print on
@@ -62,7 +67,7 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 - **Materials, compatible with [Spoolman](https://github.com/Donkie/Spoolman)**: its model
   (vendors, filaments, spools) and its API at `/api/v1`, with its WebSockets, NFC tags (as in
   Spoolman 0.27) and extra fields, so Moonraker's `[spoolman]`, OctoPrint's Spoolman plugin,
-  Mainsail, Fluidd and scales such as SpoolmanScale use this cloud as their Spoolman. A
+  Mainsail, Fluidd and scales such as SpoolmanScale use this hub as their Spoolman. A
   library of spools grouped beside an inspector (weigh, use, move, load into a machine, label,
   duplicate, tags, history), a board with the machines on top and the locations below (dry
   boxes with their slots; what does not fit is refused), and *Add spools* searching your
@@ -71,7 +76,7 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
   from a running Spoolman or its export, keeping spool numbers; export or copy back. Scan
   `S-0007`, `L-0003`, an EAN, a tag's UID or Spoolman's own labels, with a barcode scanner or
   the camera.
-- **Files and jobs.** Drop G-code on the Files page; the cloud reads what the slicer wrote
+- **Files and jobs.** Drop G-code on the Files page; the hub reads what the slicer wrote
   (time, filament, layer height, the printer it was sliced for, the thumbnail) and offers only
   the machines it fits. Jobs show progress, time left, pause and stop.
 - **The machine list**: every machine in the same columns, grouped by kind: name and model,
@@ -88,6 +93,17 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
   (the printers Marlin's do not have; a printer on Klipper is not connected yet); by hand the Prusas,
   the Ortur laser and the DYMO with its tapes. Chosen with a searchable picker; listed in the
   wiki's [Supported Machines](https://github.com/CuriousTimo/Maker-Connect/wiki/Supported-Machines).
+- **Updates with a way back.** The hub updates itself from About → Updates (whoever runs the
+  server), and asks its agents to update (a machine's Connection card, or every agent of a
+  space on the Downloads page). Every release is signed with Maker Connect's release key and
+  checked before use, by the hub and again by each agent. The hub backs up its database and
+  tries the new build on a copy first. The old build stays in charge while the new one runs
+  on trial; one that stops or does not confirm itself in time is stopped, and the old build
+  (and the database backup) come back by themselves. An agent updates only when its machine
+  is idle, and fetches the new build through the hub, so it needs no internet of its own.
+  Tried on an Orange Pi PC: an update that works, and one that falls over, for both.
+- **About**: the release and build, the system, processor and memory it runs on, the
+  licence, and links to the manual (the wiki), the code and Losse-Eindj.es.
 - **Virtual machines** for every profile, to try everything without a machine: printers home,
   heat, move, measure their bed and play files (ten times faster than real); virtual lasers
   run on LaserFoundry's simulated GRBL, through the same code as a real one; a virtual label
@@ -97,13 +113,13 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 
 | Devices | How they connect | What works | On real hardware |
 |---|---|---|---|
-| **Prusa MINI** (Buddy firmware) | Its own firmware speaks Prusa Connect to the cloud: no agent | Registers with a code, reports, takes commands | Yes: a MINI on firmware 6.3.0 |
+| **Prusa MINI** (Buddy firmware) | Its own firmware speaks Prusa Connect to the hub: no agent | Registers with a code, reports, takes commands | Yes: a MINI on firmware 6.3.0 |
 | **3D printers on Marlin**: 245 models (Creality, Anycubic, Artillery, …) | Agent, on USB | Recognised from `M115`; live temperatures with their targets and whether the heaters have power, moves, heating, bed mesh, terminal; **prints files** (pause, resume, stop) | Not yet: tested against simulated printers |
 | **3D printers on Klipper**: Voron, FLSUN, RatRig, LulzBot, … (46 profiles), any with Moonraker | Moonraker connects by itself (its SimplyPrint component pointed here): no agent | Status, temperatures, commands with Klipper's answers, **prints files** (Moonraker fetches them), pause, resume, stop, bed mesh | Not yet: tested against a stand-in for Moonraker |
 | **Prusa on 8-bit firmware**: MK3S, MK2.5S | Agent, on USB or an MK3S's RPi port (a Raspberry Pi Zero) | As Marlin, recognised from `M862.2 Q`; bed mesh by `G80`/`G81` | Yes: an MK3S through a Pi Zero 2 W on its RPi port (home, moves, heating, terminal, bed mesh); printing a file not yet |
 | **Lasers on GRBL**: Ortur, Creality Falcon, Sculpfun, Atomstack, Longer, Two Trees (10 profiles), any GRBL 1.1 | Agent, on USB, with LaserFoundry's device crate | Its work area and name from the controller (`$$`, `$I`), homing, the jog pad, the job's origin, settings checked, Frame, jobs streamed, pause, resume, stop, restart where it stopped | Not yet: tested against LaserFoundry's simulated GRBL |
 | **Label printers**: DYMO LabelManager PnP | Agent, on USB HID: no driver, no DYMO software | Labels from the editor (text, QR codes, barcodes, drawings), tapes, cassette and battery | Yes: printed from a Mac and a Windows laptop, 12 mm tape; online through an Orange Pi PC |
-| **A virtual one of every profile** | Simulated in the cloud | Printers home, heat, measure and print; lasers on simulated GRBL; label printers print | – |
+| **A virtual one of every profile** | Simulated in the hub | Printers home, heat, measure and print; lasers on simulated GRBL; label printers print | – |
 
 | The agent runs on | Build | On real hardware |
 |---|---|---|
@@ -118,31 +134,34 @@ Every machine with a profile, by brand: the wiki's
 
 ## Try it
 
-From a [server release](https://github.com/CuriousTimo/Maker-Connect/releases) (`server-v…`):
-download the cloud for the computer it will run on (macOS, Windows, Linux on a PC, a NAS or a Raspberry Pi),
+From a [hub release](https://github.com/CuriousTimo/Maker-Connect/releases) (`hub-v…`):
+download the hub for the computer it will run on (macOS, Windows, Linux on a PC, a NAS or a Raspberry Pi),
 unpack it and start it in its folder:
 
 ```sh
-./maker-connect-cloud                            # http://localhost:8460
+./maker-connect-hub                            # http://localhost:8460
 ```
 
-The agent has releases of its own (`agent-v…`); the cloud's Downloads page offers the newest.
+The agent has releases of its own (`agent-v…`); the hub's Downloads page offers the newest.
 The archive brings SpoolmanDB; printer
-profiles and filaments are inside the cloud. The data (`maker-connect.db`, and
+profiles and filaments are inside the hub. The data (`maker-connect.db`, and
 `maker-connect-files/`, `-downloads/`, `-backups/` beside it) is made where the database is:
 the folder it starts in, or `--db /somewhere/maker-connect.db`. To upgrade, stop it, unpack
-the new release over the old one, start it: the archive holds no data, and a cloud that opens
-a database an older build had copies it to `maker-connect-backups/` first. On macOS, the first
-time: `xattr -d com.apple.quarantine maker-connect-cloud` (the builds are not signed).
+the new release over the old one, start it: the archive holds no data, and a hub that opens
+a database an older build had copies it to `maker-connect-backups/` first. Or update from
+**About → Updates** (Linux and macOS), which does all of that and goes back by itself if the
+new build does not work. On macOS, the first time: `xattr -d com.apple.quarantine
+maker-connect-hub` (the builds are not signed by Apple; the releases are signed with Maker
+Connect's own key, which the updates check).
 
 From the source:
 
 ```sh
-cargo run -p maker-connect-cloud                 # http://localhost:8460
+cargo run -p maker-connect-hub                 # http://localhost:8460
 ```
 
 Then the ＋ next to "Machines" in the sidebar (or ⌘K, *Add a machine*), "A virtual one", and pick a printer, a laser or a label printer. For a real
-machine, the cloud's **Downloads** page has the agent for each platform, with the command to
+machine, the hub's **Downloads** page has the agent for each platform, with the command to
 start it: [Getting Started](https://github.com/CuriousTimo/Maker-Connect/wiki/Getting-Started)
 in the wiki goes through it, [The Agent](https://github.com/CuriousTimo/Maker-Connect/wiki/The-Agent)
 has its options and its config file.
@@ -151,18 +170,19 @@ has its options and its config file.
 
 Guides and designs live in the [wiki](https://github.com/CuriousTimo/Maker-Connect/wiki):
 getting started, the agent, lasers, label printers, materials, machine profiles; the designs
-for devices behind smart plugs, a multi-tenant cloud, and consumables and stock; and the
+for devices behind smart plugs, a multi-tenant hub, and consumables and stock; and the
 roadmap.
 
 ## How it is built
 
 | Part | What |
 |---|---|
-| **cloud** (`crates/cloud`) | The website and the API: one binary, one SQLite file, uploaded files beside it. Every record belongs to a space |
-| **agent** (`crates/agent`) | Next to a machine: drives it over USB, reports to the cloud, carries out its commands and jobs |
-| **grbl** (`crates/grbl`) | GRBL machines (lasers), on LaserFoundry's `laserfoundry-device` and `laserfoundry-gcode`; used by the agent and by the cloud's virtual lasers |
+| **hub** (`crates/hub`) | The website and the API: one binary, one SQLite file, uploaded files beside it. Every record belongs to a space |
+| **agent** (`crates/agent`) | Next to a machine: drives it over USB, reports to the hub, carries out its commands and jobs |
+| **grbl** (`crates/grbl`) | GRBL machines (lasers), on LaserFoundry's `laserfoundry-device` and `laserfoundry-gcode`; used by the agent and by the hub's virtual lasers |
 | **label** (`crates/label`) | Labels as rasters (PNG in, dots out), and the DYMO LabelManager's protocol over USB HID |
-| **protocol** (`crates/protocol`) | What agents and the cloud say to each other |
+| **protocol** (`crates/protocol`) | What agents and the hub say to each other |
+| **update** (`crates/update`) | Updating itself, for the hub and the agent: releases checked against the release key, a trial, and the way back; `examples/release-key.rs` makes the key and signs a release |
 | **import** (`crates/import`) | Makes machine profiles and the filament catalogue (`filaments/`) from other projects' data (Marlin's example configurations, Klipper's printer configurations, PrusaSlicer's profiles) and the wiki's list of machines: `scripts/import-profiles.sh` |
 
 The tools that make the jobs stay the makers' own: PrusaSlicer and Cura for printers,
@@ -172,14 +192,14 @@ LaserFoundry for lasers. Maker Connect takes it from the file on. See
 ## Signing in
 
 Every page and API needs someone signed in; machines prove who they are with their own tokens
-(agents, Prusa printers, Moonraker). On a fresh install the cloud prints a **setup code** at
+(agents, Prusa printers, Moonraker). On a fresh install the hub prints a **setup code** at
 start: open it in a browser, and the first account (with that code) runs the server and owns
 the first space, which it names. Passwords are kept as Argon2id hashes, sessions as hashes of a
 random token in an HttpOnly cookie; a change must come from the site's own pages, and guessing
 is slowed down and then refused for a while. Locked out:
 
 ```sh
-maker-connect-cloud reset-password <name> --db maker-connect.db
+maker-connect-hub reset-password <name> --db maker-connect.db
 ```
 
 prints a new password and signs that account out everywhere. Behind a proxy with TLS, pass

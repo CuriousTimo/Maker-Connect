@@ -45,8 +45,8 @@ Zero 2 W on its RPi port, at 115200 baud:
   (`tmc2130_home_enter`, `tmc2130_goto_step`, `tmc2130_home_exit`) before its `ok`.
 - **`G80`** measures a 7 × 7 mesh; **`G81`** prints it, the back row first.
 - **The agent waits for each `ok`**, so a command that takes a minute holds it. It now
-  reports *busy* every 2 s meanwhile (the cloud counts a machine offline after 10 s of
-  silence), and the cloud gives a busy machine no next command and no job.
+  reports *busy* every 2 s meanwhile (the hub counts a machine offline after 10 s of
+  silence), and the hub gives a busy machine no next command and no job.
 
 ## Prusa Connect (from the Connect SDK)
 
@@ -63,8 +63,8 @@ Zero 2 W on its RPi port, at 115200 baud:
   `connect_port`, `connect_tls` in the printer's store; default `buddy-a.connect.prusa3d.com`
   on 443 with TLS). They can be set from a USB stick, `prusa_printer_settings.ini`, section
   `[service::connect]`: `hostname`, `port`, `tls`, `token`, `proxy_hostname`. With
-  `tls = false` it speaks plain HTTP, so a Maker Connect cloud on the LAN could serve it
-  directly, if the cloud speaks the printer side of Connect's protocol.
+  `tls = false` it speaks plain HTTP, so a Maker Connect hub on the LAN could serve it
+  directly, if the hub speaks the printer side of Connect's protocol.
 - The file is **not on a stick by default**: you write it yourself, and the printer only
   reads it when asked, from the menu (Prusa Connect: "Load Settings", or Settings: "Load
   Settings From File"). Keys: `hostname` (an IP address works), `port` (default 80 without
