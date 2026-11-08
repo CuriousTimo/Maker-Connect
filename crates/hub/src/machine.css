@@ -24,9 +24,29 @@
   .tile, .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
   .tile { padding: 18px 22px 20px; }
   .tile .label { color: var(--muted); font-size: 15px; }
+  /* A tile's or card's title with a fact top right (a job's time left and ETA): that fact
+     stays whole on its line, never scrolled with what is under the title. */
+  .tile-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .card-title { min-width: 0; flex: 1; }
+  .corner { flex: none; color: var(--muted); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .corner:empty { display: none; }
   .tile .value { margin-top: 6px; font-size: 34px; line-height: 1.1; font-weight: 700; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
   .tile .value small { margin-left: 6px; font-size: 16px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
   .tile .sub { margin-top: 8px; color: var(--muted); font-size: 14px; }
+  /* Long names without spaces (a sliced file's name) break, not run out of the card. */
+  .tile { min-width: 0; }
+  .card-sub { overflow-wrap: anywhere; }
+  /* A line too long for its place (a job's file name) scrolls slowly back and forth on
+     one line (machine.js sets --shift and --scroll); still with reduced motion: cut off. */
+  .ticker { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ticker > span { display: inline-block; }
+  .ticker.scrolls { text-overflow: clip; }
+  .ticker.scrolls > span { animation: ticker var(--scroll, 10s) ease-in-out infinite alternate; }
+  @keyframes ticker { 0%, 15% { transform: translateX(0); } 85%, 100% { transform: translateX(var(--shift, 0)); } }
+  @media (prefers-reduced-motion: reduce) {
+    .ticker.scrolls { text-overflow: ellipsis; }
+    .ticker.scrolls > span { animation: none; display: inline; }
+  }
   /* A heater's flame: lit while it has power, outlined while not, gone when not told. */
   :root { --flame: #d9692b; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --flame: #f08a4b; } }
@@ -130,7 +150,26 @@
   :root { --nozzle: #00876e; --bed: #c0730d; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --nozzle: #1c9e83; --bed: #c47c14; } }
   :root[data-theme="dark"] { --nozzle: #1c9e83; --bed: #c47c14; }
+  /* The fan chart. */
+  :root { --print-fan: #2f6fd0; --hotend-fan: #8a4fc7; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --print-fan: #5b8fe6; --hotend-fan: #a77be0; } }
+  :root[data-theme="dark"] { --print-fan: #5b8fe6; --hotend-fan: #a77be0; }
+  .legend .key-print-fan, .tip .key-print-fan { border-color: var(--print-fan); }
+  .legend .key-hotend-fan, .tip .key-hotend-fan { border-color: var(--hotend-fan); }
+  #fanchart { display: block; width: 100%; touch-action: pan-y; }
+  #fanchart .cross { stroke: var(--muted); stroke-width: 1; }
+  #fanchart .grid { stroke: var(--line); stroke-width: 1; }
+  #fanchart .axis { fill: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  #fanchart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  #fanchart .print-fan { stroke: var(--print-fan); }
+  #fanchart .hotend-fan { stroke: var(--hotend-fan); }
+  #fanchart .dot { stroke: var(--card); stroke-width: 2; }
+  #fanchart .dot.print-fan { fill: var(--print-fan); }
+  #fanchart .dot.hotend-fan { fill: var(--hotend-fan); }
+  #fanchart .end { fill: var(--ink); font-size: 13px; font-weight: 600; }
   .chart-card { margin-bottom: 0; }
+  /* Charts one under the other: apart, as the other cards are. */
+  .chart-card + .chart-card { margin-top: 16px; }
   .legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 16px; color: var(--ink); font-size: 15px; }
   .legend span { display: inline-flex; align-items: center; gap: 8px; }
   .key { flex: none; display: inline-block; width: 18px; height: 0; border-top: 2.5px solid; }
@@ -199,6 +238,8 @@
 
   /* The job. */
   .job { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; align-items: center; margin-top: 14px; }
+  /* No picture (a print the printer runs itself): the text takes the whole width. */
+  .job:not(:has(.job-thumb)) { grid-template-columns: minmax(0, 1fr); }
   .job[hidden], .job-actions[hidden], .no-job[hidden] { display: none; }
   .job-thumb { width: 96px; height: 72px; object-fit: contain; border-radius: 8px; background: color-mix(in srgb, var(--line) 55%, var(--card)); }
   .job-thumb[hidden] { display: block; visibility: hidden; }

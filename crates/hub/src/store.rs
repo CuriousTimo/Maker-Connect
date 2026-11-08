@@ -471,6 +471,9 @@ pub struct Sample {
     pub nozzle_target: Option<f32>,
     pub bed: Option<f32>,
     pub bed_target: Option<f32>,
+    /// The fans' speeds, where told.
+    pub print_fan: Option<u32>,
+    pub hotend_fan: Option<u32>,
 }
 
 /// A machine's temperatures are kept every this many seconds, for this long: in memory,
@@ -595,6 +598,11 @@ pub struct Store {
     /// Printers whose print preview is to be closed (crate::printer_files::on_report), by
     /// machine id.
     pub(crate) close_preview: std::collections::HashSet<String>,
+    /// The file a Prusa on Connect prints, by its token: its JOB_INFO says it once, as a
+    /// print starts; its telemetry only says how far.
+    pub(crate) printing_file: std::collections::HashMap<String, (Option<u64>, String)>,
+    /// The print each Prusa on Connect was last asked about (SEND_JOB_INFO), by token: once.
+    pub(crate) job_info_asked: std::collections::HashMap<String, u64>,
     /// Answers to an agent's printer's question, by machine, until its next report takes
     /// them (`M876 S<index>`).
     pub(crate) answers: std::collections::HashMap<String, u8>,
@@ -674,6 +682,8 @@ impl Store {
             asking: Default::default(),
             dialogs: Default::default(),
             close_preview: Default::default(),
+            printing_file: Default::default(),
+            job_info_asked: Default::default(),
             answers: Default::default(),
             sd_files: Default::default(),
             own_job_control: Default::default(),
@@ -1427,6 +1437,8 @@ impl Store {
             nozzle_target: telemetry.nozzle_target_c,
             bed: telemetry.bed_c,
             bed_target: telemetry.bed_target_c,
+            print_fan: telemetry.print_fan_rpm,
+            hotend_fan: telemetry.hotend_fan_rpm,
         });
         while history
             .front()

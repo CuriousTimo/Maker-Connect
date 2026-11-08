@@ -13,6 +13,7 @@
     const id = TABS[asked] ? asked : OLD[asked] || "overview";
     for (const tab of document.querySelectorAll(".tab")) tab.hidden = !TABS[id].includes(tab.id);
     for (const a of document.querySelectorAll(".tabs a")) a.setAttribute("aria-selected", a.hash === "#" + id);
+    ticker();
     if (id === "telemetry") draw();
     if (id === "bedmesh") drawMesh();
     if (id === "usb") usbOpen?.();
@@ -118,7 +119,84 @@
   const tip = document.getElementById("tip");
   let samples = [];
   const degrees = (v) => (v == null ? "–" : `${v.toFixed(1)} °C`);
+  // The fans over the same half hour: their speeds, where the machine tells them.
+  const fanChart = document.getElementById("fanchart");
+  function drawFans() {
+    if (!fanChart) return;
+    const w = fanChart.clientWidth;
+    if (!w) return;
+    const h = 200, m = { l: 56, r: 110, t: 12, b: 30 };
+    const now = Date.now() / 1000;
+    const all = samples.flatMap((s) => [s.print_fan, s.hotend_fan]).filter((v) => v != null);
+    const step = Math.max(1000, Math.ceil(Math.max(0, ...all) / 4 / 1000) * 1000);
+    const top = step * 4;
+    const x = (t) => m.l + (w - m.l - m.r) * (1 - (now - t) / SPAN);
+    const y = (v) => m.t + (h - m.t - m.b) * (1 - v / top);
+    let svg = "";
+    for (let v = 0; v <= top; v += step) {
+      svg += `<line class="grid" x1="${m.l}" x2="${w - m.r}" y1="${y(v)}" y2="${y(v)}"/>`;
+      svg += `<text class="axis" x="${m.l - 10}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+    }
+    for (const ago of [30, 20, 10, 0]) {
+      const anchor = ago === 30 ? "start" : ago ? "middle" : "end";
+      svg += `<text class="axis" x="${x(now - ago * 60)}" y="${h - 6}" text-anchor="${anchor}">${ago ? `−${ago} min` : "now"}</text>`;
+    }
+    const path = (key) => {
+      let d = "", pen = "M";
+      for (const s of samples) {
+        if (s[key] == null) { pen = "M"; continue; }
+        d += `${pen}${x(s.t).toFixed(1)},${y(s[key]).toFixed(1)}`;
+        pen = "L";
+      }
+      return d;
+    };
+    const last = [...samples].reverse().find((s) => s.print_fan != null || s.hotend_fan != null);
+    const fans = [["print_fan", "print-fan", "Print"], ["hotend_fan", "hotend-fan", "Hotend"]];
+    for (const [key, cls] of fans) svg += `<path class="line ${cls}" d="${path(key)}"/>`;
+    if (last) {
+      // Direct labels at the line ends, kept apart when the lines are close.
+      const ends = fans.filter(([key]) => last[key] != null)
+        .map(([key, cls, name]) => ({ key, cls, name, y: y(last[key]) }));
+      if (ends.length === 2 && Math.abs(ends[0].y - ends[1].y) < 16) {
+        const mid = (ends[0].y + ends[1].y) / 2, upper = ends[0].y <= ends[1].y ? 0 : 1;
+        ends[upper].y = mid - 9;
+        ends[1 - upper].y = mid + 9;
+      }
+      for (const e of ends) {
+        svg += `<circle class="dot ${e.cls}" cx="${x(last.t)}" cy="${y(last[e.key])}" r="4.5"/>`;
+        svg += `<text class="end" x="${w - m.r + 12}" y="${e.y + 4}">${e.name} ${last[e.key]}</text>`;
+      }
+    }
+    if (!all.length) svg += `<text class="axis" x="${(m.l + w - m.r) / 2}" y="${h / 2}" text-anchor="middle">No fan speeds told yet (a Prusa tells them while it prints)</text>`;
+    svg += `<line id="fancross" class="cross" y1="${m.t}" y2="${h - m.b}" visibility="hidden"/>`;
+    fanChart.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    fanChart.setAttribute("height", h);
+    fanChart.innerHTML = svg;
+    // Under the pointer: the time and both speeds, as the temperature chart does.
+    const fanTip = document.getElementById("fantip");
+    const rpm = (v) => (v == null ? "–" : `${v} rpm`);
+    fanChart.onpointermove = (event) => {
+      const told = samples.filter((s) => s.print_fan != null || s.hotend_fan != null);
+      if (!told.length || !fanTip) return;
+      const px = event.clientX - fanChart.getBoundingClientRect().left;
+      const s = told.reduce((a, b) => (Math.abs(x(b.t) - px) < Math.abs(x(a.t) - px) ? b : a));
+      const cross = document.getElementById("fancross");
+      cross.setAttribute("x1", x(s.t));
+      cross.setAttribute("x2", x(s.t));
+      cross.setAttribute("visibility", "visible");
+      fanTip.innerHTML = `<b>${new Date(s.t * 1000).toLocaleTimeString()}</b>`
+        + `<span><i class="key key-print-fan"></i>Print fan ${rpm(s.print_fan)}</span>`
+        + `<span><i class="key key-hotend-fan"></i>Hotend fan ${rpm(s.hotend_fan)}</span>`;
+      fanTip.hidden = false;
+      fanTip.style.left = `${Math.max(0, Math.min(x(s.t) + 14, w - fanTip.offsetWidth))}px`;
+    };
+    fanChart.onpointerleave = () => {
+      if (fanTip) fanTip.hidden = true;
+      document.getElementById("fancross")?.setAttribute("visibility", "hidden");
+    };
+  }
   function draw() {
+    drawFans();
     if (!chart) return;
     const w = chart.clientWidth;
     if (!w) return;
@@ -212,7 +290,7 @@
     document.querySelector(".chart-card .legend").hidden = showTable;
     toggle.setAttribute("aria-pressed", String(showTable));
     toggle.textContent = showTable ? "Chart" : "Table";
-    if (showTable) fillTable(); else draw();
+    if (showTable) { fillTable(); drawFans(); } else draw();
   });
 
   // A Prusa's USB stick, through its own Connect: its folders, each file's picture (asked of
@@ -475,10 +553,11 @@
         : null,
       print_fan_n: t.print_fan_rpm != null ? String(t.print_fan_rpm) : null,
       hotend_fan_n: t.hotend_fan_rpm != null ? String(t.hotend_fan_rpm) : null,
-      pos_x: p && fixed(p[0]),
-      pos_y: p && fixed(p[1]),
+      // X and Y not told now (a Prusa printing tells only Z): not shown as if they were.
+      pos_x: p && !t.only_z ? fixed(p[0]) : null,
+      pos_y: p && !t.only_z ? fixed(p[1]) : null,
       pos_z: p && fixed(p[2]),
-      position: p && p.map((n) => n.toFixed(1)).join(" · ") + " mm",
+      position: p && (t.only_z ? `Z ${p[2].toFixed(1)} mm` : p.map((n) => n.toFixed(1)).join(" · ") + " mm"),
       speed: t.speed_percent != null ? `${t.speed_percent} %` : null,
       flow: t.flow_percent != null ? `${t.flow_percent} %` : null,
       material: t.material,
@@ -530,14 +609,14 @@
     // The head on the bed, where the machine says it is.
     const bed = document.querySelector("svg.bed"), head = bed?.querySelector(".head");
     if (head) {
-      head.setAttribute("visibility", p ? "visible" : "hidden");
+      head.setAttribute("visibility", p && !t.only_z ? "visible" : "hidden");
       if (p) head.setAttribute("transform", `translate(${p[0]} ${bed.dataset.depth - p[1]})`);
     }
 
     if (m.online && t.nozzle_c != null) {
       const now = Date.now() / 1000;
       if (!samples.length || now - samples[samples.length - 1].t >= 2) {
-        samples.push({ t: now, nozzle: t.nozzle_c, nozzle_target: t.nozzle_target_c, bed: t.bed_c, bed_target: t.bed_target_c });
+        samples.push({ t: now, nozzle: t.nozzle_c, nozzle_target: t.nozzle_target_c, bed: t.bed_c, bed_target: t.bed_target_c, print_fan: t.print_fan_rpm, hotend_fan: t.hotend_fan_rpm });
       }
       samples = samples.filter((s) => now - s.t <= SPAN);
     }
@@ -792,18 +871,46 @@
     if (s < 3600) return `${Math.floor(s / 60)} min`;
     return `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")} min`;
   }
+  // Lines too long for their place scroll back and forth (machine.css .ticker): how far,
+  // and slower the further. Measured again as the text or the width changes.
+  function ticker() {
+    for (const line of document.querySelectorAll(".ticker")) {
+      const text = line.firstElementChild;
+      if (!text || !line.clientWidth) continue;
+      const over = text.scrollWidth - line.clientWidth;
+      const scrolls = over > 2;
+      if (line.classList.contains("scrolls") !== scrolls) line.classList.toggle("scrolls", scrolls);
+      const shift = scrolls ? `${-over}px` : "0px";
+      if (line.style.getPropertyValue("--shift") !== shift) {
+        line.style.setProperty("--shift", shift);
+        line.style.setProperty("--scroll", `${Math.max(6, Math.round(over / 25) + 4)}s`);
+      }
+    }
+  }
+  addEventListener("resize", ticker);
+  // The job's state as last shown (printing, paused, …), for the buttons waiting on it.
+  let jobState = "";
   function showJob(m, t) {
-    const job = m.job, progress = t.job;
+    const progress = t.job;
+    // A print the printer runs itself (from its USB stick or SD card, or started at its
+    // screen): no job of the hub's, but shown, and paused, resumed and stopped, the same
+    // (the hub tells the printer directly).
+    const own = !m.job && progress && ["busy", "paused", "attention"].includes(t.state)
+      ? { state: t.state === "paused" ? "paused" : "printing", file_name: progress.file || "a print the printer runs itself", own: true }
+      : null;
+    const job = m.job || own;
     const percent = progress && progress.total ? (progress.done / progress.total) * 100 : null;
-    const left = progress && progress.remaining_s != null ? ` · ${timeLeft(progress.remaining_s)}` : "";
     const values = {
       job_pct: percent == null ? null : percent.toFixed(0),
-      job_note: job ? `${job.state} · ${job.file_name}${left}` : "no job",
+      // What: state and file (scrolls when long). How long still: top right, apart.
+      job_note: job ? `${job.state} · ${job.file_name}` : "no job",
+      // The job card: its state only (the file is in the card itself).
+      job_state: job ? job.state : "no job",
+      job_eta: job && progress && progress.remaining_s != null ? timeLeft(progress.remaining_s) : "",
       job_name: job ? job.file_name : "",
       job_done: percent == null ? null : `${percent.toFixed(0)} %`,
       job_elapsed: progress ? duration(progress.elapsed_s) : null,
       job_remaining: progress ? duration(progress.remaining_s) : null,
-      job_ends: progress ? timeLeft(progress.remaining_s) : null,
     };
     for (const [key, value] of Object.entries(values)) setLive(key, value);
     showState(m);
@@ -822,11 +929,16 @@
       }
     }
     const thumb = document.querySelector("[data-job-thumb]");
-    if (job && thumb && !thumb.src.includes(job.file_id)) { thumb.hidden = false; thumb.src = `../files/${job.file_id}/thumbnail.png`; }
+    if (job?.file_id && thumb && !thumb.src.includes(job.file_id)) { thumb.hidden = false; thumb.src = `../files/${job.file_id}/thumbnail.png`; }
+    if (own && thumb) thumb.hidden = true;
+    jobState = job?.state ?? "";
     for (const button of document.querySelectorAll("[data-job-actions] button")) {
       const can = { pause: job?.state === "printing", resume: job?.state === "paused", stop: !!job && job.state !== "stopping" };
       button.hidden = !can[button.value];
+      // Pressed and waiting: done once the printer says another state.
+      if (button.dataset.waitFrom != null && button.dataset.waitFrom !== jobState) jobButtonBack(button);
     }
+    ticker();
   }
   for (const form of document.querySelectorAll("[data-restart]")) {
     const url = new URL(form.getAttribute("action"), location.href);
@@ -836,12 +948,41 @@
       await fetch(url, { method: "POST", body: new URLSearchParams({ action: "restart" }) });
     });
   }
+  // Pause, resume, stop: the button says it is on its way (in both job cards, Overview and
+  // Control) until the printer tells another state; refused or no answer: back, and why.
+  const WAITING = { pause: "Pausing…", resume: "Resuming…", stop: "Stopping…" };
+  function jobButtonBack(button) {
+    if (button.dataset.label != null) button.textContent = button.dataset.label;
+    button.disabled = false;
+    delete button.dataset.waitFrom;
+    delete button.dataset.label;
+  }
   for (const form of document.querySelectorAll("[data-job-actions]")) {
     const url = new URL(form.getAttribute("action"), location.href);
     for (const button of form.querySelectorAll("button")) button.addEventListener("click", async (event) => {
       event.preventDefault();
+      if (button.dataset.waitFrom != null) return;
       if (button.value === "stop" && !confirm("Stop this job?")) return;
-      await fetch(url, { method: "POST", body: new URLSearchParams({ action: button.value }) });
+      const same = [...document.querySelectorAll(`[data-job-actions] button[value="${button.value}"]`)];
+      for (const b of same) {
+        b.dataset.label = b.textContent;
+        b.dataset.waitFrom = jobState;
+        b.textContent = WAITING[b.value] || "…";
+        b.disabled = true;
+      }
+      const back = (why) => {
+        if (!same.some((b) => b.dataset.waitFrom != null)) return;
+        same.forEach(jobButtonBack);
+        toast(why, "bad");
+      };
+      // A MINI takes some 17 s to resume (it heats and moves back first): a minute.
+      setTimeout(() => back("No answer from the printer yet: look at it, or try again."), 60000);
+      try {
+        const r = await fetch(url, { method: "POST", body: new URLSearchParams({ action: button.value }) });
+        if (!r.ok) back(`Not done: ${await r.text()}`);
+      } catch {
+        back("The hub does not answer.");
+      }
     });
   }
   show();

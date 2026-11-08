@@ -403,7 +403,7 @@ fn tile(
     sub: String,
 ) -> String {
     format!(
-        r#"<div class="tile"><div class="label">{label}</div><div class="value"><span data-live="{key}">{}</span><small>{unit}</small></div><div class="sub" data-live="{sub_key}">{}</div></div>"#,
+        r#"<div class="tile"><div class="label">{label}</div><div class="value"><span data-live="{key}">{}</span><small>{unit}</small></div><div class="sub ticker"><span data-live="{sub_key}">{}</span></div></div>"#,
         escape(value.as_deref().unwrap_or("–")),
         escape(&sub)
     )
@@ -589,35 +589,55 @@ fn duration(seconds: u64) -> String {
 
 /// How far the machine's job is: percent done, and a line about it. The script says the
 /// same from the live list.
-fn job_now(machine: &Machine) -> (Option<String>, String) {
-    let Some(job) = &machine.job else {
-        return (None, "no job".to_owned());
-    };
+/// A job now: how far (percent), what (its state and file; this line scrolls when long),
+/// and how long still (top right, never scrolled; machine.js adds the clock).
+fn job_now(machine: &Machine) -> (Option<String>, String, String) {
     let progress = machine.telemetry.as_ref().and_then(|t| t.job.as_ref());
+    let left = progress
+        .and_then(|p| p.remaining_s)
+        .map(|s| format!("{} left", duration(s)))
+        .unwrap_or_default();
+    let Some(job) = &machine.job else {
+        return (None, "no job".to_owned(), String::new());
+    };
     let percent = progress
         .filter(|p| p.total > 0)
         .map(|p| format!("{:.0}", p.done as f64 / p.total as f64 * 100.0));
-    let left = progress
-        .and_then(|p| p.remaining_s)
-        .map(|s| format!(" · {} left", duration(s)))
-        .unwrap_or_default();
     let state = serde_json::to_value(job.state)
         .ok()
         .and_then(|v| v.as_str().map(str::to_owned))
         .unwrap_or_default();
-    (percent, format!("{state} · {}{left}", job.file_name))
+    (percent, format!("{state} · {}", job.file_name), left)
 }
 
 fn job_tile(machine: &Machine) -> String {
-    let (percent, note) = job_now(machine);
-    tile("Job", "job_pct", percent, "%", "job_note", note)
+    let (percent, note, left) = job_now(machine);
+    format!(
+        r#"<div class="tile"><div class="tile-head"><div class="label">Job</div><span class="corner" data-live="job_eta">{}</span></div><div class="value"><span data-live="job_pct">{}</span><small>%</small></div><div class="sub ticker"><span data-live="job_note">{}</span></div></div>"#,
+        escape(&left),
+        escape(percent.as_deref().unwrap_or("–")),
+        escape(&note)
+    )
 }
 
 /// The job card: the file, how far, how long, and pause, resume, stop.
 fn job_card(machine: &Machine) -> String {
     let job = machine.job.as_ref();
     let progress = machine.telemetry.as_ref().and_then(|t| t.job.as_ref());
-    let (percent, note) = job_now(machine);
+    let (percent, note, left) = job_now(machine);
+    // A print the printer runs itself (its USB stick or SD card, or started at its screen):
+    // no job of the hub's, but stopped, paused and resumed from here all the same.
+    let own = job.is_none()
+        && progress.is_some()
+        && machine.telemetry.as_ref().is_some_and(|t| {
+            matches!(
+                t.state,
+                maker_connect_protocol::MachineState::Busy
+                    | maker_connect_protocol::MachineState::Paused
+                    | maker_connect_protocol::MachineState::Attention
+            )
+        });
+    let running = job.is_some() || own;
     let width = percent.clone().unwrap_or_else(|| "0".to_owned());
     let time = |s: Option<u64>| s.map_or("–".to_owned(), duration);
     let thumbnail = job.map_or(String::new(), |j| {
@@ -628,7 +648,7 @@ fn job_card(machine: &Machine) -> String {
     });
     format!(
         r#"<div class="card job-card">
-  <div class="card-head"><div><h3>Job</h3><p class="card-sub" data-live="job_note">{note}</p></div></div>
+  <div class="card-head"><div class="card-title"><h3>Job</h3><p class="card-sub" data-live="job_state">{state}</p></div><span class="corner" data-live="job_eta">{left}</span></div>
   <div class="job" data-job{hidden}>
     {thumbnail}
     <div class="job-main">
@@ -639,7 +659,6 @@ fn job_card(machine: &Machine) -> String {
         <span><small>Elapsed</small><b data-live="job_elapsed">{elapsed}</b></span>
         <span><small>Left</small><b data-live="job_remaining">{remaining}</b></span>
       </div>
-      <small class="job-ends" data-live="job_ends"></small>
     </div>
   </div>
   <form class="job-actions" data-job-actions action="{id}/job"{hidden}>
@@ -653,10 +672,19 @@ fn job_card(machine: &Machine) -> String {
     <form data-restart action="{id}/job"><button name="action" value="restart">Start again from there</button></form>
   </div>
 </div>"#,
-        note = escape(&note),
-        hidden = if job.is_some() { "" } else { " hidden" },
-        shown = if job.is_some() { " hidden" } else { "" },
-        name = escape(job.map_or("", |j| j.file_name.as_str())),
+        // Its state only: the file is in the card itself.
+        state = escape(note.split(" · ").next().unwrap_or_default()),
+        left = escape(&left),
+        hidden = if running { "" } else { " hidden" },
+        shown = if running { " hidden" } else { "" },
+        name = escape(match job {
+            Some(j) => j.file_name.as_str(),
+            None if own => progress
+                .map(|p| p.file.as_str())
+                .filter(|f| !f.is_empty())
+                .unwrap_or("a print the printer runs itself"),
+            None => "",
+        }),
         done = percent.map_or("–".to_owned(), |p| format!("{p} %")),
         elapsed = time(progress.and_then(|p| p.elapsed_s)),
         remaining = time(progress.and_then(|p| p.remaining_s)),
@@ -1189,11 +1217,15 @@ fn command_item(command: &store::Command) -> String {
 fn control(machine: &Machine, profile: Option<&Profile>) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
     let position = t.and_then(|t| t.position_mm);
+    // X and Y not told now (a Prusa printing tells only Z): "–", not the last ones told.
+    let only_z = t.is_some_and(|t| t.only_z);
     let z_max = profile.map_or(0.0, |p| p.build_volume_mm[2]);
     let axis = |name: &str, key: &str, i: usize| {
         format!(
             r#"<span><small>{name}</small><b data-live="{key}">{}</b><small>mm</small></span>"#,
-            position.map_or("–".to_owned(), |p| format!("{:.1}", p[i]))
+            position
+                .filter(|_| i == 2 || !only_z)
+                .map_or("–".to_owned(), |p| format!("{:.1}", p[i]))
         )
     };
     let xyz = axis("X", "pos_x", 0)
@@ -1412,20 +1444,24 @@ fn telemetry_tab(machine: &Machine) -> String {
             card("Motion", "", &format!("<dl>{motion}</dl>"))
         );
     }
+    // Where a printer tells its fans only while it prints, that is said while none is told.
+    let fan_note = |rpm: Option<u32>| {
+        if rpm.is_some() { String::new() } else { "reported while printing".to_owned() }
+    };
     let fans = tile(
         "Print fan",
         "print_fan_n",
         rpm(t.and_then(|t| t.print_fan_rpm)),
         "rpm",
         "none",
-        "reported while printing".to_owned(),
+        fan_note(t.and_then(|t| t.print_fan_rpm)),
     ) + &tile(
         "Hotend fan",
         "hotend_fan_n",
         rpm(t.and_then(|t| t.hotend_fan_rpm)),
         "rpm",
         "none",
-        "reported while printing".to_owned(),
+        fan_note(t.and_then(|t| t.hotend_fan_rpm)),
     );
     let printing = [
         live_row("Flow", "flow", percent(t.and_then(|t| t.flow_percent))),
@@ -1443,6 +1479,16 @@ fn telemetry_tab(machine: &Machine) -> String {
     <div id="tip" class="tip" hidden></div>
   </div>
   <div class="table-wrap" data-table hidden></div>
+</div>
+<div class="card chart-card">
+  <div class="card-head">
+    <div><h3>Fans</h3><p class="card-sub">The last 30 minutes, live · where the machine tells them</p></div>
+  </div>
+  <div class="legend"><span><i class="key key-print-fan"></i>Print fan</span><span><i class="key key-hotend-fan"></i>Hotend fan</span></div>
+  <div class="plot">
+    <svg id="fanchart" role="img" aria-label="Print fan and hotend fan speed over the last 30 minutes"></svg>
+    <div id="fantip" class="tip" hidden></div>
+  </div>
 </div>"#;
     format!(
         r#"<div class="tiles">{}{fans}</div>
@@ -1917,5 +1963,63 @@ mod tests {
         assert_eq!(heat_note(None, None), "not reported");
         assert!(flame("bed", Some(true)).contains(r#"data-on="true""#));
         assert!(flame("bed", None).contains(r#"data-on="""#));
+    }
+
+    /// Seen on the MINI (2026-11-08): a print started from its USB stick had no Stop
+    /// anywhere. Whatever prints, the hub's job or the printer's own, has Stop.
+    #[test]
+    fn every_print_has_stop() {
+        let mut store = store::Store::open(":memory:").unwrap();
+        let space = store.default_space().unwrap().0;
+        let mini = store
+            .add_virtual(space, profiles::find("prusa/mini").unwrap())
+            .unwrap();
+        let token: String = store
+            .db
+            .query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| r.get(0))
+            .unwrap();
+        let actions = |store: &store::Store| {
+            let machine = store.machine(space, &mini).unwrap().unwrap();
+            let card = job_card(&machine);
+            let form = card
+                .split("<form class=\"job-actions\"")
+                .nth(1)
+                .unwrap()
+                .split('>')
+                .next()
+                .unwrap()
+                .to_owned();
+            (form, card)
+        };
+        // Idle: no job, so no buttons.
+        let idle = maker_connect_protocol::Telemetry {
+            state: maker_connect_protocol::MachineState::Idle,
+            ..Default::default()
+        };
+        store.report(&token, &idle).unwrap();
+        assert!(actions(&store).0.contains("hidden"));
+        // Printing what the printer runs itself (no job of the hub's): Stop shown.
+        for state in [
+            maker_connect_protocol::MachineState::Busy,
+            maker_connect_protocol::MachineState::Paused,
+            maker_connect_protocol::MachineState::Attention,
+        ] {
+            let printing = maker_connect_protocol::Telemetry {
+                state,
+                job: Some(maker_connect_protocol::JobProgress {
+                    file: String::new(),
+                    done: 5,
+                    total: 100,
+                    elapsed_s: Some(752),
+                    remaining_s: Some(3540),
+                }),
+                ..Default::default()
+            };
+            store.report(&token, &printing).unwrap();
+            let (form, card) = actions(&store);
+            assert!(!form.contains("hidden"), "{state:?}: {form}");
+            assert!(card.contains(r#"value="stop""#));
+            assert!(card.contains("a print the printer runs itself"));
+        }
     }
 }

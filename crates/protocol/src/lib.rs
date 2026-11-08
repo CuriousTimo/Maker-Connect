@@ -187,6 +187,10 @@ pub struct Telemetry {
     /// Where the tool is: X, Y, Z (Marlin's M114).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub position_mm: Option<[f32; 3]>,
+    /// Only Z of `position_mm` is current: the machine does not tell X and Y now (a Prusa
+    /// on Connect while it prints); X and Y there are the last it told.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub only_z: bool,
     /// The speed factor (M220), 100 as sliced.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed_percent: Option<f32>,

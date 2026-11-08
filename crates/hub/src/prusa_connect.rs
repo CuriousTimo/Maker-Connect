@@ -255,9 +255,12 @@ fn to_telemetry(report: &Value) -> Telemetry {
             remaining_s: report["time_remaining"].as_u64(),
         });
     let number = |key: &str| report[key].as_f64().map(|n| n as f32);
-    let position = match (number("axis_x"), number("axis_y"), number("axis_z")) {
-        (Some(x), Some(y), Some(z)) => Some([x, y, z]),
-        _ => None,
+    // While it prints, Buddy tells only `axis_z`: Z then, X and Y filled in from the last
+    // report that had them (`fill_in`), and marked as not current.
+    let (position, only_z) = match (number("axis_x"), number("axis_y"), number("axis_z")) {
+        (Some(x), Some(y), Some(z)) => (Some([x, y, z]), false),
+        (None, None, Some(z)) => (Some([0.0, 0.0, z]), true),
+        _ => (None, false),
     };
     Telemetry {
         state,
@@ -267,6 +270,7 @@ fn to_telemetry(report: &Value) -> Telemetry {
         bed_c: find_number(report, &["temp_bed", "bed_temp"]).map(|t| t as f32),
         job,
         position_mm: position,
+        only_z,
         // A head that is off says null (6.4 and later): 0, not "unknown".
         nozzle_target_c: number("target_nozzle").or_else(|| {
             head.filter(|h| h.get("nozzle_target_temp").is_some())
@@ -329,7 +333,28 @@ fn fill_in(telemetry: &mut Telemetry, last: Telemetry) {
     telemetry.bed_c = telemetry.bed_c.or(last.bed_c);
     telemetry.nozzle_target_c = telemetry.nozzle_target_c.or(last.nozzle_target_c);
     telemetry.bed_target_c = telemetry.bed_target_c.or(last.bed_target_c);
-    telemetry.position_mm = telemetry.position_mm.or(last.position_mm);
+    match (telemetry.position_mm, last.position_mm) {
+        // Z alone: X and Y as told last.
+        (Some([_, _, z]), Some([x, y, _])) if telemetry.only_z => {
+            telemetry.position_mm = Some([x, y, z]);
+        }
+        (None, last_position) => {
+            telemetry.position_mm = last_position;
+            telemetry.only_z = last.only_z;
+        }
+        _ => {}
+    }
+    // The time left is missing from some short reports, and the file is never in them:
+    // as told last, the same print going on.
+    if let (Some(job), Some(last_job)) = (telemetry.job.as_mut(), last.job) {
+        job.remaining_s = job.remaining_s.or(last_job.remaining_s);
+        if job.file.is_empty() {
+            job.file = last_job.file;
+        }
+    }
+    // The fans come only in the full reports, the short ones in between leave them out.
+    telemetry.print_fan_rpm = telemetry.print_fan_rpm.or(last.print_fan_rpm);
+    telemetry.hotend_fan_rpm = telemetry.hotend_fan_rpm.or(last.hotend_fan_rpm);
     telemetry.speed_percent = telemetry.speed_percent.or(last.speed_percent);
     telemetry.flow_percent = telemetry.flow_percent.or(last.flow_percent);
     telemetry.material = telemetry.material.take().or(last.material);
@@ -411,6 +436,16 @@ async fn telemetry(
     if let Ok(Some(last)) = store.last_telemetry(token) {
         fill_in(&mut telemetry, last);
     }
+    // The file it prints, as its JOB_INFO said for this print (not the last report's, which
+    // may be the print before).
+    let job_id = report["job_id"].as_u64();
+    if let Some(job) = telemetry.job.as_mut() {
+        match store.printing_file.get(token) {
+            Some((known, name)) if known.is_none() || *known == job_id => job.file = name.clone(),
+            _ if job_id.is_some() => job.file.clear(),
+            _ => {}
+        }
+    }
     if let Some(peer) = crate::peer_address(&headers, &extensions) {
         let _ = store.set_peer(token, &peer);
     }
@@ -422,7 +457,7 @@ async fn telemetry(
     // A job for it goes to its stick when it is free; one printing follows its state.
     if let Ok(Some(_)) = reported
         && let Some(state) = report["state"].as_str()
-        && let Err(error) = crate::printer_files::on_report(&mut store, token, state)
+        && let Err(error) = crate::printer_files::on_report(&mut store, token, state, job_id)
     {
         return failed(error);
     }
@@ -513,6 +548,52 @@ mod tests {
     use axum::http::Request;
     use std::sync::{Arc, Mutex};
     use tower::ServiceExt;
+
+    /// The MINI while printing (2026-11-08): a full report now and then (Z only, fans),
+    /// short ones every second in between (job, progress, times). The fans stay, Z goes on,
+    /// X and Y are not shown as if they were current.
+    #[test]
+    fn a_printing_mini_keeps_its_fans_and_tells_z() {
+        let before = to_telemetry(&serde_json::json!({
+            "state": "IDLE", "axis_x": 176.4, "axis_y": 24.1, "axis_z": 2.0, "temp_nozzle": 27.0
+        }));
+        assert_eq!((before.position_mm, before.only_z), (Some([176.4, 24.1, 2.0]), false));
+        let mut full = to_telemetry(&serde_json::json!({
+            "state": "PRINTING", "axis_z": 1.8, "fan_extruder": 2786, "fan_print": 2337,
+            "job_id": 29, "progress": 5
+        }));
+        fill_in(&mut full, before);
+        assert_eq!(full.position_mm, Some([176.4, 24.1, 1.8]));
+        assert!(full.only_z, "X and Y are the last told, not current");
+        assert_eq!((full.print_fan_rpm, full.hotend_fan_rpm), (Some(2337), Some(2786)));
+        let mut short = to_telemetry(&serde_json::json!({
+            "state": "PRINTING", "job_id": 29, "progress": 6, "time_printing": 800
+        }));
+        fill_in(&mut short, full.clone());
+        assert_eq!((short.print_fan_rpm, short.hotend_fan_rpm), (Some(2337), Some(2786)));
+        assert_eq!(short.position_mm.map(|p| p[2]), Some(1.8));
+        assert!(short.only_z);
+        // The time left missing from a short report: as told last.
+        assert_eq!(full.job.as_ref().and_then(|j| j.remaining_s), None);
+        let mut told = to_telemetry(&serde_json::json!({
+            "state": "PRINTING", "job_id": 29, "progress": 6, "time_remaining": 3240
+        }));
+        fill_in(&mut told, short.clone());
+        let mut untold = to_telemetry(&serde_json::json!({
+            "state": "PRINTING", "job_id": 29, "progress": 6, "time_printing": 801
+        }));
+        fill_in(&mut untold, told);
+        assert_eq!(untold.job.as_ref().and_then(|j| j.remaining_s), Some(3240));
+        let mut higher = to_telemetry(&serde_json::json!({"state": "PRINTING", "axis_z": 2.0}));
+        fill_in(&mut higher, short);
+        assert_eq!(higher.position_mm.map(|p| p[2]), Some(2.0), "Z goes on");
+        // Idle again, all three told: current.
+        let mut after = to_telemetry(&serde_json::json!({
+            "state": "IDLE", "axis_x": 10.0, "axis_y": 20.0, "axis_z": 30.0
+        }));
+        fill_in(&mut after, higher);
+        assert_eq!((after.position_mm, after.only_z), (Some([10.0, 20.0, 30.0]), false));
+    }
 
     async fn call(app: &Router, request: Request<Body>) -> (StatusCode, HeaderMap) {
         let response = app.clone().oneshot(request).await.unwrap();
@@ -652,7 +733,7 @@ mod tests {
     fn a_short_report_keeps_what_it_left_out() {
         let full = to_telemetry(&serde_json::from_str(r#"{"state":"IDLE","temp_nozzle":24,"temp_bed":23,"axis_x":1,"axis_y":2,"axis_z":3}"#).unwrap());
         let mut short = to_telemetry(&serde_json::from_str(r#"{"state":"IDLE"}"#).unwrap());
-        fill_in(&mut short, full);
+        fill_in(&mut short, full.clone());
         assert_eq!(short.nozzle_c, Some(24.0));
         assert_eq!(short.position_mm, Some([1.0, 2.0, 3.0]));
     }

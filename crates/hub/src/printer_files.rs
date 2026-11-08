@@ -628,6 +628,20 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
             store.forget_printer_stick(&machine)?;
             store.changed();
         }
+        // Which file a print is (ours or the printer's own): said as it starts, and when
+        // asked (SEND_JOB_INFO, see `on_report`); its telemetry only says how far.
+        "JOB_INFO" => {
+            if let Some(name) = data["display_name"]
+                .as_str()
+                .or_else(|| data["path"].as_str())
+                .filter(|n| !n.is_empty())
+            {
+                let job = event["job_id"].as_u64().or_else(|| data["job_id"].as_u64());
+                store
+                    .printing_file
+                    .insert(token.to_owned(), (job, name.to_owned()));
+            }
+        }
         // A file or folder made or deleted (by a command of ours, or on the printer itself).
         // Buddy 6.3 (connect/render.cpp): `old_path` when deleted, `new_path` when made,
         // `new_path` with `rescan` when several things changed at once; paths in 8.3 form.
@@ -824,10 +838,25 @@ fn summary(data: &Value, at: i64) -> Value {
 
 /// After each report of a printer: a job waiting for it goes to its stick (when it is free),
 /// and a job printing follows the printer's state to its end.
-pub fn on_report(store: &mut Store, token: &str, state: &str) -> rusqlite::Result<()> {
+pub fn on_report(
+    store: &mut Store,
+    token: &str,
+    state: &str,
+    job: Option<u64>,
+) -> rusqlite::Result<()> {
     let Some((machine, space)) = store.printer_of(token)? else {
         return Ok(());
     };
+    // A print whose file is not known here (started at the printer's screen, or before the
+    // hub started): asked once, as Prusa Connect does; JOB_INFO answers.
+    if let Some(job) = job
+        && store.printing_file.get(token).is_none_or(|(known, _)| *known != Some(job))
+        && store.job_info_asked.get(token) != Some(&job)
+    {
+        store.job_info_asked.insert(token.to_owned(), job);
+        let command = json!({"command": "SEND_JOB_INFO", "kwargs": {"job_id": job}});
+        store.queue_connect_command(space, &machine, "Which file it prints", &command, true)?;
+    }
     // WORKAROUND, NEEDS TRACING (2026-11-08). Buddy opens a file's print preview while a
     // Connect download is still arriving (`transfers/transfer.cpp`, print-while-
     // downloading), and while it shows the file stays read-only; Prusa Connect is not
@@ -2174,6 +2203,46 @@ mod flow {
 
         // Nothing sent: nothing to close.
         assert_eq!(next("IDLE").await, "");
+
+        // A print the printer runs itself (started from its stick): its file asked once
+        // (SEND_JOB_INFO), and Stop reaches it.
+        let printing = || {
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .body(Body::from(
+                    r#"{"state":"PRINTING","job_id":29,"progress":5,"time_printing":752,"time_remaining":3540}"#,
+                ))
+                .unwrap()
+        };
+        let (_, headers, body) = call(&app, printing()).await;
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"command": "SEND_JOB_INFO", "kwargs": {"job_id": 29}})
+        );
+        let asked: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
+        call(&app, event(json!({"event": "JOB_INFO", "command_id": asked, "job_id": 29, "state": "PRINTING", "data": {
+            "display_name": "Benchy.bgcode", "path": "/usb/BENCHY~1.BGC"
+        }}))).await;
+        call(&app, event(json!({"event": "FINISHED", "command_id": asked, "state": "PRINTING"}))).await;
+        let (_, _, body) = call(&app, printing()).await;
+        assert!(body.is_empty(), "asked once: {}", String::from_utf8_lossy(&body));
+        {
+            let s = store.lock().unwrap();
+            let space = s.default_space().unwrap().0;
+            let m = s.machine(space, &mini).unwrap().unwrap();
+            assert_eq!(m.telemetry.unwrap().job.unwrap().file, "Benchy.bgcode");
+        }
+        let (status, _, body) = call(
+            &app,
+            form(format!("/machines/{mini}/job"), "action=stop".into()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{}", String::from_utf8_lossy(&body));
+        let (_, _, body) = call(&app, report("PRINTING")).await;
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"command": "STOP_PRINT"})
+        );
     }
 
     /// Seen on the MINI (2026-11-08): a Benchy sent by us, then deleted (the printer names

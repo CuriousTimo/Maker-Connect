@@ -216,12 +216,15 @@ const NOW_SCRIPT: &str = r#"
       .sort((a, b) => (a.telemetry.job.remaining_s ?? 1e12) - (b.telemetry.job.remaining_s ?? 1e12));
     document.querySelector("[data-ends]").innerHTML = running.length ? running.map((m) => {
       const j = m.telemetry.job, pct = Math.round((j.done * 100) / Math.max(1, j.total));
+      // "52 min left · ETA 23:35": the clock in front, the rest under the file.
       const left = timeLeft(j.remaining_s);
-      const clock = left ? left.split("done ")[1] : "";
+      const [leftText, clock] = left ? left.split(" · ETA ") : ["", ""];
       // Who started it: a person (or a token), the queue, someone on the website from the
       // USB stick; else it was started on the printer itself.
       const who = m.job?.by || m.usb_print_by || (m.job ? "" : "on the printer");
-      return `<li><span class="clock">${esc(clock || `${pct} %`)}</span><a href="machines/${encodeURIComponent(m.id)}">${esc(m.name)}</a><small>${esc(j.file)}</small><div class="who">${who ? esc(who) : ""}</div><div class="bar"><i style="width:${pct}%"></i></div></li>`;
+      const file = j.file || m.job?.file_name || "";
+      const how = [`${pct} %`, leftText, who].filter(Boolean).join(" · ");
+      return `<li><span class="clock">${esc(clock || `${pct} %`)}</span><a href="machines/${encodeURIComponent(m.id)}">${esc(m.name)}</a><small>${esc(file)}</small><div class="who">${esc(how)}</div><div class="bar"><i style="width:${pct}%"></i></div></li>`;
     }).join("") : '<li class="muted">Nothing runs now.</li>';
 
     // The fleet: a row per model, a cell per machine, the counts at the end of the row.

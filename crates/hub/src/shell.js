@@ -149,7 +149,7 @@
     const from = l.place ? ` · from ${l.place}${l.slot ? `, slot ${l.slot}` : ""}` : "";
     return `${l.item} · ${l.name}${l.material ? ` · ${l.material}` : ""} · ${amount} ${l.unit} left${from}`;
   }
-  // Time left with the clock: "45 min left · done 16:35" (with the day when not today).
+  // Time left with the clock: "45 min left · ETA 16:35" (with the day when not today).
   function timeLeft(seconds) {
     if (seconds == null || !isFinite(seconds)) return "";
     const s = Math.max(0, Math.round(seconds));
@@ -158,7 +158,7 @@
     const today = end.toDateString() === new Date().toDateString();
     const clock = end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const day = today ? "" : `${end.toLocaleDateString([], { weekday: "short" })} `;
-    return `${left} left · done ${day}${clock}`;
+    return `${left} left · ETA ${day}${clock}`;
   }
   // A plate for a project that ended and waits for someone (the farm): how many came off
   // good, Set ready, or a bad print. `prefix` leads from the page to /machines/<id>.
