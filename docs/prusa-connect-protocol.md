@@ -122,6 +122,30 @@ resets the transfer.
 Either way the end is `TRANSFER_FINISHED` (or `TRANSFER_ABORTED` / `TRANSFER_STOPPED`, with
 `machine_reason` such as `STORAGE_FAILURE`), with `start_cmd_id`.
 
+### The print preview a download opens (open question)
+
+Read in Buddy 6.3.0 and 9.0.0 (`transfers/transfer.cpp`), seen on the MINI 2026-11-08:
+
+- A download from Connect opens the file's print preview ("one-click print", PRINT / BACK)
+  while it is still arriving: at the first save of its progress, when the printer is idle
+  and has a screen. It is meant for print-while-downloading. The SDK's `printing` and
+  `selecting` flags are not read by Buddy, so the server cannot ask for no preview.
+- While the preview shows, the file is open, so the finished download cannot be moved into
+  place: the printer keeps listing it `read_only`, and refuses to delete it ("File is being
+  transferred"), until the preview is closed. `START_PRINT` is taken meanwhile.
+- The preview sends no `dialog_id` (not seen on the MINI), so `DIALOG_ACTION` cannot reach
+  it. `M604` closes it (`Aborting_Preview`, as its Back button; tried on the MINI); in a
+  print, `M604` stops the print.
+- For comparison: an upload from PrusaSlicer (the printer's own PrusaLink) opens the preview
+  only after the file is complete and in place; PrusaLink (an MK3) does nothing for an
+  upload only.
+
+**Not known: how Prusa Connect handles this.** In years of use on Prusa Connect, files sent
+to a MINI were never stuck. To trace: a MINI on Prusa Connect, upload only, and what the
+printer shows and reports. Until then the hub closes the preview with `M604` after a download
+only to the stick, as a **workaround** (only answering an `IDLE` report with no other command
+waiting); see `on_report` in `crates/hub/src/printer_files.rs`.
+
 ## Commands
 
 The same list in 6.3.0 and master: `SEND_INFO`, `SEND_JOB_INFO`, `SEND_FILE_INFO`,

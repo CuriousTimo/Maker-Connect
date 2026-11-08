@@ -592,6 +592,9 @@ pub struct Store {
     /// A Prusa Connect printer's question: its buttons and the dialog they answer
     /// (`DIALOG_ACTION`), by machine (crate::printer_files).
     pub(crate) dialogs: std::collections::HashMap<String, (Vec<String>, Option<u64>)>,
+    /// Printers whose print preview is to be closed (crate::printer_files::on_report), by
+    /// machine id.
+    pub(crate) close_preview: std::collections::HashSet<String>,
     /// Answers to an agent's printer's question, by machine, until its next report takes
     /// them (`M876 S<index>`).
     pub(crate) answers: std::collections::HashMap<String, u8>,
@@ -670,6 +673,7 @@ impl Store {
             ppe_ok: Default::default(),
             asking: Default::default(),
             dialogs: Default::default(),
+            close_preview: Default::default(),
             answers: Default::default(),
             sd_files: Default::default(),
             own_job_control: Default::default(),

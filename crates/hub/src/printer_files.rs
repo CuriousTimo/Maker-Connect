@@ -298,18 +298,33 @@ impl Store {
         q.query_map([machine], |r| r.get(0))?.collect()
     }
 
+    /// A file we put on the stick is not there any more: its transfers no longer say so.
+    fn gone_from_stick(&self, machine: &str, path: &str) -> rusqlite::Result<()> {
+        self.db.execute(
+            "UPDATE printer_transfers SET state = 'gone'
+             WHERE machine_id = ?1 AND path = ?2 AND state IN ('finished', 'done')",
+            params![machine, path],
+        )?;
+        Ok(())
+    }
+
     /// Where this file already is on the printer's stick, put there by us before: the same
-    /// file (and size), so it need not go again.
-    fn on_stick(&self, machine: &str, file: &str, size: u64) -> rusqlite::Result<Option<String>> {
+    /// file (and size), so it need not go again. With when that transfer began.
+    fn on_stick(
+        &self,
+        machine: &str,
+        file: &str,
+        size: u64,
+    ) -> rusqlite::Result<Option<(String, i64)>> {
         use rusqlite::OptionalExtension;
         self.db
             .query_row(
-                "SELECT path FROM printer_transfers
+                "SELECT path, created_at FROM printer_transfers
                  WHERE machine_id = ?1 AND file_id = ?2 AND size = ?3
                    AND state IN ('finished', 'starting', 'printing', 'done')
                  ORDER BY created_at DESC LIMIT 1",
                 params![machine, file, size as i64],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()
     }
@@ -488,7 +503,7 @@ fn stick_name(name: &str, taken: &[String]) -> String {
 /// The names on the stick in a folder, as far as we know: what the printer listed, and what
 /// we put there ourselves (a listing can be older than our last upload).
 fn names_in(store: &Store, machine: &str, folder: &str) -> Vec<String> {
-    let mut names = listed_in(store, machine, folder);
+    let mut names = listed_in(store, machine, folder).unwrap_or_default();
     names.extend(
         store
             .sent_paths(machine)
@@ -504,19 +519,47 @@ fn names_in(store: &Store, machine: &str, folder: &str) -> Vec<String> {
     names
 }
 
-/// What the printer listed in a folder of its stick, when it did.
-fn listed_in(store: &Store, machine: &str, folder: &str) -> Vec<String> {
-    store
-        .printer_file(machine, folder)
-        .ok()
-        .and_then(|(entry, _)| entry)
-        .and_then(|(data, _)| data["children"].as_array().cloned())
-        .unwrap_or_default()
-        .iter()
-        .flat_map(|c| [c["display_name"].as_str(), c["name"].as_str()])
-        .flatten()
-        .map(str::to_owned)
-        .collect()
+/// Where a file we put on the stick before still is. Not where the printer's listing of
+/// that folder no longer has it: deleted since (on the printer, or by us; the printer says
+/// so by its short name, which no transfer of ours is known by), and so forgotten.
+fn still_on_stick(
+    store: &Store,
+    machine: &str,
+    file: &str,
+    size: u64,
+) -> rusqlite::Result<Option<String>> {
+    let Some((path, began)) = store.on_stick(machine, file, size)? else {
+        return Ok(None);
+    };
+    let (folder, name) = path.rsplit_once('/').unwrap_or(("/usb", path.as_str()));
+    // Only a listing the printer gave after the transfer (one from before it does not have
+    // the file yet; a finished transfer marks its folder to be read again, `at` 0).
+    let after = store
+        .printer_file(machine, folder)?
+        .0
+        .is_some_and(|(_, at)| at > began);
+    match listed_in(store, machine, folder) {
+        Some(names) if after && !names.iter().any(|n| n == name) => {
+            store.gone_from_stick(machine, &path)?;
+            Ok(None)
+        }
+        _ => Ok(Some(path)),
+    }
+}
+
+/// The names (long and short) the printer last listed in a folder of its stick; None when
+/// it has not listed that folder yet.
+fn listed_in(store: &Store, machine: &str, folder: &str) -> Option<Vec<String>> {
+    let entry = store.printer_file(machine, folder).ok()?.0?;
+    let children = entry.0["children"].as_array()?.clone();
+    Some(
+        children
+            .iter()
+            .flat_map(|c| [c["display_name"].as_str(), c["name"].as_str()])
+            .flatten()
+            .map(str::to_owned)
+            .collect(),
+    )
 }
 
 /// An event from a printer about its files and transfers (called for every event).
@@ -644,8 +687,15 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
             if name == "TRANSFER_FINISHED" {
                 println!("on the stick: {}", transfer.path);
                 store.set_transfer(&transfer.iv, "finished", None, None)?;
+                // A download opens the file's print preview on the printer's screen (Buddy's
+                // one-click print), and while it shows the file stays where the download
+                // put it, listed read-only. To print: started from there (Buddy takes
+                // START_PRINT while the preview shows). Only to the stick: the preview is
+                // closed (`on_report`; a WORKAROUND that needs tracing, see there).
                 if transfer.print_after {
                     store.print_from_stick(&transfer, &machine)?;
+                } else {
+                    store.close_preview.insert(machine.clone());
                 }
             } else {
                 // Why, when it says: STORAGE_FAILURE (the USB stick), NETWORK_FAILURE.
@@ -778,6 +828,23 @@ pub fn on_report(store: &mut Store, token: &str, state: &str) -> rusqlite::Resul
     let Some((machine, space)) = store.printer_of(token)? else {
         return Ok(());
     };
+    // WORKAROUND, NEEDS TRACING (2026-11-08). Buddy opens a file's print preview while a
+    // Connect download is still arriving (`transfers/transfer.cpp`, print-while-
+    // downloading), and while it shows the file stays read-only; Prusa Connect is not
+    // known to close it. How Prusa Connect really handles this is not known yet: trace a
+    // MINI on Prusa Connect, then replace this. Until then, a download only to the stick
+    // closes the preview with M604 (in the preview Buddy only closes it, as its Back
+    // button; tried on the MINI; in a print it would stop it). So only as the answer to a
+    // report that says IDLE, with nothing else to go before it. Anything but IDLE:
+    // someone pressed Print, or it is busy; no preview to close then.
+    if store.close_preview.contains(&machine) {
+        if state != "IDLE" {
+            store.close_preview.remove(&machine);
+        } else if store.open_commands(&machine).is_empty() {
+            store.close_preview.remove(&machine);
+            store.queue_command(space, &machine, "Close the print preview", "M604")?;
+        }
+    }
     // No longer asking, or out of its error: what it said goes.
     if !matches!(state, "ATTENTION" | "ERROR") && store.asking.remove(&machine).is_some() {
         store.dialogs.remove(&machine);
@@ -802,7 +869,7 @@ pub fn on_report(store: &mut Store, token: &str, state: &str) -> rusqlite::Resul
                 return store.set_job(job.id, JobState::Failed, Some("its file is gone"));
             };
             // Sent here before and still the same file: print that copy, no download.
-            if let Some(path) = store.on_stick(&machine, &file.id, file.size)? {
+            if let Some(path) = still_on_stick(store, &machine, &file.id, file.size)? {
                 let transfer = store.create_transfer(
                     space,
                     &machine,
@@ -1250,11 +1317,15 @@ async fn send(
         )
             .into_response();
     }
-    // There already (sent by us, the same file): no second copy.
-    if let Ok(Some(path)) = store.on_stick(&machine, &file.id, file.size)
-        && path.rsplit_once('/').map(|(f, _)| f) == Some(folder.as_str())
-    {
-        return Json(json!({ "path": path, "already": true })).into_response();
+    // There already (sent by us, the same file): no second copy. Unless the printer's
+    // listing of the folder no longer has it (deleted since, on the printer, by hand or by
+    // us: the printer names it by its short name then, so the transfer is not matched).
+    match still_on_stick(&store, &machine, &file.id, file.size) {
+        Ok(Some(path)) if path.rsplit_once('/').map(|(f, _)| f) == Some(folder.as_str()) => {
+            return Json(json!({ "path": path, "already": true })).into_response();
+        }
+        Ok(_) => {}
+        Err(error) => return failed(error),
     }
     let taken = names_in(&store, &machine, &folder);
     let path = format!("{folder}/{}", stick_name(&file.name, &taken));
@@ -1994,5 +2065,175 @@ mod flow {
         call(&app, report("PRINTING")).await;
         assert_eq!(asking(), None, "answered on the printer");
         let _ = now();
+    }
+
+    /// Seen on the MINI (2026-11-08): a download only to the stick opens the file's print
+    /// preview on the printer's screen, which keeps it read-only. The hub closes it with
+    /// M604 (tried on the MINI), so nobody has to go to the printer; but only answering a
+    /// report that says IDLE with nothing before it: in a print M604 would stop it.
+    #[tokio::test]
+    async fn a_download_only_to_the_stick_closes_its_preview() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = crate::auth::signed_in_app(store.clone());
+        let (mini, token) = {
+            let mut s = store.lock().unwrap();
+            let space = s.default_space().unwrap().0;
+            let mini = s
+                .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
+                .unwrap();
+            crate::auth::tester_may_operate(&s, space, &mini);
+            let token: String =
+                s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            s.db.execute(
+                "UPDATE machines SET link = 'prusa-connect' WHERE id = ?1",
+                [&mini],
+            )
+            .unwrap();
+            (mini, token)
+        };
+        let report = |state: &str| {
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .body(Body::from(format!(r#"{{"state":"{state}"}}"#)))
+                .unwrap()
+        };
+        let event = |body: Value| {
+            Request::post("/p/events")
+                .header("Token", &token)
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let form = |path: String, form: String| {
+            Request::post(path)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(form))
+                .unwrap()
+        };
+        // What the printer gets with a report (answered at once, as it does), as text.
+        let next = async |state: &str| {
+            let (_, headers, body) = call(&app, report(state)).await;
+            if let Some(id) = headers.get("command-id") {
+                let id: u64 = id.to_str().unwrap().parse().unwrap();
+                call(&app, event(json!({"event": "FINISHED", "command_id": id, "state": state}))).await;
+            }
+            String::from_utf8(body).unwrap()
+        };
+        // Sends a file only to the stick and lets the printer fetch it to the end.
+        let send = async |name: &str| {
+            let (status, _, body) = call(
+                &app,
+                Request::post(format!("/api/files?name={name}"))
+                    .body(Body::from(format!("G28 ; {name}\n")))
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED);
+            let file = serde_json::from_slice::<Value>(&body).unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            let (status, _, body) = call(
+                &app,
+                form(format!("/machines/{mini}/usb/send"), format!("file={file}&folder=/usb")),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+            let (_, headers, body) = call(&app, report("IDLE")).await;
+            let download: Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(download["command"], "START_ENCRYPTED_DOWNLOAD");
+            let id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
+            call(&app, event(json!({"event": "TRANSFER_INFO", "command_id": id, "state": "IDLE", "data": {}}))).await;
+            call(&app, event(json!({"event": "TRANSFER_FINISHED", "state": "IDLE", "data": {"start_cmd_id": id}}))).await;
+        };
+        call(&app, report("IDLE")).await;
+
+        // Done and idle: the preview is closed.
+        send("Benchy.bgcode").await;
+        assert_eq!(next("IDLE").await, "M604");
+        assert_eq!(next("IDLE").await, "", "once");
+
+        // Someone pressed Print on the printer meanwhile: no M604, not even once idle again.
+        send("Cube.bgcode").await;
+        assert_eq!(next("PRINTING").await, "");
+        assert_eq!(next("IDLE").await, "");
+
+        // A command of someone's waits: it goes first, then the M604 (never one before it).
+        send("Box.bgcode").await;
+        let queued = {
+            let mut s = store.lock().unwrap();
+            let space = s.default_space().unwrap().0;
+            s.queue_command(space, &mini, "Fan", "M106 S255").unwrap()
+        };
+        assert!(queued.is_some());
+        assert_eq!(next("IDLE").await, "M106 S255");
+        assert_eq!(next("IDLE").await, "M604");
+
+        // Nothing sent: nothing to close.
+        assert_eq!(next("IDLE").await, "");
+    }
+
+    /// Seen on the MINI (2026-11-08): a Benchy sent by us, then deleted (the printer names
+    /// it by its short name, `3DBENC~1.BGC`); Send here kept saying it was there already.
+    #[test]
+    fn a_file_deleted_from_the_stick_goes_again() {
+        let mut store = Store::open(":memory:").unwrap();
+        let space = store.default_space().unwrap().0;
+        let mini = store
+            .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
+            .unwrap();
+        let path = "/usb/3dbenchy.bgcode";
+        let sent = store
+            .create_transfer(space, &mini, "file-1", 1000, path, None)
+            .unwrap();
+        store.set_transfer(&sent.iv, "finished", None, None).unwrap();
+        store
+            .db
+            .execute(
+                "UPDATE printer_transfers SET created_at = created_at - 100 WHERE iv = ?1",
+                [&sent.iv],
+            )
+            .unwrap();
+        let listing = |names: &[(&str, &str)]| {
+            json!({"children": names.iter().map(|(short, long)| json!({
+                "name": short, "display_name": long, "type": "PRINT_FILE", "read_only": false
+            })).collect::<Vec<_>>()})
+        };
+        let back_dated = |seconds: i64| {
+            store
+                .db
+                .execute(
+                    "UPDATE printer_files SET at = at - ?2 WHERE machine_id = ?1 AND path = '/usb'",
+                    params![mini, seconds],
+                )
+                .unwrap();
+        };
+
+        // A listing from before the transfer does not have it yet: still there.
+        store.set_printer_file(&mini, "/usb", &listing(&[])).unwrap();
+        back_dated(200);
+        assert_eq!(
+            still_on_stick(&store, &mini, "file-1", 1000).unwrap().as_deref(),
+            Some(path)
+        );
+        // Listed after it (by its long name): there.
+        store
+            .set_printer_file(&mini, "/usb", &listing(&[("3DBENC~1.BGC", "3dbenchy.bgcode")]))
+            .unwrap();
+        assert_eq!(
+            still_on_stick(&store, &mini, "file-1", 1000).unwrap().as_deref(),
+            Some(path)
+        );
+        // Gone from the next listing: not there, and the transfer no longer says so.
+        store.set_printer_file(&mini, "/usb", &listing(&[])).unwrap();
+        assert_eq!(still_on_stick(&store, &mini, "file-1", 1000).unwrap(), None);
+        assert_eq!(store.on_stick(&mini, "file-1", 1000).unwrap(), None);
+        assert!(
+            store.sent_paths(&mini).unwrap().is_empty(),
+            "its name is free again"
+        );
     }
 }

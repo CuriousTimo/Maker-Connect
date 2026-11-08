@@ -311,7 +311,8 @@
         event.preventDefault();
         if (!fileSelect.value) return;
         const r = await post("send", { file: fileSelect.value, folder: path });
-        toast(r.ok ? `Sending to ${(await r.json()).path}: it shows here once on the stick` : `Not sent: ${await r.text()}`, r.ok ? "ok" : "bad");
+        const sent = r.ok ? await r.json() : null;
+        toast(sent ? (sent.already ? `Already on the stick: ${sent.path}` : `Sending to ${sent.path}: it shows here once on the stick`) : `Not sent: ${await r.text()}`, r.ok ? "ok" : "bad");
         if (r.ok) setTimeout(load, 3000);
       });
       usbOpen = async () => {

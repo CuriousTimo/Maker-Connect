@@ -45,8 +45,9 @@ const MAX_STARTS: u32 = 3;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Version {
     numbers: [u64; 3],
-    /// `beta.1`: before the release without it.
-    pre: Option<(String, u64)>,
+    /// `beta.1`: before the release without it. More numbers for a test build in between:
+    /// `beta.4.1` comes after `beta.4` and before `beta.5`.
+    pre: Option<(String, Vec<u64>)>,
 }
 
 impl Version {
@@ -67,7 +68,11 @@ impl Version {
             None => None,
             Some(p) => {
                 let (name, n) = p.split_once('.').unwrap_or((p, "0"));
-                Some((name.to_owned(), n.parse().ok()?))
+                let n = n
+                    .split('.')
+                    .map(|n| n.parse().ok())
+                    .collect::<Option<Vec<u64>>>()?;
+                Some((name.to_owned(), n))
             }
         };
         Some(Version { numbers, pre })
@@ -481,6 +486,12 @@ mod tests {
             "a build from the source is 0.2.0"
         );
         assert!(!newer("nonsense", "v0.1.0"));
+        // A test build between two betas: newer than the one, the next still newer.
+        assert!(newer("v0.2.0-beta.4.1", "hub-v0.2.0-beta.4"));
+        assert!(newer("hub-v0.2.0-beta.5", "v0.2.0-beta.4.1"));
+        assert!(newer("v0.2.0-beta.4.2", "v0.2.0-beta.4.1"));
+        assert!(newer("v0.2.0", "v0.2.0-beta.4.1"));
+        assert!(!newer("v0.2.0-beta.4.x", "v0.2.0-beta.4"));
         assert_eq!(system("linux", "arm").as_deref(), Some("linux-armv6"));
         assert_eq!(system("windows", "aarch64"), None);
     }
