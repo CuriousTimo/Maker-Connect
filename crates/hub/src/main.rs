@@ -1992,6 +1992,12 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
 
   dialog { width: min(600px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink); box-shadow: 0 20px 60px rgb(0 0 0 / 0.35); }
   dialog::backdrop { background: rgb(0 0 0 / 0.45); backdrop-filter: blur(2px); }
+  /* A question before something is done (shell.js ask): in the middle, short. */
+  dialog.ask { width: min(440px, calc(100vw - 32px)); padding: 22px 22px 18px; }
+  dialog.ask p { margin: 0; font-size: 16px; line-height: 1.45; overflow-wrap: anywhere; }
+  .ask-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+  .ask-buttons .ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  .ask-buttons .danger { background: var(--bad); }
   .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 0; }
   .dialog-head h2 { margin: 0; font-size: 20px; }
   dialog .close { background: transparent; color: var(--muted); font-size: 18px; padding: 4px 8px; }

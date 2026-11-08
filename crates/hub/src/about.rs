@@ -283,7 +283,7 @@ async fn page(access: Access, State(store): State<Shared>) -> Response {
     button.textContent = `Update to ${{u.newest}}`;
     button.hidden = false;
     button.addEventListener("click", async () => {{
-      if (!confirm(`Update the hub to ${{u.newest}}? It restarts.`)) return;
+      if (!(await ask(`Update the hub to ${{u.newest}}? It restarts.`, {{ ok: "Update" }}))) return;
       button.disabled = true;
       say.textContent = "Fetching and checking the release, backing up the database, trying the new build…";
       const response = await fetch("about/update", {{ method: "POST", headers: {{ "x-requested-with": "fetch" }} }});

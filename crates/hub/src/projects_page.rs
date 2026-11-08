@@ -243,8 +243,8 @@ const PROJECTS_SCRIPT: &str = r#"
     if (!t) return;
     if (t.dataset.state) { const [id, state] = t.dataset.state.split(":"); act(() => api(`api/projects/${id}`, { state }), state === "active" ? "Plates go out to free machines" : "Saved"); }
     if (t.dataset.priority) { const [id, priority] = t.dataset.priority.split(":"); act(() => api(`api/projects/${id}`, { priority: Number(priority) })); }
-    if (t.dataset.removeProject && confirm(`Remove ${t.dataset.name} and its parts?`)) act(() => api(`api/projects/${t.dataset.removeProject}/remove`, {}), "Removed");
-    if (t.dataset.removePart && confirm("Remove this part?")) act(() => api(`api/parts/${t.dataset.removePart}/remove`, {}), "Removed");
+    if (t.dataset.removeProject && await ask(`Remove ${t.dataset.name} and its parts?`, { ok: "Remove", danger: true })) act(() => api(`api/projects/${t.dataset.removeProject}/remove`, {}), "Removed");
+    if (t.dataset.removePart && await ask("Remove this part?", { ok: "Remove", danger: true })) act(() => api(`api/parts/${t.dataset.removePart}/remove`, {}), "Removed");
     if (t.dataset.removeFile) { const [p, f] = t.dataset.removeFile.split(":"); act(() => api(`api/parts/${p}/files/${f}/remove`, {}), "File taken off"); }
     if (t.dataset.farm) {
       const r = await fetch(`machines/${t.dataset.farm}/farm`, { method: "POST", body: new URLSearchParams(t.checked ? { on: "1" } : {}), headers: { "x-requested-with": "fetch" } });

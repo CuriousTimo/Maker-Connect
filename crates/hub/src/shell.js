@@ -178,7 +178,7 @@
     event.preventDefault();
     const action = event.submitter?.getAttribute("formaction") || form.getAttribute("action");
     const bad = action.endsWith("/bad");
-    if (bad && !confirm("A bad print: nothing of it counts, and the plate goes back in the queue. Sure?")) return;
+    if (bad && !(await ask("A bad print: nothing of it counts, and the plate goes back in the queue. Sure?", { ok: "Bad print", danger: true }))) return;
     const r = await fetch(action, { method: "POST", body: new URLSearchParams(new FormData(form)), headers: { "x-requested-with": "fetch" } });
     if (r.ok) toast(bad ? "Bad print: the plate goes back in the queue" : `Counted: ${(await r.json()).done} made`);
     else toast(`Not done: ${await r.text()}`, "bad");
@@ -317,6 +317,29 @@
     setInterval(poll, 10000);
   }, 1500);
 
+  // A question before something is done, in the middle of the page (not the browser's own
+  // box at the top): resolves true when its button is pressed, false on Cancel, Escape or a
+  // click beside it. `ok` names the button ("Print", "Stop"); `danger` makes it red.
+  function ask(text, { ok = "OK", danger = false } = {}) {
+    return new Promise((resolve) => {
+      const dialog = document.createElement("dialog");
+      dialog.className = "ask";
+      dialog.innerHTML = `<p></p><div class="ask-buttons"><button type="button" class="ghost" value="no">Cancel</button><button type="button" class="${danger ? "danger" : ""}" value="yes"></button></div>`;
+      dialog.querySelector("p").textContent = text;
+      dialog.querySelector('[value="yes"]').textContent = ok;
+      let answer = false;
+      dialog.addEventListener("click", (event) => {
+        const button = event.target.closest("button");
+        if (button) { answer = button.value === "yes"; dialog.close(); }
+        else if (event.target === dialog) dialog.close();
+      });
+      dialog.addEventListener("close", () => { dialog.remove(); resolve(answer); });
+      document.body.append(dialog);
+      dialog.showModal();
+      dialog.querySelector('[value="yes"]').focus();
+    });
+  }
+
   // A short message in the corner, instead of a page that reloads.
   function toast(text, kind = "ok") {
     const box = document.querySelector("[data-toasts]");
@@ -335,7 +358,7 @@
     const form = event.target;
     if (!form.matches("form[data-async]")) return;
     event.preventDefault();
-    if (form.dataset.confirm && !confirm(form.dataset.confirm)) return;
+    if (form.dataset.confirm && !(await ask(form.dataset.confirm, { ok: form.dataset.confirmOk || "OK", danger: "confirmDanger" in form.dataset }))) return;
     const body = new URLSearchParams(new FormData(form, event.submitter));
     try {
       const response = await fetch(form.getAttribute("action"), { method: "POST", body, headers: { "x-requested-with": "fetch" } });

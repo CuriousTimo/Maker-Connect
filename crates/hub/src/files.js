@@ -388,7 +388,7 @@
   document.querySelector("[data-select-none]").addEventListener("click", () => { selected.clear(); render(); });
   document.querySelector("[data-remove-selected]").addEventListener("click", async () => {
     const ids = [...selected];
-    if (!ids.length || !confirm(`Remove ${ids.length} files? This cannot be undone.`)) return;
+    if (!ids.length || !(await ask(`Remove ${ids.length} files? This cannot be undone.`, { ok: "Remove", danger: true }))) return;
     const response = await fetch("api/files/remove", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -448,7 +448,7 @@
     if (!button) return;
     const file = button.closest("[data-id]");
     const name = files.find((f) => f.id === file.dataset.id)?.name || "this file";
-    if (!confirm(`Remove ${name}?`)) return;
+    if (!(await ask(`Remove ${name}?`, { ok: "Remove", danger: true }))) return;
     const response = await fetch(`files/${encodeURIComponent(file.dataset.id)}/remove`, { method: "POST" });
     if (!response.ok) alert(await response.text());
     if (dialog.open) dialog.close();

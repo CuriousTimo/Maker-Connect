@@ -571,7 +571,7 @@
       const del = t.closest("[data-delete]");
       if (del) {
         const [type, id] = del.dataset.delete.split(":");
-        if (!confirm(`Remove this ${type} for good?`)) return;
+        if (!(await ask(`Remove this ${type} for good?`, { ok: "Remove", danger: true }))) return;
         await api("DELETE", `/${type}/${id}`);
         chosen = null;
         toast("Removed");
@@ -913,7 +913,7 @@
       form.kind.value = was.model && dryboxes.some((d) => d.id === was.model) ? was.model : was.slots ? "own" : "shelf";
       $("[data-remove-place]", dialogBody).addEventListener("click", async () => {
         const inIt = spools.filter((x) => x.location === was.name && !x.archived).length;
-        if (!confirm(inIt ? `Remove ${was.name}? Its ${inIt} ${inIt === 1 ? "spool goes" : "spools go"} to No location.` : `Remove ${was.name}?`)) return;
+        if (!(await ask(inIt ? `Remove ${was.name}? Its ${inIt} ${inIt === 1 ? "spool goes" : "spools go"} to No location.` : `Remove ${was.name}?`, { ok: "Remove", danger: true }))) return;
         try { await api("DELETE", `api/stock/locations/${encodeURIComponent(was.id)}`); dialog.close(); toast(`${was.name} removed`); await load(); } catch (error) { toast(error.message, "bad"); }
       });
     }
@@ -1146,7 +1146,7 @@
     const drop = e.target.closest("[data-drop-field]");
     if (!drop) return;
     const [entity, key] = drop.dataset.dropField.split(":");
-    if (!confirm(`Remove the field ${key}, and its values?`)) return;
+    if (!(await ask(`Remove the field ${key}, and its values?`, { ok: "Remove", danger: true }))) return;
     try { await api("DELETE", `/field/${entity}/${key}`); await load(); settingsDialog(); } catch (error) { toast(error.message, "bad"); }
   });
 

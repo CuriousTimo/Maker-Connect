@@ -362,14 +362,14 @@
         if (go) { path = go.dataset.go; list.innerHTML = '<p class="empty">Waiting for the printer…</p>'; load(); return; }
         const print = event.target.closest("[data-print]");
         if (print) {
-          if (!confirm(`Print ${print.dataset.name} on this printer now? Check the bed is clear.`)) return;
+          if (!(await ask(`Print ${print.dataset.name} on this printer now? Check the bed is clear.`, { ok: "Print" }))) return;
           const r = await post("print", { path: print.dataset.print });
           toast(r.ok ? `Asked to print ${print.dataset.name}` : `Not printed: ${await r.text()}`, r.ok ? "ok" : "bad");
           return;
         }
         const del = event.target.closest("[data-delete]");
         if (del) {
-          if (!confirm(`Delete ${del.dataset.name}${del.dataset.folder ? " and what is in it" : ""} from the USB stick?`)) return;
+          if (!(await ask(`Delete ${del.dataset.name}${del.dataset.folder ? " and what is in it" : ""} from the USB stick?`, { ok: "Delete", danger: true }))) return;
           const fields = { path: del.dataset.delete };
           if (del.dataset.folder) fields.folder = "1";
           const r = await post("delete", fields);
@@ -430,7 +430,7 @@
         if (event.target.closest("[data-sd-refresh]")) { load(); return; }
         const print = event.target.closest("[data-sd-print]");
         if (!print) return;
-        if (!confirm(`Print ${print.dataset.name} from its SD card now? Check the bed is clear.`)) return;
+        if (!(await ask(`Print ${print.dataset.name} from its SD card now? Check the bed is clear.`, { ok: "Print" }))) return;
         const r = await fetch(`../machines/${ID}/sd/print`, {
           method: "POST", body: new URLSearchParams({ path: print.dataset.sdPrint }), headers: { "x-requested-with": "fetch" },
         });
@@ -944,7 +944,7 @@
     const url = new URL(form.getAttribute("action"), location.href);
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!confirm("Start the job again from that line? Home first if the machine lost its position.")) return;
+      if (!(await ask("Start the job again from that line? Home first if the machine lost its position.", { ok: "Start again" }))) return;
       await fetch(url, { method: "POST", body: new URLSearchParams({ action: "restart" }) });
     });
   }
@@ -962,7 +962,7 @@
     for (const button of form.querySelectorAll("button")) button.addEventListener("click", async (event) => {
       event.preventDefault();
       if (button.dataset.waitFrom != null) return;
-      if (button.value === "stop" && !confirm("Stop this job?")) return;
+      if (button.value === "stop" && !(await ask("Stop this job?", { ok: "Stop", danger: true }))) return;
       const same = [...document.querySelectorAll(`[data-job-actions] button[value="${button.value}"]`)];
       for (const b of same) {
         b.dataset.label = b.textContent;

@@ -352,9 +352,16 @@ fn fill_in(telemetry: &mut Telemetry, last: Telemetry) {
             job.file = last_job.file;
         }
     }
-    // The fans come only in the full reports, the short ones in between leave them out.
-    telemetry.print_fan_rpm = telemetry.print_fan_rpm.or(last.print_fan_rpm);
-    telemetry.hotend_fan_rpm = telemetry.hotend_fan_rpm.or(last.hotend_fan_rpm);
+    // The fans come only in the full reports, the short ones in between leave them out:
+    // kept while it prints. Not once it stops: Buddy tells them only while printing, so the
+    // last ones told would be old (the fans run down, the hotend fan stops when cool).
+    if matches!(
+        telemetry.state,
+        MachineState::Busy | MachineState::Paused | MachineState::Attention
+    ) {
+        telemetry.print_fan_rpm = telemetry.print_fan_rpm.or(last.print_fan_rpm);
+        telemetry.hotend_fan_rpm = telemetry.hotend_fan_rpm.or(last.hotend_fan_rpm);
+    }
     telemetry.speed_percent = telemetry.speed_percent.or(last.speed_percent);
     telemetry.flow_percent = telemetry.flow_percent.or(last.flow_percent);
     telemetry.material = telemetry.material.take().or(last.material);
@@ -587,12 +594,13 @@ mod tests {
         let mut higher = to_telemetry(&serde_json::json!({"state": "PRINTING", "axis_z": 2.0}));
         fill_in(&mut higher, short);
         assert_eq!(higher.position_mm.map(|p| p[2]), Some(2.0), "Z goes on");
-        // Idle again, all three told: current.
+        // Stopped, all three told: current; the fans no longer told, so not shown.
         let mut after = to_telemetry(&serde_json::json!({
-            "state": "IDLE", "axis_x": 10.0, "axis_y": 20.0, "axis_z": 30.0
+            "state": "STOPPED", "axis_x": 10.0, "axis_y": 20.0, "axis_z": 30.0
         }));
         fill_in(&mut after, higher);
         assert_eq!((after.position_mm, after.only_z), (Some([10.0, 20.0, 30.0]), false));
+        assert_eq!((after.print_fan_rpm, after.hotend_fan_rpm), (None, None), "not the old speeds");
     }
 
     async fn call(app: &Router, request: Request<Body>) -> (StatusCode, HeaderMap) {
