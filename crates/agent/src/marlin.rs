@@ -26,8 +26,19 @@ use std::time::{Duration, Instant};
 
 /// How many sent lines are kept for a resend.
 const KEPT_LINES: usize = 64;
-/// How long a printer may stay silent before the sender gives up, unless it said busy.
+/// How long a printer may stay silent before the sender asks after it, unless it said busy.
 const SILENT_TIMEOUT: Duration = Duration::from_secs(30);
+/// The same, while a command that takes long runs (homing, levelling, a heat-up, `M400`)
+/// on a printer that does not say busy.
+const LONG_SILENCE: Duration = Duration::from_secs(15 * 60);
+/// How often it is asked after (with a numbered `M105`) before the sender gives up.
+const MAX_POKES: usize = 3;
+/// How long to wait for the `ok` that should follow a resend request (some firmware
+/// forgets it; OctoPrint waits 1 s too).
+const RESEND_OK_WAIT: Duration = Duration::from_secs(1);
+/// How often the same line may be asked for again in a row before the link counts as broken
+/// (OctoPrint's limit).
+const MAX_SAME_RESENDS: usize = 10;
 /// How long to wait for a printer to finish booting after the port was opened.
 const BOOT_WAIT: Duration = Duration::from_secs(10);
 
@@ -58,11 +69,15 @@ pub enum Reply {
     Resend(u32),
     /// `busy: processing`, `echo:busy`: it is working; keep waiting.
     Busy,
-    /// `echo:busy: paused for user`: it waits for someone to press its knob (`M0`, `M600`,
-    /// a question on its screen). Kept waiting for, but said: nobody may be there.
+    /// `echo:busy: paused for user` or `paused for input`: it waits for someone to press
+    /// its knob (`M0`, `M600`, a question on its screen). Kept waiting for, but said: nobody
+    /// may be there.
     PausedForUser,
     /// `start`: it has (re)started.
     Start,
+    /// `wait` (Marlin's `NO_TIMEOUTS`): idle with an empty queue. While an `ok` is awaited,
+    /// it (or the line) was lost.
+    Wait,
     /// `Error:...`.
     Error(String),
     /// `//action:...`: what is on its screen, or what was done at its knob.
@@ -86,7 +101,7 @@ pub fn parse(line: &str) -> Reply {
         return Reply::Resend(number);
     }
     if lower.starts_with("busy:") || lower.starts_with("echo:busy") {
-        if lower.contains("paused for user") {
+        if lower.contains("paused for user") || lower.contains("paused for input") {
             return Reply::PausedForUser;
         }
         return Reply::Busy;
@@ -94,10 +109,26 @@ pub fn parse(line: &str) -> Reply {
     if lower == "start" {
         return Reply::Start;
     }
+    if lower == "wait" {
+        return Reply::Wait;
+    }
     if lower.starts_with("error:") {
         return Reply::Error(line[6..].trim().to_owned());
     }
-    if let Some(rest) = line.strip_prefix("//action:") {
+    // Marlin's "!! KILL caused by ..." and "!! STOP called because of ..."; "fatal:" from
+    // other firmware (OctoPrint reads both as errors).
+    if let Some(rest) = line.strip_prefix("!!") {
+        return Reply::Error(rest.trim().to_owned());
+    }
+    if lower.starts_with("fatal:") {
+        return Reply::Error(line.to_owned());
+    }
+    // `//action:` and, from Prusa's firmware now and then, `// action:`.
+    if let Some(rest) = line
+        .strip_prefix("//")
+        .map(str::trim_start)
+        .and_then(|r| r.strip_prefix("action:"))
+    {
         let (name, text) = rest.trim().split_once(' ').unwrap_or((rest.trim(), ""));
         let text = text.trim().to_owned();
         return Reply::Action(match name.to_ascii_lowercase().as_str() {
@@ -117,6 +148,17 @@ pub fn parse(line: &str) -> Reply {
             "ready" => Action::Ready,
             "not_ready" => Action::NotReady,
             "uvlo_recovery_ready" | "uvlo_auto_recovery_ready" => Action::PowerLoss,
+            // Marlin's ACTION_ON_KILL: it was killed and stays dead until reset.
+            "poweroff" | "kill" => Action::Killed,
+            // Said for someone to read: a runout, a failed probe, heaters switched off for
+            // inactivity (Buddy), a crash dump (Prusa's MK3).
+            "filament_runout" => Action::Notice(format!("Filament runout {text}").trim().to_owned()),
+            "probe_failed" => Action::Notice("Probing failed".to_owned()),
+            "probe_rewipe" => Action::Notice("Probing again after wiping the nozzle".to_owned()),
+            "safety_timer_expired" => {
+                Action::Notice("Heaters switched off: nothing happened for too long".to_owned())
+            }
+            "dump_available" => Action::Notice("The printer has a crash dump".to_owned()),
             _ => Action::Other(rest.trim().to_owned()),
         });
     }
@@ -144,6 +186,10 @@ pub enum Action {
     NotReady,
     /// A print interrupted by a power cut, brought back and waiting to be resumed.
     PowerLoss,
+    /// Killed (`poweroff`): dead until reset.
+    Killed,
+    /// Something for someone to read: a runout, a failed probe, heaters off for inactivity.
+    Notice(String),
     /// Anything else, `start` and `shutdown` among them: a knob on the printer does not
     /// start jobs from here, and never shuts down the computer the agent runs on.
     Other(String),
@@ -151,20 +197,274 @@ pub enum Action {
 
 /// Whether an error stops the printer (it must be restarted), unlike a line sent wrong,
 /// which is only asked again.
+/// The words are those of Marlin 2 (`language.h`), Buddy's Marlin and Prusa's MK3 firmware
+/// (`temperature.cpp`, `Marlin_main.cpp`); see docs/marlin-serial-protocol.md.
 pub fn fatal(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
     [
         "kill()",
+        "kill caused by",
+        "stop called because of",
         "printer halted",
         "thermal runaway",
+        "thermal malfunction",
         "mintemp",
         "maxtemp",
         "heating failed",
+        "heaters switched off",
         "printer stopped",
         "stopped due to errors",
     ]
     .iter()
     .any(|marker| lower.contains(marker))
+}
+
+/// Whether a line says the printer needs someone, without being dead: Prusa's MK3 (as
+/// PrusaLink reads it: a failed bed levelling, its thermal model, a slow fan, a power cut)
+/// and Marlin locked by its password. The text to show, if so.
+pub fn needs_someone(line: &str) -> Option<String> {
+    let text = line
+        .trim()
+        .trim_start_matches("echo:")
+        .trim_start_matches("Error:")
+        .trim();
+    let lower = text.to_ascii_lowercase();
+    if lower == "int4" {
+        return Some("Power failure: the print was saved".to_owned());
+    }
+    [
+        "bed leveling failed",
+        "tm: error triggered",
+        "fan speed is lower than expected",
+        "printer locked",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+    .then(|| text.to_owned())
+}
+
+/// Whether a line is a routine report, not worth a log line: temperatures (`T:`), fans
+/// (`E0:… RPM`), position (`X:… Y:…`), the MK3's chatter with its MMU (`echo:MMU2:<…`,
+/// `>Q0…`) and its screen (`LCD status changed`).
+pub fn routine(line: &str) -> bool {
+    let line = line.trim();
+    line.starts_with("T:")
+        || line.starts_with("ok T:")
+        || line.starts_with("B:")
+        || (line.starts_with("E0:") && line.contains(" RPM"))
+        || (line.starts_with("X:") && line.contains(" Y:") && line.contains(" Z:"))
+        || line.starts_with("echo:MMU2:<")
+        || line.starts_with("echo:MMU2:>")
+        || line.starts_with("echo:MMU3:<")
+        || line.starts_with("echo:MMU3:>")
+        || line == "LCD status changed"
+}
+
+/// A print from the printer's own SD card, from its `M27` answer.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SdStatus {
+    /// Its file (Prusa's MK3: the long name on the line before; Marlin with `M27 C`:
+    /// `Current file: NAME.GCO long name`).
+    pub file: Option<String>,
+    pub done: u64,
+    pub total: u64,
+    /// How long it has printed (Prusa's MK3: `h:m` after the bytes).
+    pub elapsed_s: Option<u64>,
+    /// Paused (Prusa's MK3: `SD print paused`; Marlin says the bytes while paused too).
+    pub paused: bool,
+}
+
+/// What `M27` says: `Some(Some(status))` while it prints from its card, `Some(None)` when
+/// it does not (`Not SD printing`; on Prusa's MK3 also `Print saved`: a host's print,
+/// paused or kept after a power cut, not the card's), `None` when it said neither (no card
+/// support).
+pub fn sd_status(lines: &[String]) -> Option<Option<SdStatus>> {
+    let lines: Vec<&str> = lines.iter().map(|l| l.trim()).collect();
+    if lines.iter().any(|l| *l == "Not SD printing" || *l == "Print saved") {
+        return Some(None);
+    }
+    if lines.contains(&"SD print paused") {
+        return Some(Some(SdStatus {
+            paused: true,
+            ..SdStatus::default()
+        }));
+    }
+    let at = lines.iter().position(|l| l.starts_with("SD printing byte "))?;
+    let (done, total) = lines[at]
+        .trim_start_matches("SD printing byte ")
+        .split_once('/')?;
+    let mut status = SdStatus {
+        done: done.trim().parse().ok()?,
+        total: total.trim().parse().ok()?,
+        ..SdStatus::default()
+    };
+    // The file: Marlin's "Current file:", or the MK3's line before the bytes.
+    status.file = lines
+        .iter()
+        .find_map(|l| l.strip_prefix("Current file: "))
+        .map(|f| f.split_once(' ').map_or(f, |(_, long)| long).trim().to_owned())
+        .or_else(|| {
+            at.checked_sub(1)
+                .map(|i| lines[i])
+                .filter(|l| !l.is_empty() && !l.starts_with("ok") && !routine(l) && !l.starts_with("echo:"))
+                .map(|l| l.rsplit('/').next().unwrap_or(l).to_owned())
+        })
+        .filter(|f| !f.is_empty());
+    // The MK3's "h:m" after the bytes.
+    status.elapsed_s = lines.get(at + 1).and_then(|l| {
+        let (h, m) = l.split_once(':')?;
+        Some(h.parse::<u64>().ok()? * 3600 + m.parse::<u64>().ok()? * 60)
+    });
+    Some(Some(status))
+}
+
+/// The MMU's state in Prusa's MK3 firmware's chatter with it: an answer
+/// `echo:MMU2:<T0 E8004*3c.` carries an error (`E` and its code), `P…`/`F…` none. `Some(None)`:
+/// no error now; `Some(Some(code))`: Prusa's code for it (04xxx, as on its screen and at
+/// prusa.io); `None`: not such a line.
+pub fn mmu_error(line: &str) -> Option<Option<u32>> {
+    let rest = line
+        .trim()
+        .strip_prefix("echo:MMU2:<")
+        .or_else(|| line.trim().strip_prefix("echo:MMU3:<"))?;
+    let (command, progress) = rest.split_once(' ')?;
+    if !command.starts_with(|c: char| c.is_ascii_uppercase()) {
+        return None;
+    }
+    let progress = progress.split('*').next()?;
+    match progress.strip_prefix('E') {
+        Some(hex) => Some(u32::from_str_radix(hex, 16).ok().map(prusa_mmu_code)),
+        None if progress.starts_with(['P', 'F']) => Some(None),
+        None => None,
+    }
+}
+
+/// The MMU's own error number as Prusa numbers it (04xxx): the facts in the MK3 firmware's
+/// `mmu2_error_converter.cpp` and PrusaLink's map. The driver an error is about adds 0x80
+/// (selector) or 0x100 (idler) to it, and 10 or 20 to Prusa's number. Unknown: 04900.
+fn prusa_mmu_code(mmu: u32) -> u32 {
+    let (base, driver) = match mmu & 0x0180 {
+        0x0080 => (mmu & !0x0080, 1),
+        0x0100 => (mmu & !0x0100, 2),
+        _ => (mmu, 0),
+    };
+    let code = match (base, driver) {
+        (0x8001, 0) => 101,
+        (0x8002, 0) => 102,
+        (0x8003, 0) => 103,
+        (0x8004, 0) => 104,
+        (0x800b, 0) => 105,
+        (0x8009, 0) => 106,
+        (0x800a, 0) => 107,
+        (0x802a, 0) => 108,
+        (0x8007, 1) => 115,
+        (0x800b, 1) => 116,
+        (0x8007, 2) => 125,
+        (0x800b, 2) => 126,
+        (0xA000, d) => 201 + 10 * d,
+        (0xC000, d) => 202 + 10 * d,
+        (0x8200, d) => 301 + 10 * d,
+        (0x8400, d) => 302 + 10 * d,
+        (0x8800, d) => 303 + 10 * d,
+        (0x9000, d) => 304 + 10 * d,
+        (0xC200, d) => 305 + 10 * d,
+        (0x800d, 0) => 306,
+        (0x802e, 0) => 401,
+        (0x802d, 0) => 402,
+        _ => 900,
+    };
+    4000 + code
+}
+
+/// Whether an `Error:` is about the line on the wire (a resend follows) or harmless, rather
+/// than about the print: OctoPrint's classes, which every firmware here fits.
+pub fn harmless_error(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    [
+        // The line on the wire: a resend follows.
+        "line number",
+        "linenumber",
+        "checksum",
+        "format error",
+        "expected line",
+        // The SD card, not this print.
+        "volume.init",
+        "openroot",
+        "workdir",
+        "error writing to file",
+        "cannot open",
+        "open failed",
+        "cannot enter",
+        "unknown command",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+}
+
+/// What a printer can do, from the `Cap:NAME:1` lines of its `M115` answer.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Capabilities {
+    /// `M108`, `M112`, `M410`, `M876` act at once, even while it heats or waits.
+    pub emergency_parser: bool,
+    /// `M155` works.
+    pub autoreport_temp: bool,
+    /// Questions on its screen come as `//action:prompt_*`, answered with `M876`.
+    pub prompt_support: bool,
+    /// Every capability it named, as it named it, and whether it is on.
+    pub all: Vec<(String, bool)>,
+}
+
+pub fn capabilities(lines: &[String]) -> Capabilities {
+    let mut caps = Capabilities::default();
+    for line in lines {
+        let Some(rest) = line.trim().strip_prefix("Cap:") else {
+            continue;
+        };
+        let Some((name, on)) = rest.rsplit_once(':') else {
+            continue;
+        };
+        let on = on.trim() == "1";
+        match name.trim() {
+            "EMERGENCY_PARSER" => caps.emergency_parser = on,
+            "AUTOREPORT_TEMP" => caps.autoreport_temp = on,
+            "PROMPT_SUPPORT" => caps.prompt_support = on,
+            _ => {}
+        }
+        caps.all.push((name.trim().to_owned(), on));
+    }
+    caps
+}
+
+/// Commands that may take long before their `ok` (OctoPrint's list, plus heating, Prusa's
+/// mesh and filament codes): no "it stopped answering" for them.
+pub fn long_running(code: &str) -> bool {
+    let word = code.split_whitespace().next().unwrap_or("").to_ascii_uppercase();
+    matches!(
+        word.as_str(),
+        "G4" | "G28"
+            | "G29"
+            | "G30"
+            | "G32"
+            | "G80"
+            | "M0"
+            | "M1"
+            | "M109"
+            | "M190"
+            | "M191"
+            | "M303"
+            | "M400"
+            | "M226"
+            | "M600"
+            | "M701"
+            | "M702"
+    )
+}
+
+/// Commands that wait for a temperature, which `M108` breaks off (with the emergency
+/// parser).
+fn heats(code: &str) -> bool {
+    let word = code.split_whitespace().next().unwrap_or("").to_ascii_uppercase();
+    matches!(word.as_str(), "M109" | "M190" | "M191")
 }
 
 /// What is on a printer's screen, as it said over the wire: shared with whoever reports.
@@ -192,6 +492,8 @@ pub struct ScreenState {
     pub ready_said: bool,
     /// A print interrupted by a power cut waits to be resumed on it.
     pub power_loss: bool,
+    /// It needs someone without being dead (a failed bed levelling, a slow fan, locked).
+    pub attention: Option<String>,
     // A question being told, not shown yet.
     pending: Option<(String, Vec<String>)>,
 }
@@ -211,11 +513,45 @@ impl Screen {
         self.state.lock().unwrap().cancelled = false;
     }
 
+    /// A print cut off by a power cut was taken up (or stopped): no longer waiting for it.
+    pub fn clear_power_loss(&self) {
+        self.state.lock().unwrap().power_loss = false;
+    }
+
+    /// A line from the printer, for tests elsewhere.
+    #[cfg(test)]
+    pub(crate) fn hear(&self, line: &str) {
+        self.heard(&parse(line), line);
+    }
+
+    /// Paused by a line of the file itself (`M601` on Prusa's MK3): nothing more is sent
+    /// until it says it resumed (`//action:resumed`).
+    pub fn paused_by_file(&self) {
+        self.state.lock().unwrap().paused = true;
+    }
+
     /// What a line from the printer changes on its screen.
     fn heard(&self, reply: &Reply, line: &str) {
         self.waiting
             .store(*reply == Reply::PausedForUser, Ordering::Relaxed);
         let mut s = self.state.lock().unwrap();
+        if let Some(text) = needs_someone(line) {
+            s.attention = Some(text);
+        }
+        // Prusa's MK3: its thermal model error went away by itself.
+        if line.trim() == "TM: error cleared" {
+            s.attention = None;
+        }
+        // Prusa's MK3 with an MMU: an error in its chatter, or none any more.
+        match mmu_error(line) {
+            Some(Some(code)) => {
+                s.attention = Some(format!("MMU error {code:05} (prusa.io/{code:05})"));
+            }
+            Some(None) if s.attention.as_deref().is_some_and(|a| a.starts_with("MMU error")) => {
+                s.attention = None;
+            }
+            _ => {}
+        }
         match reply {
             Reply::Start => *s = ScreenState::default(),
             Reply::Error(text) if fatal(text) => s.fault = Some(text.clone()),
@@ -238,7 +574,12 @@ impl Screen {
                     s.message = Some(text.clone()).filter(|t| !t.is_empty())
                 }
                 Action::Pause | Action::Paused => s.paused = true,
-                Action::Resume => s.paused = false,
+                Action::Resume => {
+                    s.paused = false;
+                    s.attention = None;
+                }
+                Action::Killed => s.fault = Some("Killed: it must be reset".to_owned()),
+                Action::Notice(text) => s.message = Some(text.clone()),
                 Action::Cancel => {
                     s.cancelled = true;
                     s.paused = false;
@@ -274,11 +615,22 @@ pub fn machine_type(lines: &[String]) -> Option<String> {
     Some(line[..end].trim().to_owned()).filter(|t| !t.is_empty())
 }
 
-/// A Prusa's model code from an `M862.2 Q` answer (`echo:  M862.2 P302`): 302 for an
-/// MK3S, 120 for a MINI. Other firmware does not answer it.
+/// A Prusa's model code from an `M862.2 Q` answer: 302 for an MK3S, 120 for a MINI. Buddy
+/// answers `echo:  M862.2 P120` (`M862_2_3.cpp`); Prusa's MK3 firmware only the number on
+/// a line of its own (`302`, as PrusaLink reads it), with an MMU attached ten thousand
+/// times its version more (`30302`: an MK3S with an MMU3, `printers.h`): the model is
+/// what is left. Other firmware does not answer it.
 pub fn model_code(lines: &[String]) -> Option<u32> {
-    let line = lines.iter().find_map(|l| l.split_once("M862.2 P"))?.1;
-    line.split_whitespace().next()?.parse().ok()
+    let code: u32 = match lines.iter().find_map(|l| l.split_once("M862.2 P")) {
+        Some((_, rest)) => rest.split_whitespace().next()?.parse().ok()?,
+        None => lines.iter().find_map(|l| {
+            let l = l.trim();
+            (l.len() >= 3 && l.len() <= 5 && l.bytes().all(|b| b.is_ascii_digit()))
+                .then(|| l.parse().ok())
+                .flatten()
+        })?,
+    };
+    Some(code % 10_000)
 }
 
 /// The heaters from an `M105` answer, or a temperature report (`M155`, the `ok`s while
@@ -292,9 +644,23 @@ pub struct Heat {
     pub bed_target_c: Option<f32>,
     pub nozzle_heating: Option<bool>,
     pub bed_heating: Option<bool>,
+    /// Fan speeds, from Prusa's MK3 firmware (in its `M105` answer and its fan auto-report,
+    /// `M155 C2`): `E0:3500 RPM PRN1:0 RPM E0@:255 PRN1@:0`, the hotend fan and the print fan.
+    pub hotend_fan_rpm: Option<u32>,
+    pub print_fan_rpm: Option<u32>,
 }
 
 pub fn heat(lines: &[String]) -> Heat {
+    // `E0:3500 RPM` and `PRN1:0 RPM` (not `E0@:` or `E:` alone, the heating lines' extruder).
+    let rpm = |key: &str| {
+        lines.iter().find_map(|line| {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            words.iter().enumerate().find_map(|(i, word)| {
+                let value = word.strip_prefix(key)?;
+                (words.get(i + 1) == Some(&"RPM")).then(|| value.parse::<u32>().ok())?
+            })
+        })
+    };
     // `T:210.3 /210.0`, or written together: `T:210.3/210.0`.
     let reading = |key: &str| {
         lines.iter().find_map(|line| {
@@ -327,6 +693,8 @@ pub fn heat(lines: &[String]) -> Heat {
         bed_target_c: bed.and_then(|b| b.1),
         nozzle_heating: power("@:"),
         bed_heating: power("B@:"),
+        hotend_fan_rpm: rpm("E0:"),
+        print_fan_rpm: rpm("PRN1:"),
     }
 }
 
@@ -339,6 +707,9 @@ pub enum Event {
     Progress { done: usize, total: usize },
     /// The printer asked for a line again.
     Resent(u32),
+    /// An `Error:` about the print, not about the line on the wire: a job stops on it, as
+    /// OctoPrint's does.
+    Error(String),
 }
 
 /// A bed mesh in what a printer said, after a header that announces one: Prusa's `G81`
@@ -411,7 +782,42 @@ pub struct Printer<L: Read + Write> {
     /// What is on its screen (waiting for its knob, a question, an error, paused or stopped
     /// at its knob): shared, so whoever reports meanwhile can say so.
     waiting: Arc<Screen>,
+    /// Lines sent that have no `ok` yet.
+    unacked: usize,
+    /// The line last asked for again, and how often in a row.
+    same_resend: (u32, usize),
+    /// What it can do, from its `M115` answer.
+    pub caps: Capabilities,
+    /// Its firmware, from its `M115` answer.
+    pub firmware: Option<String>,
+    /// Set from elsewhere to break off a heat-up (`M109`, `M190`) at once, where the printer
+    /// can (its emergency parser).
+    pub interrupt: Arc<AtomicBool>,
+    /// How long it may stay silent while an `ok` is due ([`SILENT_TIMEOUT`],
+    /// [`LONG_SILENCE`]; shorter in tests), and how long the `ok` after a resend request may
+    /// take ([`RESEND_OK_WAIT`]).
+    silence: (Duration, Duration, Duration),
+    /// When `M79` was last sent (Prusa's MK3 firmware: a host is there).
+    last_m79: Option<Instant>,
+    /// A print from its own SD card, as its last `M27` said.
+    pub sd: Option<SdStatus>,
+    /// The numbers of recent lines that were not a job's file's own (`M79`, an `M105` asking
+    /// after it, an answer): a job's checkpoint keeps them (crate::recovery).
+    pub extras: Vec<u32>,
+    /// The next line sent is a job's file's own.
+    file_line: bool,
+    /// A line asked for again that was never sent (`Resend: N` beyond the last): after a
+    /// power cut Prusa's MK3 asks for the line after the one it saved this way.
+    stray_resend: Option<u32>,
+    /// Set from elsewhere: the button pressed on the website for the question on its screen
+    /// (Marlin's host prompt), sent as `M876 S<index>` at once, also while a line waits (its
+    /// emergency parser takes it then).
+    pub answer: Arc<Mutex<Option<u8>>>,
 }
+
+/// How often Prusa's MK3 firmware is told a host is there (`M79`; it forgets after 30 s,
+/// `Configuration_adv.h`; PrusaLink says it every 12 s).
+const HOST_KEEPALIVE: Duration = Duration::from_secs(12);
 
 impl<L: Read + Write> Printer<L> {
     pub fn new(link: L) -> Self {
@@ -420,7 +826,133 @@ impl<L: Read + Write> Printer<L> {
             next_number: 1,
             sent: VecDeque::new(),
             waiting: Arc::default(),
+            unacked: 0,
+            same_resend: (0, 0),
+            caps: Capabilities::default(),
+            firmware: None,
+            interrupt: Arc::default(),
+            silence: (SILENT_TIMEOUT, LONG_SILENCE, RESEND_OK_WAIT),
+            last_m79: None,
+            answer: Arc::default(),
+            sd: None,
+            extras: Vec::new(),
+            file_line: false,
+            stray_resend: None,
         }
+    }
+
+    /// The number the next line goes with.
+    pub fn next_number(&self) -> u32 {
+        self.next_number
+    }
+
+    /// Goes on with this line number (a print taken up after a power cut: the printer set its
+    /// own); what was sent before is forgotten.
+    pub fn set_next_number(&mut self, number: u32) {
+        self.next_number = number;
+        self.sent.clear();
+        self.unacked = 0;
+        self.same_resend = (0, 0);
+    }
+
+    /// A line asked for that was never sent, once.
+    pub fn take_stray_resend(&mut self) -> Option<u32> {
+        self.stray_resend.take()
+    }
+
+    /// Sends one of a job's file's own lines (its number is not kept among `extras`).
+    pub fn send_file_line(&mut self, code: &str, on: &mut impl FnMut(Event)) -> io::Result<String> {
+        self.file_line = true;
+        self.send_line(code, on)
+    }
+
+    /// Whether it has an SD card to print from: Prusa's MK3, or Marlin that says so
+    /// (`Cap:SDCARD:1`).
+    pub fn has_sd(&self) -> bool {
+        self.is_prusa_mk3() || self.caps.all.iter().any(|(name, on)| name == "SDCARD" && *on)
+    }
+
+    /// Asks how a print from its card goes (`M27`; Marlin `M27 C` for the file's name), and
+    /// keeps it in `sd`.
+    pub fn follow_sd(&mut self) -> io::Result<Option<SdStatus>> {
+        let ask = if self.is_prusa_mk3() { "M27" } else { "M27 C" };
+        let answer = self.command(ask)?;
+        if let Some(status) = sd_status(&answer) {
+            // Marlin forgets nothing between asks, the MK3 gives no file while paused: what
+            // was known stays.
+            let known = self.sd.take();
+            self.sd = status.map(|mut s| {
+                if let Some(k) = known {
+                    s.file = s.file.or(k.file);
+                    if s.total == 0 {
+                        (s.done, s.total, s.elapsed_s) = (k.done, k.total, k.elapsed_s);
+                    }
+                }
+                s
+            });
+        }
+        Ok(self.sd.clone())
+    }
+
+    /// Pause, resume or stop the print from its card: Prusa's MK3 parks with M601, goes on
+    /// with M602 and stops with M603 (as PrusaLink does); Marlin M25, M24, M524.
+    pub fn control_sd(&mut self, what: &str, on: &mut impl FnMut(Event)) -> io::Result<()> {
+        let code = match (self.is_prusa_mk3(), what) {
+            (true, "pause") => "M601",
+            (true, "resume") => "M602",
+            (true, "stop") => "M603",
+            (false, "pause") => "M25",
+            (false, "resume") => "M24",
+            (false, "stop") => "M524",
+            _ => return Ok(()),
+        };
+        self.send_line(code, on).map(|_| ())
+    }
+
+    /// Sends someone's answer to its question now, if there is one and no line is waiting
+    /// (idle, or a job paused for the question).
+    pub fn send_answer(&mut self, on: &mut impl FnMut(Event)) -> io::Result<()> {
+        let pending = self.answer.lock().unwrap().take();
+        match pending {
+            Some(button) => self.send_line(&format!("M876 S{button}"), on).map(|_| ()),
+            None => Ok(()),
+        }
+    }
+
+    /// Tells Prusa's MK3 firmware a host is there, every 12 s (`M79`): only then does it
+    /// offer "Set Ready" in its menu, finish a host's print on its screen and offer to resume
+    /// a host's print after a power cut. `MC` (Maker Connect) shows on its status line.
+    /// Nothing for other firmware.
+    pub fn keep_host_alive(&mut self, on: &mut impl FnMut(Event)) -> io::Result<()> {
+        if !self.is_prusa_mk3() || self.last_m79.is_some_and(|t| t.elapsed() < HOST_KEEPALIVE) {
+            return Ok(());
+        }
+        self.last_m79 = Some(Instant::now());
+        self.send_line("M79 S\"MC\"", on).map(|_| ())
+    }
+
+    /// Shorter waits, for tests with a fake printer.
+    #[cfg(test)]
+    pub(crate) fn hurry(&mut self) {
+        self.silence = (
+            Duration::from_millis(150),
+            Duration::from_millis(600),
+            Duration::from_millis(50),
+        );
+    }
+
+    /// Prusa's MK3 firmware (not Buddy): pauses, resumes and stops with `M601`, `M602`,
+    /// `M603`, which park the head.
+    pub fn is_prusa_mk3(&self) -> bool {
+        self.firmware
+            .as_deref()
+            .is_some_and(|f| f.starts_with("Prusa-Firmware ") || f == "Prusa-Firmware")
+    }
+
+    /// The lines sent and not acknowledged yet.
+    fn in_flight(&self) -> impl Iterator<Item = &str> {
+        let skip = self.sent.len().saturating_sub(self.unacked);
+        self.sent.iter().skip(skip).map(|(_, code)| code.as_str())
     }
 
     /// What is on its screen, readable from another thread.
@@ -482,12 +1014,15 @@ impl<L: Read + Write> Printer<L> {
         }
         self.next_number = 0;
         self.sent.clear();
+        self.unacked = 0;
+        self.same_resend = (0, 0);
         self.send_numbered("M110 N0")?;
         self.wait_ok(on).map(|_| ())
     }
 
     /// Sends one command and returns what the printer answered: its lines before the
-    /// `ok`, and the `ok` line itself.
+    /// `ok`, and the `ok` line itself. An `M115` answer also gives its firmware and what it
+    /// can do (`caps`).
     pub fn command(&mut self, code: &str) -> io::Result<Vec<String>> {
         self.send_numbered(code)?;
         let mut lines = Vec::new();
@@ -497,6 +1032,13 @@ impl<L: Read + Write> Printer<L> {
             }
         })?;
         lines.push(ok);
+        if code.trim().eq_ignore_ascii_case("M115") {
+            let caps = capabilities(&lines);
+            if !caps.all.is_empty() {
+                self.caps = caps;
+            }
+            self.firmware = firmware(&lines).or(self.firmware.take());
+        }
         Ok(lines)
     }
 
@@ -508,49 +1050,164 @@ impl<L: Read + Write> Printer<L> {
         if self.sent.len() > KEPT_LINES {
             self.sent.pop_front();
         }
+        if !std::mem::take(&mut self.file_line) {
+            self.extras.push(number);
+            let excess = self.extras.len().saturating_sub(256);
+            self.extras.drain(..excess);
+        }
         self.next_number += 1;
+        self.unacked += 1;
         Ok(())
     }
 
-    /// Waits for the `ok` of the last line sent. One line is in flight at a time, so a
-    /// `Resend: N` is for that line: Marlin answers a damaged line with `Error:`, then
-    /// `Resend: N`, then an `ok` that belongs to the request; at that `ok` the line goes
-    /// again, and its own `ok` follows.
-    /// Returns the `ok` line, which carries the temperatures after an `M105`.
+    /// Asks after a printer that stays silent while an `ok` is due: a numbered `M105`.
+    /// The printer works in order, so its `ok` means every line before it was done too: from
+    /// then on that one `ok` is waited for. Was a line lost instead, the printer asks for
+    /// it again (a resend), and the line and the `M105` go again.
+    fn poke(&mut self) -> io::Result<()> {
+        self.send_numbered("M105")?;
+        self.unacked = 1;
+        Ok(())
+    }
+
+    /// Sends line `from` and every line after it again, as the printer asked (it threw
+    /// away whatever came after the line it missed). A line not sent yet: the last line
+    /// arrived twice, nothing to send.
+    fn resend_from(&mut self, from: u32, on: &mut impl FnMut(Event)) -> io::Result<()> {
+        if from >= self.next_number {
+            // Beyond the last line sent: kept (after a power cut Prusa's MK3 asks this way
+            // for the line after the one it saved), and otherwise nothing to send.
+            if from > self.next_number {
+                self.stray_resend = Some(from);
+            }
+            return Ok(());
+        }
+        if self.same_resend.0 == from {
+            self.same_resend.1 += 1;
+            if self.same_resend.1 >= MAX_SAME_RESENDS {
+                return Err(io::Error::other(format!(
+                    "the printer keeps asking for line {from} again: the connection is broken"
+                )));
+            }
+        } else {
+            self.same_resend = (from, 0);
+        }
+        let again: Vec<(u32, String)> = self
+            .sent
+            .iter()
+            .filter(|(n, _)| *n >= from)
+            .cloned()
+            .collect();
+        if again.first().map(|(n, _)| *n) != Some(from) {
+            return Err(io::Error::other(format!(
+                "the printer asks for line {from}, which is no longer kept"
+            )));
+        }
+        on(Event::Resent(from));
+        for (number, code) in &again {
+            self.write_line(&numbered(*number, code))?;
+        }
+        self.unacked = again.len();
+        Ok(())
+    }
+
+    /// Waits until every line sent has its `ok`, and returns the last `ok` line (after an
+    /// `M105` it carries the temperatures). Along the way, as OctoPrint and PrusaLink do:
+    ///
+    /// - `Resend: N` is followed by an `ok` that belongs to the request; at that `ok` line N
+    ///   and those after it go again. When that `ok` does not come (a firmware bug), they go
+    ///   after a second anyway. The same line asked for again and again: broken.
+    /// - Silence (or `wait`) while an `ok` is due: a numbered `M105` asks after it. Its
+    ///   `ok` settles an `ok` that was lost; a line that was lost comes back as a resend.
+    ///   After a few: it stopped answering. Busy messages, temperatures while it heats and
+    ///   anything else it says count as an answer; a command that takes long gets longer.
+    /// - `interrupt`: an `M108` breaks off a heat-up at once, where the printer has the
+    ///   emergency parser (numbered, so its `ok` is counted like any other).
     fn wait_ok(&mut self, on: &mut impl FnMut(Event)) -> io::Result<String> {
         let mut last_heard = Instant::now();
-        let mut resend = None;
+        // A resend asked for (the line), and when; done at the `ok` that follows.
+        let mut resend: Option<(u32, Instant)> = None;
+        let mut pokes = 0;
         loop {
+            if self.interrupt.swap(false, Ordering::Relaxed)
+                && self.caps.emergency_parser
+                && self.in_flight().any(heats)
+            {
+                on(Event::Said("Breaking off the heat-up (M108)".to_owned()));
+                self.send_numbered("M108")?;
+            }
+            // Someone's answer to its question, numbered like any line (its `ok` is
+            // counted): the emergency parser acts on it while this line still waits.
+            let pending = self.answer.lock().unwrap().take();
+            if let Some(button) = pending {
+                on(Event::Said(format!("Answering its question: button {button} (M876)")));
+                self.send_numbered(&format!("M876 S{button}"))?;
+            }
             let Some(line) = self.read_line()? else {
-                if last_heard.elapsed() > SILENT_TIMEOUT {
-                    return Err(io::Error::new(
-                        io::ErrorKind::TimedOut,
-                        "the printer stopped answering",
-                    ));
+                if let Some((from, at)) = resend
+                    && at.elapsed() > self.silence.2
+                {
+                    resend = None;
+                    self.resend_from(from, on)?;
+                    last_heard = Instant::now();
+                    continue;
+                }
+                let limit = if self.in_flight().any(long_running) {
+                    self.silence.1
+                } else {
+                    self.silence.0
+                };
+                if last_heard.elapsed() > limit {
+                    if pokes >= MAX_POKES {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "the printer stopped answering",
+                        ));
+                    }
+                    pokes += 1;
+                    on(Event::Said("No answer from the printer: asking after it (M105)".to_owned()));
+                    self.poke()?;
+                    last_heard = Instant::now();
                 }
                 continue;
             };
             last_heard = Instant::now();
             let reply = parse(&line);
             self.waiting.heard(&reply, &line);
+            // Anything but an `ok` after a resend request: its `ok` is not coming.
+            if !matches!(reply, Reply::Ok | Reply::Resend(_))
+                && let Some((from, _)) = resend.take()
+            {
+                self.resend_from(from, on)?;
+            }
             match reply {
-                Reply::Ok => match resend.take() {
-                    None => return Ok(line),
-                    Some(number) => {
-                        let Some((_, code)) = self.sent.iter().find(|(n, _)| *n == number).cloned()
-                        else {
-                            return Err(io::Error::other(format!(
-                                "the printer asks for line {number}, which is no longer kept"
-                            )));
-                        };
-                        on(Event::Resent(number));
-                        self.write_line(&numbered(number, &code))?;
+                Reply::Ok => {
+                    if let Some((from, _)) = resend.take() {
+                        self.resend_from(from, on)?;
+                        continue;
                     }
-                },
-                Reply::Resend(number) => resend = Some(number),
+                    self.unacked = self.unacked.saturating_sub(1);
+                    if self.unacked == 0 {
+                        self.same_resend = (0, 0);
+                        return Ok(line);
+                    }
+                }
+                Reply::Resend(number) => resend = Some((number, Instant::now())),
+                Reply::Wait => {
+                    // Idle while an `ok` is due: ask after it now, rather than in 30 s.
+                    if pokes < MAX_POKES {
+                        pokes += 1;
+                        self.poke()?;
+                    }
+                }
                 Reply::Busy | Reply::PausedForUser => {}
                 Reply::Start => return Err(io::Error::other("the printer restarted")),
-                Reply::Error(text) => on(Event::Said(format!("Error: {text}"))),
+                Reply::Error(text) => {
+                    on(Event::Said(format!("Error: {text}")));
+                    if !harmless_error(&text) {
+                        on(Event::Error(text));
+                    }
+                }
                 Reply::Action(_) => on(Event::Said(line.clone())),
                 Reply::Other(text) if !text.is_empty() => on(Event::Said(text)),
                 Reply::Other(_) => {}
@@ -729,6 +1386,33 @@ pub(crate) mod tests {
         busy_first: usize,
         /// The codes it accepted, in order.
         accepted: Arc<Mutex<Vec<String>>>,
+        /// Codes whose `ok` it loses once (done, but no `ok`).
+        pub(crate) lose_ok: Vec<String>,
+        /// Codes it never gets, once (lost on the wire: no answer at all).
+        pub(crate) lose_line: Vec<String>,
+        /// Forgets the `ok` after a resend request (a known firmware bug).
+        pub(crate) no_ok_after_resend: bool,
+        /// Asks for the same line forever.
+        pub(crate) resend_forever: bool,
+        /// Says `wait` when it lost an `ok` (Marlin's NO_TIMEOUTS).
+        pub(crate) says_wait: bool,
+        /// Errors it says for a code: (code, error).
+        pub(crate) errors: Vec<(String, String)>,
+        /// Its `M115` answer.
+        pub(crate) m115: String,
+        /// M109 waits until an M108 breaks it off (Marlin's emergency parser).
+        pub(crate) heat_until_m108: bool,
+        heating: bool,
+        /// A code that asks a question on its screen (host prompt) and waits for M876.
+        pub(crate) asks_at: Option<String>,
+        asking: bool,
+        /// A code after which it restarts (a power cut): it says `start`.
+        pub(crate) restart_after: Option<String>,
+        /// Started again after a power cut in a host's print, with the number of the last
+        /// line it carried out: M602 resumes it and it asks for the next line (Prusa's MK3).
+        pub(crate) recovering: Option<u32>,
+        /// Each accepted code with its line number.
+        pub(crate) numbers: Arc<Mutex<Vec<(u32, String)>>>,
     }
 
     impl FakeMarlin {
@@ -740,6 +1424,20 @@ pub(crate) mod tests {
                 spoil: Vec::new(),
                 busy_first: 0,
                 accepted,
+                lose_ok: Vec::new(),
+                lose_line: Vec::new(),
+                no_ok_after_resend: false,
+                resend_forever: false,
+                says_wait: false,
+                errors: Vec::new(),
+                m115: "FIRMWARE_NAME:Prusa-Firmware 3.14.0 based on Marlin FIRMWARE_URL:https://github.com/prusa3d/Prusa-Firmware PROTOCOL_VERSION:1.0 MACHINE_TYPE:Prusa i3 MK3S EXTRUDER_COUNT:1".to_owned(),
+                heat_until_m108: false,
+                heating: false,
+                asks_at: None,
+                asking: false,
+                restart_after: None,
+                recovering: None,
+                numbers: Arc::default(),
             }
         }
 
@@ -748,34 +1446,123 @@ pub(crate) mod tests {
             self.out.push_back(b'\n');
         }
 
+        fn ask_again(&mut self) {
+            self.say("Error:Line Number is not Last Line Number+1, Last Line: 0");
+            let expected = self.expected;
+            self.say(&format!("Resend: {expected}"));
+            if !self.no_ok_after_resend {
+                self.say("ok");
+            }
+        }
+
         fn receive(&mut self, line: &str) {
             let Some((body, sum)) = line.rsplit_once('*') else {
                 return self.say("ok");
             };
             let number: u32 = body[1..].split(' ').next().unwrap().parse().unwrap();
             let code = body.split_once(' ').unwrap().1.to_owned();
+            if let Some(i) = self.lose_line.iter().position(|c| *c == code) {
+                self.lose_line.remove(i);
+                return;
+            }
             if code.starts_with("M110") {
                 self.expected = number + 1;
                 return self.say("ok");
             }
+            if self.resend_forever && code != "M110 N0" {
+                return self.ask_again();
+            }
+            // A line done already, arriving again: dropped without an answer, as Marlin does.
+            if number < self.expected && sum.parse::<u8>() == Ok(checksum(body)) {
+                return;
+            }
             let damaged = self.spoil.contains(&number) || sum.parse::<u8>() != Ok(checksum(body));
             if damaged || number != self.expected {
                 self.spoil.retain(|n| *n != number);
-                self.say("Error:checksum mismatch");
-                self.say(&format!("Resend: {}", self.expected));
-                return self.say("ok");
+                return self.ask_again();
             }
             for _ in 0..std::mem::take(&mut self.busy_first) {
                 self.say("echo:busy: processing");
             }
             self.expected += 1;
+            self.numbers.lock().unwrap().push((number, code.clone()));
+            // Started again after a power cut: a host is there (M79), it says it is ready;
+            // resumed (M602) it heats and moves back, takes the saved line's number and asks
+            // for the next one, then answers the M602.
+            if let Some(saved) = self.recovering {
+                if code.starts_with("M79") {
+                    self.say("//action:uvlo_recovery_ready");
+                }
+                if code == "M602" {
+                    self.recovering = None;
+                    self.accepted.lock().unwrap().push(code);
+                    self.expected = saved + 1;
+                    self.say(&format!("Resend: {}", saved + 1));
+                    self.say("ok");
+                    return self.say("ok");
+                }
+            }
+            if code == "M108" && self.heating {
+                // The heat-up ends (its ok), then the M108 line itself.
+                self.heating = false;
+                self.say("ok");
+            }
+            if code.starts_with("M876") && self.asking {
+                // The question is answered: it goes away, the line that asked ends.
+                self.asking = false;
+                self.accepted.lock().unwrap().push(code.clone());
+                self.say("//action:prompt_end");
+                self.say("ok");
+                return self.say("ok");
+            }
+            let errors: Vec<String> = self
+                .errors
+                .iter()
+                .filter(|(c, _)| *c == code)
+                .map(|(_, e)| e.clone())
+                .collect();
+            for error in errors {
+                self.say(&error);
+            }
+            if let Some(i) = self.lose_ok.iter().position(|c| *c == code) {
+                self.lose_ok.remove(i);
+                self.accepted.lock().unwrap().push(code);
+                if self.says_wait {
+                    self.say("wait");
+                }
+                return;
+            }
             match code.as_str() {
-                "M115" => self.say("FIRMWARE_NAME:Prusa-Firmware 3.14.0 based on Marlin FIRMWARE_URL:https://github.com/prusa3d/Prusa-Firmware PROTOCOL_VERSION:1.0 MACHINE_TYPE:Prusa i3 MK3S EXTRUDER_COUNT:1"),
+                "M115" => {
+                    let m115 = self.m115.clone();
+                    for line in m115.lines() {
+                        self.say(line);
+                    }
+                }
                 "M105" => return self.say("ok T:24.5 /0.0 B:23.1 /0.0 T0:24.5 /0.0 @:0 B@:0 P:0.0 A:28.2"),
-                "M862.2 Q" => self.say("echo:  M862.2 P302"),
+                // As Prusa's MK3 firmware answers it: the number alone.
+                "M862.2 Q" => self.say("302"),
                 _ => {}
             }
-            self.accepted.lock().unwrap().push(code);
+            self.accepted.lock().unwrap().push(code.clone());
+            if code.starts_with("M109") && self.heat_until_m108 {
+                self.heating = true;
+                return self.say("T:180.0 E:0 W:?");
+            }
+            if self.restart_after.as_deref() == Some(code.as_str()) {
+                // The power went: it starts again, everything it had is gone.
+                self.restart_after = None;
+                self.expected = 0;
+                return self.say("start");
+            }
+            if self.asks_at.as_deref() == Some(code.as_str()) {
+                self.asking = true;
+                self.say("//action:prompt_begin Filament runout");
+                self.say("//action:prompt_button Continue");
+                self.say("//action:prompt_button Purge more");
+                self.say("//action:prompt_show");
+                return self.say("echo:busy: paused for user");
+            }
             self.say("ok T:210.0 /210.0 B:60.0 /60.0");
         }
     }
@@ -865,8 +1652,38 @@ pub(crate) mod tests {
                 bed_target_c: Some(0.0),
                 nozzle_heating: Some(false),
                 bed_heating: Some(false),
+                hotend_fan_rpm: None,
+                print_fan_rpm: None,
             }
         );
+        // Prusa's MK3: fans in its M105 answer and its fan auto-report.
+        let fans = heat(&["ok T:215.0 /215.0 B:60.0 /60.0 T0:215.0 /215.0 @:90 B@:40 P:35.0 A:30.1 E0:3500 RPM PRN1:4800 RPM E0@:255 PRN1@:200".to_owned()]);
+        assert_eq!((fans.hotend_fan_rpm, fans.print_fan_rpm), (Some(3500), Some(4800)));
+        assert_eq!(fans.nozzle_c, Some(215.0));
+        let fans = heat(&["E0:0 RPM PRN1:0 RPM E0@:0 PRN1@:0".to_owned()]);
+        assert_eq!((fans.hotend_fan_rpm, fans.print_fan_rpm), (Some(0), Some(0)));
+        assert!(routine("E0:0 RPM PRN1:0 RPM E0@:0 PRN1@:0"));
+        assert!(routine("echo:MMU2:<P0 E0*2a.") && !routine("echo:Unknown command: \"X\""));
+        // An MMU error in the MK3's chatter with it, as Prusa numbers it, and its end.
+        assert_eq!(mmu_error("echo:MMU2:<T0 E8004*3c."), Some(Some(4104)));
+        assert_eq!(mmu_error("echo:MMU2:<Q0 E8087*1a."), Some(Some(4115)), "selector homing");
+        assert_eq!(mmu_error("echo:MMU3:<Q0 EC100*1a."), Some(Some(4222)), "idler overheat");
+        assert_eq!(mmu_error("echo:MMU2:<Q0 P5*1a."), Some(None));
+        assert_eq!(mmu_error("echo:MMU2:>Q0*ea."), None);
+        let screen = Screen::default();
+        screen.heard(&parse("echo:MMU2:<T0 E8004*3c."), "echo:MMU2:<T0 E8004*3c.");
+        assert_eq!(
+            screen.now().attention.as_deref(),
+            Some("MMU error 04104 (prusa.io/04104)")
+        );
+        screen.heard(&parse("echo:MMU2:<Q0 F0*1a."), "echo:MMU2:<Q0 F0*1a.");
+        assert!(screen.now().attention.is_none());
+        // The thermal model's error, and its clearing.
+        let screen = Screen::default();
+        screen.heard(&parse("TM: error triggered!"), "TM: error triggered!");
+        assert!(screen.now().attention.is_some());
+        screen.heard(&parse("TM: error cleared"), "TM: error cleared");
+        assert!(screen.now().attention.is_none());
         // Heating, written together, and Marlin without a power for the bed.
         let heating = heat(&["T:180.2/215.0 B:58.0 /60.0 @:127".to_owned()]);
         assert_eq!(heating.nozzle_target_c, Some(215.0));
@@ -885,6 +1702,280 @@ pub(crate) mod tests {
             Some("Prusa-Firmware-Buddy 6.3.0")
         );
         assert_eq!(machine_type(&mini).as_deref(), Some("Prusa-MINI"));
+    }
+
+    /// Every kind of line in docs/marlin-serial-protocol.md, as Marlin 2, Buddy's Marlin and
+    /// Prusa's MK3 firmware write it, read for what it means.
+    #[test]
+    fn every_line_the_firmware_can_say_is_read() {
+        use Reply::{Busy, Error, Ok, Other, PausedForUser, Resend, Start, Wait};
+        // The conversation.
+        for ok in ["ok", "ok T:210.0 /210.0 B:60.0 /60.0 @:64 B@:0", "ok N12 P15 B3"] {
+            assert_eq!(parse(ok), Ok, "{ok}");
+        }
+        for (line, n) in [("Resend: 12", 12), ("Resend:12", 12), ("rs N7", 7), ("rs 7", 7)] {
+            assert_eq!(parse(line), Resend(n), "{line}");
+        }
+        for line in ["busy: processing", "echo:busy: processing"] {
+            assert_eq!(parse(line), Busy, "{line}");
+        }
+        for line in [
+            "echo:busy: paused for user",
+            "busy: paused for user",
+            "echo:busy: paused for input",
+        ] {
+            assert_eq!(parse(line), PausedForUser, "{line}");
+        }
+        assert_eq!(parse("start"), Start);
+        assert_eq!(parse("wait"), Wait);
+        // Host actions, with and without the space Prusa's firmware sometimes puts in.
+        for (line, action) in [
+            ("//action:pause", Action::Pause),
+            ("// action:pause", Action::Pause),
+            ("// action:cancel", Action::Cancel),
+            ("//action:paused", Action::Paused),
+            ("//action:resumed", Action::Resume),
+            ("// action:ready", Action::Ready),
+            ("// action:not_ready", Action::NotReady),
+            ("// action:uvlo_auto_recovery_ready", Action::PowerLoss),
+            ("//action:poweroff", Action::Killed),
+            ("//action:prompt_end", Action::PromptEnd),
+        ] {
+            assert_eq!(parse(line), Reply::Action(action), "{line}");
+        }
+        for line in [
+            "//action:filament_runout 0",
+            "//action:probe_failed",
+            "//action:probe_rewipe",
+            "//action:safety_timer_expired",
+            "// action:dump_available",
+        ] {
+            assert!(matches!(parse(line), Reply::Action(Action::Notice(_))), "{line}");
+        }
+        // Fatal, in every firmware's words.
+        for line in [
+            "Error:Printer halted. kill() called!",
+            "!! KILL caused by KILL button/pin",
+            "KILL caused by too much inactive time - current command: G1",
+            "Error:Printer stopped due to errors. Fix the error and use M999 to restart.",
+            "echo:Printer stopped due to errors. Supervision required.",
+            "!! STOP called because of BLTouch error - restart with M999",
+            "STOP called because of unhomed error - restart with M999",
+            "Error:Thermal Runaway, system stopped! Heater_ID: 0",
+            "Error:Thermal Malfunction, system stopped! Heater_ID: bed",
+            "Error:Heating failed, system stopped! Heater_ID: 0",
+            "Error:MAXTEMP triggered, system stopped! Heater_ID: 0",
+            "Error:MINTEMP triggered, system stopped! Heater_ID: bed",
+            "Error: HOTEND THERMAL RUNAWAY",
+            "Error: HEATBED THERMAL RUNAWAY",
+            "Error:0: Heaters switched off. MAXTEMP triggered!",
+            "Error:Heaters switched off. MINTEMP BED triggered!",
+        ] {
+            assert!(fatal(line), "{line}");
+            let screen = Screen::default();
+            screen.heard(&parse(line), line);
+            assert!(screen.now().fault.is_some(), "{line}");
+        }
+        assert!(matches!(parse("!! KILL caused by KILL button/pin"), Error(_)));
+        assert!(matches!(parse("fatal: no comms"), Error(_)));
+        // Needs someone, not dead.
+        for line in [
+            "Bed leveling failed. Sensor triggered too high",
+            "Bed leveling failed. Sensor didn't trigger. Debris on nozzle? Waiting for reset.",
+            "TM: error triggered!",
+            "Extruder fan speed is lower than expected",
+            "Print fan speed is lower than expected",
+            "INT4",
+            "echo:Printer locked! (Unlock with M511 or LCD)",
+        ] {
+            assert!(needs_someone(line).is_some(), "{line}");
+            assert!(!fatal(line), "{line}");
+        }
+        // Errors about the line on the wire, the SD card or an unknown code: not about the
+        // print. Others are.
+        for text in [
+            "Line Number is not Last Line Number+1, Last Line: 3",
+            "checksum mismatch, Last Line: 3",
+            "No Checksum with line number, Last Line: 3",
+            "No Line Number with checksum, Last Line: 3",
+            "volume.init failed",
+            "openRoot failed",
+            "open failed, File: X.GCO",
+        ] {
+            assert!(harmless_error(text), "{text}");
+        }
+        for text in ["Hotend too cold", "Probing Failed", "Printer halted. kill() called!", "0"] {
+            assert!(!harmless_error(text), "{text}");
+        }
+        // Not fatal, not anyone's business: shown, not acted on.
+        for line in [
+            "echo:Unknown command: \"X1\"",
+            "echo: cold extrusion prevented",
+            "T:210.0 E:0 B:60.0",
+            "T:180.3 E:0 W:?",
+            "LCD status changed",
+            "echo:enqueing \"M24\"",
+            "E0:3500 RPM PRN1:0 RPM E0@:255 PRN1@:0",
+        ] {
+            assert!(!fatal(line) && needs_someone(line).is_none(), "{line}");
+            assert!(matches!(parse(line), Other(_)), "{line}");
+        }
+    }
+
+    /// `M862.2 Q` as Buddy and as Prusa's MK3 firmware answer it, an MMU attached or not.
+    #[test]
+    fn the_model_code_in_both_forms() {
+        assert_eq!(model_code(&said("echo:  M862.2 P120\nok")), Some(120));
+        assert_eq!(model_code(&said("302\nok")), Some(302));
+        assert_eq!(model_code(&said("30302\nok")), Some(302), "MK3S with an MMU3");
+        assert_eq!(model_code(&said("20250\nok")), Some(250), "MK2.5 with an MMU2");
+        assert_eq!(model_code(&said("echo:Unknown command: \"M862.2 Q\"\nok")), None);
+    }
+
+    /// `M27` as Prusa's MK3 and Marlin 2 answer it.
+    #[test]
+    fn an_sd_print_is_followed() {
+        let mk3 = sd_status(&said("Benchy 0.2mm PLA.gcode\nSD printing byte 1234/567890\n1:05\nok"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(mk3.file.as_deref(), Some("Benchy 0.2mm PLA.gcode"));
+        assert_eq!((mk3.done, mk3.total), (1234, 567890));
+        assert_eq!(mk3.elapsed_s, Some(3600 + 5 * 60));
+        assert!(!mk3.paused);
+        let path = sd_status(&said("/PARTS/BOX~1.GCO\nSD printing byte 1/2\n0:00\nok")).unwrap().unwrap();
+        assert_eq!(path.file.as_deref(), Some("BOX~1.GCO"));
+        assert!(sd_status(&said("SD print paused\nok")).unwrap().unwrap().paused);
+        assert_eq!(sd_status(&said("Not SD printing\nok")), Some(None));
+        assert_eq!(sd_status(&said("Print saved\nok")), Some(None), "a host's print, not the card's");
+        let marlin = sd_status(&said("Current file: BENCHY~1.GCO Benchy.gcode\nSD printing byte 10/100\nok"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(marlin.file.as_deref(), Some("Benchy.gcode"));
+        assert_eq!(marlin.elapsed_s, None);
+        assert_eq!(sd_status(&said("echo:Unknown command: \"M27\"\nok")), None);
+    }
+
+    /// What a printer can do, from its `M115` answer.
+    #[test]
+    fn capabilities_are_read() {
+        let caps = capabilities(&said(
+            "FIRMWARE_NAME:Marlin 2.1.2\nCap:EEPROM:1\nCap:AUTOREPORT_TEMP:1\nCap:EMERGENCY_PARSER:1\nCap:PROMPT_SUPPORT:0\nok",
+        ));
+        assert!(caps.autoreport_temp && caps.emergency_parser && !caps.prompt_support);
+        assert_eq!(caps.all.len(), 4);
+        assert!(long_running("G28 W") && long_running("M109 S215") && !long_running("G1 X1"));
+    }
+
+    fn quick(fake: FakeMarlin) -> Printer<FakeMarlin> {
+        let mut printer = Printer::new(fake);
+        printer.hurry();
+        printer.connect(&mut |_| {}).unwrap();
+        printer
+    }
+
+    /// An `ok` lost on the wire: the printer is asked after (a numbered M105), whose `ok`
+    /// settles it; nothing is sent twice, nothing lost.
+    #[test]
+    fn a_lost_ok_is_asked_after() {
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut fake = FakeMarlin::new(accepted.clone());
+        fake.lose_ok = vec!["M104 S210".into()];
+        let mut printer = quick(fake);
+        printer.send(GCODE.lines(), &mut |_| {}).unwrap();
+        assert_eq!(
+            *accepted.lock().unwrap(),
+            ["G28", "M104 S210", "G1 X10 Y10", "G1 X20 Y10 E1.5", "M84"]
+        );
+    }
+
+    /// The same, at once when the printer says `wait` (idle with an `ok` due).
+    #[test]
+    fn wait_means_the_ok_was_lost() {
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut fake = FakeMarlin::new(accepted.clone());
+        fake.lose_ok = vec!["G28".into()];
+        fake.says_wait = true;
+        let mut printer = quick(fake);
+        let started = Instant::now();
+        printer.send(GCODE.lines(), &mut |_| {}).unwrap();
+        assert!(started.elapsed() < Duration::from_millis(140), "did not wait for silence");
+        assert_eq!(accepted.lock().unwrap().len(), 5);
+    }
+
+    /// A line lost on the wire: the M105 that asks after it makes the printer ask for the
+    /// line again, and both go, in order.
+    #[test]
+    fn a_lost_line_comes_back_as_a_resend() {
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut fake = FakeMarlin::new(accepted.clone());
+        fake.lose_line = vec!["G1 X10 Y10".into()];
+        let mut printer = quick(fake);
+        let mut events = Vec::new();
+        printer.send(GCODE.lines(), &mut |e| events.push(e)).unwrap();
+        assert_eq!(
+            *accepted.lock().unwrap(),
+            ["G28", "M104 S210", "G1 X10 Y10", "G1 X20 Y10 E1.5", "M84"]
+        );
+        assert!(events.iter().any(|e| matches!(e, Event::Resent(_))));
+    }
+
+    /// Firmware that forgets the `ok` after a resend request: the line goes anyway.
+    #[test]
+    fn a_resend_without_its_ok_still_goes() {
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut fake = FakeMarlin::new(accepted.clone());
+        fake.spoil = vec![3];
+        fake.no_ok_after_resend = true;
+        let mut printer = quick(fake);
+        printer.send(GCODE.lines(), &mut |_| {}).unwrap();
+        assert_eq!(accepted.lock().unwrap().len(), 5);
+    }
+
+    /// A printer that asks for the same line forever: the connection counts as broken.
+    #[test]
+    fn a_resend_loop_is_given_up() {
+        let mut fake = FakeMarlin::new(Arc::default());
+        fake.resend_forever = true;
+        let mut printer = quick(fake);
+        let error = printer.send(GCODE.lines(), &mut |_| {}).unwrap_err();
+        assert!(error.to_string().contains("keeps asking"), "{error}");
+    }
+
+    /// A printer that says nothing at all: asked after a few times, then given up.
+    #[test]
+    fn a_silent_printer_is_given_up() {
+        let mut fake = FakeMarlin::new(Arc::default());
+        fake.lose_ok = vec!["G28".into(), "M105".into(), "M105".into(), "M105".into()];
+        let mut printer = quick(fake);
+        let error = printer.send(GCODE.lines(), &mut |_| {}).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    }
+
+    /// An error about the print is told apart from one about the line on the wire.
+    #[test]
+    fn errors_about_the_print_are_told() {
+        let mut fake = FakeMarlin::new(Arc::default());
+        fake.errors = vec![
+            ("G1 X10 Y10".into(), "Error:Hotend too cold".into()),
+            ("M84".into(), "echo:Unknown command: \"M84\"".into()),
+        ];
+        let mut printer = quick(fake);
+        let mut events = Vec::new();
+        printer.send(GCODE.lines(), &mut |e| events.push(e)).unwrap();
+        let errors: Vec<&Event> = events.iter().filter(|e| matches!(e, Event::Error(_))).collect();
+        assert_eq!(errors, [&Event::Error("Hotend too cold".into())]);
+    }
+
+    /// The firmware and what it can do come from its M115 answer.
+    #[test]
+    fn m115_tells_the_firmware_and_what_it_can_do() {
+        let mut fake = FakeMarlin::new(Arc::default());
+        fake.m115 = "FIRMWARE_NAME:Marlin 2.1.2.1 (Jun 1 2024) SOURCE_CODE_URL:github.com/MarlinFirmware/Marlin PROTOCOL_VERSION:1.0 MACHINE_TYPE:Ender-3 EXTRUDER_COUNT:1\nCap:EMERGENCY_PARSER:1\nCap:AUTOREPORT_TEMP:0".into();
+        let mut printer = quick(fake);
+        printer.command("M115").unwrap();
+        assert_eq!(printer.firmware.as_deref(), Some("Marlin 2.1.2.1"));
+        assert!(printer.caps.emergency_parser && !printer.caps.autoreport_temp);
+        assert!(!printer.is_prusa_mk3());
     }
 
     /// While the printer reports busy (heating, homing) the sender waits.

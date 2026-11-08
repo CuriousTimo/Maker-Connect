@@ -16,3 +16,4 @@ printer_models = ["MK2.5", "MK2.5MMU2"]
 [detect]
 model_code = 250
 machine_type = "Prusa i3 MK2.5"
+printer_type = "1.2.5"

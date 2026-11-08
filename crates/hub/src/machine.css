@@ -9,6 +9,8 @@
   .notice span { flex: 1 1 320px; }
   .notice form { margin: 0; }
   .notice.out { border-color: var(--off); }
+  .notice.ask { border-color: var(--warn); }
+  .notice .notice-buttons { flex: 0 0 auto; display: flex; gap: 8px; flex-wrap: wrap; }
   .notice.bed { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--card)); }
   /* Scrolls sideways on a narrow screen, without a scrollbar of its own (the tabs' 1px over
      the line would otherwise show one under them, on Windows). */
@@ -234,6 +236,8 @@
   .usb-text b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .usb-text small { color: var(--muted); font-size: 13px; }
   .usb-actions { display: flex; gap: 6px; }
+  .usb-note { color: var(--muted); font-size: 14px; white-space: nowrap; }
+  .usb-item.going { opacity: .5; }
   .danger-link { color: var(--bad) !important; }
   @media (max-width: 620px) { .usb-item { grid-template-columns: 96px minmax(0, 1fr); } .usb-pic { width: 96px; height: 72px; } .usb-actions { grid-column: 1 / -1; } }
   .job-ends { display: block; margin-top: 6px; color: var(--muted); font-size: 13px; }

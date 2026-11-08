@@ -179,6 +179,9 @@ pub struct Detect {
     /// A Buddy-firmware Prusa's printer type, as it registers with Prusa Connect.
     #[serde(default)]
     pub printer_type: Option<String>,
+    /// More printer types that are this model (the XL Development Kit is an XL).
+    #[serde(default)]
+    pub printer_types: Vec<String>,
 }
 
 /// Every profile, by brand and model.
@@ -245,8 +248,10 @@ pub fn detect(identity: &Identity) -> Option<&'static Profile> {
         return Some(profile);
     }
     if let Some(printer_type) = identity.printer_type.as_deref()
-        && let Some((profile, _)) =
-            detects().find(|(_, d)| d.printer_type.as_deref() == Some(printer_type))
+        && let Some((profile, _)) = detects().find(|(_, d)| {
+            d.printer_type.as_deref() == Some(printer_type)
+                || d.printer_types.iter().any(|t| t == printer_type)
+        })
     {
         return Some(profile);
     }
@@ -359,7 +364,15 @@ mod tests {
             ("7.1.0", "prusa/coreone"),
             ("8.1.0", "prusa/coreone-l"),
             ("7.10.0", "prusa/coreone-indx"),
+            ("8.10.0", "prusa/coreone-l-indx"),
             ("7.2.0", "prusa/signature-oak"),
+            ("4.1.0", "prusa/ix"),
+            ("5.1.0", "prusa/xl"),
+            // Prusa's Connect SDK (PrusaLink) for the MK3 family.
+            ("1.3.0", "prusa/i3-mk3"),
+            ("1.3.1", "prusa/mk3s"),
+            ("1.2.5", "prusa/mk2.5"),
+            ("1.2.6", "prusa/mk2.5s"),
         ] {
             assert_eq!(
                 by(None, Some(printer_type), None),
@@ -375,7 +388,22 @@ mod tests {
             (252, "prusa/mk2.5s"),
             (300, "prusa/i3-mk3"),
             (302, "prusa/mk3s"),
+            // Buddy's codes, every model in printer_model_data.hpp.
+            (230, "prusa/mk3.5"),
+            (280, "prusa/mk3.5s"),
+            (210, "prusa/mk3.9"),
+            (270, "prusa/mk3.9s"),
             (130, "prusa/mk4"),
+            (260, "prusa/mk4s"),
+            (120, "prusa/mini"),
+            (170, "prusa/xl"),
+            (160, "prusa/ix"),
+            (310, "prusa/coreone"),
+            (350, "prusa/coreone-l"),
+            (360, "prusa/coreone-indx"),
+            (370, "prusa/coreone-l-indx"),
+            (380, "prusa/signature-oak"),
+            (410, "prusa/xl-plus"),
         ] {
             assert_eq!(by(Some(code), None, None), Some(id), "{code}");
         }

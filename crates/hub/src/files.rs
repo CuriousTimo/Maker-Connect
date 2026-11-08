@@ -358,11 +358,15 @@ pub(crate) async fn upload(
         }
     };
     let read_path = path.clone();
-    let (meta, png) =
+    let (mut meta, png): (crate::gcode::FileMeta, Option<Vec<u8>>) =
         match tokio::task::spawn_blocking(move || crate::gcode::read(&read_path)).await {
             Ok(Ok(read)) => read,
             _ => Default::default(),
         };
+    // What its name tells, where its contents did not (PrusaSlicer's naming).
+    if meta.kind != Some(maker_connect_protocol::MachineKind::Laser) {
+        crate::gcode::from_name(&mut meta, &name);
+    }
     if let Some(png) = png {
         let _ = tokio::fs::write(&thumbnail_path, png).await;
     }
@@ -784,7 +788,29 @@ async fn control_job(
     }
     let job = match store.active_job(&id) {
         Ok(Some(job)) => job,
-        Ok(None) => return (StatusCode::NOT_FOUND, "no job on this machine").into_response(),
+        Ok(None) => {
+            // A print it started itself (from its SD card, or a Prusa's USB stick at its
+            // screen): no job of the hub's, so the printer is told directly.
+            let own = match store.machine(access.space, &id) {
+                Ok(Some(m)) if m.online && m.telemetry.as_ref().is_some_and(|t| t.job.is_some()) => m,
+                Ok(_) => return (StatusCode::NOT_FOUND, "no job on this machine").into_response(),
+                Err(error) => return failed(error),
+            };
+            if own.link == "prusa-connect" {
+                return match crate::printer_files::job_control(&mut store, access.space, &id, &form.action) {
+                    Ok(()) => StatusCode::NO_CONTENT.into_response(),
+                    Err(error) => failed(error),
+                };
+            }
+            let control = match form.action.as_str() {
+                "pause" => maker_connect_protocol::JobControl::Pause,
+                "resume" => maker_connect_protocol::JobControl::Resume,
+                "stop" => maker_connect_protocol::JobControl::Stop,
+                _ => return (StatusCode::CONFLICT, "not now").into_response(),
+            };
+            store.own_job_control.insert(id, control);
+            return StatusCode::NO_CONTENT.into_response();
+        }
         Err(error) => return failed(error),
     };
     let next = match (form.action.as_str(), job.state) {

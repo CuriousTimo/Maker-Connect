@@ -538,11 +538,14 @@ fn open_printer(
         return None;
     }
     let about = printer.command("M115").unwrap_or_default();
+    // Prusa's model code: only asked of Prusa's firmware (in Marlin, M862 is an I2C
+    // position encoder's check).
+    let prusa = marlin::firmware(&about).is_some_and(|f| f.starts_with("Prusa"));
     let identity = Identity {
         machine_type: marlin::machine_type(&about),
-        model_code: printer
-            .command("M862.2 Q")
-            .ok()
+        model_code: prusa
+            .then(|| printer.command("M862.2 Q").ok())
+            .flatten()
             .and_then(|a| marlin::model_code(&a)),
         printer_type: None,
     };
@@ -619,6 +622,8 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         options.name, options.hub, registered.machine_id
     );
     let mut machine: Option<Machine> = None;
+    // A Marlin job's checkpoint and G-code, kept for a power cut (crate::recovery).
+    let recovery = crate::recovery::Recovery::beside(std::path::Path::new(&options.state));
     let mut agent = agent_info(&options.hub);
     let mut next_look = Instant::now();
     let mut paired = None;
@@ -702,19 +707,96 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             Some(Machine::Marlin(printer, known)) => {
                 let waiting = printer.waiting();
                 let answer = while_busy(&options, &registered.token, &last, &waiting, || {
+                    printer.keep_host_alive(&mut |_| {})?;
                     printer.command("M105")
                 });
+                // A print from its own SD card: followed with M27, reported as its job.
+                let answer = answer.and_then(|answer| {
+                    let sd = if printer.has_sd() { printer.follow_sd()? } else { None };
+                    Ok((answer, sd))
+                });
                 match answer {
-                    Ok(answer) => {
+                    Ok((answer, sd)) => {
                         telemetry.state = MachineState::Idle;
                         telemetry.firmware = known.firmware.clone();
                         telemetry.identity = Some(known.identity.clone());
                         set_heat(&mut telemetry, marlin::heat(&answer));
+                        if let Some(sd) = sd {
+                            telemetry.state = if sd.paused {
+                                MachineState::Paused
+                            } else {
+                                MachineState::Busy
+                            };
+                            let remaining_s = sd.elapsed_s.filter(|_| sd.done > 0).map(|e| {
+                                e * sd.total.saturating_sub(sd.done) / sd.done.max(1)
+                            });
+                            telemetry.job = Some(protocol::JobProgress {
+                                file: sd.file.clone().unwrap_or_else(|| "SD card".to_owned()),
+                                done: sd.done,
+                                total: sd.total.max(1),
+                                elapsed_s: sd.elapsed_s,
+                                remaining_s,
+                            });
+                        }
+                        // A print a power cut stopped, kept (crate::recovery): reported as its
+                        // job, paused, until someone resumes it (here or at the printer) or
+                        // stops it.
+                        if waiting.now().power_loss
+                            && let Some((cp, _)) = recovery.load()
+                        {
+                            telemetry.state = MachineState::Paused;
+                            telemetry.job_id = Some(cp.job_id);
+                            telemetry.job = Some(protocol::JobProgress {
+                                file: cp.name.clone(),
+                                done: cp.index as u64,
+                                total: cp.total.max(1) as u64,
+                                elapsed_s: None,
+                                remaining_s: None,
+                            });
+                            telemetry.problem = Some(
+                                "a power cut stopped it: resume it here or on the printer"
+                                    .to_owned(),
+                            );
+                        }
                     }
                     Err(error) => {
                         println!("printer lost: {error}");
                         machine = None;
                     }
+                }
+                // Resumed after a power cut (here, or on its own screen): it heated and moved
+                // back itself, set its line number to the last line it carried out, and asks
+                // for the next one. The job goes on from the line of its file that goes with
+                // it, numbered from there.
+                let stray = match &mut machine {
+                    Some(Machine::Marlin(printer, _)) => printer.take_stray_resend(),
+                    _ => None,
+                };
+                if let Some(line) = stray
+                    && let Some((cp, gcode)) = recovery.load()
+                    && let Some(index) = cp.index_of(line)
+                    && let Some(Machine::Marlin(mut printer, known)) = machine.take()
+                {
+                    println!(
+                        "job {}: taken up after a power cut at line {} of {}",
+                        cp.job_id,
+                        index + 1,
+                        cp.total
+                    );
+                    printer.waiting().clear_power_loss();
+                    printer.set_next_number(line);
+                    let job = PrintJob::start_with(
+                        cp.job_id,
+                        &cp.name,
+                        gcode,
+                        *printer,
+                        crate::print::Begin {
+                            recovery: Some(recovery.clone()),
+                            from_index: index,
+                            resumed: true,
+                        },
+                    );
+                    machine = Some(Machine::Printing(Box::new(job), known));
                 }
             }
             Some(Machine::Grbl(laser)) => {
@@ -952,8 +1034,17 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                             // The printer goes to the job only once its file is here.
                             Ok(gcode) => {
                                 if let Some(Machine::Marlin(printer, known)) = machine.take() {
-                                    let job =
-                                        PrintJob::start(order.id, &order.name, gcode, *printer);
+                                    // Kept for a power cut while it runs (crate::recovery).
+                                    let job = PrintJob::start_with(
+                                        order.id,
+                                        &order.name,
+                                        gcode,
+                                        *printer,
+                                        crate::print::Begin {
+                                            recovery: Some(recovery.clone()),
+                                            ..Default::default()
+                                        },
+                                    );
                                     machine = Some(Machine::Printing(Box::new(job), known));
                                 }
                             }
@@ -1034,7 +1125,61 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     (Some(protocol::JobControl::Stop), Some(Machine::Printing(job, _))) => {
                         job.stop()
                     }
+                    // A print a power cut stopped, waiting (crate::recovery): resumed with M602
+                    // (Prusa's MK3 heats and moves back, then asks for its next line), or
+                    // stopped with M603 and forgotten.
+                    (Some(control), Some(Machine::Marlin(printer, _)))
+                        if printer.waiting().now().power_loss && recovery.load().is_some() =>
+                    {
+                        let cp = recovery.load().map(|(cp, _)| cp);
+                        match control {
+                            protocol::JobControl::Resume => {
+                                if let Err(error) = printer.send_line("M602", &mut |_| {}) {
+                                    println!("resuming after a power cut: {error}");
+                                }
+                            }
+                            protocol::JobControl::Stop => {
+                                let _ = printer.send_line("M603", &mut |_| {});
+                                printer.waiting().clear_power_loss();
+                                recovery.clear();
+                                if let Some(cp) = cp {
+                                    job_end = Some(protocol::JobEnd {
+                                        id: cp.job_id,
+                                        ok: false,
+                                        stopped: true,
+                                        reason: Some("stopped after a power cut".to_owned()),
+                                        restart_line: None,
+                                    });
+                                }
+                            }
+                            protocol::JobControl::Pause => {}
+                        }
+                    }
+                    // A print from its own SD card (no job of the hub's).
+                    (Some(control), Some(Machine::Marlin(printer, _))) if printer.sd.is_some() => {
+                        let what = match control {
+                            protocol::JobControl::Pause => "pause",
+                            protocol::JobControl::Resume => "resume",
+                            protocol::JobControl::Stop => "stop",
+                        };
+                        if let Err(error) = printer.control_sd(what, &mut |_| {}) {
+                            println!("the print from its SD card: {error}");
+                        }
+                    }
                     _ => {}
+                }
+                // A button of the question on its screen, pressed on the website (M876).
+                if let Some(button) = reply.answer {
+                    match machine.as_mut() {
+                        Some(Machine::Printing(job, _)) => job.answer(button),
+                        Some(Machine::Marlin(printer, _)) => {
+                            *printer.answer.lock().unwrap() = Some(button);
+                            if let Err(error) = printer.send_answer(&mut |_| {}) {
+                                println!("answering the printer: {error}");
+                            }
+                        }
+                        _ => {}
+                    }
                 }
                 if paired != Some(reply.paired) {
                     match &reply.space {
@@ -1077,6 +1222,8 @@ fn set_heat(telemetry: &mut Telemetry, heat: marlin::Heat) {
     telemetry.bed_target_c = heat.bed_target_c;
     telemetry.nozzle_heating = heat.nozzle_heating;
     telemetry.bed_heating = heat.bed_heating;
+    telemetry.hotend_fan_rpm = heat.hotend_fan_rpm;
+    telemetry.print_fan_rpm = heat.print_fan_rpm;
 }
 
 /// Does `work` (a command the machine takes a while over), and meanwhile reports `busy` to
@@ -1125,13 +1272,23 @@ fn on_screen(report: &mut Telemetry, screen: &marlin::Screen) {
         report.state = MachineState::Error;
         report.problem = Some(fault);
     } else if let Some((question, buttons)) = now.asking {
+        // Its buttons, to be pressed from the website (M876 S<index>).
+        report.prompt = Some(protocol::Prompt {
+            text: question.clone(),
+            buttons: buttons.clone(),
+        })
+        .filter(|p| !p.buttons.is_empty());
         report.state = MachineState::Attention;
         report.problem = Some(if buttons.is_empty() {
             question
         } else {
             format!("{question} ({})", buttons.join(" / "))
         });
-    } else if now.power_loss && report.state != MachineState::Busy {
+    } else if let Some(attention) = now.attention {
+        // A failed bed levelling, a slow fan, its thermal model, locked: someone must come.
+        report.state = MachineState::Attention;
+        report.problem = Some(attention);
+    } else if now.power_loss && report.state != MachineState::Busy && report.job_id.is_none() {
         report.state = MachineState::Attention;
         report.problem =
             Some("a print was interrupted by a power cut: resume it on the printer".to_owned());

@@ -121,6 +121,28 @@ pub struct JobProgress {
     pub remaining_s: Option<u64>,
 }
 
+/// A question on a printer's screen, with its buttons in order (Marlin's host prompt:
+/// `//action:prompt_begin`, `prompt_button`, `prompt_show`); answered with the button's
+/// index ([`TelemetryReply::answer`]: the agent sends `M876 S<index>`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Prompt {
+    pub text: String,
+    pub buttons: Vec<String>,
+}
+
+/// One tool of a machine with several: its number (from 1, as on its screen), its nozzle's
+/// temperature and target (0: off), and whether it is the one printing.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ToolHeat {
+    pub number: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nozzle_c: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nozzle_target_c: Option<f32>,
+    #[serde(default)]
+    pub active: bool,
+}
+
 /// An agent's report on its machine.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Telemetry {
@@ -144,6 +166,19 @@ pub struct Telemetry {
     pub nozzle_heating: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bed_heating: Option<bool>,
+    /// A question on its screen with buttons, waiting for an answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<Prompt>,
+    /// The chamber or enclosure, where the machine has one (Prusa's CORE One, the XL's
+    /// enclosure): its temperature and what it heats or cools to (0: none set).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chamber_c: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chamber_target_c: Option<f32>,
+    /// Each tool, where it has more than one (the XL's heads, an INDX's tools); `nozzle_c`
+    /// above is the active one's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<ToolHeat>,
     /// Fan speeds, where the machine tells them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub print_fan_rpm: Option<u32>,
@@ -287,6 +322,10 @@ pub struct TelemetryReply {
     /// What to do with the running job, said again each report until the machine has.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_control: Option<JobControl>,
+    /// Someone's answer to the question on its screen: the index of the button pressed
+    /// ([`Telemetry::prompt`]). Said once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<u8>,
     /// Update the agent: once its machine is idle.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub update: Option<AgentUpdate>,

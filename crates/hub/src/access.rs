@@ -398,11 +398,31 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Machine(Level::Use),
         Some("took the print off"),
     ),
+    // A button of the question on its screen.
+    (
+        "POST",
+        "/machines/{id}/answer",
+        Need::Machine(Level::Use),
+        Some("answered the question on the screen of"),
+    ),
     (
         "POST",
         "/machines/{id}/media",
         Need::Machine(Level::Use),
         Some("said what is loaded in"),
+    ),
+    // A printer's own SD card, through its agent (crate::sd_card).
+    (
+        "GET",
+        "/api/machines/{id}/sd",
+        Need::Machine(Level::View),
+        None,
+    ),
+    (
+        "POST",
+        "/machines/{id}/sd/print",
+        Need::Machine(Level::Use),
+        Some("printed from the SD card of"),
     ),
     // A Prusa's USB stick (crate::printer_files).
     (

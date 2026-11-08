@@ -17,3 +17,5 @@ printer_models = ["XL", "XLIS", "XL2", "XL2IS", "XL5", "XL5IS", "Prusa XL", "Pru
 model_code = 170
 machine_type = "Prusa-XL"
 printer_type = "3.1.0"
+# The XL Development Kit (Buddy: version 5.1.0) is an XL.
+printer_types = ["5.1.0"]

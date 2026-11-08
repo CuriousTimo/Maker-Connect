@@ -37,6 +37,7 @@ mod prusa_connect;
 mod queue;
 mod safety;
 mod samples;
+mod sd_card;
 mod simplyprint;
 mod space_page;
 mod spoolman;
@@ -341,6 +342,7 @@ pub fn app(store: Shared) -> Router {
         .route("/machines/{id}/move", post(move_machine))
         .route("/machines/{id}/out-of-use", post(out_of_use))
         .route("/machines/{id}/taken", post(taken))
+        .route("/machines/{id}/answer", post(answer))
         .route("/machines/{id}/laser", post(laser_power))
         .route("/api/machines/{id}/history", get(history))
         .route("/api/profiles", get(profile_list))
@@ -366,6 +368,7 @@ pub fn app(store: Shared) -> Router {
         .merge(queue::routes())
         .merge(apps::routes())
         .merge(printer_files::routes())
+        .merge(sd_card::routes())
         .merge(now_page::routes())
         .merge(farm::routes())
         .merge(projects_page::routes())
@@ -435,6 +438,14 @@ async fn telemetry(
         .unwrap_or("");
     let mut store = store.lock().unwrap();
     for done in &report.done {
+        // What an SD card listing said, whole (before the terminal keeps only its end).
+        if let Ok(Some(text)) = store.command_text(token, done.id)
+            && text.starts_with("M20")
+            && let Ok(Some(machine)) = store.machine_id_by_token(token)
+        {
+            let files = sd_card::listing(&done.output);
+            store.sd_files.insert(machine, (files, store::now()));
+        }
         let state = if done.ok {
             store::CommandState::Finished
         } else {
@@ -494,6 +505,15 @@ async fn telemetry(
                 Ok(update) => update,
                 Err(error) => return failed(error),
             };
+            // Someone's answer to the question on its screen, once; and pause, resume or stop
+            // for a print it started itself (no job of the hub's).
+            let (answer, job_control) = match store.machine_id_by_token(token) {
+                Ok(Some(machine)) => (
+                    store.answers.remove(&machine),
+                    job_control.or_else(|| store.own_job_control.remove(&machine)),
+                ),
+                _ => (None, job_control),
+            };
             Json(TelemetryReply {
                 paired: space.is_some(),
                 space,
@@ -501,6 +521,7 @@ async fn telemetry(
                 job,
                 job_control,
                 update,
+                answer,
             })
             .into_response()
         }
@@ -540,6 +561,9 @@ pub(crate) fn peer_address(
 
 /// A job for an agent's machine, as its report stands: how one ended, a queued one to
 /// fetch, and pause, resume or stop for the one it runs.
+/// Why a job is paused that a power cut stopped and its agent kept.
+const POWER_CUT: &str = "a power cut stopped it: resume it here or on the printer";
+
 pub(crate) fn agent_job(
     store: &mut Store,
     token: &str,
@@ -561,9 +585,42 @@ pub(crate) fn agent_job(
     let Some(machine) = store.machine_id_by_token(token)? else {
         return Ok((None, None));
     };
+    // A job a power cut stopped (Prusa's MK3; the agent kept it): it failed here when the
+    // agent no longer ran it, and comes back as the agent reports it again, paused until
+    // someone resumes it.
+    if let Some(id) = report.job_id
+        && matches!(report.state, MachineState::Paused | MachineState::Busy)
+        && store.active_job(&machine)?.is_none()
+        && let Some(lost) = store.job(id)?
+        && lost.machine_id == machine
+        && lost.state == JobState::Failed
+    {
+        let state = if report.state == MachineState::Paused {
+            JobState::Paused
+        } else {
+            JobState::Printing
+        };
+        store.revive_job(id, state, Some(POWER_CUT))?;
+    }
     let Some(job) = store.active_job(&machine)? else {
         return Ok((None, None));
     };
+    // Resumed from here after the power cut: its reason goes (a later pause is an ordinary
+    // one); the agent is told to resume below as for any job.
+    if job.state == JobState::Printing && job.reason.as_deref() == Some(POWER_CUT) {
+        store.revive_job(job.id, JobState::Printing, None)?;
+    }
+    // Taken up on the printer's own screen after the power cut: printing again, not to be
+    // paused from here.
+    if job.state == JobState::Paused
+        && job.reason.as_deref() == Some(POWER_CUT)
+        && report.job_id == Some(job.id)
+        && report.state == MachineState::Busy
+    {
+        // Its reason cleared too: a later pause from here is an ordinary one.
+        store.revive_job(job.id, JobState::Printing, None)?;
+        return Ok((None, None));
+    }
     let runs = report.job_id == Some(job.id);
     Ok(match job.state {
         JobState::Queued if report.job_id.is_none() && report.state == MachineState::Idle => {
@@ -1581,6 +1638,57 @@ async fn taken(
     }
 }
 
+#[derive(serde::Deserialize)]
+struct AnswerForm {
+    /// The button pressed, by its place among the question's buttons (from 0).
+    button: usize,
+}
+
+/// A button of the question on a printer's screen, pressed from the website: a Prusa on
+/// Connect gets `DIALOG_ACTION` (its dialog and the button's name), an agent's printer
+/// `M876 S<index>` (with its next report).
+async fn answer(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Form(form): Form<AnswerForm>,
+) -> Response {
+    let mut store = store.lock().unwrap();
+    let space = match store.space_of(&access) {
+        Ok((space, _)) => space,
+        Err(error) => return failed(error),
+    };
+    let machine = match store.machine(space, &id) {
+        Ok(Some(m)) => m,
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
+        Err(error) => return failed(error),
+    };
+    if let Some((buttons, dialog)) = store.dialogs.get(&id).cloned() {
+        let Some(name) = buttons.get(form.button) else {
+            return (StatusCode::BAD_REQUEST, "no such button").into_response();
+        };
+        let mut kwargs = serde_json::json!({ "button": name });
+        if let Some(dialog) = dialog {
+            kwargs["dialog_id"] = serde_json::json!(dialog);
+        }
+        let command = serde_json::json!({ "command": "DIALOG_ACTION", "kwargs": kwargs });
+        return match store.queue_connect_command(space, &id, &format!("Answer: {name}"), &command, false) {
+            Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
+            Ok(None) => (StatusCode::CONFLICT, "the printer takes no commands").into_response(),
+            Err(error) => failed(error),
+        };
+    }
+    let buttons = machine.buttons.len();
+    if buttons == 0 {
+        return (StatusCode::CONFLICT, "it asks nothing now").into_response();
+    }
+    if form.button >= buttons || form.button > u8::MAX as usize {
+        return (StatusCode::BAD_REQUEST, "no such button").into_response();
+    }
+    store.answers.insert(id, form.button as u8);
+    StatusCode::NO_CONTENT.into_response()
+}
+
 async fn choose_profile(
     access: crate::access::Access,
     State(store): State<Shared>,
@@ -2460,6 +2568,190 @@ mod tests {
     /// space's list with what it reported.
     /// A label printer without a cassette waits for someone: an older agent's "error" is
     /// read as attention, and the page shows the reason, not an error.
+    /// A printer behind an agent with its own SD card (Prusa's MK3S): its card read with an
+    /// ordinary command (M20 L T) and its answer kept whole; a file printed from it (M23, M24);
+    /// that print, which is no job of the hub's, stopped from the website; and a question on
+    /// its screen answered (M876, by the button's index).
+    #[tokio::test]
+    async fn an_agents_printer_and_its_sd_card() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = crate::auth::signed_in_app(store.clone());
+        let agent = super::app(store.clone());
+        let mk3 = Register {
+            protocol: protocol::VERSION,
+            name: "Prusa MK3S".into(),
+            kind: MachineKind::Fdm,
+            agent_version: "0.1.0".into(),
+        };
+        let (_, body) = call(
+            &agent,
+            json(protocol::REGISTER, None, serde_json::to_string(&mk3).unwrap()),
+        )
+        .await;
+        let registered: Registered = serde_json::from_str(&body).unwrap();
+        let id = registered.machine_id.clone();
+        {
+            let store = store.lock().unwrap();
+            let space = store.default_space().unwrap().0;
+            store.pair(space, &registered.pairing_code).unwrap();
+            crate::auth::tester_may_operate(&store, space, &id);
+        }
+        let report = |telemetry: Telemetry| {
+            let app = agent.clone();
+            let token = registered.token.clone();
+            async move {
+                let (_, body) = call(
+                    &app,
+                    json(protocol::TELEMETRY, Some(&token), serde_json::to_string(&telemetry).unwrap()),
+                )
+                .await;
+                serde_json::from_str::<TelemetryReply>(&body).unwrap()
+            }
+        };
+        let idle = || Telemetry {
+            state: MachineState::Idle,
+            ..Telemetry::default()
+        };
+        let form = |path: String, body: &str| {
+            Request::post(path)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(body.to_owned()))
+                .unwrap()
+        };
+        report(idle()).await;
+
+        // Looking at its card asks it (M20 L T), as an ordinary command.
+        let look = || Request::get(format!("/api/machines/{id}/sd")).body(Body::empty()).unwrap();
+        let (_, body) = call(&app, look()).await;
+        let seen: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(seen["asking"], true);
+        let reply = report(idle()).await;
+        let ask = reply.commands.iter().find(|c| c.gcode == "M20 L T").expect("asked");
+        // Its answer, whole, makes the list.
+        let listing = "Begin file list\nBENCHY~1.GCO 812345 0x5b4e8c20 \"Benchy.gcode\"\nCUBE.GCO 20\nEnd file list\nok";
+        report(Telemetry {
+            done: vec![protocol::CommandDone {
+                id: ask.id,
+                ok: true,
+                reason: None,
+                output: listing.lines().map(str::to_owned).collect(),
+            }],
+            ..idle()
+        })
+        .await;
+        let (_, body) = call(&app, look()).await;
+        let seen: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(seen["files"][0]["name"], "Benchy.gcode");
+        assert_eq!(seen["files"][1]["path"], "/CUBE.GCO");
+        assert_eq!(seen["asking"], false, "fresh: not asked again");
+
+        // Printed from its card.
+        let (status, body) = call(&app, form(format!("/machines/{id}/sd/print"), "path=/BENCHY~1.GCO")).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        let reply = report(idle()).await;
+        assert!(reply.commands.iter().any(|c| c.gcode == "M23 /BENCHY~1.GCO\nM24"));
+        assert_eq!(
+            call(&app, form(format!("/machines/{id}/sd/print"), "path=../etc")).await.0,
+            StatusCode::BAD_REQUEST
+        );
+
+        // It prints from its card (its own job, none of the hub's): stopped from here.
+        let printing = || Telemetry {
+            state: MachineState::Busy,
+            job: Some(protocol::JobProgress {
+                file: "Benchy.gcode".into(),
+                done: 1000,
+                total: 812_345,
+                elapsed_s: Some(60),
+                remaining_s: None,
+            }),
+            ..Telemetry::default()
+        };
+        report(printing()).await;
+        let (status, body) = call(&app, form(format!("/machines/{id}/job"), "action=stop")).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        assert_eq!(report(printing()).await.job_control, Some(protocol::JobControl::Stop));
+        assert_eq!(report(printing()).await.job_control, None, "said once");
+
+        // A question on its screen, answered by the button's index.
+        let asking = || Telemetry {
+            state: MachineState::Attention,
+            prompt: Some(protocol::Prompt {
+                text: "Filament runout".into(),
+                buttons: vec!["Continue".into(), "Purge more".into()],
+            }),
+            ..Telemetry::default()
+        };
+        report(asking()).await;
+        let (status, body) = call(&app, form(format!("/machines/{id}/answer"), "button=1")).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        assert_eq!(report(asking()).await.answer, Some(1));
+        assert_eq!(report(idle()).await.answer, None, "said once");
+        assert_eq!(
+            call(&app, form(format!("/machines/{id}/answer"), "button=0")).await.0,
+            StatusCode::CONFLICT,
+            "it asks nothing now"
+        );
+
+        // A job of the hub's, cut off by a power cut (Prusa's MK3; the agent kept it).
+        let upload = Request::post("/api/files?name=cube.gcode")
+            .body(Body::from("G28\nM104 S215\nG1 X1\nG1 X2\n"))
+            .unwrap();
+        let (_, body) = call(&app, upload).await;
+        let file: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let (status, body) = call(
+            &app,
+            form(format!("/files/{}/print", file["id"].as_str().unwrap()), &format!("machine={id}")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        let order = report(idle()).await.job.expect("given out");
+        let job_state = || store.lock().unwrap().job(order.id).unwrap().unwrap();
+        // The agent went quiet (its Pi lost power too), then reports without the job: failed.
+        store
+            .lock()
+            .unwrap()
+            .db
+            .execute("UPDATE jobs SET started_at = started_at - 100 WHERE id = ?1", [order.id])
+            .unwrap();
+        report(idle()).await;
+        assert_eq!(job_state().state, store::JobState::Failed);
+        // Started again, the printer waits to take it up: the agent reports it, paused.
+        let waiting = || Telemetry {
+            state: MachineState::Paused,
+            job_id: Some(order.id),
+            ..Telemetry::default()
+        };
+        report(waiting()).await;
+        let back = job_state();
+        assert_eq!(back.state, store::JobState::Paused, "back");
+        assert_eq!(back.reason.as_deref(), Some(POWER_CUT));
+        assert_eq!(back.ended_at, None);
+        // Resumed from here: the agent is told, and the reason goes.
+        let (status, body) = call(&app, form(format!("/machines/{id}/job"), "action=resume")).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        assert_eq!(report(waiting()).await.job_control, Some(protocol::JobControl::Resume));
+        let running = || Telemetry {
+            state: MachineState::Busy,
+            job_id: Some(order.id),
+            ..Telemetry::default()
+        };
+        assert_eq!(report(running()).await.job_control, None);
+        assert_eq!(job_state().reason, None, "an ordinary job again");
+        // Another power cut, taken up on the printer's own screen: printing, not paused.
+        store
+            .lock()
+            .unwrap()
+            .set_job(order.id, store::JobState::Failed, Some("lost"))
+            .unwrap();
+        report(waiting()).await;
+        assert_eq!(job_state().state, store::JobState::Paused);
+        assert_eq!(report(running()).await.job_control, None, "not paused from here");
+        assert_eq!(job_state().state, store::JobState::Printing);
+        assert_eq!(job_state().reason, None);
+    }
+
     #[tokio::test]
     async fn a_cassette_out_needs_attention_not_an_error() {
         let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));

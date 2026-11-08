@@ -2,10 +2,12 @@
   // its table), and every [data-live] value kept live from the server-sent events.
   const ID = document.querySelector("main").dataset.id;
   // Tabs by purpose; a tab may show more than one section. Old addresses still lead there.
-  const TABS = { overview: ["overview"], queue: ["queue"], telemetry: ["telemetry"], control: ["control"], terminal: ["terminal"], bedmesh: ["bedlevel"], usb: ["usb"], settings: ["settings"] };
+  const TABS = { overview: ["overview"], queue: ["queue"], telemetry: ["telemetry"], control: ["control"], terminal: ["terminal"], bedmesh: ["bedlevel"], usb: ["usb"], sd: ["sd"], settings: ["settings"] };
   const OLD = { data: "telemetry", bedlevel: "bedmesh" };
   // Set below for a Prusa on its own Connect: opens its USB stick when its tab is shown.
   let usbOpen = null;
+  // Set below for a printer with its own SD card behind an agent.
+  let sdOpen = null;
   function show() {
     const asked = location.hash.slice(1);
     const id = TABS[asked] ? asked : OLD[asked] || "overview";
@@ -14,6 +16,7 @@
     if (id === "telemetry") draw();
     if (id === "bedmesh") drawMesh();
     if (id === "usb") usbOpen?.();
+    if (id === "sd") sdOpen?.();
     // A tab is a page of its own: from the top, not where the browser jumped to its id.
     scrollTo(0, 0);
   }
@@ -238,7 +241,10 @@
         try { r = await (await fetch(api(path))).json(); } catch { status.textContent = "The hub does not answer."; return; }
         if (mine !== generation) return;
         render(r);
-        const busy = r.online && (r.asking || r.pending > 0);
+        // Quickly again while the printer is answering, a delete is on its way or a file is
+        // still arriving.
+        const changing = (r.data?.children || []).some((c) => c.deleting || c.read_only);
+        const busy = r.online && (r.asking || r.pending > 0 || changing);
         timer = setTimeout(load, busy ? 1500 : 15000);
       }
       function render(r) {
@@ -257,14 +263,20 @@
         const sorted = [...children].sort((a, b) => (a.type === "FOLDER") !== (b.type === "FOLDER") ? (a.type === "FOLDER" ? -1 : 1) : (a.display_name || a.name).localeCompare(b.display_name || b.name));
         list.innerHTML = sorted.length ? sorted.map((c) => {
           const full = `${path}/${c.name}`, name = c.display_name || c.name;
-          if (c.type === "FOLDER") return `<div class="usb-item folder"><button type="button" class="usb-open" data-go="${esc(full)}"><span class="usb-icon">📁</span><b>${esc(name)}</b></button><button type="button" class="link danger-link" data-delete="${esc(full)}" data-folder="1" data-name="${esc(name)}">Delete</button></div>`;
+          if (c.type === "FOLDER") return `<div class="usb-item folder${c.deleting ? " going" : ""}"><button type="button" class="usb-open" data-go="${esc(full)}"><span class="usb-icon">📁</span><b>${esc(name)}</b></button>${c.deleting ? '<span class="usb-note">Deleting…</span>' : `<button type="button" class="link danger-link" data-delete="${esc(full)}" data-folder="1" data-name="${esc(name)}">Delete</button>`}</div>`;
           const printable = c.type === "PRINT_FILE";
           const d = c.details;
           const picture = d?.picture
             ? `<img src="../machines/${ID}/usb/preview?path=${encodeURIComponent(full)}&at=${d.at}" alt="" loading="lazy">`
             : `<span>${!printable ? esc(c.type.toLowerCase()) : d ? "no picture" : "…"}</span>`;
           const facts = d ? [d.time, d.material, d.grams && `${d.grams.split(",")[0].trim()} g`, d.layer_mm && `${d.layer_mm} mm`].filter(Boolean).join(" · ") : "";
-          return `<div class="usb-item${printable ? "" : " other"}"><div class="usb-pic">${picture}</div><div class="usb-text"><b title="${esc(name)}">${esc(name)}</b><small>${facts ? esc(facts) : `${size(c.size)} · ${date(c.m_timestamp)}`}</small>${facts ? `<small>${size(c.size)} · ${date(c.m_timestamp)}</small>` : ""}</div><div class="usb-actions">${printable ? `<button type="button" data-print="${esc(full)}" data-name="${esc(name)}"${c.read_only ? " disabled title=\"Still arriving\"" : ""}>Print</button>` : ""}<button type="button" class="ghost" data-delete="${esc(full)}" data-name="${esc(name)}">Delete</button></div></div>`;
+          // A file still arriving (Buddy lists it read-only) or being deleted: no buttons, a note.
+          const actions = c.deleting
+            ? '<span class="usb-note">Deleting…</span>'
+            : c.read_only
+              ? `<span class="usb-note">Arriving… ${size(c.size)}</span>`
+              : `${printable ? `<button type="button" data-print="${esc(full)}" data-name="${esc(name)}">Print</button>` : ""}<button type="button" class="ghost" data-delete="${esc(full)}" data-name="${esc(name)}">Delete</button>`;
+          return `<div class="usb-item${printable ? "" : " other"}${c.deleting ? " going" : ""}"><div class="usb-pic">${picture}</div><div class="usb-text"><b title="${esc(name)}">${esc(name)}</b><small>${facts ? esc(facts) : `${size(c.size)} · ${date(c.m_timestamp)}`}</small>${facts ? `<small>${size(c.size)} · ${date(c.m_timestamp)}</small>` : ""}</div><div class="usb-actions">${actions}</div></div>`;
         }).join("") : '<p class="empty">Empty.</p>';
       }
       usb.addEventListener("click", async (event) => {
@@ -284,7 +296,8 @@
           if (del.dataset.folder) fields.folder = "1";
           const r = await post("delete", fields);
           toast(r.ok ? `Deleting ${del.dataset.name}` : `Not deleted: ${await r.text()}`, r.ok ? "ok" : "bad");
-          if (r.ok) setTimeout(load, 1500);
+          // At once: the hub marks it as being deleted.
+          if (r.ok) load();
         }
       });
       usb.querySelector("[data-usb-folder]").addEventListener("submit", async (event) => {
@@ -310,6 +323,42 @@
           fileSelect.innerHTML = code.length ? `<option value="">A file from Files…</option>${code.map((f) => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join("")}` : '<option value="">No G-code in Files yet</option>';
         } catch { /* stays as it is */ }
       };
+    }
+  }
+
+  // A printer's own SD card, through its agent (crate::sd_card): its files, as it lists them,
+  // each printed from the card; asked again quickly while the printer answers.
+  {
+    const sd = document.querySelector("[data-sd]");
+    if (sd) {
+      const list = sd.querySelector("[data-sd-list]");
+      const status = sd.querySelector("[data-sd-status]");
+      const size = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} kB`);
+      const date = (t) => (t ? new Date(t * 1000).toLocaleDateString() : "");
+      let timer = null;
+      async function load() {
+        clearTimeout(timer);
+        let r;
+        try { r = await (await fetch(`../api/machines/${ID}/sd`)).json(); } catch { status.textContent = "The hub does not answer."; return; }
+        const files = r.files || [];
+        status.textContent = !r.online ? "The printer is offline: this is what it said last." : r.asking ? "Asking the printer…" : `${files.length} ${files.length === 1 ? "file" : "files"} to print.`;
+        list.innerHTML = files.length
+          ? files.map((f) => `<div class="usb-item"><div class="usb-pic"><span>G-code</span></div><div class="usb-text"><b title="${esc(f.path)}">${f.folder ? `${esc(f.folder)} / ` : ""}${esc(f.name)}</b><small>${size(f.size)}${f.modified ? ` · ${date(f.modified)}` : ""}</small></div><div class="usb-actions"><button type="button" data-sd-print="${esc(f.path)}" data-name="${esc(f.name)}">Print</button></div></div>`).join("")
+          : `<p class="empty">${r.asking ? "Waiting for the printer…" : r.at ? "No G-code on the card." : "Nothing yet: the printer lists its card when it is idle."}</p>`;
+        if (r.online && r.asking) timer = setTimeout(load, 1500);
+      }
+      sd.addEventListener("click", async (event) => {
+        if (event.target.closest("[data-sd-refresh]")) { load(); return; }
+        const print = event.target.closest("[data-sd-print]");
+        if (!print) return;
+        if (!confirm(`Print ${print.dataset.name} from its SD card now? Check the bed is clear.`)) return;
+        const r = await fetch(`../machines/${ID}/sd/print`, {
+          method: "POST", body: new URLSearchParams({ path: print.dataset.sdPrint }), headers: { "x-requested-with": "fetch" },
+        });
+        toast(r.ok ? `Asked to print ${print.dataset.name}` : `Not printed: ${await r.text()}`, r.ok ? "ok" : "bad");
+      });
+      sdOpen = load;
+      if (location.hash === "#sd") load();
     }
   }
 
@@ -417,6 +466,12 @@
       nozzle_note: heatNote(t.nozzle_c, t.nozzle_target_c),
       bed_n: fixed(t.bed_c),
       bed_note: heatNote(t.bed_c, t.bed_target_c),
+      chamber_n: fixed(t.chamber_c),
+      chamber_note: heatNote(t.chamber_c, t.chamber_target_c),
+      // Each tool of an XL or INDX, as the page first drew it (machine_page.rs tools_line).
+      tools: (t.tools || []).length
+        ? t.tools.map((x) => `${x.number}${x.active ? " ▸" : ""} ${x.nozzle_c != null ? x.nozzle_c.toFixed(0) : "–"}${x.nozzle_target_c > 0 ? `/${x.nozzle_target_c.toFixed(0)}` : ""} °C`).join(" · ")
+        : null,
       print_fan_n: t.print_fan_rpm != null ? String(t.print_fan_rpm) : null,
       hotend_fan_n: t.hotend_fan_rpm != null ? String(t.hotend_fan_rpm) : null,
       pos_x: p && fixed(p[0]),
@@ -435,6 +490,16 @@
       if (key === "state") el.className = `state ${values[key]}`;
     }
     // Out of use, a print on the bed: drawn again when either changes.
+    // The question on its screen, with its buttons, pressed from here (POST answer: a Prusa
+    // on Connect gets DIALOG_ACTION, an agent's printer M876).
+    const question = document.querySelector("[data-question]");
+    const questionKey = JSON.stringify([m.online && m.asking, m.online && m.buttons]);
+    if (question && question.dataset.key !== questionKey) {
+      question.dataset.key = questionKey;
+      question.innerHTML = m.online && m.asking && (m.buttons || []).length
+        ? `<div class="notice ask"><span><b>The printer asks</b>: ${esc(m.asking[1] || m.asking[0])}</span><span class="notice-buttons">${m.buttons.map((b, i) => `<form method="post" action="${esc(m.id)}/answer" data-async data-done="Answered: ${esc(b)}"><input type="hidden" name="button" value="${i}"><button${i ? ' class="ghost"' : ""}>${esc(b)}</button></form>`).join("")}</span></div>`
+        : "";
+    }
     const notices = document.querySelector("[data-notices]");
     const noticeKey = JSON.stringify([m.out_of_use, m.confirm, m.on_bed, m.on_bed && t.bed_c != null && t.bed_c > TAKE_BELOW_C ? Math.round(t.bed_c) : null]);
     if (notices && notices.dataset.key !== noticeKey) {

@@ -104,7 +104,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
   </div>
   <p class="subtitle">{subtitle}</p>
   {labels}
-  {no_use}<div class="notices" data-notices>{notices}</div>
+  {no_use}<div class="notices" data-notices>{notices}</div><div class="notices" data-question></div>
   <nav class="tabs" role="tablist">
     <a href="#overview" role="tab">Overview</a>
     {queue_tab}<a href="#telemetry" role="tab">Telemetry</a>
@@ -174,11 +174,16 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         usb_tab = if machine.link == "prusa-connect" {
             r##"<a href="#usb" role="tab">USB</a>
     "##
+        } else if machine.link == "agent" && heats(machine) {
+            r##"<a href="#sd" role="tab">SD card</a>
+    "##
         } else {
             ""
         },
         usb = if machine.link == "prusa-connect" {
             USB_TAB
+        } else if machine.link == "agent" && heats(machine) {
+            SD_TAB
         } else {
             ""
         },
@@ -200,6 +205,15 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         },
     )
 }
+
+/// A printer's own SD card, through its agent (crate::sd_card), filled by the page's script.
+const SD_TAB: &str = r#"<section class="tab" id="sd" role="tabpanel" hidden>
+  <div class="card usb" data-sd>
+    <div class="card-head"><div><h3>SD card</h3><p class="card-sub" data-sd-status></p></div><button type="button" class="ghost" data-sd-refresh>Read again</button></div>
+    <div class="usb-list" data-sd-list><p class="empty">Asking the printer…</p></div>
+    <p class="hint">What is on the printer's own SD card, as it lists it. A print from the card runs on the printer by itself: pause and stop it here like any job.</p>
+  </div>
+</section>"#;
 
 /// A Prusa's USB stick (on its own Connect), filled by the page's script.
 const USB_TAB: &str = r#"<section class="tab" id="usb" role="tabpanel" hidden>
@@ -506,7 +520,39 @@ fn heater_tiles(machine: &Machine) -> String {
         t.and_then(|t| t.bed_c),
         t.and_then(|t| t.bed_target_c),
         t.and_then(|t| t.bed_heating),
-    )
+    ) + &t
+        // A chamber or enclosure (Prusa's CORE One, the XL's enclosure), where it tells.
+        .filter(|t| t.chamber_c.is_some())
+        .map(|t| heater_tile("Chamber", "chamber", t.chamber_c, t.chamber_target_c, None))
+        .unwrap_or_default()
+        // Each tool, where it has several (the XL's heads, an INDX's tools).
+        + &t
+            .filter(|t| !t.tools.is_empty())
+            .map(|t| {
+                format!(
+                    r#"<div class="tile"><div class="label">Tools</div><div class="sub" data-live="tools">{}</div></div>"#,
+                    escape(&tools_line(&t.tools))
+                )
+            })
+            .unwrap_or_default()
+}
+
+/// "1 ▸ 215/215 · 2 30 · 3 off": each tool's nozzle, the active one marked.
+fn tools_line(tools: &[maker_connect_protocol::ToolHeat]) -> String {
+    tools
+        .iter()
+        .map(|tool| {
+            let now = tool.nozzle_c.map_or("–".to_owned(), |c| format!("{c:.0}"));
+            let target = tool
+                .nozzle_target_c
+                .filter(|c| *c > 0.0)
+                .map(|c| format!("/{c:.0}"))
+                .unwrap_or_default();
+            let mark = if tool.active { " ▸" } else { "" };
+            format!("{}{mark} {now}{target} °C", tool.number)
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 fn position_tiles(machine: &Machine) -> String {

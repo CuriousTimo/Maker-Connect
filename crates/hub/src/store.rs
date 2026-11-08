@@ -288,6 +288,10 @@ pub struct Machine {
     /// What the printer asks on its screen now, when it wants someone: its title, and the
     /// whole text (crate::printer_files).
     pub asking: Option<(String, String)>,
+    /// The buttons of that question, which can be pressed from the website (POST
+    /// `/machines/{id}/answer`): a Prusa on Connect (DIALOG_ACTION) or an agent's printer
+    /// (`M876`).
+    pub buttons: Vec<String>,
     /// Its last job failed or was stopped, and nobody said yet the bed is clear: how it
     /// ended ("failed", "stopped"). Nothing starts on it until then (crate::queue).
     pub queue_held: Option<String>,
@@ -585,6 +589,19 @@ pub struct Store {
     /// What a printer asks on its screen while it wants someone (a Prusa's ATTENTION: "Sliced
     /// for another printer?"), per machine id: (title, text).
     pub(crate) asking: std::collections::HashMap<String, (String, String)>,
+    /// A Prusa Connect printer's question: its buttons and the dialog they answer
+    /// (`DIALOG_ACTION`), by machine (crate::printer_files).
+    pub(crate) dialogs: std::collections::HashMap<String, (Vec<String>, Option<u64>)>,
+    /// Answers to an agent's printer's question, by machine, until its next report takes
+    /// them (`M876 S<index>`).
+    pub(crate) answers: std::collections::HashMap<String, u8>,
+    /// What is on an agent's printer's own SD card, as its `M20` said, and when
+    /// (crate::sd_card).
+    pub(crate) sd_files: std::collections::HashMap<String, (Vec<crate::sd_card::SdFile>, i64)>,
+    /// Pause, resume or stop for a print the machine started itself (from its SD card): no
+    /// job of the hub's, so said once with its next report.
+    pub(crate) own_job_control:
+        std::collections::HashMap<String, maker_connect_protocol::JobControl>,
     next_command: u32,
     /// Temperature history per machine id, oldest first.
     history: std::collections::HashMap<String, std::collections::VecDeque<Sample>>,
@@ -652,6 +669,10 @@ impl Store {
             commands: Default::default(),
             ppe_ok: Default::default(),
             asking: Default::default(),
+            dialogs: Default::default(),
+            answers: Default::default(),
+            sd_files: Default::default(),
+            own_job_control: Default::default(),
             // Ids that do not repeat soon after a restart, as a printer may remember the last.
             next_command: (now() % 1_000_000_000) as u32,
             history: Default::default(),
@@ -769,18 +790,29 @@ impl Store {
     }
 
     /// Reads again what the hub keeps about every file it kept before it read as much as it
-    /// does now (where the moves go, the highest power).
+    /// does now (where the moves go, the highest power; temperatures, colour, objects and
+    /// QOI and JPG thumbnails, as Prusa's gcode-metadata reads them), and what its name
+    /// tells; a thumbnail it did not have is kept now.
     pub fn reread_files(&mut self) -> rusqlite::Result<usize> {
-        let mut query = self.db.prepare("SELECT id, meta FROM files")?;
-        let stale: Vec<String> = query
-            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        let mut query = self.db.prepare("SELECT id, name, meta FROM files")?;
+        let stale: Vec<(String, String)> = query
+            .query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+            })?
             .filter_map(Result::ok)
-            .filter(|(_, meta)| !meta.contains("bounds_mm"))
-            .map(|(id, _)| id)
+            .filter(|(_, _, meta)| !meta.contains("bounds_mm") || !meta.contains("\"objects\""))
+            .map(|(id, name, _)| (id, name))
             .collect();
         drop(query);
-        for id in &stale {
-            if let Ok((meta, _)) = crate::gcode::read(&self.file_path(id)) {
+        for (id, name) in &stale {
+            if let Ok((mut meta, png)) = crate::gcode::read(&self.file_path(id)) {
+                crate::gcode::from_name(&mut meta, name);
+                let thumbnail = self.thumbnail_path(id);
+                if let Some(png) = png
+                    && !thumbnail.exists()
+                {
+                    let _ = std::fs::write(&thumbnail, png);
+                }
                 self.db.execute(
                     "UPDATE files SET meta = ?1 WHERE id = ?2",
                     params![serde_json::to_string(&meta).unwrap_or_default(), id],
@@ -1028,6 +1060,54 @@ impl Store {
         ) {
             self.count_off(id, state)?;
         }
+        self.changed();
+        Ok(())
+    }
+
+    /// A job that ended comes back (a power cut stopped it and its agent kept it): running or
+    /// paused again, no end, with exactly this reason (None clears it). What it counted off
+    /// its spool as it failed goes back on, booked as such, so its end counts it whole.
+    pub fn revive_job(
+        &mut self,
+        id: i64,
+        state: JobState,
+        reason: Option<&str>,
+    ) -> rusqlite::Result<()> {
+        let counted: Option<(Option<f64>, Option<i64>, String, String)> = self
+            .db
+            .query_row(
+                "SELECT used, spool_id, machine_id, file_name FROM jobs WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()?;
+        if let Some((Some(used), Some(spool), machine, file_name)) = counted
+            && used > 0.0
+        {
+            self.db.execute(
+                "UPDATE spool SET used_weight = MAX(used_weight - ?1, 0) WHERE id = ?2",
+                params![used, spool],
+            )?;
+            let space: Option<i64> = self
+                .db
+                .query_row("SELECT space_id FROM spool WHERE id = ?1", [spool], |r| r.get(0))
+                .optional()?;
+            if let Some(space) = space {
+                self.movement(
+                    space,
+                    &crate::stock::spool_code(spool),
+                    "used",
+                    Some(used),
+                    Some(&machine),
+                    Some(&format!("job {file_name}: taken up after a power cut")),
+                )?;
+            }
+        }
+        self.db.execute(
+            "UPDATE jobs SET state = ?1, reason = ?2, ended_at = NULL, used = NULL, spool_id = NULL
+             WHERE id = ?3",
+            params![state.name(), reason, id],
+        )?;
         self.changed();
         Ok(())
     }
@@ -1420,13 +1500,29 @@ impl Store {
         {
             return Ok(None);
         }
+        let body = command.to_string();
+        // The hub's own reading (a folder, a file's picture) once: asked again while the
+        // same is still waiting or on its way, it is not queued twice.
+        if background
+            && let Some(same) = self.commands.get(machine).and_then(|commands| {
+                commands.iter().find(|c| {
+                    c.gcode == body
+                        && matches!(
+                            c.state,
+                            CommandState::Queued | CommandState::Sent | CommandState::Accepted
+                        )
+                })
+            })
+        {
+            return Ok(Some(same.id));
+        }
         self.next_command = self.next_command.wrapping_add(1);
         let id = self.next_command;
         let commands = self.commands.entry(machine.to_owned()).or_default();
         commands.push(Command {
             id,
             label: label.to_owned(),
-            gcode: command.to_string(),
+            gcode: body,
             json: true,
             background,
             output: Vec::new(),
@@ -1437,6 +1533,59 @@ impl Store {
         trim(commands);
         self.changed();
         Ok(Some(id))
+    }
+
+    /// The commands of a machine still open (waiting, sent or taken on): what they send.
+    pub fn open_commands(&self, machine: &str) -> Vec<String> {
+        self.commands
+            .get(machine)
+            .into_iter()
+            .flatten()
+            .filter(|c| {
+                matches!(
+                    c.state,
+                    CommandState::Queued | CommandState::Sent | CommandState::Accepted
+                )
+            })
+            .map(|c| c.gcode.clone())
+            .collect()
+    }
+
+    /// A command given to the machine with this token, by its id: what it sent (G-code or
+    /// Connect's JSON).
+    pub fn command_text(&self, token: &str, id: u32) -> rusqlite::Result<Option<String>> {
+        let Some(machine) = self.machine_id(token)? else {
+            return Ok(None);
+        };
+        Ok(self
+            .commands
+            .get(&machine)
+            .and_then(|commands| commands.iter().find(|c| c.id == id))
+            .map(|c| c.gcode.clone()))
+    }
+
+    /// The paths on a printer's stick with a Connect command for them still open (waiting,
+    /// sent or taken on), with the command's name (`DELETE_FILE`, ...).
+    pub fn open_path_commands(&self, machine: &str) -> Vec<(String, String)> {
+        self.commands
+            .get(machine)
+            .into_iter()
+            .flatten()
+            .filter(|c| {
+                c.json
+                    && matches!(
+                        c.state,
+                        CommandState::Queued | CommandState::Sent | CommandState::Accepted
+                    )
+            })
+            .filter_map(|c| {
+                let body: serde_json::Value = serde_json::from_str(&c.gcode).ok()?;
+                Some((
+                    body["kwargs"]["path"].as_str()?.to_owned(),
+                    body["command"].as_str()?.to_owned(),
+                ))
+            })
+            .collect()
     }
 
     /// The next command, with whether it is a Connect (JSON) command.
@@ -1479,6 +1628,23 @@ impl Store {
             self.changed();
         }
         Ok(next)
+    }
+
+    /// The printer says in its telemetry it is still carrying out this command (Buddy sends
+    /// the `command_id` of G-code running in the background): not "no answer" while it does.
+    pub fn command_still_running(&mut self, token: &str, id: u32) -> rusqlite::Result<()> {
+        let Some(machine) = self.machine_id(token)? else {
+            return Ok(());
+        };
+        if let Some(command) = self.commands.get_mut(&machine).and_then(|commands| {
+            commands.iter_mut().find(|c| {
+                c.id == id && matches!(c.state, CommandState::Sent | CommandState::Accepted)
+            })
+        }) {
+            command.state = CommandState::Accepted;
+            command.at = now();
+        }
+        Ok(())
     }
 
     /// The machine tells how a command went.
@@ -2008,6 +2174,7 @@ impl Store {
                 queue: Vec::new(),
                 queue_held: None,
                 asking: None,
+                buttons: Vec::new(),
                 usb_print_by: None,
                 moonraker_token: None,
                 laser_w: r.get(19)?,
@@ -2079,6 +2246,21 @@ impl Store {
                 machine.on_bed = self.on_bed(&machine.id)?;
                 machine.queue = self.queue_of(&machine.id)?;
                 machine.asking = self.asking.get(&machine.id).cloned();
+                machine.buttons = self
+                    .dialogs
+                    .get(&machine.id)
+                    .map(|(buttons, _)| buttons.clone())
+                    .unwrap_or_default();
+                // An agent's printer asks through its report.
+                if let Some(prompt) = machine
+                    .telemetry
+                    .as_ref()
+                    .and_then(|t| t.prompt.as_ref())
+                    .filter(|_| machine.online)
+                {
+                    machine.asking = Some((prompt.text.clone(), prompt.text.clone()));
+                    machine.buttons = prompt.buttons.clone();
+                }
                 machine.queue_held = if machine.job.is_some() {
                     None
                 } else {

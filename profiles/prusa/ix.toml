@@ -1,0 +1,18 @@
+# Sources: Buddy: iX, code 160, version 4.1.0, USB PID 16 (printer_model_data.hpp); xBuddy board, its own tools (tools_xbuddy.cpp: 305 less 15); bed 260 x 260, height 175, bed 120 (Configuration_iX.h); CoreXY; preset ix. Prusa's print-farm printer (AFS).
+# PrusaSlicer-settings-prusa-fff 2.5.14 has no profile for it: the printer model is Buddy's own name, which gcode-metadata knows too.
+brand = "Prusa"
+model = "Original Prusa iX"
+kind = "fdm"
+build_volume_mm = [260, 260, 175]
+bed_origin_mm = [0, 0]
+nozzle_mm = 0.4
+firmware = "prusa-buddy"
+max_nozzle_c = 290
+max_bed_c = 120
+motion = "corexy"
+printer_models = ["iX"]
+
+[detect]
+model_code = 160
+machine_type = "Prusa-iX"
+printer_type = "4.1.0"

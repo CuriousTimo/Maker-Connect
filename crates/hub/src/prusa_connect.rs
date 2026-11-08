@@ -218,8 +218,26 @@ fn find_number(value: &Value, keys: &[&str]) -> Option<f64> {
     }
 }
 
-/// Prusa Connect's telemetry, as Maker Connect keeps it.
+/// The print head in use, from the `tools` object firmware 6.4 and later send (per tool,
+/// numbered from "0"): the active one, or else the first head.
+fn active_head(report: &Value) -> Option<&Value> {
+    let tools = report["tools"].as_object()?;
+    let heads = || {
+        tools
+            .values()
+            .filter(|t| t["type"] == "FFF_PRINT_HEAD" || t.get("nozzle_temp").is_some())
+    };
+    heads()
+        .find(|t| t["active"].as_bool() == Some(true))
+        .or_else(|| heads().next())
+}
+
+/// Prusa Connect's telemetry, as Maker Connect keeps it. Firmware before 6.4 sends the
+/// values flat (`temp_nozzle`, `target_nozzle`, `fan_print`, ...); later firmware per tool
+/// under `tools` (`nozzle_temp`, `nozzle_target_temp`, `print_fan_rpm`, `heatbreak_fan_rpm`).
 fn to_telemetry(report: &Value) -> Telemetry {
+    let head = active_head(report);
+    let of_head = |key: &str| head.and_then(|h| h[key].as_f64());
     let state = match report["state"].as_str().unwrap_or("") {
         "PRINTING" | "BUSY" => MachineState::Busy,
         "PAUSED" => MachineState::Paused,
@@ -243,23 +261,65 @@ fn to_telemetry(report: &Value) -> Telemetry {
     };
     Telemetry {
         state,
-        nozzle_c: find_number(report, &["temp_nozzle", "nozzle_temp"]).map(|t| t as f32),
+        nozzle_c: of_head("nozzle_temp")
+            .or_else(|| find_number(report, &["temp_nozzle", "nozzle_temp"]))
+            .map(|t| t as f32),
         bed_c: find_number(report, &["temp_bed", "bed_temp"]).map(|t| t as f32),
         job,
         position_mm: position,
-        nozzle_target_c: number("target_nozzle"),
+        // A head that is off says null (6.4 and later): 0, not "unknown".
+        nozzle_target_c: number("target_nozzle").or_else(|| {
+            head.filter(|h| h.get("nozzle_target_temp").is_some())
+                .map(|h| h["nozzle_target_temp"].as_f64().unwrap_or(0.0) as f32)
+        }),
         bed_target_c: number("target_bed"),
-        // Only while printing, on firmware 6.
-        print_fan_rpm: report["fan_print"].as_f64().map(|n| n as u32),
+        // Before 6.4 only while printing.
+        print_fan_rpm: report["fan_print"]
+            .as_f64()
+            .or_else(|| of_head("print_fan_rpm"))
+            .map(|n| n as u32),
         hotend_fan_rpm: report["fan_extruder"]
             .as_f64()
             .or(report["fan_hotend"].as_f64())
+            .or_else(|| of_head("heatbreak_fan_rpm"))
             .map(|n| n as u32),
         speed_percent: number("speed"),
         flow_percent: number("flow"),
         material: report["material"].as_str().map(str::to_owned),
+        // The CORE One's chamber (`chamber.temp`, `target_temp`: 0 is none set), or the XL's
+        // enclosure (`enclosure.temp`).
+        chamber_c: report["chamber"]["temp"]
+            .as_f64()
+            .or(report["enclosure"]["temp"].as_f64())
+            .map(|t| t as f32),
+        chamber_target_c: report["chamber"]["target_temp"].as_f64().map(|t| t as f32),
+        tools: tools(report),
         ..Telemetry::default()
     }
+}
+
+/// Each print head of a machine with more than one (the XL, an INDX), from the `tools`
+/// object of firmware 6.4 and later ("0", "1", …: numbered from 1 here, as on its screen).
+fn tools(report: &Value) -> Vec<maker_connect_protocol::ToolHeat> {
+    let Some(tools) = report["tools"].as_object() else {
+        return Vec::new();
+    };
+    let mut heads: Vec<maker_connect_protocol::ToolHeat> = tools
+        .iter()
+        .filter(|(_, t)| t["type"] == "FFF_PRINT_HEAD" || t.get("nozzle_temp").is_some())
+        .filter_map(|(key, t)| {
+            Some(maker_connect_protocol::ToolHeat {
+                number: key.parse::<u32>().ok()? + 1,
+                nozzle_c: t["nozzle_temp"].as_f64().map(|c| c as f32),
+                nozzle_target_c: t
+                    .get("nozzle_target_temp")
+                    .map(|v| v.as_f64().unwrap_or(0.0) as f32),
+                active: t["active"].as_bool().unwrap_or(false),
+            })
+        })
+        .collect();
+    heads.sort_by_key(|h| h.number);
+    if heads.len() > 1 { heads } else { Vec::new() }
 }
 
 /// The printer leaves out what has not changed (now and then it sends only its state):
@@ -273,6 +333,11 @@ fn fill_in(telemetry: &mut Telemetry, last: Telemetry) {
     telemetry.speed_percent = telemetry.speed_percent.or(last.speed_percent);
     telemetry.flow_percent = telemetry.flow_percent.or(last.flow_percent);
     telemetry.material = telemetry.material.take().or(last.material);
+    telemetry.chamber_c = telemetry.chamber_c.or(last.chamber_c);
+    telemetry.chamber_target_c = telemetry.chamber_target_c.or(last.chamber_target_c);
+    if telemetry.tools.is_empty() {
+        telemetry.tools = last.tools;
+    }
 }
 
 /// What an `INFO` event tells about the printer, its secrets (the Prusa Link key) left out.
@@ -281,12 +346,27 @@ fn to_details(info: &Value) -> Details {
     let network = &info["network_info"];
     Details {
         serial: some(&info["sn"]),
-        printer_type: printer_type(&info["printer_type"]),
+        // Buddy: "printer_type"; Prusa's Connect SDK (PrusaLink): "type", "version",
+        // "subversion" side by side.
+        printer_type: printer_type(&info["printer_type"])
+            .or_else(|| info["type"].as_u64().and_then(|_| printer_type(info))),
         firmware: some(&info["firmware"]),
-        nozzle_mm: info["nozzle_diameter"].as_f64(),
-        material: info["tools"]
-            .as_object()
-            .and_then(|tools| tools.values().find_map(|t| some(&t["material"]))),
+        // Top level before 6.4 (kept since, "deprecated"); per head under `features` after.
+        nozzle_mm: info["nozzle_diameter"].as_f64().or_else(|| {
+            info["tools"]
+                .as_object()?
+                .values()
+                .find_map(|t| t["features"]["nozzle_diameter"].as_f64())
+        }),
+        // A name per tool before 6.4; later the loaded material's abbreviation ("PETG")
+        // under material_package_instance.package.material.
+        material: info["tools"].as_object().and_then(|tools| {
+            tools.values().find_map(|t| {
+                some(&t["material"]).or_else(|| {
+                    some(&t["material_package_instance"]["package"]["material"]["abbreviation"])
+                })
+            })
+        }),
         storages: info["storages"]
             .as_array()
             .map(|storages| {
@@ -333,6 +413,10 @@ async fn telemetry(
     }
     if let Some(peer) = crate::peer_address(&headers, &extensions) {
         let _ = store.set_peer(token, &peer);
+    }
+    // G-code still running in the background: its command is not given up on.
+    if let Some(id) = report["command_id"].as_u64() {
+        let _ = store.command_still_running(token, id as u32);
     }
     let reported = store.report(token, &telemetry);
     // A job for it goes to its stick when it is free; one printing follows its state.
@@ -384,8 +468,14 @@ async fn event(State(store): State<Shared>, headers: HeaderMap, body: String) ->
     if let Some(id) = event["command_id"].as_u64() {
         let state = match name.as_str() {
             "ACCEPTED" => Some(CommandState::Accepted),
-            // A command that asked for something is done when the answer comes.
-            "FINISHED" | "FILE_INFO" | "JOB_INFO" | "INFO" | "TRANSFER_INFO" => {
+            // A command that asked for something is done when the answer comes. Deleting a
+            // file or folder and making a folder answer with FILE_CHANGED, not FINISHED
+            // (Buddy 6.3's connect/planner.cpp: "the result is generated through the
+            // FILE_CHANGED event indirectly").
+            // SET_PRINTER_READY (since 6.4) and SEND_STATE_INFO answer with STATE_CHANGED,
+            // CANCEL_OBJECT and UNCANCEL_OBJECT with CANCELABLE_CHANGED.
+            "FINISHED" | "FILE_INFO" | "FILE_CHANGED" | "JOB_INFO" | "INFO" | "TRANSFER_INFO"
+            | "STATE_CHANGED" | "CANCELABLE_CHANGED" => {
                 Some(CommandState::Finished)
             }
             // Refused at once, or taken on and then failed (Buddy's FAILED): either way not done.
@@ -578,5 +668,76 @@ mod tests {
         assert_eq!(telemetry.nozzle_c, Some(23.5));
         assert_eq!(telemetry.bed_c, Some(22.0));
         assert!(telemetry.job.is_none());
+    }
+
+    /// Firmware 6.4 and later (Buddy's connect/render.cpp): the head's values under
+    /// `tools`, the active head counted, a head that is off with a null target.
+    #[test]
+    fn the_active_head_tells_on_new_firmware() {
+        let report: Value = serde_json::from_str(
+            r#"{"state":"PRINTING","temp_bed":60.1,"target_bed":60,"speed":100,"flow":95,"axis_z":1.2,
+                "tools":{
+                  "0":{"type":"FFF_PRINT_HEAD","active":false,"nozzle_temp":30.0,"nozzle_target_temp":null,"heatbreak_fan_rpm":0,"print_fan_rpm":0},
+                  "1":{"type":"FFF_PRINT_HEAD","active":true,"nozzle_temp":215.3,"nozzle_target_temp":215,"heatbreak_fan_rpm":7100,"print_fan_rpm":5200}
+                },"job_id":7,"progress":40,"time_printing":600,"time_remaining":900}"#,
+        )
+        .unwrap();
+        let t = to_telemetry(&report);
+        assert_eq!(t.nozzle_c, Some(215.3));
+        assert_eq!(t.nozzle_target_c, Some(215.0));
+        assert_eq!((t.print_fan_rpm, t.hotend_fan_rpm), (Some(5200), Some(7100)));
+        assert_eq!(t.flow_percent, Some(95.0));
+        assert_eq!(t.job.map(|j| j.done), Some(40));
+        // Two heads: each one, numbered from 1; the active one's nozzle on top.
+        assert_eq!(t.tools.len(), 2);
+        assert_eq!((t.tools[1].number, t.tools[1].active), (2, true));
+        assert_eq!(t.tools[0].nozzle_target_c, Some(0.0));
+        // A CORE One's chamber, and an XL's enclosure.
+        let core: Value = serde_json::from_str(
+            r#"{"state":"IDLE","chamber":{"temp":31.5,"target_temp":40,"fan_1_rpm":0,"fan_2_rpm":0,"fan_pwm_target":0,"led_intensity":100},
+                "tools":{"0":{"type":"FFF_PRINT_HEAD","active":true,"nozzle_temp":24.0,"nozzle_target_temp":null}}}"#,
+        )
+        .unwrap();
+        let c = to_telemetry(&core);
+        assert_eq!((c.chamber_c, c.chamber_target_c), (Some(31.5), Some(40.0)));
+        assert!(c.tools.is_empty(), "one head: no list");
+        let xl: Value = serde_json::from_str(r#"{"state":"IDLE","enclosure":{"temp":28,"fan_rpm":0,"time_in_use":3600}}"#).unwrap();
+        assert_eq!(to_telemetry(&xl).chamber_c, Some(28.0));
+        // Off: the target is 0, not unknown.
+        let off: Value = serde_json::from_str(
+            r#"{"state":"IDLE","tools":{"0":{"type":"FFF_PRINT_HEAD","active":true,"nozzle_temp":24.0,"nozzle_target_temp":null}}}"#,
+        )
+        .unwrap();
+        assert_eq!(to_telemetry(&off).nozzle_target_c, Some(0.0));
+    }
+
+    /// INFO on firmware 6.4 and later: the nozzle under `features`, the material as an
+    /// abbreviation deep in `material_package_instance`.
+    #[test]
+    fn info_on_new_firmware() {
+        let info: Value = serde_json::from_str(
+            r##"{"firmware":"8.0.1+12","printer_type":"2.1.0","sn":"CZPX1234",
+                "tools":{"0":{"type":"FFF_PRINT_HEAD",
+                  "features":{"nozzle_diameter":0.60,"nozzle_hardened":true,"nozzle_high_flow":false},
+                  "material_package_instance":{"class":"FFF","package":{"class":"FFF",
+                    "material":{"class":"FFF","abbreviation":"PETG","primary_color":{"color_rgba":"#ff8000"},"tags":[]}}}}}}"##,
+        )
+        .unwrap();
+        let details = to_details(&info);
+        assert_eq!(details.nozzle_mm, Some(0.6));
+        assert_eq!(details.material.as_deref(), Some("PETG"));
+    }
+
+    /// INFO from Prusa's Connect SDK (PrusaLink on an MK3S): the type in three fields.
+    #[test]
+    fn info_from_the_connect_sdk() {
+        let info: Value = serde_json::from_str(
+            r#"{"type":1,"version":3,"subversion":1,"firmware":"3.14.1","sdk":"0.8.1",
+                "sn":"CZPX4720X004XC12345","fingerprint":"abc","network_info":{"hostname":"prusalink"}}"#,
+        )
+        .unwrap();
+        let details = to_details(&info);
+        assert_eq!(details.printer_type.as_deref(), Some("1.3.1"));
+        assert_eq!(details.firmware.as_deref(), Some("3.14.1"));
     }
 }

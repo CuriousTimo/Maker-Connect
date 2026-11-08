@@ -10,6 +10,8 @@ maker-connect-label = { path = "../label" }
 axum = { version = "0.8.9", features = ["ws"] }
 barcoders = { version = "2", default-features = false, features = ["std"] }
 base64 = "0.22"
+jpeg-decoder = { version = "0.3", default-features = false }
+png = "0.17"
 fs2 = "0.4"
 futures-util = "0.3"
 include_dir = "0.7.4"
@@ -40,3 +42,5 @@ http-body-util = "0.1.5"
 tower = { version = "0.5.3", features = ["util"] }
 # A stand-in for Moonraker in the SimplyPrint tests.
 tokio-tungstenite = "0.29"
+# A JPG thumbnail to read, in the G-code tests.
+jpeg-encoder = "0.6"

@@ -10,6 +10,7 @@ mod config;
 mod hub;
 mod marlin;
 mod print;
+mod recovery;
 
 use std::io::Write;
 use std::process::ExitCode;
@@ -149,6 +150,7 @@ fn send(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let mut show = |event: marlin::Event| match event {
         marlin::Event::Said(text) => println!("\r< {text}"),
         marlin::Event::Resent(number) => println!("\rresend line {number}"),
+        marlin::Event::Error(text) => println!("\r! the printer reports an error: {text}"),
         marlin::Event::Progress { done, total } => {
             print!(
                 "\r{done}/{total} lines ({:.0} %)",

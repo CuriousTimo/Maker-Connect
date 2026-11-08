@@ -352,6 +352,57 @@ impl Store {
         Ok(self.start_transfer(&fresh, &file.name)?.is_some())
     }
 
+    /// Everything on a printer's stick is read again when next looked at.
+    fn forget_printer_stick(&self, machine: &str) -> rusqlite::Result<()> {
+        self.db.execute(
+            "UPDATE printer_files SET at = 0, asked_at = NULL WHERE machine_id = ?1",
+            [machine],
+        )?;
+        Ok(())
+    }
+
+    /// A path deleted from the stick: forgotten, and taken out of its folder's listing
+    /// (which stays as fresh as it was: the rest of the folder did not change).
+    fn drop_printer_path(&self, machine: &str, path: &str) -> rusqlite::Result<()> {
+        self.db.execute(
+            "DELETE FROM printer_files WHERE machine_id = ?1 AND (path = ?2 OR path LIKE ?3)",
+            params![machine, path, format!("{path}/%")],
+        )?;
+        let folder = parent(path);
+        let name = path.rsplit('/').next().unwrap_or("");
+        if let (Some((mut data, at)), _) = self.printer_file(machine, folder)?
+            && let Some(children) = data["children"].as_array_mut()
+        {
+            let before = children.len();
+            children.retain(|c| c["name"].as_str() != Some(name));
+            if children.len() != before {
+                if let Some(count) = data["file_count"].as_i64() {
+                    data["file_count"] = json!(count - 1);
+                }
+                self.db.execute(
+                    "UPDATE printer_files SET data = ?3, at = ?4 WHERE machine_id = ?1 AND path = ?2",
+                    params![machine, folder, data.to_string(), at],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    /// What a folder's listing says of one of its children, by its path.
+    fn listed_child(&self, machine: &str, path: &str) -> rusqlite::Result<Option<Value>> {
+        let name = path.rsplit('/').next().unwrap_or("");
+        Ok(self
+            .printer_file(machine, parent(path))?
+            .0
+            .and_then(|(data, _)| {
+                data["children"]
+                    .as_array()?
+                    .iter()
+                    .find(|c| c["name"].as_str() == Some(name))
+                    .cloned()
+            }))
+    }
+
     fn transfer_of_command(
         &self,
         machine: &str,
@@ -490,14 +541,31 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
                 (true, title, body) if title.is_some() || body.is_some() => {
                     let title = title.or_else(|| body.clone()).unwrap_or_default();
                     let mut body = body.unwrap_or_default();
+                    // Prusa's error codes (Prusa-Error-Codes: printer, category, number in
+                    // five digits) each have a help page at prusa.io/<code>, as the printer's
+                    // own screen shows.
                     if let Some(code) = text("code") {
-                        body = format!("{body} (#{code})").trim().to_owned();
+                        let help = (code.len() == 5 && code.bytes().all(|b| b.is_ascii_digit()))
+                            .then(|| format!(", prusa.io/{code}"))
+                            .unwrap_or_default();
+                        body = format!("{body} (#{code}{help})").trim().to_owned();
                     }
                     store.asking.insert(machine.clone(), (title, body));
+                    // Its buttons, answered from the website with DIALOG_ACTION: the dialog
+                    // (telemetry's and the event's `dialog_id`) and the button's name.
+                    let buttons: Vec<String> = data["buttons"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|b| b.as_str().map(str::to_owned))
+                        .collect();
+                    let dialog = event["dialog_id"].as_u64().or(data["dialog_id"].as_u64());
+                    store.dialogs.insert(machine.clone(), (buttons, dialog));
                 }
                 (true, ..) => {}
                 (false, ..) => {
                     store.asking.remove(&machine);
+                    store.dialogs.remove(&machine);
                 }
             }
             store.changed();
@@ -512,13 +580,47 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
                 store.changed();
             }
         }
+        // A stick put in or taken out (Prusa's Connect SDK): all of it is read again.
+        "MEDIUM_INSERTED" | "MEDIUM_EJECTED" => {
+            store.forget_printer_stick(&machine)?;
+            store.changed();
+        }
+        // A file or folder made or deleted (by a command of ours, or on the printer itself).
+        // Buddy 6.3 (connect/render.cpp): `old_path` when deleted, `new_path` when made,
+        // `new_path` with `rescan` when several things changed at once; paths in 8.3 form.
         "FILE_CHANGED" => {
-            for key in ["new_path", "old_path"] {
-                if let Some(path) = data[key].as_str() {
-                    store.forget_printer_path(&machine, path)?;
-                }
+            if data["rescan"].as_bool() == Some(true) {
+                store.forget_printer_stick(&machine)?;
+            }
+            if let Some(path) = data["old_path"].as_str().and_then(usb_path) {
+                // Gone at once from its folder's listing: not shown until the folder is
+                // read again.
+                store.drop_printer_path(&machine, &path)?;
+            }
+            if let Some(path) = data["new_path"].as_str() {
+                store.forget_printer_path(&machine, path)?;
             }
             store.changed();
+        }
+        // A download's start is answered with TRANSFER_INFO (Buddy's handle_transfer_result,
+        // 6.3 and later) once the printer takes it, but the file is still on its way: said
+        // so, until TRANSFER_FINISHED (or a stop) settles the command.
+        "TRANSFER_INFO" | "FINISHED" => {
+            if let Some(command) = event["command_id"].as_u64()
+                && let Some(transfer) = store.transfer_of_command(&machine, command as u32)?
+                && !matches!(
+                    transfer.state.as_str(),
+                    "finished" | "failed" | "starting" | "printing" | "done"
+                )
+            {
+                store.command_went(
+                    token,
+                    command as u32,
+                    crate::store::CommandState::Finished,
+                    Some("taken: the file is on its way (see USB)".to_owned()),
+                    Vec::new(),
+                )?;
+            }
         }
         "TRANSFER_FINISHED" | "TRANSFER_ABORTED" | "TRANSFER_STOPPED" => {
             let command = data["start_cmd_id"]
@@ -678,6 +780,7 @@ pub fn on_report(store: &mut Store, token: &str, state: &str) -> rusqlite::Resul
     };
     // No longer asking, or out of its error: what it said goes.
     if !matches!(state, "ATTENTION" | "ERROR") && store.asking.remove(&machine).is_some() {
+        store.dialogs.remove(&machine);
         store.changed();
     }
     // A print from the stick is over once the printer is idle again (a minute on: it may
@@ -869,12 +972,22 @@ async fn look(
     // ahead by the printer one by one), and how many are still to come.
     if let Some(children) = data["children"].as_array() {
         let mut pending = 0;
+        // Children with a delete on its way: shown as such until the printer says it is done.
+        let deleting: Vec<String> = store
+            .open_path_commands(&machine)
+            .into_iter()
+            .filter(|(_, c)| c.starts_with("DELETE_"))
+            .map(|(p, _)| p)
+            .collect();
         let listed: Vec<Value> = children
             .iter()
             .map(|c| {
                 let mut c = c.clone();
+                let child = format!("{path}/{}", c["name"].as_str().unwrap_or(""));
+                if deleting.contains(&child) {
+                    c["deleting"] = json!(true);
+                }
                 if c["type"] == "PRINT_FILE" {
-                    let child = format!("{path}/{}", c["name"].as_str().unwrap_or(""));
                     let known = store
                         .printer_file(&machine, &child)
                         .ok()
@@ -1036,6 +1149,28 @@ async fn delete(
     };
     let folder = form.folder.is_some();
     let name = path.rsplit('/').next().unwrap_or("").to_owned();
+    {
+        let s = store.lock().unwrap();
+        // A file still arriving is refused by the printer ("File is being transferred"):
+        // said here, before it is asked. Buddy lists such a file as read_only.
+        if !folder
+            && let Ok(Some(child)) = s.listed_child(&machine, &path)
+            && child["read_only"].as_bool() == Some(true)
+        {
+            return (
+                StatusCode::CONFLICT,
+                "it is still arriving on the stick: delete it once it is there",
+            )
+                .into_response();
+        }
+        if s
+            .open_path_commands(&machine)
+            .iter()
+            .any(|(p, c)| p == &path && c.starts_with("DELETE_"))
+        {
+            return (StatusCode::CONFLICT, "it is being deleted already").into_response();
+        }
+    }
     let (command, label) = if folder {
         ("DELETE_FOLDER", format!("Delete the folder {name}"))
     } else {
@@ -1330,6 +1465,156 @@ mod flow {
             .to_bytes()
             .to_vec();
         (status, headers, body)
+    }
+
+    /// Deleting on a MINI's stick as Buddy 6.3 answers it: not while a file is still
+    /// arriving, shown as being deleted until FILE_CHANGED (which settles the command, as
+    /// Buddy sends no FINISHED for it), then gone from the listing; a folder is read once
+    /// however often the page asks meanwhile.
+    #[tokio::test]
+    async fn deleting_on_the_stick() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = crate::auth::signed_in_app(store.clone());
+        let (space, mini, token) = {
+            let mut s = store.lock().unwrap();
+            let space = s.default_space().unwrap().0;
+            let mini = s
+                .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
+                .unwrap();
+            crate::auth::tester_may_operate(&s, space, &mini);
+            let token: String =
+                s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            s.db.execute(
+                "UPDATE machines SET link = 'prusa-connect' WHERE id = ?1",
+                [&mini],
+            )
+            .unwrap();
+            (space, mini, token)
+        };
+        let report = || {
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .body(Body::from(r#"{"state":"IDLE"}"#))
+                .unwrap()
+        };
+        let event = |body: Value| {
+            Request::post("/p/events")
+                .header("Token", &token)
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let look = |app: Router| {
+            let mini = mini.clone();
+            async move {
+                let (_, _, body) = call(
+                    &app,
+                    Request::get(format!("/api/machines/{mini}/usb?path=/usb"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await;
+                serde_json::from_slice::<Value>(&body).unwrap()
+            }
+        };
+        let delete = |path: &str| {
+            Request::post(format!("/machines/{mini}/usb/delete"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(format!("path={path}")))
+                .unwrap()
+        };
+        let reads = |s: &Store| {
+            s.open_path_commands(&mini)
+                .iter()
+                .filter(|(p, c)| p == "/usb" && c == "SEND_FILE_INFO")
+                .count()
+        };
+        call(&app, report()).await;
+
+        // Asked for the folder twice before it answers: one read queued.
+        look(app.clone()).await;
+        store
+            .lock()
+            .unwrap()
+            .db
+            .execute("UPDATE printer_files SET asked_at = 0", [])
+            .unwrap();
+        look(app.clone()).await;
+        assert_eq!(reads(&store.lock().unwrap()), 1, "read once");
+        let (_, headers, _) = call(&app, report()).await;
+        let read: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
+        call(&app, event(json!({"event": "FILE_INFO", "command_id": read, "state": "IDLE", "data": {
+            "path": "/usb", "type": "FOLDER", "file_count": 2, "children": [
+                {"name": "BENCHY~1.BGC", "display_name": "Benchy.bgcode", "size": 812345, "m_timestamp": 0, "read_only": false, "type": "PRINT_FILE"},
+                {"name": "BOX~1.BGC", "display_name": "Box.bgcode", "size": 1000, "m_timestamp": 0, "read_only": true, "type": "PRINT_FILE"}
+            ]}})))
+        .await;
+
+        // Still arriving: refused here, before the printer is asked.
+        let (status, _, body) = call(&app, delete("/usb/BOX~1.BGC")).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(String::from_utf8_lossy(&body).contains("still arriving"));
+
+        // Deleted: shown as being deleted, and not asked twice.
+        assert_eq!(call(&app, delete("/usb/BENCHY~1.BGC")).await.0, StatusCode::NO_CONTENT);
+        let listed = look(app.clone()).await;
+        assert_eq!(listed["data"]["children"][0]["deleting"], true);
+        assert_eq!(call(&app, delete("/usb/BENCHY~1.BGC")).await.0, StatusCode::CONFLICT);
+        let (_, headers, body) = call(&app, report()).await;
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"command": "DELETE_FILE", "kwargs": {"path": "/usb/BENCHY~1.BGC"}})
+        );
+        let id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
+
+        // Buddy answers with FILE_CHANGED only: the command is done and the file is gone.
+        call(&app, event(json!({"event": "FILE_CHANGED", "command_id": id, "state": "IDLE",
+            "data": {"free_space": 1, "old_path": "/usb/BENCHY~1.BGC", "file": {}}})))
+        .await;
+        {
+            let s = store.lock().unwrap();
+            let m = s.machine(space, &mini).unwrap().unwrap();
+            let done = m.commands.iter().find(|c| c.id == id as u32).unwrap();
+            assert_eq!(done.state, crate::store::CommandState::Finished);
+        }
+        let listed = look(app.clone()).await;
+        let names: Vec<&str> = listed["data"]["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|c| c["name"].as_str())
+            .collect();
+        assert_eq!(names, vec!["BOX~1.BGC"]);
+        // And the next command goes at once, not two minutes later.
+        let (status, headers, _) = call(&app, report()).await;
+        assert_eq!(status, StatusCode::OK, "the folder read follows");
+        let read: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
+        call(&app, event(json!({"event": "FILE_INFO", "command_id": read, "state": "IDLE", "data": {
+            "path": "/usb", "type": "FOLDER", "file_count": 0, "children": []}})))
+        .await;
+
+        // A command the printer is still carrying out (its id in the telemetry) is taken on,
+        // not given up on, and nothing else is sent meanwhile.
+        let busy = store
+            .lock()
+            .unwrap()
+            .queue_connect_command(space, &mini, "Home", &json!({"command": "SEND_INFO"}), false)
+            .unwrap()
+            .unwrap();
+        let (_, headers, _) = call(&app, report()).await;
+        assert_eq!(headers["command-id"].to_str().unwrap(), busy.to_string());
+        let running = Request::post("/p/telemetry")
+            .header("Token", &token)
+            .body(Body::from(format!(r#"{{"state":"BUSY","command_id":{busy}}}"#)))
+            .unwrap();
+        assert_eq!(call(&app, running).await.0, StatusCode::NO_CONTENT);
+        let s = store.lock().unwrap();
+        let m = s.machine(space, &mini).unwrap().unwrap();
+        let c = m.commands.iter().find(|c| c.id == busy).unwrap();
+        assert_eq!(c.state, crate::store::CommandState::Accepted);
     }
 
     /// A MINI, as it talks: its stick looked through (with a file's picture), a file
@@ -1664,9 +1949,32 @@ mod flow {
         assert_eq!(again["kwargs"]["path"], "/usb/Big_part-2.gcode");
         assert_eq!(job().unwrap().state, JobState::Printing, "the job goes on");
         // It asks something on its screen: shown as it says it, until it no longer asks.
-        call(&app, event(json!({"event": "STATE_CHANGED", "state": "ATTENTION", "data": {
+        call(&app, event(json!({"event": "STATE_CHANGED", "state": "ATTENTION", "dialog_id": 7, "data": {
             "code": "17630", "title": "Sliced for another printer", "text": "The G-code was sliced for MINIIS.", "buttons": ["CONTINUE", "ABORT"]
         }}))).await;
+        // Its buttons, pressed from the website: DIALOG_ACTION with the dialog and the name
+        // (once the download before has its answer: one command at a time).
+        let again_id: u64 = answer.1["command-id"].to_str().unwrap().parse().unwrap();
+        call(&app, event(json!({"event": "TRANSFER_INFO", "command_id": again_id, "state": "ATTENTION", "data": {}}))).await;
+        let buttons = store.lock().unwrap().machine(space, &mini).unwrap().unwrap().buttons;
+        assert_eq!(buttons, ["CONTINUE", "ABORT"]);
+        let (status, _, _) = call(
+            &app,
+            post(format!("/machines/{mini}/answer"), "button=1".into()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (_, _, body) = call(&app, report("ATTENTION")).await;
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"command": "DIALOG_ACTION", "kwargs": {"dialog_id": 7, "button": "ABORT"}})
+        );
+        let (status, _, _) = call(
+            &app,
+            post(format!("/machines/{mini}/answer"), "button=5".into()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "no such button");
         let asking = || {
             store
                 .lock()
@@ -1680,7 +1988,7 @@ mod flow {
             asking(),
             Some((
                 "Sliced for another printer".to_owned(),
-                "The G-code was sliced for MINIIS. (#17630)".to_owned()
+                "The G-code was sliced for MINIIS. (#17630, prusa.io/17630)".to_owned()
             ))
         );
         call(&app, report("PRINTING")).await;

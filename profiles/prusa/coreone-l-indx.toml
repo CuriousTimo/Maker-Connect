@@ -1,0 +1,18 @@
+# Sources: Buddy: COREONEL-INDX, code 370, version 8.10.0, USB PID 37 (printer_model_data.hpp); xBuddy board with INDX tools, four or eight (tools_indx.cpp: 305 less 15); bed 301 x 275 with INDX, height 330, bed 125 less 5 (Configuration_COREONEL.h); preset coreonel_indx.
+# PrusaSlicer-settings-prusa-fff 2.5.14 has no profile for it yet: the printer model is Buddy's own name, as its G-code check (M862.3) knows it.
+brand = "Prusa"
+model = "Prusa CORE One L INDX"
+kind = "fdm"
+build_volume_mm = [301, 275, 330]
+bed_origin_mm = [0, 0]
+nozzle_mm = 0.4
+firmware = "prusa-buddy"
+max_nozzle_c = 290
+max_bed_c = 120
+motion = "corexy"
+printer_models = ["COREONEL-INDX"]
+
+[detect]
+model_code = 370
+machine_type = "Prusa-COREONEL-INDX"
+printer_type = "8.10.0"
