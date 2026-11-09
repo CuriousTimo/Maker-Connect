@@ -148,6 +148,7 @@ pub fn parse(line: &str) -> Reply {
             "ready" => Action::Ready,
             "not_ready" => Action::NotReady,
             "uvlo_recovery_ready" | "uvlo_auto_recovery_ready" => Action::PowerLoss,
+            "start" => Action::Reprint,
             // Marlin's ACTION_ON_KILL: it was killed and stays dead until reset.
             "poweroff" | "kill" => Action::Killed,
             // Said for someone to read: a runout, a failed probe, heaters switched off for
@@ -186,12 +187,15 @@ pub enum Action {
     NotReady,
     /// A print interrupted by a power cut, brought back and waiting to be resumed.
     PowerLoss,
+    /// "Reprint" in its menu (Prusa's MK3, after a host's print): print the last job again.
+    /// Asked of the hub, which checks it as any job (the bed clear first).
+    Reprint,
     /// Killed (`poweroff`): dead until reset.
     Killed,
     /// Something for someone to read: a runout, a failed probe, heaters off for inactivity.
     Notice(String),
-    /// Anything else, `start` and `shutdown` among them: a knob on the printer does not
-    /// start jobs from here, and never shuts down the computer the agent runs on.
+    /// Anything else, `shutdown` among them: a knob on the printer never shuts down the
+    /// computer the agent runs on.
     Other(String),
 }
 
@@ -494,6 +498,26 @@ pub struct ScreenState {
     pub power_loss: bool,
     /// It needs someone without being dead (a failed bed levelling, a slow fan, locked).
     pub attention: Option<String>,
+    /// "Reprint" was chosen on it, not reported yet.
+    pub reprint_said: bool,
+    /// Whether an SD card is in it, as it last said (`echo:SD card ok`, `SD init fail`,
+    /// `SD card released`).
+    pub sd_card: Option<bool>,
+    /// The file a print from its card opened (`File opened: … Size: …`), its short name.
+    pub sd_opened: Option<String>,
+    /// Its MMU: the slot in use (`MMU2tool=N`), and what it is doing (its progress).
+    pub mmu_slot: Option<u8>,
+    pub mmu_doing: Option<String>,
+    /// Calibrating its thermal model (`TM: calibration start` until it ends): nothing may be
+    /// sent meanwhile (PrusaLink blocks its queue then).
+    pub calibrating: bool,
+    /// Its bed was measured anew (`echo:enqueing "G80"`, or the homing before it): its
+    /// mesh is to be read again.
+    pub mesh_stale: bool,
+    /// When it last reported by itself (`M155`): temperatures, fans, position.
+    pub auto_temps: Option<std::time::Instant>,
+    pub auto_fans: Option<std::time::Instant>,
+    pub auto_position: Option<std::time::Instant>,
     // A question being told, not shown yet.
     pending: Option<(String, Vec<String>)>,
 }
@@ -506,6 +530,38 @@ impl Screen {
     /// "Set Ready" from its menu, once: taken by whoever reports it.
     pub fn take_ready(&self) -> bool {
         std::mem::take(&mut self.state.lock().unwrap().ready_said)
+    }
+
+    /// "Reprint" from its menu, once.
+    pub fn take_reprint(&self) -> bool {
+        std::mem::take(&mut self.state.lock().unwrap().reprint_said)
+    }
+
+    /// Its mesh is to be read again (a Prusa MK2.5, which says nothing when it levels: on
+    /// every change to printing or idle, as PrusaLink does).
+    pub fn mesh_changed(&self) {
+        self.state.lock().unwrap().mesh_stale = true;
+    }
+
+    /// Whether its mesh is to be read again, once.
+    pub fn take_mesh_stale(&self) -> bool {
+        std::mem::take(&mut self.state.lock().unwrap().mesh_stale)
+    }
+
+    /// Whether it reported temperatures, fans and position by itself within `within`
+    /// (PrusaLink switches `M155` on again when any of them has not come for a minute).
+    pub fn reports_by_itself(&self, within: Duration) -> bool {
+        let s = self.state.lock().unwrap();
+        [s.auto_temps, s.auto_fans, s.auto_position]
+            .iter()
+            .all(|t| t.is_some_and(|t| t.elapsed() < within))
+    }
+
+    /// `M155` was (re)started: it is given `within` to report before it counts as silent.
+    pub fn reporting_started(&self) {
+        let mut s = self.state.lock().unwrap();
+        let now = std::time::Instant::now();
+        (s.auto_temps, s.auto_fans, s.auto_position) = (Some(now), Some(now), Some(now));
     }
 
     /// A job ends or starts: a stop from its menu is dealt with.
@@ -541,6 +597,46 @@ impl Screen {
         // Prusa's MK3: its thermal model error went away by itself.
         if line.trim() == "TM: error cleared" {
             s.attention = None;
+        }
+        let text = line.trim();
+        // Its own reports (M155): when each kind last came.
+        let now = std::time::Instant::now();
+        if text.starts_with("T:") || text.starts_with("ok T:") {
+            s.auto_temps = Some(now);
+        }
+        if text.starts_with("E0:") && text.contains(" RPM") {
+            s.auto_fans = Some(now);
+        }
+        if text.starts_with("X:") && text.contains(" Count ") {
+            s.auto_position = Some(now);
+        }
+        // Its SD card (Prusa's MK3 and Marlin say so on their own).
+        match text {
+            "echo:SD card ok" => s.sd_card = Some(true),
+            "echo:SD init fail" | "Error:volume.init failed" | "Error:openRoot failed"
+            | "echo:SD card released" => s.sd_card = Some(false),
+            _ => {}
+        }
+        if let Some(rest) = text.strip_prefix("File opened: ") {
+            s.sd_opened = rest.split(" Size: ").next().map(str::to_owned);
+            s.sd_card = Some(true);
+        }
+        // Prusa's MK3: calibrating its thermal model, and its end (failed, or its settings).
+        if text == "TM: calibration start" {
+            s.calibrating = true;
+        } else if text.starts_with("TM: calibr. failed!") || text.starts_with("Thermal Model settings:") {
+            s.calibrating = false;
+        }
+        // Its bed being measured: the mesh read later is new.
+        if text == "echo:enqueing \"G80\"" || (text.starts_with("tmc") && text.contains("_home_enter(axes_mask=")) {
+            s.mesh_stale = true;
+        }
+        // Prusa's MK3 with an MMU: the slot in use, and what it is doing.
+        if let Some(slot) = text.strip_prefix("echo:MMU2:MMU2tool=").and_then(|n| n.parse().ok()) {
+            s.mmu_slot = Some(slot);
+        }
+        if let Some(doing) = mmu_progress(text) {
+            s.mmu_doing = (doing != "OK").then(|| doing.to_owned());
         }
         // Prusa's MK3 with an MMU: an error in its chatter, or none any more.
         match mmu_error(line) {
@@ -587,6 +683,7 @@ impl Screen {
                 Action::Ready => s.ready_said = true,
                 Action::NotReady => s.ready_said = false,
                 Action::PowerLoss => s.power_loss = true,
+                Action::Reprint => s.reprint_said = true,
                 Action::Other(_) => {}
             },
             _ => {}
@@ -633,6 +730,148 @@ pub fn model_code(lines: &[String]) -> Option<u32> {
     Some(code % 10_000)
 }
 
+/// What an MMU says it is doing (Prusa's MK3: `echo:MMU2:Feeding to nozzle`), from the
+/// messages its firmware has (PrusaLink's `MMU_PROGRESS_MAP`, the MMU's progress codes).
+const MMU_PROGRESS: [&str; 26] = [
+    "OK", "Engaging idler", "Disengaging idler", "Unloading to FINDA", "Unloading to pulley",
+    "Feeding to FINDA", "Feeding to extruder", "Feeding to nozzle", "Avoiding grind",
+    "ERR Disengaging idler", "ERR Engaging idler", "ERR Wait for User", "ERR Internal",
+    "ERR Help filament", "ERR TMC failed", "Selecting fil. slot", "Preparing blade",
+    "Pushing filament", "Performing cut", "Returning selector", "Ejecting filament",
+    "Parking selector", "Retract from FINDA", "Homing", "Moving selector",
+    "Feeding to FSensor",
+];
+
+pub fn mmu_progress(line: &str) -> Option<&'static str> {
+    let rest = line.trim().strip_prefix("echo:MMU2:")?;
+    MMU_PROGRESS.iter().copied().find(|m| rest.starts_with(m) && !rest[m.len()..].starts_with(|c: char| c.is_alphanumeric()))
+}
+
+/// Its serial number from `PRUSA SN` (Prusa's MK3): `CZPX1234X567XC12345`, or the newer
+/// `SN…`; None for "SN invalid" or nothing that looks like one.
+pub fn prusa_serial(lines: &[String]) -> Option<String> {
+    lines.iter().map(|l| l.trim()).find_map(|line| {
+        let old = line.len() == 19
+            && line.starts_with("CZPX")
+            && line.as_bytes()[8] == b'X'
+            && line.as_bytes()[12] == b'X';
+        let new = line.starts_with("SN")
+            && line.len() == 16
+            && line[2..].bytes().all(|b| b.is_ascii_alphanumeric());
+        (old || new).then(|| line.to_owned())
+    })
+}
+
+/// The nozzle's diameter from `M862.1 Q` (Prusa's MK3): a line that is only it, "0.40".
+pub fn nozzle(lines: &[String]) -> Option<String> {
+    lines.iter().map(|l| l.trim()).find_map(|line| {
+        let (whole, part) = line.split_once('.')?;
+        (whole.len() == 1
+            && whole.bytes().all(|b| b.is_ascii_digit())
+            && !part.is_empty()
+            && part.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| line.to_owned())
+    })
+}
+
+/// A factor from `M220` or `M221` asked without a value: Prusa's MK3 says "100%",
+/// Marlin "FR:100%" (speed) and "echo:E0 Flow: 100%" (flow).
+pub fn percent(lines: &[String]) -> Option<f32> {
+    lines.iter().map(|l| l.trim()).find_map(|line| {
+        let number = line
+            .strip_suffix('%')?
+            .rsplit(|c: char| c == ':' || c == ' ')
+            .next()?;
+        number.trim().parse::<f32>().ok()
+    })
+}
+
+/// The printer's own progress and time left from `M73` asked without values (Prusa's MK3,
+/// the slicer's numbers it was given): its mode's line, as (percent, minutes left).
+/// "NORMAL MODE: Percent done: 5; print time remaining in mins: 60; Change in mins: -1".
+/// With the minutes until the next filament change ("Change in mins"); a negative value is
+/// none, as PrusaLink takes it.
+pub fn print_info_full(lines: &[String], silent: bool) -> Option<(u32, Option<u32>, Option<u32>)> {
+    let mode = if silent { "SILENT MODE:" } else { "NORMAL MODE:" };
+    let line = lines.iter().map(|l| l.trim()).find(|l| l.starts_with(mode))?;
+    let field = |name: &str| -> Option<i64> {
+        let lower = line.to_ascii_lowercase();
+        let at = lower.find(name)? + name.len();
+        lower[at..].split(';').next()?.trim().parse().ok()
+    };
+    let percent = u32::try_from(field("percent done:")?).ok()?;
+    let left = field("print time remaining in mins:").and_then(|m| u32::try_from(m).ok());
+    let change = field("change in mins:").and_then(|m| u32::try_from(m).ok());
+    Some((percent, left, change))
+}
+
+/// A little-endian `uint32` from Prusa's MK3 EEPROM (an AVR): its lifetime filament
+/// (metres, `EEPROM_FILAMENTUSED`) and printing time (minutes, `EEPROM_TOTALTIME`).
+pub fn eeprom_u32(bytes: &[u8]) -> Option<u32> {
+    let b: [u8; 4] = bytes.get(..4)?.try_into().ok()?;
+    let value = u32::from_le_bytes(b);
+    // An EEPROM never written says 0xFFFFFFFF.
+    (value != u32::MAX).then_some(value)
+}
+
+/// The bytes of a `D3` EEPROM read (Prusa's MK3): lines "0D49  53 6D 6F 6F 74 68 31 …",
+/// an address and up to 16 bytes in hex.
+pub fn eeprom_bytes(lines: &[String]) -> Vec<u8> {
+    lines
+        .iter()
+        .filter_map(|line| {
+            let (address, data) = line.trim().split_once("  ")?;
+            (address.len() >= 2 && address.bytes().all(|b| b.is_ascii_hexdigit())).then_some(data)
+        })
+        .flat_map(|data| data.split_whitespace().filter_map(|b| u8::from_str_radix(b, 16).ok()).collect::<Vec<_>>())
+        .collect()
+}
+
+/// The sheet in use from Prusa's MK3 EEPROM: eight sheets of 11 bytes (a name of up to 7,
+/// its Z offset, two temperatures), then the active sheet's number (`eeprom.h`, `Sheets`).
+pub fn active_sheet(sheets: &[u8], active: u8) -> Option<String> {
+    let at = active as usize * 11;
+    let name = sheets.get(at..at + 7)?;
+    let name: String = name
+        .iter()
+        .take_while(|b| **b != 0 && **b != 0xFF)
+        .map(|b| *b as char)
+        .collect();
+    let name = name.trim().to_owned();
+    (!name.is_empty() && name.chars().all(|c| c.is_ascii_graphic() || c == ' ')).then_some(name)
+}
+
+/// Prusa's MK3 print mode from its EEPROM (`EEPROM_SILENT`): 0 normal, 1 silent, 2 auto
+/// (PrusaLink's `PRINT_MODE_ID_PAIRING`); else not known (an unset EEPROM says 0xFF).
+pub fn print_mode(byte: u8) -> Option<&'static str> {
+    match byte {
+        0 => Some("normal"),
+        1 => Some("silent"),
+        2 => Some("auto"),
+        _ => None,
+    }
+}
+
+/// An MMU's firmware from `M707 A0x00`…`A0x03` (major, minor, revision, build), each
+/// answered `echo:MMU2:<R0 A3*xx.` in hex: "3.0.3+896".
+pub fn mmu_firmware(answers: [&[String]; 4]) -> Option<String> {
+    let number = |lines: &[String], register: u8| -> Option<u32> {
+        let prefix = [format!("echo:MMU2:<R{register} A"), format!("echo:MMU3:<R{register} A")];
+        lines.iter().map(|l| l.trim()).find_map(|line| {
+            let rest = prefix.iter().find_map(|p| line.strip_prefix(p.as_str()))?;
+            u32::from_str_radix(rest.split('*').next()?, 16).ok()
+        })
+    };
+    let [major, minor, revision, build] = answers;
+    Some(format!(
+        "{}.{}.{}+{}",
+        number(major, 0)?,
+        number(minor, 1)?,
+        number(revision, 2)?,
+        number(build, 3)?
+    ))
+}
+
 /// The heaters from an `M105` answer, or a temperature report (`M155`, the `ok`s while
 /// heating): `ok T:210.3 /210.0 B:60.1 /60.0 T0:210.3 /210.0 @:64 B@:0`. After the `/` is
 /// what it heats to (0: off); `@:` and `B@:` are the heaters' power (0: no power now).
@@ -648,12 +887,31 @@ pub struct Heat {
     /// `M155 C2`): `E0:3500 RPM PRN1:0 RPM E0@:255 PRN1@:0`, the hotend fan and the print fan.
     pub hotend_fan_rpm: Option<u32>,
     pub print_fan_rpm: Option<u32>,
+    /// Where the head is, from `M114` or the position auto-report (`M155 C4`):
+    /// `X:10.00 Y:20.00 Z:0.15 E:0.00 Count X: 800 Y:1600 Z:60`, the part before `Count`.
+    pub position_mm: Option<[f32; 3]>,
 }
 
+/// The head's position in a line of `M114` (or its auto-report): X, Y and Z before `Count`
+/// (after it come the steppers' counts, not millimetres).
+fn position(line: &str) -> Option<[f32; 3]> {
+    let line = line.trim().strip_prefix("ok ").unwrap_or(line.trim());
+    if !line.starts_with("X:") {
+        return None;
+    }
+    let before = line.split(" Count").next()?;
+    let value = |axis: &str| {
+        before.split_whitespace().find_map(|word| word.strip_prefix(axis)?.parse::<f32>().ok())
+    };
+    Some([value("X:")?, value("Y:")?, value("Z:")?])
+}
+
+/// Each value from the newest line that has it: with `M155` on, an answer can hold several
+/// of the printer's own reports, oldest first.
 pub fn heat(lines: &[String]) -> Heat {
     // `E0:3500 RPM` and `PRN1:0 RPM` (not `E0@:` or `E:` alone, the heating lines' extruder).
     let rpm = |key: &str| {
-        lines.iter().find_map(|line| {
+        lines.iter().rev().find_map(|line| {
             let words: Vec<&str> = line.split_whitespace().collect();
             words.iter().enumerate().find_map(|(i, word)| {
                 let value = word.strip_prefix(key)?;
@@ -663,7 +921,7 @@ pub fn heat(lines: &[String]) -> Heat {
     };
     // `T:210.3 /210.0`, or written together: `T:210.3/210.0`.
     let reading = |key: &str| {
-        lines.iter().find_map(|line| {
+        lines.iter().rev().find_map(|line| {
             let words: Vec<&str> = line.split_whitespace().collect();
             words.iter().enumerate().find_map(|(i, word)| {
                 let rest = word.strip_prefix(key)?;
@@ -677,7 +935,7 @@ pub fn heat(lines: &[String]) -> Heat {
         })
     };
     let power = |key: &str| {
-        lines.iter().find_map(|line| {
+        lines.iter().rev().find_map(|line| {
             line.split_whitespace()
                 .find_map(|word| word.strip_prefix(key))
                 .and_then(|v| v.parse::<f32>().ok())
@@ -695,6 +953,7 @@ pub fn heat(lines: &[String]) -> Heat {
         bed_heating: power("B@:"),
         hotend_fan_rpm: rpm("E0:"),
         print_fan_rpm: rpm("PRN1:"),
+        position_mm: lines.iter().rev().find_map(|line| position(line)),
     }
 }
 
@@ -1020,6 +1279,21 @@ impl<L: Read + Write> Printer<L> {
         self.wait_ok(on).map(|_| ())
     }
 
+    /// Only listens, for `for_`: what the printer says by itself (its reports, the end of a
+    /// calibration), with nothing sent. While Prusa's MK3 calibrates its thermal model
+    /// nothing may be sent (PrusaLink blocks its queue then).
+    pub fn listen(&mut self, for_: Duration) -> io::Result<Vec<String>> {
+        let until = Instant::now() + for_;
+        let mut lines = Vec::new();
+        while Instant::now() < until {
+            if let Some(line) = self.read_line()?.filter(|l| !l.is_empty()) {
+                self.waiting.heard(&parse(&line), &line);
+                lines.push(line);
+            }
+        }
+        Ok(lines)
+    }
+
     /// Sends one command and returns what the printer answered: its lines before the
     /// `ok`, and the `ok` line itself. An `M115` answer also gives its firmware and what it
     /// can do (`caps`).
@@ -1310,6 +1584,108 @@ pub(crate) mod tests {
     }
 
     /// Prusa's G81 prints the back row first; the mesh starts at the front.
+    /// What PrusaLink reads of Prusa's MK3 (its `regular_expressions.py`), read here too.
+    #[test]
+    fn what_prusalink_reads_is_read() {
+        let s = |t: &str| vec![t.to_owned(), "ok".to_owned()];
+        // PRUSA SN: both forms; "SN invalid" is none.
+        assert_eq!(prusa_serial(&s("CZPX1234X567XC12345")).as_deref(), Some("CZPX1234X567XC12345"));
+        assert_eq!(prusa_serial(&s("SN25017C00123456")).as_deref(), Some("SN25017C00123456"));
+        assert_eq!(prusa_serial(&s("SN invalid")), None);
+        // M862.1 Q: the nozzle.
+        assert_eq!(nozzle(&s("0.40")).as_deref(), Some("0.40"));
+        assert_eq!(nozzle(&s("ok")), None);
+        // M220, M221 asked back: the MK3's "95%", Marlin's "FR:100%" and "Flow: 98%".
+        assert_eq!(percent(&s("95%")), Some(95.0));
+        assert_eq!(percent(&s("FR:100%")), Some(100.0));
+        assert_eq!(percent(&s("echo:E0 Flow: 98%")), Some(98.0));
+        // M73 asked back: the printer's own progress, in its mode.
+        let info = vec![
+            "NORMAL MODE: Percent done: 25; print time remaining in mins: 40; Change in mins: -1".to_owned(),
+            "SILENT MODE: Percent done: 24; print time remaining in mins: 42; Change in mins: -1".to_owned(),
+        ];
+        assert_eq!(print_info_full(&info, false), Some((25, Some(40), None)));
+        assert_eq!(print_info_full(&info, true), Some((24, Some(42), None)));
+        // D3: the EEPROM's bytes; the sheets and the one in use; the print mode.
+        let mut sheets = vec![0xFFu8; 88];
+        sheets[..7].copy_from_slice(b"Smooth1");
+        sheets[11..18].copy_from_slice(b"Satin\0\0");
+        let lines: Vec<String> = sheets
+            .chunks(16)
+            .enumerate()
+            .map(|(i, c)| format!("{:04X}  {}", 0x0D49 + i * 16, c.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ")))
+            .collect();
+        assert_eq!(eeprom_bytes(&lines), sheets);
+        assert_eq!(active_sheet(&sheets, 0).as_deref(), Some("Smooth1"));
+        assert_eq!(active_sheet(&sheets, 1).as_deref(), Some("Satin"));
+        assert_eq!(active_sheet(&sheets, 2), None, "not set up");
+        assert_eq!(
+            (print_mode(0), print_mode(1), print_mode(2), print_mode(0xFF)),
+            (Some("normal"), Some("silent"), Some("auto"), None)
+        );
+        // The lifetime totals, little-endian; an unwritten EEPROM is none.
+        assert_eq!(eeprom_u32(&[0x2A, 0x01, 0, 0]), Some(298));
+        assert_eq!(eeprom_u32(&[0xFF; 4]), None);
+        // A negative time or change from the printer is none (PrusaLink: "broken").
+        let broken = vec!["NORMAL MODE: Percent done: -1; print time remaining in mins: -1; Change in mins: -1".to_owned()];
+        assert_eq!(print_info_full(&broken, false), None, "no percent");
+        let no_time = vec!["NORMAL MODE: Percent done: 30; print time remaining in mins: -1; Change in mins: 12".to_owned()];
+        assert_eq!(print_info_full(&no_time, false), Some((30, None, Some(12))));
+        // M707: the MMU's firmware, from its four registers.
+        let r = |n: u8, v: &str| vec![format!("echo:MMU2:<R{n} A{v}*2c."), "ok".to_owned()];
+        let (a, b, c, d) = (r(0, "3"), r(1, "0"), r(2, "3"), r(3, "380"));
+        assert_eq!(mmu_firmware([&a, &b, &c, &d]).as_deref(), Some("3.0.3+896"));
+        assert_eq!(mmu_firmware([&s("ok"), &b, &c, &d]), None, "no MMU");
+        // What its MMU is doing.
+        assert_eq!(mmu_progress("echo:MMU2:Feeding to nozzle"), Some("Feeding to nozzle"));
+        assert_eq!(mmu_progress("echo:MMU2:ERR Wait for User"), Some("ERR Wait for User"));
+        assert_eq!(mmu_progress("echo:MMU2:<T0 E8004*3c."), None);
+    }
+
+    /// What Prusa's MK3 says by itself, as PrusaLink follows it.
+    #[test]
+    fn what_it_says_by_itself_is_followed() {
+        let screen = Screen::default();
+        // Its SD card.
+        screen.hear("echo:SD card ok");
+        assert_eq!(screen.now().sd_card, Some(true));
+        screen.hear("echo:SD card released");
+        assert_eq!(screen.now().sd_card, Some(false));
+        screen.hear("File opened: BENCHY~1.GCO Size: 812345");
+        assert_eq!((screen.now().sd_card, screen.now().sd_opened.as_deref()), (Some(true), Some("BENCHY~1.GCO")));
+        // Calibrating its thermal model: nothing to be sent until it ends.
+        screen.hear("TM: calibration start");
+        assert!(screen.now().calibrating);
+        screen.hear("Thermal Model settings:");
+        assert!(!screen.now().calibrating);
+        screen.hear("TM: calibration start");
+        screen.hear("TM: calibr. failed!");
+        assert!(!screen.now().calibrating);
+        // Its bed measured: the mesh to be read again, once.
+        screen.hear("echo:enqueing \"G80\"");
+        assert!(screen.take_mesh_stale());
+        assert!(!screen.take_mesh_stale());
+        screen.hear("tmc2130_home_enter(axes_mask=0x04)");
+        assert!(screen.take_mesh_stale());
+        // Its MMU: the slot, and what it is doing until it is OK again.
+        screen.hear("echo:MMU2:MMU2tool=3");
+        screen.hear("echo:MMU2:Feeding to extruder");
+        assert_eq!((screen.now().mmu_slot, screen.now().mmu_doing.as_deref()), (Some(3), Some("Feeding to extruder")));
+        screen.hear("echo:MMU2:OK");
+        assert_eq!(screen.now().mmu_doing, None);
+        // Reprint from its menu, once.
+        screen.hear("// action:start");
+        assert!(screen.take_reprint());
+        assert!(!screen.take_reprint());
+        // Its own reports: each kind, so a silent one starts them again.
+        assert!(!screen.reports_by_itself(Duration::from_secs(60)));
+        screen.hear("T:20.0 /0.0 B:20.0 /0.0 T0:20.0 /0.0 @:0 B@:0 P:0.0 A:25.0");
+        screen.hear("E0:0 RPM PRN1:0 RPM E0@:0 PRN1@:0");
+        assert!(!screen.reports_by_itself(Duration::from_secs(60)), "no position yet");
+        screen.hear("X:0.00 Y:0.00 Z:0.15 E:0.00 Count X: 0.00 Y:0.00 Z:0.15 E:0.00");
+        assert!(screen.reports_by_itself(Duration::from_secs(60)));
+    }
+
     #[test]
     fn a_prusa_mesh_is_read_front_first() {
         let lines = said(
@@ -1654,12 +2030,30 @@ pub(crate) mod tests {
                 bed_heating: Some(false),
                 hotend_fan_rpm: None,
                 print_fan_rpm: None,
+                position_mm: None,
             }
         );
         // Prusa's MK3: fans in its M105 answer and its fan auto-report.
         let fans = heat(&["ok T:215.0 /215.0 B:60.0 /60.0 T0:215.0 /215.0 @:90 B@:40 P:35.0 A:30.1 E0:3500 RPM PRN1:4800 RPM E0@:255 PRN1@:200".to_owned()]);
         assert_eq!((fans.hotend_fan_rpm, fans.print_fan_rpm), (Some(3500), Some(4800)));
         assert_eq!(fans.nozzle_c, Some(215.0));
+        // The head's position (M114, or M155 C4), the millimetres before `Count`.
+        let at = heat(&["X:10.00 Y:20.50 Z:0.15 E:0.00 Count X: 800 Y:1640 Z:60".to_owned(), "ok".to_owned()]);
+        assert_eq!(at.position_mm, Some([10.0, 20.5, 0.15]));
+        assert_eq!(heat(&["ok T:21.0 /0.0 B:21.0 /0.0".to_owned()]).position_mm, None);
+        // Several of its own reports in one answer (M155 on): the newest counts.
+        let newest = heat(&[
+            "T:20.0 /0.0 B:20.0 /0.0 T0:20.0 /0.0 @:0 B@:0".to_owned(),
+            "X:1.00 Y:1.00 Z:1.00 E:0.00 Count X: 0 Y:0 Z:0".to_owned(),
+            "E0:0 RPM PRN1:0 RPM E0@:0 PRN1@:0".to_owned(),
+            "T:25.0 /0.0 B:22.0 /0.0 T0:25.0 /0.0 @:0 B@:0".to_owned(),
+            "X:2.00 Y:3.00 Z:4.00 E:0.00 Count X: 0 Y:0 Z:0".to_owned(),
+            "E0:3000 RPM PRN1:0 RPM E0@:255 PRN1@:0".to_owned(),
+            "ok".to_owned(),
+        ]);
+        assert_eq!((newest.nozzle_c, newest.bed_c), (Some(25.0), Some(22.0)));
+        assert_eq!(newest.position_mm, Some([2.0, 3.0, 4.0]));
+        assert_eq!(newest.hotend_fan_rpm, Some(3000));
         let fans = heat(&["E0:0 RPM PRN1:0 RPM E0@:0 PRN1@:0".to_owned()]);
         assert_eq!((fans.hotend_fan_rpm, fans.print_fan_rpm), (Some(0), Some(0)));
         assert!(routine("E0:0 RPM PRN1:0 RPM E0@:0 PRN1@:0"));

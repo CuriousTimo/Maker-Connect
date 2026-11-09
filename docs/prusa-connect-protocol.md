@@ -1,5 +1,11 @@
 # The printer side of Prusa Connect
 
+> **Not verified (2026-11-09).** This document was written by reading the sources by hand,
+> not checked item by item. The check against PrusaLink (`prusalink-audit.md`,
+> `scripts/prusalink-audit-check.py`) found many gaps that such a reading had missed. Until a
+> script checks this document against its sources in the same way, it is not to be taken as
+> complete.
+
 How a Prusa printer with the Buddy firmware (MINI, MK4, MK3.5, XL, CORE One) talks to
 Connect, so that a Maker Connect hub can be its server instead. Learned by reading
 Prusa-Firmware-Buddy (`src/connect`, GPL-3.0) and the Prusa Connect SDK (Freeware); written

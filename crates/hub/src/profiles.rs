@@ -347,6 +347,7 @@ mod tests {
                 model_code: code,
                 printer_type: printer_type.map(str::to_owned),
                 machine_type: machine_type.map(str::to_owned),
+                ..Identity::default()
             })
             .map(|p| p.id.as_str())
         };

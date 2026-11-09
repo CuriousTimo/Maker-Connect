@@ -346,6 +346,8 @@ pub struct Loaded {
     /// The material's nozzle temperature, for loading and unloading it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nozzle_c: Option<f64>,
+    /// The bed's temperature for it, where the filament says one.
+    pub bed_c: Option<f64>,
 }
 
 /// A machine's jobs in numbers (ended ones): for its page.
@@ -1329,6 +1331,7 @@ impl Store {
             mesh: None,
             job_end: None,
             bed_clear: false,
+            reprint: false,
             ..telemetry.clone()
         };
         // "Set Ready" on the printer's own menu: the bed is clear, as on its page.
@@ -1343,6 +1346,19 @@ impl Store {
                 .optional()?
         {
             self.print_taken(space, &machine)?;
+        }
+        // "Reprint" on the printer's own menu: its last job again, where it may start.
+        if telemetry.reprint
+            && let Some((machine, space)) = self
+                .db
+                .query_row(
+                    "SELECT id, space_id FROM machines WHERE token = ?1 AND space_id IS NOT NULL",
+                    [token],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+                )
+                .optional()?
+        {
+            self.reprint(space, &machine)?;
         }
         let updated = self.db.execute(
             "UPDATE machines SET last_seen = ?1, telemetry = ?2 WHERE token = ?3",
@@ -2227,6 +2243,7 @@ impl Store {
                             .unwrap_or_else(|| item.material.clone()),
                         color: material.and_then(|m| m.color.clone()),
                         nozzle_c: material.and_then(|m| m.nozzle_c),
+                        bed_c: material.and_then(|m| m.bed_c),
                         material: item.material.parse::<i64>().ok().and_then(|id| {
                             self.db
                                 .query_row(

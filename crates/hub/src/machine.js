@@ -561,6 +561,11 @@
       speed: t.speed_percent != null ? `${t.speed_percent} %` : null,
       flow: t.flow_percent != null ? `${t.flow_percent} %` : null,
       material: t.material,
+      sheet: t.sheet,
+      print_mode: t.print_mode,
+      sd_card: t.sd_card == null ? null : t.sd_card ? "in" : "none",
+      mmu: t.mmu_slot == null && !t.mmu_doing ? null : [t.mmu_slot != null ? `slot ${t.mmu_slot + 1}` : null, t.mmu_doing].filter(Boolean).join(" · "),
+      doing: t.doing,
       seen_n: m.seen_seconds_ago != null ? String(m.seen_seconds_ago) : null,
     };
     for (const el of document.querySelectorAll("[data-live]")) {
@@ -906,7 +911,11 @@
       job_note: job ? `${job.state} · ${job.file_name}` : "no job",
       // The job card: its state only (the file is in the card itself).
       job_state: job ? job.state : "no job",
-      job_eta: job && progress && progress.remaining_s != null ? timeLeft(progress.remaining_s) : "",
+      // The agent's own estimate is said as such (not the slicer's); and when the file asks
+      // for the next filament change.
+      job_eta: job && progress && progress.remaining_s != null
+        ? timeLeft(progress.remaining_s) + (t.time_estimated ? " (estimate)" : "") + (t.filament_change_s != null ? ` · filament change in ${duration(t.filament_change_s)}` : "")
+        : "",
       job_name: job ? job.file_name : "",
       job_done: percent == null ? null : `${percent.toFixed(0)} %`,
       job_elapsed: progress ? duration(progress.elapsed_s) : null,

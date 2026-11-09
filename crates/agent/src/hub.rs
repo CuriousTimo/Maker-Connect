@@ -511,11 +511,79 @@ fn fetch(options: &Options, token: &str, order: &protocol::JobOrder) -> Result<S
     Ok(text)
 }
 
-/// What the printer told about itself when the agent connected.
+/// What the printer said by itself and what was read back, into the report: speed and
+/// flow, its sheet and print mode, its SD card, its MMU, "Reprint" from its menu, and what it
+/// is doing by itself (calibrating its thermal model: busy, nothing sent meanwhile).
+fn screen_facts(
+    telemetry: &mut Telemetry,
+    waiting: &marlin::Screen,
+    known: &Known,
+    factors: (Option<f32>, Option<f32>),
+) {
+    let screen = waiting.now();
+    (telemetry.speed_percent, telemetry.flow_percent) = factors;
+    telemetry.sheet = known.sheet.clone();
+    telemetry.print_mode = known.print_mode.clone();
+    (telemetry.total_filament_m, telemetry.total_print_min) = known.totals;
+    telemetry.sd_card = screen.sd_card;
+    telemetry.mmu_slot = screen.mmu_slot;
+    telemetry.mmu_doing = screen.mmu_doing.clone();
+    telemetry.reprint = waiting.take_reprint();
+    if screen.calibrating {
+        telemetry.state = MachineState::Busy;
+        telemetry.doing = Some("Calibrating its thermal model".to_owned());
+    }
+}
+
+/// Prusa's MK3 reports its temperatures, position and fans by itself every 2 s
+/// (`M155 S2 C7`), as PrusaLink keeps it (auto_telemetry.py); switched on again when any of
+/// them has not come for a minute (its `REPORTING_TIMEOUT`).
+fn start_reports(printer: &mut marlin::Printer<Link>) {
+    if printer.command("M155 S2 C7").is_ok() {
+        printer.waiting().reporting_started();
+    }
+}
+
+/// How long Prusa's MK3 may be silent about any of its reports before `M155` is sent again.
+const REPORTS_SILENT: Duration = Duration::from_secs(60);
+
+/// Prusa's MK2.5 and MK2.5S (model codes 250, 252; with an MMU 20250, 20252, which
+/// `marlin::model_code` gives as 250, 252): they level without saying so over the wire.
+fn is_mk25(known: &Known) -> bool {
+    matches!(known.identity.model_code, Some(250 | 252))
+}
+
+/// What the printer told about itself when the agent connected, and what is asked of it
+/// now and then (Prusa's MK3: its sheet and print mode, from its EEPROM).
 struct Known {
     firmware: Option<String>,
     identity: Identity,
+    sheet: Option<String>,
+    print_mode: Option<String>,
+    /// When its EEPROM was last read; PrusaLink reads the sheets every 30 s
+    /// (`VERY_SLOW_POLL_INTERVAL`) and the print mode every 10 s.
+    eeprom_at: Option<Instant>,
+    /// Its lifetime totals (metres of filament, minutes printing), read when connecting and
+    /// again after each print (PrusaLink's `invalidate_statistics`).
+    totals: (Option<u32>, Option<u32>),
+    totals_due: bool,
+    /// An SD print was running at the last report (its end makes the totals due).
+    sd_printing: bool,
 }
+
+/// Prusa's MK3 EEPROM: lifetime filament (metres) and printing time (minutes), as
+/// PrusaLink reads them (`EEPROMParams.TOTAL_FILAMENT`, `TOTAL_PRINT_TIME`).
+const EEPROM_TOTAL_FILAMENT: &str = "D3 Ax0FF1 C4";
+const EEPROM_TOTAL_TIME: &str = "D3 Ax0FED C4";
+
+/// How often Prusa's MK3 EEPROM is read for its sheet and print mode.
+const EEPROM_EVERY: Duration = Duration::from_secs(10);
+
+/// Prusa's MK3 EEPROM (`eeprom.h` of firmware 3.14, as PrusaLink reads it,
+/// `EEPROMParams`): the eight sheets (88 bytes), the active one, the print mode.
+const EEPROM_SHEETS: &str = "D3 Ax0D49 C88";
+const EEPROM_ACTIVE_SHEET: &str = "D3 Ax0DA1 C1";
+const EEPROM_PRINT_MODE: &str = "D3 Ax0FFF C1";
 
 /// The printer on the serial port, connected, with what it says it is, or None. `M115`
 /// gives its firmware and machine type; a Prusa answers `M862.2 Q` with its model code
@@ -541,17 +609,38 @@ fn open_printer(
     // Prusa's model code: only asked of Prusa's firmware (in Marlin, M862 is an I2C
     // position encoder's check).
     let prusa = marlin::firmware(&about).is_some_and(|f| f.starts_with("Prusa"));
-    let identity = Identity {
+    let mut identity = Identity {
         machine_type: marlin::machine_type(&about),
         model_code: prusa
             .then(|| printer.command("M862.2 Q").ok())
             .flatten()
             .and_then(|a| marlin::model_code(&a)),
-        printer_type: None,
+        ..Identity::default()
     };
+    // Prusa's MK3 firmware, as PrusaLink asks it when it connects (printer_polling.py,
+    // sd_card.py, ip_updater.py, auto_telemetry.py): its serial number, nozzle, MMU, SD card;
+    // where to find the agent (on its screen); and its own reports, from now on always.
+    if printer.is_prusa_mk3() {
+        let ask = |printer: &mut marlin::Printer<Link>, code: &str| printer.command(code).unwrap_or_default();
+        identity.serial = marlin::prusa_serial(&ask(&mut printer, "PRUSA SN"));
+        identity.nozzle_mm = marlin::nozzle(&ask(&mut printer, "M862.1 Q"));
+        let mmu: Vec<Vec<String>> = (0..4).map(|r| ask(&mut printer, &format!("M707 A0x0{r}"))).collect();
+        identity.mmu_firmware = marlin::mmu_firmware([&mmu[0], &mmu[1], &mmu[2], &mmu[3]]);
+        ask(&mut printer, "M21");
+        if let Some(ip) = agent_info(&options.hub).address.filter(|a| a.parse::<std::net::Ipv4Addr>().is_ok()) {
+            ask(&mut printer, &format!("M552 P{ip}"));
+        }
+        start_reports(&mut printer);
+    }
     let known = Known {
         firmware: marlin::firmware(&about),
         identity,
+        sheet: None,
+        print_mode: None,
+        eeprom_at: None,
+        totals: (None, None),
+        totals_due: true,
+        sd_printing: false,
     };
     println!(
         "printer on {port}: {}, {}{}",
@@ -670,7 +759,13 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             );
             let lost = end.reason.is_some();
             job_end = Some(end);
-            if let Some(Machine::Printing(_, known)) = machine.take() {
+            if let Some(Machine::Printing(job, mut known)) = machine.take() {
+                // A print ended: its totals changed (read again, as PrusaLink does); an
+                // MK2.5's mesh too.
+                known.totals_due = true;
+                if is_mk25(&known) {
+                    job.waiting.mesh_changed();
+                }
                 // A printer that stopped answering is looked for again.
                 machine = (!lost).then(|| Machine::Marlin(Box::new(printer), known));
             }
@@ -693,9 +788,17 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 telemetry.identity = Some(known.identity.clone());
                 set_heat(&mut telemetry, p.heat);
                 telemetry.job_id = Some(job.id);
-                // What is left, from how long the lines so far took.
-                let remaining_s =
-                    (p.done > 20).then(|| p.elapsed_s * (p.total - p.done) as u64 / p.done as u64);
+                screen_facts(&mut telemetry, &job.waiting, known, (p.speed_percent, p.flow_percent));
+                if telemetry.problem.is_none() {
+                    telemetry.problem = p.problem.clone();
+                }
+                telemetry.filament_change_s = p.filament_change_s;
+                // What is left: the slicer's own time where the file tells it (its M73, in
+                // the printer's mode); else from how long the lines so far took.
+                let remaining_s = p.slicer_left_s.or_else(|| {
+                    (p.done > 20).then(|| p.elapsed_s * (p.total - p.done) as u64 / p.done as u64)
+                });
+                telemetry.time_estimated = p.slicer_left_s.is_none() && remaining_s.is_some();
                 telemetry.job = Some(protocol::JobProgress {
                     file: job.name.clone(),
                     done: p.done as u64,
@@ -706,13 +809,90 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             }
             Some(Machine::Marlin(printer, known)) => {
                 let waiting = printer.waiting();
-                let answer = while_busy(&options, &registered.token, &last, &waiting, || {
-                    printer.keep_host_alive(&mut |_| {})?;
-                    printer.command("M105")
-                });
-                // A print from its own SD card: followed with M27, reported as its job.
+                let mk3 = printer.is_prusa_mk3();
+                let mut factors = (None, None);
+                let answer = if waiting.now().calibrating {
+                    // Calibrating its thermal model: nothing sent, only listened to until it
+                    // says it is done.
+                    printer.listen(Duration::from_secs(1))
+                } else {
+                    while_busy(&options, &registered.token, &last, &waiting, || {
+                        printer.keep_host_alive(&mut |_| {})?;
+                        // Prusa's MK3 reports temperatures, position and fans by itself
+                        // (M155, as PrusaLink keeps it); asked again when it went quiet.
+                        if mk3 && !waiting.reports_by_itself(REPORTS_SILENT) {
+                            start_reports(printer);
+                        }
+                        // Its temperatures; and, where it does not report it by itself,
+                        // where its head is (M114, any Marlin).
+                        let mut answer = printer.command("M105")?;
+                        if !mk3 {
+                            answer.extend(printer.command("M114")?);
+                        }
+                        // Speed and flow as set now, also at its knob (PrusaLink reads them
+                        // back every second): "100%" (MK3), "FR:100%" and "Flow: 100%".
+                        factors = (
+                            marlin::percent(&printer.command("M220")?),
+                            marlin::percent(&printer.command("M221")?),
+                        );
+                        // Prusa's MK3: its lifetime totals, when connected and after a print.
+                        if mk3 && known.totals_due {
+                            known.totals_due = false;
+                            known.totals = (
+                                marlin::eeprom_u32(&marlin::eeprom_bytes(&printer.command(EEPROM_TOTAL_FILAMENT)?)),
+                                marlin::eeprom_u32(&marlin::eeprom_bytes(&printer.command(EEPROM_TOTAL_TIME)?)),
+                            );
+                        }
+                        // Prusa's MK3: its sheet and print mode, now and then.
+                        if mk3 && known.eeprom_at.is_none_or(|t| t.elapsed() >= EEPROM_EVERY) {
+                            known.eeprom_at = Some(Instant::now());
+                            let sheets = marlin::eeprom_bytes(&printer.command(EEPROM_SHEETS)?);
+                            let active = marlin::eeprom_bytes(&printer.command(EEPROM_ACTIVE_SHEET)?);
+                            known.sheet = active
+                                .first()
+                                .and_then(|a| marlin::active_sheet(&sheets, *a));
+                            known.print_mode = marlin::eeprom_bytes(&printer.command(EEPROM_PRINT_MODE)?)
+                                .first()
+                                .and_then(|m| marlin::print_mode(*m))
+                                .map(str::to_owned);
+                        }
+                        Ok::<_, std::io::Error>(answer)
+                    })
+                };
+                // A print from its own SD card: followed with M27, reported as its job; on
+                // Prusa's MK3 with the slicer's time left as the printer knows it (M73, as
+                // PrusaLink asks it).
+                let calibrating = waiting.now().calibrating;
+                let mut slicer_left: Option<u64> = None;
+                let mut change_in: Option<u64> = None;
+                let mut mesh_now = None;
                 let answer = answer.and_then(|answer| {
+                    if calibrating {
+                        return Ok((answer, printer.sd.clone()));
+                    }
                     let sd = if printer.has_sd() { printer.follow_sd()? } else { None };
+                    if mk3 && sd.is_some() {
+                        let silent = known.print_mode.as_deref() == Some("silent");
+                        if let Some((_, left, change)) = marlin::print_info_full(&printer.command("M73")?, silent) {
+                            slicer_left = left.map(|m| u64::from(m) * 60);
+                            change_in = change.map(|m| u64::from(m) * 60);
+                        }
+                    }
+                    // An SD print ended: its totals changed. Started or ended: an MK2.5's mesh
+                    // is read again.
+                    if known.sd_printing && sd.is_none() {
+                        known.totals_due = true;
+                    }
+                    if known.sd_printing != sd.is_some() && is_mk25(known) {
+                        waiting.mesh_changed();
+                    }
+                    known.sd_printing = sd.is_some();
+                    // Its bed measured anew (G80, or the homing before it): its mesh read
+                    // again once it is idle (M420 on the MK3, as PrusaLink does).
+                    if sd.is_none() && waiting.take_mesh_stale() {
+                        let ask = if mk3 { "M420" } else { "M420 V" };
+                        mesh_now = marlin::mesh(&printer.command(ask)?);
+                    }
                     Ok((answer, sd))
                 });
                 match answer {
@@ -721,15 +901,23 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                         telemetry.firmware = known.firmware.clone();
                         telemetry.identity = Some(known.identity.clone());
                         set_heat(&mut telemetry, marlin::heat(&answer));
+                        screen_facts(&mut telemetry, &waiting, known, factors);
+                        if let Some(mesh) = mesh_now {
+                            telemetry.mesh = Some(mesh);
+                        }
                         if let Some(sd) = sd {
                             telemetry.state = if sd.paused {
                                 MachineState::Paused
                             } else {
                                 MachineState::Busy
                             };
-                            let remaining_s = sd.elapsed_s.filter(|_| sd.done > 0).map(|e| {
-                                e * sd.total.saturating_sub(sd.done) / sd.done.max(1)
+                            let remaining_s = slicer_left.or_else(|| {
+                                sd.elapsed_s.filter(|_| sd.done > 0).map(|e| {
+                                    e * sd.total.saturating_sub(sd.done) / sd.done.max(1)
+                                })
                             });
+                            telemetry.filament_change_s = change_in;
+                            telemetry.time_estimated = slicer_left.is_none() && remaining_s.is_some();
                             telemetry.job = Some(protocol::JobProgress {
                                 file: sd.file.clone().unwrap_or_else(|| "SD card".to_owned()),
                                 done: sd.done,
@@ -794,6 +982,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                             recovery: Some(recovery.clone()),
                             from_index: index,
                             resumed: true,
+                            silent: known.print_mode.as_deref() == Some("silent"),
                         },
                     );
                     machine = Some(Machine::Printing(Box::new(job), known));
@@ -1034,6 +1223,10 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                             // The printer goes to the job only once its file is here.
                             Ok(gcode) => {
                                 if let Some(Machine::Marlin(printer, known)) = machine.take() {
+                                    // An MK2.5 levels as a print starts, saying nothing.
+                                    if is_mk25(&known) {
+                                        printer.waiting().mesh_changed();
+                                    }
                                     // Kept for a power cut while it runs (crate::recovery).
                                     let job = PrintJob::start_with(
                                         order.id,
@@ -1042,6 +1235,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                                         *printer,
                                         crate::print::Begin {
                                             recovery: Some(recovery.clone()),
+                                            silent: known.print_mode.as_deref() == Some("silent"),
                                             ..Default::default()
                                         },
                                     );
@@ -1224,6 +1418,7 @@ fn set_heat(telemetry: &mut Telemetry, heat: marlin::Heat) {
     telemetry.bed_heating = heat.bed_heating;
     telemetry.hotend_fan_rpm = heat.hotend_fan_rpm;
     telemetry.print_fan_rpm = heat.print_fan_rpm;
+    telemetry.position_mm = heat.position_mm;
 }
 
 /// Does `work` (a command the machine takes a while over), and meanwhile reports `busy` to

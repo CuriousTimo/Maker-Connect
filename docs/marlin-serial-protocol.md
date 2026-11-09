@@ -1,5 +1,11 @@
 # Marlin over USB: everything a printer can say, and what we send
 
+> **Not verified (2026-11-09).** This document was written by reading the sources by hand,
+> not checked item by item. The check against PrusaLink (`prusalink-audit.md`,
+> `scripts/prusalink-audit-check.py`) found many gaps that such a reading had missed. Until a
+> script checks this document against its sources in the same way, it is not to be taken as
+> complete.
+
 What the agent (`crates/agent/src/marlin.rs`, `print.rs`) has to understand from a printer
 that speaks the Marlin serial protocol, and which G-code it may send to which firmware.
 Read on 2026-11-08 in the sources themselves, ideas and facts only, nothing copied:

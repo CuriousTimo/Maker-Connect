@@ -1073,6 +1073,52 @@ fn jog_command(action: &str, step: f64, feed: f64, grbl: bool) -> Option<(String
     Some((label, gcode))
 }
 
+/// Whether a machine runs Prusa's firmware for the MK3 family (MK3, MK3S, MK2.5): its
+/// profile says `prusa` (Buddy printers say `prusa-buddy`), or it reports
+/// `Prusa-Firmware …` (Buddy: `Prusa firmware …`).
+fn prusa_mk3_family(store: &store::Store, space: i64, id: &str) -> bool {
+    let Ok(Some(machine)) = store.machine(space, id) else {
+        return false;
+    };
+    let by_profile = machine
+        .profile
+        .as_deref()
+        .and_then(profiles::find)
+        .and_then(|p| p.firmware.clone())
+        .is_some_and(|f| f == "prusa");
+    let by_firmware = machine
+        .telemetry
+        .as_ref()
+        .and_then(|t| t.firmware.as_deref())
+        .is_some_and(|f| f.starts_with("Prusa-Firmware"));
+    by_profile || by_firmware
+}
+
+/// Why a command may not go now, by the machine's state (PrusaLink's rules for an MK3,
+/// `web/controls.py`): paused, no homing, Z or extruding; extruding needs 170 °C and no
+/// print running.
+fn refused_now(action: &str, gcode: &str, machine: &store::Machine) -> Option<&'static str> {
+    let t = machine.telemetry.as_ref()?;
+    let paused = t.state == protocol::MachineState::Paused;
+    let z_move = gcode.lines().any(|l| l.starts_with("G1") && l.split_whitespace().any(|w| w.starts_with('Z')));
+    let extrude = matches!(action, "extrude" | "retract");
+    if paused && action == "home" {
+        return Some("not while a print is paused: homing would spoil it");
+    }
+    if paused && z_move {
+        return Some("not while a print is paused: only X and Y move then");
+    }
+    if extrude {
+        if matches!(t.state, protocol::MachineState::Busy | protocol::MachineState::Paused) {
+            return Some("not while it prints");
+        }
+        if t.nozzle_c.is_none_or(|c| c < 170.0) {
+            return Some("the nozzle must be at least 170 °C to extrude");
+        }
+    }
+    None
+}
+
 /// The commands the website offers: a label and its G-code. Moves are relative, 10 mm.
 fn action(name: &str) -> Option<(&'static str, &'static str)> {
     Some(match name {
@@ -1091,6 +1137,9 @@ fn action(name: &str) -> Option<(&'static str, &'static str)> {
         "fan-on" => ("Print fan on", "M106 S255"),
         "fan-off" => ("Print fan off", "M107"),
         "motors-off" => ("Motors off", "M18"),
+        // As PrusaLink extrudes (web/controls.py): relative E, at its E feed (100 mm/min).
+        "extrude" => ("Extrude 10 mm", "M83\nG1 F100 E10"),
+        "retract" => ("Retract 10 mm", "M83\nG1 F100 E-10"),
         "set-origin" => ("Set origin here", "G92 X0 Y0"),
         "go-origin" => ("Go to origin", "G90\nG0 X0 Y0"),
         _ => return None,
@@ -1333,17 +1382,36 @@ async fn command(
             .and_then(|l| l.nozzle_c)
             .filter(|c| (150.0..=320.0).contains(c))
             .unwrap_or(215.0);
-        Some(if form.action == "load-filament" {
-            (
-                format!("Load filament ({hot:.0} °C)"),
-                format!("M109 S{hot:.0}\nM701"),
-            )
+        let load = form.action == "load-filament";
+        let label = if load { "Load filament" } else { "Unload filament" };
+        if prusa_mk3_family(&store, space, &id) {
+            // Prusa's MK3, as PrusaLink loads and unloads (command_handlers.py): the bed to
+            // its temperature; the nozzle waited for only up to 90 % (rounded to 5), and not
+            // when it is that hot already; then to the full temperature. Loading: a beep and
+            // "Insert the filament" on its screen, until its knob is pressed; then M701.
+            let bed = machine.loaded.as_ref().and_then(|l| l.bed_c).filter(|c| (0.0..=130.0).contains(c));
+            let extrude = (hot * 0.9 / 5.0).round() * 5.0;
+            let now = machine.telemetry.as_ref().and_then(|t| t.nozzle_c);
+            let mut lines = Vec::new();
+            if let Some(bed) = bed {
+                lines.push(format!("M140 S{bed:.0}"));
+            }
+            if now.is_none_or(|n| f64::from(n) < extrude) {
+                lines.push(format!("M109 S{extrude:.0}"));
+            }
+            lines.push(format!("M104 S{hot:.0}"));
+            if load {
+                lines.extend(["M300 P500 S1", "M0 Insert the filament", "M701"].map(str::to_owned));
+            } else {
+                lines.push("M702".to_owned());
+            }
+            Some((format!("{label} ({hot:.0} °C)"), lines.join("\n")))
         } else {
-            (
-                format!("Unload filament ({hot:.0} °C)"),
-                format!("M109 S{hot:.0}\nM702"),
-            )
-        })
+            Some((
+                format!("{label} ({hot:.0} °C)"),
+                format!("M109 S{hot:.0}\n{}", if load { "M701" } else { "M702" }),
+            ))
+        }
     } else if form.action == "probe-bed" {
         match store.machine(space, &id) {
             Ok(Some(machine)) => match probe_gcode(&machine) {
@@ -1353,12 +1421,25 @@ async fn command(
             Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
             Err(error) => return failed(error),
         }
+    } else if form.action == "home" && prusa_mk3_family(&store, space, &id) {
+        // Prusa's MK3 firmware (MK3, MK3S, MK2.5): a bare G28 also measures the whole bed
+        // (mesh bed levelling); G28 W only homes (Marlin_main.cpp, G28 `W`).
+        Some(("Home".to_owned(), "G28 W".to_owned()))
     } else {
         action(&form.action).map(owned)
     };
     let Some((label, gcode)) = found else {
         return (StatusCode::BAD_REQUEST, "no such command").into_response();
     };
+    // As PrusaLink allows them (web/controls.py, api_printhead and api_tool): while paused
+    // (a print it runs itself, from its card or its menu) no homing, no Z move and no
+    // extruding, which would spoil the print; X and Y may move. Extruding wants a hot
+    // nozzle (170 °C, PrusaLink's `min_temp_nozzle_e`).
+    if let Ok(Some(machine)) = store.machine(space, &id)
+        && let Some(why) = refused_now(&form.action, &gcode, &machine)
+    {
+        return (StatusCode::CONFLICT, why).into_response();
+    }
     let queued = store.queue_command(space, &id, &label, &gcode);
     match queued {
         // The page sends it without leaving; a plain form comes back to the page.
@@ -1632,7 +1713,16 @@ async fn taken(
         Err(error) => return failed(error),
     };
     match store.print_taken(space, &id) {
-        Ok(true) => done(&headers, &format!("/machines/{id}")),
+        Ok(true) => {
+            // Prusa's MK3 through an agent: "ready" on its own screen and menu too (M72 S1,
+            // as PrusaLink sets it).
+            if store.machine(space, &id).ok().flatten().is_some_and(|m| m.link == "agent")
+                && prusa_mk3_family(&store, space, &id)
+            {
+                let _ = store.queue_command(space, &id, "Ready on its screen", "M72 S1");
+            }
+            done(&headers, &format!("/machines/{id}"))
+        }
         Ok(false) => (StatusCode::NOT_FOUND, "no print on its bed").into_response(),
         Err(error) => failed(error),
     }
@@ -2399,6 +2489,135 @@ mod tests {
     use tower::ServiceExt;
 
     /// A laser on an agent gets a file to run, is told to pause, and says how it ended.
+    /// Prusa's MK3 through an agent, handled as PrusaLink handles it (docs/prusalink-audit.md):
+    /// Home without levelling (G28 W), load as PrusaLink loads, extrude, "Reprint" from the
+    /// printer's menu, and "ready" on its screen once the print is taken.
+    #[tokio::test]
+    async fn an_mk3_through_an_agent_is_handled_as_prusalink_does() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = crate::auth::signed_in_app(store.clone());
+        let agent = super::app(store.clone());
+        let mk3 = Register {
+            protocol: protocol::VERSION,
+            name: "MK3S Gonzo".into(),
+            kind: MachineKind::Fdm,
+            agent_version: "0.2.0".into(),
+        };
+        let (_, body) = call(&agent, json(protocol::REGISTER, None, serde_json::to_string(&mk3).unwrap())).await;
+        let registered: Registered = serde_json::from_str(&body).unwrap();
+        let id = registered.machine_id.clone();
+        let space = {
+            let store = store.lock().unwrap();
+            let space = store.default_space().unwrap().0;
+            store.pair(space, &registered.pairing_code).unwrap();
+            crate::auth::tester_may_operate(&store, space, &id);
+            store.set_profile(space, &id, Some("prusa/mk3s")).unwrap();
+            space
+        };
+        // Reports idle, answering each command it was given (done, ok); returns the G-code.
+        let report = |extra: fn(&mut Telemetry), done: Vec<u32>| {
+            let app = agent.clone();
+            let token = registered.token.clone();
+            async move {
+                let mut telemetry = Telemetry {
+                    state: MachineState::Idle,
+                    firmware: Some("Prusa-Firmware 3.14.1".into()),
+                    nozzle_c: Some(215.0),
+                    done: done.into_iter().map(|id| protocol::CommandDone { id, ok: true, reason: None, output: Vec::new() }).collect(),
+                    ..Telemetry::default()
+                };
+                extra(&mut telemetry);
+                let (_, body) = call(&app, json(protocol::TELEMETRY, Some(&token), serde_json::to_string(&telemetry).unwrap())).await;
+                serde_json::from_str::<TelemetryReply>(&body).unwrap()
+            }
+        };
+        let press = |action: &str| {
+            Request::post(format!("/machines/{id}/command"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(format!("action={action}")))
+                .unwrap()
+        };
+        // Presses a button; the G-code the agent gets next (answered done).
+        let sent = async |action: &str| {
+            let (status, body) = call(&app, press(action)).await;
+            assert!(status.is_success(), "{action}: {status} {body}");
+            let reply = report(|_| {}, Vec::new()).await;
+            let command = reply.commands.last().expect(action).clone();
+            report(|_| {}, vec![command.id]).await;
+            command.gcode
+        };
+        // Cold: no extruding (PrusaLink: 170 °C); loading waits for 90 % first.
+        report(|t| t.nozzle_c = Some(25.0), Vec::new()).await;
+        let (status, why) = call(&app, press("extrude")).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{why}");
+        assert!(why.contains("170"), "{why}");
+        let (status, _) = call(&app, press("load-filament")).await;
+        assert!(status.is_success());
+        let reply = report(|t| t.nozzle_c = Some(25.0), Vec::new()).await;
+        let load = reply.commands.last().expect("load").clone();
+        assert_eq!(
+            load.gcode,
+            "M109 S195\nM104 S215\nM300 P500 S1\nM0 Insert the filament\nM701",
+            "90 % first, then full; a beep and its knob; then load"
+        );
+        report(|_| {}, vec![load.id]).await;
+        // Hot (215 °C): extruding goes; no wait for 90 %, it is hotter already.
+        assert_eq!(sent("home").await, "G28 W", "home, no mesh bed levelling");
+        assert_eq!(sent("extrude").await, "M83\nG1 F100 E10");
+        assert_eq!(sent("retract").await, "M83\nG1 F100 E-10");
+        assert_eq!(sent("unload-filament").await, "M104 S215\nM702");
+        // Paused (a print it runs itself): no homing, no Z; X and Y may move.
+        report(|t| t.state = MachineState::Paused, Vec::new()).await;
+        let (status, why) = call(&app, press("home")).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{why}");
+        let (status, _) = call(&app, press("z%2B")).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let (status, _) = call(&app, press("x%2B")).await;
+        assert!(status.is_success(), "X moves while paused");
+        let reply = report(|t| t.state = MachineState::Paused, Vec::new()).await;
+        let x = reply.commands.last().expect("x").clone();
+        report(|_| {}, vec![x.id]).await;
+
+        // "Reprint" on its menu with nothing printed before: it cannot, and says so.
+        let reply = report(|t| t.reprint = true, Vec::new()).await;
+        let cannot = reply.commands.last().expect("cannot re-print").clone();
+        assert_eq!(cannot.gcode, "M300 P200 S600\nM117 ~Cannot re-print");
+        report(|_| {}, vec![cannot.id]).await;
+
+        // A finished print of ours, taken off: "ready" on its screen (M72 S1).
+        let upload = Request::post("/api/files?name=cube.gcode")
+            .body(Body::from("G28\nG1 X1\n"))
+            .unwrap();
+        let (_, body) = call(&app, upload).await;
+        let file_id = serde_json::from_str::<serde_json::Value>(&body).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let job = {
+            let mut s = store.lock().unwrap();
+            let file = s.file(space, &file_id).unwrap().unwrap();
+            let job = s.add_job(space, &id, &file, None, Some("tester")).unwrap().unwrap();
+            s.set_job(job, store::JobState::Finished, None).unwrap();
+            job
+        };
+        let taken = Request::post(format!("/machines/{id}/taken"))
+            .header("x-requested-with", "fetch")
+            .body(Body::empty())
+            .unwrap();
+        assert!(call(&app, taken).await.0.is_success());
+        let reply = report(|_| {}, Vec::new()).await;
+        let ready = reply.commands.last().expect("ready").clone();
+        assert_eq!(ready.gcode, "M72 S1");
+        report(|_| {}, vec![ready.id]).await;
+
+        // "Reprint" now: the same file again, a new job.
+        report(|t| t.reprint = true, Vec::new()).await;
+        let again = store.lock().unwrap().active_job(&id).unwrap().expect("reprinted");
+        assert_ne!(again.id, job);
+        assert_eq!(again.file_name, "cube.gcode");
+    }
+
     #[tokio::test]
     async fn an_agent_runs_a_job() {
         let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));

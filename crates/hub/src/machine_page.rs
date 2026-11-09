@@ -734,6 +734,22 @@ fn row(label: &str, value: Option<String>) -> String {
     })
 }
 
+/// Its MMU as the printer says it: the slot in use (1-based, as on its screen) and what
+/// it is doing.
+fn mmu_text(t: Option<&maker_connect_protocol::Telemetry>) -> Option<String> {
+    let t = t?;
+    match (t.mmu_slot, t.mmu_doing.as_deref()) {
+        (None, None) => None,
+        (slot, doing) => Some(
+            [slot.map(|s| format!("slot {}", s + 1)), doing.map(str::to_owned)]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" · "),
+        ),
+    }
+}
+
 /// A row the script keeps live; `–` while unknown.
 fn live_row(label: &str, key: &str, value: Option<String>) -> String {
     format!(
@@ -1172,6 +1188,13 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
             row("Max nozzle", p.max_nozzle_c.map(|c| format!("{c} °C"))),
             row("Max bed", p.max_bed_c.map(|c| format!("{c} °C"))),
             row("Firmware", t.and_then(|t| t.firmware.clone())),
+            // As the printer says it (Prusa's MK3: PRUSA SN, M862.1 Q, its MMU's M707).
+            row("Serial number", t.and_then(|t| t.identity.as_ref()).and_then(|i| i.serial.clone())),
+            row("Nozzle in it", t.and_then(|t| t.identity.as_ref()).and_then(|i| i.nozzle_mm.clone()).map(|n| format!("{n} mm"))),
+            row("MMU firmware", t.and_then(|t| t.identity.as_ref()).and_then(|i| i.mmu_firmware.clone())),
+            // Its own lifetime counters (Prusa's MK3 EEPROM).
+            row("Filament, all time", t.and_then(|t| t.total_filament_m).map(|m| format!("{} m", m))),
+            row("Printing, all time", t.and_then(|t| t.total_print_min).map(|m| format!("{} h {:02} min", m / 60, m % 60))),
         ]
         .concat(),
         None => "<dt>Profile</dt><dd>Not known yet: choose one under Settings</dd>".to_owned(),
@@ -1300,6 +1323,11 @@ fn control(machine: &Machine, profile: Option<&Profile>) -> String {
             button("fan-on", "Print fan on"),
             button("fan-off", "Print fan off"),
             button("motors-off", "Motors off"),
+        );
+        controls += &format!(
+            r#"<h4>Extruder</h4><div class="buttons">{}{}</div><p class="hint">10 mm at a time; the nozzle must be hot (the printer refuses a cold extrusion).</p>"#,
+            button("extrude", "Extrude 10 mm"),
+            button("retract", "Retract 10 mm"),
         );
     } else {
         controls += &format!(
@@ -1466,6 +1494,11 @@ fn telemetry_tab(machine: &Machine) -> String {
     let printing = [
         live_row("Flow", "flow", percent(t.and_then(|t| t.flow_percent))),
         live_row("Material", "material", t.and_then(|t| t.material.clone())),
+        live_row("Sheet", "sheet", t.and_then(|t| t.sheet.clone())),
+        live_row("Mode", "print_mode", t.and_then(|t| t.print_mode.clone())),
+        live_row("SD card", "sd_card", t.and_then(|t| t.sd_card).map(|i| if i { "in".to_owned() } else { "none".to_owned() })),
+        live_row("MMU", "mmu", mmu_text(t)),
+        live_row("Doing", "doing", t.and_then(|t| t.doing.clone())),
     ]
     .concat();
     let chart = r#"<div class="card chart-card">

@@ -229,6 +229,42 @@ pub struct Telemetry {
     /// menu, `//action:ready`): news once, like a finished command.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bed_clear: bool,
+    /// Someone asked on the printer to print the last job again (Prusa's MK3: "Reprint" in
+    /// its menu, `//action:start`): news once.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reprint: bool,
+    /// The steel sheet chosen on the printer (Prusa's MK3: its name, "Smooth1").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheet: Option<String>,
+    /// How it prints: "normal" or "silent" (Prusa's MK3 mode, from its EEPROM).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub print_mode: Option<String>,
+    /// Whether an SD card is in it, where it tells.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sd_card: Option<bool>,
+    /// Its MMU: the slot in use (0-based), and what it is doing ("Feeding to nozzle").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mmu_slot: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mmu_doing: Option<String>,
+    /// Its lifetime totals as it keeps them (Prusa's MK3 EEPROM): filament in metres, and
+    /// minutes of printing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_filament_m: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_print_min: Option<u32>,
+    /// The time left is the agent's own estimate (from how long the lines so far took), not
+    /// the slicer's (PrusaLink's `inaccurate_estimates`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub time_estimated: bool,
+    /// How long until the next filament change in the print, in seconds (the slicer's
+    /// `M73` C/D, "Change in mins").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filament_change_s: Option<u64>,
+    /// Something it does by itself that takes a while and wants no commands meanwhile
+    /// ("Calibrating its thermal model").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doing: Option<String>,
     /// A battery-powered machine's battery, in volts (a DYMO LabelManager PnP's cell).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub battery_v: Option<f32>,
@@ -308,6 +344,15 @@ pub struct Identity {
     /// A Buddy-firmware Prusa's type as it tells Prusa Connect ("2.1.0" for a MINI).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub printer_type: Option<String>,
+    /// Its serial number (Prusa's MK3: `PRUSA SN`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial: Option<String>,
+    /// The nozzle's diameter as it says it, in mm ("0.40"; Prusa's MK3: `M862.1 Q`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nozzle_mm: Option<String>,
+    /// Its MMU's firmware, where one is connected ("3.0.3+896"; Prusa's MK3: `M707`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mmu_firmware: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

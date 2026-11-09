@@ -82,6 +82,49 @@ impl Store {
             .map(|(state, _)| state))
     }
 
+    /// "Reprint" chosen on the printer itself (Prusa's MK3, after a host's print): its last
+    /// job again, as PrusaLink does, when it may start now (the same checks as a queued
+    /// file: free, its bed clear, the file still suits it). Else the printer beeps and says
+    /// "Cannot re-print" on its screen, as PrusaLink does. Returns whether it started.
+    pub fn reprint(&mut self, space: i64, machine_id: &str) -> rusqlite::Result<bool> {
+        use rusqlite::OptionalExtension;
+        let Some(machine) = self.machine(space, machine_id)? else {
+            return Ok(false);
+        };
+        let last: Option<String> = self
+            .db
+            .query_row(
+                "SELECT file_id FROM jobs WHERE machine_id = ?1 ORDER BY id DESC LIMIT 1",
+                [machine_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let file = match last {
+            Some(id) => self.file(space, &id)?,
+            None => None,
+        };
+        // Idle by its own report too: a print it runs itself is no job of the hub's.
+        let idle = machine
+            .telemetry
+            .as_ref()
+            .is_some_and(|t| t.state == maker_connect_protocol::MachineState::Idle);
+        let started = match file {
+            Some(file)
+                if idle
+                    && crate::files::suits(&file, &machine).is_ok()
+                    && crate::files::fit(&file, &machine).is_ok() =>
+            {
+                self.add_job(space, machine_id, &file, None, Some("Reprint on the printer"))?
+                    .is_ok()
+            }
+            _ => false,
+        };
+        if !started {
+            self.queue_command(space, machine_id, "Cannot re-print", "M300 P200 S600\nM117 ~Cannot re-print")?;
+        }
+        Ok(started)
+    }
+
     /// A machine's queue, first first.
     pub fn queue_of(&self, machine: &str) -> rusqlite::Result<Vec<Queued>> {
         let rows: Vec<Queued> = {
