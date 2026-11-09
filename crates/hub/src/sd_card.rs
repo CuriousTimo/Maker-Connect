@@ -97,6 +97,9 @@ pub fn listing(lines: &[String]) -> Vec<SdFile> {
             modified,
         });
     }
+    // PrusaLink's menu (a top folder "PrusaLink menu", its `setready.g`) is not a file to
+    // print: left out, as PrusaLink leaves it out of its tree (`handle_special_menu`).
+    files.retain(|f| f.folder != "PrusaLink menu" && !f.folder.starts_with("PrusaLink menu/"));
     files
 }
 
@@ -148,7 +151,13 @@ async fn look(access: Access, State(store): State<Shared>, Path(id): Path<String
         let open = store.open_commands(&id).iter().any(|c| c.starts_with("M20"));
         asking = open
             || matches!(
-                store.queue_command(access.space, &id, "Read its SD card", "M20 L T"),
+                store.queue_command(
+                    access.space,
+                    &id,
+                    "Read its SD card",
+                    // Prusa's MK3 as PrusaLink lists it (`sd_card.py`); Marlin's long names.
+                    if crate::prusa_mk3_machine(&machine) { "M20 LT" } else { "M20 L T" },
+                ),
                 Ok(Some(_))
             );
     }
@@ -207,7 +216,12 @@ async fn print(
         access.space,
         &id,
         &format!("Print {name} from its SD card"),
-        &format!("M23 {path}\nM24"),
+        // Prusa's MK3 as PrusaLink loads it: the path in lower case ("FW requires lower case").
+        &if crate::prusa_mk3_machine(&machine) {
+            format!("M23 {}\nM24", path.to_lowercase())
+        } else {
+            format!("M23 {path}\nM24")
+        },
     ) {
         Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
         Ok(None) => (StatusCode::CONFLICT, "it takes no commands").into_response(),
@@ -239,5 +253,27 @@ mod tests {
         assert_eq!((files[2].name.as_str(), files[2].folder.as_str()), ("CUBE.GCO", ""));
         assert_eq!(files[2].modified, None);
         assert!(listing(&said("echo:Unknown command: \"M20\"\nok")).is_empty());
+    }
+
+    /// Proves the row `LFN_CAPTURE` of docs/prusalink-audit.md: the answer to `M20 LT` (the
+    /// command echoed first, as some hosts' logs have it) gives each file's long name, the
+    /// folder it is in, its size and its time.
+    #[test]
+    fn the_long_names_of_an_m20_lt_listing_are_read() {
+        let files = listing(&said(
+            "M20 LT\nBegin file list\nBENCHY~1.GCO 812345 0x5b4e8c20 \"Benchy 0.2mm PLA.gcode\"\nDIR_ENTER: /PARTS/ \"Parts\"\n/PARTS/BOX~1.GCO 1000 0x5b4e8c20 \"Box with a long name.gcode\"\nDIR_EXIT\nEnd file list\nok",
+        ));
+        assert_eq!(files.len(), 2);
+        assert_eq!((files[0].path.as_str(), files[0].name.as_str()), ("/BENCHY~1.GCO", "Benchy 0.2mm PLA.gcode"));
+        assert_eq!((files[0].size, files[0].modified), (812_345, Some(1_760_463_180)));
+        assert_eq!(
+            (files[1].name.as_str(), files[1].folder.as_str()),
+            ("Box with a long name.gcode", "Parts")
+        );
+        // PrusaLink's menu is no file to print (its `setready.g`): left out.
+        let files = listing(&said(
+            "M20 LT\nBegin file list\nDIR_ENTER: /PRUSAL~1/ \"PrusaLink menu\"\n/PRUSAL~1/SETREADY.G 4 \"setready.g\"\nDIR_EXIT\nBENCHY~1.GCO 812345 \"Benchy.gcode\"\nEnd file list\nok",
+        ));
+        assert_eq!(files.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["Benchy.gcode"]);
     }
 }

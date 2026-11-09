@@ -35,6 +35,9 @@ const LONG_SILENCE: Duration = Duration::from_secs(15 * 60);
 const MAX_POKES: usize = 3;
 /// How long to wait for the `ok` that should follow a resend request (some firmware
 /// forgets it; OctoPrint waits 1 s too).
+/// Prusa's MK3: how long PrusaLink waits for a sign of life before it sends the waiting line
+/// again (`SERIAL_QUEUE_TIMEOUT`).
+const PRUSALINK_TIMEOUT: Duration = Duration::from_secs(25);
 const RESEND_OK_WAIT: Duration = Duration::from_secs(1);
 /// How often the same line may be asked for again in a row before the link counts as broken
 /// (OctoPrint's limit).
@@ -464,6 +467,23 @@ pub fn long_running(code: &str) -> bool {
     )
 }
 
+/// A heating report, as PrusaLink knows one (`HEATING_REGEX`, `HEATING_HOTEND_REGEX`):
+/// `T:210.5 E:0 B:60.1` or `T:210.5 E:0 W:3`.
+fn prusalink_heating(line: &str) -> bool {
+    let w: Vec<&str> = line.trim().split(' ').collect();
+    let num = |t: &str| t.split_once('.').is_some_and(|(a, b)| !a.is_empty() && !b.is_empty() && a.chars().chain(b.chars()).all(|c| c.is_ascii_digit()));
+    let int_or_q = |t: &str| t == "?" || (!t.is_empty() && t.chars().all(|c| c.is_ascii_digit()));
+    match w.as_slice() {
+        [t, e, b] => {
+            t.strip_prefix("T:").is_some_and(num)
+                && ((e.strip_prefix("E:").is_some_and(|x| !x.is_empty() && x.chars().all(|c| c.is_ascii_digit()))
+                    && b.strip_prefix("B:").is_some_and(num))
+                    || (e.strip_prefix("E:").is_some_and(int_or_q) && b.strip_prefix("W:").is_some_and(int_or_q)))
+        }
+        _ => false,
+    }
+}
+
 /// Commands that wait for a temperature, which `M108` breaks off (with the emergency
 /// parser).
 fn heats(code: &str) -> bool {
@@ -494,6 +514,8 @@ pub struct ScreenState {
     pub message: Option<String>,
     /// "Set Ready" was chosen on it, not reported yet.
     pub ready_said: bool,
+    /// "Not ready" was chosen on it, not reported yet.
+    pub not_ready_said: bool,
     /// A print interrupted by a power cut waits to be resumed on it.
     pub power_loss: bool,
     /// It needs someone without being dead (a failed bed levelling, a slow fan, locked).
@@ -503,6 +525,21 @@ pub struct ScreenState {
     /// Whether an SD card is in it, as it last said (`echo:SD card ok`, `SD init fail`,
     /// `SD card released`).
     pub sd_card: Option<bool>,
+    /// Inside a file list (`Begin file list` until `End file list`): a file in it means a card
+    /// is in, as PrusaLink takes files found as present (sd_card.py `update`).
+    pub sd_listing: bool,
+    /// A print from its card started at its menu (`echo:enqueing "M24"`), until `M27 P`
+    /// says so; and one ended (`Done printing file`), until reported (PrusaLink:
+    /// `START_PRINT_REGEX` PRINTING, `PRINT_DONE_REGEX` FINISHED, at once).
+    pub sd_started: bool,
+    pub sd_done: bool,
+    /// How many `LCD status changed` it said, not taken yet (crate::lcd).
+    pub lcd_changed: u32,
+    /// PrusaLink's menu on its card (the folder "PrusaLink menu", by its short name in lower
+    /// case), and when its `setready.g` was opened, started or done last: within 1 s of each
+    /// other that is "Set Ready", not a print (`special_commands.py`).
+    pub menu_sfn: Option<String>,
+    pub special_at: Option<std::time::Instant>,
     /// The file a print from its card opened (`File opened: … Size: …`), its short name.
     pub sd_opened: Option<String>,
     /// Its MMU: the slot in use (`MMU2tool=N`), and what it is doing (its progress).
@@ -518,6 +555,9 @@ pub struct ScreenState {
     pub auto_temps: Option<std::time::Instant>,
     pub auto_fans: Option<std::time::Instant>,
     pub auto_position: Option<std::time::Instant>,
+    /// Its last own reports (temperatures, fans, position), as it said them: Prusa's MK3 is
+    /// asked nothing for these (PrusaLink reads only what `M155 S2 C7` brings).
+    pub reported: [Option<String>; 3],
     // A question being told, not shown yet.
     pending: Option<(String, Vec<String>)>,
 }
@@ -528,6 +568,10 @@ impl Screen {
     }
 
     /// "Set Ready" from its menu, once: taken by whoever reports it.
+    pub fn take_not_ready(&self) -> bool {
+        std::mem::take(&mut self.state.lock().unwrap().not_ready_said)
+    }
+
     pub fn take_ready(&self) -> bool {
         std::mem::take(&mut self.state.lock().unwrap().ready_said)
     }
@@ -543,6 +587,26 @@ impl Screen {
         self.state.lock().unwrap().mesh_stale = true;
     }
 
+    /// PrusaLink's menu folder on its card (its short name, lower case), once listed.
+    pub fn set_menu(&self, menu_sfn: Option<String>) {
+        self.state.lock().unwrap().menu_sfn = menu_sfn;
+    }
+
+    /// How many `LCD status changed` it said since asked last.
+    pub fn take_lcd_changed(&self) -> u32 {
+        std::mem::take(&mut self.state.lock().unwrap().lcd_changed)
+    }
+
+    /// Whether a print from its card ended (`Done printing file`), once.
+    pub fn take_sd_done(&self) -> bool {
+        std::mem::take(&mut self.state.lock().unwrap().sd_done)
+    }
+
+    /// A print from its card started at its menu is seen in `M27 P` now.
+    pub fn sd_start_seen(&self) {
+        self.state.lock().unwrap().sd_started = false;
+    }
+
     /// Whether its mesh is to be read again, once.
     pub fn take_mesh_stale(&self) -> bool {
         std::mem::take(&mut self.state.lock().unwrap().mesh_stale)
@@ -555,6 +619,12 @@ impl Screen {
         [s.auto_temps, s.auto_fans, s.auto_position]
             .iter()
             .all(|t| t.is_some_and(|t| t.elapsed() < within))
+    }
+
+    /// Its last own reports (temperatures, fans, position), oldest kind first.
+    pub fn reported(&self) -> Vec<String> {
+        let s = self.state.lock().unwrap();
+        [&s.reported[2], &s.reported[1], &s.reported[0]].into_iter().flatten().cloned().collect()
     }
 
     /// `M155` was (re)started: it is given `within` to report before it counts as silent.
@@ -603,18 +673,63 @@ impl Screen {
         let now = std::time::Instant::now();
         if text.starts_with("T:") || text.starts_with("ok T:") {
             s.auto_temps = Some(now);
+            if text.starts_with("T:") {
+                s.reported[0] = Some(text.to_owned());
+            }
         }
         if text.starts_with("E0:") && text.contains(" RPM") {
             s.auto_fans = Some(now);
+            s.reported[1] = Some(text.to_owned());
         }
         if text.starts_with("X:") && text.contains(" Count ") {
             s.auto_position = Some(now);
+            s.reported[2] = Some(text.to_owned());
         }
         // Its SD card (Prusa's MK3 and Marlin say so on their own).
         match text {
             "echo:SD card ok" => s.sd_card = Some(true),
             "echo:SD init fail" | "Error:volume.init failed" | "Error:openRoot failed"
             | "echo:SD card released" => s.sd_card = Some(false),
+            _ => {}
+        }
+        // PrusaLink's menu: its `setready.g` opened, started and done within 1 s each is
+        // "Set Ready" (`handle_file`, `handle_start`, `handle_done`, `CMD_TIMEOUT`).
+        let special_now = s.special_at.is_some_and(|at| at.elapsed() < Duration::from_secs(1));
+        if let Some(opened) = text.strip_prefix("File opened: ").and_then(|r| r.split(" Size: ").next())
+            && let Some(menu) = s.menu_sfn.clone()
+        {
+            let path = opened.to_lowercase();
+            let parts: Vec<&str> = path.rsplitn(3, '/').collect();
+            if parts.len() >= 2 && parts[1] == menu && parts[0] == "setready.g" {
+                s.special_at = Some(now);
+                return;
+            }
+        }
+        match text {
+            "LCD status changed" => s.lcd_changed += 1,
+            "echo:enqueing \"M24\"" if special_now => s.special_at = Some(now),
+            "echo:enqueing \"M24\"" => {
+                s.special_at = None;
+                s.sd_started = true;
+            }
+            "Done printing file" if special_now => {
+                s.special_at = None;
+                s.ready_said = true;
+            }
+            "Done printing file" => {
+                s.special_at = None;
+                s.sd_done = true;
+            }
+            _ => {}
+        }
+        // Its file list: any file in it, and the card is in (the insert said nothing, or
+        // was missed).
+        match text {
+            "Begin file list" => s.sd_listing = true,
+            "End file list" => s.sd_listing = false,
+            _ if s.sd_listing && !text.is_empty() && !text.starts_with("DIR_") && text != "ok" => {
+                s.sd_card = Some(true)
+            }
             _ => {}
         }
         if let Some(rest) = text.strip_prefix("File opened: ") {
@@ -681,7 +796,10 @@ impl Screen {
                     s.paused = false;
                 }
                 Action::Ready => s.ready_said = true,
-                Action::NotReady => s.ready_said = false,
+                Action::NotReady => {
+                    s.ready_said = false;
+                    s.not_ready_said = true;
+                }
                 Action::PowerLoss => s.power_loss = true,
                 Action::Reprint => s.reprint_said = true,
                 Action::Other(_) => {}
@@ -710,6 +828,70 @@ pub fn machine_type(lines: &[String]) -> Option<String> {
     let line = lines.iter().find_map(|l| l.split_once("MACHINE_TYPE:"))?.1;
     let end = line.find(" EXTRUDER_COUNT").unwrap_or(line.len());
     Some(line[..end].trim().to_owned()).filter(|t| !t.is_empty())
+}
+
+/// Prusa's type code as its `M862.2 Q` gives it, whole (PrusaLink's `PRINTER_TYPE_REGEX`: a
+/// line of 3 to 5 digits; 30302 an MK3S with an MMU3).
+pub fn type_code(lines: &[String]) -> Option<u32> {
+    lines.iter().map(|l| l.trim()).find(|l| (3..=5).contains(&l.len()) && l.chars().all(|c| c.is_ascii_digit()))?.parse().ok()
+}
+
+/// Prusa's firmware version as `PRUSA Fir` gives it (PrusaLink's `FW_REGEX`: `3.14.1-8237`).
+pub fn prusa_fir(lines: &[String]) -> Option<String> {
+    lines.iter().map(|l| l.trim()).find(|l| {
+        let (version, build) = match l.split_once('-') {
+            Some(parts) => parts,
+            None => return false,
+        };
+        let _ = build;
+        let parts: Vec<&str> = version.split('.').collect();
+        parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+    }).map(str::to_owned)
+}
+
+/// PrusaLink's menu in a card listing (`M20 LT`): the top folder named "PrusaLink menu", by
+/// its short name in lower case, and whether its `SETREADY.G` is in it already
+/// (`sd_card.py` `handle_special_menu`).
+pub fn prusalink_menu(lines: &[String]) -> Option<(String, bool)> {
+    let mut depth = 0usize;
+    let mut menu: Option<(String, bool)> = None;
+    let mut inside_menu = false;
+    for line in lines.iter().map(|l| l.trim()) {
+        if let Some(rest) = line.strip_prefix("DIR_ENTER: ") {
+            depth += 1;
+            let (sdn, ldn) = rest.split_once(' ').unwrap_or((rest, ""));
+            if depth == 1 && ldn.trim_matches('"') == "PrusaLink menu" {
+                let short = sdn.trim_end_matches('/').rsplit('/').next().unwrap_or("").to_lowercase();
+                menu = Some((short, false));
+                inside_menu = true;
+            }
+        } else if line == "DIR_EXIT" {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                inside_menu = false;
+            }
+        } else if inside_menu && depth == 1 {
+            let name = line.rsplit_once('"').map(|(a, _)| a).and_then(|a| a.rsplit_once('"')).map(|(_, n)| n.to_owned());
+            let sfn = line.split_whitespace().next().unwrap_or("").rsplit('/').next().unwrap_or("").to_owned();
+            if name.unwrap_or(sfn).eq_ignore_ascii_case("SETREADY.G")
+                && let Some(m) = menu.as_mut()
+            {
+                m.1 = true;
+            }
+        }
+    }
+    menu
+}
+
+/// Whether a card listing (`M20 LT`) has any file in it: a line between `Begin file list` and
+/// `End file list` that is no folder mark (PrusaLink takes files found as a card present).
+pub fn lists_files(lines: &[String]) -> bool {
+    let mut inside = false;
+    lines.iter().map(|l| l.trim()).any(|l| match l {
+        "Begin file list" => { inside = true; false }
+        "End file list" => { inside = false; false }
+        _ => inside && !l.is_empty() && !l.starts_with("DIR_") && l != "ok",
+    })
 }
 
 /// A Prusa's model code from an `M862.2 Q` answer: 302 for an MK3S, 120 for a MINI. Buddy
@@ -1055,11 +1237,14 @@ pub struct Printer<L: Read + Write> {
     /// How long it may stay silent while an `ok` is due ([`SILENT_TIMEOUT`],
     /// [`LONG_SILENCE`]; shorter in tests), and how long the `ok` after a resend request may
     /// take ([`RESEND_OK_WAIT`]).
-    silence: (Duration, Duration, Duration),
+    silence: (Duration, Duration, Duration, Duration),
     /// When `M79` was last sent (Prusa's MK3 firmware: a host is there).
     last_m79: Option<Instant>,
     /// A print from its own SD card, as its last `M27` said.
     pub sd: Option<SdStatus>,
+    /// What was last asked of its SD print (pause, resume, stop) and when, until its `M27`
+    /// shows it was done; not within 15 s is said (PrusaLink's `STATE_CHANGE_TIMEOUT`).
+    pub sd_asked: Option<(&'static str, Instant)>,
     /// The numbers of recent lines that were not a job's file's own (`M79`, an `M105` asking
     /// after it, an answer): a job's checkpoint keeps them (crate::recovery).
     pub extras: Vec<u32>,
@@ -1090,10 +1275,11 @@ impl<L: Read + Write> Printer<L> {
             caps: Capabilities::default(),
             firmware: None,
             interrupt: Arc::default(),
-            silence: (SILENT_TIMEOUT, LONG_SILENCE, RESEND_OK_WAIT),
+            silence: (SILENT_TIMEOUT, LONG_SILENCE, RESEND_OK_WAIT, PRUSALINK_TIMEOUT),
             last_m79: None,
             answer: Arc::default(),
             sd: None,
+            sd_asked: None,
             extras: Vec::new(),
             file_line: false,
             stray_resend: None,
@@ -1134,7 +1320,8 @@ impl<L: Read + Write> Printer<L> {
     /// Asks how a print from its card goes (`M27`; Marlin `M27 C` for the file's name), and
     /// keeps it in `sd`.
     pub fn follow_sd(&mut self) -> io::Result<Option<SdStatus>> {
-        let ask = if self.is_prusa_mk3() { "M27" } else { "M27 C" };
+        // Prusa's MK3 as PrusaLink asks (`printer_polling.py`): `M27 P`, the file's short path.
+        let ask = if self.is_prusa_mk3() { "M27 P" } else { "M27 C" };
         let answer = self.command(ask)?;
         if let Some(status) = sd_status(&answer) {
             // Marlin forgets nothing between asks, the MK3 gives no file while paused: what
@@ -1150,12 +1337,33 @@ impl<L: Read + Write> Printer<L> {
                 s
             });
         }
+        if self.sd.is_some() {
+            self.waiting.sd_start_seen();
+        }
         Ok(self.sd.clone())
+    }
+
+    /// A print from its card that said it is done (`Done printing file`): its last report,
+    /// the whole file done; it is over from now on (PrusaLink: FINISHED, at once).
+    pub fn sd_finished(&mut self) -> Option<SdStatus> {
+        if !self.waiting.take_sd_done() {
+            return None;
+        }
+        self.sd.take().map(|mut s| {
+            s.done = s.total;
+            s
+        })
     }
 
     /// Pause, resume or stop the print from its card: Prusa's MK3 parks with M601, goes on
     /// with M602 and stops with M603 (as PrusaLink does); Marlin M25, M24, M524.
     pub fn control_sd(&mut self, what: &str, on: &mut impl FnMut(Event)) -> io::Result<()> {
+        self.sd_asked = match what {
+            "pause" => Some(("pause", Instant::now())),
+            "resume" => Some(("resume", Instant::now())),
+            "stop" => Some(("stop", Instant::now())),
+            _ => None,
+        };
         let code = match (self.is_prusa_mk3(), what) {
             (true, "pause") => "M601",
             (true, "resume") => "M602",
@@ -1166,6 +1374,26 @@ impl<L: Read + Write> Printer<L> {
             _ => return Ok(()),
         };
         self.send_line(code, on).map(|_| ())
+    }
+
+    /// Whether what was asked of its SD print was done, as its last `M27` shows: None while
+    /// it is still in time or nothing was asked; else what it did not do within 15 s (once).
+    pub fn sd_not_done(&mut self) -> Option<String> {
+        let (what, at) = self.sd_asked?;
+        let done = match what {
+            "pause" => self.sd.as_ref().is_some_and(|s| s.paused),
+            "resume" => self.sd.as_ref().is_some_and(|s| !s.paused),
+            _ => self.sd.is_none(),
+        };
+        if done {
+            self.sd_asked = None;
+            return None;
+        }
+        if at.elapsed() < Duration::from_secs(15) {
+            return None;
+        }
+        self.sd_asked = None;
+        Some(format!("it did not {what} within 15 s"))
     }
 
     /// Sends someone's answer to its question now, if there is one and no line is waiting
@@ -1187,7 +1415,9 @@ impl<L: Read + Write> Printer<L> {
             return Ok(());
         }
         self.last_m79 = Some(Instant::now());
-        self.send_line("M79 S\"MC\"", on).map(|_| ())
+        // PrusaLink's keepalive (`keepalive.py`): "PC" when it works for Prusa Connect, as the
+        // agent works for its hub.
+        self.send_line("M79 S\"PC\"", on).map(|_| ())
     }
 
     /// Shorter waits, for tests with a fake printer.
@@ -1197,6 +1427,7 @@ impl<L: Read + Write> Printer<L> {
             Duration::from_millis(150),
             Duration::from_millis(600),
             Duration::from_millis(50),
+            Duration::from_millis(150),
         );
     }
 
@@ -1226,13 +1457,15 @@ impl<L: Read + Write> Printer<L> {
 
     /// One line from the printer, or None when it stayed silent for the read timeout.
     fn read_line(&mut self) -> io::Result<Option<String>> {
-        let mut line = String::new();
-        match self.reader.read_line(&mut line) {
+        // Every byte read as a character (PrusaLink: `decode_line`, cp437, NULs dropped): a
+        // stray byte while it boots spoils no read.
+        let mut bytes = Vec::new();
+        match self.reader.read_until(b'\n', &mut bytes) {
             Ok(0) => Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 "the printer closed the connection",
             )),
-            Ok(_) => Ok(Some(line.trim().to_owned())),
+            Ok(_) => Ok(Some(String::from_utf8_lossy(&bytes).replace('\0', "").trim().to_owned())),
             Err(error)
                 if matches!(
                     error.kind(),
@@ -1255,6 +1488,57 @@ impl<L: Read + Write> Printer<L> {
     /// After opening the port: waits for the printer to boot (`start`, then quiet), and
     /// sets its line numbers back to zero (`M110 N0`).
     pub fn connect(&mut self, on: &mut impl FnMut(Event)) -> io::Result<()> {
+        self.wait_for_boot(on)?;
+        self.number_from_zero(on)
+    }
+
+    /// Connects as PrusaLink does (`serial_adapter.py`): after its boot, it is asked what it
+    /// is with `PRUSA Fir` and `M862.2 Q`, unnumbered, in one write (`_get_info`), and only
+    /// then numbered from zero. On a port PrusaLink does not take for a Prusa, `PRUSA Fir`
+    /// alone first, and `M862.2 Q` only when it answered (in Marlin `M862` is the position
+    /// encoder's test). Its firmware version and type code, where it gave them.
+    pub fn connect_as_prusalink(
+        &mut self,
+        prusa_port: bool,
+        on: &mut impl FnMut(Event),
+    ) -> io::Result<(Option<String>, Option<u32>)> {
+        self.wait_for_boot(on)?;
+        let found = if prusa_port {
+            let said = self.ask_unnumbered("PRUSA Fir\nM862.2 Q", 2)?;
+            (prusa_fir(&said), type_code(&said))
+        } else {
+            let version = prusa_fir(&self.ask_unnumbered("PRUSA Fir", 1)?);
+            let code = match version {
+                Some(_) => type_code(&self.ask_unnumbered("M862.2 Q", 1)?),
+                None => None,
+            };
+            (version, code)
+        };
+        self.number_from_zero(on)?;
+        Ok(found)
+    }
+
+    /// Writes `text` as it is (no numbers) and reads what comes until its `oks` or for
+    /// 5 s (PrusaLink's detection waits 5 s).
+    fn ask_unnumbered(&mut self, text: &str, oks: usize) -> io::Result<Vec<String>> {
+        self.write_line(text)?;
+        let until = Instant::now() + self.silence.3.min(Duration::from_secs(5)).max(Duration::from_millis(100));
+        let (mut seen, mut said) = (0, Vec::new());
+        while seen < oks && Instant::now() < until {
+            if let Some(line) = self.read_line()?.filter(|l| !l.is_empty()) {
+                let reply = parse(&line);
+                self.waiting.heard(&reply, &line);
+                match reply {
+                    Reply::Ok => seen += 1,
+                    _ => said.push(line),
+                }
+            }
+        }
+        Ok(said)
+    }
+
+    /// Waits for the printer to boot (`start`, then quiet).
+    fn wait_for_boot(&mut self, on: &mut impl FnMut(Event)) -> io::Result<()> {
         let deadline = Instant::now() + BOOT_WAIT;
         let mut quiet_since = Instant::now();
         while Instant::now() < deadline {
@@ -1271,10 +1555,20 @@ impl<L: Read + Write> Printer<L> {
                 _ => {}
             }
         }
+        Ok(())
+    }
+
+    /// Its line numbers from zero (`M110 N0`), its buffers emptied first (`M400`).
+    fn number_from_zero(&mut self, on: &mut impl FnMut(Event)) -> io::Result<()> {
         self.next_number = 0;
         self.sent.clear();
         self.unacked = 0;
         self.same_resend = (0, 0);
+        // As PrusaLink does before an M110 (`m110_workaround_slot`): the firmware's buffers
+        // run empty first (M400, without a number: the numbering is set only after it).
+        self.write_line("M400")?;
+        self.unacked += 1;
+        self.wait_ok(on)?;
         self.send_numbered("M110 N0")?;
         self.wait_ok(on).map(|_| ())
     }
@@ -1426,6 +1720,25 @@ impl<L: Read + Write> Printer<L> {
                     last_heard = Instant::now();
                     continue;
                 }
+                // Prusa's MK3, as PrusaLink (serial_queue.py `check_status`): 25 s without a
+                // sign of life and the line waiting goes again, with its own number (it
+                // "forgot" it); the third time the port is given up.
+                if self.is_prusa_mk3() {
+                    if last_heard.elapsed() > self.silence.3 {
+                        pokes += 1;
+                        if pokes > 2 {
+                            return Err(io::Error::new(
+                                io::ErrorKind::TimedOut,
+                                "the printer stopped answering",
+                            ));
+                        }
+                        on(Event::Said("No answer from the printer: the line again".to_owned()));
+                        let current = self.next_number.saturating_sub(1);
+                        self.resend_from(current, on)?;
+                        last_heard = Instant::now();
+                    }
+                    continue;
+                }
                 let limit = if self.in_flight().any(long_running) {
                     self.silence.1
                 } else {
@@ -1445,8 +1758,18 @@ impl<L: Read + Write> Printer<L> {
                 }
                 continue;
             };
-            last_heard = Instant::now();
             let reply = parse(&line);
+            // A sign of life: any line; on Prusa's MK3 only what PrusaLink takes as one (an
+            // `ok`, `busy: processing`, `busy: paused for user`, a heating report).
+            if !self.is_prusa_mk3()
+                || matches!(reply, Reply::Ok | Reply::Busy | Reply::PausedForUser)
+                || prusalink_heating(&line)
+            {
+                last_heard = Instant::now();
+                if matches!(reply, Reply::Ok | Reply::Busy | Reply::PausedForUser) {
+                    pokes = 0;
+                }
+            }
             self.waiting.heard(&reply, &line);
             // Anything but an `ok` after a resend request: its `ok` is not coming.
             if !matches!(reply, Reply::Ok | Reply::Resend(_))
@@ -1467,6 +1790,7 @@ impl<L: Read + Write> Printer<L> {
                     }
                 }
                 Reply::Resend(number) => resend = Some((number, Instant::now())),
+                Reply::Wait if self.is_prusa_mk3() => {}
                 Reply::Wait => {
                     // Idle while an `ok` is due: ask after it now, rather than in 30 s.
                     if pokes < MAX_POKES {
@@ -1653,6 +1977,15 @@ pub(crate) mod tests {
         assert_eq!(screen.now().sd_card, Some(false));
         screen.hear("File opened: BENCHY~1.GCO Size: 812345");
         assert_eq!((screen.now().sd_card, screen.now().sd_opened.as_deref()), (Some(true), Some("BENCHY~1.GCO")));
+        // A file in its list (M20 L T): the card is in, even if the insert went unheard.
+        screen.hear("echo:SD card released");
+        screen.hear("Begin file list");
+        screen.hear("End file list");
+        assert_eq!(screen.now().sd_card, Some(false));
+        screen.hear("Begin file list");
+        screen.hear("BENCHY~1.GCO 812345 0x5f3a2b10 \"3DBenchy.gcode\"");
+        screen.hear("End file list");
+        assert_eq!(screen.now().sd_card, Some(true));
         // Calibrating its thermal model: nothing to be sent until it ends.
         screen.hear("TM: calibration start");
         assert!(screen.now().calibrating);
@@ -1684,6 +2017,27 @@ pub(crate) mod tests {
         assert!(!screen.reports_by_itself(Duration::from_secs(60)), "no position yet");
         screen.hear("X:0.00 Y:0.00 Z:0.15 E:0.00 Count X: 0.00 Y:0.00 Z:0.15 E:0.00");
         assert!(screen.reports_by_itself(Duration::from_secs(60)));
+    }
+
+    /// A pause, resume or stop asked of a print from its SD card is checked against its next
+    /// `M27`: done, nothing said; not done within 15 s, said once (as PrusaLink fails it).
+    #[test]
+    fn an_sd_print_does_what_was_asked_in_time() {
+        let mut printer = Printer::new(FakeMarlin::new(Arc::default()));
+        printer.sd = Some(SdStatus { done: 10, total: 100, ..SdStatus::default() });
+        printer.sd_asked = Some(("pause", Instant::now()));
+        assert_eq!(printer.sd_not_done(), None, "still in time");
+        printer.sd_asked = Some(("pause", Instant::now() - Duration::from_secs(16)));
+        assert_eq!(printer.sd_not_done().as_deref(), Some("it did not pause within 15 s"));
+        assert_eq!(printer.sd_not_done(), None, "said once");
+        // Paused as asked: nothing to say.
+        printer.sd = Some(SdStatus { paused: true, ..SdStatus::default() });
+        printer.sd_asked = Some(("pause", Instant::now() - Duration::from_secs(16)));
+        assert_eq!(printer.sd_not_done(), None);
+        // Stopped: no SD print any more.
+        printer.sd = None;
+        printer.sd_asked = Some(("stop", Instant::now() - Duration::from_secs(16)));
+        assert_eq!(printer.sd_not_done(), None);
     }
 
     #[test]
@@ -1833,6 +2187,17 @@ pub(crate) mod tests {
 
         fn receive(&mut self, line: &str) {
             let Some((body, sum)) = line.rsplit_once('*') else {
+                // Unnumbered (as PrusaLink's detection asks it): answered as numbered.
+                let prusa = self.m115.contains("Prusa-Firmware");
+                match line {
+                    "PRUSA Fir" | "M862.2 Q" if !prusa => self.say(&format!("echo:Unknown command: \"{line}\"")),
+                    "M862.2 Q" => self.say("302"),
+                    "PRUSA Fir" => {
+                        let version = self.m115.split("Prusa-Firmware ").nth(1).and_then(|r| r.split_whitespace().next()).unwrap_or("3.14.1").to_owned();
+                        self.say(&format!("{version}-8237"))
+                    }
+                    _ => {}
+                }
                 return self.say("ok");
             };
             let number: u32 = body[1..].split(' ').next().unwrap().parse().unwrap();
@@ -1916,8 +2281,21 @@ pub(crate) mod tests {
                     }
                 }
                 "M105" => return self.say("ok T:24.5 /0.0 B:23.1 /0.0 T0:24.5 /0.0 @:0 B@:0 P:0.0 A:28.2"),
-                // As Prusa's MK3 firmware answers it: the number alone.
+                // As Prusa's MK3 firmware answers them: the number alone; its version with
+                // its build. Other firmware knows neither.
+                "M862.2 Q" | "PRUSA Fir" if !self.m115.contains("Prusa-Firmware") => {
+                    self.say(&format!("echo:Unknown command: \"{code}\""))
+                }
                 "M862.2 Q" => self.say("302"),
+                "PRUSA Fir" => {
+                    let version = self.m115.split("Prusa-Firmware ").nth(1).and_then(|r| r.split_whitespace().next()).unwrap_or("3.14.1").to_owned();
+                    self.say(&format!("{version}-8237"))
+                }
+                "M20 LT" => {
+                    self.say("Begin file list");
+                    self.say("BENCHY~1.GCO 812345 0x5f3a2b10 \"Benchy.gcode\"");
+                    self.say("End file list");
+                }
                 _ => {}
             }
             self.accepted.lock().unwrap().push(code.clone());
@@ -2260,6 +2638,120 @@ pub(crate) mod tests {
         assert!(long_running("G28 W") && long_running("M109 S215") && !long_running("G1 X1"));
     }
 
+    /// Prusa's MK3 as PrusaLink (serial_queue.py `check_status`): silent too long, the line
+    /// waiting goes again with its own number (no `M105`); the third time the port is given
+    /// up.
+    #[test]
+    fn a_silent_mk3_gets_the_line_again_as_prusalink_sends_it() {
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut fake = FakeMarlin::new(accepted.clone());
+        // Lost on the wire, as PrusaLink takes a silence ("the printer yeeted our RX buffer").
+        fake.lose_line = vec!["M220".into()];
+        let mut printer = quick(fake);
+        printer.firmware = Some("Prusa-Firmware 3.14.1-8237".to_owned());
+        printer.command("M220").unwrap();
+        let sent = accepted.lock().unwrap().clone();
+        assert_eq!(sent.iter().filter(|c| *c == "M220").count(), 1, "the line again, taken: {sent:?}");
+        assert!(!sent.iter().any(|c| c == "M105"), "no M105: {sent:?}");
+        // Never answered: given up the third time.
+        let mut fake = FakeMarlin::new(Arc::default());
+        fake.lose_line = vec!["M221".into(); 5];
+        let mut printer = quick(fake);
+        printer.firmware = Some("Prusa-Firmware 3.14.1-8237".to_owned());
+        assert!(printer.command("M221").is_err());
+    }
+
+    /// What PrusaLink sends Prusa's MK3 family, in its forms (`{}` any value): every literal
+    /// here is checked against PrusaLink's source by scripts/prusalink-audit-check.py.
+    pub(crate) const PRUSALINK_SENDS: &[&str] = &[
+        "M400", "M110 N0", "M862.2 Q", "PRUSA Fir", "M862.1 Q", "PRUSA SN", "M707 A0x00",
+        "M707 A0x01", "M707 A0x02", "M707 A0x03", "D3 Ax{} C{}", "D3 Ax0D05 X{}", "M20 LT", "M21",
+        "M552 P{}", "M552 P0.0.0.0", "M155 S2 C7", "M155 S0 C0", "M79 S\"PC\"", "M220", "M221",
+        "M73", "M27 P", "M420", "M75", "M76", "M77", "M601", "M602", "M603", "M25", "M23 {}", "M24",
+        "M73 Q{} S{} C{} P{} R{} D{}", "M300 S880 P200", "M1 FW COMM ERR. Aborted",
+        "M140 S{}", "M104 S{}", "M109 S{}", "M300 P500 S1", "M0 Insert the filament", "M701", "M702",
+        "M72 S1", "M72 S0", "M300 P200 S600", "M117 ~Cannot re-print", "M84", "G90", "G91",
+        "G1 F{} {}", "G28 {}", "M220 S{}", "M221 S{}", "M83", "G1 F{} E{}",
+        "M28 {}/setready.g", "M29", "M117 ~{}", "M300 P100 S3200", "M300 P25 S0", "M300 P25 S4800",
+        "M300 P75 S0", "M300 P600 S5", "M300 P14 S50",
+    ];
+
+    /// Whether `code` is one of PrusaLink's forms.
+    pub(crate) fn prusalink_sends(code: &str) -> bool {
+        PRUSALINK_SENDS.iter().any(|form| {
+            let parts: Vec<&str> = form.split("{}").collect();
+            let mut rest = code;
+            for (i, part) in parts.iter().enumerate() {
+                if i == 0 {
+                    let Some(r) = rest.strip_prefix(part) else { return false };
+                    rest = r;
+                } else if i == parts.len() - 1 {
+                    return !part.is_empty() && rest.len() > part.len() && rest.ends_with(part)
+                        || part.is_empty() && !rest.is_empty();
+                } else {
+                    let Some(at) = rest.get(1..).and_then(|r| r.find(part)) else { return false };
+                    rest = &rest[at + 1 + part.len()..];
+                }
+            }
+            rest.is_empty()
+        })
+    }
+
+    /// Connected as PrusaLink connects (`serial_adapter.py` `_get_info`): `PRUSA Fir` and
+    /// `M862.2 Q` unnumbered in one write, then `M400` and `M110 N0`; elsewhere `PRUSA Fir`
+    /// alone first, and plain Marlin is asked no `M862`.
+    #[test]
+    fn it_is_connected_as_prusalink_connects() {
+        let wrote: Arc<Mutex<Vec<String>>> = Arc::default();
+        let link = Tapped { fake: FakeMarlin::new(Arc::default()), wrote: wrote.clone(), partial: Vec::new() };
+        let mut printer = Printer::new(link);
+        printer.hurry();
+        let found = printer.connect_as_prusalink(true, &mut |_| {}).unwrap();
+        assert_eq!(found, (Some("3.14.0-8237".to_owned()), Some(302)));
+        let wrote = wrote.lock().unwrap().clone();
+        assert_eq!(wrote[..3], ["PRUSA Fir", "M862.2 Q", "M400"], "{wrote:?}");
+        assert_eq!(wrote[3], numbered(0, "M110 N0"));
+
+        let wrote: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut fake = FakeMarlin::new(Arc::default());
+        fake.m115 = "FIRMWARE_NAME:Marlin 2.1.2.1 MACHINE_TYPE:Ender-3 EXTRUDER_COUNT:1".into();
+        let link = Tapped { fake, wrote: wrote.clone(), partial: Vec::new() };
+        let mut printer = Printer::new(link);
+        printer.hurry();
+        assert_eq!(printer.connect_as_prusalink(false, &mut |_| {}).unwrap(), (None, None));
+        let wrote = wrote.lock().unwrap().clone();
+        assert_eq!(wrote[..2], ["PRUSA Fir", "M400"], "no M862 to Marlin: {wrote:?}");
+    }
+
+    /// PrusaLink's menu on the card: found by its folder's name in a listing, with or without
+    /// its `setready.g`; that file opened, started and done within 1 s each is "Set Ready",
+    /// no print (`special_commands.py`); any other file is a print.
+    #[test]
+    fn prusalinks_menu_on_the_card_sets_it_ready() {
+        let listing = |with: bool| -> Vec<String> {
+            let mut l = vec!["Begin file list".to_owned(), "DIR_ENTER: /PRUSAL~1/ \"PrusaLink menu\"".to_owned()];
+            if with {
+                l.push("/PRUSAL~1/SETREADY.G 4 0x5f3a2b10 \"setready.g\"".to_owned());
+            }
+            l.extend(["DIR_EXIT".to_owned(), "BENCHY~1.GCO 812345 \"Benchy.gcode\"".to_owned(), "End file list".to_owned()]);
+            l
+        };
+        assert_eq!(prusalink_menu(&listing(false)), Some(("prusal~1".to_owned(), false)));
+        assert_eq!(prusalink_menu(&listing(true)), Some(("prusal~1".to_owned(), true)));
+        assert_eq!(prusalink_menu(&["Begin file list".to_owned(), "End file list".to_owned()]), None);
+        let screen = Screen::default();
+        screen.set_menu(Some("prusal~1".to_owned()));
+        screen.hear("File opened: /PRUSAL~1/SETREADY.G Size: 4");
+        screen.hear("echo:enqueing \"M24\"");
+        screen.hear("Done printing file");
+        let now = screen.now();
+        assert!(now.ready_said && !now.sd_started && !now.sd_done && now.sd_opened.is_none(), "Set Ready, no print");
+        assert!(screen.take_ready());
+        screen.hear("File opened: BENCHY~1.GCO Size: 812345");
+        screen.hear("echo:enqueing \"M24\"");
+        assert!(screen.now().sd_started, "a print");
+    }
+
     fn quick(fake: FakeMarlin) -> Printer<FakeMarlin> {
         let mut printer = Printer::new(fake);
         printer.hurry();
@@ -2379,5 +2871,583 @@ pub(crate) mod tests {
         fake.busy_first = 3;
         let (accepted, _) = run(fake);
         assert_eq!(accepted.len(), 5);
+    }
+
+    /// A printer that says each `line` right after it got the `code` before it, sent through
+    /// `GCODE` as a job is: what it accepted, what was told, and its screen afterwards.
+    fn hearing(after: &[(&str, &str)]) -> (Vec<String>, Vec<Event>, Arc<Screen>) {
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut fake = FakeMarlin::new(accepted.clone());
+        fake.errors = after.iter().map(|(c, l)| (c.to_string(), l.to_string())).collect();
+        let mut printer = quick(fake);
+        let mut events = Vec::new();
+        printer.send(GCODE.lines(), &mut |e| events.push(e)).unwrap();
+        let got = accepted.lock().unwrap().clone();
+        (got, events, printer.waiting())
+    }
+
+    const WHOLE_JOB: [&str; 5] = ["G28", "M104 S210", "G1 X10 Y10", "G1 X20 Y10 E1.5", "M84"];
+
+    fn screen_after(line: &str) -> ScreenState {
+        let screen = Screen::default();
+        screen.hear(line);
+        screen.now()
+    }
+
+    /// Proves the row `TEMPERATURE_REGEX` of docs/prusalink-audit.md: a temperature report
+    /// gives both temperatures, both targets and whether the heaters have power; a report
+    /// without numbers gives nothing.
+    #[test]
+    fn a_temperature_report_is_read() {
+        let heat = heat(&["ok T:210.3 /210.0 B:60.1 /60.0 T0:210.3 /210.0 @:64 B@:0 P:35.0 A:30.1".to_owned()]);
+        assert_eq!(
+            (heat.nozzle_c, heat.nozzle_target_c, heat.bed_c, heat.bed_target_c),
+            (Some(210.3), Some(210.0), Some(60.1), Some(60.0))
+        );
+        assert_eq!((heat.nozzle_heating, heat.bed_heating), (Some(true), Some(false)));
+        assert_eq!(
+            self::heat(&["T: / B: / T0: @: B@: P: A:".to_owned()]),
+            Heat::default(),
+            "no numbers, nothing read"
+        );
+    }
+
+    /// Proves the row `POSITION_REGEX` of docs/prusalink-audit.md: the head's position is
+    /// read from the part before `Count`, and the printer's own position reports are noticed.
+    #[test]
+    fn a_position_report_is_read() {
+        let line = "X:10.00 Y:20.50 Z:0.15 E:0.00 Count X: 800 Y:1640 Z:60";
+        assert_eq!(heat(&[line.to_owned()]).position_mm, Some([10.0, 20.5, 0.15]));
+        assert!(routine(line));
+        let screen = Screen::default();
+        assert!(screen.now().auto_position.is_none());
+        screen.hear(line);
+        assert!(screen.now().auto_position.is_some());
+        assert_eq!(heat(&["X: Y: Z: E: Count X:".to_owned()]).position_mm, None);
+    }
+
+    /// Proves the row `FAN_REGEX` of docs/prusalink-audit.md: both fans' speeds are read,
+    /// and the printer's own fan reports are noticed.
+    #[test]
+    fn a_fan_report_is_read() {
+        let line = "E0:3500 RPM PRN1:4800 RPM E0@:255 PRN1@:200";
+        let fans = heat(&[line.to_owned()]);
+        assert_eq!((fans.hotend_fan_rpm, fans.print_fan_rpm), (Some(3500), Some(4800)));
+        assert!(routine(line));
+        let screen = Screen::default();
+        screen.hear(line);
+        assert!(screen.now().auto_fans.is_some());
+        assert_eq!(heat(&["E0: RPM PRN1: RPM E0@: PRN1@:".to_owned()]), Heat::default());
+    }
+
+    /// Proves the row `HEATING_REGEX`, `HEATING_HOTEND_REGEX` of docs/prusalink-audit.md:
+    /// the lines the printer says while an `M109` or `M190` waits give the temperatures and
+    /// are told, and the wait goes on to its `ok`.
+    #[test]
+    fn the_heating_lines_while_waiting_are_read() {
+        let mut heating = heat(&["T:180.3 E:0 B:58.0".to_owned()]);
+        assert_eq!((heating.nozzle_c, heating.bed_c), (Some(180.3), Some(58.0)));
+        heating = heat(&["T:181.5 E:0 W:?".to_owned()]);
+        assert_eq!((heating.nozzle_c, heating.bed_c), (Some(181.5), None));
+        assert_eq!(parse("T:180.3 E:0 W:?"), Reply::Other("T:180.3 E:0 W:?".into()));
+        assert!(long_running("M109 S215") && long_running("M190 S60") && heats("M109 S215"));
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut fake = FakeMarlin::new(accepted.clone());
+        fake.errors = vec![
+            ("M109 S215".into(), "T:180.3 E:0 W:?".into()),
+            ("M190 S60".into(), "T:215.0 E:0 B:58.0".into()),
+        ];
+        let mut printer = quick(fake);
+        let mut events = Vec::new();
+        printer.send(["M109 S215", "M190 S60", "G28"], &mut |e| events.push(e)).unwrap();
+        assert_eq!(*accepted.lock().unwrap(), ["M109 S215", "M190 S60", "G28"]);
+        assert!(events.contains(&Event::Said("T:180.3 E:0 W:?".into())), "{events:?}");
+        assert!(events.contains(&Event::Said("T:215.0 E:0 B:58.0".into())), "{events:?}");
+        assert!(!events.iter().any(|e| matches!(e, Event::Error(_) | Event::Resent(_))));
+    }
+
+    /// Proves the row `CONFIRMATION_REGEX` of docs/prusalink-audit.md: `ok`, alone or with a
+    /// report after it, confirms a line; `Done saving file.` (the answer to `M29`, which we
+    /// never send) is plain text and confirms nothing, so every line still gets its own `ok`.
+    #[test]
+    fn only_an_ok_confirms_a_line() {
+        assert_eq!(parse("ok"), Reply::Ok);
+        assert_eq!(parse("ok T:210.0 /210.0 B:60.0 /60.0"), Reply::Ok);
+        assert_eq!(parse("Done saving file."), Reply::Other("Done saving file.".into()));
+        let (accepted, events, _) = hearing(&[("G28", "Done saving file.")]);
+        assert_eq!(accepted, WHOLE_JOB);
+        assert!(events.contains(&Event::Said("Done saving file.".into())));
+        assert_eq!(events.last(), Some(&Event::Progress { done: 5, total: 5 }));
+    }
+
+    /// Proves the row `RESEND_REGEX` of docs/prusalink-audit.md: `Resend: 5` (and without
+    /// the space) asks for line 5 again; the line is sent again, and nothing is lost.
+    /// Something that is no number is no request.
+    #[test]
+    fn a_resend_request_is_read_and_followed() {
+        assert_eq!(parse("Resend: 5"), Reply::Resend(5));
+        assert_eq!(parse("Resend:5"), Reply::Resend(5));
+        assert_eq!(parse("Resend: N"), Reply::Other("Resend: N".into()));
+        let mut fake = FakeMarlin::new(Arc::default());
+        fake.spoil = vec![2];
+        let accepted = fake.accepted.clone();
+        let mut printer = quick(fake);
+        let mut events = Vec::new();
+        printer.send(GCODE.lines(), &mut |e| events.push(e)).unwrap();
+        assert!(events.contains(&Event::Resent(2)), "{events:?}");
+        assert_eq!(*accepted.lock().unwrap(), WHOLE_JOB);
+    }
+
+    /// Proves the row `REJECTION_REGEX` of docs/prusalink-audit.md: a code it does not know
+    /// (Marlin's and Prusa's words) and a refused cold extrusion are told, stop nothing and
+    /// are no fault.
+    #[test]
+    fn a_rejected_code_is_told_and_the_job_goes_on() {
+        let lines = [
+            "echo:Unknown command: \"X1\"",
+            "echo:Unknown command: \"\"",
+            "Unknown M code: M1234",
+            "echo: cold extrusion prevented",
+        ];
+        for line in lines {
+            assert!(matches!(parse(line), Reply::Other(_)), "{line}");
+            assert!(!fatal(line) && needs_someone(line).is_none(), "{line}");
+        }
+        let (accepted, events, screen) = hearing(&[
+            ("G28", lines[0]),
+            ("M104 S210", lines[1]),
+            ("G1 X10 Y10", lines[2]),
+            ("G1 X20 Y10 E1.5", lines[3]),
+        ]);
+        assert_eq!(accepted, WHOLE_JOB);
+        for line in lines {
+            assert!(events.contains(&Event::Said(line.into())), "{line}");
+        }
+        assert!(!events.iter().any(|e| matches!(e, Event::Error(_))), "{events:?}");
+        assert_eq!(screen.now().fault, None);
+        assert_eq!(screen.now().attention, None);
+    }
+
+    /// Proves the row `BUSY_REGEX` of docs/prusalink-audit.md: `echo:busy: processing` is
+    /// waited for: no resend, no asking after the `ok`, nothing told, the job goes on.
+    #[test]
+    fn echo_busy_processing_is_waited_for() {
+        assert_eq!(parse("echo:busy: processing"), Reply::Busy);
+        let busy = "echo:busy: processing";
+        let (accepted, events, screen) = hearing(&[("G28", busy), ("G28", busy), ("G28", busy)]);
+        assert_eq!(accepted, WHOLE_JOB);
+        assert!(!events.iter().any(|e| matches!(e, Event::Resent(_) | Event::Error(_))));
+        assert!(!events.iter().any(|e| matches!(e, Event::Said(t) if t.contains("busy") || t.contains("No answer"))));
+        assert!(!screen.waiting.load(Ordering::Relaxed), "busy is not waiting for its knob");
+    }
+
+    /// Proves the row `ATTENTION_REGEX` of docs/prusalink-audit.md: `echo:busy: paused for
+    /// user` is read apart from plain busy: its screen says it waits for its knob until it
+    /// speaks again, and the sender keeps waiting for the `ok` meanwhile.
+    #[test]
+    fn echo_busy_paused_for_user_is_noticed() {
+        assert_eq!(parse("echo:busy: paused for user"), Reply::PausedForUser);
+        let screen = Screen::default();
+        screen.hear("echo:busy: paused for user");
+        assert!(screen.waiting.load(Ordering::Relaxed));
+        screen.hear("ok");
+        assert!(!screen.waiting.load(Ordering::Relaxed));
+        let (accepted, events, _) = hearing(&[("G28", "echo:busy: paused for user")]);
+        assert_eq!(accepted, WHOLE_JOB);
+        assert!(!events.iter().any(|e| matches!(e, Event::Resent(_) | Event::Error(_))));
+    }
+
+    /// Proves the row `PAUSE_PRINT_REGEX` … `NOT_READY_REGEX` of docs/prusalink-audit.md:
+    /// each of the printer's host actions (with Prusa's space after the slashes) is read as
+    /// what it is and changes its screen state as the row says.
+    #[test]
+    fn the_host_actions_of_the_printers_menu_are_followed() {
+        for (line, action) in [
+            ("// action:pause", Action::Pause),
+            ("// action:paused", Action::Paused),
+            ("// action:resume", Action::Resume),
+            ("// action:resumed", Action::Resume),
+            ("// action:cancel", Action::Cancel),
+            ("// action:ready", Action::Ready),
+            ("// action:not_ready", Action::NotReady),
+        ] {
+            assert_eq!(parse(line), Reply::Action(action), "{line}");
+        }
+        let screen = Screen::default();
+        screen.hear("// action:pause");
+        assert!(screen.now().paused);
+        screen.hear("// action:resume");
+        assert!(!screen.now().paused);
+        screen.hear("// action:paused");
+        assert!(screen.now().paused);
+        screen.hear("// action:resumed");
+        assert!(!screen.now().paused);
+        screen.hear("// action:pause");
+        screen.hear("// action:cancel");
+        assert!(screen.now().cancelled && !screen.now().paused);
+        screen.hear("// action:ready");
+        assert!(screen.now().ready_said);
+        screen.hear("// action:not_ready");
+        assert!(!screen.now().ready_said);
+    }
+
+    /// Proves the row `PP_RECOVER_REGEX`, `PP_AUTO_RECOVER_REGEX` of docs/prusalink-audit.md:
+    /// both messages say a print waits to be resumed after a power cut.
+    #[test]
+    fn a_print_brought_back_after_a_power_cut_is_noticed() {
+        for line in ["// action:uvlo_recovery_ready", "// action:uvlo_auto_recovery_ready"] {
+            assert_eq!(parse(line), Reply::Action(Action::PowerLoss), "{line}");
+            assert!(screen_after(line).power_loss, "{line}");
+        }
+        assert!(!screen_after("// action:ready").power_loss);
+    }
+
+    /// Proves the row `ERROR_REGEX` of docs/prusalink-audit.md: a halted printer and a
+    /// stopped one are read as errors of the print, told, and leave a fault on its screen.
+    #[test]
+    fn a_halted_or_stopped_printer_is_a_fault() {
+        let halted = "Error:Printer halted. kill() called!";
+        let stopped = "Error:Printer stopped due to errors. Fix the error and use M999 to restart.";
+        for line in [halted, stopped] {
+            assert!(matches!(parse(line), Reply::Error(_)), "{line}");
+            let state = screen_after(line);
+            assert_eq!(state.fault.as_deref(), Some(line.trim_start_matches("Error:")), "{line}");
+            let (accepted, events, screen) = hearing(&[("G1 X10 Y10", line)]);
+            assert_eq!(accepted, WHOLE_JOB);
+            assert!(events.contains(&Event::Error(line.trim_start_matches("Error:").into())), "{events:?}");
+            assert!(screen.now().fault.is_some());
+        }
+    }
+
+    /// Proves the row `ERROR_REASON_REGEX` of docs/prusalink-audit.md: every wording
+    /// PrusaLink's pattern takes (heaters off by MINTEMP or MAXTEMP, of the nozzle or the
+    /// bed, with or without the `0: `; thermal runaway of either heater, with or without
+    /// its preheat note) is a fault on the printer's screen. The lines are made from the
+    /// pattern's own parts.
+    #[test]
+    fn every_reason_the_printer_stops_for_is_a_fault() {
+        let mut lines = Vec::new();
+        for first in ["", "0: "] {
+            for kind in ["MINTEMP", "MAXTEMP"] {
+                for bed in ["", "BED "] {
+                    lines.push(format!("Error:{first}Heaters switched off. {kind} {bed}triggered!"));
+                }
+            }
+        }
+        for who in ["", " HOTEND", " HEATBED"] {
+            for preheat in ["", " (PREHEAT HOTEND)", " ( PREHEAT HEATBED)"] {
+                lines.push(format!("Error:{who} THERMAL RUNAWAY{preheat}"));
+            }
+        }
+        assert_eq!(lines.len(), 8 + 9);
+        for line in &lines {
+            assert!(fatal(line.trim_start_matches("Error:")), "{line}");
+            let state = screen_after(line);
+            assert_eq!(state.fault.as_deref(), Some(line.trim_start_matches("Error:").trim()), "{line}");
+        }
+    }
+
+    /// Proves the row `ATTENTION_REASON_REGEX` of docs/prusalink-audit.md: a failed bed
+    /// levelling (both reasons) puts what it says on the screen as something for someone,
+    /// and is no fault.
+    #[test]
+    fn a_failed_bed_levelling_needs_someone() {
+        for line in [
+            "Bed leveling failed. Sensor triggered too high",
+            "Bed leveling failed. Sensor didn't trigger. Debris on nozzle? Waiting for reset.",
+        ] {
+            let state = screen_after(line);
+            assert_eq!(state.attention.as_deref(), Some(line), "{line}");
+            assert_eq!(state.fault, None, "{line}");
+        }
+    }
+
+    /// Proves the row `FAN_ERROR_REGEX` of docs/prusalink-audit.md: each of the three fans
+    /// that is slower than it should be puts it on the screen as something for someone.
+    /// The lines are made from the pattern's text.
+    #[test]
+    fn a_slow_fan_needs_someone() {
+        let template = "Extruder/Hotend/Print fan speed is lower than expected";
+        let (names, rest) = template.split_once(" fan").unwrap();
+        for name in names.split('/') {
+            let line = format!("{name} fan{rest}");
+            let state = screen_after(&line);
+            assert_eq!(state.attention.as_deref(), Some(line.as_str()), "{line}");
+            assert_eq!(state.fault, None);
+        }
+    }
+
+    /// Proves the row `TM_ERROR_LOG_REGEX`, `TM_ERROR_CLEARED` of docs/prusalink-audit.md:
+    /// the thermal model's error is put on the screen as something for someone, and goes
+    /// when the printer says it cleared. Its deviation log line is only shown.
+    #[test]
+    fn the_thermal_model_error_comes_and_goes() {
+        let screen = Screen::default();
+        screen.hear("TM: error |3.50|>2.00");
+        assert_eq!(screen.now().attention, None, "only a log of the deviation");
+        screen.hear("TM: error triggered!");
+        assert_eq!(screen.now().attention.as_deref(), Some("TM: error triggered!"));
+        assert_eq!(screen.now().fault, None);
+        screen.hear("TM: error cleared");
+        assert_eq!(screen.now().attention, None);
+    }
+
+    /// Proves the row `MBL_REGEX` of docs/prusalink-audit.md: the answer to `M420`, a Prusa
+    /// mesh (front row last) or "not active", is read, through the printer as a command.
+    #[test]
+    fn the_answer_to_m420_is_read() {
+        let mut fake = FakeMarlin::new(Arc::default());
+        fake.errors = [
+            "Num X,Y: 3,3",
+            "Z search height: 5.00",
+            "Measured points:",
+            "  0.10000  0.11000  0.12000",
+            "  0.05000  0.06000  0.07000",
+            " -0.01000  0.00000  0.01000",
+        ]
+        .iter()
+        .map(|l| ("M420".to_owned(), l.to_string()))
+        .collect();
+        let mut printer = quick(fake);
+        let answer = printer.command("M420").unwrap();
+        let mesh = mesh(&answer).unwrap();
+        assert_eq!(mesh.rows.len(), 3);
+        assert_eq!(mesh.rows[0], vec![Some(-0.01), Some(0.0), Some(0.01)]);
+        assert_eq!(mesh.rows[2][2], Some(0.12));
+        assert_eq!(super::mesh(&said("Mesh bed leveling not active.\nok")), None);
+    }
+
+    /// Proves the row `OPEN_RESULT_REGEX` of docs/prusalink-audit.md: `File opened: … Size:
+    /// …` gives the file and the card; a refused open (`open failed, File: …`) is the SD
+    /// card's trouble, told, and no fault of the print.
+    #[test]
+    fn a_file_opened_or_not_is_read() {
+        let state = screen_after("File opened: BENCHY~1.GCO Size: 812345");
+        assert_eq!((state.sd_opened.as_deref(), state.sd_card), (Some("BENCHY~1.GCO"), Some(true)));
+        let failed = "open failed, File: BENCHY~1.GCO.";
+        let state = screen_after(failed);
+        assert_eq!((state.sd_opened, state.fault), (None, None));
+        let failed = "Error:open failed, File: BENCHY~1.GCO.";
+        assert!(harmless_error(failed.trim_start_matches("Error:")));
+        let (accepted, events, _) = hearing(&[("G28", failed)]);
+        assert_eq!(accepted, WHOLE_JOB);
+        assert!(events.contains(&Event::Said(format!("Error: {}", failed.trim_start_matches("Error:")))));
+        assert!(!events.iter().any(|e| matches!(e, Event::Error(_))), "{events:?}");
+    }
+
+    /// A Prusa MK3 in memory: connected, with the firmware known, and answering `M27` as
+    /// given.
+    fn mk3_answering_m27(answer: &[&str]) -> Printer<FakeMarlin> {
+        let mut fake = FakeMarlin::new(Arc::default());
+        fake.errors = answer.iter().map(|l| ("M27 P".to_owned(), l.to_string())).collect();
+        let mut printer = quick(fake);
+        printer.firmware = Some("Prusa-Firmware 3.14.1-8237".to_owned());
+        printer
+    }
+
+    /// Proves the row `FILE_OPEN_REGEX`, `START_PRINT_REGEX` of docs/prusalink-audit.md: a
+    /// print started from the printer's menu: `echo:enqueing "M24"` says it prints, at once,
+    /// as PrusaLink takes it (`special_commands.py` `handle_start`: PRINTING); `File opened`
+    /// gives its file; `M27 P` its short path and how far it is.
+    #[test]
+    fn a_print_started_at_the_printer_is_seen_at_once() {
+        let mut printer = mk3_answering_m27(&["/BENCHY~1.GCO", "SD printing byte 1234/567890", "0:05"]);
+        let screen = printer.waiting();
+        screen.hear("echo:enqueing \"M23 BENCHY~1.GCO\"");
+        assert!(!screen.now().sd_started);
+        screen.hear("echo:enqueing \"M24\"");
+        assert!(screen.now().sd_started, "printing, at once");
+        screen.hear("File opened: BENCHY~1.GCO Size: 567890");
+        assert_eq!(screen.now().sd_opened.as_deref(), Some("BENCHY~1.GCO"));
+        let status = printer.follow_sd().unwrap().unwrap();
+        assert!(!screen.now().sd_started, "M27 P says so from now on");
+        assert_eq!(status.file.as_deref(), Some("BENCHY~1.GCO"));
+        assert_eq!((status.done, status.total, status.elapsed_s), (1234, 567890, Some(5 * 60)));
+    }
+
+    /// Proves the row `PRINT_DONE_REGEX` of docs/prusalink-audit.md: `Done printing file`
+    /// ends it at once, as PrusaLink takes it (`handle_done`: FINISHED): the whole file done.
+    #[test]
+    fn the_end_of_a_print_from_the_card_is_seen_at_once() {
+        let mut printer = mk3_answering_m27(&["/BENCHY~1.GCO", "SD printing byte 100/200", "0:05"]);
+        assert!(printer.follow_sd().unwrap().is_some());
+        let screen = printer.waiting();
+        screen.hear("Done printing file");
+        assert!(screen.now().sd_done);
+        let last = printer.sd_finished().expect("its last report");
+        assert_eq!((last.done, last.total), (200, 200));
+        assert!(printer.sd.is_none() && !screen.now().sd_done);
+    }
+
+    /// Proves the row `PRINTER_BOOT_REGEX` of docs/prusalink-audit.md: `start` wipes what
+    /// was on its screen, and a send in progress is broken off ("the printer restarted").
+    #[test]
+    fn a_restarted_printer_is_noticed() {
+        let screen = Screen::default();
+        screen.hear("Error:Printer halted. kill() called!");
+        screen.hear("// action:cancel");
+        assert!(screen.now().fault.is_some() && screen.now().cancelled);
+        screen.hear("start");
+        assert_eq!(screen.now(), ScreenState::default());
+        let mut fake = FakeMarlin::new(Arc::default());
+        fake.restart_after = Some("M104 S210".to_owned());
+        let mut printer = quick(fake);
+        let error = printer.send(GCODE.lines(), &mut |_| {}).unwrap_err();
+        assert!(error.to_string().contains("restarted"), "{error}");
+    }
+
+    /// Proves the row `POWER_PANIC_REGEX` of docs/prusalink-audit.md: `INT4` (the power
+    /// went, the print was saved) is put on the screen as something for someone; no fault.
+    #[test]
+    fn a_power_failure_is_noticed() {
+        let state = screen_after("INT4");
+        assert_eq!(state.attention.as_deref(), Some("Power failure: the print was saved"));
+        assert_eq!(state.fault, None);
+    }
+
+    /// Proves the row `LCD_UPDATE_REGEX` of docs/prusalink-audit.md: `LCD status changed`
+    /// is counted for PrusaLink's own lines on its screen (crate::lcd: the firmware's own
+    /// message stays 10 s); a routine line otherwise, nothing told as a problem.
+    #[test]
+    fn lcd_status_changed_is_counted_for_the_screen() {
+        assert!(routine("LCD status changed"));
+        assert!(matches!(parse("LCD status changed"), Reply::Other(_)));
+        assert_eq!(screen_after("LCD status changed"), ScreenState { lcd_changed: 1, ..ScreenState::default() });
+        let (accepted, events, _) = hearing(&[("G28", "LCD status changed")]);
+        assert_eq!(accepted, WHOLE_JOB);
+        assert!(!events.iter().any(|e| matches!(e, Event::Error(_) | Event::Resent(_))));
+    }
+
+    /// Proves the row `M27_OUTPUT_REGEX` of docs/prusalink-audit.md: each answer of the
+    /// printer to `M27` (its file, `Not SD printing`, `Print saved`, `SD print paused`, `SD
+    /// printing byte a/b` and the time after it) is read as what it says.
+    #[test]
+    fn every_answer_to_m27_is_read() {
+        let row = "M27_OUTPUT_REGEX";
+        let read = |text: &str| sd_status(&said(text));
+        assert_eq!(read("Not SD printing\nok"), Some(None), "{row}: no print");
+        assert_eq!(read("Print saved\nok"), Some(None), "{row}: a host's print, not the card's");
+        assert!(read("SD print paused\nok").unwrap().unwrap().paused, "{row}: paused");
+        let printing = read("/PARTS/BOX~1.GCO\nSD printing byte 1234/567890\n1:05\nok").unwrap().unwrap();
+        assert_eq!(printing.file.as_deref(), Some("BOX~1.GCO"), "{row}: its file");
+        assert_eq!((printing.done, printing.total), (1234, 567890), "{row}: the bytes");
+        assert_eq!(printing.elapsed_s, Some(3900), "{row}: the time");
+        assert!(!printing.paused, "{row}");
+    }
+
+    /// Proves the row `PAUSED_REGEX` of docs/prusalink-audit.md: `// action:paused` (it
+    /// paused itself) is a pause on its screen until it resumes.
+    #[test]
+    fn it_pausing_itself_is_noticed() {
+        assert_eq!(parse("// action:paused"), Reply::Action(Action::Paused));
+        let screen = Screen::default();
+        screen.hear("// action:paused");
+        assert!(screen.now().paused && !screen.now().cancelled);
+    }
+
+    /// Proves the row `RESUME_PRINT_REGEX` of docs/prusalink-audit.md: `// action:resume`
+    /// (resume from its knob) ends the pause on its screen and clears what needed someone.
+    #[test]
+    fn resuming_from_its_knob_is_noticed() {
+        assert_eq!(parse("// action:resume"), Reply::Action(Action::Resume));
+        let screen = Screen::default();
+        screen.hear("// action:pause");
+        screen.hear("TM: error triggered!");
+        screen.hear("// action:resume");
+        assert!(!screen.now().paused);
+        assert_eq!(screen.now().attention, None);
+    }
+
+    /// Proves the row `RESUMED_REGEX` of docs/prusalink-audit.md: `// action:resumed` ends
+    /// the pause on its screen, like `resume`.
+    #[test]
+    fn it_resuming_is_noticed() {
+        assert_eq!(parse("// action:resumed"), Reply::Action(Action::Resume));
+        let screen = Screen::default();
+        screen.hear("// action:paused");
+        assert!(screen.now().paused);
+        screen.hear("// action:resumed");
+        assert!(!screen.now().paused);
+    }
+
+    /// A fake printer that also keeps every line the sender wrote to it, as it went on the
+    /// wire (the fake itself does not keep `M110`).
+    struct Tapped {
+        fake: FakeMarlin,
+        wrote: Arc<Mutex<Vec<String>>>,
+        partial: Vec<u8>,
+    }
+
+    impl Read for Tapped {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.fake.read(buf)
+        }
+    }
+
+    impl Write for Tapped {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.partial.extend_from_slice(buf);
+            while let Some(end) = self.partial.iter().position(|b| *b == b'\n') {
+                let line: Vec<u8> = self.partial.drain(..=end).collect();
+                self.wrote.lock().unwrap().push(String::from_utf8_lossy(&line).trim().to_owned());
+            }
+            self.fake.write(buf)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Connecting sends `M110 N0` first, as line 0 with its checksum, even when the sender
+    /// had counted on to another number; the next line is number 1. (The connect itself
+    /// waits 2 s for a quiet printer.)
+    /// Proves the row `M110 N0` of docs/prusalink-audit.md.
+    #[test]
+    fn connecting_sets_the_line_numbers_back_with_m110_n0() {
+        let wrote: Arc<Mutex<Vec<String>>> = Arc::default();
+        let link = Tapped { fake: FakeMarlin::new(Arc::default()), wrote: wrote.clone(), partial: Vec::new() };
+        let mut printer = Printer::new(link);
+        printer.hurry();
+        printer.set_next_number(7);
+        printer.connect(&mut |_| {}).unwrap();
+        printer.command("M115").unwrap();
+        let wrote = wrote.lock().unwrap().clone();
+        // M400 first, unnumbered, as PrusaLink does before an M110 (proves the row `M400`).
+        assert_eq!(wrote[0], "M400", "{wrote:?}");
+        assert_eq!(wrote[1], numbered(0, "M110 N0"), "{wrote:?}");
+        assert_eq!(wrote[2], numbered(1, "M115"), "the count goes on from 0: {wrote:?}");
+    }
+
+    /// Prusa's MK3 is told a host is there with `M79 S"PC"` every 12 s: at once the first
+    /// time, not again before the 12 s are over, again after them. Other firmware gets none.
+    /// Proves the rows `M79 S"PL"` and `M79` of docs/prusalink-audit.md.
+    #[test]
+    fn the_host_says_it_is_there_every_12_s() {
+        assert_eq!(HOST_KEEPALIVE, Duration::from_secs(12));
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut printer = quick(FakeMarlin::new(accepted.clone()));
+        printer.firmware = Some("Prusa-Firmware 3.14.1-8237".to_owned());
+        assert!(printer.is_prusa_mk3());
+        let m79s = || accepted.lock().unwrap().iter().filter(|c| c.starts_with("M79")).cloned().collect::<Vec<_>>();
+        printer.keep_host_alive(&mut |_| {}).unwrap();
+        assert_eq!(m79s(), ["M79 S\"PC\""], "at once, as PrusaLink working for Prusa Connect");
+        printer.keep_host_alive(&mut |_| {}).unwrap();
+        assert_eq!(m79s().len(), 1, "not again within 12 s");
+        // 11 s since the last: still not; 12 s: again.
+        let ago = |s: u64| Instant::now().checked_sub(Duration::from_secs(s));
+        printer.last_m79 = ago(11);
+        printer.keep_host_alive(&mut |_| {}).unwrap();
+        assert_eq!(m79s().len(), 1, "11 s: not yet");
+        printer.last_m79 = ago(12);
+        printer.keep_host_alive(&mut |_| {}).unwrap();
+        assert_eq!(m79s().len(), 2, "12 s: again");
+        // Other firmware: nothing.
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut fake = FakeMarlin::new(accepted.clone());
+        fake.m115 = "FIRMWARE_NAME:Marlin 2.1.2.1 (Jun 1 2024) MACHINE_TYPE:Ender-3 EXTRUDER_COUNT:1".into();
+        let mut other = quick(fake);
+        other.command("M115").unwrap();
+        other.keep_host_alive(&mut |_| {}).unwrap();
+        assert!(!accepted.lock().unwrap().iter().any(|c| c.starts_with("M79")));
     }
 }

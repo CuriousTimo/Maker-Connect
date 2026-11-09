@@ -283,6 +283,9 @@ pub struct Machine {
     pub loaded: Option<Loaded>,
     /// A print that finished and is still on the bed, until someone says it was taken.
     pub on_bed: Option<OnBed>,
+    /// Ready for the next job: its last print finished and was taken off (PrusaLink's
+    /// READY), until a job starts or someone says it is not ready after all.
+    pub ready: Option<OnBed>,
     /// Files waiting to print here, next first (crate::queue).
     pub queue: Vec<crate::queue::Queued>,
     /// What the printer asks on its screen now, when it wants someone: its title, and the
@@ -464,6 +467,16 @@ pub enum CommandState {
     Rejected,
 }
 
+/// A print the machine runs itself, as its reports tell it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OwnPrint {
+    pub file: String,
+    pub by: Option<String>,
+    pub started_at: i64,
+    /// How far it got, in percent, as last reported.
+    pub percent: u64,
+}
+
 /// One point of a machine's temperature history.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Sample {
@@ -491,6 +504,20 @@ const COMMAND_SECONDS: i64 = 120;
 
 /// Keeps a machine's commands to [`COMMANDS_KEPT`]: the oldest done ones go first, the
 /// hub's own before someone's; one still waiting or on its way is never dropped.
+/// Whether G-code may go into a running print: speed, flow, nozzle and bed targets, and a
+/// relative X or Y move (no Z, no extruding), as PrusaLink's controls while printing.
+pub(crate) fn fits_a_print(gcode: &str) -> bool {
+    gcode.lines().map(str::trim).filter(|l| !l.is_empty()).all(|line| {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        match words.first().copied() {
+            Some("M220" | "M221" | "M104" | "M140") => words.len() == 2 && words[1].starts_with('S'),
+            Some("G91" | "G90") => words.len() == 1,
+            Some("G1") => words[1..].iter().all(|w| w.starts_with('F') || w.starts_with('X') || w.starts_with('Y')),
+            _ => false,
+        }
+    })
+}
+
 fn trim(commands: &mut Vec<Command>) {
     while commands.len() > COMMANDS_KEPT {
         let done = |c: &Command| !matches!(c.state, CommandState::Queued | CommandState::Sent);
@@ -605,6 +632,10 @@ pub struct Store {
     pub(crate) printing_file: std::collections::HashMap<String, (Option<u64>, String)>,
     /// The print each Prusa on Connect was last asked about (SEND_JOB_INFO), by token: once.
     pub(crate) job_info_asked: std::collections::HashMap<String, u64>,
+    /// Prints a machine runs itself (from its USB stick or SD card, or started at its
+    /// screen), by machine id, while they run: recorded as a job when they end (see
+    /// `follow_own_print`).
+    pub(crate) own_prints: std::collections::HashMap<String, OwnPrint>,
     /// Answers to an agent's printer's question, by machine, until its next report takes
     /// them (`M876 S<index>`).
     pub(crate) answers: std::collections::HashMap<String, u8>,
@@ -686,6 +717,7 @@ impl Store {
             close_preview: Default::default(),
             printing_file: Default::default(),
             job_info_asked: Default::default(),
+            own_prints: Default::default(),
             answers: Default::default(),
             sd_files: Default::default(),
             own_job_control: Default::default(),
@@ -1008,6 +1040,44 @@ impl Store {
             .map(|(on_bed, _, _)| on_bed))
     }
 
+    /// Ready for the next job: its last job finished and was taken off.
+    pub fn ready_after(&self, machine: &str) -> rusqlite::Result<Option<OnBed>> {
+        let last = self
+            .db
+            .query_row(
+                "SELECT id, file_name, state, ended_at, taken_at FROM jobs WHERE machine_id = ?1
+                 ORDER BY id DESC LIMIT 1",
+                [machine],
+                |r| {
+                    Ok((
+                        OnBed { job: r.get(0)?, file_name: r.get(1)?, ended_at: r.get(3)? },
+                        r.get::<_, String>(2)?,
+                        r.get::<_, Option<i64>>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        Ok(last.filter(|(_, state, taken)| state == "finished" && taken.is_some()).map(|(r, _, _)| r))
+    }
+
+    /// Not ready after all (PrusaLink's `cancel_ready`): the last print counts as on its bed
+    /// again, and the next job waits. Prusa's MK3 through an agent is told so (M72 S0, as
+    /// PrusaLink does, whether it was ready or not). Returns whether it was ready.
+    pub fn not_ready(&mut self, space: i64, machine: &str) -> rusqlite::Result<bool> {
+        let Some(m) = self.machine(space, machine)? else {
+            return Ok(false);
+        };
+        if m.link == "agent" && crate::prusa_mk3_machine(&m) {
+            self.queue_command(space, machine, "Not ready on its screen", "M72 S0")?;
+        }
+        let Some(ready) = self.ready_after(machine)? else {
+            return Ok(false);
+        };
+        self.db.execute("UPDATE jobs SET taken_at = NULL WHERE id = ?1", [ready.job])?;
+        self.changed();
+        Ok(true)
+    }
+
     /// Someone took the print off the machine's bed (a finished one, or what a failed or
     /// stopped job left): the bed is clear. Returns whether there was one.
     pub fn print_taken(&mut self, space: i64, machine: &str) -> rusqlite::Result<bool> {
@@ -1318,6 +1388,100 @@ impl Store {
         Ok(())
     }
 
+    /// A print the machine runs itself (no job of the hub's: from its USB stick or SD card,
+    /// or started at its screen) is followed while it runs and recorded as a job when it
+    /// ends: finished, stopped or failed, not yet taken off. So it shows among the machine's
+    /// jobs, and what is left on the bed holds the queue, Files and Reprint back until
+    /// someone says it was taken, as for the hub's own jobs (`files::fit`).
+    ///
+    /// How it ended: a Prusa on Connect says it (`raw`: FINISHED, STOPPED, ERROR); an agent
+    /// only says it is idle again, so 99 % or more counts as finished, less as stopped (then
+    /// "is the bed clear?" is asked, the careful side). A question on its screen (ATTENTION)
+    /// or going offline is no end.
+    pub fn follow_own_print(
+        &mut self,
+        token: &str,
+        telemetry: &Telemetry,
+        raw: Option<&str>,
+    ) -> rusqlite::Result<()> {
+        use maker_connect_protocol::MachineState as S;
+        let Some((machine, space)) = self
+            .db
+            .query_row(
+                "SELECT id, space_id FROM machines WHERE token = ?1 AND space_id IS NOT NULL",
+                [token],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+            )
+            .optional()?
+        else {
+            return Ok(());
+        };
+        if self.active_job(&machine)?.is_some() {
+            self.own_prints.remove(&machine);
+            return Ok(());
+        }
+        let by: Option<String> = self
+            .db
+            .query_row("SELECT usb_print_by FROM machines WHERE id = ?1", [&machine], |r| r.get(0))
+            .optional()?
+            .flatten();
+        match (telemetry.state, telemetry.job.as_ref()) {
+            (S::Busy | S::Paused, Some(job)) => {
+                let percent = job.done * 100 / job.total.max(1);
+                let started = now() - job.elapsed_s.unwrap_or(0) as i64;
+                let own = self.own_prints.entry(machine).or_insert(OwnPrint {
+                    file: String::new(),
+                    by: None,
+                    started_at: started,
+                    percent: 0,
+                });
+                if !job.file.is_empty() {
+                    own.file = job.file.clone();
+                }
+                own.by = own.by.take().or(by);
+                own.percent = percent;
+            }
+            // Still the same print: a question on its screen, or out of touch.
+            (S::Attention | S::Disconnected, _) => {}
+            _ => {
+                let Some(own) = self.own_prints.remove(&machine) else {
+                    return Ok(());
+                };
+                let (state, reason) = match raw {
+                    Some("FINISHED") => (JobState::Finished, None),
+                    Some("STOPPED") => (JobState::Stopped, Some("stopped on the printer")),
+                    Some("ERROR") => (JobState::Failed, Some("the printer reports an error")),
+                    _ if telemetry.state == S::Error => {
+                        (JobState::Failed, Some("the printer reports an error"))
+                    }
+                    _ if own.percent >= 99 => (JobState::Finished, None),
+                    _ => (JobState::Stopped, Some("ended at the printer before it was done")),
+                };
+                let file = if own.file.is_empty() {
+                    "a print started on the printer".to_owned()
+                } else {
+                    own.file
+                };
+                self.db.execute(
+                    "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at, started_at, ended_at, reason, by_name)
+                     VALUES (?1, ?2, '', ?3, ?4, ?5, ?5, ?6, ?7, ?8)",
+                    params![
+                        space,
+                        machine,
+                        file,
+                        state.name(),
+                        own.started_at,
+                        now(),
+                        reason,
+                        own.by.as_deref().unwrap_or("on the printer")
+                    ],
+                )?;
+                self.changed();
+            }
+        }
+        Ok(())
+    }
+
     /// An agent's report: kept as the machine's last. Returns the machine's space name if
     /// it is paired, or None when the token is unknown.
     pub fn report(
@@ -1331,6 +1495,7 @@ impl Store {
             mesh: None,
             job_end: None,
             bed_clear: false,
+            not_ready: false,
             reprint: false,
             ..telemetry.clone()
         };
@@ -1346,6 +1511,24 @@ impl Store {
                 .optional()?
         {
             self.print_taken(space, &machine)?;
+            // As PrusaLink answers it (`fw_set_ready`: `SetReady`, M72 S1).
+            if self.machine(space, &machine)?.is_some_and(|m| m.link == "agent" && crate::prusa_mk3_machine(&m)) {
+                self.queue_command(space, &machine, "Ready on its screen", "M72 S1")?;
+            }
+        }
+        // "Not ready" on the printer's own menu: the next job waits again (PrusaLink's
+        // `fw_cancel_ready`: `CancelReady`, M72 S0).
+        if telemetry.not_ready
+            && let Some((machine, space)) = self
+                .db
+                .query_row(
+                    "SELECT id, space_id FROM machines WHERE token = ?1 AND space_id IS NOT NULL",
+                    [token],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+                )
+                .optional()?
+        {
+            self.not_ready(space, &machine)?;
         }
         // "Reprint" on the printer's own menu: its last job again, where it may start.
         if telemetry.reprint
@@ -1514,6 +1697,22 @@ impl Store {
         Ok(self
             .next_command_of_any_kind(token)?
             .map(|(id, body, _)| (id, body)))
+    }
+
+    /// The next command that may go into a running print (PrusaLink's controls while it
+    /// prints: speed, flow, temperatures, an X or Y move); others wait for its end.
+    pub fn next_command_for_a_print(&mut self, token: &str) -> rusqlite::Result<Option<(u32, String)>> {
+        let Some(machine) = self.machine_id(token)? else {
+            return Ok(None);
+        };
+        let first_queued = self
+            .commands
+            .get(&machine)
+            .and_then(|c| c.iter().find(|c| c.state == CommandState::Queued).map(|c| c.gcode.clone()));
+        match first_queued {
+            Some(gcode) if fits_a_print(&gcode) => self.next_command(token),
+            _ => Ok(None),
+        }
     }
 
     /// A command of Prusa Connect's for a printer on its built-in Connect (its id): queued
@@ -2203,6 +2402,7 @@ impl Store {
                 }),
                 loaded: None,
                 on_bed: None,
+                ready: None,
                 queue: Vec::new(),
                 queue_held: None,
                 asking: None,
@@ -2277,6 +2477,7 @@ impl Store {
                 });
             if machine.kind == MachineKind::Fdm {
                 machine.on_bed = self.on_bed(&machine.id)?;
+                machine.ready = self.ready_after(&machine.id)?;
                 machine.queue = self.queue_of(&machine.id)?;
                 machine.asking = self.asking.get(&machine.id).cloned();
                 machine.buttons = self

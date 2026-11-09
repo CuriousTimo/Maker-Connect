@@ -461,6 +461,13 @@ async fn telemetry(
         let _ = store.command_still_running(token, id as u32);
     }
     let reported = store.report(token, &telemetry);
+    // A print it runs itself (from its stick, or started at its screen): recorded as a job
+    // when it ends, as it says (FINISHED, STOPPED, ERROR).
+    if let Ok(Some(_)) = reported
+        && let Err(error) = store.follow_own_print(token, &telemetry, report["state"].as_str())
+    {
+        return failed(error);
+    }
     // A job for it goes to its stick when it is free; one printing follows its state.
     if let Ok(Some(_)) = reported
         && let Some(state) = report["state"].as_str()

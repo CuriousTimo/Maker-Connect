@@ -229,6 +229,10 @@ pub struct Telemetry {
     /// menu, `//action:ready`): news once, like a finished command.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bed_clear: bool,
+    /// Someone took that back on the printer itself (Prusa's menu, `//action:not_ready`):
+    /// news once.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub not_ready: bool,
     /// Someone asked on the printer to print the last job again (Prusa's MK3: "Reprint" in
     /// its menu, `//action:start`): news once.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

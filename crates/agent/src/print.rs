@@ -33,6 +33,11 @@ struct Shared {
     /// Something asked of the printer that it did not do in time (a pause it did not
     /// make within 15 s, as PrusaLink waits); for someone to see.
     problem: Option<String>,
+    /// Lines from outside while it prints (a hub's command by its id, or PrusaLink's own
+    /// screen lines without one): sent between the file's lines, in order.
+    inject: std::collections::VecDeque<(Option<u32>, String)>,
+    /// How each command from the hub went: its id, whether it went, what the printer said.
+    injected: Vec<(u32, Result<Vec<String>, String>)>,
 }
 
 /// The values of an `M73` line: `M73 P25 R40 Q24 S42` gives percent 25, 40 minutes left in
@@ -218,6 +223,9 @@ impl<L: Read + Write + Send + 'static> PrintJob<L> {
             // Prusa's MK3 keeps its print timer and statistics by these (as PrusaLink does):
             // M75 starts it, M76 pauses, M77 stops. Taken up after a power cut it runs on.
             if mk3 && !begin.resumed {
+                // Its job id into its EEPROM, as PrusaLink writes it when a job starts
+                // (`job.py` `write`).
+                let _ = printer.send_line(&format!("D3 Ax0D05 X{:08x}", id as u32), &mut on);
                 let _ = printer.send_line("M75", &mut on);
             }
             // A file that tells its own progress (the slicer's M73), or not: then it is told
@@ -268,6 +276,10 @@ impl<L: Read + Write + Send + 'static> PrintJob<L> {
                 }
             };
             let mut parked = false;
+            // The printer said it paused for our M601 (a real MK3 says `// action:paused`).
+            let mut parked_seen = false;
+            // Paused from here, then resumed at its own knob: it goes on by itself.
+            let mut resumed_at_knob = false;
             let mut restarted = false;
             for (n, code) in codes.iter().enumerate().skip(begin.from_index) {
                 // Paused: nothing more is sent until resumed (or stopped).
@@ -275,9 +287,20 @@ impl<L: Read + Write + Send + 'static> PrintJob<L> {
                     // Paused or stopped here, or at the printer's own knob.
                     let at_printer = screen.now();
                     let (paused, stop, asked) = {
-                        let s = state.lock().unwrap();
+                        let mut s = state.lock().unwrap();
+                        if parked && at_printer.paused {
+                            parked_seen = true;
+                        }
+                        // Paused from here and resumed at its knob: the job goes on with it.
+                        if parked && parked_seen && !at_printer.paused && s.paused {
+                            s.paused = false;
+                            resumed_at_knob = true;
+                        }
+                        // The printer's own pause (its knob, a filament change) holds until it
+                        // resumes; the pause it made for our M601 is ours, ended from here.
+                        let its_own = at_printer.paused && !parked;
                         (
-                            s.paused || at_printer.paused,
+                            s.paused || its_own,
                             s.stop || at_printer.cancelled,
                             s.paused,
                         )
@@ -300,6 +323,17 @@ impl<L: Read + Write + Send + 'static> PrintJob<L> {
                         }
                         asked_at = None;
                     }
+                    // Asked to resume, and still paused after 15 s: said (also while waiting
+                    // for it to say it resumed).
+                    if let Some((at, false)) = asked_at
+                        && at.elapsed() >= STATE_CHANGE
+                    {
+                        if at_printer.paused {
+                            state.lock().unwrap().problem =
+                                Some("it did not resume within 15 s".to_owned());
+                        }
+                        asked_at = None;
+                    }
                     if stop || !paused {
                         break;
                     }
@@ -307,22 +341,20 @@ impl<L: Read + Write + Send + 'static> PrintJob<L> {
                     let _ = printer.send_answer(&mut on);
                     std::thread::sleep(Duration::from_millis(200));
                 }
-                if parked && !state.lock().unwrap().stop {
+                if parked && resumed_at_knob {
+                    // It resumed itself at its knob: no M602 from here.
+                    parked = false;
+                    parked_seen = false;
+                    resumed_at_knob = false;
+                    asked_at = None;
+                    state.lock().unwrap().problem = None;
+                } else if parked && !state.lock().unwrap().stop {
                     let _ = printer.send_line("M602", &mut on);
                     let _ = printer.send_line("M75", &mut on);
                     parked = false;
+                    parked_seen = false;
                     asked_at = Some((std::time::Instant::now(), false));
                     state.lock().unwrap().problem = None;
-                }
-                // Asked to resume, and still paused after 15 s: said.
-                if let Some((at, false)) = asked_at
-                    && at.elapsed() >= STATE_CHANGE
-                {
-                    if screen.now().paused {
-                        state.lock().unwrap().problem =
-                            Some("it did not resume within 15 s".to_owned());
-                    }
-                    asked_at = None;
                 }
                 if screen.now().cancelled {
                     // Stopped from its own menu: it stopped itself; nothing more goes.
@@ -352,6 +384,28 @@ impl<L: Read + Write + Send + 'static> PrintJob<L> {
                 }
                 // Prusa's MK3: a host is still there (its menu and screen depend on it).
                 let _ = printer.keep_host_alive(&mut on);
+                // Lines from outside: the hub's commands, PrusaLink's screen lines.
+                loop {
+                    let next = state.lock().unwrap().inject.pop_front();
+                    let Some((id, gcode)) = next else { break };
+                    let mut went: Result<Vec<String>, String> = Ok(Vec::new());
+                    for line in gcode.lines().filter_map(marlin::clean) {
+                        match printer.command(line) {
+                            Ok(said) => {
+                                if let Ok(all) = went.as_mut() {
+                                    all.extend(said);
+                                }
+                            }
+                            Err(error) => {
+                                went = Err(error.to_string());
+                                break;
+                            }
+                        }
+                    }
+                    if let Some(id) = id {
+                        state.lock().unwrap().injected.push((id, went));
+                    }
+                }
                 // Speed and flow as set now, also at its knob (as PrusaLink reads them back).
                 if factors_at.elapsed() >= FACTORS_EVERY {
                     factors_at = std::time::Instant::now();
@@ -367,7 +421,14 @@ impl<L: Read + Write + Send + 'static> PrintJob<L> {
                     let elapsed = started.elapsed().as_secs();
                     let done = (n - begin.from_index).max(1) as u64;
                     let left = elapsed * (total - n) as u64 / done / 60;
-                    let _ = printer.send_line(&format!("M73 P{percent} R{left} Q{percent} S{left}"), &mut on);
+                    // Prusa's MK3 in PrusaLink's form (`util.py` `get_print_stats_gcode`: both
+                    // modes the same, no filament change known); Marlin's own otherwise.
+                    let stats = if mk3 {
+                        format!("M73 Q{percent} S{left} C-1 P{percent} R{left} D-1")
+                    } else {
+                        format!("M73 P{percent} R{left}")
+                    };
+                    let _ = printer.send_line(&stats, &mut on);
                 }
                 // The checkpoint, after a line that was not the file's (the numbers and the
                 // file's lines no longer go one for one there) and every two seconds.
@@ -408,13 +469,19 @@ impl<L: Read + Write + Send + 'static> PrintJob<L> {
                 }
                 // A pause in the file itself (Prusa's MK3: M601, a colour change): it parks
                 // and waits for someone; nothing more goes until it says it resumed.
-                if mk3 && code.split_whitespace().next() == Some("M601") {
+                // M601, or M25 (as PrusaLink takes both, `file_printer.py`).
+                if mk3 && matches!(code.split_whitespace().next(), Some("M601" | "M25")) {
                     screen.paused_by_file();
                 }
             }
             // Prusa's MK3: its print timer stops.
             if mk3 && !end.stopped && !restarted {
                 let _ = printer.send_line("M77", &mut on);
+            }
+            // Prusa's MK3: its progress and time left cleared once the print is over, as
+            // PrusaLink clears them (`_reset_print_stats`).
+            if mk3 && !restarted {
+                let _ = printer.send_line("M73 Q-1 S-1 C-1 P-1 R-1 D-1", &mut on);
             }
             // Ended (done, stopped, failed): nothing to take up after a power cut, unless the
             // printer restarted in the middle of it.
@@ -461,6 +528,23 @@ impl<L: Read + Write + Send + 'static> PrintJob<L> {
     }
 
     /// Stops the job: at once, if the printer waits for a heat-up it can break off.
+    /// G-code to send between the file's lines: a hub's command (`id`, its outcome in
+    /// `injected`) or a line of the agent's own.
+    pub fn inject(&self, id: Option<u32>, gcode: &str) {
+        self.shared.lock().unwrap().inject.push_back((id, gcode.to_owned()));
+    }
+
+    /// Paused, and the speed it said last (for its screen; takes nothing, as `progress` does).
+    pub fn paused_and_speed(&self) -> (bool, Option<f32>) {
+        let s = self.shared.lock().unwrap();
+        (s.paused, s.factors.0)
+    }
+
+    /// How the hub's commands sent meanwhile went, once each.
+    pub fn injected(&self) -> Vec<(u32, Result<Vec<String>, String>)> {
+        std::mem::take(&mut self.shared.lock().unwrap().injected)
+    }
+
     pub fn stop(&self) {
         let mut s = self.shared.lock().unwrap();
         s.stop = true;
@@ -568,11 +652,16 @@ mod tests {
         ]));
     }
 
-    fn with(fake: FakeMarlin, m115: bool) -> Printer<FakeMarlin> {
+    /// A connected fake; `known`: told what it is, as the agent knows it once connected
+    /// (Prusa's MK3 by `PRUSA Fir`, asked no M115; other firmware by its M115).
+    fn with(fake: FakeMarlin, known: bool) -> Printer<FakeMarlin> {
+        let prusa = fake.m115.contains("Prusa-Firmware");
         let mut printer = Printer::new(fake);
         printer.hurry();
         printer.connect(&mut |_| {}).unwrap();
-        if m115 {
+        if known && prusa {
+            printer.firmware = Some("Prusa-Firmware 3.14.1-8237".to_owned());
+        } else if known {
             printer.command("M115").unwrap();
         }
         printer
@@ -764,7 +853,6 @@ mod tests {
         assert!(at("M75") < at("G1 X1") && at("G1 X3") < at("M77"), "{sent:?}");
     }
 
-    /// Prusa's MK3 firmware: paused with M601 (it parks), resumed with M602, stopped with
     /// The slicer's M73: percent, minutes left in normal and silent mode.
     #[test]
     fn m73_is_read() {
@@ -772,6 +860,10 @@ mod tests {
         assert_eq!(m73("M73 P25 R40"), Some((25, Some(40), None)));
         assert_eq!(m73("M73 Q24 S42"), None, "no normal percent");
         assert_eq!(m73("G1 X1"), None);
+        // Minutes to the next filament change: D normal, C silent; negative is none.
+        assert_eq!(m73_change_in("M73 P25 R40 Q24 S42 C10 D9"), (Some(9), Some(10)));
+        assert_eq!(m73_change_in("M73 P25 R40 C-1 D-1"), (None, None));
+        assert_eq!(m73_change_in("M73 P25 R40"), (None, None));
     }
 
     /// A file without its own M73 gets one from here every 100 lines and 10 before its end
@@ -786,9 +878,12 @@ mod tests {
         assert!(end.ok, "{end:?}");
         let sent = accepted.lock().unwrap().clone();
         let m73s: Vec<&String> = sent.iter().filter(|c| c.starts_with("M73 ")).collect();
-        assert_eq!(m73s.len(), 3, "at 100, 200 and 10 before the end: {m73s:?}");
-        assert!(m73s[0].starts_with("M73 P40 R") && m73s[0].contains(" Q40 S"), "{m73s:?}");
-        assert!(m73s[2].starts_with("M73 P96 "), "{m73s:?}");
+        // In PrusaLink's form (util.py `get_print_stats_gcode`), then cleared at the end
+        // (`_reset_print_stats`).
+        assert_eq!(m73s.len(), 4, "at 100, 200 and 10 before the end, then cleared: {m73s:?}");
+        assert_eq!(m73s[0], "M73 Q40 S0 C-1 P40 R0 D-1", "{m73s:?}");
+        assert!(m73s[2].starts_with("M73 Q96 "), "{m73s:?}");
+        assert_eq!(m73s[3], "M73 Q-1 S-1 C-1 P-1 R-1 D-1");
     }
 
     /// A file with its own M73: nothing added; its time left is the slicer's.
@@ -814,9 +909,74 @@ mod tests {
         let _ = wait(&mut job);
         assert_eq!(left, Some(15 * 60), "the slicer's 15 minutes");
         let sent = accepted.lock().unwrap().clone();
-        assert_eq!(sent.iter().filter(|c| c.starts_with("M73 ")).count(), 2, "only the file's");
+        let m73s: Vec<&String> = sent.iter().filter(|c| c.starts_with("M73 ")).collect();
+        assert_eq!(m73s.len(), 3, "only the file's, then cleared: {m73s:?}");
+        assert_eq!(m73s[2], "M73 Q-1 S-1 C-1 P-1 R-1 D-1");
     }
 
+    /// An M25 in the file pauses an MK3 like M601 (PrusaLink: `file_printer.py`, M601 or M25):
+    /// nothing more is sent until it says it resumed. Proves the row `M25` of
+    /// docs/prusalink-audit.md.
+    #[test]
+    fn an_mk3_pause_by_m25_in_the_file_is_waited_for() {
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let fake = FakeMarlin::new(accepted.clone());
+        let gcode = "G1 X1\nM25\nG1 X2\nG1 X3\n".to_owned();
+        let mut job = PrintJob::start(17, "x.gcode", gcode, with(fake, true));
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(
+            !accepted.lock().unwrap().contains(&"G1 X2".to_owned()),
+            "waits after M25"
+        );
+        job.waiting.hear("// action:resumed");
+        let (_, end) = wait(&mut job);
+        assert!(end.ok, "{end:?}");
+        assert!(accepted.lock().unwrap().contains(&"G1 X3".to_owned()), "goes on once resumed");
+    }
+
+    /// A real MK3 answers M601 with `// action:paused` and M602 with `// action:resumed`.
+    /// Paused from here, it must be resumed from here: the pause it says it made is the one
+    /// asked, not one at its knob that only its knob can end. (Found missing 2026-11-09: the
+    /// job waited for the printer to stop saying paused, which it does only after M602.)
+    #[test]
+    fn an_mk3_paused_from_here_is_resumed_from_here() {
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut fake = FakeMarlin::new(accepted.clone());
+        fake.errors = vec![
+            ("M601".to_owned(), "// action:paused".to_owned()),
+            ("M602".to_owned(), "// action:resumed".to_owned()),
+        ];
+        let gcode: String = (0..200_000).map(|i| format!("G1 X{} Y1\n", i % 100)).collect();
+        let mut job = PrintJob::start(15, "x.gcode", gcode, with(fake, true));
+        job.pause(true);
+        std::thread::sleep(Duration::from_millis(400));
+        job.pause(false);
+        std::thread::sleep(Duration::from_millis(600));
+        let resumed = accepted.lock().unwrap().contains(&"M602".to_owned());
+        job.stop();
+        let (_, end) = wait(&mut job);
+        assert!(resumed, "M602 sent after the resume from here");
+        assert!(end.stopped);
+    }
+
+    /// Proves the row `CANCEL_REGEX` of docs/prusalink-audit.md: `// action:cancel` (stopped
+    /// from the printer's menu) ends the job, with "stopped at the printer", and nothing more
+    /// of the file goes.
+    #[test]
+    fn a_print_stopped_from_the_printers_menu_ends() {
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut fake = FakeMarlin::new(accepted.clone());
+        fake.errors = vec![("G1 X2 Y1".to_owned(), "// action:cancel".to_owned())];
+        let gcode: String = (0..2000).map(|i| format!("G1 X{} Y1\n", i % 100)).collect();
+        let mut job = PrintJob::start(16, "x.gcode", gcode, with(fake, false));
+        let (_, end) = wait(&mut job);
+        assert!(end.stopped && !end.ok, "{end:?}");
+        assert_eq!(end.reason.as_deref(), Some("stopped at the printer"));
+        let sent = accepted.lock().unwrap().clone();
+        assert!(sent.len() < 100, "stopped early: {} lines", sent.len());
+    }
+
+    /// Prusa's MK3 firmware: paused with M601 (it parks), resumed with M602, stopped with
     /// M603 (it lifts and parks), as PrusaLink does.
     #[test]
     fn an_mk3_parks_itself() {
@@ -834,13 +994,141 @@ mod tests {
         let (_, end) = wait(&mut job);
         assert!(end.stopped);
         let sent = accepted.lock().unwrap().clone();
+        // Besides the file's own lines, only PrusaLink's G-codes, in its forms.
+        for code in sent.iter().filter(|c| !c.starts_with("G1 X")) {
+            assert!(crate::marlin::tests::prusalink_sends(code), "not PrusaLink's: {code}");
+        }
         let at = |code: &str| sent.iter().position(|c| c == code);
         assert!(at("M601").is_some() && at("M602") > at("M601"), "{sent:?}");
-        // Stopped with M603; its own reports stay on (as PrusaLink keeps them).
-        assert_eq!(sent.last().map(String::as_str), Some("M603"), "{:?}", &sent[sent.len() - 3..]);
+        // Stopped with M77 and M603, then its progress cleared (as PrusaLink: file_printer.py
+        // `_print_end`, then `_reset_print_stats`); its own reports stay on.
+        assert_eq!(&sent[sent.len() - 3..], ["M77", "M603", "M73 Q-1 S-1 C-1 P-1 R-1 D-1"]);
         assert!(!sent.contains(&"M155 S0 C0".to_owned()));
         assert!(sent.contains(&"M155 S2 C7".to_owned()), "temperatures, fans, position");
-        assert!(sent.contains(&"M79 S\"MC\"".to_owned()), "a host is there");
+        assert!(sent.contains(&"M79 S\"PC\"".to_owned()), "a host is there");
         assert!(!sent.contains(&"M104 S0".to_owned()));
+    }
+
+    /// Prusa's MK3 starts its own reports with `M155 S2 C7` when a print begins and keeps
+    /// them on at its end; another Marlin printer gets `M155 S2` and `M155 S0` after it.
+    /// Proves the rows `M155 S2 C7` and `M155 S0 C0` of docs/prusalink-audit.md (a print).
+    #[test]
+    fn an_mk3_keeps_its_reports_on_after_a_print() {
+        let gcode = "G28\nG1 X1\n".to_owned();
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut job = PrintJob::start(
+            20,
+            "x.gcode",
+            gcode.clone(),
+            with(FakeMarlin::new(accepted.clone()), true),
+        );
+        let (_, end) = wait(&mut job);
+        assert!(end.ok, "{end:?}");
+        let sent = accepted.lock().unwrap().clone();
+        assert!(sent.contains(&"M155 S2 C7".to_owned()), "{sent:?}");
+        assert!(
+            !sent.iter().any(|c| c.starts_with("M155 S0")),
+            "no M155 S0 C0 (nor M155 S0) to an MK3: {sent:?}"
+        );
+        // Any other Marlin printer: reports off after the print.
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut job = PrintJob::start(21, "x.gcode", gcode, connected(Arc::clone(&accepted)));
+        let (_, end) = wait(&mut job);
+        assert!(end.ok, "{end:?}");
+        let sent = accepted.lock().unwrap().clone();
+        assert!(!sent.contains(&"M155 S2 C7".to_owned()), "{sent:?}");
+        assert_eq!(sent.first().map(String::as_str), Some("M155 S2"));
+        assert_eq!(sent.last().map(String::as_str), Some("M155 S0"));
+    }
+
+    /// Prusa's MK3: a pause asked from here sends `M601` and `M76` once, and is said to
+    /// be the job's problem when the printer has not paused within 15 s; a resume sends
+    /// `M602` and `M75` once and a stop `M603` once. Takes about 17 s (the 15 s is real).
+    /// Proves the row `M601` / `M602` / `M603` of docs/prusalink-audit.md.
+    #[test]
+    fn an_mk3_that_does_not_pause_in_15_s_is_the_jobs_problem() {
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let fake = FakeMarlin::new(accepted.clone());
+        // Long enough to still run after the pause. The fake never says `//action:paused`.
+        let gcode: String = (0..200_000).map(|i| format!("G1 X{} Y1\n", i % 100)).collect();
+        let mut job = PrintJob::start(22, "x.gcode", gcode, with(fake, true));
+        job.pause(true);
+        std::thread::sleep(Duration::from_secs(5));
+        assert_eq!(job.progress().problem, None, "not yet: only 5 s");
+        std::thread::sleep(Duration::from_secs(12));
+        assert_eq!(
+            job.progress().problem.as_deref(),
+            Some("it did not pause within 15 s")
+        );
+        job.pause(false);
+        std::thread::sleep(Duration::from_millis(600));
+        job.stop();
+        let (_, end) = wait(&mut job);
+        assert!(end.stopped);
+        let sent = accepted.lock().unwrap().clone();
+        let count = |code: &str| sent.iter().filter(|c| *c == code).count();
+        assert_eq!(count("M601"), 1, "{sent:?}");
+        assert_eq!(count("M76"), 1);
+        assert_eq!(count("M602"), 1);
+        assert_eq!(count("M75"), 2, "at the start and at the resume");
+        assert_eq!(count("M603"), 1);
+    }
+
+    /// Prusa's MK3 print timer: `M75` at the start, `M76` at a pause, `M75` at the resume,
+    /// `M77` at the end or at a stop.
+    /// Proves the row `M75` / `M76` / `M77` of docs/prusalink-audit.md.
+    #[test]
+    fn the_mk3_print_timer_goes_m75_m76_m75_m77() {
+        let timer = |sent: &[String]| -> Vec<String> {
+            sent.iter().filter(|c| matches!(c.as_str(), "M75" | "M76" | "M77")).cloned().collect()
+        };
+        // Paused, resumed, then stopped.
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let fake = FakeMarlin::new(accepted.clone());
+        let gcode: String = (0..200_000).map(|i| format!("G1 X{} Y1\n", i % 100)).collect();
+        let mut job = PrintJob::start(23, "x.gcode", gcode, with(fake, true));
+        job.pause(true);
+        std::thread::sleep(Duration::from_millis(300));
+        job.pause(false);
+        std::thread::sleep(Duration::from_millis(400));
+        job.stop();
+        let (_, end) = wait(&mut job);
+        assert!(end.stopped);
+        assert_eq!(timer(&accepted.lock().unwrap()), ["M75", "M76", "M75", "M77"]);
+        // Run to its end.
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let fake = FakeMarlin::new(accepted.clone());
+        let mut job = PrintJob::start(24, "x.gcode", "G28\nG1 X1\n".to_owned(), with(fake, true));
+        let (_, end) = wait(&mut job);
+        assert!(end.ok, "{end:?}");
+        assert_eq!(timer(&accepted.lock().unwrap()), ["M75", "M77"]);
+    }
+
+    /// Lost on the wire in the middle of a print (a line never answered, even when asked
+    /// after): Prusa's MK3 is told, as far as it still listens, `M300 S880 P200` (a beep),
+    /// `M603` (stop) and `M1 FW COMM ERR. Aborted` (on its screen), in that order, right
+    /// after the line that failed; the job ends as failed and nothing more of the file goes.
+    /// Proves the row `M300 S880 P200` + `M603` + `M1 FW COMM ERR. Aborted` of
+    /// docs/prusalink-audit.md.
+    #[test]
+    fn a_print_lost_on_the_wire_beeps_stops_and_says_so_on_an_mk3() {
+        let accepted: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut fake = FakeMarlin::new(accepted.clone());
+        // The line is lost, and so are the three times it is asked after.
+        fake.lose_ok = vec!["G1 X2".into(), "M105".into(), "M105".into(), "M105".into()];
+        let gcode = "G28\nG1 X1\nG1 X2\nG1 X3\n".to_owned();
+        let mut job = PrintJob::start(30, "x.gcode", gcode, with(fake, true));
+        let (_, end) = wait(&mut job);
+        assert!(!end.ok && !end.stopped, "{end:?}");
+        assert!(end.reason.as_deref().unwrap().contains("stopped answering"), "{end:?}");
+        let sent = accepted.lock().unwrap().clone();
+        let at = sent.iter().position(|c| c == "G1 X2").expect("the line that failed");
+        let after: Vec<&str> = sent[at..].iter().map(String::as_str).filter(|c| *c != "M105").collect();
+        assert_eq!(
+            after[..4],
+            ["G1 X2", "M300 S880 P200", "M603", "M1 FW COMM ERR. Aborted"],
+            "{sent:?}"
+        );
+        assert!(!sent.contains(&"G1 X3".to_owned()), "nothing more of the file: {sent:?}");
     }
 }

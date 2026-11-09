@@ -398,6 +398,12 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Machine(Level::Use),
         Some("took the print off"),
     ),
+    (
+        "POST",
+        "/machines/{id}/not-ready",
+        Need::Machine(Level::Use),
+        Some("said it is not ready after all:"),
+    ),
     // A button of the question on its screen.
     (
         "POST",

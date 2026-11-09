@@ -98,6 +98,10 @@
       const how = warm ? `the bed cools (${t.bed_c.toFixed(0)} °C); take it at ${TAKE_BELOW_C} °C or below` : "the bed is cool: take it off";
       html += `<div class="notice bed"><span><b>${esc(m.on_bed.file_name)}</b> is done and on the bed: ${how}. The next job waits until it is taken.</span><form method="post" action="${esc(m.id)}/taken" data-async data-done="Print taken" data-then="reload"><button>Print taken</button></form></div>`;
     }
+    // Ready for the next job, until it starts; taken back as PrusaLink's "cancel ready".
+    if (!m.on_bed && !m.job && m.ready) {
+      html += `<div class="notice ready"><span>Ready for the next job: <b>${esc(m.ready.file_name)}</b> was taken off.</span><form method="post" action="${esc(m.id)}/not-ready" data-async data-done="Not ready" data-then="reload"><button>Not ready after all</button></form></div>`;
+    }
     return html;
   }
 

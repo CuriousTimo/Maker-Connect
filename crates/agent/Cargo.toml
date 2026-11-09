@@ -15,5 +15,7 @@ serde_json = "1.0.154"
 # Without libudev: on Linux the ports are read from /sys, so the agent cross-builds for a Pi
 # (an Orange Pi, a Raspberry Pi) with no Linux libraries at hand.
 serialport = { version = "4", default-features = false }
+# SIGTERM (systemd stopping it): already in the build through serialport.
+libc = "0.2"
 toml = "1.1.8"
 ureq = { version = "2", features = ["json"] }

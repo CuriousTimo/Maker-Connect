@@ -342,6 +342,7 @@ pub fn app(store: Shared) -> Router {
         .route("/machines/{id}/move", post(move_machine))
         .route("/machines/{id}/out-of-use", post(out_of_use))
         .route("/machines/{id}/taken", post(taken))
+        .route("/machines/{id}/not-ready", post(not_ready))
         .route("/machines/{id}/answer", post(answer))
         .route("/machines/{id}/laser", post(laser_power))
         .route("/api/machines/{id}/history", get(history))
@@ -473,6 +474,17 @@ async fn telemetry(
     {
         report.state = protocol::MachineState::Attention;
     }
+    // A print from its card as Prusa's MK3 says it (`M27 P`: its short path): by its long
+    // name from the card's listing, as PrusaLink takes it (`job.py` `process_mixed_path`).
+    if let Some(job) = report.job.as_mut()
+        && let Ok(Some(machine)) = store.machine_id_by_token(token)
+        && let Some((files, _)) = store.sd_files.get(&machine)
+    {
+        let short = job.file.rsplit('/').next().unwrap_or(&job.file).to_ascii_uppercase();
+        if let Some(file) = files.iter().find(|f| f.path.rsplit('/').next().is_some_and(|p| p.eq_ignore_ascii_case(&short))) {
+            job.file = file.name.clone();
+        }
+    }
     if let Some(peer) = peer_address(&headers, &extensions)
         && let Err(error) = store.set_peer(token, &peer)
     {
@@ -480,16 +492,19 @@ async fn telemetry(
     }
     match store.report(token, &report) {
         Ok(Some(space)) => {
-            // No commands while a job runs, or while the machine is busy with one (an agent
-            // says so while a long command runs), or waits for someone at it: one at a time.
-            let held = matches!(
-                report.state,
-                protocol::MachineState::Busy | protocol::MachineState::Attention
-            );
-            let commands = if report.job_id.is_some() || held {
+            // A print it runs itself: recorded as a job when it ends.
+            if let Err(error) = store.follow_own_print(token, &report, None) {
+                return failed(error);
+            }
+            // While it waits for someone at it, no commands; while a job runs or it is busy,
+            // only what may go into a print (sent between the file's lines, as PrusaLink sends
+            // its controls while printing); one at a time.
+            let printing = report.job_id.is_some() || report.state == protocol::MachineState::Busy;
+            let commands = if report.state == protocol::MachineState::Attention {
                 Vec::new()
             } else {
-                match store.next_command(token) {
+                let next = if printing { store.next_command_for_a_print(token) } else { store.next_command(token) };
+                match next {
                     Ok(next) => next
                         .map(|(id, gcode)| protocol::MachineCommand { id, gcode })
                         .into_iter()
@@ -1073,13 +1088,93 @@ fn jog_command(action: &str, step: f64, feed: f64, grbl: bool) -> Option<(String
     Some((label, gcode))
 }
 
+/// Prusa's MK3 family, controlled to the letter as PrusaLink controls it (`web/controls.py`,
+/// limits from `const.py` `LimitsMK3`): homing `G28 X Y Z` (with axes the firmware does not
+/// level the bed, `Marlin_main.cpp` G28); a move `G91` then `G1 F<feed> <axes>`, the feed
+/// 0–2700 mm/min (2700 when none is chosen), refused outside it; speed `M220` and flow
+/// `M221` 10–999 %; nozzle `M104` 0–305 °C; bed `M140` 0–125 °C. None: not one of these.
+fn prusalink_control(action: &str, form: &CommandForm) -> Option<Result<(String, String), String>> {
+    const FEED_MAX: f64 = 2700.0;
+    let moved = |axes: Vec<(&str, f64)>, feed: Option<f64>| {
+        let feed = feed.unwrap_or(FEED_MAX);
+        if !(0.0..=FEED_MAX).contains(&feed) {
+            return Err(format!("Move: feed 0 to {FEED_MAX} mm/min on this printer"));
+        }
+        let words: Vec<String> = axes.iter().map(|(a, v)| format!("{a}{v}")).collect();
+        let label = format!(
+            "Move {} mm",
+            axes.iter().map(|(a, v)| format!("{a}{}{}", if *v > 0.0 { "+" } else { "−" }, v.abs())).collect::<Vec<_>>().join(" ")
+        );
+        Ok((label, format!("G91\nG1 F{feed} {}", words.join(" "))))
+    };
+    let limited = |what: &str, code: &str, value: Option<f64>, (low, high): (f64, f64), unit: &str| {
+        let Some(value) = value.filter(|v| v.is_finite()).map(f64::round) else {
+            return Err(format!("{what}: type a value"));
+        };
+        if !(low..=high).contains(&value) {
+            return Err(format!("{what}: {low} to {high} {unit} on this printer"));
+        }
+        let label = if unit == "°C" && value == 0.0 { format!("{what} off") } else { format!("{what} {value} {unit}") };
+        Ok((label, format!("{code} S{value}")))
+    };
+    Some(match action {
+        "home" => Ok(("Home".to_owned(), "G28 X Y Z".to_owned())),
+        "x+" => moved(vec![("X", 10.0)], None),
+        "x-" => moved(vec![("X", -10.0)], None),
+        "y+" => moved(vec![("Y", 10.0)], None),
+        "y-" => moved(vec![("Y", -10.0)], None),
+        "z+" => moved(vec![("Z", 10.0)], None),
+        "z-" => moved(vec![("Z", -10.0)], None),
+        "set-speed" => limited("Speed", "M220", form.speed, (10.0, 999.0), "%"),
+        "set-flow" => limited("Flow", "M221", form.flow, (10.0, 999.0), "%"),
+        "set-nozzle" => limited("Nozzle", "M104", form.nozzle, (0.0, 305.0), "°C"),
+        "set-bed" => limited("Bed", "M140", form.bed, (0.0, 125.0), "°C"),
+        // `disable_steppers`.
+        "motors-off" => Ok(("Motors off".to_owned(), "M84".to_owned())),
+        // As PrusaLink's own: extruding, loading and unloading (handled below), and heat set
+        // to a value (preheat, cool down: M104 S…, M140 S…). Anything else PrusaLink has not.
+        "extrude" | "retract" | "load-filament" | "unload-filament" | "preheat-pla" | "preheat-petg" | "cooldown" => return None,
+        other if !other.starts_with("jog:") => {
+            return Some(Err("not on this printer: Prusa's own software has no such control".to_owned()));
+        }
+        jog if jog.starts_with("jog:") => {
+            let step = form.step.unwrap_or(10.0);
+            if !JOG_STEPS.contains(&step) {
+                return Some(Err("Move: no such step".to_owned()));
+            }
+            let (x, y) = jog.strip_prefix("jog:")?.split_once(':')?;
+            let dir = |t: &str| match t {
+                "-1" => Some(-1.0),
+                "0" => Some(0.0),
+                "1" => Some(1.0),
+                _ => None,
+            };
+            let axes: Vec<(&str, f64)> = [("X", dir(x)?), ("Y", dir(y)?)]
+                .into_iter()
+                .filter(|(_, d)| *d != 0.0)
+                .map(|(a, d)| (a, d * step))
+                .collect();
+            if axes.is_empty() {
+                return None;
+            }
+            moved(axes, form.feed)
+        }
+        _ => return None,
+    })
+}
+
 /// Whether a machine runs Prusa's firmware for the MK3 family (MK3, MK3S, MK2.5): its
 /// profile says `prusa` (Buddy printers say `prusa-buddy`), or it reports
 /// `Prusa-Firmware …` (Buddy: `Prusa firmware …`).
-fn prusa_mk3_family(store: &store::Store, space: i64, id: &str) -> bool {
+pub(crate) fn prusa_mk3_family(store: &store::Store, space: i64, id: &str) -> bool {
     let Ok(Some(machine)) = store.machine(space, id) else {
         return false;
     };
+    prusa_mk3_machine(&machine)
+}
+
+/// The same, of a machine at hand.
+pub(crate) fn prusa_mk3_machine(machine: &store::Machine) -> bool {
     let by_profile = machine
         .profile
         .as_deref()
@@ -1097,11 +1192,24 @@ fn prusa_mk3_family(store: &store::Store, space: i64, id: &str) -> bool {
 /// Why a command may not go now, by the machine's state (PrusaLink's rules for an MK3,
 /// `web/controls.py`): paused, no homing, Z or extruding; extruding needs 170 °C and no
 /// print running.
-fn refused_now(action: &str, gcode: &str, machine: &store::Machine) -> Option<&'static str> {
+fn refused_now(action: &str, gcode: &str, machine: &store::Machine, mk3: bool) -> Option<&'static str> {
+    use protocol::MachineState::{Idle, Paused};
     let t = machine.telemetry.as_ref()?;
     let paused = t.state == protocol::MachineState::Paused;
     let z_move = gcode.lines().any(|l| l.starts_with("G1") && l.split_whitespace().any(|w| w.starts_with('Z')));
+    let xy_move = gcode.lines().any(|l| l.starts_with("G1") && l.split_whitespace().any(|w| w.starts_with('X') || w.starts_with('Y')));
     let extrude = matches!(action, "extrude" | "retract");
+    // PrusaLink's `api_printhead`: homing only idle or ready; Z only idle (ready, finished,
+    // stopped); X and Y also paused.
+    if mk3 && action == "home" && t.state != Idle {
+        return Some("homes only when idle");
+    }
+    if mk3 && z_move && t.state != Idle {
+        return Some("moves Z only when idle");
+    }
+    if mk3 && xy_move && !extrude && !matches!(t.state, Idle | Paused) {
+        return Some("moves X and Y only when idle or paused");
+    }
     if paused && action == "home" {
         return Some("not while a print is paused: homing would spoil it");
     }
@@ -1164,8 +1272,9 @@ pub(crate) fn probe_gcode(machine: &store::Machine) -> Result<&'static str, &'st
         .and_then(profiles::find)
         .and_then(|p| p.firmware.as_deref());
     match firmware {
-        // Prusa's 8-bit firmware: G80 measures, G81 prints the mesh.
-        Some("prusa") => Ok("G28\nG80\nG81"),
+        // Prusa's MK3 family: PrusaLink measures no bed (its mesh is read with M420 after the
+        // printer measured it itself).
+        Some("prusa") => Err("PrusaLink measures no bed: start it on the printer (Calibration); its mesh is read after"),
         // Marlin (and Prusa's Buddy, which is Marlin): G29 measures, M420 V prints.
         Some("marlin" | "prusa-buddy") => Ok("G28\nG29\nM420 V"),
         // Klipper measures with BED_MESH_CALIBRATE, through Moonraker: not connected yet.
@@ -1176,7 +1285,7 @@ pub(crate) fn probe_gcode(machine: &store::Machine) -> Result<&'static str, &'st
     }
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Default)]
 struct CommandForm {
     /// One of the website's buttons ([`action`]).
     #[serde(default)]
@@ -1311,6 +1420,24 @@ async fn command(
     if !off && let Err(refused) = crate::safety::check_ppe(&store, &access, &id) {
         return *refused;
     }
+    // Printing through an agent: the job sends what comes between its file's lines, as
+    // PrusaLink sends its controls while printing: speed, flow, temperatures, and X and Y
+    // while paused (`refused_now`). Typed G-code not: PrusaLink's `execute_gcode` refuses it
+    // while printing.
+    let printing = store.machine(space, &id).ok().flatten().is_some_and(|m| {
+        m.link == "agent"
+            && m.telemetry.as_ref().is_some_and(|t| {
+                matches!(t.state, protocol::MachineState::Busy | protocol::MachineState::Paused)
+            })
+    });
+    if printing
+        && (!form.gcode.trim().is_empty()
+            || !(matches!(form.action.as_str(), "set-speed" | "set-flow" | "set-nozzle" | "set-bed")
+                || form.action.starts_with("jog:")
+                || matches!(form.action.as_str(), "x+" | "x-" | "y+" | "y-" | "z+" | "z-" | "home" | "extrude" | "retract")))
+    {
+        return (StatusCode::CONFLICT, "not while it prints").into_response();
+    }
     if !form.gcode.trim().is_empty() {
         let (label, gcode) = match typed_gcode(&form.gcode) {
             Ok(typed) => typed,
@@ -1339,7 +1466,13 @@ async fn command(
     };
     let owned = |(l, g): (&str, &str)| (l.to_owned(), g.to_owned());
     let is_grbl = grbl();
-    let found = if form.action.starts_with("jog") {
+    let mk3 = prusa_mk3_family(&store, space, &id);
+    let found = if mk3 && let Some(found) = prusalink_control(&form.action, &form) {
+        match found {
+            Ok(found) => Some(found),
+            Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
+        }
+    } else if form.action.starts_with("jog") {
         jog_command(
             &form.action,
             form.step.unwrap_or(10.0),
@@ -1421,10 +1554,6 @@ async fn command(
             Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
             Err(error) => return failed(error),
         }
-    } else if form.action == "home" && prusa_mk3_family(&store, space, &id) {
-        // Prusa's MK3 firmware (MK3, MK3S, MK2.5): a bare G28 also measures the whole bed
-        // (mesh bed levelling); G28 W only homes (Marlin_main.cpp, G28 `W`).
-        Some(("Home".to_owned(), "G28 W".to_owned()))
     } else {
         action(&form.action).map(owned)
     };
@@ -1436,7 +1565,7 @@ async fn command(
     // extruding, which would spoil the print; X and Y may move. Extruding wants a hot
     // nozzle (170 °C, PrusaLink's `min_temp_nozzle_e`).
     if let Ok(Some(machine)) = store.machine(space, &id)
-        && let Some(why) = refused_now(&form.action, &gcode, &machine)
+        && let Some(why) = refused_now(&form.action, &gcode, &machine, mk3)
     {
         return (StatusCode::CONFLICT, why).into_response();
     }
@@ -1724,6 +1853,25 @@ async fn taken(
             done(&headers, &format!("/machines/{id}"))
         }
         Ok(false) => (StatusCode::NOT_FOUND, "no print on its bed").into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+/// Not ready for the next job after all (PrusaLink's `cancel_ready`).
+async fn not_ready(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let mut store = store.lock().unwrap();
+    let space = match store.space_of(&access) {
+        Ok((space, _)) => space,
+        Err(error) => return failed(error),
+    };
+    match store.not_ready(space, &id) {
+        Ok(true) => done(&headers, &format!("/machines/{id}")),
+        Ok(false) => (StatusCode::CONFLICT, "it is not ready").into_response(),
         Err(error) => failed(error),
     }
 }
@@ -2482,6 +2630,53 @@ mod tests {
         ));
         assert_eq!(factor_command("set-bed", None, None), None);
     }
+    /// The move buttons send G91, a G1 move at a feed, then G90 again.
+    /// Proves the row `G90`/`G91` + `G1 F… X Y Z` of docs/prusalink-audit.md.
+    #[test]
+    fn the_move_buttons_send_g91_g1_g90() {
+        for (button, code) in [
+            ("x+", "G91\nG1 X10 F3000\nG90"),
+            ("x-", "G91\nG1 X-10 F3000\nG90"),
+            ("y+", "G91\nG1 Y10 F3000\nG90"),
+            ("y-", "G91\nG1 Y-10 F3000\nG90"),
+            ("z+", "G91\nG1 Z10 F600\nG90"),
+            ("z-", "G91\nG1 Z-10 F600\nG90"),
+        ] {
+            assert_eq!(action(button).unwrap().1, code, "{button}");
+        }
+    }
+
+    /// "Set speed" sends M220 S with whole percents from 10 to 300.
+    /// Proves the row `M220 S` of docs/prusalink-audit.md.
+    #[test]
+    fn the_speed_goes_by_m220_s() {
+        let sent = |v| factor_command("set-speed", Some(v), None);
+        assert_eq!(sent(10.0).unwrap().unwrap().1, "M220 S10");
+        assert_eq!(sent(300.0).unwrap().unwrap().1, "M220 S300");
+        assert_eq!(sent(120.4).unwrap().unwrap().1, "M220 S120");
+        assert!(sent(9.0).unwrap().is_err(), "M220 below 10 %");
+        assert!(sent(301.0).unwrap().is_err(), "M220 above 300 %");
+    }
+
+    /// "Set flow" sends M221 S with whole percents from 50 to 150.
+    /// Proves the row `M221 S` of docs/prusalink-audit.md.
+    #[test]
+    fn the_flow_goes_by_m221_s() {
+        let sent = |v| factor_command("set-flow", None, Some(v));
+        assert_eq!(sent(50.0).unwrap().unwrap().1, "M221 S50");
+        assert_eq!(sent(150.0).unwrap().unwrap().1, "M221 S150");
+        assert!(sent(49.0).unwrap().is_err(), "M221 below 50 %");
+        assert!(sent(151.0).unwrap().is_err(), "M221 above 150 %");
+    }
+
+    /// "Motors off" sends M18, which is the same as M84 in Marlin.
+    /// Proves the row `M84` of docs/prusalink-audit.md.
+    #[test]
+    fn motors_go_off_with_m18() {
+        // PrusaLink sends M84; Marlin treats M18 and M84 alike.
+        assert_eq!(action("motors-off").unwrap().1, "M18");
+    }
+
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
@@ -2563,10 +2758,90 @@ mod tests {
         );
         report(|_| {}, vec![load.id]).await;
         // Hot (215 °C): extruding goes; no wait for 90 %, it is hotter already.
-        assert_eq!(sent("home").await, "G28 W", "home, no mesh bed levelling");
+        // As PrusaLink (web/controls.py): G28 with its axes (the firmware then does not level
+        // the bed); moves G91, G1 F<feed> <axes>, 2700 mm/min unless chosen, refused above.
+        assert_eq!(sent("home").await, "G28 X Y Z", "home, no mesh bed levelling");
+        assert_eq!(sent("x%2B").await, "G91\nG1 F2700 X10");
+        assert_eq!(sent("z-").await, "G91\nG1 F2700 Z-10");
+        let form = |body: &'static str| {
+            Request::post(format!("/machines/{id}/command"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(body))
+                .unwrap()
+        };
+        let (status, why) = call(&app, form("action=jog:1:-1&step=1&feed=3000")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}");
+        assert!(why.contains("2700"), "{why}");
+        let (status, _) = call(&app, form("action=jog:1:-1&step=1&feed=1500")).await;
+        assert!(status.is_success());
+        let reply = report(|_| {}, Vec::new()).await;
+        let jog = reply.commands.last().expect("jog").clone();
+        assert_eq!(jog.gcode, "G91\nG1 F1500 X1 Y-1");
+        report(|_| {}, vec![jog.id]).await;
+        // PrusaLink's limits (const.py LimitsMK3): speed and flow 10-999 %, nozzle 0-305 °C,
+        // bed 0-125 °C.
+        for (body, ok) in [
+            ("action=set-speed&speed=999", Some("M220 S999")),
+            ("action=set-speed&speed=1000", None),
+            ("action=set-speed&speed=9", None),
+            ("action=set-flow&flow=10", Some("M221 S10")),
+            ("action=set-flow&flow=1000", None),
+            ("action=set-nozzle&nozzle=305", Some("M104 S305")),
+            ("action=set-nozzle&nozzle=306", None),
+            ("action=set-bed&bed=125", Some("M140 S125")),
+            ("action=set-bed&bed=126", None),
+            // `disable_steppers`; PrusaLink has no fan control, no laser or origin buttons.
+            ("action=motors-off", Some("M84")),
+            ("action=fan-on", None),
+            ("action=fan-off", None),
+            ("action=set-origin", None),
+            ("action=laser-off", None),
+            ("action=preheat-pla", Some("M104 S215\nM140 S60")),
+        ] {
+            let (status, why) = call(&app, form(body)).await;
+            match ok {
+                Some(gcode) => {
+                    assert!(status.is_success(), "{body}: {why}");
+                    let reply = report(|_| {}, Vec::new()).await;
+                    let command = reply.commands.last().expect(body).clone();
+                    assert_eq!(command.gcode, gcode, "{body}");
+                    report(|_| {}, vec![command.id]).await;
+                }
+                None => assert_eq!(status, StatusCode::BAD_REQUEST, "{body}: {why}"),
+            }
+        }
+        // What other printers get for these, kept from the MK3 family (section 6 of the audit).
+        for (name, theirs) in [
+            ("set-origin", "G92 X0 Y0"),
+            ("go-origin", "G90\nG0 X0 Y0"),
+            ("laser-off", "M5"),
+            ("fan-on", "M106 S255"),
+            ("fan-off", "M107"),
+            ("motors-off", "M18"),
+        ] {
+            assert_eq!(super::action(name).map(|a| a.1), Some(theirs));
+            let form = CommandForm { action: name.to_owned(), ..CommandForm::default() };
+            match super::prusalink_control(name, &form) {
+                Some(Ok((_, gcode))) => assert_eq!(gcode, "M84", "{name}"),
+                other => assert!(matches!(other, Some(Err(_))), "{name}: {other:?}"),
+            }
+        }
         assert_eq!(sent("extrude").await, "M83\nG1 F100 E10");
         assert_eq!(sent("retract").await, "M83\nG1 F100 E-10");
         assert_eq!(sent("unload-filament").await, "M104 S215\nM702");
+        // Control's own G-code (PrusaLink's GCODE command): to the agent as typed.
+        let typed = Request::post(format!("/machines/{id}/command"))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("x-requested-with", "fetch")
+            .body(Body::from("gcode=M117+Hello%0AG4+P0"))
+            .unwrap();
+        let (status, why) = call(&app, typed).await;
+        assert!(status.is_success(), "{status} {why}");
+        let reply = report(|_| {}, Vec::new()).await;
+        let gcode = reply.commands.last().expect("typed G-code").clone();
+        assert_eq!(gcode.gcode, "M117 Hello\nG4 P0");
+        report(|_| {}, vec![gcode.id]).await;
         // Paused (a print it runs itself): no homing, no Z; X and Y may move.
         report(|t| t.state = MachineState::Paused, Vec::new()).await;
         let (status, why) = call(&app, press("home")).await;
@@ -2578,6 +2853,37 @@ mod tests {
         let reply = report(|t| t.state = MachineState::Paused, Vec::new()).await;
         let x = reply.commands.last().expect("x").clone();
         report(|_| {}, vec![x.id]).await;
+        // Printing: speed, flow and temperatures go (to the running job); typed G-code,
+        // homing, Z, X and Y, extruding, loading and the rest not (PrusaLink's controls).
+        report(|t| t.state = MachineState::Busy, Vec::new()).await;
+        for (body, goes) in [
+            ("action=set-speed&speed=120", true),
+            ("action=set-flow&flow=95", true),
+            ("action=set-nozzle&nozzle=215", true),
+            ("action=set-bed&bed=60", true),
+            ("gcode=M115", false),
+            ("action=home", false),
+            ("action=x%2B", false),
+            ("action=z%2B", false),
+            ("action=extrude", false),
+            ("action=load-filament", false),
+            ("action=cooldown", false),
+            ("action=motors-off", false),
+        ] {
+            let request = Request::post(format!("/machines/{id}/command"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(body))
+                .unwrap();
+            let (status, why) = call(&app, request).await;
+            assert_eq!(status.is_success(), goes, "{body}: {status} {why}");
+            if goes {
+                let reply = report(|t| t.state = MachineState::Busy, Vec::new()).await;
+                let command = reply.commands.last().expect(body).clone();
+                report(|t| t.state = MachineState::Busy, vec![command.id]).await;
+            }
+        }
+        report(|_| {}, Vec::new()).await;
 
         // "Reprint" on its menu with nothing printed before: it cannot, and says so.
         let reply = report(|t| t.reprint = true, Vec::new()).await;
@@ -2610,6 +2916,32 @@ mod tests {
         let ready = reply.commands.last().expect("ready").clone();
         assert_eq!(ready.gcode, "M72 S1");
         report(|_| {}, vec![ready.id]).await;
+        assert!(store.lock().unwrap().ready_after(&id).unwrap().is_some(), "ready");
+
+        // Not ready after all (PrusaLink's cancel_ready): M72 S0, the print on its bed again.
+        let not_ready = Request::post(format!("/machines/{id}/not-ready"))
+            .header("x-requested-with", "fetch")
+            .body(Body::empty())
+            .unwrap();
+        assert!(call(&app, not_ready).await.0.is_success());
+        let reply = report(|_| {}, Vec::new()).await;
+        let cancel = reply.commands.last().expect("not ready").clone();
+        assert_eq!(cancel.gcode, "M72 S0");
+        report(|_| {}, vec![cancel.id]).await;
+        assert!(store.lock().unwrap().on_bed(&id).unwrap().is_some(), "the next job waits");
+
+        // Set Ready and Not ready on its own menu: answered as PrusaLink (M72 S1, M72 S0).
+        let reply = report(|t| t.bed_clear = true, Vec::new()).await;
+        let echoed = reply.commands.last().expect("ready again").clone();
+        assert_eq!(echoed.gcode, "M72 S1");
+        report(|_| {}, vec![echoed.id]).await;
+        let reply = report(|t| t.not_ready = true, Vec::new()).await;
+        let echoed = reply.commands.last().expect("not ready again").clone();
+        assert_eq!(echoed.gcode, "M72 S0");
+        report(|_| {}, vec![echoed.id]).await;
+        assert!(store.lock().unwrap().on_bed(&id).unwrap().is_some());
+        // Taken again for the reprint below.
+        store.lock().unwrap().print_taken(space, &id).unwrap();
 
         // "Reprint" now: the same file again, a new job.
         report(|t| t.reprint = true, Vec::new()).await;
@@ -2894,6 +3226,14 @@ mod tests {
             ..Telemetry::default()
         };
         report(printing()).await;
+        // Its job as the agent reports it (PrusaLink's job_info, SEND_JOB_INFO): kept as is.
+        {
+            let store = store.lock().unwrap();
+            let space = store.default_space().unwrap().0;
+            let machine = store.machine(space, &id).unwrap().unwrap();
+            let job = machine.telemetry.and_then(|t| t.job).expect("its job");
+            assert_eq!((job.file.as_str(), job.done, job.total, job.elapsed_s), ("Benchy.gcode", 1000, 812_345, Some(60)));
+        }
         let (status, body) = call(&app, form(format!("/machines/{id}/job"), "action=stop")).await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
         assert_eq!(report(printing()).await.job_control, Some(protocol::JobControl::Stop));
@@ -2919,6 +3259,15 @@ mod tests {
             "it asks nothing now"
         );
 
+        // The SD print above was its own: recorded as a job when it ended, so the next job
+        // waits until it is taken off the bed (store::follow_own_print).
+        {
+            let mut s = store.lock().unwrap();
+            let space = s.default_space().unwrap().0;
+            let jobs: i64 = s.db.query_row("SELECT COUNT(*) FROM jobs WHERE machine_id = ?1 AND file_id = ''", [&id], |r| r.get(0)).unwrap();
+            assert_eq!(jobs, 1, "the SD print recorded");
+            assert!(s.print_taken(space, &id).unwrap());
+        }
         // A job of the hub's, cut off by a power cut (Prusa's MK3; the agent kept it).
         let upload = Request::post("/api/files?name=cube.gcode")
             .body(Body::from("G28\nM104 S215\nG1 X1\nG1 X2\n"))

@@ -2096,6 +2096,72 @@ mod flow {
         let _ = now();
     }
 
+    /// A print the MINI runs itself (from its stick, or its screen) is recorded as a job when
+    /// it ends, as it says; what is left on its bed then holds a queued job back until it is
+    /// taken off. Seen missing on the MINI (2026-11-08): a stopped Benchy was not known to be
+    /// on the bed, so a queued job could have started on top of it.
+    #[tokio::test]
+    async fn a_print_the_mini_runs_itself_holds_the_queue_when_it_ends() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = crate::auth::signed_in_app(store.clone());
+        let (space, mini, token) = {
+            let mut s = store.lock().unwrap();
+            let space = s.default_space().unwrap().0;
+            let mini = s.add_virtual(space, crate::profiles::find("prusa/mini").unwrap()).unwrap();
+            crate::auth::tester_may_operate(&s, space, &mini);
+            let token: String = s
+                .db
+                .query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| r.get(0))
+                .unwrap();
+            s.db.execute("UPDATE machines SET link = 'prusa-connect' WHERE id = ?1", [&mini]).unwrap();
+            (space, mini, token)
+        };
+        let report = |body: &str| {
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .body(Body::from(body.to_owned()))
+                .unwrap()
+        };
+        let jobs = || {
+            store
+                .lock()
+                .unwrap()
+                .db
+                .query_row(
+                    "SELECT COUNT(*), MAX(state), MAX(file_name) FROM jobs WHERE machine_id = ?1",
+                    [&mini],
+                    |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, Option<String>>(2)?)),
+                )
+                .unwrap()
+        };
+        // What `files::fit` holds a job back by: a finished print on the bed, or the last job
+        // stopped or failed and not said to be cleared.
+        let held = |s: &Store| {
+            let machine = s.machine(space, &mini).unwrap().unwrap();
+            (machine.on_bed.is_some(), machine.queue_held.clone())
+        };
+        call(&app, report(r#"{"state":"IDLE"}"#)).await;
+        // Its own print, its file said by JOB_INFO: no job while it runs.
+        store.lock().unwrap().printing_file.insert(token.clone(), (Some(29), "Benchy.bgcode".into()));
+        call(&app, report(r#"{"state":"PRINTING","job_id":29,"progress":40,"time_printing":600}"#)).await;
+        call(&app, report(r#"{"state":"ATTENTION","job_id":29}"#)).await;
+        assert_eq!(jobs().0, 0, "a question on its screen is no end");
+        call(&app, report(r#"{"state":"PRINTING","job_id":29,"progress":45,"time_printing":700}"#)).await;
+        // Stopped on the printer: a stopped job, and the queue waits until the bed is clear.
+        call(&app, report(r#"{"state":"STOPPED"}"#)).await;
+        assert_eq!(jobs(), (1, Some("stopped".into()), Some("Benchy.bgcode".into())));
+        assert_eq!(held(&store.lock().unwrap()), (false, Some("stopped".into())));
+        call(&app, report(r#"{"state":"IDLE"}"#)).await;
+        assert_eq!(jobs().0, 1, "recorded once");
+        store.lock().unwrap().print_taken(space, &mini).unwrap();
+        assert_eq!(held(&store.lock().unwrap()), (false, None), "taken off: free again");
+        // Finished on the printer: on its bed until taken.
+        call(&app, report(r#"{"state":"PRINTING","job_id":30,"progress":99,"time_printing":60}"#)).await;
+        call(&app, report(r#"{"state":"FINISHED"}"#)).await;
+        assert_eq!(jobs().0, 2);
+        assert_eq!(held(&store.lock().unwrap()).0, true, "a finished print on its bed");
+    }
+
     /// Seen on the MINI (2026-11-08): a download only to the stick opens the file's print
     /// preview on the printer's screen, which keeps it read-only. The hub closes it with
     /// M604 (tried on the MINI), so nobody has to go to the printer; but only answering a

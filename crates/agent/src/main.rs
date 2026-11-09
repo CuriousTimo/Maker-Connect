@@ -8,6 +8,7 @@
 
 mod config;
 mod hub;
+mod lcd;
 mod marlin;
 mod print;
 mod recovery;

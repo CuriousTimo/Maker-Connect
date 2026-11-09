@@ -298,6 +298,13 @@ fn notices(machine: &Machine) -> String {
             escape(&bed.file_name)
         );
     }
+    // Ready for the next job, until it starts; taken back as PrusaLink's "cancel ready".
+    if machine.on_bed.is_none() && machine.job.is_none() && let Some(ready) = &machine.ready {
+        out += &format!(
+            r#"<div class="notice ready"><span>Ready for the next job: <b>{}</b> was taken off.</span><form method="post" action="{id}/not-ready" data-async data-done="Not ready" data-then="reload"><button>Not ready after all</button></form></div>"#,
+            escape(&ready.file_name)
+        );
+    }
     out
 }
 
@@ -750,6 +757,82 @@ fn mmu_text(t: Option<&maker_connect_protocol::Telemetry>) -> Option<String> {
     }
 }
 
+/// The machine's profile as shown: its model, and whether it was recognised or chosen.
+fn profile_name(machine: &Machine, p: &Profile) -> String {
+    format!(
+        "{}{}",
+        p.model,
+        if p.id.is_empty() {
+            ": $130 to $132; choose a profile under Settings"
+        } else if machine.profile_chosen {
+            ""
+        } else {
+            " (recognised)"
+        }
+    )
+}
+
+/// Everything known of what the machine is: its profile's facts, and what it told about
+/// itself (over Prusa Connect, or through its agent). For Settings.
+fn machine_facts(machine: &Machine, profile: Option<&Profile>) -> String {
+    let t = machine.telemetry.as_ref();
+    let details = machine.details.clone().unwrap_or_default();
+    let identity = t.and_then(|t| t.identity.as_ref());
+    let label = machine.kind == MachineKind::Label;
+    let from_profile = profile.map_or(String::new(), |p| {
+        [
+            row("Profile", Some(profile_name(machine, p))),
+            row(
+                if label {
+                    "Takes"
+                } else if p.build_volume_mm[2] > 0.0 {
+                    "Build volume"
+                } else {
+                    "Work area"
+                },
+                Some(p.size()),
+            ),
+            row("Resolution", p.dpi.map(|d| format!("{d} dpi"))),
+            row("Nozzle size", p.nozzle_mm.map(|n| format!("{n} mm"))),
+            row("Extruders", p.extruders.map(|n| n.to_string())),
+            row("Laser", machine.laser_w.or(p.laser_w).map(|w| format!("{w} W"))),
+            row("Max speed", p.max_speed_mm_min.map(|v| format!("{v} mm/min"))),
+            row("Max nozzle", p.max_nozzle_c.map(|c| format!("{c} °C"))),
+            row("Max bed", p.max_bed_c.map(|c| format!("{c} °C"))),
+        ]
+        .concat()
+    });
+    let told = [
+        row(
+            "Firmware",
+            details.firmware.clone().or_else(|| t.and_then(|t| t.firmware.clone())),
+        ),
+        // As the printer says it (a Prusa on Connect: its INFO; Prusa's MK3 through an agent:
+        // PRUSA SN, M862.1 Q, its MMU's M707, its EEPROM's counters).
+        row("Serial number", details.serial.clone().or_else(|| identity.and_then(|i| i.serial.clone()))),
+        row("Printer type", details.printer_type.clone()),
+        row(
+            "Nozzle in it",
+            details
+                .nozzle_mm
+                .map(|n| format!("{n} mm"))
+                .or_else(|| identity.and_then(|i| i.nozzle_mm.clone()).map(|n| format!("{n} mm"))),
+        ),
+        row("MMU firmware", identity.and_then(|i| i.mmu_firmware.clone())),
+        row("Filament, all time", t.and_then(|t| t.total_filament_m).map(|m| format!("{m} m"))),
+        row(
+            "Printing, all time",
+            t.and_then(|t| t.total_print_min).map(|m| format!("{} h {:02} min", m / 60, m % 60)),
+        ),
+        row(
+            "Status bytes",
+            t.filter(|_| machine.online).and_then(|t| t.raw_status.clone()),
+        ),
+    ]
+    .concat();
+    from_profile + &told
+}
+
 /// A row the script keeps live; `–` while unknown.
 fn live_row(label: &str, key: &str, value: Option<String>) -> String {
     format!(
@@ -1148,53 +1231,17 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
         .and_then(Profile::image)
         .or_else(|| profiles::generic_image(machine.kind))
         .unwrap_or(r#"<div class="no-picture">No picture yet</div>"#);
+    // A small summary here; everything it is and told is under Settings (`machine_facts`).
+    let nozzle = t
+        .and_then(|t| t.identity.as_ref())
+        .and_then(|i| i.nozzle_mm.clone())
+        .map(|n| format!("{n} mm"))
+        .or_else(|| profile.and_then(|p| p.nozzle_mm).map(|n| format!("{n} mm")));
     let facts = match profile {
         Some(p) => [
-            row(
-                "Profile",
-                Some(format!(
-                    "{}{}",
-                    p.model,
-                    if p.id.is_empty() {
-                        ": $130 to $132; choose a profile under Settings"
-                    } else if machine.profile_chosen {
-                        ""
-                    } else {
-                        " (recognised)"
-                    }
-                )),
-            ),
-            row(
-                if label {
-                    "Takes"
-                } else if p.build_volume_mm[2] > 0.0 {
-                    "Build volume"
-                } else {
-                    "Work area"
-                },
-                Some(p.size()),
-            ),
-            row("Resolution", p.dpi.map(|d| format!("{d} dpi"))),
-            row("Nozzle size", p.nozzle_mm.map(|n| format!("{n} mm"))),
-            row("Extruders", p.extruders.map(|n| n.to_string())),
-            row(
-                "Laser",
-                machine.laser_w.or(p.laser_w).map(|w| format!("{w} W")),
-            ),
-            row(
-                "Max speed",
-                p.max_speed_mm_min.map(|v| format!("{v} mm/min")),
-            ),
-            row("Max nozzle", p.max_nozzle_c.map(|c| format!("{c} °C"))),
-            row("Max bed", p.max_bed_c.map(|c| format!("{c} °C"))),
+            row("Profile", Some(profile_name(machine, p))),
             row("Firmware", t.and_then(|t| t.firmware.clone())),
-            // As the printer says it (Prusa's MK3: PRUSA SN, M862.1 Q, its MMU's M707).
-            row("Serial number", t.and_then(|t| t.identity.as_ref()).and_then(|i| i.serial.clone())),
-            row("Nozzle in it", t.and_then(|t| t.identity.as_ref()).and_then(|i| i.nozzle_mm.clone()).map(|n| format!("{n} mm"))),
-            row("MMU firmware", t.and_then(|t| t.identity.as_ref()).and_then(|i| i.mmu_firmware.clone())),
-            // Its own lifetime counters (Prusa's MK3 EEPROM).
-            row("Filament, all time", t.and_then(|t| t.total_filament_m).map(|m| format!("{} m", m))),
-            row("Printing, all time", t.and_then(|t| t.total_print_min).map(|m| format!("{} h {:02} min", m / 60, m % 60))),
+            row("Nozzle", nozzle),
         ]
         .concat(),
         None => "<dt>Profile</dt><dd>Not known yet: choose one under Settings</dd>".to_owned(),
@@ -1320,8 +1367,9 @@ fn control(machine: &Machine, profile: Option<&Profile>) -> String {
             button("preheat-petg", "Preheat PETG"),
             button("cooldown", "Cool down"),
             heat_inputs(t, profile) + &factor_inputs(t),
-            button("fan-on", "Print fan on"),
-            button("fan-off", "Print fan off"),
+            // Prusa's MK3 family: no fan control, as PrusaLink has none.
+            if crate::prusa_mk3_machine(machine) { String::new() } else { button("fan-on", "Print fan on") },
+            if crate::prusa_mk3_machine(machine) { String::new() } else { button("fan-off", "Print fan off") },
             button("motors-off", "Motors off"),
         );
         controls += &format!(
@@ -1864,27 +1912,7 @@ pub(crate) fn settings(
 {safety}{move_section}<h4>Remove</h4>
 <form method="post" action="{id}/remove" data-async data-done="Machine removed" data-confirm="Remove this machine from the space?" data-then="../"><button class="danger">Remove machine</button></form>"#
     );
-    let about = [
-        row("Serial number", details.serial.clone()),
-        row("Printer type", details.printer_type.clone()),
-        row(
-            "Firmware",
-            details
-                .firmware
-                .clone()
-                .or_else(|| machine.telemetry.as_ref().and_then(|t| t.firmware.clone())),
-        ),
-        row("Nozzle", details.nozzle_mm.map(|n| format!("{n} mm"))),
-        row(
-            "Status bytes",
-            machine
-                .telemetry
-                .as_ref()
-                .filter(|_| machine.online)
-                .and_then(|t| t.raw_status.clone()),
-        ),
-    ]
-    .concat();
+    let about = machine_facts(machine, machine.profile.as_deref().and_then(profiles::find));
     let storage: String = details
         .storages
         .iter()
@@ -1914,7 +1942,7 @@ pub(crate) fn settings(
     if !about.is_empty() {
         info += &card(
             "Machine",
-            "What it told about itself",
+            "Its profile, and what it told about itself",
             &format!("<dl>{about}</dl>"),
         );
     }
