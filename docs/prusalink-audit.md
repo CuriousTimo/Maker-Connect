@@ -285,6 +285,6 @@ literal of `lcd_printer.py` in `lcd.rs` (comments left out), or here.
 | `filename`, `rewinding`, `lan`, `error`, `wizard_needed`, `ip`, `speed` | Keys of a screen's conditions (when to set its text again), not shown | n/a |
 | `Displaying an error message %s`, `Printed: '%s' on the LCD.`, `LCDPrinter` | Its log lines and its thread's name, not shown | n/a |
 | `{local_ip}/{self.printer_number}` | Several PrusaLinks on one Pi (its printer number): the agent runs one per printer | n/a |
-| `Go: {local_ip}` | Its setup screen points to PrusaLink's own web page; the agent has none, it is set up by adding it on the hub: it shows `Code: <pairing code>` instead | **OPEN**: the user decides (PrusaLink's text would point to nothing) |
+| `Go: {local_ip}` | Its setup screen points to PrusaLink's own web page; the agent has none, it is set up by adding it on the hub: it shows `Code: <pairing code>` instead | n/a: kept so by the user's choice, 2026-11-10 (PrusaLink's text would point to nothing) |
 | `Preparing recovery` | Shown while PrusaLink reads its file up to the line of a power cut; the agent starts at that line at once, so the screen has nothing to show then (the text is in `lcd.rs`) | n/a |
 
