@@ -131,8 +131,8 @@ fn virtual_label(
     let mut telemetry = Telemetry {
         state: MachineState::Idle,
         cassette: (profile.firmware.as_deref() == Some("dymo-d1")).then_some(true),
-        // A healthy pack (7.4 V, two cells), as a real one charged reports.
-        battery_v: profile.battery.then_some(8.1),
+        // A full pack, as a charged PnP says it.
+        battery_percent: profile.battery.then_some(100),
         firmware: Some(format!("simulated {}", profile.model)),
         ..Telemetry::default()
     };

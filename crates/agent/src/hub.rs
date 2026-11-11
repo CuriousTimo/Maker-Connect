@@ -23,7 +23,7 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 const REPORT_EVERY: Duration = Duration::from_secs(2);
-/// How often an idle DYMO is asked its status (its cassette).
+/// How often an idle label printer (a DYMO LabelManager or LabelWriter) is asked its status.
 const DYMO_STATUS_EVERY: Duration = Duration::from_secs(15);
 /// How often a missing printer is looked for again.
 const RECONNECT_EVERY: Duration = Duration::from_secs(10);
@@ -1012,8 +1012,6 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let mut agent = agent_info(&options.hub);
     let mut next_look = Instant::now();
     let mut paired = None;
-    // A label printer's battery under the minimum to print (see `dymo::BATTERY_PRINT_MIN_V`).
-    let mut battery_too_low = false;
     // What the next report brings: how commands went, a mesh they produced, a job's end.
     let mut done: Vec<CommandDone> = Vec::new();
     let mut mesh = None;
@@ -1280,48 +1278,23 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     machine = None;
                 }
             }
-            // Not asked for its status while idle (see `dymo::Printer::last`): only whether
-            // it is still on USB; its cassette as it said on connecting and around labels.
+            // Whether it is still on USB (the system's device list), and its status every
+            // DYMO_STATUS_EVERY: shown, not acted on.
             Some(Machine::Dymo(printer)) => {
                 if printer.present() {
-                    // Asked now and then while idle (not at every report): its cassette.
+                    // Asked now and then while idle: ours, not labelle's (the owner's
+                    // decision 2026-11-11), for the cassette and battery between labels.
                     let due = printer
                         .asked_at
                         .is_none_or(|at| at.elapsed() >= DYMO_STATUS_EVERY);
                     if due && let Err(error) = printer.status() {
                         println!("label printer does not answer: {error}");
                     }
-                    let status = printer.last;
                     telemetry.raw_status =
                         (!printer.last_raw.is_empty()).then(|| dymo::hex(&printer.last_raw));
-                    // The battery: too low to print below the minimum, until it is back above
-                    // "low" (so it does not flap around the line).
-                    let battery = dymo::battery_volts(&printer.last_raw);
-                    telemetry.battery_v = battery;
-                    if let Some(v) = battery {
-                        if v < dymo::BATTERY_PRINT_MIN_V {
-                            battery_too_low = true;
-                        } else if v >= dymo::BATTERY_LOW_V {
-                            battery_too_low = false;
-                        }
-                    }
-                    // No cassette, or a battery too low: it waits for someone (attention),
-                    // the reason said as the problem; only a jammed cutter or its error bit
-                    // is an error.
-                    telemetry.state = match status {
-                        Some(s) if s.cutter_jammed() || s.error() => MachineState::Error,
-                        Some(s) if !s.cassette() => MachineState::Attention,
-                        _ if battery_too_low => MachineState::Attention,
-                        _ => MachineState::Idle,
-                    };
-                    telemetry.cassette = status.map(|s| s.cassette());
-                    telemetry.problem = status.and_then(|s| s.problem()).map(str::to_owned);
-                    if telemetry.problem.is_none() && battery_too_low {
-                        telemetry.problem = Some(format!(
-                            "battery too low to print reliably ({:.2} V)",
-                            battery.unwrap_or_default()
-                        ));
-                    }
+                    telemetry.battery_percent = dymo::battery_reported(&printer.last_raw);
+                    telemetry.cassette = printer.last().map(|s| s.cassette());
+                    telemetry.state = MachineState::Idle;
                     telemetry.identity = Some(Identity {
                         machine_type: Some(printer.product.clone()),
                         ..Identity::default()

@@ -2399,7 +2399,8 @@ const PAGE: &str = r##"<!doctype html>
     if (t.nozzle_c != null) return [`${t.nozzle_c.toFixed(0)} °C · ${t.bed_c != null ? `${t.bed_c.toFixed(0)} °C` : "–"}`, "nozzle · bed"];
     if (m.kind === "label") {
       const tape = t.cassette === false ? "no cassette" : m.media ? `tape ${m.media}` : "tape not set";
-      return [`${tape}${t.battery_v != null ? ` · ${batteryPercent(t.battery_v)} %` : ""}`, t.battery_v != null ? "tape · battery" : "tape"];
+      const pct = t.battery_percent ?? null;
+      return [`${tape}${pct != null ? ` · ${pct} %` : ""}`, pct != null ? "tape · battery" : "tape"];
     }
     if (t.position_mm) return [`X ${t.position_mm[0].toFixed(1)} · Y ${t.position_mm[1].toFixed(1)}`, "head, mm"];
     return [null, "nothing reported"];

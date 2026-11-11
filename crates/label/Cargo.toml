@@ -6,19 +6,10 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-# Printing over USB HID (the agent): the system's HID API, no driver, no root.
-hid = ["dep:hidapi"]
-# Printing to a USB printer-class device (a DYMO LabelWriter): nusb, pure Rust, no libusb.
+# Printing over USB (the agent): nusb, pure Rust, no libusb.
 usb = ["dep:nusb"]
 
 [dependencies]
 png = "0.17"
 nusb = { version = "0.2", optional = true }
 
-# USB HID: the system's own API on macOS and Windows; on Linux hidraw, found through /sys in
-# pure Rust (no libudev), so the agent cross-builds for a Pi.
-[target.'cfg(target_os = "linux")'.dependencies]
-hidapi = { version = "2", optional = true, default-features = false, features = ["linux-native-basic-udev"] }
-
-[target.'cfg(not(target_os = "linux"))'.dependencies]
-hidapi = { version = "2", optional = true }

@@ -416,21 +416,9 @@ fn tile(
     )
 }
 
-/// How a battery is doing, by its voltage: as the label page's script says it.
-fn battery_note(volts: Option<f32>) -> String {
-    use maker_connect_label::dymo::{BATTERY_LOW_V, BATTERY_PRINT_MIN_V};
-    match volts {
-        None => "not reported".to_owned(),
-        Some(v) if v < BATTERY_PRINT_MIN_V => format!("{v:.2} V · too low to print"),
-        Some(v) if v < BATTERY_LOW_V => format!("{v:.2} V · low"),
-        Some(v) => format!("{v:.2} V · estimated"),
-    }
-}
-
-/// A battery's tile: how full, as a percentage and a battery that fills, green, amber
-/// under 30 %, red under 15 % (the label page's script keeps it live).
-fn battery_tile(volts: Option<f32>) -> String {
-    let percent = volts.map(maker_connect_label::dymo::battery_percent);
+/// A battery's tile: how full, as the machine says it, and a battery that fills, green,
+/// amber under 30 %, red under 15 % (the label page's script keeps it live).
+fn battery_tile(percent: Option<u8>) -> String {
     let level = match percent {
         None => "none",
         Some(p) if p < 15 => "low",
@@ -441,7 +429,7 @@ fn battery_tile(volts: Option<f32>) -> String {
     format!(
         r#"<div class="tile"><div class="label">Battery</div><div class="value battery-value"><svg class="battery" data-battery data-level="{level}" viewBox="0 0 28 14" aria-hidden="true"><rect x="1" y="1" width="23" height="12" rx="2.5" class="shell"/><rect x="25" y="4.5" width="2" height="5" rx="1" class="nub"/><rect x="3" y="3" width="{fill:.1}" height="8" rx="1.2" class="charge" data-battery-fill/></svg><span data-live="battery_pct">{pct}</span><small>%</small></div><div class="sub" data-live="battery_note">{note}</div></div>"#,
         pct = percent.map_or("–".to_owned(), |p| p.to_string()),
-        note = escape(&battery_note(volts)),
+        note = if percent.is_some() { "asked every 15 s" } else { "not reported" },
     )
 }
 
@@ -1122,7 +1110,7 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
         // of tape, and a battery.
         let die_cut = profile.is_some_and(|p| p.firmware.as_deref() == Some("dymo-lw"));
         let has_battery =
-            profile.is_some_and(|p| p.battery) || t.is_some_and(|t| t.battery_v.is_some());
+            profile.is_some_and(|p| p.battery) || t.is_some_and(|t| t.battery_percent.is_some());
         let roll = t.map(|t| {
             let empty = t
                 .problem
@@ -1155,7 +1143,7 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
                 format!("{} · {}", m.name, m.id)
             }),
         ) + &(if has_battery {
-            battery_tile(t.and_then(|t| t.battery_v))
+            battery_tile(t.and_then(|t| t.battery_percent))
         } else {
             String::new()
         }) + &tile(

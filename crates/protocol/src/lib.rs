@@ -269,9 +269,10 @@ pub struct Telemetry {
     /// ("Calibrating its thermal model").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub doing: Option<String>,
-    /// A battery-powered machine's battery, in volts (a DYMO LabelManager PnP's cell).
+    /// A battery-powered machine's charge, in percent, as the machine itself says it (a
+    /// DYMO LabelManager PnP: byte 3 of its status).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub battery_v: Option<f32>,
+    pub battery_percent: Option<u8>,
     /// The machine's own status as it answered, in hex, where it is not yet understood
     /// in full (a DYMO's eight bytes), to find out what the rest says.
     #[serde(default, skip_serializing_if = "Option::is_none")]

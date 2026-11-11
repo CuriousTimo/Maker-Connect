@@ -340,12 +340,10 @@
     setLive("roll", !t ? "–" : (t.problem || "").startsWith("no labels") ? "Empty" : "Loaded");
     setLive("job", machine.job ? `${machine.job.file_name} (${machine.job.state})` : "–");
     setLive("problem", t?.problem || "");
-    // The battery, as the page says it on the server too (dymo::battery_percent,
-    // machine_page::battery_tile): how full, from its voltage.
-    const v = t?.battery_v;
-    const pct = v == null ? null : batteryPercent(v);
+    // The battery, as the machine says its charge (as machine_page::battery_tile).
+    const pct = t?.battery_percent ?? null;
     setLive("battery_pct", pct == null ? "–" : String(pct));
-    setLive("battery_note", v == null ? "not reported" : `${v.toFixed(2)} V · ${v < 7.0 ? "too low to print" : v < 7.2 ? "low" : "estimated"}`);
+    setLive("battery_note", pct == null ? "not reported" : "asked every 15 s");
     const battery = document.querySelector("[data-battery]");
     if (battery) {
       battery.dataset.level = pct == null ? "none" : pct < 15 ? "low" : pct < 30 ? "mid" : "ok";
