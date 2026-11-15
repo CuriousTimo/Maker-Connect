@@ -92,7 +92,6 @@ fn the_laser_actions_are_laserfoundrys_link_calls() {
 #[test]
 fn what_laserfoundry_has_no_control_for_fails_loudly() {
     for action in [
-        Action::LaserOff,
         Action::Extrude { mm: 5.0 },
         Action::Temperature { heater: Heater::Nozzle, celsius: 200.0 },
         Action::Fan { on: true },
@@ -118,7 +117,7 @@ fn a_command_is_done_with_what_the_machine_said_and_a_refused_one_fails() {
     let mut port = Running::sim();
     let done = port.command(1, Action::Home { axes: vec![] });
     assert!(done.ok && done.output == ["> $H", "ok"], "{done:?}");
-    let done = port.command(2, Action::LaserOff);
+    let done = port.command(2, Action::Extrude { mm: 5.0 });
     assert!(!done.ok && done.reason.as_deref() == Some(NO_SUCH_CONTROL), "{done:?}");
     let done = port.command(3, Action::Fan { on: true });
     assert!(!done.ok);

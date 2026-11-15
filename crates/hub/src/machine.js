@@ -930,7 +930,10 @@
     showState(m);
     const bar = document.querySelector("[data-job-bar]");
     if (bar) bar.style.width = `${percent ?? 0}%`;
-    for (const el of document.querySelectorAll("[data-job], [data-job-actions]")) el.hidden = !job;
+    const laser = m.kind === "laser";
+    for (const el of document.querySelectorAll("[data-job]")) el.hidden = !job;
+    // A laser's Stop (a soft reset) is there with no job too.
+    for (const el of document.querySelectorAll("[data-job-actions]")) el.hidden = !job && !laser;
     const none = document.querySelector("[data-no-job]");
     if (none) none.hidden = !!job;
     // An interrupted job that can start again where it stopped.
@@ -947,7 +950,7 @@
     if (own && thumb) thumb.hidden = true;
     jobState = job?.state ?? "";
     for (const button of document.querySelectorAll("[data-job-actions] button")) {
-      const can = { pause: job?.state === "printing", resume: job?.state === "paused", stop: !!job && job.state !== "stopping" };
+      const can = { pause: job?.state === "printing", resume: job?.state === "paused", stop: job ? job.state !== "stopping" : laser };
       button.hidden = !can[button.value];
       // Pressed and waiting: done once the printer says another state.
       if (button.dataset.waitFrom != null && button.dataset.waitFrom !== jobState) jobButtonBack(button);
@@ -994,6 +997,8 @@
       try {
         const r = await fetch(url, { method: "POST", body: new URLSearchParams({ action: button.value }) });
         if (!r.ok) back(`Not done: ${await r.text()}`);
+        // No job, so no state to change: a laser's Stop is done once the hub took it.
+        else if (!jobState) same.forEach(jobButtonBack);
       } catch {
         back("The hub does not answer.");
       }

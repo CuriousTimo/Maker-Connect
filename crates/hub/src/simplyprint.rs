@@ -506,7 +506,13 @@ mod tests {
             )
             .unwrap();
             let file = s.file(space, "f1").unwrap().unwrap();
-            s.add_job(space, &id, &file, None, Some("SimplyPrint"))
+            s.add_job(
+                space,
+                &id,
+                &file,
+                None,
+                crate::store::StartedBy::Auto { by: Some("SimplyPrint") },
+            )
                 .unwrap()
                 .unwrap()
         };

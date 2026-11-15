@@ -592,6 +592,10 @@ impl Store {
         let mut sent = 0;
         for space in spaces {
             for machine in self.machines(space)? {
+                // A laser starts only when someone at the laser starts it.
+                if machine.kind == maker_connect_protocol::MachineKind::Laser {
+                    continue;
+                }
                 // A queue of its own (crate::queue) goes first.
                 if !machine.queue.is_empty() {
                     continue;
@@ -625,7 +629,13 @@ impl Store {
                     (_, Some(project)) => format!("queue · {project}"),
                     _ => "queue".to_owned(),
                 };
-                if let Ok(job) = self.add_job(space, &machine.id, &file, None, Some(&by))? {
+                if let Ok(job) = self.add_job(
+                    space,
+                    &machine.id,
+                    &file,
+                    None,
+                    crate::store::StartedBy::Auto { by: Some(&by) },
+                )? {
                     self.db.execute(
                         "UPDATE jobs SET part_id = ?2, per_plate = ?3 WHERE id = ?1",
                         params![job, c.part, c.per_plate],

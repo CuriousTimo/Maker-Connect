@@ -83,7 +83,7 @@ LaserFoundry's app, and the test of the port's side (`crates/grbl/src/tests.rs`,
 ## 4. Where ours is not LaserFoundry's (the list, `docs/agent-engine.md` G1 to G16)
 
 Command answers come from the snapshot's console and the port reads it every 20 ms (G7, G9, G15);
-`LaserOff`, FDM actions, a Z jog and a frame without a file fail loudly (G2, G3, G4); the report's texts and
+FDM actions, a Z jog and a frame without a file fail loudly (G2, G4); the report's texts and
 states (G8, G11); the frame's machine (G12); a job's end on a lost connection (G13); `--baud`
 default and `--port` required (G14); a machine that did not open is not opened again (G10). None
 of these changes a byte on the wire (section 2).

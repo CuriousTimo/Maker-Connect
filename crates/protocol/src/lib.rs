@@ -501,9 +501,8 @@ pub enum Action {
     SdList,
     SdPrint { file: String },
     SdDelete { file: String },
-    /// A laser: unlock after an alarm, beam off, set and go to the work origin, read settings.
+    /// A laser: unlock after an alarm, set and go to the work origin, read settings.
     Unlock,
-    LaserOff,
     SetOrigin,
     GoOrigin,
     ReadSettings,

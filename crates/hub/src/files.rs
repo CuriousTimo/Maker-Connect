@@ -705,7 +705,13 @@ async fn print(
             Err(error) => failed(error),
         };
     }
-    match store.add_job(space, &machine.id, &file, None, Some(&access.actor)) {
+    match store.add_job(
+        space,
+        &machine.id,
+        &file,
+        None,
+        crate::store::StartedBy::person(&access),
+    ) {
         Ok(Ok(_)) if copies > 1 => match queue_rest(&mut store, copies - 1) {
             Ok(_) if headers.contains_key("x-requested-with") => Json(serde_json::json!({
                 "started": true,
@@ -827,7 +833,13 @@ async fn control_job(
             Ok(None) => return (StatusCode::CONFLICT, "its file is gone").into_response(),
             Err(error) => return failed(error),
         };
-        return match store.add_job(space, &id, &file, last.restart_line, Some(&access.actor)) {
+        return match store.add_job(
+            space,
+            &id,
+            &file,
+            last.restart_line,
+            crate::store::StartedBy::person(&access),
+        ) {
             Ok(Ok(_)) => StatusCode::NO_CONTENT.into_response(),
             Ok(Err(why)) => (StatusCode::CONFLICT, why).into_response(),
             Err(error) => failed(error),
@@ -840,6 +852,14 @@ async fn control_job(
             // screen): no job of the hub's, so the printer is told directly.
             let own = match store.machine(access.space, &id) {
                 Ok(Some(m)) if m.online && m.telemetry.as_ref().is_some_and(|t| t.job.is_some()) => m,
+                // A laser's Stop (a soft reset) is offered with no job too.
+                Ok(Some(m))
+                    if m.online
+                        && m.kind == maker_connect_protocol::MachineKind::Laser
+                        && form.action == "stop" =>
+                {
+                    m
+                }
                 Ok(_) => return (StatusCode::NOT_FOUND, "no job on this machine").into_response(),
                 Err(error) => return failed(error),
             };

@@ -615,7 +615,6 @@ impl Edge {
             | Action::UnloadFilament { .. }
             | Action::ProbeBed
             | Action::Unlock
-            | Action::LaserOff
             | Action::SetOrigin
             | Action::GoOrigin
             | Action::ReadSettings

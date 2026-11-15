@@ -2412,3 +2412,6 @@ mod tests {
         assert_eq!(parse_iso("2024-02-29"), Some(1_709_164_800));
     }
 }
+
+#[cfg(test)]
+mod audit;

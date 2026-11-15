@@ -3048,8 +3048,8 @@ mod tests {
                 .0,
             StatusCode::NO_CONTENT
         );
-        // A laser in a space that asks for PPE: first the glasses (crate::safety). Laser off
-        // never waits for them. (A space that does not ask: no glasses needed.)
+        // A laser in a space that asks for PPE: first the glasses (crate::safety). Switching
+        // off never waits for them. (A space that does not ask: no glasses needed.)
         assert_eq!(
             w.post(&mia, &command, "gcode=G0").await.0,
             StatusCode::NO_CONTENT,
@@ -3068,9 +3068,10 @@ mod tests {
             w.post(&mia, &command, "gcode=G0").await.0,
             StatusCode::PRECONDITION_REQUIRED
         );
-        assert_eq!(
+        assert_ne!(
             w.post(&mia, &command, "action=laser-off").await.0,
-            StatusCode::NO_CONTENT
+            StatusCode::NO_CONTENT,
+            "Laser off is gone"
         );
         let ppe = format!("/machines/{laser}/ppe");
         assert_eq!(
@@ -3139,6 +3140,123 @@ mod tests {
                 .0,
             StatusCode::FORBIDDEN
         );
+    }
+
+    /// A laser job starts only when a person, in their session, presses Start: `print` and
+    /// "Start again from there" do; an API token's print is refused; the copies after the
+    /// first wait in the queue and nothing starts them.
+    #[tokio::test]
+    async fn a_laser_starts_only_by_a_person() {
+        use crate::store::{JobState, LASER_NEVER_ALONE};
+        let w = World::new();
+        let (org, space) = {
+            let s = w.store.lock().unwrap();
+            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
+            s.create_organisation("Fablab", "Werkplaats", owner)
+                .unwrap()
+        };
+        let (adam_id, adam) = w.person("adam", Some((org, Role::Admin)), None);
+        let (laser, token) = {
+            let mut s = w.store.lock().unwrap();
+            let laser = s
+                .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
+                .unwrap();
+            let token = s
+                .virtual_machines()
+                .unwrap()
+                .into_iter()
+                .find(|(m, ..)| *m == laser)
+                .unwrap()
+                .1;
+            s.add_file(
+                space,
+                "f1",
+                "sign.gcode",
+                10,
+                &crate::gcode::FileMeta {
+                    kind: Some(maker_connect_protocol::MachineKind::Laser),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            s.report(&token, &Default::default()).unwrap();
+            (laser, token)
+        };
+        let jobs = |w: &World| {
+            let s = w.store.lock().unwrap();
+            let n: i64 = s
+                .db
+                .query_row("SELECT COUNT(*) FROM jobs WHERE machine_id = ?1", [&laser], |r| r.get(0))
+                .unwrap();
+            (n, s.queue_of(&laser).unwrap().len())
+        };
+        // An API token (no session) may not start a laser, even with permission to use it.
+        assert_eq!(
+            w.post(&adam, &format!("/machines/{laser}/grants"), &format!("user={adam_id}&level=operate"))
+                .await
+                .0,
+            StatusCode::NO_CONTENT
+        );
+        let (status, body) = w
+            .post(&adam, "/space/tokens", "name=Bot&role=admin")
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let api = serde_json::from_str::<serde_json::Value>(&body).unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let (status, body) = w
+            .send(
+                HttpRequest::post("/files/f1/print")
+                    .header("authorization", format!("Bearer {api}"))
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("machine={laser}")))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(
+            (status, body.as_str()),
+            (StatusCode::CONFLICT, LASER_NEVER_ALONE),
+            "a token never starts a laser"
+        );
+        assert_eq!(jobs(&w), (0, 0));
+        // A person: three copies; the first starts, the other two wait.
+        let (status, body) = w
+            .post(&adam, "/files/f1/print", &format!("machine={laser}&copies=3"))
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(jobs(&w), (1, 2));
+        {
+            let mut s = w.store.lock().unwrap();
+            let job = s.active_job(&laser).unwrap().unwrap();
+            assert_eq!(job.by.as_deref(), Some("adam"));
+            s.set_job(job.id, JobState::Finished, None).unwrap();
+            s.report(&token, &Default::default()).unwrap();
+            assert_eq!(s.start_queued().unwrap(), 0, "the copies wait");
+            assert_eq!(s.dispatch().unwrap(), 0);
+        }
+        assert_eq!(jobs(&w), (1, 2));
+        // "Start again from there": a person; interrupted jobs start again.
+        {
+            let mut s = w.store.lock().unwrap();
+            let job = s.job(1).unwrap().unwrap();
+            s.set_job(job.id, JobState::Stopped, None).unwrap();
+            s.set_restart_line(job.id, 5).unwrap();
+        }
+        let (status, body) = w.post(&adam, &format!("/machines/{laser}/job"), "action=restart").await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        assert_eq!(jobs(&w).0, 2);
+        // Stop with no job: a laser's (a soft reset) goes to the agent; a printer's is "no job".
+        w.store.lock().unwrap().set_job(2, JobState::Finished, None).unwrap();
+        w.store.lock().unwrap().report(&token, &Default::default()).unwrap();
+        let (status, body) = w.post(&adam, &format!("/machines/{laser}/job"), "action=stop").await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        assert!(matches!(
+            w.store.lock().unwrap().own_job_control.remove(&laser),
+            Some(maker_connect_protocol::JobControl::Stop)
+        ));
+        let (status, _) = w.post(&adam, &format!("/machines/{laser}/job"), "action=pause").await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "only Stop is offered with no job");
     }
 
     /// An invite link: a newcomer makes an account and is in; the link works once.

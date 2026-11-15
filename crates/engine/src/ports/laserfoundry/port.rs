@@ -10,8 +10,7 @@
 //!   `send_line` (`panels.rs:865`), one call per line.
 //! - G2: FDM actions, a jog with Z, and Home's axes: LaserFoundry has one homing cycle (`$H`)
 //!   and no Z jog; the others fail "LaserFoundry has no such control".
-//! - G3: `LaserOff` fails "LaserFoundry has no such control" (its app has no laser-off
-//!   control: `Link::stop`, a soft reset, is its Stop button and is a job control here).
+//! - G3: `Link::stop`, a soft reset, is LaserFoundry's Stop button and is a job control here.
 //! - G4: `Frame { download }` gets, from the agent's link, the local path of the file it fetched
 //!   (B2 fetch); the port reads the file's extent (G16) and runs `GrblMachine::frame` on it
 //!   (`gcode::frame` as a job, `panels.rs:734-740`). A path that is not a readable file fails.
@@ -110,8 +109,7 @@ pub fn commands_for(action: &Action) -> Result<Vec<Command>, String> {
         Action::GoOrigin => vec![Command::GoToZero],
         Action::ReadSettings => vec![Command::Settings],
         Action::Frame { .. } => return Err(NO_FRAME_FILE.to_owned()),
-        Action::LaserOff
-        | Action::Extrude { .. }
+        Action::Extrude { .. }
         | Action::Temperature { .. }
         | Action::Fan { .. }
         | Action::Speed { .. }

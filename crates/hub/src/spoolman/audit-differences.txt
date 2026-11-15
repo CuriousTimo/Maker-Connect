@@ -1,0 +1,1948 @@
+69 of 376 identical
+001 info GET /api/v1/info
+    header vary: only Spoolman ("Accept-Encoding")
+    body $.version: Spoolman "0.27.1", ours "0.23.0"
+002 health GET /api/v1/health
+    identical
+003 backup POST /api/v1/backup
+    status: Spoolman 200, ours 501
+    header content-type: only Spoolman ("application/json")
+    body: Spoolman JSON, ours ""
+004 empty vendor list GET /api/v1/vendor
+    identical
+005 empty filament list GET /api/v1/filament
+    identical
+006 empty spool list GET /api/v1/spool
+    identical
+007 empty spool group GET /api/v1/spool/group?group_by=location
+    status: Spoolman 200, ours 400
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    header x-total-count: only Spoolman ("0")
+    header x-total-remaining-weight: only Spoolman ("0.0")
+    header x-total-spools: only Spoolman ("0")
+    body: Spoolman JSON, ours "Invalid URL: Cannot parse `group` to a `i64`"
+008 empty material GET /api/v1/material
+    identical
+009 empty article-number GET /api/v1/article-number
+    identical
+010 empty lot-number GET /api/v1/lot-number
+    identical
+011 empty location GET /api/v1/location
+    identical
+012 empty search GET /api/v1/search?q=x
+    status: Spoolman 200, ours 404
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "nothing at /api/v1/search?q=x"
+013 tag reader (none) GET /api/v1/tag/reader
+    identical
+014 fields of vendor (none) GET /api/v1/field/vendor
+    identical
+015 fields of filament (none) GET /api/v1/field/filament
+    identical
+016 fields of spool (none) GET /api/v1/field/spool
+    identical
+017 field of unknown entity GET /api/v1/field/bogus
+    status: Spoolman 422, ours 404
+    header content-type: only Spoolman ("application/json")
+    body: Spoolman JSON, ours ""
+018 export vendors csv (empty) GET /api/v1/export/vendors?fmt=csv
+    header content-disposition: only Spoolman ("attachment; filename=\"vendors.csv\"")
+    body: Spoolman text "\r\n", ours "\n"
+019 export vendors json (empty) GET /api/v1/export/vendors?fmt=json
+    header content-disposition: only Spoolman ("attachment; filename=\"vendors.json\"")
+020 export filaments csv (empty) GET /api/v1/export/filaments?fmt=csv
+    header content-disposition: only Spoolman ("attachment; filename=\"filaments.csv\"")
+    body: Spoolman text "\r\n", ours "\n"
+021 export filaments json (empty) GET /api/v1/export/filaments?fmt=json
+    header content-disposition: only Spoolman ("attachment; filename=\"filaments.json\"")
+022 export spools csv (empty) GET /api/v1/export/spools?fmt=csv
+    header content-disposition: only Spoolman ("attachment; filename=\"spools.csv\"")
+    body: Spoolman text "\r\n", ours "\n"
+023 export spools json (empty) GET /api/v1/export/spools?fmt=json
+    header content-disposition: only Spoolman ("attachment; filename=\"spools.json\"")
+024 export unknown format GET /api/v1/export/vendors?fmt=xml
+    status: Spoolman 422, ours 200
+    header content-type: Spoolman "application/json", ours text/csv; charset=utf-8
+    body: Spoolman JSON, ours "\n"
+025 export without format GET /api/v1/export/vendors
+    status: Spoolman 422, ours 200
+    header content-type: Spoolman "application/json", ours text/csv; charset=utf-8
+    body: Spoolman JSON, ours "\n"
+026 vendor 1 (none) GET /api/v1/vendor/1
+    identical
+027 filament 1 (none) GET /api/v1/filament/1
+    identical
+028 spool 1 (none) GET /api/v1/spool/1
+    identical
+029 vendor id not a number GET /api/v1/vendor/abc
+    status: Spoolman 422, ours 400
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "Invalid URL: Cannot parse `abc` to a `i64`"
+030 unknown route GET /api/v1/nonexistent
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "nothing at /api/v1/nonexistent"
+031 trailing slash GET /api/v1/vendor/
+    status: Spoolman 307, ours 404
+    header location: only Spoolman ("http://<host>/api/v1/vendor")
+    header content-type: only ours (text/plain; charset=utf-8)
+    body: Spoolman empty, ours "nothing at /api/v1/vendor/"
+032 wrong method DELETE /api/v1/vendor
+    status: Spoolman 405, ours 403
+    header allow: Spoolman "GET", ours GET,HEAD,POST
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "nobody may do that here"
+033 wrong method on item POST /api/v1/vendor/1
+    status: Spoolman 405, ours 403
+    header allow: Spoolman "GET", ours GET,HEAD,PATCH,DELETE
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "nobody may do that here"
+034 settings, all, defaults GET /api/v1/setting/
+    header vary: only Spoolman ("Accept-Encoding")
+    body $.print_presets: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
+    body $.label_designs: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
+    body $.extra_fields_vendor: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
+    body $.extra_fields_filament: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
+    body $.extra_fields_spool: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
+    body $.locations: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
+    body $.locations_spoolorders: only Spoolman ({"value":"{}","is_set":false,"type":"object"})
+    body $.dashboard_groups: only Spoolman ({"value":"{}","is_set":false,"type":"object"})
+    body $.dashboard_spoolorders: only Spoolman ({"value":"{}","is_set":false,"type":"object"})
+    body $.label_template: only ours ({"value":"\"{code}\\n{vendor} {name}\\n{material} {color}\"","is_set":…)
+    body $.board_field: only ours ({"value":"\"location\"","is_set":false,"type":"string"})
+035 setting currency, default GET /api/v1/setting/currency
+    identical
+036 setting round_prices, default GET /api/v1/setting/round_prices
+    identical
+037 setting print_presets, default GET /api/v1/setting/print_presets
+    status: Spoolman 200, ours 404
+    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting print_presets not found."}
+038 setting label_designs, default GET /api/v1/setting/label_designs
+    status: Spoolman 200, ours 404
+    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting label_designs not found."}
+039 setting extra_fields_vendor, default GET /api/v1/setting/extra_fields_vendor
+    status: Spoolman 200, ours 404
+    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_vendor not found."}
+040 setting extra_fields_filament, default GET /api/v1/setting/extra_fields_filament
+    status: Spoolman 200, ours 404
+    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_filament not found."}
+041 setting extra_fields_spool, default GET /api/v1/setting/extra_fields_spool
+    status: Spoolman 200, ours 404
+    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_spool not found."}
+042 setting base_url, default GET /api/v1/setting/base_url
+    identical
+043 setting locations, default GET /api/v1/setting/locations
+    status: Spoolman 200, ours 404
+    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting locations not found."}
+044 setting locations_spoolorders, default GET /api/v1/setting/locations_spoolorders
+    status: Spoolman 200, ours 404
+    body: Spoolman {"value":"{}","is_set":false,"type":"object"}, ours {"message":"Setting locations_spoolorders not found."}
+045 setting dashboard_groups, default GET /api/v1/setting/dashboard_groups
+    status: Spoolman 200, ours 404
+    body: Spoolman {"value":"{}","is_set":false,"type":"object"}, ours {"message":"Setting dashboard_groups not found."}
+046 setting dashboard_spoolorders, default GET /api/v1/setting/dashboard_spoolorders
+    status: Spoolman 200, ours 404
+    body: Spoolman {"value":"{}","is_set":false,"type":"object"}, ours {"message":"Setting dashboard_spoolorders not found."}
+047 setting unknown GET /api/v1/setting/nokey
+    body $.message: Spoolman "Setting nokey does not exist.", ours "Setting nokey not found."
+048 set setting currency POST /api/v1/setting/currency
+    identical
+049 get setting currency, set GET /api/v1/setting/currency
+    identical
+050 set setting round_prices POST /api/v1/setting/round_prices
+    identical
+051 set setting print_presets POST /api/v1/setting/print_presets
+    status: Spoolman 200, ours 404
+    body: Spoolman {"value":"[{\"a\": 1}]","is_set":true,"type":"array"}, ours {"message":"Setting print_presets not found."}
+052 set setting dashboard_groups POST /api/v1/setting/dashboard_groups
+    status: Spoolman 200, ours 404
+    body: Spoolman {"value":"{\"location\": [\"A\"]}","is_set":true,"type":"object"}, ours {"message":"Setting dashboard_groups not found."}
+053 set setting wrong type POST /api/v1/setting/currency
+    status: Spoolman 400, ours 200
+    body: Spoolman {"message":"Setting currency must be a string."}, ours {"value":"5","is_set":true,"type":"string"}
+054 set setting body not JSON text POST /api/v1/setting/currency
+    status: Spoolman 400, ours 200
+    body: Spoolman {"message":"Expecting value: line 1 column 1 (char 0)"}, ours {"value":"USD","is_set":true,"type":"string"}
+055 set setting unknown key POST /api/v1/setting/nokey
+    body $.message: Spoolman "Setting nokey does not exist.", ours "Setting nokey not found."
+056 set setting wrong content type POST /api/v1/setting/currency
+    status: Spoolman 415, ours 200
+    body: Spoolman {"detail":"Unsupported content type 'text/plain'. The body of this endpoint must be sent as application/json."}, ours {"value":"\"EUR\"","is_set":true,"type":"string"}
+057 set setting empty body POST /api/v1/setting/currency
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"missing","loc":["body"],"msg":"Field required","input":null}]}, ours {"value":"","is_set":true,"type":"string"}
+058 set setting null resets POST /api/v1/setting/currency
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"string_type","loc":["body"],"msg":"Input should be a valid string","input":null}]}, ours {"value":"null","is_set":true,"type":"string"}
+059 get setting currency, reset GET /api/v1/setting/currency
+    body $.value: Spoolman "\"USD\"", ours "null"
+060 set setting malformed extra field list POST /api/v1/setting/extra_fields_spool
+    status: Spoolman 400, ours 404
+    header vary: only Spoolman ("Accept-Encoding")
+    body: Spoolman {"message":"Extra field at index 0 is not valid: 4 errors. 4 validation errors for ExtraField\nname\n  Field required [type=missing, input_value={'x':…, ours {"message":"Setting extra_fields_spool not found."}
+061 settings, all, after GET /api/v1/setting/
+    header vary: only Spoolman ("Accept-Encoding")
+    body $.currency.value: Spoolman "\"USD\"", ours "null"
+    body $.print_presets: only Spoolman ({"value":"[{\"a\": 1}]","is_set":true,"type":"array"})
+    body $.dashboard_groups: only Spoolman ({"value":"{\"location\": [\"A\"]}","is_set":true,"type":"object"})
+    body $.label_designs: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
+    body $.extra_fields_vendor: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
+    body $.extra_fields_filament: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
+    body $.extra_fields_spool: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
+    body $.locations: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
+    body $.locations_spoolorders: only Spoolman ({"value":"{}","is_set":false,"type":"object"})
+    body $.dashboard_spoolorders: only Spoolman ({"value":"{}","is_set":false,"type":"object"})
+    body $.label_template: only ours ({"value":"\"{code}\\n{vendor} {name}\\n{material} {color}\"","is_set":…)
+    body $.board_field: only ours ({"value":"\"location\"","is_set":false,"type":"string"})
+062 add vendor 1, name only POST /api/v1/vendor
+    body: ours sends 3 fields as null that Spoolman leaves out ($.comment, $.empty_spool_weight, $.external_id)
+063 add vendor 2, all fields POST /api/v1/vendor
+    identical
+064 add vendor 3, float weight POST /api/v1/vendor
+    body: ours sends 2 fields as null that Spoolman leaves out ($.comment, $.external_id)
+065 add vendor 4, unknown field ignored POST /api/v1/vendor
+    body: ours sends 3 fields as null that Spoolman leaves out ($.comment, $.empty_spool_weight, $.external_id)
+066 add vendor without name POST /api/v1/vendor
+    body $.detail: only Spoolman ([{"type":"missing","loc":["body","name"],"msg":"Field required","input…)
+    body $.message: only ours ("a vendor needs a name")
+067 add vendor, name too long POST /api/v1/vendor
+    (ours made vendor 5 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"string_too_long","loc":["body","name"],"msg":"String should have at most 64 characters","input":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…, ours {"id":5,"registered":"<now>","name":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","comment":null,"empty_spool_weight":null,"exte…
+068 add vendor, negative weight POST /api/v1/vendor
+    (ours made vendor 5 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"greater_than_equal","loc":["body","empty_spool_weight"],"msg":"Input should be greater than or equal to 0","input":-1,"ctx":{"ge":…, ours {"id":5,"registered":"<now>","name":"Neg","comment":null,"empty_spool_weight":-1.0,"external_id":null,"extra":{}}
+069 add vendor, name a number POST /api/v1/vendor
+    body $.detail: only Spoolman ([{"type":"string_type","loc":["body","name"],"msg":"Input should be a …)
+    body $.message: only ours ("a vendor needs a name")
+070 add vendor, extra not a map POST /api/v1/vendor
+    (ours made vendor 5 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"dict_type","loc":["body","extra"],"msg":"Input should be a valid dictionary","input":"x"}]}, ours {"id":5,"registered":"<now>","name":"E","comment":null,"empty_spool_weight":null,"external_id":null,"extra":{}}
+071 add vendor, comment too long POST /api/v1/vendor
+    (ours made vendor 5 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    header vary: only Spoolman ("Accept-Encoding")
+    body: Spoolman {"detail":[{"type":"string_too_long","loc":["body","comment"],"msg":"String should have at most 1024 characters","input":"cccccccccccccccccccccccccccc…, ours {"id":5,"registered":"<now>","name":"C","comment":"ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc…
+072 add vendor, body not JSON POST /api/v1/vendor
+    status: Spoolman 422, ours 400
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "Failed to parse the request body as JSON: expected ident at line 1 co…
+073 add vendor, empty body POST /api/v1/vendor
+    status: Spoolman 422, ours 400
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "Failed to parse the request body as JSON: EOF while parsing a value a…
+074 add vendor, unknown extra key POST /api/v1/vendor
+    (ours made vendor 5 where Spoolman refused; deleted before the next request)
+    status: Spoolman 400, ours 200
+    body: Spoolman {"message":"Unknown extra field nokey."}, ours {"id":5,"registered":"<now>","name":"X","comment":null,"empty_spool_weight":null,"external_id":null,"extra":{"nokey":"1"}}
+075 get vendor 1 GET /api/v1/vendor/1
+    body: ours sends 3 fields as null that Spoolman leaves out ($.comment, $.empty_spool_weight, $.external_id)
+076 get vendor 2 GET /api/v1/vendor/2
+    identical
+077 get vendor 99 GET /api/v1/vendor/99
+    identical
+078 patch vendor 1 comment PATCH /api/v1/vendor/1
+    body: ours sends 2 fields as null that Spoolman leaves out ($.empty_spool_weight, $.external_id)
+079 patch vendor 1 weight PATCH /api/v1/vendor/1
+    body: ours sends 1 fields as null that Spoolman leaves out ($.external_id)
+080 patch vendor 1 empty PATCH /api/v1/vendor/1
+    body: ours sends 1 fields as null that Spoolman leaves out ($.external_id)
+081 patch vendor 1 comment null PATCH /api/v1/vendor/1
+    body: ours sends 2 fields as null that Spoolman leaves out ($.comment, $.external_id)
+082 patch vendor 99 PATCH /api/v1/vendor/99
+    identical
+083 patch vendor 2 external_id PATCH /api/v1/vendor/2
+    identical
+084 patch vendor 4 name PATCH /api/v1/vendor/4
+    body: ours sends 3 fields as null that Spoolman leaves out ($.comment, $.empty_spool_weight, $.external_id)
+085 list vendors GET /api/v1/vendor
+    body: ours sends 7 fields as null that Spoolman leaves out ($[].comment, $[].empty_spool_weight, $[].external_id)
+086 list vendors name part GET /api/v1/vendor?name=pru
+    body: ours sends 2 fields as null that Spoolman leaves out ($[].comment, $[].external_id)
+087 list vendors name two terms GET /api/v1/vendor?name=pru,poly
+    body: ours sends 2 fields as null that Spoolman leaves out ($[].comment, $[].external_id)
+088 list vendors name exact GET /api/v1/vendor?name=%22Polymaker%22
+    header x-total-count: Spoolman "1", ours 0
+    body $: 1 items, ours 0
+089 list vendors name exact, no match GET /api/v1/vendor?name=%22poly%22
+    identical
+090 list vendors external_id GET /api/v1/vendor?external_id=poly
+    identical
+091 list vendors external_id empty GET /api/v1/vendor?external_id=
+    body: ours sends 7 fields as null that Spoolman leaves out ($[].comment, $[].empty_spool_weight, $[].external_id)
+092 list vendors sort name asc GET /api/v1/vendor?sort=name:asc
+    body $[0].id: Spoolman 2, ours 3 (x4)
+    body $[0].name: Spoolman "Polymaker", ours "eSun" (x4)
+    body $[0].comment: Spoolman "PolyTerra and friends", ours null (x2)
+    body $[0].empty_spool_weight: Spoolman 140.0, ours 250.5 (x4)
+    body $[0].external_id: Spoolman "poly", ours null (x2)
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].comment, $[].external_id)
+093 list vendors sort name desc GET /api/v1/vendor?sort=name:desc
+    body $[0].id: Spoolman 3, ours 4 (x4)
+    body $[0].name: Spoolman "eSun", ours "Renamed" (x4)
+    body $[0].empty_spool_weight: Spoolman 250.5, ours null (x4)
+    body $[2].comment: only ours ("PolyTerra and friends") (x2)
+    body $[2].external_id: only ours ("poly") (x2)
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].comment, $[].external_id)
+094 list vendors sort two fields GET /api/v1/vendor?sort=empty_spool_weight:desc,id:asc
+    body $[0].id: Spoolman 3, ours 4 (x4)
+    body $[0].name: Spoolman "eSun", ours "Renamed" (x4)
+    body $[0].empty_spool_weight: Spoolman 250.5, ours null (x4)
+    body $[2].comment: Spoolman "PolyTerra and friends", ours null (x2)
+    body $[2].external_id: Spoolman "poly", ours null (x2)
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].comment, $[].external_id)
+095 list vendors sort without direction GET /api/v1/vendor?sort=name
+    status: Spoolman 400, ours 200
+    header x-total-count: only ours (4)
+    body: Spoolman {"message":"Invalid sort 'name', expected the form 'field:asc' or 'field:desc'."}, ours [{"id":3,"registered":"<now>","name":"eSun","comment":null,"empty_spool_weight":250.5,"external_id":null,"extra":{}},{"id":2,"registered":"<now>","nam…
+096 list vendors sort bad direction GET /api/v1/vendor?sort=name:sideways
+    status: Spoolman 400, ours 200
+    header x-total-count: only ours (4)
+    body: Spoolman {"message":"Invalid sort direction 'sideways' for field 'name', expected 'asc' or 'desc'."}, ours [{"id":3,"registered":"<now>","name":"eSun","comment":null,"empty_spool_weight":250.5,"external_id":null,"extra":{}},{"id":2,"registered":"<now>","nam…
+097 list vendors sort unknown field GET /api/v1/vendor?sort=bogus:asc
+    status: Spoolman 400, ours 200
+    header x-total-count: only ours (4)
+    body: Spoolman {"message":"Invalid field name 'bogus', 'bogus' is not a valid field on 'Vendor'."}, ours [{"id":1,"registered":"<now>","name":"Prusament","comment":null,"empty_spool_weight":193.0,"external_id":null,"extra":{}},{"id":2,"registered":"<now>"…
+098 list vendors limit GET /api/v1/vendor?limit=2
+    body: ours sends 2 fields as null that Spoolman leaves out ($[].comment, $[].external_id)
+099 list vendors limit and offset GET /api/v1/vendor?limit=2&offset=1
+    body: ours sends 2 fields as null that Spoolman leaves out ($[].comment, $[].external_id)
+100 list vendors offset only GET /api/v1/vendor?offset=3
+    body $: 4 items, ours 1
+    body $[0].id: Spoolman 1, ours 4
+    body $[0].name: Spoolman "Prusament", ours "Renamed"
+    body $[0].empty_spool_weight: Spoolman 193.0, ours null
+    body: ours sends 2 fields as null that Spoolman leaves out ($[].comment, $[].external_id)
+101 list vendors limit 0 GET /api/v1/vendor?limit=0
+    identical
+102 list vendors limit negative GET /api/v1/vendor?limit=-1
+    body: ours sends 7 fields as null that Spoolman leaves out ($[].comment, $[].empty_spool_weight, $[].external_id)
+103 list vendors limit not a number GET /api/v1/vendor?limit=abc
+    status: Spoolman 422, ours 200
+    header x-total-count: only ours (4)
+    body: Spoolman {"detail":[{"type":"int_parsing","loc":["query","limit"],"msg":"Input should be a valid integer, unable to parse string as an integer","input":"abc"}]…, ours [{"id":1,"registered":"<now>","name":"Prusament","comment":null,"empty_spool_weight":193.0,"external_id":null,"extra":{}},{"id":2,"registered":"<now>"…
+104 list vendors offset negative GET /api/v1/vendor?offset=-1
+    body: ours sends 7 fields as null that Spoolman leaves out ($[].comment, $[].empty_spool_weight, $[].external_id)
+105 add filament 1, minimal POST /api/v1/filament
+    body: ours sends 13 fields as null that Spoolman leaves out ($.article_number, $.color_hex, $.comment, $.external_id, $.material, $.multi_color_direction, $.multi_color_hexes, $.name, $.price, $.settings_bed_temp, $.settings_extruder_temp, $.spool_weight, $.weight)
+106 add filament 2, all fields POST /api/v1/filament
+    body $: key order differs
+    body $.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body: ours sends 4 fields as null that Spoolman leaves out ($.multi_color_direction, $.multi_color_hexes, $.vendor.comment, $.vendor.external_id)
+107 add filament 3, alpha colour POST /api/v1/filament
+    body $: key order differs
+    body $.spool_weight: Spoolman 140.0, ours null
+    body $.color_hex: Spoolman "FF0000CC", ours "ff0000cc"
+    body: ours sends 7 fields as null that Spoolman leaves out ($.comment, $.external_id, $.multi_color_direction, $.multi_color_hexes, $.price, $.settings_bed_temp, $.settings_extruder_temp)
+108 add filament 4, multi colour POST /api/v1/filament
+    body $: key order differs
+    body $.spool_weight: Spoolman 140.0, ours null
+    body $.multi_color_hexes: Spoolman "FF0000,00FF00", ours "#FF0000,00FF00"
+    body: ours sends 7 fields as null that Spoolman leaves out ($.article_number, $.color_hex, $.comment, $.external_id, $.price, $.settings_bed_temp, $.settings_extruder_temp)
+109 add filament without density POST /api/v1/filament
+    body $.detail: only Spoolman ([{"type":"missing","loc":["body","density"],"msg":"Field required","in…)
+    body $.message: only ours ("a filament needs its density")
+110 add filament, density 0 POST /api/v1/filament
+    body $.detail: only Spoolman ([{"type":"greater_than","loc":["body","density"],"msg":"Input should b…)
+    body $.message: only ours ("a filament needs its density")
+111 add filament, bad colour POST /api/v1/filament
+    (ours made filament 5 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"value_error","loc":["body","color_hex"],"msg":"Value error, Invalid character in color code.","input":"XYZ123","ctx":{"error":{}}}…, ours {"id":5,"registered":"<now>","name":null,"material":null,"price":null,"density":1.0,"diameter":1.0,"weight":null,"spool_weight":null,"article_number":…
+112 add filament, colour 5 long POST /api/v1/filament
+    (ours made filament 5 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"value_error","loc":["body","color_hex"],"msg":"Value error, Color code must be 6 or 8 characters long.","input":"12345","ctx":{"er…, ours {"id":5,"registered":"<now>","name":null,"material":null,"price":null,"density":1.0,"diameter":1.0,"weight":null,"spool_weight":null,"article_number":…
+113 add filament, both colours POST /api/v1/filament
+    (ours made filament 5 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"value_error","loc":["body"],"msg":"Value error, Cannot specify both color_hex and multi_color_hexes.","input":{"density":1,"diamet…, ours {"id":5,"registered":"<now>","name":null,"material":null,"price":null,"density":1.0,"diameter":1.0,"weight":null,"spool_weight":null,"article_number":…
+114 add filament, multi without direction POST /api/v1/filament
+    (ours made filament 5 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"value_error","loc":["body"],"msg":"Value error, Multi-color filament must have multi_color_direction set.","input":{"density":1,"d…, ours {"id":5,"registered":"<now>","name":null,"material":null,"price":null,"density":1.0,"diameter":1.0,"weight":null,"spool_weight":null,"article_number":…
+115 add filament, one multi colour POST /api/v1/filament
+    (ours made filament 5 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"value_error","loc":["body"],"msg":"Value error, Must specify at least two colors in multi_color_hexes.","input":{"density":1,"diam…, ours {"id":5,"registered":"<now>","name":null,"material":null,"price":null,"density":1.0,"diameter":1.0,"weight":null,"spool_weight":null,"article_number":…
+116 add filament, direction without multi POST /api/v1/filament
+    (ours made filament 5 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"value_error","loc":["body"],"msg":"Value error, Single-color filament must not have multi_color_direction set.","input":{"density"…, ours {"id":5,"registered":"<now>","name":null,"material":null,"price":null,"density":1.0,"diameter":1.0,"weight":null,"spool_weight":null,"article_number":…
+117 add filament, bad direction POST /api/v1/filament
+    (ours made filament 5 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"enum","loc":["body","multi_color_direction"],"msg":"Input should be 'coaxial' or 'longitudinal'","input":"zig","ctx":{"expected":"…, ours {"id":5,"registered":"<now>","name":null,"material":null,"price":null,"density":1.0,"diameter":1.0,"weight":null,"spool_weight":null,"article_number":…
+118 add filament, vendor 99 POST /api/v1/filament
+    status: Spoolman 404, ours 422
+    body: Spoolman {"message":"No vendor with ID 99 found."}, ours {"message":"no such vendor"}
+119 add filament, weight 0 POST /api/v1/filament
+    (ours made filament 5 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"greater_than","loc":["body","weight"],"msg":"Input should be greater than 0","input":0,"ctx":{"gt":0.0}}]}, ours {"id":5,"registered":"<now>","name":null,"material":null,"price":null,"density":1.0,"diameter":1.0,"weight":0.0,"spool_weight":null,"article_number":n…
+120 add filament, name too long POST /api/v1/filament
+    (ours made filament 5 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"string_too_long","loc":["body","name"],"msg":"String should have at most 64 characters","input":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…, ours {"id":5,"registered":"<now>","name":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","material":null,"price":null,"density":1.0,"di…
+121 add filament, negative price POST /api/v1/filament
+    (ours made filament 5 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"greater_than_equal","loc":["body","price"],"msg":"Input should be greater than or equal to 0","input":-1,"ctx":{"ge":0.0}}]}, ours {"id":5,"registered":"<now>","name":null,"material":null,"price":-1.0,"density":1.0,"diameter":1.0,"weight":null,"spool_weight":null,"article_number":…
+122 get filament 1 GET /api/v1/filament/1
+    body: ours sends 13 fields as null that Spoolman leaves out ($.article_number, $.color_hex, $.comment, $.external_id, $.material, $.multi_color_direction, $.multi_color_hexes, $.name, $.price, $.settings_bed_temp, $.settings_extruder_temp, $.spool_weight, $.weight)
+123 get filament 2 GET /api/v1/filament/2
+    body $: key order differs
+    body $.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body: ours sends 4 fields as null that Spoolman leaves out ($.multi_color_direction, $.multi_color_hexes, $.vendor.comment, $.vendor.external_id)
+124 get filament 4 GET /api/v1/filament/4
+    body $: key order differs
+    body $.spool_weight: Spoolman 140.0, ours null
+    body $.multi_color_hexes: Spoolman "FF0000,00FF00", ours "#FF0000,00FF00"
+    body: ours sends 7 fields as null that Spoolman leaves out ($.article_number, $.color_hex, $.comment, $.external_id, $.price, $.settings_bed_temp, $.settings_extruder_temp)
+125 get filament 99 GET /api/v1/filament/99
+    identical
+126 patch filament 1 name PATCH /api/v1/filament/1
+    body: ours sends 11 fields as null that Spoolman leaves out ($.article_number, $.color_hex, $.comment, $.external_id, $.multi_color_direction, $.multi_color_hexes, $.price, $.settings_bed_temp, $.settings_extruder_temp, $.spool_weight, $.weight)
+127 patch filament 1 vendor PATCH /api/v1/filament/1
+    body $: key order differs
+    body: ours sends 13 fields as null that Spoolman leaves out ($.article_number, $.color_hex, $.comment, $.external_id, $.multi_color_direction, $.multi_color_hexes, $.price, $.settings_bed_temp, $.settings_extruder_temp, $.spool_weight, $.vendor.comment, $.vendor.external_id, $.weight)
+128 patch filament 1 colour PATCH /api/v1/filament/1
+    body $: key order differs
+    body $.color_hex: Spoolman "00FF00", ours "00ff00"
+    body: ours sends 12 fields as null that Spoolman leaves out ($.article_number, $.comment, $.external_id, $.multi_color_direction, $.multi_color_hexes, $.price, $.settings_bed_temp, $.settings_extruder_temp, $.spool_weight, $.vendor.comment, $.vendor.external_id, $.weight)
+129 patch filament 1 colour to multi PATCH /api/v1/filament/1
+    body $: key order differs
+    body: ours sends 11 fields as null that Spoolman leaves out ($.article_number, $.color_hex, $.comment, $.external_id, $.price, $.settings_bed_temp, $.settings_extruder_temp, $.spool_weight, $.vendor.comment, $.vendor.external_id, $.weight)
+130 patch filament 1 colour null PATCH /api/v1/filament/1
+    body $: key order differs
+    body: ours sends 13 fields as null that Spoolman leaves out ($.article_number, $.color_hex, $.comment, $.external_id, $.multi_color_direction, $.multi_color_hexes, $.price, $.settings_bed_temp, $.settings_extruder_temp, $.spool_weight, $.vendor.comment, $.vendor.external_id, $.weight)
+131 patch filament 99 PATCH /api/v1/filament/99
+    identical
+132 patch filament 1 empty PATCH /api/v1/filament/1
+    body $: key order differs
+    body: ours sends 13 fields as null that Spoolman leaves out ($.article_number, $.color_hex, $.comment, $.external_id, $.multi_color_direction, $.multi_color_hexes, $.price, $.settings_bed_temp, $.settings_extruder_temp, $.spool_weight, $.vendor.comment, $.vendor.external_id, $.weight)
+133 list filaments GET /api/v1/filament
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x4)
+    body $[1].color_hex: Spoolman "2B2B33", ours "2b2b33" (x2)
+    body $[2].spool_weight: Spoolman 140.0, ours null (x2)
+    body $[3].multi_color_hexes: Spoolman "FF0000,00FF00", ours "#FF0000,00FF00"
+    body: ours sends 31 fields as null that Spoolman leaves out ($[].article_number, $[].color_hex, $[].comment, $[].external_id, $[].multi_color_direction, $[].multi_color_hexes, $[].price, $[].settings_bed_temp, $[].settings_extruder_temp, $[].spool_weight, $[].vendor.comment, $[].vendor.external_id, $[].weight)
+134 list filaments vendor_name GET /api/v1/filament?vendor_name=prus
+    body $[0]: key order differs
+    body $[0].color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].multi_color_direction, $[].multi_color_hexes, $[].vendor.comment, $[].vendor.external_id)
+135 list filaments vendor_id GET /api/v1/filament?vendor_id=2
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x2)
+    body $[0].spool_weight: Spoolman 140.0, ours null (x2)
+    body $[0].color_hex: Spoolman "FF0000CC", ours "ff0000cc"
+    body $[1].multi_color_hexes: Spoolman "FF0000,00FF00", ours "#FF0000,00FF00"
+    body: ours sends 14 fields as null that Spoolman leaves out ($[].article_number, $[].color_hex, $[].comment, $[].external_id, $[].multi_color_direction, $[].multi_color_hexes, $[].price, $[].settings_bed_temp, $[].settings_extruder_temp)
+136 list filaments vendor_id two GET /api/v1/filament?vendor_id=1,2
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x3)
+    body $[0].color_hex: Spoolman "2B2B33", ours "2b2b33" (x2)
+    body $[1].spool_weight: Spoolman 140.0, ours null (x2)
+    body $[2].multi_color_hexes: Spoolman "FF0000,00FF00", ours "#FF0000,00FF00"
+    body: ours sends 18 fields as null that Spoolman leaves out ($[].article_number, $[].color_hex, $[].comment, $[].external_id, $[].multi_color_direction, $[].multi_color_hexes, $[].price, $[].settings_bed_temp, $[].settings_extruder_temp, $[].vendor.comment, $[].vendor.external_id)
+137 list filaments vendor.name GET /api/v1/filament?vendor.name=poly
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x2)
+    body $[0].spool_weight: Spoolman 140.0, ours null (x2)
+    body $[0].color_hex: Spoolman "FF0000CC", ours "ff0000cc"
+    body $[1].multi_color_hexes: Spoolman "FF0000,00FF00", ours "#FF0000,00FF00"
+    body: ours sends 14 fields as null that Spoolman leaves out ($[].article_number, $[].color_hex, $[].comment, $[].external_id, $[].multi_color_direction, $[].multi_color_hexes, $[].price, $[].settings_bed_temp, $[].settings_extruder_temp)
+138 list filaments vendor.id GET /api/v1/filament?vendor.id=1
+    body $[0]: key order differs
+    body $[0].color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].multi_color_direction, $[].multi_color_hexes, $[].vendor.comment, $[].vendor.external_id)
+139 list filaments name GET /api/v1/filament?name=petg
+    body $[0]: key order differs
+    body $[0].color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].multi_color_direction, $[].multi_color_hexes, $[].vendor.comment, $[].vendor.external_id)
+140 list filaments material GET /api/v1/filament?material=PLA
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x2)
+    body $[0].spool_weight: Spoolman 140.0, ours null (x2)
+    body $[0].color_hex: Spoolman "FF0000CC", ours "ff0000cc"
+    body $[1].multi_color_hexes: Spoolman "FF0000,00FF00", ours "#FF0000,00FF00"
+    body: ours sends 14 fields as null that Spoolman leaves out ($[].article_number, $[].color_hex, $[].comment, $[].external_id, $[].multi_color_direction, $[].multi_color_hexes, $[].price, $[].settings_bed_temp, $[].settings_extruder_temp)
+141 list filaments material exact GET /api/v1/filament?material=%22PL%22
+    identical
+142 list filaments material two GET /api/v1/filament?material=petg,pla
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x3)
+    body $[0].color_hex: Spoolman "2B2B33", ours "2b2b33" (x2)
+    body $[1].spool_weight: Spoolman 140.0, ours null (x2)
+    body $[2].multi_color_hexes: Spoolman "FF0000,00FF00", ours "#FF0000,00FF00"
+    body: ours sends 18 fields as null that Spoolman leaves out ($[].article_number, $[].color_hex, $[].comment, $[].external_id, $[].multi_color_direction, $[].multi_color_hexes, $[].price, $[].settings_bed_temp, $[].settings_extruder_temp, $[].vendor.comment, $[].vendor.external_id)
+143 list filaments article_number GET /api/v1/filament?article_number=PM1
+    body $[0]: key order differs
+    body $[0].color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].multi_color_direction, $[].multi_color_hexes, $[].vendor.comment, $[].vendor.external_id)
+144 list filaments color_hex GET /api/v1/filament?color_hex=2B2B33
+    body $[0]: key order differs
+    body $[0].color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].multi_color_direction, $[].multi_color_hexes, $[].vendor.comment, $[].vendor.external_id)
+145 list filaments color_hex similar GET /api/v1/filament?color_hex=2B2B34&color_similarity_threshold=5
+    header x-total-count: Spoolman "1", ours 0
+    body $: 1 items, ours 0
+146 list filaments color_hex far GET /api/v1/filament?color_hex=FFFFFF&color_similarity_threshold=1
+    identical
+147 list filaments external_id GET /api/v1/filament?external_id=ext-1
+    body $[0]: key order differs
+    body $[0].color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].multi_color_direction, $[].multi_color_hexes, $[].vendor.comment, $[].vendor.external_id)
+148 list filaments sort name GET /api/v1/filament?sort=name:asc
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x4)
+    body $[0].color_hex: Spoolman "2B2B33", ours "2b2b33" (x2)
+    body $[2].spool_weight: Spoolman 140.0, ours null (x2)
+    body $[3].multi_color_hexes: Spoolman "FF0000,00FF00", ours "#FF0000,00FF00"
+    body: ours sends 31 fields as null that Spoolman leaves out ($[].article_number, $[].color_hex, $[].comment, $[].external_id, $[].multi_color_direction, $[].multi_color_hexes, $[].price, $[].settings_bed_temp, $[].settings_extruder_temp, $[].spool_weight, $[].vendor.comment, $[].vendor.external_id, $[].weight)
+149 list filaments sort vendor.name desc GET /api/v1/filament?sort=vendor.name:desc,id:asc
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x4)
+    body $[0].id: Spoolman 1, ours 2 (x4)
+    body $[0].name: Spoolman "Plain", ours "PETG Galaxy Black" (x4)
+    body $[0].vendor.id: Spoolman 3, ours 1 (x3)
+    body $[0].vendor.name: Spoolman "eSun", ours "Prusament" (x3)
+    body $[0].vendor.empty_spool_weight: Spoolman 250.5, ours 193.0 (x3)
+    body $[0].material: Spoolman "ABS", ours "PETG" (x3)
+    body $[0].density: Spoolman 1.24, ours 1.27 (x2)
+    body $[0].price: only ours (29.9) (x2)
+    body $[0].weight: only ours (1000.0) (x4)
+    body $[0].spool_weight: only ours (193.0) (x4)
+    body $[0].article_number: only ours ("PM1") (x3)
+    body $[0].comment: only ours ("dark") (x2)
+    body $[0].settings_extruder_temp: only ours (250) (x2)
+    body $[0].settings_bed_temp: only ours (85) (x2)
+    body $[0].color_hex: only ours ("2b2b33") (x3)
+    body $[0].external_id: only ours ("ext-1") (x2)
+    body $[1].vendor.comment: only ours ("PolyTerra and friends") (x2)
+    body $[1].vendor.external_id: only ours ("poly") (x2)
+    body $[2].diameter: Spoolman 1.75, ours 2.85 (x2)
+    body $[2].multi_color_hexes: only ours ("#FF0000,00FF00") (x2)
+    body $[2].multi_color_direction: only ours ("coaxial") (x2)
+    body: ours sends 18 fields as null that Spoolman leaves out ($[].article_number, $[].color_hex, $[].comment, $[].external_id, $[].multi_color_direction, $[].multi_color_hexes, $[].price, $[].settings_bed_temp, $[].settings_extruder_temp, $[].vendor.comment, $[].vendor.external_id)
+150 list filaments sort weight GET /api/v1/filament?sort=weight:desc
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x4)
+    body $[0].id: Spoolman 2, ours 1 (x4)
+    body $[0].name: Spoolman "PETG Galaxy Black", ours "Plain" (x4)
+    body $[0].vendor.id: Spoolman 1, ours 3 (x3)
+    body $[0].vendor.name: Spoolman "Prusament", ours "eSun" (x3)
+    body $[0].vendor.empty_spool_weight: Spoolman 193.0, ours 250.5 (x3)
+    body $[0].material: Spoolman "PETG", ours "ABS" (x3)
+    body $[0].price: Spoolman 29.9, ours null (x2)
+    body $[0].density: Spoolman 1.27, ours 1.24 (x2)
+    body $[0].weight: Spoolman 1000.0, ours null (x4)
+    body $[0].spool_weight: Spoolman 193.0, ours null (x3)
+    body $[0].article_number: Spoolman "PM1", ours null (x3)
+    body $[0].comment: Spoolman "dark", ours null (x2)
+    body $[0].settings_extruder_temp: Spoolman 250, ours null (x2)
+    body $[0].settings_bed_temp: Spoolman 85, ours null (x2)
+    body $[0].color_hex: Spoolman "2B2B33", ours null (x3)
+    body $[0].external_id: Spoolman "ext-1", ours null (x2)
+    body $[1].vendor.comment: Spoolman "PolyTerra and friends", ours null (x2)
+    body $[1].vendor.external_id: Spoolman "poly", ours null (x2)
+    body $[2].diameter: Spoolman 2.85, ours 1.75 (x2)
+    body $[2].multi_color_hexes: Spoolman "FF0000,00FF00", ours null (x2)
+    body $[2].multi_color_direction: Spoolman "coaxial", ours null (x2)
+    body: ours sends 19 fields as null that Spoolman leaves out ($[].article_number, $[].color_hex, $[].comment, $[].external_id, $[].multi_color_direction, $[].multi_color_hexes, $[].price, $[].settings_bed_temp, $[].settings_extruder_temp, $[].spool_weight, $[].vendor.comment, $[].vendor.external_id)
+151 list filaments sort bad GET /api/v1/filament?sort=name
+    status: Spoolman 400, ours 200
+    header x-total-count: only ours (4)
+    body: Spoolman {"message":"Invalid sort 'name', expected the form 'field:asc' or 'field:desc'."}, ours [{"id":2,"registered":"<now>","name":"PETG Galaxy Black","material":"PETG","price":29.9,"density":1.27,"diameter":1.75,"weight":1000.0,"spool_weight":…
+152 list filaments limit offset GET /api/v1/filament?limit=2&offset=1
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x2)
+    body $[0].color_hex: Spoolman "2B2B33", ours "2b2b33" (x2)
+    body $[1].spool_weight: Spoolman 140.0, ours null
+    body: ours sends 11 fields as null that Spoolman leaves out ($[].comment, $[].external_id, $[].multi_color_direction, $[].multi_color_hexes, $[].price, $[].settings_bed_temp, $[].settings_extruder_temp, $[].vendor.comment, $[].vendor.external_id)
+153 list filaments limit bad GET /api/v1/filament?limit=x
+    status: Spoolman 422, ours 200
+    header x-total-count: only ours (4)
+    body: Spoolman {"detail":[{"type":"int_parsing","loc":["query","limit"],"msg":"Input should be a valid integer, unable to parse string as an integer","input":"x"}]}, ours [{"id":1,"registered":"<now>","name":"Plain","material":"ABS","price":null,"density":1.24,"diameter":1.75,"weight":null,"spool_weight":null,"article_n…
+154 list filaments empty result GET /api/v1/filament?name=zzz
+    identical
+155 add spool 1, minimal POST /api/v1/spool
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.remaining_length: Spoolman 327363.5339187306, ours 327363.5339187305
+    body: ours sends 10 fields as null that Spoolman leaves out ($.comment, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.first_used, $.last_used, $.location, $.lot_nr, $.price)
+156 add spool 2, all fields POST /api/v1/spool
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.last_used: Spoolman "2024-05-02T08:00:00Z", ours "2024-05-02T10:00:00Z"
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.used_length: Spoolman 32736.353391873057, ours 32736.353391873054
+    body: ours sends 4 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id)
+157 add spool 3, remaining weight POST /api/v1/spool
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.spool_weight: Spoolman 140.0, ours null
+    body $.filament.color_hex: Spoolman "FF0000CC", ours "ff0000cc"
+    body $.spool_weight: Spoolman 140.0, ours null
+    body $.remaining_length: Spoolman 40234.03433001173, ours 40234.034330011724
+    body $.used_length: Spoolman 211228.68023256157, ours 211228.68023256154
+    body: ours sends 11 fields as null that Spoolman leaves out ($.comment, $.filament.comment, $.filament.external_id, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.price, $.filament.settings_bed_temp, $.filament.settings_extruder_temp, $.first_used, $.last_used, $.price)
+158 add spool 4, filament without weight POST /api/v1/spool
+    body $: key order differs
+    body $.filament: key order differs
+    body $.used_length: Spoolman 3352.836194167644, ours 3352.8361941676435
+    body: ours sends 23 fields as null that Spoolman leaves out ($.comment, $.filament.article_number, $.filament.color_hex, $.filament.comment, $.filament.external_id, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.price, $.filament.settings_bed_temp, $.filament.settings_extruder_temp, $.filament.spool_weight, $.filament.vendor.comment, $.filament.vendor.external_id, $.filament.weight, $.first_used, $.initial_weight, $.last_used, $.location, $.lot_nr, $.price, $.remaining_length, $.remaining_weight, $.spool_weight)
+159 add spool 5, archived POST /api/v1/spool
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"
+    body $.last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z"
+    body $.filament: key order differs
+    body $.filament.spool_weight: Spoolman 140.0, ours null
+    body $.filament.color_hex: Spoolman "FF0000CC", ours "ff0000cc"
+    body $.spool_weight: Spoolman 140.0, ours null
+    body $.remaining_length: Spoolman 251462.71456257332, ours 251462.71456257327
+    body: ours sends 10 fields as null that Spoolman leaves out ($.comment, $.filament.comment, $.filament.external_id, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.price, $.filament.settings_bed_temp, $.filament.settings_extruder_temp, $.lot_nr, $.price)
+160 add spool without filament POST /api/v1/spool
+    body $.detail: only Spoolman ([{"type":"missing","loc":["body","filament_id"],"msg":"Field required"…)
+    body $.message: only ours ("a spool needs its filament_id")
+161 add spool, filament 99 POST /api/v1/spool
+    status: Spoolman 404, ours 422
+    body: Spoolman {"message":"No filament with ID 99 found."}, ours {"message":"no filament with ID 99"}
+162 add spool, remaining and used POST /api/v1/spool
+    (ours made spool 6 where Spoolman refused; deleted before the next request)
+    status: Spoolman 400, ours 200
+    body: Spoolman {"message":"Only specify either remaining_weight or used_weight."}, ours {"id":6,"registered":"<now>","first_used":null,"last_used":null,"price":null,"initial_weight":1000.0,"spool_weight":193.0,"used_weight":999.0,"locatio…
+163 add spool, remaining without filament weight POST /api/v1/spool
+    (ours made spool 6 where Spoolman refused; deleted before the next request)
+    status: Spoolman 400, ours 200
+    body: Spoolman {"message":"Failed to create spool, see server logs for more information."}, ours {"id":6,"registered":"<now>","first_used":null,"last_used":null,"price":null,"initial_weight":null,"spool_weight":null,"used_weight":0.0,"location":nu…
+164 add spool, negative weight POST /api/v1/spool
+    (ours made spool 6 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"greater_than_equal","loc":["body","initial_weight"],"msg":"Input should be greater than or equal to 0","input":-1,"ctx":{"ge":0.0}…, ours {"id":6,"registered":"<now>","first_used":null,"last_used":null,"price":null,"initial_weight":-1.0,"spool_weight":193.0,"used_weight":0.0,"location":n…
+165 add spool, location too long POST /api/v1/spool
+    (ours made spool 6 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"string_too_long","loc":["body","location"],"msg":"String should have at most 64 characters","input":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxx…, ours {"id":6,"registered":"<now>","first_used":null,"last_used":null,"price":null,"initial_weight":1000.0,"spool_weight":193.0,"used_weight":0.0,"location"…
+166 add spool, bad date POST /api/v1/spool
+    (ours made spool 6 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"datetime_from_date_parsing","loc":["body","first_used"],"msg":"Input should be a valid datetime or date, input is too short","inpu…, ours {"id":6,"registered":"<now>","first_used":null,"last_used":null,"price":null,"initial_weight":1000.0,"spool_weight":193.0,"used_weight":0.0,"location"…
+167 add spool, archived not a bool POST /api/v1/spool
+    (ours made spool 6 where Spoolman refused; deleted before the next request)
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"bool_parsing","loc":["body","archived"],"msg":"Input should be a valid boolean, unable to interpret input","input":"maybe"}]}, ours {"id":6,"registered":"<now>","first_used":null,"last_used":null,"price":null,"initial_weight":1000.0,"spool_weight":193.0,"used_weight":0.0,"location"…
+168 add spool, unknown extra key POST /api/v1/spool
+    (ours made spool 6 where Spoolman refused; deleted before the next request)
+    status: Spoolman 400, ours 200
+    body: Spoolman {"message":"Unknown extra field nokey."}, ours {"id":6,"registered":"<now>","first_used":null,"last_used":null,"price":null,"initial_weight":1000.0,"spool_weight":193.0,"used_weight":0.0,"location"…
+169 get spool 1 GET /api/v1/spool/1
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.remaining_length: Spoolman 327363.5339187306, ours 327363.5339187305
+    body: ours sends 10 fields as null that Spoolman leaves out ($.comment, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.first_used, $.last_used, $.location, $.lot_nr, $.price)
+170 get spool 2 GET /api/v1/spool/2
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.last_used: Spoolman "2024-05-02T08:00:00Z", ours "2024-05-02T10:00:00Z"
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.used_length: Spoolman 32736.353391873057, ours 32736.353391873054
+    body: ours sends 4 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id)
+171 get spool 3 GET /api/v1/spool/3
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.spool_weight: Spoolman 140.0, ours null
+    body $.filament.color_hex: Spoolman "FF0000CC", ours "ff0000cc"
+    body $.spool_weight: Spoolman 140.0, ours null
+    body $.remaining_length: Spoolman 40234.03433001173, ours 40234.034330011724
+    body $.used_length: Spoolman 211228.68023256157, ours 211228.68023256154
+    body: ours sends 11 fields as null that Spoolman leaves out ($.comment, $.filament.comment, $.filament.external_id, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.price, $.filament.settings_bed_temp, $.filament.settings_extruder_temp, $.first_used, $.last_used, $.price)
+172 get spool 4 GET /api/v1/spool/4
+    body $: key order differs
+    body $.filament: key order differs
+    body $.used_length: Spoolman 3352.836194167644, ours 3352.8361941676435
+    body: ours sends 23 fields as null that Spoolman leaves out ($.comment, $.filament.article_number, $.filament.color_hex, $.filament.comment, $.filament.external_id, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.price, $.filament.settings_bed_temp, $.filament.settings_extruder_temp, $.filament.spool_weight, $.filament.vendor.comment, $.filament.vendor.external_id, $.filament.weight, $.first_used, $.initial_weight, $.last_used, $.location, $.lot_nr, $.price, $.remaining_length, $.remaining_weight, $.spool_weight)
+173 get spool 5 (archived) GET /api/v1/spool/5
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"
+    body $.last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z"
+    body $.filament: key order differs
+    body $.filament.spool_weight: Spoolman 140.0, ours null
+    body $.filament.color_hex: Spoolman "FF0000CC", ours "ff0000cc"
+    body $.spool_weight: Spoolman 140.0, ours null
+    body $.remaining_length: Spoolman 251462.71456257332, ours 251462.71456257327
+    body: ours sends 10 fields as null that Spoolman leaves out ($.comment, $.filament.comment, $.filament.external_id, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.price, $.filament.settings_bed_temp, $.filament.settings_extruder_temp, $.lot_nr, $.price)
+174 get spool 99 GET /api/v1/spool/99
+    identical
+175 patch spool 1 location PATCH /api/v1/spool/1
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.remaining_length: Spoolman 327363.5339187306, ours 327363.5339187305
+    body: ours sends 8 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.first_used, $.last_used, $.lot_nr, $.price)
+176 patch spool 1 used_weight PATCH /api/v1/spool/1
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.remaining_length: Spoolman 310995.3572227941, ours 310995.357222794
+    body $.used_length: Spoolman 16368.176695936529, ours 16368.176695936527
+    body: ours sends 8 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.first_used, $.last_used, $.lot_nr, $.price)
+177 patch spool 1 remaining_weight PATCH /api/v1/spool/1
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.used_length: Spoolman 32736.353391873057, ours 32736.353391873054
+    body: ours sends 8 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.first_used, $.last_used, $.lot_nr, $.price)
+178 patch spool 1 filament PATCH /api/v1/spool/1
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.spool_weight: Spoolman 140.0, ours null
+    body $.filament.color_hex: Spoolman "FF0000CC", ours "ff0000cc"
+    body $.remaining_length: Spoolman 301755.25747508794, ours 301755.2574750879
+    body $.used_length: Spoolman 33528.36194167644, ours 33528.361941676434
+    body: ours sends 11 fields as null that Spoolman leaves out ($.filament.comment, $.filament.external_id, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.price, $.filament.settings_bed_temp, $.filament.settings_extruder_temp, $.first_used, $.last_used, $.lot_nr, $.price)
+179 patch spool 1 filament back PATCH /api/v1/spool/1
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.used_length: Spoolman 32736.353391873057, ours 32736.353391873054
+    body: ours sends 8 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.first_used, $.last_used, $.lot_nr, $.price)
+180 patch spool 1 location null PATCH /api/v1/spool/1
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.used_length: Spoolman 32736.353391873057, ours 32736.353391873054
+    body: ours sends 9 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.first_used, $.last_used, $.location, $.lot_nr, $.price)
+181 patch spool 1 first_used PATCH /api/v1/spool/1
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.used_length: Spoolman 32736.353391873057, ours 32736.353391873054
+    body: ours sends 8 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.last_used, $.location, $.lot_nr, $.price)
+182 patch spool 1 empty PATCH /api/v1/spool/1
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.used_length: Spoolman 32736.353391873057, ours 32736.353391873054
+    body: ours sends 8 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.last_used, $.location, $.lot_nr, $.price)
+183 patch spool 99 PATCH /api/v1/spool/99
+    identical
+184 use spool 1 weight PUT /api/v1/spool/1/use
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.remaining_length: Spoolman 291353.5451876702, ours 291353.54518767016
+    body $.used_length: Spoolman 36009.988731060366, ours 36009.98873106036
+    body: ours sends 7 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.location, $.lot_nr, $.price)
+185 use spool 1 length PUT /api/v1/spool/1/use
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.remaining_length: Spoolman 290353.5451876702, ours 290353.54518767016
+    body $.used_length: Spoolman 37009.988731060366, ours 37009.98873106036
+    body: ours sends 7 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.location, $.lot_nr, $.price)
+186 use spool 1 negative weight PUT /api/v1/spool/1/use
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.remaining_length: Spoolman 291990.3628572639, ours 291990.3628572638
+    body $.used_length: Spoolman 35373.17106146671, ours 35373.1710614667
+    body: ours sends 7 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.location, $.lot_nr, $.price)
+187 use spool 1 more than left PUT /api/v1/spool/1/use
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.used_length: Spoolman 1672190.8406551199, ours 1672190.8406551194
+    body: ours sends 7 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.location, $.lot_nr, $.price)
+188 use spool 99 PUT /api/v1/spool/99/use
+    identical
+189 use spool 4 length PUT /api/v1/spool/4/use
+    body $: key order differs
+    body $.filament: key order differs
+    body $.used_length: Spoolman 3452.836194167644, ours 3452.8361941676435
+    body: ours sends 21 fields as null that Spoolman leaves out ($.comment, $.filament.article_number, $.filament.color_hex, $.filament.comment, $.filament.external_id, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.price, $.filament.settings_bed_temp, $.filament.settings_extruder_temp, $.filament.spool_weight, $.filament.vendor.comment, $.filament.vendor.external_id, $.filament.weight, $.initial_weight, $.location, $.lot_nr, $.price, $.remaining_length, $.remaining_weight, $.spool_weight)
+190 use spool 3 weight PUT /api/v1/spool/3/use
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.spool_weight: Spoolman 140.0, ours null
+    body $.filament.color_hex: Spoolman "FF0000CC", ours "ff0000cc"
+    body $.spool_weight: Spoolman 140.0, ours null
+    body $.remaining_length: Spoolman 33360.72013196806, ours 33360.72013196805
+    body $.used_length: Spoolman 218101.99443060523, ours 218101.9944306052
+    body: ours sends 9 fields as null that Spoolman leaves out ($.comment, $.filament.comment, $.filament.external_id, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.price, $.filament.settings_bed_temp, $.filament.settings_extruder_temp, $.price)
+191 measure spool 2 PUT /api/v1/spool/2/measure
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.remaining_length: Spoolman 196418.12035123838, ours 196418.12035123832
+    body $.used_length: Spoolman 130945.41356749223, ours 130945.41356749221
+    body: ours sends 4 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id)
+192 measure spool 2 below tare PUT /api/v1/spool/2/measure
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.used_weight: Spoolman 1100.0, ours 1000.0
+    body $.used_length: Spoolman 360099.88731060363, ours 327363.5339187305
+    body: ours sends 4 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id)
+193 measure spool 99 PUT /api/v1/spool/99/measure
+    status: Spoolman 400, ours 404
+    body: Spoolman {"message":"Spool not found."}, ours {"message":"No spool with ID 99 found."}
+194 measure spool 3 PUT /api/v1/spool/3/measure
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.spool_weight: Spoolman 140.0, ours null
+    body $.filament.color_hex: Spoolman "FF0000CC", ours "ff0000cc"
+    body $.spool_weight: Spoolman 140.0, ours null
+    body $.remaining_length: Spoolman 120702.10299003517, ours 120702.10299003516
+    body $.used_length: Spoolman 130760.61157253811, ours 130760.6115725381
+    body: ours sends 9 fields as null that Spoolman leaves out ($.comment, $.filament.comment, $.filament.external_id, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.price, $.filament.settings_bed_temp, $.filament.settings_extruder_temp, $.price)
+195 list spools GET /api/v1/spool
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x4)
+    body $[0].filament: key order differs (x4)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x3)
+    body $[0].used_length: Spoolman 1672190.8406551199, ours 1672190.8406551194 (x4)
+    body $[1].used_weight: Spoolman 1100.0, ours 1000.0
+    body $[2].filament.spool_weight: Spoolman 140.0, ours null
+    body $[2].spool_weight: Spoolman 140.0, ours null
+    body $[2].remaining_length: Spoolman 120702.10299003517, ours 120702.10299003516
+    body: ours sends 41 fields as null that Spoolman leaves out ($[].comment, $[].filament.article_number, $[].filament.color_hex, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.spool_weight, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].filament.weight, $[].initial_weight, $[].location, $[].lot_nr, $[].price, $[].remaining_length, $[].remaining_weight, $[].spool_weight)
+196 list spools allow_archived GET /api/v1/spool?allow_archived=true
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x5)
+    body $[0].filament: key order differs (x5)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x4)
+    body $[0].used_length: Spoolman 1672190.8406551199, ours 1672190.8406551194 (x4)
+    body $[1].used_weight: Spoolman 1100.0, ours 1000.0
+    body $[2].filament.spool_weight: Spoolman 140.0, ours null (x2)
+    body $[2].spool_weight: Spoolman 140.0, ours null (x2)
+    body $[2].remaining_length: Spoolman 120702.10299003517, ours 120702.10299003516 (x2)
+    body $[4].first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"
+    body $[4].last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z"
+    body: ours sends 51 fields as null that Spoolman leaves out ($[].comment, $[].filament.article_number, $[].filament.color_hex, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.spool_weight, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].filament.weight, $[].initial_weight, $[].location, $[].lot_nr, $[].price, $[].remaining_length, $[].remaining_weight, $[].spool_weight)
+197 list spools allow_archived bad GET /api/v1/spool?allow_archived=maybe
+    status: Spoolman 422, ours 200
+    header x-total-count: only ours (4)
+    body: Spoolman {"detail":[{"type":"bool_parsing","loc":["query","allow_archived"],"msg":"Input should be a valid boolean, unable to interpret input","input":"maybe"}…, ours [{"id":1,"registered":"<now>","first_used":"2024-03-01T08:00:00Z","last_used":"<now>","price":null,"initial_weight":1000.0,"spool_weight":193.0,"used_…
+198 list spools filament_name GET /api/v1/spool?filament_name=petg
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x2)
+    body $[0].filament: key order differs (x2)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x2)
+    body $[0].used_length: Spoolman 1672190.8406551199, ours 1672190.8406551194 (x2)
+    body $[1].used_weight: Spoolman 1100.0, ours 1000.0
+    body: ours sends 11 fields as null that Spoolman leaves out ($[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].location, $[].lot_nr, $[].price)
+199 list spools filament_id GET /api/v1/spool?filament_id=3&allow_archived=true
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x2)
+    body $[0].filament: key order differs (x2)
+    body $[0].filament.spool_weight: Spoolman 140.0, ours null (x2)
+    body $[0].filament.color_hex: Spoolman "FF0000CC", ours "ff0000cc" (x2)
+    body $[0].spool_weight: Spoolman 140.0, ours null (x2)
+    body $[0].remaining_length: Spoolman 120702.10299003517, ours 120702.10299003516 (x2)
+    body $[0].used_length: Spoolman 130760.61157253811, ours 130760.6115725381
+    body $[1].first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"
+    body $[1].last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z"
+    body: ours sends 19 fields as null that Spoolman leaves out ($[].comment, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].lot_nr, $[].price)
+200 list spools filament_material GET /api/v1/spool?filament_material=PLA
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs
+    body $[0].filament: key order differs
+    body $[0].filament.spool_weight: Spoolman 140.0, ours null
+    body $[0].filament.color_hex: Spoolman "FF0000CC", ours "ff0000cc"
+    body $[0].spool_weight: Spoolman 140.0, ours null
+    body $[0].remaining_length: Spoolman 120702.10299003517, ours 120702.10299003516
+    body $[0].used_length: Spoolman 130760.61157253811, ours 130760.6115725381
+    body: ours sends 9 fields as null that Spoolman leaves out ($[].comment, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].price)
+201 list spools vendor_name GET /api/v1/spool?vendor_name=prus
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x2)
+    body $[0].filament: key order differs (x2)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x2)
+    body $[0].used_length: Spoolman 1672190.8406551199, ours 1672190.8406551194 (x2)
+    body $[1].used_weight: Spoolman 1100.0, ours 1000.0
+    body: ours sends 11 fields as null that Spoolman leaves out ($[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].location, $[].lot_nr, $[].price)
+202 list spools vendor_id GET /api/v1/spool?vendor_id=2
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs
+    body $[0].filament: key order differs
+    body $[0].filament.spool_weight: Spoolman 140.0, ours null
+    body $[0].filament.color_hex: Spoolman "FF0000CC", ours "ff0000cc"
+    body $[0].spool_weight: Spoolman 140.0, ours null
+    body $[0].remaining_length: Spoolman 120702.10299003517, ours 120702.10299003516
+    body $[0].used_length: Spoolman 130760.61157253811, ours 130760.6115725381
+    body: ours sends 9 fields as null that Spoolman leaves out ($[].comment, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].price)
+203 list spools filament.name GET /api/v1/spool?filament.name=red
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs
+    body $[0].filament: key order differs
+    body $[0].filament.spool_weight: Spoolman 140.0, ours null
+    body $[0].filament.color_hex: Spoolman "FF0000CC", ours "ff0000cc"
+    body $[0].spool_weight: Spoolman 140.0, ours null
+    body $[0].remaining_length: Spoolman 120702.10299003517, ours 120702.10299003516
+    body $[0].used_length: Spoolman 130760.61157253811, ours 130760.6115725381
+    body: ours sends 9 fields as null that Spoolman leaves out ($[].comment, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].price)
+204 list spools filament.id GET /api/v1/spool?filament.id=2
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x2)
+    body $[0].filament: key order differs (x2)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x2)
+    body $[0].used_length: Spoolman 1672190.8406551199, ours 1672190.8406551194 (x2)
+    body $[1].used_weight: Spoolman 1100.0, ours 1000.0
+    body: ours sends 11 fields as null that Spoolman leaves out ($[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].location, $[].lot_nr, $[].price)
+205 list spools filament.material GET /api/v1/spool?filament.material=petg
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x2)
+    body $[0].filament: key order differs (x2)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x2)
+    body $[0].used_length: Spoolman 1672190.8406551199, ours 1672190.8406551194 (x2)
+    body $[1].used_weight: Spoolman 1100.0, ours 1000.0
+    body: ours sends 11 fields as null that Spoolman leaves out ($[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].location, $[].lot_nr, $[].price)
+206 list spools filament.multi_color_direction GET /api/v1/spool?filament.multi_color_direction=coaxial
+    header x-total-count: Spoolman "0", ours 4
+    body $: 0 items, ours 4
+207 list spools filament.vendor.name GET /api/v1/spool?filament.vendor.name=prus&sort=id:desc
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x2)
+    body $[0].filament: key order differs (x2)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x2)
+    body $[0].used_weight: Spoolman 1100.0, ours 1000.0
+    body $[0].used_length: Spoolman 360099.88731060363, ours 327363.5339187305 (x2)
+    body: ours sends 11 fields as null that Spoolman leaves out ($[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].location, $[].lot_nr, $[].price)
+208 list spools filament.vendor.id GET /api/v1/spool?filament.vendor.id=1
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x2)
+    body $[0].filament: key order differs (x2)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x2)
+    body $[0].used_length: Spoolman 1672190.8406551199, ours 1672190.8406551194 (x2)
+    body $[1].used_weight: Spoolman 1100.0, ours 1000.0
+    body: ours sends 11 fields as null that Spoolman leaves out ($[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].location, $[].lot_nr, $[].price)
+209 list spools location GET /api/v1/spool?location=Shelf%20A&allow_archived=true
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x2)
+    body $[0].filament: key order differs (x2)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x2)
+    body $[0].used_weight: Spoolman 1100.0, ours 1000.0
+    body $[0].used_length: Spoolman 360099.88731060363, ours 327363.5339187305
+    body $[1].first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"
+    body $[1].last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z"
+    body $[1].filament.spool_weight: Spoolman 140.0, ours null
+    body $[1].spool_weight: Spoolman 140.0, ours null
+    body $[1].remaining_length: Spoolman 251462.71456257332, ours 251462.71456257327
+    body: ours sends 14 fields as null that Spoolman leaves out ($[].comment, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].lot_nr, $[].price)
+210 list spools location exact GET /api/v1/spool?location=%22Shelf%20A%22
+    header vary: only Spoolman ("Accept-Encoding")
+    header x-total-count: Spoolman "1", ours 0
+    body $: 1 items, ours 0
+211 list spools location empty GET /api/v1/spool?location=
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x2)
+    body $[0].filament: key order differs (x2)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $[0].used_length: Spoolman 1672190.8406551199, ours 1672190.8406551194 (x2)
+    body: ours sends 28 fields as null that Spoolman leaves out ($[].comment, $[].filament.article_number, $[].filament.color_hex, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.spool_weight, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].filament.weight, $[].initial_weight, $[].location, $[].lot_nr, $[].price, $[].remaining_length, $[].remaining_weight, $[].spool_weight)
+212 list spools lot_nr GET /api/v1/spool?lot_nr=L1
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs
+    body $[0].filament: key order differs
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $[0].used_weight: Spoolman 1100.0, ours 1000.0
+    body $[0].used_length: Spoolman 360099.88731060363, ours 327363.5339187305
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.vendor.comment, $[].filament.vendor.external_id)
+213 list spools first_used range GET /api/v1/spool?first_used=2024-04-01T00:00:00Z%7C2024-05-15T00:00:00Z
+    header vary: only Spoolman ("Accept-Encoding")
+    header x-total-count: Spoolman "1", ours 4
+    body $: 1 items, ours 4
+    body $[0]: key order differs
+    body $[0].id: Spoolman 2, ours 1
+    body $[0].first_used: Spoolman "2024-05-01T10:00:00Z", ours "2024-03-01T08:00:00Z"
+    body $[0].filament: key order differs
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $[0].price: Spoolman 20.0, ours null
+    body $[0].spool_weight: Spoolman 200.0, ours 193.0
+    body $[0].used_weight: Spoolman 1100.0, ours 5108.054707981764
+    body $[0].used_length: Spoolman 360099.88731060363, ours 1672190.8406551194
+    body $[0].location: Spoolman "Shelf A", ours null
+    body $[0].lot_nr: Spoolman "L1", ours null
+    body $[0].comment: Spoolman "first", ours "c"
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.vendor.comment, $[].filament.vendor.external_id)
+214 list spools first_used open end GET /api/v1/spool?first_used=2024-04-01T00:00:00Z%7C&allow_archived=true
+    header vary: only Spoolman ("Accept-Encoding")
+    header x-total-count: Spoolman "4", ours 5
+    body $: 4 items, ours 5
+    body $[0]: key order differs (x4)
+    body $[0].id: Spoolman 2, ours 1 (x4)
+    body $[0].first_used: Spoolman "2024-05-01T10:00:00Z", ours "2024-03-01T08:00:00Z" (x3)
+    body $[0].filament: key order differs (x4)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x4)
+    body $[0].price: Spoolman 20.0, ours null (x2)
+    body $[0].spool_weight: Spoolman 200.0, ours 193.0 (x3)
+    body $[0].used_weight: Spoolman 1100.0, ours 5108.054707981764 (x4)
+    body $[0].used_length: Spoolman 360099.88731060363, ours 1672190.8406551194 (x4)
+    body $[0].location: Spoolman "Shelf A", ours null (x4)
+    body $[0].lot_nr: Spoolman "L1", ours null (x3)
+    body $[0].comment: Spoolman "first", ours "c" (x2)
+    body $[1].filament.id: Spoolman 3, ours 2 (x3)
+    body $[1].filament.name: Spoolman "PolyTerra Red", ours "PETG Galaxy Black" (x3)
+    body $[1].filament.vendor.id: Spoolman 2, ours 1 (x3)
+    body $[1].filament.vendor.name: Spoolman "Polymaker", ours "Prusament" (x3)
+    body $[1].filament.vendor.comment: Spoolman "PolyTerra and friends", ours null (x3)
+    body $[1].filament.vendor.empty_spool_weight: Spoolman 140.0, ours 193.0 (x3)
+    body $[1].filament.vendor.external_id: Spoolman "poly", ours null (x3)
+    body $[1].filament.material: Spoolman "PLA", ours "PETG" (x3)
+    body $[1].filament.density: Spoolman 1.24, ours 1.27
+    body $[1].filament.weight: Spoolman 750.0, ours 1000.0 (x3)
+    body $[1].filament.spool_weight: Spoolman 140.0, ours 193.0 (x2)
+    body $[1].filament.article_number: Spoolman "PT2", ours "PM1" (x3)
+    body $[1].filament.price: only ours (29.9)
+    body $[1].filament.comment: only ours ("dark")
+    body $[1].filament.settings_extruder_temp: only ours (250)
+    body $[1].filament.settings_bed_temp: only ours (85)
+    body $[1].filament.external_id: only ours ("ext-1")
+    body $[1].remaining_weight: Spoolman 360.0, ours 0.0 (x3)
+    body $[1].initial_weight: Spoolman 750.0, ours 1000.0 (x3)
+    body $[1].remaining_length: Spoolman 120702.10299003517, ours 0.0 (x3)
+    body $[3].last_used: Spoolman "2024-06-01T22:00:00Z", ours "<now>"
+    body $[3].archived: Spoolman true, ours false
+    body: ours sends 27 fields as null that Spoolman leaves out ($[].comment, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.spool_weight, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].lot_nr, $[].price, $[].spool_weight)
+215 list spools first_used empty GET /api/v1/spool?first_used=
+    header x-total-count: Spoolman "0", ours 4
+    body $: 0 items, ours 4
+216 list spools last_used GET /api/v1/spool?last_used=%7C2024-05-31T00:00:00Z
+    header x-total-count: Spoolman "0", ours 4
+    body $: 0 items, ours 4
+217 list spools registered GET /api/v1/spool?registered=2000-01-01T00:00:00Z%7C
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x4)
+    body $[0].filament: key order differs (x4)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x3)
+    body $[0].used_length: Spoolman 1672190.8406551199, ours 1672190.8406551194 (x4)
+    body $[1].used_weight: Spoolman 1100.0, ours 1000.0
+    body $[2].filament.spool_weight: Spoolman 140.0, ours null
+    body $[2].spool_weight: Spoolman 140.0, ours null
+    body $[2].remaining_length: Spoolman 120702.10299003517, ours 120702.10299003516
+    body: ours sends 41 fields as null that Spoolman leaves out ($[].comment, $[].filament.article_number, $[].filament.color_hex, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.spool_weight, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].filament.weight, $[].initial_weight, $[].location, $[].lot_nr, $[].price, $[].remaining_length, $[].remaining_weight, $[].spool_weight)
+218 list spools first_used bad GET /api/v1/spool?first_used=notadate
+    status: Spoolman 400, ours 200
+    header x-total-count: only ours (4)
+    body: Spoolman {"message":"Invalid datetime 'notadate' for 'first_used'. Expected an ISO 8601 datetime, e.g. 2024-05-01T00:00:00Z."}, ours [{"id":1,"registered":"<now>","first_used":"2024-03-01T08:00:00Z","last_used":"<now>","price":null,"initial_weight":1000.0,"spool_weight":193.0,"used_…
+219 list spools sort remaining_weight GET /api/v1/spool?sort=remaining_weight:desc
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x4)
+    body $[0].id: Spoolman 3, ours 4 (x3)
+    body $[0].filament: key order differs (x4)
+    body $[0].filament.id: Spoolman 3, ours 1 (x3)
+    body $[0].filament.name: Spoolman "PolyTerra Red", ours "Plain" (x3)
+    body $[0].filament.vendor.id: Spoolman 2, ours 3 (x3)
+    body $[0].filament.vendor.name: Spoolman "Polymaker", ours "eSun" (x3)
+    body $[0].filament.vendor.comment: Spoolman "PolyTerra and friends", ours null (x2)
+    body $[0].filament.vendor.empty_spool_weight: Spoolman 140.0, ours 250.5 (x3)
+    body $[0].filament.vendor.external_id: Spoolman "poly", ours null (x2)
+    body $[0].filament.material: Spoolman "PLA", ours "ABS" (x3)
+    body $[0].filament.weight: Spoolman 750.0, ours null (x3)
+    body $[0].filament.spool_weight: Spoolman 140.0, ours null (x3)
+    body $[0].filament.article_number: Spoolman "PT2", ours null (x3)
+    body $[0].filament.color_hex: Spoolman "FF0000CC", ours null (x4)
+    body $[0].remaining_weight: Spoolman 360.0, ours null (x3)
+    body $[0].initial_weight: Spoolman 750.0, ours null (x3)
+    body $[0].spool_weight: Spoolman 140.0, ours null (x3)
+    body $[0].used_weight: Spoolman 390.0, ours 10.298254952550181 (x3)
+    body $[0].remaining_length: Spoolman 120702.10299003517, ours null (x3)
+    body $[0].used_length: Spoolman 130760.61157253811, ours 3452.8361941676435 (x4)
+    body $[0].location: Spoolman "Shelf B", ours null (x3)
+    body $[0].lot_nr: Spoolman "L2", ours null (x3)
+    body $[1].first_used: Spoolman "2024-05-01T10:00:00Z", ours "<now>" (x2)
+    body $[1].filament.price: Spoolman 29.9, ours null (x2)
+    body $[1].filament.density: Spoolman 1.27, ours 1.24 (x2)
+    body $[1].filament.comment: Spoolman "dark", ours null (x2)
+    body $[1].filament.settings_extruder_temp: Spoolman 250, ours null (x2)
+    body $[1].filament.settings_bed_temp: Spoolman 85, ours null (x2)
+    body $[1].filament.external_id: Spoolman "ext-1", ours null (x2)
+    body $[1].price: Spoolman 20.0, ours null (x2)
+    body $[1].comment: Spoolman "first", ours null (x2)
+    body: ours sends 22 fields as null that Spoolman leaves out ($[].comment, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].location, $[].lot_nr, $[].price)
+220 list spools sort used_weight GET /api/v1/spool?sort=used_weight:asc,id:desc
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x4)
+    body $[0].filament: key order differs (x4)
+    body $[0].used_length: Spoolman 3452.836194167644, ours 3452.8361941676435 (x4)
+    body $[1].filament.spool_weight: Spoolman 140.0, ours null
+    body $[1].filament.color_hex: Spoolman "FF0000CC", ours "ff0000cc" (x3)
+    body $[1].spool_weight: Spoolman 140.0, ours null
+    body $[1].remaining_length: Spoolman 120702.10299003517, ours 120702.10299003516
+    body $[2].used_weight: Spoolman 1100.0, ours 1000.0
+    body: ours sends 41 fields as null that Spoolman leaves out ($[].comment, $[].filament.article_number, $[].filament.color_hex, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.spool_weight, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].filament.weight, $[].initial_weight, $[].location, $[].lot_nr, $[].price, $[].remaining_length, $[].remaining_weight, $[].spool_weight)
+221 list spools sort location GET /api/v1/spool?sort=location:asc&allow_archived=true
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x5)
+    body $[0].filament: key order differs (x5)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x4)
+    body $[0].used_weight: Spoolman 1100.0, ours 1000.0
+    body $[0].used_length: Spoolman 360099.88731060363, ours 327363.5339187305 (x4)
+    body $[1].first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"
+    body $[1].last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z"
+    body $[1].filament.spool_weight: Spoolman 140.0, ours null (x2)
+    body $[1].spool_weight: Spoolman 140.0, ours null (x2)
+    body $[1].remaining_length: Spoolman 251462.71456257332, ours 251462.71456257327 (x2)
+    body: ours sends 51 fields as null that Spoolman leaves out ($[].comment, $[].filament.article_number, $[].filament.color_hex, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.spool_weight, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].filament.weight, $[].initial_weight, $[].location, $[].lot_nr, $[].price, $[].remaining_length, $[].remaining_weight, $[].spool_weight)
+222 list spools sort filament.name GET /api/v1/spool?sort=filament.name:asc,id:asc
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x4)
+    body $[0].filament: key order differs (x4)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x3)
+    body $[0].used_length: Spoolman 1672190.8406551199, ours 1672190.8406551194 (x4)
+    body $[1].used_weight: Spoolman 1100.0, ours 1000.0
+    body $[3].filament.spool_weight: Spoolman 140.0, ours null
+    body $[3].spool_weight: Spoolman 140.0, ours null
+    body $[3].remaining_length: Spoolman 120702.10299003517, ours 120702.10299003516
+    body: ours sends 41 fields as null that Spoolman leaves out ($[].comment, $[].filament.article_number, $[].filament.color_hex, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.spool_weight, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].filament.weight, $[].initial_weight, $[].location, $[].lot_nr, $[].price, $[].remaining_length, $[].remaining_weight, $[].spool_weight)
+223 list spools sort filament.vendor.name GET /api/v1/spool?sort=filament.vendor.name:desc,id:asc
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x4)
+    body $[0].id: Spoolman 4, ours 1 (x4)
+    body $[0].first_used: Spoolman "<now>", ours "2024-03-01T08:00:00Z" (x3)
+    body $[0].filament: key order differs (x4)
+    body $[0].filament.id: Spoolman 1, ours 2 (x3)
+    body $[0].filament.name: Spoolman "Plain", ours "PETG Galaxy Black" (x3)
+    body $[0].filament.vendor.id: Spoolman 3, ours 1 (x3)
+    body $[0].filament.vendor.name: Spoolman "eSun", ours "Prusament" (x3)
+    body $[0].filament.vendor.empty_spool_weight: Spoolman 250.5, ours 193.0 (x3)
+    body $[0].filament.material: Spoolman "ABS", ours "PETG" (x3)
+    body $[0].filament.density: Spoolman 1.24, ours 1.27 (x2)
+    body $[0].filament.price: only ours (29.9) (x2)
+    body $[0].filament.weight: only ours (1000.0) (x3)
+    body $[0].filament.spool_weight: only ours (193.0) (x3)
+    body $[0].filament.article_number: only ours ("PM1") (x3)
+    body $[0].filament.comment: only ours ("dark") (x2)
+    body $[0].filament.settings_extruder_temp: only ours (250) (x2)
+    body $[0].filament.settings_bed_temp: only ours (85) (x2)
+    body $[0].filament.color_hex: only ours ("2b2b33") (x4)
+    body $[0].filament.external_id: only ours ("ext-1") (x2)
+    body $[0].used_weight: Spoolman 10.298254952550181, ours 5108.054707981764 (x4)
+    body $[0].used_length: Spoolman 3452.836194167644, ours 1672190.8406551194 (x4)
+    body $[0].initial_weight: only ours (1000.0) (x3)
+    body $[0].spool_weight: only ours (193.0) (x4)
+    body $[0].comment: only ours ("c") (x3)
+    body $[0].remaining_weight: only ours (0.0) (x3)
+    body $[0].remaining_length: only ours (0.0) (x3)
+    body $[1].price: only ours (20.0) (x2)
+    body $[1].location: only ours ("Shelf A") (x3)
+    body $[1].lot_nr: only ours ("L1") (x3)
+    body $[2].filament.vendor.comment: only ours ("PolyTerra and friends") (x2)
+    body $[2].filament.vendor.external_id: only ours ("poly") (x2)
+    body: ours sends 22 fields as null that Spoolman leaves out ($[].comment, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].location, $[].lot_nr, $[].price)
+224 list spools sort price GET /api/v1/spool?sort=price:desc
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x4)
+    body $[0].filament: key order differs (x4)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x4)
+    body $[0].used_length: Spoolman 1672190.8406551199, ours 1672190.8406551194 (x4)
+    body $[1].id: Spoolman 2, ours 3 (x3)
+    body $[1].first_used: Spoolman "2024-05-01T10:00:00Z", ours "<now>" (x2)
+    body $[1].filament.id: Spoolman 2, ours 3 (x3)
+    body $[1].filament.name: Spoolman "PETG Galaxy Black", ours "PolyTerra Red" (x3)
+    body $[1].filament.vendor.id: Spoolman 1, ours 2 (x3)
+    body $[1].filament.vendor.name: Spoolman "Prusament", ours "Polymaker" (x3)
+    body $[1].filament.vendor.empty_spool_weight: Spoolman 193.0, ours 140.0 (x3)
+    body $[1].filament.vendor.comment: only ours ("PolyTerra and friends") (x2)
+    body $[1].filament.vendor.external_id: only ours ("poly") (x2)
+    body $[1].filament.material: Spoolman "PETG", ours "PLA" (x3)
+    body $[1].filament.price: Spoolman 29.9, ours null (x2)
+    body $[1].filament.density: Spoolman 1.27, ours 1.24 (x2)
+    body $[1].filament.weight: Spoolman 1000.0, ours 750.0 (x3)
+    body $[1].filament.spool_weight: Spoolman 193.0, ours null (x3)
+    body $[1].filament.article_number: Spoolman "PM1", ours "PT2" (x3)
+    body $[1].filament.comment: Spoolman "dark", ours null (x2)
+    body $[1].filament.settings_extruder_temp: Spoolman 250, ours null (x2)
+    body $[1].filament.settings_bed_temp: Spoolman 85, ours null (x2)
+    body $[1].filament.external_id: Spoolman "ext-1", ours null (x2)
+    body $[1].price: Spoolman 20.0, ours null (x2)
+    body $[1].remaining_weight: Spoolman 0.0, ours 360.0 (x3)
+    body $[1].initial_weight: Spoolman 1000.0, ours 750.0 (x3)
+    body $[1].spool_weight: Spoolman 200.0, ours null (x3)
+    body $[1].used_weight: Spoolman 1100.0, ours 390.0 (x3)
+    body $[1].remaining_length: Spoolman 0.0, ours 120702.10299003516 (x3)
+    body $[1].location: Spoolman "Shelf A", ours "Shelf B" (x3)
+    body $[1].lot_nr: Spoolman "L1", ours "L2" (x3)
+    body $[1].comment: Spoolman "first", ours null (x2)
+    body: ours sends 22 fields as null that Spoolman leaves out ($[].comment, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].location, $[].lot_nr, $[].price)
+225 list spools sort first_used GET /api/v1/spool?sort=first_used:desc&allow_archived=true
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x5)
+    body $[0].filament: key order differs (x5)
+    body $[0].filament.spool_weight: Spoolman 140.0, ours null (x2)
+    body $[0].filament.color_hex: Spoolman "FF0000CC", ours "ff0000cc" (x4)
+    body $[0].spool_weight: Spoolman 140.0, ours null (x2)
+    body $[0].remaining_length: Spoolman 120702.10299003517, ours 120702.10299003516 (x2)
+    body $[0].used_length: Spoolman 130760.61157253811, ours 130760.6115725381 (x4)
+    body $[2].first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"
+    body $[2].last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z"
+    body $[3].used_weight: Spoolman 1100.0, ours 1000.0
+    body: ours sends 51 fields as null that Spoolman leaves out ($[].comment, $[].filament.article_number, $[].filament.color_hex, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.spool_weight, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].filament.weight, $[].initial_weight, $[].location, $[].lot_nr, $[].price, $[].remaining_length, $[].remaining_weight, $[].spool_weight)
+226 list spools sort bad GET /api/v1/spool?sort=id
+    status: Spoolman 400, ours 200
+    header x-total-count: only ours (4)
+    body: Spoolman {"message":"Invalid sort 'id', expected the form 'field:asc' or 'field:desc'."}, ours [{"id":1,"registered":"<now>","first_used":"2024-03-01T08:00:00Z","last_used":"<now>","price":null,"initial_weight":1000.0,"spool_weight":193.0,"used_…
+227 list spools limit offset GET /api/v1/spool?allow_archived=true&limit=2&offset=1
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x2)
+    body $[0].filament: key order differs (x2)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x2)
+    body $[0].used_weight: Spoolman 1100.0, ours 1000.0
+    body $[0].used_length: Spoolman 360099.88731060363, ours 327363.5339187305 (x2)
+    body $[1].filament.spool_weight: Spoolman 140.0, ours null
+    body $[1].spool_weight: Spoolman 140.0, ours null
+    body $[1].remaining_length: Spoolman 120702.10299003517, ours 120702.10299003516
+    body: ours sends 13 fields as null that Spoolman leaves out ($[].comment, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].price)
+228 list spools limit bad GET /api/v1/spool?limit=x
+    status: Spoolman 422, ours 200
+    header x-total-count: only ours (4)
+    body: Spoolman {"detail":[{"type":"int_parsing","loc":["query","limit"],"msg":"Input should be a valid integer, unable to parse string as an integer","input":"x"}]}, ours [{"id":1,"registered":"<now>","first_used":"2024-03-01T08:00:00Z","last_used":"<now>","price":null,"initial_weight":1000.0,"spool_weight":193.0,"used_…
+229 spool group by location GET /api/v1/spool/group?group_by=location&allow_archived=true
+    status: Spoolman 200, ours 400
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    header x-total-count: only Spoolman ("3")
+    header x-total-remaining-weight: only Spoolman ("1110.0")
+    header x-total-spools: only Spoolman ("5")
+    body: Spoolman JSON, ours "Invalid URL: Cannot parse `group` to a `i64`"
+230 spool group by material GET /api/v1/spool/group?group_by=material
+    status: Spoolman 200, ours 400
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    header x-total-count: only Spoolman ("3")
+    header x-total-remaining-weight: only Spoolman ("360.0")
+    header x-total-spools: only Spoolman ("4")
+    body: Spoolman JSON, ours "Invalid URL: Cannot parse `group` to a `i64`"
+231 spool group, every filter GET /api/v1/spool/group?group_by=location&filament.name=p&filament.id=2&filament.material=PETG&filament.multi_color_direction=coaxial&filament.vendor.name=p&filament.vendor.id=1&location=Shelf&lot_nr=L&allow_archived=true&include_empty=true&preview=true&first_used=%7C&last_used=%7C&registered=%7C&sort=location:asc&limit=5&offset=0
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "Invalid URL: Cannot parse `group` to a `i64`"
+232 spool group by bad GET /api/v1/spool/group?group_by=bogus
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "Invalid URL: Cannot parse `group` to a `i64`"
+233 spool group without group_by GET /api/v1/spool/group
+    status: Spoolman 422, ours 400
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "Invalid URL: Cannot parse `group` to a `i64`"
+234 rename spool field value PATCH /api/v1/spool/field/location
+    status: Spoolman 200, ours 404
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "nothing at /api/v1/spool/field/location"
+235 rename spool field, missing body PATCH /api/v1/spool/field/location
+    status: Spoolman 422, ours 404
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "nothing at /api/v1/spool/field/location"
+236 rename spool field, bad field PATCH /api/v1/spool/field/bogus
+    status: Spoolman 400, ours 404
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "nothing at /api/v1/spool/field/bogus"
+237 materials GET /api/v1/material
+    identical
+238 article numbers GET /api/v1/article-number
+    identical
+239 lot numbers GET /api/v1/lot-number
+    identical
+240 locations GET /api/v1/location
+    body $: 2 items, ours 3
+    body $[1]: Spoolman "Shelf C", ours "Shelf B"
+241 rename location PATCH /api/v1/location/Shelf%20A
+    identical
+242 rename location with slash PATCH /api/v1/location/Rack/1
+    status: Spoolman 200, ours 404
+    body: Spoolman "Rack 2", ours {"message":"No location Rack/1."}
+243 rename location, empty name PATCH /api/v1/location/Shelf%20Z
+    body $.detail: only Spoolman ([{"type":"string_too_short","loc":["body","name"],"msg":"String should…)
+    body $.message: only ours ("name")
+244 rename location, no body PATCH /api/v1/location/Shelf%20Z
+    body $.detail: only Spoolman ([{"type":"missing","loc":["body","name"],"msg":"Field required","input…)
+    body $.message: only ours ("name")
+245 rename location, unknown PATCH /api/v1/location/Nowhere
+    status: Spoolman 200, ours 404
+    body: Spoolman "Somewhere", ours {"message":"No location Nowhere."}
+246 locations after rename GET /api/v1/location
+    body $: 2 items, ours 3
+    body $[0]: Spoolman "Shelf Z", ours "Shelf B" (x2)
+247 spools after rename GET /api/v1/spool?allow_archived=true
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x5)
+    body $[0].filament: key order differs (x5)
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33" (x4)
+    body $[0].used_length: Spoolman 1672190.8406551199, ours 1672190.8406551194 (x4)
+    body $[1].used_weight: Spoolman 1100.0, ours 1000.0
+    body $[2].filament.spool_weight: Spoolman 140.0, ours null (x2)
+    body $[2].spool_weight: Spoolman 140.0, ours null (x2)
+    body $[2].remaining_length: Spoolman 120702.10299003517, ours 120702.10299003516 (x2)
+    body $[2].location: Spoolman "Shelf C", ours "Shelf B"
+    body $[4].first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"
+    body $[4].last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z"
+    body: ours sends 51 fields as null that Spoolman leaves out ($[].comment, $[].filament.article_number, $[].filament.color_hex, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.spool_weight, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].filament.weight, $[].initial_weight, $[].location, $[].lot_nr, $[].price, $[].remaining_length, $[].remaining_weight, $[].spool_weight)
+248 define spool field, datetime POST /api/v1/field/spool/last_dried
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].choices, $[].default_value, $[].multi_choice, $[].unit)
+249 define spool field, choice POST /api/v1/field/spool/dryness
+    body $[0].name: Spoolman "Last dried", ours "Dryness" (x2)
+    body $[0].field_type: Spoolman "datetime", ours "choice" (x2)
+    body $[0].key: Spoolman "last_dried", ours "dryness" (x2)
+    body $[0].default_value: only ours ("\"dry\"") (x2)
+    body $[0].choices: only ours (["dry","damp"]) (x2)
+    body $[0].multi_choice: only ours (false) (x2)
+    body: ours sends 2 fields as null that Spoolman leaves out ($[].unit)
+250 define spool field, text POST /api/v1/field/spool/shelf
+    body $[0].name: Spoolman "Last dried", ours "Dryness" (x2)
+    body $[0].field_type: Spoolman "datetime", ours "choice" (x2)
+    body $[0].key: Spoolman "last_dried", ours "dryness" (x2)
+    body $[0].default_value: only ours ("\"dry\"") (x2)
+    body $[0].choices: only ours (["dry","damp"]) (x2)
+    body $[0].multi_choice: only ours (false) (x2)
+    body: ours sends 6 fields as null that Spoolman leaves out ($[].choices, $[].default_value, $[].multi_choice, $[].unit)
+251 define spool field, integer with unit POST /api/v1/field/spool/dried_hours
+    body $[0].name: Spoolman "Last dried", ours "Dried" (x3)
+    body $[0].field_type: Spoolman "datetime", ours "integer" (x3)
+    body $[0].key: Spoolman "last_dried", ours "dried_hours" (x3)
+    body $[0].unit: only ours ("h") (x2)
+    body $[2].order: Spoolman 3, ours 0 (x2)
+    body: ours sends 11 fields as null that Spoolman leaves out ($[].choices, $[].default_value, $[].multi_choice, $[].unit)
+252 define spool field, boolean POST /api/v1/field/spool/opened
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0].name: Spoolman "Last dried", ours "Dried" (x4)
+    body $[0].field_type: Spoolman "datetime", ours "integer" (x4)
+    body $[0].key: Spoolman "last_dried", ours "dried_hours" (x4)
+    body $[0].unit: only ours ("h") (x2)
+    body $[2].order: Spoolman 3, ours 0 (x2)
+    body: ours sends 15 fields as null that Spoolman leaves out ($[].choices, $[].default_value, $[].multi_choice, $[].unit)
+253 define filament field POST /api/v1/field/filament/finish
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].choices, $[].default_value, $[].multi_choice, $[].unit)
+254 define vendor field POST /api/v1/field/vendor/country
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].choices, $[].default_value, $[].multi_choice, $[].unit)
+255 define field, type change POST /api/v1/field/spool/shelf
+    body $.message: Spoolman "Field type cannot be changed.", ours "A field's type cannot change."
+256 define field, name change POST /api/v1/field/spool/shelf
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0].name: Spoolman "Last dried", ours "Dried" (x2)
+    body $[0].field_type: Spoolman "datetime", ours "integer" (x2)
+    body $[0].key: Spoolman "last_dried", ours "dried_hours" (x2)
+    body $[0].unit: only ours ("h") (x2)
+    body: ours sends 15 fields as null that Spoolman leaves out ($[].choices, $[].default_value, $[].multi_choice, $[].unit)
+257 define field, bad type POST /api/v1/field/spool/bad
+    status: Spoolman 422, ours 400
+    body: Spoolman {"detail":[{"type":"enum","loc":["body","field_type"],"msg":"Input should be 'text', 'integer', 'integer_range', 'float', 'float_range', 'datetime', '…, ours {"message":"field_type is one of text, integer, integer_range, float, float_range, datetime, boolean, choice"}
+258 define field, bad key POST /api/v1/field/spool/Bad-Key
+    status: Spoolman 422, ours 400
+    body: Spoolman {"detail":[{"type":"string_pattern_mismatch","loc":["path","key"],"msg":"String should match pattern '^[a-z0-9_]+$'","input":"Bad-Key","ctx":{"pattern…, ours {"message":"A key is lowercase letters, digits and _."}
+259 define field, choice without choices POST /api/v1/field/spool/nochoice
+    status: Spoolman 400, ours 200
+    body: Spoolman {"message":"Choices must be set for field type choice."}, ours [{"name":"Dried","order":0,"unit":"h","field_type":"integer","default_value":null,"choices":null,"multi_choice":null,"key":"dried_hours","entity_type"…
+260 define field, bad entity POST /api/v1/field/bogus/x
+    status: Spoolman 422, ours 404
+    header content-type: only Spoolman ("application/json")
+    body: Spoolman JSON, ours ""
+261 define field, no body POST /api/v1/field/spool/x
+    status: Spoolman 422, ours 400
+    body: Spoolman {"detail":[{"type":"missing","loc":["body","name"],"msg":"Field required","input":{}},{"type":"missing","loc":["body","field_type"],"msg":"Field requi…, ours {"message":"field_type is one of text, integer, integer_range, float, float_range, datetime, boolean, choice"}
+262 fields of spool GET /api/v1/field/spool
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: 5 items, ours 6
+    body $[0].name: Spoolman "Last dried", ours "Dried" (x4)
+    body $[0].field_type: Spoolman "datetime", ours "integer" (x4)
+    body $[0].key: Spoolman "last_dried", ours "dried_hours" (x4)
+    body $[0].unit: only ours ("h") (x2)
+    body: ours sends 15 fields as null that Spoolman leaves out ($[].choices, $[].default_value, $[].multi_choice, $[].unit)
+263 fields of filament GET /api/v1/field/filament
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].choices, $[].default_value, $[].multi_choice, $[].unit)
+264 fields of vendor GET /api/v1/field/vendor
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].choices, $[].default_value, $[].multi_choice, $[].unit)
+265 add spool 6, with extra POST /api/v1/spool
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.remaining_length: Spoolman 327363.5339187306, ours 327363.5339187305
+    body: ours sends 10 fields as null that Spoolman leaves out ($.comment, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.first_used, $.last_used, $.location, $.lot_nr, $.price)
+266 add spool, extra value of the wrong type POST /api/v1/spool
+    (ours made spool 7 where Spoolman refused; deleted before the next request)
+    status: Spoolman 400, ours 200
+    body: Spoolman {"message":"Invalid extra field for key dried_hours: Value is not an integer."}, ours {"id":7,"registered":"<now>","first_used":null,"last_used":null,"price":null,"initial_weight":1000.0,"spool_weight":193.0,"used_weight":0.0,"location"…
+267 add spool, extra not a choice POST /api/v1/spool
+    (ours made spool 7 where Spoolman refused; deleted before the next request)
+    status: Spoolman 400, ours 200
+    body: Spoolman {"message":"Invalid extra field for key dryness: Value is not a valid choice."}, ours {"id":7,"registered":"<now>","first_used":null,"last_used":null,"price":null,"initial_weight":1000.0,"spool_weight":193.0,"used_weight":0.0,"location"…
+268 add spool, extra not JSON text POST /api/v1/spool
+    (ours made spool 7 where Spoolman refused; deleted before the next request)
+    status: Spoolman 400, ours 200
+    body: Spoolman {"message":"Invalid extra field for key shelf: Value is not valid JSON."}, ours {"id":7,"registered":"<now>","first_used":null,"last_used":null,"price":null,"initial_weight":1000.0,"spool_weight":193.0,"used_weight":0.0,"location"…
+269 patch spool 6 extra PATCH /api/v1/spool/6
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.remaining_length: Spoolman 327363.5339187306, ours 327363.5339187305
+    body $.extra.last_dried: only Spoolman ("\"2024-05-01T10:00:00Z\"")
+    body $.extra.dryness: only Spoolman ("\"damp\"")
+    body: ours sends 10 fields as null that Spoolman leaves out ($.comment, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.first_used, $.last_used, $.location, $.lot_nr, $.price)
+270 patch spool 6 extra again PATCH /api/v1/spool/6
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.remaining_length: Spoolman 327363.5339187306, ours 327363.5339187305
+    body $.extra.last_dried: only Spoolman ("\"2024-05-01T10:00:00Z\"")
+    body $.extra.dryness: only Spoolman ("\"damp\"")
+    body $.extra.shelf: only Spoolman ("\"S2\"")
+    body $.extra.opened: only Spoolman ("true")
+    body: ours sends 10 fields as null that Spoolman leaves out ($.comment, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.first_used, $.last_used, $.location, $.lot_nr, $.price)
+271 patch filament 2 extra PATCH /api/v1/filament/2
+    body $: key order differs
+    body $.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body: ours sends 4 fields as null that Spoolman leaves out ($.multi_color_direction, $.multi_color_hexes, $.vendor.comment, $.vendor.external_id)
+272 patch vendor 1 extra PATCH /api/v1/vendor/1
+    body: ours sends 2 fields as null that Spoolman leaves out ($.comment, $.external_id)
+273 get spool 6 GET /api/v1/spool/6
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.remaining_length: Spoolman 327363.5339187306, ours 327363.5339187305
+    body $.extra.last_dried: only Spoolman ("\"2024-05-01T10:00:00Z\"")
+    body $.extra.dryness: only Spoolman ("\"damp\"")
+    body $.extra.shelf: only Spoolman ("\"S2\"")
+    body $.extra.opened: only Spoolman ("true")
+    body: ours sends 10 fields as null that Spoolman leaves out ($.comment, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.first_used, $.last_used, $.location, $.lot_nr, $.price)
+274 get filament 2 with extra GET /api/v1/filament/2
+    body $: key order differs
+    body $.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body: ours sends 4 fields as null that Spoolman leaves out ($.multi_color_direction, $.multi_color_hexes, $.vendor.comment, $.vendor.external_id)
+275 get vendor 1 with extra GET /api/v1/vendor/1
+    body: ours sends 2 fields as null that Spoolman leaves out ($.comment, $.external_id)
+276 list spools by extra GET /api/v1/spool?extra.shelf=S2
+    header vary: only Spoolman ("Accept-Encoding")
+    header x-total-count: Spoolman "1", ours 5
+    body $: 1 items, ours 5
+    body $[0]: key order differs
+    body $[0].id: Spoolman 6, ours 1
+    body $[0].filament: key order differs
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $[0].remaining_weight: Spoolman 1000.0, ours 0.0
+    body $[0].used_weight: Spoolman 0.0, ours 5108.054707981764
+    body $[0].remaining_length: Spoolman 327363.5339187306, ours 0.0
+    body $[0].used_length: Spoolman 0.0, ours 1672190.8406551194
+    body $[0].extra.last_dried: only Spoolman ("\"2024-05-01T10:00:00Z\"")
+    body $[0].extra.dryness: only Spoolman ("\"damp\"")
+    body $[0].extra.shelf: only Spoolman ("\"S2\"")
+    body $[0].extra.opened: only Spoolman ("true")
+    body $[0].extra.dried_hours: only Spoolman ("12")
+    body $[0].first_used: only ours ("2024-03-01T08:00:00Z")
+    body $[0].last_used: only ours ("<now>")
+    body $[0].comment: only ours ("c")
+    body: ours sends 7 fields as null that Spoolman leaves out ($[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].location, $[].lot_nr, $[].price)
+277 list spools by extra datetime GET /api/v1/spool?extra.dried_hours=12
+    header vary: only Spoolman ("Accept-Encoding")
+    header x-total-count: Spoolman "1", ours 5
+    body $: 1 items, ours 5
+    body $[0]: key order differs
+    body $[0].id: Spoolman 6, ours 1
+    body $[0].filament: key order differs
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $[0].remaining_weight: Spoolman 1000.0, ours 0.0
+    body $[0].used_weight: Spoolman 0.0, ours 5108.054707981764
+    body $[0].remaining_length: Spoolman 327363.5339187306, ours 0.0
+    body $[0].used_length: Spoolman 0.0, ours 1672190.8406551194
+    body $[0].extra.last_dried: only Spoolman ("\"2024-05-01T10:00:00Z\"")
+    body $[0].extra.dryness: only Spoolman ("\"damp\"")
+    body $[0].extra.shelf: only Spoolman ("\"S2\"")
+    body $[0].extra.opened: only Spoolman ("true")
+    body $[0].extra.dried_hours: only Spoolman ("12")
+    body $[0].first_used: only ours ("2024-03-01T08:00:00Z")
+    body $[0].last_used: only ours ("<now>")
+    body $[0].comment: only ours ("c")
+    body: ours sends 7 fields as null that Spoolman leaves out ($[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.vendor.comment, $[].filament.vendor.external_id, $[].location, $[].lot_nr, $[].price)
+278 list filaments by extra GET /api/v1/filament?extra.finish=matte
+    header x-total-count: Spoolman "1", ours 4
+    body $: 1 items, ours 4
+    body $[0]: key order differs
+    body $[0].id: Spoolman 2, ours 1
+    body $[0].name: Spoolman "PETG Galaxy Black", ours "Plain"
+    body $[0].vendor.id: Spoolman 1, ours 3
+    body $[0].vendor.name: Spoolman "Prusament", ours "eSun"
+    body $[0].vendor.empty_spool_weight: Spoolman 193.0, ours 250.5
+    body $[0].vendor.extra.country: only Spoolman ("\"CZ\"")
+    body $[0].material: Spoolman "PETG", ours "ABS"
+    body $[0].price: Spoolman 29.9, ours null
+    body $[0].density: Spoolman 1.27, ours 1.24
+    body $[0].weight: Spoolman 1000.0, ours null
+    body $[0].spool_weight: Spoolman 193.0, ours null
+    body $[0].article_number: Spoolman "PM1", ours null
+    body $[0].comment: Spoolman "dark", ours null
+    body $[0].settings_extruder_temp: Spoolman 250, ours null
+    body $[0].settings_bed_temp: Spoolman 85, ours null
+    body $[0].color_hex: Spoolman "2B2B33", ours null
+    body $[0].external_id: Spoolman "ext-1", ours null
+    body $[0].extra.finish: only Spoolman ("\"matte\"")
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].multi_color_direction, $[].multi_color_hexes, $[].vendor.comment, $[].vendor.external_id)
+279 list vendors by extra GET /api/v1/vendor?extra.country=CZ
+    header x-total-count: Spoolman "1", ours 4
+    body $: 1 items, ours 4
+    body: ours sends 2 fields as null that Spoolman leaves out ($[].comment, $[].external_id)
+280 field values GET /api/v1/field/spool/shelf/values
+    body $: 1 items, ours 0
+281 field values unknown key GET /api/v1/field/spool/nokey/values
+    status: Spoolman 404, ours 200
+    body: Spoolman {"message":"No extra field with key 'nokey'."}, ours []
+282 delete field DELETE /api/v1/field/spool/opened
+    body $: 4 items, ours 5
+    body $[0].name: Spoolman "Last dried", ours "Dried" (x3)
+    body $[0].field_type: Spoolman "datetime", ours "integer" (x3)
+    body $[0].key: Spoolman "last_dried", ours "dried_hours" (x3)
+    body $[0].unit: only ours ("h") (x2)
+    body: ours sends 11 fields as null that Spoolman leaves out ($[].choices, $[].default_value, $[].multi_choice, $[].unit)
+283 delete field again DELETE /api/v1/field/spool/opened
+    status: Spoolman 404, ours 200
+    body: Spoolman {"message":"Extra field with key opened does not exist for entity type spool"}, ours [{"name":"Dried","order":0,"unit":"h","field_type":"integer","default_value":null,"choices":null,"multi_choice":null,"key":"dried_hours","entity_type"…
+284 fields of spool after delete GET /api/v1/field/spool
+    body $: 4 items, ours 5
+    body $[0].name: Spoolman "Last dried", ours "Dried" (x3)
+    body $[0].field_type: Spoolman "datetime", ours "integer" (x3)
+    body $[0].key: Spoolman "last_dried", ours "dried_hours" (x3)
+    body $[0].unit: only ours ("h") (x2)
+    body: ours sends 11 fields as null that Spoolman leaves out ($[].choices, $[].default_value, $[].multi_choice, $[].unit)
+285 rename spool field value by extra PATCH /api/v1/spool/field/extra.shelf
+    status: Spoolman 200, ours 404
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "nothing at /api/v1/spool/field/extra.shelf"
+286 link tag to spool 2 POST /api/v1/spool/2/tag
+    body $: key order differs
+287 link same tag again POST /api/v1/spool/2/tag
+    body $: key order differs
+288 link tag held by a spool to a filament POST /api/v1/filament/2/tag
+    body $.message: Spoolman "Tag 04A2B3C4 is already linked to spool 2.", ours "Tag 04A2B3C4 is already linked to something else."
+289 link tag to spool 3, held POST /api/v1/spool/3/tag
+    body $.message: Spoolman "Tag 04A2B3C4 is already linked to spool 2.", ours "Tag 04A2B3C4 is already linked to something else."
+290 link tag to filament 2 POST /api/v1/filament/2/tag
+    body $: key order differs
+291 link tag, not hex POST /api/v1/spool/2/tag
+    body $.message: Spoolman "\"not hex\" is not a valid tag UID. A UID must be hexadecimal.", ours "A tag UID is hexadecimal: not hex"
+292 link tag, empty POST /api/v1/spool/2/tag
+    status: Spoolman 422, ours 400
+    body: Spoolman {"detail":[{"type":"string_too_short","loc":["body","uid"],"msg":"String should have at least 1 character","input":"","ctx":{"min_length":1}}]}, ours {"message":"A tag UID cannot be empty."}
+293 link tag, too long POST /api/v1/spool/2/tag
+    body $.message: Spoolman "A tag UID can be at most 64 hex characters.", ours "A tag UID is at most 64 hexadecimal digits."
+294 link tag to spool 99 POST /api/v1/spool/99/tag
+    identical
+295 link tag to filament 99 POST /api/v1/filament/99/tag
+    identical
+296 link tag, no body POST /api/v1/spool/2/tag
+    body $.detail: only Spoolman ([{"type":"missing","loc":["body","uid"],"msg":"Field required","input"…)
+    body $.message: only ours ("uid")
+297 get spool 2 with tag GET /api/v1/spool/2
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.filament.tags[0]: key order differs
+    body $.used_weight: Spoolman 1100.0, ours 1000.0
+    body $.used_length: Spoolman 360099.88731060363, ours 327363.5339187305
+    body $.tags[0]: key order differs
+    body: ours sends 4 fields as null that Spoolman leaves out ($.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id)
+298 get filament 2 with tag GET /api/v1/filament/2
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.tags[0]: key order differs
+    body: ours sends 4 fields as null that Spoolman leaves out ($.multi_color_direction, $.multi_color_hexes, $.vendor.comment, $.vendor.external_id)
+299 list spools by tag GET /api/v1/spool?tag=04a2b3c4
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs
+    body $[0].filament: key order differs
+    body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $[0].filament.tags[0]: key order differs
+    body $[0].used_weight: Spoolman 1100.0, ours 1000.0
+    body $[0].used_length: Spoolman 360099.88731060363, ours 327363.5339187305
+    body $[0].tags[0]: key order differs
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.vendor.comment, $[].filament.vendor.external_id)
+300 list filaments by tag GET /api/v1/filament?tag=AABBCCDD
+    header vary: only Spoolman ("Accept-Encoding")
+    header x-total-count: Spoolman "1", ours 4
+    body $: 1 items, ours 4
+    body $[0]: key order differs
+    body $[0].id: Spoolman 2, ours 1
+    body $[0].name: Spoolman "PETG Galaxy Black", ours "Plain"
+    body $[0].vendor.id: Spoolman 1, ours 3
+    body $[0].vendor.name: Spoolman "Prusament", ours "eSun"
+    body $[0].vendor.empty_spool_weight: Spoolman 193.0, ours 250.5
+    body $[0].vendor.extra.country: only Spoolman ("\"CZ\"")
+    body $[0].material: Spoolman "PETG", ours "ABS"
+    body $[0].price: Spoolman 29.9, ours null
+    body $[0].density: Spoolman 1.27, ours 1.24
+    body $[0].weight: Spoolman 1000.0, ours null
+    body $[0].spool_weight: Spoolman 193.0, ours null
+    body $[0].article_number: Spoolman "PM1", ours null
+    body $[0].comment: Spoolman "dark", ours null
+    body $[0].settings_extruder_temp: Spoolman 250, ours null
+    body $[0].settings_bed_temp: Spoolman 85, ours null
+    body $[0].color_hex: Spoolman "2B2B33", ours null
+    body $[0].external_id: Spoolman "ext-1", ours null
+    body $[0].extra.finish: only Spoolman ("\"matte\"")
+    body $[0].tags: 1 items, ours 0
+    body: ours sends 4 fields as null that Spoolman leaves out ($[].multi_color_direction, $[].multi_color_hexes, $[].vendor.comment, $[].vendor.external_id)
+301 list spools by unknown tag GET /api/v1/spool?tag=FFFFFFFF
+    identical
+302 scan tag of a spool POST /api/v1/tag/scan
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.spool: key order differs
+    body $.spool.filament: key order differs
+    body $.spool.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.spool.filament.tags[0]: key order differs
+    body $.spool.used_weight: Spoolman 1100.0, ours 1000.0
+    body $.spool.used_length: Spoolman 360099.88731060363, ours 327363.5339187305
+    body $.spool.tags[0]: key order differs
+    body: ours sends 8 fields as null that Spoolman leaves out ($.decoded, $.filament, $.format, $.name, $.spool.filament.multi_color_direction, $.spool.filament.multi_color_hexes, $.spool.filament.vendor.comment, $.spool.filament.vendor.external_id)
+303 scan tag of a filament POST /api/v1/tag/scan
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: key order differs
+    body $.filament: key order differs
+    body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $.filament.tags[0]: key order differs
+    body: ours sends 7 fields as null that Spoolman leaves out ($.decoded, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.format, $.spool)
+304 scan unknown tag POST /api/v1/tag/scan
+    body $: key order differs
+    body: ours sends 5 fields as null that Spoolman leaves out ($.decoded, $.filament, $.format, $.name, $.spool)
+305 scan, bad reader id POST /api/v1/tag/scan
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"string_pattern_mismatch","loc":["body","reader_id"],"msg":"String should match pattern '^[A-Za-z0-9._:-]{1,64}$'","input":"bad rea…, ours {"uid":"11223344","reader_id":"bad reader!","name":null,"format":null,"matched_spool_id":null,"spool":null,"matched_filament_id":null,"filament":null,…
+306 scan, no uid POST /api/v1/tag/scan
+    body $.detail: only Spoolman ([{"type":"missing","loc":["body","uid"],"msg":"Field required","input"…)
+    body $.message: only ours ("uid")
+307 scan, not hex POST /api/v1/tag/scan
+    body $.message: Spoolman "\"zz\" is not a valid tag UID. A UID must be hexadecimal.", ours "A tag UID is hexadecimal: zz"
+308 tag readers GET /api/v1/tag/reader
+    body $: 2 items, ours 3
+    body $[0].reader_id: Spoolman "door", ours "scale" (x2)
+    body $[0].last_uid: Spoolman "11223344", ours "AABBCCDD" (x2)
+    body $[0].name: only ours ("Scale") (x2)
+309 unlink tag from spool 2 DELETE /api/v1/spool/2/tag/04:A2:B3:C4
+    identical
+310 unlink tag again DELETE /api/v1/spool/2/tag/04A2B3C4
+    body $.message: Spoolman "Spool 2 has no tag with UID 04A2B3C4.", ours "Tag 04A2B3C4 is not on this spool."
+311 unlink tag, not hex DELETE /api/v1/spool/2/tag/zz
+    body $.message: Spoolman "\"zz\" is not a valid tag UID. A UID must be hexadecimal.", ours "A tag UID is hexadecimal: zz"
+312 unlink tag from spool 99 DELETE /api/v1/spool/99/tag/04A2B3C4
+    body $.message: Spoolman "No spool with ID 99 found.", ours "Tag 04A2B3C4 is not on this spool."
+313 unlink tag from filament 2 DELETE /api/v1/filament/2/tag/AABBCCDD
+    identical
+314 unlink tag from filament 99 DELETE /api/v1/filament/99/tag/AABBCCDD
+    body $.message: Spoolman "No filament with ID 99 found.", ours "Tag AABBCCDD is not on this filament."
+315 search text GET /api/v1/search?q=petg
+    status: Spoolman 200, ours 404
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    header vary: only Spoolman ("Accept-Encoding")
+    body: Spoolman JSON, ours "nothing at /api/v1/search?q=petg"
+316 search two terms GET /api/v1/search?q=polymaker%20red
+    status: Spoolman 200, ours 404
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "nothing at /api/v1/search?q=polymaker%20red"
+317 search number GET /api/v1/search?q=3
+    status: Spoolman 200, ours 404
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    header vary: only Spoolman ("Accept-Encoding")
+    body: Spoolman JSON, ours "nothing at /api/v1/search?q=3"
+318 search colour GET /api/v1/search?q=%23ff0000
+    status: Spoolman 200, ours 404
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    header vary: only Spoolman ("Accept-Encoding")
+    body: Spoolman JSON, ours "nothing at /api/v1/search?q=%23ff0000"
+319 search colour threshold GET /api/v1/search?q=red&color_similarity_threshold=50
+    status: Spoolman 200, ours 404
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    header vary: only Spoolman ("Accept-Encoding")
+    body: Spoolman JSON, ours "nothing at /api/v1/search?q=red&color_similarity_threshold=50"
+320 search limit and spools per filament GET /api/v1/search?q=pla&limit=1&spools_per_filament=2
+    status: Spoolman 200, ours 404
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "nothing at /api/v1/search?q=pla&limit=1&spools_per_filament=2"
+321 search archived GET /api/v1/search?q=polyterra&allow_archived=true
+    status: Spoolman 200, ours 404
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    header vary: only Spoolman ("Accept-Encoding")
+    body: Spoolman JSON, ours "nothing at /api/v1/search?q=polyterra&allow_archived=true"
+322 search without q GET /api/v1/search
+    status: Spoolman 422, ours 404
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "nothing at /api/v1/search"
+323 search limit too big GET /api/v1/search?q=a&limit=1000
+    status: Spoolman 422, ours 404
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "nothing at /api/v1/search?q=a&limit=1000"
+324 export vendors csv GET /api/v1/export/vendors?fmt=csv
+    header content-disposition: only Spoolman ("attachment; filename=\"vendors.csv\"")
+    body: Spoolman text "comment,empty_spool_weight,external_id,extra.country,id,name,register…, ours "id,registered,name,comment,empty_spool_weight,external_id,extra.count…
+325 export vendors json GET /api/v1/export/vendors?fmt=json
+    header content-disposition: only Spoolman ("attachment; filename=\"vendors.json\"")
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x4)
+    body $[0].extra.country: only Spoolman ("\"CZ\"")
+    body $[0].extra: only ours ({"country":"\"CZ\""}) (x4)
+326 export filaments csv GET /api/v1/export/filaments?fmt=csv
+    header content-disposition: only Spoolman ("attachment; filename=\"filaments.csv\"")
+    header vary: only Spoolman ("Accept-Encoding")
+    body: Spoolman text "article_number,color_hex,comment,density,diameter,external_id,extra.f…, ours "id,registered,name,material,price,density,diameter,weight,spool_weigh…
+327 export filaments json GET /api/v1/export/filaments?fmt=json
+    header content-disposition: only Spoolman ("attachment; filename=\"filaments.json\"")
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x4)
+    body $[0].tags: Spoolman "", ours [] (x4)
+    body $[0].vendor.comment: only Spoolman (null) (x4)
+    body $[0].vendor.empty_spool_weight: only Spoolman (250.5) (x4)
+    body $[0].vendor.external_id: only Spoolman (null) (x4)
+    body $[0].vendor.id: only Spoolman (3) (x4)
+    body $[0].vendor.name: only Spoolman ("eSun") (x4)
+    body $[0].vendor.registered: only Spoolman ("<now>") (x4)
+    body $[0].vendor_id: only Spoolman (3) (x4)
+    body $[0].extra: only ours ({}) (x4)
+    body $[0].vendor: only ours ({"id":3,"registered":"<now>","name":"eSun","comment":null,"empty_spool…) (x4)
+    body $[1].color_hex: Spoolman "2B2B33", ours "2b2b33"
+    body $[1].extra.finish: only Spoolman ("\"matte\"")
+    body $[1].vendor.extra.country: only Spoolman ("\"CZ\"")
+    body $[2].spool_weight: Spoolman 140.0, ours null (x2)
+    body $[3].multi_color_hexes: Spoolman "FF0000,00FF00", ours "#FF0000,00FF00"
+328 export spools csv GET /api/v1/export/spools?fmt=csv
+    header content-disposition: only Spoolman ("attachment; filename=\"spools.csv\"")
+    header vary: only Spoolman ("Accept-Encoding")
+    body: Spoolman text "archived,comment,extra.dried_hours,extra.dryness,extra.last_dried,ext…, ours "id,registered,first_used,last_used,price,initial_weight,spool_weight,…
+329 export spools json GET /api/v1/export/spools?fmt=json
+    header content-disposition: only Spoolman ("attachment; filename=\"spools.json\"")
+    header vary: only Spoolman ("Accept-Encoding")
+    body $: 5 items, ours 6
+    body $[0]: key order differs (x5)
+    body $[0].filament.article_number: only Spoolman ("PM1") (x5)
+    body $[0].filament.color_hex: only Spoolman ("2B2B33") (x5)
+    body $[0].filament.comment: only Spoolman ("dark") (x5)
+    body $[0].filament.density: only Spoolman (1.27) (x5)
+    body $[0].filament.diameter: only Spoolman (1.75) (x5)
+    body $[0].filament.external_id: only Spoolman ("ext-1") (x5)
+    body $[0].filament.extra.finish: only Spoolman ("\"matte\"") (x3)
+    body $[0].filament.id: only Spoolman (2) (x5)
+    body $[0].filament.material: only Spoolman ("PETG") (x5)
+    body $[0].filament.multi_color_direction: only Spoolman (null) (x5)
+    body $[0].filament.multi_color_hexes: only Spoolman (null) (x5)
+    body $[0].filament.name: only Spoolman ("PETG Galaxy Black") (x5)
+    body $[0].filament.price: only Spoolman (29.9) (x5)
+    body $[0].filament.registered: only Spoolman ("<now>") (x5)
+    body $[0].filament.settings_bed_temp: only Spoolman (85) (x5)
+    body $[0].filament.settings_extruder_temp: only Spoolman (250) (x5)
+    body $[0].filament.spool_weight: only Spoolman (193.0) (x5)
+    body $[0].filament.tags: only Spoolman ("") (x5)
+    body $[0].filament.vendor.comment: only Spoolman (null) (x5)
+    body $[0].filament.vendor.empty_spool_weight: only Spoolman (193.0) (x5)
+    body $[0].filament.vendor.external_id: only Spoolman (null) (x5)
+    body $[0].filament.vendor.extra.country: only Spoolman ("\"CZ\"") (x3)
+    body $[0].filament.vendor.id: only Spoolman (1) (x5)
+    body $[0].filament.vendor.name: only Spoolman ("Prusament") (x5)
+    body $[0].filament.vendor.registered: only Spoolman ("<now>") (x5)
+    body $[0].filament.vendor_id: only Spoolman (1) (x5)
+    body $[0].filament.weight: only Spoolman (1000.0) (x5)
+    body $[0].filament_id: only Spoolman (2) (x5)
+    body $[0].first_used: Spoolman "2024-03-01 08:00:00", ours "2024-03-01T08:00:00Z" (x3)
+    body $[0].tags: Spoolman "", ours [] (x5)
+    body $[0].extra: only ours ({}) (x5)
+    body $[0].remaining_weight: only ours (0.0) (x4)
+    body $[0].used_length: only ours (1672190.8406551194) (x5)
+    body $[0].remaining_length: only ours (0.0) (x4)
+    body $[0].filament: only ours ({"id":2,"registered":"<now>","name":"PETG Galaxy Black","material":"PE…) (x5)
+    body $[1].used_weight: Spoolman 1100.0, ours 1000.0
+    body $[2].location: Spoolman "Shelf C", ours "Shelf B" (x2)
+    body $[2].spool_weight: Spoolman 140.0, ours null (x2)
+    body $[4].archived: Spoolman false, ours true
+    body $[4].extra.last_dried: only Spoolman ("\"2024-05-01T10:00:00Z\"")
+    body $[4].extra.dryness: only Spoolman ("\"damp\"")
+    body $[4].extra.shelf: only Spoolman ("\"S3\"")
+    body $[4].extra.dried_hours: only Spoolman ("12")
+    body $[4].id: Spoolman 6, ours 5
+    body $[4].initial_weight: Spoolman 1000.0, ours 750.0
+    body $[4].last_used: Spoolman null, ours "2024-06-02T00:00:00Z"
+    body: ours sends 2 fields as null that Spoolman leaves out ($[].remaining_length, $[].remaining_weight)
+330 export spools with archived GET /api/v1/export/spools?fmt=json&allow_archived=true
+    header content-disposition: only Spoolman ("attachment; filename=\"spools.json\"")
+    header vary: only Spoolman ("Accept-Encoding")
+    body $[0]: key order differs (x6)
+    body $[0].filament.article_number: only Spoolman ("PM1") (x6)
+    body $[0].filament.color_hex: only Spoolman ("2B2B33") (x6)
+    body $[0].filament.comment: only Spoolman ("dark") (x6)
+    body $[0].filament.density: only Spoolman (1.27) (x6)
+    body $[0].filament.diameter: only Spoolman (1.75) (x6)
+    body $[0].filament.external_id: only Spoolman ("ext-1") (x6)
+    body $[0].filament.extra.finish: only Spoolman ("\"matte\"") (x3)
+    body $[0].filament.id: only Spoolman (2) (x6)
+    body $[0].filament.material: only Spoolman ("PETG") (x6)
+    body $[0].filament.multi_color_direction: only Spoolman (null) (x6)
+    body $[0].filament.multi_color_hexes: only Spoolman (null) (x6)
+    body $[0].filament.name: only Spoolman ("PETG Galaxy Black") (x6)
+    body $[0].filament.price: only Spoolman (29.9) (x6)
+    body $[0].filament.registered: only Spoolman ("<now>") (x6)
+    body $[0].filament.settings_bed_temp: only Spoolman (85) (x6)
+    body $[0].filament.settings_extruder_temp: only Spoolman (250) (x6)
+    body $[0].filament.spool_weight: only Spoolman (193.0) (x6)
+    body $[0].filament.tags: only Spoolman ("") (x6)
+    body $[0].filament.vendor.comment: only Spoolman (null) (x6)
+    body $[0].filament.vendor.empty_spool_weight: only Spoolman (193.0) (x6)
+    body $[0].filament.vendor.external_id: only Spoolman (null) (x6)
+    body $[0].filament.vendor.extra.country: only Spoolman ("\"CZ\"") (x3)
+    body $[0].filament.vendor.id: only Spoolman (1) (x6)
+    body $[0].filament.vendor.name: only Spoolman ("Prusament") (x6)
+    body $[0].filament.vendor.registered: only Spoolman ("<now>") (x6)
+    body $[0].filament.vendor_id: only Spoolman (1) (x6)
+    body $[0].filament.weight: only Spoolman (1000.0) (x6)
+    body $[0].filament_id: only Spoolman (2) (x6)
+    body $[0].first_used: Spoolman "2024-03-01 08:00:00", ours "2024-03-01T08:00:00Z" (x3)
+    body $[0].tags: Spoolman "", ours [] (x6)
+    body $[0].extra: only ours ({}) (x6)
+    body $[0].remaining_weight: only ours (0.0) (x5)
+    body $[0].used_length: only ours (1672190.8406551194) (x6)
+    body $[0].remaining_length: only ours (0.0) (x5)
+    body $[0].filament: only ours ({"id":2,"registered":"<now>","name":"PETG Galaxy Black","material":"PE…) (x6)
+    body $[1].used_weight: Spoolman 1100.0, ours 1000.0
+    body $[2].location: Spoolman "Shelf C", ours "Shelf B"
+    body $[2].spool_weight: Spoolman 140.0, ours null (x2)
+    body $[4].last_used: Spoolman "2024-06-01 22:00:00", ours "2024-06-02T00:00:00Z"
+    body $[5].extra.last_dried: only Spoolman ("\"2024-05-01T10:00:00Z\"")
+    body $[5].extra.dryness: only Spoolman ("\"damp\"")
+    body $[5].extra.shelf: only Spoolman ("\"S3\"")
+    body $[5].extra.dried_hours: only Spoolman ("12")
+    body: ours sends 2 fields as null that Spoolman leaves out ($[].remaining_length, $[].remaining_weight)
+331 add vendor 5, spare POST /api/v1/vendor
+    body: ours sends 3 fields as null that Spoolman leaves out ($.comment, $.empty_spool_weight, $.external_id)
+332 add filament 5, spare POST /api/v1/filament
+    body: ours sends 13 fields as null that Spoolman leaves out ($.article_number, $.color_hex, $.comment, $.external_id, $.material, $.multi_color_direction, $.multi_color_hexes, $.name, $.price, $.settings_bed_temp, $.settings_extruder_temp, $.spool_weight, $.weight)
+333 add spool 7, spare POST /api/v1/spool
+    body $: key order differs
+    body: ours sends 23 fields as null that Spoolman leaves out ($.comment, $.filament.article_number, $.filament.color_hex, $.filament.comment, $.filament.external_id, $.filament.material, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.name, $.filament.price, $.filament.settings_bed_temp, $.filament.settings_extruder_temp, $.filament.spool_weight, $.filament.weight, $.first_used, $.initial_weight, $.last_used, $.location, $.lot_nr, $.price, $.remaining_length, $.remaining_weight, $.spool_weight)
+334 patch vendor name null PATCH /api/v1/vendor/5
+    status: Spoolman 422, ours 500
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "NOT NULL constraint failed: vendor.name"
+335 patch vendor name too long PATCH /api/v1/vendor/5
+    status: Spoolman 422, ours 200
+    body: Spoolman {"detail":[{"type":"string_too_long","loc":["body","name"],"msg":"String should have at most 64 characters","input":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…, ours {"id":5,"registered":"<now>","name":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","comment":null,"empty_spool_weight":null,"exte…
+336 patch filament density null PATCH /api/v1/filament/5
+    status: Spoolman 422, ours 500
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "NOT NULL constraint failed: filament.density"
+337 patch filament vendor 99 PATCH /api/v1/filament/5
+    status: Spoolman 404, ours 422
+    body: Spoolman {"message":"No vendor with ID 99 found."}, ours {"message":"no such vendor"}
+338 patch spool both weights PATCH /api/v1/spool/7
+    status: Spoolman 400, ours 422
+    body: Spoolman {"message":"Only specify either remaining_weight or used_weight."}, ours {"message":"remaining_weight needs the spool's initial_weight"}
+339 patch spool filament null PATCH /api/v1/spool/7
+    body $.detail: only Spoolman ([{"type":"value_error","loc":["body","filament_id"],"msg":"Value error…)
+    body $.message: only ours ("filament_id must be a number")
+340 patch spool filament 99 PATCH /api/v1/spool/7
+    status: Spoolman 404, ours 422
+    body: Spoolman {"message":"No filament with ID 99 found."}, ours {"message":"no filament with ID 99"}
+341 use spool both PUT /api/v1/spool/7/use
+    status: Spoolman 400, ours 422
+    body: Spoolman {"message":"Only specify either use_weight or use_length."}, ours {"message":"use_weight or use_length, not both"}
+342 use spool neither PUT /api/v1/spool/7/use
+    status: Spoolman 400, ours 422
+    body: Spoolman {"message":"Either use_weight or use_length must be specified."}, ours {"message":"use_weight or use_length"}
+343 use spool not a number PUT /api/v1/spool/7/use
+    body $.detail: only Spoolman ([{"type":"float_parsing","loc":["body","use_weight"],"msg":"Input shou…)
+    body $.message: only ours ("use_weight or use_length")
+344 measure spool without weight PUT /api/v1/spool/7/measure
+    body $.detail: only Spoolman ([{"type":"missing","loc":["body","weight"],"msg":"Field required","inp…)
+    body $.message: only ours ("weight: the spool's gross weight, in g")
+345 measure spool without initial weight PUT /api/v1/spool/7/measure
+    status: Spoolman 400, ours 422
+    body: Spoolman {"message":"Initial weight is not set."}, ours {"message":"the spool's initial_weight is not known"}
+346 spare spool 7 after GET /api/v1/spool/7
+    body $: key order differs
+    body: ours sends 23 fields as null that Spoolman leaves out ($.comment, $.filament.article_number, $.filament.color_hex, $.filament.comment, $.filament.external_id, $.filament.material, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.name, $.filament.price, $.filament.settings_bed_temp, $.filament.settings_extruder_temp, $.filament.spool_weight, $.filament.weight, $.first_used, $.initial_weight, $.last_used, $.location, $.lot_nr, $.price, $.remaining_length, $.remaining_weight, $.spool_weight)
+347 spare filament 5 after GET /api/v1/filament/5
+    body: ours sends 13 fields as null that Spoolman leaves out ($.article_number, $.color_hex, $.comment, $.external_id, $.material, $.multi_color_direction, $.multi_color_hexes, $.name, $.price, $.settings_bed_temp, $.settings_extruder_temp, $.spool_weight, $.weight)
+348 spare vendor 5 after GET /api/v1/vendor/5
+    body $.name: Spoolman "Spare", ours "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    body: ours sends 3 fields as null that Spoolman leaves out ($.comment, $.empty_spool_weight, $.external_id)
+349 delete spare spool 7 DELETE /api/v1/spool/7
+    identical
+350 delete spare filament 5 DELETE /api/v1/filament/5
+    identical
+351 delete spare vendor 5 DELETE /api/v1/vendor/5
+    identical
+352 delete filament with spools DELETE /api/v1/filament/2
+    body $.message: Spoolman "Failed to delete filament, see server logs for more information.", ours "This filament still has 3 in it."
+353 delete vendor with filaments DELETE /api/v1/vendor/1
+    status: Spoolman 200, ours 403
+    body: Spoolman {"message":"Success!"}, ours {"message":"This vendor still has 1 in it."}
+354 delete spool 5 DELETE /api/v1/spool/5
+    identical
+355 delete spool 5 again DELETE /api/v1/spool/5
+    identical
+356 get spool 5 after delete GET /api/v1/spool/5
+    identical
+357 delete spool 99 DELETE /api/v1/spool/99
+    identical
+358 delete spool id not a number DELETE /api/v1/spool/abc
+    status: Spoolman 422, ours 400
+    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
+    body: Spoolman JSON, ours "Invalid URL: Cannot parse `abc` to a `i64`"
+359 delete spool 1 DELETE /api/v1/spool/1
+    identical
+360 delete spool 2 DELETE /api/v1/spool/2
+    identical
+361 delete spool 3 DELETE /api/v1/spool/3
+    identical
+362 delete spool 4 DELETE /api/v1/spool/4
+    identical
+363 delete spool 6 DELETE /api/v1/spool/6
+    identical
+364 list spools after delete GET /api/v1/spool?allow_archived=true
+    identical
+365 delete filament 99 DELETE /api/v1/filament/99
+    identical
+366 delete filament 1 DELETE /api/v1/filament/1
+    identical
+367 delete filament 2 DELETE /api/v1/filament/2
+    identical
+368 delete filament 3 DELETE /api/v1/filament/3
+    identical
+369 delete filament 4 DELETE /api/v1/filament/4
+    identical
+370 delete vendor 99 DELETE /api/v1/vendor/99
+    identical
+371 delete vendor 1 DELETE /api/v1/vendor/1
+    status: Spoolman 404, ours 200
+    body: Spoolman {"message":"No vendor with ID 1 found."}, ours {"message":"Success!"}
+372 delete vendor 2 DELETE /api/v1/vendor/2
+    identical
+373 delete vendor 3 DELETE /api/v1/vendor/3
+    identical
+374 delete vendor 4 DELETE /api/v1/vendor/4
+    identical
+375 vendors after delete GET /api/v1/vendor
+    identical
+376 locations after delete GET /api/v1/location
+    body $: 0 items, ours 3

@@ -656,7 +656,7 @@ fn job_card(machine: &Machine) -> String {
       </div>
     </div>
   </div>
-  <form class="job-actions" data-job-actions action="{id}/job"{hidden}>
+  <form class="job-actions" data-job-actions action="{id}/job"{actions_hidden}>
     <button name="action" value="pause">Pause</button>
     <button name="action" value="resume">Resume</button>
     <button name="action" value="stop" class="danger">Stop</button>
@@ -671,6 +671,12 @@ fn job_card(machine: &Machine) -> String {
         state = escape(note.split(" · ").next().unwrap_or_default()),
         left = escape(&left),
         hidden = if running { "" } else { " hidden" },
+        // A laser's Stop (a soft reset) stays also with no job.
+        actions_hidden = if running || machine.kind == maker_connect_protocol::MachineKind::Laser {
+            ""
+        } else {
+            " hidden"
+        },
         shown = if running { " hidden" } else { "" },
         name = escape(match job {
             Some(j) => j.file_name.as_str(),
@@ -870,9 +876,16 @@ fn queue_card(machine: &Machine) -> String {
     if machine.kind == maker_connect_protocol::MachineKind::Label {
         return String::new();
     }
+    // A laser's queue never starts by itself (crate::store::StartedBy).
+    let laser = machine.kind == maker_connect_protocol::MachineKind::Laser;
+    let sub = if laser {
+        "Next first; it waits for someone at the laser. Drag your own prints to change their order; staff move any."
+    } else {
+        "Next first; it starts by itself when the machine is free and its bed clear. Drag your own prints to change their order; staff move any."
+    };
     card(
         "Queue",
-        "Next first; it starts by itself when the machine is free and its bed clear. Drag your own prints to change their order; staff move any.",
+        sub,
         r#"<p class="notice q-held" data-queue-held hidden><span>The last job <b data-held-why></b>: nothing starts until the bed is clear. Is it?</span><button type="button" data-bed-clear>Bed clear: go on</button></p><ol class="queue" data-queue></ol><p class="empty" data-queue-empty>Nothing waits. "Print on" a busy machine puts a file here, or drag one from Files onto this machine in the sidebar.</p>"#,
     )
 }
@@ -1389,11 +1402,10 @@ fn control(machine: &Machine, profile: Option<&Profile>) -> String {
         );
     } else {
         controls += &format!(
-            r#"<h4>Origin</h4><div class="buttons">{}{}</div><p class="hint">A job starts from its origin. Move the head to the corner of what you work on, then set it; the machine forgets it when it restarts.</p><h4>Machine</h4><div class="buttons">{}{}</div><p class="hint">Unlock after an alarm ($X); Laser off switches the beam off (M5).</p>"#,
+            r#"<h4>Origin</h4><div class="buttons">{}{}</div><p class="hint">A job starts from its origin. Move the head to the corner of what you work on, then set it; the machine forgets it when it restarts.</p><h4>Machine</h4><div class="buttons">{}</div><p class="hint">Unlock after an alarm ($X).</p>"#,
             button("set-origin", "Set origin here"),
             button("go-origin", "Go to origin"),
-            button("unlock", "Unlock"),
-            button("laser-off", "Laser off")
+            button("unlock", "Unlock")
         );
     }
     let form = format!(

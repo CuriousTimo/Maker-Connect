@@ -13,6 +13,39 @@ pub fn takes_commands(link: &str) -> bool {
     matches!(link, "prusa-connect" | "virtual" | "agent" | "simplyprint")
 }
 
+/// Why a laser job is refused when nobody at the laser started it (our UI text).
+pub const LASER_NEVER_ALONE: &str = "a laser starts only when someone at the laser starts it";
+
+/// Who starts a job. A laser job is started only by a person, in their own session.
+#[derive(Debug, Clone, Copy)]
+pub enum StartedBy<'a> {
+    /// Someone pressing Start; `session` is theirs (an API token has none).
+    Person { user: &'a str, session: Option<i64> },
+    /// The hub itself: the queue, a reprint, the farm, SimplyPrint. `by` is shown as the job's origin.
+    Auto { by: Option<&'a str> },
+}
+
+impl<'a> StartedBy<'a> {
+    /// A person's start, from the access of their request.
+    pub fn person(access: &'a crate::access::Access) -> Self {
+        StartedBy::Person {
+            user: &access.actor,
+            session: access.session_id,
+        }
+    }
+
+    fn is_person_at_a_session(&self) -> bool {
+        matches!(self, StartedBy::Person { session: Some(_), .. })
+    }
+
+    fn name(&self) -> Option<&'a str> {
+        match self {
+            StartedBy::Person { user, .. } => Some(user),
+            StartedBy::Auto { by } => *by,
+        }
+    }
+}
+
 /// A bed mesh as the hub keeps it: the machine's last, and when it came.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StoredMesh {
@@ -911,15 +944,20 @@ impl Store {
         Ok(prints)
     }
 
-    /// Puts a file on a machine: its job's id, or why not (the machine has a job already).
+    /// Puts a file on a machine: its job's id, or why not (the machine has a job already, or it
+    /// is a laser and nobody at the laser started it: [`StartedBy`]).
     pub fn add_job(
         &mut self,
         space: i64,
         machine: &str,
         file: &StoredFile,
         from_line: Option<u64>,
-        by: Option<&str>,
+        started: StartedBy,
     ) -> rusqlite::Result<Result<i64, &'static str>> {
+        if self.is_laser(space, machine)? && !started.is_person_at_a_session() {
+            return Ok(Err(LASER_NEVER_ALONE));
+        }
+        let by = started.name();
         if self.active_job(machine)?.is_some() {
             return Ok(Err("the machine has a job already"));
         }
@@ -930,6 +968,21 @@ impl Store {
         )?;
         self.changed();
         Ok(Ok(self.db.last_insert_rowid()))
+    }
+
+    /// Whether a machine is a laser (by its kind, without loading the whole machine).
+    pub fn is_laser(&self, space: i64, machine: &str) -> rusqlite::Result<bool> {
+        let kind: Option<String> = self
+            .db
+            .query_row(
+                "SELECT kind FROM machines WHERE id = ?1 AND space_id = ?2",
+                params![machine, space],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(kind
+            .and_then(|k| serde_json::from_str::<MachineKind>(&k).ok())
+            .is_some_and(|k| k == MachineKind::Laser))
     }
 
     fn job_from(r: &rusqlite::Row) -> rusqlite::Result<Job> {
@@ -2721,7 +2774,7 @@ mod tests {
             .unwrap();
         let file = store.file(space, "f1").unwrap().unwrap();
         let job = store
-            .add_job(space, &printer, &file, None, None)
+            .add_job(space, &printer, &file, None, StartedBy::Auto { by: None })
             .unwrap()
             .unwrap();
         store.set_job(job, JobState::Printing, None).unwrap();
@@ -2802,7 +2855,7 @@ mod tests {
             .unwrap();
         let file = store.file(space, "f1").unwrap().unwrap();
         let job = store
-            .add_job(space, &printer, &file, None, None)
+            .add_job(space, &printer, &file, None, StartedBy::Auto { by: None })
             .unwrap()
             .unwrap();
         store.set_job(job, JobState::Printing, None).unwrap();
