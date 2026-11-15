@@ -1,0 +1,353 @@
+<title>Maker Connect softwareontwerp</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: one reading column, diagrams wide in their own scroll boxes, status as labelled chips */
+:root {
+  --bg: #f6f7f5; --surface: #ffffff; --fg: #1d2421; --muted: #5d6863; --line: #d6dcd8;
+  --accent: #1f6f5c; --ours: #6b4fa0; --ref: #1f6f5c; --todo: #a35b14; --done: #2d7a3a; --warn: #b0352b;
+  --display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #141917; --surface: #1c2320; --fg: #e3e9e5; --muted: #9aa69f; --line: #33403a;
+  --accent: #5cc3a6; --ours: #b79cf0; --ref: #5cc3a6; --todo: #e8a25a; --done: #7fd08a; --warn: #f08a7e; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #141917; --surface: #1c2320; --fg: #e3e9e5; --muted: #9aa69f; --line: #33403a;
+  --accent: #5cc3a6; --ours: #b79cf0; --ref: #5cc3a6; --todo: #e8a25a; --done: #7fd08a; --warn: #f08a7e; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 16px/1.6 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 32px 64px; }
+main { max-width: 920px; margin: 0 auto; display: grid; gap: 40px; }
+header { display: grid; gap: 8px; }
+h1, h2, h3 { font-family: var(--display); line-height: 1.2; text-wrap: balance; margin: 0; }
+h1 { font-size: 2rem; } h2 { font-size: 1.4rem; } h3 { font-size: 1.05rem; }
+.lead { color: var(--muted); max-width: 65ch; margin: 0; }
+section { display: grid; gap: 14px; min-width: 0; }
+section > p, section > ul, section > ol { max-width: 70ch; margin: 0; }
+li + li { margin-top: 6px; }
+.eyebrow { font: 500 .75rem var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.diagram { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; overflow-x: auto; }
+.diagram pre.mermaid { margin: 0; background: transparent; }
+code { font-family: var(--mono); font-size: .88em; }
+table { border-collapse: collapse; width: 100%; font-size: .93rem; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 500 .78rem var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+.chip { display: inline-block; font: 500 .75rem var(--mono); padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.done { color: var(--done); } .todo { color: var(--todo); } .busy { color: var(--accent); } .warn { color: var(--warn); }
+.ours { color: var(--ours); } .ref { color: var(--ref); }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: .9rem; color: var(--muted); }
+.rules { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.rule { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.rule b { font-family: var(--display); font-weight: 600; display: block; margin-bottom: 4px; }
+.rule p { margin: 0; color: var(--muted); font-size: .93rem; }
+.decide { border-left: 3px solid var(--todo); padding: 2px 0 2px 14px; }
+</style>
+
+<main>
+<header>
+  <div class="eyebrow">Ontwerp · versie 5 · 15 november 2026 · besluiten verwerkt</div>
+  <h1>Maker Connect softwareontwerp</h1>
+  <p class="lead">Wie praat met wie, waarover en hoe; wat er staat en wat nog komt; per deel wie de regels bepaalt. Nagelopen door een architect-agent tegen de code; zijn correcties zijn verwerkt, zijn ontwerpvragen staan onderaan bij "Te beslissen".</p>
+</header>
+
+<section>
+  <h2>De spelregels</h2>
+  <div class="rules">
+    <div class="rule"><b>De hub maakt geen G-code</b><p>Geldt nu voor agent-machines. Voor de MINI, Klipper en virtuele machines maakt de hub nog G-code, tot de hub-kant af is (zie §9).</p></div>
+    <div class="rule"><b>Eén referentie per apparaat</b><p>Elke port is een vertaling van één werkende referentie, bestand voor bestand. Niets verzonnen, niets gemengd.</p></div>
+    <div class="rule"><b>Eigen keuzes alleen in de UI</b><p>Limieten en knoppen van ons leven in de hub-pagina's, nooit op de draad naar het apparaat.</p></div>
+    <div class="rule"><b>Eén ding tegelijk</b><p>Vandaag: OctoPrint-port → DYMO PnP → hub-kant. Het plan noemt ook MK3, de 450 en de laser (zie "Te beslissen" 1). PnP en 450 zijn aparte stacks.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>1. Het geheel: wie praat met wie</h2>
+  <p>Apparaten aan een kabel (USB of serieel) krijgen een <b>agent</b> ernaast, op een Pi. Apparaten op het netwerk (MINI, Klipper) praten <b>zelf</b> met de hub; die krijgen later een agent <i>in</i> de hub, met dezelfde engine.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  U["Browser<br/>(gebruiker)"]
+  subgraph HUB["Hub (server, Rust)"]
+    WEB["Webpagina's + API<br/>rechten, PBM-check"]
+    Q["Commandowachtrij<br/>(in geheugen)"]
+    DB[("SQLite: machines,<br/>jobs, bestanden")]
+    PC["Prusa Connect-server<br/>/p/…"]
+    SP["SimplyPrint-server<br/>WebSocket"]
+    SM["Spoolman-API<br/>/api/v1"]
+    IA["Interne agent<br/>engine + ports<br/>(gepland)"]
+  end
+  subgraph PI["Pi naast het apparaat"]
+    AG["Agent (Rust)<br/>hub-link · engine · port"]
+  end
+  DEV["Printer / labelprinter / laser<br/>(USB of serieel)"]
+  MINI["Prusa MINI<br/>(Buddy-firmware)"]
+  KL["Klipper<br/>(Moonraker)"]
+  SC["Spoolman-clients<br/>Moonraker, OctoPrint-plugin, Mainsail"]
+
+  U -- "HTTP; SSE: machinelijst" --> WEB
+  WEB --- Q
+  WEB --- DB
+  AG -- "HTTPS, elke 2 s<br/>rapport ↔ opdrachten" --> WEB
+  AG -- "bytes van de port" --> DEV
+  MINI -- "Prusa Connect-protocol" --> PC
+  KL -- "[simplyprint]-WebSocket" --> SP
+  SC -- "HTTP + WebSocket" --> SM
+  PC -. "later via" .- IA
+  SP -. "later via" .- IA
+  </pre></div>
+</section>
+
+<section>
+  <h2>2. De agent van binnen</h2>
+  <p>Drie lagen; alleen de onderste kent het apparaat. De port meldt gebeurtenissen aan de engine; de hub-link <b>haalt</b> elke 2 s het rapport op bij de engine (de engine duwt niets).</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart TB
+  HUB["Hub"]
+  subgraph AGENT["Agent"]
+    LINK["Hub-link · ours<br/>registreren, koppelcode, elke 2 s rapport,<br/>opdrachten en jobbestand ophalen, updates (handtekening gecontroleerd)"]
+    ENG["Engine · ours<br/>per machine 2 threads (port + luisteraar);<br/>orders op volgorde; bewaart elk 'klaar' en 'job afgelopen' tot gerapporteerd"]
+    subgraph PORTS["Ports · elk één referentie, met eigen threads"]
+      P1["Marlin<br/>OctoPrint 1.11.8"]
+      P2["MK3-familie<br/>PrusaLink"]
+      P3["DYMO PnP<br/>labelle"]
+      P4["LabelWriter 450<br/>(referentie: D6)"]
+      P5["Laser<br/>(GRBL-host: D4)"]
+    end
+  end
+  DEV["Apparaat"]
+  HUB <-- "Telemetry ↔ TelemetryReply" --> LINK
+  LINK -- "Order: Command, Job, Control, Answer, Close" --> ENG
+  LINK -- "report() / reported()" --> ENG
+  PORTS -- "Event: Telemetry, Done, JobEnd, Gone, Back" --> ENG
+  ENG -- "orders" --> PORTS
+  PORTS <-- "serieel / USB" --> DEV
+  </pre></div>
+  <p>Het rapport (<code>Report</code>): de laatste telemetrie, alle nog niet gemelde "klaar"-meldingen en job-eindes, de lopende job, en of het apparaat er is. <code>Gone</code> en <code>Back</code> zetten alleen "verbonden" om; de hub-link meldt dan "Disconnected".</p>
+  <p>Welke port draait, zegt de opstartoptie <code>--mode prusa|marlin|grbl</code>. Nu valt die stil terug op <code>marlin</code>, en de soort op <code>fdm</code>: dat is gokken (zie "Te beslissen" 4).</p>
+</section>
+
+<section>
+  <h2>3. De draad tussen agent en hub</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Wat</th><th>Richting</th><th>Hoe</th></tr>
+    <tr><td>Aanmelden</td><td>agent → hub</td><td><code>POST /api/agent/v1/register</code> (open, zonder login) geeft een token en een koppelcode van 6 tekens. Wie de code als eerste invoert op de website, krijgt de machine in zijn space. Bij een 401 meldt de agent zich opnieuw aan.</td></tr>
+    <tr><td>Rapport</td><td>agent → hub, elke 2 s</td><td><code>POST /api/agent/v1/telemetry</code> met token: toestand, temperaturen, voortgang, alle "klaar"-meldingen (<code>CommandDone</code>), en <b>één</b> job-einde (<code>JobEnd</code>) per rapport.</td></tr>
+    <tr><td>Antwoord</td><td>hub → agent</td><td><code>paired</code>, <code>space</code>, en: <b>hoogstens één</b> commando (het volgende pas als het vorige klaar is of na 120 s), een job (<code>JobOrder</code>), pauze/hervat/stop (herhaald tot de toestand verandert), een antwoord op een vraag, een update.</td></tr>
+    <tr><td>Jobbestand</td><td>agent ← hub</td><td><code>GET /api/agent/v1/jobs/{id}/file</code> met token, opgeslagen als <code>job-&lt;id&gt;</code>.</td></tr>
+    <tr><td>Bestand voor frame (laser)</td><td>agent ← hub</td><td><code>GET /api/agent/v1/files/{id}</code> met token.</td></tr>
+    <tr><td>Update</td><td>agent ← hub</td><td>De hub geeft de release door; de agent controleert tag en checksums tegen de ingebouwde release-sleutel, downloadt <code>GET /api/agent/v1/update/{tag}/{file}</code>, en draait 180 s op proef, met terugval bij mislukken.</td></tr>
+  </table></div>
+  <p>De agent vraagt, de hub antwoordt; een Pi achter NAT werkt. De token staat leesbaar in de database van de hub.</p>
+</section>
+
+<section>
+  <h2>4. Een opdracht van klik tot printer</h2>
+  <p>Voorbeeld: iemand drukt op <b>Home</b> bij een gewone Marlin-printer.</p>
+  <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant B as Browser
+  participant H as Hub
+  participant L as Hub-link
+  participant E as Engine
+  participant P as Marlin-port (OctoPrint)
+  participant D as Printer
+  B->>H: POST /machines/{id}/command (Home)
+  H->>H: recht "bedienen"? PBM? niet tijdens printen?
+  H->>H: Action Home in de wachtrij (geheugen)
+  L->>H: rapport (elke 2 s)
+  H-->>L: antwoord met één MachineCommand {id, Home}
+  L->>E: Order::Command
+  E->>P: op volgorde naar de port
+  P->>D: G91, G28 X0 Y0 Z0, G90 (OctoPrint's home(), welke assen: zie "Te beslissen" 5)
+  D-->>P: ok
+  P->>E: Event::Done
+  L->>E: report()
+  E-->>L: CommandDone (bewaard tot gerapporteerd)
+  L->>H: volgend rapport met CommandDone
+  H-->>B: SSE: bijgewerkte machinelijst
+  </pre></div>
+</section>
+
+<section>
+  <h2>5. Een printjob</h2>
+  <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant H as Hub
+  participant L as Hub-link
+  participant E as Engine
+  participant P as Port
+  participant D as Printer
+  L->>H: rapport
+  H-->>L: JobOrder {id, download}
+  L->>H: GET jobbestand (nu: blokkeert de lus, zie §10)
+  L->>E: Order::Job {order, file}
+  E->>P: job
+  P->>D: zoals de referentie (OctoPrint: select_file + start_print)
+  loop tijdens het printen
+    P->>E: Event::Telemetry
+    L->>E: report()
+    L->>H: rapport
+  end
+  H-->>L: pauze / hervat / stop (herhaald tot de toestand verandert)
+  L->>E: Order::Control
+  E->>P: zoals de referentie
+  P->>E: Event::JobEnd (klaar, gestopt of mislukt)
+  L->>H: rapport met JobEnd
+  L->>L: job-bestand weg
+  </pre></div>
+  <p>De hub laat een job na 30 s mislukken als de telemetrie hem niet noemt (<code>job_id</code>). Wie dat veld vult, is nog niet geregeld (zie "Te beslissen" 6).</p>
+</section>
+
+<section>
+  <h2>6. In de Marlin-port: OctoPrint vertaald</h2>
+  <p>Dezelfde opbouw als OctoPrint 1.11.8: drie wachtrijen, een monitor-thread, een send-thread en timers. Bovenaan zit een kleine koppeling naar de engine; die is van ons, met jouw akkoord (M1–M5).</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart TB
+  ENG["Engine"]
+  TOP["Koppeling · ours (M1, M3, M4)<br/>Action → OctoPrint-functie, toestand → MachineState"]
+  STD["standard.py-deel<br/>home, jog, extrude, set_temperature,<br/>feed_rate, select_file, start/pause/cancel"]
+  subgraph COMM["comm.py: MachineCom"]
+    SC["sendCommand"]
+    JQ[["job queue"]]
+    CQ[["command queue<br/>(tijdens printen)"]]
+    SQ[["send queue"]]
+    SL["send-thread<br/>_send_loop"]
+    MON["monitor-thread<br/>_monitor: leest ok, temperaturen,<br/>fouten, resends, SD"]
+    CTS{{"clear_to_send"}}
+    JOB["printbestand<br/>_send_from_job"]
+    TM["timers: temperatuur- en<br/>SD-status-polling"]
+  end
+  SER["serialport (voor pyserial)"]
+  DEV["Printer"]
+  ENG <--> TOP <--> STD --> SC
+  SC -- "job-regels" --> JQ --> SQ
+  SC -- "tijdens printen" --> CQ --> SQ
+  SC -- "anders direct" --> SQ
+  SQ --> SL
+  SL -- "wacht op" --> CTS
+  SL --> SER
+  SER --> MON
+  MON -- "ok geeft vrij" --> CTS
+  MON -- "op ok: volgende regel" --> JOB --> SC
+  TM --> SC
+  MON -- "events, callbacks" --> TOP
+  SER <--> DEV
+  </pre></div>
+  <div class="tablewrap"><table>
+    <tr><th>Stuk</th><th>comm.py</th><th>Stand</th></tr>
+    <tr><td>Hulpfuncties, regexes, records, wachtrijen</td><td>begin, 6046+</td><td><span class="chip done">klaar</span></td></tr>
+    <tr><td>Instellingen en G-code-scripts</td><td>settings, loadScript</td><td><span class="chip done">klaar</span> 1233 gevallen identiek aan OctoPrint</td></tr>
+    <tr><td>MachineCom: opbouw, toestanden, sluiten</td><td>444–1272</td><td><span class="chip done">klaar</span></td></tr>
+    <tr><td>Commando's, scripts, start/pauze/annuleer, SD, temperaturen</td><td>1273–2259</td><td><span class="chip done">klaar</span></td></tr>
+    <tr><td>Monitor-lus</td><td>2260–3307</td><td><span class="chip done">klaar</span> kan nog niet draaien; punten akkoord (proxy)</td></tr>
+    <tr><td>ok/timeout, detectie, poort openen, fouten, resends</td><td>3308–4508</td><td><span class="chip busy">bezig</span> stuk H</td></tr>
+    <tr><td>Verzenden, send-lus, per-G-code-afhandeling</td><td>4509–5688</td><td><span class="chip todo">te doen</span> stuk I</td></tr>
+    <tr><td>standard.py-deel, profiel, events, prompt-plugin</td><td>andere bestanden</td><td><span class="chip todo">te doen</span></td></tr>
+    <tr><td>Koppeling naar de engine, <code>--mode marlin</code></td><td>ours</td><td><span class="chip todo">te doen</span></td></tr>
+    <tr><td>Bewijs: OctoPrint's virtual_printer, wij naast OctoPrint, audit met checker</td><td>tests + audit</td><td><span class="chip todo">te doen</span> (D8, D11)</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>7. Rechten: wie mag wat</h2>
+  <ul>
+    <li><b>Machines:</b> een agent meldt zich zonder login aan; pas na de koppelcode hoort de machine bij een space. Daarna praat hij alleen met zijn token.</li>
+    <li><b>Mensen:</b> rollen per space, plus per machine de rechten <i>gebruiken</i> en <i>bedienen</i> (na instructie), en de PBM-check van de machine. Een commando vraagt "bedienen".</li>
+    <li><b>Bestanden en updates</b> voor agents: routes zonder login, maar elke route controleert zelf de token van de machine.</li>
+    <li><b>Rechten zet je alleen in Space</b>, ook die van jezelf (jouw regel).</li>
+  </ul>
+</section>
+
+<section>
+  <h2>8. Alle delen, wie de regels bepaalt</h2>
+  <div class="legend"><span><span class="chip ours">ours</span> door ons ontworpen, elk stuk goedgekeurd</span><span><span class="chip ref">referentie</span> vertaling van één referentie</span><span>(proxy) = vandaag goedgekeurd door de vervanger, ter nalezing</span></div>
+  <div class="tablewrap"><table>
+    <tr><th>Deel</th><th>Praat met</th><th>Bepaald door</th><th>Stand</th></tr>
+    <tr><td>Engine</td><td>hub-link, ports</td><td><span class="chip ours">ours</span> O1–O8</td><td><span class="chip done">klaar</span></td></tr>
+    <tr><td>Hub-link</td><td>hub over HTTPS</td><td><span class="chip ours">ours</span> S1–S5</td><td><span class="chip done">klaar</span> download niet binair-veilig, zie §10</td></tr>
+    <tr><td>Marlin-port</td><td>printer, serieel</td><td><span class="chip ref">OctoPrint 1.11.8</span> + vertaalregels (jij, en stuk G (proxy))</td><td><span class="chip busy">bezig</span></td></tr>
+    <tr><td>MK3-port</td><td>MK3, serieel</td><td><span class="chip ref">PrusaLink</span></td><td><span class="chip todo">volgorde: "Te beslissen" 1</span></td></tr>
+    <tr><td>DYMO PnP-port</td><td>PnP, USB</td><td><span class="chip ref">labelle 5e8f1e5</span></td><td><span class="chip todo">na OctoPrint</span></td></tr>
+    <tr><td>LabelWriter 450-port</td><td>450, USB</td><td><span class="chip ref">open: D6</span></td><td><span class="chip todo">later</span> de huidige code mengt bronnen</td></tr>
+    <tr><td>Laser-port</td><td>laser (GRBL, Smoothieware, Marlin-laser), serieel</td><td><span class="chip ref">LaserFoundry</span> (<code>laserfoundry-device</code>, <code>-gcode</code>), D4</td><td><span class="chip todo">te bouwen</span> <code>crates/grbl</code> bestaat al; pin naar v0.5.0</td></tr>
+    <tr><td>MINI</td><td>hub, Prusa Connect</td><td><span class="chip ref">Buddy 6.3.0</span>: de firmware's eigen menu-G-code (jouw besluit); de tabel per knop moet nog</td><td><span class="chip todo">hub-kant</span> protocol in de hub, audit ongecontroleerd</td></tr>
+    <tr><td>Klipper</td><td>hub, Moonraker WebSocket</td><td><span class="chip ref">Moonraker</span>; G-code-referentie open</td><td><span class="chip todo">hub-kant</span> protocol in de hub, audit ongecontroleerd</td></tr>
+    <tr><td>Spoolman-API</td><td>Spoolman-clients</td><td><span class="chip ref">Spoolman eccb05e</span>, compatibel, geen kopie</td><td><span class="chip todo">hub-kant</span> gebouwd, audit te doen</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>9. Schuld: wat nog niet volgens de regels is</h2>
+  <ul>
+    <li><b>De hub maakt nog G-code</b> voor de MINI, Klipper en virtuele machines: jog, verwarmen, bed meten, <code>action()</code>, laden als <code>M109 S… / M701</code> met een eigen 215 °C en een venster van 150–320 °C, en <code>M604</code> na een download naar de MINI.</li>
+    <li><b>De hub filtert agent-commando's met PrusaLink-regels:</b> geen getypte G-code tijdens printen, en alleen snelheid, flow, temperatuur en XY-jog tijdens een job. Dat geldt nu ook voor OctoPrint-machines, terwijl S5 zei "aan de ports laten".</li>
+    <li><b>De labelprinters delen één crate</b> (<code>crates/label</code>, gedeeld <code>Label</code>-type), en de hub rekent daarmee de dots uit.</li>
+    <li><b>De audit-index is verouderd</b>: hij noemt nog <code>print.rs</code>; de Buddy- en Klipper-audits zijn ongecontroleerd.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>10. Zwakke plekken in het ontwerp</h2>
+  <ul>
+    <li><b>Download blokkeert:</b> het jobbestand wordt in één keer als tekst in het geheugen gehaald (tot 512 MB). Tijdens het downloaden gaan er geen rapporten en geen stop. Een PNG-label of binaire G-code gaat zo stuk: dat blokkeert de DYMO-stap.</li>
+    <li><b>Geen noodstop-pad:</b> stop komt pas na tot 2 s en sluit achter eerdere opdrachten aan. <code>M112</code> wordt tijdens printen geweigerd. OctoPrint's eigen voorrang voor noodcommando's is vanaf de hub niet bereikbaar.</li>
+    <li><b>Commando's komen te laat:</b> Home of extrude tijdens een print blijft in de wachtrij en loopt na de print. Opdrachten die langer duren dan 120 s (opwarmen, bed meten) heten "geen antwoord" terwijl ze nog lopen.</li>
+    <li><b>Kwijt bij herstart:</b> de commandowachtrij van de hub staat in het geheugen. Niet-gemelde "klaar"-meldingen in de agent ook.</li>
+    <li><b>Stroomuitval-herstel</b> (oude MK3-code) is weg met de oude engine. Het hoort in de MK3-port, zoals PrusaLink het doet. OctoPrint heeft het niet.</li>
+    <li><b>Interne agent:</b> de engine gebruikt gewone threads. In de hub (async) is een brug nodig. Ontwerp die eerst, vóór de MINI- en Klipper-koppeling.</li>
+  </ul>
+</section>
+
+
+<section>
+  <h2>11. Lasers: één stack, LaserFoundry</h2>
+  <ul>
+    <li><b>Elke laser via LaserFoundry</b>, welke firmware ook: GRBL en Smoothieware (<code>Protocol::Grbl</code>) en Marlin-lasers (<code>Protocol::Marlin</code>). Een Marlin-<i>laser</i> gaat nooit door de OctoPrint-port; ze delen geen code. De firmware wordt bij opstarten gezegd, nooit geraden.</li>
+    <li><b>Geen vertaling nodig:</b> LaserFoundry is Rust, we gebruiken zijn crates als bibliotheek. <code>crates/grbl</code> bestaat al en draait de virtuele lasers; nieuw is alleen de koppeling als engine-port.</li>
+    <li><b>Let op:</b> LaserFoundry noemt zijn Marlin-protocol zelf "untested" (<code>crates/device/src/lib.rs:40-41</code>).</li>
+    <li><b>Webversie-fork:</b> de browserversie van LaserFoundry krijgt in een fork "Send to Maker Connect" via onze Apps-API, zoals hun "Publish to MakerFoundry". Eerst zelf testen en gebruiken, daarna als merge request aan hen aanbieden. Licentie MIT OR Apache-2.0: licentiebestanden, <code>NOTICE</code> en copyright houden, eigen naam.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>12. Referenties bijhouden</h2>
+  <p><code>scripts/reference-updates.sh</code> haalt elke referentie op en toont de commits sinds onze pin in precies de bestanden die we geport hebben. Elke sessie draaien; wat ertoe doet, nemen we bewust over, daarna draait het bewijs opnieuw. Stand 15 november: OctoPrint 1.11.8 nieuwste release, labelle ongewijzigd, LaserFoundry 3 relevante fixes (#76 hervatten na <code>M5</code>, #121 positie, #64 frame-snelheid).</p>
+</section>
+
+<section>
+  <h2>13. Wat de herstart (nog) niet terugbracht</h2>
+  <p>Er is nog niemand die Maker Connect gebruikt, dus hub en agent veranderen samen; oude agents hoeven niet te blijven werken (jouw besluit).</p>
+  <ul>
+    <li><b>MK3 via de agent:</b> nog geen port (PrusaLink), dus "disconnected"; ook het herstel na stroomuitval komt pas met die port.</li>
+    <li><b>Laser via de agent:</b> koppeling weg tot de laser-port (§11).</li>
+    <li><b>LabelWriter 450:</b> geen port (D6: DYMO's CUPS-driver).</li>
+    <li><b>SD-kaart-tab:</b> "nog niet beschikbaar" tot elke port het zijn referentie laat doen (de Marlin-port heeft SD nu).</li>
+  </ul>
+</section>
+
+<section>
+  <h2>14. De hub van binnen (wat hij verder doet)</h2>
+  <p>Geen apparaat-praat, wel architectuur: bestanden en G-code-metadata (thumbnails, slicer-gegevens); wachtrij per machine; farm en projecten; voorraad, materialen en Spoolman-API; toegang (deuren, badges) en rechten (rollen, gebruiken/bedienen, PBM, alleen in Space); Apps-API voor LaserFoundry en slicers; virtuele machines en virtuele lasers; QR- en barcodes; de hub's eigen updates (ondertekend, back-up, proefdraaien); voorbeeldbestanden. Live-updates naar de browser via SSE, opdrachten via POST.</p>
+</section>
+
+<section>
+  <h2>Besloten (15 november, door Claude op jouw verzoek; nagekeken door proxy en waakhond)</h2>
+  <ol>
+    <li><b>Volgorde:</b> OctoPrint-port → DYMO PnP → hub-kant; daarna MK3, LabelWriter 450, laser. Spoolman-audit wacht op de hub-kant.</li>
+    <li><b>Download:</b> binair, gestreamd naar <code>job-&lt;id&gt;</code>, op een eigen thread terwijl de rapporten doorgaan; max 512 MB blijft. Eerste klus van de DYMO-stap.</li>
+    <li><b>Hub-filters:</b> weg voor agent-machines; de port weigert zoals zijn referentie. De pagina mag knoppen grijs maken.</li>
+    <li><b>Geen stille standaard:</b> <code>--mode</code> verplicht: <code>prusa</code>, <code>marlin</code>, <code>grbl</code>, <code>dymo-pnp</code>, <code>labelwriter-450</code>.</li>
+    <li><b>Home:</b> <code>Home { axes }</code>; OctoPrint-machines krijgen OctoPrint's twee knoppen, XY en Z.</li>
+    <li><b><code>job_id</code>:</b> de hub-link vult hem uit het rapport van de engine.</li>
+    <li><b>Noodstop:</b> geen nieuwe actie. <code>M112</code> als getypte G-code; OctoPrint zet die zelf vóór de rest (<code>comm.py:1297</code>). Zonder hub-filter komt hij er altijd door. Eventueel een knop op de pagina die precies dat stuurt.</li>
+    <li><b>Labelcrate:</b> twee aparte ports; de hub haalt de maten uit de constanten van elke port.</li>
+    <li><b>Referenties:</b> LabelWriter 450: DYMO's eigen CUPS-driver. Laser (D4): LaserFoundry (jouw besluit). Klipper-G-code en de bewijsregel D8 (die <code>CLAUDE.md</code> verandert): <b>blijven bij jou</b>.</li>
+  </ol>
+  <p>Ook voor jou om na te lezen: pyserial 3.5 telt als deel van OctoPrint's runtime (breidt M5 uit).</p>
+</section>
+</main>

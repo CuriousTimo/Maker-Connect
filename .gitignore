@@ -14,3 +14,7 @@ maker-connect-agent.toml
 
 # Releases built by scripts/build-release.sh
 /dist/
+
+# Build folders of parallel agents, Python caches
+/target-*/
+__pycache__/

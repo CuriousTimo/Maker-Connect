@@ -1,10 +1,11 @@
 # Marlin over USB: everything a printer can say, and what we send
 
-> **Not verified (2026-11-09).** This document was written by reading the sources by hand,
-> not checked item by item. The check against PrusaLink (`prusalink-audit.md`,
-> `scripts/prusalink-audit-check.py`) found many gaps that such a reading had missed. Until a
-> script checks this document against its sources in the same way, it is not to be taken as
-> complete.
+> **Superseded (2026-11-10).** Written by reading the sources by hand, never checked item by
+> item. What the agent now does is set by its references, each checked by a script: Prusa's
+> MK3 family as PrusaLink (`audits/prusalink.md`, `scripts/prusalink-audit-check.py`), any
+> other Marlin printer as OctoPrint with its defaults (`octoprint-serial-spec.md`,
+> `audits/marlin.md`, `scripts/marlin-audit-check.py`). Where this document says otherwise,
+> they decide.
 
 What the agent (`crates/agent/src/marlin.rs`, `print.rs`) has to understand from a printer
 that speaks the Marlin serial protocol, and which G-code it may send to which firmware.
