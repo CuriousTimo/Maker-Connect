@@ -1,0 +1,78 @@
+printer/standard.py:60	getBoolean	["devel", "useFrozenDictForPrinterState"]	exists
+printer/standard.py:69	getInt	["temperature", "cutoff"]	exists
+printer/standard.py:72	getInt	["temperature", "cutoff"]	exists
+printer/standard.py:935	getBoolean	["feature", "sdSupport"]	exists
+printer/standard.py:1515	get	["gcodeAnalysis", "runAt"]	exists
+util/comm.py:223	get	["serial", "additionalPorts"]	exists
+util/comm.py:242	get	["serial", "blacklistedPorts"]	exists
+util/comm.py:244	get	["serial", "blacklistedPorts"]	exists
+util/comm.py:250	get	["serial", "port"]	exists
+util/comm.py:264	get	["serial", "additionalBaudrates"]	exists
+util/comm.py:274	get	["serial", "blacklistedBaudrates"]	exists
+util/comm.py:280	getInt	["serial", "baudrate"]	exists
+util/comm.py:508	get	["serial", "port"]	exists
+util/comm.py:510	getInt	["serial", "baudrate"]	exists
+util/comm.py:554	get	["serial", "timeout"]	exists
+util/comm.py:564	get	["serial", "maxCommunicationTimeouts"]	exists
+util/comm.py:573	getInt	["serial", "maxWritePasses"]	exists
+util/comm.py:575	get	["serial", "helloCommand"]	exists
+util/comm.py:577	getBoolean	["serial", "triggerOkForM29"]	exists
+util/comm.py:579	getBoolean	["serial", "alwaysSendChecksum"]	exists
+util/comm.py:580	getBoolean	["serial", "neverSendChecksum"]	exists
+util/comm.py:581	getBoolean	["serial", "sendChecksumWithUnknownCommands"]	exists
+util/comm.py:584	getBoolean	["serial", "unknownCommandsNeedAck"]	exists
+util/comm.py:587	getBoolean	["serial", "sdAlwaysAvailable"]	exists
+util/comm.py:588	getBoolean	["serial", "sdRelativePath"]	exists
+util/comm.py:589	getBoolean	["serial", "sdLowerCase"]	exists
+util/comm.py:590	get	["serial", "sdCancelCommand"]	exists
+util/comm.py:591	getBoolean	["serial", "blockWhileDwelling"]	exists
+util/comm.py:592	getBoolean	["serial", "sendM112OnError"]	exists
+util/comm.py:593	getBoolean	["serial", "disableSdPrintingDetection"]	exists
+util/comm.py:601	getBoolean	["serial", "capabilities", "autoreport_temp"]	exists
+util/comm.py:604	getBoolean	["serial", "capabilities", "autoreport_sdstatus"]	exists
+util/comm.py:607	getBoolean	["serial", "capabilities", "autoreport_pos"]	exists
+util/comm.py:610	getBoolean	["serial", "capabilities", "busy_protocol"]	exists
+util/comm.py:613	getBoolean	["serial", "capabilities", "emergency_parser"]	exists
+util/comm.py:616	getBoolean	["serial", "capabilities", "chamber_temp"]	missing
+util/comm.py:619	getBoolean	["serial", "capabilities", "extended_m20"]	exists
+util/comm.py:622	getBoolean	["serial", "capabilities", "lfn_write"]	exists
+util/comm.py:627	getInt	["serial", "lastLineBufferSize"]	exists
+util/comm.py:635	getInt	["serial", "maxConsecutiveResends"]	exists
+util/comm.py:641	getBoolean	["serial", "firmwareDetection"]	exists
+util/comm.py:647	getBoolean	["serial", "waitToLoadSdFileList"]	exists
+util/comm.py:655	get	["serial", "supportResendsWithoutOk"]	exists
+util/comm.py:662	getInt	["serial", "terminalLogSize"]	exists
+util/comm.py:665	getBoolean	["serial", "disconnectOnErrors"]	exists
+util/comm.py:668	getBoolean	["serial", "ignoreErrorsFromFirmware"]	exists
+util/comm.py:672	getBoolean	["serial", "logResends"]	exists
+util/comm.py:680	get	["serial", "longRunningCommands"]	exists
+util/comm.py:681	get	["serial", "checksumRequiringCommands"]	exists
+util/comm.py:684	get	["serial", "blockedCommands"]	exists
+util/comm.py:685	get	["serial", "ignoredCommands"]	exists
+util/comm.py:686	get	["serial", "pausingCommands"]	exists
+util/comm.py:687	get	["serial", "emergencyCommands"]	exists
+util/comm.py:688	getBoolean	["serial", "sanityCheckTools"]	exists
+util/comm.py:690	getInt	["serial", "ackMax"]	exists
+util/comm.py:699	getInt	["serial", "maxNotSdPrinting"]	exists
+util/comm.py:707	getInt	["serial", "resendRatioStart"]	exists
+util/comm.py:709	getInt	["serial", "resendRatioThreshold"]	exists
+util/comm.py:769	getBoolean	["feature", "sdSupport"]	exists
+util/comm.py:806	getBoolean	["serial", "logPositionOnPause"]	exists
+util/comm.py:809	getBoolean	["serial", "logPositionOnCancel"]	exists
+util/comm.py:812	getBoolean	["serial", "abortHeatupOnCancel"]	exists
+util/comm.py:817	get	["serial", "encoding"]	exists
+util/comm.py:820	getBoolean	["serial", "enableShutdownActionCommand"]	exists
+util/comm.py:905	getBoolean	["feature", "sdSupport"]	exists
+util/comm.py:1270	getBoolean	["feature", "sdSupport"]	exists
+util/comm.py:2262	get	["controls"]	exists
+util/comm.py:2266	get	["printerParameters", "pauseTriggers"]	exists
+util/comm.py:2269	getBoolean	["serial", "externalHeatupDetection"]	exists
+util/comm.py:2273	getBoolean	["serial", "waitForStartOnConnect"]	exists
+util/comm.py:2275	getBoolean	["serial", "suppressSecondHello"]	exists
+util/comm.py:2302	getBoolean	["serial", "repetierTargetTemp"]	exists
+util/comm.py:2305	getBoolean	["serial", "supportWait"]	exists
+util/comm.py:3892	getBoolean	["serial", "exclusive"]	exists
+util/comm.py:3899	get	["serial", "useParityWorkaround"]	exists
+util/comm.py:3929	getBoolean	["serial", "lowLatency"]	exists
+util/comm.py:3953	getFloat	["serial", "timeout", "connection"]	exists
+util/comm.py:6715	getBoolean	["serial", "supportFAsCommand"]	exists

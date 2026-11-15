@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks docs/klipper-audit.md against Moonraker's [simplyprint] component, mechanically.
+"""Checks docs/audits/klipper.md against Moonraker's [simplyprint] component, mechanically.
 
 The hub (crates/hub/src/simplyprint.rs) plays the SimplyPrint SERVER for Moonraker. The server
 itself is closed, so the reference is the open client: reference/moonraker/moonraker/components/
@@ -15,7 +15,7 @@ simplyprint.py. Every item below is taken from that source, never typed by hand:
   connection  config options, constants, URL forms, headers, timeouts, reconnect rules,
               keep-alive, the send gate, the websocket calls
 
-Each must be named in backticks in docs/klipper-audit.md. Rows whose status says "other route /
+Each must be named in backticks in docs/audits/klipper.md. Rows whose status says "other route /
 in effect / differs / on purpose" are refused; a row that says same or fixed needs a test that
 exists in crates/**/*.rs and contains the row's key terms. The other way round: every message
 type, demand and field the hub sends or reads must be something Moonraker sends/accepts, or be
@@ -30,7 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PY = ROOT / "reference" / "moonraker" / "moonraker" / "components" / "simplyprint.py"
 RS = ROOT / "crates" / "hub" / "src" / "simplyprint.rs"
-AUDIT_PATH = ROOT / "docs" / "klipper-audit.md"
+AUDIT_PATH = ROOT / "docs" / "audits" / "klipper.md"
 
 
 # ---------------------------------------------------------------- small parsing helpers

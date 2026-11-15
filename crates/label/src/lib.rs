@@ -1,8 +1,9 @@
 //! Label printers. A label is a raster ([`Label`]): one dot per pixel, its height across the
 //! tape, its length along it. The website draws it (SVG, rendered at the printer's
-//! resolution) and sends it as a PNG; [`Label::from_png`] reads that back. [`dymo`] turns a
-//! label into what a DYMO LabelManager takes, and (with the `hid` feature) sends it;
-//! [`labelwriter`] the same for a DYMO LabelWriter 400 or 450 (with the `usb` feature).
+//! resolution) and sends it as a PNG; [`Label::from_png`] reads that back. [`dymo`] holds the
+//! DYMO LabelManager's tape widths (the printer itself is the engine's labelle port);
+//! [`labelwriter`] holds the DYMO LabelWriter's head and resolution for the hub (the printer itself is
+//! the engine's port of DYMO's CUPS driver).
 
 pub mod dymo;
 pub mod labelwriter;

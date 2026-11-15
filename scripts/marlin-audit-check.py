@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks docs/marlin-audit.md against OctoPrint's serial layer and Marlin, mechanically.
+"""Checks docs/audits/marlin.md against OctoPrint's serial layer and Marlin, mechanically.
 
 For every printer that is not Prusa's MK3 family, the reference is OctoPrint's serial
 connector with its default settings (reference/OctoPrint/src/octoprint/plugins/serial_connector/
@@ -38,7 +38,7 @@ COMM = COMM_PATH.read_text()
 SCHEMA = (SERIAL / "config_schema.py").read_text()
 SCRIPTS = (OCTO / "schema" / "config" / "scripts.py").read_text()
 MARLIN = (ROOT / "reference" / "Marlin" / "Marlin" / "src" / "gcode" / "gcode.cpp").read_text()
-AUDIT = (ROOT / "docs" / "marlin-audit.md").read_text()
+AUDIT = (ROOT / "docs" / "audits" / "marlin.md").read_text()
 
 
 def line_of(text, pos):
@@ -142,6 +142,21 @@ for m in re.finditer(r'^\s+"(\w+)": "((?:[^"\\]|\\.)*)",', SCRIPTS, re.M):
         if part and usable(part):
             sent_forms.setdefault(part, f"scripts.py:{line_of(SCRIPTS, m.start())} (snippet {m.group(1)})")
     add("script", f"scripts.gcode.snippets.{m.group(1)}", f"scripts.py:{line_of(SCRIPTS, m.start())}")
+# OctoPrint's controls (`connector.py`: jog, home, extrude, temperatures, speed, flow) and
+# its control tab's buttons (`templates/tabs/control.jinja2`: motors off, fan).
+CONNECTOR_PATH = SERIAL / "connector.py"
+CONNECTOR = CONNECTOR_PATH.read_text()
+for m in re.finditer(r'''[fb]?(["'])((?:[GMT]\d+)[^"'\n]*)\1''', CONNECTOR):
+    form = norm(m.group(2))
+    if usable(form):
+        sent_forms.setdefault(form, f"connector.py:{line_of(CONNECTOR, m.start())}")
+CONTROL_TAB = OCTO / "templates" / "tabs" / "control.jinja2"
+if CONTROL_TAB.exists():
+    tab = CONTROL_TAB.read_text()
+    for m in re.finditer(r"command:'([^']+)'", tab):
+        form = norm(m.group(1))
+        if usable(form):
+            sent_forms.setdefault(form, f"control.jinja2:{line_of(tab, m.start())}")
 for form, where in sent_forms.items():
     add("sent", form, where)
 

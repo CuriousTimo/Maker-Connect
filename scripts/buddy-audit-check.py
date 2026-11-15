@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks docs/buddy-audit.md against Prusa's Buddy firmware, mechanically, both ways.
+"""Checks docs/audits/buddy.md against Prusa's Buddy firmware, mechanically, both ways.
 
 Our hub plays Prusa Connect for printers on the Buddy firmware (MINI, MK4, XL, …). The Connect
 server is closed; what binds it is what the firmware's open Connect client accepts and sends
@@ -21,7 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TREES = {"6.3.0": ROOT / "reference" / "buddy-6.3.0", "master": ROOT / "reference" / "Prusa-Firmware-Buddy"}
-AUDIT_PATH = ROOT / "docs" / "buddy-audit.md"
+AUDIT_PATH = ROOT / "docs" / "audits" / "buddy.md"
 AUDIT = AUDIT_PATH.read_text() if AUDIT_PATH.exists() else ""
 
 

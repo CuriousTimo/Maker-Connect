@@ -1,6 +1,6 @@
 [package]
 name = "maker-connect-label"
-description = "Label printers for Maker Connect: labels as rasters, and the protocols of DYMO's LabelManager and LabelWriter"
+description = "Label printers for Maker Connect: labels as rasters, the DYMO LabelManager tape widths, and the protocol of the DYMO LabelWriter"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1,0 +1,64 @@
+scene normal
+dev 1 1 1d6b 0002 0 0 0 1 -
+iface 0 0 09 - 81i
+dev 1 4 0922 0020 1 2 3 1 -
+iface 0 0 07 + 01b,82b
+dev 3 65 0922 1001 1 2 3 1 -
+iface 0 0 03 + 01i,81i
+iface 1 0 08 + 02b,82b
+dev 4 9 0922 1002 1 2 3 1 -
+iface 0 0 03 + 01i,81i
+iface 1 0 08 + 02b,82b
+scene single
+dev 3 65 0922 1001 1 2 3 1 -
+iface 0 0 03 + 01i,81i
+iface 1 0 08 + 02b,82b
+scene unconfigured
+dev 3 65 0922 1001 1 2 3 0 -
+iface 0 0 03 + 01i,81i
+iface 1 0 08 + 02b,82b
+scene printer_class
+dev 3 65 0922 1001 1 2 3 1 -
+iface 0 0 07 - 01b,81b
+scene no_interface
+dev 3 65 0922 1001 1 2 3 1 -
+iface 0 0 08 + 02b,82b
+scene no_endpoints
+dev 3 65 0922 1001 1 2 3 1 -
+iface 0 0 03 + 81i
+scene no_dymo
+dev 1 1 1d6b 0002 0 0 0 1 -
+iface 0 0 09 - 81i
+scene only_labelwriter
+dev 1 1 1d6b 0002 0 0 0 1 -
+iface 0 0 09 - 81i
+dev 1 4 0922 0020 1 2 3 1 -
+iface 0 0 07 + 01b,82b
+scene no_langid
+dev 3 65 0922 1001 1 2 3 1 nolangid
+iface 0 0 03 + 01i,81i
+iface 1 0 08 + 02b,82b
+scene write_timeout
+dev 3 65 0922 1001 1 2 3 1 failwrite=3
+iface 0 0 03 + 01i,81i
+iface 1 0 08 + 02b,82b
+scene read_timeout
+dev 3 65 0922 1001 1 2 3 1 failread=2
+iface 0 0 03 + 01i,81i
+iface 1 0 08 + 02b,82b
+scene busy_setconfig
+dev 3 65 0922 1001 1 2 3 0 busy_setconfig
+iface 0 0 03 + 01i,81i
+iface 1 0 08 + 02b,82b
+scene denied_setconfig
+dev 3 65 0922 1001 1 2 3 0 denied_setconfig
+iface 0 0 03 + 01i,81i
+iface 1 0 08 + 02b,82b
+scene no_kernel_api
+dev 3 65 0922 1001 1 2 3 1 nokernelapi
+iface 0 0 03 + 01i,81i
+iface 1 0 08 + 02b,82b
+scene no_strings
+dev 3 65 0922 1001 0 0 0 1 -
+iface 0 0 03 + 01i,81i
+iface 1 0 08 + 02b,82b

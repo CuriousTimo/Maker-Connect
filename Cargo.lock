@@ -20,6 +20,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "aho-corasick"
+version = "1.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "argon2"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -121,6 +130,21 @@ name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
+
+[[package]]
+name = "bit-set"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08807e080ed7f9d5433fa9b275196cfc35414f66a0c79d864dc51a0d825231a3"
+dependencies = [
+ "bit-vec",
+]
+
+[[package]]
+name = "bit-vec"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
 
 [[package]]
 name = "bitflags"
@@ -307,6 +331,17 @@ name = "fallible-streaming-iterator"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
+
+[[package]]
+name = "fancy-regex"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e24cb5a94bcae1e5408b0effca5cd7172ea3c5755049c5f3af4cd283a165298"
+dependencies = [
+ "bit-set",
+ "regex-automata",
+ "regex-syntax",
+]
 
 [[package]]
 name = "fdeflate"
@@ -790,8 +825,8 @@ dependencies = [
 
 [[package]]
 name = "laserfoundry-device"
-version = "0.2.1"
-source = "git+https://github.com/Stitchwright/laserfoundry?rev=3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d#3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d"
+version = "0.5.0"
+source = "git+https://github.com/Stitchwright/laserfoundry?rev=61febdb5d18f08f299f8501e44656da047a2ab09#61febdb5d18f08f299f8501e44656da047a2ab09"
 dependencies = [
  "log",
  "serialport",
@@ -801,8 +836,8 @@ dependencies = [
 
 [[package]]
 name = "laserfoundry-doc"
-version = "0.2.1"
-source = "git+https://github.com/Stitchwright/laserfoundry?rev=3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d#3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d"
+version = "0.5.0"
+source = "git+https://github.com/Stitchwright/laserfoundry?rev=61febdb5d18f08f299f8501e44656da047a2ab09#61febdb5d18f08f299f8501e44656da047a2ab09"
 dependencies = [
  "kurbo",
  "laserfoundry-geom",
@@ -811,8 +846,8 @@ dependencies = [
 
 [[package]]
 name = "laserfoundry-gcode"
-version = "0.2.1"
-source = "git+https://github.com/Stitchwright/laserfoundry?rev=3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d#3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d"
+version = "0.5.0"
+source = "git+https://github.com/Stitchwright/laserfoundry?rev=61febdb5d18f08f299f8501e44656da047a2ab09#61febdb5d18f08f299f8501e44656da047a2ab09"
 dependencies = [
  "laserfoundry-doc",
  "laserfoundry-geom",
@@ -822,8 +857,8 @@ dependencies = [
 
 [[package]]
 name = "laserfoundry-geom"
-version = "0.2.1"
-source = "git+https://github.com/Stitchwright/laserfoundry?rev=3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d#3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d"
+version = "0.5.0"
+source = "git+https://github.com/Stitchwright/laserfoundry?rev=61febdb5d18f08f299f8501e44656da047a2ab09#61febdb5d18f08f299f8501e44656da047a2ab09"
 dependencies = [
  "kurbo",
  "serde",
@@ -832,8 +867,8 @@ dependencies = [
 
 [[package]]
 name = "laserfoundry-pathops"
-version = "0.2.1"
-source = "git+https://github.com/Stitchwright/laserfoundry?rev=3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d#3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d"
+version = "0.5.0"
+source = "git+https://github.com/Stitchwright/laserfoundry?rev=61febdb5d18f08f299f8501e44656da047a2ab09#61febdb5d18f08f299f8501e44656da047a2ab09"
 dependencies = [
  "i_overlay",
  "laserfoundry-geom",
@@ -842,8 +877,8 @@ dependencies = [
 
 [[package]]
 name = "laserfoundry-toolpath"
-version = "0.2.1"
-source = "git+https://github.com/Stitchwright/laserfoundry?rev=3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d#3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d"
+version = "0.5.0"
+source = "git+https://github.com/Stitchwright/laserfoundry?rev=61febdb5d18f08f299f8501e44656da047a2ab09#61febdb5d18f08f299f8501e44656da047a2ab09"
 dependencies = [
  "kurbo",
  "laserfoundry-doc",
@@ -916,8 +951,7 @@ name = "maker-connect-agent"
 version = "0.2.0"
 dependencies = [
  "libc",
- "maker-connect-grbl",
- "maker-connect-label",
+ "maker-connect-engine",
  "maker-connect-protocol",
  "maker-connect-update",
  "serde",
@@ -928,11 +962,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "maker-connect-engine"
+version = "0.2.0"
+dependencies = [
+ "fancy-regex",
+ "laserfoundry-device",
+ "laserfoundry-doc",
+ "laserfoundry-gcode",
+ "laserfoundry-geom",
+ "libc",
+ "maker-connect-grbl",
+ "maker-connect-protocol",
+ "md-5",
+ "minijinja",
+ "nusb",
+ "png",
+ "serde_json",
+ "serialport",
+]
+
+[[package]]
 name = "maker-connect-grbl"
 version = "0.2.0"
 dependencies = [
  "laserfoundry-device",
+ "laserfoundry-doc",
  "laserfoundry-gcode",
+ "laserfoundry-geom",
  "maker-connect-protocol",
 ]
 
@@ -1016,16 +1072,43 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
+name = "memo-map"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5449c8c750f1a07ea702bbd212bd999fceece9b3d1508b17023b3e174583124b"
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
+
+[[package]]
+name = "minijinja"
+version = "2.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86886cf6dbf4e614b19c9a1eec9775f021869d7eadde0fc73921a81b90c9b4c9"
+dependencies = [
+ "indexmap",
+ "memo-map",
+ "serde",
+]
 
 [[package]]
 name = "miniz_oxide"
@@ -1265,6 +1348,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "regex-automata"
+version = "0.4.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-syntax",
+]
+
+[[package]]
+name = "regex-syntax"
+version = "0.8.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1413,6 +1513,8 @@ version = "1.0.154"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
 dependencies = [
+ "foldhash",
+ "indexmap",
  "itoa",
  "memchr",
  "serde",

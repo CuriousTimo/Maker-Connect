@@ -152,6 +152,7 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ("*", maker_connect_protocol::REGISTER, Need::Public, None),
     ("*", maker_connect_protocol::TELEMETRY, Need::Public, None),
     ("*", "/api/agent/v1/jobs/{id}/file", Need::Public, None),
+    ("*", "/api/agent/v1/files/{id}", Need::Public, None),
     ("*", "/p/register", Need::Public, None),
     ("*", "/p/telemetry", Need::Public, None),
     ("*", "/p/events", Need::Public, None),

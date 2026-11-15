@@ -6,8 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-maker-connect-grbl = { path = "../grbl", features = ["serial"] }
-maker-connect-label = { path = "../label", features = ["usb"] }
+maker-connect-engine = { path = "../engine" }
 maker-connect-protocol = { version = "0.2.0", path = "../protocol" }
 maker-connect-update = { path = "../update" }
 serde = { version = "1.0.229", features = ["derive"] }

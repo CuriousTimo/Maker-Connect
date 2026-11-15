@@ -1,0 +1,9 @@
+G21
+G90
+G1 X1 F3000
+!!DEBUG:sleep_after_next G1 3
+G1 X2
+G1 X3
+G1 X4
+G1 X5
+M117 end

@@ -30,6 +30,7 @@ pub fn routes() -> Router<Shared> {
         .route("/files/{id}/thumbnail.png", get(thumbnail))
         .route("/files/{id}/download", get(download))
         .route("/api/agent/v1/jobs/{id}/file", get(agent_file))
+        .route("/api/agent/v1/files/{id}", get(agent_space_file))
         .route("/files/{id}/remove", post(remove))
         .route("/api/files/remove", post(remove_many))
         .route("/api/storage", get(storage))
@@ -450,6 +451,43 @@ async fn agent_file(
     job_file(&store, token, job).await
 }
 
+/// An agent fetches a file of its machine's space that is not a job's (a laser's frame,
+/// `Action::Frame`), with the machine's token: only files of that space.
+async fn agent_space_file(
+    State(store): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    let token = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or("");
+    let found = {
+        let store = store.lock().unwrap();
+        (|| -> rusqlite::Result<Option<(StoredFile, std::path::PathBuf)>> {
+            if token.is_empty() {
+                return Ok(None);
+            }
+            let Some(machine) = store.machine_id_by_token(token)? else {
+                return Ok(None);
+            };
+            let space: Option<i64> = store.db.query_row(
+                "SELECT space_id FROM machines WHERE id = ?1",
+                [&machine],
+                |r| r.get(0),
+            )?;
+            let Some(space) = space else { return Ok(None) };
+            Ok(store.file(space, &id)?.map(|f| (f, store.files_dir.clone())))
+        })()
+    };
+    match found {
+        Ok(Some((file, dir))) => serve(&file, &dir).await,
+        Ok(None) => (StatusCode::NOT_FOUND, "no such file for this machine").into_response(),
+        Err(error) => failed(error),
+    }
+}
+
 /// The file of job `job`, for the machine whose token is `token` (an agent's, or a Klipper
 /// printer's): only that machine's jobs, only files of its space; else 404.
 pub(crate) async fn job_file(store: &Shared, token: &str, job: i64) -> Response {
@@ -726,6 +764,15 @@ async fn frame(
     }
     if let Err(why) = fit(&file, &machine) {
         return (StatusCode::CONFLICT, why).into_response();
+    }
+    // A laser behind an agent: framed by its port (the hub makes no G-code for it).
+    if machine.link == "agent" {
+        let action = maker_connect_protocol::Action::Frame { download: format!("/api/agent/v1/files/{}", file.id) };
+        return match store.queue_action(space, &machine.id, &format!("Frame {}", file.name), &action) {
+            Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
+            Ok(None) => (StatusCode::CONFLICT, "the machine takes no commands").into_response(),
+            Err(error) => failed(error),
+        };
     }
     let corner = |x: f64, y: f64| format!("$J=G90 G21 X{x:.3} Y{y:.3} F3000");
     let gcode = [

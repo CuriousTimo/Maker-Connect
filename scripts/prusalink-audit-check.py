@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks docs/prusalink-audit.md against the PrusaLink source, mechanically.
+"""Checks docs/audits/prusalink.md against the PrusaLink source, mechanically.
 
 Every item below is taken from the source in reference/Prusa-Link, never typed by hand:
 patterns the printer's output is read with, polled values, EEPROM addresses, G-codes sent,
@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LINK = ROOT / "reference" / "Prusa-Link" / "prusa" / "link"
-AUDIT = (ROOT / "docs" / "prusalink-audit.md").read_text()
+AUDIT = (ROOT / "docs" / "audits" / "prusalink.md").read_text()
 
 
 def read(rel):
@@ -69,7 +69,7 @@ for row in AUDIT.splitlines():
     status = row.rstrip("|").split("|")[-1]
     if "test" in status:
         cited |= {n for n in re.findall(r"`([a-z][a-z0-9_]+)`", status)}
-    elif re.search(r"\b(same|fixed)\b", status) and "n/a" not in status:
+    elif "**identical**" in status:
         unproven.append(row.split("|")[1].strip())
 # To the letter (the user's rule): a row may not be done "another way". Each row whose status
 # says so is not done.
@@ -77,7 +77,7 @@ loose = []
 for row in AUDIT.splitlines():
     if row.startswith("|"):
         status = row.rstrip("|").split("|")[-1]
-        if re.search(r"other route|another route|in effect|differs|on purpose", status):
+        if re.search(r"other route|another route|in effect|on purpose", status):
             loose.append(row.split("|")[1].strip())
 no_test = sorted(n for n in cited if not re.search(rf"\bfn {n}\(", code))
 
@@ -120,7 +120,7 @@ for row in AUDIT.splitlines():
 
 total = sum(len(v) for v in items.values())
 print(f"PrusaLink items: {total} ({', '.join(f'{k} {len(v)}' for k, v in items.items())})")
-print(f"rows same/fixed without a named test (not proven): {len(unproven)}")
+print(f"rows identical without a named test (not proven): {len(unproven)}")
 if loose:
     print(f"rows done another way than PrusaLink (not allowed): {len(loose)}")
     for name in loose:

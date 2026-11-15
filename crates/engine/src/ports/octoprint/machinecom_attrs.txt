@@ -1,0 +1,187 @@
+# written by scripts/octoprint-machinecom-attrs.py from comm.py (MachineCom, 444-845)
+const STATE_NONE
+const STATE_OPEN_SERIAL
+const STATE_DETECT_SERIAL
+const STATE_CONNECTING
+const STATE_OPERATIONAL
+const STATE_STARTING
+const STATE_PRINTING
+const STATE_PAUSED
+const STATE_PAUSING
+const STATE_RESUMING
+const STATE_FINISHING
+const STATE_CLOSED
+const STATE_ERROR
+const STATE_CLOSED_WITH_ERROR
+const STATE_TRANSFERING_FILE
+const STATE_CANCELLING
+const OPERATIONAL_STATES
+const PRINTING_STATES
+const CAPABILITY_AUTOREPORT_TEMP
+const CAPABILITY_AUTOREPORT_SD_STATUS
+const CAPABILITY_AUTOREPORT_POS
+const CAPABILITY_BUSY_PROTOCOL
+const CAPABILITY_EMERGENCY_PARSER
+const CAPABILITY_CHAMBER_TEMP
+const CAPABILITY_EXTENDED_M20
+const CAPABILITY_LFN_WRITE
+const CAPABILITY_SUPPORT_ENABLED
+const CAPABILITY_SUPPORT_DETECTED
+const CAPABILITY_SUPPORT_DISABLED
+const DETECTION_RETRIES
+attr _logger mutated
+attr _serialLogger mutated
+attr _phaseLogger mutated
+attr _port
+attr _baudrate
+attr _callback mutated
+attr _printerProfileManager mutated
+attr _state reassigned
+attr _serial reassigned mutated
+attr _detection_candidates reassigned mutated
+attr _detection_retry reassigned
+attr _temperatureTargetSetThreshold
+attr _tempOffsets mutated
+attr _command_queue mutated
+attr _currentZ reassigned
+attr _currentF reassigned
+attr _heatupWaitStartTime reassigned
+attr _heatupWaitTimeLost reassigned
+attr _pauseWaitStartTime reassigned
+attr _pauseWaitTimeLost reassigned
+attr _currentTool reassigned
+attr _toolBeforeChange reassigned
+attr _toolBeforeHeatup reassigned
+attr _known_invalid_tools mutated
+attr _known_invalid_custom_temps mutated
+attr _known_broken_temperature_hooks mutated
+attr _long_running_command reassigned
+attr _heating reassigned
+attr _dwelling_until reassigned
+attr _connection_closing reassigned
+attr _timeout reassigned
+attr _ok_timeout reassigned
+attr _timeout_intervals mutated
+attr _consecutive_timeouts reassigned
+attr _consecutive_timeout_maximums mutated
+attr _max_write_passes
+attr _hello_command
+attr _hello_sent reassigned
+attr _trigger_ok_for_m29
+attr _alwaysSendChecksum reassigned
+attr _neverSendChecksum
+attr _sendChecksumWithUnknownCommands reassigned
+attr _unknownCommandsNeedAck reassigned
+attr _sdAlwaysAvailable reassigned
+attr _sdRelativePath reassigned
+attr _sdLowerCase reassigned
+attr _sdCancelCommand
+attr _blockWhileDwelling reassigned
+attr _send_m112_on_error
+attr _disable_sd_printing_detection reassigned
+attr _current_line reassigned
+attr _line_mutex
+attr _resendDelta reassigned
+attr _capability_support mutated
+attr _lastLines mutated
+attr _lastCommError reassigned
+attr _lastResendNumber reassigned
+attr _currentResendCount reassigned
+attr _currentConsecutiveResendNumber reassigned
+attr _currentConsecutiveResendCount reassigned
+attr _maxConsecutiveResends
+attr _errorValue reassigned
+attr _firmware_detection
+attr _firmware_info_received reassigned
+attr _firmware_capabilities_received reassigned
+attr _firmware_info reassigned
+attr _firmware_capabilities mutated
+attr _defer_sd_refresh
+attr _temperature_autoreporting reassigned
+attr _sdstatus_autoreporting reassigned
+attr _pos_autoreporting reassigned
+attr _busy_protocol_detected reassigned
+attr _busy_protocol_support reassigned
+attr _trigger_ok_after_resend
+attr _resend_ok_timer reassigned mutated
+attr _resendActive reassigned
+attr _terminal_log mutated
+attr _disconnect_on_errors
+attr _ignore_errors
+attr _log_resends
+attr _log_resends_rate_start reassigned
+attr _log_resends_rate_count reassigned
+attr _log_resends_max
+attr _log_resends_rate_frame
+attr _long_running_commands
+attr _checksum_requiring_commands
+attr _blocked_commands
+attr _ignored_commands
+attr _pausing_commands
+attr _emergency_commands
+attr _sanity_check_tools
+attr _ack_max
+attr _clear_to_send mutated
+attr _send_queue mutated
+attr _temperature_timer reassigned mutated
+attr _sd_status_timer reassigned mutated
+attr _consecutive_not_sd_printing reassigned
+attr _consecutive_not_sd_printing_maximum
+attr _job_queue mutated
+attr _transmitted_lines reassigned
+attr _received_resend_requests reassigned
+attr _resend_ratio_start
+attr _resend_ratio_threshold
+attr _resend_ratio_reported reassigned
+attr _pluginManager
+attr _gcode_hooks
+attr _received_message_hooks mutated
+attr _error_message_hooks mutated
+attr _atcommand_hooks
+attr _firmware_info_hooks
+attr _printer_action_hooks mutated
+attr _gcodescript_hooks mutated
+attr _serial_factory_hooks mutated
+attr _temperature_hooks mutated
+attr _sdEnabled
+attr _sdAvailable reassigned
+attr _sdFileList reassigned
+attr _sdFileLongName reassigned
+attr _sdFiles reassigned mutated
+attr _sdFilesAvailable mutated
+attr _sdFileToSelect reassigned
+attr _sdFileToSelectUser reassigned
+attr _ignore_select reassigned
+attr _manualStreaming reassigned
+attr last_temperature mutated
+attr pause_temperature mutated
+attr cancel_temperature mutated
+attr last_position mutated
+attr pause_position mutated
+attr cancel_position mutated
+attr last_fanspeed reassigned
+attr pause_fanspeed reassigned
+attr cancel_fanspeed reassigned
+attr _record_pause_data reassigned
+attr _record_cancel_data reassigned
+attr _suppress_scripts
+attr _suppress_scripts_mutex
+attr _action_users mutated
+attr _action_users_mutex
+attr _pause_position_timer reassigned mutated
+attr _pause_mutex
+attr _cancel_position_timer reassigned mutated
+attr _cancel_mutex
+attr _log_position_on_pause
+attr _log_position_on_cancel
+attr _abort_heatup_on_cancel
+attr _serial_encoding
+attr _enable_shutdown_action_command
+attr _currentFile reassigned mutated
+attr _job_on_hold mutated
+attr _jobLock
+attr _sendingLock
+attr _monitoring_active reassigned
+attr monitoring_thread mutated
+attr _send_queue_active reassigned
+attr sending_thread mutated

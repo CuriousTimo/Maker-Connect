@@ -442,6 +442,10 @@ pub struct Command {
     /// A command of Prusa Connect's (`{"command": "START_PRINT", ...}`) rather than G-code:
     /// only for printers on their built-in Connect.
     pub json: bool,
+    /// A typed command for a machine behind an agent (an `Action` as JSON in `gcode`): the
+    /// hub makes no G-code for those (owner, 2026-11-12).
+    #[serde(default)]
+    pub action: bool,
     /// Asked by the hub itself (reading the USB stick), not by someone: not listed.
     #[serde(skip)]
     pub background: bool,
@@ -501,23 +505,11 @@ const COMMANDS_KEPT: usize = 40;
 const OUTPUT_KEPT: usize = 200;
 /// A command given to a machine that does not answer about it is given up after this.
 const COMMAND_SECONDS: i64 = 120;
+/// K18: why a Sent or Accepted command of a Marlin agent machine fails when its agent was gone.
+pub const AGENT_GONE: &str = "the agent was gone";
 
 /// Keeps a machine's commands to [`COMMANDS_KEPT`]: the oldest done ones go first, the
 /// hub's own before someone's; one still waiting or on its way is never dropped.
-/// Whether G-code may go into a running print: speed, flow, nozzle and bed targets, and a
-/// relative X or Y move (no Z, no extruding), as PrusaLink's controls while printing.
-pub(crate) fn fits_a_print(gcode: &str) -> bool {
-    gcode.lines().map(str::trim).filter(|l| !l.is_empty()).all(|line| {
-        let words: Vec<&str> = line.split_whitespace().collect();
-        match words.first().copied() {
-            Some("M220" | "M221" | "M104" | "M140") => words.len() == 2 && words[1].starts_with('S'),
-            Some("G91" | "G90") => words.len() == 1,
-            Some("G1") => words[1..].iter().all(|w| w.starts_with('F') || w.starts_with('X') || w.starts_with('Y')),
-            _ => false,
-        }
-    })
-}
-
 fn trim(commands: &mut Vec<Command>) {
     while commands.len() > COMMANDS_KEPT {
         let done = |c: &Command| !matches!(c.state, CommandState::Queued | CommandState::Sent);
@@ -639,9 +631,6 @@ pub struct Store {
     /// Answers to an agent's printer's question, by machine, until its next report takes
     /// them (`M876 S<index>`).
     pub(crate) answers: std::collections::HashMap<String, u8>,
-    /// What is on an agent's printer's own SD card, as its `M20` said, and when
-    /// (crate::sd_card).
-    pub(crate) sd_files: std::collections::HashMap<String, (Vec<crate::sd_card::SdFile>, i64)>,
     /// Pause, resume or stop for a print the machine started itself (from its SD card): no
     /// job of the hub's, so said once with its next report.
     pub(crate) own_job_control:
@@ -719,7 +708,6 @@ impl Store {
             job_info_asked: Default::default(),
             own_prints: Default::default(),
             answers: Default::default(),
-            sd_files: Default::default(),
             own_job_control: Default::default(),
             // Ids that do not repeat soon after a restart, as a printer may remember the last.
             next_command: (now() % 1_000_000_000) as u32,
@@ -1064,12 +1052,9 @@ impl Store {
     /// again, and the next job waits. Prusa's MK3 through an agent is told so (M72 S0, as
     /// PrusaLink does, whether it was ready or not). Returns whether it was ready.
     pub fn not_ready(&mut self, space: i64, machine: &str) -> rusqlite::Result<bool> {
-        let Some(m) = self.machine(space, machine)? else {
+        let Some(_) = self.machine(space, machine)? else {
             return Ok(false);
         };
-        if m.link == "agent" && crate::prusa_mk3_machine(&m) {
-            self.queue_command(space, machine, "Not ready on its screen", "M72 S0")?;
-        }
         let Some(ready) = self.ready_after(machine)? else {
             return Ok(false);
         };
@@ -1511,10 +1496,6 @@ impl Store {
                 .optional()?
         {
             self.print_taken(space, &machine)?;
-            // As PrusaLink answers it (`fw_set_ready`: `SetReady`, M72 S1).
-            if self.machine(space, &machine)?.is_some_and(|m| m.link == "agent" && crate::prusa_mk3_machine(&m)) {
-                self.queue_command(space, &machine, "Ready on its screen", "M72 S1")?;
-            }
         }
         // "Not ready" on the printer's own menu: the next job waits again (PrusaLink's
         // `fw_cancel_ready`: `CancelReady`, M72 S0).
@@ -1680,6 +1661,7 @@ impl Store {
             label: label.to_owned(),
             gcode: gcode.to_owned(),
             json: false,
+            action: false,
             background: false,
             output: Vec::new(),
             state: CommandState::Queued,
@@ -1691,28 +1673,31 @@ impl Store {
         Ok(Some(id))
     }
 
+    /// A typed command for a machine behind an agent: its id, or None when the machine is not
+    /// in the space or takes no commands.
+    pub fn queue_action(
+        &mut self,
+        space: i64,
+        machine: &str,
+        label: &str,
+        action: &maker_connect_protocol::Action,
+    ) -> rusqlite::Result<Option<u32>> {
+        let body = serde_json::to_string(action).expect("an Action is JSON");
+        let Some(id) = self.queue_command(space, machine, label, &body)? else {
+            return Ok(None);
+        };
+        if let Some(command) = self.commands.get_mut(machine).and_then(|c| c.iter_mut().find(|c| c.id == id)) {
+            command.action = true;
+        }
+        Ok(Some(id))
+    }
+
     /// The next command for the machine asking with this token, once the one before is
     /// done: one at a time, as a printer takes them.
     pub fn next_command(&mut self, token: &str) -> rusqlite::Result<Option<(u32, String)>> {
         Ok(self
             .next_command_of_any_kind(token)?
             .map(|(id, body, _)| (id, body)))
-    }
-
-    /// The next command that may go into a running print (PrusaLink's controls while it
-    /// prints: speed, flow, temperatures, an X or Y move); others wait for its end.
-    pub fn next_command_for_a_print(&mut self, token: &str) -> rusqlite::Result<Option<(u32, String)>> {
-        let Some(machine) = self.machine_id(token)? else {
-            return Ok(None);
-        };
-        let first_queued = self
-            .commands
-            .get(&machine)
-            .and_then(|c| c.iter().find(|c| c.state == CommandState::Queued).map(|c| c.gcode.clone()));
-        match first_queued {
-            Some(gcode) if fits_a_print(&gcode) => self.next_command(token),
-            _ => Ok(None),
-        }
     }
 
     /// A command of Prusa Connect's for a printer on its built-in Connect (its id): queued
@@ -1755,6 +1740,7 @@ impl Store {
             label: label.to_owned(),
             gcode: body,
             json: true,
+            action: false,
             background,
             output: Vec::new(),
             state: CommandState::Queued,
@@ -1817,6 +1803,114 @@ impl Store {
                 ))
             })
             .collect()
+    }
+
+    /// Whether the machine behind this token is an agent machine whose port is the Marlin/OctoPrint
+    /// port: an agent link, a plain Marlin profile (`plain_marlin`, as K5, and Marlin or no firmware named) and an FDM printer (the
+    /// DYMO, LabelWriter and laser ports are agent machines too, and keep the gate). K18.
+    pub fn is_marlin_agent(&self, token: &str) -> rusqlite::Result<bool> {
+        let Some(space) = self
+            .db
+            .query_row(
+                "SELECT space_id FROM machines WHERE token = ?1 AND space_id IS NOT NULL",
+                [token],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+        else {
+            return Ok(false);
+        };
+        let Some(id) = self.machine_id(token)? else {
+            return Ok(false);
+        };
+        Ok(self.machine(space, &id)?.is_some_and(|m| {
+            // `plain_marlin` alone would take a Buddy or Klipper profile too (it leaves out only the
+            // MK3 family and GRBL): the Marlin port's machines are the ones whose profile says Marlin
+            // or says nothing
+            m.kind == maker_connect_protocol::MachineKind::Fdm
+                && crate::machine_page::plain_marlin(&m)
+                && m.profile
+                    .as_deref()
+                    .and_then(crate::profiles::find)
+                    .and_then(|p| p.firmware.as_deref())
+                    .is_none_or(|f| f == "marlin")
+        }))
+    }
+
+    /// A test says when the machine's agent last reported.
+    #[cfg(test)]
+    pub fn set_last_seen(&self, machine: &str, at: i64) {
+        self.db
+            .execute("UPDATE machines SET last_seen = ?1 WHERE id = ?2", params![at, machine])
+            .unwrap();
+    }
+
+    /// A test says when the machine's commands last changed.
+    #[cfg(test)]
+    pub fn set_commands_at(&mut self, machine: &str, at: i64) {
+        for c in self.commands.get_mut(machine).unwrap() {
+            c.at = at;
+        }
+    }
+
+    /// K18, the agent-gone rule (ours): a Marlin agent machine not seen for longer than
+    /// `ONLINE_SECONDS` has its Sent and Accepted commands (not the Queued ones) failed with "the
+    /// agent was gone", checked on its next report, before that report is taken in.
+    pub fn fail_commands_of_gone_agent(&mut self, token: &str) -> rusqlite::Result<()> {
+        let Some(machine) = self.machine_id(token)? else {
+            return Ok(());
+        };
+        let seen: Option<i64> = self
+            .db
+            .query_row("SELECT last_seen FROM machines WHERE token = ?1", [token], |r| r.get(0))
+            .optional()?
+            .flatten();
+        if seen.is_none_or(|t| now() - t <= ONLINE_SECONDS) || !self.is_marlin_agent(token)? {
+            return Ok(());
+        }
+        let mut any = false;
+        for c in self
+            .commands
+            .entry(machine)
+            .or_default()
+            .iter_mut()
+            .filter(|c| matches!(c.state, CommandState::Sent | CommandState::Accepted))
+        {
+            c.state = CommandState::Rejected;
+            c.reason = Some(AGENT_GONE.to_owned());
+            any = true;
+        }
+        if any {
+            self.changed();
+        }
+        Ok(())
+    }
+
+    /// All Queued commands of a Marlin agent machine, in the existing order (someone's before the
+    /// hub's own background ones), each now Sent: no gate and no 120 s (K18).
+    pub fn next_commands_for_agent(&mut self, token: &str) -> rusqlite::Result<Vec<(u32, String)>> {
+        let Some(machine) = self.machine_id(token)? else {
+            return Ok(Vec::new());
+        };
+        let Some(commands) = self.commands.get_mut(&machine) else {
+            return Ok(Vec::new());
+        };
+        let now = now();
+        let mut out = Vec::new();
+        for background in [false, true] {
+            for c in commands
+                .iter_mut()
+                .filter(|c| c.state == CommandState::Queued && c.background == background)
+            {
+                c.state = CommandState::Sent;
+                c.at = now;
+                out.push((c.id, c.gcode.clone()));
+            }
+        }
+        if !out.is_empty() {
+            self.changed();
+        }
+        Ok(out)
     }
 
     /// The next command, with whether it is a Connect (JSON) command.

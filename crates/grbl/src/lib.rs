@@ -1,39 +1,168 @@
 //! A GRBL machine (a laser) on the agent's serial port, through LaserFoundry's
-//! `laserfoundry-device` (MIT OR Apache-2.0): its `Link` keeps the connection on a thread of
-//! its own, asks the status every 200 ms, streams a job by GRBL's character counting, and
-//! stops by a soft reset, which switches the laser off. Here: what the hub asks of it, and
-//! what it is doing, in Maker Connect's terms. Jogs go as GRBL's own `$J=` jogs (the laser off,
-//! cancellable), the settings that matter before a job are read with `$$`, and an interrupted
-//! job can start again a little before where it stopped, with LaserFoundry's `restart_line` and
-//! `laserfoundry-gcode`'s `resume_from` (which rebuilds where it was with the beam off).
+//! `laserfoundry-device` and `laserfoundry-gcode` (v0.5.0, 61febdb; MIT OR Apache-2.0). Its
+//! `Link` keeps the connection on a thread of its own, asks the status every 200 ms, streams a
+//! job by GRBL's character counting, and stops by a soft reset, which switches the laser off.
+//!
+//! **Only LaserFoundry's behaviour goes on the wire.** What this crate adds is the part of
+//! LaserFoundry's app (`crates/ui-egui/src/lib.rs`, v0.5.0) a host without its window needs: the
+//! link logic of `poll_link` (:1379-1410) and `reconnect_tick` (:1347-1377), and the refusals of
+//! `start_job_with` (:1221-1251). Each is marked with its file and line in LaserFoundry; what is
+//! ours is listed in `docs/agent-engine.md`, "Step 3d: the laser" (G1 and on).
+//!
+//! Nothing here waits for the machine: a command is handed to the `Link` and answered later,
+//! from the snapshot's console, as [`GrblMachine::report`] keeps reading it.
 
 /// LaserFoundry's in-memory GRBL: for tests, and behind the hub's virtual lasers.
 pub use laserfoundry_device::SimulatedGrbl;
-use laserfoundry_device::{JobState, Link, MachineState as Grbl, Snapshot, Transport};
-use maker_connect_protocol::{
-    GrblSettings, Identity, JobControl, JobEnd, JobProgress, MachineState, Telemetry,
-};
+use laserfoundry_device::{JobState, Link, MachineState as Grbl, Snapshot, Transport, restart_line};
+use maker_connect_protocol::{GrblSettings, JobControl, JobEnd, JobProgress, MachineState, Telemetry};
+use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
 
-/// How long a command may take to be answered (homing takes a while).
-const ANSWER_WITHIN: Duration = Duration::from_secs(90);
+/// `ui-egui/src/lib.rs:82`: attempts made to get a lost serial connection back before giving up.
+pub const RECONNECT_ATTEMPTS: u32 = 8;
+/// `ui-egui/src/lib.rs:84`: the longest wait between attempts.
+pub const RECONNECT_MAX_WAIT: Duration = Duration::from_secs(30);
+/// `ui-egui/src/lib.rs:457`: `reconnect_wait`, the first wait; each attempt doubles it.
+pub const RECONNECT_WAIT: Duration = Duration::from_secs(2);
+/// `ui-egui/src/lib.rs:413`: `jog_feed`, the feed of a jog the page chose none for, mm/min.
+pub const JOG_FEED: f64 = 3000.0;
+/// `crates/engine/src/cmd/job.rs:241`: `frame_speed`, mm/min.
+pub const FRAME_SPEED: f64 = 3000.0;
+/// `ui-egui/src/lib.rs:416`: `frame_power`, percent: the beam is off.
+pub const FRAME_POWER: f64 = 0.0;
+/// `crates/device/src/serial.rs:9`: `DEFAULT_BAUD`.
+#[cfg(feature = "serial")]
+pub use laserfoundry_device::serial::DEFAULT_BAUD;
+
+/// Opens the transport again after a lost connection (a serial target only).
+pub type Reopen = Box<dyn FnMut() -> Result<Box<dyn Transport + Send>, String> + Send>;
+
+/// What the machine is asked: LaserFoundry's own `Link` calls.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Command {
+    /// `Link::home`.
+    Home,
+    /// `Link::unlock`.
+    Unlock,
+    /// `Link::set_zero`.
+    SetZero,
+    /// `Link::go_to_zero`.
+    GoToZero,
+    /// `Link::request_settings`.
+    Settings,
+    /// `Link::jog(dx, dy, feed)`.
+    Jog(f64, f64, f64),
+    /// `Link::jog_to(x, y, feed)`: to a place, in machine coordinates (the hub's virtual lasers).
+    JogTo(f64, f64, f64),
+    /// `Link::send_line`: a line as typed (the app's console, `panels.rs:865`).
+    Line(String),
+}
+
+/// A command handed to the machine, to be answered in [`Update::done`].
+pub type Ticket = u64;
+
+/// How a command ended.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Done {
+    pub ticket: Ticket,
+    /// What the machine said, or the reason it failed.
+    pub result: Result<Vec<String>, String>,
+}
+
+/// What [`GrblMachine::report`] found since the last call.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Update {
+    pub telemetry: Telemetry,
+    /// A job that ended (a frame is no job of the hub's: it answers its command).
+    pub ended: Option<JobEnd>,
+    /// Commands answered (or failed), in order.
+    pub done: Vec<Done>,
+    /// The connection was lost since the last call.
+    pub gone: bool,
+    /// The connection came back since the last call.
+    pub back: bool,
+}
+
+/// A command handed to the link whose answers are not all in.
+struct Outstanding {
+    /// None: the link logic's own (`$$` after the first status).
+    ticket: Option<Ticket>,
+    /// Lines handed to the link, each answered `ok`, `error:N` or `ALARM:N`.
+    sent: usize,
+    /// Lines of it the link has echoed (`> line`) into its console.
+    echoed: usize,
+    answered: usize,
+    /// Why a line after the first was refused by the link, once the lines before it are in.
+    refused: Option<String>,
+    output: Vec<String>,
+    /// The machine answered `error:N` or `ALARM:N`.
+    failed: Option<String>,
+    /// No answer will come (the connection or the controller went).
+    dead: bool,
+}
+
+impl Outstanding {
+    fn new(ticket: Option<Ticket>, sent: usize, refused: Option<String>) -> Self {
+        Outstanding {
+            ticket,
+            sent,
+            echoed: 0,
+            answered: 0,
+            refused,
+            output: Vec::new(),
+            failed: None,
+            dead: false,
+        }
+    }
+}
+
+/// A lost connection being retried (`ui-egui/src/lib.rs:87`).
+struct Reconnect {
+    attempts: u32,
+    next: Instant,
+}
 
 pub struct GrblMachine {
-    link: Link,
+    /// `ui-egui` `link`: none while the connection is lost or was never opened.
+    link: Option<Link>,
+    /// `ui-egui` `snap`: the snapshot of the last poll.
+    snap: Option<Snapshot>,
+    /// `ui-egui` `target`: a serial port to open again; none for a simulator.
+    reopen: Option<Reopen>,
+    reconnect: Option<Reconnect>,
+    /// `ui-egui` `auto_reconnect` (:455), true.
+    auto_reconnect: bool,
+    /// `ui-egui` `reconnect_wait` (:457).
+    reconnect_wait: Duration,
+    /// `ui-egui` `settings_asked` (:262).
+    settings_asked: bool,
+    /// What is said about the connection, in the app's words (`ui-egui` `status`).
+    problem: Option<String>,
+    console: Vec<String>,
+    outstanding: VecDeque<Outstanding>,
+    next_ticket: Ticket,
     job: Option<Running>,
     firmware: Option<String>,
-    /// What its `$I` build info says it is (`Ortur Laser Master 2 Pro S2`), once heard.
-    build_info: Option<String>,
+    gone: bool,
+    back: bool,
 }
 
 /// The job this machine runs.
 struct Running {
-    id: i64,
+    /// None: a frame (it has no hub job of its own).
+    id: Option<i64>,
+    /// The command a frame answers.
+    frame: Option<Ticket>,
     name: String,
     /// What was streamed (the file, or the file rebuilt from a line).
     streamed: String,
-    /// The file line the stream started at, and how many lines the rebuilt start added.
-    from_line: Option<(u64, u64)>,
+    /// `ui-egui` `Restart`: the design's program and the line the stream started at.
+    restart: Option<(String, usize)>,
+    /// The snapshot's job state when it was handed over: until the link's thread takes the job
+    /// up, the snapshot still says how the one before ended.
+    before: JobState,
+    started_seen: bool,
     started: Instant,
     paused_for: Duration,
     paused_at: Option<Instant>,
@@ -41,79 +170,114 @@ struct Running {
 }
 
 impl GrblMachine {
+    /// A machine on a transport that cannot be opened again (a simulator: `Target::Simulator`).
     pub fn new(transport: Box<dyn Transport + Send>) -> Self {
-        let link = Link::connect(transport);
-        // The settings that matter before a job ($30, $32, $130 to $132).
-        let _ = link.request_settings();
-        // Its build info: many makers put the machine's name in it.
-        let _ = link.send_line("$I");
+        Self::with(Some(transport), None)
+    }
+
+    /// A machine on a serial target: opened already, and opened again as
+    /// `ui-egui/src/lib.rs:1347-1377` does after a lost connection.
+    pub fn with_reopen(first: Box<dyn Transport + Send>, reopen: Reopen) -> Self {
+        Self::with(Some(first), Some(reopen))
+    }
+
+    fn with(first: Option<Box<dyn Transport + Send>>, reopen: Option<Reopen>) -> Self {
         GrblMachine {
-            link,
+            // `ui-egui/src/lib.rs:1177`: `Link::connect_with(t, Protocol::Grbl)`, which is `Link::connect`.
+            link: first.map(Link::connect),
+            snap: None,
+            reopen,
+            reconnect: None,
+            auto_reconnect: true,
+            reconnect_wait: RECONNECT_WAIT,
+            settings_asked: false,
+            problem: None,
+            console: Vec::new(),
+            outstanding: VecDeque::new(),
+            next_ticket: 1,
             job: None,
             firmware: None,
-            build_info: None,
+            gone: false,
+            back: false,
         }
     }
 
-    /// Opens a GRBL machine on a serial port.
+    /// Opens a GRBL machine on a serial port (LaserFoundry's `SerialTransport`), which is opened
+    /// again after a lost connection.
     #[cfg(feature = "serial")]
-    pub fn open(port: &str, baud: u32) -> std::io::Result<Self> {
-        let transport = laserfoundry_device::serial::SerialTransport::open(port, baud)?;
-        Ok(Self::new(Box::new(transport)))
+    pub fn open(port: &str, baud: u32) -> Result<Self, String> {
+        let port = port.to_owned();
+        let mut reopen: Reopen = Box::new(move || {
+            laserfoundry_device::serial::SerialTransport::open(&port, baud)
+                .map(|t| Box::new(t) as Box<dyn Transport + Send>)
+                .map_err(|e| e.to_string())
+        });
+        let first = reopen()?;
+        Ok(Self::with_reopen(first, reopen))
     }
 
+    /// The hub's job this machine runs (a frame has none).
     pub fn running(&self) -> Option<i64> {
-        self.job.as_ref().map(|j| j.id)
+        self.job.as_ref().and_then(|j| j.id)
     }
 
-    /// Carries out a command's G-code (`$H` homes, `$X` unlocks, anything else is sent as
-    /// it is), waits for its answers, and returns what the machine said.
-    pub fn carry_out(&mut self, gcode: &str) -> Result<Vec<String>, String> {
+    /// Whether a job (or a frame) is streaming.
+    pub fn busy(&self) -> bool {
+        self.job.is_some()
+    }
+
+    /// `ui-egui` `link_do` (:1331): runs `Link` calls and hands back a refusal as its text. The
+    /// answers come later, in [`Update::done`]. Lines the link refuses after others went are
+    /// reported once those are answered; a command that sends no line (an empty one) is done
+    /// at once.
+    pub fn submit(&mut self, commands: &[Command]) -> Result<Ticket, String> {
+        let Some(link) = &self.link else {
+            // `ui-egui/src/lib.rs:1333` (`link_do`)
+            return Err("Not connected".to_owned());
+        };
         if self.job.is_some() {
-            return Err("a job is running".to_owned());
+            // `crates/device/src/link.rs:54` and `:277-278`, `LinkError::Busy`, `require_idle`: the link's own words. It reads
+            // its snapshot for this, which says so only once its thread took the job up.
+            return Err("a job is running; stop it first".to_owned());
         }
-        let before = self.link.snapshot().console;
         let mut sent = 0;
-        for line in gcode.lines().map(str::trim).filter(|l| !l.is_empty()) {
-            let upper = line.to_ascii_uppercase();
-            let result = match upper.as_str() {
-                "$H" => self.link.home(),
-                "$X" => self.link.unlock(),
-                "$$" => self.link.request_settings(),
-                // The origin of a job where the head is, and back to it (LaserFoundry's own).
-                "G92 X0 Y0" => self.link.set_zero(),
-                "G90 G0 X0 Y0" => self.link.go_to_zero(),
-                // A jog through the link, which checks it and keeps the laser off.
-                _ if upper.starts_with("$J=") => match jog(&upper) {
-                    Some(Jog::By(dx, dy, feed)) => self.link.jog(dx, dy, feed),
-                    Some(Jog::To(x, y, feed)) => self.link.jog_to(x, y, feed),
-                    None => return Err(format!("not a jog this machine takes: {line}")),
-                },
-                _ => self.link.send_line(line),
+        let mut refused = None;
+        for command in commands {
+            let result = match command {
+                Command::Home => link.home(),
+                Command::Unlock => link.unlock(),
+                Command::SetZero => link.set_zero(),
+                Command::GoToZero => link.go_to_zero(),
+                Command::Settings => link.request_settings(),
+                Command::Jog(dx, dy, feed) => link.jog(*dx, *dy, *feed),
+                Command::JogTo(x, y, feed) => link.jog_to(*x, *y, *feed),
+                Command::Line(line) => link.send_line(line),
             };
-            result.map_err(|e| e.to_string())?;
-            sent += 1;
-        }
-        // Each line is answered `ok` or `error:N`, homing once it is done.
-        let deadline = Instant::now() + ANSWER_WITHIN;
-        loop {
-            let said = new_lines(&before, &self.link.snapshot().console);
-            let answers = said.iter().filter(|l| is_answer(l)).count();
-            if answers >= sent || Instant::now() > deadline {
-                let failed = said
-                    .iter()
-                    .find(|l| l.contains("error:") || l.contains("ALARM:"));
-                return match failed {
-                    Some(line) => Err(line.trim_start_matches("< ").to_owned()),
-                    None => Ok(said.iter().map(|l| tidy(l)).collect()),
-                };
+            match result {
+                // `Link::send_line` sends nothing for an empty line.
+                Ok(()) if matches!(command, Command::Line(l) if l.trim().is_empty()) => {}
+                Ok(()) => sent += 1,
+                Err(error) => {
+                    refused = Some(error.to_string());
+                    break;
+                }
             }
-            std::thread::sleep(Duration::from_millis(50));
         }
+        if sent == 0
+            && let Some(error) = refused
+        {
+            return Err(error);
+        }
+        let ticket = self.next_ticket;
+        self.next_ticket += 1;
+        self.outstanding
+            .push_back(Outstanding::new(Some(ticket), sent, refused));
+        Ok(ticket)
     }
 
-    /// Starts a job: the program streamed by the link; from a 1-based line of it when given
-    /// (resuming), rebuilt by `resume_from` so the head first goes there with the beam off.
+    /// Starts a job as `ui-egui` `start_job_with` (:1221-1251) does: the refusals, then the
+    /// program handed to the link; from a 1-based line of it when given, rebuilt by `resume_from`
+    /// (`start_from_line`, :1258-1266) so the head first goes there with the beam off.
     pub fn start(
         &mut self,
         id: i64,
@@ -121,35 +285,101 @@ impl GrblMachine {
         program: String,
         from_line: Option<u64>,
     ) -> Result<(), String> {
-        let (streamed, from_line) = match from_line {
-            Some(line) if line > 1 => {
+        let (streamed, restart) = match from_line {
+            Some(line) => {
                 let rebuilt = laserfoundry_gcode::resume_from(&program, line as usize)
                     .map_err(|e| format!("cannot start at line {line}: {e}"))?;
-                // The rebuilt start, before the file's own lines from `line` on.
-                let tail = program.lines().count() as u64 + 1 - line;
-                let added = (rebuilt.lines().count() as u64).saturating_sub(tail);
-                (rebuilt, Some((line, added)))
+                (rebuilt, Some((program, line as usize)))
             }
-            _ => (program, None),
+            None => (program, None),
         };
-        let before = self.link.snapshot().job;
-        self.link
-            .start_job(streamed.clone())
-            .map_err(|e| e.to_string())?;
-        // Until the link's thread takes the job up, its snapshot still says how the one
-        // before ended: wait for that to change, so it is not taken for this job's end.
-        let until = Instant::now() + Duration::from_secs(3);
-        while Instant::now() < until
-            && self.link.snapshot().job == before
-            && before != JobState::Idle
-        {
-            std::thread::sleep(Duration::from_millis(5));
+        self.begin(Some(id), None, name, streamed, restart)
+    }
+
+    /// `crates/engine/src/cmd/job.rs:245` `frame` and `ui-egui/src/panels.rs:734-740`
+    /// `frame_action`: the outline of `bounds` (`x0, y0, x1, y1`, mm) as
+    /// `laserfoundry_gcode::frame` writes it, run as a job through the same refusals as Start.
+    /// Answered in [`Update::done`] when the frame ends.
+    pub fn frame(&mut self, bounds: [f64; 4]) -> Result<Ticket, String> {
+        // The machine of the program is the document's in the app; here (ours, G12): the
+        // controller's own travel and power range, once read.
+        let mut machine = laserfoundry_doc::Machine::default();
+        // The bounds are a file's own machine coordinates: no flip of Y (G12).
+        machine.origin = laserfoundry_doc::Origin::TopLeft;
+        if let Some(snap) = &self.snap {
+            let number = |id: u32| {
+                snap.settings
+                    .get(&id)
+                    .and_then(|v| v.trim().parse::<f64>().ok())
+                    .filter(|v| v.is_finite())
+            };
+            if let (Some(x), Some(y)) = (number(130), number(131))
+                && x >= 1.0
+                && y >= 1.0
+            {
+                machine.bed_width = x;
+                machine.bed_height = y;
+            }
+            if let Some(s) = number(30)
+                && (1.0..=f64::from(u32::MAX)).contains(&s)
+            {
+                machine.max_s = s.round() as u32;
+            }
         }
+        let [x0, y0, x1, y1] = bounds;
+        let program = laserfoundry_gcode::frame(
+            laserfoundry_geom::Rect::new(x0, y0, x1, y1),
+            &machine,
+            laserfoundry_gcode::Placement::Absolute,
+            FRAME_SPEED,
+            FRAME_POWER,
+        )
+        .map_err(|e| e.to_string())?;
+        let ticket = self.next_ticket;
+        self.begin(None, Some(ticket), "frame", program, None)?;
+        self.next_ticket += 1;
+        Ok(ticket)
+    }
+
+    fn begin(
+        &mut self,
+        id: Option<i64>,
+        frame: Option<Ticket>,
+        name: &str,
+        streamed: String,
+        restart: Option<(String, usize)>,
+    ) -> Result<(), String> {
+        let Some(link) = &self.link else {
+            // `ui-egui/src/lib.rs:1222-1224`
+            return Err("Connect to a machine (or the simulator) first".to_owned());
+        };
+        if self.job.is_some() {
+            // `crates/device/src/link.rs:54` and `:277-278`, `LinkError::Busy`, `require_idle`: the link's own words.
+            return Err("a job is running; stop it first".to_owned());
+        }
+        // `ui-egui/src/lib.rs:1232-1236` and `:1520-1532`
+        if let Some(why) = self
+            .snap
+            .as_ref()
+            .and_then(|s| s.status.as_ref())
+            .and_then(|s| not_ready(s.state))
+        {
+            return Err(why.to_owned());
+        }
+        // `ui-egui/src/lib.rs:1239-1246` and `settings_ui.rs:26-31`
+        if self.snap.as_ref().is_some_and(|s| laser_mode_off(&s.settings)) {
+            return Err("Laser mode ($32) is off on this controller: turn it on in the machine settings before running a job".to_owned());
+        }
+        let before = link.snapshot().job;
+        link.start_job(streamed.clone()).map_err(|e| e.to_string())?;
         self.job = Some(Running {
             id,
+            frame,
             name: name.to_owned(),
             streamed,
-            from_line,
+            restart,
+            before,
+            started_seen: false,
             started: Instant::now(),
             paused_for: Duration::ZERO,
             paused_at: None,
@@ -158,73 +388,278 @@ impl GrblMachine {
         Ok(())
     }
 
-    pub fn control(&mut self, control: JobControl) {
-        let Some(job) = self.job.as_mut() else { return };
-        let done = match control {
-            JobControl::Pause if job.paused_at.is_none() => {
-                job.paused_at = Some(Instant::now());
-                self.link.pause()
+    /// Pause, resume or stop, as the app's buttons do (`panels.rs:766-776`): `Link::pause`,
+    /// `Link::resume`, `Link::stop` (a soft reset, which the app offers with or without a job).
+    pub fn control(&mut self, control: JobControl) -> Result<(), String> {
+        let Some(link) = &self.link else {
+            return Err("Not connected".to_owned());
+        };
+        let result = match control {
+            JobControl::Pause => {
+                if let Some(job) = self.job.as_mut()
+                    && job.paused_at.is_none()
+                {
+                    job.paused_at = Some(Instant::now());
+                }
+                link.pause()
             }
             JobControl::Resume => {
-                if let Some(at) = job.paused_at.take() {
+                if let Some(job) = self.job.as_mut()
+                    && let Some(at) = job.paused_at.take()
+                {
                     job.paused_for += at.elapsed();
                 }
-                self.link.resume()
+                link.resume()
             }
-            JobControl::Stop if !job.stopping => {
-                job.stopping = true;
-                self.link.stop()
+            JobControl::Stop => {
+                if let Some(job) = self.job.as_mut() {
+                    job.stopping = true;
+                }
+                // The link clears the answers it still owed: nothing more is coming for them.
+                for o in &mut self.outstanding {
+                    o.dead = true;
+                }
+                link.stop()
             }
-            _ => Ok(()),
         };
-        if let Err(error) = done {
-            println!("job {}: {error}", job.id);
+        result.map_err(|e| e.to_string())
+    }
+
+    /// `ui-egui` `reconnect_tick` (:1347-1377). A reconnected machine is idle: a job that was
+    /// running is never resumed.
+    fn reconnect_tick(&mut self) {
+        let Some(state) = &self.reconnect else { return };
+        let (attempts, next) = (state.attempts, state.next);
+        if Instant::now() < next {
+            return;
+        }
+        let Some(reopen) = self.reopen.as_mut() else {
+            self.reconnect = None;
+            return;
+        };
+        match reopen() {
+            Ok(t) => {
+                self.link = Some(Link::connect(t));
+                self.settings_asked = false;
+                self.reconnect = None;
+                self.back = true;
+                self.problem = None;
+            }
+            Err(e) => {
+                let attempts = attempts + 1;
+                if attempts >= RECONNECT_ATTEMPTS {
+                    self.reconnect = None;
+                    self.problem = Some(format!("Could not reconnect: {e}"));
+                } else {
+                    let wait = wait_after(self.reconnect_wait, attempts);
+                    self.reconnect = Some(Reconnect {
+                        attempts,
+                        next: Instant::now() + wait,
+                    });
+                }
+            }
         }
     }
 
-    /// What the machine is doing now; and the job that ended since the last time, if one did.
-    pub fn report(&mut self) -> (Telemetry, Option<JobEnd>) {
-        let snapshot = self.link.snapshot();
-        if self.firmware.is_none() {
-            self.firmware = banner(&snapshot);
-        }
-        if self.build_info.is_none() {
-            self.build_info = build_info(&snapshot.console);
-        }
+    /// `ui-egui` `poll_link` (:1379-1410), then what the hub is told: the commands answered, the
+    /// job ended, and what the machine is doing.
+    pub fn report(&mut self) -> Update {
+        self.reconnect_tick();
+        let mut done = Vec::new();
         let mut ended = None;
-        if let (Some(job), JobState::Finished(result)) = (&self.job, &snapshot.job) {
-            let ok = result.is_ok() && !job.stopping;
-            let acknowledged = snapshot.progress.map_or(0, |p| p.acknowledged);
-            ended = Some(JobEnd {
-                id: job.id,
-                ok,
-                stopped: job.stopping,
-                reason: result.as_ref().err().cloned(),
-                restart_line: (!ok && acknowledged > 0).then(|| job.file_line(acknowledged)),
-            });
-            self.job = None;
+        if let Some(link) = &self.link {
+            link.tick();
+            let snap = link.snapshot();
+            if snap.connected {
+                if !self.settings_asked && snap.status.is_some() {
+                    // Once the controller answers, learn its settings: a job is refused when
+                    // laser mode is off.
+                    self.settings_asked = true;
+                    if link.request_settings().is_ok() {
+                        self.outstanding.push_back(Outstanding::new(None, 1, None));
+                    }
+                }
+                let new = new_lines(&self.console, &snap.console);
+                self.console.clone_from(&snap.console);
+                done.extend(self.answers(&new));
+                if let Some(job) = self.job.as_mut()
+                    && !job.started_seen
+                {
+                    job.started_seen =
+                        snap.job != job.before || new.iter().any(|l| l.starts_with("job started: "));
+                }
+                if matches!(snap.job, JobState::Finished(_))
+                    && self.job.as_ref().is_some_and(|j| j.started_seen)
+                    && let Some(job) = self.job.take()
+                {
+                    let failed = matches!(snap.job, JobState::Finished(Err(_)));
+                    ended = self.end(&job, &snap, &mut done);
+                    // A job that failed reset the controller: the answers it owed are gone.
+                    if failed {
+                        for o in &mut self.outstanding {
+                            o.dead = true;
+                        }
+                        done.extend(self.answers(&[]));
+                    }
+                }
+                if self.firmware.is_none() {
+                    self.firmware = banner(&snap);
+                }
+                self.snap = Some(snap);
+            } else {
+                // `ui-egui/src/lib.rs:1387-1400`
+                let had_job = matches!(
+                    snap.job,
+                    JobState::Running | JobState::Paused | JobState::Finished(Err(_))
+                );
+                // The job ends with the connection (the app only says so in its status bar).
+                if let Some(job) = self.job.take() {
+                    ended = self.end(&job, &snap, &mut done);
+                }
+                for o in &mut self.outstanding {
+                    o.dead = true;
+                }
+                done.extend(self.answers(&[]));
+                self.link = None;
+                self.snap = None;
+                self.console.clear();
+                self.gone = true;
+                if self.auto_reconnect && self.reopen.is_some() {
+                    self.reconnect = Some(Reconnect {
+                        attempts: 0,
+                        next: Instant::now() + self.reconnect_wait,
+                    });
+                    let note = if had_job {
+                        " The job was stopped and will not resume by itself."
+                    } else {
+                        ""
+                    };
+                    self.problem = Some(format!(
+                        "The machine connection was lost; trying to reconnect.{note}"
+                    ));
+                } else {
+                    self.problem = Some("The machine connection was lost".to_owned());
+                }
+            }
         }
-        (self.telemetry(&snapshot), ended)
+        Update {
+            telemetry: self.telemetry(),
+            ended,
+            done,
+            gone: std::mem::take(&mut self.gone),
+            back: std::mem::take(&mut self.back),
+        }
     }
 
-    fn telemetry(&self, snapshot: &Snapshot) -> Telemetry {
-        let status = snapshot.status.as_ref();
+    /// Takes the answers in `new` (console lines since the last look) for the commands waiting
+    /// for them, oldest first, and returns the commands that are over: the machine answers each
+    /// line in the order it was sent.
+    fn answers(&mut self, new: &[String]) -> Vec<Done> {
+        let mut over = Vec::new();
+        for line in new {
+            let Some(front) = self.outstanding.front_mut() else { break };
+            if front.dead {
+                break;
+            }
+            if let Some(why) = line.strip_prefix("! ignored") {
+                // The link logged that it ignored a line: a job had been taken up first.
+                front.failed = Some(format!("ignored{why}"));
+                over.extend(self.outstanding.pop_front());
+                continue;
+            }
+            if line.starts_with("> ") {
+                // The link echoes each line it sends, in the order it was handed over: to the
+                // first command that has lines not yet echoed.
+                if let Some(owner) = self.outstanding.iter_mut().find(|o| o.echoed < o.sent) {
+                    owner.echoed += 1;
+                    owner.output.push(tidy(line));
+                }
+                continue;
+            }
+            let Some(front) = self.outstanding.front_mut() else { break };
+            front.output.push(tidy(line));
+            if is_answer(line) {
+                front.answered += 1;
+                if (line.contains("error:") || line.contains("ALARM:")) && front.failed.is_none() {
+                    front.failed = Some(tidy(line));
+                }
+                if front.answered >= front.sent {
+                    over.extend(self.outstanding.pop_front());
+                }
+            }
+        }
+        // A command that sent nothing is done; one that can get no answer has failed.
+        while self
+            .outstanding
+            .front()
+            .is_some_and(|o| o.dead || o.sent == 0)
+        {
+            over.extend(self.outstanding.pop_front());
+        }
+        over.into_iter()
+            .filter_map(|o| {
+                let ticket = o.ticket?;
+                let result = if o.dead {
+                    Err("no answer: the connection was lost or the controller was reset".to_owned())
+                } else {
+                    match (o.failed, o.refused) {
+                        (Some(why), _) | (None, Some(why)) => Err(why),
+                        (None, None) => Ok(o.output),
+                    }
+                };
+                Some(Done { ticket, result })
+            })
+            .collect()
+    }
+
+    /// The end of a job as the hub is told it; a frame answers its command instead.
+    /// `ui-egui` `record_job_position` (:1291-1328) is where the app works out the line to
+    /// start again from.
+    fn end(&self, job: &Running, snap: &Snapshot, done: &mut Vec<Done>) -> Option<JobEnd> {
+        let result = match &snap.job {
+            JobState::Finished(result) => result.clone(),
+            _ => Err("the machine connection was lost".to_owned()),
+        };
+        if let Some(ticket) = job.frame {
+            done.push(Done {
+                ticket,
+                result: result.map(|_| Vec::new()),
+            });
+            return None;
+        }
+        let ok = result.is_ok() && !job.stopping;
+        let acknowledged = snap.progress.map_or(0, |p| p.acknowledged);
+        Some(JobEnd {
+            id: job.id?,
+            ok,
+            stopped: job.stopping,
+            reason: result.err(),
+            restart_line: (!ok && acknowledged > 0).then(|| job.file_line(acknowledged)),
+        })
+    }
+
+    fn telemetry(&self) -> Telemetry {
+        let snapshot = self.snap.as_ref();
+        let status = snapshot.and_then(|s| s.status.as_ref());
         let mut state = match status.map(|s| s.state) {
-            _ if !snapshot.connected => MachineState::Disconnected,
+            _ if self.link.is_none() => MachineState::Disconnected,
             Some(Grbl::Run | Grbl::Jog | Grbl::Home | Grbl::Check) => MachineState::Busy,
             Some(Grbl::Hold | Grbl::Door) => MachineState::Paused,
             Some(Grbl::Alarm) => MachineState::Error,
             _ => MachineState::Idle,
         };
-        if snapshot.connected {
+        if let Some(snapshot) = snapshot
+            && self.link.is_some()
+            && self.job.is_some()
+        {
             match snapshot.job {
                 JobState::Running => state = MachineState::Busy,
                 JobState::Paused => state = MachineState::Paused,
                 _ => {}
             }
         }
-        let job = self.job.as_ref().map(|job| {
-            let progress = snapshot.progress;
+        let job = self.job.as_ref().filter(|j| j.id.is_some()).map(|job| {
+            let progress = snapshot.and_then(|s| s.progress);
             let (done, total) =
                 progress.map_or((0, 0), |p| (p.acknowledged as u64, p.total as u64));
             let paused = job.paused_for + job.paused_at.map_or(Duration::ZERO, |at| at.elapsed());
@@ -241,64 +676,74 @@ impl GrblMachine {
         });
         Telemetry {
             state,
-            grbl: settings(snapshot),
+            grbl: snapshot.and_then(settings),
             firmware: self.firmware.clone().or(Some("GRBL".to_owned())),
+            // Only a machine position: a work position shifts with the offset and cannot be
+            // mapped onto the bed (`crates/device/src/status.rs`, `position_is_work`).
             position_mm: status
+                .filter(|s| !s.position_is_work)
                 .and_then(|s| s.position)
                 .map(|(x, y, z)| [x as f32, y as f32, z as f32]),
             job_id: self.running(),
             job,
-            identity: self.build_info.as_ref().map(|name| Identity {
-                machine_type: Some(name.clone()),
-                ..Identity::default()
-            }),
+            problem: self.problem.clone(),
             ..Telemetry::default()
         }
     }
 }
 
+/// `ui-egui/src/lib.rs:1371`: the wait after `attempts` failed attempts, doubling, at most
+/// [`RECONNECT_MAX_WAIT`].
+fn wait_after(first: Duration, attempts: u32) -> Duration {
+    (first * 2u32.saturating_pow(attempts)).min(RECONNECT_MAX_WAIT)
+}
+
 impl Running {
-    /// The file line to start again from after `acknowledged` lines of the stream: a few
-    /// lines back (the controller acknowledges a line when it buffers it, not when it has
-    /// run), and in the file's numbering when the stream was rebuilt from a line.
+    /// `ui-egui` `record_job_position` (:1291-1328) and `Restart::place_in_design` (:105-115):
+    /// the 1-based line to start again from after `acknowledged` lines of the stream were
+    /// acknowledged, in the design's program when the stream was rebuilt from a line.
     fn file_line(&self, acknowledged: usize) -> u64 {
-        let line = laserfoundry_device::restart_line(&self.streamed, acknowledged) as u64;
-        match self.from_line {
-            Some((from, added)) => from + line.saturating_sub(added + 1),
-            None => line,
+        let total = self.streamed.lines().count();
+        let line = restart_line(&self.streamed, acknowledged).min(total.max(1));
+        match &self.restart {
+            Some((program, from)) => {
+                let design_total = program.lines().count();
+                let from = (*from).clamp(1, design_total.max(1));
+                let header = total.saturating_sub(design_total - from + 1);
+                let place = if line <= header {
+                    from
+                } else {
+                    from.saturating_add(line - header - 1)
+                };
+                place.clamp(1, design_total.max(1)) as u64
+            }
+            None => line as u64,
         }
     }
 }
 
-/// A jog: by so much, or to a place (machine coordinates), at a feed in mm/min.
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Jog {
-    By(f64, f64, f64),
-    To(f64, f64, f64),
+/// `ui-egui/src/lib.rs:1520-1532` `not_ready`: why a job cannot start while the controller
+/// reports `state` (`None` when it can).
+fn not_ready(state: Grbl) -> Option<&'static str> {
+    Some(match state {
+        Grbl::Idle | Grbl::Unknown => return None,
+        Grbl::Alarm => "The machine is in an alarm state: use Unlock ($X) or Home ($H) first",
+        Grbl::Hold => "The machine is holding (paused): resume it or stop it first",
+        Grbl::Door => "The machine's safety door is open",
+        Grbl::Home => "The machine is homing: wait until it has finished",
+        Grbl::Run | Grbl::Jog => "The machine is still moving: wait until it is idle",
+        Grbl::Check => "The machine is in check mode ($C): turn it off first",
+        Grbl::Sleep => "The machine is asleep: wake it first",
+    })
 }
 
-/// `$J=G91 G21 X10 F3000` (by) or `$J=G90 G21 X20 Y30 F3000` (to); X and Y only.
-fn jog(line: &str) -> Option<Jog> {
-    let words = line.strip_prefix("$J=")?;
-    let mut relative = false;
-    let (mut x, mut y, mut feed) = (None, None, None);
-    for word in words.split_whitespace() {
-        let (letter, value) = word.split_at(1);
-        match (letter, value) {
-            ("G", "91") => relative = true,
-            ("G", "90" | "21" | "53") => {}
-            ("X", v) => x = Some(v.parse::<f64>().ok().filter(|v| v.is_finite())?),
-            ("Y", v) => y = Some(v.parse::<f64>().ok().filter(|v| v.is_finite())?),
-            ("F", v) => feed = Some(v.parse::<f64>().ok().filter(|v| *v > 0.0)?),
-            _ => return None,
-        }
-    }
-    let feed = feed?;
-    if relative {
-        Some(Jog::By(x.unwrap_or(0.0), y.unwrap_or(0.0), feed))
-    } else {
-        Some(Jog::To(x?, y?, feed))
-    }
+/// `ui-egui/src/settings_ui.rs:29`: `$32` is `0` (`Advice::LaserModeOff`).
+fn laser_mode_off(settings: &BTreeMap<u32, String>) -> bool {
+    settings
+        .get(&32)
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| v.is_finite())
+        .is_some_and(|v| v == 0.0)
 }
 
 /// The settings that matter before a job, once the controller has reported them.
@@ -332,22 +777,6 @@ fn banner(snapshot: &Snapshot) -> Option<String> {
     })
 }
 
-/// What `$I` says after the version: `[VER:1.1f.20170801:Ortur Laser Master 2]` →
-/// `Ortur Laser Master 2`. None when the maker left it empty.
-fn build_info(console: &[String]) -> Option<String> {
-    console.iter().find_map(|line| {
-        let inner = line.trim_start_matches("< ").trim().strip_prefix("[VER:")?;
-        let inner = inner.strip_suffix(']').unwrap_or(inner);
-        let (_, info) = inner.split_once(':')?;
-        Some(info.trim().to_owned()).filter(|i| !i.is_empty())
-    })
-}
-
-/// Whether a line greets as GRBL does after a reset (for telling GRBL from Marlin on a port).
-pub fn greets(line: &str) -> bool {
-    line.trim_start().starts_with("Grbl ")
-}
-
 /// The lines of `after` that came since `before`. The console keeps only its last lines, so
 /// `after` starts with the end of `before`: the longest such overlap is what was there.
 fn new_lines(before: &[String], after: &[String]) -> Vec<String> {
@@ -372,222 +801,52 @@ fn tidy(line: &str) -> String {
     line.strip_prefix("< ").unwrap_or(line).to_owned()
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn the_build_info_names_the_machine() {
-        let console = |l: &str| vec!["< Grbl 1.1f ['$' for help]".to_owned(), l.to_owned()];
-        assert_eq!(
-            build_info(&console(
-                "< [VER:1.1f.20170801:Ortur Laser Master 2 Pro S2]"
-            ))
-            .as_deref(),
-            Some("Ortur Laser Master 2 Pro S2")
-        );
-        assert_eq!(build_info(&console("[VER:1.1h.20190825:]")), None);
-        assert_eq!(build_info(&console("[OPT:VZL,15,128]")), None);
+/// The commands of the hub's virtual lasers' G-code text (`crates/hub/src/virtual_grbl.rs`,
+/// their own simulator thread, which still speaks G-code): each line is the `Link` call
+/// LaserFoundry has for it, anything else is typed as it is.
+pub fn commands_of(gcode: &str) -> Result<Vec<Command>, String> {
+    let mut commands = Vec::new();
+    for line in gcode.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        let upper = line.to_ascii_uppercase();
+        commands.push(match upper.as_str() {
+            "$H" => Command::Home,
+            "$X" => Command::Unlock,
+            "$$" => Command::Settings,
+            "G92 X0 Y0" => Command::SetZero,
+            "G90 G0 X0 Y0" => Command::GoToZero,
+            _ if upper.starts_with("$J=") => match jog(&upper) {
+                Some(command) => command,
+                None => return Err(format!("not a jog this machine takes: {line}")),
+            },
+            _ => Command::Line(line.to_owned()),
+        });
     }
+    Ok(commands)
+}
 
-    use super::*;
-    use laserfoundry_device::SimulatedGrbl;
-
-    fn wait_until(
-        machine: &mut GrblMachine,
-        done: impl Fn(&Telemetry) -> bool,
-    ) -> (Telemetry, Option<JobEnd>) {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let mut ended = None;
-        loop {
-            let (telemetry, end) = machine.report();
-            ended = end.or(ended);
-            if done(&telemetry) || Instant::now() > deadline {
-                return (telemetry, ended);
-            }
-            std::thread::sleep(Duration::from_millis(20));
+/// `$J=G91 G21 X10 F3000` (by) or `$J=G90 G21 X20 Y30 F3000` (to); X and Y only.
+fn jog(line: &str) -> Option<Command> {
+    let words = line.strip_prefix("$J=")?;
+    let mut relative = false;
+    let (mut x, mut y, mut feed) = (None, None, None);
+    for word in words.split_whitespace() {
+        let (letter, value) = word.split_at(1);
+        match (letter, value) {
+            ("G", "91") => relative = true,
+            ("G", "90" | "21" | "53") => {}
+            ("X", v) => x = Some(v.parse::<f64>().ok().filter(|v| v.is_finite())?),
+            ("Y", v) => y = Some(v.parse::<f64>().ok().filter(|v| v.is_finite())?),
+            ("F", v) => feed = Some(v.parse::<f64>().ok().filter(|v| *v > 0.0)?),
+            _ => return None,
         }
     }
-
-    /// A command is answered and its answer comes back; a job streams to the end and says so.
-    #[test]
-    fn a_grbl_machine_takes_commands_and_jobs() {
-        let mut sim = SimulatedGrbl::new();
-        sim.set_latency(Duration::from_millis(1));
-        let mut machine = GrblMachine::new(Box::new(sim));
-        let said = machine.carry_out("$H\nG0 X10 Y5").unwrap();
-        assert!(said.iter().filter(|l| *l == "ok").count() >= 2, "{said:?}");
-        let (telemetry, _) = wait_until(&mut machine, |t| t.position_mm == Some([10.0, 5.0, 0.0]));
-        assert_eq!(telemetry.position_mm, Some([10.0, 5.0, 0.0]));
-        assert_eq!(telemetry.state, MachineState::Idle);
-
-        let program = (0..40)
-            .map(|i| format!("G1 X{} Y{} S500 F3000", i % 20, i / 2))
-            .collect::<Vec<_>>()
-            .join("\n");
-        machine
-            .start(7, "square.gcode", format!("G90\nM4\n{program}\nM5\n"), None)
-            .unwrap();
-        assert_eq!(machine.report().0.job_id, Some(7));
-        assert!(
-            machine.carry_out("G0 X0").is_err(),
-            "no commands during a job"
-        );
-        let (_, ended) = wait_until(&mut machine, |t| t.job_id.is_none());
-        let ended = ended.unwrap();
-        assert!(ended.ok, "{ended:?}");
-        assert_eq!(ended.id, 7);
-    }
-
-    /// The example files for lasers stream to the end: no line too long, no byte GRBL would
-    /// take as a realtime command.
-    #[test]
-    fn the_laser_examples_stream() {
-        for (id, program) in [
-            (1, include_str!("../../../examples/laser/first-light.gcode")),
-            (
-                2,
-                include_str!("../../../examples/laser/power-speed-grid.gcode"),
-            ),
-        ] {
-            let mut sim = SimulatedGrbl::new();
-            sim.set_latency(Duration::ZERO);
-            let mut machine = GrblMachine::new(Box::new(sim));
-            machine
-                .start(id, "example", program.to_owned(), None)
-                .unwrap();
-            let deadline = Instant::now() + Duration::from_secs(60);
-            let ended = loop {
-                if let (_, Some(end)) = machine.report() {
-                    break end;
-                }
-                assert!(Instant::now() < deadline, "example {id} did not finish");
-                std::thread::sleep(Duration::from_millis(10));
-            };
-            assert!(ended.ok, "example {id}: {ended:?}");
-        }
-    }
-
-    /// Stopping a job ends it as stopped, not failed.
-    #[test]
-    fn a_stopped_job_says_so() {
-        let mut sim = SimulatedGrbl::new();
-        sim.set_latency(Duration::from_millis(5));
-        let mut machine = GrblMachine::new(Box::new(sim));
-        let program = (0..2000)
-            .map(|i| format!("G1 X{} Y1 F3000", i % 50))
-            .collect::<Vec<_>>()
-            .join("\n");
-        machine.start(8, "long.gcode", program, None).unwrap();
-        std::thread::sleep(Duration::from_millis(100));
-        machine.control(JobControl::Stop);
-        let (_, ended) = wait_until(&mut machine, |t| t.job_id.is_none());
-        let ended = ended.unwrap();
-        assert!(ended.stopped && !ended.ok, "{ended:?}");
-    }
-
-    /// The settings come in once connected; jogs go through the link.
-    #[test]
-    fn settings_are_read_and_jogs_go_through() {
-        let mut sim = SimulatedGrbl::new();
-        sim.set_latency(Duration::from_millis(1));
-        let mut machine = GrblMachine::new(Box::new(sim));
-        let (telemetry, _) = wait_until(&mut machine, |t| t.grbl.is_some());
-        let settings = telemetry.grbl.unwrap();
-        assert_eq!(settings.laser_mode, Some(true));
-        assert_eq!(settings.max_power, Some(1000.0));
-        assert_eq!(settings.travel_mm, Some([200.0, 200.0, 200.0]));
-        machine
-            .carry_out("$J=G90 G21 X20 Y30 F3000\n$J=G91 G21 X5 F3000")
-            .unwrap();
-        let (telemetry, _) = wait_until(&mut machine, |t| t.position_mm == Some([25.0, 30.0, 0.0]));
-        assert_eq!(telemetry.position_mm, Some([25.0, 30.0, 0.0]));
-        assert!(machine.carry_out("$J=G91 Z5 F100").is_err(), "X and Y only");
-    }
-
-    /// The origin set where the head is, moved away from, gone back to.
-    #[test]
-    fn the_origin_is_set_and_gone_back_to() {
-        let mut sim = SimulatedGrbl::new();
-        sim.set_latency(Duration::from_millis(1));
-        let mut machine = GrblMachine::new(Box::new(sim));
-        wait_until(&mut machine, |t| t.grbl.is_some());
-        machine.carry_out("$J=G90 G21 X40 Y15 F3000").unwrap();
-        machine.carry_out("G92 X0 Y0").unwrap();
-        machine.carry_out("$J=G91 G21 X10 Y-5 F3000").unwrap();
-        wait_until(&mut machine, |t| t.position_mm == Some([50.0, 10.0, 0.0]));
-        machine.carry_out("G90 G0 X0 Y0").unwrap();
-        let (telemetry, _) = wait_until(&mut machine, |t| t.position_mm == Some([40.0, 15.0, 0.0]));
-        assert_eq!(
-            telemetry.position_mm,
-            Some([40.0, 15.0, 0.0]),
-            "back where the origin was set"
-        );
-    }
-
-    #[test]
-    fn jogs_are_read() {
-        assert_eq!(
-            jog("$J=G91 G21 X10 F3000"),
-            Some(Jog::By(10.0, 0.0, 3000.0))
-        );
-        assert_eq!(jog("$J=G90 G21 X1 Y2 F600"), Some(Jog::To(1.0, 2.0, 600.0)));
-        assert_eq!(jog("$J=G90 X1 F600"), None, "to a place needs X and Y");
-        assert_eq!(jog("$J=G91 X1"), None, "a feed is needed");
-        assert_eq!(jog("$J=G91 XNaN F600"), None);
-    }
-
-    /// A stopped job says where to start again, in the file's lines; started there, the
-    /// stream goes on from that line.
-    #[test]
-    fn an_interrupted_job_starts_again() {
-        let program: String = std::iter::once("G21\nG90\nM4 S0".to_owned())
-            .chain((0..400).map(|i| format!("G1 X{} Y{} S300 F3000", i % 50, i / 50)))
-            .chain(std::iter::once("M5".to_owned()))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let mut sim = SimulatedGrbl::new();
-        sim.set_latency(Duration::from_millis(2));
-        let mut machine = GrblMachine::new(Box::new(sim));
-        machine
-            .start(9, "rows.gcode", program.clone(), None)
-            .unwrap();
-        std::thread::sleep(Duration::from_millis(250));
-        machine.control(JobControl::Stop);
-        let (_, ended) = wait_until(&mut machine, |t| t.job_id.is_none());
-        let ended = ended.unwrap();
-        let line = ended.restart_line.expect("a line to start again from");
-        assert!(line > 1 && line < 404, "{line}");
-
-        machine
-            .start(10, "rows.gcode", program.clone(), Some(line))
-            .unwrap();
-        let (_, ended) = wait_until(&mut machine, |t| t.job_id.is_none());
-        let ended = ended.unwrap();
-        assert!(ended.ok, "{ended:?}");
-        // Stopped again at once, the restart line is in the file's numbering, past where it began.
-        let mut sim = SimulatedGrbl::new();
-        sim.set_latency(Duration::from_millis(2));
-        let mut again = GrblMachine::new(Box::new(sim));
-        again.start(11, "rows.gcode", program, Some(line)).unwrap();
-        std::thread::sleep(Duration::from_millis(200));
-        again.control(JobControl::Stop);
-        let (_, ended) = wait_until(&mut again, |t| t.job_id.is_none());
-        if let Some(next) = ended.unwrap().restart_line {
-            assert!(next >= line, "{next} < {line}");
-        }
-    }
-
-    #[test]
-    fn grbl_greets_by_name() {
-        assert!(greets("Grbl 1.1f ['$' for help]"));
-        assert!(!greets("start"));
-        let before = vec!["< ok".to_owned()];
-        let after = vec!["< ok".to_owned(), "> G0 X1".to_owned(), "< ok".to_owned()];
-        assert_eq!(new_lines(&before, &after), vec!["> G0 X1", "< ok"]);
-        let trimmed = vec!["> G0 X1".to_owned(), "< ok".to_owned(), "> M5".to_owned()];
-        assert_eq!(
-            new_lines(&after, &trimmed),
-            vec!["> M5"],
-            "the console dropped its first line"
-        );
+    let feed = feed?;
+    if relative {
+        Some(Command::Jog(x.unwrap_or(0.0), y.unwrap_or(0.0), feed))
+    } else {
+        Some(Command::JogTo(x?, y?, feed))
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -4,9 +4,9 @@
 //! hub = "http://192.168.1.20:8460"
 //! name = "Dymo"
 //! kind = "label"          # fdm, laser, label, ...
-//! # port = "COM3"         # a printer or laser on a serial port
-//! # baud = 115200
-//! # firmware = "auto"    # auto, marlin, grbl
+//! mode = "dymo-pnp"       # required: prusa, marlin, grbl, dymo-pnp
+//! # port = "COM3"         # a serial port; left out, the port's reference finds one
+//! # baud = 250000         # left out, the port's reference decides
 //! # state = "maker-connect-agent.json"
 //! ```
 //!
@@ -38,6 +38,10 @@ pub struct Config {
     pub firmware: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
+    /// Whose host a Marlin-speaking printer gets: `prusa` (PrusaLink, Prusa's MK3 family) or
+    /// `marlin` (OctoPrint, any other).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
 }
 
 impl Config {
@@ -51,6 +55,7 @@ impl Config {
             baud: other.baud.or(self.baud),
             firmware: other.firmware.or(self.firmware),
             state: other.state.or(self.state),
+            mode: other.mode.or(self.mode),
         }
     }
 }

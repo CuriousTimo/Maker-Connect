@@ -438,15 +438,12 @@ async fn telemetry(
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
     let mut store = store.lock().unwrap();
+    // K18: an agent not seen for longer than ONLINE_SECONDS: its Sent/Accepted commands failed,
+    // before this report (and its Done, which then still wins) is taken in.
+    if let Err(error) = store.fail_commands_of_gone_agent(token) {
+        return failed(error);
+    }
     for done in &report.done {
-        // What an SD card listing said, whole (before the terminal keeps only its end).
-        if let Ok(Some(text)) = store.command_text(token, done.id)
-            && text.starts_with("M20")
-            && let Ok(Some(machine)) = store.machine_id_by_token(token)
-        {
-            let files = sd_card::listing(&done.output);
-            store.sd_files.insert(machine, (files, store::now()));
-        }
         let state = if done.ok {
             store::CommandState::Finished
         } else {
@@ -474,17 +471,6 @@ async fn telemetry(
     {
         report.state = protocol::MachineState::Attention;
     }
-    // A print from its card as Prusa's MK3 says it (`M27 P`: its short path): by its long
-    // name from the card's listing, as PrusaLink takes it (`job.py` `process_mixed_path`).
-    if let Some(job) = report.job.as_mut()
-        && let Ok(Some(machine)) = store.machine_id_by_token(token)
-        && let Some((files, _)) = store.sd_files.get(&machine)
-    {
-        let short = job.file.rsplit('/').next().unwrap_or(&job.file).to_ascii_uppercase();
-        if let Some(file) = files.iter().find(|f| f.path.rsplit('/').next().is_some_and(|p| p.eq_ignore_ascii_case(&short))) {
-            job.file = file.name.clone();
-        }
-    }
     if let Some(peer) = peer_address(&headers, &extensions)
         && let Err(error) = store.set_peer(token, &peer)
     {
@@ -496,21 +482,27 @@ async fn telemetry(
             if let Err(error) = store.follow_own_print(token, &report, None) {
                 return failed(error);
             }
-            // While it waits for someone at it, no commands; while a job runs or it is busy,
-            // only what may go into a print (sent between the file's lines, as PrusaLink sends
-            // its controls while printing); one at a time.
-            let printing = report.job_id.is_some() || report.state == protocol::MachineState::Busy;
-            let commands = if report.state == protocol::MachineState::Attention {
-                Vec::new()
-            } else {
-                let next = if printing { store.next_command_for_a_print(token) } else { store.next_command(token) };
-                match next {
-                    Ok(next) => next
-                        .map(|(id, gcode)| protocol::MachineCommand { id, gcode })
-                        .into_iter()
-                        .collect(),
-                    Err(error) => return failed(error),
-                }
+            // B3: the hub does not hold or refuse a command for a machine behind an agent, whatever it
+            // is doing (busy, waiting for someone): it queues them (one at a time, but for the Marlin port's machines, K18), and the machine's
+            // port refuses as its reference does (OctoPrint: `server/api/printer.py`).
+            // K18: a machine on the Marlin/OctoPrint port gets every Queued command at once (no
+            // gate, no 120 s); the other agent ports keep one at a time.
+            let next = match store.is_marlin_agent(token) {
+                Ok(true) => store.next_commands_for_agent(token),
+                Ok(false) => store.next_command(token).map(|n| n.into_iter().collect()),
+                Err(error) => Err(error),
+            };
+            let commands = match next {
+                // Only typed commands go to an agent (the hub makes no G-code for it).
+                Ok(next) => next
+                    .into_iter()
+                    .filter_map(|(id, body)| {
+                        serde_json::from_str::<protocol::Action>(&body)
+                            .ok()
+                            .map(|action| protocol::MachineCommand { id, action })
+                    })
+                    .collect(),
+                Err(error) => return failed(error),
             };
             let (job, job_control) = match agent_job(&mut store, token, &report) {
                 Ok(job) => job,
@@ -1088,91 +1080,6 @@ fn jog_command(action: &str, step: f64, feed: f64, grbl: bool) -> Option<(String
     Some((label, gcode))
 }
 
-/// Prusa's MK3 family, controlled to the letter as PrusaLink controls it (`web/controls.py`,
-/// limits from `const.py` `LimitsMK3`): homing `G28 X Y Z` (with axes the firmware does not
-/// level the bed, `Marlin_main.cpp` G28); a move `G91` then `G1 F<feed> <axes>`, the feed
-/// 0–2700 mm/min (2700 when none is chosen), refused outside it; speed `M220` and flow
-/// `M221` 10–999 %; nozzle `M104` 0–305 °C; bed `M140` 0–125 °C. None: not one of these.
-fn prusalink_control(action: &str, form: &CommandForm) -> Option<Result<(String, String), String>> {
-    const FEED_MAX: f64 = 2700.0;
-    let moved = |axes: Vec<(&str, f64)>, feed: Option<f64>| {
-        let feed = feed.unwrap_or(FEED_MAX);
-        if !(0.0..=FEED_MAX).contains(&feed) {
-            return Err(format!("Move: feed 0 to {FEED_MAX} mm/min on this printer"));
-        }
-        let words: Vec<String> = axes.iter().map(|(a, v)| format!("{a}{v}")).collect();
-        let label = format!(
-            "Move {} mm",
-            axes.iter().map(|(a, v)| format!("{a}{}{}", if *v > 0.0 { "+" } else { "−" }, v.abs())).collect::<Vec<_>>().join(" ")
-        );
-        Ok((label, format!("G91\nG1 F{feed} {}", words.join(" "))))
-    };
-    let limited = |what: &str, code: &str, value: Option<f64>, (low, high): (f64, f64), unit: &str| {
-        let Some(value) = value.filter(|v| v.is_finite()).map(f64::round) else {
-            return Err(format!("{what}: type a value"));
-        };
-        if !(low..=high).contains(&value) {
-            return Err(format!("{what}: {low} to {high} {unit} on this printer"));
-        }
-        let label = if unit == "°C" && value == 0.0 { format!("{what} off") } else { format!("{what} {value} {unit}") };
-        Ok((label, format!("{code} S{value}")))
-    };
-    Some(match action {
-        "home" => Ok(("Home".to_owned(), "G28 X Y Z".to_owned())),
-        "x+" => moved(vec![("X", 10.0)], None),
-        "x-" => moved(vec![("X", -10.0)], None),
-        "y+" => moved(vec![("Y", 10.0)], None),
-        "y-" => moved(vec![("Y", -10.0)], None),
-        "z+" => moved(vec![("Z", 10.0)], None),
-        "z-" => moved(vec![("Z", -10.0)], None),
-        "set-speed" => limited("Speed", "M220", form.speed, (10.0, 999.0), "%"),
-        "set-flow" => limited("Flow", "M221", form.flow, (10.0, 999.0), "%"),
-        "set-nozzle" => limited("Nozzle", "M104", form.nozzle, (0.0, 305.0), "°C"),
-        "set-bed" => limited("Bed", "M140", form.bed, (0.0, 125.0), "°C"),
-        // `disable_steppers`.
-        "motors-off" => Ok(("Motors off".to_owned(), "M84".to_owned())),
-        // As PrusaLink's own: extruding, loading and unloading (handled below), and heat set
-        // to a value (preheat, cool down: M104 S…, M140 S…). Anything else PrusaLink has not.
-        "extrude" | "retract" | "load-filament" | "unload-filament" | "preheat-pla" | "preheat-petg" | "cooldown" => return None,
-        other if !other.starts_with("jog:") => {
-            return Some(Err("not on this printer: Prusa's own software has no such control".to_owned()));
-        }
-        jog if jog.starts_with("jog:") => {
-            let step = form.step.unwrap_or(10.0);
-            if !JOG_STEPS.contains(&step) {
-                return Some(Err("Move: no such step".to_owned()));
-            }
-            let (x, y) = jog.strip_prefix("jog:")?.split_once(':')?;
-            let dir = |t: &str| match t {
-                "-1" => Some(-1.0),
-                "0" => Some(0.0),
-                "1" => Some(1.0),
-                _ => None,
-            };
-            let axes: Vec<(&str, f64)> = [("X", dir(x)?), ("Y", dir(y)?)]
-                .into_iter()
-                .filter(|(_, d)| *d != 0.0)
-                .map(|(a, d)| (a, d * step))
-                .collect();
-            if axes.is_empty() {
-                return None;
-            }
-            moved(axes, form.feed)
-        }
-        _ => return None,
-    })
-}
-
-/// Whether a machine runs Prusa's firmware for the MK3 family (MK3, MK3S, MK2.5): its
-/// profile says `prusa` (Buddy printers say `prusa-buddy`), or it reports
-/// `Prusa-Firmware …` (Buddy: `Prusa firmware …`).
-pub(crate) fn prusa_mk3_family(store: &store::Store, space: i64, id: &str) -> bool {
-    let Ok(Some(machine)) = store.machine(space, id) else {
-        return false;
-    };
-    prusa_mk3_machine(&machine)
-}
-
 /// The same, of a machine at hand.
 pub(crate) fn prusa_mk3_machine(machine: &store::Machine) -> bool {
     let by_profile = machine
@@ -1228,6 +1135,81 @@ fn refused_now(action: &str, gcode: &str, machine: &store::Machine, mk3: bool) -
 }
 
 /// The commands the website offers: a label and its G-code. Moves are relative, 10 mm.
+/// A button of the website for a machine behind an agent, as typed commands (exactly the
+/// controls the pages offer, owner's approval O8). Its step and speed from the page's lists
+/// (`JOG_STEPS`, `JOG_FEEDS`), the preheat temperatures the page's own: limits of the page,
+/// not of the wire.
+fn agent_actions(form: &CommandForm, machine: &store::Machine) -> Result<Vec<(String, protocol::Action)>, String> {
+    use protocol::{Action, Axis, Heater};
+    let one = |label: &str, action: Action| Ok(vec![(label.to_owned(), action)]);
+    let step = form.step.unwrap_or(10.0);
+    if !JOG_STEPS.contains(&step) {
+        return Err("Move: no such step".to_owned());
+    }
+    if form.feed.is_some_and(|f| !JOG_FEEDS.contains(&f)) {
+        return Err("Move: no such speed".to_owned());
+    }
+    let jog = |label: String, x: Option<f64>, y: Option<f64>, z: Option<f64>| {
+        Ok(vec![(label, Action::Jog { x, y, z, feed: form.feed })])
+    };
+    let heat = |label: &str, nozzle: f64, bed: f64| {
+        Ok(vec![
+            (label.to_owned(), Action::Temperature { heater: Heater::Nozzle, celsius: nozzle }),
+            (label.to_owned(), Action::Temperature { heater: Heater::Bed, celsius: bed }),
+        ])
+    };
+    let spool = (
+        machine.loaded.as_ref().and_then(|l| l.nozzle_c).map(|c| c as f32),
+        machine.loaded.as_ref().and_then(|l| l.bed_c).map(|c| c as f32),
+    );
+    match form.action.as_str() {
+        // B5: OctoPrint's panel has two Home buttons, X/Y and Z (`control.jinja2:71,85`); the one
+        // button of the other machines is all three axes (K5).
+        "home" => one("Home", Action::Home { axes: vec![Axis::X, Axis::Y, Axis::Z] }),
+        "home-xy" => one("Home X/Y", Action::Home { axes: vec![Axis::X, Axis::Y] }),
+        "home-z" => one("Home Z", Action::Home { axes: vec![Axis::Z] }),
+        "x+" => jog(format!("X +{step} mm"), Some(step), None, None),
+        "x-" => jog(format!("X −{step} mm"), Some(-step), None, None),
+        "y+" => jog(format!("Y +{step} mm"), None, Some(step), None),
+        "y-" => jog(format!("Y −{step} mm"), None, Some(-step), None),
+        "z+" => jog(format!("Z +{step} mm"), None, None, Some(step)),
+        "z-" => jog(format!("Z −{step} mm"), None, None, Some(-step)),
+        jog_pad if jog_pad.starts_with("jog:") => {
+            let dir = |t: &str| match t {
+                "-1" => Some(-1.0),
+                "0" => Some(0.0),
+                "1" => Some(1.0),
+                _ => None,
+            };
+            let (x, y) = jog_pad["jog:".len()..].split_once(':').ok_or("Move: no such direction")?;
+            let (x, y) = (dir(x).ok_or("Move: no such direction")?, dir(y).ok_or("Move: no such direction")?);
+            let some = |d: f64| (d != 0.0).then_some(d * step);
+            jog(format!("Move {step} mm"), some(x), some(y), None)
+        }
+        "extrude" => one("Extrude 10 mm", Action::Extrude { mm: 10.0 }),
+        "retract" => one("Retract 10 mm", Action::Extrude { mm: -10.0 }),
+        "set-speed" => one("Speed", Action::Speed { percent: form.speed.ok_or("Speed: how much?")?.round() as u16 }),
+        "set-flow" => one("Flow", Action::Flow { percent: form.flow.ok_or("Flow: how much?")?.round() as u16 }),
+        "set-nozzle" => one("Nozzle", Action::Temperature { heater: Heater::Nozzle, celsius: form.nozzle.ok_or("Nozzle: how hot?")? }),
+        "set-bed" => one("Bed", Action::Temperature { heater: Heater::Bed, celsius: form.bed.ok_or("Bed: how hot?")? }),
+        "preheat-pla" => heat("Preheat PLA (215/60 °C)", 215.0, 60.0),
+        "preheat-petg" => heat("Preheat PETG (240/80 °C)", 240.0, 80.0),
+        "cooldown" => heat("Cool down", 0.0, 0.0),
+        "fan-on" => one("Print fan on", Action::Fan { on: true }),
+        "fan-off" => one("Print fan off", Action::Fan { on: false }),
+        "motors-off" => one("Motors off", Action::MotorsOff),
+        "load-filament" => one("Load filament", Action::LoadFilament { nozzle_c: spool.0, bed_c: spool.1 }),
+        "unload-filament" => one("Unload filament", Action::UnloadFilament { nozzle_c: spool.0, bed_c: spool.1 }),
+        "probe-bed" => one("Probe the bed", Action::ProbeBed),
+        "unlock" => one("Unlock", Action::Unlock),
+        "laser-off" => one("Laser off", Action::LaserOff),
+        "set-origin" => one("Set origin here", Action::SetOrigin),
+        "go-origin" => one("Go to origin", Action::GoOrigin),
+        "settings" => one("Read settings", Action::ReadSettings),
+        _ => Err("no such command".to_owned()),
+    }
+}
+
 fn action(name: &str) -> Option<(&'static str, &'static str)> {
     Some(match name {
         "home" => ("Home", "G28"),
@@ -1372,8 +1354,10 @@ fn heat_command(
     Some(Ok((label, format!("{code} S{value}"))))
 }
 
-/// G-code from the terminal, tidied: its lines without blank ones, and a label (its first
-/// line). Short enough for every machine: a Prusa on built-in Connect takes 512 bytes.
+/// G-code from the terminal: checked, and a label (its first non-blank line, trimmed). The
+/// G-code itself is returned unchanged (no trim, no dropping of blank lines): the port splits it
+/// as OctoPrint's terminal does. Short enough for every machine: a Prusa on built-in Connect
+/// takes 512 bytes.
 fn typed_gcode(text: &str) -> Result<(String, String), &'static str> {
     let lines: Vec<&str> = text
         .lines()
@@ -1396,7 +1380,7 @@ fn typed_gcode(text: &str) -> Result<(String, String), &'static str> {
         1 => lines[0].to_owned(),
         n => format!("{} (+{} lines)", lines[0], n - 1),
     };
-    Ok((label, lines.join("\n")))
+    Ok((label, text.to_owned()))
 }
 
 async fn command(
@@ -1420,23 +1404,37 @@ async fn command(
     if !off && let Err(refused) = crate::safety::check_ppe(&store, &access, &id) {
         return *refused;
     }
-    // Printing through an agent: the job sends what comes between its file's lines, as
-    // PrusaLink sends its controls while printing: speed, flow, temperatures, and X and Y
-    // while paused (`refused_now`). Typed G-code not: PrusaLink's `execute_gcode` refuses it
-    // while printing.
-    let printing = store.machine(space, &id).ok().flatten().is_some_and(|m| {
-        m.link == "agent"
-            && m.telemetry.as_ref().is_some_and(|t| {
-                matches!(t.state, protocol::MachineState::Busy | protocol::MachineState::Paused)
-            })
-    });
-    if printing
-        && (!form.gcode.trim().is_empty()
-            || !(matches!(form.action.as_str(), "set-speed" | "set-flow" | "set-nozzle" | "set-bed")
-                || form.action.starts_with("jog:")
-                || matches!(form.action.as_str(), "x+" | "x-" | "y+" | "y-" | "z+" | "z-" | "home" | "extrude" | "retract")))
+    // B3: nothing here refuses a command for a machine behind an agent because of what it is doing
+    // (not while it prints, say): the machine's port refuses as its reference does. Permissions and
+    // PPE (above) are about people, and stay.
+    // A machine behind an agent: typed commands, the bytes made by its port (the hub makes no
+    // G-code for it, owner 2026-11-12).
+    if let Ok(Some(machine)) = store.machine(space, &id)
+        && machine.link == "agent"
     {
-        return (StatusCode::CONFLICT, "not while it prints").into_response();
+        let actions = if form.gcode.trim().is_empty() {
+            agent_actions(&form, &machine)
+        } else {
+            typed_gcode(&form.gcode)
+                .map(|(label, text)| vec![(label, protocol::Action::Gcode { text })])
+                .map_err(|why| why.to_string())
+        };
+        let actions = match actions {
+            Ok(actions) => actions,
+            Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
+        };
+        for (label, action) in &actions {
+            match store.queue_action(space, &id, label, action) {
+                Ok(Some(_)) => {}
+                Ok(None) => return (StatusCode::NOT_FOUND, "no such machine, or it takes no commands").into_response(),
+                Err(error) => return failed(error),
+            }
+        }
+        return if headers.contains_key("x-requested-with") {
+            StatusCode::NO_CONTENT.into_response()
+        } else {
+            Redirect::to(&format!("/machines/{id}#control")).into_response()
+        };
     }
     if !form.gcode.trim().is_empty() {
         let (label, gcode) = match typed_gcode(&form.gcode) {
@@ -1466,13 +1464,9 @@ async fn command(
     };
     let owned = |(l, g): (&str, &str)| (l.to_owned(), g.to_owned());
     let is_grbl = grbl();
-    let mk3 = prusa_mk3_family(&store, space, &id);
-    let found = if mk3 && let Some(found) = prusalink_control(&form.action, &form) {
-        match found {
-            Ok(found) => Some(found),
-            Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
-        }
-    } else if form.action.starts_with("jog") {
+    // Machines behind an agent took the branch above; these are the hub's own (built-in
+    // Connect, SimplyPrint, virtual), until they get the hub's internal agent.
+    let found = if form.action.starts_with("jog") {
         jog_command(
             &form.action,
             form.step.unwrap_or(10.0),
@@ -1517,34 +1511,10 @@ async fn command(
             .unwrap_or(215.0);
         let load = form.action == "load-filament";
         let label = if load { "Load filament" } else { "Unload filament" };
-        if prusa_mk3_family(&store, space, &id) {
-            // Prusa's MK3, as PrusaLink loads and unloads (command_handlers.py): the bed to
-            // its temperature; the nozzle waited for only up to 90 % (rounded to 5), and not
-            // when it is that hot already; then to the full temperature. Loading: a beep and
-            // "Insert the filament" on its screen, until its knob is pressed; then M701.
-            let bed = machine.loaded.as_ref().and_then(|l| l.bed_c).filter(|c| (0.0..=130.0).contains(c));
-            let extrude = (hot * 0.9 / 5.0).round() * 5.0;
-            let now = machine.telemetry.as_ref().and_then(|t| t.nozzle_c);
-            let mut lines = Vec::new();
-            if let Some(bed) = bed {
-                lines.push(format!("M140 S{bed:.0}"));
-            }
-            if now.is_none_or(|n| f64::from(n) < extrude) {
-                lines.push(format!("M109 S{extrude:.0}"));
-            }
-            lines.push(format!("M104 S{hot:.0}"));
-            if load {
-                lines.extend(["M300 P500 S1", "M0 Insert the filament", "M701"].map(str::to_owned));
-            } else {
-                lines.push("M702".to_owned());
-            }
-            Some((format!("{label} ({hot:.0} °C)"), lines.join("\n")))
-        } else {
-            Some((
-                format!("{label} ({hot:.0} °C)"),
-                format!("M109 S{hot:.0}\n{}", if load { "M701" } else { "M702" }),
-            ))
-        }
+        Some((
+            format!("{label} ({hot:.0} °C)"),
+            format!("M109 S{hot:.0}\n{}", if load { "M701" } else { "M702" }),
+        ))
     } else if form.action == "probe-bed" {
         match store.machine(space, &id) {
             Ok(Some(machine)) => match probe_gcode(&machine) {
@@ -1565,7 +1535,7 @@ async fn command(
     // extruding, which would spoil the print; X and Y may move. Extruding wants a hot
     // nozzle (170 °C, PrusaLink's `min_temp_nozzle_e`).
     if let Ok(Some(machine)) = store.machine(space, &id)
-        && let Some(why) = refused_now(&form.action, &gcode, &machine, mk3)
+        && let Some(why) = refused_now(&form.action, &gcode, &machine, false)
     {
         return (StatusCode::CONFLICT, why).into_response();
     }
@@ -1843,13 +1813,6 @@ async fn taken(
     };
     match store.print_taken(space, &id) {
         Ok(true) => {
-            // Prusa's MK3 through an agent: "ready" on its own screen and menu too (M72 S1,
-            // as PrusaLink sets it).
-            if store.machine(space, &id).ok().flatten().is_some_and(|m| m.link == "agent")
-                && prusa_mk3_family(&store, space, &id)
-            {
-                let _ = store.queue_command(space, &id, "Ready on its screen", "M72 S1");
-            }
             done(&headers, &format!("/machines/{id}"))
         }
         Ok(false) => (StatusCode::NOT_FOUND, "no print on its bed").into_response(),
@@ -2632,7 +2595,7 @@ mod tests {
         assert_eq!(factor_command("set-bed", None, None), None);
     }
     /// The move buttons send G91, a G1 move at a feed, then G90 again.
-    /// Proves the row `G90`/`G91` + `G1 F… X Y Z` of docs/prusalink-audit.md.
+    /// Proves the row `G90`/`G91` + `G1 F… X Y Z` of docs/audits/prusalink.md.
     #[test]
     fn the_move_buttons_send_g91_g1_g90() {
         for (button, code) in [
@@ -2648,7 +2611,7 @@ mod tests {
     }
 
     /// "Set speed" sends M220 S with whole percents from 10 to 300.
-    /// Proves the row `M220 S` of docs/prusalink-audit.md.
+    /// Proves the row `M220 S` of docs/audits/prusalink.md.
     #[test]
     fn the_speed_goes_by_m220_s() {
         let sent = |v| factor_command("set-speed", Some(v), None);
@@ -2660,7 +2623,7 @@ mod tests {
     }
 
     /// "Set flow" sends M221 S with whole percents from 50 to 150.
-    /// Proves the row `M221 S` of docs/prusalink-audit.md.
+    /// Proves the row `M221 S` of docs/audits/prusalink.md.
     #[test]
     fn the_flow_goes_by_m221_s() {
         let sent = |v| factor_command("set-flow", None, Some(v));
@@ -2671,7 +2634,7 @@ mod tests {
     }
 
     /// "Motors off" sends M18, which is the same as M84 in Marlin.
-    /// Proves the row `M84` of docs/prusalink-audit.md.
+    /// Proves the row `M84` of docs/audits/prusalink.md.
     #[test]
     fn motors_go_off_with_m18() {
         // PrusaLink sends M84; Marlin treats M18 and M84 alike.
@@ -2684,272 +2647,6 @@ mod tests {
     use maker_connect_protocol::{MachineKind, MachineState};
     use tower::ServiceExt;
 
-    /// A laser on an agent gets a file to run, is told to pause, and says how it ended.
-    /// Prusa's MK3 through an agent, handled as PrusaLink handles it (docs/prusalink-audit.md):
-    /// Home without levelling (G28 W), load as PrusaLink loads, extrude, "Reprint" from the
-    /// printer's menu, and "ready" on its screen once the print is taken.
-    #[tokio::test]
-    async fn an_mk3_through_an_agent_is_handled_as_prusalink_does() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
-        let agent = super::app(store.clone());
-        let mk3 = Register {
-            protocol: protocol::VERSION,
-            name: "MK3S Gonzo".into(),
-            kind: MachineKind::Fdm,
-            agent_version: "0.2.0".into(),
-        };
-        let (_, body) = call(&agent, json(protocol::REGISTER, None, serde_json::to_string(&mk3).unwrap())).await;
-        let registered: Registered = serde_json::from_str(&body).unwrap();
-        let id = registered.machine_id.clone();
-        let space = {
-            let store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
-            store.pair(space, &registered.pairing_code).unwrap();
-            crate::auth::tester_may_operate(&store, space, &id);
-            store.set_profile(space, &id, Some("prusa/mk3s")).unwrap();
-            space
-        };
-        // Reports idle, answering each command it was given (done, ok); returns the G-code.
-        let report = |extra: fn(&mut Telemetry), done: Vec<u32>| {
-            let app = agent.clone();
-            let token = registered.token.clone();
-            async move {
-                let mut telemetry = Telemetry {
-                    state: MachineState::Idle,
-                    firmware: Some("Prusa-Firmware 3.14.1".into()),
-                    nozzle_c: Some(215.0),
-                    done: done.into_iter().map(|id| protocol::CommandDone { id, ok: true, reason: None, output: Vec::new() }).collect(),
-                    ..Telemetry::default()
-                };
-                extra(&mut telemetry);
-                let (_, body) = call(&app, json(protocol::TELEMETRY, Some(&token), serde_json::to_string(&telemetry).unwrap())).await;
-                serde_json::from_str::<TelemetryReply>(&body).unwrap()
-            }
-        };
-        let press = |action: &str| {
-            Request::post(format!("/machines/{id}/command"))
-                .header("content-type", "application/x-www-form-urlencoded")
-                .header("x-requested-with", "fetch")
-                .body(Body::from(format!("action={action}")))
-                .unwrap()
-        };
-        // Presses a button; the G-code the agent gets next (answered done).
-        let sent = async |action: &str| {
-            let (status, body) = call(&app, press(action)).await;
-            assert!(status.is_success(), "{action}: {status} {body}");
-            let reply = report(|_| {}, Vec::new()).await;
-            let command = reply.commands.last().expect(action).clone();
-            report(|_| {}, vec![command.id]).await;
-            command.gcode
-        };
-        // Cold: no extruding (PrusaLink: 170 °C); loading waits for 90 % first.
-        report(|t| t.nozzle_c = Some(25.0), Vec::new()).await;
-        let (status, why) = call(&app, press("extrude")).await;
-        assert_eq!(status, StatusCode::CONFLICT, "{why}");
-        assert!(why.contains("170"), "{why}");
-        let (status, _) = call(&app, press("load-filament")).await;
-        assert!(status.is_success());
-        let reply = report(|t| t.nozzle_c = Some(25.0), Vec::new()).await;
-        let load = reply.commands.last().expect("load").clone();
-        assert_eq!(
-            load.gcode,
-            "M109 S195\nM104 S215\nM300 P500 S1\nM0 Insert the filament\nM701",
-            "90 % first, then full; a beep and its knob; then load"
-        );
-        report(|_| {}, vec![load.id]).await;
-        // Hot (215 °C): extruding goes; no wait for 90 %, it is hotter already.
-        // As PrusaLink (web/controls.py): G28 with its axes (the firmware then does not level
-        // the bed); moves G91, G1 F<feed> <axes>, 2700 mm/min unless chosen, refused above.
-        assert_eq!(sent("home").await, "G28 X Y Z", "home, no mesh bed levelling");
-        assert_eq!(sent("x%2B").await, "G91\nG1 F2700 X10");
-        assert_eq!(sent("z-").await, "G91\nG1 F2700 Z-10");
-        let form = |body: &'static str| {
-            Request::post(format!("/machines/{id}/command"))
-                .header("content-type", "application/x-www-form-urlencoded")
-                .header("x-requested-with", "fetch")
-                .body(Body::from(body))
-                .unwrap()
-        };
-        let (status, why) = call(&app, form("action=jog:1:-1&step=1&feed=3000")).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}");
-        assert!(why.contains("2700"), "{why}");
-        let (status, _) = call(&app, form("action=jog:1:-1&step=1&feed=1500")).await;
-        assert!(status.is_success());
-        let reply = report(|_| {}, Vec::new()).await;
-        let jog = reply.commands.last().expect("jog").clone();
-        assert_eq!(jog.gcode, "G91\nG1 F1500 X1 Y-1");
-        report(|_| {}, vec![jog.id]).await;
-        // PrusaLink's limits (const.py LimitsMK3): speed and flow 10-999 %, nozzle 0-305 °C,
-        // bed 0-125 °C.
-        for (body, ok) in [
-            ("action=set-speed&speed=999", Some("M220 S999")),
-            ("action=set-speed&speed=1000", None),
-            ("action=set-speed&speed=9", None),
-            ("action=set-flow&flow=10", Some("M221 S10")),
-            ("action=set-flow&flow=1000", None),
-            ("action=set-nozzle&nozzle=305", Some("M104 S305")),
-            ("action=set-nozzle&nozzle=306", None),
-            ("action=set-bed&bed=125", Some("M140 S125")),
-            ("action=set-bed&bed=126", None),
-            // `disable_steppers`; PrusaLink has no fan control, no laser or origin buttons.
-            ("action=motors-off", Some("M84")),
-            ("action=fan-on", None),
-            ("action=fan-off", None),
-            ("action=set-origin", None),
-            ("action=laser-off", None),
-            ("action=preheat-pla", Some("M104 S215\nM140 S60")),
-        ] {
-            let (status, why) = call(&app, form(body)).await;
-            match ok {
-                Some(gcode) => {
-                    assert!(status.is_success(), "{body}: {why}");
-                    let reply = report(|_| {}, Vec::new()).await;
-                    let command = reply.commands.last().expect(body).clone();
-                    assert_eq!(command.gcode, gcode, "{body}");
-                    report(|_| {}, vec![command.id]).await;
-                }
-                None => assert_eq!(status, StatusCode::BAD_REQUEST, "{body}: {why}"),
-            }
-        }
-        // What other printers get for these, kept from the MK3 family (section 6 of the audit).
-        for (name, theirs) in [
-            ("set-origin", "G92 X0 Y0"),
-            ("go-origin", "G90\nG0 X0 Y0"),
-            ("laser-off", "M5"),
-            ("fan-on", "M106 S255"),
-            ("fan-off", "M107"),
-            ("motors-off", "M18"),
-        ] {
-            assert_eq!(super::action(name).map(|a| a.1), Some(theirs));
-            let form = CommandForm { action: name.to_owned(), ..CommandForm::default() };
-            match super::prusalink_control(name, &form) {
-                Some(Ok((_, gcode))) => assert_eq!(gcode, "M84", "{name}"),
-                other => assert!(matches!(other, Some(Err(_))), "{name}: {other:?}"),
-            }
-        }
-        assert_eq!(sent("extrude").await, "M83\nG1 F100 E10");
-        assert_eq!(sent("retract").await, "M83\nG1 F100 E-10");
-        assert_eq!(sent("unload-filament").await, "M104 S215\nM702");
-        // Control's own G-code (PrusaLink's GCODE command): to the agent as typed.
-        let typed = Request::post(format!("/machines/{id}/command"))
-            .header("content-type", "application/x-www-form-urlencoded")
-            .header("x-requested-with", "fetch")
-            .body(Body::from("gcode=M117+Hello%0AG4+P0"))
-            .unwrap();
-        let (status, why) = call(&app, typed).await;
-        assert!(status.is_success(), "{status} {why}");
-        let reply = report(|_| {}, Vec::new()).await;
-        let gcode = reply.commands.last().expect("typed G-code").clone();
-        assert_eq!(gcode.gcode, "M117 Hello\nG4 P0");
-        report(|_| {}, vec![gcode.id]).await;
-        // Paused (a print it runs itself): no homing, no Z; X and Y may move.
-        report(|t| t.state = MachineState::Paused, Vec::new()).await;
-        let (status, why) = call(&app, press("home")).await;
-        assert_eq!(status, StatusCode::CONFLICT, "{why}");
-        let (status, _) = call(&app, press("z%2B")).await;
-        assert_eq!(status, StatusCode::CONFLICT);
-        let (status, _) = call(&app, press("x%2B")).await;
-        assert!(status.is_success(), "X moves while paused");
-        let reply = report(|t| t.state = MachineState::Paused, Vec::new()).await;
-        let x = reply.commands.last().expect("x").clone();
-        report(|_| {}, vec![x.id]).await;
-        // Printing: speed, flow and temperatures go (to the running job); typed G-code,
-        // homing, Z, X and Y, extruding, loading and the rest not (PrusaLink's controls).
-        report(|t| t.state = MachineState::Busy, Vec::new()).await;
-        for (body, goes) in [
-            ("action=set-speed&speed=120", true),
-            ("action=set-flow&flow=95", true),
-            ("action=set-nozzle&nozzle=215", true),
-            ("action=set-bed&bed=60", true),
-            ("gcode=M115", false),
-            ("action=home", false),
-            ("action=x%2B", false),
-            ("action=z%2B", false),
-            ("action=extrude", false),
-            ("action=load-filament", false),
-            ("action=cooldown", false),
-            ("action=motors-off", false),
-        ] {
-            let request = Request::post(format!("/machines/{id}/command"))
-                .header("content-type", "application/x-www-form-urlencoded")
-                .header("x-requested-with", "fetch")
-                .body(Body::from(body))
-                .unwrap();
-            let (status, why) = call(&app, request).await;
-            assert_eq!(status.is_success(), goes, "{body}: {status} {why}");
-            if goes {
-                let reply = report(|t| t.state = MachineState::Busy, Vec::new()).await;
-                let command = reply.commands.last().expect(body).clone();
-                report(|t| t.state = MachineState::Busy, vec![command.id]).await;
-            }
-        }
-        report(|_| {}, Vec::new()).await;
-
-        // "Reprint" on its menu with nothing printed before: it cannot, and says so.
-        let reply = report(|t| t.reprint = true, Vec::new()).await;
-        let cannot = reply.commands.last().expect("cannot re-print").clone();
-        assert_eq!(cannot.gcode, "M300 P200 S600\nM117 ~Cannot re-print");
-        report(|_| {}, vec![cannot.id]).await;
-
-        // A finished print of ours, taken off: "ready" on its screen (M72 S1).
-        let upload = Request::post("/api/files?name=cube.gcode")
-            .body(Body::from("G28\nG1 X1\n"))
-            .unwrap();
-        let (_, body) = call(&app, upload).await;
-        let file_id = serde_json::from_str::<serde_json::Value>(&body).unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        let job = {
-            let mut s = store.lock().unwrap();
-            let file = s.file(space, &file_id).unwrap().unwrap();
-            let job = s.add_job(space, &id, &file, None, Some("tester")).unwrap().unwrap();
-            s.set_job(job, store::JobState::Finished, None).unwrap();
-            job
-        };
-        let taken = Request::post(format!("/machines/{id}/taken"))
-            .header("x-requested-with", "fetch")
-            .body(Body::empty())
-            .unwrap();
-        assert!(call(&app, taken).await.0.is_success());
-        let reply = report(|_| {}, Vec::new()).await;
-        let ready = reply.commands.last().expect("ready").clone();
-        assert_eq!(ready.gcode, "M72 S1");
-        report(|_| {}, vec![ready.id]).await;
-        assert!(store.lock().unwrap().ready_after(&id).unwrap().is_some(), "ready");
-
-        // Not ready after all (PrusaLink's cancel_ready): M72 S0, the print on its bed again.
-        let not_ready = Request::post(format!("/machines/{id}/not-ready"))
-            .header("x-requested-with", "fetch")
-            .body(Body::empty())
-            .unwrap();
-        assert!(call(&app, not_ready).await.0.is_success());
-        let reply = report(|_| {}, Vec::new()).await;
-        let cancel = reply.commands.last().expect("not ready").clone();
-        assert_eq!(cancel.gcode, "M72 S0");
-        report(|_| {}, vec![cancel.id]).await;
-        assert!(store.lock().unwrap().on_bed(&id).unwrap().is_some(), "the next job waits");
-
-        // Set Ready and Not ready on its own menu: answered as PrusaLink (M72 S1, M72 S0).
-        let reply = report(|t| t.bed_clear = true, Vec::new()).await;
-        let echoed = reply.commands.last().expect("ready again").clone();
-        assert_eq!(echoed.gcode, "M72 S1");
-        report(|_| {}, vec![echoed.id]).await;
-        let reply = report(|t| t.not_ready = true, Vec::new()).await;
-        let echoed = reply.commands.last().expect("not ready again").clone();
-        assert_eq!(echoed.gcode, "M72 S0");
-        report(|_| {}, vec![echoed.id]).await;
-        assert!(store.lock().unwrap().on_bed(&id).unwrap().is_some());
-        // Taken again for the reprint below.
-        store.lock().unwrap().print_taken(space, &id).unwrap();
-
-        // "Reprint" now: the same file again, a new job.
-        report(|t| t.reprint = true, Vec::new()).await;
-        let again = store.lock().unwrap().active_job(&id).unwrap().expect("reprinted");
-        assert_ne!(again.id, job);
-        assert_eq!(again.file_name, "cube.gcode");
-    }
 
     #[tokio::test]
     async fn an_agent_runs_a_job() {
@@ -3095,12 +2792,155 @@ mod tests {
         );
     }
 
+
     /// Typed G-code is tidied and kept short enough for every machine.
+    /// A machine behind an agent gets typed commands (`Action`), one at a time as it answers
+    /// each, never G-code made by the hub; its SD tab says it is not available yet.
+    #[tokio::test]
+    async fn an_agents_machine_gets_typed_commands() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = crate::auth::signed_in_app(store.clone());
+        let agent = super::app(store.clone());
+        let register = Register {
+            protocol: protocol::VERSION,
+            name: "Printer".into(),
+            kind: MachineKind::Fdm,
+            agent_version: "0.2.0".into(),
+        };
+        let (_, body) = call(&agent, json(protocol::REGISTER, None, serde_json::to_string(&register).unwrap())).await;
+        let registered: Registered = serde_json::from_str(&body).unwrap();
+        let id = registered.machine_id.clone();
+        {
+            let store = store.lock().unwrap();
+            let space = store.default_space().unwrap().0;
+            store.pair(space, &registered.pairing_code).unwrap();
+            crate::auth::tester_may_operate(&store, space, &id);
+        }
+        let press = |body: &str| {
+            Request::post(format!("/machines/{id}/command"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(body.to_owned()))
+                .unwrap()
+        };
+        for body in ["action=home", "action=x%2B&step=1&feed=1500", "action=preheat-pla", "gcode=M105"] {
+            let (status, why) = call(&app, press(body)).await;
+            assert_eq!(status, StatusCode::NO_CONTENT, "{body}: {why}");
+        }
+        let (status, _) = call(&app, press("action=x%2B&step=7")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "a step not on the page's list");
+        // Reported idle, answering each command as it comes: the commands, in order.
+        let mut got = Vec::new();
+        let mut done = Vec::new();
+        for _ in 0..8 {
+            let telemetry = Telemetry {
+                state: MachineState::Idle,
+                done: done.drain(..).collect(),
+                ..Telemetry::default()
+            };
+            let (_, body) = call(&agent, json(protocol::TELEMETRY, Some(&registered.token), serde_json::to_string(&telemetry).unwrap())).await;
+            let reply: TelemetryReply = serde_json::from_str(&body).unwrap();
+            for command in reply.commands {
+                done.push(protocol::CommandDone { id: command.id, ok: true, reason: None, output: Vec::new() });
+                got.push(command.action);
+            }
+        }
+        use protocol::{Action, Axis, Heater};
+        assert_eq!(
+            got,
+            [
+                Action::Home { axes: vec![Axis::X, Axis::Y, Axis::Z] },
+                Action::Jog { x: Some(1.0), y: None, z: None, feed: Some(1500.0) },
+                Action::Temperature { heater: Heater::Nozzle, celsius: 215.0 },
+                Action::Temperature { heater: Heater::Bed, celsius: 60.0 },
+                Action::Gcode { text: "M105".into() },
+            ]
+        );
+        let (_, sd) = call(&app, Request::get(format!("/api/machines/{id}/sd")).body(Body::empty()).unwrap()).await;
+        assert!(sd.contains(crate::sd_card::NOT_YET), "{sd}");
+    }
+
+    /// B3: the hub does not hold or refuse commands for a machine behind an agent because of what it
+    /// does (busy, running a job, waiting for someone): it queues them, one at a time, so typed G-code
+    /// such as `M112` reaches the port at once (B7). B5: the two Home buttons of OctoPrint's panel.
+    #[tokio::test]
+    async fn b3_b5_an_agents_machine_gets_every_command_whatever_it_is_doing() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = crate::auth::signed_in_app(store.clone());
+        let agent = super::app(store.clone());
+        let register = Register {
+            protocol: protocol::VERSION,
+            name: "Printer".into(),
+            kind: MachineKind::Fdm,
+            agent_version: "0.2.0".into(),
+        };
+        let (_, body) = call(&agent, json(protocol::REGISTER, None, serde_json::to_string(&register).unwrap())).await;
+        let registered: Registered = serde_json::from_str(&body).unwrap();
+        let id = registered.machine_id.clone();
+        {
+            let store = store.lock().unwrap();
+            let space = store.default_space().unwrap().0;
+            store.pair(space, &registered.pairing_code).unwrap();
+            crate::auth::tester_may_operate(&store, space, &id);
+        }
+        let press = |body: &str| {
+            Request::post(format!("/machines/{id}/command"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(body.to_owned()))
+                .unwrap()
+        };
+        // what the page refused while it printed: typed G-code, the fan, Z, homing, extruding
+        for body in ["gcode=M112", "action=fan-on", "action=z%2B&step=1", "action=home-xy", "action=home-z", "action=home", "action=extrude"] {
+            let (status, why) = call(&app, press(body)).await;
+            assert_eq!(status, StatusCode::NO_CONTENT, "{body}: {why}");
+        }
+        use protocol::{Action, Axis};
+        let mut got = Vec::new();
+        let mut done = Vec::new();
+        // busy with a job, then waiting for someone (Attention): commands go out in both
+        for round in 0..16 {
+            let telemetry = Telemetry {
+                state: if round < 8 { MachineState::Busy } else { MachineState::Attention },
+                job_id: (round < 8).then_some(7),
+                done: done.drain(..).collect(),
+                ..Telemetry::default()
+            };
+            let (_, body) = call(&agent, json(protocol::TELEMETRY, Some(&registered.token), serde_json::to_string(&telemetry).unwrap())).await;
+            let reply: TelemetryReply = serde_json::from_str(&body).unwrap();
+            for command in reply.commands {
+                done.push(protocol::CommandDone { id: command.id, ok: true, reason: None, output: Vec::new() });
+                got.push((round, command.action));
+            }
+        }
+        let actions: Vec<Action> = got.iter().map(|(_, a)| a.clone()).collect();
+        assert_eq!(
+            actions,
+            [
+                Action::Gcode { text: "M112".into() },
+                Action::Fan { on: true },
+                Action::Jog { x: None, y: None, z: Some(1.0), feed: None },
+                Action::Home { axes: vec![Axis::X, Axis::Y] },
+                Action::Home { axes: vec![Axis::Z] },
+                Action::Home { axes: vec![Axis::X, Axis::Y, Axis::Z] },
+                Action::Extrude { mm: 10.0 },
+            ]
+        );
+        assert!(got.iter().any(|(round, _)| *round < 8), "while it was busy");
+        // A command for a machine that waits for someone goes too.
+        let (status, why) = call(&app, press("gcode=M105")).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{why}");
+        let telemetry = Telemetry { state: MachineState::Attention, ..Telemetry::default() };
+        let (_, body) = call(&agent, json(protocol::TELEMETRY, Some(&registered.token), serde_json::to_string(&telemetry).unwrap())).await;
+        let reply: TelemetryReply = serde_json::from_str(&body).unwrap();
+        assert_eq!(reply.commands.len(), 1, "{body}");
+    }
+
     #[test]
     fn typed_gcode_is_checked() {
         assert_eq!(
             typed_gcode(" G28 \n\nG1 X10\n"),
-            Ok(("G28 (+1 lines)".to_owned(), "G28\nG1 X10".to_owned()))
+            Ok(("G28 (+1 lines)".to_owned(), " G28 \n\nG1 X10\n".to_owned()))
         );
         assert!(typed_gcode("   ").is_err());
         assert!(typed_gcode(&"G4 P0\n".repeat(21)).is_err());
@@ -3122,210 +2962,6 @@ mod tests {
         request.body(Body::from(body)).unwrap()
     }
 
-    /// An agent registers, reports unpaired, is added with its code, and then shows in the
-    /// space's list with what it reported.
-    /// A label printer without a cassette waits for someone: an older agent's "error" is
-    /// read as attention, and the page shows the reason, not an error.
-    /// A printer behind an agent with its own SD card (Prusa's MK3S): its card read with an
-    /// ordinary command (M20 L T) and its answer kept whole; a file printed from it (M23, M24);
-    /// that print, which is no job of the hub's, stopped from the website; and a question on
-    /// its screen answered (M876, by the button's index).
-    #[tokio::test]
-    async fn an_agents_printer_and_its_sd_card() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
-        let agent = super::app(store.clone());
-        let mk3 = Register {
-            protocol: protocol::VERSION,
-            name: "Prusa MK3S".into(),
-            kind: MachineKind::Fdm,
-            agent_version: "0.1.0".into(),
-        };
-        let (_, body) = call(
-            &agent,
-            json(protocol::REGISTER, None, serde_json::to_string(&mk3).unwrap()),
-        )
-        .await;
-        let registered: Registered = serde_json::from_str(&body).unwrap();
-        let id = registered.machine_id.clone();
-        {
-            let store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
-            store.pair(space, &registered.pairing_code).unwrap();
-            crate::auth::tester_may_operate(&store, space, &id);
-        }
-        let report = |telemetry: Telemetry| {
-            let app = agent.clone();
-            let token = registered.token.clone();
-            async move {
-                let (_, body) = call(
-                    &app,
-                    json(protocol::TELEMETRY, Some(&token), serde_json::to_string(&telemetry).unwrap()),
-                )
-                .await;
-                serde_json::from_str::<TelemetryReply>(&body).unwrap()
-            }
-        };
-        let idle = || Telemetry {
-            state: MachineState::Idle,
-            ..Telemetry::default()
-        };
-        let form = |path: String, body: &str| {
-            Request::post(path)
-                .header("content-type", "application/x-www-form-urlencoded")
-                .header("x-requested-with", "fetch")
-                .body(Body::from(body.to_owned()))
-                .unwrap()
-        };
-        report(idle()).await;
-
-        // Looking at its card asks it (M20 L T), as an ordinary command.
-        let look = || Request::get(format!("/api/machines/{id}/sd")).body(Body::empty()).unwrap();
-        let (_, body) = call(&app, look()).await;
-        let seen: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(seen["asking"], true);
-        let reply = report(idle()).await;
-        let ask = reply.commands.iter().find(|c| c.gcode == "M20 L T").expect("asked");
-        // Its answer, whole, makes the list.
-        let listing = "Begin file list\nBENCHY~1.GCO 812345 0x5b4e8c20 \"Benchy.gcode\"\nCUBE.GCO 20\nEnd file list\nok";
-        report(Telemetry {
-            done: vec![protocol::CommandDone {
-                id: ask.id,
-                ok: true,
-                reason: None,
-                output: listing.lines().map(str::to_owned).collect(),
-            }],
-            ..idle()
-        })
-        .await;
-        let (_, body) = call(&app, look()).await;
-        let seen: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(seen["files"][0]["name"], "Benchy.gcode");
-        assert_eq!(seen["files"][1]["path"], "/CUBE.GCO");
-        assert_eq!(seen["asking"], false, "fresh: not asked again");
-
-        // Printed from its card.
-        let (status, body) = call(&app, form(format!("/machines/{id}/sd/print"), "path=/BENCHY~1.GCO")).await;
-        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        let reply = report(idle()).await;
-        assert!(reply.commands.iter().any(|c| c.gcode == "M23 /BENCHY~1.GCO\nM24"));
-        assert_eq!(
-            call(&app, form(format!("/machines/{id}/sd/print"), "path=../etc")).await.0,
-            StatusCode::BAD_REQUEST
-        );
-
-        // It prints from its card (its own job, none of the hub's): stopped from here.
-        let printing = || Telemetry {
-            state: MachineState::Busy,
-            job: Some(protocol::JobProgress {
-                file: "Benchy.gcode".into(),
-                done: 1000,
-                total: 812_345,
-                elapsed_s: Some(60),
-                remaining_s: None,
-            }),
-            ..Telemetry::default()
-        };
-        report(printing()).await;
-        // Its job as the agent reports it (PrusaLink's job_info, SEND_JOB_INFO): kept as is.
-        {
-            let store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
-            let machine = store.machine(space, &id).unwrap().unwrap();
-            let job = machine.telemetry.and_then(|t| t.job).expect("its job");
-            assert_eq!((job.file.as_str(), job.done, job.total, job.elapsed_s), ("Benchy.gcode", 1000, 812_345, Some(60)));
-        }
-        let (status, body) = call(&app, form(format!("/machines/{id}/job"), "action=stop")).await;
-        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        assert_eq!(report(printing()).await.job_control, Some(protocol::JobControl::Stop));
-        assert_eq!(report(printing()).await.job_control, None, "said once");
-
-        // A question on its screen, answered by the button's index.
-        let asking = || Telemetry {
-            state: MachineState::Attention,
-            prompt: Some(protocol::Prompt {
-                text: "Filament runout".into(),
-                buttons: vec!["Continue".into(), "Purge more".into()],
-            }),
-            ..Telemetry::default()
-        };
-        report(asking()).await;
-        let (status, body) = call(&app, form(format!("/machines/{id}/answer"), "button=1")).await;
-        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        assert_eq!(report(asking()).await.answer, Some(1));
-        assert_eq!(report(idle()).await.answer, None, "said once");
-        assert_eq!(
-            call(&app, form(format!("/machines/{id}/answer"), "button=0")).await.0,
-            StatusCode::CONFLICT,
-            "it asks nothing now"
-        );
-
-        // The SD print above was its own: recorded as a job when it ended, so the next job
-        // waits until it is taken off the bed (store::follow_own_print).
-        {
-            let mut s = store.lock().unwrap();
-            let space = s.default_space().unwrap().0;
-            let jobs: i64 = s.db.query_row("SELECT COUNT(*) FROM jobs WHERE machine_id = ?1 AND file_id = ''", [&id], |r| r.get(0)).unwrap();
-            assert_eq!(jobs, 1, "the SD print recorded");
-            assert!(s.print_taken(space, &id).unwrap());
-        }
-        // A job of the hub's, cut off by a power cut (Prusa's MK3; the agent kept it).
-        let upload = Request::post("/api/files?name=cube.gcode")
-            .body(Body::from("G28\nM104 S215\nG1 X1\nG1 X2\n"))
-            .unwrap();
-        let (_, body) = call(&app, upload).await;
-        let file: serde_json::Value = serde_json::from_str(&body).unwrap();
-        let (status, body) = call(
-            &app,
-            form(format!("/files/{}/print", file["id"].as_str().unwrap()), &format!("machine={id}")),
-        )
-        .await;
-        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        let order = report(idle()).await.job.expect("given out");
-        let job_state = || store.lock().unwrap().job(order.id).unwrap().unwrap();
-        // The agent went quiet (its Pi lost power too), then reports without the job: failed.
-        store
-            .lock()
-            .unwrap()
-            .db
-            .execute("UPDATE jobs SET started_at = started_at - 100 WHERE id = ?1", [order.id])
-            .unwrap();
-        report(idle()).await;
-        assert_eq!(job_state().state, store::JobState::Failed);
-        // Started again, the printer waits to take it up: the agent reports it, paused.
-        let waiting = || Telemetry {
-            state: MachineState::Paused,
-            job_id: Some(order.id),
-            ..Telemetry::default()
-        };
-        report(waiting()).await;
-        let back = job_state();
-        assert_eq!(back.state, store::JobState::Paused, "back");
-        assert_eq!(back.reason.as_deref(), Some(POWER_CUT));
-        assert_eq!(back.ended_at, None);
-        // Resumed from here: the agent is told, and the reason goes.
-        let (status, body) = call(&app, form(format!("/machines/{id}/job"), "action=resume")).await;
-        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        assert_eq!(report(waiting()).await.job_control, Some(protocol::JobControl::Resume));
-        let running = || Telemetry {
-            state: MachineState::Busy,
-            job_id: Some(order.id),
-            ..Telemetry::default()
-        };
-        assert_eq!(report(running()).await.job_control, None);
-        assert_eq!(job_state().reason, None, "an ordinary job again");
-        // Another power cut, taken up on the printer's own screen: printing, not paused.
-        store
-            .lock()
-            .unwrap()
-            .set_job(order.id, store::JobState::Failed, Some("lost"))
-            .unwrap();
-        report(waiting()).await;
-        assert_eq!(job_state().state, store::JobState::Paused);
-        assert_eq!(report(running()).await.job_control, None, "not paused from here");
-        assert_eq!(job_state().state, store::JobState::Printing);
-        assert_eq!(job_state().reason, None);
-    }
 
     #[tokio::test]
     async fn a_cassette_out_needs_attention_not_an_error() {
@@ -3573,5 +3209,184 @@ mod tests {
         let (status, body) = call(&app, json(protocol::REGISTER, None, old)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(body.contains("protocol 1"));
+    }
+
+    // ---- K18: no gate for the Marlin port's machines; the agent-gone rule ----
+
+    /// An agent machine, registered and paired into the default space: (id, token, space).
+    fn agent_machine(
+        store: &Arc<Mutex<Store>>,
+        kind: MachineKind,
+        profile: Option<&str>,
+    ) -> (String, String, i64) {
+        let store = store.lock().unwrap();
+        let (space, _) = store.default_space().unwrap();
+        let (id, token, code) = store
+            .register(&Register {
+                protocol: protocol::VERSION,
+                name: "test".into(),
+                kind,
+                agent_version: "0.1.0".into(),
+            })
+            .unwrap();
+        store.pair(space, &code).unwrap().unwrap();
+        if profile.is_some() {
+            store.set_profile(space, &id, profile).unwrap();
+        }
+        (id, token, space)
+    }
+
+    fn queue_gcode(store: &Arc<Mutex<Store>>, space: i64, machine: &str, text: &str) -> u32 {
+        store
+            .lock()
+            .unwrap()
+            .queue_action(space, machine, text, &protocol::Action::Gcode { text: text.into() })
+            .unwrap()
+            .unwrap()
+    }
+
+    /// A report with these results, the reply's command ids.
+    async fn report(app: &Router, token: &str, done: Vec<protocol::CommandDone>) -> Vec<u32> {
+        let report = Telemetry { state: MachineState::Idle, done, ..Telemetry::default() };
+        let (status, body) = call(
+            app,
+            json(protocol::TELEMETRY, Some(token), serde_json::to_string(&report).unwrap()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        serde_json::from_str::<TelemetryReply>(&body).unwrap().commands.iter().map(|c| c.id).collect()
+    }
+
+    fn state_of(store: &Arc<Mutex<Store>>, space: i64, machine: &str, id: u32) -> (store::CommandState, Option<String>) {
+        let machine = store.lock().unwrap().machine(space, machine).unwrap().unwrap();
+        let c = machine.commands.iter().find(|c| c.id == id).unwrap();
+        (c.state, c.reason.clone())
+    }
+
+    fn finished(id: u32) -> protocol::CommandDone {
+        protocol::CommandDone { id, ok: true, reason: None, output: Vec::new() }
+    }
+
+    /// Two commands for a Marlin agent machine go out together, and a typed `M112` goes out while an
+    /// `M109` is still Sent (B7).
+    #[tokio::test]
+    async fn k18_a_marlin_agent_machine_has_no_gate() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = crate::auth::signed_in_app(store.clone());
+        let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None);
+        let a = queue_gcode(&store, space, &id, "G28");
+        let b = queue_gcode(&store, space, &id, "M105");
+        assert_eq!(report(&app, &token, vec![]).await, vec![a, b], "both at once");
+        assert_eq!(state_of(&store, space, &id, a).0, store::CommandState::Sent);
+        assert_eq!(report(&app, &token, vec![]).await, Vec::<u32>::new(), "nothing queued, nothing sent twice");
+
+        let m109 = queue_gcode(&store, space, &id, "M109 S200");
+        assert_eq!(report(&app, &token, vec![]).await, vec![m109]);
+        let m112 = queue_gcode(&store, space, &id, "M112");
+        assert_eq!(report(&app, &token, vec![]).await, vec![m112], "the M112 goes while the M109 is Sent");
+        assert_eq!(state_of(&store, space, &id, m109).0, store::CommandState::Sent);
+        // no 120 s: the commands that were Sent long ago are not given up by the hub
+        let old = store::now() - 3600;
+        {
+            store.lock().unwrap().set_commands_at(&id, old);
+        }
+        report(&app, &token, vec![]).await;
+        assert_eq!(state_of(&store, space, &id, m109).0, store::CommandState::Sent);
+    }
+
+    /// The other agent ports (a Prusa profile, a label printer, a laser) keep one at a time and 120 s.
+    #[tokio::test]
+    async fn k18_the_other_agent_machines_keep_their_gate() {
+        for (kind, profile) in [
+            (MachineKind::Fdm, Some("prusa/mini")),
+            (MachineKind::Fdm, Some("prusa/mk4s")),
+            (MachineKind::Fdm, Some("alfawise/u30")),
+            (MachineKind::Label, None),
+            (MachineKind::Laser, None),
+        ] {
+            let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+            let app = crate::auth::signed_in_app(store.clone());
+            let (id, token, space) = agent_machine(&store, kind, profile);
+            let a = queue_gcode(&store, space, &id, "G28");
+            let b = queue_gcode(&store, space, &id, "M105");
+            assert_eq!(report(&app, &token, vec![]).await, vec![a], "{kind:?} {profile:?}");
+            assert_eq!(report(&app, &token, vec![]).await, Vec::<u32>::new(), "held while {a} is Sent");
+            assert_eq!(report(&app, &token, vec![finished(a)]).await, vec![b]);
+            // and the 120 s
+            let c = queue_gcode(&store, space, &id, "M104 S0");
+            report(&app, &token, vec![finished(b)]).await;
+            assert_eq!(state_of(&store, space, &id, c).0, store::CommandState::Sent);
+            {
+                store.lock().unwrap().set_commands_at(&id, store::now() - 121);
+            }
+            report(&app, &token, vec![]).await;
+            let (state, reason) = state_of(&store, space, &id, c);
+            assert_eq!(state, store::CommandState::Rejected);
+            assert_eq!(reason.as_deref(), Some("no answer from the machine"));
+        }
+    }
+
+    /// K18's agent-gone rule: only the Sent and Accepted commands, not the Queued, only of that machine.
+    #[tokio::test]
+    async fn k18_agent_gone_fails_sent_and_accepted_of_that_machine_only() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = crate::auth::signed_in_app(store.clone());
+        let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None);
+        let (other, other_token, _) = agent_machine(&store, MachineKind::Fdm, None);
+        let (prusa, prusa_token, _) = agent_machine(&store, MachineKind::Fdm, Some("prusa/mk4s"));
+        let sent = queue_gcode(&store, space, &id, "M109 S200");
+        let accepted = queue_gcode(&store, space, &id, "G28");
+        let other_sent = queue_gcode(&store, space, &other, "M109 S200");
+        let prusa_sent = queue_gcode(&store, space, &prusa, "M109 S200");
+        report(&app, &token, vec![]).await;
+        report(&app, &other_token, vec![]).await;
+        report(&app, &prusa_token, vec![]).await;
+        store.lock().unwrap().command_still_running(&token, accepted).unwrap();
+        let queued = queue_gcode(&store, space, &id, "M105");
+        // seen just now: nothing happens
+        store.lock().unwrap().fail_commands_of_gone_agent(&token).unwrap();
+        assert_eq!(state_of(&store, space, &id, sent).0, store::CommandState::Sent);
+        // not seen for longer than ONLINE_SECONDS: checked on the next report
+        let gone = store::now() - store::ONLINE_SECONDS - 1;
+        for m in [&id, &prusa] {
+            store.lock().unwrap().set_last_seen(m, gone);
+        }
+        store.lock().unwrap().fail_commands_of_gone_agent(&token).unwrap();
+        for c in [sent, accepted] {
+            assert_eq!(
+                state_of(&store, space, &id, c),
+                (store::CommandState::Rejected, Some("the agent was gone".to_owned()))
+            );
+        }
+        assert_eq!(state_of(&store, space, &id, queued).0, store::CommandState::Queued, "not the Queued");
+        assert_eq!(state_of(&store, space, &other, other_sent).0, store::CommandState::Sent);
+        store.lock().unwrap().fail_commands_of_gone_agent(&prusa_token).unwrap();
+        assert_eq!(state_of(&store, space, &prusa, prusa_sent).0, store::CommandState::Sent, "not a Marlin machine");
+        // through the report: the Queued command still goes out, as the agent is back
+        assert_eq!(report(&app, &token, vec![]).await, vec![queued]);
+    }
+
+    /// The late Done, one order (K18): a Done from the port that comes after "the agent was gone" wins,
+    /// as `command_went` overwrites; it is the printer's own result. A Done in the same report as the
+    /// first one after the gap wins too.
+    #[tokio::test]
+    async fn k18_a_late_done_wins_over_the_agent_was_gone() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = crate::auth::signed_in_app(store.clone());
+        let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None);
+        let a = queue_gcode(&store, space, &id, "M109 S200");
+        let b = queue_gcode(&store, space, &id, "G28");
+        report(&app, &token, vec![]).await;
+        store.lock().unwrap().set_last_seen(&id, store::now() - store::ONLINE_SECONDS - 1);
+        // the agent is back and says a is done, in its first report
+        report(&app, &token, vec![finished(a)]).await;
+        assert_eq!(state_of(&store, space, &id, a), (store::CommandState::Finished, None));
+        assert_eq!(
+            state_of(&store, space, &id, b),
+            (store::CommandState::Rejected, Some("the agent was gone".to_owned()))
+        );
+        // b's Done comes in a later report
+        report(&app, &token, vec![finished(b)]).await;
+        assert_eq!(state_of(&store, space, &id, b), (store::CommandState::Finished, None));
     }
 }

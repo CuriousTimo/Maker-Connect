@@ -1088,6 +1088,15 @@ fn filament_card(machine: &Machine) -> String {
             )
         },
     );
+    // A plain Marlin printer through an agent: no load or unload (OctoPrint, its port's
+    // reference, has no such control), only the spool.
+    if plain_marlin(machine) {
+        return card(
+            "Filament",
+            "The spool on it, from Materials",
+            &format!(r#"{loaded}<a class="ghost-link" href="../stock#board">Change spool</a>"#),
+        );
+    }
     card(
         "Filament",
         "Loaded, unloaded: it heats to the spool's temperature first",
@@ -1272,6 +1281,13 @@ fn command_item(command: &store::Command) -> String {
     )
 }
 
+/// A plain Marlin printer through an agent: OctoPrint's ways (not Prusa's MK3 family, not GRBL).
+pub(crate) fn plain_marlin(machine: &Machine) -> bool {
+    machine.link == "agent"
+        && !crate::prusa_mk3_machine(machine)
+        && machine.profile.as_deref().and_then(crate::profiles::find).and_then(|p| p.firmware.as_deref()) != Some("grbl")
+}
+
 fn control(machine: &Machine, profile: Option<&Profile>) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
     let position = t.and_then(|t| t.position_mm);
@@ -1337,10 +1353,16 @@ fn control(machine: &Machine, profile: Option<&Profile>) -> String {
         )
     };
     let fdm = heats(machine);
+    // B5: OctoPrint's control panel has two Home buttons, X/Y and Z (`control.jinja2:71,85`).
+    let home = if plain_marlin(machine) {
+        format!(r#"<div class="jog-homes">{}{}</div>"#, button("home-xy", "Home X/Y"), button("home-z", "Home Z"))
+    } else {
+        button("home", "Home all")
+    };
     let mut controls = if fdm {
         format!(
             r#"<h4>Move</h4><div class="jog">{}{}{}{}</div><p class="hint">10 mm from where the head is. Home first.</p>"#,
-            button("home", "Home all"),
+            home,
             axis("X"),
             axis("Y"),
             axis("Z")
@@ -2012,6 +2034,35 @@ mod tests {
         assert_eq!(heat_note(None, None), "not reported");
         assert!(flame("bed", Some(true)).contains(r#"data-on="true""#));
         assert!(flame("bed", None).contains(r#"data-on="""#));
+    }
+
+    /// B5: a plain Marlin machine behind an agent (OctoPrint's ways) has OctoPrint's two Home buttons,
+    /// X/Y and Z (`control.jinja2:71,85`); a printer on Prusa's MK3 ways keeps its one.
+    #[test]
+    fn b5_a_plain_marlin_machine_has_two_home_buttons() {
+        let store = store::Store::open(":memory:").unwrap();
+        let space = store.default_space().unwrap().0;
+        let register = |name: &str| {
+            let (id, _token, code) = store
+                .register(&maker_connect_protocol::Register {
+                    protocol: maker_connect_protocol::VERSION,
+                    name: name.into(),
+                    kind: maker_connect_protocol::MachineKind::Fdm,
+                    agent_version: "0.2.0".into(),
+                })
+                .unwrap();
+            store.pair(space, &code).unwrap();
+            id
+        };
+        let marlin = store.machine(space, &register("Ender")).unwrap().unwrap();
+        let page = control(&marlin, None);
+        assert!(page.contains(r#"value="home-xy""#) && page.contains(r#"value="home-z""#), "{page}");
+        assert!(!page.contains(r#"value="home""#), "{page}");
+        // a Prusa MK3 (its firmware says so) keeps one button
+        let mut mk3 = store.machine(space, &register("MK3")).unwrap().unwrap();
+        mk3.profile = Some("prusa/mk3s".to_owned());
+        let page = control(&mk3, profiles::find("prusa/mk3s"));
+        assert!(page.contains(r#"value="home""#) && !page.contains("home-xy"), "{page}");
     }
 
     /// Seen on the MINI (2026-11-08): a print started from its USB stick had no Stop

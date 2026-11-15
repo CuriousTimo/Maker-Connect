@@ -1,0 +1,1280 @@
+{
+  "connect_given": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        5,
+        5
+      ],
+      "reads_count": [
+        16,
+        16
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "connect_auto": {
+    "reproducible": false,
+    "verdict": "differs",
+    "runs": 5,
+    "identical_runs": 0,
+    "writes_identical_runs": 0,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [
+          "+M21",
+          "-N2 M21*18"
+        ],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": false,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        6,
+        6
+      ],
+      "reads_count": [
+        19,
+        19
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [
+            "+M21",
+            "-N2 M21*18"
+          ],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "home_xy": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        8,
+        8
+      ],
+      "reads_count": [
+        19,
+        19
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "home_z": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        8,
+        8
+      ],
+      "reads_count": [
+        19,
+        19
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "jog": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        14,
+        14
+      ],
+      "reads_count": [
+        25,
+        25
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "extrude": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        15,
+        15
+      ],
+      "reads_count": [
+        26,
+        26
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "temperature": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        9,
+        9
+      ],
+      "reads_count": [
+        20,
+        20
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "fan": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        7,
+        7
+      ],
+      "reads_count": [
+        18,
+        18
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "motors_off": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        6,
+        6
+      ],
+      "reads_count": [
+        17,
+        17
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "speed_flow": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        7,
+        7
+      ],
+      "reads_count": [
+        18,
+        18
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "gcode_single": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        7,
+        7
+      ],
+      "reads_count": [
+        20,
+        20
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "gcode_several": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        9,
+        9
+      ],
+      "reads_count": [
+        22,
+        22
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "print_small": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        17,
+        17
+      ],
+      "reads_count": [
+        29,
+        29
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "print_pause_resume": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        18,
+        18
+      ],
+      "reads_count": [
+        31,
+        31
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "print_cancel": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        16,
+        16
+      ],
+      "reads_count": [
+        28,
+        28
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "resend": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        9,
+        9
+      ],
+      "reads_count": [
+        28,
+        28
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "emergency_m112": {
+    "reproducible": false,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        9,
+        9
+      ],
+      "reads_count": [
+        17,
+        17
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "prompt_answer": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        11,
+        11
+      ],
+      "reads_count": [
+        25,
+        25
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "sd_list": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        8,
+        8
+      ],
+      "reads_count": [
+        27,
+        27
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "sd_print": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        5,
+        5
+      ],
+      "reads_count": [
+        16,
+        16
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": "timed out waiting for a line matching \"Done printing file\"",
+    "ours_errors": [
+      "timed out waiting for a line matching \"Done printing file\"",
+      "timed out waiting for a line matching \"Done printing file\"",
+      "timed out waiting for a line matching \"Done printing file\"",
+      "timed out waiting for a line matching \"Done printing file\"",
+      "timed out waiting for a line matching \"Done printing file\""
+    ]
+  },
+  "sd_delete": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        5,
+        5
+      ],
+      "reads_count": [
+        16,
+        16
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "disconnect": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        5,
+        5
+      ],
+      "reads_count": [
+        16,
+        16
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "sd_print_after_list": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        12,
+        12
+      ],
+      "reads_count": [
+        36,
+        36
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "sd_delete_after_list": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        10,
+        10
+      ],
+      "reads_count": [
+        32,
+        32
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  }
+}

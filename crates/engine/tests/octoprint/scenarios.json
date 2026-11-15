@@ -1,0 +1,1015 @@
+{
+ "virtual_printer": {
+  "enabled": true,
+  "sendWait": false,
+  "capabilities": {
+   "AUTOREPORT_TEMP": false,
+   "AUTOREPORT_SD_STATUS": false
+  }
+ },
+ "octoprint": {
+  "serial": {
+   "timeout": {
+    "temperature": 3600.0,
+    "temperatureTargetSet": 3600.0,
+    "sdStatus": 3600.0
+   }
+  }
+ },
+ "why": {
+  "virtual_printer.enabled": "the plugin only answers the port VIRTUAL when it is enabled",
+  "virtual_printer.sendWait": "no `wait` lines every waitInterval seconds: they come from the wall clock",
+  "virtual_printer.capabilities.AUTOREPORT_TEMP": "no timed temperature reports from the printer: they come from the wall clock (and comm would send M155)",
+  "virtual_printer.capabilities.AUTOREPORT_SD_STATUS": "no timed SD status reports (and comm would send M27 S)",
+  "octoprint.serial.timeout.temperature": "comm's own temperature poll (default 5 s): it lands in a run at a moment that depends on how long the run took, so it is put off the clock; it also makes the read timeout 3601 s, so no timeout happens",
+  "octoprint.serial.timeout.temperatureTargetSet": "as above, the poll while a target is set (default 2 s)",
+  "octoprint.serial.timeout.sdStatus": "as above, the SD status poll while printing from the card (default 1 s)"
+ },
+ "scenarios": [
+  {
+   "name": "connect_given",
+   "what": "connect, port and baud given",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "connect_auto",
+   "what": "connect, port and baud auto-detected",
+   "connect": {
+    "port": null,
+    "baud": null
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "home_xy",
+   "what": "home X and Y (OctoPrint's XY button)",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "home",
+      "axes": [
+       "x",
+       "y"
+      ]
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "home_z",
+   "what": "home Z (OctoPrint's Z button)",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "home",
+      "axes": [
+       "z"
+      ]
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "jog",
+   "what": "jog X, Y and Z, with and without a feed rate",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "jog",
+      "x": 10,
+      "feed": 3000
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "command": {
+      "action": "jog",
+      "y": -5
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "command": {
+      "action": "jog",
+      "x": -2.5,
+      "y": 2.5,
+      "z": 0.2,
+      "feed": 1500
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "extrude",
+   "what": "extrude and retract",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "extrude",
+      "mm": 5
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "command": {
+      "action": "extrude",
+      "mm": -5
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "temperature",
+   "what": "set the nozzle and bed temperature, then off",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "temperature",
+      "heater": "nozzle",
+      "celsius": 200
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "command": {
+      "action": "temperature",
+      "heater": "bed",
+      "celsius": 60
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "command": {
+      "action": "temperature",
+      "heater": "nozzle",
+      "celsius": 0
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "command": {
+      "action": "temperature",
+      "heater": "bed",
+      "celsius": 0
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ],
+   "temperatures_moving": true
+  },
+  {
+   "name": "fan",
+   "what": "fan on and off",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "fan",
+      "on": true
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "command": {
+      "action": "fan",
+      "on": false
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "motors_off",
+   "what": "motors off",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "motors_off"
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "speed_flow",
+   "what": "feed rate and flow rate",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "speed",
+      "percent": 120
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "command": {
+      "action": "flow",
+      "percent": 90
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "gcode_single",
+   "what": "typed G-code, one line",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "M114"
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "gcode_several",
+   "what": "typed G-code, several lines (one with leading spaces, an empty one)",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "G21\n\n  M82\nM114"
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "print_small",
+   "what": "print a small G-code file to the end",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "job": {
+      "file": "small.gcode"
+     }
+    },
+    {
+     "wait_write": {
+      "match": "M117 done",
+      "count": 1
+     }
+    },
+    {
+     "settle": 800
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "print_pause_resume",
+   "what": "pause and resume during a print",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "job": {
+      "file": "long.gcode"
+     }
+    },
+    {
+     "wait_write": {
+      "match": "G1 X2\\*",
+      "count": 1
+     }
+    },
+    {
+     "control": "pause"
+    },
+    {
+     "wait_read": {
+      "match": "Count: A:",
+      "count": 1
+     }
+    },
+    {
+     "settle": 600
+    },
+    {
+     "control": "resume"
+    },
+    {
+     "wait_write": {
+      "match": "M117 end",
+      "count": 1
+     }
+    },
+    {
+     "settle": 800
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "print_cancel",
+   "what": "cancel during a print",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "job": {
+      "file": "long.gcode"
+     }
+    },
+    {
+     "wait_write": {
+      "match": "G1 X2\\*",
+      "count": 1
+     }
+    },
+    {
+     "control": "stop"
+    },
+    {
+     "wait_write": {
+      "match": "M84",
+      "count": 1
+     }
+    },
+    {
+     "settle": 800
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "resend",
+   "what": "a resend request (the virtual printer's own trigger_resend_lineno)",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "!!DEBUG:trigger_resend_lineno"
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "M114"
+     }
+    },
+    {
+     "settle": 800
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "M115"
+     }
+    },
+    {
+     "settle": 400
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "emergency_m112",
+   "what": "an emergency stop: M112 typed",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "M112"
+     }
+    },
+    {
+     "settle": 800
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "prompt_answer",
+   "what": "an action:prompt from the printer and an answer",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "!!DEBUG:action_custom prompt_begin Load filament?"
+     }
+    },
+    {
+     "settle": 300
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "!!DEBUG:action_custom prompt_button Yes"
+     }
+    },
+    {
+     "settle": 300
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "!!DEBUG:action_custom prompt_button No"
+     }
+    },
+    {
+     "settle": 300
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "!!DEBUG:action_custom prompt_show"
+     }
+    },
+    {
+     "wait_read": {
+      "match": "prompt_show",
+      "count": 1
+     }
+    },
+    {
+     "settle": 500
+    },
+    {
+     "answer": 1
+    },
+    {
+     "settle": 600
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ],
+   "virtual_printer": {
+    "capabilities": {
+     "PROMPT_SUPPORT": true
+    }
+   }
+  },
+  {
+   "name": "sd_list",
+   "what": "list the SD card (after a first reply line, so that comm's deferred card refresh has run)",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "M114"
+     }
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "sd_list"
+     }
+    },
+    {
+     "settle": 600
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ],
+   "sd_files": {
+    "benchy_long_name.gcode": "G21\nG1 X1 F3000\nG1 X2\nM117 sd done\n",
+    "other_long_name.gcode": "G28\n"
+   }
+  },
+  {
+   "name": "sd_print",
+   "what": "select a file on the SD card and print it",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "sd_print",
+      "file": "benchy_long_name.gcode"
+     }
+    },
+    {
+     "wait_read": {
+      "match": "Done printing file",
+      "count": 1
+     }
+    },
+    {
+     "settle": 800
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ],
+   "sd_files": {
+    "benchy_long_name.gcode": "G21\nG1 X1 F3000\nG1 X2\nM117 sd done\n",
+    "other_long_name.gcode": "G28\n"
+   }
+  },
+  {
+   "name": "sd_delete",
+   "what": "delete a file on the SD card",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "sd_delete",
+      "file": "other_long_name.gcode"
+     }
+    },
+    {
+     "settle": 600
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ],
+   "sd_files": {
+    "benchy_long_name.gcode": "G21\nG1 X1 F3000\nG1 X2\nM117 sd done\n",
+    "other_long_name.gcode": "G28\n"
+   }
+  },
+  {
+   "name": "disconnect",
+   "what": "connect and disconnect",
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ]
+  },
+  {
+   "name": "sd_print_after_list",
+   "what": "select a file on the SD card and print it, after listing the card (OctoPrint's API only selects a file it has listed, by its DOS name)",
+   "added_after_first_run": true,
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "M114"
+     }
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "sd_list"
+     }
+    },
+    {
+     "settle": 600
+    },
+    {
+     "command": {
+      "action": "sd_print",
+      "file": "benchy~1.gco"
+     }
+    },
+    {
+     "wait_read": {
+      "match": "Done printing file",
+      "count": 1
+     }
+    },
+    {
+     "settle": 800
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ],
+   "sd_files": {
+    "benchy_long_name.gcode": "G21\nG1 X1 F3000\nG1 X2\nM117 sd done\n",
+    "other_long_name.gcode": "G28\n"
+   }
+  },
+  {
+   "name": "sd_delete_after_list",
+   "what": "delete a file on the SD card, after listing the card",
+   "added_after_first_run": true,
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "M114"
+     }
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "sd_list"
+     }
+    },
+    {
+     "settle": 600
+    },
+    {
+     "command": {
+      "action": "sd_delete",
+      "file": "other_~1.gco"
+     }
+    },
+    {
+     "settle": 600
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ],
+   "sd_files": {
+    "benchy_long_name.gcode": "G21\nG1 X1 F3000\nG1 X2\nM117 sd done\n",
+    "other_long_name.gcode": "G28\n"
+   }
+  }
+ ]
+}

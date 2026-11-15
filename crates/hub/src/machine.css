@@ -100,6 +100,7 @@
   form.command { display: block; margin: 0; }
   .jog { display: grid; grid-template-columns: 2em auto auto; gap: 8px; align-items: center; justify-content: start; }
   .jog button[value=home] { grid-column: 1 / -1; justify-self: start; }
+  .jog .jog-homes { grid-column: 1 / -1; display: flex; gap: 8px; }
   .jog span { color: var(--muted); font-weight: 600; }
   /* The jog pad: eight directions round Home, the step and the speed beside. */
   .jogpad { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; padding: 4px; border-radius: 12px; outline: none; }

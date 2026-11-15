@@ -423,6 +423,7 @@
         clearTimeout(timer);
         let r;
         try { r = await (await fetch(`../api/machines/${ID}/sd`)).json(); } catch { status.textContent = "The hub does not answer."; return; }
+        if (r.unavailable) { status.textContent = ""; list.innerHTML = `<p class="empty">${esc(r.unavailable)}</p>`; return; }
         const files = r.files || [];
         status.textContent = !r.online ? "The printer is offline: this is what it said last." : r.asking ? "Asking the printer…" : `${files.length} ${files.length === 1 ? "file" : "files"} to print.`;
         list.innerHTML = files.length

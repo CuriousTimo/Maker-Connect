@@ -119,9 +119,6 @@ impl Store {
             }
             _ => false,
         };
-        if !started {
-            self.queue_command(space, machine_id, "Cannot re-print", "M300 P200 S600\nM117 ~Cannot re-print")?;
-        }
         Ok(started)
     }
 

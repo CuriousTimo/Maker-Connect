@@ -1,0 +1,151 @@
+{
+  "connect_given": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "connect_auto": {
+    "reproducible": false,
+    "writes": [
+      [
+        "+M21",
+        "-N2 M21*18"
+      ]
+    ],
+    "read_lines": [],
+    "errors": []
+  },
+  "home_xy": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "home_z": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "jog": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "extrude": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "temperature": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "fan": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "motors_off": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "speed_flow": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "gcode_single": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "gcode_several": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "print_small": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "print_pause_resume": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "print_cancel": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "resend": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "emergency_m112": {
+    "reproducible": false,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "prompt_answer": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "sd_list": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "sd_print": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "sd_delete": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "disconnect": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "sd_print_after_list": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  },
+  "sd_delete_after_list": {
+    "reproducible": true,
+    "writes": [],
+    "read_lines": [],
+    "errors": []
+  }
+}

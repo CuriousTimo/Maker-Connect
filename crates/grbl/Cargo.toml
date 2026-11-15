@@ -11,6 +11,9 @@ serial = ["laserfoundry-device/serial"]
 
 [dependencies]
 maker-connect-protocol = { path = "../protocol" }
-# LaserFoundry (MIT OR Apache-2.0), pinned to the commit we read.
-laserfoundry-device = { git = "https://github.com/Stitchwright/laserfoundry", rev = "3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d" }
-laserfoundry-gcode = { git = "https://github.com/Stitchwright/laserfoundry", rev = "3b9b9fa3d8d2ed2df28ea94c7c0b5243d8c1982d" }
+# LaserFoundry (MIT OR Apache-2.0), pinned to its v0.5.0 release (61febdb).
+laserfoundry-device = { git = "https://github.com/Stitchwright/laserfoundry", rev = "61febdb5d18f08f299f8501e44656da047a2ab09" }
+laserfoundry-gcode = { git = "https://github.com/Stitchwright/laserfoundry", rev = "61febdb5d18f08f299f8501e44656da047a2ab09" }
+# The machine and the frame's bounds (`gcode::frame`'s arguments), as the app builds them.
+laserfoundry-doc = { git = "https://github.com/Stitchwright/laserfoundry", rev = "61febdb5d18f08f299f8501e44656da047a2ab09" }
+laserfoundry-geom = { git = "https://github.com/Stitchwright/laserfoundry", rev = "61febdb5d18f08f299f8501e44656da047a2ab09" }

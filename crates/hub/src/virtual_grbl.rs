@@ -5,7 +5,7 @@
 
 use crate::Shared;
 use crate::store::CommandState;
-use maker_connect_grbl::{GrblMachine, SimulatedGrbl};
+use maker_connect_grbl::{GrblMachine, SimulatedGrbl, commands_of};
 use maker_connect_protocol::JobEnd;
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
@@ -40,12 +40,13 @@ fn run(store: &Shared, id: &str, token: &str, travel: Option<[f64; 2]>) {
     sim.set_latency(LINE_TIME);
     let mut laser = GrblMachine::new(Box::new(sim));
     if let Some([x, y]) = travel {
-        let _ = laser.carry_out(&format!("$130={x:.0}\n$131={y:.0}\n$$"));
+        let _ = carry_out(&mut laser, &format!("$130={x:.0}\n$131={y:.0}\n$$"), &mut None);
     }
     let mut job_end: Option<JobEnd> = None;
     loop {
         std::thread::sleep(REPORT_EVERY);
-        let (mut telemetry, ended) = laser.report();
+        let update = laser.report();
+        let (mut telemetry, ended) = (update.telemetry, update.ended);
         telemetry.firmware = Some("Grbl 1.1 (LaserFoundry's simulator)".to_owned());
         telemetry.job_end = ended.or(job_end.take());
         // What the hub has for it, with the store held only this long.
@@ -79,7 +80,7 @@ fn run(store: &Shared, id: &str, token: &str, travel: Option<[f64; 2]>) {
             (order, control, command, file)
         };
         if let Some(control) = control {
-            laser.control(control);
+            let _ = laser.control(control);
         }
         if let Some(order) = order {
             let started = file
@@ -97,7 +98,7 @@ fn run(store: &Shared, id: &str, token: &str, travel: Option<[f64; 2]>) {
             }
         }
         if let Some((command, gcode)) = command {
-            let (state, reason, output) = match laser.carry_out(&gcode) {
+            let (state, reason, output) = match carry_out(&mut laser, &gcode, &mut job_end) {
                 Ok(said) => (CommandState::Finished, None, said),
                 Err(why) => (CommandState::Rejected, Some(why), Vec::new()),
             };
@@ -106,5 +107,26 @@ fn run(store: &Shared, id: &str, token: &str, travel: Option<[f64; 2]>) {
                 .unwrap()
                 .command_went(token, command, state, reason, output);
         }
+    }
+}
+
+/// Hands a command's G-code to the laser and waits for its answers: the virtual laser's thread
+/// is the hub's own simulator (the port itself never waits). A job that ends meanwhile is kept
+/// in `ended` for the next report.
+fn carry_out(
+    laser: &mut GrblMachine,
+    gcode: &str,
+    ended: &mut Option<JobEnd>,
+) -> Result<Vec<String>, String> {
+    let ticket = laser.submit(&commands_of(gcode)?)?;
+    loop {
+        let update = laser.report();
+        if update.ended.is_some() {
+            *ended = update.ended;
+        }
+        if let Some(done) = update.done.into_iter().find(|d| d.ticket == ticket) {
+            return done.result;
+        }
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
