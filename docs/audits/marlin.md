@@ -21,7 +21,7 @@ the sources in `reference/`, never typed by hand:
 Run `python3 -I scripts/marlin-audit-check.py`. It lists every item not named here in
 backticks, refuses rows done "another way", checks that a test named in a status exists and
 holds the row's G-code, and checks the other direction: every G-code literal the agent (and
-the hub's `sd_card.rs`, `main.rs`, `queue.rs`) can send is OctoPrint's form or is named in the
+the hub's `devices/sd_card.rs`, `main.rs`, `lib.rs`, `link.rs`, `commands.rs`, `devices/legacy_gcode.rs`, `web/router.rs`, `web/shell.rs`, `web/machines.rs`, `queue.rs`) can send is OctoPrint's form or is named in the
 section "What we send that OctoPrint does not".
 
 **Status (2026-11-10):** every row has a status that is true of the current code
@@ -43,7 +43,7 @@ The column "Our agent now" is what the Rust code does for a plain Marlin printer
 - OctoPrint's behaviour is not extracted, only its names and literals; each row says in a
   line what the source does.
 - G-code files of a print and G-code text the hub queues (`carry_out`) are the user's. The
-  hub's code outside `sd_card.rs`, `main.rs`, `queue.rs` is not scanned.
+  hub's code outside `devices/sd_card.rs`, `main.rs`, `lib.rs`, `link.rs`, `commands.rs`, `devices/legacy_gcode.rs`, `web/router.rs`, `web/shell.rs`, `web/machines.rs`, `queue.rs` is not scanned.
 - Codes built from pieces (`format!` with a variable code) are seen only as far as a literal
   starts with the code.
 - Marlin's answers per G-code are not extracted; `gcode.cpp` gives only the list of codes.
@@ -507,7 +507,7 @@ The values used in `serial_comm.py` when a setting is missing. They differ from 
 
 ## What we send that OctoPrint does not
 
-Every G-code literal in the agent's code (`crates/agent/src/*.rs`, test code left out) and in the hub's `sd_card.rs`, `main.rs`, `queue.rs` whose form is not one OctoPrint sends (the forms of section 7). The agent also runs any G-code text the hub queues (`carry_out`, `hub.rs:1976`), and the files of a print, line by line: those are the user's, not listed. The column "Why" says where the code is not OctoPrint's and what keeps it from a plain Marlin printer (`--mode marlin`: `Printer::octoprint()` true, `is_prusa_mk3()` false). Status: `n/a` where the code is not reached for a plain Marlin printer or is a hub button OctoPrint has no standard for; `fixed` where a check asserts it is not sent; `OPEN` where it still reaches such a printer.
+Every G-code literal in the agent's code (`crates/agent/src/*.rs`, test code left out) and in the hub's `devices/sd_card.rs`, `main.rs`, `lib.rs`, `link.rs`, `commands.rs`, `devices/legacy_gcode.rs`, `web/router.rs`, `web/shell.rs`, `web/machines.rs`, `queue.rs` whose form is not one OctoPrint sends (the forms of section 7). The agent also runs any G-code text the hub queues (`carry_out`, `hub.rs:1976`), and the files of a print, line by line: those are the user's, not listed. The column "Why" says where the code is not OctoPrint's and what keeps it from a plain Marlin printer (`--mode marlin`: `Printer::octoprint()` true, `is_prusa_mk3()` false). Status: `n/a` where the code is not reached for a plain Marlin printer or is a hub button OctoPrint has no standard for; `fixed` where a check asserts it is not sent; `OPEN` where it still reaches such a printer.
 
 | G-code form we send | Where from (file:line) | Why / for which machines | Status |
 |---|---|---|---|

@@ -801,7 +801,7 @@ fn tidy(line: &str) -> String {
     line.strip_prefix("< ").unwrap_or(line).to_owned()
 }
 
-/// The commands of the hub's virtual lasers' G-code text (`crates/hub/src/virtual_grbl.rs`,
+/// The commands of the hub's virtual lasers' G-code text (`crates/hub/src/devices/virtual_grbl.rs`,
 /// their own simulator thread, which still speaks G-code): each line is the `Link` call
 /// LaserFoundry has for it, anything else is typed as it is.
 pub fn commands_of(gcode: &str) -> Result<Vec<Command>, String> {

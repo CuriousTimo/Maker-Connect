@@ -9,8 +9,8 @@ proxy may not make.
 From `docs/agent-engine.md`: the MINI (Prusa Connect) and Klipper (Moonraker) connect to the hub
 themselves. They get an **agent inside the hub**: the same engine (`crates/engine`) and the same
 kind of ports, run in the hub's process. The hub then makes no G-code for them either (D9):
-`jog_command`, `grbl_action` and `action()` in `crates/hub/src/main.rs`, and the queued
-`"G28"`-style strings in `prusa_connect.rs` / `printer_files.rs` / `simplyprint.rs`, go.
+`jog_command`, `grbl_action` and `action()` in `crates/hub/src/devices/legacy_gcode.rs`, and the queued
+`"G28"`-style strings in `devices/prusa_connect.rs` / `devices/printer_files.rs` / `devices/simplyprint.rs`, go.
 
 Plus **Spoolman**: the hub answers Spoolman's API (`crates/hub/src/spoolman.rs`). The owner
 decided it is API- and data-compatible with Spoolman, not a copy of it (memory
@@ -75,7 +75,7 @@ approval, once H2/H3's mappings are known.
 ## For the hub side (owner, 2026-11-15, "ok, neem mee als de hub-kant aan de beurt is")
 
 - **PnP tape count.** The hub still counts each PnP label as its picture length + 16 mm
-  (`crates/hub/src/store.rs` ~1229, tape taken off the roll; `virtual_machines.rs` ~157). The 16 mm
+  (`crates/hub/src/store/jobs.rs`, `count_off`, tape taken off the roll; `devices/virtual_machines.rs` ~157). The 16 mm
   is the old agent's own trailing blank, gone with the labelle port. Count the length with
   labelle's own margins instead, taken from the port's constants (`ports/labelle`,
   `labeler_margin_px`), so the count matches what the printer feeds.
@@ -114,7 +114,7 @@ only; the design page pass at the very end) → HS1 (engine Cargo features, the 
 engine with `default-features = false`, a small `ports::geometry` facade over ported code; test that
 the hub has no `serialport`/`nusb`) → HS2 (the 450's raster size and orientation per PageSize,
 `fit`/`media_dots`/`label.js`) → HS3 (PnP tape counted from labelle's own bitmap width; the hub draws
-no 16 mm blank — the 16 mm exists only in the count, `store.rs` ~1231, `virtual_machines.rs` ~157 —
+no 16 mm blank — the 16 mm exists only in the count, `store/jobs.rs` (`count_off`), `devices/virtual_machines.rs` ~157 —
 so L9 is a count fix, not a question; head-to-cutter tape use "unknown") → HS4 (ours, K-row: PnP
 nothing pending; 450 and laser fail pending on Close; the hub's gate rule becomes "an agent port that
 fails pending on close") → HS6 (the button, our UI; agent OctoPrint already has typed `M112`) → HS7b

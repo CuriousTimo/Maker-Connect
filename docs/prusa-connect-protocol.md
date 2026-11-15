@@ -150,7 +150,7 @@ Read in Buddy 6.3.0 and 9.0.0 (`transfers/transfer.cpp`), seen on the MINI 2026-
 to a MINI were never stuck. To trace: a MINI on Prusa Connect, upload only, and what the
 printer shows and reports. Until then the hub closes the preview with `M604` after a download
 only to the stick, as a **workaround** (only answering an `IDLE` report with no other command
-waiting); see `on_report` in `crates/hub/src/printer_files.rs`.
+waiting); see `on_report` in `crates/hub/src/devices/printer_files.rs`.
 
 ## Commands
 
@@ -330,12 +330,12 @@ connected through the agent instead (docs/marlin-serial-protocol.md).
 
 ## In Maker Connect
 
-`crates/hub/src/prusa_connect.rs` answers register, telemetry and events, and reads both
+`crates/hub/src/devices/prusa_connect.rs` answers register, telemetry and events, and reads both
 layouts (`to_telemetry`, `to_details`): the printer shows in the list with its state,
 temperatures and progress, its profile recognised from its printer type, as "Link: Prusa
 firmware ... (built-in Connect)". Every answer event in the table above settles its command;
 a command whose id is in the telemetry is kept waiting for, not given up after two minutes.
-The machine page's **USB** tab and `crates/hub/src/printer_files.rs` cover the stick:
+The machine page's **USB** tab and `crates/hub/src/devices/printer_files.rs` cover the stick:
 - looking through it, with each file's picture and details
 - printing from it, deleting (shown at once, the folder kept right from `FILE_CHANGED`; a
   file still arriving cannot be deleted), and making a folder

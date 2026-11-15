@@ -194,7 +194,7 @@ follows the firmware's rules (a line that arrives twice is dropped without an an
   buttons; pressed there it goes as a numbered `M876 S<index>` (also while a line waits: the
   emergency parser takes it). A Prusa on Connect gets `DIALOG_ACTION` (`dialog_id`, `button`).
 - **Its own SD card** (Prusa's MK3, Marlin with `Cap:SDCARD`): the hub lists it with an
-  ordinary `M20 L T` and reads the answer whole (`crates/hub/src/sd_card.rs`, the SD card
+  ordinary `M20 L T` and reads the answer whole (`crates/hub/src/devices/sd_card.rs`, the SD card
   tab); printing is `M23 <8.3 path>` and `M24`; the agent follows it with `M27` (`M27 C` on
   Marlin, for the name) and reports it as its job; pause, resume and stop from the machine
   page go to it (MK3 `M601`/`M602`/`M603`, Marlin `M25`/`M24`/`M524`).

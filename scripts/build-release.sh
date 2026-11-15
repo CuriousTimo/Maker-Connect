@@ -16,7 +16,7 @@
 #   Its Downloads page offers the newest agent release from GitHub.
 #   The archive holds no data: the database, its files, downloads and backups are made beside
 #   the database when the hub starts, so unpacking a new release over an old one keeps them.
-#   A hub that opens a database another build had backs it up first (store.rs).
+#   A hub that opens a database another build had backs it up first (store/migrate.rs).
 #
 # agent: maker-connect-agent-<os>-<arch>[.exe] for every platform.
 #

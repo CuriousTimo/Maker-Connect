@@ -10,17 +10,17 @@ from the firmware's source (6.3.0 and master). Status UNCHECKED until each row i
 |---|---|---|---|
 | `CANCEL_OBJECT` | both | — | UNCHECKED |
 | `CANCEL_PRINTER_READY` | both | — | UNCHECKED |
-| `CREATE_FOLDER` | both | printer_files.rs | UNCHECKED |
-| `DELETE_FILE` | both | printer_files.rs | UNCHECKED |
-| `DELETE_FOLDER` | both | printer_files.rs | UNCHECKED |
-| `DIALOG_ACTION` | both | main.rs | UNCHECKED |
-| `PAUSE_PRINT` | both | printer_files.rs | UNCHECKED |
+| `CREATE_FOLDER` | both | devices/printer_files.rs | UNCHECKED |
+| `DELETE_FILE` | both | devices/printer_files.rs | UNCHECKED |
+| `DELETE_FOLDER` | both | devices/printer_files.rs | UNCHECKED |
+| `DIALOG_ACTION` | both | web/machines.rs | UNCHECKED |
+| `PAUSE_PRINT` | both | devices/printer_files.rs | UNCHECKED |
 | `RESET` | both | — | UNCHECKED |
 | `RESET_PRINTER` | both | — | UNCHECKED |
-| `RESUME_PRINT` | both | printer_files.rs | UNCHECKED |
-| `SEND_FILE_INFO` | both | printer_files.rs | UNCHECKED |
+| `RESUME_PRINT` | both | devices/printer_files.rs | UNCHECKED |
+| `SEND_FILE_INFO` | both | devices/printer_files.rs | UNCHECKED |
 | `SEND_INFO` | both | — | UNCHECKED |
-| `SEND_JOB_INFO` | both | printer_files.rs | UNCHECKED |
+| `SEND_JOB_INFO` | both | devices/printer_files.rs | UNCHECKED |
 | `SEND_STATE_INFO` | both | — | UNCHECKED |
 | `SEND_TRANSFER_INFO` | both | — | UNCHECKED |
 | `SET_IDLE` | both | — | UNCHECKED |
@@ -28,10 +28,10 @@ from the firmware's source (6.3.0 and master). Status UNCHECKED until each row i
 | `SET_TOKEN` | both | — | UNCHECKED |
 | `SET_VALUE` | both | — | UNCHECKED |
 | `START_CONNECT_DOWNLOAD` | both | — | UNCHECKED |
-| `START_ENCRYPTED_DOWNLOAD` | both | printer_files.rs | UNCHECKED |
+| `START_ENCRYPTED_DOWNLOAD` | both | devices/printer_files.rs | UNCHECKED |
 | `START_INLINE_DOWNLOAD` | both | — | UNCHECKED |
-| `START_PRINT` | both | printer_files.rs, store.rs | UNCHECKED |
-| `STOP_PRINT` | both | printer_files.rs | UNCHECKED |
+| `START_PRINT` | both | devices/printer_files.rs, store/mod.rs | UNCHECKED |
+| `STOP_PRINT` | both | devices/printer_files.rs | UNCHECKED |
 | `STOP_TRANSFER` | both | — | UNCHECKED |
 | `UNCANCEL_OBJECT` | both | — | UNCHECKED |
 
@@ -45,20 +45,20 @@ from the firmware's source (6.3.0 and master). Status UNCHECKED until each row i
 | `chamber.led_intensity` | both | — | UNCHECKED |
 | `chamber.target_temp` | both | — | UNCHECKED |
 | `command` | both | — | UNCHECKED |
-| `dialog_id` | both | printer_files.rs | UNCHECKED |
+| `dialog_id` | both | devices/printer_files.rs | UNCHECKED |
 | `enclosure_enabled` | both | — | UNCHECKED |
 | `enclosure_postprint` | both | — | UNCHECKED |
 | `enclosure_postprint_filtration_time` | both | — | UNCHECKED |
 | `enclosure_printing_filtration` | both | — | UNCHECKED |
 | `hash` | both | — | UNCHECKED |
-| `hostname` | both | prusa_connect.rs | UNCHECKED |
+| `hostname` | both | devices/prusa_connect.rs | UNCHECKED |
 | `id` | both | — | UNCHECKED |
-| `iv` | both | printer_files.rs | UNCHECKED |
-| `job_id` | both | printer_files.rs, prusa_connect.rs | UNCHECKED |
-| `key` | both | printer_files.rs | UNCHECKED |
-| `kwargs` | both | printer_files.rs | UNCHECKED |
-| `orig_size` | both | printer_files.rs | UNCHECKED |
-| `path` | both | printer_files.rs | UNCHECKED |
+| `iv` | both | devices/printer_files.rs | UNCHECKED |
+| `job_id` | both | devices/printer_files.rs, devices/prusa_connect.rs | UNCHECKED |
+| `key` | both | devices/printer_files.rs | UNCHECKED |
+| `kwargs` | both | devices/printer_files.rs | UNCHECKED |
+| `orig_size` | both | devices/printer_files.rs | UNCHECKED |
+| `path` | both | devices/printer_files.rs | UNCHECKED |
 | `path_sfn` | both | — | UNCHECKED |
 | `port` | both | — | UNCHECKED |
 | `team_id` | both | — | UNCHECKED |
@@ -72,22 +72,22 @@ from the firmware's source (6.3.0 and master). Status UNCHECKED until each row i
 
 | Item | In | Hub uses | Status |
 |---|---|---|---|
-| `/f/<iv>/raw` | both | printer_files.rs | UNCHECKED |
-| `/p/events` | both | prusa_connect.rs | UNCHECKED |
-| `/p/register` | both | prusa_connect.rs | UNCHECKED |
-| `/p/telemetry` | both | prusa_connect.rs | UNCHECKED |
+| `/f/<iv>/raw` | both | devices/printer_files.rs | UNCHECKED |
+| `/p/events` | both | devices/prusa_connect.rs | UNCHECKED |
+| `/p/register` | both | devices/prusa_connect.rs | UNCHECKED |
+| `/p/telemetry` | both | devices/prusa_connect.rs | UNCHECKED |
 | `/p/ws` | both | — | UNCHECKED |
 
 ## Headers it sends
 
 | Item | In | Hub uses | Status |
 |---|---|---|---|
-| `Code` | both | prusa_connect.rs | UNCHECKED |
+| `Code` | both | devices/prusa_connect.rs | UNCHECKED |
 | `Fingerprint` | both | — | UNCHECKED |
 | `Sec-WebSocket-Key` | both | — | UNCHECKED |
 | `Sec-WebSocket-Protocol` | both | — | UNCHECKED |
 | `Sec-WebSocket-Version` | both | — | UNCHECKED |
-| `Token` | both | prusa_connect.rs | UNCHECKED |
+| `Token` | both | devices/prusa_connect.rs | UNCHECKED |
 | `Upgrade` | both | — | UNCHECKED |
 | `User-Agent-Printer` | 6.3.0 only | — | UNCHECKED |
 | `User-Agent-Version` | 6.3.0 only | — | UNCHECKED |
@@ -98,7 +98,7 @@ from the firmware's source (6.3.0 and master). Status UNCHECKED until each row i
 |---|---|---|---|
 | `ApplicationJson` | both | — | UNCHECKED |
 | `Body` | both | — | UNCHECKED |
-| `Code` | both | prusa_connect.rs | UNCHECKED |
+| `Code` | both | devices/prusa_connect.rs | UNCHECKED |
 | `CommandId` | both | — | UNCHECKED |
 | `ConnectionHeader` | both | — | UNCHECKED |
 | `ConnectionKeepAlive` | both | — | UNCHECKED |
@@ -109,7 +109,7 @@ from the firmware's source (6.3.0 and master). Status UNCHECKED until each row i
 | `StatusCode` | both | — | UNCHECKED |
 | `TextGcodeDash` | both | — | UNCHECKED |
 | `TextGcodeDot` | both | — | UNCHECKED |
-| `Token` | both | prusa_connect.rs | UNCHECKED |
+| `Token` | both | devices/prusa_connect.rs | UNCHECKED |
 | `UpgradeWebsocket` | both | — | UNCHECKED |
 | `Version` | both | — | UNCHECKED |
 | `WebSocketAccept` | both | — | UNCHECKED |
@@ -119,8 +119,8 @@ from the firmware's source (6.3.0 and master). Status UNCHECKED until each row i
 
 | Item | In | Hub uses | Status |
 |---|---|---|---|
-| `abbreviation` | master only | prusa_connect.rs | UNCHECKED |
-| `active` | both | prusa_connect.rs | UNCHECKED |
+| `abbreviation` | master only | devices/prusa_connect.rs | UNCHECKED |
+| `active` | both | devices/prusa_connect.rs | UNCHECKED |
 | `actual_netto_full_weight` | master only | — | UNCHECKED |
 | `addon_power` | both | — | UNCHECKED |
 | `api_key` | both | — | UNCHECKED |
@@ -129,62 +129,62 @@ from the firmware's source (6.3.0 and master). Status UNCHECKED until each row i
 | `axis_y` | both | — | UNCHECKED |
 | `axis_z` | both | — | UNCHECKED |
 | `base_model` | master only | — | UNCHECKED |
-| `buttons` | both | printer_files.rs | UNCHECKED |
+| `buttons` | both | devices/printer_files.rs | UNCHECKED |
 | `canceled` | both | — | UNCHECKED |
-| `chamber` | both | prusa_connect.rs | UNCHECKED |
+| `chamber` | both | devices/prusa_connect.rs | UNCHECKED |
 | `chamber_temperature` | master only | — | UNCHECKED |
-| `children` | both | printer_files.rs | UNCHECKED |
+| `children` | both | devices/printer_files.rs | UNCHECKED |
 | `chunk` | both | — | UNCHECKED |
 | `class` | master only | — | UNCHECKED |
 | `code` | both | — | UNCHECKED |
 | `color_rgba` | master only | — | UNCHECKED |
 | `command` | 6.3.0 only | — | UNCHECKED |
-| `command_id` | both | printer_files.rs, prusa_connect.rs | UNCHECKED |
+| `command_id` | both | devices/printer_files.rs, devices/prusa_connect.rs | UNCHECKED |
 | `consumed_weight` | master only | — | UNCHECKED |
-| `data` | both | printer_files.rs, prusa_connect.rs | UNCHECKED |
-| `dialog_id` | both | printer_files.rs | UNCHECKED |
-| `display_name` | both | printer_files.rs | UNCHECKED |
+| `data` | both | devices/printer_files.rs, devices/prusa_connect.rs | UNCHECKED |
+| `dialog_id` | both | devices/printer_files.rs | UNCHECKED |
+| `display_name` | both | devices/printer_files.rs | UNCHECKED |
 | `enabled` | both | — | UNCHECKED |
-| `enclosure` | both | prusa_connect.rs | UNCHECKED |
+| `enclosure` | both | devices/prusa_connect.rs | UNCHECKED |
 | `end` | both | — | UNCHECKED |
 | `event` | both | — | UNCHECKED |
 | `extruder_fs_state` | both | — | UNCHECKED |
 | `fan_1_rpm` | both | — | UNCHECKED |
 | `fan_2_rpm` | both | — | UNCHECKED |
-| `fan_extruder` | 6.3.0 only | prusa_connect.rs | UNCHECKED |
-| `fan_hotend` | 6.3.0 only | prusa_connect.rs | UNCHECKED |
-| `fan_print` | 6.3.0 only | prusa_connect.rs | UNCHECKED |
+| `fan_extruder` | 6.3.0 only | devices/prusa_connect.rs | UNCHECKED |
+| `fan_hotend` | 6.3.0 only | devices/prusa_connect.rs | UNCHECKED |
+| `fan_print` | 6.3.0 only | devices/prusa_connect.rs | UNCHECKED |
 | `fan_pwm_target` | both | — | UNCHECKED |
 | `fan_rpm` | both | — | UNCHECKED |
-| `features` | master only | prusa_connect.rs | UNCHECKED |
+| `features` | master only | devices/prusa_connect.rs | UNCHECKED |
 | `feeder` | master only | — | UNCHECKED |
 | `filament` | 6.3.0 only | — | UNCHECKED |
 | `filament_change_in` | both | — | UNCHECKED |
 | `file` | both | — | UNCHECKED |
-| `file_count` | both | printer_files.rs | UNCHECKED |
+| `file_count` | both | devices/printer_files.rs | UNCHECKED |
 | `file_id` | both | — | UNCHECKED |
 | `filter_lifetime` | both | — | UNCHECKED |
 | `filtration_filaments` | both | — | UNCHECKED |
 | `fingerprint` | both | — | UNCHECKED |
-| `firmware` | both | prusa_connect.rs | UNCHECKED |
+| `firmware` | both | devices/prusa_connect.rs | UNCHECKED |
 | `flow` | both | — | UNCHECKED |
-| `free_space` | both | prusa_connect.rs | UNCHECKED |
+| `free_space` | both | devices/prusa_connect.rs | UNCHECKED |
 | `hardened` | 6.3.0 only | — | UNCHECKED |
 | `hash` | both | — | UNCHECKED |
 | `heatbreak_fan_rpm` | master only | — | UNCHECKED |
 | `heatbreak_temperature` | master only | — | UNCHECKED |
 | `high_flow` | 6.3.0 only | — | UNCHECKED |
-| `hostname` | both | prusa_connect.rs | UNCHECKED |
+| `hostname` | both | devices/prusa_connect.rs | UNCHECKED |
 | `id` | both | — | UNCHECKED |
 | `is_sfn` | both | — | UNCHECKED |
-| `job_id` | both | printer_files.rs, prusa_connect.rs | UNCHECKED |
-| `lan_ipv4` | both | prusa_connect.rs | UNCHECKED |
-| `lan_mac` | both | prusa_connect.rs | UNCHECKED |
+| `job_id` | both | devices/printer_files.rs, devices/prusa_connect.rs | UNCHECKED |
+| `lan_ipv4` | both | devices/prusa_connect.rs | UNCHECKED |
+| `lan_mac` | both | devices/prusa_connect.rs | UNCHECKED |
 | `led_intensity` | both | — | UNCHECKED |
 | `m_timestamp` | both | — | UNCHECKED |
-| `machine_reason` | both | printer_files.rs | UNCHECKED |
-| `material` | both | prusa_connect.rs | UNCHECKED |
-| `material_package_instance` | master only | prusa_connect.rs | UNCHECKED |
+| `machine_reason` | both | devices/printer_files.rs | UNCHECKED |
+| `material` | both | devices/prusa_connect.rs | UNCHECKED |
+| `material_package_instance` | master only | devices/prusa_connect.rs | UNCHECKED |
 | `max_bed_temperature` | master only | — | UNCHECKED |
 | `max_chamber_temperature` | master only | — | UNCHECKED |
 | `max_print_temperature` | master only | — | UNCHECKED |
@@ -195,52 +195,52 @@ from the firmware's source (6.3.0 and master). Status UNCHECKED until each row i
 | `mmu_command_in_progress` | master only | — | UNCHECKED |
 | `mmu_progress_code` | master only | — | UNCHECKED |
 | `model` | master only | — | UNCHECKED |
-| `mountpoint` | both | prusa_connect.rs | UNCHECKED |
-| `name` | both | printer_files.rs | UNCHECKED |
-| `network_info` | both | prusa_connect.rs | UNCHECKED |
-| `new_path` | both | printer_files.rs | UNCHECKED |
+| `mountpoint` | both | devices/prusa_connect.rs | UNCHECKED |
+| `name` | both | devices/printer_files.rs | UNCHECKED |
+| `network_info` | both | devices/prusa_connect.rs | UNCHECKED |
+| `new_path` | both | devices/printer_files.rs | UNCHECKED |
 | `nominal_netto_full_weight` | master only | — | UNCHECKED |
-| `nozzle_diameter` | both | prusa_connect.rs | UNCHECKED |
+| `nozzle_diameter` | both | devices/prusa_connect.rs | UNCHECKED |
 | `nozzle_hardened` | master only | — | UNCHECKED |
 | `nozzle_high_flow` | master only | — | UNCHECKED |
-| `nozzle_target_temp` | master only | prusa_connect.rs | UNCHECKED |
-| `nozzle_temp` | master only | prusa_connect.rs | UNCHECKED |
+| `nozzle_target_temp` | master only | devices/prusa_connect.rs | UNCHECKED |
+| `nozzle_temp` | master only | devices/prusa_connect.rs | UNCHECKED |
 | `objects` | both | — | UNCHECKED |
 | `odometer_e` | master only | — | UNCHECKED |
 | `odometer_id` | master only | — | UNCHECKED |
-| `old_path` | both | printer_files.rs | UNCHECKED |
-| `package` | master only | prusa_connect.rs | UNCHECKED |
-| `path` | both | printer_files.rs | UNCHECKED |
+| `old_path` | both | devices/printer_files.rs | UNCHECKED |
+| `package` | master only | devices/prusa_connect.rs | UNCHECKED |
+| `path` | both | devices/printer_files.rs | UNCHECKED |
 | `post_print` | both | — | UNCHECKED |
 | `post_print_filtration_time` | both | — | UNCHECKED |
 | `preheat_temperature` | master only | — | UNCHECKED |
-| `preview` | both | printer_files.rs | UNCHECKED |
+| `preview` | both | devices/printer_files.rs | UNCHECKED |
 | `primary_color` | master only | — | UNCHECKED |
 | `print_fan_rpm` | master only | — | UNCHECKED |
-| `printer_type` | both | prusa_connect.rs | UNCHECKED |
+| `printer_type` | both | devices/prusa_connect.rs | UNCHECKED |
 | `printing_filtration` | both | — | UNCHECKED |
-| `progress` | both | prusa_connect.rs | UNCHECKED |
+| `progress` | both | devices/prusa_connect.rs | UNCHECKED |
 | `properties` | master only | — | UNCHECKED |
-| `read_only` | both | printer_files.rs, prusa_connect.rs | UNCHECKED |
-| `reason` | both | printer_files.rs, prusa_connect.rs | UNCHECKED |
+| `read_only` | both | devices/printer_files.rs, devices/prusa_connect.rs | UNCHECKED |
+| `reason` | both | devices/printer_files.rs, devices/prusa_connect.rs | UNCHECKED |
 | `remote_fs_state` | both | — | UNCHECKED |
-| `rescan` | both | printer_files.rs | UNCHECKED |
-| `size` | both | printer_files.rs | UNCHECKED |
+| `rescan` | both | devices/printer_files.rs | UNCHECKED |
+| `size` | both | devices/printer_files.rs | UNCHECKED |
 | `slot` | 6.3.0 only | — | UNCHECKED |
 | `slot_count` | master only | — | UNCHECKED |
 | `slots` | 6.3.0 only | — | UNCHECKED |
-| `sn` | both | prusa_connect.rs | UNCHECKED |
+| `sn` | both | devices/prusa_connect.rs | UNCHECKED |
 | `speed` | both | — | UNCHECKED |
 | `start` | both | — | UNCHECKED |
-| `start_cmd_id` | both | printer_files.rs | UNCHECKED |
-| `state` | both | printer_files.rs, prusa_connect.rs | UNCHECKED |
-| `storages` | both | prusa_connect.rs | UNCHECKED |
+| `start_cmd_id` | both | devices/printer_files.rs | UNCHECKED |
+| `state` | both | devices/printer_files.rs, devices/prusa_connect.rs | UNCHECKED |
+| `storages` | both | devices/prusa_connect.rs | UNCHECKED |
 | `tags` | master only | — | UNCHECKED |
 | `target_bed` | both | — | UNCHECKED |
 | `target_nozzle` | 6.3.0 only | — | UNCHECKED |
-| `target_temp` | both | prusa_connect.rs | UNCHECKED |
+| `target_temp` | both | devices/prusa_connect.rs | UNCHECKED |
 | `team_id` | both | — | UNCHECKED |
-| `temp` | both | prusa_connect.rs | UNCHECKED |
+| `temp` | both | devices/prusa_connect.rs | UNCHECKED |
 | `temp_ambient` | both | — | UNCHECKED |
 | `temp_bed` | both | — | UNCHECKED |
 | `temp_heatbreak` | both | — | UNCHECKED |
@@ -248,12 +248,12 @@ from the firmware's source (6.3.0 and master). Status UNCHECKED until each row i
 | `temp_psu` | both | — | UNCHECKED |
 | `text` | both | — | UNCHECKED |
 | `time_in_use` | both | — | UNCHECKED |
-| `time_printing` | both | prusa_connect.rs | UNCHECKED |
-| `time_remaining` | both | prusa_connect.rs | UNCHECKED |
+| `time_printing` | both | devices/prusa_connect.rs | UNCHECKED |
+| `time_remaining` | both | devices/prusa_connect.rs | UNCHECKED |
 | `time_transferring` | both | — | UNCHECKED |
 | `title` | both | — | UNCHECKED |
 | `tool_count` | master only | — | UNCHECKED |
-| `tools` | both | prusa_connect.rs | UNCHECKED |
+| `tools` | both | devices/prusa_connect.rs | UNCHECKED |
 | `transfer` | both | — | UNCHECKED |
 | `transfer_id` | both | — | UNCHECKED |
 | `transfer_paused` | both | — | UNCHECKED |
@@ -261,12 +261,12 @@ from the firmware's source (6.3.0 and master). Status UNCHECKED until each row i
 | `transfer_time_remaining` | both | — | UNCHECKED |
 | `transfer_transferred` | both | — | UNCHECKED |
 | `transferred` | both | — | UNCHECKED |
-| `type` | both | printer_files.rs, prusa_connect.rs | UNCHECKED |
+| `type` | both | devices/printer_files.rs, devices/prusa_connect.rs | UNCHECKED |
 | `uuid` | master only | — | UNCHECKED |
 | `version` | 6.3.0 only | — | UNCHECKED |
-| `wifi_ipv4` | both | prusa_connect.rs | UNCHECKED |
-| `wifi_mac` | both | prusa_connect.rs | UNCHECKED |
-| `wifi_ssid` | both | prusa_connect.rs | UNCHECKED |
+| `wifi_ipv4` | both | devices/prusa_connect.rs | UNCHECKED |
+| `wifi_mac` | both | devices/prusa_connect.rs | UNCHECKED |
+| `wifi_ssid` | both | devices/prusa_connect.rs | UNCHECKED |
 
 ## Values it sends (states, events, types)
 
@@ -316,7 +316,7 @@ from the firmware's source (6.3.0 and master). Status UNCHECKED until each row i
 |---|---|---|---|
 | `bed_temperature (Int)` | both | — | UNCHECKED |
 | `brim_width (Int)` | both | — | UNCHECKED |
-| `display_name (Ignore)` | both | printer_files.rs | UNCHECKED |
+| `display_name (Ignore)` | both | devices/printer_files.rs | UNCHECKED |
 | `estimated_print_time (Int)` | both | — | UNCHECKED |
 | `filament cost (Float)` | both | — | UNCHECKED |
 | `filament used [cm3] (Float)` | both | — | UNCHECKED |
@@ -327,14 +327,14 @@ from the firmware's source (6.3.0 and master). Status UNCHECKED until each row i
 | `layer_height (Float)` | both | — | UNCHECKED |
 | `m_timestamp (Ignore)` | both | — | UNCHECKED |
 | `max_layer_z (Float)` | both | — | UNCHECKED |
-| `path (Ignore)` | both | printer_files.rs | UNCHECKED |
-| `preview (Ignore)` | both | printer_files.rs | UNCHECKED |
-| `read_only (Ignore)` | both | printer_files.rs, prusa_connect.rs | UNCHECKED |
-| `size (Ignore)` | both | printer_files.rs | UNCHECKED |
+| `path (Ignore)` | both | devices/printer_files.rs | UNCHECKED |
+| `preview (Ignore)` | both | devices/printer_files.rs | UNCHECKED |
+| `read_only (Ignore)` | both | devices/printer_files.rs, devices/prusa_connect.rs | UNCHECKED |
+| `size (Ignore)` | both | devices/printer_files.rs | UNCHECKED |
 | `support_material (Int)` | both | — | UNCHECKED |
 | `temperature (Int)` | both | — | UNCHECKED |
 | `total filament used for wipe tower [g] (Float)` | both | — | UNCHECKED |
-| `type (Ignore)` | both | printer_files.rs, prusa_connect.rs | UNCHECKED |
+| `type (Ignore)` | both | devices/printer_files.rs, devices/prusa_connect.rs | UNCHECKED |
 
 ## Answers a dialog takes (`common/general_response.cpp`)
 
@@ -388,7 +388,7 @@ from the firmware's source (6.3.0 and master). Status UNCHECKED until each row i
 | `Retry` | both | — | UNCHECKED |
 | `Right` | both | — | UNCHECKED |
 | `Skip` | both | — | UNCHECKED |
-| `Slowly` | both | — | **OPEN**: the hub passes button names through unchanged (printer_files.rs dialogs, main.rs DIALOG_ACTION with button), as the firmware's to_str and from_str need; but its check feeds CONTINUE and ABORT, names no firmware writes (Continue, Abort): to use the firmware's names (checked 2026-11-10) |
+| `Slowly` | both | — | **OPEN**: the hub passes button names through unchanged (devices/printer_files.rs dialogs, web/machines.rs DIALOG_ACTION with button), as the firmware's to_str and from_str need; but its check feeds CONTINUE and ABORT, names no firmware writes (Continue, Abort): to use the firmware's names (checked 2026-11-10) |
 | `SpoolJoin` | both | — | UNCHECKED |
 | `Stop` | both | — | UNCHECKED |
 | `Tool1` | 6.3.0 only | — | UNCHECKED |

@@ -234,10 +234,10 @@ pub(crate) fn prepare_hub(
 }
 
 /// Told when a new build is in place: the hub stops serving and tries it (main).
-pub(crate) static UPDATE: tokio::sync::Notify = tokio::sync::Notify::const_new();
+pub static UPDATE: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 /// The database back as it was before an update, for the build before.
-pub(crate) fn restore_database(trial: &update::Trial) {
+pub fn restore_database(trial: &update::Trial) {
     let (Some(db), Some(backup)) = (trial.note["db"].as_str(), trial.note["backup"].as_str())
     else {
         return;

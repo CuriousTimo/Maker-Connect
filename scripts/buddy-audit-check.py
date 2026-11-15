@@ -119,7 +119,30 @@ for row in AUDIT.splitlines():
 no_test = sorted(n for n in cited if not re.search(rf"\bfn {n}\(", code))
 
 # The other way: what our hub uses, from its Connect code (tests left out).
-HUB_FILES = ["prusa_connect.rs", "printer_files.rs", "main.rs", "farm.rs", "store.rs", "queue.rs"]
+HUB_FILES = [
+    "devices/prusa_connect.rs",
+    "devices/printer_files.rs",
+    # What was main.rs: the binary, the library root, the agent link, the commands, the router and pages.
+    "main.rs",
+    "lib.rs",
+    "link.rs",
+    "commands.rs",
+    "devices/legacy_gcode.rs",
+    "web/router.rs",
+    "web/shell.rs",
+    "web/machines.rs",
+    "farm.rs",
+    # What was store.rs.
+    "store/mod.rs",
+    "store/migrate.rs",
+    "store/files.rs",
+    "store/jobs.rs",
+    "store/agents.rs",
+    "store/history.rs",
+    "store/commands.rs",
+    "store/machines.rs",
+    "queue.rs",
+]
 
 
 def hub_code(name):
@@ -148,7 +171,7 @@ for name, text in hub.items():
     for m in re.finditer(r'"kwargs"\s*:\s*\{([^{}]*)\}', text):
         for key in re.findall(r'"([a-z_][a-z0-9_.]*)"\s*:', m.group(1)):
             use("argument", key, name)
-for name in ("prusa_connect.rs", "printer_files.rs"):
+for name in ("devices/prusa_connect.rs", "devices/printer_files.rs"):
     text = hub[name]
     # Fields read from what the printer sends: .get("key"), ["key"], .pointer("/a/b").
     reads = re.findall(r'\.get\("([a-z_][a-z0-9_]*)"\)', text) + re.findall(r'\["([a-z_][a-z0-9_]*)"\](?!\s*=[^=])', text)

@@ -15,7 +15,7 @@ the talking. Each must be named in the audit (in backticks). Prints what is miss
 exits 1 if anything is.
 
 Then the other way round: every G-code our agent can send (literals in crates/agent/src
-and the hub's sd_card.rs, main.rs, queue.rs, test code left out) must be one OctoPrint
+and the hub's devices/sd_card.rs, main.rs, lib.rs, link.rs, commands.rs, devices/legacy_gcode.rs, web/*.rs, queue.rs, test code left out) must be one OctoPrint
 sends, in its form, or be named in the audit's section "What we send that OctoPrint does not".
 Marlin's own list is the reference for "does the firmware have it at all".
 
@@ -356,7 +356,11 @@ def rust_strings(text):
 
 ours = {}
 sources = [("agent", p) for p in sorted((ROOT / "crates" / "agent" / "src").glob("*.rs"))]
-sources += [("hub", ROOT / "crates" / "hub" / "src" / n) for n in ("sd_card.rs", "main.rs", "queue.rs")]
+# The hub's G-code: its SD card, the commands (what was main.rs: the binary, the library root, the
+# agent link, the commands, the legacy G-code, the router and pages) and the queue.
+HUB_GCODE = ("devices/sd_card.rs", "main.rs", "lib.rs", "link.rs", "commands.rs", "devices/legacy_gcode.rs",
+             "web/router.rs", "web/shell.rs", "web/machines.rs", "queue.rs")
+sources += [("hub", ROOT / "crates" / "hub" / "src" / n) for n in HUB_GCODE]
 for crate, path in sources:
     text = nontest(path.read_text())
     for start, literal in rust_strings(text):
@@ -379,7 +383,7 @@ not_in_marlin = sorted(
     c for c in ours
     if re.match(r"[GM]\d+$", c.split()[0]) and c.split()[0] not in (marlin_g | marlin_m)
 )
-print(f"G-codes we can send (agent code; hub: sd_card.rs, main.rs, queue.rs): {len(ours)}; "
+print(f"G-codes we can send (agent code; hub: devices/sd_card.rs, main.rs, lib.rs, link.rs, commands.rs, devices/legacy_gcode.rs, web/, queue.rs): {len(ours)}; "
       f"as OctoPrint sends them: {sum(as_theirs(c) for c in ours)}; not in Marlin's dispatch: {len(not_in_marlin)}")
 if not_in_marlin:
     print("  not in Marlin's gcode.cpp (Prusa or host-side): " + ", ".join(not_in_marlin))

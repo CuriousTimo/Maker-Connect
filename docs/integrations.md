@@ -147,7 +147,7 @@ three components that connect outward by themselves:
   `url` option. That option is in the code, not in Moonraker's docs, so a newer Moonraker may
   change it. Over it: temperatures, state, job progress, the bed mesh, the computer, Klipper's
   console; and from the server G-code, pause, resume, cancel, and a file to fetch from a URL
-  and print. Built here: `crates/hub/src/simplyprint.rs`. The server must never send
+  and print. Built here: `crates/hub/src/devices/simplyprint.rs`. The server must never send
   `new_token` or `complete_setup`: Moonraker answers those by going back to SimplyPrint's own
   servers. A printer has one `[simplyprint]`: pointed here, it is not on SimplyPrint.
 - **`[mqtt]`** connects to an MQTT broker and takes most of Moonraker's API over it, but not

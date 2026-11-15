@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Checks docs/audits/klipper.md against Moonraker's [simplyprint] component, mechanically.
 
-The hub (crates/hub/src/simplyprint.rs) plays the SimplyPrint SERVER for Moonraker. The server
+The hub (crates/hub/src/devices/simplyprint.rs) plays the SimplyPrint SERVER for Moonraker. The server
 itself is closed, so the reference is the open client: reference/moonraker/moonraker/components/
 simplyprint.py. Every item below is taken from that source, never typed by hand:
 
@@ -29,7 +29,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PY = ROOT / "reference" / "moonraker" / "moonraker" / "components" / "simplyprint.py"
-RS = ROOT / "crates" / "hub" / "src" / "simplyprint.rs"
+RS = ROOT / "crates" / "hub" / "src" / "devices" / "simplyprint.rs"
 AUDIT_PATH = ROOT / "docs" / "audits" / "klipper.md"
 
 

@@ -5,12 +5,9 @@ hardware). PATH: `export PATH=/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PAT
 `export CARGO_TARGET_DIR=target-split`. Read `docs/hub-modules.md` (the approved design, HS0a and
 "Decided (proxy)") and follow its steps 0–12 exactly.
 
-**Work only in your own git worktree** (`../Maker-Connect-hs0a`, branch `hs0a`, made from `main`);
-never touch the main working tree, where the Spoolman audit agent (HS12) works. Do not touch, move
-or reformat `spoolman.rs` (it moves in HS0b). After the merge, the test list may grow only by the
-Spoolman audit's tests, and nothing else. The owner asked to start without waiting for that agent
-("moeten we echt op die ene agent wachten?", 2026-11-15). No commit except on your branch if the
-owner asks; no push, no deploy.
+**No other agent works on the hub now** (HS7a and the Spoolman audit are finished and committed,
+`8d6828a`). Work in the main tree. Do not move `spoolman.rs` or `spoolman/` (it moves in HS0b); they
+may be touched only for `use` paths. No commit unless the owner asks; no push, no deploy.
 
 **Only moving code.** No renamed functions, no changed logic. Allowed edits: `mod` lines, `use`
 paths, `pub(super)`/`pub(crate)`/`pub` visibility, `include_str!`/`include_bytes!` paths, and the
@@ -22,7 +19,7 @@ stop and report. Re-read line ranges as you go (the design
 cites today's lines; HS7a and the 404 changed `main.rs`).
 
 Steps (one reviewable step each, report at the end):
-0. Record `cargo test -p maker-connect-hub -- --list` into a file (names and count; it is 118 now);
+0. Record `cargo test -p maker-connect-hub -- --list` into a file (names and count; it is 119 now);
    after each step diff the sorted list by the last path segment (module prefixes change as tests
    move). Add the snapshot as a unit test (in `access.rs` tests, `include_str!("../tests/routes.txt")`;
    the crate is binary-only until step 2): the sorted route paths as `route_sources` parses them,

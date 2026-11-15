@@ -1,0 +1,1208 @@
+# route paths
+/
+/about
+/about/update
+/account/password
+/agents/update
+/api/agent/v1/files/{id}
+/api/agent/v1/jobs/{id}/file
+/api/agent/v1/register
+/api/agent/v1/telemetry
+/api/agent/v1/update/{tag}/{file}
+/api/apps/v1/files
+/api/apps/v1/info
+/api/apps/v1/machines
+/api/apps/v1/me
+/api/codes
+/api/files
+/api/files/examples
+/api/files/remove
+/api/jobs/summary
+/api/machines
+/api/machines/stream
+/api/machines/{id}/history
+/api/machines/{id}/sd
+/api/machines/{id}/usb
+/api/me
+/api/parts/{id}
+/api/parts/{id}/count
+/api/parts/{id}/files
+/api/parts/{id}/files/{file}/remove
+/api/parts/{id}/ledger
+/api/parts/{id}/remove
+/api/profiles
+/api/projects
+/api/projects/{id}
+/api/projects/{id}/parts
+/api/projects/{id}/remove
+/api/schedule
+/api/space/audit
+/api/stock
+/api/stock/catalogue/{external_id}/take
+/api/stock/export/spoolman
+/api/stock/import/spoolman
+/api/stock/items/{id}/amount
+/api/stock/items/{id}/load
+/api/stock/items/{id}/move
+/api/stock/items/{id}/movements
+/api/stock/items/{id}/unload
+/api/stock/items/{id}/used-up
+/api/stock/locations
+/api/stock/locations/{id}
+/api/stock/materials
+/api/stock/materials/{id}
+/api/stock/receive
+/api/storage
+/api/update
+/api/v1/article-number
+/api/v1/backup
+/api/v1/export/{what}
+/api/v1/external/filament
+/api/v1/external/filament/search
+/api/v1/external/material
+/api/v1/field/{entity}
+/api/v1/field/{entity}/{key}
+/api/v1/field/{entity}/{key}/values
+/api/v1/filament
+/api/v1/filament/{id}
+/api/v1/filament/{id}/tag
+/api/v1/filament/{id}/tag/{uid}
+/api/v1/health
+/api/v1/info
+/api/v1/location
+/api/v1/location/{*name}
+/api/v1/lot-number
+/api/v1/material
+/api/v1/setting/
+/api/v1/setting/{key}
+/api/v1/spool
+/api/v1/spool/{id}
+/api/v1/spool/{id}/measure
+/api/v1/spool/{id}/tag
+/api/v1/spool/{id}/tag/{uid}
+/api/v1/spool/{id}/use
+/api/v1/tag/reader
+/api/v1/tag/scan
+/api/v1/tag/scan/{reader}
+/api/v1/vendor
+/api/v1/vendor/{id}
+/downloads
+/downloads/{name}
+/f/{iv}/raw
+/files
+/files/{id}/download
+/files/{id}/frame
+/files/{id}/print
+/files/{id}/remove
+/files/{id}/thumbnail.png
+/instance/open-spaces
+/invite/{token}
+/klipper
+/login
+/logo.svg
+/logout
+/machines
+/machines/
+/machines/{id}
+/machines/{id}/access
+/machines/{id}/agent/update
+/machines/{id}/answer
+/machines/{id}/ask
+/machines/{id}/bad
+/machines/{id}/command
+/machines/{id}/farm
+/machines/{id}/grants
+/machines/{id}/grants/{user}/remove
+/machines/{id}/job
+/machines/{id}/labels
+/machines/{id}/laser
+/machines/{id}/media
+/machines/{id}/move
+/machines/{id}/name
+/machines/{id}/not-ready
+/machines/{id}/out-of-use
+/machines/{id}/ppe
+/machines/{id}/profile
+/machines/{id}/queue/order
+/machines/{id}/queue/{item}/remove
+/machines/{id}/ready
+/machines/{id}/remove
+/machines/{id}/safety
+/machines/{id}/sd/print
+/machines/{id}/serviced
+/machines/{id}/sheet
+/machines/{id}/taken
+/machines/{id}/upkeep
+/machines/{id}/usb/delete
+/machines/{id}/usb/folder
+/machines/{id}/usb/preview
+/machines/{id}/usb/print
+/machines/{id}/usb/send
+/organisation/name
+/p/events
+/p/register
+/p/telemetry
+/pair
+/path
+/permissions/groups
+/permissions/groups/{group}/grants
+/permissions/groups/{group}/grants/{user}/remove
+/permissions/groups/{group}/machines
+/permissions/groups/{group}/machines/{machine}/remove
+/permissions/groups/{group}/people/{user}
+/permissions/groups/{group}/remove
+/permissions/people/{user}
+/permissions/people/{user}/permission
+/permissions/requests/{id}/{answer}
+/profiles/{brand}/{file}
+/projects
+/setup
+/simplyprint/{token}
+/simplyprint/{token}/jobs/{job}/file
+/simplyprint/{token}/{*rest}
+/space
+/space/invites
+/space/invites/{id}/revoke
+/space/members/{user}/remove
+/space/members/{user}/role
+/space/name
+/space/safety
+/space/tokens
+/space/tokens/{id}/revoke
+/spaces
+/spaces/switch
+/spool/show/{id}
+/stock
+/virtual
+/welcome
+# RULES
+("*", "/login", Public, None)
+("*", "/setup", Public, None)
+("*", "/logo.svg", Public, None)
+("*", "/api/agent/v1/register", Public, None)
+("*", "/api/agent/v1/telemetry", Public, None)
+("*", "/api/agent/v1/jobs/{id}/file", Public, None)
+("*", "/api/agent/v1/files/{id}", Public, None)
+("*", "/p/register", Public, None)
+("*", "/p/telemetry", Public, None)
+("*", "/p/events", Public, None)
+("GET", "/f/{iv}/raw", Public, None)
+("*", "/simplyprint/{token}", Public, None)
+("*", "/simplyprint/{token}/jobs/{job}/file", Public, None)
+("*", "/simplyprint/{token}/{*rest}", Public, None)
+("*", "/invite/{token}", Public, None)
+("GET", "/api/apps/v1/info", Public, None)
+("POST", "/api/apps/v1/files", Role(Member), Some("sent a file from a program"))
+("POST", "/logout", Signed, None)
+("GET", "/api/me", Signed, None)
+("GET", "/welcome", Signed, None)
+("POST", "/spaces/switch", Signed, None)
+("POST", "/spaces", Signed, None)
+("POST", "/account/password", Signed, None)
+("POST", "/instance/open-spaces", InstanceAdmin, None)
+("GET", "/api/update", InstanceAdmin, None)
+("POST", "/about/update", InstanceAdmin, None)
+("POST", "/machines/{id}/agent/update", Machine(Manage), None)
+("POST", "/agents/update", Role(Admin), None)
+("GET", "/api/agent/v1/update/{tag}/{file}", Public, None)
+("POST", "/space/name", Role(Admin), Some("renamed the space"))
+("POST", "/organisation/name", Role(Admin), Some("renamed the organisation"))
+("POST", "/space/invites", Role(Admin), Some("made an invite link"))
+("POST", "/space/invites/{id}/revoke", Role(Admin), Some("revoked an invite link"))
+("POST", "/space/members/{user}/role", Role(Admin), Some("changed a member's role"))
+("POST", "/space/members/{user}/remove", Role(Admin), Some("removed a member"))
+("POST", "/space/tokens", Role(Admin), Some("made an API token"))
+("POST", "/space/tokens/{id}/revoke", Role(Admin), Some("revoked an API token"))
+("GET", "/api/space/audit", Role(Admin), None)
+("POST", "/pair", Role(Admin), Some("added a machine"))
+("POST", "/virtual", Role(Admin), Some("added a virtual machine"))
+("POST", "/klipper", Role(Admin), Some("added a Klipper printer"))
+("POST", "/machines/{id}/profile", Machine(Manage), Some("chose the profile of"))
+("POST", "/machines/{id}/name", Machine(Manage), Some("renamed"))
+("POST", "/machines/{id}/labels", Machine(Manage), Some("labelled"))
+("POST", "/machines/{id}/move", Machine(Manage), None)
+("POST", "/machines/{id}/remove", Machine(Manage), Some("removed"))
+("POST", "/machines/{id}/out-of-use", Machine(Manage), Some("changed whether in use"))
+("POST", "/machines/{id}/access", Machine(Manage), Some("changed who may use"))
+("POST", "/permissions/people/{user}", Role(Admin), None)
+("POST", "/permissions/groups/{group}/people/{user}", Role(Admin), None)
+("POST", "/permissions/people/{user}/permission", Role(Admin), None)
+("POST", "/permissions/groups", Role(Admin), None)
+("POST", "/permissions/groups/{group}/remove", Role(Admin), None)
+("POST", "/permissions/groups/{group}/machines", Role(Admin), None)
+("POST", "/permissions/groups/{group}/machines/{machine}/remove", Role(Admin), None)
+("POST", "/permissions/groups/{group}/grants", Role(Admin), None)
+("POST", "/permissions/groups/{group}/grants/{user}/remove", Role(Admin), None)
+("POST", "/machines/{id}/grants", Machine(Manage), Some("gave permission on"))
+("POST", "/machines/{id}/grants/{user}/remove", Machine(Manage), Some("took permission away on"))
+("POST", "/machines/{id}/laser", Machine(Manage), Some("set the laser module of"))
+("POST", "/machines/{id}/command", Machine(Operate), Some("sent a command to"))
+("POST", "/machines/{id}/job", Machine(Use), Some("paused, resumed or stopped the job on"))
+("POST", "/machines/{id}/taken", Machine(Use), Some("took the print off"))
+("POST", "/machines/{id}/not-ready", Machine(Use), Some("said it is not ready after all:"))
+("POST", "/machines/{id}/answer", Machine(Use), Some("answered the question on the screen of"))
+("POST", "/machines/{id}/media", Machine(Use), Some("said what is loaded in"))
+("GET", "/api/machines/{id}/sd", Machine(View), None)
+("POST", "/machines/{id}/sd/print", Machine(Use), Some("printed from the SD card of"))
+("GET", "/api/machines/{id}/usb", Machine(View), None)
+("GET", "/machines/{id}/usb/preview", Machine(View), None)
+("POST", "/machines/{id}/usb/print", Machine(Use), Some("printed from the USB stick of"))
+("POST", "/machines/{id}/usb/delete", Machine(Use), Some("deleted from the USB stick of"))
+("POST", "/machines/{id}/usb/folder", Machine(Use), Some("made a folder on the USB stick of"))
+("POST", "/machines/{id}/usb/send", Machine(Use), Some("sent a file to the USB stick of"))
+("POST", "/api/projects", Role(Member), Some("made a project"))
+("POST", "/api/projects/{id}", Role(Member), Some("changed a project"))
+("POST", "/api/projects/{id}/remove", Role(Member), Some("removed a project"))
+("POST", "/api/projects/{id}/parts", Role(Member), Some("added a part"))
+("POST", "/api/parts/{id}", Role(Member), Some("changed a part"))
+("POST", "/api/parts/{id}/remove", Role(Member), Some("removed a part"))
+("POST", "/api/parts/{id}/files", Role(Member), Some("gave a part a file"))
+("POST", "/api/parts/{id}/files/{file}/remove", Role(Member), Some("took a file from a part"))
+("POST", "/api/parts/{id}/count", Role(Admin), Some("corrected a part's count"))
+("POST", "/machines/{id}/farm", Machine(Manage), Some("changed whether the queue sends work to"))
+("POST", "/machines/{id}/ask", Machine(View), Some("asked for permission on"))
+("POST", "/permissions/requests/{id}/{answer}", Role(Admin), None)
+("POST", "/space/safety", Role(Admin), Some("switched the PPE checks of the space"))
+("POST", "/machines/{id}/queue/order", Machine(View), None)
+("POST", "/machines/{id}/queue/{item}/remove", Machine(View), Some("took a file out of the queue of"))
+("POST", "/machines/{id}/ppe", Machine(Use), Some("confirmed having and wearing the PPE for"))
+("POST", "/machines/{id}/safety", Machine(Manage), Some("changed the PPE of"))
+("POST", "/machines/{id}/sheet", Machine(Use), Some("swapped the build plate of"))
+("POST", "/machines/{id}/upkeep", Machine(Manage), Some("set the service interval of"))
+("POST", "/machines/{id}/serviced", Machine(Manage), Some("did the maintenance of"))
+("POST", "/machines/{id}/ready", Machine(Use), Some("set ready"))
+("POST", "/machines/{id}/bad", Machine(Use), Some("marked a bad print on"))
+("POST", "/api/files", Role(Member), Some("uploaded a file"))
+("POST", "/api/files/examples", Role(Member), Some("added the example files"))
+("POST", "/files/{id}/remove", Role(Member), Some("removed a file"))
+("POST", "/api/files/remove", Role(Member), Some("removed files"))
+("POST", "/files/{id}/print", Role(Member), Some("started a job with"))
+("POST", "/files/{id}/frame", Role(Member), Some("framed"))
+("GET", "/api/codes", Role(Guest), None)
+("POST", "/api/stock/materials", Role(Member), Some("added a material"))
+("POST", "/api/stock/materials/{id}", Role(Member), Some("changed a material"))
+("POST", "/api/stock/locations", Role(Member), Some("added a location"))
+("POST", "/api/stock/locations/{id}", Role(Member), Some("changed a location"))
+("DELETE", "/api/stock/locations/{id}", Role(Member), Some("removed a location"))
+("POST", "/api/stock/receive", Role(Member), Some("received stock"))
+("POST", "/api/stock/items/{id}/move", Role(Member), Some("moved"))
+("POST", "/api/stock/items/{id}/load", Role(Member), Some("loaded"))
+("POST", "/api/stock/items/{id}/unload", Role(Member), Some("unloaded"))
+("POST", "/api/stock/items/{id}/amount", Role(Member), Some("set the amount of"))
+("POST", "/api/stock/items/{id}/used-up", Role(Member), Some("used up"))
+("POST", "/api/stock/catalogue/{external_id}/take", Role(Member), Some("took from SpoolmanDB"))
+("POST", "/api/stock/import/spoolman", Role(Admin), Some("imported from Spoolman"))
+("POST", "/api/stock/export/spoolman", Role(Admin), Some("exported to Spoolman"))
+("POST", "/api/v1/vendor", Role(Member), Some("added a vendor"))
+("PATCH", "/api/v1/vendor/{id}", Role(Member), Some("changed vendor"))
+("DELETE", "/api/v1/vendor/{id}", Role(Member), Some("removed vendor"))
+("POST", "/api/v1/filament", Role(Member), Some("added a filament"))
+("PATCH", "/api/v1/filament/{id}", Role(Member), Some("changed filament"))
+("DELETE", "/api/v1/filament/{id}", Role(Member), Some("removed filament"))
+("POST", "/api/v1/spool", Role(Member), Some("added a spool"))
+("PATCH", "/api/v1/spool/{id}", Role(Member), Some("changed spool"))
+("DELETE", "/api/v1/spool/{id}", Role(Member), Some("removed spool"))
+("PUT", "/api/v1/spool/{id}/use", Role(Member), None)
+("PUT", "/api/v1/spool/{id}/measure", Role(Member), Some("weighed spool"))
+("PATCH", "/api/v1/location/{*name}", Role(Member), Some("renamed a location"))
+("POST", "/api/v1/setting/{key}", Role(Member), Some("changed a setting"))
+("POST", "/api/v1/field/{entity}/{key}", Role(Admin), Some("added a field"))
+("DELETE", "/api/v1/field/{entity}/{key}", Role(Admin), Some("removed a field"))
+("POST", "/api/v1/spool/{id}/tag", Role(Member), Some("tagged spool"))
+("DELETE", "/api/v1/spool/{id}/tag/{uid}", Role(Member), Some("untagged spool"))
+("POST", "/api/v1/filament/{id}/tag", Role(Member), Some("tagged filament"))
+("DELETE", "/api/v1/filament/{id}/tag/{uid}", Role(Member), Some("untagged filament"))
+("POST", "/api/v1/tag/scan", Role(Member), None)
+("POST", "/api/v1/backup", Role(Admin), Some("backed up the materials"))
+# status: method path, then none guest member admin owner
+GET / => 401 200 200 200 200
+POST / => 401 403 403 403 403
+PUT / => 401 403 403 403 403
+PATCH / => 401 403 403 403 403
+DELETE / => 401 403 403 403 403
+GET /about => 401 200 200 200 200
+POST /about => 401 403 403 403 403
+PUT /about => 401 403 403 403 403
+PATCH /about => 401 403 403 403 403
+DELETE /about => 401 403 403 403 403
+GET /about/update => 401 405 405 405 405
+POST /about/update => 401 403 403 403 403
+PUT /about/update => 401 403 403 403 403
+PATCH /about/update => 401 403 403 403 403
+DELETE /about/update => 401 403 403 403 403
+GET /account/password => 401 405 405 405 405
+POST /account/password => 401 415 415 415 415
+PUT /account/password => 401 403 403 403 403
+PATCH /account/password => 401 403 403 403 403
+DELETE /account/password => 401 403 403 403 403
+GET /agents/update => 401 405 405 405 405
+POST /agents/update => 401 403 403 not-called not-called
+PUT /agents/update => 401 403 403 403 403
+PATCH /agents/update => 401 403 403 403 403
+DELETE /agents/update => 401 403 403 403 403
+GET /api/agent/v1/files/{id} => 404 404 404 404 404
+POST /api/agent/v1/files/{id} => 405 405 405 405 405
+PUT /api/agent/v1/files/{id} => 405 405 405 405 405
+PATCH /api/agent/v1/files/{id} => 405 405 405 405 405
+DELETE /api/agent/v1/files/{id} => 405 405 405 405 405
+GET /api/agent/v1/jobs/{id}/file => 404 404 404 404 404
+POST /api/agent/v1/jobs/{id}/file => 405 405 405 405 405
+PUT /api/agent/v1/jobs/{id}/file => 405 405 405 405 405
+PATCH /api/agent/v1/jobs/{id}/file => 405 405 405 405 405
+DELETE /api/agent/v1/jobs/{id}/file => 405 405 405 405 405
+GET /api/agent/v1/register => 405 405 405 405 405
+POST /api/agent/v1/register => 415 415 415 415 415
+PUT /api/agent/v1/register => 405 405 405 405 405
+PATCH /api/agent/v1/register => 405 405 405 405 405
+DELETE /api/agent/v1/register => 405 405 405 405 405
+GET /api/agent/v1/telemetry => 405 405 405 405 405
+POST /api/agent/v1/telemetry => 415 415 415 415 415
+PUT /api/agent/v1/telemetry => 405 405 405 405 405
+PATCH /api/agent/v1/telemetry => 405 405 405 405 405
+DELETE /api/agent/v1/telemetry => 405 405 405 405 405
+GET /api/agent/v1/update/{tag}/{file} => 404 404 404 404 404
+POST /api/agent/v1/update/{tag}/{file} => 403 403 403 403 403
+PUT /api/agent/v1/update/{tag}/{file} => 403 403 403 403 403
+PATCH /api/agent/v1/update/{tag}/{file} => 403 403 403 403 403
+DELETE /api/agent/v1/update/{tag}/{file} => 403 403 403 403 403
+GET /api/apps/v1/files => 401 401 401 401 401
+POST /api/apps/v1/files => 401 401 401 401 401
+PUT /api/apps/v1/files => 401 401 401 401 401
+PATCH /api/apps/v1/files => 401 401 401 401 401
+DELETE /api/apps/v1/files => 401 401 401 401 401
+GET /api/apps/v1/info => 200 200 200 200 200
+POST /api/apps/v1/info => 403 403 403 403 403
+PUT /api/apps/v1/info => 403 403 403 403 403
+PATCH /api/apps/v1/info => 403 403 403 403 403
+DELETE /api/apps/v1/info => 403 403 403 403 403
+GET /api/apps/v1/machines => 401 401 401 401 401
+POST /api/apps/v1/machines => 401 401 401 401 401
+PUT /api/apps/v1/machines => 401 401 401 401 401
+PATCH /api/apps/v1/machines => 401 401 401 401 401
+DELETE /api/apps/v1/machines => 401 401 401 401 401
+GET /api/apps/v1/me => 401 401 401 401 401
+POST /api/apps/v1/me => 401 401 401 401 401
+PUT /api/apps/v1/me => 401 401 401 401 401
+PATCH /api/apps/v1/me => 401 401 401 401 401
+DELETE /api/apps/v1/me => 401 401 401 401 401
+GET /api/codes => 401 400 400 400 400
+POST /api/codes => 401 403 403 403 403
+PUT /api/codes => 401 403 403 403 403
+PATCH /api/codes => 401 403 403 403 403
+DELETE /api/codes => 401 403 403 403 403
+GET /api/files => 401 200 200 200 200
+POST /api/files => 401 403 400 400 400
+PUT /api/files => 401 403 403 403 403
+PATCH /api/files => 401 403 403 403 403
+DELETE /api/files => 401 403 403 403 403
+GET /api/files/examples => 401 405 405 405 405
+POST /api/files/examples => 401 403 200 200 200
+PUT /api/files/examples => 401 403 403 403 403
+PATCH /api/files/examples => 401 403 403 403 403
+DELETE /api/files/examples => 401 403 403 403 403
+GET /api/files/remove => 401 405 405 405 405
+POST /api/files/remove => 401 403 415 415 415
+PUT /api/files/remove => 401 403 403 403 403
+PATCH /api/files/remove => 401 403 403 403 403
+DELETE /api/files/remove => 401 403 403 403 403
+GET /api/jobs/summary => 401 400 400 400 400
+POST /api/jobs/summary => 401 403 403 403 403
+PUT /api/jobs/summary => 401 403 403 403 403
+PATCH /api/jobs/summary => 401 403 403 403 403
+DELETE /api/jobs/summary => 401 403 403 403 403
+GET /api/machines => 401 200 200 200 200
+POST /api/machines => 401 403 403 403 403
+PUT /api/machines => 401 403 403 403 403
+PATCH /api/machines => 401 403 403 403 403
+DELETE /api/machines => 401 403 403 403 403
+GET /api/machines/stream => 401 200 200 200 200
+POST /api/machines/stream => 401 403 403 403 403
+PUT /api/machines/stream => 401 403 403 403 403
+PATCH /api/machines/stream => 401 403 403 403 403
+DELETE /api/machines/stream => 401 403 403 403 403
+GET /api/machines/{id}/history => 401 404 404 404 404
+POST /api/machines/{id}/history => 401 403 403 403 403
+PUT /api/machines/{id}/history => 401 403 403 403 403
+PATCH /api/machines/{id}/history => 401 403 403 403 403
+DELETE /api/machines/{id}/history => 401 403 403 403 403
+GET /api/machines/{id}/sd => 401 404 404 404 404
+POST /api/machines/{id}/sd => 401 403 403 403 403
+PUT /api/machines/{id}/sd => 401 403 403 403 403
+PATCH /api/machines/{id}/sd => 401 403 403 403 403
+DELETE /api/machines/{id}/sd => 401 403 403 403 403
+GET /api/machines/{id}/usb => 401 404 404 404 404
+POST /api/machines/{id}/usb => 401 403 403 403 403
+PUT /api/machines/{id}/usb => 401 403 403 403 403
+PATCH /api/machines/{id}/usb => 401 403 403 403 403
+DELETE /api/machines/{id}/usb => 401 403 403 403 403
+GET /api/me => 401 200 200 200 200
+POST /api/me => 401 403 403 403 403
+PUT /api/me => 401 403 403 403 403
+PATCH /api/me => 401 403 403 403 403
+DELETE /api/me => 401 403 403 403 403
+GET /api/parts/{id} => 401 405 405 405 405
+POST /api/parts/{id} => 401 403 415 415 415
+PUT /api/parts/{id} => 401 403 403 403 403
+PATCH /api/parts/{id} => 401 403 403 403 403
+DELETE /api/parts/{id} => 401 403 403 403 403
+GET /api/parts/{id}/count => 401 405 405 405 405
+POST /api/parts/{id}/count => 401 403 403 415 415
+PUT /api/parts/{id}/count => 401 403 403 403 403
+PATCH /api/parts/{id}/count => 401 403 403 403 403
+DELETE /api/parts/{id}/count => 401 403 403 403 403
+GET /api/parts/{id}/files => 401 405 405 405 405
+POST /api/parts/{id}/files => 401 403 415 415 415
+PUT /api/parts/{id}/files => 401 403 403 403 403
+PATCH /api/parts/{id}/files => 401 403 403 403 403
+DELETE /api/parts/{id}/files => 401 403 403 403 403
+GET /api/parts/{id}/files/{file}/remove => 401 405 405 405 405
+POST /api/parts/{id}/files/{file}/remove => 401 403 404 404 404
+PUT /api/parts/{id}/files/{file}/remove => 401 403 403 403 403
+PATCH /api/parts/{id}/files/{file}/remove => 401 403 403 403 403
+DELETE /api/parts/{id}/files/{file}/remove => 401 403 403 403 403
+GET /api/parts/{id}/ledger => 401 200 200 200 200
+POST /api/parts/{id}/ledger => 401 403 403 403 403
+PUT /api/parts/{id}/ledger => 401 403 403 403 403
+PATCH /api/parts/{id}/ledger => 401 403 403 403 403
+DELETE /api/parts/{id}/ledger => 401 403 403 403 403
+GET /api/parts/{id}/remove => 401 405 405 405 405
+POST /api/parts/{id}/remove => 401 403 404 404 404
+PUT /api/parts/{id}/remove => 401 403 403 403 403
+PATCH /api/parts/{id}/remove => 401 403 403 403 403
+DELETE /api/parts/{id}/remove => 401 403 403 403 403
+GET /api/profiles => 401 200 200 200 200
+POST /api/profiles => 401 403 403 403 403
+PUT /api/profiles => 401 403 403 403 403
+PATCH /api/profiles => 401 403 403 403 403
+DELETE /api/profiles => 401 403 403 403 403
+GET /api/projects => 401 200 200 200 200
+POST /api/projects => 401 403 415 415 415
+PUT /api/projects => 401 403 403 403 403
+PATCH /api/projects => 401 403 403 403 403
+DELETE /api/projects => 401 403 403 403 403
+GET /api/projects/{id} => 401 405 405 405 405
+POST /api/projects/{id} => 401 403 415 415 415
+PUT /api/projects/{id} => 401 403 403 403 403
+PATCH /api/projects/{id} => 401 403 403 403 403
+DELETE /api/projects/{id} => 401 403 403 403 403
+GET /api/projects/{id}/parts => 401 405 405 405 405
+POST /api/projects/{id}/parts => 401 403 415 415 415
+PUT /api/projects/{id}/parts => 401 403 403 403 403
+PATCH /api/projects/{id}/parts => 401 403 403 403 403
+DELETE /api/projects/{id}/parts => 401 403 403 403 403
+GET /api/projects/{id}/remove => 401 405 405 405 405
+POST /api/projects/{id}/remove => 401 403 404 404 404
+PUT /api/projects/{id}/remove => 401 403 403 403 403
+PATCH /api/projects/{id}/remove => 401 403 403 403 403
+DELETE /api/projects/{id}/remove => 401 403 403 403 403
+GET /api/schedule => 401 200 200 200 200
+POST /api/schedule => 401 403 403 403 403
+PUT /api/schedule => 401 403 403 403 403
+PATCH /api/schedule => 401 403 403 403 403
+DELETE /api/schedule => 401 403 403 403 403
+GET /api/space/audit => 401 403 403 200 200
+POST /api/space/audit => 401 403 403 403 403
+PUT /api/space/audit => 401 403 403 403 403
+PATCH /api/space/audit => 401 403 403 403 403
+DELETE /api/space/audit => 401 403 403 403 403
+GET /api/stock => 401 200 200 200 200
+POST /api/stock => 401 403 403 403 403
+PUT /api/stock => 401 403 403 403 403
+PATCH /api/stock => 401 403 403 403 403
+DELETE /api/stock => 401 403 403 403 403
+GET /api/stock/catalogue/{external_id}/take => 401 405 405 405 405
+POST /api/stock/catalogue/{external_id}/take => 401 403 404 404 404
+PUT /api/stock/catalogue/{external_id}/take => 401 403 403 403 403
+PATCH /api/stock/catalogue/{external_id}/take => 401 403 403 403 403
+DELETE /api/stock/catalogue/{external_id}/take => 401 403 403 403 403
+GET /api/stock/export/spoolman => 401 405 405 405 405
+POST /api/stock/export/spoolman => 401 403 403 415 415
+PUT /api/stock/export/spoolman => 401 403 403 403 403
+PATCH /api/stock/export/spoolman => 401 403 403 403 403
+DELETE /api/stock/export/spoolman => 401 403 403 403 403
+GET /api/stock/import/spoolman => 401 405 405 405 405
+POST /api/stock/import/spoolman => 401 403 403 415 415
+PUT /api/stock/import/spoolman => 401 403 403 403 403
+PATCH /api/stock/import/spoolman => 401 403 403 403 403
+DELETE /api/stock/import/spoolman => 401 403 403 403 403
+GET /api/stock/items/{id}/amount => 401 405 405 405 405
+POST /api/stock/items/{id}/amount => 401 403 415 415 415
+PUT /api/stock/items/{id}/amount => 401 403 403 403 403
+PATCH /api/stock/items/{id}/amount => 401 403 403 403 403
+DELETE /api/stock/items/{id}/amount => 401 403 403 403 403
+GET /api/stock/items/{id}/load => 401 405 405 405 405
+POST /api/stock/items/{id}/load => 401 403 415 415 415
+PUT /api/stock/items/{id}/load => 401 403 403 403 403
+PATCH /api/stock/items/{id}/load => 401 403 403 403 403
+DELETE /api/stock/items/{id}/load => 401 403 403 403 403
+GET /api/stock/items/{id}/move => 401 405 405 405 405
+POST /api/stock/items/{id}/move => 401 403 415 415 415
+PUT /api/stock/items/{id}/move => 401 403 403 403 403
+PATCH /api/stock/items/{id}/move => 401 403 403 403 403
+DELETE /api/stock/items/{id}/move => 401 403 403 403 403
+GET /api/stock/items/{id}/movements => 401 200 200 200 200
+POST /api/stock/items/{id}/movements => 401 403 403 403 403
+PUT /api/stock/items/{id}/movements => 401 403 403 403 403
+PATCH /api/stock/items/{id}/movements => 401 403 403 403 403
+DELETE /api/stock/items/{id}/movements => 401 403 403 403 403
+GET /api/stock/items/{id}/unload => 401 405 405 405 405
+POST /api/stock/items/{id}/unload => 401 403 404 404 404
+PUT /api/stock/items/{id}/unload => 401 403 403 403 403
+PATCH /api/stock/items/{id}/unload => 401 403 403 403 403
+DELETE /api/stock/items/{id}/unload => 401 403 403 403 403
+GET /api/stock/items/{id}/used-up => 401 405 405 405 405
+POST /api/stock/items/{id}/used-up => 401 403 404 404 404
+PUT /api/stock/items/{id}/used-up => 401 403 403 403 403
+PATCH /api/stock/items/{id}/used-up => 401 403 403 403 403
+DELETE /api/stock/items/{id}/used-up => 401 403 403 403 403
+GET /api/stock/locations => 401 405 405 405 405
+POST /api/stock/locations => 401 403 415 415 415
+PUT /api/stock/locations => 401 403 403 403 403
+PATCH /api/stock/locations => 401 403 403 403 403
+DELETE /api/stock/locations => 401 403 403 403 403
+GET /api/stock/locations/{id} => 401 405 405 405 405
+POST /api/stock/locations/{id} => 401 403 415 415 415
+PUT /api/stock/locations/{id} => 401 403 403 403 403
+PATCH /api/stock/locations/{id} => 401 403 403 403 403
+DELETE /api/stock/locations/{id} => 401 403 404 404 404
+GET /api/stock/materials => 401 405 405 405 405
+POST /api/stock/materials => 401 403 415 415 415
+PUT /api/stock/materials => 401 403 403 403 403
+PATCH /api/stock/materials => 401 403 403 403 403
+DELETE /api/stock/materials => 401 403 403 403 403
+GET /api/stock/materials/{id} => 401 405 405 405 405
+POST /api/stock/materials/{id} => 401 403 415 415 415
+PUT /api/stock/materials/{id} => 401 403 403 403 403
+PATCH /api/stock/materials/{id} => 401 403 403 403 403
+DELETE /api/stock/materials/{id} => 401 403 403 403 403
+GET /api/stock/receive => 401 405 405 405 405
+POST /api/stock/receive => 401 403 415 415 415
+PUT /api/stock/receive => 401 403 403 403 403
+PATCH /api/stock/receive => 401 403 403 403 403
+DELETE /api/stock/receive => 401 403 403 403 403
+GET /api/storage => 401 200 200 200 200
+POST /api/storage => 401 403 403 403 403
+PUT /api/storage => 401 403 403 403 403
+PATCH /api/storage => 401 403 403 403 403
+DELETE /api/storage => 401 403 403 403 403
+GET /api/update => 401 403 403 403 403
+POST /api/update => 401 403 403 403 403
+PUT /api/update => 401 403 403 403 403
+PATCH /api/update => 401 403 403 403 403
+DELETE /api/update => 401 403 403 403 403
+GET /api/v1/article-number => 401 200 200 200 200
+POST /api/v1/article-number => 401 403 403 403 403
+PUT /api/v1/article-number => 401 403 403 403 403
+PATCH /api/v1/article-number => 401 403 403 403 403
+DELETE /api/v1/article-number => 401 403 403 403 403
+GET /api/v1/backup => 401 405 405 405 405
+POST /api/v1/backup => 401 403 403 501 501
+PUT /api/v1/backup => 401 403 403 403 403
+PATCH /api/v1/backup => 401 403 403 403 403
+DELETE /api/v1/backup => 401 403 403 403 403
+GET /api/v1/export/{what} => 401 404 404 404 404
+POST /api/v1/export/{what} => 401 403 403 403 403
+PUT /api/v1/export/{what} => 401 403 403 403 403
+PATCH /api/v1/export/{what} => 401 403 403 403 403
+DELETE /api/v1/export/{what} => 401 403 403 403 403
+GET /api/v1/external/filament => 401 200 200 200 200
+POST /api/v1/external/filament => 401 403 403 403 403
+PUT /api/v1/external/filament => 401 403 403 403 403
+PATCH /api/v1/external/filament => 401 403 403 403 403
+DELETE /api/v1/external/filament => 401 403 403 403 403
+GET /api/v1/external/filament/search => 401 200 200 200 200
+POST /api/v1/external/filament/search => 401 403 403 403 403
+PUT /api/v1/external/filament/search => 401 403 403 403 403
+PATCH /api/v1/external/filament/search => 401 403 403 403 403
+DELETE /api/v1/external/filament/search => 401 403 403 403 403
+GET /api/v1/external/material => 401 200 200 200 200
+POST /api/v1/external/material => 401 403 403 403 403
+PUT /api/v1/external/material => 401 403 403 403 403
+PATCH /api/v1/external/material => 401 403 403 403 403
+DELETE /api/v1/external/material => 401 403 403 403 403
+GET /api/v1/field/{entity} => 401 404 404 404 404
+POST /api/v1/field/{entity} => 401 403 403 403 403
+PUT /api/v1/field/{entity} => 401 403 403 403 403
+PATCH /api/v1/field/{entity} => 401 403 403 403 403
+DELETE /api/v1/field/{entity} => 401 403 403 403 403
+GET /api/v1/field/{entity}/{key} => 401 405 405 405 405
+POST /api/v1/field/{entity}/{key} => 401 403 403 415 415
+PUT /api/v1/field/{entity}/{key} => 401 403 403 403 403
+PATCH /api/v1/field/{entity}/{key} => 401 403 403 403 403
+DELETE /api/v1/field/{entity}/{key} => 401 403 403 404 404
+GET /api/v1/field/{entity}/{key}/values => 401 404 404 404 404
+POST /api/v1/field/{entity}/{key}/values => 401 403 403 403 403
+PUT /api/v1/field/{entity}/{key}/values => 401 403 403 403 403
+PATCH /api/v1/field/{entity}/{key}/values => 401 403 403 403 403
+DELETE /api/v1/field/{entity}/{key}/values => 401 403 403 403 403
+GET /api/v1/filament => 401 200 200 200 200
+POST /api/v1/filament => 401 403 415 415 415
+PUT /api/v1/filament => 401 403 403 403 403
+PATCH /api/v1/filament => 401 403 403 403 403
+DELETE /api/v1/filament => 401 403 403 403 403
+GET /api/v1/filament/{id} => 401 404 404 404 404
+POST /api/v1/filament/{id} => 401 403 403 403 403
+PUT /api/v1/filament/{id} => 401 403 403 403 403
+PATCH /api/v1/filament/{id} => 401 403 415 415 415
+DELETE /api/v1/filament/{id} => 401 403 404 404 404
+GET /api/v1/filament/{id}/tag => 401 405 405 405 405
+POST /api/v1/filament/{id}/tag => 401 403 415 415 415
+PUT /api/v1/filament/{id}/tag => 401 403 403 403 403
+PATCH /api/v1/filament/{id}/tag => 401 403 403 403 403
+DELETE /api/v1/filament/{id}/tag => 401 403 403 403 403
+GET /api/v1/filament/{id}/tag/{uid} => 401 405 405 405 405
+POST /api/v1/filament/{id}/tag/{uid} => 401 403 403 403 403
+PUT /api/v1/filament/{id}/tag/{uid} => 401 403 403 403 403
+PATCH /api/v1/filament/{id}/tag/{uid} => 401 403 403 403 403
+DELETE /api/v1/filament/{id}/tag/{uid} => 401 403 404 404 404
+GET /api/v1/health => 401 200 200 200 200
+POST /api/v1/health => 401 403 403 403 403
+PUT /api/v1/health => 401 403 403 403 403
+PATCH /api/v1/health => 401 403 403 403 403
+DELETE /api/v1/health => 401 403 403 403 403
+GET /api/v1/info => 401 200 200 200 200
+POST /api/v1/info => 401 403 403 403 403
+PUT /api/v1/info => 401 403 403 403 403
+PATCH /api/v1/info => 401 403 403 403 403
+DELETE /api/v1/info => 401 403 403 403 403
+GET /api/v1/location => 401 200 200 200 200
+POST /api/v1/location => 401 403 403 403 403
+PUT /api/v1/location => 401 403 403 403 403
+PATCH /api/v1/location => 401 403 403 403 403
+DELETE /api/v1/location => 401 403 403 403 403
+GET /api/v1/location/{*name} => 401 405 405 405 405
+POST /api/v1/location/{*name} => 401 403 403 403 403
+PUT /api/v1/location/{*name} => 401 403 403 403 403
+PATCH /api/v1/location/{*name} => 401 403 415 415 415
+DELETE /api/v1/location/{*name} => 401 403 403 403 403
+GET /api/v1/lot-number => 401 200 200 200 200
+POST /api/v1/lot-number => 401 403 403 403 403
+PUT /api/v1/lot-number => 401 403 403 403 403
+PATCH /api/v1/lot-number => 401 403 403 403 403
+DELETE /api/v1/lot-number => 401 403 403 403 403
+GET /api/v1/material => 401 200 200 200 200
+POST /api/v1/material => 401 403 403 403 403
+PUT /api/v1/material => 401 403 403 403 403
+PATCH /api/v1/material => 401 403 403 403 403
+DELETE /api/v1/material => 401 403 403 403 403
+GET /api/v1/setting/ => 401 200 200 200 200
+POST /api/v1/setting/ => 401 403 403 403 403
+PUT /api/v1/setting/ => 401 403 403 403 403
+PATCH /api/v1/setting/ => 401 403 403 403 403
+DELETE /api/v1/setting/ => 401 403 403 403 403
+GET /api/v1/setting/{key} => 401 404 404 404 404
+POST /api/v1/setting/{key} => 401 403 404 404 404
+PUT /api/v1/setting/{key} => 401 403 403 403 403
+PATCH /api/v1/setting/{key} => 401 403 403 403 403
+DELETE /api/v1/setting/{key} => 401 403 403 403 403
+GET /api/v1/spool => 401 200 200 200 200
+POST /api/v1/spool => 401 403 415 415 415
+PUT /api/v1/spool => 401 403 403 403 403
+PATCH /api/v1/spool => 401 403 403 403 403
+DELETE /api/v1/spool => 401 403 403 403 403
+GET /api/v1/spool/{id} => 401 404 404 404 404
+POST /api/v1/spool/{id} => 401 403 403 403 403
+PUT /api/v1/spool/{id} => 401 403 403 403 403
+PATCH /api/v1/spool/{id} => 401 403 415 415 415
+DELETE /api/v1/spool/{id} => 401 403 404 404 404
+GET /api/v1/spool/{id}/measure => 401 405 405 405 405
+POST /api/v1/spool/{id}/measure => 401 403 403 403 403
+PUT /api/v1/spool/{id}/measure => 401 403 415 415 415
+PATCH /api/v1/spool/{id}/measure => 401 403 403 403 403
+DELETE /api/v1/spool/{id}/measure => 401 403 403 403 403
+GET /api/v1/spool/{id}/tag => 401 405 405 405 405
+POST /api/v1/spool/{id}/tag => 401 403 415 415 415
+PUT /api/v1/spool/{id}/tag => 401 403 403 403 403
+PATCH /api/v1/spool/{id}/tag => 401 403 403 403 403
+DELETE /api/v1/spool/{id}/tag => 401 403 403 403 403
+GET /api/v1/spool/{id}/tag/{uid} => 401 405 405 405 405
+POST /api/v1/spool/{id}/tag/{uid} => 401 403 403 403 403
+PUT /api/v1/spool/{id}/tag/{uid} => 401 403 403 403 403
+PATCH /api/v1/spool/{id}/tag/{uid} => 401 403 403 403 403
+DELETE /api/v1/spool/{id}/tag/{uid} => 401 403 404 404 404
+GET /api/v1/spool/{id}/use => 401 405 405 405 405
+POST /api/v1/spool/{id}/use => 401 403 403 403 403
+PUT /api/v1/spool/{id}/use => 401 403 415 415 415
+PATCH /api/v1/spool/{id}/use => 401 403 403 403 403
+DELETE /api/v1/spool/{id}/use => 401 403 403 403 403
+GET /api/v1/tag/reader => 401 200 200 200 200
+POST /api/v1/tag/reader => 401 403 403 403 403
+PUT /api/v1/tag/reader => 401 403 403 403 403
+PATCH /api/v1/tag/reader => 401 403 403 403 403
+DELETE /api/v1/tag/reader => 401 403 403 403 403
+GET /api/v1/tag/scan => 401 405 405 405 405
+POST /api/v1/tag/scan => 401 403 500 500 500
+PUT /api/v1/tag/scan => 401 403 403 403 403
+PATCH /api/v1/tag/scan => 401 403 403 403 403
+DELETE /api/v1/tag/scan => 401 403 403 403 403
+GET /api/v1/tag/scan/{reader} => 401 405 405 405 405
+POST /api/v1/tag/scan/{reader} => 401 403 403 403 403
+PUT /api/v1/tag/scan/{reader} => 401 403 403 403 403
+PATCH /api/v1/tag/scan/{reader} => 401 403 403 403 403
+DELETE /api/v1/tag/scan/{reader} => 401 403 403 403 403
+GET /api/v1/vendor => 401 200 200 200 200
+POST /api/v1/vendor => 401 403 415 415 415
+PUT /api/v1/vendor => 401 403 403 403 403
+PATCH /api/v1/vendor => 401 403 403 403 403
+DELETE /api/v1/vendor => 401 403 403 403 403
+GET /api/v1/vendor/{id} => 401 404 404 404 404
+POST /api/v1/vendor/{id} => 401 403 403 403 403
+PUT /api/v1/vendor/{id} => 401 403 403 403 403
+PATCH /api/v1/vendor/{id} => 401 403 415 415 415
+DELETE /api/v1/vendor/{id} => 401 403 404 404 404
+GET /downloads => 401 200 200 200 200
+POST /downloads => 401 403 403 403 403
+PUT /downloads => 401 403 403 403 403
+PATCH /downloads => 401 403 403 403 403
+DELETE /downloads => 401 403 403 403 403
+GET /downloads/{name} => 401 404 404 404 404
+POST /downloads/{name} => 401 403 403 403 403
+PUT /downloads/{name} => 401 403 403 403 403
+PATCH /downloads/{name} => 401 403 403 403 403
+DELETE /downloads/{name} => 401 403 403 403 403
+GET /f/{iv}/raw => 404 404 404 404 404
+POST /f/{iv}/raw => 403 403 403 403 403
+PUT /f/{iv}/raw => 403 403 403 403 403
+PATCH /f/{iv}/raw => 403 403 403 403 403
+DELETE /f/{iv}/raw => 403 403 403 403 403
+GET /files => 401 200 200 200 200
+POST /files => 401 403 403 403 403
+PUT /files => 401 403 403 403 403
+PATCH /files => 401 403 403 403 403
+DELETE /files => 401 403 403 403 403
+GET /files/{id}/download => 401 404 404 404 404
+POST /files/{id}/download => 401 403 403 403 403
+PUT /files/{id}/download => 401 403 403 403 403
+PATCH /files/{id}/download => 401 403 403 403 403
+DELETE /files/{id}/download => 401 403 403 403 403
+GET /files/{id}/frame => 401 405 405 405 405
+POST /files/{id}/frame => 401 403 415 415 415
+PUT /files/{id}/frame => 401 403 403 403 403
+PATCH /files/{id}/frame => 401 403 403 403 403
+DELETE /files/{id}/frame => 401 403 403 403 403
+GET /files/{id}/print => 401 405 405 405 405
+POST /files/{id}/print => 401 403 415 415 415
+PUT /files/{id}/print => 401 403 403 403 403
+PATCH /files/{id}/print => 401 403 403 403 403
+DELETE /files/{id}/print => 401 403 403 403 403
+GET /files/{id}/remove => 401 405 405 405 405
+POST /files/{id}/remove => 401 403 409 409 409
+PUT /files/{id}/remove => 401 403 403 403 403
+PATCH /files/{id}/remove => 401 403 403 403 403
+DELETE /files/{id}/remove => 401 403 403 403 403
+GET /files/{id}/thumbnail.png => 401 404 404 404 404
+POST /files/{id}/thumbnail.png => 401 403 403 403 403
+PUT /files/{id}/thumbnail.png => 401 403 403 403 403
+PATCH /files/{id}/thumbnail.png => 401 403 403 403 403
+DELETE /files/{id}/thumbnail.png => 401 403 403 403 403
+GET /instance/open-spaces => 401 405 405 405 405
+POST /instance/open-spaces => 401 403 403 403 403
+PUT /instance/open-spaces => 401 403 403 403 403
+PATCH /instance/open-spaces => 401 403 403 403 403
+DELETE /instance/open-spaces => 401 403 403 403 403
+GET /invite/{token} => 404 404 404 404 404
+POST /invite/{token} => 415 415 415 415 415
+PUT /invite/{token} => 405 405 405 405 405
+PATCH /invite/{token} => 405 405 405 405 405
+DELETE /invite/{token} => 405 405 405 405 405
+GET /klipper => 401 405 405 405 405
+POST /klipper => 401 403 403 415 415
+PUT /klipper => 401 403 403 403 403
+PATCH /klipper => 401 403 403 403 403
+DELETE /klipper => 401 403 403 403 403
+GET /login => 200 200 200 200 200
+POST /login => 415 415 415 415 415
+PUT /login => 405 405 405 405 405
+PATCH /login => 405 405 405 405 405
+DELETE /login => 405 405 405 405 405
+GET /logo.svg => 200 200 200 200 200
+POST /logo.svg => 405 405 405 405 405
+PUT /logo.svg => 405 405 405 405 405
+PATCH /logo.svg => 405 405 405 405 405
+DELETE /logo.svg => 405 405 405 405 405
+GET /logout => 401 405 405 405 405
+POST /logout => 401 303 303 303 303
+PUT /logout => 401 403 403 403 403
+PATCH /logout => 401 403 403 403 403
+DELETE /logout => 401 403 403 403 403
+GET /machines => 401 200 200 200 200
+POST /machines => 401 403 403 403 403
+PUT /machines => 401 403 403 403 403
+PATCH /machines => 401 403 403 403 403
+DELETE /machines => 401 403 403 403 403
+GET /machines/ => 401 303 303 303 303
+POST /machines/ => 401 403 403 403 403
+PUT /machines/ => 401 403 403 403 403
+PATCH /machines/ => 401 403 403 403 403
+DELETE /machines/ => 401 403 403 403 403
+GET /machines/{id} => 401 404 404 404 404
+POST /machines/{id} => 401 403 403 403 403
+PUT /machines/{id} => 401 403 403 403 403
+PATCH /machines/{id} => 401 403 403 403 403
+DELETE /machines/{id} => 401 403 403 403 403
+GET /machines/{id}/access => 401 405 405 405 405
+POST /machines/{id}/access => 401 404 404 404 404
+PUT /machines/{id}/access => 401 403 403 403 403
+PATCH /machines/{id}/access => 401 403 403 403 403
+DELETE /machines/{id}/access => 401 403 403 403 403
+GET /machines/{id}/agent/update => 401 405 405 405 405
+POST /machines/{id}/agent/update => 401 404 404 404 404
+PUT /machines/{id}/agent/update => 401 403 403 403 403
+PATCH /machines/{id}/agent/update => 401 403 403 403 403
+DELETE /machines/{id}/agent/update => 401 403 403 403 403
+GET /machines/{id}/answer => 401 405 405 405 405
+POST /machines/{id}/answer => 401 404 404 404 404
+PUT /machines/{id}/answer => 401 403 403 403 403
+PATCH /machines/{id}/answer => 401 403 403 403 403
+DELETE /machines/{id}/answer => 401 403 403 403 403
+GET /machines/{id}/ask => 401 405 405 405 405
+POST /machines/{id}/ask => 401 404 404 404 404
+PUT /machines/{id}/ask => 401 403 403 403 403
+PATCH /machines/{id}/ask => 401 403 403 403 403
+DELETE /machines/{id}/ask => 401 403 403 403 403
+GET /machines/{id}/bad => 401 405 405 405 405
+POST /machines/{id}/bad => 401 404 404 404 404
+PUT /machines/{id}/bad => 401 403 403 403 403
+PATCH /machines/{id}/bad => 401 403 403 403 403
+DELETE /machines/{id}/bad => 401 403 403 403 403
+GET /machines/{id}/command => 401 405 405 405 405
+POST /machines/{id}/command => 401 404 404 404 404
+PUT /machines/{id}/command => 401 403 403 403 403
+PATCH /machines/{id}/command => 401 403 403 403 403
+DELETE /machines/{id}/command => 401 403 403 403 403
+GET /machines/{id}/farm => 401 405 405 405 405
+POST /machines/{id}/farm => 401 404 404 404 404
+PUT /machines/{id}/farm => 401 403 403 403 403
+PATCH /machines/{id}/farm => 401 403 403 403 403
+DELETE /machines/{id}/farm => 401 403 403 403 403
+GET /machines/{id}/grants => 401 405 405 405 405
+POST /machines/{id}/grants => 401 404 404 404 404
+PUT /machines/{id}/grants => 401 403 403 403 403
+PATCH /machines/{id}/grants => 401 403 403 403 403
+DELETE /machines/{id}/grants => 401 403 403 403 403
+GET /machines/{id}/grants/{user}/remove => 401 405 405 405 405
+POST /machines/{id}/grants/{user}/remove => 401 404 404 404 404
+PUT /machines/{id}/grants/{user}/remove => 401 403 403 403 403
+PATCH /machines/{id}/grants/{user}/remove => 401 403 403 403 403
+DELETE /machines/{id}/grants/{user}/remove => 401 403 403 403 403
+GET /machines/{id}/job => 401 405 405 405 405
+POST /machines/{id}/job => 401 404 404 404 404
+PUT /machines/{id}/job => 401 403 403 403 403
+PATCH /machines/{id}/job => 401 403 403 403 403
+DELETE /machines/{id}/job => 401 403 403 403 403
+GET /machines/{id}/labels => 401 405 405 405 405
+POST /machines/{id}/labels => 401 404 404 404 404
+PUT /machines/{id}/labels => 401 403 403 403 403
+PATCH /machines/{id}/labels => 401 403 403 403 403
+DELETE /machines/{id}/labels => 401 403 403 403 403
+GET /machines/{id}/laser => 401 405 405 405 405
+POST /machines/{id}/laser => 401 404 404 404 404
+PUT /machines/{id}/laser => 401 403 403 403 403
+PATCH /machines/{id}/laser => 401 403 403 403 403
+DELETE /machines/{id}/laser => 401 403 403 403 403
+GET /machines/{id}/media => 401 405 405 405 405
+POST /machines/{id}/media => 401 404 404 404 404
+PUT /machines/{id}/media => 401 403 403 403 403
+PATCH /machines/{id}/media => 401 403 403 403 403
+DELETE /machines/{id}/media => 401 403 403 403 403
+GET /machines/{id}/move => 401 405 405 405 405
+POST /machines/{id}/move => 401 404 404 404 404
+PUT /machines/{id}/move => 401 403 403 403 403
+PATCH /machines/{id}/move => 401 403 403 403 403
+DELETE /machines/{id}/move => 401 403 403 403 403
+GET /machines/{id}/name => 401 405 405 405 405
+POST /machines/{id}/name => 401 404 404 404 404
+PUT /machines/{id}/name => 401 403 403 403 403
+PATCH /machines/{id}/name => 401 403 403 403 403
+DELETE /machines/{id}/name => 401 403 403 403 403
+GET /machines/{id}/not-ready => 401 405 405 405 405
+POST /machines/{id}/not-ready => 401 404 404 404 404
+PUT /machines/{id}/not-ready => 401 403 403 403 403
+PATCH /machines/{id}/not-ready => 401 403 403 403 403
+DELETE /machines/{id}/not-ready => 401 403 403 403 403
+GET /machines/{id}/out-of-use => 401 405 405 405 405
+POST /machines/{id}/out-of-use => 401 404 404 404 404
+PUT /machines/{id}/out-of-use => 401 403 403 403 403
+PATCH /machines/{id}/out-of-use => 401 403 403 403 403
+DELETE /machines/{id}/out-of-use => 401 403 403 403 403
+GET /machines/{id}/ppe => 401 405 405 405 405
+POST /machines/{id}/ppe => 401 404 404 404 404
+PUT /machines/{id}/ppe => 401 403 403 403 403
+PATCH /machines/{id}/ppe => 401 403 403 403 403
+DELETE /machines/{id}/ppe => 401 403 403 403 403
+GET /machines/{id}/profile => 401 405 405 405 405
+POST /machines/{id}/profile => 401 404 404 404 404
+PUT /machines/{id}/profile => 401 403 403 403 403
+PATCH /machines/{id}/profile => 401 403 403 403 403
+DELETE /machines/{id}/profile => 401 403 403 403 403
+GET /machines/{id}/queue/order => 401 405 405 405 405
+POST /machines/{id}/queue/order => 401 404 404 404 404
+PUT /machines/{id}/queue/order => 401 403 403 403 403
+PATCH /machines/{id}/queue/order => 401 403 403 403 403
+DELETE /machines/{id}/queue/order => 401 403 403 403 403
+GET /machines/{id}/queue/{item}/remove => 401 405 405 405 405
+POST /machines/{id}/queue/{item}/remove => 401 404 404 404 404
+PUT /machines/{id}/queue/{item}/remove => 401 403 403 403 403
+PATCH /machines/{id}/queue/{item}/remove => 401 403 403 403 403
+DELETE /machines/{id}/queue/{item}/remove => 401 403 403 403 403
+GET /machines/{id}/ready => 401 405 405 405 405
+POST /machines/{id}/ready => 401 404 404 404 404
+PUT /machines/{id}/ready => 401 403 403 403 403
+PATCH /machines/{id}/ready => 401 403 403 403 403
+DELETE /machines/{id}/ready => 401 403 403 403 403
+GET /machines/{id}/remove => 401 405 405 405 405
+POST /machines/{id}/remove => 401 404 404 404 404
+PUT /machines/{id}/remove => 401 403 403 403 403
+PATCH /machines/{id}/remove => 401 403 403 403 403
+DELETE /machines/{id}/remove => 401 403 403 403 403
+GET /machines/{id}/safety => 401 405 405 405 405
+POST /machines/{id}/safety => 401 404 404 404 404
+PUT /machines/{id}/safety => 401 403 403 403 403
+PATCH /machines/{id}/safety => 401 403 403 403 403
+DELETE /machines/{id}/safety => 401 403 403 403 403
+GET /machines/{id}/sd/print => 401 405 405 405 405
+POST /machines/{id}/sd/print => 401 404 404 404 404
+PUT /machines/{id}/sd/print => 401 403 403 403 403
+PATCH /machines/{id}/sd/print => 401 403 403 403 403
+DELETE /machines/{id}/sd/print => 401 403 403 403 403
+GET /machines/{id}/serviced => 401 405 405 405 405
+POST /machines/{id}/serviced => 401 404 404 404 404
+PUT /machines/{id}/serviced => 401 403 403 403 403
+PATCH /machines/{id}/serviced => 401 403 403 403 403
+DELETE /machines/{id}/serviced => 401 403 403 403 403
+GET /machines/{id}/sheet => 401 405 405 405 405
+POST /machines/{id}/sheet => 401 404 404 404 404
+PUT /machines/{id}/sheet => 401 403 403 403 403
+PATCH /machines/{id}/sheet => 401 403 403 403 403
+DELETE /machines/{id}/sheet => 401 403 403 403 403
+GET /machines/{id}/taken => 401 405 405 405 405
+POST /machines/{id}/taken => 401 404 404 404 404
+PUT /machines/{id}/taken => 401 403 403 403 403
+PATCH /machines/{id}/taken => 401 403 403 403 403
+DELETE /machines/{id}/taken => 401 403 403 403 403
+GET /machines/{id}/upkeep => 401 405 405 405 405
+POST /machines/{id}/upkeep => 401 404 404 404 404
+PUT /machines/{id}/upkeep => 401 403 403 403 403
+PATCH /machines/{id}/upkeep => 401 403 403 403 403
+DELETE /machines/{id}/upkeep => 401 403 403 403 403
+GET /machines/{id}/usb/delete => 401 405 405 405 405
+POST /machines/{id}/usb/delete => 401 404 404 404 404
+PUT /machines/{id}/usb/delete => 401 403 403 403 403
+PATCH /machines/{id}/usb/delete => 401 403 403 403 403
+DELETE /machines/{id}/usb/delete => 401 403 403 403 403
+GET /machines/{id}/usb/folder => 401 405 405 405 405
+POST /machines/{id}/usb/folder => 401 404 404 404 404
+PUT /machines/{id}/usb/folder => 401 403 403 403 403
+PATCH /machines/{id}/usb/folder => 401 403 403 403 403
+DELETE /machines/{id}/usb/folder => 401 403 403 403 403
+GET /machines/{id}/usb/preview => 401 404 404 404 404
+POST /machines/{id}/usb/preview => 401 403 403 403 403
+PUT /machines/{id}/usb/preview => 401 403 403 403 403
+PATCH /machines/{id}/usb/preview => 401 403 403 403 403
+DELETE /machines/{id}/usb/preview => 401 403 403 403 403
+GET /machines/{id}/usb/print => 401 405 405 405 405
+POST /machines/{id}/usb/print => 401 404 404 404 404
+PUT /machines/{id}/usb/print => 401 403 403 403 403
+PATCH /machines/{id}/usb/print => 401 403 403 403 403
+DELETE /machines/{id}/usb/print => 401 403 403 403 403
+GET /machines/{id}/usb/send => 401 405 405 405 405
+POST /machines/{id}/usb/send => 401 404 404 404 404
+PUT /machines/{id}/usb/send => 401 403 403 403 403
+PATCH /machines/{id}/usb/send => 401 403 403 403 403
+DELETE /machines/{id}/usb/send => 401 403 403 403 403
+GET /organisation/name => 401 405 405 405 405
+POST /organisation/name => 401 403 403 415 415
+PUT /organisation/name => 401 403 403 403 403
+PATCH /organisation/name => 401 403 403 403 403
+DELETE /organisation/name => 401 403 403 403 403
+GET /p/events => 405 405 405 405 405
+POST /p/events => 400 400 400 400 400
+PUT /p/events => 405 405 405 405 405
+PATCH /p/events => 405 405 405 405 405
+DELETE /p/events => 405 405 405 405 405
+GET /p/register => 404 404 404 404 404
+POST /p/register => 400 400 400 400 400
+PUT /p/register => 405 405 405 405 405
+PATCH /p/register => 405 405 405 405 405
+DELETE /p/register => 405 405 405 405 405
+GET /p/telemetry => 405 405 405 405 405
+POST /p/telemetry => 400 400 400 400 400
+PUT /p/telemetry => 405 405 405 405 405
+PATCH /p/telemetry => 405 405 405 405 405
+DELETE /p/telemetry => 405 405 405 405 405
+GET /pair => 401 405 405 405 405
+POST /pair => 401 403 403 415 415
+PUT /pair => 401 403 403 403 403
+PATCH /pair => 401 403 403 403 403
+DELETE /pair => 401 403 403 403 403
+GET /path => 401 404 404 404 404
+POST /path => 401 404 404 404 404
+PUT /path => 401 404 404 404 404
+PATCH /path => 401 404 404 404 404
+DELETE /path => 401 404 404 404 404
+GET /permissions/groups => 401 405 405 405 405
+POST /permissions/groups => 401 403 403 415 415
+PUT /permissions/groups => 401 403 403 403 403
+PATCH /permissions/groups => 401 403 403 403 403
+DELETE /permissions/groups => 401 403 403 403 403
+GET /permissions/groups/{group}/grants => 401 405 405 405 405
+POST /permissions/groups/{group}/grants => 401 403 403 415 415
+PUT /permissions/groups/{group}/grants => 401 403 403 403 403
+PATCH /permissions/groups/{group}/grants => 401 403 403 403 403
+DELETE /permissions/groups/{group}/grants => 401 403 403 403 403
+GET /permissions/groups/{group}/grants/{user}/remove => 401 405 405 405 405
+POST /permissions/groups/{group}/grants/{user}/remove => 401 403 403 404 404
+PUT /permissions/groups/{group}/grants/{user}/remove => 401 403 403 403 403
+PATCH /permissions/groups/{group}/grants/{user}/remove => 401 403 403 403 403
+DELETE /permissions/groups/{group}/grants/{user}/remove => 401 403 403 403 403
+GET /permissions/groups/{group}/machines => 401 405 405 405 405
+POST /permissions/groups/{group}/machines => 401 403 403 415 415
+PUT /permissions/groups/{group}/machines => 401 403 403 403 403
+PATCH /permissions/groups/{group}/machines => 401 403 403 403 403
+DELETE /permissions/groups/{group}/machines => 401 403 403 403 403
+GET /permissions/groups/{group}/machines/{machine}/remove => 401 405 405 405 405
+POST /permissions/groups/{group}/machines/{machine}/remove => 401 403 403 404 404
+PUT /permissions/groups/{group}/machines/{machine}/remove => 401 403 403 403 403
+PATCH /permissions/groups/{group}/machines/{machine}/remove => 401 403 403 403 403
+DELETE /permissions/groups/{group}/machines/{machine}/remove => 401 403 403 403 403
+GET /permissions/groups/{group}/people/{user} => 401 405 405 405 405
+POST /permissions/groups/{group}/people/{user} => 401 403 403 415 415
+PUT /permissions/groups/{group}/people/{user} => 401 403 403 403 403
+PATCH /permissions/groups/{group}/people/{user} => 401 403 403 403 403
+DELETE /permissions/groups/{group}/people/{user} => 401 403 403 403 403
+GET /permissions/groups/{group}/remove => 401 405 405 405 405
+POST /permissions/groups/{group}/remove => 401 403 403 404 404
+PUT /permissions/groups/{group}/remove => 401 403 403 403 403
+PATCH /permissions/groups/{group}/remove => 401 403 403 403 403
+DELETE /permissions/groups/{group}/remove => 401 403 403 403 403
+GET /permissions/people/{user} => 401 405 405 405 405
+POST /permissions/people/{user} => 401 403 403 415 415
+PUT /permissions/people/{user} => 401 403 403 403 403
+PATCH /permissions/people/{user} => 401 403 403 403 403
+DELETE /permissions/people/{user} => 401 403 403 403 403
+GET /permissions/people/{user}/permission => 401 405 405 405 405
+POST /permissions/people/{user}/permission => 401 403 403 415 415
+PUT /permissions/people/{user}/permission => 401 403 403 403 403
+PATCH /permissions/people/{user}/permission => 401 403 403 403 403
+DELETE /permissions/people/{user}/permission => 401 403 403 403 403
+GET /permissions/requests/{id}/{answer} => 401 405 405 405 405
+POST /permissions/requests/{id}/{answer} => 401 403 403 404 404
+PUT /permissions/requests/{id}/{answer} => 401 403 403 403 403
+PATCH /permissions/requests/{id}/{answer} => 401 403 403 403 403
+DELETE /permissions/requests/{id}/{answer} => 401 403 403 403 403
+GET /profiles/{brand}/{file} => 401 404 404 404 404
+POST /profiles/{brand}/{file} => 401 403 403 403 403
+PUT /profiles/{brand}/{file} => 401 403 403 403 403
+PATCH /profiles/{brand}/{file} => 401 403 403 403 403
+DELETE /profiles/{brand}/{file} => 401 403 403 403 403
+GET /projects => 401 200 200 200 200
+POST /projects => 401 403 403 403 403
+PUT /projects => 401 403 403 403 403
+PATCH /projects => 401 403 403 403 403
+DELETE /projects => 401 403 403 403 403
+GET /setup => 200 200 200 200 200
+POST /setup => 415 415 415 415 415
+PUT /setup => 405 405 405 405 405
+PATCH /setup => 405 405 405 405 405
+DELETE /setup => 405 405 405 405 405
+GET /simplyprint/{token} => 400 400 400 400 400
+POST /simplyprint/{token} => 405 405 405 405 405
+PUT /simplyprint/{token} => 405 405 405 405 405
+PATCH /simplyprint/{token} => 405 405 405 405 405
+DELETE /simplyprint/{token} => 405 405 405 405 405
+GET /simplyprint/{token}/jobs/{job}/file => 404 404 404 404 404
+POST /simplyprint/{token}/jobs/{job}/file => 405 405 405 405 405
+PUT /simplyprint/{token}/jobs/{job}/file => 405 405 405 405 405
+PATCH /simplyprint/{token}/jobs/{job}/file => 405 405 405 405 405
+DELETE /simplyprint/{token}/jobs/{job}/file => 405 405 405 405 405
+GET /simplyprint/{token}/{*rest} => 400 400 400 400 400
+POST /simplyprint/{token}/{*rest} => 405 405 405 405 405
+PUT /simplyprint/{token}/{*rest} => 405 405 405 405 405
+PATCH /simplyprint/{token}/{*rest} => 405 405 405 405 405
+DELETE /simplyprint/{token}/{*rest} => 405 405 405 405 405
+GET /space => 401 200 200 200 200
+POST /space => 401 403 403 403 403
+PUT /space => 401 403 403 403 403
+PATCH /space => 401 403 403 403 403
+DELETE /space => 401 403 403 403 403
+GET /space/invites => 401 405 405 405 405
+POST /space/invites => 401 403 403 415 415
+PUT /space/invites => 401 403 403 403 403
+PATCH /space/invites => 401 403 403 403 403
+DELETE /space/invites => 401 403 403 403 403
+GET /space/invites/{id}/revoke => 401 405 405 405 405
+POST /space/invites/{id}/revoke => 401 403 403 404 404
+PUT /space/invites/{id}/revoke => 401 403 403 403 403
+PATCH /space/invites/{id}/revoke => 401 403 403 403 403
+DELETE /space/invites/{id}/revoke => 401 403 403 403 403
+GET /space/members/{user}/remove => 401 405 405 405 405
+POST /space/members/{user}/remove => 401 403 403 415 415
+PUT /space/members/{user}/remove => 401 403 403 403 403
+PATCH /space/members/{user}/remove => 401 403 403 403 403
+DELETE /space/members/{user}/remove => 401 403 403 403 403
+GET /space/members/{user}/role => 401 405 405 405 405
+POST /space/members/{user}/role => 401 403 403 415 415
+PUT /space/members/{user}/role => 401 403 403 403 403
+PATCH /space/members/{user}/role => 401 403 403 403 403
+DELETE /space/members/{user}/role => 401 403 403 403 403
+GET /space/name => 401 405 405 405 405
+POST /space/name => 401 403 403 415 415
+PUT /space/name => 401 403 403 403 403
+PATCH /space/name => 401 403 403 403 403
+DELETE /space/name => 401 403 403 403 403
+GET /space/safety => 401 405 405 405 405
+POST /space/safety => 401 403 403 415 415
+PUT /space/safety => 401 403 403 403 403
+PATCH /space/safety => 401 403 403 403 403
+DELETE /space/safety => 401 403 403 403 403
+GET /space/tokens => 401 405 405 405 405
+POST /space/tokens => 401 403 403 415 415
+PUT /space/tokens => 401 403 403 403 403
+PATCH /space/tokens => 401 403 403 403 403
+DELETE /space/tokens => 401 403 403 403 403
+GET /space/tokens/{id}/revoke => 401 405 405 405 405
+POST /space/tokens/{id}/revoke => 401 403 403 404 404
+PUT /space/tokens/{id}/revoke => 401 403 403 403 403
+PATCH /space/tokens/{id}/revoke => 401 403 403 403 403
+DELETE /space/tokens/{id}/revoke => 401 403 403 403 403
+GET /spaces => 401 405 405 405 405
+POST /spaces => 401 415 415 415 415
+PUT /spaces => 401 403 403 403 403
+PATCH /spaces => 401 403 403 403 403
+DELETE /spaces => 401 403 403 403 403
+GET /spaces/switch => 401 405 405 405 405
+POST /spaces/switch => 401 415 415 415 415
+PUT /spaces/switch => 401 403 403 403 403
+PATCH /spaces/switch => 401 403 403 403 403
+DELETE /spaces/switch => 401 403 403 403 403
+GET /spool/show/{id} => 401 303 303 303 303
+POST /spool/show/{id} => 401 403 403 403 403
+PUT /spool/show/{id} => 401 403 403 403 403
+PATCH /spool/show/{id} => 401 403 403 403 403
+DELETE /spool/show/{id} => 401 403 403 403 403
+GET /stock => 401 200 200 200 200
+POST /stock => 401 403 403 403 403
+PUT /stock => 401 403 403 403 403
+PATCH /stock => 401 403 403 403 403
+DELETE /stock => 401 403 403 403 403
+GET /virtual => 401 405 405 405 405
+POST /virtual => 401 403 403 415 415
+PUT /virtual => 401 403 403 403 403
+PATCH /virtual => 401 403 403 403 403
+DELETE /virtual => 401 403 403 403 403
+GET /welcome => 401 303 303 303 303
+POST /welcome => 401 403 403 403 403
+PUT /welcome => 401 403 403 403 403
+PATCH /welcome => 401 403 403 403 403
+DELETE /welcome => 401 403 403 403 403
+# embedded
+header 1b1a040338c7397344c86478b56e13377393917ab48bf55f3df7975af2be33da
+files.css 17d5527d43531fdfc90dc3e03d113a5511e1db013d0ee59af235a3f6c8c25763
+files.js 7bc12774c4bf46972836508628e227aba31dfe21b64fffae59e86b06d1c62b1a
+label.css e32ee3ebd76835d9948b905134a5884689b283aaa6b463c00f4eaa396a055190
+label.js 08819ec431b785b63886ee06fad2462a3ea129b85142411d668f35135a12ebb5
+library.css 0fec114d83ebcc01533a7d98fe46e84a5ccd2a77ac8bdb474dfc62a6cef7c4c2
+library.js a48611e263074ff88c5d1f7a85a330df756a987c223c36ddde00594983658ca5
+machine.css df5c82ab4c341bb22c0d3d7f9ebab6910e5cae5e56a7a7993b6281bedd6c5a8a
+machine.js 8f59a837f01bf99fc92632491220b71b1fd489920cfe9c200261bc738ae01ac7
+shell.js cb569c43100cbe59935ac085c8b933456aad03599014d6f39dcd9a30d4f01426

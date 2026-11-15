@@ -1,6 +1,6 @@
 # Audit: the hub against Moonraker's `[simplyprint]` component
 
-The hub (`crates/hub/src/simplyprint.rs`) plays the server of the protocol Moonraker's
+The hub (`crates/hub/src/devices/simplyprint.rs`) plays the server of the protocol Moonraker's
 SimplyPrint component speaks: one WebSocket, every message `{"type": ..., "data": ...}`. The
 SimplyPrint server is closed source, so the reference is the open client: what Moonraker sends,
 what it accepts and what it reads of it, in `reference/moonraker/moonraker/components/simplyprint.py`
@@ -347,7 +347,7 @@ Constants (`const:`) are Moonraker's own values (endpoints `PROD_ENDPOINT`/`TEST
 
 ## 6. What we send or read that Moonraker does not
 
-Mechanically listed by `scripts/klipper-audit-check.py` from `crates/hub/src/simplyprint.rs` (the code before
+Mechanically listed by `scripts/klipper-audit-check.py` from `crates/hub/src/devices/simplyprint.rs` (the code before
 `#[cfg(test)] mod tests`): every message type, demand and field the hub sends, every type, field and value it reads.
 Each must be something Moonraker sends or accepts, or be named here with why. Everything else in the hub's
 code is already Moonraker's (the checker counts them).

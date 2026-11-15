@@ -8,9 +8,9 @@ use crate::profiles::{self, Profile};
 use crate::store::Machine;
 use crate::{STYLE, escape};
 
-const MACHINE_STYLE: &str = include_str!("machine.css");
-const LABEL_STYLE: &str = include_str!("label.css");
-const LABEL_SCRIPT: &str = include_str!("label.js");
+const MACHINE_STYLE: &str = include_str!("../machine.css");
+const LABEL_STYLE: &str = include_str!("../label.css");
+const LABEL_SCRIPT: &str = include_str!("../label.js");
 
 /// The tape loaded, as the script needs it: width, dots across, ink and tape colours.
 pub(crate) fn tape_json(profile: Option<&Profile>, machine: &Machine) -> String {

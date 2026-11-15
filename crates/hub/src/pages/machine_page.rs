@@ -7,8 +7,8 @@ use crate::store::{self, Machine};
 use crate::{STYLE, escape};
 use maker_connect_protocol::MachineKind;
 
-const MACHINE_STYLE: &str = include_str!("machine.css");
-const MACHINE_SCRIPT: &str = include_str!("machine.js");
+const MACHINE_STYLE: &str = include_str!("../machine.css");
+const MACHINE_SCRIPT: &str = include_str!("../machine.js");
 
 /// How a machine's state is shown, and its badge's class: as the pages' `shownState` does.
 /// A machine that is ready but waits for something (no cassette) shows that as a notice.

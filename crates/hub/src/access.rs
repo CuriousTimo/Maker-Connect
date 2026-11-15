@@ -2085,16 +2085,24 @@ impl Store {
     }
 }
 
-/// For the tests that read every route: all of the hub's source files.
+/// For the tests that read every route: all of the hub's source files, in every folder.
 #[cfg(test)]
 pub(crate) fn route_sources() -> Vec<String> {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut out: Vec<String> = std::fs::read_dir(&dir)
-        .unwrap()
-        .flatten()
-        .filter(|e| e.path().extension().is_some_and(|x| x == "rs"))
-        .map(|e| std::fs::read_to_string(e.path()).unwrap())
-        .collect();
+    fn read(dir: &std::path::Path, out: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                read(&path, out);
+            } else if path.extension().is_some_and(|x| x == "rs") {
+                out.push(std::fs::read_to_string(path).unwrap());
+            }
+        }
+    }
+    let mut out = Vec::new();
+    read(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &mut out,
+    );
     out.sort();
     assert!(out.len() > 20, "the hub's sources");
     out
@@ -3425,5 +3433,158 @@ mod tests {
             )
             .await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    /// Every route and what it answers, as checked in (`tests/routes.txt`): the route paths
+    /// as `route_sources` parses them, `RULES`, the status of each method on each path for
+    /// each role and for no session (the router called with made-up path parameters), and a
+    /// hash of the page shell and of every embedded style and script. Moving code must not
+    /// change it. `MAKER_CONNECT_REGENERATE_ROUTES=1` writes it anew.
+    #[tokio::test]
+    async fn the_routes_are_as_checked_in() {
+        use sha2::{Digest, Sha256};
+        use std::fmt::Write as _;
+        let hash = |bytes: &[u8]| -> String {
+            Sha256::digest(bytes)
+                .iter()
+                .fold(String::new(), |mut out, b| {
+                    let _ = write!(out, "{b:02x}");
+                    out
+                })
+        };
+
+        // The route paths.
+        let mut paths = std::collections::BTreeSet::new();
+        for source in route_sources() {
+            for piece in source.split(".route(").skip(1) {
+                let piece = piece.trim_start();
+                let path = if piece.starts_with("protocol::REGISTER") {
+                    maker_connect_protocol::REGISTER
+                } else if piece.starts_with("protocol::TELEMETRY") {
+                    maker_connect_protocol::TELEMETRY
+                } else {
+                    match piece.strip_prefix('"').and_then(|r| r.split('"').next()) {
+                        Some(p) if p.starts_with('/') => p,
+                        _ => continue,
+                    }
+                };
+                paths.insert(path.to_owned());
+            }
+        }
+        let mut text = String::new();
+        text.push_str("# route paths\n");
+        for path in &paths {
+            let _ = writeln!(text, "{path}");
+        }
+        text.push_str("# RULES\n");
+        for rule in RULES {
+            let _ = writeln!(text, "{rule:?}");
+        }
+
+        // The status of each method on each path, for no session and for each role.
+        text.push_str("# status: method path, then none guest member admin owner\n");
+        let skipped = [(Method::POST, "/agents/update")];
+        for path in &paths {
+            let mut address = String::new();
+            let mut rest = path.as_str();
+            while let Some(open) = rest.find('{') {
+                address.push_str(&rest[..open]);
+                let close = rest[open..].find('}').unwrap() + open;
+                address.push_str(if rest[open..].starts_with("{*") {
+                    "9/9"
+                } else {
+                    "9"
+                });
+                rest = &rest[close + 1..];
+            }
+            address.push_str(rest);
+            for method in [
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::PATCH,
+                Method::DELETE,
+            ] {
+                let w = World::new();
+                let (org, _) = {
+                    let s = w.store.lock().unwrap();
+                    let owner = s.create_user("olga", "Olga", "x", false).unwrap();
+                    s.create_organisation("Fablab", "Werkplaats", owner)
+                        .unwrap()
+                };
+                let mut cookies: Vec<Option<String>> = vec![None];
+                for role in [Role::Guest, Role::Member, Role::Admin, Role::Owner] {
+                    let name = role.as_str();
+                    cookies.push(Some(w.person(name, Some((org, role)), None).1));
+                }
+                let needed = need(&method, path);
+                let mut line = format!("{method} {path} =>");
+                for (i, cookie) in cookies.iter().enumerate() {
+                    // What reaches outside this process is not called, where the rule lets
+                    // the role in.
+                    let allowed = i > 0
+                        && matches!(needed, Some((Need::Role(r), _))
+                            if [Role::Guest, Role::Member, Role::Admin, Role::Owner][i - 1] >= r);
+                    if allowed && skipped.iter().any(|(m, p)| *m == method && p == path) {
+                        line.push_str(" not-called");
+                        continue;
+                    }
+                    let mut request = HttpRequest::builder()
+                        .method(method.clone())
+                        .uri(&address)
+                        .header("x-requested-with", "fetch");
+                    if let Some(cookie) = cookie {
+                        request = request.header("cookie", cookie);
+                    }
+                    let response = w
+                        .app
+                        .clone()
+                        .oneshot(request.body(Body::empty()).unwrap())
+                        .await
+                        .unwrap();
+                    let _ = write!(line, " {}", response.status().as_u16());
+                }
+                text.push_str(&line);
+                text.push('\n');
+            }
+        }
+
+        // The page shell, and every embedded style and script, by file.
+        text.push_str("# embedded\n");
+        let _ = writeln!(
+            text,
+            "header {}",
+            hash(crate::header("Space", "", "").as_bytes())
+        );
+        fn assets(dir: &std::path::Path, out: &mut Vec<(String, Vec<u8>)>) {
+            for entry in std::fs::read_dir(dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    assets(&path, out);
+                } else if path.extension().is_some_and(|x| x == "css" || x == "js") {
+                    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                    out.push((name, std::fs::read(&path).unwrap()));
+                }
+            }
+        }
+        let mut files = Vec::new();
+        assets(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut files,
+        );
+        files.sort();
+        for (name, bytes) in files {
+            let _ = writeln!(text, "{name} {}", hash(&bytes));
+        }
+
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/routes.txt");
+        if std::env::var("MAKER_CONNECT_REGENERATE_ROUTES").is_ok_and(|v| v == "1") {
+            std::fs::write(path, &text).unwrap();
+        } else {
+            assert!(
+                text == include_str!("../tests/routes.txt"),
+                "the routes differ from tests/routes.txt"
+            );
+        }
     }
 }
