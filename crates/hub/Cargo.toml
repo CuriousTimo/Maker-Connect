@@ -12,6 +12,14 @@ path = "src/lib.rs"
 name = "maker-connect-hub"
 path = "src/main.rs"
 
+[features]
+# Network cameras over RTSP, the module `cameras` (docs/hub-side.md, "Network cameras").
+cameras = ["dep:retina", "dep:bytes", "dep:url"]
+
+[[example]]
+name = "mse_record"
+required-features = ["cameras"]
+
 [dependencies]
 maker-connect-grbl = { path = "../grbl" }
 maker-connect-label = { path = "../label" }
@@ -38,6 +46,10 @@ tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "s
 toml = "1.1.8"
 # Only for its Layer trait: the API token in an address is read before routing.
 tower = { version = "0.5.3", default-features = false }
+# Network cameras (docs/hub-side.md): retina, the reference, at the version of reference/retina (2b6b7fe).
+retina = { version = "=0.4.22", optional = true }
+bytes = { version = "1", optional = true }
+url = { version = "2", optional = true }
 # SpoolmanDB fetched, a Spoolman imported from or exported to.
 ureq = { version = "2", features = ["json"] }
 argon2 = "0.5"

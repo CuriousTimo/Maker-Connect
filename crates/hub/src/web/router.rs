@@ -71,6 +71,7 @@ pub fn app(store: Shared) -> Router {
         .merge(now_page::routes())
         .merge(farm::routes())
         .merge(projects_page::routes())
+        .merge(cameras_routes())
         // After a route is matched: what it needs, against who asks (access::RULES).
         .route_layer(axum::middleware::from_fn_with_state(
             store.clone(),
@@ -84,6 +85,14 @@ pub fn app(store: Shared) -> Router {
         ))
         .layer(axum::middleware::from_fn(prusa_connect::log));
     auth::token_paths(app.with_state(store))
+}
+
+/// The network cameras' routes, when the hub is built with them (feature `cameras`).
+fn cameras_routes() -> Router<Shared> {
+    #[cfg(feature = "cameras")]
+    return crate::cameras::page::routes();
+    #[cfg(not(feature = "cameras"))]
+    Router::new()
 }
 
 /// Nothing here. A browser asking for a page gets the "spaghetti" page; every other client

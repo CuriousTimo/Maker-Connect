@@ -19,6 +19,8 @@ pub mod access;
 pub mod accounts;
 pub mod apps;
 pub mod auth;
+#[cfg(feature = "cameras")]
+pub mod cameras;
 pub mod codes;
 pub mod commands;
 pub mod devices;
@@ -58,3 +60,22 @@ pub use pages::{
 pub use web::router::app;
 pub(crate) use web::router::{done, failed};
 pub(crate) use web::shell::{PAGE, STYLE, escape, header};
+
+/// The Space page's Cameras tab (empty without the feature, or for who may not manage them).
+pub(crate) fn cameras_space_tab(store: &store::Store, access: &access::Access) -> String {
+    #[cfg(feature = "cameras")]
+    return cameras::page::space_tab(store, access);
+    #[cfg(not(feature = "cameras"))]
+    {
+        let _ = (store, access);
+        String::new()
+    }
+}
+
+/// The cameras' style, for a machine page's Camera tab (empty without the feature).
+pub(crate) fn cameras_style() -> &'static str {
+    #[cfg(feature = "cameras")]
+    return cameras::page::CAMERAS_STYLE;
+    #[cfg(not(feature = "cameras"))]
+    ""
+}

@@ -851,6 +851,30 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Role(Role::Admin),
         Some("backed up the materials"),
     ),
+    // Cameras (crate::cameras, owner 2026-11-16): watching is checked per camera by its
+    // handler (`Store::may_view_camera`); adding, changing and removing take an admin.
+    ("GET", "/cameras", Need::Role(Role::Guest), None),
+    ("GET", "/cameras/{id}", Need::Role(Role::Guest), None),
+    ("GET", "/cameras/{id}/live", Need::Role(Role::Guest), None),
+    ("GET", "/cameras/{id}/ws", Need::Role(Role::Guest), None),
+    (
+        "POST",
+        "/cameras",
+        Need::Role(Role::Admin),
+        Some("added a camera"),
+    ),
+    (
+        "POST",
+        "/cameras/{id}",
+        Need::Role(Role::Admin),
+        Some("changed a camera"),
+    ),
+    (
+        "POST",
+        "/cameras/{id}/remove",
+        Need::Role(Role::Admin),
+        Some("removed a camera"),
+    ),
 ];
 
 /// What a request with this method on this route needs; `None`: no rule, refused.
@@ -3441,6 +3465,10 @@ mod tests {
     /// hash of the page shell and of every embedded style and script. Moving code must not
     /// change it. `MAKER_CONNECT_REGENERATE_ROUTES=1` writes it anew.
     #[tokio::test]
+    #[cfg_attr(
+        not(feature = "cameras"),
+        ignore = "the snapshot is of the build with all modules (docs/hub-modules.md)"
+    )]
     async fn the_routes_are_as_checked_in() {
         use sha2::{Digest, Sha256};
         use std::fmt::Write as _;

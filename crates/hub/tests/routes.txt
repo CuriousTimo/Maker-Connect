@@ -86,6 +86,12 @@
 /api/v1/tag/scan/{reader}
 /api/v1/vendor
 /api/v1/vendor/{id}
+/cameras
+/cameras/video-rtc.js
+/cameras/{id}
+/cameras/{id}/live
+/cameras/{id}/remove
+/cameras/{id}/ws
 /downloads
 /downloads/{name}
 /f/{iv}/raw
@@ -314,6 +320,13 @@
 ("DELETE", "/api/v1/filament/{id}/tag/{uid}", Role(Member), Some("untagged filament"))
 ("POST", "/api/v1/tag/scan", Role(Member), None)
 ("POST", "/api/v1/backup", Role(Admin), Some("backed up the materials"))
+("GET", "/cameras", Role(Guest), None)
+("GET", "/cameras/{id}", Role(Guest), None)
+("GET", "/cameras/{id}/live", Role(Guest), None)
+("GET", "/cameras/{id}/ws", Role(Guest), None)
+("POST", "/cameras", Role(Admin), Some("added a camera"))
+("POST", "/cameras/{id}", Role(Admin), Some("changed a camera"))
+("POST", "/cameras/{id}/remove", Role(Admin), Some("removed a camera"))
 # status: method path, then none guest member admin owner
 GET / => 401 200 200 200 200
 POST / => 401 403 403 403 403
@@ -750,6 +763,36 @@ POST /api/v1/vendor/{id} => 401 403 403 403 403
 PUT /api/v1/vendor/{id} => 401 403 403 403 403
 PATCH /api/v1/vendor/{id} => 401 403 415 415 415
 DELETE /api/v1/vendor/{id} => 401 403 404 404 404
+GET /cameras => 401 200 200 200 200
+POST /cameras => 401 403 403 415 415
+PUT /cameras => 401 403 403 403 403
+PATCH /cameras => 401 403 403 403 403
+DELETE /cameras => 401 403 403 403 403
+GET /cameras/video-rtc.js => 401 200 200 200 200
+POST /cameras/video-rtc.js => 401 403 403 403 403
+PUT /cameras/video-rtc.js => 401 403 403 403 403
+PATCH /cameras/video-rtc.js => 401 403 403 403 403
+DELETE /cameras/video-rtc.js => 401 403 403 403 403
+GET /cameras/{id} => 401 404 404 404 404
+POST /cameras/{id} => 401 403 403 415 415
+PUT /cameras/{id} => 401 403 403 403 403
+PATCH /cameras/{id} => 401 403 403 403 403
+DELETE /cameras/{id} => 401 403 403 403 403
+GET /cameras/{id}/live => 401 404 404 404 404
+POST /cameras/{id}/live => 401 403 403 403 403
+PUT /cameras/{id}/live => 401 403 403 403 403
+PATCH /cameras/{id}/live => 401 403 403 403 403
+DELETE /cameras/{id}/live => 401 403 403 403 403
+GET /cameras/{id}/remove => 401 405 405 405 405
+POST /cameras/{id}/remove => 401 403 403 404 404
+PUT /cameras/{id}/remove => 401 403 403 403 403
+PATCH /cameras/{id}/remove => 401 403 403 403 403
+DELETE /cameras/{id}/remove => 401 403 403 403 403
+GET /cameras/{id}/ws => 401 400 400 400 400
+POST /cameras/{id}/ws => 401 403 403 403 403
+PUT /cameras/{id}/ws => 401 403 403 403 403
+PATCH /cameras/{id}/ws => 401 403 403 403 403
+DELETE /cameras/{id}/ws => 401 403 403 403 403
 GET /downloads => 401 200 200 200 200
 POST /downloads => 401 403 403 403 403
 PUT /downloads => 401 403 403 403 403
@@ -1196,7 +1239,7 @@ PUT /welcome => 401 403 403 403 403
 PATCH /welcome => 401 403 403 403 403
 DELETE /welcome => 401 403 403 403 403
 # embedded
-header fbfd9f68b2100c0553fb55594832294e4eb259013f9b891615ed7d70b6cb3d64
+header 40127b72ea99ef1ff5b497aa03c5031d776b52d24671e4b13f0971cc3bc4210f
 files.css 17d5527d43531fdfc90dc3e03d113a5511e1db013d0ee59af235a3f6c8c25763
 files.js 7bc12774c4bf46972836508628e227aba31dfe21b64fffae59e86b06d1c62b1a
 label.css e32ee3ebd76835d9948b905134a5884689b283aaa6b463c00f4eaa396a055190
@@ -1204,5 +1247,6 @@ label.js 08819ec431b785b63886ee06fad2462a3ea129b85142411d668f35135a12ebb5
 library.css 0fec114d83ebcc01533a7d98fe46e84a5ccd2a77ac8bdb474dfc62a6cef7c4c2
 library.js a48611e263074ff88c5d1f7a85a330df756a987c223c36ddde00594983658ca5
 machine.css df5c82ab4c341bb22c0d3d7f9ebab6910e5cae5e56a7a7993b6281bedd6c5a8a
-machine.js 0370af8b60b37e1dd5096bbba1add2b051b5be54365168d47ffdc95080e98253
+machine.js 7bbf455e1859111fecf406ed703845fb2a8f4ce6d7bb298d9dff735fbd9f87d6
 shell.js 2a19411d2986d5b16977d205c0e8b2ac2f24fdc43a19583cde26a2b338986594
+video-rtc.js d48ce627baf7c341a92c0f5844a3c546431f9db873ff21489671aba2ecfe64fb

@@ -147,6 +147,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(farm::run(store.clone()));
     tokio::spawn(samples::run(store.clone()));
     tokio::spawn(queue::run(store.clone()));
+    // The cameras' sessions (crate::cameras), when the hub is built with them.
+    #[cfg(feature = "cameras")]
+    maker_connect_hub::cameras::start_all(&store);
     let listener = match tokio::net::TcpListener::bind(&listen).await {
         Ok(listener) => listener,
         Err(error) => match &on_trial {

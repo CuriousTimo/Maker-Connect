@@ -177,6 +177,8 @@ pub(super) fn migrate(db: &Connection) -> rusqlite::Result<()> {
     crate::printer_files::migrate(db)?;
     crate::farm::migrate(db)?;
     crate::queue::migrate(db)?;
+    #[cfg(feature = "cameras")]
+    crate::cameras::store::migrate(db)?;
     db.execute(
         "INSERT INTO meta (key, value) VALUES ('opened_by', ?1)
          ON CONFLICT (key) DO UPDATE SET value = excluded.value",

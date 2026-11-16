@@ -45,6 +45,8 @@ pub(crate) fn shown_state(machine: &Machine) -> (String, String) {
 /// What the page shows beyond the machine itself: whether who looks may manage it, and its
 /// latest jobs with their numbers.
 pub struct Extra {
+    /// Its Camera tab (crate::cameras): the cameras on it the person may watch.
+    pub camera_tab: Option<String>,
     /// Who looks at it, and whether they are staff (admin, owner): they may change
     /// everyone's prints in its queue; others only their own (crate::queue).
     pub me: i64,
@@ -110,7 +112,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
     {queue_tab}<a href="#telemetry" role="tab">Telemetry</a>
     <a href="#control" role="tab">Control</a>
     <a href="#terminal" role="tab">Terminal</a>
-    {mesh_tab}{usb_tab}<a href="#settings" role="tab">Settings</a>
+    {mesh_tab}{usb_tab}{camera_link}<a href="#settings" role="tab">Settings</a>
   </nav>
   <section class="tab" id="overview" role="tabpanel">
 {overview}
@@ -130,7 +132,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
   </section>
   {bed_level}
   {usb}
-  <section class="tab" id="settings" role="tabpanel" hidden>
+  {camera_panel}<section class="tab" id="settings" role="tabpanel" hidden>
 {settings}
 {upkeep}
   </section>
@@ -186,6 +188,22 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
             SD_TAB
         } else {
             ""
+        },
+        camera_link = if extra.camera_tab.is_some() {
+            r##"<a href="#camera" role="tab">Camera</a>
+    "##
+        } else {
+            ""
+        },
+        camera_panel = match &extra.camera_tab {
+            Some(tab) => format!(
+                r#"<section class="tab" id="camera" role="tabpanel" hidden>
+<style>{}</style>{tab}
+  </section>
+  "#,
+                crate::cameras_style()
+            ),
+            None => String::new(),
         },
         mesh_tab = if heats(machine) {
             r##"<a href="#bedmesh" role="tab">Bed mesh</a>

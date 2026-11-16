@@ -288,6 +288,8 @@ async fn page(
         };
 
         // API tokens.
+        // The cameras to manage (crate::cameras), for an admin, when the hub has them.
+        let cameras_html = crate::cameras_space_tab(&store, &access);
         let tokens_html = if admin {
             let mut list = String::new();
             for t in store.tokens(space)? {
@@ -450,10 +452,11 @@ async fn page(
 {header}
 <main>
   <div class="space-head"><h2>{name}</h2><span class="chip {role}">you: {role}</span></div>
-  <nav class="tabs" role="tablist"><a href="#members" role="tab">Members</a><a href="#permissions" role="tab">Permissions</a><a href="#access" role="tab">Access</a>{tokens_tab}{audit_tab}<a href="#general" role="tab">General</a></nav>
+  <nav class="tabs" role="tablist"><a href="#members" role="tab">Members</a><a href="#permissions" role="tab">Permissions</a><a href="#access" role="tab">Access</a>{cameras_tab}{tokens_tab}{audit_tab}<a href="#general" role="tab">General</a></nav>
   <div role="tabpanel" data-panel="members">{members_html}{invites_html}</div>
   <div role="tabpanel" data-panel="access" hidden>{access_html}</div>
   <div role="tabpanel" data-panel="permissions" hidden>{groups_html}{machines_html}</div>
+  <div role="tabpanel" data-panel="cameras" hidden>{cameras_html}</div>
   <div role="tabpanel" data-panel="tokens" hidden>{tokens_html}</div>
   <div role="tabpanel" data-panel="audit" hidden>{audit_html}</div>
   <div role="tabpanel" data-panel="general" hidden>{org_html}{safety_html}{account_html}{instance_html}</div>
@@ -529,6 +532,11 @@ async fn page(
             groups_html = access_parts.groups,
             access_html = crate::access_page::placeholder(),
             machines_html = access_parts.machines,
+            cameras_tab = if cameras_html.is_empty() {
+                ""
+            } else {
+                r##"<a href="#cameras" role="tab">Cameras</a>"##
+            },
             tokens_tab = if tokens_html.is_empty() {
                 ""
             } else {

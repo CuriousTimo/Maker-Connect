@@ -608,6 +608,7 @@ pub(crate) async fn machine_page(
         }
         Ok((space, Some(machine))) => {
             let extra = machine_page::Extra {
+                camera_tab: camera_tab(&store, &access, &machine.id),
                 me: access.user_id,
                 staff: access.role >= access::Role::Admin,
                 asked: store.asked(access.user_id, &machine.id).ok().flatten(),
@@ -746,5 +747,20 @@ mod tests {
             "its bed, to scale"
         );
         assert!(page.contains("250 × 210 × 320 mm"));
+    }
+}
+
+/// A machine's Camera tab, when the hub has cameras and one on it may be watched.
+fn camera_tab(
+    store: &crate::store::Store,
+    access: &crate::access::Access,
+    machine: &str,
+) -> Option<String> {
+    #[cfg(feature = "cameras")]
+    return crate::cameras::page::machine_tab(store, access, machine);
+    #[cfg(not(feature = "cameras"))]
+    {
+        let _ = (store, access, machine);
+        None
     }
 }

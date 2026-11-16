@@ -22,7 +22,7 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
         r##"<script>try {{ const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; }} catch {{}}</script>
 <header class="topbar">
   <a class="brand" href="{home}"><img src="{root}logo.svg" alt="" width="28" height="28"><span><b>Maker Connect</b><small>{space}</small></span></a>
-  <nav class="side-nav" aria-label="Pages">{now}{machines}{projects}{files}{stock}{space_link}</nav>
+  <nav class="side-nav" aria-label="Pages">{now}{machines}{projects}{files}{stock}{cameras}{space_link}</nav>
   <div class="top-right" data-top-right>
     <div class="summary">
       <span class="count" title="Machines in this space"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="10" rx="1.5"/><path d="M7 17h6M10 14v3"/></svg><b data-sum="machines">–</b><span class="sr">machines</span></span>
@@ -154,6 +154,16 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
             "stock",
             r#"<path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5z"/><path d="M3 6.5 10 10l7-3.5M10 10v7"/>"#
         ),
+        cameras = if cfg!(feature = "cameras") {
+            link(
+                "cameras",
+                "Cameras",
+                "cameras",
+                r#"<rect x="2.5" y="5.5" width="11" height="9" rx="1.5"/><path d="m13.5 9 4-2.5v7l-4-2.5"/>"#,
+            )
+        } else {
+            String::new()
+        },
         space_link = link(
             "space",
             "Space",
