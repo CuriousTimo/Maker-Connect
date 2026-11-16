@@ -285,6 +285,11 @@ retina stays the RTSP side; go2rtc's own RTSP client is not used (one reference 
   `{"type":"error","value":"mse: <text>"}`; a 5 s write deadline per message; no pings (go2rtc has none: the 30 s
   keepalive and the "skipped" message of retina's example go); a viewer that falls behind loses frames and is not
   resynced (go2rtc: a full sender drops, `c.start` is set once).
+- Ours (owner, 2026-11-16: "doe a maar nu"): the hub keeps a camera's frames since its last key frame (retina's
+  random access point) and gives them to a new viewer first, so the picture comes at once instead of at the next key
+  frame (the LSC sends one every 3.95 s on `/101` and `/102`); go2rtc's player catches up to live itself
+  (`video-rtc.js:478`). Measured: the first fragment 20-40 ms after opening instead of up to 4 s. Memory: one GOP per
+  camera (~100-150 kB for the LSC); a camera that never sends another key frame grows it (not bounded: noted).
 - The player is `www/video-rtc.js` unchanged, used as go2rtc's `video-stream.js` uses it (a custom element,
   `mode = "mse"`, `src` = the camera's websocket).
 - Proof: the bytes of our init and fragments compared with go2rtc's own muxer on the same frames (a Go test

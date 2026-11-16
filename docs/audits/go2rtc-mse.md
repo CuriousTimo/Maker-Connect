@@ -19,6 +19,8 @@ Run 2026-11-16 on the LSC Smart Connect indoor camera (`/Streaming/Channels/101`
 202/202 identical (content type, init segment, 200 fragments).
 
 Not covered:
+- Ours, not go2rtc's: a new viewer first gets the frames since the last key frame (go2rtc's viewer waits for the
+  next one); the fragments are still made by the ported muxer, one muxer per viewer as go2rtc's.
 - The websocket exchange (`internal/mp4/ws.go`, `internal/api/ws/ws.go`): ported by reading; not run against go2rtc.
 - The player: go2rtc's file unchanged, so not compared; it was seen playing in Chrome and Safari over plain HTTP.
 - The filter on real frames: the frames given to both muxers are already filtered (go2rtc's filter sits in its RTP

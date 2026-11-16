@@ -89,7 +89,9 @@ async fn mse(
         return *refused;
     }
     match super::subscribe(id) {
-        Some(frames_rx) => ws.on_upgrade(move |ws| super::serve_mse(ws, frames_rx)),
+        Some((backlog, frames_rx)) => {
+            ws.on_upgrade(move |ws| super::serve_mse(ws, backlog, frames_rx))
+        }
         None => (
             StatusCode::SERVICE_UNAVAILABLE,
             "this camera is not playing",

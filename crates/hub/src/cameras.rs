@@ -63,7 +63,14 @@ pub struct Source {
 struct Running {
     task: tokio::task::AbortHandle,
     frames: Option<tokio::sync::broadcast::Sender<FrameItem>>,
+    /// The frames since the last key frame, for a new viewer to start at once (ours, owner
+    /// 2026-11-16: "doe a maar nu"; go2rtc's viewer waits for the next key frame).
+    gop: Gop,
 }
+
+/// The frames from the last key frame on, kept as they are sent; filled and read under its
+/// lock, so a new viewer gets these and then exactly the frames after them.
+type Gop = std::sync::Arc<Mutex<Vec<FrameItem>>>;
 
 /// The sessions, by camera id.
 static RUNNING: Mutex<Option<HashMap<i64, Running>>> = Mutex::new(None);
@@ -100,6 +107,7 @@ fn mse_parameters(parameters: &VideoParameters) -> (Bytes, (u16, u16)) {
 async fn receive_frames(
     mut session: retina::client::Demuxed,
     frames_tx: tokio::sync::broadcast::Sender<FrameItem>,
+    gop: Gop,
 ) -> Result<(), retina::Error> {
     let mut cur_parameters: Option<(Bytes, (u16, u16))> = None;
     while let Some(item) = session.next().await {
@@ -116,12 +124,22 @@ async fn receive_frames(
             } else {
                 continue; // wait for initial parameters.
             };
-            let _ = frames_tx.send(FrameItem {
+            let item = FrameItem {
                 data: Bytes::copy_from_slice(frame.data()),
                 rtp_timestamp: frame.timestamp().timestamp() as u32,
                 avcc: parameters.0.clone(),
                 size: parameters.1,
-            });
+            };
+            // Ours: keep the frames since the last key frame (retina's random access point).
+            let mut kept = gop.lock().unwrap();
+            if frame.is_random_access_point() {
+                kept.clear();
+            }
+            if frame.is_random_access_point() || !kept.is_empty() {
+                kept.push(item.clone());
+            }
+            let _ = frames_tx.send(item);
+            drop(kept);
         }
     }
     Ok(())
@@ -191,18 +209,23 @@ async fn run(id: i64, source: Source) {
         }
     };
     eprintln!("camera {id} {shown}: playing");
-    running(|r| {
-        if let Some(r) = r.get_mut(&id) {
+    let gop = running(|r| {
+        r.get_mut(&id).map(|r| {
             r.frames = Some(frames_tx.clone());
-        }
+            r.gop.clone()
+        })
     });
-    let res = receive_frames(session, frames_tx).await;
+    let Some(gop) = gop else {
+        return;
+    };
+    let res = receive_frames(session, frames_tx, gop.clone()).await;
     // The last sender goes: every viewer's `recv` ends with `Closed`, as when the example ends.
     running(|r| {
         if let Some(r) = r.get_mut(&id) {
             r.frames = None;
         }
     });
+    gop.lock().unwrap().clear();
     eprintln!("camera {id} {shown}: RTSP session ending: {res:?}");
 }
 
@@ -227,7 +250,14 @@ pub fn start(camera: &store::Camera) {
             old.task.abort();
         }
         let task = tokio::spawn(run(id, source)).abort_handle();
-        r.insert(id, Running { task, frames: None });
+        r.insert(
+            id,
+            Running {
+                task,
+                frames: None,
+                gop: Gop::default(),
+            },
+        );
     });
 }
 
@@ -240,12 +270,16 @@ pub fn stop(id: i64) {
     });
 }
 
-/// The frames of a camera that plays, for one more viewer.
-pub(crate) fn subscribe(id: i64) -> Option<tokio::sync::broadcast::Receiver<FrameItem>> {
+/// For one more viewer of a camera that plays: the frames since the last key frame, and the
+/// frames after them.
+pub(crate) fn subscribe(
+    id: i64,
+) -> Option<(Vec<FrameItem>, tokio::sync::broadcast::Receiver<FrameItem>)> {
     running(|r| {
-        r.get(&id)
-            .and_then(|r| r.frames.as_ref())
-            .map(|tx| tx.subscribe())
+        let r = r.get(&id)?;
+        let tx = r.frames.as_ref()?;
+        let kept = r.gop.lock().unwrap();
+        Some((kept.clone(), tx.subscribe()))
     })
 }
 
@@ -280,10 +314,13 @@ async fn ws_send(socket: &mut axum::extract::ws::WebSocket, msg: Message) -> boo
 /// Differences, on the hub's side: go2rtc knows the SPS from the SDP and answers at once; here
 /// the answer and the init wait for the first frame's parameters (retina's). A viewer that falls
 /// behind loses frames and is not resynced, as go2rtc's full sender drops (`c.start` is set
-/// once). No pings (go2rtc's websocket has none). When the viewer's codecs have no H.264 the
+/// once). No pings (go2rtc's websocket has none). Ours (owner, 2026-11-16): a new viewer first
+/// gets the frames since the last key frame (`backlog`), so the picture comes at once instead
+/// of at the next key frame; go2rtc's player catches up to live itself (`video-rtc.js:478`). When the viewer's codecs have no H.264 the
 /// answer is go2rtc's error form; its text ("codecs not matched") without go2rtc's lists.
 pub(crate) async fn serve_mse(
     mut socket: axum::extract::ws::WebSocket,
+    backlog: Vec<FrameItem>,
     mut frames_rx: tokio::sync::broadcast::Receiver<FrameItem>,
 ) {
     // The viewer's first message: what it can play.
@@ -310,9 +347,17 @@ pub(crate) async fn serve_mse(
         .await;
         return;
     }
-    let mut muxer = mp4::Muxer::new();
-    let mut ps: Option<Vec<u8>> = None;
-    let mut start = false;
+    let mut viewer = Viewer {
+        muxer: mp4::Muxer::new(),
+        ps: None,
+        start: false,
+    };
+    // Ours: the frames since the last key frame first, so the picture comes at once.
+    for item in backlog {
+        if !viewer.send(&mut socket, &item).await {
+            return;
+        }
+    }
     loop {
         tokio::select! {
             res = frames_rx.recv() => {
@@ -321,29 +366,7 @@ pub(crate) async fn serve_mse(
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
                 };
-                let (_, sps, pps) = mp4::decode_config(&item.avcc);
-                if ps.is_none() {
-                    // The answer and the init, once the parameters are known.
-                    if !ws_send(&mut socket, ws_json("mse", &mp4::content_type(sps))).await {
-                        return;
-                    }
-                    let init = mp4::Muxer::get_init(sps, pps, Some(item.size));
-                    if !ws_send(&mut socket, Message::Binary(init.into())).await {
-                        return;
-                    }
-                    ps = Some(mp4::join_nalu(&[sps.unwrap_or_default(), pps.unwrap_or_default()]));
-                }
-                let Some(payload) = mp4::start_of_access_unit(&item.data, ps.as_deref().unwrap_or_default()) else {
-                    continue;
-                };
-                if !start {
-                    if !mp4::is_keyframe(&payload) {
-                        continue;
-                    }
-                    start = true;
-                }
-                let fragment = muxer.get_payload(item.rtp_timestamp, &payload);
-                if !ws_send(&mut socket, Message::Binary(fragment.into())).await {
+                if !viewer.send(&mut socket, &item).await {
                     return;
                 }
             }
@@ -354,5 +377,46 @@ pub(crate) async fn serve_mse(
                 }
             }
         }
+    }
+}
+
+/// One viewer's muxer, as go2rtc's consumer per viewer.
+struct Viewer {
+    muxer: mp4::Muxer,
+    ps: Option<Vec<u8>>,
+    start: bool,
+}
+
+impl Viewer {
+    /// One frame to the viewer: the answer and the init first, once the parameters are known;
+    /// then a fragment per frame from the first key frame. `false` when the socket failed.
+    async fn send(&mut self, socket: &mut axum::extract::ws::WebSocket, item: &FrameItem) -> bool {
+        let (_, sps, pps) = mp4::decode_config(&item.avcc);
+        if self.ps.is_none() {
+            if !ws_send(socket, ws_json("mse", &mp4::content_type(sps))).await {
+                return false;
+            }
+            let init = mp4::Muxer::get_init(sps, pps, Some(item.size));
+            if !ws_send(socket, Message::Binary(init.into())).await {
+                return false;
+            }
+            self.ps = Some(mp4::join_nalu(&[
+                sps.unwrap_or_default(),
+                pps.unwrap_or_default(),
+            ]));
+        }
+        let Some(payload) =
+            mp4::start_of_access_unit(&item.data, self.ps.as_deref().unwrap_or_default())
+        else {
+            return true;
+        };
+        if !self.start {
+            if !mp4::is_keyframe(&payload) {
+                return true;
+            }
+            self.start = true;
+        }
+        let fragment = self.muxer.get_payload(item.rtp_timestamp, &payload);
+        ws_send(socket, Message::Binary(fragment.into())).await
     }
 }
