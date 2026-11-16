@@ -4,7 +4,7 @@
 //! hub = "http://192.168.1.20:8460"
 //! name = "Dymo"
 //! kind = "label"          # fdm, laser, label, ...
-//! mode = "dymo-pnp"       # required: prusa, marlin, grbl, dymo-pnp
+//! mode = "dymo-pnp"       # required: prusa, marlin, grbl, dymo-pnp, labelwriter-450, dymo-scale
 //! # port = "COM3"         # a serial port; left out, the port's reference finds one
 //! # baud = 250000         # left out, the port's reference decides
 //! # state = "maker-connect-agent.json"

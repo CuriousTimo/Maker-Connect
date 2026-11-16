@@ -122,18 +122,24 @@ labelle `5e8f1e5` with pyusb 1.3.1 and Pillow 12.3.0, run by `scripts/labelle-po
 
 | Item | labelle | Ours | Result |
 |---|---|---|---|
-| Sent while idle | nothing | nothing (the idle status poll is gone) | identical |
+| Sent while idle | nothing | the owner's exception (2026-11-16, L11), not covered by the labelle comparison: every 15 s (first 15 s after start-up, then 15 s after the previous poll or a job ended) the printer is opened as the print path does, one `ESC A` (`1b 41`) is written and one read of 512 bytes follows, the device is released; nothing else is sent. The answer is reported as `raw_status`, meaning unknown; a failed poll releases, sends no `Gone`, is not retried; a job goes first | **ours** (owner's exception; tests `ports::labelle::tests::idle_poll`, `ports::labelle::tests::port`) |
 | Looking for the printer | `DeviceManager.scan` and `find_and_select_device` once per print (`cli.py:577-579`) | the same, once per print, no scan loop | identical |
 | Tape width | `--tape-size-mm`, default 12 | from the job's `tape_mm`; none is 12 and an unsupported size fails with labelle's `ValueError` text, as `DymoLabeler.__init__` (the `tape_none` and `tape_24mm` examples) | identical |
 | After an error | the process ends, the OS lets go of the device | the printer is released (`dispose`), the same operations as the exit-time finalizers (the `scene_*` and `tape_24mm` examples above) | identical |
 | The picture's file | `Image.open` (any format Pillow knows) | the `png` crate decodes (PNG only); what Pillow does with the decoded rows is ported | **differs**: any other file is "cannot identify image file" |
 | USB | pyusb's libusb1 backend | `nusb` (`nusb_backend.rs`): descriptors read from an opened device for labelle's vendor; kernel-driver check from sysfs on Linux; errors given the text and errno pyusb gives | **differs**: not tried on the printer |
-| The printer's answers | read and thrown away | read the same; the first eight bytes go to the hub in hex, meaning unknown (L6) | ours |
+| The printer's answers | read and thrown away | read the same, in a print and in the idle poll; the first eight bytes go to the hub in hex (`raw_status`), and, the owner's decision of 2026-11-16 (L6): cassette in when byte 0 has bit `0x40` (out when it is clear), battery percent from byte 3 when at most 100. An answer shorter than 4 bytes, or a byte 3 over 100, keeps the last battery value shown; an empty answer changes nothing (ours, beside the owner's decision). Nothing more is read; nothing more is sent for it | ours (owner's decision; test `ports::labelle::port::tests`) |
 | Command, pause/resume/stop, answer | none | fail loudly (L4, L5) | ours |
 | Margins | `--justify` left, `--margin-px 56`, no min or max length (the CLI's defaults) | the same defaults, no options | identical (L9) |
 
 ## 3. Not covered (said, not hidden)
 
+- **Windows.** The string-descriptor reads (`ctrl_transfer`, `nusb_backend.rs`): a control transfer goes on an interface, as libusb's WinUSB backend sends it
+  (`reference/libusb-1.0.29/windows_winusb.c`: `winusbx_submit_control_transfer` :2998-3004, `auto_claim` :613,
+  `auto_release` :658); the request on the wire is the same. When no interface can be claimed, libusb gives `LIBUSB_ERROR_NOT_FOUND`; nusb has no such error, so ours gives `InvalidArgument` (differs, ours). Two more differences, harmless at these lengths: we try the active configuration's interfaces, not indexes 0..`USB_MAXINTERFACES` filtered by API type, and there is no `MAX_CTRL_BUFFER_LENGTH` (4096) check. Built for `x86_64-pc-windows-gnu`, never run on Windows
+  or tried on a printer there (WinUSB must be the device's driver).
+- **The idle poll** (L11) has no labelle counterpart: it is compared with nothing, tested only against
+  the recorder (the bytes `1b 41`, one 512-byte read, the release), and what its answer means is unknown.
 - **The real printer.** Nothing here has run on a PnP yet: the `nusb` stand-in (descriptor reads,
   `is_kernel_driver_active` from sysfs, transfers, the error texts) is tried only against the
   recorder. To try on the agent's Orange Pi.

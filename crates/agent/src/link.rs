@@ -36,14 +36,14 @@ pub(crate) struct Options {
     state: String,
     /// Register again for a new pairing code, forgetting the credentials kept (`--new-code`).
     new_code: bool,
-    /// What the machine on the port is (`--mode prusa|marlin|grbl|dymo-pnp`).
+    /// What the machine on the port is (`--mode prusa|marlin|grbl|dymo-pnp|labelwriter-450|dymo-scale`).
     pub(crate) mode: Mode,
 }
 
 /// What the machine on the port is, as told at startup (`--mode`), never guessed and with no default
 /// (B4): Prusa's MK3 family (PrusaLink's ways), any other Marlin printer (OctoPrint's ways), GRBL (a
 /// laser), a DYMO LabelManager PnP on USB (labelle's ways), or a LabelWriter 450 (DYMO's CUPS
-/// driver's ways).
+/// driver's ways), or a DYMO M-series scale (usbscale's ways).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mode {
     Prusa,
@@ -51,26 +51,28 @@ pub(crate) enum Mode {
     Grbl,
     DymoPnp,
     LabelWriter450,
+    DymoScale,
 }
 
 /// `--mode`, which must be given (B4).
 fn parse_mode(given: Option<&str>) -> Result<Mode, String> {
     match given {
-        None => Err("mode: say what is on the port with --mode prusa, marlin, grbl, dymo-pnp or labelwriter-450: there is no default".to_owned()),
+        None => Err("mode: say what is on the port with --mode prusa, marlin, grbl, dymo-pnp, labelwriter-450 or dymo-scale: there is no default".to_owned()),
         Some("prusa") => Ok(Mode::Prusa),
         Some("marlin") => Ok(Mode::Marlin),
         Some("grbl") => Ok(Mode::Grbl),
         Some("dymo-pnp") => Ok(Mode::DymoPnp),
         Some("labelwriter-450") => Ok(Mode::LabelWriter450),
-        Some(other) => Err(format!("mode: prusa, marlin, grbl, dymo-pnp or labelwriter-450, not {other}")),
+        Some("dymo-scale") => Ok(Mode::DymoScale),
+        Some(other) => Err(format!("mode: prusa, marlin, grbl, dymo-pnp, labelwriter-450 or dymo-scale, not {other}")),
     }
 }
 
 /// `--kind`, which must be given (B4).
 fn parse_kind(given: Option<&str>) -> Result<MachineKind, String> {
-    let kind = given.ok_or("kind: say what the machine is with --kind fdm, laser, cnc, cutter, label, paper or other: there is no default")?;
+    let kind = given.ok_or("kind: say what the machine is with --kind fdm, laser, cnc, cutter, label, paper, scale or other: there is no default")?;
     serde_json::from_value(serde_json::Value::String(kind.to_owned()))
-        .map_err(|_| format!("kind: fdm, laser, cnc, cutter, label, paper or other, not {kind}"))
+        .map_err(|_| format!("kind: fdm, laser, cnc, cutter, label, paper, scale or other, not {kind}"))
 }
 
 /// The options: the config file's (see [`crate::config`]), with the command line's on top.
@@ -575,6 +577,8 @@ fn telemetry_of(
 /// Runs the agent: registers, then reports and passes on, until stopped.
 pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let options = options(args)?;
+    // A scale not found, or several: refused here, with what was seen (Step 3e, E2).
+    crate::ports::check(&options)?;
     println!("{}", crate::version());
     // An update under way: this build on trial, or one to roll back.
     let exe = std::env::current_exe().ok();
@@ -968,6 +972,7 @@ mod tests {
             ("grbl", Mode::Grbl),
             ("dymo-pnp", Mode::DymoPnp),
             ("labelwriter-450", Mode::LabelWriter450),
+            ("dymo-scale", Mode::DymoScale),
         ] {
             let options = options(&args(&["--kind", "fdm", "--mode", given])).unwrap();
             assert_eq!(options.mode, mode);

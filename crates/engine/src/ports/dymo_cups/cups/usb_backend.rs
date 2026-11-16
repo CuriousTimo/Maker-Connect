@@ -440,6 +440,7 @@ mod nusb_host {
     use nusb::transfer::{Buffer, Bulk, ControlIn, ControlType, In, Out, Recipient, TransferError};
     use std::sync::{Arc, Mutex};
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::collections::BTreeMap;
     use std::time::Duration;
 
     /// The system's USB (`libusb_init`, `libusb_get_device_list`).
@@ -451,6 +452,53 @@ mod nusb_host {
         read: Option<Mutex<nusb::Endpoint<Bulk, In>>>,
         interface: Mutex<Option<nusb::Interface>>,
         closing: AtomicBool,
+    }
+
+    /// A device-to-host control transfer as libusb sends it. Elsewhere on the device; on Windows
+    /// (WinUSB) libusb sends it on an interface (`reference/libusb-1.0.29/windows_winusb.c`,
+    /// `winusbx_submit_control_transfer` :2998-3004, `get_valid_interface` :2909, `check_valid_interface`
+    /// :2933, `auto_claim` :613, `auto_release` :658): with an interface recipient the claimed interface
+    /// `wIndex & 0xff`, otherwise the lowest claimed interface; with none, the first interface that can be
+    /// claimed is claimed for the transfer and released after it. The request on the wire is the same.
+    #[cfg(not(windows))]
+    fn control_in(
+        device: &nusb::Device,
+        _claimed: &BTreeMap<u8, nusb::Interface>,
+        control: ControlIn,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, TransferError> {
+        device.control_in(control, timeout).wait()
+    }
+
+    #[cfg(windows)]
+    fn control_in(
+        device: &nusb::Device,
+        claimed: &BTreeMap<u8, nusb::Interface>,
+        control: ControlIn,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, TransferError> {
+        let valid = if control.recipient == Recipient::Interface {
+            claimed.get(&((control.index & 0xff) as u8))
+        } else {
+            claimed.values().next()
+        };
+        if let Some(interface) = valid {
+            return interface.control_in(control, timeout).wait();
+        }
+        // auto_claim: "No serviceable interface was found"; released when the transfer ends (dropped).
+        let mut numbers: Vec<u8> = device
+            .active_configuration()
+            .map(|c| c.interfaces().map(|i| i.interface_number()).collect())
+            .unwrap_or_default();
+        numbers.sort_unstable();
+        numbers.dedup();
+        for number in numbers {
+            if let Ok(interface) = device.claim_interface(number).wait() {
+                return interface.control_in(control, timeout).wait();
+            }
+        }
+        // "could not auto-claim any interface" (LIBUSB_ERROR_NOT_FOUND)
+        Err(TransferError::InvalidArgument)
     }
 
     fn map_err(e: TransferError) -> UsbError {
@@ -536,13 +584,13 @@ mod nusb_host {
 
     /// `get_device_id` (:1073-1165): the IEEE-1284 device ID of the printer interface.
     fn get_device_id(device: &nusb::Device, conf: u16, iface: u8, altset: u8) -> Option<String> {
-        let data = device
-            .control_in(
-                ControlIn { control_type: ControlType::Class, recipient: Recipient::Interface, request: 0, value: conf, index: ((iface as u16) << 8) | altset as u16, length: 1024 },
-                Duration::from_millis(5000),
-            )
-            .wait()
-            .ok()?;
+        let data = control_in(
+            device,
+            &BTreeMap::new(),
+            ControlIn { control_type: ControlType::Class, recipient: Recipient::Interface, request: 0, value: conf, index: ((iface as u16) << 8) | altset as u16, length: 1024 },
+            Duration::from_millis(5000),
+        )
+        .ok()?;
         if data.len() < 2 {
             return None;
         }

@@ -308,6 +308,11 @@ fn scenes() -> Vec<(String, Vec<(u32, u32, u16, u16, [u8; 3], u8, Vec<String>, V
 
 /// A backend over the devices of a scene, and its log.
 fn fake(scene: &str) -> (Rc<dyn Backend>, Rc<RefCell<Vec<String>>>) {
+    fake_flagged(scene, None)
+}
+
+/// [`fake`] with one more flag on each device (`failread=N`, `failwrite=N`).
+fn fake_flagged(scene: &str, extra: Option<&str>) -> (Rc<dyn Backend>, Rc<RefCell<Vec<String>>>) {
     let (_, devices) = scenes().into_iter().find(|(name, _)| name == scene).unwrap_or_else(|| panic!("scene {scene}"));
     let log = Rc::new(RefCell::new(Vec::new()));
     let devices = devices
@@ -319,7 +324,7 @@ fn fake(scene: &str) -> (Rc<dyn Backend>, Rc<RefCell<Vec<String>>>) {
             pid,
             strings,
             active: Cell::new(active),
-            flags,
+            flags: flags.into_iter().chain(extra.map(str::to_owned)).collect(),
             drivers: RefCell::new(ifaces.iter().map(|i| (i.number, i.bound)).collect()),
             ifaces,
         })
@@ -533,6 +538,56 @@ fn the_tape_defaults_as_labelle_does() {
 
 // ---- the engine's port (port.rs) ----
 
+mod idle_poll {
+    use super::*;
+
+    fn poll(scene: &str, extra: Option<&str>) -> (Result<(), cli::CliError>, Vec<String>, Vec<Vec<u8>>, Option<Printer>) {
+        usb_device::set_platform_for_test(Some("Linux"));
+        let (backend, log) = fake_flagged(scene, extra);
+        let mut printer = None;
+        let mut heard = Vec::new();
+        let result = cli::poll_status(backend, &mut |a| heard.push(a.to_vec()), &mut printer);
+        let ops = log.borrow().clone();
+        (result, ops, heard, printer)
+    }
+
+    #[test]
+    fn one_poll_is_exactly_one_esc_a_and_one_read_then_the_release() {
+        let (result, ops, heard, printer) = poll("single", None);
+        assert!(result.is_ok());
+        assert_eq!(printer, Some(Printer::Present));
+        let writes: Vec<&String> = ops.iter().filter(|o| o.contains("_write ")).collect();
+        let reads: Vec<&String> = ops.iter().filter(|o| o.contains("_read ") && !o.contains("ctrl")).collect();
+        assert_eq!(writes.len(), 1, "{ops:?}");
+        assert!(writes[0].contains("_write ") && writes[0].split(' ').nth(3) == Some("1b41"), "{writes:?}");
+        assert_eq!(reads.len(), 1, "{ops:?}");
+        assert!(reads[0].contains(" 512 "), "{reads:?}");
+        assert_eq!(heard, vec![ANSWER.to_vec()]);
+        // the write comes before the read, and the device is released after it
+        let w = ops.iter().position(|o| o.contains("_write ")).unwrap();
+        let r = ops.iter().position(|o| o.contains("_read ") && !o.contains("ctrl")).unwrap();
+        assert!(w < r);
+        assert!(ops[r + 1..].iter().any(|o| o.contains("release_interface") || o.contains("close_device")), "{ops:?}");
+    }
+
+    #[test]
+    fn a_poll_with_no_printer_says_absent() {
+        let (result, ops, _, printer) = poll("no_dymo", None);
+        assert!(result.is_err());
+        assert_eq!(printer, Some(Printer::Absent));
+        assert!(!ops.iter().any(|o| o.contains("_write ")));
+    }
+
+    #[test]
+    fn a_poll_that_times_out_releases_and_is_not_absent() {
+        let (result, ops, _, printer) = poll("single", Some("failread=1"));
+        assert!(result.is_err());
+        assert_eq!(printer, Some(Printer::Present));
+        let r = ops.iter().rposition(|o| o.contains("_read ") && !o.contains("ctrl")).unwrap();
+        assert!(ops[r + 1..].iter().any(|o| o.contains("release_interface") || o.contains("close_device")), "{ops:?}");
+    }
+}
+
 mod port {
     use super::super::port::{DymoPnp, NO_JOB_CONTROL, NO_QUESTION, NO_SUCH_CONTROL};
     use super::*;
@@ -589,6 +644,7 @@ mod port {
                 Event::JobEnd(end) => ended = Some(end),
                 Event::Telemetry(t) if t.state == MachineState::Busy && t.raw_status.is_some() => {
                     cassette = t.raw_status.clone();
+                    assert_eq!((t.cassette, t.battery_percent), (Some(true), Some(78)));
                 }
                 _ => {}
             }
@@ -630,5 +686,176 @@ mod port {
         assert_eq!(seen, ["gone"]);
         orders.send(Order::Close).unwrap();
         run.join().unwrap();
+    }
+
+    /// A port whose backend is made by `make`, polling every `interval`; the times of its backend
+    /// makings (one per poll or job) come on `made`.
+    fn start_polling(
+        interval: Duration,
+        make: impl Fn(usize) -> &'static str + Send + 'static,
+    ) -> (Sender<Order>, Receiver<Event>, Receiver<std::time::Instant>, std::thread::JoinHandle<()>) {
+        usb_device::set_platform_for_test(None);
+        let (orders, port_orders) = channel();
+        let (port_events, events) = channel();
+        let (made_tx, made) = channel();
+        let count = std::sync::atomic::AtomicUsize::new(0);
+        let port = DymoPnp::with_poll_interval(
+            Box::new(move || {
+                let n = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let _ = made_tx.send(std::time::Instant::now());
+                Ok(fake(make(n)).0)
+            }),
+            interval,
+        );
+        let run = std::thread::spawn(move || Box::new(port).run(port_orders, port_events));
+        (orders, events, made, run)
+    }
+
+    #[test]
+    fn it_polls_on_its_time_reports_raw_status_and_stays_idle() {
+        let interval = Duration::from_millis(60);
+        let began = std::time::Instant::now();
+        let (orders, events, made, run) = start_polling(interval, |_| "single");
+        let mut times = Vec::new();
+        for _ in 0..3 {
+            times.push(made.recv_timeout(Duration::from_secs(5)).expect("a poll"));
+        }
+        // the first poll one interval after start-up; each next one an interval after the last
+        assert!(times[0].duration_since(began) >= interval);
+        assert!(times[1].duration_since(times[0]) >= interval);
+        assert!(times[2].duration_since(times[1]) >= interval);
+        assert!(times[2].duration_since(times[1]) < interval * 10);
+        orders.send(Order::Close).unwrap();
+        run.join().unwrap();
+        let mut raw = 0;
+        for e in events.try_iter() {
+            if let Event::Telemetry(t) = e {
+                assert_eq!(t.state, MachineState::Idle);
+                if t.raw_status.as_deref() == Some("40 00 12 4e 0d 6b 00 00") {
+                    assert_eq!((t.cassette, t.battery_percent), (Some(true), Some(78)));
+                    raw += 1;
+                }
+            }
+        }
+        assert!(raw >= 2, "{raw}");
+    }
+
+    #[test]
+    fn no_poll_during_a_job_and_the_next_one_an_interval_after_it() {
+        let interval = Duration::from_millis(60);
+        let png = fixtures().join("pngs/hub_label.png");
+        let gate = std::sync::Arc::new(std::sync::Mutex::new(()));
+        let held = gate.lock().unwrap();
+        let g = gate.clone();
+        let (orders, events, made, run) = start_polling(interval, move |n| {
+            if n == 0 {
+                // the job's backend is made while the gate is held
+                drop(g.lock().unwrap());
+            }
+            "single"
+        });
+        orders.send(Order::Job { order: job(1, Some(12)), file: png }).unwrap();
+        let job_made = made.recv_timeout(Duration::from_secs(5)).expect("the job");
+        // the job is held for several intervals: no poll starts
+        std::thread::sleep(interval * 5);
+        assert!(made.try_recv().is_err(), "a poll started during a job");
+        drop(held);
+        let mut ended = false;
+        while !ended {
+            ended = matches!(next(&events), Event::JobEnd(e) if e.ok);
+        }
+        let ended_at = std::time::Instant::now();
+        let poll = made.recv_timeout(Duration::from_secs(5)).expect("a poll after the job");
+        assert!(poll.duration_since(job_made) >= interval * 5);
+        assert!(poll >= ended_at - Duration::from_millis(20) + interval - Duration::from_millis(20));
+        orders.send(Order::Close).unwrap();
+        run.join().unwrap();
+    }
+
+    #[test]
+    fn a_job_waits_for_a_running_poll_to_release() {
+        let interval = Duration::from_millis(30);
+        let png = fixtures().join("pngs/hub_label.png");
+        let gate = std::sync::Arc::new(std::sync::Mutex::new(()));
+        let held = gate.lock().unwrap();
+        let g = gate.clone();
+        let (orders, events, made, run) = start_polling(interval, move |n| {
+            if n == 0 {
+                // the poll's backend is made while the gate is held
+                drop(g.lock().unwrap());
+            }
+            "single"
+        });
+        // the poll has started (its backend is being made) ...
+        made.recv_timeout(Duration::from_secs(5)).expect("the poll");
+        // ... a job comes: nothing of it happens while the poll holds the printer
+        orders.send(Order::Job { order: job(2, Some(12)), file: png }).unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(!events.try_iter().any(|e| matches!(e, Event::JobEnd(_)) || matches!(&e, Event::Telemetry(t) if t.state == MachineState::Busy)));
+        assert!(made.try_recv().is_err());
+        drop(held);
+        // the poll ends (Idle, raw status), then the job runs
+        let mut order_seen = Vec::new();
+        loop {
+            match next(&events) {
+                Event::Telemetry(t) if t.state == MachineState::Busy => order_seen.push("busy"),
+                Event::Telemetry(t) if t.raw_status.is_some() && order_seen.is_empty() => order_seen.push("poll"),
+                Event::JobEnd(e) => {
+                    assert!(e.ok && e.id == 2);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(order_seen.first(), Some(&"poll"));
+        assert!(order_seen.contains(&"busy"));
+        orders.send(Order::Close).unwrap();
+        run.join().unwrap();
+    }
+
+    #[test]
+    fn a_poll_says_gone_once_and_back_once_shared_with_the_job() {
+        let interval = Duration::from_millis(30);
+        let png = fixtures().join("pngs/hub_label.png");
+        // polls 0 and 1 find no printer, the job (3rd) and later ones find it
+        let (orders, events, made, run) = start_polling(interval, |n| if n < 2 { "no_dymo" } else { "single" });
+        made.recv_timeout(Duration::from_secs(5)).unwrap();
+        made.recv_timeout(Duration::from_secs(5)).unwrap();
+        let mut seen = Vec::new();
+        orders.send(Order::Job { order: job(3, Some(12)), file: png }).unwrap();
+        loop {
+            match next(&events) {
+                Event::Gone => seen.push("gone"),
+                Event::Back => seen.push("back"),
+                Event::JobEnd(e) => {
+                    assert!(e.ok);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        // later polls find it: no further Back
+        std::thread::sleep(interval * 4);
+        orders.send(Order::Close).unwrap();
+        run.join().unwrap();
+        for e in events.try_iter() {
+            match e {
+                Event::Gone => seen.push("gone"),
+                Event::Back => seen.push("back"),
+                _ => {}
+            }
+        }
+        assert_eq!(seen, ["gone", "back"]);
+    }
+
+    #[test]
+    fn a_failed_poll_is_no_gone_fails_no_job_and_the_next_one_comes() {
+        let interval = Duration::from_millis(30);
+        let (orders, events, made, run) = start_polling(interval, |n| if n == 0 { "no_interface" } else { "single" });
+        made.recv_timeout(Duration::from_secs(5)).unwrap();
+        made.recv_timeout(Duration::from_secs(5)).unwrap();
+        orders.send(Order::Close).unwrap();
+        run.join().unwrap();
+        assert!(!events.try_iter().any(|e| matches!(e, Event::Gone | Event::JobEnd(_))));
     }
 }

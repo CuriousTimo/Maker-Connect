@@ -39,6 +39,8 @@ pub enum MachineKind {
     Label,
     /// A paper printer.
     Paper,
+    /// A scale: it reports a weight, nothing more (DYMO's M-series).
+    Scale,
     Other,
 }
 
@@ -51,6 +53,7 @@ impl MachineKind {
             MachineKind::Cutter => "Cutting plotter",
             MachineKind::Label => "Label printer",
             MachineKind::Paper => "Paper printer",
+            MachineKind::Scale => "Scale",
             MachineKind::Other => "Machine",
         }
     }
@@ -277,9 +280,34 @@ pub struct Telemetry {
     /// in full (a DYMO's eight bytes), to find out what the rest says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw_status: Option<String>,
+    /// A scale's reading, as the scale says it (`ports/usbscale`, docs/agent-engine.md Step 3e).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<ScaleReading>,
     /// The agent itself: where it runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<AgentInfo>,
+}
+
+/// What a scale's report says, decoded as usbscale's `print_scale_data` does (HID POS 1.02 §6.2.4):
+/// the scale's own status, unit and scaling exponent, and the weight in the scale's own unit (no
+/// conversion to grams).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScaleReading {
+    /// The status byte as the scale sent it.
+    pub status: u8,
+    /// usbscale's text for it ("Weighing...", "Scale reports Over Weight"), "unknown n" for a
+    /// status it does not know; empty for 4, for which usbscale prints the weight instead.
+    pub status_text: String,
+    /// The unit byte as the scale sent it.
+    pub unit: u8,
+    /// usbscale's `UNITS` name ("g", "oz"), "unknown unit n" above 12.
+    pub unit_name: String,
+    /// The scaling exponent (a signed byte): the weight is `raw` times ten to it.
+    pub exponent: i8,
+    /// The weight bytes (little endian) as sent.
+    pub raw: u16,
+    /// `raw` times ten to `exponent`, in the scale's own unit.
+    pub weight: f64,
 }
 
 /// The computer an agent runs on, as it tells.
@@ -589,6 +617,24 @@ mod tests {
         )
         .unwrap();
         assert_eq!(register.kind, MachineKind::Fdm);
+    }
+
+    /// A scale's reading is plain JSON, and a scale is a kind of machine.
+    #[test]
+    fn a_scale_reading_is_plain_json() {
+        let telemetry = Telemetry {
+            state: MachineState::Idle,
+            scale: Some(ScaleReading { status: 4, status_text: String::new(), unit: 2, unit_name: "g".into(), exponent: -1, raw: 1234, weight: 123.4 }),
+            ..Telemetry::default()
+        };
+        let text = serde_json::to_string(&telemetry).unwrap();
+        assert_eq!(
+            text,
+            r#"{"state":"idle","scale":{"status":4,"status_text":"","unit":2,"unit_name":"g","exponent":-1,"raw":1234,"weight":123.4}}"#
+        );
+        assert_eq!(serde_json::from_str::<Telemetry>(&text).unwrap(), telemetry);
+        assert_eq!(MachineKind::Scale.label(), "Scale");
+        assert_eq!(serde_json::from_str::<MachineKind>("\"scale\"").unwrap(), MachineKind::Scale);
     }
 
     /// B5: a home names its axes, spelled as OctoPrint's printhead API has them.

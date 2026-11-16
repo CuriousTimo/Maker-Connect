@@ -5,3 +5,4 @@ pub mod octoprint;
 pub mod labelle;
 pub mod laserfoundry;
 pub mod dymo_cups;
+pub mod usbscale;

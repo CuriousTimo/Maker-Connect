@@ -137,3 +137,23 @@ hub possible: a small core that runs on its own, with the optional parts (the in
 device ports, virtual machines, …) switched on only when wanted.
 Owner: "juist aparte modules. en later meer modules voor andere zaken" — a lean core plus separate
 modules with a clear boundary, so more modules can be added later without touching the core.
+
+## The DYMO M2 scale (owner, 2026-11-16; later this week)
+
+The owner's DYMO M2 USB scale (up to 2 kg): a general weighing function, and weighing a spool —
+scan its QR (`S-0007`), put it on, the hub sends the gross weight to Spoolman's measure
+(`PUT /spool/{id}/measure`). A new device kind in its own stack (agent port; read-only: nothing is
+sent to the scale). Reference to be chosen by the agents when it arrives. Candidates: the USB-IF HID
+Usage Tables for Point of Sale (usage page 0x8D, Scale Data Report) as the standard the scale follows;
+`github.com/dunmatt/weighty` (MIT, Rust, 209 lines, one person, 5 commits on 2020-08-01, tested only
+on a DYMO M10, uses `hidapi`) found by the owner, in `reference/weighty`, at least to understand DYMO's
+reports. Proof on the real M2 with known weights.
+Owner, same day: "zolang onze m2 driver werkt voor m1, m2, m5, m10 enz op linux, windows en macos
+prima" — one scale port for DYMO's M-series (M1, M2, M5, M10, …) on Linux, Windows and macOS. They
+share the HID Point of Sale Scale Data Report; range and units come from the report, not a table of
+ours. On Windows and macOS the OS owns HID devices, so the port reads through the OS HID interface
+(e.g. the `hidapi` crate, as `weighty` does, or a pure-Rust HID crate), not `nusb`; the crate choice
+goes with the reference choice.
+Owner, 2026-11-16: scope for now: "gewoon standaard gewicht meten en doorgeven live. verder niet het
+hele spool system" — read the weight and report it live; the spool/Spoolman flow comes later, once
+the scale works.

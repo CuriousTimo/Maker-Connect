@@ -34,6 +34,15 @@ nusb = "0.2"
 # device and G-code crates and the link logic of its app. `serial` for LaserFoundry's own serial transport.
 maker-connect-grbl = { path = "../grbl", features = ["serial"] }
 
+# The DYMO M-series scale port (`ports/usbscale/`, step 3e, E1): hidapi 2.6.7, the OS's own HID on
+# every platform (Linux hidraw through `basic-udev`, no libudev to link; Windows' HID API; macOS IOKit).
+[target.'cfg(target_os = "linux")'.dependencies]
+hidapi = { version = "2.6.7", default-features = false, features = ["linux-native-basic-udev"] }
+[target.'cfg(windows)'.dependencies]
+hidapi = { version = "2.6.7", default-features = false, features = ["windows-native"] }
+[target.'cfg(target_os = "macos")'.dependencies]
+hidapi = "2.6.7"
+
 # The laser port's proof drives LaserFoundry's own `Link` and `gcode::frame` beside it
 # (`ports/laserfoundry/proof.rs`); the same release `crates/grbl` is pinned to.
 [dev-dependencies]

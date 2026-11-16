@@ -49,6 +49,48 @@ pub enum Printer {
     Present,
 }
 
+/// `get_device_manager()`, `find_and_select_device()` and `device.setup()` (`cli.py:577-580`): the
+/// printer found and set up, or why not (`printer` says whether none was there).
+fn open_printer(
+    backend: Rc<dyn Backend>,
+    printer: &mut Option<Printer>,
+) -> Result<(DeviceManager, super::device_manager::SharedDevice), CliError> {
+    let mut device_manager = DeviceManager::new(backend);
+    device_manager.scan().map_err(|e| {
+        if matches!(e, device_manager::Error::NoDevices(_)) {
+            *printer = Some(Printer::Absent);
+        }
+        CliError(e.to_string())
+    })?;
+    let device = device_manager.find_and_select_device().map_err(|e: device_manager::Error| {
+        if e == device_manager::Error::Manager("No matching devices found".to_owned()) {
+            *printer = Some(Printer::Absent);
+        }
+        CliError(e.to_string())
+    })?;
+    *printer = Some(Printer::Present);
+    device.borrow_mut().setup().map_err(|e| CliError(e.to_string()))?;
+    // The manager is returned too: it lives as long as the command does (`get_device_manager()`).
+    Ok((device_manager, device))
+}
+
+/// **Ours** (L11, the owner's exception of 2026-11-16): the idle status poll. The printer is
+/// opened as the print path does ([`open_printer`]), one `ESC A` is sent and its answer read
+/// ([`DymoLabeler::status_poll`]), the printer is released. An error after the printer is set up
+/// releases it, as the print path does.
+pub fn poll_status(
+    backend: Rc<dyn Backend>,
+    heard: &mut dyn FnMut(&[u8]),
+    printer: &mut Option<Printer>,
+) -> Result<(), CliError> {
+    let (_device_manager, device) = open_printer(backend, printer)?;
+    let result = DymoLabeler::status_poll(&device.borrow(), heard).map_err(|e| CliError(e.to_string()));
+    if result.is_err() {
+        device.borrow().dispose();
+    }
+    result
+}
+
 /// What the print path does when the user's command line is `labelle --picture <picture>
 /// --tape-size-mm <tape_size_mm>` (output PRINTER). `heard` is given every answer the printer
 /// gives (ours).
@@ -70,22 +112,7 @@ pub fn print_picture(
     let min_payload_len_px = mm_to_payload_px(min_label_mm_len, margin_px);
     let max_payload_len_px = max_label_mm_len.map(|mm| mm_to_payload_px(mm, margin_px));
 
-    // `device_manager = get_device_manager()`
-    let mut device_manager = DeviceManager::new(backend);
-    device_manager.scan().map_err(|e| {
-        if matches!(e, device_manager::Error::NoDevices(_)) {
-            *printer = Some(Printer::Absent);
-        }
-        CliError(e.to_string())
-    })?;
-    let device = device_manager.find_and_select_device().map_err(|e: device_manager::Error| {
-        if e == device_manager::Error::Manager("No matching devices found".to_owned()) {
-            *printer = Some(Printer::Absent);
-        }
-        CliError(e.to_string())
-    })?;
-    *printer = Some(Printer::Present);
-    device.borrow_mut().setup().map_err(|e| CliError(e.to_string()))?;
+    let (_device_manager, device) = open_printer(backend, printer)?;
 
     let result = (|| {
         let dymo_labeler = DymoLabeler::new(tape_size_mm).map_err(|e: dymo_labeler::Error| CliError(e.to_string()))?;

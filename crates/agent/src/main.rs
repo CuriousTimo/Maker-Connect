@@ -18,9 +18,9 @@ Usage:
   maker-connect-agent ports                            list the serial ports
   maker-connect-agent run [--config <file>] [--save]
                           [--hub <http://host:8460>] [--name <name>]
-                          --kind fdm|laser|cnc|cutter|label|paper|other
+                          --kind fdm|laser|cnc|cutter|label|paper|scale|other
                           [--port <serial port> [--baud <rate>]]
-                          --mode prusa|marlin|grbl|dymo-pnp|labelwriter-450
+                          --mode prusa|marlin|grbl|dymo-pnp|labelwriter-450|dymo-scale
                           [--state <file>] [--new-code]
                                                        report a machine to the hub; shows the
                                                        pairing code to add it on the website;
@@ -35,7 +35,17 @@ Usage:
                                                        LabelManager PnP on USB, as labelle; found
                                                        by itself, no --port), labelwriter-450
                                                        (a DYMO LabelWriter 450 on USB, as DYMO's
-                                                       CUPS driver; found by itself, no --port).
+                                                       CUPS driver; found by itself, no --port),
+                                                       dymo-scale (a DYMO M-series scale, USB,
+                                                       its weight reported live, as usbscale
+                                                       reads it; --kind scale; --port = its HID
+                                                       path, left out the one device with HID
+                                                       usage page 0x8D, else it refuses and lists
+                                                       what it saw). On Linux the scale's hidraw
+                                                       device needs crates/agent/udev/60-maker-
+                                                       connect-scale.rules in /etc/udev/rules.d/
+                                                       (then udevadm control --reload; udevadm
+                                                       trigger) and the user in the group plugdev.
                                                        --port and --baud: left out, OctoPrint's
                                                        own settings and detection choose.
                                                        --kind label: a DYMO LabelManager PnP or

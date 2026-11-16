@@ -304,6 +304,27 @@ impl DymoLabeler {
     }
 }
 
+impl DymoLabeler {
+    /// **Ours** (L11, the owner's exception of 2026-11-16 to labelle's nothing-while-idle): one
+    /// status request as `_get_status` makes it (`dymo_labeler.py:211`) on a
+    /// `DymoLabelerFunctions` with labelle's own class default `synwait = None`: exactly one
+    /// `ESC A` (`1b 41`) written and one read of 512 bytes, the answer given to `heard`; then
+    /// `dispose`, as `print` does. With `synwait = 64` `send_command` would add a second `ESC A`
+    /// and read.
+    pub fn status_poll(device: &UsbDevice, heard: &mut dyn FnMut(&[u8])) -> Result<(), Error> {
+        let (Some(devout), Some(devin)) = (device.devout(), device.devin()) else {
+            return Err(Error::Other("'NoneType' object has no attribute 'write'".to_owned()));
+        };
+        let mut functions = DymoLabelerFunctions::new(devout, devin, None, heard);
+        let result = functions.get_status().map(|_| device.dispose());
+        match result {
+            Ok(()) => Ok(()),
+            Err(e @ (PyusbError::Usb(_) | PyusbError::NoBackend(_))) => Err(Error::Print(e.to_string())),
+            Err(e) => Err(Error::Other(e.to_string())),
+        }
+    }
+}
+
 impl From<usb_device::Error> for Error {
     fn from(e: usb_device::Error) -> Error {
         Error::Other(e.to_string())

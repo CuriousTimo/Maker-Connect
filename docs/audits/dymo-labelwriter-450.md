@@ -314,6 +314,11 @@ approve (proxy)".
 
 ## 6. Not covered
 
+- **Windows.** The IEEE-1284 device-ID read (`get_device_id`, `usb_backend.rs`): a control transfer goes on an interface, as libusb's WinUSB backend sends it
+  (`reference/libusb-1.0.29/windows_winusb.c`: `winusbx_submit_control_transfer` :2998-3004, `auto_claim` :613,
+  `auto_release` :658); the request on the wire is the same. When no interface can be claimed, libusb gives `LIBUSB_ERROR_NOT_FOUND`; nusb has no such error, so ours gives `InvalidArgument` (differs, ours). Two more differences, harmless at these lengths: we try the active configuration's interfaces, not indexes 0..`USB_MAXINTERFACES` filtered by API type, and there is no `MAX_CTRL_BUFFER_LENGTH` (4096) check. Built for `x86_64-pc-windows-gnu`, never run on Windows
+  or tried on a printer there (WinUSB must be the device's driver).
+
 - The Turbo, DUO and Twin Turbo variants (`lw450t`, `lw450dl`, `lw450dt`, `lw450tt`), the LabelManager
   driver (`src/lm/`, `lm450.ppd`), the models other than the 450 in `ProcessPPDOptions` and
   `raster2dymolw.cpp`; the filter without a PPD or without the back channel; `CLabelWriterDriverTwinTurbo`

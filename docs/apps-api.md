@@ -58,7 +58,7 @@ was for.
 
 ### `GET /api/apps/v1/machines[?kind=laser]`
 
-The space's machines, or only one kind: `fdm`, `laser`, `cnc`, `cutter`, `label`, `paper`,
+The space's machines, or only one kind: `fdm`, `laser`, `cnc`, `cutter`, `label`, `paper`, `scale`,
 `other`.
 
 ```json

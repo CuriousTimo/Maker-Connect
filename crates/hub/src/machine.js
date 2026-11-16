@@ -571,6 +571,8 @@
       sd_card: t.sd_card == null ? null : t.sd_card ? "in" : "none",
       mmu: t.mmu_slot == null && !t.mmu_doing ? null : [t.mmu_slot != null ? `slot ${t.mmu_slot + 1}` : null, t.mmu_doing].filter(Boolean).join(" · "),
       doing: t.doing,
+      // Step 3e, E11: as machine_page.rs's scale_line
+      scale: t.scale ? [t.scale.status_text, `${t.scale.weight} ${t.scale.unit_name}`].filter(Boolean).join(" · ") : null,
       seen_n: m.seen_seconds_ago != null ? String(m.seen_seconds_ago) : null,
     };
     for (const el of document.querySelectorAll("[data-live]")) {

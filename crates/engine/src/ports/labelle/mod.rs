@@ -23,7 +23,8 @@
 //! `crates/label` is not a source.
 //!
 //! Not ported: `online_device_manager.py`, anything GUI, the text/QR/barcode/sample/preview
-//! engines, the old `status_session` (nothing is sent while idle, as labelle).
+//! engines, the old `status_session`. Ours, the owner's exception (L11): while idle, `port.rs` polls
+//! the printer every 15 s with one `ESC A` (`cli::poll_status`, `DymoLabeler::status_poll`).
 
 pub mod cli;
 pub mod constants;

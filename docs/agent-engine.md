@@ -353,7 +353,8 @@ callbacks) and the wire-acting `on_comm_*` callbacks (1443–1915); `set_tempera
 ported.
 
 **Owner, 2026-11-15:** the PnP's idle status poll (the 2026-11-11 decision) goes: "idle poll on the
-PnP -> follow the example" (labelle sends nothing while idle).
+PnP -> follow the example" (labelle sends nothing while idle). Superseded by the owner, 2026-11-16
+(below, and L11): the poll comes back.
 
 **Section J, decided (proxy, 2026-11-15):** approved: `serde_json::Value` arguments in
 `standard.rs`, `LocalFileManager` (a stand-in; only event payloads differ), `Arc<Printer>` with a
@@ -377,16 +378,17 @@ anything GUI, the other render engines, the old `status_session`. Proof and "not
 
 | # | What | Proposal |
 |---|---|---|
-| L1 | The port reports Idle from the start, before any print (labelle sends nothing while idle; the printer is looked for when a job prints) | approved (proxy, 2026-11-15) |
+| L1 | The port reports Idle from the start, before any print (labelle sends nothing while idle; the printer is looked for when a job prints; since 2026-11-16 the idle poll of L11 also looks for it) | approved (proxy, 2026-11-15); amended by L11 |
 | L2 | The tape width is the job's `tape_mm`, passed as `--tape-size-mm`, never taken from the PNG. As `DymoLabeler.__init__` does (`dymo_labeler.py:246-258`), none is `DEFAULT_TAPE_SIZE_MM` (12), then a size labelle does not support fails the job with labelle's `ValueError` text (`Unsupported tape size 24mm. Supported sizes: (19, 12, 9, 6)`). As in `cli.py`, it is checked after the printer is found and set up; the printer is then released | approved (proxy, 2026-11-15) |
 | L3 | `Order::Job { order, file }` (a PNG): labelle's picture render and print, then `Event::JobEnd` done, or failed with the message of labelle's error (`No supported devices found`, `Could not open a valid interface`, `Print error: [Errno 110] Operation timed out`, ...) | approved (proxy, 2026-11-15) |
 | L4 | `Order::Command` with any `Action`: a failed `CommandDone`, `labelle has no such control` | approved (proxy, 2026-11-15) |
 | L5 | `Order::Control` and `Order::Answer`: labelle has none; they arrive one at a time after the print (O2), so no job runs then: a report with `problem` set, `labelle has no pause, resume or stop: a label prints in one go` / `labelle asks no question to answer` | approved (proxy, 2026-11-15) |
-| L6 | The status answers a print reads (labelle reads and throws them away) are reported as the first eight bytes in hex (`raw_status`), their meaning unknown: no cassette, no charge, nothing derived. A hook (`heard`) hands the answers to the port; no byte is sent for it | approved (proxy, 2026-11-15) |
-| L7 | `Gone` when a print finds no printer (`DeviceManagerNoDevices`, or none of labelle's products), `Back` when a print finds it again after that. No scan loop, no poll | approved (proxy, 2026-11-15) |
-| L8 | The idle status poll of 2026-11-11 is not ported (owner, 2026-11-15) and `status_session` is removed | owner's decision; approved (proxy, 2026-11-15) |
+| L6 | **Overruled by the owner, 2026-11-16 (see the last paragraph): the status bits are read too, from every status answer of a print and of the idle poll (L11): the cassette is in when bit `0x40` of byte 0 is set (`Telemetry.cassette`), the battery is byte 3 when it is at most 100 (`Telemetry.battery_percent`, the last good value kept); `raw_status` stays alongside.** The earlier text: The status answers a print reads (labelle reads and throws them away) are reported as the first eight bytes in hex (`raw_status`), their meaning unknown: no cassette, no charge, nothing derived. A hook (`heard`) hands the answers to the port; no byte is sent for it | approved (proxy, 2026-11-15); the "raw only" part overruled by the owner, 2026-11-16 |
+| L7 | `Gone` when a print finds no printer (`DeviceManagerNoDevices`, or none of labelle's products), `Back` when a print finds it again after that. No scan loop. The idle poll of L11 (owner, 2026-11-16) also reports them, through the same one flag: an event only on a change, so a poll or a job that finds the printer after a `Gone` sends `Back` | approved (proxy, 2026-11-15); amended by L11 |
+| L8 | The idle status poll of 2026-11-11 is not ported (owner, 2026-11-15) and `status_session` is removed. **Superseded by the owner, 2026-11-16:** see L11 (the poll is back, as L11, not as `status_session`) | owner's decision; approved (proxy, 2026-11-15); superseded by the owner, 2026-11-16 |
 | L9 | The picture's options are `cli.py`'s defaults (justify left, `--margin-px` 56, no minimum, maximum or fixed length): the margins labelle adds (about 16 mm after the picture, and a cut of one column at its start). The hub's own 16 mm trailing blank, drawn into the PNG, comes on top of that: **for the owner, when the hub side comes** | approved (proxy, 2026-11-15) |
-| L10 | `png` stands for Pillow's PNG decoder, `nusb` for pyusb's libusb1 backend (`nusb_backend.rs`: descriptors read from an opened device for labelle's vendor, the kernel-driver check from sysfs on Linux, libusb's error texts and errnos); an error after the printer is set up releases it, as labelle's process exit does; its devices are kept in hash order (labelle's `set` order is undefined); a `heard` hook; `Drop` is pyusb's `__del__`. Also ours: the state is Busy while a job prints and Idle after it, nothing derived from the status answers; `nusb` errors that map to no libusb code become `Input/Output Error` (errno 5), a cancelled transfer is a timeout (errno 110), errnos are Linux's, an OUT transfer returns the bytes asked, `No backend available: <why>` when the USB list fails, the macOS access-denied text names the device by its first line; link.rs's error texts (`the file did not come`, `larger than 512 MB`, `another job's file is still coming`). Not tried on the printer | approved (proxy, 2026-11-15) |
+| L10 | `png` stands for Pillow's PNG decoder, `nusb` for pyusb's libusb1 backend (`nusb_backend.rs`: descriptors read from an opened device for labelle's vendor, the kernel-driver check from sysfs on Linux, libusb's error texts and errnos); an error after the printer is set up releases it, as labelle's process exit does; its devices are kept in hash order (labelle's `set` order is undefined); a `heard` hook; `Drop` is pyusb's `__del__`. Also ours: the state is Busy while a job prints and Idle after it (a poll does not change the state: it stays Idle, L11), nothing derived from the status answers (a print's or a poll's); `nusb` errors that map to no libusb code become `Input/Output Error` (errno 5), a cancelled transfer is a timeout (errno 110), errnos are Linux's, an OUT transfer returns the bytes asked, `No backend available: <why>` when the USB list fails, the macOS access-denied text names the device by its first line; link.rs's error texts (`the file did not come`, `larger than 512 MB`, `another job's file is still coming`). Not tried on the printer | approved (proxy, 2026-11-15) |
+| L11 | **Ours, the owner's exception 2026-11-16 to labelle's nothing-while-idle:** while no job runs, an idle status poll. The owner: "Dus ik zou voor de PNP wel de status update poll doen." The sequence: every 15 s (the first 15 s after start-up, then 15 s after the previous poll ended or a job ended) the printer is opened exactly as the print path does (`DeviceManager.scan`, `find_and_select_device`, `UsbDevice.setup`: the ported functions, `cli::open_printer`), one `ESC A` is written (`1b 41`; `_get_status`, `dymo_labeler.py:211`, on a `DymoLabelerFunctions` with `synwait = None`, labelle's class default, so one write and one 512-byte read, not the second `ESC A` and read that `synwait = 64` adds in `send_command`), its answer is read, the device is released as `print` does (`dispose`). Nothing else is sent. The answer goes to telemetry as `raw_status` (first 8 bytes in hex, meaning unknown, as L6), the state stays Idle. A job takes precedence: no poll starts while a job runs, and a job that arrives while a poll runs waits for its release (the port does one thing at a time). `Gone` when a poll finds no printer, `Back` when a poll or a job finds it again, one flag for both (L7). A poll that fails otherwise (a timeout, an open error) releases as the print path's error path does, fails no job, sends no `Gone`, is not retried (the next one comes on its time). Tests (`ports::labelle::tests::idle_poll` and `port`): the exact bytes, the cadence (a test-only interval), no poll during a job, a job waiting for a poll, Gone/Back, a failed poll; the print proof (52 of 52) is unchanged | owner's exception, 2026-11-16 |
 
 **Wiring (B2, B4 for the PnP):** `--mode dymo-pnp` opens this port (`crates/agent/src/ports.rs`);
 the other modes and their default are as they were. B2 is done for all jobs in `link.rs`: a job's
@@ -695,3 +697,66 @@ checked by a test, and every new thread comes with its row and test (the serial 
 `comm.rs` ~8177 and ~9214); K18-1 (after a queued `M112` or an "emergency" error, until Gone/Back,
 no received line credits a pending command; nothing on the wire), written down with the note that
 this window can also drop a genuine `ok` for an earlier command.
+
+**Owner, 2026-11-16 — the PnP's idle status poll comes back (an owner exception to labelle):** the
+spontaneous feeds were a tape sensor under the PnP with bad contact, not the poll. "Dus ik zou voor de
+PNP wel de status update poll doen." As the owner's 2026-11-11 form: every 15 s, the printer opened as
+for a label, one `ESC A`, its answer read, the printer released. Ours (labelle sends nothing while
+idle), approved by the owner; the status stays raw (`raw_status`, meaning unknown) until the bits are
+proven on the device.
+
+**Owner, 2026-11-16 — the PnP's status bits come back (owner overrules L6):** "overruled. we hadden
+een goed idee van de status bits en bytes." The port reads the cassette from byte 0 bit `0x40` and the
+battery from byte 3 (when at most 100), as the earlier code did (seen on the owner's PnP), from every
+status answer (during a print and from the idle poll); `raw_status` stays alongside. Ours, the owner's
+decision; labelle discards these answers.
+
+### Step 3e: the DYMO M-series scale (2026-11-16; ours below: decided (proxy))
+
+The owner, 2026-11-16: "Bouw de M2 agent support nu ook meteen in." / "gewoon standaard gewicht meten en
+doorgeven live. verder niet het hele spool system." / "zolang onze m2 driver werkt voor m1, m2, m5, m10 enz op
+linux, windows en macos prima." In parallel with the other work, by the owner's word. A third DYMO stack: it shares
+no code with labelle (PnP) or the LabelWriter.
+
+Reference: **usbscale** (github.com/erjiang/usbscale, `9ed1cb55a2dfd0daeb41548031a49ab756cb9114`,
+`reference/usbscale/usbscale.c`, GPL-3.0-or-later, which GPLv3 §13 lets us combine with our AGPL-3.0): its
+`print_scale_data` (usbscale.c:368-456) and `UNITS[13]`, ported function by function with its header. Checked
+against HID Usage Tables 1.6 ch. 33 and HID POS 1.02 §6.2.4 Figure 27 (`reference/hid-usage-tables/`), which are
+used only to verify, never as a second source. Not the reference: weighty (one person, 2020, one scale, no tests;
+read only to understand). Nothing is sent to the scale by us: no tare, no feature report, no GET_REPORT. The OS
+opens the HID device (hidapi); what the OS itself sends on an open is not ours and is not known.
+
+The scale's range is not read: it is a Feature report (Weight Limit) that needs a GET_REPORT, and usbscale does not
+send one. The hub shows only the scale's own "over weight limit" status.
+
+Agent: `--mode dymo-scale`, `--kind scale` (`MachineKind::Scale`), `--port` = the HID path (`/dev/hidrawN`, the
+IOService path, `\\?\HID#…`). No other parameters.
+
+Ours (decided (proxy, 2026-11-16); the owner delegated these: "laat de agent die vragen beantwoorden"):
+
+| # | Ours | Why |
+|---|------|-----|
+| E1 | hidapi 2.6.7 instead of libusb (Linux `linux-native-basic-udev`, Windows `windows-native`, macOS IOKit) | on Windows/macOS the OS owns HID; like pyusb → nusb for labelle |
+| E2 | the device: the one with top-level usage page 0x8D, or `--port`; none or several: refuse at start and list them | usbscale's `scales.h` VID:PID table lacks M1/M2/M5; B4: never guessed; no VID:PID fallback |
+| E3 | reads on and on; every status reported; no exit on Fault or an unknown status (usbscale returns −1 and exits) | "live"; per status "differs, ours" in the audit |
+| E4 | telemetry `Telemetry.scale`: status (raw + usbscale's text, or "unknown n"; status 4 has no text, as usbscale prints none for it), unit (raw + `UNITS` name, or "unknown unit n" when > 12), exponent, raw, weight in the scale's own unit; no conversion to grams | the owner: weight only; `UNITS[unit]` over 12 is undefined in usbscale |
+| E5 | while the scale is gone, look for it again every 15 s (enumerate, open; nothing sent by us) | as labelle's `POLL_INTERVAL`; usbscale is a one-shot CLI |
+| E6 | a read timeout of 1 s, only to see `Order::Close`; the device sees nothing of it | ours, off the wire |
+| E7 | a Telemetry event only when the decoded report changes; Idle while reports arrive; a read error or a missing device: Gone, found again: Back | the engine's events |
+| E8 | the bytes hidapi returns are taken as usbscale's `dat` (byte 0 = report ID): no byte stripped or skipped; a report that does not start with 3 or 4 is rejected as usbscale rejects it | hidapi puts the report ID first for numbered reports on every OS; to be seen on the M2 |
+| E9 | report ID 4 is parsed as usbscale does (6 bytes) and marked "meaning unknown" in the audit | usbscale accepts it; POS calls it the 2-byte Status Report |
+| E10 | the udev rule `SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0922", MODE="0660", GROUP="plugdev"`, shipped as a file with an install note | hidraw is root-only; not on the wire |
+| E11 | the hub: one live line on the machine page (UI) | the owner: show it live |
+| E12 | a report whose ID is not 3 or 4, or shorter than 6 bytes (usbscale never checks the length): shown once as the problem "Error reading scale data" (usbscale's text), the last reading kept, read on; the problem clears on the next good report (decided (proxy, 2026-11-16): raised once, cleared only by a good report; a report not starting with 3 or 4 is never decoded) | usbscale exits there; E3 |
+| E13 | commands and jobs sent to a scale are refused (`NO_COMMANDS`) (decided (proxy, 2026-11-16)) | the scale takes no commands; live weight only |
+
+From usbscale, as it is: the old data. usbscale reads one report and throws it away ("we get old data the first
+time", the extra read before the loop), then starts with `weigh_count = WEIGH_COUNT - 1` (`WEIGH_COUNT` 2,
+`reference/usbscale/scales.h:15`) and decodes a report only while `weigh_count < 1` (usbscale.c:179, 322-327). The
+port does exactly that after each open; the audit states the resulting count. usbscale's exits (a report ID other than
+3 or 4, status 1 Fault, an unknown status: `return -1`) are each an audit row "differs, ours (E3/E8)".
+
+Needs the real M2 (the audit's not-covered list): its VID:PID and report descriptor (usage page 0x8D, report ID 3,
+Figure 27's 6 bytes), whether the first report is stale, the report rate, the kg/lb button (units and exponents),
+known weights, over 2 kg (status 6), under zero after a tare (status 5, its weight bytes), auto-off, unplug and
+replug, the first byte per OS, hidraw permissions and hidapi's `usage_page` on the Pi, macOS input-monitoring.

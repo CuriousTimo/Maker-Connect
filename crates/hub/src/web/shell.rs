@@ -498,7 +498,7 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
 </main>
 <script>
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  const KIND = { fdm: "3D printer", laser: "Laser", cnc: "CNC", cutter: "Cutting plotter", label: "Label printer", paper: "Paper printer", other: "Machine" };
+  const KIND = { fdm: "3D printer", laser: "Laser", cnc: "CNC", cutter: "Cutting plotter", label: "Label printer", paper: "Paper printer", scale: "Scale", other: "Machine" };
   let profiles = null;
   // A column of a machine's row: a value, and what it is under it.
   const col = (cls, value, caption) => `<div class="m-col ${cls}"><b>${esc(value ?? "–")}</b><small>${esc(caption ?? "")}</small></div>`;
@@ -606,7 +606,7 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
           <td>${chips(m) || '<span class="muted">–</span>'}</td></tr>`;
       };
       // Grouped: by kind (as it was), model or label (a machine with two labels is in both).
-      const GROUPS = [["fdm", "3D printers"], ["laser", "Lasers"], ["cnc", "CNC machines"], ["cutter", "Cutting plotters"], ["label", "Label printers"], ["paper", "Paper printers"], ["other", "Other machines"]];
+      const GROUPS = [["fdm", "3D printers"], ["laser", "Lasers"], ["cnc", "CNC machines"], ["cutter", "Cutting plotters"], ["label", "Label printers"], ["paper", "Paper printers"], ["scale", "Scales"], ["other", "Other machines"]];
       let groups;
       if (ui.group === "model") {
         const models = [...new Set(shown.map(modelOf))].sort();

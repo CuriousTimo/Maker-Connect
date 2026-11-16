@@ -249,7 +249,7 @@
     const attention = document.querySelector("[data-attention-count]");
     if (attention) attention.hidden = !count.attention;
     const here = location.pathname.split("/").pop();
-    const order = ["fdm", "laser", "cnc", "cutter", "label", "paper", "other"];
+    const order = ["fdm", "laser", "cnc", "cutter", "label", "paper", "scale", "other"];
     const sorted = [...machines].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind) || a.name.localeCompare(b.name));
     const side = document.querySelector("[data-side-machines]");
     side.innerHTML = sorted.length ? sorted.map((m) => {

@@ -396,6 +396,17 @@ fn ago(seconds: i64) -> String {
     }
 }
 
+/// A scale's live line (Step 3e, E11): the status in usbscale's words (none for 4, where usbscale
+/// prints the weight), then the weight and the unit as the scale says them.
+pub(crate) fn scale_line(reading: &maker_connect_protocol::ScaleReading) -> String {
+    let weight = format!("{} {}", reading.weight, reading.unit_name);
+    if reading.status_text.is_empty() {
+        weight
+    } else {
+        format!("{} · {weight}", reading.status_text)
+    }
+}
+
 fn heats(machine: &Machine) -> bool {
     machine.kind == MachineKind::Fdm
 }
@@ -1176,6 +1187,9 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
             "none",
             String::new(),
         )
+    } else if machine.kind == MachineKind::Scale {
+        // E11: one live line, as the scale says it (the page's script builds the same).
+        tile("Scale", "scale", t.and_then(|t| t.scale.as_ref()).map(scale_line), "", "none", String::new())
     } else if heats(machine) {
         heater_tiles(machine)
             + &match &machine.loaded {
@@ -2046,6 +2060,43 @@ mod tests {
         assert_eq!(heat_note(None, None), "not reported");
         assert!(flame("bed", Some(true)).contains(r#"data-on="true""#));
         assert!(flame("bed", None).contains(r#"data-on="""#));
+    }
+
+    /// Step 3e, E11: a scale's page has one live line, status then weight and unit, as the scale says them.
+    #[test]
+    fn a_scale_shows_one_live_line() {
+        let mut store = store::Store::open(":memory:").unwrap();
+        let space = store.default_space().unwrap().0;
+        let (id, token, code) = store
+            .register(&maker_connect_protocol::Register {
+                protocol: maker_connect_protocol::VERSION,
+                name: "Postal".into(),
+                kind: maker_connect_protocol::MachineKind::Scale,
+                agent_version: "0.2.0".into(),
+            })
+            .unwrap();
+        store.pair(space, &code).unwrap();
+        let reading = |status: u8, text: &str| maker_connect_protocol::ScaleReading {
+            status,
+            status_text: text.into(),
+            unit: 2,
+            unit_name: "g".into(),
+            exponent: -1,
+            raw: 1234,
+            weight: 123.4,
+        };
+        let report = |r| maker_connect_protocol::Telemetry {
+            state: maker_connect_protocol::MachineState::Idle,
+            scale: Some(r),
+            ..Default::default()
+        };
+        store.report(&token, &report(reading(4, ""))).unwrap();
+        let machine = store.machine(space, &id).unwrap().unwrap();
+        let page = overview(&machine, None, "");
+        assert!(page.contains(r#"<span data-live="scale">123.4 g</span>"#), "{page}");
+        store.report(&token, &report(reading(3, "Weighing..."))).unwrap();
+        let machine = store.machine(space, &id).unwrap().unwrap();
+        assert!(overview(&machine, None, "").contains(r#"<span data-live="scale">Weighing... · 123.4 g</span>"#));
     }
 
     /// B5: a plain Marlin machine behind an agent (OctoPrint's ways) has OctoPrint's two Home buttons,

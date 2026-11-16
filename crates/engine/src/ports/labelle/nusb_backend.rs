@@ -68,6 +68,53 @@ fn from_transfer(e: TransferError) -> Error {
     }
 }
 
+/// A device-to-host control transfer as libusb sends it. Elsewhere on the device; on Windows
+/// (WinUSB) libusb sends it on an interface (`reference/libusb-1.0.29/windows_winusb.c`,
+/// `winusbx_submit_control_transfer` :2998-3004, `get_valid_interface` :2909, `check_valid_interface`
+/// :2933, `auto_claim` :613, `auto_release` :658): with an interface recipient the claimed interface
+/// `wIndex & 0xff`, otherwise the lowest claimed interface; with none, the first interface that can be
+/// claimed is claimed for the transfer and released after it. The request on the wire is the same.
+#[cfg(not(windows))]
+fn control_in(
+    device: &nusb::Device,
+    _claimed: &BTreeMap<u8, nusb::Interface>,
+    control: ControlIn,
+    timeout: Duration,
+) -> Result<Vec<u8>, TransferError> {
+    device.control_in(control, timeout).wait()
+}
+
+#[cfg(windows)]
+fn control_in(
+    device: &nusb::Device,
+    claimed: &BTreeMap<u8, nusb::Interface>,
+    control: ControlIn,
+    timeout: Duration,
+) -> Result<Vec<u8>, TransferError> {
+    let valid = if control.recipient == Recipient::Interface {
+        claimed.get(&((control.index & 0xff) as u8))
+    } else {
+        claimed.values().next()
+    };
+    if let Some(interface) = valid {
+        return interface.control_in(control, timeout).wait();
+    }
+    // auto_claim: "No serviceable interface was found"; released when the transfer ends (dropped).
+    let mut numbers: Vec<u8> = device
+        .active_configuration()
+        .map(|c| c.interfaces().map(|i| i.interface_number()).collect())
+        .unwrap_or_default();
+    numbers.sort_unstable();
+    numbers.dedup();
+    for number in numbers {
+        if let Ok(interface) = device.claim_interface(number).wait() {
+            return interface.control_in(control, timeout).wait();
+        }
+    }
+    // "could not auto-claim any interface" (LIBUSB_ERROR_NOT_FOUND)
+    Err(TransferError::InvalidArgument)
+}
+
 struct Open {
     dev: DevId,
     device: nusb::Device,
@@ -304,14 +351,13 @@ impl Backend for NusbBackend {
             _ => Recipient::Other,
         };
         self.with_open(handle, |open| {
-            let data = open
-                .device
-                .control_in(
-                    ControlIn { control_type, recipient, request: b_request, value: w_value, index: w_index, length: buff.len() as u16 },
-                    Duration::from_millis(timeout.into()),
-                )
-                .wait()
-                .map_err(from_transfer)?;
+            let data = control_in(
+                &open.device,
+                &open.interfaces,
+                ControlIn { control_type, recipient, request: b_request, value: w_value, index: w_index, length: buff.len() as u16 },
+                Duration::from_millis(timeout.into()),
+            )
+            .map_err(from_transfer)?;
             let n = data.len().min(buff.len());
             buff[..n].copy_from_slice(&data[..n]);
             Ok(n)
