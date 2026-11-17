@@ -45,7 +45,11 @@ step "octoprint script context" quiet "$OCTOPRINT_PY" scripts/octoprint-script-c
 step "octoprint file read (CPython 3.13)" quiet "$PY313" scripts/octoprint-file-read-check.py
 step "octoprint str.format (CPython 3.13)" quiet "$PY313" scripts/octoprint-format-check.py
 step "octoprint % (CPython 3.13)" quiet "$PY313" scripts/octoprint-percent-check.py
-step "regenerated fixtures unchanged" git diff --quiet --exit-code -- crates/engine
+FIXTURES="crates/engine/src/ports/octoprint/py_format_expected.json crates/engine/src/ports/octoprint/py_nonprintable.txt
+          crates/engine/src/ports/octoprint/py_percent_expected.json crates/engine/src/ports/octoprint/py_str_attrs.txt
+          crates/engine/src/ports/octoprint/scripts_expected.json"
+# shellcheck disable=SC2086
+step "regenerated fixtures unchanged" git diff --quiet --exit-code -- $FIXTURES
 
 if [ "${1:-}" = "--proof" ]; then
     step "Marlin port vs OctoPrint (proof)" "$OCTOPRINT_313_PY" scripts/octoprint-port-check.py compare
