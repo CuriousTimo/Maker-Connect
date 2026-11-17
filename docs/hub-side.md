@@ -387,3 +387,14 @@ fetching camera-given URLs that point elsewhere.
 - Hub CPU and memory monitoring (owner: "hub cpu en mem monitoring").
 - Maybe: CPU and memory of an agent's host (owner: "agent host cpu en mem monitoring? <- niet zeker over
   deze").
+- **One agent for several devices, with a small web page to manage it (owner, 2026-11-17, plan for later:
+  "1 agent voor meerder devices. de devices zijn module zoals we nu ook al hebben? kleine simpele web
+  management page on de agent om modules en settings te beheren").** Today one agent process drives one
+  machine: `mode` in `agent.toml` (`crates/agent/src/config.rs`) picks one port of the engine
+  (`crates/engine/src/ports/`: octoprint, labelle, dymo_cups, laserfoundry, …), so .67 runs three agent
+  services (PnP, LabelWriter 450, laser). Plan: one agent, a list of devices, each a module (the engine's
+  ports as they are, one reference each, unchanged) with its own settings and its own machine at the hub;
+  USB cameras join as modules too. A small web page on the agent lists the modules, adds/removes a device,
+  edits its settings and shows its state. Design questions for then (architect/proxy): who may open that
+  page (the agent's host only, or a password/pairing with the hub), config file vs page as the one source,
+  one process with a thread per device vs a child per device (a crash in one port must not take the others).
