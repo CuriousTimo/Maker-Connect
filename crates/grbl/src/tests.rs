@@ -45,14 +45,23 @@ impl Run {
     fn until(&mut self, what: &str, ready: impl Fn(&Run) -> bool) {
         let deadline = Instant::now() + Duration::from_secs(15);
         while !ready(self) {
-            assert!(Instant::now() < deadline, "timed out waiting for {what}: {:?}", self.telemetry);
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {what}: {:?}",
+                self.telemetry
+            );
             self.step();
         }
     }
 
     fn answer(&mut self, ticket: Ticket) -> Result<Vec<String>, String> {
         self.until("an answer", |r| r.done.iter().any(|d| d.ticket == ticket));
-        self.done.iter().find(|d| d.ticket == ticket).unwrap().result.clone()
+        self.done
+            .iter()
+            .find(|d| d.ticket == ticket)
+            .unwrap()
+            .result
+            .clone()
     }
 
     fn send(&mut self, gcode: &str) -> Result<Vec<String>, String> {
@@ -117,18 +126,26 @@ fn a_command_is_not_waited_for() {
     let mut run = Run::sim(60);
     let started = Instant::now();
     let ticket = run.machine.submit(&[Command::Home]).unwrap();
-    assert!(started.elapsed() < Duration::from_millis(50), "submit waited");
+    assert!(
+        started.elapsed() < Duration::from_millis(50),
+        "submit waited"
+    );
     assert!(run.machine.report().done.is_empty(), "not answered yet");
     let said = run.answer(ticket).unwrap();
     assert_eq!(said, ["> $H", "ok"]);
-    run.until("the head home", |r| r.telemetry.position_mm == Some([0.0, 0.0, 0.0]));
+    run.until("the head home", |r| {
+        r.telemetry.position_mm == Some([0.0, 0.0, 0.0])
+    });
 }
 
 /// LaserFoundry sends no `$I`, and asks `$$` only once the first status report has come.
 #[test]
 fn only_laserfoundrys_bytes_at_connect() {
     let wire = Arc::new(Mutex::new(Vec::new()));
-    let mut run = Run::new(GrblMachine::new(Box::new(Recorder { inner: quick(), wire: wire.clone() })));
+    let mut run = Run::new(GrblMachine::new(Box::new(Recorder {
+        inner: quick(),
+        wire: wire.clone(),
+    })));
     run.until("the settings", |r| r.telemetry.grbl.is_some());
     let sent = String::from_utf8(wire.lock().unwrap().clone()).unwrap();
     assert!(!sent.contains("$I"), "{sent:?}");
@@ -141,10 +158,16 @@ fn only_laserfoundrys_bytes_at_connect() {
 #[test]
 fn the_settings_answer_is_nobodys_command() {
     let mut run = Run::sim(1);
-    let ticket = run.machine.submit(&[Command::Line("G0 X5".into())]).unwrap();
+    let ticket = run
+        .machine
+        .submit(&[Command::Line("G0 X5".into())])
+        .unwrap();
     assert_eq!(run.answer(ticket).unwrap(), ["> G0 X5", "ok"]);
     run.until("the settings", |r| r.telemetry.grbl.is_some());
-    let ticket = run.machine.submit(&[Command::Line("G0 X6".into())]).unwrap();
+    let ticket = run
+        .machine
+        .submit(&[Command::Line("G0 X6".into())])
+        .unwrap();
     assert_eq!(run.answer(ticket).unwrap(), ["> G0 X6", "ok"]);
 }
 
@@ -188,10 +211,23 @@ fn an_empty_command_is_done_at_once() {
 fn a_job_runs_to_the_end() {
     let mut run = Run::sim(1);
     run.machine
-        .start(7, "square.gcode", format!("G90\nM4\n{}\nM5\n", long_program(40)), None)
+        .start(
+            7,
+            "square.gcode",
+            format!("G90\nM4\n{}\nM5\n", long_program(40)),
+            None,
+        )
         .unwrap();
-    assert!(run.machine.start(8, "b", "G0 X1\n".into(), None).is_err(), "one job at a time");
-    assert!(run.machine.submit(&[Command::Line("G0 X0".into())]).is_err(), "no commands in a job");
+    assert!(
+        run.machine.start(8, "b", "G0 X1\n".into(), None).is_err(),
+        "one job at a time"
+    );
+    assert!(
+        run.machine
+            .submit(&[Command::Line("G0 X0".into())])
+            .is_err(),
+        "no commands in a job"
+    );
     run.until("the end", |r| !r.ended.is_empty());
     assert_eq!(run.ended.len(), 1);
     assert!(run.ended[0].ok && run.ended[0].id == 7, "{:?}", run.ended);
@@ -203,12 +239,17 @@ fn a_job_runs_to_the_end() {
 fn the_laser_examples_stream() {
     for (id, program) in [
         (1, include_str!("../../../examples/laser/first-light.gcode")),
-        (2, include_str!("../../../examples/laser/power-speed-grid.gcode")),
+        (
+            2,
+            include_str!("../../../examples/laser/power-speed-grid.gcode"),
+        ),
     ] {
         let mut sim = SimulatedGrbl::new();
         sim.set_latency(Duration::ZERO);
         let mut run = Run::new(GrblMachine::new(Box::new(sim)));
-        run.machine.start(id, "example", program.to_owned(), None).unwrap();
+        run.machine
+            .start(id, "example", program.to_owned(), None)
+            .unwrap();
         run.until("the end", |r| !r.ended.is_empty());
         assert!(run.ended[0].ok, "example {id}: {:?}", run.ended);
     }
@@ -218,7 +259,9 @@ fn the_laser_examples_stream() {
 #[test]
 fn a_stopped_job_says_so() {
     let mut run = Run::sim(5);
-    run.machine.start(8, "long.gcode", long_program(2000), None).unwrap();
+    run.machine
+        .start(8, "long.gcode", long_program(2000), None)
+        .unwrap();
     std::thread::sleep(Duration::from_millis(100));
     run.machine.control(JobControl::Stop).unwrap();
     run.until("the end", |r| !r.ended.is_empty());
@@ -229,13 +272,20 @@ fn a_stopped_job_says_so() {
 #[test]
 fn the_job_before_is_not_this_ones_end() {
     let mut run = Run::sim(1);
-    run.machine.start(1, "a", "G90\nG1 X1 F100\n".into(), None).unwrap();
+    run.machine
+        .start(1, "a", "G90\nG1 X1 F100\n".into(), None)
+        .unwrap();
     run.until("the first end", |r| !r.ended.is_empty());
     run.machine.start(2, "b", long_program(300), None).unwrap();
     for _ in 0..4 {
         run.step();
     }
-    assert_eq!(run.ended.len(), 1, "the second job has not ended: {:?}", run.ended);
+    assert_eq!(
+        run.ended.len(),
+        1,
+        "the second job has not ended: {:?}",
+        run.ended
+    );
     run.until("the second end", |r| r.ended.len() == 2);
     assert_eq!(run.ended[1].id, 2);
 }
@@ -260,8 +310,14 @@ fn a_job_is_refused_when_laser_mode_is_off() {
     sim.set_setting(32, "0");
     let mut run = Run::new(GrblMachine::new(Box::new(sim)));
     run.until("the settings", |r| r.telemetry.grbl.is_some());
-    let why = run.machine.start(1, "a", "G1 X1 F100\n".into(), None).unwrap_err();
-    assert!(why.starts_with("Laser mode ($32) is off on this controller"), "{why}");
+    let why = run
+        .machine
+        .start(1, "a", "G1 X1 F100\n".into(), None)
+        .unwrap_err();
+    assert!(
+        why.starts_with("Laser mode ($32) is off on this controller"),
+        "{why}"
+    );
     assert_eq!(run.telemetry.grbl.unwrap().laser_mode, Some(false));
 }
 
@@ -287,7 +343,10 @@ fn a_job_is_refused_while_the_machine_is_not_idle() {
     let mut run = Run::new(GrblMachine::new(Box::new(sim)));
     run.send("G0 X1").ok();
     run.until("the alarm", |r| r.telemetry.state == MachineState::Error);
-    let why = run.machine.start(1, "a", "G1 X1 F100\n".into(), None).unwrap_err();
+    let why = run
+        .machine
+        .start(1, "a", "G1 X1 F100\n".into(), None)
+        .unwrap_err();
     assert!(why.contains("alarm state"), "{why}");
 }
 
@@ -302,7 +361,9 @@ fn settings_are_read_and_jogs_go_through() {
     assert_eq!(settings.travel_mm, Some([200.0, 200.0, 200.0]));
     run.send("$J=G90 G21 X20 Y30 F3000").unwrap();
     run.send("$J=G91 G21 X5 F3000").unwrap();
-    run.until("the head", |r| r.telemetry.position_mm == Some([25.0, 30.0, 0.0]));
+    run.until("the head", |r| {
+        r.telemetry.position_mm == Some([25.0, 30.0, 0.0])
+    });
     assert!(run.send("$J=G91 Z5 F100").is_err(), "X and Y only");
 }
 
@@ -313,19 +374,32 @@ fn the_origin_is_set_and_gone_back_to() {
     run.send("$J=G90 G21 X40 Y15 F3000").unwrap();
     run.send("G92 X0 Y0").unwrap();
     run.send("$J=G91 G21 X10 Y-5 F3000").unwrap();
-    run.until("moved", |r| r.telemetry.position_mm == Some([50.0, 10.0, 0.0]));
+    run.until("moved", |r| {
+        r.telemetry.position_mm == Some([50.0, 10.0, 0.0])
+    });
     run.send("G90 G0 X0 Y0").unwrap();
-    run.until("back", |r| r.telemetry.position_mm == Some([40.0, 15.0, 0.0]));
+    run.until("back", |r| {
+        r.telemetry.position_mm == Some([40.0, 15.0, 0.0])
+    });
 }
 
 #[test]
 fn jogs_are_read() {
-    assert_eq!(jog("$J=G91 G21 X10 F3000"), Some(Command::Jog(10.0, 0.0, 3000.0)));
-    assert_eq!(jog("$J=G90 G21 X1 Y2 F600"), Some(Command::JogTo(1.0, 2.0, 600.0)));
+    assert_eq!(
+        jog("$J=G91 G21 X10 F3000"),
+        Some(Command::Jog(10.0, 0.0, 3000.0))
+    );
+    assert_eq!(
+        jog("$J=G90 G21 X1 Y2 F600"),
+        Some(Command::JogTo(1.0, 2.0, 600.0))
+    );
     assert_eq!(jog("$J=G90 X1 F600"), None, "to a place needs X and Y");
     assert_eq!(jog("$J=G91 X1"), None, "a feed is needed");
     assert_eq!(jog("$J=G91 XNaN F600"), None);
-    assert_eq!(commands_of("$H\n\n$X").unwrap(), [Command::Home, Command::Unlock]);
+    assert_eq!(
+        commands_of("$H\n\n$X").unwrap(),
+        [Command::Home, Command::Unlock]
+    );
 }
 
 /// A stopped job says where to start again, in the file's lines; started there, it runs to the end.
@@ -337,20 +411,29 @@ fn an_interrupted_job_starts_again() {
         .collect::<Vec<_>>()
         .join("\n");
     let mut run = Run::sim(2);
-    run.machine.start(9, "rows.gcode", program.clone(), None).unwrap();
+    run.machine
+        .start(9, "rows.gcode", program.clone(), None)
+        .unwrap();
     std::thread::sleep(Duration::from_millis(250));
     run.machine.control(JobControl::Stop).unwrap();
     run.until("the end", |r| !r.ended.is_empty());
-    let line = run.ended[0].restart_line.expect("a line to start again from");
+    let line = run.ended[0]
+        .restart_line
+        .expect("a line to start again from");
     assert!(line > 1 && line < 404, "{line}");
 
-    run.machine.start(10, "rows.gcode", program.clone(), Some(line)).unwrap();
+    run.machine
+        .start(10, "rows.gcode", program.clone(), Some(line))
+        .unwrap();
     run.until("the second end", |r| r.ended.len() == 2);
     assert!(run.ended[1].ok, "{:?}", run.ended);
 
     // Stopped again at once, the restart line is in the file's numbering, past where it began.
     let mut again = Run::sim(2);
-    again.machine.start(11, "rows.gcode", program, Some(line)).unwrap();
+    again
+        .machine
+        .start(11, "rows.gcode", program, Some(line))
+        .unwrap();
     std::thread::sleep(Duration::from_millis(200));
     again.machine.control(JobControl::Stop).unwrap();
     again.until("the end", |r| !r.ended.is_empty());
@@ -363,14 +446,23 @@ fn an_interrupted_job_starts_again() {
 #[test]
 fn a_start_from_line_one_is_rebuilt_like_any_other() {
     let wire = Arc::new(Mutex::new(Vec::new()));
-    let mut run = Run::new(GrblMachine::new(Box::new(Recorder { inner: quick(), wire: wire.clone() })));
+    let mut run = Run::new(GrblMachine::new(Box::new(Recorder {
+        inner: quick(),
+        wire: wire.clone(),
+    })));
     let program = "G21\nG90\nM4 S0\nG1 X5 Y5 S100 F1000\nM5\n";
     run.machine.start(1, "a", program.into(), Some(1)).unwrap();
     run.until("the end", |r| !r.ended.is_empty());
     let sent = String::from_utf8(wire.lock().unwrap().clone()).unwrap();
     let rebuilt = laserfoundry_gcode::resume_from(program, 1).unwrap();
-    for line in rebuilt.lines().filter(|l| !l.is_empty() && !l.starts_with(';')) {
-        assert!(sent.contains(&format!("{line}\n")), "{line} not in {sent:?}");
+    for line in rebuilt
+        .lines()
+        .filter(|l| !l.is_empty() && !l.starts_with(';'))
+    {
+        assert!(
+            sent.contains(&format!("{line}\n")),
+            "{line} not in {sent:?}"
+        );
     }
 }
 
@@ -381,7 +473,10 @@ fn a_frame_runs_as_a_job_and_answers_its_command() {
     sim.set_setting(130, "100");
     sim.set_setting(131, "80");
     let wire = Arc::new(Mutex::new(Vec::new()));
-    let mut run = Run::new(GrblMachine::new(Box::new(Recorder { inner: sim, wire: wire.clone() })));
+    let mut run = Run::new(GrblMachine::new(Box::new(Recorder {
+        inner: sim,
+        wire: wire.clone(),
+    })));
     run.until("the settings", |r| r.telemetry.grbl.is_some());
     let ticket = run.machine.frame([10.0, 10.0, 30.0, 20.0]).unwrap();
     assert_eq!(run.answer(ticket).unwrap(), Vec::<String>::new());
@@ -402,15 +497,31 @@ fn a_frame_runs_as_a_job_and_answers_its_command() {
     )
     .unwrap();
     let sent = String::from_utf8(wire.lock().unwrap().clone()).unwrap();
-    for line in program.lines().filter(|l| !l.is_empty() && !l.starts_with(';')) {
-        assert!(sent.contains(&format!("{line}\n")), "{line} not in {sent:?}");
+    for line in program
+        .lines()
+        .filter(|l| !l.is_empty() && !l.starts_with(';'))
+    {
+        assert!(
+            sent.contains(&format!("{line}\n")),
+            "{line} not in {sent:?}"
+        );
     }
     // HS7b safety (proxy, 2026-11-17): what a frame sends never asks for power: every S word is 0,
     // and the laser is switched off (M5) at its end.
-    for word in sent.split_whitespace().filter(|w| w.starts_with('S') && w.len() > 1) {
-        assert_eq!(word[1..].parse::<f64>().ok(), Some(0.0), "a frame asked for power: {word} in {sent:?}");
+    for word in sent
+        .split_whitespace()
+        .filter(|w| w.starts_with('S') && w.len() > 1)
+    {
+        assert_eq!(
+            word[1..].parse::<f64>().ok(),
+            Some(0.0),
+            "a frame asked for power: {word} in {sent:?}"
+        );
     }
-    assert!(sent.contains("M5\n"), "the frame ends with the laser off: {sent:?}");
+    assert!(
+        sent.contains("M5\n"),
+        "the frame ends with the laser off: {sent:?}"
+    );
     // Outside the travel it reads: the program is not made.
     assert!(run.machine.frame([10.0, 10.0, 300.0, 20.0]).is_err());
 }
@@ -422,7 +533,10 @@ fn the_reconnect_waits_double_up_to_thirty_seconds() {
         .map(|a| wait_after(RECONNECT_WAIT, a).as_secs())
         .collect();
     assert_eq!(waits, [4, 8, 16, 30, 30, 30, 30]);
-    assert_eq!((RECONNECT_ATTEMPTS, RECONNECT_MAX_WAIT, RECONNECT_WAIT), (8, Duration::from_secs(30), Duration::from_secs(2)));
+    assert_eq!(
+        (RECONNECT_ATTEMPTS, RECONNECT_MAX_WAIT, RECONNECT_WAIT),
+        (8, Duration::from_secs(30), Duration::from_secs(2))
+    );
 }
 
 /// A lost connection: the job ends, the commands fail, the serial port is opened again, nothing
@@ -431,7 +545,10 @@ fn the_reconnect_waits_double_up_to_thirty_seconds() {
 fn a_lost_connection_is_reopened_and_nothing_resumes() {
     let unplugged = Arc::new(AtomicBool::new(false));
     let opened = Arc::new(AtomicUsize::new(0));
-    let first = Unplug { inner: quick(), gone: unplugged.clone() };
+    let first = Unplug {
+        inner: quick(),
+        gone: unplugged.clone(),
+    };
     let reopen: Reopen = {
         let (unplugged, opened) = (unplugged.clone(), opened.clone());
         Box::new(move || {
@@ -448,7 +565,9 @@ fn a_lost_connection_is_reopened_and_nothing_resumes() {
     machine.reconnect_wait = Duration::from_millis(1);
     let mut run = Run::new(machine);
     run.until("the settings", |r| r.telemetry.grbl.is_some());
-    run.machine.start(5, "long", long_program(2000), None).unwrap();
+    run.machine
+        .start(5, "long", long_program(2000), None)
+        .unwrap();
     std::thread::sleep(Duration::from_millis(100));
     // Handed to the link during the job: refused, as a command during a job is.
     assert!(run.machine.submit(&[Command::Home]).is_err());
@@ -456,19 +575,34 @@ fn a_lost_connection_is_reopened_and_nothing_resumes() {
     run.until("lost", |r| r.gone == 1);
     assert_eq!(run.telemetry.state, MachineState::Disconnected);
     assert!(
-        run.telemetry.problem.as_deref().unwrap().starts_with("The machine connection was lost; trying to reconnect."),
+        run.telemetry
+            .problem
+            .as_deref()
+            .unwrap()
+            .starts_with("The machine connection was lost; trying to reconnect."),
         "{:?}",
         run.telemetry.problem
     );
-    assert!(run.telemetry.problem.as_deref().unwrap().contains("The job was stopped and will not resume by itself."));
+    assert!(
+        run.telemetry
+            .problem
+            .as_deref()
+            .unwrap()
+            .contains("The job was stopped and will not resume by itself.")
+    );
     assert_eq!(run.ended.len(), 1, "{:?}", run.ended);
     assert!(!run.ended[0].ok && run.ended[0].id == 5, "{:?}", run.ended);
     assert!(run.ended[0].restart_line.is_some_and(|l| l >= 1));
-    assert!(run.machine.submit(&[Command::Home]).is_err(), "not connected");
+    assert!(
+        run.machine.submit(&[Command::Home]).is_err(),
+        "not connected"
+    );
     run.until("back", |r| r.back == 1);
     assert_eq!(opened.load(Ordering::SeqCst), 3);
     assert_eq!(run.telemetry.problem, None);
-    run.until("idle again", |r| r.telemetry.state == MachineState::Idle && r.telemetry.grbl.is_some());
+    run.until("idle again", |r| {
+        r.telemetry.state == MachineState::Idle && r.telemetry.grbl.is_some()
+    });
     assert_eq!(run.telemetry.job_id, None, "nothing resumes");
     run.send("G0 X3").unwrap();
 }
@@ -479,13 +613,20 @@ fn a_command_owed_an_answer_fails_when_the_connection_is_lost() {
     let unplugged = Arc::new(AtomicBool::new(false));
     let mut sim = SimulatedGrbl::new();
     sim.set_latency(Duration::from_millis(300));
-    let first = Unplug { inner: sim, gone: unplugged.clone() };
+    let first = Unplug {
+        inner: sim,
+        gone: unplugged.clone(),
+    };
     let mut run = Run::new(GrblMachine::new(Box::new(first)));
     let ticket = run.machine.submit(&[Command::Home]).unwrap();
     unplugged.store(true, Ordering::SeqCst);
     let why = run.answer(ticket).unwrap_err();
     assert!(why.contains("no answer"), "{why}");
-    assert_eq!(run.telemetry.problem.as_deref(), Some("The machine connection was lost"), "a simulator is not reopened");
+    assert_eq!(
+        run.telemetry.problem.as_deref(),
+        Some("The machine connection was lost"),
+        "a simulator is not reopened"
+    );
 }
 
 /// After eight attempts it gives up, saying so.
@@ -500,16 +641,28 @@ fn it_gives_up_after_eight_attempts() {
             Err("gone".to_owned())
         })
     };
-    let mut machine = GrblMachine::with_reopen(Box::new(Unplug { inner: quick(), gone: unplugged.clone() }), reopen);
+    let mut machine = GrblMachine::with_reopen(
+        Box::new(Unplug {
+            inner: quick(),
+            gone: unplugged.clone(),
+        }),
+        reopen,
+    );
     machine.reconnect_wait = Duration::from_millis(1);
     let mut run = Run::new(machine);
     run.until("a status", |r| r.telemetry.position_mm.is_some());
     unplugged.store(true, Ordering::SeqCst);
     run.until("given up", |r| {
-        r.telemetry.problem.as_deref().is_some_and(|p| p.starts_with("Could not reconnect"))
+        r.telemetry
+            .problem
+            .as_deref()
+            .is_some_and(|p| p.starts_with("Could not reconnect"))
     });
     assert_eq!(tries.load(Ordering::SeqCst), RECONNECT_ATTEMPTS as usize);
-    assert_eq!(run.telemetry.problem.as_deref(), Some("Could not reconnect: gone"));
+    assert_eq!(
+        run.telemetry.problem.as_deref(),
+        Some("Could not reconnect: gone")
+    );
 }
 
 /// The console lines that are new, also when the console dropped its first ones.
@@ -519,7 +672,11 @@ fn new_console_lines() {
     let after = vec!["< ok".to_owned(), "> G0 X1".to_owned(), "< ok".to_owned()];
     assert_eq!(new_lines(&before, &after), vec!["> G0 X1", "< ok"]);
     let trimmed = vec!["> G0 X1".to_owned(), "< ok".to_owned(), "> M5".to_owned()];
-    assert_eq!(new_lines(&after, &trimmed), vec!["> M5"], "the console dropped its first line");
+    assert_eq!(
+        new_lines(&after, &trimmed),
+        vec!["> M5"],
+        "the console dropped its first line"
+    );
 }
 
 /// `auto_reconnect` off (`ui-egui/src/tests.rs:2691`): a lost connection is only said.
@@ -534,7 +691,13 @@ fn a_lost_connection_is_not_retried_when_it_is_switched_off() {
             Err("gone".to_owned())
         })
     };
-    let mut machine = GrblMachine::with_reopen(Box::new(Unplug { inner: quick(), gone: unplugged.clone() }), reopen);
+    let mut machine = GrblMachine::with_reopen(
+        Box::new(Unplug {
+            inner: quick(),
+            gone: unplugged.clone(),
+        }),
+        reopen,
+    );
     machine.auto_reconnect = false;
     machine.reconnect_wait = Duration::ZERO;
     let mut run = Run::new(machine);
@@ -545,5 +708,8 @@ fn a_lost_connection_is_not_retried_when_it_is_switched_off() {
         run.step();
     }
     assert_eq!(tries.load(Ordering::SeqCst), 0);
-    assert_eq!(run.telemetry.problem.as_deref(), Some("The machine connection was lost"));
+    assert_eq!(
+        run.telemetry.problem.as_deref(),
+        Some("The machine connection was lost")
+    );
 }

@@ -14,8 +14,12 @@
 
 /// LaserFoundry's in-memory GRBL: for tests, and behind the hub's virtual lasers.
 pub use laserfoundry_device::SimulatedGrbl;
-use laserfoundry_device::{JobState, Link, MachineState as Grbl, Snapshot, Transport, restart_line};
-use maker_connect_protocol::{GrblSettings, JobControl, JobEnd, JobProgress, MachineState, Telemetry};
+use laserfoundry_device::{
+    JobState, Link, MachineState as Grbl, Snapshot, Transport, restart_line,
+};
+use maker_connect_protocol::{
+    GrblSettings, JobControl, JobEnd, JobProgress, MachineState, Telemetry,
+};
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
 
@@ -304,7 +308,10 @@ impl GrblMachine {
         // The machine of the program is the document's in the app; here (ours, G12): the
         // controller's own travel and power range, once read.
         // The bounds are a file's own machine coordinates: no flip of Y (G12).
-        let mut machine = laserfoundry_doc::Machine { origin: laserfoundry_doc::Origin::TopLeft, ..Default::default() };
+        let mut machine = laserfoundry_doc::Machine {
+            origin: laserfoundry_doc::Origin::TopLeft,
+            ..Default::default()
+        };
         if let Some(snap) = &self.snap {
             let number = |id: u32| {
                 snap.settings
@@ -366,11 +373,16 @@ impl GrblMachine {
             return Err(why.to_owned());
         }
         // `ui-egui/src/lib.rs:1239-1246` and `settings_ui.rs:26-31`
-        if self.snap.as_ref().is_some_and(|s| laser_mode_off(&s.settings)) {
+        if self
+            .snap
+            .as_ref()
+            .is_some_and(|s| laser_mode_off(&s.settings))
+        {
             return Err("Laser mode ($32) is off on this controller: turn it on in the machine settings before running a job".to_owned());
         }
         let before = link.snapshot().job;
-        link.start_job(streamed.clone()).map_err(|e| e.to_string())?;
+        link.start_job(streamed.clone())
+            .map_err(|e| e.to_string())?;
         self.job = Some(Running {
             id,
             frame,
@@ -484,8 +496,8 @@ impl GrblMachine {
                 if let Some(job) = self.job.as_mut()
                     && !job.started_seen
                 {
-                    job.started_seen =
-                        snap.job != job.before || new.iter().any(|l| l.starts_with("job started: "));
+                    job.started_seen = snap.job != job.before
+                        || new.iter().any(|l| l.starts_with("job started: "));
                 }
                 if matches!(snap.job, JobState::Finished(_))
                     && self.job.as_ref().is_some_and(|j| j.started_seen)
@@ -556,7 +568,9 @@ impl GrblMachine {
     fn answers(&mut self, new: &[String]) -> Vec<Done> {
         let mut over = Vec::new();
         for line in new {
-            let Some(front) = self.outstanding.front_mut() else { break };
+            let Some(front) = self.outstanding.front_mut() else {
+                break;
+            };
             if front.dead {
                 break;
             }
@@ -575,7 +589,9 @@ impl GrblMachine {
                 }
                 continue;
             }
-            let Some(front) = self.outstanding.front_mut() else { break };
+            let Some(front) = self.outstanding.front_mut() else {
+                break;
+            };
             front.output.push(tidy(line));
             if is_answer(line) {
                 front.answered += 1;
