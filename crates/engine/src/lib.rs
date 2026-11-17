@@ -52,6 +52,32 @@ pub enum Event {
     Back,
 }
 
+/// K18 / HS4 (ours, engine to hub, nothing on the wire to the device): the reason of a command that
+/// is given up because the connection closed.
+pub const CONNECTION_CLOSED: &str = "the printer connection closed";
+
+#[cfg(feature = "devices")]
+/// K18 / HS4 (ours): every [`Order::Command`] still waiting in `orders` fails with
+/// [`CONNECTION_CLOSED`]; the other orders are dropped. The ports call it when they close.
+pub(crate) fn fail_queued_commands(orders: &Receiver<Order>, events: &Sender<Event>) {
+    while let Ok(order) = orders.try_recv() {
+        if let Order::Command { id, .. } = order {
+            fail_command(id, events);
+        }
+    }
+}
+
+#[cfg(feature = "devices")]
+/// K18 / HS4 (ours): one command given up because the connection closed.
+pub(crate) fn fail_command(id: u32, events: &Sender<Event>) {
+    let _ = events.send(Event::Done(CommandDone {
+        id,
+        ok: false,
+        reason: Some(CONNECTION_CLOSED.to_owned()),
+        output: Vec::new(),
+    }));
+}
+
 /// A machine's port: the only code that talks to its device. It runs until it is given
 /// [`Order::Close`] or its orders end.
 pub trait Port: Send + 'static {

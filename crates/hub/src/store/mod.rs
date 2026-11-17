@@ -11,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod machines;
 
 mod commands;
+pub use commands::on_marlin_port;
 
 mod history;
 

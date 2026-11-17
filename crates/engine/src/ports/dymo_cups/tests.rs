@@ -845,6 +845,30 @@ mod top_edge {
         h.join().unwrap();
     }
 
+    /// K18 / HS4 (ours): a command that came during a print is answered; a command that came after the Close
+    /// fails, "the printer connection closed"; none is left unanswered.
+    #[test]
+    fn commands_waiting_at_close_fail() {
+        let (host, _) = bench(&[], 0x02, 1000);
+        let (otx, erx, h) = start(host);
+        otx.send(Order::Job { order: job(4, Some(25)), file: png("close", 271, 254) }).unwrap();
+        otx.send(Order::Command { id: 3, action: Action::Home { axes: Vec::new() } }).unwrap();
+        otx.send(Order::Close).unwrap();
+        let _ = otx.send(Order::Command { id: 5, action: Action::Home { axes: Vec::new() } });
+        h.join().unwrap();
+        let done: Vec<_> = erx
+            .try_iter()
+            .filter_map(|e| if let Event::Done(d) = e { Some((d.id, d.ok, d.reason)) } else { None })
+            .collect();
+        assert_eq!(
+            done,
+            vec![
+                (3, false, Some(NO_SUCH_CONTROL.to_owned())),
+                (5, false, Some(crate::CONNECTION_CLOSED.to_owned())),
+            ]
+        );
+    }
+
     /// W6, W7: the printer reports the labels out; the monitor polls; the job is stopped (what CUPS does on
     /// cancel: the filter ends). The problem is the PPD's own text.
     #[test]

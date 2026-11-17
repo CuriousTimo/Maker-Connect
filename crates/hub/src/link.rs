@@ -97,9 +97,10 @@ pub(crate) async fn telemetry(
             // B3: the hub does not hold or refuse a command for a machine behind an agent, whatever it
             // is doing (busy, waiting for someone): it queues them (one at a time, but for the Marlin port's machines, K18), and the machine's
             // port refuses as its reference does (OctoPrint: `server/api/printer.py`).
-            // K18: a machine on the Marlin/OctoPrint port gets every Queued command at once (no
-            // gate, no 120 s); the other agent ports keep one at a time.
-            let next = match store.is_marlin_agent(token) {
+            // K18, HS4: a machine on a port that fails its pending commands on close (Marlin/OctoPrint,
+            // DYMO PnP, LabelWriter 450, laser) gets every Queued command at once (no gate, no
+            // 120 s); the other agent ports (Buddy, Klipper, the MK3 family) keep one at a time.
+            let next = match store.fails_pending_on_close(token) {
                 Ok(true) => store.next_commands_for_agent(token),
                 Ok(false) => store.next_command(token).map(|n| n.into_iter().collect()),
                 Err(error) => Err(error),
@@ -787,15 +788,14 @@ pub(crate) mod tests {
         assert_eq!(state_of(&store, space, &id, m109).0, store::CommandState::Sent);
     }
 
-    /// The other agent ports (a Prusa profile, a label printer, a laser) keep one at a time and 120 s.
+    /// The agent ports that do not fail pending commands on close (a Prusa profile, Alfawise's U30) keep one
+    /// at a time and 120 s.
     #[tokio::test]
     async fn k18_the_other_agent_machines_keep_their_gate() {
         for (kind, profile) in [
             (MachineKind::Fdm, Some("prusa/mini")),
             (MachineKind::Fdm, Some("prusa/mk4s")),
             (MachineKind::Fdm, Some("alfawise/u30")),
-            (MachineKind::Label, None),
-            (MachineKind::Laser, None),
         ] {
             let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
             let app = crate::auth::signed_in_app(store.clone());
@@ -816,6 +816,34 @@ pub(crate) mod tests {
             let (state, reason) = state_of(&store, space, &id, c);
             assert_eq!(state, store::CommandState::Rejected);
             assert_eq!(reason.as_deref(), Some("no answer from the machine"));
+        }
+    }
+
+    /// HS4: the label printers (DYMO PnP, LabelWriter 450) and the laser have no gate either: every Queued
+    /// command goes at once, none is given up after 120 s, and the agent-gone rule applies to them.
+    #[tokio::test]
+    async fn hs4_label_and_laser_agent_machines_have_no_gate() {
+        for kind in [MachineKind::Label, MachineKind::Laser] {
+            let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+            let app = crate::auth::signed_in_app(store.clone());
+            let (id, token, space) = agent_machine(&store, kind, None);
+            let a = queue_gcode(&store, space, &id, "G28");
+            let b = queue_gcode(&store, space, &id, "M105");
+            assert_eq!(report(&app, &token, vec![]).await, vec![a, b], "{kind:?}: both at once");
+            // no 120 s
+            store.lock().unwrap().set_commands_at(&id, store::now() - 3600);
+            report(&app, &token, vec![]).await;
+            assert_eq!(state_of(&store, space, &id, a).0, store::CommandState::Sent, "{kind:?}");
+            // the agent-gone rule: Sent fails, Queued does not
+            let c = queue_gcode(&store, space, &id, "M104 S0");
+            store.lock().unwrap().set_last_seen(&id, store::now() - store::ONLINE_SECONDS - 1);
+            store.lock().unwrap().fail_commands_of_gone_agent(&token).unwrap();
+            assert_eq!(
+                state_of(&store, space, &id, a),
+                (store::CommandState::Rejected, Some("the agent was gone".to_owned())),
+                "{kind:?}"
+            );
+            assert_eq!(state_of(&store, space, &id, c).0, store::CommandState::Queued, "{kind:?}");
         }
     }
 

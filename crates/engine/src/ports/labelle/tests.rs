@@ -631,6 +631,28 @@ mod port {
         run.join().unwrap();
     }
 
+    /// K18 / HS4 (ours): the port holds no command pending; one that comes after the Close fails,
+    /// "the printer connection closed".
+    #[test]
+    fn a_command_after_the_close_fails() {
+        let (orders, events, run) = start("normal");
+        orders.send(Order::Command { id: 7, action: Action::Home { axes: Vec::new() } }).unwrap();
+        orders.send(Order::Close).unwrap();
+        let _ = orders.send(Order::Command { id: 8, action: Action::Home { axes: Vec::new() } });
+        run.join().unwrap();
+        let done: Vec<_> = events
+            .try_iter()
+            .filter_map(|e| if let Event::Done(d) = e { Some((d.id, d.ok, d.reason)) } else { None })
+            .collect();
+        assert_eq!(
+            done,
+            vec![
+                (7, false, Some(NO_SUCH_CONTROL.to_owned())),
+                (8, false, Some(crate::CONNECTION_CLOSED.to_owned())),
+            ]
+        );
+    }
+
     #[test]
     fn a_job_ends_done_with_the_printers_answers_or_failed_with_labelles_text() {
         let (orders, events, run) = start("single");

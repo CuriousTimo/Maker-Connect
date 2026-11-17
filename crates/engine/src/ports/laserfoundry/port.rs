@@ -163,7 +163,11 @@ impl Port for LaserFoundryPort {
                 Ok(order) => {
                     note = None;
                     match order {
-                        Order::Close => return,
+                        // K18 / HS4 (ours): every command still pending fails, "the printer connection closed"
+                        Order::Close => {
+                            close(&tickets, &orders, &events);
+                            return;
+                        }
                         Order::Command { id, action } => {
                             let result = match (&mut machine, &action) {
                                 (Some(machine), Action::Frame { download }) => frame_of(machine, download),
@@ -208,7 +212,10 @@ impl Port for LaserFoundryPort {
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => return,
+                Err(RecvTimeoutError::Disconnected) => {
+                    close(&tickets, &orders, &events);
+                    return;
+                }
             }
             let Some(machine) = machine.as_mut() else { continue };
             let update = machine.report();
@@ -236,6 +243,17 @@ impl Port for LaserFoundryPort {
             }
         }
     }
+}
+
+/// K18 / HS4 (ours, engine to hub, nothing to the machine): on close every command still pending
+/// (submitted and not answered, or still waiting in the orders) fails, "the printer connection closed".
+fn close(tickets: &HashMap<Ticket, u32>, orders: &Receiver<Order>, events: &Sender<Event>) {
+    let mut ids: Vec<u32> = tickets.values().copied().collect();
+    ids.sort_unstable();
+    for id in ids {
+        crate::fail_command(id, events);
+    }
+    crate::fail_queued_commands(orders, events);
 }
 
 /// G14, G10: `--port` required, `--baud` as given or LaserFoundry's default.
