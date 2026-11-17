@@ -21,7 +21,10 @@ fn record(out: &mut Vec<u8>, b: &[u8]) {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let (url, user, pass, count, dir) = (&a[0], &a[1], &a[2], a[3].parse::<usize>()?, &a[4]);
-    let creds = Some(retina::client::Credentials { username: user.clone(), password: pass.clone() });
+    let creds = Some(retina::client::Credentials {
+        username: user.clone(),
+        password: pass.clone(),
+    });
     let mut session = retina::client::Session::describe(
         url.parse()?,
         retina::client::SessionOptions::default()
@@ -60,11 +63,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let avcc = p.extra_data().to_vec();
             let (w, h) = p.pixel_dimensions();
             record(&mut frames, &avcc);
-            record(&mut frames, &[(w >> 8) as u8, w as u8, (h >> 8) as u8, h as u8]);
+            record(
+                &mut frames,
+                &[(w >> 8) as u8, w as u8, (h >> 8) as u8, h as u8],
+            );
             let (_, sps, pps) = mp4::decode_config(&avcc);
             record(&mut ours, mp4::content_type(sps).as_bytes());
-            record(&mut ours, &mp4::Muxer::get_init(sps, pps, Some((w as u16, h as u16))));
-            ps = Some(mp4::join_nalu(&[sps.unwrap_or_default(), pps.unwrap_or_default()]));
+            record(
+                &mut ours,
+                &mp4::Muxer::get_init(sps, pps, Some((w as u16, h as u16))),
+            );
+            ps = Some(mp4::join_nalu(&[
+                sps.unwrap_or_default(),
+                pps.unwrap_or_default(),
+            ]));
         }
         let Some(payload) = mp4::start_of_access_unit(frame.data(), ps.as_deref().unwrap()) else {
             continue;

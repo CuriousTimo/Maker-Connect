@@ -437,9 +437,7 @@ pub(crate) async fn taken(
         Err(error) => return failed(error),
     };
     match store.print_taken(space, &id) {
-        Ok(true) => {
-            done(&headers, &format!("/machines/{id}"))
-        }
+        Ok(true) => done(&headers, &format!("/machines/{id}")),
         Ok(false) => (StatusCode::NOT_FOUND, "no print on its bed").into_response(),
         Err(error) => failed(error),
     }
@@ -499,7 +497,13 @@ pub(crate) async fn answer(
         };
         let kwargs = serde_json::json!({ "dialog_id": dialog, "button": name });
         let command = serde_json::json!({ "command": "DIALOG_ACTION", "kwargs": kwargs });
-        return match store.queue_connect_command(space, &id, &format!("Answer: {name}"), &command, false) {
+        return match store.queue_connect_command(
+            space,
+            &id,
+            &format!("Answer: {name}"),
+            &command,
+            false,
+        ) {
             Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
             Ok(None) => (StatusCode::CONFLICT, "the printer takes no commands").into_response(),
             Err(error) => failed(error),
@@ -610,8 +614,10 @@ pub(crate) async fn machine_page(
             // HS2: a LabelWriter has its own page; a LabelManager the label page.
             let profile = machine.profile.as_deref().and_then(profiles::find);
             if profile.is_some_and(|p| p.firmware.as_deref() == Some("dymo-lw")) {
-                return Html(crate::pages::labelwriter_page::render(&space, &machine, &move_to, manage))
-                    .into_response();
+                return Html(crate::pages::labelwriter_page::render(
+                    &space, &machine, &move_to, manage,
+                ))
+                .into_response();
             }
             Html(label_page::render(&space, &machine, &move_to, manage)).into_response()
         }
@@ -784,20 +790,37 @@ mod tests {
         let (writer, manager) = {
             let mut store = store.lock().unwrap();
             let space = store.default_space().unwrap().0;
-            let writer = store.add_virtual(space, profiles::find("dymo/labelwriter-450").unwrap()).unwrap();
-            let manager = store.add_virtual(space, profiles::find("dymo/labelmanager-pnp").unwrap()).unwrap();
+            let writer = store
+                .add_virtual(space, profiles::find("dymo/labelwriter-450").unwrap())
+                .unwrap();
+            let manager = store
+                .add_virtual(space, profiles::find("dymo/labelmanager-pnp").unwrap())
+                .unwrap();
             crate::auth::tester_may_operate(&store, space, &writer);
             (writer, manager)
         };
-        let get = |id: &str| Request::get(format!("/machines/{id}")).body(Body::empty()).unwrap();
+        let get = |id: &str| {
+            Request::get(format!("/machines/{id}"))
+                .body(Body::empty())
+                .unwrap()
+        };
         let (status, page) = call(&app, get(&writer)).await;
         assert_eq!(status, StatusCode::OK);
-        assert!(page.contains("data-roll-form") && page.contains("Roll loaded"), "the LabelWriter page");
-        assert!(page.contains(r#"value="S0722530""#), "11353 (S0722530) among the rolls");
+        assert!(
+            page.contains("data-roll-form") && page.contains("Roll loaded"),
+            "the LabelWriter page"
+        );
+        assert!(
+            page.contains(r#"value="S0722530""#),
+            "11353 (S0722530) among the rolls"
+        );
         assert!(!page.contains("data-tape-form"));
         let (status, page) = call(&app, get(&manager)).await;
         assert_eq!(status, StatusCode::OK);
-        assert!(page.contains("data-tape-form") && !page.contains("data-roll-form"), "the PnP's label page");
+        assert!(
+            page.contains("data-tape-form") && !page.contains("data-roll-form"),
+            "the PnP's label page"
+        );
 
         let choose = Request::post(format!("/machines/{writer}/media"))
             .header("content-type", "application/x-www-form-urlencoded")
@@ -810,17 +833,27 @@ mod tests {
         assert_eq!(roll["dots"], serde_json::json!([271, 254]));
         assert_eq!(roll["length_mm"], 25);
         assert_eq!(roll["page_size"], "w72h72.2");
-        assert_eq!(roll["cells"].as_array().unwrap().len(), 2, "two labels on the page (DYMO Connect)");
+        assert_eq!(
+            roll["cells"].as_array().unwrap().len(),
+            2,
+            "two labels on the page (DYMO Connect)"
+        );
         // A label printer without a profile: only the notice, on both tabs.
         let bare = {
             let mut store = store.lock().unwrap();
             let space = store.default_space().unwrap().0;
-            let id = store.add_virtual(space, profiles::find("dymo/labelwriter-450").unwrap()).unwrap();
+            let id = store
+                .add_virtual(space, profiles::find("dymo/labelwriter-450").unwrap())
+                .unwrap();
             store.set_profile(space, &id, None).unwrap();
             id
         };
         let (_, page) = call(&app, get(&bare)).await;
-        assert!(page.contains("No profile yet") && page.contains(r#"<div class="grid-label" hidden>"#), "{}", &page[..200]);
+        assert!(
+            page.contains("No profile yet") && page.contains(r#"<div class="grid-label" hidden>"#),
+            "{}",
+            &page[..200]
+        );
         // For looking at the page by hand: `MC_DUMP_PAGES=<dir> cargo test a_labelwriter_has_its_own_page`.
         if let Ok(dir) = std::env::var("MC_DUMP_PAGES") {
             let (_, page) = call(&app, get(&writer)).await;

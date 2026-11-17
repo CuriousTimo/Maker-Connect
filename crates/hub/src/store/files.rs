@@ -58,7 +58,11 @@ impl Store {
         let mut query = self.db.prepare("SELECT id, name, meta FROM files")?;
         let stale: Vec<(String, String)> = query
             .query_map([], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
             })?
             .filter_map(Result::ok)
             .filter(|(_, _, meta)| !meta.contains("bounds_mm") || !meta.contains("\"objects\""))

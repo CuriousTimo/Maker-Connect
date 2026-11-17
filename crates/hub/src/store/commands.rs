@@ -7,8 +7,7 @@ pub fn on_marlin_port(m: &Machine) -> bool {
     m.link == "agent"
         && m.kind == maker_connect_protocol::MachineKind::Fdm
         && crate::machine_page::plain_marlin(m)
-        && m
-            .profile
+        && m.profile
             .as_deref()
             .and_then(crate::profiles::find)
             .and_then(|p| p.firmware.as_deref())
@@ -64,7 +63,11 @@ impl Store {
         let Some(id) = self.queue_command(space, machine, label, &body)? else {
             return Ok(None);
         };
-        if let Some(command) = self.commands.get_mut(machine).and_then(|c| c.iter_mut().find(|c| c.id == id)) {
+        if let Some(command) = self
+            .commands
+            .get_mut(machine)
+            .and_then(|c| c.iter_mut().find(|c| c.id == id))
+        {
             command.action = true;
         }
         Ok(Some(id))
@@ -215,7 +218,10 @@ impl Store {
     #[cfg(test)]
     pub fn set_last_seen(&self, machine: &str, at: i64) {
         self.db
-            .execute("UPDATE machines SET last_seen = ?1 WHERE id = ?2", params![at, machine])
+            .execute(
+                "UPDATE machines SET last_seen = ?1 WHERE id = ?2",
+                params![at, machine],
+            )
             .unwrap();
     }
 
@@ -251,7 +257,9 @@ impl Store {
     fn on_prusa_connect(&self, token: &str) -> rusqlite::Result<bool> {
         Ok(self
             .db
-            .query_row("SELECT link FROM machines WHERE token = ?1", [token], |r| r.get::<_, String>(0))
+            .query_row("SELECT link FROM machines WHERE token = ?1", [token], |r| {
+                r.get::<_, String>(0)
+            })
             .optional()?
             .is_some_and(|link| link == "prusa-connect"))
     }
@@ -262,7 +270,11 @@ impl Store {
         };
         let seen: Option<i64> = self
             .db
-            .query_row("SELECT last_seen FROM machines WHERE token = ?1", [token], |r| r.get(0))
+            .query_row(
+                "SELECT last_seen FROM machines WHERE token = ?1",
+                [token],
+                |r| r.get(0),
+            )
             .optional()?
             .flatten();
         if seen.is_none_or(|t| now() - t <= ONLINE_SECONDS) {
@@ -396,7 +408,10 @@ impl Store {
             println!(
                 "command {} on {machine}: {state:?}{}",
                 command.label,
-                reason.as_deref().map(|r| format!(" ({r})")).unwrap_or_default()
+                reason
+                    .as_deref()
+                    .map(|r| format!(" ({r})"))
+                    .unwrap_or_default()
             );
             command.state = state;
             command.reason = reason;
@@ -407,7 +422,8 @@ impl Store {
             // HS7b (ours, the hub's own state; nothing of it reaches the wire): a laser's completed
             // frame of a file, and a completed Set origin, which a later Start burn needs to know.
             if state == CommandState::Finished && command.action {
-                let action = serde_json::from_str::<maker_connect_protocol::Action>(&command.gcode).ok();
+                let action =
+                    serde_json::from_str::<maker_connect_protocol::Action>(&command.gcode).ok();
                 match action {
                     Some(maker_connect_protocol::Action::Frame { download }) => {
                         if let Some(file) = download.rsplit('/').next() {

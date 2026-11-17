@@ -133,7 +133,11 @@ impl Store {
         }
         let by: Option<String> = self
             .db
-            .query_row("SELECT usb_print_by FROM machines WHERE id = ?1", [&machine], |r| r.get(0))
+            .query_row(
+                "SELECT usb_print_by FROM machines WHERE id = ?1",
+                [&machine],
+                |r| r.get(0),
+            )
             .optional()?
             .flatten();
         match (telemetry.state, telemetry.job.as_ref()) {
@@ -166,7 +170,10 @@ impl Store {
                         (JobState::Failed, Some("the printer reports an error"))
                     }
                     _ if own.percent >= 99 => (JobState::Finished, None),
-                    _ => (JobState::Stopped, Some("ended at the printer before it was done")),
+                    _ => (
+                        JobState::Stopped,
+                        Some("ended at the printer before it was done"),
+                    ),
                 };
                 let file = if own.file.is_empty() {
                     "a print started on the printer".to_owned()

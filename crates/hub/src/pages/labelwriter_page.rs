@@ -65,19 +65,41 @@ fn roll_list(profile: Option<&Profile>, chosen: Option<&str>) -> String {
             r#"<button name="media" value="{id}" class="roll" aria-pressed="{pressed}" data-search="{search}"><span class="roll-shape"><span style="width: {sw}px; height: {sh}px">{split}</span></span><span class="roll-text"><b>{id}</b> {name}<small>{w} × {l} mm{up} · {paper}</small></span></button>"#,
             id = escape(&media.id),
             pressed = chosen == Some(media.id.as_str()),
-            search = escape(&format!("{} {} {} {}", roll.roll.sku, roll.roll.name.unwrap_or(""), roll.roll.paper, roll.roll.search).to_lowercase()),
+            search = escape(
+                &format!(
+                    "{} {} {} {}",
+                    roll.roll.sku,
+                    roll.roll.name.unwrap_or(""),
+                    roll.roll.paper,
+                    roll.roll.search
+                )
+                .to_lowercase()
+            ),
             name = escape(roll.roll.name.unwrap_or("")),
             w = roll.page.width_mm,
             l = roll.page.length_mm,
-            up = if n > 1 { format!(", {n} labels") } else { String::new() },
+            up = if n > 1 {
+                format!(", {n} labels")
+            } else {
+                String::new()
+            },
             paper = escape(roll.roll.paper),
-            split = if n > 1 { r#"<i class="roll-split"></i>"# } else { "" },
+            split = if n > 1 {
+                r#"<i class="roll-split"></i>"#
+            } else {
+                ""
+            },
         );
     }
     out
 }
 
-pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)], manage: bool) -> String {
+pub fn render(
+    space: &str,
+    machine: &Machine,
+    move_to: &[(String, String)],
+    manage: bool,
+) -> String {
     let profile = machine.profile.as_deref().and_then(profiles::find);
     let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
     let (state, state_class) = machine_page::shown_state(machine);
@@ -186,10 +208,17 @@ pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)], mana
         // A LabelWriter says only when its labels have run out.
         held = match telemetry {
             None => "–",
-            Some(t) if t.problem.as_deref().is_some_and(|p| p.starts_with("no labels")) => "Empty",
+            Some(t)
+                if t.problem
+                    .as_deref()
+                    .is_some_and(|p| p.starts_with("no labels")) =>
+                "Empty",
             Some(_) => "Loaded",
         },
-        job = machine.job.as_ref().map_or("–".to_owned(), |j| escape(&j.file_name)),
+        job = machine
+            .job
+            .as_ref()
+            .map_or("–".to_owned(), |j| escape(&j.file_name)),
         rolls = roll_list(profile, machine.media.as_deref()),
         roll = roll_json(profile, machine),
         settings = machine_page::settings(machine, move_to, false, manage),

@@ -127,7 +127,11 @@ async fn stream(
         .lock()
         .unwrap()
         .as_ref()
-        .map(|m| m.iter().map(|((id, i), l)| event_data(id, *i, l.seq)).collect())
+        .map(|m| {
+            m.iter()
+                .map(|((id, i), l)| event_data(id, *i, l.seq))
+                .collect()
+        })
         .unwrap_or_default();
     now.reverse();
     let stream = futures_util::stream::unfold((rx, now), move |(mut rx, mut now)| {
@@ -146,7 +150,10 @@ async fn stream(
                     .ok()
                     .and_then(|v| v["machine"].as_str().map(str::to_owned))
                     .unwrap_or_default();
-                let mine = matches!(store.lock().unwrap().machine(access.space, &machine), Ok(Some(_)));
+                let mine = matches!(
+                    store.lock().unwrap().machine(access.space, &machine),
+                    Ok(Some(_))
+                );
                 if mine {
                     return Some((Ok(Event::default().data(data)), (rx, now)));
                 }
@@ -254,11 +261,26 @@ mod tests {
             let cookie = |name: &str, role: Role| {
                 let user = s.create_user(name, name, "x", false).unwrap();
                 s.set_org_membership(user, org, role.as_str()).unwrap();
-                format!("{}={}", crate::auth::COOKIE, s.create_session(user, None, "", "").unwrap())
+                format!(
+                    "{}={}",
+                    crate::auth::COOKIE,
+                    s.create_session(user, None, "", "").unwrap()
+                )
             };
-            (machine, token, cookie("adam", Role::Admin), cookie("mia", Role::Member))
+            (
+                machine,
+                token,
+                cookie("adam", Role::Admin),
+                cookie("mia", Role::Member),
+            )
         };
-        Rig { app: crate::app(store), machine, token, admin, member }
+        Rig {
+            app: crate::app(store),
+            machine,
+            token,
+            admin,
+            member,
+        }
     }
 
     impl Rig {
@@ -295,43 +317,106 @@ mod tests {
     #[tokio::test]
     async fn a_frame_is_kept_latest_only_and_announced() {
         let r = rig();
-        let (bad, not_jpeg) = (r.post_frame("nope", &JPEG).await, r.post_frame(&r.token, b"GIF89a-------").await);
-        assert_eq!((bad, not_jpeg), (StatusCode::UNAUTHORIZED, StatusCode::BAD_REQUEST));
+        let (bad, not_jpeg) = (
+            r.post_frame("nope", &JPEG).await,
+            r.post_frame(&r.token, b"GIF89a-------").await,
+        );
+        assert_eq!(
+            (bad, not_jpeg),
+            (StatusCode::UNAUTHORIZED, StatusCode::BAD_REQUEST)
+        );
         assert_eq!(r.post_frame(&r.token, &JPEG).await, StatusCode::NO_CONTENT);
         let url = format!("/usb-cameras/test/frame/{}/0", r.machine);
         let first = r.get(Some(&r.admin), &url).await;
         assert_eq!(first.headers()["content-type"], "image/jpeg");
-        assert_eq!(first.into_body().collect().await.unwrap().to_bytes().as_ref(), JPEG);
+        assert_eq!(
+            first
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .as_ref(),
+            JPEG
+        );
 
         // The page's stream: the frame there is, then the next one.
         let events = r.get(Some(&r.admin), "/usb-cameras/test/events").await;
         assert_eq!(events.headers()["content-type"], "text/event-stream");
         let mut body = events.into_body();
         let now = next_chunk(&mut body).await;
-        assert!(now.contains(&r.machine) && now.contains(r#""seq":1"#), "{now}");
+        assert!(
+            now.contains(&r.machine) && now.contains(r#""seq":1"#),
+            "{now}"
+        );
         let mut second = JPEG.to_vec();
         second.insert(4, 9);
-        assert_eq!(r.post_frame(&r.token, &second).await, StatusCode::NO_CONTENT);
+        assert_eq!(
+            r.post_frame(&r.token, &second).await,
+            StatusCode::NO_CONTENT
+        );
         let new = next_chunk(&mut body).await;
         assert!(new.contains(r#""seq":2"#), "{new}");
-        let latest = r.get(Some(&r.admin), &url).await.into_body().collect().await.unwrap().to_bytes();
-        assert_eq!(latest.as_ref(), second.as_slice(), "only the latest is kept");
+        let latest = r
+            .get(Some(&r.admin), &url)
+            .await
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        assert_eq!(
+            latest.as_ref(),
+            second.as_slice(),
+            "only the latest is kept"
+        );
         let kept = LATEST.lock().unwrap();
-        assert_eq!(kept.as_ref().unwrap().keys().filter(|(m, _)| *m == r.machine).count(), 1);
+        assert_eq!(
+            kept.as_ref()
+                .unwrap()
+                .keys()
+                .filter(|(m, _)| *m == r.machine)
+                .count(),
+            1
+        );
     }
 
     #[tokio::test]
     async fn the_test_page_is_for_admins() {
         let r = rig();
         let frame = format!("/usb-cameras/test/frame/{}/0", r.machine);
-        for path in ["/usb-cameras/test", "/usb-cameras/test/events", frame.as_str()] {
-            assert_eq!(r.get(None, path).await.status(), StatusCode::UNAUTHORIZED, "{path}");
-            assert_eq!(r.get(Some(&r.member), path).await.status(), StatusCode::FORBIDDEN, "{path}");
+        for path in [
+            "/usb-cameras/test",
+            "/usb-cameras/test/events",
+            frame.as_str(),
+        ] {
+            assert_eq!(
+                r.get(None, path).await.status(),
+                StatusCode::UNAUTHORIZED,
+                "{path}"
+            );
+            assert_eq!(
+                r.get(Some(&r.member), path).await.status(),
+                StatusCode::FORBIDDEN,
+                "{path}"
+            );
         }
         let page = r.get(Some(&r.admin), "/usb-cameras/test").await;
         assert_eq!(page.status(), StatusCode::OK);
-        let html = String::from_utf8(page.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+        let html = String::from_utf8(
+            page.into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
         assert!(html.contains("EventSource"));
-        assert_eq!(r.get(Some(&r.admin), &frame).await.status(), StatusCode::NOT_FOUND, "no frame yet");
+        assert_eq!(
+            r.get(Some(&r.admin), &frame).await.status(),
+            StatusCode::NOT_FOUND,
+            "no frame yet"
+        );
     }
 }

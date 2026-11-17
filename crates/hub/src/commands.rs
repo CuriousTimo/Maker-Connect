@@ -13,12 +13,23 @@ use maker_connect_protocol as protocol;
 /// Why a command may not go now, by the machine's state (PrusaLink's rules for an MK3,
 /// `web/controls.py`): paused, no homing, Z or extruding; extruding needs 170 °C and no
 /// print running.
-fn refused_now(action: &str, gcode: &str, machine: &store::Machine, mk3: bool) -> Option<&'static str> {
+fn refused_now(
+    action: &str,
+    gcode: &str,
+    machine: &store::Machine,
+    mk3: bool,
+) -> Option<&'static str> {
     use protocol::MachineState::{Idle, Paused};
     let t = machine.telemetry.as_ref()?;
     let paused = t.state == protocol::MachineState::Paused;
-    let z_move = gcode.lines().any(|l| l.starts_with("G1") && l.split_whitespace().any(|w| w.starts_with('Z')));
-    let xy_move = gcode.lines().any(|l| l.starts_with("G1") && l.split_whitespace().any(|w| w.starts_with('X') || w.starts_with('Y')));
+    let z_move = gcode
+        .lines()
+        .any(|l| l.starts_with("G1") && l.split_whitespace().any(|w| w.starts_with('Z')));
+    let xy_move = gcode.lines().any(|l| {
+        l.starts_with("G1")
+            && l.split_whitespace()
+                .any(|w| w.starts_with('X') || w.starts_with('Y'))
+    });
     let extrude = matches!(action, "extrude" | "retract");
     // PrusaLink's `api_printhead`: homing only idle or ready; Z only idle (ready, finished,
     // stopped); X and Y also paused.
@@ -38,7 +49,10 @@ fn refused_now(action: &str, gcode: &str, machine: &store::Machine, mk3: bool) -
         return Some("not while a print is paused: only X and Y move then");
     }
     if extrude {
-        if matches!(t.state, protocol::MachineState::Busy | protocol::MachineState::Paused) {
+        if matches!(
+            t.state,
+            protocol::MachineState::Busy | protocol::MachineState::Paused
+        ) {
             return Some("not while it prints");
         }
         if t.nozzle_c.is_none_or(|c| c < 170.0) {
@@ -53,7 +67,10 @@ fn refused_now(action: &str, gcode: &str, machine: &store::Machine, mk3: bool) -
 /// controls the pages offer, owner's approval O8). Its step and speed from the page's lists
 /// (`JOG_STEPS`, `JOG_FEEDS`), the preheat temperatures the page's own: limits of the page,
 /// not of the wire.
-fn agent_actions(form: &CommandForm, machine: &store::Machine) -> Result<Vec<(String, protocol::Action)>, String> {
+fn agent_actions(
+    form: &CommandForm,
+    machine: &store::Machine,
+) -> Result<Vec<(String, protocol::Action)>, String> {
     use protocol::{Action, Axis, Heater};
     let one = |label: &str, action: Action| Ok(vec![(label.to_owned(), action)]);
     let step = form.step.unwrap_or(10.0);
@@ -64,24 +81,67 @@ fn agent_actions(form: &CommandForm, machine: &store::Machine) -> Result<Vec<(St
         return Err("Move: no such speed".to_owned());
     }
     let jog = |label: String, x: Option<f64>, y: Option<f64>, z: Option<f64>| {
-        Ok(vec![(label, Action::Jog { x, y, z, feed: form.feed })])
+        Ok(vec![(
+            label,
+            Action::Jog {
+                x,
+                y,
+                z,
+                feed: form.feed,
+            },
+        )])
     };
     let heat = |label: &str, nozzle: f64, bed: f64| {
         Ok(vec![
-            (label.to_owned(), Action::Temperature { heater: Heater::Nozzle, celsius: nozzle }),
-            (label.to_owned(), Action::Temperature { heater: Heater::Bed, celsius: bed }),
+            (
+                label.to_owned(),
+                Action::Temperature {
+                    heater: Heater::Nozzle,
+                    celsius: nozzle,
+                },
+            ),
+            (
+                label.to_owned(),
+                Action::Temperature {
+                    heater: Heater::Bed,
+                    celsius: bed,
+                },
+            ),
         ])
     };
     let spool = (
-        machine.loaded.as_ref().and_then(|l| l.nozzle_c).map(|c| c as f32),
-        machine.loaded.as_ref().and_then(|l| l.bed_c).map(|c| c as f32),
+        machine
+            .loaded
+            .as_ref()
+            .and_then(|l| l.nozzle_c)
+            .map(|c| c as f32),
+        machine
+            .loaded
+            .as_ref()
+            .and_then(|l| l.bed_c)
+            .map(|c| c as f32),
     );
     match form.action.as_str() {
         // B5: OctoPrint's panel has two Home buttons, X/Y and Z (`control.jinja2:71,85`); the one
         // button of the other machines is all three axes (K5).
-        "home" => one("Home", Action::Home { axes: vec![Axis::X, Axis::Y, Axis::Z] }),
-        "home-xy" => one("Home X/Y", Action::Home { axes: vec![Axis::X, Axis::Y] }),
-        "home-z" => one("Home Z", Action::Home { axes: vec![Axis::Z] }),
+        "home" => one(
+            "Home",
+            Action::Home {
+                axes: vec![Axis::X, Axis::Y, Axis::Z],
+            },
+        ),
+        "home-xy" => one(
+            "Home X/Y",
+            Action::Home {
+                axes: vec![Axis::X, Axis::Y],
+            },
+        ),
+        "home-z" => one(
+            "Home Z",
+            Action::Home {
+                axes: vec![Axis::Z],
+            },
+        ),
         "x+" => jog(format!("X +{step} mm"), Some(step), None, None),
         "x-" => jog(format!("X −{step} mm"), Some(-step), None, None),
         "y+" => jog(format!("Y +{step} mm"), None, Some(step), None),
@@ -95,25 +155,64 @@ fn agent_actions(form: &CommandForm, machine: &store::Machine) -> Result<Vec<(St
                 "1" => Some(1.0),
                 _ => None,
             };
-            let (x, y) = jog_pad["jog:".len()..].split_once(':').ok_or("Move: no such direction")?;
-            let (x, y) = (dir(x).ok_or("Move: no such direction")?, dir(y).ok_or("Move: no such direction")?);
+            let (x, y) = jog_pad["jog:".len()..]
+                .split_once(':')
+                .ok_or("Move: no such direction")?;
+            let (x, y) = (
+                dir(x).ok_or("Move: no such direction")?,
+                dir(y).ok_or("Move: no such direction")?,
+            );
             let some = |d: f64| (d != 0.0).then_some(d * step);
             jog(format!("Move {step} mm"), some(x), some(y), None)
         }
         "extrude" => one("Extrude 10 mm", Action::Extrude { mm: 10.0 }),
         "retract" => one("Retract 10 mm", Action::Extrude { mm: -10.0 }),
-        "set-speed" => one("Speed", Action::Speed { percent: form.speed.ok_or("Speed: how much?")?.round() as u16 }),
-        "set-flow" => one("Flow", Action::Flow { percent: form.flow.ok_or("Flow: how much?")?.round() as u16 }),
-        "set-nozzle" => one("Nozzle", Action::Temperature { heater: Heater::Nozzle, celsius: form.nozzle.ok_or("Nozzle: how hot?")? }),
-        "set-bed" => one("Bed", Action::Temperature { heater: Heater::Bed, celsius: form.bed.ok_or("Bed: how hot?")? }),
+        "set-speed" => one(
+            "Speed",
+            Action::Speed {
+                percent: form.speed.ok_or("Speed: how much?")?.round() as u16,
+            },
+        ),
+        "set-flow" => one(
+            "Flow",
+            Action::Flow {
+                percent: form.flow.ok_or("Flow: how much?")?.round() as u16,
+            },
+        ),
+        "set-nozzle" => one(
+            "Nozzle",
+            Action::Temperature {
+                heater: Heater::Nozzle,
+                celsius: form.nozzle.ok_or("Nozzle: how hot?")?,
+            },
+        ),
+        "set-bed" => one(
+            "Bed",
+            Action::Temperature {
+                heater: Heater::Bed,
+                celsius: form.bed.ok_or("Bed: how hot?")?,
+            },
+        ),
         "preheat-pla" => heat("Preheat PLA (215/60 °C)", 215.0, 60.0),
         "preheat-petg" => heat("Preheat PETG (240/80 °C)", 240.0, 80.0),
         "cooldown" => heat("Cool down", 0.0, 0.0),
         "fan-on" => one("Print fan on", Action::Fan { on: true }),
         "fan-off" => one("Print fan off", Action::Fan { on: false }),
         "motors-off" => one("Motors off", Action::MotorsOff),
-        "load-filament" => one("Load filament", Action::LoadFilament { nozzle_c: spool.0, bed_c: spool.1 }),
-        "unload-filament" => one("Unload filament", Action::UnloadFilament { nozzle_c: spool.0, bed_c: spool.1 }),
+        "load-filament" => one(
+            "Load filament",
+            Action::LoadFilament {
+                nozzle_c: spool.0,
+                bed_c: spool.1,
+            },
+        ),
+        "unload-filament" => one(
+            "Unload filament",
+            Action::UnloadFilament {
+                nozzle_c: spool.0,
+                bed_c: spool.1,
+            },
+        ),
         "probe-bed" => one("Probe the bed", Action::ProbeBed),
         "unlock" => one("Unlock", Action::Unlock),
         "set-origin" => one("Set origin here", Action::SetOrigin),
@@ -288,11 +387,17 @@ pub(crate) async fn emergency_stop(
                 space,
                 &id,
                 "Emergency stop",
-                &protocol::Action::Gcode { text: "M112".to_owned() },
+                &protocol::Action::Gcode {
+                    text: "M112".to_owned(),
+                },
             );
             match queued {
                 Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
-                Ok(None) => (StatusCode::NOT_FOUND, "no such machine, or it takes no commands").into_response(),
+                Ok(None) => (
+                    StatusCode::NOT_FOUND,
+                    "no such machine, or it takes no commands",
+                )
+                    .into_response(),
                 Err(error) => failed(error),
             }
         }
@@ -317,10 +422,7 @@ pub(crate) async fn command(
     };
     // Switching things off never waits for PPE; everything else does.
     let off = form.gcode.trim().is_empty()
-        && matches!(
-            form.action.as_str(),
-            "cooldown" | "fan-off" | "motors-off"
-        );
+        && matches!(form.action.as_str(), "cooldown" | "fan-off" | "motors-off");
     if !off && let Err(refused) = crate::safety::check_ppe(&store, &access, &id) {
         return *refused;
     }
@@ -346,7 +448,13 @@ pub(crate) async fn command(
         for (label, action) in &actions {
             match store.queue_action(space, &id, label, action) {
                 Ok(Some(_)) => {}
-                Ok(None) => return (StatusCode::NOT_FOUND, "no such machine, or it takes no commands").into_response(),
+                Ok(None) => {
+                    return (
+                        StatusCode::NOT_FOUND,
+                        "no such machine, or it takes no commands",
+                    )
+                        .into_response();
+                }
                 Err(error) => return failed(error),
             }
         }
@@ -430,7 +538,11 @@ pub(crate) async fn command(
             .filter(|c| (150.0..=320.0).contains(c))
             .unwrap_or(215.0);
         let load = form.action == "load-filament";
-        let label = if load { "Load filament" } else { "Unload filament" };
+        let label = if load {
+            "Load filament"
+        } else {
+            "Unload filament"
+        };
         Some((
             format!("{label} ({hot:.0} °C)"),
             format!("M109 S{hot:.0}\n{}", if load { "M701" } else { "M702" }),
@@ -580,7 +692,15 @@ mod tests {
             kind: MachineKind::Fdm,
             agent_version: "0.2.0".into(),
         };
-        let (_, body) = call(&agent, json(protocol::REGISTER, None, serde_json::to_string(&register).unwrap())).await;
+        let (_, body) = call(
+            &agent,
+            json(
+                protocol::REGISTER,
+                None,
+                serde_json::to_string(&register).unwrap(),
+            ),
+        )
+        .await;
         let registered: Registered = serde_json::from_str(&body).unwrap();
         let id = registered.machine_id.clone();
         {
@@ -596,12 +716,21 @@ mod tests {
                 .body(Body::from(body.to_owned()))
                 .unwrap()
         };
-        for body in ["action=home", "action=x%2B&step=1&feed=1500", "action=preheat-pla", "gcode=M105"] {
+        for body in [
+            "action=home",
+            "action=x%2B&step=1&feed=1500",
+            "action=preheat-pla",
+            "gcode=M105",
+        ] {
             let (status, why) = call(&app, press(body)).await;
             assert_eq!(status, StatusCode::NO_CONTENT, "{body}: {why}");
         }
         let (status, _) = call(&app, press("action=x%2B&step=7")).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "a step not on the page's list");
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "a step not on the page's list"
+        );
         // Reported idle, answering each command as it comes: the commands, in order.
         let mut got = Vec::new();
         let mut done = Vec::new();
@@ -611,10 +740,23 @@ mod tests {
                 done: std::mem::take(&mut done),
                 ..Telemetry::default()
             };
-            let (_, body) = call(&agent, json(protocol::TELEMETRY, Some(&registered.token), serde_json::to_string(&telemetry).unwrap())).await;
+            let (_, body) = call(
+                &agent,
+                json(
+                    protocol::TELEMETRY,
+                    Some(&registered.token),
+                    serde_json::to_string(&telemetry).unwrap(),
+                ),
+            )
+            .await;
             let reply: TelemetryReply = serde_json::from_str(&body).unwrap();
             for command in reply.commands {
-                done.push(protocol::CommandDone { id: command.id, ok: true, reason: None, output: Vec::new() });
+                done.push(protocol::CommandDone {
+                    id: command.id,
+                    ok: true,
+                    reason: None,
+                    output: Vec::new(),
+                });
                 got.push(command.action);
             }
         }
@@ -622,14 +764,35 @@ mod tests {
         assert_eq!(
             got,
             [
-                Action::Home { axes: vec![Axis::X, Axis::Y, Axis::Z] },
-                Action::Jog { x: Some(1.0), y: None, z: None, feed: Some(1500.0) },
-                Action::Temperature { heater: Heater::Nozzle, celsius: 215.0 },
-                Action::Temperature { heater: Heater::Bed, celsius: 60.0 },
-                Action::Gcode { text: "M105".into() },
+                Action::Home {
+                    axes: vec![Axis::X, Axis::Y, Axis::Z]
+                },
+                Action::Jog {
+                    x: Some(1.0),
+                    y: None,
+                    z: None,
+                    feed: Some(1500.0)
+                },
+                Action::Temperature {
+                    heater: Heater::Nozzle,
+                    celsius: 215.0
+                },
+                Action::Temperature {
+                    heater: Heater::Bed,
+                    celsius: 60.0
+                },
+                Action::Gcode {
+                    text: "M105".into()
+                },
             ]
         );
-        let (_, sd) = call(&app, Request::get(format!("/api/machines/{id}/sd")).body(Body::empty()).unwrap()).await;
+        let (_, sd) = call(
+            &app,
+            Request::get(format!("/api/machines/{id}/sd"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
         assert!(sd.contains(crate::sd_card::NOT_YET), "{sd}");
     }
 
@@ -647,7 +810,15 @@ mod tests {
             kind: MachineKind::Fdm,
             agent_version: "0.2.0".into(),
         };
-        let (_, body) = call(&agent, json(protocol::REGISTER, None, serde_json::to_string(&register).unwrap())).await;
+        let (_, body) = call(
+            &agent,
+            json(
+                protocol::REGISTER,
+                None,
+                serde_json::to_string(&register).unwrap(),
+            ),
+        )
+        .await;
         let registered: Registered = serde_json::from_str(&body).unwrap();
         let id = registered.machine_id.clone();
         {
@@ -664,7 +835,15 @@ mod tests {
                 .unwrap()
         };
         // what the page refused while it printed: typed G-code, the fan, Z, homing, extruding
-        for body in ["gcode=M112", "action=fan-on", "action=z%2B&step=1", "action=home-xy", "action=home-z", "action=home", "action=extrude"] {
+        for body in [
+            "gcode=M112",
+            "action=fan-on",
+            "action=z%2B&step=1",
+            "action=home-xy",
+            "action=home-z",
+            "action=home",
+            "action=extrude",
+        ] {
             let (status, why) = call(&app, press(body)).await;
             assert_eq!(status, StatusCode::NO_CONTENT, "{body}: {why}");
         }
@@ -674,15 +853,32 @@ mod tests {
         // busy with a job, then waiting for someone (Attention): commands go out in both
         for round in 0..16 {
             let telemetry = Telemetry {
-                state: if round < 8 { MachineState::Busy } else { MachineState::Attention },
+                state: if round < 8 {
+                    MachineState::Busy
+                } else {
+                    MachineState::Attention
+                },
                 job_id: (round < 8).then_some(7),
                 done: std::mem::take(&mut done),
                 ..Telemetry::default()
             };
-            let (_, body) = call(&agent, json(protocol::TELEMETRY, Some(&registered.token), serde_json::to_string(&telemetry).unwrap())).await;
+            let (_, body) = call(
+                &agent,
+                json(
+                    protocol::TELEMETRY,
+                    Some(&registered.token),
+                    serde_json::to_string(&telemetry).unwrap(),
+                ),
+            )
+            .await;
             let reply: TelemetryReply = serde_json::from_str(&body).unwrap();
             for command in reply.commands {
-                done.push(protocol::CommandDone { id: command.id, ok: true, reason: None, output: Vec::new() });
+                done.push(protocol::CommandDone {
+                    id: command.id,
+                    ok: true,
+                    reason: None,
+                    output: Vec::new(),
+                });
                 got.push((round, command.action));
             }
         }
@@ -690,12 +886,25 @@ mod tests {
         assert_eq!(
             actions,
             [
-                Action::Gcode { text: "M112".into() },
+                Action::Gcode {
+                    text: "M112".into()
+                },
                 Action::Fan { on: true },
-                Action::Jog { x: None, y: None, z: Some(1.0), feed: None },
-                Action::Home { axes: vec![Axis::X, Axis::Y] },
-                Action::Home { axes: vec![Axis::Z] },
-                Action::Home { axes: vec![Axis::X, Axis::Y, Axis::Z] },
+                Action::Jog {
+                    x: None,
+                    y: None,
+                    z: Some(1.0),
+                    feed: None
+                },
+                Action::Home {
+                    axes: vec![Axis::X, Axis::Y]
+                },
+                Action::Home {
+                    axes: vec![Axis::Z]
+                },
+                Action::Home {
+                    axes: vec![Axis::X, Axis::Y, Axis::Z]
+                },
                 Action::Extrude { mm: 10.0 },
             ]
         );
@@ -703,8 +912,19 @@ mod tests {
         // A command for a machine that waits for someone goes too.
         let (status, why) = call(&app, press("gcode=M105")).await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{why}");
-        let telemetry = Telemetry { state: MachineState::Attention, ..Telemetry::default() };
-        let (_, body) = call(&agent, json(protocol::TELEMETRY, Some(&registered.token), serde_json::to_string(&telemetry).unwrap())).await;
+        let telemetry = Telemetry {
+            state: MachineState::Attention,
+            ..Telemetry::default()
+        };
+        let (_, body) = call(
+            &agent,
+            json(
+                protocol::TELEMETRY,
+                Some(&registered.token),
+                serde_json::to_string(&telemetry).unwrap(),
+            ),
+        )
+        .await;
         let reply: TelemetryReply = serde_json::from_str(&body).unwrap();
         assert_eq!(reply.commands.len(), 1, "{body}");
     }
@@ -716,31 +936,87 @@ mod tests {
         profile: Option<&str>,
     ) -> (String, String) {
         let agent = crate::app(store.clone());
-        let register = Register { protocol: protocol::VERSION, name: "m".into(), kind, agent_version: "0.2.0".into() };
-        let (_, body) = call(&agent, json(protocol::REGISTER, None, serde_json::to_string(&register).unwrap())).await;
+        let register = Register {
+            protocol: protocol::VERSION,
+            name: "m".into(),
+            kind,
+            agent_version: "0.2.0".into(),
+        };
+        let (_, body) = call(
+            &agent,
+            json(
+                protocol::REGISTER,
+                None,
+                serde_json::to_string(&register).unwrap(),
+            ),
+        )
+        .await;
         let registered: Registered = serde_json::from_str(&body).unwrap();
         {
             let store = store.lock().unwrap();
             let space = store.default_space().unwrap().0;
             store.pair(space, &registered.pairing_code).unwrap();
             // 'use' only, not 'operate': whoever may use the machine may press the emergency stop
-            let user: i64 = store.db.query_row("SELECT id FROM users WHERE name = 'tester'", [], |r| r.get(0)).unwrap();
-            store.set_grant(space, &registered.machine_id, user, crate::access::Level::Use, user, None).unwrap();
+            let user: i64 = store
+                .db
+                .query_row("SELECT id FROM users WHERE name = 'tester'", [], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            store
+                .set_grant(
+                    space,
+                    &registered.machine_id,
+                    user,
+                    crate::access::Level::Use,
+                    user,
+                    None,
+                )
+                .unwrap();
             if profile.is_some() {
-                store.set_profile(space, &registered.machine_id, profile).unwrap();
+                store
+                    .set_profile(space, &registered.machine_id, profile)
+                    .unwrap();
             }
         }
-        let telemetry = Telemetry { state: MachineState::Idle, ..Telemetry::default() };
-        call(&agent, json(protocol::TELEMETRY, Some(&registered.token), serde_json::to_string(&telemetry).unwrap())).await;
+        let telemetry = Telemetry {
+            state: MachineState::Idle,
+            ..Telemetry::default()
+        };
+        call(
+            &agent,
+            json(
+                protocol::TELEMETRY,
+                Some(&registered.token),
+                serde_json::to_string(&telemetry).unwrap(),
+            ),
+        )
+        .await;
         (registered.machine_id, registered.token)
     }
 
     /// HS6: the commands the agent is given on its next report.
     async fn given(store: &Arc<Mutex<Store>>, token: &str) -> Vec<protocol::Action> {
         let agent = crate::app(store.clone());
-        let telemetry = Telemetry { state: MachineState::Idle, ..Telemetry::default() };
-        let (_, body) = call(&agent, json(protocol::TELEMETRY, Some(token), serde_json::to_string(&telemetry).unwrap())).await;
-        serde_json::from_str::<TelemetryReply>(&body).unwrap().commands.into_iter().map(|c| c.action).collect()
+        let telemetry = Telemetry {
+            state: MachineState::Idle,
+            ..Telemetry::default()
+        };
+        let (_, body) = call(
+            &agent,
+            json(
+                protocol::TELEMETRY,
+                Some(token),
+                serde_json::to_string(&telemetry).unwrap(),
+            ),
+        )
+        .await;
+        serde_json::from_str::<TelemetryReply>(&body)
+            .unwrap()
+            .commands
+            .into_iter()
+            .map(|c| c.action)
+            .collect()
     }
 
     /// HS6: the button's route, per kind: a Marlin machine is sent exactly the typed `M112` (the path
@@ -751,14 +1027,27 @@ mod tests {
     async fn hs6_the_emergency_stop_is_each_kinds_own() {
         let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
-        let press = |id: &str| Request::post(format!("/machines/{id}/emergency-stop")).body(Body::empty()).unwrap();
-        let page = |id: &str| Request::get(format!("/machines/{id}")).body(Body::empty()).unwrap();
+        let press = |id: &str| {
+            Request::post(format!("/machines/{id}/emergency-stop"))
+                .body(Body::empty())
+                .unwrap()
+        };
+        let page = |id: &str| {
+            Request::get(format!("/machines/{id}"))
+                .body(Body::empty())
+                .unwrap()
+        };
 
         // a Marlin agent machine: the typed M112, and nothing else
         let (marlin, token) = agent_of(&store, MachineKind::Fdm, None).await;
         let (status, why) = call(&app, press(&marlin)).await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{why}");
-        assert_eq!(given(&store, &token).await, [protocol::Action::Gcode { text: "M112".into() }]);
+        assert_eq!(
+            given(&store, &token).await,
+            [protocol::Action::Gcode {
+                text: "M112".into()
+            }]
+        );
         assert!(call(&app, page(&marlin)).await.1.contains("emergency-stop"));
         // with 'use' alone, the terminal is refused: the button is a stop, which 'use' allows
         let typed = Request::post(format!("/machines/{marlin}/command"))
@@ -789,9 +1078,15 @@ mod tests {
             let (id, token) = agent_of(&store, kind, profile).await;
             let (status, why) = call(&app, press(&id)).await;
             assert_eq!(status, StatusCode::CONFLICT, "{kind:?} {profile:?}: {why}");
-            assert!(given(&store, &token).await.is_empty(), "{kind:?} {profile:?}: nothing sent");
+            assert!(
+                given(&store, &token).await.is_empty(),
+                "{kind:?} {profile:?}: nothing sent"
+            );
             assert!(store.lock().unwrap().own_job_control.remove(&id).is_none());
-            assert!(!call(&app, page(&id)).await.1.contains("emergency-stop"), "{kind:?} {profile:?}");
+            assert!(
+                !call(&app, page(&id)).await.1.contains("emergency-stop"),
+                "{kind:?} {profile:?}"
+            );
         }
     }
 }

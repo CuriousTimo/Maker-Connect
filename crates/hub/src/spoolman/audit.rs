@@ -76,7 +76,12 @@ fn iso_len(s: &[u8]) -> Option<usize> {
     }
     if at(n, b'Z') {
         n += 1;
-    } else if (at(n, b'+') || at(n, b'-')) && digit(n + 1) && digit(n + 2) && at(n + 3, b':') && digit(n + 4) && digit(n + 5)
+    } else if (at(n, b'+') || at(n, b'-'))
+        && digit(n + 1)
+        && digit(n + 2)
+        && at(n + 3, b':')
+        && digit(n + 4)
+        && digit(n + 5)
     {
         n += 6;
     }
@@ -114,11 +119,12 @@ fn norm_text(t: &str, now: i64) -> String {
     let mut i = 0;
     while i < t.len() {
         if t.is_char_boundary(i)
-            && let Some(n) = iso_len(&b[i..]) {
-                out.push_str(&norm_ts(&t[i..i + n], now));
-                i += n;
-                continue;
-            }
+            && let Some(n) = iso_len(&b[i..])
+        {
+            out.push_str(&norm_ts(&t[i..i + n], now));
+            i += n;
+            continue;
+        }
         let c = t[i..].chars().next().unwrap();
         out.push(c);
         i += c.len_utf8();
@@ -130,10 +136,9 @@ fn norm_value(v: &mut Value, now: i64) {
     match v {
         Value::Object(m) => m.values_mut().for_each(|x| norm_value(x, now)),
         Value::Array(a) => a.iter_mut().for_each(|x| norm_value(x, now)),
-        Value::String(s)
-            if iso_len(s.as_bytes()) == Some(s.len()) => {
-                *s = norm_ts(s, now);
-            }
+        Value::String(s) if iso_len(s.as_bytes()) == Some(s.len()) => {
+            *s = norm_ts(s, now);
+        }
         _ => {}
     }
 }
@@ -141,19 +146,21 @@ fn norm_value(v: &mut Value, now: i64) {
 fn norm_special(path: &str, body: &mut Value) {
     let p = path.split('?').next().unwrap_or(path);
     if p == "/api/v1/info"
-        && let Some(m) = body.as_object_mut() {
-            for k in ["data_dir", "logs_dir", "backups_dir"] {
-                m.insert(k.into(), "<path>".into());
-            }
-            for k in ["latest_version", "update_available"] {
-                m.insert(k.into(), "<volatile>".into());
-            }
+        && let Some(m) = body.as_object_mut()
+    {
+        for k in ["data_dir", "logs_dir", "backups_dir"] {
+            m.insert(k.into(), "<path>".into());
         }
+        for k in ["latest_version", "update_available"] {
+            m.insert(k.into(), "<volatile>".into());
+        }
+    }
     if p == "/api/v1/backup"
         && let Some(m) = body.as_object_mut()
-            && m.contains_key("path") {
-                m.insert("path".into(), "<path>".into());
-            }
+        && m.contains_key("path")
+    {
+        m.insert("path".into(), "<path>".into());
+    }
 }
 
 fn norm_header(v: &str) -> String {
@@ -297,7 +304,8 @@ fn compare(req: &Value, ours: &Answer, now: i64) -> Vec<String> {
         out.push(format!("status: Spoolman {status}, ours {}", ours.status));
     }
     // headers
-    let ref_headers: std::collections::BTreeMap<_, _> = req["headers"].as_object().unwrap().iter().collect();
+    let ref_headers: std::collections::BTreeMap<_, _> =
+        req["headers"].as_object().unwrap().iter().collect();
     let mut our_map = std::collections::BTreeMap::new();
     for (n, v) in &ours.headers {
         if n == "date" || n == "server" || is_ours_header(n) {
@@ -342,7 +350,10 @@ fn compare(req: &Value, ours: &Answer, now: i64) -> Vec<String> {
                         out.extend(d.into_iter().map(|l| format!("body {l}")));
                     }
                 }
-                Err(_) => out.push(format!("body: Spoolman JSON, ours not JSON ({})", short(&Value::String(ours.text.clone())))),
+                Err(_) => out.push(format!(
+                    "body: Spoolman JSON, ours not JSON ({})",
+                    short(&Value::String(ours.text.clone()))
+                )),
             }
         } else {
             out.push(format!(
@@ -507,11 +518,15 @@ fn the_hub_differs_from_spoolman_exactly_as_listed() {
     let summary = format!("{identical} of {total} identical\n");
     let report = format!("{summary}{lines}");
     if std::env::var("SPOOLMAN_AUDIT_WRITE").is_ok() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/spoolman/audit-differences.txt");
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/spoolman/audit-differences.txt"
+        );
         std::fs::write(path, &report).unwrap();
         return;
     }
-    let (want, got): (Vec<&str>, Vec<&str>) = (DIFFERENCES.lines().collect(), report.lines().collect());
+    let (want, got): (Vec<&str>, Vec<&str>) =
+        (DIFFERENCES.lines().collect(), report.lines().collect());
     let changed: BTreeSet<usize> = (0..want.len().max(got.len()))
         .filter(|&i| want.get(i) != got.get(i))
         .collect();

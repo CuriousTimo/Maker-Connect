@@ -227,8 +227,14 @@ mod tests {
             .unwrap();
         let (_, body) = call(&app, hostile).await;
         assert!(!body.contains("<script>"), "the path is escaped");
-        for (path, accept) in [("/api/v1/nope", "text/html"), ("/no-such-page", "application/json")] {
-            let request = Request::get(path).header("accept", accept).body(Body::empty()).unwrap();
+        for (path, accept) in [
+            ("/api/v1/nope", "text/html"),
+            ("/no-such-page", "application/json"),
+        ] {
+            let request = Request::get(path)
+                .header("accept", accept)
+                .body(Body::empty())
+                .unwrap();
             let (status, body) = call(&app, request).await;
             assert_eq!(status, StatusCode::NOT_FOUND);
             assert!(body.starts_with("nothing at "), "{path}: {body}");

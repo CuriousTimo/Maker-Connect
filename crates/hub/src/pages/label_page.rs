@@ -258,7 +258,11 @@ pub fn render(
         tape = tape_json(profile, machine),
         settings = machine_page::settings(machine, move_to, false, manage),
         overview = machine_page::overview(machine, profile, ""),
-        no_profile = if profile.is_none() { machine_page::no_profile_notice() } else { String::new() },
+        no_profile = if profile.is_none() {
+            machine_page::no_profile_notice()
+        } else {
+            String::new()
+        },
         // Without a profile the hub does not know what kind of label printer this is: only the notice.
         no_profile_hidden = if profile.is_none() { " hidden" } else { "" },
     )

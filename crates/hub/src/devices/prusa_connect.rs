@@ -487,9 +487,7 @@ async fn event(State(store): State<Shared>, headers: HeaderMap, body: String) ->
             // SET_PRINTER_READY answers with FINISHED or REJECTED (`planner.cpp:750`), SEND_STATE_INFO with STATE_CHANGED,
             // CANCEL_OBJECT and UNCANCEL_OBJECT with CANCELABLE_CHANGED.
             "FINISHED" | "FILE_INFO" | "FILE_CHANGED" | "JOB_INFO" | "INFO" | "TRANSFER_INFO"
-            | "STATE_CHANGED" | "CANCELABLE_CHANGED" => {
-                Some(CommandState::Finished)
-            }
+            | "STATE_CHANGED" | "CANCELABLE_CHANGED" => Some(CommandState::Finished),
             // Refused at once, or taken on and then failed (Buddy's FAILED): either way not done.
             "REJECTED" | "FAILED" => Some(CommandState::Rejected),
             _ => None,
@@ -534,7 +532,10 @@ mod tests {
         let before = to_telemetry(&serde_json::json!({
             "state": "IDLE", "axis_x": 176.4, "axis_y": 24.1, "axis_z": 2.0, "temp_nozzle": 27.0
         }));
-        assert_eq!((before.position_mm, before.only_z), (Some([176.4, 24.1, 2.0]), false));
+        assert_eq!(
+            (before.position_mm, before.only_z),
+            (Some([176.4, 24.1, 2.0]), false)
+        );
         let mut full = to_telemetry(&serde_json::json!({
             "state": "PRINTING", "axis_z": 1.8, "fan_extruder": 2786, "fan_print": 2337,
             "job_id": 29, "progress": 5
@@ -542,12 +543,18 @@ mod tests {
         fill_in(&mut full, before);
         assert_eq!(full.position_mm, Some([176.4, 24.1, 1.8]));
         assert!(full.only_z, "X and Y are the last told, not current");
-        assert_eq!((full.print_fan_rpm, full.hotend_fan_rpm), (Some(2337), Some(2786)));
+        assert_eq!(
+            (full.print_fan_rpm, full.hotend_fan_rpm),
+            (Some(2337), Some(2786))
+        );
         let mut short = to_telemetry(&serde_json::json!({
             "state": "PRINTING", "job_id": 29, "progress": 6, "time_printing": 800
         }));
         fill_in(&mut short, full.clone());
-        assert_eq!((short.print_fan_rpm, short.hotend_fan_rpm), (Some(2337), Some(2786)));
+        assert_eq!(
+            (short.print_fan_rpm, short.hotend_fan_rpm),
+            (Some(2337), Some(2786))
+        );
         assert_eq!(short.position_mm.map(|p| p[2]), Some(1.8));
         assert!(short.only_z);
         // The time left missing from a short report: as told last.
@@ -569,8 +576,15 @@ mod tests {
             "state": "STOPPED", "axis_x": 10.0, "axis_y": 20.0, "axis_z": 30.0
         }));
         fill_in(&mut after, higher);
-        assert_eq!((after.position_mm, after.only_z), (Some([10.0, 20.0, 30.0]), false));
-        assert_eq!((after.print_fan_rpm, after.hotend_fan_rpm), (None, None), "not the old speeds");
+        assert_eq!(
+            (after.position_mm, after.only_z),
+            (Some([10.0, 20.0, 30.0]), false)
+        );
+        assert_eq!(
+            (after.print_fan_rpm, after.hotend_fan_rpm),
+            (None, None),
+            "not the old speeds"
+        );
     }
 
     async fn call(app: &Router, request: Request<Body>) -> (StatusCode, HeaderMap) {
@@ -639,7 +653,10 @@ mod tests {
         let mini = &machines[0];
         assert_eq!(mini.name, "Original Prusa MINI/+ 2345");
         assert_eq!(mini.link, "prusa-connect");
-        assert!(token.len() <= 20, "CONNECT_TOKEN_LEN is 20 (printer.hpp:190)");
+        assert!(
+            token.len() <= 20,
+            "CONNECT_TOKEN_LEN is 20 (printer.hpp:190)"
+        );
         assert_eq!(
             mini.telemetry.as_ref().unwrap().firmware.as_deref(),
             Some("Prusa firmware 6.3.0+0.LOCAL")
@@ -737,7 +754,10 @@ mod tests {
         let t = to_telemetry(&report);
         assert_eq!((t.nozzle_c, t.nozzle_target_c), (Some(215.3), Some(215.0)));
         assert_eq!((t.bed_c, t.bed_target_c), (Some(60.1), Some(60.0)));
-        assert_eq!((t.print_fan_rpm, t.hotend_fan_rpm), (Some(5200), Some(7100)));
+        assert_eq!(
+            (t.print_fan_rpm, t.hotend_fan_rpm),
+            (Some(5200), Some(7100))
+        );
         assert_eq!(t.flow_percent, Some(95.0));
         assert_eq!(t.material.as_deref(), Some("PETG"));
         assert_eq!(t.job.map(|j| j.done), Some(40));
@@ -748,7 +768,15 @@ mod tests {
         )
         .unwrap();
         let m = to_telemetry(&master);
-        assert_eq!((m.nozzle_c, m.nozzle_target_c, m.print_fan_rpm, m.hotend_fan_rpm), (None, None, None, None));
+        assert_eq!(
+            (
+                m.nozzle_c,
+                m.nozzle_target_c,
+                m.print_fan_rpm,
+                m.hotend_fan_rpm
+            ),
+            (None, None, None, None)
+        );
         assert!(m.tools.is_empty());
     }
 
@@ -766,8 +794,14 @@ mod tests {
         .unwrap();
         let t = to_telemetry(&report);
         assert_eq!(t.tools.len(), 2);
-        assert_eq!((t.tools[0].number, t.tools[0].nozzle_c, t.tools[0].active), (1, Some(30.0), false));
-        assert_eq!((t.tools[1].number, t.tools[1].nozzle_c, t.tools[1].active), (2, Some(215.3), true));
+        assert_eq!(
+            (t.tools[0].number, t.tools[0].nozzle_c, t.tools[0].active),
+            (1, Some(30.0), false)
+        );
+        assert_eq!(
+            (t.tools[1].number, t.tools[1].nozzle_c, t.tools[1].active),
+            (2, Some(215.3), true)
+        );
         let core: Value = serde_json::from_str(
             r#"{"chamber":{"temp":31.5,"target_temp":40,"fan_1_rpm":0,"fan_2_rpm":0,"fan_pwm_target":0,"led_intensity":100},"state":"IDLE"}"#,
         )
@@ -775,7 +809,10 @@ mod tests {
         let c = to_telemetry(&core);
         assert_eq!((c.chamber_c, c.chamber_target_c), (Some(31.5), Some(40.0)));
         assert!(c.tools.is_empty(), "no slot: no list");
-        let xl: Value = serde_json::from_str(r#"{"enclosure":{"temp":28,"fan_rpm":0,"time_in_use":3600},"state":"IDLE"}"#).unwrap();
+        let xl: Value = serde_json::from_str(
+            r#"{"enclosure":{"temp":28,"fan_rpm":0,"time_in_use":3600},"state":"IDLE"}"#,
+        )
+        .unwrap();
         assert_eq!(to_telemetry(&xl).chamber_c, Some(28.0));
     }
 
@@ -802,6 +839,9 @@ mod tests {
         )
         .unwrap();
         let d = to_details(&master);
-        assert_eq!((d.nozzle_mm, d.material, d.printer_type), (None, None, None));
+        assert_eq!(
+            (d.nozzle_mm, d.material, d.printer_type),
+            (None, None, None)
+        );
     }
 }

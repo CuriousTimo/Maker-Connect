@@ -73,15 +73,68 @@ pub struct FileMeta {
 /// Materials and printers as PrusaSlicer writes them into a file's name
 /// (`…_0.4n_0.2mm_PETG_MINIIS_1h3m.gcode`): the names Prusa's gcode-metadata knows.
 const NAME_MATERIALS: &[&str] = &[
-    "PLA Tough", "PLA", "PETG", "ABS", "ASA", "FLEX", "HIPS", "EDGE", "NGEN", "PA", "PVA",
-    "PCTG", "PP", "PC", "PEBA", "CPE", "PVB", "PET", "METAL", "TPU", "NYLON", "IGLIDUR",
+    "PLA Tough",
+    "PLA",
+    "PETG",
+    "ABS",
+    "ASA",
+    "FLEX",
+    "HIPS",
+    "EDGE",
+    "NGEN",
+    "PA",
+    "PVA",
+    "PCTG",
+    "PP",
+    "PC",
+    "PEBA",
+    "CPE",
+    "PVB",
+    "PET",
+    "METAL",
+    "TPU",
+    "NYLON",
+    "IGLIDUR",
 ];
 const NAME_PRINTERS: &[&str] = &[
-    "COREONE", "HT90", "MK2.5", "MK2.5S", "MK2.5MMU2", "MK2.5SMMU2S", "MK3", "MK3S", "MK3MMU2",
-    "MK3SMMU2S", "MK3MMU3", "MK3SMMU3", "MK3.9", "MK3.9MMU3", "MK3.9S", "MK3.9SMMU3", "MK3.5",
-    "MK3.5MMU3", "MK3.5S", "MK3.5SMMU3", "MK4", "MK4MMU3", "MK4IS", "MK4ISMMU3", "MK4S",
-    "MK4SMMU3", "MINI", "MINIIS", "XL", "XL2", "XL5", "XLIS", "XL2IS", "XL5IS", "SL1", "SL1S",
-    "M1", "iX",
+    "COREONE",
+    "HT90",
+    "MK2.5",
+    "MK2.5S",
+    "MK2.5MMU2",
+    "MK2.5SMMU2S",
+    "MK3",
+    "MK3S",
+    "MK3MMU2",
+    "MK3SMMU2S",
+    "MK3MMU3",
+    "MK3SMMU3",
+    "MK3.9",
+    "MK3.9MMU3",
+    "MK3.9S",
+    "MK3.9SMMU3",
+    "MK3.5",
+    "MK3.5MMU3",
+    "MK3.5S",
+    "MK3.5SMMU3",
+    "MK4",
+    "MK4MMU3",
+    "MK4IS",
+    "MK4ISMMU3",
+    "MK4S",
+    "MK4SMMU3",
+    "MINI",
+    "MINIIS",
+    "XL",
+    "XL2",
+    "XL5",
+    "XLIS",
+    "XL2IS",
+    "XL5IS",
+    "SL1",
+    "SL1S",
+    "M1",
+    "iX",
 ];
 
 /// Fills in what a file's name tells, where its contents did not: the nozzle (`0.6n`), the
@@ -92,7 +145,10 @@ pub fn from_name(meta: &mut FileMeta, name: &str) {
         .rsplit_once('.')
         .filter(|(_, ext)| ext.len() <= 6)
         .map_or(name, |(stem, _)| stem);
-    let words: Vec<&str> = stem.split(['_', ' ', ',']).filter(|w| !w.is_empty()).collect();
+    let words: Vec<&str> = stem
+        .split(['_', ' ', ','])
+        .filter(|w| !w.is_empty())
+        .collect();
     // `0.4n`, and `0_4n` where the dot became an underscore (as on a USB stick: "0" then
     // "4n" is 0.4, not 4).
     let number = |i: usize, unit: &str| -> Option<f64> {
@@ -237,7 +293,11 @@ fn decode_qoi(data: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
                     _ => run = b1 & 0x3f,
                 },
             }
-            let hash = (px[0] as usize * 3 + px[1] as usize * 5 + px[2] as usize * 7 + px[3] as usize * 11) % 64;
+            let hash = (px[0] as usize * 3
+                + px[1] as usize * 5
+                + px[2] as usize * 7
+                + px[3] as usize * 11)
+                % 64;
             index[hash] = px;
         }
         out.extend_from_slice(&px);
@@ -562,9 +622,14 @@ fn largest_thumbnail(head: &str) -> Option<Vec<u8>> {
     let mut current: Option<(u64, &str, String)> = None;
     for line in head.lines() {
         let line = line.trim();
-        let begin = [("PNG", "; thumbnail begin "), ("PNG", "; thumbnail_PNG begin "), ("QOI", "; thumbnail_QOI begin "), ("JPG", "; thumbnail_JPG begin ")]
-            .iter()
-            .find_map(|(format, prefix)| line.strip_prefix(prefix).map(|rest| (*format, rest)));
+        let begin = [
+            ("PNG", "; thumbnail begin "),
+            ("PNG", "; thumbnail_PNG begin "),
+            ("QOI", "; thumbnail_QOI begin "),
+            ("JPG", "; thumbnail_JPG begin "),
+        ]
+        .iter()
+        .find_map(|(format, prefix)| line.strip_prefix(prefix).map(|rest| (*format, rest)));
         if let Some((format, rest)) = begin {
             let area = rest
                 .split_whitespace()
@@ -573,7 +638,9 @@ fn largest_thumbnail(head: &str) -> Option<Vec<u8>> {
                 .and_then(|(w, h)| Some(w.parse::<u64>().ok()? * h.parse::<u64>().ok()?))
                 .unwrap_or(0);
             current = Some((area, format, String::new()));
-        } else if line.starts_with("; thumbnail end") || line.starts_with("; thumbnail_") && line.ends_with(" end") {
+        } else if line.starts_with("; thumbnail end")
+            || line.starts_with("; thumbnail_") && line.ends_with(" end")
+        {
             if let Some((area, format, data)) = current.take()
                 && best.as_ref().is_none_or(|(a, _)| area > *a)
                 && let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data)
@@ -647,8 +714,8 @@ mod tests {
         assert_eq!(
             pixels(&png),
             [
-                10, 20, 30, 255, 11, 20, 29, 255, 18, 25, 31, 255, 10, 20, 30, 255, 1, 2, 3, 4,
-                1, 2, 3, 4, 1, 2, 3, 4
+                10, 20, 30, 255, 11, 20, 29, 255, 18, 25, 31, 255, 10, 20, 30, 255, 1, 2, 3, 4, 1,
+                2, 3, 4, 1, 2, 3, 4
             ]
         );
     }
@@ -707,7 +774,10 @@ mod tests {
         assert!((meta.filament_g.unwrap() - 4.6).abs() < 1e-9);
         assert!((meta.filament_m.unwrap() - 1.5).abs() < 1e-9);
         assert_eq!(meta.filament_type.as_deref(), Some("PLA, PETG"));
-        assert_eq!((meta.nozzle_temp_c, meta.bed_temp_c), (Some(215.0), Some(60.0)));
+        assert_eq!(
+            (meta.nozzle_temp_c, meta.bed_temp_c),
+            (Some(215.0), Some(60.0))
+        );
         assert_eq!(meta.colour.as_deref(), Some("#FF8000"));
         assert_eq!((meta.high_flow, meta.abrasive), (Some(false), Some(true)));
         assert_eq!(meta.fill_density.as_deref(), Some("15%"));
@@ -725,13 +795,19 @@ mod tests {
     fn a_name_tells_what_the_file_does_not() {
         let mut meta = FileMeta::default();
         from_name(&mut meta, "sh_bn_0.6n_0.32mm_PETG_MK4_8h55m.gcode");
-        assert_eq!((meta.nozzle_mm, meta.layer_height_mm), (Some(0.6), Some(0.32)));
+        assert_eq!(
+            (meta.nozzle_mm, meta.layer_height_mm),
+            (Some(0.6), Some(0.32))
+        );
         assert_eq!(meta.filament_type.as_deref(), Some("PETG"));
         assert_eq!(meta.printer_model.as_deref(), Some("MK4"));
         assert_eq!(meta.estimated_s, Some(8 * 3600 + 55 * 60));
         let mut meta = FileMeta::default();
         from_name(&mut meta, "3dbenchy_0_4n_0_2mm_PETG_MINIIS_1h3m.bgcode");
-        assert_eq!((meta.nozzle_mm, meta.layer_height_mm), (Some(0.4), Some(0.2)));
+        assert_eq!(
+            (meta.nozzle_mm, meta.layer_height_mm),
+            (Some(0.4), Some(0.2))
+        );
         assert_eq!(meta.printer_model.as_deref(), Some("MINIIS"));
         assert_eq!(meta.estimated_s, Some(3600 + 3 * 60));
         let mut meta = FileMeta::default();

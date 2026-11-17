@@ -166,7 +166,9 @@ fn labelwriter_fits(
     if [w, h] != page.dots {
         return Err(format!(
             "this page is {w} × {h} dots; the loaded roll {} takes {} × {}",
-            profile.and_then(|p| profiles::media(p, media)).map_or(media, |m| m.name.as_str()),
+            profile
+                .and_then(|p| profiles::media(p, media))
+                .map_or(media, |m| m.name.as_str()),
             page.dots[0],
             page.dots[1]
         ));
@@ -326,20 +328,35 @@ async fn list(access: crate::access::Access, State(store): State<Shared>) -> Res
                     // HS7b: a laser takes one loaded job and has no queue: loaded here already, or
                     // it replaces what is loaded (the person is asked first).
                     if machine.kind == maker_connect_protocol::MachineKind::Laser {
-                        let loaded = machine.job.as_ref().filter(|j| j.state == crate::store::JobState::Loaded);
+                        let loaded = machine
+                            .job
+                            .as_ref()
+                            .filter(|j| j.state == crate::store::JobState::Loaded);
                         let mut free = machine.clone();
                         if loaded.is_some() {
                             free.job = None;
                         }
                         let (ok, note) = match (fit(&file, &free), loaded) {
                             (Err(why), _) => (false, Some(why)),
-                            (Ok(_), Some(j)) if j.file_id == file.id => {
-                                (false, Some("loaded here: frame it and press Start burn at the laser".to_owned()))
+                            (Ok(_), Some(j)) if j.file_id == file.id => (
+                                false,
+                                Some(
+                                    "loaded here: frame it and press Start burn at the laser"
+                                        .to_owned(),
+                                ),
+                            ),
+                            (Ok(_), Some(j)) => {
+                                (true, Some(format!("replaces {} (asks first)", j.file_name)))
                             }
-                            (Ok(_), Some(j)) => (true, Some(format!("replaces {} (asks first)", j.file_name))),
                             (Ok(warning), None) => (true, warning),
                         };
-                        return Target { id: machine.id.clone(), name: machine.name.clone(), ok, queue: false, note };
+                        return Target {
+                            id: machine.id.clone(),
+                            name: machine.name.clone(),
+                            ok,
+                            queue: false,
+                            note,
+                        };
                     }
                     let waiting = machine.queue.len();
                     let (ok, queue, note) = match fit(&file, machine) {
@@ -575,7 +592,9 @@ async fn agent_space_file(
                 |r| r.get(0),
             )?;
             let Some(space) = space else { return Ok(None) };
-            Ok(store.file(space, &id)?.map(|f| (f, store.files_dir.clone())))
+            Ok(store
+                .file(space, &id)?
+                .map(|f| (f, store.files_dir.clone())))
         })()
     };
     match found {
@@ -783,11 +802,19 @@ async fn print(
     // loaded, not started (the person at the laser frames, sets the origin, presses Start burn).
     if machine.kind == maker_connect_protocol::MachineKind::Laser {
         if form.copies.unwrap_or(1) > 1 {
-            return (StatusCode::CONFLICT, "a laser takes one job at a time: no copies").into_response();
+            return (
+                StatusCode::CONFLICT,
+                "a laser takes one job at a time: no copies",
+            )
+                .into_response();
         }
         // its loaded job is the one asked about below, not "busy"
         let mut free = machine.clone();
-        if free.job.as_ref().is_some_and(|j| j.state == crate::store::JobState::Loaded) {
+        if free
+            .job
+            .as_ref()
+            .is_some_and(|j| j.state == crate::store::JobState::Loaded)
+        {
             free.job = None;
         }
         if let Err(why) = fit(&file, &free) {
@@ -815,12 +842,19 @@ async fn print(
                 }
             }
             Ok(Some(job)) => {
-                return (StatusCode::CONFLICT, format!("busy with {}", job.file_name)).into_response();
+                return (StatusCode::CONFLICT, format!("busy with {}", job.file_name))
+                    .into_response();
             }
             Ok(None) => {}
             Err(error) => return failed(error),
         }
-        return match store.add_job(space, &machine.id, &file, None, crate::store::StartedBy::person(&access)) {
+        return match store.add_job(
+            space,
+            &machine.id,
+            &file,
+            None,
+            crate::store::StartedBy::person(&access),
+        ) {
             Ok(Ok(_)) if headers.contains_key("x-requested-with") => {
                 Json(serde_json::json!({ "loaded": file.name })).into_response()
             }
@@ -932,8 +966,15 @@ async fn frame(
     }
     // A laser behind an agent: framed by its port (the hub makes no G-code for it).
     if machine.link == "agent" {
-        let action = maker_connect_protocol::Action::Frame { download: format!("/api/agent/v1/files/{}", file.id) };
-        return match store.queue_action(space, &machine.id, &format!("Frame {}", file.name), &action) {
+        let action = maker_connect_protocol::Action::Frame {
+            download: format!("/api/agent/v1/files/{}", file.id),
+        };
+        return match store.queue_action(
+            space,
+            &machine.id,
+            &format!("Frame {}", file.name),
+            &action,
+        ) {
             Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
             Ok(None) => (StatusCode::CONFLICT, "the machine takes no commands").into_response(),
             Err(error) => failed(error),
@@ -983,7 +1024,9 @@ async fn start_burn(
     let Ok(Some((space, _))) = store.space_of(&access).map(Some) else {
         return (StatusCode::FORBIDDEN, "no space").into_response();
     };
-    if let Err(refused) = crate::access::check_machine(&store, &access, &id, crate::access::Level::Operate) {
+    if let Err(refused) =
+        crate::access::check_machine(&store, &access, &id, crate::access::Level::Operate)
+    {
         return *refused;
     }
     if let Err(refused) = crate::safety::check_ppe(&store, &access, &id) {
@@ -1002,8 +1045,12 @@ async fn start_burn(
     }
     let job = match store.active_job(&machine.id) {
         Ok(Some(job)) if job.state == crate::store::JobState::Loaded => job,
-        Ok(Some(job)) => return (StatusCode::CONFLICT, format!("busy with {}", job.file_name)).into_response(),
-        Ok(None) => return (StatusCode::CONFLICT, "no job is loaded on this laser").into_response(),
+        Ok(Some(job)) => {
+            return (StatusCode::CONFLICT, format!("busy with {}", job.file_name)).into_response();
+        }
+        Ok(None) => {
+            return (StatusCode::CONFLICT, "no job is loaded on this laser").into_response();
+        }
         Err(error) => return failed(error),
     };
     let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
@@ -1035,8 +1082,16 @@ async fn start_burn(
     // check the job's place on the bed (LaserFoundry's own confirm, `ui-egui` `lib.rs:1250`). After a hub
     // restart the hub no longer knows whether an origin was set: the confirm is asked all the same.
     if form.confirm != Some(true) {
-        let text = if store.laser_origin_was_set(&machine.id) { ORIGIN_CONFIRM.to_owned() } else { start_confirm(&job.file_name) };
-        return (StatusCode::CONFLICT, Json(serde_json::json!({ "confirm": text }))).into_response();
+        let text = if store.laser_origin_was_set(&machine.id) {
+            ORIGIN_CONFIRM.to_owned()
+        } else {
+            start_confirm(&job.file_name)
+        };
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "confirm": text })),
+        )
+            .into_response();
     }
     match store.start_burn(&machine.id, job.id, Some(access.actor.as_str())) {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
@@ -1056,7 +1111,15 @@ pub(crate) async fn stop_job(
     state: State<Shared>,
     id: Path<String>,
 ) -> Response {
-    control_job(access, state, id, Form(JobForm { action: "stop".to_owned() })).await
+    control_job(
+        access,
+        state,
+        id,
+        Form(JobForm {
+            action: "stop".to_owned(),
+        }),
+    )
+    .await
 }
 
 /// Pause, resume or stop a machine's job.
@@ -1109,7 +1172,11 @@ async fn control_job(
             // A print it started itself (from its SD card, or a Prusa's USB stick at its
             // screen): no job of the hub's, so the printer is told directly.
             let own = match store.machine(access.space, &id) {
-                Ok(Some(m)) if m.online && m.telemetry.as_ref().is_some_and(|t| t.job.is_some()) => m,
+                Ok(Some(m))
+                    if m.online && m.telemetry.as_ref().is_some_and(|t| t.job.is_some()) =>
+                {
+                    m
+                }
                 // A laser's Stop (a soft reset) is offered with no job too.
                 Ok(Some(m))
                     if m.online
@@ -1122,7 +1189,12 @@ async fn control_job(
                 Err(error) => return failed(error),
             };
             if own.link == "prusa-connect" {
-                return match crate::printer_files::job_control(&mut store, access.space, &id, &form.action) {
+                return match crate::printer_files::job_control(
+                    &mut store,
+                    access.space,
+                    &id,
+                    &form.action,
+                ) {
                     Ok(()) => StatusCode::NO_CONTENT.into_response(),
                     Err(error) => failed(error),
                 };
@@ -1147,10 +1219,16 @@ async fn control_job(
                 Err(error) => failed(error),
             },
             "stop" => {
-                store.own_job_control.insert(id, maker_connect_protocol::JobControl::Stop);
+                store
+                    .own_job_control
+                    .insert(id, maker_connect_protocol::JobControl::Stop);
                 StatusCode::NO_CONTENT.into_response()
             }
-            _ => (StatusCode::CONFLICT, "not now: the job is loaded, not started").into_response(),
+            _ => (
+                StatusCode::CONFLICT,
+                "not now: the job is loaded, not started",
+            )
+                .into_response(),
         };
     }
     let next = match (form.action.as_str(), job.state) {
@@ -1561,7 +1639,11 @@ mod tests {
         let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         // S0722400, DYMO's European Large Address roll (DYMO Connect's catalogue): its page and raster from the port.
-        let page = crate::profiles::labelwriter_page(crate::profiles::find("dymo/labelwriter-450"), "S0722400").unwrap();
+        let page = crate::profiles::labelwriter_page(
+            crate::profiles::find("dymo/labelwriter-450"),
+            "S0722400",
+        )
+        .unwrap();
         let [pw, ph] = page.dots;
         let (pw, ph) = (pw as usize, ph as usize);
         let upload = |w: usize, h: usize| {
@@ -1583,8 +1665,11 @@ mod tests {
                     .to_owned()
             }
         };
-        let (fits, too_wide, too_long) =
-            (upload(pw, ph).await, upload(pw + 1, ph).await, upload(pw, ph + 1).await);
+        let (fits, too_wide, too_long) = (
+            upload(pw, ph).await,
+            upload(pw + 1, ph).await,
+            upload(pw, ph + 1).await,
+        );
         let (writer, token) = {
             let mut store = store.lock().unwrap();
             let space = store.default_space().unwrap().0;
@@ -1622,7 +1707,10 @@ mod tests {
             .unwrap()
             .0
             .unwrap();
-        assert_eq!((order.tape_mm, order.label_length_mm), (Some(page.width_mm), Some(page.length_mm)));
+        assert_eq!(
+            (order.tape_mm, order.label_length_mm),
+            (Some(page.width_mm), Some(page.length_mm))
+        );
         // HS2b (W2b): the job names the roll's page, as CUPS's `-o PageSize=<name>`
         assert_eq!(order.page_size.as_deref(), Some(page.name));
     }
@@ -1634,7 +1722,12 @@ mod tests {
         for media in &profile.media {
             let page = crate::profiles::labelwriter_page(Some(profile), &media.id).unwrap();
             let [w, h] = page.dots;
-            assert_eq!(super::labelwriter_fits([w, h], Some(profile), Some(&media.id)), Ok(()), "{}", media.id);
+            assert_eq!(
+                super::labelwriter_fits([w, h], Some(profile), Some(&media.id)),
+                Ok(()),
+                "{}",
+                media.id
+            );
             assert!(super::labelwriter_fits([w + 1, h], Some(profile), Some(&media.id)).is_err());
             assert!(super::labelwriter_fits([w, h + 1], Some(profile), Some(&media.id)).is_err());
             assert_eq!(page.length_mm, media.length_mm.unwrap());

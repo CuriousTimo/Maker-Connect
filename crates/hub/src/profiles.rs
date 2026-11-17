@@ -561,14 +561,25 @@ mod hs1_tests {
     #[test]
     fn the_hub_has_no_device_crates() {
         let out = std::process::Command::new(env!("CARGO"))
-            .args(["tree", "-p", "maker-connect-hub", "-e", "normal", "--prefix", "none"])
+            .args([
+                "tree",
+                "-p",
+                "maker-connect-hub",
+                "-e",
+                "normal",
+                "--prefix",
+                "none",
+            ])
             .current_dir(env!("CARGO_MANIFEST_DIR"))
             .output()
             .expect("cargo tree");
         let tree = String::from_utf8_lossy(&out.stdout);
         assert!(tree.contains("maker-connect-engine"), "{tree}");
         for name in ["serialport ", "nusb ", "hidapi "] {
-            assert!(!tree.lines().any(|l| l.starts_with(name)), "the hub pulls in {name}");
+            assert!(
+                !tree.lines().any(|l| l.starts_with(name)),
+                "the hub pulls in {name}"
+            );
         }
     }
 
@@ -576,10 +587,18 @@ mod hs1_tests {
     #[test]
     fn the_450_takes_its_rolls_from_the_catalogue() {
         let profile = super::find("dymo/labelwriter-450").unwrap();
-        assert_eq!(profile.media.len(), maker_connect_engine::ports::dymo_connect_lw450::ROLLS.len());
+        assert_eq!(
+            profile.media.len(),
+            maker_connect_engine::ports::dymo_connect_lw450::ROLLS.len()
+        );
         let m = super::media(profile, "S0722530").unwrap();
         assert_eq!(m.name, "LW LABEL MULTI-PURPOSE 13X25MM · 25 × 25 mm");
-        assert_eq!(super::labelwriter_page(Some(profile), "S0722530").unwrap().name, "w72h72.2");
+        assert_eq!(
+            super::labelwriter_page(Some(profile), "S0722530")
+                .unwrap()
+                .name,
+            "w72h72.2"
+        );
         assert!(profile.media.iter().all(|m| m.per_roll.is_none()));
     }
 }

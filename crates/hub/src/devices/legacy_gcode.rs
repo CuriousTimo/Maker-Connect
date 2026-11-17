@@ -122,7 +122,9 @@ pub(crate) fn probe_gcode(machine: &store::Machine) -> Result<&'static str, &'st
     match firmware {
         // Prusa's MK3 family: PrusaLink measures no bed (its mesh is read with M420 after the
         // printer measured it itself).
-        Some("prusa") => Err("PrusaLink measures no bed: start it on the printer (Calibration); its mesh is read after"),
+        Some("prusa") => Err(
+            "PrusaLink measures no bed: start it on the printer (Calibration); its mesh is read after",
+        ),
         // Marlin (and Prusa's Buddy, which is Marlin): G29 measures, M420 V prints.
         Some("marlin" | "prusa-buddy") => Ok("G28\nG29\nM420 V"),
         // Klipper measures with BED_MESH_CALIBRATE, through Moonraker: not connected yet.

@@ -588,7 +588,11 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
                     // five digits) each have a help page at prusa.io/<code>, as the printer's
                     // own screen shows.
                     if let Some(code) = text("code") {
-                        let help = if code.len() == 5 && code.bytes().all(|b| b.is_ascii_digit()) { format!(", prusa.io/{code}") } else { Default::default() };
+                        let help = if code.len() == 5 && code.bytes().all(|b| b.is_ascii_digit()) {
+                            format!(", prusa.io/{code}")
+                        } else {
+                            Default::default()
+                        };
                         body = format!("{body} (#{code}{help})").trim().to_owned();
                     }
                     store.asking.insert(machine.clone(), (title, body));
@@ -708,10 +712,7 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
                 }
             } else {
                 // Why, when it says: STORAGE_FAILURE (the USB stick), NETWORK_FAILURE.
-                let why = match event["machine_reason"]
-                    .as_str()
-                    .filter(|r| !r.is_empty())
-                {
+                let why = match event["machine_reason"].as_str().filter(|r| !r.is_empty()) {
                     Some("STORAGE_FAILURE") => format!(
                         "the printer stopped the download ({name}): it could not write to its USB stick"
                     ),
@@ -851,7 +852,10 @@ pub fn on_report(
     // A print whose file is not known here (started at the printer's screen, or before the
     // hub started): asked once, as Prusa Connect does; JOB_INFO answers.
     if let Some(job) = job
-        && store.printing_file.get(token).is_none_or(|(known, _)| *known != Some(job))
+        && store
+            .printing_file
+            .get(token)
+            .is_none_or(|(known, _)| *known != Some(job))
         && store.job_info_asked.get(token) != Some(&job)
     {
         store.job_info_asked.insert(token.to_owned(), job);
@@ -1260,8 +1264,7 @@ async fn delete(
             )
                 .into_response();
         }
-        if s
-            .open_path_commands(&machine)
+        if s.open_path_commands(&machine)
             .iter()
             .any(|(p, c)| p == &path && c.starts_with("DELETE_"))
         {
@@ -1660,10 +1663,16 @@ mod flow {
         assert!(String::from_utf8_lossy(&body).contains("still arriving"));
 
         // Deleted: shown as being deleted, and not asked twice.
-        assert_eq!(call(&app, delete("/usb/BENCHY~1.BGC")).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(
+            call(&app, delete("/usb/BENCHY~1.BGC")).await.0,
+            StatusCode::NO_CONTENT
+        );
         let listed = look(app.clone()).await;
         assert_eq!(listed["data"]["children"][0]["deleting"], true);
-        assert_eq!(call(&app, delete("/usb/BENCHY~1.BGC")).await.0, StatusCode::CONFLICT);
+        assert_eq!(
+            call(&app, delete("/usb/BENCHY~1.BGC")).await.0,
+            StatusCode::CONFLICT
+        );
         let (_, headers, body) = call(&app, report()).await;
         assert_eq!(
             serde_json::from_slice::<Value>(&body).unwrap(),
@@ -1672,8 +1681,13 @@ mod flow {
         let id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
 
         // Buddy answers with FILE_CHANGED only: the command is done and the file is gone.
-        call(&app, event(json!({"event": "FILE_CHANGED", "command_id": id, "state": "IDLE",
-            "data": {"free_space": 1, "old_path": "/usb/BENCHY~1.BGC", "file": {}}})))
+        call(
+            &app,
+            event(
+                json!({"event": "FILE_CHANGED", "command_id": id, "state": "IDLE",
+            "data": {"free_space": 1, "old_path": "/usb/BENCHY~1.BGC", "file": {}}}),
+            ),
+        )
         .await;
         {
             let s = store.lock().unwrap();
@@ -1693,8 +1707,13 @@ mod flow {
         let (status, headers, _) = call(&app, report()).await;
         assert_eq!(status, StatusCode::OK, "the folder read follows");
         let read: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
-        call(&app, event(json!({"event": "FILE_INFO", "command_id": read, "state": "IDLE", "data": {
-            "path": "/usb", "type": "FOLDER", "file_count": 0, "children": []}})))
+        call(
+            &app,
+            event(
+                json!({"event": "FILE_INFO", "command_id": read, "state": "IDLE", "data": {
+            "path": "/usb", "type": "FOLDER", "file_count": 0, "children": []}}),
+            ),
+        )
         .await;
 
         // A command the printer is still carrying out (its id in the telemetry) is taken on,
@@ -1702,14 +1721,22 @@ mod flow {
         let busy = store
             .lock()
             .unwrap()
-            .queue_connect_command(space, &mini, "Home", &json!({"command": "SEND_INFO"}), false)
+            .queue_connect_command(
+                space,
+                &mini,
+                "Home",
+                &json!({"command": "SEND_INFO"}),
+                false,
+            )
             .unwrap()
             .unwrap();
         let (_, headers, _) = call(&app, report()).await;
         assert_eq!(headers["command-id"].to_str().unwrap(), busy.to_string());
         let running = Request::post("/p/telemetry")
             .header("Token", &token)
-            .body(Body::from(format!(r#"{{"state":"BUSY","command_id":{busy}}}"#)))
+            .body(Body::from(format!(
+                r#"{{"state":"BUSY","command_id":{busy}}}"#
+            )))
             .unwrap();
         assert_eq!(call(&app, running).await.0, StatusCode::NO_CONTENT);
         let s = store.lock().unwrap();
@@ -2041,8 +2068,14 @@ mod flow {
         let start_id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
         // A file by that name is on the stick: Buddy says FILE_EXISTS (planner.cpp:793), and
         // it is sent again, under a free name.
-        call(&app, event(json!({"event": "REJECTED", "command_id": start_id, "reason": "File already exists",
-            "machine_reason": "FILE_EXISTS", "state": "IDLE"}))).await;
+        call(
+            &app,
+            event(
+                json!({"event": "REJECTED", "command_id": start_id, "reason": "File already exists",
+            "machine_reason": "FILE_EXISTS", "state": "IDLE"}),
+            ),
+        )
+        .await;
         let mut answer = call(&app, report("IDLE")).await;
         if answer.2.is_empty() {
             answer = call(&app, report("IDLE")).await;
@@ -2059,7 +2092,13 @@ mod flow {
         // (once the download before has its answer: one command at a time).
         let again_id: u64 = answer.1["command-id"].to_str().unwrap().parse().unwrap();
         call(&app, event(json!({"event": "TRANSFER_INFO", "command_id": again_id, "state": "ATTENTION", "data": {}}))).await;
-        let buttons = store.lock().unwrap().machine(space, &mini).unwrap().unwrap().buttons;
+        let buttons = store
+            .lock()
+            .unwrap()
+            .machine(space, &mini)
+            .unwrap()
+            .unwrap()
+            .buttons;
         assert_eq!(buttons, ["Continue", "Abort"]);
         let (status, _, _) = call(
             &app,
@@ -2110,13 +2149,20 @@ mod flow {
         let (space, mini, token) = {
             let mut s = store.lock().unwrap();
             let space = s.default_space().unwrap().0;
-            let mini = s.add_virtual(space, crate::profiles::find("prusa/mini").unwrap()).unwrap();
-            crate::auth::tester_may_operate(&s, space, &mini);
-            let token: String = s
-                .db
-                .query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| r.get(0))
+            let mini = s
+                .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
                 .unwrap();
-            s.db.execute("UPDATE machines SET link = 'prusa-connect' WHERE id = ?1", [&mini]).unwrap();
+            crate::auth::tester_may_operate(&s, space, &mini);
+            let token: String =
+                s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            s.db.execute(
+                "UPDATE machines SET link = 'prusa-connect' WHERE id = ?1",
+                [&mini],
+            )
+            .unwrap();
             (space, mini, token)
         };
         let report = |body: &str| {
@@ -2133,7 +2179,13 @@ mod flow {
                 .query_row(
                     "SELECT COUNT(*), MAX(state), MAX(file_name) FROM jobs WHERE machine_id = ?1",
                     [&mini],
-                    |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, Option<String>>(2)?)),
+                    |r| {
+                        Ok((
+                            r.get::<_, i64>(0)?,
+                            r.get::<_, Option<String>>(1)?,
+                            r.get::<_, Option<String>>(2)?,
+                        ))
+                    },
                 )
                 .unwrap()
         };
@@ -2145,24 +2197,53 @@ mod flow {
         };
         call(&app, report(r#"{"state":"IDLE"}"#)).await;
         // Its own print, its file said by JOB_INFO: no job while it runs.
-        store.lock().unwrap().printing_file.insert(token.clone(), (Some(29), "Benchy.bgcode".into()));
-        call(&app, report(r#"{"state":"PRINTING","job_id":29,"progress":40,"time_printing":600}"#)).await;
+        store
+            .lock()
+            .unwrap()
+            .printing_file
+            .insert(token.clone(), (Some(29), "Benchy.bgcode".into()));
+        call(
+            &app,
+            report(r#"{"state":"PRINTING","job_id":29,"progress":40,"time_printing":600}"#),
+        )
+        .await;
         call(&app, report(r#"{"state":"ATTENTION","job_id":29}"#)).await;
         assert_eq!(jobs().0, 0, "a question on its screen is no end");
-        call(&app, report(r#"{"state":"PRINTING","job_id":29,"progress":45,"time_printing":700}"#)).await;
+        call(
+            &app,
+            report(r#"{"state":"PRINTING","job_id":29,"progress":45,"time_printing":700}"#),
+        )
+        .await;
         // Stopped on the printer: a stopped job, and the queue waits until the bed is clear.
         call(&app, report(r#"{"state":"STOPPED"}"#)).await;
-        assert_eq!(jobs(), (1, Some("stopped".into()), Some("Benchy.bgcode".into())));
-        assert_eq!(held(&store.lock().unwrap()), (false, Some("stopped".into())));
+        assert_eq!(
+            jobs(),
+            (1, Some("stopped".into()), Some("Benchy.bgcode".into()))
+        );
+        assert_eq!(
+            held(&store.lock().unwrap()),
+            (false, Some("stopped".into()))
+        );
         call(&app, report(r#"{"state":"IDLE"}"#)).await;
         assert_eq!(jobs().0, 1, "recorded once");
         store.lock().unwrap().print_taken(space, &mini).unwrap();
-        assert_eq!(held(&store.lock().unwrap()), (false, None), "taken off: free again");
+        assert_eq!(
+            held(&store.lock().unwrap()),
+            (false, None),
+            "taken off: free again"
+        );
         // Finished on the printer: on its bed until taken.
-        call(&app, report(r#"{"state":"PRINTING","job_id":30,"progress":99,"time_printing":60}"#)).await;
+        call(
+            &app,
+            report(r#"{"state":"PRINTING","job_id":30,"progress":99,"time_printing":60}"#),
+        )
+        .await;
         call(&app, report(r#"{"state":"FINISHED"}"#)).await;
         assert_eq!(jobs().0, 2);
-        assert!(held(&store.lock().unwrap()).0, "a finished print on its bed");
+        assert!(
+            held(&store.lock().unwrap()).0,
+            "a finished print on its bed"
+        );
     }
 
     /// Seen on the MINI (2026-11-08): a download only to the stick opens the file's print
@@ -2216,7 +2297,11 @@ mod flow {
             let (_, headers, body) = call(&app, report(state)).await;
             if let Some(id) = headers.get("command-id") {
                 let id: u64 = id.to_str().unwrap().parse().unwrap();
-                call(&app, event(json!({"event": "FINISHED", "command_id": id, "state": state}))).await;
+                call(
+                    &app,
+                    event(json!({"event": "FINISHED", "command_id": id, "state": state})),
+                )
+                .await;
             }
             String::from_utf8(body).unwrap()
         };
@@ -2236,7 +2321,10 @@ mod flow {
                 .to_owned();
             let (status, _, body) = call(
                 &app,
-                form(format!("/machines/{mini}/usb/send"), format!("file={file}&folder=/usb")),
+                form(
+                    format!("/machines/{mini}/usb/send"),
+                    format!("file={file}&folder=/usb"),
+                ),
             )
             .await;
             assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
@@ -2292,9 +2380,17 @@ mod flow {
         call(&app, event(json!({"event": "JOB_INFO", "command_id": asked, "job_id": 29, "state": "PRINTING", "data": {
             "display_name": "Benchy.bgcode", "path": "/usb/BENCHY~1.BGC"
         }}))).await;
-        call(&app, event(json!({"event": "FINISHED", "command_id": asked, "state": "PRINTING"}))).await;
+        call(
+            &app,
+            event(json!({"event": "FINISHED", "command_id": asked, "state": "PRINTING"})),
+        )
+        .await;
         let (_, _, body) = call(&app, printing()).await;
-        assert!(body.is_empty(), "asked once: {}", String::from_utf8_lossy(&body));
+        assert!(
+            body.is_empty(),
+            "asked once: {}",
+            String::from_utf8_lossy(&body)
+        );
         {
             let s = store.lock().unwrap();
             let space = s.default_space().unwrap().0;
@@ -2306,7 +2402,12 @@ mod flow {
             form(format!("/machines/{mini}/job"), "action=stop".into()),
         )
         .await;
-        assert_eq!(status, StatusCode::NO_CONTENT, "{}", String::from_utf8_lossy(&body));
+        assert_eq!(
+            status,
+            StatusCode::NO_CONTENT,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
         let (_, _, body) = call(&app, report("PRINTING")).await;
         assert_eq!(
             serde_json::from_slice::<Value>(&body).unwrap(),
@@ -2327,7 +2428,9 @@ mod flow {
         let sent = store
             .create_transfer(space, &mini, "file-1", 1000, path, None)
             .unwrap();
-        store.set_transfer(&sent.iv, "finished", None, None).unwrap();
+        store
+            .set_transfer(&sent.iv, "finished", None, None)
+            .unwrap();
         store
             .db
             .execute(
@@ -2351,22 +2454,34 @@ mod flow {
         };
 
         // A listing from before the transfer does not have it yet: still there.
-        store.set_printer_file(&mini, "/usb", &listing(&[])).unwrap();
+        store
+            .set_printer_file(&mini, "/usb", &listing(&[]))
+            .unwrap();
         back_dated(200);
         assert_eq!(
-            still_on_stick(&store, &mini, "file-1", 1000).unwrap().as_deref(),
+            still_on_stick(&store, &mini, "file-1", 1000)
+                .unwrap()
+                .as_deref(),
             Some(path)
         );
         // Listed after it (by its long name): there.
         store
-            .set_printer_file(&mini, "/usb", &listing(&[("3DBENC~1.BGC", "3dbenchy.bgcode")]))
+            .set_printer_file(
+                &mini,
+                "/usb",
+                &listing(&[("3DBENC~1.BGC", "3dbenchy.bgcode")]),
+            )
             .unwrap();
         assert_eq!(
-            still_on_stick(&store, &mini, "file-1", 1000).unwrap().as_deref(),
+            still_on_stick(&store, &mini, "file-1", 1000)
+                .unwrap()
+                .as_deref(),
             Some(path)
         );
         // Gone from the next listing: not there, and the transfer no longer says so.
-        store.set_printer_file(&mini, "/usb", &listing(&[])).unwrap();
+        store
+            .set_printer_file(&mini, "/usb", &listing(&[]))
+            .unwrap();
         assert_eq!(still_on_stick(&store, &mini, "file-1", 1000).unwrap(), None);
         assert_eq!(store.on_stick(&mini, "file-1", 1000).unwrap(), None);
         assert!(

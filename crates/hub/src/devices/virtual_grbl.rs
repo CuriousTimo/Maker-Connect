@@ -40,7 +40,11 @@ fn run(store: &Shared, id: &str, token: &str, travel: Option<[f64; 2]>) {
     sim.set_latency(LINE_TIME);
     let mut laser = GrblMachine::new(Box::new(sim));
     if let Some([x, y]) = travel {
-        let _ = carry_out(&mut laser, &format!("$130={x:.0}\n$131={y:.0}\n$$"), &mut None);
+        let _ = carry_out(
+            &mut laser,
+            &format!("$130={x:.0}\n$131={y:.0}\n$$"),
+            &mut None,
+        );
     }
     let mut job_end: Option<JobEnd> = None;
     loop {

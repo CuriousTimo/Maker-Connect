@@ -37,23 +37,41 @@ pub struct Asset {
 /// The files built into this hub: none without the `laser-design` feature.
 #[cfg(feature = "laser-design")]
 pub const ASSETS: &[Asset] = &[
-    Asset { path: "index.html", content_type: "text/html; charset=utf-8", gzip: include_bytes!("../laser-design/index.html.gz") },
-    Asset { path: "pkg/laserfoundry_web.js", content_type: "text/javascript; charset=utf-8", gzip: include_bytes!("../laser-design/pkg/laserfoundry_web.js.gz") },
-    Asset { path: "pkg/laserfoundry_web_bg.wasm", content_type: "application/wasm", gzip: include_bytes!("../laser-design/pkg/laserfoundry_web_bg.wasm.gz") },
+    Asset {
+        path: "index.html",
+        content_type: "text/html; charset=utf-8",
+        gzip: include_bytes!("../laser-design/index.html.gz"),
+    },
+    Asset {
+        path: "pkg/laserfoundry_web.js",
+        content_type: "text/javascript; charset=utf-8",
+        gzip: include_bytes!("../laser-design/pkg/laserfoundry_web.js.gz"),
+    },
+    Asset {
+        path: "pkg/laserfoundry_web_bg.wasm",
+        content_type: "application/wasm",
+        gzip: include_bytes!("../laser-design/pkg/laserfoundry_web_bg.wasm.gz"),
+    },
 ];
 #[cfg(not(feature = "laser-design"))]
 pub const ASSETS: &[Asset] = &[];
 
 pub fn routes() -> Router<Shared> {
     Router::new()
-        .route("/laser-design", get(|| async { Redirect::to("/laser-design/") }))
+        .route(
+            "/laser-design",
+            get(|| async { Redirect::to("/laser-design/") }),
+        )
         .route("/laser-design/", get(index))
         .route("/laser-design/{*file}", get(file))
         .route("/api/laser-design/lasers", get(lasers))
 }
 
 /// The lasers of the space the person may use (use or more), as the apps API's `machines` lists them.
-fn usable_lasers(store: &crate::store::Store, access: &Access) -> rusqlite::Result<Vec<serde_json::Value>> {
+fn usable_lasers(
+    store: &crate::store::Store,
+    access: &Access,
+) -> rusqlite::Result<Vec<serde_json::Value>> {
     Ok(store
         .machines(access.space)?
         .iter()
@@ -75,11 +93,23 @@ async fn lasers(access: Access, State(store): State<Shared>) -> Response {
 /// Whether this person may open the page: a member who may use a laser.
 fn may_open(store: &crate::store::Store, access: &Access) -> Result<(), Box<Response>> {
     if access.role < Role::Member {
-        return Err(Box::new((StatusCode::FORBIDDEN, "a guest may look, not send: ask an admin for a member role").into_response()));
+        return Err(Box::new(
+            (
+                StatusCode::FORBIDDEN,
+                "a guest may look, not send: ask an admin for a member role",
+            )
+                .into_response(),
+        ));
     }
     match usable_lasers(store, access) {
         Ok(list) if !list.is_empty() => Ok(()),
-        Ok(_) => Err(Box::new((StatusCode::FORBIDDEN, "there is no laser in this space that you may use").into_response())),
+        Ok(_) => Err(Box::new(
+            (
+                StatusCode::FORBIDDEN,
+                "there is no laser in this space that you may use",
+            )
+                .into_response(),
+        )),
         Err(error) => Err(Box::new(failed(error))),
     }
 }
@@ -99,7 +129,11 @@ fn serve(access: &Access, store: &Shared, assets: &'static [Asset], name: &str) 
         return *refused;
     }
     if assets.is_empty() {
-        return (StatusCode::NOT_FOUND, "this hub was built without the laser design page (feature laser-design)").into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            "this hub was built without the laser design page (feature laser-design)",
+        )
+            .into_response();
     }
     let Some(asset) = assets.iter().find(|a| a.path == name) else {
         return (StatusCode::NOT_FOUND, "no such file").into_response();
@@ -109,7 +143,10 @@ fn serve(access: &Access, store: &Shared, assets: &'static [Asset], name: &str) 
             (header::CONTENT_TYPE, asset.content_type),
             (header::CONTENT_ENCODING, "gzip"),
             (header::CACHE_CONTROL, "no-cache"),
-            (header::HeaderName::from_static("permissions-policy"), PERMISSIONS_POLICY),
+            (
+                header::HeaderName::from_static("permissions-policy"),
+                PERMISSIONS_POLICY,
+            ),
         ],
         asset.gzip,
     )

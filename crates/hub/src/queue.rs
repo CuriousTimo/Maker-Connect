@@ -120,9 +120,11 @@ impl Store {
                     machine_id,
                     &file,
                     None,
-                    crate::store::StartedBy::Auto { by: Some("Reprint on the printer") },
+                    crate::store::StartedBy::Auto {
+                        by: Some("Reprint on the printer"),
+                    },
                 )?
-                    .is_ok()
+                .is_ok()
             }
             _ => false,
         };
@@ -271,7 +273,9 @@ impl Store {
                 &machine_id,
                 &file,
                 None,
-                crate::store::StartedBy::Auto { by: first.by.as_deref() },
+                crate::store::StartedBy::Auto {
+                    by: first.by.as_deref(),
+                },
             )? {
                 self.db
                     .execute("DELETE FROM machine_queue WHERE id = ?1", [first.id])?;
@@ -428,7 +432,13 @@ mod tests {
         idle(&mut s);
         let file = s.file(space, "f1").unwrap().unwrap();
         let job = s
-            .add_job(space, &m, &file, None, crate::store::StartedBy::Auto { by: Some("Timo") })
+            .add_job(
+                space,
+                &m,
+                &file,
+                None,
+                crate::store::StartedBy::Auto { by: Some("Timo") },
+            )
             .unwrap()
             .unwrap();
         assert_eq!(s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap(), 1);
@@ -468,7 +478,7 @@ mod tests {
     /// farm, nor a person without a session (an API token). Its queue waits.
     #[test]
     fn a_laser_never_starts_alone() {
-        use crate::store::{StartedBy, LASER_NEVER_ALONE};
+        use crate::store::{LASER_NEVER_ALONE, StartedBy};
         let mut s = Store::open(":memory:").unwrap();
         let space = s.default_space().unwrap().0;
         let m = s
@@ -480,51 +490,95 @@ mod tests {
         )
         .unwrap();
         let token: String =
-            s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&m], |r| r.get(0))
-                .unwrap();
+            s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&m], |r| {
+                r.get(0)
+            })
+            .unwrap();
         s.report(
             &token,
-            &Telemetry { state: MachineState::Idle, ..Telemetry::default() },
+            &Telemetry {
+                state: MachineState::Idle,
+                ..Telemetry::default()
+            },
         )
         .unwrap();
         let file = s.file(space, "f1").unwrap().unwrap();
         // As an FDM printer: the guard lets everything through.
         let job = s
-            .add_job(space, &m, &file, None, StartedBy::Auto { by: Some("queue") })
+            .add_job(
+                space,
+                &m,
+                &file,
+                None,
+                StartedBy::Auto { by: Some("queue") },
+            )
             .unwrap()
             .unwrap();
         s.set_job(job, JobState::Finished, None).unwrap();
         // The same machine, now a laser.
         s.db.execute(
             "UPDATE machines SET kind = ?2, farm = 1 WHERE id = ?1",
-            rusqlite::params![m, serde_json::to_string(&maker_connect_protocol::MachineKind::Laser).unwrap()],
+            rusqlite::params![
+                m,
+                serde_json::to_string(&maker_connect_protocol::MachineKind::Laser).unwrap()
+            ],
         )
         .unwrap();
         assert!(s.is_laser(space, &m).unwrap());
         s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap();
         s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap();
-        assert_eq!(s.start_queued().unwrap(), 0, "the queue never starts a laser");
+        assert_eq!(
+            s.start_queued().unwrap(),
+            0,
+            "the queue never starts a laser"
+        );
         assert_eq!(s.dispatch().unwrap(), 0, "nor does the farm");
-        assert!(!s.reprint(space, &m).unwrap(), "nor a reprint on the machine");
+        assert!(
+            !s.reprint(space, &m).unwrap(),
+            "nor a reprint on the machine"
+        );
         assert!(s.active_job(&m).unwrap().is_none());
         assert_eq!(s.queue_of(&m).unwrap().len(), 2, "the copies wait");
         // The guard itself: Auto, and a person without a session, are refused.
         assert_eq!(
-            s.add_job(space, &m, &file, None, StartedBy::Auto { by: None }).unwrap(),
+            s.add_job(space, &m, &file, None, StartedBy::Auto { by: None })
+                .unwrap(),
             Err(LASER_NEVER_ALONE)
         );
         assert_eq!(
-            s.add_job(space, &m, &file, None, StartedBy::Person { user: "Mia", session: None })
-                .unwrap(),
+            s.add_job(
+                space,
+                &m,
+                &file,
+                None,
+                StartedBy::Person {
+                    user: "Mia",
+                    session: None
+                }
+            )
+            .unwrap(),
             Err(LASER_NEVER_ALONE),
             "an API token has no session"
         );
         // A person in a session starts it.
         let job = s
-            .add_job(space, &m, &file, None, StartedBy::Person { user: "Mia", session: Some(1) })
+            .add_job(
+                space,
+                &m,
+                &file,
+                None,
+                StartedBy::Person {
+                    user: "Mia",
+                    session: Some(1),
+                },
+            )
             .unwrap()
             .unwrap();
         assert_eq!(s.active_job(&m).unwrap().unwrap().id, job);
-        assert_eq!(s.queue_of(&m).unwrap().len(), 2, "starting one leaves the copies waiting");
+        assert_eq!(
+            s.queue_of(&m).unwrap().len(),
+            2,
+            "starting one leaves the copies waiting"
+        );
     }
 }

@@ -51,7 +51,13 @@ impl<'a> StartedBy<'a> {
     }
 
     pub(crate) fn is_person_at_a_session(&self) -> bool {
-        matches!(self, StartedBy::Person { session: Some(_), .. })
+        matches!(
+            self,
+            StartedBy::Person {
+                session: Some(_),
+                ..
+            }
+        )
     }
 
     fn name(&self) -> Option<&'a str> {
@@ -456,7 +462,11 @@ impl JobState {
     pub fn active(self) -> bool {
         matches!(
             self,
-            JobState::Loaded | JobState::Queued | JobState::Printing | JobState::Paused | JobState::Stopping
+            JobState::Loaded
+                | JobState::Queued
+                | JobState::Printing
+                | JobState::Paused
+                | JobState::Stopping
         )
     }
 

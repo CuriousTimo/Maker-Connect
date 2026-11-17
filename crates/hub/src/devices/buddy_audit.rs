@@ -64,7 +64,11 @@ const TABLE: &[(&str, &str, u32)] = &[
     ("RESET_PRINTER", "ResetPrinter", 0),
     ("RESET", "ResetPrinter", 0),
     ("SEND_STATE_INFO", "SendStateInfo", 0),
-    ("DIALOG_ACTION", "DialogAction", ARG_DIALOG_ID | ARG_RESPONSE),
+    (
+        "DIALOG_ACTION",
+        "DialogAction",
+        ARG_DIALOG_ID | ARG_RESPONSE,
+    ),
     ("SET_VALUE", "SetValue", ARG_SET_VALUE),
     ("CANCEL_OBJECT", "CancelObject", ARG_ID),
     ("UNCANCEL_OBJECT", "UncancelObject", ARG_ID),
@@ -260,11 +264,10 @@ pub fn buddy_takes(body: &str) -> Taken {
         };
         // Order of the text again (an object read into a map is sorted or not; the pairs are
         // re-read from the body to keep the order).
-        let ordered: Vec<(String, Value)> = serde_json::from_str::<Ordered>(
-            &serde_json::to_string(value).unwrap_or_default(),
-        )
-        .map(|o| o.0)
-        .unwrap_or_default();
+        let ordered: Vec<(String, Value)> =
+            serde_json::from_str::<Ordered>(&serde_json::to_string(value).unwrap_or_default())
+                .map(|o| o.0)
+                .unwrap_or_default();
         assert_eq!(ordered.len(), kwargs.len());
         for (name, v) in ordered {
             let is_string = v.is_string();
@@ -317,8 +320,10 @@ pub fn buddy_takes(body: &str) -> Taken {
                     }
                 }
                 "orig_size" if primitive => {
-                    if matches!(kind.as_str(), "StartEncryptedDownload" | "StartInlineDownload")
-                        && let Some(n) = whole(&v, u32::MAX as u64)
+                    if matches!(
+                        kind.as_str(),
+                        "StartEncryptedDownload" | "StartInlineDownload"
+                    ) && let Some(n) = whole(&v, u32::MAX as u64)
                     {
                         data.orig_size = Some(n as u32);
                         seen |= ARG_ORIG_SIZE;
@@ -452,9 +457,7 @@ impl Mini {
     /// (`resp_parser.cpp:42-50`), a body Buddy can hold (512 bytes). Returns the id, the
     /// content type and the body.
     async fn gets(&self, state: &str) -> (u32, String, String) {
-        let (status, headers, body) = self
-            .report(&format!(r#"{{"state":"{state}"}}"#))
-            .await;
+        let (status, headers, body) = self.report(&format!(r#"{{"state":"{state}"}}"#)).await;
         assert_eq!(status, StatusCode::OK, "a command was expected");
         let id: u32 = headers["command-id"].to_str().unwrap().parse().unwrap();
         let content_type = headers["content-type"].to_str().unwrap().to_owned();
@@ -498,13 +501,18 @@ fn taken(kind: &str) -> Taken {
 #[test]
 fn the_port_refuses_what_command_cpp_refuses() {
     // :147 unknown name; :424 broken JSON; :420 missing argument; :269 a string is not a primitive.
-    assert_eq!(buddy_takes(r#"{"command":"NOPE"}"#), taken("UnknownCommand"));
+    assert_eq!(
+        buddy_takes(r#"{"command":"NOPE"}"#),
+        taken("UnknownCommand")
+    );
     assert_eq!(
         buddy_takes("{").broken.as_deref(),
         Some("Error parsing JSON")
     );
     assert_eq!(
-        buddy_takes(r#"{"command":"START_PRINT"}"#).broken.as_deref(),
+        buddy_takes(r#"{"command":"START_PRINT"}"#)
+            .broken
+            .as_deref(),
         Some("Missing or broken parameters")
     );
     assert_eq!(
@@ -542,7 +550,10 @@ fn the_port_refuses_what_command_cpp_refuses() {
     );
     // a good one
     let ok = buddy_takes(r#"{"command":"START_PRINT","kwargs":{"path":"/usb/A.GCO"}}"#);
-    assert_eq!((ok.kind.as_str(), ok.path.as_deref()), ("StartPrint", Some("/usb/A.GCO")));
+    assert_eq!(
+        (ok.kind.as_str(), ok.path.as_deref()),
+        ("StartPrint", Some("/usb/A.GCO"))
+    );
 }
 
 /// Every command the hub sends as JSON, taken from what the hub really answers a printer's
@@ -559,10 +570,15 @@ async fn buddy_takes_every_command_the_hub_sends() {
     let id = &mini.id;
 
     // SEND_FILE_INFO: looking at the stick.
-    mini.call(get(format!("/api/machines/{id}/usb?path=/usb"))).await;
+    mini.call(get(format!("/api/machines/{id}/usb?path=/usb")))
+        .await;
     let (cid, command, _) = mini.takes("IDLE").await;
     assert_eq!(
-        (command.kind.as_str(), command.path.as_deref(), command.broken),
+        (
+            command.kind.as_str(),
+            command.path.as_deref(),
+            command.broken
+        ),
         ("SendFileInfo", Some("/usb"), None)
     );
     // Buddy answers FILE_INFO for the folder (render.cpp:465-497 and :1023-1072).
@@ -601,9 +617,24 @@ async fn buddy_takes_every_command_the_hub_sends() {
 
     // DELETE_FILE, DELETE_FOLDER, CREATE_FOLDER
     for (route, form, kind, path) in [
-        ("delete", "path=/usb/BOX~1.BGC", "DeleteFile", "/usb/BOX~1.BGC"),
-        ("delete", "path=/usb/PARTS&folder=1", "DeleteFolder", "/usb/PARTS"),
-        ("folder", "path=/usb&name=New%20box", "CreateFolder", "/usb/New box"),
+        (
+            "delete",
+            "path=/usb/BOX~1.BGC",
+            "DeleteFile",
+            "/usb/BOX~1.BGC",
+        ),
+        (
+            "delete",
+            "path=/usb/PARTS&folder=1",
+            "DeleteFolder",
+            "/usb/PARTS",
+        ),
+        (
+            "folder",
+            "path=/usb&name=New%20box",
+            "CreateFolder",
+            "/usb/New box",
+        ),
     ] {
         assert_eq!(
             mini.form(format!("/machines/{id}/usb/{route}"), form).await,
@@ -612,7 +643,11 @@ async fn buddy_takes_every_command_the_hub_sends() {
         );
         let (cid, command, _) = mini.takes("IDLE").await;
         assert_eq!(
-            (command.kind.as_str(), command.path.as_deref(), command.broken),
+            (
+                command.kind.as_str(),
+                command.path.as_deref(),
+                command.broken
+            ),
             (kind, Some(path), None)
         );
         mini.finished(cid).await;
@@ -662,7 +697,8 @@ async fn buddy_takes_every_command_the_hub_sends() {
         StatusCode::NO_CONTENT
     );
     assert_eq!(
-        mini.form(format!("/machines/{id}/answer"), "button=1").await,
+        mini.form(format!("/machines/{id}/answer"), "button=1")
+            .await,
         StatusCode::NO_CONTENT
     );
     let (cid, command, _) = mini.takes("ATTENTION").await;
@@ -730,9 +766,11 @@ async fn every_dialog_answer_of_6_3_0_goes_back_unchanged() {
     // render.cpp:654: MAX_RESPONSES per dialog; the names are sent in as many dialogs as needed.
     for (n, name) in RESPONSES.iter().enumerate() {
         assert_eq!(
-            mini.event(json!({"data": {"title": "t", "text": "x", "buttons": [name]},
-                "dialog_id": 100 + n, "state": "ATTENTION", "event": "STATE_CHANGED"}))
-                .await,
+            mini.event(
+                json!({"data": {"title": "t", "text": "x", "buttons": [name]},
+                "dialog_id": 100 + n, "state": "ATTENTION", "event": "STATE_CHANGED"})
+            )
+            .await,
             StatusCode::NO_CONTENT
         );
         assert_eq!(
@@ -757,9 +795,11 @@ async fn every_dialog_answer_of_6_3_0_goes_back_unchanged() {
 async fn a_dialog_answer_without_a_dialog_is_refused_by_the_hub() {
     let mini = Mini::new();
     mini.report(r#"{"state":"IDLE"}"#).await;
-    mini.event(json!({"data": {"title": "t", "text": "x", "buttons": ["Continue"]},
-        "state": "ATTENTION", "event": "STATE_CHANGED"}))
-        .await;
+    mini.event(
+        json!({"data": {"title": "t", "text": "x", "buttons": ["Continue"]},
+        "state": "ATTENTION", "event": "STATE_CHANGED"}),
+    )
+    .await;
     let buttons = mini
         .store
         .lock()
@@ -779,7 +819,10 @@ async fn a_dialog_answer_without_a_dialog_is_refused_by_the_hub() {
         )
         .await;
     assert_eq!(status, StatusCode::CONFLICT);
-    assert_eq!(String::from_utf8_lossy(&body), "the printer named no dialog");
+    assert_eq!(
+        String::from_utf8_lossy(&body),
+        "the printer named no dialog"
+    );
     assert_eq!(
         mini.report(r#"{"state":"ATTENTION"}"#).await.0,
         StatusCode::NO_CONTENT,
@@ -858,7 +901,13 @@ async fn the_events_buddy_sends_settle_commands() {
             .store
             .lock()
             .unwrap()
-            .queue_connect_command(mini.space, &mini.id, "x", &json!({"command": "SEND_INFO"}), false)
+            .queue_connect_command(
+                mini.space,
+                &mini.id,
+                "x",
+                &json!({"command": "SEND_INFO"}),
+                false,
+            )
             .unwrap()
             .unwrap();
         let (status, headers, _) = mini.report(r#"{"state":"IDLE"}"#).await;
@@ -902,8 +951,11 @@ async fn transfer_events_name_their_command_in_data() {
         .to_owned();
     // A transfer of the hub's own (file sent, no print): the download command goes.
     assert_eq!(
-        mini.form(format!("/machines/{}/usb/send", mini.id), &format!("file={file}"))
-            .await,
+        mini.form(
+            format!("/machines/{}/usb/send", mini.id),
+            &format!("file={file}")
+        )
+        .await,
         StatusCode::OK
     );
     let (cid, command, _) = mini.takes("IDLE").await;
@@ -951,10 +1003,16 @@ async fn the_answer_to_a_report_is_what_buddy_reads() {
         .unwrap()
         .unwrap();
     let (cid, content_type, body) = mini.gets("IDLE").await;
-    assert_eq!((cid, content_type.as_str(), body.as_str()), (id, "text/x.gcode", "G28"));
+    assert_eq!(
+        (cid, content_type.as_str(), body.as_str()),
+        (id, "text/x.gcode", "G28")
+    );
     // :90-96: a G-code body over the 512-byte buffer is refused by the printer ("GCode too large").
     // One command at a time (planner.cpp:661-663, REJECTED "Processing other command").
-    assert_eq!(mini.report(r#"{"state":"IDLE"}"#).await.0, StatusCode::NO_CONTENT);
+    assert_eq!(
+        mini.report(r#"{"state":"IDLE"}"#).await.0,
+        StatusCode::NO_CONTENT
+    );
     mini.finished(cid).await;
     // an unknown token
     let (status, _, _) = mini
@@ -1015,7 +1073,10 @@ async fn registration_is_what_registrator_cpp_does() {
     // The answer may be lost: the code gets its token again until the printer's first report
     // with it (registrator.cpp:233), then it is spent.
     let (status, again) = send(ask()).await;
-    assert_eq!((status, again["token"].to_str().unwrap()), (StatusCode::OK, token.as_str()));
+    assert_eq!(
+        (status, again["token"].to_str().unwrap()),
+        (StatusCode::OK, token.as_str())
+    );
     let report = send(
         Request::post("/p/telemetry")
             .header("Token", &token)
@@ -1043,9 +1104,17 @@ fn info_says_a_dash_for_no_material() {
 #[test]
 fn printer_type_is_read_as_buddys_string_only() {
     let info = json!({"printer_type": "2.1.0", "firmware": "6.3.0", "sn": "X"});
-    assert_eq!(super::prusa_connect::to_details(&info).printer_type.as_deref(), Some("2.1.0"));
+    assert_eq!(
+        super::prusa_connect::to_details(&info)
+            .printer_type
+            .as_deref(),
+        Some("2.1.0")
+    );
     let numbers = json!({"type": 2, "version": 1, "subversion": 0, "firmware": "6.3.0", "sn": "X"});
-    assert_eq!(super::prusa_connect::to_details(&numbers).printer_type, None);
+    assert_eq!(
+        super::prusa_connect::to_details(&numbers).printer_type,
+        None
+    );
     let nested = json!({"printer_type": {"type": 2, "version": 1, "subversion": 0}});
     assert_eq!(super::prusa_connect::to_details(&nested).printer_type, None);
 }
@@ -1073,11 +1142,18 @@ async fn a_stick_change_comes_as_file_changed_with_rescan() {
         .await;
     // Listed: asking again sends nothing.
     look().await;
-    assert_eq!(mini.report(r#"{"state":"IDLE"}"#).await.0, StatusCode::NO_CONTENT);
+    assert_eq!(
+        mini.report(r#"{"state":"IDLE"}"#).await.0,
+        StatusCode::NO_CONTENT
+    );
     for name in ["MEDIUM_INSERTED", "MEDIUM_EJECTED"] {
         mini.event(json!({"state": "IDLE", "event": name})).await;
         look().await;
-        assert_eq!(mini.report(r#"{"state":"IDLE"}"#).await.0, StatusCode::NO_CONTENT, "{name}");
+        assert_eq!(
+            mini.report(r#"{"state":"IDLE"}"#).await.0,
+            StatusCode::NO_CONTENT,
+            "{name}"
+        );
     }
     // The stick changed: FILE_CHANGED with rescan (render.cpp:555), the listing is read again.
     mini.event(json!({"data": {"new_path": "/usb", "rescan": true}, "state": "IDLE", "event": "FILE_CHANGED"}))
@@ -1093,13 +1169,26 @@ async fn a_stick_change_comes_as_file_changed_with_rescan() {
 fn a_free_name_is_decided_by_machine_reason() {
     use super::printer_files::file_exists;
     // planner.cpp:793: "File already exists", FILE_EXISTS.
-    assert!(file_exists(&json!({"event": "REJECTED", "command_id": 3, "reason": "File already exists",
-        "machine_reason": "FILE_EXISTS", "state": "IDLE"})));
+    assert!(file_exists(
+        &json!({"event": "REJECTED", "command_id": 3, "reason": "File already exists",
+        "machine_reason": "FILE_EXISTS", "state": "IDLE"})
+    ));
     // The same words without the machine reason, and the other machine reasons (planner.cpp:287-302).
-    assert!(!file_exists(&json!({"event": "REJECTED", "reason": "File already exists"})));
-    assert!(!file_exists(&json!({"event": "REJECTED", "reason": "File not found"})));
-    for other in ["TRANSFER_IN_PROGRESS", "STORAGE_FAILURE", "NOT_READY", "NETWORK_FAILURE"] {
-        assert!(!file_exists(&json!({"event": "REJECTED", "reason": "File exists", "machine_reason": other})));
+    assert!(!file_exists(
+        &json!({"event": "REJECTED", "reason": "File already exists"})
+    ));
+    assert!(!file_exists(
+        &json!({"event": "REJECTED", "reason": "File not found"})
+    ));
+    for other in [
+        "TRANSFER_IN_PROGRESS",
+        "STORAGE_FAILURE",
+        "NOT_READY",
+        "NETWORK_FAILURE",
+    ] {
+        assert!(!file_exists(
+            &json!({"event": "REJECTED", "reason": "File exists", "machine_reason": other})
+        ));
     }
 }
 
@@ -1164,7 +1253,13 @@ async fn state_changed_and_job_info_reach_the_hub() {
     mini.event(json!({"job_id": 29, "data": {"state": "PRINTING", "size": 812345, "m_timestamp": 1, "display_name": "Benchy 0.2mm PLA.bgcode", "start_cmd_id": 3, "path": "/usb/BENCHY~1.BGC"},
         "state": "PRINTING", "command_id": 4, "event": "JOB_INFO"}))
         .await;
-    let known = mini.store.lock().unwrap().printing_file.get(&mini.token).cloned();
+    let known = mini
+        .store
+        .lock()
+        .unwrap()
+        .printing_file
+        .get(&mini.token)
+        .cloned();
     assert_eq!(
         known,
         Some((Some(29), "Benchy 0.2mm PLA.bgcode".to_owned()))
@@ -1200,7 +1295,10 @@ async fn the_listing_follows_file_info_and_file_changed() {
     let children = listed["data"]["children"].as_array().unwrap();
     assert_eq!(children.len(), 2);
     assert_eq!(children[0]["display_name"], "Benchy 0.2mm PLA.bgcode");
-    assert_eq!(children[1]["read_only"], true, "still arriving: read_only (:1067)");
+    assert_eq!(
+        children[1]["read_only"], true,
+        "still arriving: read_only (:1067)"
+    );
     // A file deleted (old_path, :552).
     mini.event(json!({"data": {"free_space": 5, "old_path": "/usb/BENCHY~1.BGC", "file": {"type": "PRINT_FILE", "name": "BENCHY~1.BGC"}},
         "state": "IDLE", "event": "FILE_CHANGED"}))
@@ -1246,7 +1344,9 @@ async fn a_command_stays_pending_until_buddy_answers_it() {
         .unwrap()
         .set_commands_at(&mini.id, crate::store::now() - 3600);
     assert_eq!(
-        mini.report(&format!(r#"{{"command_id":{first},"state":"IDLE"}}"#)).await.0,
+        mini.report(&format!(r#"{{"command_id":{first},"state":"IDLE"}}"#))
+            .await
+            .0,
         StatusCode::NO_CONTENT
     );
     assert_eq!(mini.command_state(first), CommandState::Accepted);
@@ -1260,17 +1360,25 @@ async fn a_command_stays_pending_until_buddy_answers_it() {
     // The printer was gone (not seen for longer than ONLINE_SECONDS): what it had not answered
     // fails, named as ours; a later report goes on.
     let third = queue();
-    mini.store
-        .lock()
-        .unwrap()
-        .set_last_seen(&mini.id, crate::store::now() - crate::store::ONLINE_SECONDS - 1);
+    mini.store.lock().unwrap().set_last_seen(
+        &mini.id,
+        crate::store::now() - crate::store::ONLINE_SECONDS - 1,
+    );
     let (status, headers, _) = mini.report(r#"{"state":"IDLE"}"#).await;
     assert_eq!(mini.command_state(second), CommandState::Rejected);
     let reason = {
         let s = mini.store.lock().unwrap();
         let m = s.machine(mini.space, &mini.id).unwrap().unwrap();
-        m.commands.iter().find(|c| c.id == second).unwrap().reason.clone()
+        m.commands
+            .iter()
+            .find(|c| c.id == second)
+            .unwrap()
+            .reason
+            .clone()
     };
     assert_eq!(reason.as_deref(), Some("the printer was gone"));
-    assert_eq!((status, headers["command-id"].to_str().unwrap()), (StatusCode::OK, third.to_string().as_str()));
+    assert_eq!(
+        (status, headers["command-id"].to_str().unwrap()),
+        (StatusCode::OK, third.to_string().as_str())
+    );
 }

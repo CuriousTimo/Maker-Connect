@@ -81,7 +81,12 @@ impl Store {
 
     /// HS7b: Start burn: the loaded job goes to the laser (its agent takes it as a queued job).
     /// Only the caller's checks decide whether it may; this only moves a loaded job on.
-    pub fn start_burn(&mut self, machine: &str, job: i64, by: Option<&str>) -> rusqlite::Result<bool> {
+    pub fn start_burn(
+        &mut self,
+        machine: &str,
+        job: i64,
+        by: Option<&str>,
+    ) -> rusqlite::Result<bool> {
         let n = self.db.execute(
             "UPDATE jobs SET state = 'queued', by_name = COALESCE(?3, by_name)
              WHERE id = ?1 AND machine_id = ?2 AND state = 'loaded'",
@@ -212,14 +217,20 @@ impl Store {
                 [machine],
                 |r| {
                     Ok((
-                        OnBed { job: r.get(0)?, file_name: r.get(1)?, ended_at: r.get(3)? },
+                        OnBed {
+                            job: r.get(0)?,
+                            file_name: r.get(1)?,
+                            ended_at: r.get(3)?,
+                        },
                         r.get::<_, String>(2)?,
                         r.get::<_, Option<i64>>(4)?,
                     ))
                 },
             )
             .optional()?;
-        Ok(last.filter(|(_, state, taken)| state == "finished" && taken.is_some()).map(|(r, _, _)| r))
+        Ok(last
+            .filter(|(_, state, taken)| state == "finished" && taken.is_some())
+            .map(|(r, _, _)| r))
     }
 
     /// Not ready after all (PrusaLink's `cancel_ready`): the last print counts as on its bed
@@ -232,7 +243,8 @@ impl Store {
         let Some(ready) = self.ready_after(machine)? else {
             return Ok(false);
         };
-        self.db.execute("UPDATE jobs SET taken_at = NULL WHERE id = ?1", [ready.job])?;
+        self.db
+            .execute("UPDATE jobs SET taken_at = NULL WHERE id = ?1", [ready.job])?;
         self.changed();
         Ok(true)
     }
@@ -335,7 +347,9 @@ impl Store {
             )?;
             let space: Option<i64> = self
                 .db
-                .query_row("SELECT space_id FROM spool WHERE id = ?1", [spool], |r| r.get(0))
+                .query_row("SELECT space_id FROM spool WHERE id = ?1", [spool], |r| {
+                    r.get(0)
+                })
                 .optional()?;
             if let Some(space) = space {
                 self.movement(

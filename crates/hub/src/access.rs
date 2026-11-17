@@ -152,7 +152,12 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ("*", maker_connect_protocol::REGISTER, Need::Public, None),
     ("*", maker_connect_protocol::TELEMETRY, Need::Public, None),
     // A USB camera's frame: the agent's token, checked by the route (crate::usbcam).
-    ("*", maker_connect_protocol::CAMERA_FRAME, Need::Public, None),
+    (
+        "*",
+        maker_connect_protocol::CAMERA_FRAME,
+        Need::Public,
+        None,
+    ),
     ("*", "/api/agent/v1/jobs/{id}/file", Need::Public, None),
     ("*", "/api/agent/v1/files/{id}", Need::Public, None),
     ("*", "/p/register", Need::Public, None),
@@ -180,8 +185,18 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     // HS13: the LaserFoundry fork the hub serves; the handlers also ask that the person may use a laser.
     ("GET", "/laser-design", Need::Role(Role::Member), None),
     ("GET", "/laser-design/", Need::Role(Role::Member), None),
-    ("GET", "/laser-design/{*file}", Need::Role(Role::Member), None),
-    ("GET", "/api/laser-design/lasers", Need::Role(Role::Member), None),
+    (
+        "GET",
+        "/laser-design/{*file}",
+        Need::Role(Role::Member),
+        None,
+    ),
+    (
+        "GET",
+        "/api/laser-design/lasers",
+        Need::Role(Role::Member),
+        None,
+    ),
     // One's own.
     ("POST", "/logout", Need::Signed, None),
     ("GET", "/api/me", Need::Signed, None),
@@ -875,8 +890,18 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ),
     // The USB cameras' test page (crate::usbcam, docs/briefs/usb-cam-step1.md): admins only.
     ("GET", "/usb-cameras/test", Need::Role(Role::Admin), None),
-    ("GET", "/usb-cameras/test/events", Need::Role(Role::Admin), None),
-    ("GET", "/usb-cameras/test/frame/{machine}/{index}", Need::Role(Role::Admin), None),
+    (
+        "GET",
+        "/usb-cameras/test/events",
+        Need::Role(Role::Admin),
+        None,
+    ),
+    (
+        "GET",
+        "/usb-cameras/test/frame/{machine}/{index}",
+        Need::Role(Role::Admin),
+        None,
+    ),
     // Cameras (crate::cameras, owner 2026-11-16): watching is checked per camera by its
     // handler (`Store::may_view_camera`); adding, changing and removing take an admin.
     ("GET", "/cameras", Need::Role(Role::Guest), None),
@@ -3242,22 +3267,27 @@ mod tests {
         };
         let jobs = |w: &World| {
             let s = w.store.lock().unwrap();
-            let n: i64 = s
-                .db
-                .query_row("SELECT COUNT(*) FROM jobs WHERE machine_id = ?1", [&laser], |r| r.get(0))
+            let n: i64 =
+                s.db.query_row(
+                    "SELECT COUNT(*) FROM jobs WHERE machine_id = ?1",
+                    [&laser],
+                    |r| r.get(0),
+                )
                 .unwrap();
             (n, s.queue_of(&laser).unwrap().len())
         };
         // An API token (no session) may not start a laser, even with permission to use it.
         assert_eq!(
-            w.post(&adam, &format!("/machines/{laser}/grants"), &format!("user={adam_id}&level=operate"))
-                .await
-                .0,
+            w.post(
+                &adam,
+                &format!("/machines/{laser}/grants"),
+                &format!("user={adam_id}&level=operate")
+            )
+            .await
+            .0,
             StatusCode::NO_CONTENT
         );
-        let (status, body) = w
-            .post(&adam, "/space/tokens", "name=Bot&role=admin")
-            .await;
+        let (status, body) = w.post(&adam, "/space/tokens", "name=Bot&role=admin").await;
         assert_eq!(status, StatusCode::OK, "{body}");
         let api = serde_json::from_str::<serde_json::Value>(&body).unwrap()["token"]
             .as_str()
@@ -3280,11 +3310,23 @@ mod tests {
         assert_eq!(jobs(&w), (0, 0));
         // HS7b: a laser takes one loaded job: no copies, no queue.
         let (status, body) = w
-            .post(&adam, "/files/f1/print", &format!("machine={laser}&copies=3"))
+            .post(
+                &adam,
+                "/files/f1/print",
+                &format!("machine={laser}&copies=3"),
+            )
             .await;
-        assert_eq!((status, body.as_str()), (StatusCode::CONFLICT, "a laser takes one job at a time: no copies"));
+        assert_eq!(
+            (status, body.as_str()),
+            (
+                StatusCode::CONFLICT,
+                "a laser takes one job at a time: no copies"
+            )
+        );
         // A person: the job is loaded, not started; nothing starts it by itself.
-        let (status, body) = w.post(&adam, "/files/f1/print", &format!("machine={laser}")).await;
+        let (status, body) = w
+            .post(&adam, "/files/f1/print", &format!("machine={laser}"))
+            .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(jobs(&w), (1, 0));
         {
@@ -3305,23 +3347,59 @@ mod tests {
                     .unwrap(),
             )
             .await;
-        assert_eq!((status, body.as_str()), (StatusCode::CONFLICT, LASER_NEVER_ALONE));
-        assert_eq!(w.store.lock().unwrap().active_job(&laser).unwrap().unwrap().state, JobState::Loaded);
+        assert_eq!(
+            (status, body.as_str()),
+            (StatusCode::CONFLICT, LASER_NEVER_ALONE)
+        );
+        assert_eq!(
+            w.store
+                .lock()
+                .unwrap()
+                .active_job(&laser)
+                .unwrap()
+                .unwrap()
+                .state,
+            JobState::Loaded
+        );
         // Stop on a loaded job is the laser's own Stop (a soft reset): the job stays loaded.
-        let (status, body) = w.post(&adam, &format!("/machines/{laser}/job"), "action=stop").await;
+        let (status, body) = w
+            .post(&adam, &format!("/machines/{laser}/job"), "action=stop")
+            .await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
         assert!(matches!(
             w.store.lock().unwrap().own_job_control.remove(&laser),
             Some(maker_connect_protocol::JobControl::Stop)
         ));
-        assert_eq!(w.store.lock().unwrap().active_job(&laser).unwrap().unwrap().state, JobState::Loaded);
-        let (status, _) = w.post(&adam, &format!("/machines/{laser}/job"), "action=pause").await;
+        assert_eq!(
+            w.store
+                .lock()
+                .unwrap()
+                .active_job(&laser)
+                .unwrap()
+                .unwrap()
+                .state,
+            JobState::Loaded
+        );
+        let (status, _) = w
+            .post(&adam, &format!("/machines/{laser}/job"), "action=pause")
+            .await;
         assert_eq!(status, StatusCode::CONFLICT, "a loaded job is not paused");
         // "Take it off" (unload): it ends stopped, never started.
-        let (status, body) = w.post(&adam, &format!("/machines/{laser}/job"), "action=unload").await;
+        let (status, body) = w
+            .post(&adam, &format!("/machines/{laser}/job"), "action=unload")
+            .await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        assert!(w.store.lock().unwrap().active_job(&laser).unwrap().is_none());
-        let (status, body) = w.post(&adam, "/files/f1/print", &format!("machine={laser}")).await;
+        assert!(
+            w.store
+                .lock()
+                .unwrap()
+                .active_job(&laser)
+                .unwrap()
+                .is_none()
+        );
+        let (status, body) = w
+            .post(&adam, "/files/f1/print", &format!("machine={laser}"))
+            .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(jobs(&w), (2, 0));
         {
@@ -3338,20 +3416,38 @@ mod tests {
             s.set_job(job.id, JobState::Stopped, None).unwrap();
             s.set_restart_line(job.id, 5).unwrap();
         }
-        let (status, body) = w.post(&adam, &format!("/machines/{laser}/job"), "action=restart").await;
+        let (status, body) = w
+            .post(&adam, &format!("/machines/{laser}/job"), "action=restart")
+            .await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
         assert_eq!(jobs(&w).0, 3);
         // Stop with no job: a laser's (a soft reset) goes to the agent; a printer's is "no job".
-        w.store.lock().unwrap().set_job(3, JobState::Finished, None).unwrap();
-        w.store.lock().unwrap().report(&token, &Default::default()).unwrap();
-        let (status, body) = w.post(&adam, &format!("/machines/{laser}/job"), "action=stop").await;
+        w.store
+            .lock()
+            .unwrap()
+            .set_job(3, JobState::Finished, None)
+            .unwrap();
+        w.store
+            .lock()
+            .unwrap()
+            .report(&token, &Default::default())
+            .unwrap();
+        let (status, body) = w
+            .post(&adam, &format!("/machines/{laser}/job"), "action=stop")
+            .await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
         assert!(matches!(
             w.store.lock().unwrap().own_job_control.remove(&laser),
             Some(maker_connect_protocol::JobControl::Stop)
         ));
-        let (status, _) = w.post(&adam, &format!("/machines/{laser}/job"), "action=pause").await;
-        assert_eq!(status, StatusCode::NOT_FOUND, "only Stop is offered with no job");
+        let (status, _) = w
+            .post(&adam, &format!("/machines/{laser}/job"), "action=pause")
+            .await;
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "only Stop is offered with no job"
+        );
     }
 
     /// An invite link: a newcomer makes an account and is in; the link works once.

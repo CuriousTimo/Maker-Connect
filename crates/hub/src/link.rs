@@ -393,13 +393,20 @@ pub(crate) mod tests {
             .unwrap();
         let (status, body) = call(&app, print).await;
         // HS7b: a laser's job is loaded, not started: nothing goes to the laser yet
-        assert_eq!((status, body.as_str()), (StatusCode::OK, r#"{"loaded":"sign.gcode"}"#));
+        assert_eq!(
+            (status, body.as_str()),
+            (StatusCode::OK, r#"{"loaded":"sign.gcode"}"#)
+        );
         // another file sent to it replaces the loaded one only after the person confirms
         let again = |replace: bool| {
             Request::post(format!("/files/{}/print", file["id"].as_str().unwrap()))
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("x-requested-with", "fetch")
-                .body(Body::from(format!("machine={}{}", registered.machine_id, if replace { "&replace=true" } else { "" })))
+                .body(Body::from(format!(
+                    "machine={}{}",
+                    registered.machine_id,
+                    if replace { "&replace=true" } else { "" }
+                )))
                 .unwrap()
         };
         let (status, body) = call(&app, again(false)).await;
@@ -407,11 +414,22 @@ pub(crate) mod tests {
         assert!(body.contains("replace it with"), "{body}");
         let (status, body) = call(&app, again(true)).await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        let stopped: i64 = store.lock().unwrap().db
-            .query_row("SELECT COUNT(*) FROM jobs WHERE state = 'stopped' AND reason LIKE 'replaced%'", [], |r| r.get(0))
+        let stopped: i64 = store
+            .lock()
+            .unwrap()
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM jobs WHERE state = 'stopped' AND reason LIKE 'replaced%'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(stopped, 1, "the replaced job ends stopped, never started");
-        assert_eq!(report(idle()).await.job, None, "a loaded job is not given out");
+        assert_eq!(
+            report(idle()).await.job,
+            None,
+            "a loaded job is not given out"
+        );
         let start_burn = |confirm: bool| {
             Request::post(format!("/machines/{}/start-burn", registered.machine_id))
                 .header("content-type", "application/x-www-form-urlencoded")
@@ -421,16 +439,28 @@ pub(crate) mod tests {
         };
         let laser_idle = || Telemetry {
             state: MachineState::Idle,
-            grbl: Some(protocol::GrblSettings { laser_mode: Some(true), ..Default::default() }),
+            grbl: Some(protocol::GrblSettings {
+                laser_mode: Some(true),
+                ..Default::default()
+            }),
             ..Telemetry::default()
         };
         // Start burn needs a frame first
         let (status, body) = call(&app, start_burn(false)).await;
         assert_eq!(status, StatusCode::CONFLICT);
-        assert!(body.contains("$32"), "laser mode unknown: refused first, as LaserFoundry: {body}");
+        assert!(
+            body.contains("$32"),
+            "laser mode unknown: refused first, as LaserFoundry: {body}"
+        );
         report(laser_idle()).await;
         let (status, body) = call(&app, start_burn(false)).await;
-        assert_eq!((status, body.as_str()), (StatusCode::CONFLICT, "frame the loaded job first (after a Set origin it is framed again)"));
+        assert_eq!(
+            (status, body.as_str()),
+            (
+                StatusCode::CONFLICT,
+                "frame the loaded job first (after a Set origin it is framed again)"
+            )
+        );
         // the frame: queued as LaserFoundry's frame of the loaded file, done by the laser
         let frame = Request::post(format!("/files/{}/frame", file["id"].as_str().unwrap()))
             .header("content-type", "application/x-www-form-urlencoded")
@@ -443,7 +473,11 @@ pub(crate) mod tests {
         let command = reply.commands.first().expect("the frame goes to the laser");
         assert!(matches!(command.action, protocol::Action::Frame { .. }));
         assert_eq!(reply.job, None);
-        report(Telemetry { done: vec![finished(command.id)], ..laser_idle() }).await;
+        report(Telemetry {
+            done: vec![finished(command.id)],
+            ..laser_idle()
+        })
+        .await;
         // a Set origin after the frame: framed again first, then the person confirms
         let set_origin = Request::post(format!("/machines/{}/command", registered.machine_id))
             .header("content-type", "application/x-www-form-urlencoded")
@@ -453,11 +487,24 @@ pub(crate) mod tests {
         let (status, body) = call(&app, set_origin).await;
         assert!(status.is_success(), "{status} {body}");
         let reply = report(laser_idle()).await;
-        let command = reply.commands.first().expect("Set origin goes to the laser");
+        let command = reply
+            .commands
+            .first()
+            .expect("Set origin goes to the laser");
         assert!(matches!(command.action, protocol::Action::SetOrigin));
-        report(Telemetry { done: vec![finished(command.id)], ..laser_idle() }).await;
+        report(Telemetry {
+            done: vec![finished(command.id)],
+            ..laser_idle()
+        })
+        .await;
         let (status, body) = call(&app, start_burn(true)).await;
-        assert_eq!((status, body.as_str()), (StatusCode::CONFLICT, "frame the loaded job first (after a Set origin it is framed again)"));
+        assert_eq!(
+            (status, body.as_str()),
+            (
+                StatusCode::CONFLICT,
+                "frame the loaded job first (after a Set origin it is framed again)"
+            )
+        );
         let frame = Request::post(format!("/files/{}/frame", file["id"].as_str().unwrap()))
             .header("content-type", "application/x-www-form-urlencoded")
             .header("x-requested-with", "fetch")
@@ -466,15 +513,26 @@ pub(crate) mod tests {
         assert_eq!(call(&app, frame).await.0, StatusCode::NO_CONTENT);
         let reply = report(laser_idle()).await;
         let command = reply.commands.first().expect("the frame again");
-        report(Telemetry { done: vec![finished(command.id)], ..laser_idle() }).await;
+        report(Telemetry {
+            done: vec![finished(command.id)],
+            ..laser_idle()
+        })
+        .await;
         let (status, body) = call(&app, start_burn(false)).await;
         assert_eq!(status, StatusCode::CONFLICT);
-        assert!(body.contains(crate::files::ORIGIN_CONFIRM), "after a Set origin the person confirms: {body}");
+        assert!(
+            body.contains(crate::files::ORIGIN_CONFIRM),
+            "after a Set origin the person confirms: {body}"
+        );
         // framed and confirmed: Start burn goes, and the job is given out once
         let (status, body) = call(&app, start_burn(true)).await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
         let (status, body) = call(&app, start_burn(true)).await;
-        assert_eq!((status, body.as_str()), (StatusCode::CONFLICT, "busy with sign.gcode"), "once");
+        assert_eq!(
+            (status, body.as_str()),
+            (StatusCode::CONFLICT, "busy with sign.gcode"),
+            "once"
+        );
 
         let order = report(idle()).await.job.expect("the job is given out");
         assert_eq!(order.name, "sign.gcode");
@@ -734,31 +792,64 @@ pub(crate) mod tests {
         store
             .lock()
             .unwrap()
-            .queue_action(space, machine, text, &protocol::Action::Gcode { text: text.into() })
+            .queue_action(
+                space,
+                machine,
+                text,
+                &protocol::Action::Gcode { text: text.into() },
+            )
             .unwrap()
             .unwrap()
     }
 
     /// A report with these results, the reply's command ids.
     async fn report(app: &Router, token: &str, done: Vec<protocol::CommandDone>) -> Vec<u32> {
-        let report = Telemetry { state: MachineState::Idle, done, ..Telemetry::default() };
+        let report = Telemetry {
+            state: MachineState::Idle,
+            done,
+            ..Telemetry::default()
+        };
         let (status, body) = call(
             app,
-            json(protocol::TELEMETRY, Some(token), serde_json::to_string(&report).unwrap()),
+            json(
+                protocol::TELEMETRY,
+                Some(token),
+                serde_json::to_string(&report).unwrap(),
+            ),
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        serde_json::from_str::<TelemetryReply>(&body).unwrap().commands.iter().map(|c| c.id).collect()
+        serde_json::from_str::<TelemetryReply>(&body)
+            .unwrap()
+            .commands
+            .iter()
+            .map(|c| c.id)
+            .collect()
     }
 
-    fn state_of(store: &Arc<Mutex<Store>>, space: i64, machine: &str, id: u32) -> (store::CommandState, Option<String>) {
-        let machine = store.lock().unwrap().machine(space, machine).unwrap().unwrap();
+    fn state_of(
+        store: &Arc<Mutex<Store>>,
+        space: i64,
+        machine: &str,
+        id: u32,
+    ) -> (store::CommandState, Option<String>) {
+        let machine = store
+            .lock()
+            .unwrap()
+            .machine(space, machine)
+            .unwrap()
+            .unwrap();
         let c = machine.commands.iter().find(|c| c.id == id).unwrap();
         (c.state, c.reason.clone())
     }
 
     fn finished(id: u32) -> protocol::CommandDone {
-        protocol::CommandDone { id, ok: true, reason: None, output: Vec::new() }
+        protocol::CommandDone {
+            id,
+            ok: true,
+            reason: None,
+            output: Vec::new(),
+        }
     }
 
     /// Two commands for a Marlin agent machine go out together, and a typed `M112` goes out while an
@@ -770,22 +861,40 @@ pub(crate) mod tests {
         let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None);
         let a = queue_gcode(&store, space, &id, "G28");
         let b = queue_gcode(&store, space, &id, "M105");
-        assert_eq!(report(&app, &token, vec![]).await, vec![a, b], "both at once");
+        assert_eq!(
+            report(&app, &token, vec![]).await,
+            vec![a, b],
+            "both at once"
+        );
         assert_eq!(state_of(&store, space, &id, a).0, store::CommandState::Sent);
-        assert_eq!(report(&app, &token, vec![]).await, Vec::<u32>::new(), "nothing queued, nothing sent twice");
+        assert_eq!(
+            report(&app, &token, vec![]).await,
+            Vec::<u32>::new(),
+            "nothing queued, nothing sent twice"
+        );
 
         let m109 = queue_gcode(&store, space, &id, "M109 S200");
         assert_eq!(report(&app, &token, vec![]).await, vec![m109]);
         let m112 = queue_gcode(&store, space, &id, "M112");
-        assert_eq!(report(&app, &token, vec![]).await, vec![m112], "the M112 goes while the M109 is Sent");
-        assert_eq!(state_of(&store, space, &id, m109).0, store::CommandState::Sent);
+        assert_eq!(
+            report(&app, &token, vec![]).await,
+            vec![m112],
+            "the M112 goes while the M109 is Sent"
+        );
+        assert_eq!(
+            state_of(&store, space, &id, m109).0,
+            store::CommandState::Sent
+        );
         // no 120 s: the commands that were Sent long ago are not given up by the hub
         let old = store::now() - 3600;
         {
             store.lock().unwrap().set_commands_at(&id, old);
         }
         report(&app, &token, vec![]).await;
-        assert_eq!(state_of(&store, space, &id, m109).0, store::CommandState::Sent);
+        assert_eq!(
+            state_of(&store, space, &id, m109).0,
+            store::CommandState::Sent
+        );
     }
 
     /// The agent ports that do not fail pending commands on close (a Prusa profile, Alfawise's U30) keep one
@@ -802,15 +911,26 @@ pub(crate) mod tests {
             let (id, token, space) = agent_machine(&store, kind, profile);
             let a = queue_gcode(&store, space, &id, "G28");
             let b = queue_gcode(&store, space, &id, "M105");
-            assert_eq!(report(&app, &token, vec![]).await, vec![a], "{kind:?} {profile:?}");
-            assert_eq!(report(&app, &token, vec![]).await, Vec::<u32>::new(), "held while {a} is Sent");
+            assert_eq!(
+                report(&app, &token, vec![]).await,
+                vec![a],
+                "{kind:?} {profile:?}"
+            );
+            assert_eq!(
+                report(&app, &token, vec![]).await,
+                Vec::<u32>::new(),
+                "held while {a} is Sent"
+            );
             assert_eq!(report(&app, &token, vec![finished(a)]).await, vec![b]);
             // and the 120 s
             let c = queue_gcode(&store, space, &id, "M104 S0");
             report(&app, &token, vec![finished(b)]).await;
             assert_eq!(state_of(&store, space, &id, c).0, store::CommandState::Sent);
             {
-                store.lock().unwrap().set_commands_at(&id, store::now() - 121);
+                store
+                    .lock()
+                    .unwrap()
+                    .set_commands_at(&id, store::now() - 121);
             }
             report(&app, &token, vec![]).await;
             let (state, reason) = state_of(&store, space, &id, c);
@@ -829,21 +949,46 @@ pub(crate) mod tests {
             let (id, token, space) = agent_machine(&store, kind, None);
             let a = queue_gcode(&store, space, &id, "G28");
             let b = queue_gcode(&store, space, &id, "M105");
-            assert_eq!(report(&app, &token, vec![]).await, vec![a, b], "{kind:?}: both at once");
-            // no 120 s
-            store.lock().unwrap().set_commands_at(&id, store::now() - 3600);
-            report(&app, &token, vec![]).await;
-            assert_eq!(state_of(&store, space, &id, a).0, store::CommandState::Sent, "{kind:?}");
-            // the agent-gone rule: Sent fails, Queued does not
-            let c = queue_gcode(&store, space, &id, "M104 S0");
-            store.lock().unwrap().set_last_seen(&id, store::now() - store::ONLINE_SECONDS - 1);
-            store.lock().unwrap().fail_commands_of_gone_agent(&token).unwrap();
             assert_eq!(
-                state_of(&store, space, &id, a),
-                (store::CommandState::Rejected, Some("the agent was gone".to_owned())),
+                report(&app, &token, vec![]).await,
+                vec![a, b],
+                "{kind:?}: both at once"
+            );
+            // no 120 s
+            store
+                .lock()
+                .unwrap()
+                .set_commands_at(&id, store::now() - 3600);
+            report(&app, &token, vec![]).await;
+            assert_eq!(
+                state_of(&store, space, &id, a).0,
+                store::CommandState::Sent,
                 "{kind:?}"
             );
-            assert_eq!(state_of(&store, space, &id, c).0, store::CommandState::Queued, "{kind:?}");
+            // the agent-gone rule: Sent fails, Queued does not
+            let c = queue_gcode(&store, space, &id, "M104 S0");
+            store
+                .lock()
+                .unwrap()
+                .set_last_seen(&id, store::now() - store::ONLINE_SECONDS - 1);
+            store
+                .lock()
+                .unwrap()
+                .fail_commands_of_gone_agent(&token)
+                .unwrap();
+            assert_eq!(
+                state_of(&store, space, &id, a),
+                (
+                    store::CommandState::Rejected,
+                    Some("the agent was gone".to_owned())
+                ),
+                "{kind:?}"
+            );
+            assert_eq!(
+                state_of(&store, space, &id, c).0,
+                store::CommandState::Queued,
+                "{kind:?}"
+            );
         }
     }
 
@@ -862,27 +1007,60 @@ pub(crate) mod tests {
         report(&app, &token, vec![]).await;
         report(&app, &other_token, vec![]).await;
         report(&app, &prusa_token, vec![]).await;
-        store.lock().unwrap().command_still_running(&token, accepted).unwrap();
+        store
+            .lock()
+            .unwrap()
+            .command_still_running(&token, accepted)
+            .unwrap();
         let queued = queue_gcode(&store, space, &id, "M105");
         // seen just now: nothing happens
-        store.lock().unwrap().fail_commands_of_gone_agent(&token).unwrap();
-        assert_eq!(state_of(&store, space, &id, sent).0, store::CommandState::Sent);
+        store
+            .lock()
+            .unwrap()
+            .fail_commands_of_gone_agent(&token)
+            .unwrap();
+        assert_eq!(
+            state_of(&store, space, &id, sent).0,
+            store::CommandState::Sent
+        );
         // not seen for longer than ONLINE_SECONDS: checked on the next report
         let gone = store::now() - store::ONLINE_SECONDS - 1;
         for m in [&id, &prusa] {
             store.lock().unwrap().set_last_seen(m, gone);
         }
-        store.lock().unwrap().fail_commands_of_gone_agent(&token).unwrap();
+        store
+            .lock()
+            .unwrap()
+            .fail_commands_of_gone_agent(&token)
+            .unwrap();
         for c in [sent, accepted] {
             assert_eq!(
                 state_of(&store, space, &id, c),
-                (store::CommandState::Rejected, Some("the agent was gone".to_owned()))
+                (
+                    store::CommandState::Rejected,
+                    Some("the agent was gone".to_owned())
+                )
             );
         }
-        assert_eq!(state_of(&store, space, &id, queued).0, store::CommandState::Queued, "not the Queued");
-        assert_eq!(state_of(&store, space, &other, other_sent).0, store::CommandState::Sent);
-        store.lock().unwrap().fail_commands_of_gone_agent(&prusa_token).unwrap();
-        assert_eq!(state_of(&store, space, &prusa, prusa_sent).0, store::CommandState::Sent, "not a Marlin machine");
+        assert_eq!(
+            state_of(&store, space, &id, queued).0,
+            store::CommandState::Queued,
+            "not the Queued"
+        );
+        assert_eq!(
+            state_of(&store, space, &other, other_sent).0,
+            store::CommandState::Sent
+        );
+        store
+            .lock()
+            .unwrap()
+            .fail_commands_of_gone_agent(&prusa_token)
+            .unwrap();
+        assert_eq!(
+            state_of(&store, space, &prusa, prusa_sent).0,
+            store::CommandState::Sent,
+            "not a Marlin machine"
+        );
         // through the report: the Queued command still goes out, as the agent is back
         assert_eq!(report(&app, &token, vec![]).await, vec![queued]);
     }
@@ -898,16 +1076,28 @@ pub(crate) mod tests {
         let a = queue_gcode(&store, space, &id, "M109 S200");
         let b = queue_gcode(&store, space, &id, "G28");
         report(&app, &token, vec![]).await;
-        store.lock().unwrap().set_last_seen(&id, store::now() - store::ONLINE_SECONDS - 1);
+        store
+            .lock()
+            .unwrap()
+            .set_last_seen(&id, store::now() - store::ONLINE_SECONDS - 1);
         // the agent is back and says a is done, in its first report
         report(&app, &token, vec![finished(a)]).await;
-        assert_eq!(state_of(&store, space, &id, a), (store::CommandState::Finished, None));
+        assert_eq!(
+            state_of(&store, space, &id, a),
+            (store::CommandState::Finished, None)
+        );
         assert_eq!(
             state_of(&store, space, &id, b),
-            (store::CommandState::Rejected, Some("the agent was gone".to_owned()))
+            (
+                store::CommandState::Rejected,
+                Some("the agent was gone".to_owned())
+            )
         );
         // b's Done comes in a later report
         report(&app, &token, vec![finished(b)]).await;
-        assert_eq!(state_of(&store, space, &id, b), (store::CommandState::Finished, None));
+        assert_eq!(
+            state_of(&store, space, &id, b),
+            (store::CommandState::Finished, None)
+        );
     }
 }

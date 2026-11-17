@@ -39,7 +39,10 @@ pub(crate) fn shown_state(machine: &Machine) -> (String, String) {
             }
             // HS7b: a laser with a job loaded, idle: it waits to be framed and started there.
             (None, maker_connect_protocol::MachineState::Idle)
-                if machine.job.as_ref().is_some_and(|j| j.state == store::JobState::Loaded) =>
+                if machine
+                    .job
+                    .as_ref()
+                    .is_some_and(|j| j.state == store::JobState::Loaded) =>
             {
                 ("Loaded".to_owned(), "loaded".to_owned())
             }
@@ -274,7 +277,9 @@ fn notices(machine: &Machine) -> String {
     if let Some(u) = machine.upkeep.as_ref().filter(|u| u.due) {
         out += &format!(
             r##"<div class="notice bed"><span><b>Service due</b>: {:.0} of {:.0} {}. It takes no work from the queue until it is done.</span><a href="#settings">Upkeep</a></div>"##,
-            u.since_h, u.every_h, work_hours(machine.kind)
+            u.since_h,
+            u.every_h,
+            work_hours(machine.kind)
         );
     }
     // A plate for a project waits for someone: the same as the script draws (confirmHtml).
@@ -327,7 +332,10 @@ fn notices(machine: &Machine) -> String {
         );
     }
     // Ready for the next job, until it starts; taken back as PrusaLink's "cancel ready".
-    if machine.on_bed.is_none() && machine.job.is_none() && let Some(ready) = &machine.ready {
+    if machine.on_bed.is_none()
+        && machine.job.is_none()
+        && let Some(ready) = &machine.ready
+    {
         out += &format!(
             r#"<div class="notice ready"><span>Ready for the next job: <b>{}</b> was taken off.</span><form method="post" action="{id}/not-ready" data-async data-done="Not ready" data-then="reload"><button>Not ready after all</button></form></div>"#,
             escape(&ready.file_name)
@@ -468,7 +476,11 @@ fn battery_tile(percent: Option<u8>) -> String {
     format!(
         r#"<div class="tile"><div class="label">Battery</div><div class="value battery-value"><svg class="battery" data-battery data-level="{level}" viewBox="0 0 28 14" aria-hidden="true"><rect x="1" y="1" width="23" height="12" rx="2.5" class="shell"/><rect x="25" y="4.5" width="2" height="5" rx="1" class="nub"/><rect x="3" y="3" width="{fill:.1}" height="8" rx="1.2" class="charge" data-battery-fill/></svg><span data-live="battery_pct">{pct}</span><small>%</small></div><div class="sub" data-live="battery_note">{note}</div></div>"#,
         pct = percent.map_or("–".to_owned(), |p| p.to_string()),
-        note = if percent.is_some() { "asked every 15 s" } else { "not reported" },
+        note = if percent.is_some() {
+            "asked every 15 s"
+        } else {
+            "not reported"
+        },
     )
 }
 
@@ -658,7 +670,11 @@ fn job_tile(machine: &Machine) -> String {
 /// person frames it, sets the origin and frames again where needed, jogs, then presses Start burn
 /// (`files.rs` `start_burn` checks it all again). Ours: the card, its texts and the confirm.
 fn loaded_card(machine: &Machine, extra: &Extra) -> String {
-    let Some(job) = machine.job.as_ref().filter(|j| j.state == store::JobState::Loaded) else {
+    let Some(job) = machine
+        .job
+        .as_ref()
+        .filter(|j| j.state == store::JobState::Loaded)
+    else {
         return String::new();
     };
     let id = escape(&machine.id);
@@ -691,11 +707,18 @@ fn loaded_card(machine: &Machine, extra: &Extra) -> String {
   <p class="hint">Another file sent to this laser replaces this one only after you confirm.</p>
 </div>"#,
         name = escape(&job.file_name),
-        by = job.by.as_deref().map_or(String::new(), |b| format!(" <small>loaded by {}</small>", escape(b))),
+        by = job.by.as_deref().map_or(String::new(), |b| format!(
+            " <small>loaded by {}</small>",
+            escape(b)
+        )),
         file = escape(&job.file_id),
         framed = framed,
         confirm = escape(&confirm),
-        disabled = if extra.laser_framed { "" } else { " disabled title=\"Frame the loaded job first\"" },
+        disabled = if extra.laser_framed {
+            ""
+        } else {
+            " disabled title=\"Frame the loaded job first\""
+        },
     )
 }
 
@@ -785,16 +808,16 @@ fn job_card(machine: &Machine) -> String {
         },
         hidden = if running { "" } else { " hidden" },
         // A laser's Stop (a soft reset) stays also with no job.
-        actions_hidden = if running || laser {
-            ""
-        } else {
-            " hidden"
-        },
+        actions_hidden = if running || laser { "" } else { " hidden" },
         // A loaded job is shown in its own card above, so no "nothing loaded" here.
         shown = if running || loaded { " hidden" } else { "" },
         only_hidden = if running { "" } else { " hidden" },
         stop_hint_hidden = if laser && !running { "" } else { " hidden" },
-        stop_label = if laser { "Emergency stop (soft reset)" } else { "Stop" },
+        stop_label = if laser {
+            "Emergency stop (soft reset)"
+        } else {
+            "Stop"
+        },
         name = escape(match job {
             Some(j) => j.file_name.as_str(),
             None if own => progress
@@ -859,11 +882,14 @@ fn mmu_text(t: Option<&maker_connect_protocol::Telemetry>) -> Option<String> {
     match (t.mmu_slot, t.mmu_doing.as_deref()) {
         (None, None) => None,
         (slot, doing) => Some(
-            [slot.map(|s| format!("slot {}", s + 1)), doing.map(str::to_owned)]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(" · "),
+            [
+                slot.map(|s| format!("slot {}", s + 1)),
+                doing.map(str::to_owned),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · "),
         ),
     }
 }
@@ -906,8 +932,14 @@ fn machine_facts(machine: &Machine, profile: Option<&Profile>) -> String {
             row("Resolution", p.dpi.map(|d| format!("{d} dpi"))),
             row("Nozzle size", p.nozzle_mm.map(|n| format!("{n} mm"))),
             row("Extruders", p.extruders.map(|n| n.to_string())),
-            row("Laser", machine.laser_w.or(p.laser_w).map(|w| format!("{w} W"))),
-            row("Max speed", p.max_speed_mm_min.map(|v| format!("{v} mm/min"))),
+            row(
+                "Laser",
+                machine.laser_w.or(p.laser_w).map(|w| format!("{w} W")),
+            ),
+            row(
+                "Max speed",
+                p.max_speed_mm_min.map(|v| format!("{v} mm/min")),
+            ),
             row("Max nozzle", p.max_nozzle_c.map(|c| format!("{c} °C"))),
             row("Max bed", p.max_bed_c.map(|c| format!("{c} °C"))),
         ]
@@ -916,28 +948,46 @@ fn machine_facts(machine: &Machine, profile: Option<&Profile>) -> String {
     let told = [
         row(
             "Firmware",
-            details.firmware.clone().or_else(|| t.and_then(|t| t.firmware.clone())),
+            details
+                .firmware
+                .clone()
+                .or_else(|| t.and_then(|t| t.firmware.clone())),
         ),
         // As the printer says it (a Prusa on Connect: its INFO; Prusa's MK3 through an agent:
         // PRUSA SN, M862.1 Q, its MMU's M707, its EEPROM's counters).
-        row("Serial number", details.serial.clone().or_else(|| identity.and_then(|i| i.serial.clone()))),
+        row(
+            "Serial number",
+            details
+                .serial
+                .clone()
+                .or_else(|| identity.and_then(|i| i.serial.clone())),
+        ),
         row("Printer type", details.printer_type.clone()),
         row(
             "Nozzle in it",
-            details
-                .nozzle_mm
-                .map(|n| format!("{n} mm"))
-                .or_else(|| identity.and_then(|i| i.nozzle_mm.clone()).map(|n| format!("{n} mm"))),
+            details.nozzle_mm.map(|n| format!("{n} mm")).or_else(|| {
+                identity
+                    .and_then(|i| i.nozzle_mm.clone())
+                    .map(|n| format!("{n} mm"))
+            }),
         ),
-        row("MMU firmware", identity.and_then(|i| i.mmu_firmware.clone())),
-        row("Filament, all time", t.and_then(|t| t.total_filament_m).map(|m| format!("{m} m"))),
+        row(
+            "MMU firmware",
+            identity.and_then(|i| i.mmu_firmware.clone()),
+        ),
+        row(
+            "Filament, all time",
+            t.and_then(|t| t.total_filament_m).map(|m| format!("{m} m")),
+        ),
         row(
             "Printing, all time",
-            t.and_then(|t| t.total_print_min).map(|m| format!("{} h {:02} min", m / 60, m % 60)),
+            t.and_then(|t| t.total_print_min)
+                .map(|m| format!("{} h {:02} min", m / 60, m % 60)),
         ),
         row(
             "Status bytes",
-            t.filter(|_| machine.online).and_then(|t| t.raw_status.clone()),
+            t.filter(|_| machine.online)
+                .and_then(|t| t.raw_status.clone()),
         ),
     ]
     .concat();
@@ -1322,7 +1372,14 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
         )
     } else if machine.kind == MachineKind::Scale {
         // E11: one live line, as the scale says it (the page's script builds the same).
-        tile("Scale", "scale", t.and_then(|t| t.scale.as_ref()).map(scale_line), "", "none", String::new())
+        tile(
+            "Scale",
+            "scale",
+            t.and_then(|t| t.scale.as_ref()).map(scale_line),
+            "",
+            "none",
+            String::new(),
+        )
     } else if heats(machine) {
         heater_tiles(machine)
             + &match &machine.loaded {
@@ -1407,7 +1464,11 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
     format!(
         r#"{}<div class="tiles">{tiles}</div>
 <div class="grid-2">{}{side}</div>"#,
-        if profile.is_none() { no_profile_notice() } else { String::new() },
+        if profile.is_none() {
+            no_profile_notice()
+        } else {
+            String::new()
+        },
         card(
             "Machine",
             "",
@@ -1452,7 +1513,12 @@ fn command_item(command: &store::Command) -> String {
 pub(crate) fn plain_marlin(machine: &Machine) -> bool {
     machine.link == "agent"
         && !crate::prusa_mk3_machine(machine)
-        && machine.profile.as_deref().and_then(crate::profiles::find).and_then(|p| p.firmware.as_deref()) != Some("grbl")
+        && machine
+            .profile
+            .as_deref()
+            .and_then(crate::profiles::find)
+            .and_then(|p| p.firmware.as_deref())
+            != Some("grbl")
 }
 
 fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str) -> String {
@@ -1522,7 +1588,11 @@ fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str) -> String
     let fdm = heats(machine);
     // B5: OctoPrint's control panel has two Home buttons, X/Y and Z (`control.jinja2:71,85`).
     let home = if plain_marlin(machine) {
-        format!(r#"<div class="jog-homes">{}{}</div>"#, button("home-xy", "Home X/Y"), button("home-z", "Home Z"))
+        format!(
+            r#"<div class="jog-homes">{}{}</div>"#,
+            button("home-xy", "Home X/Y"),
+            button("home-z", "Home Z")
+        )
     } else {
         button("home", "Home all")
     };
@@ -1545,8 +1615,16 @@ fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str) -> String
             button("cooldown", "Cool down"),
             heat_inputs(t, profile) + &factor_inputs(t),
             // Prusa's MK3 family: no fan control, as PrusaLink has none.
-            if crate::prusa_mk3_machine(machine) { String::new() } else { button("fan-on", "Print fan on") },
-            if crate::prusa_mk3_machine(machine) { String::new() } else { button("fan-off", "Print fan off") },
+            if crate::prusa_mk3_machine(machine) {
+                String::new()
+            } else {
+                button("fan-on", "Print fan on")
+            },
+            if crate::prusa_mk3_machine(machine) {
+                String::new()
+            } else {
+                button("fan-off", "Print fan off")
+            },
             button("motors-off", "Motors off"),
         );
         controls += &format!(
@@ -1698,7 +1776,11 @@ fn telemetry_tab(machine: &Machine) -> String {
     }
     // Where a printer tells its fans only while it prints, that is said while none is told.
     let fan_note = |rpm: Option<u32>| {
-        if rpm.is_some() { String::new() } else { "reported while printing".to_owned() }
+        if rpm.is_some() {
+            String::new()
+        } else {
+            "reported while printing".to_owned()
+        }
     };
     let fans = tile(
         "Print fan",
@@ -1720,7 +1802,17 @@ fn telemetry_tab(machine: &Machine) -> String {
         live_row("Material", "material", t.and_then(|t| t.material.clone())),
         live_row("Sheet", "sheet", t.and_then(|t| t.sheet.clone())),
         live_row("Mode", "print_mode", t.and_then(|t| t.print_mode.clone())),
-        live_row("SD card", "sd_card", t.and_then(|t| t.sd_card).map(|i| if i { "in".to_owned() } else { "none".to_owned() })),
+        live_row(
+            "SD card",
+            "sd_card",
+            t.and_then(|t| t.sd_card).map(|i| {
+                if i {
+                    "in".to_owned()
+                } else {
+                    "none".to_owned()
+                }
+            }),
+        ),
         live_row("MMU", "mmu", mmu_text(t)),
         live_row("Doing", "doing", t.and_then(|t| t.doing.clone())),
     ]
@@ -2103,7 +2195,10 @@ pub(crate) fn settings(
 {safety}{move_section}<h4>Remove</h4>
 <form method="post" action="{id}/remove" data-async data-done="Machine removed" data-confirm="Remove this machine from the space?" data-then="../"><button class="danger">Remove machine</button></form>"#,
         // a machine's profile is one of its own kind (owner, 2026-11-17: a laser was offered every printer)
-        own_kind = serde_json::to_value(machine.kind).ok().and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default(),
+        own_kind = serde_json::to_value(machine.kind)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .unwrap_or_default(),
     );
     let about = machine_facts(machine, machine.profile.as_deref().and_then(profiles::find));
     let storage: String = details
@@ -2250,10 +2345,18 @@ mod tests {
         store.report(&token, &report(reading(4, ""))).unwrap();
         let machine = store.machine(space, &id).unwrap().unwrap();
         let page = overview(&machine, None, "");
-        assert!(page.contains(r#"<span data-live="scale">123.4 g</span>"#), "{page}");
-        store.report(&token, &report(reading(3, "Weighing..."))).unwrap();
+        assert!(
+            page.contains(r#"<span data-live="scale">123.4 g</span>"#),
+            "{page}"
+        );
+        store
+            .report(&token, &report(reading(3, "Weighing...")))
+            .unwrap();
         let machine = store.machine(space, &id).unwrap().unwrap();
-        assert!(overview(&machine, None, "").contains(r#"<span data-live="scale">Weighing... · 123.4 g</span>"#));
+        assert!(
+            overview(&machine, None, "")
+                .contains(r#"<span data-live="scale">Weighing... · 123.4 g</span>"#)
+        );
     }
 
     /// B5: a plain Marlin machine behind an agent (OctoPrint's ways) has OctoPrint's two Home buttons,
@@ -2276,13 +2379,19 @@ mod tests {
         };
         let marlin = store.machine(space, &register("Ender")).unwrap().unwrap();
         let page = control(&marlin, None, "");
-        assert!(page.contains(r#"value="home-xy""#) && page.contains(r#"value="home-z""#), "{page}");
+        assert!(
+            page.contains(r#"value="home-xy""#) && page.contains(r#"value="home-z""#),
+            "{page}"
+        );
         assert!(!page.contains(r#"value="home""#), "{page}");
         // a Prusa MK3 (its firmware says so) keeps one button
         let mut mk3 = store.machine(space, &register("MK3")).unwrap().unwrap();
         mk3.profile = Some("prusa/mk3s".to_owned());
         let page = control(&mk3, profiles::find("prusa/mk3s"), "");
-        assert!(page.contains(r#"value="home""#) && !page.contains("home-xy"), "{page}");
+        assert!(
+            page.contains(r#"value="home""#) && !page.contains("home-xy"),
+            "{page}"
+        );
     }
 
     /// Seen on the MINI (2026-11-08): a print started from its USB stick had no Stop
@@ -2296,7 +2405,9 @@ mod tests {
             .unwrap();
         let token: String = store
             .db
-            .query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| r.get(0))
+            .query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| {
+                r.get(0)
+            })
             .unwrap();
         let actions = |store: &store::Store| {
             let machine = store.machine(space, &mini).unwrap().unwrap();

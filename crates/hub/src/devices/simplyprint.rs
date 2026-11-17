@@ -511,10 +511,12 @@ mod tests {
                 &id,
                 &file,
                 None,
-                crate::store::StartedBy::Auto { by: Some("SimplyPrint") },
+                crate::store::StartedBy::Auto {
+                    by: Some("SimplyPrint"),
+                },
             )
-                .unwrap()
-                .unwrap()
+            .unwrap()
+            .unwrap()
         };
         std::fs::write(store.lock().unwrap().file_path("f1"), "G28\nG1 X1\n").unwrap();
         let file = next(&mut ws, "file").await;
