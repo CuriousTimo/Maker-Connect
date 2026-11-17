@@ -231,6 +231,32 @@ impl Store {
     /// `ONLINE_SECONDS` has its Sent and Accepted commands (not the Queued ones) failed with "the
     /// agent was gone", checked on its next report, before that report is taken in.
     pub fn fail_commands_of_gone_agent(&mut self, token: &str) -> rusqlite::Result<()> {
+        if !self.fails_pending_on_close(token)? {
+            return Ok(());
+        }
+        self.fail_pending_of_gone(token, AGENT_GONE)
+    }
+
+    /// The same rule for a printer on the built-in Prusa Connect (link `prusa-connect`), which
+    /// has no 120 s: a command stays pending until Buddy answers it. Not seen for longer than
+    /// `ONLINE_SECONDS`: its Sent and Accepted commands fail with "the printer was gone" (ours).
+    pub fn fail_commands_of_gone_printer(&mut self, token: &str) -> rusqlite::Result<()> {
+        if !self.on_prusa_connect(token)? {
+            return Ok(());
+        }
+        self.fail_pending_of_gone(token, PRINTER_GONE)
+    }
+
+    /// Whether the machine behind this token is a printer on the built-in Prusa Connect.
+    fn on_prusa_connect(&self, token: &str) -> rusqlite::Result<bool> {
+        Ok(self
+            .db
+            .query_row("SELECT link FROM machines WHERE token = ?1", [token], |r| r.get::<_, String>(0))
+            .optional()?
+            .is_some_and(|link| link == "prusa-connect"))
+    }
+
+    fn fail_pending_of_gone(&mut self, token: &str, reason: &str) -> rusqlite::Result<()> {
         let Some(machine) = self.machine_id(token)? else {
             return Ok(());
         };
@@ -239,7 +265,7 @@ impl Store {
             .query_row("SELECT last_seen FROM machines WHERE token = ?1", [token], |r| r.get(0))
             .optional()?
             .flatten();
-        if seen.is_none_or(|t| now() - t <= ONLINE_SECONDS) || !self.fails_pending_on_close(token)? {
+        if seen.is_none_or(|t| now() - t <= ONLINE_SECONDS) {
             return Ok(());
         }
         let mut any = false;
@@ -251,7 +277,7 @@ impl Store {
             .filter(|c| matches!(c.state, CommandState::Sent | CommandState::Accepted))
         {
             c.state = CommandState::Rejected;
-            c.reason = Some(AGENT_GONE.to_owned());
+            c.reason = Some(reason.to_owned());
             any = true;
         }
         if any {
@@ -295,6 +321,7 @@ impl Store {
         let Some(machine) = self.machine_id(token)? else {
             return Ok(None);
         };
+        let prusa_connect = self.on_prusa_connect(token)?;
         let Some(commands) = self.commands.get_mut(&machine) else {
             return Ok(None);
         };
@@ -303,7 +330,9 @@ impl Store {
             .iter_mut()
             .filter(|c| matches!(c.state, CommandState::Sent | CommandState::Accepted))
         {
-            if now - busy.at < COMMAND_SECONDS {
+            // Buddy has no time for a command: it stays pending until it answers
+            // (Buddy has no time limit for a command; while one runs it answers the next with REJECTED "Processing other command", planner.cpp:661-663); only the printer being gone ends it (`fail_commands_of_gone_printer`).
+            if prusa_connect || now - busy.at < COMMAND_SECONDS {
                 return Ok(None);
             }
             busy.state = CommandState::Rejected;

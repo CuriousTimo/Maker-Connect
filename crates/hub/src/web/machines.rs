@@ -490,13 +490,14 @@ pub(crate) async fn answer(
         Err(error) => return failed(error),
     };
     if let Some((buttons, dialog)) = store.dialogs.get(&id).cloned() {
+        // Buddy refuses a DIALOG_ACTION without `dialog_id` (`command.cpp:86`, `:420`).
+        let Some(dialog) = dialog else {
+            return (StatusCode::CONFLICT, "the printer named no dialog").into_response();
+        };
         let Some(name) = buttons.get(form.button) else {
             return (StatusCode::BAD_REQUEST, "no such button").into_response();
         };
-        let mut kwargs = serde_json::json!({ "button": name });
-        if let Some(dialog) = dialog {
-            kwargs["dialog_id"] = serde_json::json!(dialog);
-        }
+        let kwargs = serde_json::json!({ "dialog_id": dialog, "button": name });
         let command = serde_json::json!({ "command": "DIALOG_ACTION", "kwargs": kwargs });
         return match store.queue_connect_command(space, &id, &format!("Answer: {name}"), &command, false) {
             Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),

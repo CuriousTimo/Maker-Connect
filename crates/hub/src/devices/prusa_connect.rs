@@ -7,7 +7,8 @@
 //!    machine is created, and its pairing code goes back in the `Code` header. The printer
 //!    shows it; the owner enters it on the website, as for an agent.
 //! 2. `GET /p/register` with that `Code`: `202` while it waits, then `200` with the
-//!    machine's token in the `Token` header.
+//!    machine's token in the `Token` header, for as long as the printer has not reported
+//!    with that token (its first report spends the code).
 //! 3. `POST /p/telemetry` and `POST /p/events` with `Token` (and `Fingerprint`).
 //!
 //! Not yet: the WebSocket (`/p/ws`) and the commands, and files.
@@ -124,21 +125,10 @@ fn text(value: &Value, key: &str) -> String {
     }
 }
 
-/// The printer type as a profile knows it: `2.1.0`, also when it comes as numbers.
+/// The printer type as a profile knows it: Buddy 6.3.0 writes `"2.1.0"` as one string
+/// (`render.cpp:342`, `registrator.cpp:63`, "%hhu.%hhu.%hhu"), and only that is read.
 fn printer_type(value: &Value) -> Option<String> {
-    match value {
-        Value::String(s) if !s.is_empty() => Some(s.clone()),
-        Value::Object(parts) => {
-            let part = |k: &str| parts.get(k).and_then(Value::as_u64).unwrap_or(0);
-            Some(format!(
-                "{}.{}.{}",
-                part("type"),
-                part("version"),
-                part("subversion")
-            ))
-        }
-        _ => None,
-    }
+    value.as_str().filter(|s| !s.is_empty()).map(str::to_owned)
 }
 
 async fn register(State(store): State<Shared>, body: String) -> Response {
@@ -218,26 +208,10 @@ fn find_number(value: &Value, keys: &[&str]) -> Option<f64> {
     }
 }
 
-/// The print head in use, from the `tools` object firmware 6.4 and later send (per tool,
-/// numbered from "0"): the active one, or else the first head.
-fn active_head(report: &Value) -> Option<&Value> {
-    let tools = report["tools"].as_object()?;
-    let heads = || {
-        tools
-            .values()
-            .filter(|t| t["type"] == "FFF_PRINT_HEAD" || t.get("nozzle_temp").is_some())
-    };
-    heads()
-        .find(|t| t["active"].as_bool() == Some(true))
-        .or_else(|| heads().next())
-}
-
-/// Prusa Connect's telemetry, as Maker Connect keeps it. Firmware before 6.4 sends the
-/// values flat (`temp_nozzle`, `target_nozzle`, `fan_print`, ...); later firmware per tool
-/// under `tools` (`nozzle_temp`, `nozzle_target_temp`, `print_fan_rpm`, `heatbreak_fan_rpm`).
+/// Prusa Connect's telemetry, as Maker Connect keeps it. Buddy 6.3.0 (`render.cpp:129-257`)
+/// sends the preferred head's values flat (`temp_nozzle`, `target_nozzle`, `fan_print`,
+/// `fan_extruder`, ...), and with more than one tool the rest under `slot`.
 fn to_telemetry(report: &Value) -> Telemetry {
-    let head = active_head(report);
-    let of_head = |key: &str| head.and_then(|h| h[key].as_f64());
     let state = match report["state"].as_str().unwrap_or("") {
         "PRINTING" | "BUSY" => MachineState::Busy,
         "PAUSED" => MachineState::Paused,
@@ -264,29 +238,16 @@ fn to_telemetry(report: &Value) -> Telemetry {
     };
     Telemetry {
         state,
-        nozzle_c: of_head("nozzle_temp")
-            .or_else(|| find_number(report, &["temp_nozzle", "nozzle_temp"]))
-            .map(|t| t as f32),
-        bed_c: find_number(report, &["temp_bed", "bed_temp"]).map(|t| t as f32),
+        nozzle_c: number("temp_nozzle"),
+        bed_c: number("temp_bed"),
         job,
         position_mm: position,
         only_z,
-        // A head that is off says null (6.4 and later): 0, not "unknown".
-        nozzle_target_c: number("target_nozzle").or_else(|| {
-            head.filter(|h| h.get("nozzle_target_temp").is_some())
-                .map(|h| h["nozzle_target_temp"].as_f64().unwrap_or(0.0) as f32)
-        }),
+        nozzle_target_c: number("target_nozzle"),
         bed_target_c: number("target_bed"),
-        // Before 6.4 only while printing.
-        print_fan_rpm: report["fan_print"]
-            .as_f64()
-            .or_else(|| of_head("print_fan_rpm"))
-            .map(|n| n as u32),
-        hotend_fan_rpm: report["fan_extruder"]
-            .as_f64()
-            .or(report["fan_hotend"].as_f64())
-            .or_else(|| of_head("heatbreak_fan_rpm"))
-            .map(|n| n as u32),
+        // Only while it prints (`render.cpp:215-219`).
+        print_fan_rpm: report["fan_print"].as_f64().map(|n| n as u32),
+        hotend_fan_rpm: report["fan_extruder"].as_f64().map(|n| n as u32),
         speed_percent: number("speed"),
         flow_percent: number("flow"),
         material: report["material"].as_str().map(str::to_owned),
@@ -302,23 +263,23 @@ fn to_telemetry(report: &Value) -> Telemetry {
     }
 }
 
-/// Each print head of a machine with more than one (the XL, an INDX), from the `tools`
-/// object of firmware 6.4 and later ("0", "1", …: numbered from 1 here, as on its screen).
+/// Each tool of a machine with more than one (the XL, an MMU), from the `slot` object of
+/// Buddy 6.3.0 (`render.cpp:222-247`): `slot.<n>.temp` per tool, numbered from 1 as Buddy does,
+/// and `slot.active` the number of the tool in use (0: none). No per-tool target is sent.
 fn tools(report: &Value) -> Vec<maker_connect_protocol::ToolHeat> {
-    let Some(tools) = report["tools"].as_object() else {
+    let Some(slot) = report["slot"].as_object() else {
         return Vec::new();
     };
-    let mut heads: Vec<maker_connect_protocol::ToolHeat> = tools
+    let active = slot.get("active").and_then(Value::as_u64);
+    let mut heads: Vec<maker_connect_protocol::ToolHeat> = slot
         .iter()
-        .filter(|(_, t)| t["type"] == "FFF_PRINT_HEAD" || t.get("nozzle_temp").is_some())
         .filter_map(|(key, t)| {
+            let number = key.parse::<u32>().ok()?;
             Some(maker_connect_protocol::ToolHeat {
-                number: key.parse::<u32>().ok()? + 1,
-                nozzle_c: t["nozzle_temp"].as_f64().map(|c| c as f32),
-                nozzle_target_c: t
-                    .get("nozzle_target_temp")
-                    .map(|v| v.as_f64().unwrap_or(0.0) as f32),
-                active: t["active"].as_bool().unwrap_or(false),
+                number,
+                nozzle_c: t["temp"].as_f64().map(|c| c as f32),
+                nozzle_target_c: None,
+                active: active == Some(u64::from(number)),
             })
         })
         .collect();
@@ -378,26 +339,16 @@ pub(crate) fn to_details(info: &Value) -> Details {
     let network = &info["network_info"];
     Details {
         serial: some(&info["sn"]),
-        // Buddy: "printer_type"; Prusa's Connect SDK (PrusaLink): "type", "version",
-        // "subversion" side by side.
-        printer_type: printer_type(&info["printer_type"])
-            .or_else(|| info["type"].as_u64().and_then(|_| printer_type(info))),
+        printer_type: printer_type(&info["printer_type"]),
         firmware: some(&info["firmware"]),
-        // Top level before 6.4 (kept since, "deprecated"); per head under `features` after.
-        nozzle_mm: info["nozzle_diameter"].as_f64().or_else(|| {
-            info["tools"]
-                .as_object()?
-                .values()
-                .find_map(|t| t["features"]["nozzle_diameter"].as_f64())
-        }),
-        // A name per tool before 6.4; later the loaded material's abbreviation ("PETG")
-        // under material_package_instance.package.material.
+        // Buddy 6.3.0 writes it at the top level of INFO (`render.cpp:352`).
+        nozzle_mm: info["nozzle_diameter"].as_f64(),
+        // A name per tool under `tools.<n>.material`, "---" for a tool with nothing loaded
+        // (`render.cpp:395`): no material.
         material: info["tools"].as_object().and_then(|tools| {
-            tools.values().find_map(|t| {
-                some(&t["material"]).or_else(|| {
-                    some(&t["material_package_instance"]["package"]["material"]["abbreviation"])
-                })
-            })
+            tools
+                .values()
+                .find_map(|t| some(&t["material"]).filter(|m| m != "---"))
         }),
         storages: info["storages"]
             .as_array()
@@ -436,6 +387,15 @@ async fn telemetry(
     };
     let token = header(&headers, "token");
     let mut store = store.lock().unwrap();
+    // Its first report with the token: the code is spent (`registrator.cpp:233`).
+    if let Err(error) = store.code_spent(token) {
+        return failed(error);
+    }
+    // A printer not seen for longer than ONLINE_SECONDS: what it was given and had not
+    // answered failed, before this report is taken in (K18 (b), `docs/agent-engine.md`).
+    if let Err(error) = store.fail_commands_of_gone_printer(token) {
+        return failed(error);
+    }
     let mut telemetry = to_telemetry(&report);
     // Every request says the firmware's version.
     let version = header(&headers, "user-agent-version");
@@ -513,6 +473,9 @@ async fn event(State(store): State<Shared>, headers: HeaderMap, body: String) ->
     };
     let token = header(&headers, "token");
     let mut store = store.lock().unwrap();
+    if let Err(error) = store.code_spent(token) {
+        return failed(error);
+    }
     let name = text(&event, "event");
     if let Some(id) = event["command_id"].as_u64() {
         let state = match name.as_str() {
@@ -521,7 +484,7 @@ async fn event(State(store): State<Shared>, headers: HeaderMap, body: String) ->
             // file or folder and making a folder answer with FILE_CHANGED, not FINISHED
             // (Buddy 6.3's connect/planner.cpp: "the result is generated through the
             // FILE_CHANGED event indirectly").
-            // SET_PRINTER_READY (since 6.4) and SEND_STATE_INFO answer with STATE_CHANGED,
+            // SET_PRINTER_READY answers with FINISHED or REJECTED (`planner.cpp:750`), SEND_STATE_INFO with STATE_CHANGED,
             // CANCEL_OBJECT and UNCANCEL_OBJECT with CANCELABLE_CHANGED.
             "FINISHED" | "FILE_INFO" | "FILE_CHANGED" | "JOB_INFO" | "INFO" | "TRANSFER_INFO"
             | "STATE_CHANGED" | "CANCELABLE_CHANGED" => {
@@ -646,10 +609,12 @@ mod tests {
         let (status, headers) = call(&app, ask()).await;
         assert_eq!(status, StatusCode::OK);
         let token = headers["token"].to_str().unwrap().to_owned();
+        // The answer may be lost on the way: the code gets its token again until the
+        // printer has reported with it (registrator.cpp:233).
+        let (status, again) = call(&app, ask()).await;
         assert_eq!(
-            call(&app, ask()).await.0,
-            StatusCode::NOT_FOUND,
-            "the token goes out once"
+            (status, again["token"].to_str().unwrap()),
+            (StatusCode::OK, token.as_str())
         );
 
         let (status, _) = call(
@@ -665,11 +630,16 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(
+            call(&app, ask()).await.0,
+            StatusCode::NOT_FOUND,
+            "its first report spends the code"
+        );
         let machines = store.lock().unwrap().machines(space).unwrap();
         let mini = &machines[0];
         assert_eq!(mini.name, "Original Prusa MINI/+ 2345");
         assert_eq!(mini.link, "prusa-connect");
-        assert!(token.len() < 20, "Buddy keeps at most 19 characters");
+        assert!(token.len() <= 20, "CONNECT_TOKEN_LEN is 20 (printer.hpp:190)");
         assert_eq!(
             mini.telemetry.as_ref().unwrap().firmware.as_deref(),
             Some("Prusa firmware 6.3.0+0.LOCAL")
@@ -753,87 +723,85 @@ mod tests {
         assert_eq!(short.position_mm, Some([1.0, 2.0, 3.0]));
     }
 
-    /// Newer firmware reports the nozzle per tool.
+    /// Buddy 6.3.0's telemetry (render.cpp:129-257), the keys it writes and no others: flat
+    /// values for the preferred head; keys only master (6.4+) writes are not read.
     #[test]
-    fn the_nozzle_is_found_per_tool() {
+    fn the_flat_keys_of_6_3_0_tell_the_heads_values() {
         let report: Value = serde_json::from_str(
-            r#"{"state":"IDLE","temp_bed":22,"tools":{"0":{"nozzle_temp":23.5}}}"#,
-        )
-        .unwrap();
-        let telemetry = to_telemetry(&report);
-        assert_eq!(telemetry.nozzle_c, Some(23.5));
-        assert_eq!(telemetry.bed_c, Some(22.0));
-        assert!(telemetry.job.is_none());
-    }
-
-    /// Firmware 6.4 and later (Buddy's connect/render.cpp): the head's values under
-    /// `tools`, the active head counted, a head that is off with a null target.
-    #[test]
-    fn the_active_head_tells_on_new_firmware() {
-        let report: Value = serde_json::from_str(
-            r#"{"state":"PRINTING","temp_bed":60.1,"target_bed":60,"speed":100,"flow":95,"axis_z":1.2,
-                "tools":{
-                  "0":{"type":"FFF_PRINT_HEAD","active":false,"nozzle_temp":30.0,"nozzle_target_temp":null,"heatbreak_fan_rpm":0,"print_fan_rpm":0},
-                  "1":{"type":"FFF_PRINT_HEAD","active":true,"nozzle_temp":215.3,"nozzle_target_temp":215,"heatbreak_fan_rpm":7100,"print_fan_rpm":5200}
-                },"job_id":7,"progress":40,"time_printing":600,"time_remaining":900}"#,
+            r#"{"job_id":7,"time_printing":600,"time_remaining":900,"progress":40,
+                "temp_nozzle":215.3,"temp_bed":60.1,"target_nozzle":215.0,"target_bed":60.0,
+                "speed":100,"flow":95,"material":"PETG","axis_z":1.20,
+                "fan_extruder":7100,"fan_print":5200,"filament":3.5,"state":"PRINTING"}"#,
         )
         .unwrap();
         let t = to_telemetry(&report);
-        assert_eq!(t.nozzle_c, Some(215.3));
-        assert_eq!(t.nozzle_target_c, Some(215.0));
+        assert_eq!((t.nozzle_c, t.nozzle_target_c), (Some(215.3), Some(215.0)));
+        assert_eq!((t.bed_c, t.bed_target_c), (Some(60.1), Some(60.0)));
         assert_eq!((t.print_fan_rpm, t.hotend_fan_rpm), (Some(5200), Some(7100)));
         assert_eq!(t.flow_percent, Some(95.0));
+        assert_eq!(t.material.as_deref(), Some("PETG"));
         assert_eq!(t.job.map(|j| j.done), Some(40));
-        // Two heads: each one, numbered from 1; the active one's nozzle on top.
+        // Keys that exist only in master (6.4+) are not read.
+        let master: Value = serde_json::from_str(
+            r#"{"state":"PRINTING","tools":{"1":{"type":"FFF_PRINT_HEAD","active":true,"nozzle_temp":215.3,
+                "nozzle_target_temp":215,"heatbreak_fan_rpm":7100,"print_fan_rpm":5200}},"fan_hotend":7100}"#,
+        )
+        .unwrap();
+        let m = to_telemetry(&master);
+        assert_eq!((m.nozzle_c, m.nozzle_target_c, m.print_fan_rpm, m.hotend_fan_rpm), (None, None, None, None));
+        assert!(m.tools.is_empty());
+    }
+
+    /// Buddy 6.3.0's `slot` object (render.cpp:222-247) for a machine with several tools:
+    /// `slot.<n>` (from 1) with `temp`, and `active` the tool in use. A CORE One's chamber and
+    /// an XL's enclosure (render.cpp:178-199).
+    #[test]
+    fn the_slot_object_of_6_3_0_lists_the_tools() {
+        let report: Value = serde_json::from_str(
+            r#"{"temp_nozzle":215.3,"axis_z":1.2,
+                "slot":{"1":{"material":"PLA","temp":30.0,"fan_hotend":0.0,"fan_print":0.0},
+                        "2":{"material":"PETG","temp":215.3,"fan_hotend":7100.0,"fan_print":5200.0},
+                        "state":0,"command":"-","active":2},"state":"PRINTING"}"#,
+        )
+        .unwrap();
+        let t = to_telemetry(&report);
         assert_eq!(t.tools.len(), 2);
-        assert_eq!((t.tools[1].number, t.tools[1].active), (2, true));
-        assert_eq!(t.tools[0].nozzle_target_c, Some(0.0));
-        // A CORE One's chamber, and an XL's enclosure.
+        assert_eq!((t.tools[0].number, t.tools[0].nozzle_c, t.tools[0].active), (1, Some(30.0), false));
+        assert_eq!((t.tools[1].number, t.tools[1].nozzle_c, t.tools[1].active), (2, Some(215.3), true));
         let core: Value = serde_json::from_str(
-            r#"{"state":"IDLE","chamber":{"temp":31.5,"target_temp":40,"fan_1_rpm":0,"fan_2_rpm":0,"fan_pwm_target":0,"led_intensity":100},
-                "tools":{"0":{"type":"FFF_PRINT_HEAD","active":true,"nozzle_temp":24.0,"nozzle_target_temp":null}}}"#,
+            r#"{"chamber":{"temp":31.5,"target_temp":40,"fan_1_rpm":0,"fan_2_rpm":0,"fan_pwm_target":0,"led_intensity":100},"state":"IDLE"}"#,
         )
         .unwrap();
         let c = to_telemetry(&core);
         assert_eq!((c.chamber_c, c.chamber_target_c), (Some(31.5), Some(40.0)));
-        assert!(c.tools.is_empty(), "one head: no list");
-        let xl: Value = serde_json::from_str(r#"{"state":"IDLE","enclosure":{"temp":28,"fan_rpm":0,"time_in_use":3600}}"#).unwrap();
+        assert!(c.tools.is_empty(), "no slot: no list");
+        let xl: Value = serde_json::from_str(r#"{"enclosure":{"temp":28,"fan_rpm":0,"time_in_use":3600},"state":"IDLE"}"#).unwrap();
         assert_eq!(to_telemetry(&xl).chamber_c, Some(28.0));
-        // Off: the target is 0, not unknown.
-        let off: Value = serde_json::from_str(
-            r#"{"state":"IDLE","tools":{"0":{"type":"FFF_PRINT_HEAD","active":true,"nozzle_temp":24.0,"nozzle_target_temp":null}}}"#,
-        )
-        .unwrap();
-        assert_eq!(to_telemetry(&off).nozzle_target_c, Some(0.0));
     }
 
-    /// INFO on firmware 6.4 and later: the nozzle under `features`, the material as an
-    /// abbreviation deep in `material_package_instance`.
+    /// INFO as Buddy 6.3.0 writes it (render.cpp:340-401): the nozzle at the top level, the
+    /// material per tool, `"---"` for none; `printer_type` only as the string; master's
+    /// `features` and `material_package_instance` are not read.
     #[test]
-    fn info_on_new_firmware() {
+    fn info_of_6_3_0_is_read_as_buddy_writes_it() {
         let info: Value = serde_json::from_str(
-            r##"{"firmware":"8.0.1+12","printer_type":"2.1.0","sn":"CZPX1234",
-                "tools":{"0":{"type":"FFF_PRINT_HEAD",
-                  "features":{"nozzle_diameter":0.60,"nozzle_hardened":true,"nozzle_high_flow":false},
-                  "material_package_instance":{"class":"FFF","package":{"class":"FFF",
-                    "material":{"class":"FFF","abbreviation":"PETG","primary_color":{"color_rgba":"#ff8000"},"tags":[]}}}}}}"##,
+            r#"{"firmware":"6.3.0+0.LOCAL","printer_type":"2.1.0","sn":"CZPX1234","appendix":false,
+                "fingerprint":"abc","nozzle_diameter":0.60,"transfer_paused":false,
+                "tools":{"1":{"nozzle_diameter":0.6,"high_flow":false,"hardened":false,"material":"---"},
+                         "2":{"nozzle_diameter":0.6,"high_flow":false,"hardened":false,"material":"PETG"}},"slots":2}"#,
         )
         .unwrap();
         let details = to_details(&info);
         assert_eq!(details.nozzle_mm, Some(0.6));
         assert_eq!(details.material.as_deref(), Some("PETG"));
-    }
-
-    /// INFO from Prusa's Connect SDK (PrusaLink on an MK3S): the type in three fields.
-    #[test]
-    fn info_from_the_connect_sdk() {
-        let info: Value = serde_json::from_str(
-            r#"{"type":1,"version":3,"subversion":1,"firmware":"3.14.1","sdk":"0.8.1",
-                "sn":"CZPX4720X004XC12345","fingerprint":"abc","network_info":{"hostname":"prusalink"}}"#,
+        assert_eq!(details.printer_type.as_deref(), Some("2.1.0"));
+        let master: Value = serde_json::from_str(
+            r##"{"firmware":"8.0.1+12","type":1,"version":3,"subversion":1,
+                "tools":{"0":{"type":"FFF_PRINT_HEAD","features":{"nozzle_diameter":0.60},
+                  "material_package_instance":{"package":{"material":{"abbreviation":"PETG"}}}}}}"##,
         )
         .unwrap();
-        let details = to_details(&info);
-        assert_eq!(details.printer_type.as_deref(), Some("1.3.1"));
-        assert_eq!(details.firmware.as_deref(), Some("3.14.1"));
+        let d = to_details(&master);
+        assert_eq!((d.nozzle_mm, d.material, d.printer_type), (None, None, None));
     }
 }

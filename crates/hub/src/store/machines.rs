@@ -544,9 +544,11 @@ impl Store {
                 machine.ready = self.ready_after(&machine.id)?;
                 machine.queue = self.queue_of(&machine.id)?;
                 machine.asking = self.asking.get(&machine.id).cloned();
+                // Only with a dialog the printer named: DIALOG_ACTION needs its `dialog_id`.
                 machine.buttons = self
                     .dialogs
                     .get(&machine.id)
+                    .filter(|(_, dialog)| dialog.is_some())
                     .map(|(buttons, _)| buttons.clone())
                     .unwrap_or_default();
                 // An agent's printer asks through its report.

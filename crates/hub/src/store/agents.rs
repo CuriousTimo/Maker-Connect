@@ -22,7 +22,7 @@ impl Store {
     ) -> rusqlite::Result<(String, String, String)> {
         let mut rng = rand::thread_rng();
         let token: String = if link == "prusa-connect" {
-            // Buddy firmware keeps at most 19 characters of a token: 19 of 62 is 113 bits.
+            // Buddy keeps at most 20 characters of a token (CONNECT_TOKEN_LEN, printer.hpp:190); 19 of 62 is 113 bits, which fits.
             const ALPHANUMERIC: &[u8] =
                 b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
             (0..19)
@@ -60,7 +60,8 @@ impl Store {
 
     /// A Prusa Connect printer asking with its code whether it has been added: None for an
     /// unknown code, `Some(None)` while it waits, `Some(Some(token))` once it is in a space.
-    /// The token goes out once: the code is forgotten then.
+    /// The code keeps getting its token until the printer's first report with that token
+    /// (`code_spent`): `registrator.cpp:233` takes the token only from the answer it reads.
     pub fn token_for_code(&self, code: &str) -> rusqlite::Result<Option<Option<String>>> {
         let found: Option<(String, Option<i64>)> = self
             .db
@@ -73,14 +74,19 @@ impl Store {
         Ok(match found {
             None => None,
             Some((_, None)) => Some(None),
-            Some((token, Some(_))) => {
-                self.db.execute(
-                    "UPDATE machines SET pairing_code = NULL WHERE token = ?1",
-                    [&token],
-                )?;
-                Some(Some(token))
-            }
+            Some((token, Some(_))) => Some(Some(token)),
         })
+    }
+
+    /// The printer reported with its token (telemetry or event): it has read it, so its
+    /// code is spent.
+    pub fn code_spent(&self, token: &str) -> rusqlite::Result<()> {
+        self.db.execute(
+            "UPDATE machines SET pairing_code = NULL
+             WHERE token = ?1 AND link = 'prusa-connect' AND space_id IS NOT NULL AND pairing_code IS NOT NULL",
+            [token],
+        )?;
+        Ok(())
     }
 
     /// The profile recognised for a machine from what it said when it registered, unless

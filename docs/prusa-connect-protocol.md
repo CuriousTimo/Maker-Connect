@@ -45,8 +45,9 @@ as for an agent.
 
 Afterwards every request carries the headers `Fingerprint` and `Token`; before 6.4 also
 `User-Agent-Printer` (`Buddy_MINI`) and `User-Agent-Version` (`6.3.0+0.LOCAL`), dropped since.
-**A token is at most 19 characters**: the firmware keeps 20 bytes with the closing zero, and
-a longer token does not work (seen on a MINI: every telemetry refused).
+**A token is at most 20 characters** (`CONNECT_TOKEN_LEN` is 20, `printer.hpp:190`; the
+registrator keeps at most that many, `registrator.cpp:142`); a longer one does not work (seen on
+a MINI: every telemetry refused). The hub makes 19, which fits.
 
 ## HTTP polling (before 6.4)
 

@@ -351,7 +351,7 @@ impl Store {
     }
 
     /// A job's file again, under a name not on the stick yet: after the printer said a file
-    /// by that name exists, or that the one we meant to print is gone.
+    /// by that name exists (`machine_reason` `FILE_EXISTS`, `planner.cpp:294`).
     fn send_again(&mut self, old: &Transfer, job: i64, machine: &str) -> rusqlite::Result<bool> {
         if self.transfers_of_job(job)? >= 3 {
             return Ok(false);
@@ -595,14 +595,16 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
                     }
                     store.asking.insert(machine.clone(), (title, body));
                     // Its buttons, answered from the website with DIALOG_ACTION: the dialog
-                    // (telemetry's and the event's `dialog_id`) and the button's name.
+                    // (the event's `dialog_id`, `render.cpp:673`) and the button's name.
+                    // Buddy refuses a DIALOG_ACTION without a `dialog_id`, so the buttons are
+                    // offered only when the printer named a dialog.
                     let buttons: Vec<String> = data["buttons"]
                         .as_array()
                         .into_iter()
                         .flatten()
                         .filter_map(|b| b.as_str().map(str::to_owned))
                         .collect();
-                    let dialog = event["dialog_id"].as_u64().or(data["dialog_id"].as_u64());
+                    let dialog = event["dialog_id"].as_u64();
                     store.dialogs.insert(machine.clone(), (buttons, dialog));
                 }
                 (true, ..) => {}
@@ -622,11 +624,6 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
                 }
                 store.changed();
             }
-        }
-        // A stick put in or taken out (Prusa's Connect SDK): all of it is read again.
-        "MEDIUM_INSERTED" | "MEDIUM_EJECTED" => {
-            store.forget_printer_stick(&machine)?;
-            store.changed();
         }
         // Which file a print is (ours or the printer's own): said as it starts, and when
         // asked (SEND_JOB_INFO, see `on_report`); its telemetry only says how far.
@@ -705,7 +702,7 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
                 // one-click print), and while it shows the file stays where the download
                 // put it, listed read-only. To print: started from there (Buddy takes
                 // START_PRINT while the preview shows). Only to the stick: the preview is
-                // closed (`on_report`; a WORKAROUND that needs tracing, see there).
+                // closed (`on_report`; ours, approved, audit D6).
                 if transfer.print_after {
                     store.print_from_stick(&transfer, &machine)?;
                 } else {
@@ -713,9 +710,8 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
                 }
             } else {
                 // Why, when it says: STORAGE_FAILURE (the USB stick), NETWORK_FAILURE.
-                let why = match data["machine_reason"]
+                let why = match event["machine_reason"]
                     .as_str()
-                    .or_else(|| event["machine_reason"].as_str())
                     .filter(|r| !r.is_empty())
                 {
                     Some("STORAGE_FAILURE") => format!(
@@ -744,10 +740,10 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
                     .unwrap_or("refused by the printer")
                     .to_owned();
                 store.set_transfer(&transfer.iv, "failed", None, Some(&why))?;
-                // A file by that name is there already (not ours, or changed), or the copy we
-                // meant to print is gone: once more, under a free name.
-                let lower = why.to_lowercase();
-                let again = lower.contains("exist") || lower.contains("not found");
+                // A file by that name is there already (not ours, or changed): once more,
+                // under a free name. Buddy says so in `machine_reason` (`planner.cpp:294`,
+                // `render.cpp:330`), not in the text of `reason`.
+                let again = file_exists(event);
                 if let Some(job) = transfer.job
                     && !(again && store.send_again(&transfer, job, &machine)?)
                 {
@@ -758,6 +754,13 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
         _ => {}
     }
     Ok(())
+}
+
+/// Whether a REJECTED event says a file by that name is there already: Buddy's `machine_reason`
+/// `FILE_EXISTS` (`planner.cpp:294`, `render.cpp:330`), top level of the event, not the text of
+/// `reason`.
+pub(crate) fn file_exists(event: &Value) -> bool {
+    event["machine_reason"].as_str() == Some("FILE_EXISTS")
 }
 
 /// Whether what the printer said of a file still holds: recent enough, and the same size
@@ -857,11 +860,11 @@ pub fn on_report(
         let command = json!({"command": "SEND_JOB_INFO", "kwargs": {"job_id": job}});
         store.queue_connect_command(space, &machine, "Which file it prints", &command, true)?;
     }
-    // WORKAROUND, NEEDS TRACING (2026-11-08). Buddy opens a file's print preview while a
-    // Connect download is still arriving (`transfers/transfer.cpp`, print-while-
-    // downloading), and while it shows the file stays read-only; Prusa Connect is not
-    // known to close it. How Prusa Connect really handles this is not known yet: trace a
-    // MINI on Prusa Connect, then replace this. Until then, a download only to the stick
+    // OURS, approved by the owner (2026-11-17, audit D6). Buddy opens a file's print preview
+    // after a Connect download (`transfers/transfer.cpp:423-430`), and while it shows the
+    // file stays read-only. Buddy 6.3.0 gives Connect no command that closes it (audit D6:
+    // STOP_PRINT, SET_IDLE and DIALOG_ACTION do not apply; only its own screen or M604 reach
+    // the abort, `marlin_server.cpp:1244-1251`). So a download only to the stick
     // closes the preview with M604 (in the preview Buddy only closes it, as its Back
     // button; tried on the MINI; in a print it would stop it). So only as the answer to a
     // report that says IDLE, with nothing else to go before it. Anything but IDLE:
@@ -2038,8 +2041,10 @@ mod flow {
             "the copy on the stick"
         );
         let start_id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
-        // Someone took it off the stick meanwhile: sent again, under a free name.
-        call(&app, event(json!({"event": "REJECTED", "command_id": start_id, "reason": "File not found", "state": "IDLE"}))).await;
+        // A file by that name is on the stick: Buddy says FILE_EXISTS (planner.cpp:793), and
+        // it is sent again, under a free name.
+        call(&app, event(json!({"event": "REJECTED", "command_id": start_id, "reason": "File already exists",
+            "machine_reason": "FILE_EXISTS", "state": "IDLE"}))).await;
         let mut answer = call(&app, report("IDLE")).await;
         if answer.2.is_empty() {
             answer = call(&app, report("IDLE")).await;
@@ -2050,14 +2055,14 @@ mod flow {
         assert_eq!(job().unwrap().state, JobState::Printing, "the job goes on");
         // It asks something on its screen: shown as it says it, until it no longer asks.
         call(&app, event(json!({"event": "STATE_CHANGED", "state": "ATTENTION", "dialog_id": 7, "data": {
-            "code": "17630", "title": "Sliced for another printer", "text": "The G-code was sliced for MINIIS.", "buttons": ["CONTINUE", "ABORT"]
+            "code": "17630", "title": "Sliced for another printer", "text": "The G-code was sliced for MINIIS.", "buttons": ["Continue", "Abort"]
         }}))).await;
         // Its buttons, pressed from the website: DIALOG_ACTION with the dialog and the name
         // (once the download before has its answer: one command at a time).
         let again_id: u64 = answer.1["command-id"].to_str().unwrap().parse().unwrap();
         call(&app, event(json!({"event": "TRANSFER_INFO", "command_id": again_id, "state": "ATTENTION", "data": {}}))).await;
         let buttons = store.lock().unwrap().machine(space, &mini).unwrap().unwrap().buttons;
-        assert_eq!(buttons, ["CONTINUE", "ABORT"]);
+        assert_eq!(buttons, ["Continue", "Abort"]);
         let (status, _, _) = call(
             &app,
             post(format!("/machines/{mini}/answer"), "button=1".into()),
@@ -2067,7 +2072,7 @@ mod flow {
         let (_, _, body) = call(&app, report("ATTENTION")).await;
         assert_eq!(
             serde_json::from_slice::<Value>(&body).unwrap(),
-            json!({"command": "DIALOG_ACTION", "kwargs": {"dialog_id": 7, "button": "ABORT"}})
+            json!({"command": "DIALOG_ACTION", "kwargs": {"dialog_id": 7, "button": "Abort"}})
         );
         let (status, _, _) = call(
             &app,

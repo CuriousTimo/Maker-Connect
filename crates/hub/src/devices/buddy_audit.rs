@@ -750,27 +750,40 @@ async fn every_dialog_answer_of_6_3_0_goes_back_unchanged() {
     }
 }
 
-/// A DIALOG_ACTION the hub sends when the printer's STATE_CHANGED named no `dialog_id`:
-/// Buddy refuses it (command.cpp:86 and :420: `ArgDialogId` is expected).
+/// A STATE_CHANGED that names no `dialog_id` (render.cpp:673 writes it only when the state has
+/// a dialog): Buddy refuses a DIALOG_ACTION without one (command.cpp:86, :420), so the hub
+/// offers no buttons and refuses a press, sending nothing.
 #[tokio::test]
-async fn a_dialog_answer_without_a_dialog_is_refused_by_buddy() {
+async fn a_dialog_answer_without_a_dialog_is_refused_by_the_hub() {
     let mini = Mini::new();
     mini.report(r#"{"state":"IDLE"}"#).await;
-    // render.cpp:673 writes `dialog_id` only when the state has a dialog; the buttons come
-    // with it (state.buttons()), so this shape is only the reference's own possibility.
     mini.event(json!({"data": {"title": "t", "text": "x", "buttons": ["Continue"]},
         "state": "ATTENTION", "event": "STATE_CHANGED"}))
         .await;
+    let buttons = mini
+        .store
+        .lock()
+        .unwrap()
+        .machine(mini.space, &mini.id)
+        .unwrap()
+        .unwrap()
+        .buttons;
+    assert!(buttons.is_empty(), "no dialog named: no buttons offered");
+    let (status, _, body) = mini
+        .call(
+            Request::post(format!("/machines/{}/answer", mini.id))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from("button=0"))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(String::from_utf8_lossy(&body), "the printer named no dialog");
     assert_eq!(
-        mini.form(format!("/machines/{}/answer", mini.id), "button=0")
-            .await,
-        StatusCode::NO_CONTENT
-    );
-    let (_, command, raw) = mini.takes("ATTENTION").await;
-    assert_eq!(
-        command.broken.as_deref(),
-        Some("Missing or broken parameters"),
-        "{raw}"
+        mini.report(r#"{"state":"ATTENTION"}"#).await.0,
+        StatusCode::NO_CONTENT,
+        "nothing was queued"
     );
 }
 
@@ -940,7 +953,7 @@ async fn the_answer_to_a_report_is_what_buddy_reads() {
     let (cid, content_type, body) = mini.gets("IDLE").await;
     assert_eq!((cid, content_type.as_str(), body.as_str()), (id, "text/x.gcode", "G28"));
     // :90-96: a G-code body over the 512-byte buffer is refused by the printer ("GCode too large").
-    // One command at a time (planner.cpp:661 "Processing other command").
+    // One command at a time (planner.cpp:661-663, REJECTED "Processing other command").
     assert_eq!(mini.report(r#"{"state":"IDLE"}"#).await.0, StatusCode::NO_CONTENT);
     mini.finished(cid).await;
     // an unknown token
@@ -997,19 +1010,97 @@ async fn registration_is_what_registrator_cpp_does() {
     assert!(store.lock().unwrap().pair(space, &code).unwrap().is_some());
     let (status, headers) = send(ask()).await;
     assert_eq!(status, StatusCode::OK);
-    let token = headers["token"].to_str().unwrap();
+    let token = headers["token"].to_str().unwrap().to_owned();
     assert!(!token.is_empty() && token.len() <= 20);
+    // The answer may be lost: the code gets its token again until the printer's first report
+    // with it (registrator.cpp:233), then it is spent.
+    let (status, again) = send(ask()).await;
+    assert_eq!((status, again["token"].to_str().unwrap()), (StatusCode::OK, token.as_str()));
+    let report = send(
+        Request::post("/p/telemetry")
+            .header("Token", &token)
+            .header("Fingerprint", "0123456789abcdef")
+            .body(Body::from(r#"{"state":"IDLE"}"#))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(report.0, StatusCode::NO_CONTENT);
+    assert_eq!(send(ask()).await.0, StatusCode::NOT_FOUND);
 }
 
-/// The INFO event's `tools` (render.cpp:384-401) says `"material": "---"` for a slot with
-/// nothing loaded; the hub keeps that as the machine's material (a difference, listed in the
-/// audit).
+/// The INFO event's `tools` (render.cpp:395) says `"material": "---"` for a slot with nothing
+/// loaded: the hub reads that as no material.
 #[test]
 fn info_says_a_dash_for_no_material() {
     let info = json!({"firmware": "6.3.0", "printer_type": "2.1.0", "sn": "X", "nozzle_diameter": 0.4,
         "tools": {"1": {"nozzle_diameter": 0.4, "high_flow": false, "hardened": false, "material": "---"}}});
     let details = super::prusa_connect::to_details(&info);
-    assert_eq!(details.material.as_deref(), Some("---"));
+    assert_eq!(details.material, None);
+}
+
+/// D4: `printer_type` is Buddy's string "%hhu.%hhu.%hhu" (render.cpp:342, registrator.cpp:63);
+/// a registration that names the type as numbers is not a profile.
+#[test]
+fn printer_type_is_read_as_buddys_string_only() {
+    let info = json!({"printer_type": "2.1.0", "firmware": "6.3.0", "sn": "X"});
+    assert_eq!(super::prusa_connect::to_details(&info).printer_type.as_deref(), Some("2.1.0"));
+    let numbers = json!({"type": 2, "version": 1, "subversion": 0, "firmware": "6.3.0", "sn": "X"});
+    assert_eq!(super::prusa_connect::to_details(&numbers).printer_type, None);
+    let nested = json!({"printer_type": {"type": 2, "version": 1, "subversion": 0}});
+    assert_eq!(super::prusa_connect::to_details(&nested).printer_type, None);
+}
+
+/// D3: Buddy 6.3.0 never sends MEDIUM_INSERTED or MEDIUM_EJECTED (the 14 events of
+/// planner.cpp:253-280); a stick change comes as FILE_CHANGED with `rescan` (render.cpp:555),
+/// which makes the hub read the stick again. The two events do nothing.
+#[tokio::test]
+async fn a_stick_change_comes_as_file_changed_with_rescan() {
+    let mini = Mini::new();
+    mini.report(r#"{"state":"IDLE"}"#).await;
+    let look = || async {
+        mini.call(
+            Request::get(format!("/api/machines/{}/usb?path=/usb", mini.id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    };
+    look().await;
+    let (cid, command, _) = mini.takes("IDLE").await;
+    assert_eq!(command.kind, "SendFileInfo");
+    mini.event(json!({"data": {"children": [], "file_count": 0, "read_only": false, "display_name": "usb",
+        "type": "FOLDER", "path": "/usb"}, "state": "IDLE", "command_id": cid, "event": "FILE_INFO"}))
+        .await;
+    // Listed: asking again sends nothing.
+    look().await;
+    assert_eq!(mini.report(r#"{"state":"IDLE"}"#).await.0, StatusCode::NO_CONTENT);
+    for name in ["MEDIUM_INSERTED", "MEDIUM_EJECTED"] {
+        mini.event(json!({"state": "IDLE", "event": name})).await;
+        look().await;
+        assert_eq!(mini.report(r#"{"state":"IDLE"}"#).await.0, StatusCode::NO_CONTENT, "{name}");
+    }
+    // The stick changed: FILE_CHANGED with rescan (render.cpp:555), the listing is read again.
+    mini.event(json!({"data": {"new_path": "/usb", "rescan": true}, "state": "IDLE", "event": "FILE_CHANGED"}))
+        .await;
+    look().await;
+    let (_, command, _) = mini.takes("IDLE").await;
+    assert_eq!(command.kind, "SendFileInfo");
+}
+
+/// D9: the hub sends a file again under a free name only when REJECTED says `machine_reason`
+/// `FILE_EXISTS` (planner.cpp:793, render.cpp:330), not by the words of `reason`.
+#[test]
+fn a_free_name_is_decided_by_machine_reason() {
+    use super::printer_files::file_exists;
+    // planner.cpp:793: "File already exists", FILE_EXISTS.
+    assert!(file_exists(&json!({"event": "REJECTED", "command_id": 3, "reason": "File already exists",
+        "machine_reason": "FILE_EXISTS", "state": "IDLE"})));
+    // The same words without the machine reason, and the other machine reasons (planner.cpp:287-302).
+    assert!(!file_exists(&json!({"event": "REJECTED", "reason": "File already exists"})));
+    assert!(!file_exists(&json!({"event": "REJECTED", "reason": "File not found"})));
+    for other in ["TRANSFER_IN_PROGRESS", "STORAGE_FAILURE", "NOT_READY", "NETWORK_FAILURE"] {
+        assert!(!file_exists(&json!({"event": "REJECTED", "reason": "File exists", "machine_reason": other})));
+    }
 }
 
 /// The states `to_str(DeviceState)` writes (state/printer_state.cpp:442-466), as the telemetry's
@@ -1123,11 +1214,12 @@ async fn the_listing_follows_file_info_and_file_changed() {
     assert_eq!(names, ["BOX~1.BGC"]);
 }
 
-/// D8: the hub waits for the answer of the command it sent, but after 120 s (`COMMAND_SECONDS`,
-/// ours; Buddy has no such time) it marks it as not answered and sends the next one, whether or
-/// not Buddy is still carrying it out (Buddy then refuses: planner.cpp:661, :1078-1086).
+/// D8: Buddy has no time limit for a command (none in src/connect; while one runs it rejects the next, planner.cpp:661-663); the hub does not give one up either: it
+/// stays pending while Buddy carries it out (its `command_id` in telemetry, render.cpp:251), is
+/// settled by its FINISHED, and fails only when the printer itself was gone (not seen for longer
+/// than ONLINE_SECONDS, K18 (b)): "the printer was gone" (ours).
 #[tokio::test]
-async fn the_hub_sends_the_next_command_after_120_seconds() {
+async fn a_command_stays_pending_until_buddy_answers_it() {
     let mini = Mini::new();
     mini.report(r#"{"state":"IDLE"}"#).await;
     let queue = || {
@@ -1148,16 +1240,37 @@ async fn the_hub_sends_the_next_command_after_120_seconds() {
     let (status, headers, _) = mini.report(r#"{"state":"IDLE"}"#).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers["command-id"].to_str().unwrap(), first.to_string());
-    assert_eq!(
-        mini.report(r#"{"state":"IDLE"}"#).await.0,
-        StatusCode::NO_CONTENT
-    );
+    // An hour on, still going: the next one waits, the first is not given up.
     mini.store
         .lock()
         .unwrap()
-        .set_commands_at(&mini.id, crate::store::now() - 121);
+        .set_commands_at(&mini.id, crate::store::now() - 3600);
+    assert_eq!(
+        mini.report(&format!(r#"{{"command_id":{first},"state":"IDLE"}}"#)).await.0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(mini.command_state(first), CommandState::Accepted);
+    assert_eq!(mini.command_state(second), CommandState::Queued);
+    // Buddy's answer settles it, and the next one goes.
+    mini.finished(first).await;
+    assert_eq!(mini.command_state(first), CommandState::Finished);
     let (status, headers, _) = mini.report(r#"{"state":"IDLE"}"#).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers["command-id"].to_str().unwrap(), second.to_string());
-    assert_eq!(mini.command_state(first), CommandState::Rejected);
+    // The printer was gone (not seen for longer than ONLINE_SECONDS): what it had not answered
+    // fails, named as ours; a later report goes on.
+    let third = queue();
+    mini.store
+        .lock()
+        .unwrap()
+        .set_last_seen(&mini.id, crate::store::now() - crate::store::ONLINE_SECONDS - 1);
+    let (status, headers, _) = mini.report(r#"{"state":"IDLE"}"#).await;
+    assert_eq!(mini.command_state(second), CommandState::Rejected);
+    let reason = {
+        let s = mini.store.lock().unwrap();
+        let m = s.machine(mini.space, &mini.id).unwrap().unwrap();
+        m.commands.iter().find(|c| c.id == second).unwrap().reason.clone()
+    };
+    assert_eq!(reason.as_deref(), Some("the printer was gone"));
+    assert_eq!((status, headers["command-id"].to_str().unwrap()), (StatusCode::OK, third.to_string().as_str()));
 }

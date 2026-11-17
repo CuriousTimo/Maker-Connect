@@ -371,8 +371,12 @@ pub const HISTORY_SECONDS: i64 = 30 * 60;
 const COMMANDS_KEPT: usize = 40;
 /// Lines of a command's output kept.
 const OUTPUT_KEPT: usize = 200;
-/// A command given to a machine that does not answer about it is given up after this.
+/// A command given to a machine that does not answer about it is given up after this (not for
+/// a printer on the built-in Prusa Connect: Buddy has no such time, see `PRINTER_GONE`).
 const COMMAND_SECONDS: i64 = 120;
+/// Why a Sent or Accepted command of a Prusa Connect printer fails when the printer was gone
+/// (ours, K18 (b) for that link).
+pub const PRINTER_GONE: &str = "the printer was gone";
 /// K18: why a Sent or Accepted command of a Marlin agent machine fails when its agent was gone.
 pub const AGENT_GONE: &str = "the agent was gone";
 
