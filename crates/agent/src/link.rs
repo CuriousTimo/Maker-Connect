@@ -1166,6 +1166,14 @@ mod tests {
             ("labelwriter-450", Mode::LabelWriter450),
             ("dymo-scale", Mode::DymoScale),
         ] {
+            // Marlin is refused on Windows (not ported there yet): said so, never a default.
+            if cfg!(windows) && mode == Mode::Marlin {
+                let refused = options(&args(&["--kind", "fdm", "--mode", given]))
+                    .err()
+                    .map(|e| e.to_string());
+                assert!(refused.unwrap().contains("not yet on Windows"));
+                continue;
+            }
             let options = options(&args(&["--kind", "fdm", "--mode", given])).unwrap();
             assert_eq!(options.mode, mode);
             assert_eq!(options.port, None);
@@ -1173,9 +1181,9 @@ mod tests {
         }
         let options = options(&args(&[
             "--kind",
-            "fdm",
+            "laser",
             "--mode",
-            "marlin",
+            "grbl",
             "--port",
             "/dev/ttyACM0",
             "--baud",
