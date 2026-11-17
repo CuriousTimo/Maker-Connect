@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod buddy_audit;
 pub mod legacy_gcode;
 pub mod printer_files;
 pub mod prusa_connect;
