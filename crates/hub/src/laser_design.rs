@@ -90,6 +90,53 @@ async fn lasers(access: Access, State(store): State<Shared>) -> Response {
     }
 }
 
+/// Whether the laser design tool is there for this person (Prepare, a laser's page): derived from
+/// the space's lasers and the person's permissions on them (Space), nothing of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Availability {
+    Open,
+    /// This hub was built without the page (feature `laser-design`).
+    NotBuilt,
+    /// A guest: looks, does not send.
+    Guest,
+    /// The space has no laser.
+    NoLaser,
+    /// There are lasers, none the person may use.
+    NotPermitted,
+}
+
+pub(crate) fn availability(
+    store: &crate::store::Store,
+    access: &Access,
+) -> rusqlite::Result<Availability> {
+    availability_of(store, access, !ASSETS.is_empty())
+}
+
+fn availability_of(
+    store: &crate::store::Store,
+    access: &Access,
+    built: bool,
+) -> rusqlite::Result<Availability> {
+    if !built {
+        return Ok(Availability::NotBuilt);
+    }
+    if access.role < Role::Member {
+        return Ok(Availability::Guest);
+    }
+    if !store
+        .machines(access.space)?
+        .iter()
+        .any(|m| m.kind == MachineKind::Laser)
+    {
+        return Ok(Availability::NoLaser);
+    }
+    Ok(if usable_lasers(store, access)?.is_empty() {
+        Availability::NotPermitted
+    } else {
+        Availability::Open
+    })
+}
+
 /// Whether this person may open the page: a member who may use a laser.
 fn may_open(store: &crate::store::Store, access: &Access) -> Result<(), Box<Response>> {
     if access.role < Role::Member {

@@ -60,6 +60,7 @@ pub fn app(store: Shared) -> Router {
         .merge(codes::routes())
         .merge(stock::routes())
         .route("/files", get(files_page::page))
+        .route("/prepare", get(crate::pages::prepare_page::page))
         .merge(auth::routes())
         .merge(space_page::routes())
         .merge(permissions_page::routes())

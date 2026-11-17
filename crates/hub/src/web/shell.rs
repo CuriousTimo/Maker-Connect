@@ -22,7 +22,7 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
         r##"<script>try {{ const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; }} catch {{}}</script>
 <header class="topbar">
   <a class="brand" href="{home}"><img src="{root}logo.svg" alt="" width="28" height="28"><span><b>Maker Connect</b><small>{space}</small></span></a>
-  <nav class="side-nav" aria-label="Pages">{now}{machines}{projects}{files}{stock}{cameras}{space_link}</nav>
+  <nav class="side-nav" aria-label="Pages">{now}{machines}{projects}{files}{prepare}{stock}{cameras}{space_link}</nav>
   <div class="top-right" data-top-right>
     <div class="summary">
       <span class="count" title="Machines in this space"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="10" rx="1.5"/><path d="M7 17h6M10 14v3"/></svg><b data-sum="machines">–</b><span class="sr">machines</span></span>
@@ -148,6 +148,17 @@ pub(crate) fn header(space: &str, root: &str, here: &str) -> String {
             "files",
             r#"<path d="M5 2.5h6.5l3.5 3.5v11.5H5z"/><path d="M11.5 2.5V6H15"/>"#
         ),
+        // Prepare: shown when this build has a tool in it (today the laser design page).
+        prepare = if crate::laser_design::ASSETS.is_empty() {
+            String::new()
+        } else {
+            link(
+                "prepare",
+                "Prepare",
+                "prepare",
+                r#"<path d="M4 16 13.5 6.5l2 2L6 18H4z"/><path d="m12 8 2-2 2 2-2 2"/><path d="M3 3.5h5M5.5 1v5"/>"#,
+            )
+        },
         stock = link(
             "stock",
             "Materials",

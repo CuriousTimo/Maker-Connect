@@ -32,6 +32,53 @@ static FAKE: &[Asset] = &[
 /// A laser program: `M4` makes the hub read it as a laser's file; the moves are small and absolute.
 const GCODE: &str = "; made by the page\nG21\nG90\nM4 S0\nG0 X10 Y10\nG1 X20 Y10 S300 F1000\nM5\n";
 
+mod prepare_tests {
+    use super::*;
+
+    #[test]
+    fn the_tool_is_open_only_to_a_member_who_may_use_a_laser_of_the_space() {
+        let w = World::new();
+        w.person("ann", Role::Member);
+        w.person("gus", Role::Guest);
+        let store = w.store.clone();
+        // The access first: `access_of` locks the store itself.
+        let of = |name: &str, built: bool| {
+            let access = w.access_of(name);
+            availability_of(&store.lock().unwrap(), &access, built).unwrap()
+        };
+        assert_eq!(of("ann", false), Availability::NotBuilt);
+        assert_eq!(of("ann", true), Availability::NoLaser);
+        w.laser("Ortur", true);
+        assert_eq!(
+            of("ann", true),
+            Availability::NotPermitted,
+            "a laser that needs permission ann has not got"
+        );
+        assert_eq!(of("gus", true), Availability::Guest);
+        w.laser("Open one", false);
+        assert_eq!(of("ann", true), Availability::Open);
+    }
+
+    #[tokio::test]
+    async fn prepare_says_why_the_tool_is_not_there() {
+        let w = World::new();
+        let (_, ann) = w.person("ann", Role::Member);
+        let (_, gus) = w.person("gus", Role::Guest);
+        let (status, body) = w.get(&ann, "/prepare").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("<h3>Laser design</h3>"), "{body}");
+        let expect = if ASSETS.is_empty() {
+            "Not in this hub's build"
+        } else {
+            "There is no laser in this space"
+        };
+        assert!(body.contains(expect), "{body}");
+        let (status, body) = w.get(&gus, "/prepare").await;
+        assert_eq!(status, StatusCode::OK, "a guest sees what there is: {body}");
+        assert!(!body.contains("Open laser design"), "{body}");
+    }
+}
+
 mod serving_tests {
     use super::*;
 

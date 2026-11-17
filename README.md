@@ -36,97 +36,81 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 
 ## What works
 
+Every device follows **one working reference to the letter**: the agent's ports are
+translations of that reference, file by file, and each is proved against the reference itself
+(the audits in [docs/audits](docs/audits/README.md), each with a checker script and a test per
+row). What a port does not know, it does not guess.
+
 - **Machines report themselves.** An agent next to a machine, or the machine's own firmware,
   connects to the hub: no port to open where the machine stands. Add one with the code it
   shows. Every page updates live (server-sent events).
 - **A Prusa MINI needs no agent.** Its firmware speaks Prusa Connect; the hub speaks the
-  printer side of that protocol. Point the MINI's Connect settings at your hub and it
-  registers, reports, and takes commands. Tried on a real MINI (firmware 6.3.0).
-- **Printers on USB** through the agent: Marlin and Prusa's 8-bit firmware (line numbers,
-  checksums, resends), recognised by what they say (`M115`, `M862.2 Q`). Files print on
-  them as jobs: streamed by the agent with progress, time left and the temperatures as it
-  goes (`M155`), paused between two lines, stopped with heaters and motors off. The heaters
-  are read from `M105`: each one's temperature, what it heats to, and whether it has power
-  (a flame on the page). A long command (homing, measuring the bed, heating) keeps the machine
-  online: the agent reports it busy meanwhile, and the next command waits. Tried on a real
-  MK3S through a Pi Zero 2 W on its RPi port (home, moves, heating, terminal, bed mesh); the
-  first real print is still to come.
-- **Lasers (GRBL)** through the agent, with [LaserFoundry](https://github.com/Stitchwright/laserfoundry)'s
-  device crate: homing; a jog pad (eight directions, a step of 0.1, 1, 10 or 50 mm, a speed,
-  the arrow keys) moving by GRBL's own jogs with the laser off; the job's origin set where the
-  head is (`G92 X0 Y0`) and gone back to; the controller's settings checked before a job
-  (laser mode, full power, travel), Frame (the outline with the laser off), streaming by GRBL's
-  character counting, pause, resume, stop (laser off), and starting an interrupted job again a
-  little before where it stopped. Not yet tried on a real laser.
-- **Label printers (DYMO LabelManager PnP)** through the agent, over USB HID: no DYMO
-  software, no driver, no mode switch. A label printer's page draws the label as SVG (text,
-  frame, a drawing you add) at the tape's size and shows the dots that will burn; Print sends
-  them, with a QR code or a barcode (Code 128, EAN-13) on whole dots if you like. Tried on a
-  real PnP from a Mac and from a Windows laptop (12 mm tape); you say which tape is loaded, since the
-  printer only tells whether a cassette is in.
+  printer side of that protocol, checked row by row against Buddy 6.3.0 (commands, events,
+  states, dialog answers, registration). Tried on a real MINI (firmware 6.3.0).
+- **Printers on Marlin** through the agent (`mode = "marlin"`): a port of **OctoPrint
+  1.11.8**'s serial layer, proved against OctoPrint itself on its own virtual printer (the
+  same bytes in 22 of 24 scenarios; the other two differ between OctoPrint's own runs). Files
+  print as jobs, with pause, resume, stop and the emergency stop (`M112`). Not yet tried on a
+  real printer.
+- **Lasers (GRBL)** through the agent (`mode = "grbl"`), a port of
+  [LaserFoundry](https://github.com/StitchFoundry/laserfoundry) (v0.5.0): homing, the jog pad,
+  Set origin and Go to origin, Frame. **A laser never starts by itself**: a file sent to a laser
+  is *loaded*, framed at the laser (after every Set origin it is framed again), and started
+  only by a person there with **Start burn** (permission to operate it, safety glasses
+  confirmed, laser mode on). Its Stop is LaserFoundry's soft reset. Tried on a real Ortur Laser
+  Master 2 Pro S2: homing, jogging, origin and framing (no burning yet).
+- **Prepare: making the work.** A part of its own for the tools that turn an idea into a job
+  file; what they make goes to Files, and from there to a machine. Today **laser design** in the
+  browser: the hub serves our fork of LaserFoundry's web version (built without Web Serial);
+  *Send to <laser>* makes the design that laser's loaded job, and links to its page to frame and
+  start it. Slicing and the label editor are to follow.
+- **Label printers**, each with its own reference: the **DYMO LabelManager PnP** (tape) as
+  [labelle](https://github.com/labelle-org/labelle) does it, and the **DYMO LabelWriter 450**
+  (die-cut labels) through a port of **DYMO's own CUPS driver** with the rolls and label
+  shapes of DYMO Connect's catalogue. A label printer's page draws the label at the size of
+  what is loaded, with QR codes and barcodes. Both printed on the real printers (the 450 on
+  S0722530, two labels side by side).
+- **Cameras**: network cameras (RTSP/ONVIF) straight to the hub, live in the browser (go2rtc's
+  way, checked frame by frame), linked to a machine or a room; and USB webcams through the
+  agent (nokhwa; a Logitech C270 on an Orange Pi shown on a test page).
 - **Materials, compatible with [Spoolman](https://github.com/Donkie/Spoolman)**: its model
-  (vendors, filaments, spools) and its API at `/api/v1`, with its WebSockets, NFC tags (as in
-  Spoolman 0.27) and extra fields, so Moonraker's `[spoolman]`, OctoPrint's Spoolman plugin,
-  Mainsail, Fluidd and scales such as SpoolmanScale use this hub as their Spoolman. A
-  library of spools grouped beside an inspector (weigh, use, move, load into a machine, label,
-  duplicate, tags, history), a board with the machines on top and the locations below (dry
-  boxes with their slots; what does not fit is refused), and *Add spools* searching your
-  filaments, your label printers' tapes and **SpoolmanDB** (thousands of filaments with their
-  colours, weights and temperatures). Jobs count what they use off the loaded spool. Import
-  from a running Spoolman or its export, keeping spool numbers; export or copy back. Scan
-  `S-0007`, `L-0003`, an EAN, a tag's UID or Spoolman's own labels, with a barcode scanner or
-  the camera.
-- **Files and jobs.** Drop G-code on the Files page; the hub reads what the slicer wrote
-  (time, filament, layer height, the printer it was sliced for, the thumbnail) and offers only
-  the machines it fits. Jobs show progress, time left, pause and stop.
-- **The machine list**: every machine in the same columns, grouped by kind: name and model,
-  what it does now (its job, temperatures, the head, the tape and battery), how it connects
-  and its firmware, when it was last seen, its state.
-- **Machine pages**: Overview, Control (moves, preheat, and your own nozzle and bed
-  temperatures, up to the profile's maximum), Terminal (G-code and the machine's answers),
-  Telemetry, Bed level (Prusa `G80`/`G81`, Marlin `G29`/`M420 V`, read the way the OctoPrint
-  Bed Level Visualizer does), Settings.
-- **287 machine profiles of 92 brands** (`profiles/`, one TOML file per model): most 3D
-  printers made from [Marlin's example configurations](https://github.com/MarlinFirmware/Configurations)
-  (`scripts/import-profiles.sh`), recognised from what they say to `M115`; 37 more from
-  [Klipper's printer configurations](https://github.com/Klipper3d/klipper/tree/master/config)
-  (the printers Marlin's do not have; a printer on Klipper is not connected yet); by hand the Prusas,
-  the Ortur laser and the DYMO with its tapes. Chosen with a searchable picker; listed in the
-  wiki's [Supported Machines](https://github.com/CuriousTimo/Maker-Connect/wiki/Supported-Machines).
-- **Updates with a way back.** The hub updates itself from About → Updates (whoever runs the
-  server), and asks its agents to update (a machine's Connection card, or every agent of a
-  space on the Downloads page). Every release is signed with Maker Connect's release key and
-  checked before use, by the hub and again by each agent. The hub backs up its database and
-  tries the new build on a copy first. The old build stays in charge while the new one runs
-  on trial; one that stops or does not confirm itself in time is stopped, and the old build
-  (and the database backup) come back by themselves. An agent updates only when its machine
-  is idle, and fetches the new build through the hub, so it needs no internet of its own.
-  Tried on an Orange Pi PC: an update that works, and one that falls over, for both.
-- **About**: the release and build, the system, processor and memory it runs on, the
-  licence, and links to the manual (the wiki), the code and Losse-Eindj.es.
-- **Virtual machines** for every profile, to try everything without a machine: printers home,
-  heat, move, measure their bed and play files (ten times faster than real); virtual lasers
-  run on LaserFoundry's simulated GRBL, through the same code as a real one; a virtual label
-  printer takes labels and "prints" them at a real one's pace.
+  (vendors, filaments, spools) and its API at `/api/v1`, measured request by request against
+  real Spoolman, so Moonraker's `[spoolman]`, OctoPrint's Spoolman plugin, Mainsail, Fluidd and
+  scales use this hub as their Spoolman. A library of spools, a board of locations (dry boxes
+  with slots), SpoolmanDB's thousands of filaments, label tapes, scanning and labels.
+- **Files, jobs and queues.** Drop G-code or a label on Files; the hub reads what the slicer
+  wrote and offers only the machines it fits (and says why not, also when you lack
+  permission). Printers have a queue that starts by itself once the bed is clear; lasers take
+  one loaded job, no queue.
+- **Machine pages**: Overview, Control, Terminal, Telemetry, Bed level, Settings, a Camera
+  tab; a state badge that says what it does (printing, loaded, cooling, take the print).
+- **287 machine profiles**, and the laser profiles from LaserFoundry's own preset list.
+- **Updates with a way back**: signed releases, a trial on a copy of the database, and back by
+  itself if the new build does not confirm.
+- **Virtual machines** for every profile, to try everything without a machine.
 
 ## Supported devices
 
-| Devices | How they connect | What works | On real hardware |
+| Devices | How they connect | The one reference | On real hardware |
 |---|---|---|---|
-| **Prusa MINI** (Buddy firmware) | Its own firmware speaks Prusa Connect to the hub: no agent | Registers with a code, reports, takes commands | Yes: a MINI on firmware 6.3.0 |
-| **3D printers on Marlin**: 245 models (Creality, Anycubic, Artillery, …) | Agent, on USB | Recognised from `M115`; live temperatures with their targets and whether the heaters have power, moves, heating, bed mesh, terminal; **prints files** (pause, resume, stop) | Not yet: tested against simulated printers |
-| **3D printers on Klipper**: Voron, FLSUN, RatRig, LulzBot, … (46 profiles), any with Moonraker | Moonraker connects by itself (its SimplyPrint component pointed here): no agent | Status, temperatures, commands with Klipper's answers, **prints files** (Moonraker fetches them), pause, resume, stop, bed mesh | Not yet: tested against a stand-in for Moonraker |
-| **Prusa on 8-bit firmware**: MK3S, MK2.5S | Agent, on USB or an MK3S's RPi port (a Raspberry Pi Zero) | As Marlin, recognised from `M862.2 Q`; bed mesh by `G80`/`G81` | Yes: an MK3S through a Pi Zero 2 W on its RPi port (home, moves, heating, terminal, bed mesh); printing a file not yet |
-| **Lasers on GRBL**: Ortur, Creality Falcon, Sculpfun, Atomstack, Longer, Two Trees (10 profiles), any GRBL 1.1 | Agent, on USB, with LaserFoundry's device crate | Its work area and name from the controller (`$$`, `$I`), homing, the jog pad, the job's origin, settings checked, Frame, jobs streamed, pause, resume, stop, restart where it stopped | Not yet: tested against LaserFoundry's simulated GRBL |
-| **Label printers**: DYMO LabelManager PnP | Agent, on USB HID: no driver, no DYMO software | Labels from the editor (text, QR codes, barcodes, drawings), tapes, cassette and battery | Yes: printed from a Mac and a Windows laptop, 12 mm tape; online through an Orange Pi PC |
-| **A virtual one of every profile** | Simulated in the hub | Printers home, heat, measure and print; lasers on simulated GRBL; label printers print | – |
+| **Prusa MINI** (Buddy firmware) | Its own firmware speaks Prusa Connect to the hub: no agent | Buddy 6.3.0 | Yes: a MINI on firmware 6.3.0 |
+| **3D printers on Marlin** | Agent, USB serial, `mode = "marlin"` | OctoPrint 1.11.8 | Not yet: proved against OctoPrint on its virtual printer |
+| **Prusa MK3S, MK2.5S** (8-bit firmware) | Agent, USB or an MK3S's RPi port | PrusaLink (the port is planned: [docs/plans/mk3-port-plan.md](docs/plans/mk3-port-plan.md)) | An MK3S through a Pi Zero 2 W with the earlier agent |
+| **3D printers on Klipper** | Moonraker connects by itself: no agent | Moonraker | Not yet |
+| **Lasers on GRBL**: Ortur, Creality Falcon, Sculpfun, xTool, … | Agent, USB serial, `mode = "grbl"` | LaserFoundry v0.5.0 | Yes: an Ortur Laser Master 2 Pro S2 (motion and framing; no burning yet) |
+| **DYMO LabelManager PnP** (tape) | Agent, USB HID, `mode = "dymo-pnp"`: no driver | labelle | Yes |
+| **DYMO LabelWriter 450** (labels) | Agent, USB, `mode = "labelwriter-450"`: no driver | DYMO's CUPS driver 1.4.0, DYMO Connect's catalogue | Yes |
+| **DYMO M-series scale** (weight) | Agent, USB HID, `mode = "dymo-scale"` | usbscale | Not yet |
+| **Network cameras** (RTSP, ONVIF) | Straight to the hub | retina, go2rtc | Yes: an LSC Smart Connect camera |
+| **USB webcams** | Agent, `mode = "cameras"` | nokhwa, FFmpeg's `mjpeg2jpeg` | Yes: a Logitech C270 (a test page for now) |
+| **A virtual one of every profile** | Simulated in the hub | – | – |
 
 | The agent runs on | Build | On real hardware |
 |---|---|---|
 | macOS, Apple silicon | `macos-aarch64` | Yes |
 | Windows 10/11, x64 | `windows-x86_64.exe` | Yes |
 | Linux ARM64: Orange Pi Zero3, Raspberry Pi 4 and 5 | `linux-aarch64` | Not yet |
-| Linux ARM 32-bit: any Raspberry Pi on a 32-bit OS (Zero W, Zero 2 W, Pi 1 to 3), Orange Pi PC | `linux-armv6` | Yes: a Pi Zero 2 W on Prusa's PrusaLink image (Raspbian 11), an Orange Pi PC on Armbian (Debian 11) |
+| Linux ARM 32-bit: a Raspberry Pi on a 32-bit OS, Orange Pi PC | `linux-armv6` | Yes: a Pi Zero 2 W, an Orange Pi PC |
 | Linux x86-64: a PC, a NAS | `linux-x86_64` | Not yet |
 
 Every machine with a profile, by brand: the wiki's
@@ -178,7 +162,8 @@ roadmap.
 | Part | What |
 |---|---|
 | **hub** (`crates/hub`) | The website and the API: one binary, one SQLite file, uploaded files beside it. Every record belongs to a space |
-| **agent** (`crates/agent`) | Next to a machine: drives it over USB, reports to the hub, carries out its commands and jobs |
+| **agent** (`crates/agent`) | Next to a machine: reports to the hub and runs one of the engine's ports for its machine |
+| **engine** (`crates/engine`) | The ports, one per device, each a translation of its one reference (OctoPrint, labelle, DYMO's CUPS driver, LaserFoundry, usbscale) |
 | **grbl** (`crates/grbl`) | GRBL machines (lasers), on LaserFoundry's `laserfoundry-device` and `laserfoundry-gcode`; used by the agent and by the hub's virtual lasers |
 | **label** (`crates/label`) | Labels as rasters (PNG in, dots out), and the DYMO LabelManager's protocol over USB HID |
 | **protocol** (`crates/protocol`) | What agents and the hub say to each other |
@@ -186,7 +171,8 @@ roadmap.
 | **import** (`crates/import`) | Makes machine profiles and the filament catalogue (`filaments/`) from other projects' data (Marlin's example configurations, Klipper's printer configurations, PrusaSlicer's profiles) and the wiki's list of machines: `scripts/import-profiles.sh` |
 
 The tools that make the jobs stay the makers' own: PrusaSlicer and Cura for printers,
-LaserFoundry for lasers. Maker Connect takes it from the file on. See
+LaserFoundry for lasers (also in the browser, served by the hub). Maker Connect takes it from
+the file on. Before a commit, `scripts/check.sh` runs the CI checks and every audit's checker. See
 [docs/api/integrations.md](docs/api/integrations.md), also for label printers.
 
 ## Signing in
@@ -231,22 +217,30 @@ waits in Files with its machine chosen; nothing starts by itself.
 
 ## Not yet
 
-The DYMO LabelWriter 450 (die-cut labels, over USB) is
-built but not yet tried on the printer: if a label comes out mirrored, `TOP_AT_DOT_ZERO` in
-`crates/label/src/labelwriter.rs` is the other way round. Other label printers, and codes
-scanned off real labels, are still to try. Queues and a G-code viewer are still to come; the MINI's files over its own Connect (USB stick, sending, printing) are built but not yet tried on the MINI itself. Values
-marked `# check` in the profiles are not yet confirmed on the machines.
+Printing a file on a real Marlin printer, burning on a real laser, the MK3 port of PrusaLink,
+Klipper on real hardware, the Buddy telemetry fields (the audit's open rows), and Buddy
+firmware 6.4 and later (it needs Prusa Connect's WebSocket). Values marked `# check` in the
+profiles are not yet confirmed on the machines.
 
-**Safety:** a laser and a heated printer can start a fire. Frame a laser job and start at low
-power; stay with a running machine. The jog pad keeps the laser off, but it moves a real head:
-home first, and keep hands out of the work area.
+**Safety:** a laser and a heated printer can start a fire. Frame a laser job, wear the
+glasses, and stay with a running machine. The jog pad keeps the laser off, but it moves a real
+head: home first, and keep hands out of the work area.
 
 ## References and credits
 
-- [LaserFoundry](https://github.com/Stitchwright/laserfoundry) (MIT OR Apache-2.0): its
-  `laserfoundry-device` and `laserfoundry-gcode` crates drive GRBL lasers here, as a dependency.
-- [OctoPrint](https://github.com/OctoPrint/OctoPrint) (AGPL-3.0): the reference for talking to
-  printers; its Bed Level Visualizer plugin (MIT) for the mesh formats.
+- [LaserFoundry](https://github.com/StitchFoundry/laserfoundry) (MIT OR Apache-2.0): its
+  `laserfoundry-device` and `laserfoundry-gcode` crates drive GRBL lasers here, as a dependency;
+  the laser design page is our fork of its web version
+  ([CuriousTimo/laserfoundry](https://github.com/CuriousTimo/laserfoundry), branch `maker-connect`).
+- DYMO's CUPS driver 1.4.0 (GPL-2.0 or later) and CUPS 2.4.20 (Apache-2.0): ported for the
+  LabelWriter 450; DYMO Connect's label catalogue read for its rolls.
+- [usbscale](https://github.com/erjiang/usbscale) (GPL-3.0): the DYMO scale's reports.
+- [retina](https://github.com/scottlamb/retina) (MIT OR Apache-2.0) for RTSP, and
+  [go2rtc](https://github.com/AlexxIT/go2rtc) (MIT) for live video in the browser.
+- [nokhwa](https://github.com/l1npengtul/nokhwa) (Apache-2.0) for USB webcams, and FFmpeg's
+  `mjpeg2jpeg` (LGPL-2.1 or later) for their missing Huffman tables.
+- [OctoPrint](https://github.com/OctoPrint/OctoPrint) (AGPL-3.0): its serial layer is ported
+  for Marlin printers; its Bed Level Visualizer plugin (MIT) for the mesh formats.
 - Prusa-Firmware-Buddy (GPL-3.0 code) and Prusa-Firmware: read to learn the Prusa Connect
   protocol and the printers' replies. Prusa Link and the Prusa Connect SDK ("Freeware") were
   read to understand, never copied. Notes: [docs/archive/printer-protocols.md](docs/archive/printer-protocols.md).

@@ -394,6 +394,7 @@
       { label: "Machines", hint: "page", href: `${ROOT}machines` },
       { label: "Projects", hint: "page", href: `${ROOT}projects` },
       { label: "Files", hint: "page", href: `${ROOT}files` },
+      { label: "Prepare", hint: "page: laser design", href: `${ROOT}prepare` },
       { label: "Materials", hint: "page", href: `${ROOT}stock` },
       { label: "Space", hint: "page", href: `${ROOT}space` },
       { label: "Members and invites", hint: "space", href: `${ROOT}space#members` },

@@ -675,6 +675,14 @@ fn loaded_card(machine: &Machine, extra: &Extra) -> String {
         .as_ref()
         .filter(|j| j.state == store::JobState::Loaded)
     else {
+        // Nothing loaded: a laser the person may use links to the laser design tool (Prepare), when
+        // this hub has it. The tool itself is not on the machine page.
+        if machine.kind == maker_connect_protocol::MachineKind::Laser
+            && extra.may_use
+            && !crate::laser_design::ASSETS.is_empty()
+        {
+            return r#"<div class="card loaded-card"><div class="card-head"><div class="card-title"><h3>Loaded job</h3><p class="card-sub">Nothing loaded</p></div></div><p>Load a file from <a href="../files">Files</a>, or design one: <a href="../laser-design/" target="_blank" rel="noopener">Laser design</a> opens in a new tab (also under <a href="../prepare">Prepare</a>).</p></div>"#.to_owned();
+        }
         return String::new();
     };
     let id = escape(&machine.id);
