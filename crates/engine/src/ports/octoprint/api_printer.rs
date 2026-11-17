@@ -1,6 +1,6 @@
 //! Port of the refusals of OctoPrint 1.11.8 `src/octoprint/server/api/printer.py` (the HTTP layer, the
 //! permissions and the answers are not ported): what each endpoint checks before it acts, as functions
-//! the port's top edge calls before it calls `Printer` (`docs/agent-engine.md`, S5: the ports refuse as
+//! the port's top edge calls before it calls `Printer` (`docs/plans/agent-engine.md`, S5: the ports refuse as
 //! their reference).
 //!
 //! Original: Copyright (C) 2014 The OctoPrint Project, AGPL-3.0 (`__author__` Gina Häußge).

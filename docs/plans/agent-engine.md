@@ -473,8 +473,8 @@ Marlin's public G-code index and untested" (`crates/device/src/lib.rs:40-41`).
 
 **LaserFoundry web fork (owner, 2026-11-15, for later):** a fork of LaserFoundry's browser version
 only (`apps/laserfoundry-web`, WebAssembly, `https://stitchfoundry.github.io/laserfoundry/`) with
-Maker Connect support, sending a drawing to a space through the Apps API (`docs/apps-api.md`), as
-its "Publish to MakerFoundry" does (`docs/makerfoundry.md`, `crates/ai/src/maker.rs`,
+Maker Connect support, sending a drawing to a space through the Apps API (`docs/api/apps-api.md`), as
+its "Publish to MakerFoundry" does (LaserFoundry's `laserfoundry/docs/makerfoundry.md`, `crates/ai/src/maker.rs`,
 `crates/ui-egui/src/maker_ui.rs`). Licence MIT OR Apache-2.0: keep `LICENSE-MIT`, `LICENSE-APACHE`,
 `NOTICE` and the copyright line; mark changed files; its own name (the licence grants no right to
 the name "LaserFoundry"). The fork is where "Send to Maker Connect" is built, tried and used first;
@@ -564,7 +564,7 @@ never starts a laser job by itself (`queue.rs` `start_queued` skips lasers); a p
 frames and presses Start on the machine page (operate + PPE, with a session; the app's token never
 starts anything); optionally the hub refuses Start unless that file was just framed on that
 machine. Apps API: a compatible v1 extension (`POST /api/apps/v1/machines/{id}/queue?file=<id>`,
-`queue_length`/`queue_held` per machine, `info.features: ["queue"]`), `docs/apps-api.md` changed in
+`queue_length`/`queue_held` per machine, `info.features: ["queue"]`), `docs/api/apps-api.md` changed in
 the same change.
 
 **Owner, 2026-11-15 — a laser never starts unattended:** "Laser is een machine waar je vanalles

@@ -1,6 +1,6 @@
 //! The printer side of Prusa Connect: a Prusa with the Buddy firmware (a MINI) whose
 //! Connect settings point here registers and reports to this hub itself, with no agent
-//! next to it. The protocol is described in `docs/prusa-connect-protocol.md`, learned from
+//! next to it. The protocol is described in `docs/archive/prusa-connect-protocol.md`, learned from
 //! Prusa-Firmware-Buddy's `src/connect` (GPL-3.0); nothing of it is copied.
 //!
 //! 1. `POST /p/register` (its serial number, fingerprint, printer type, firmware): the
@@ -392,7 +392,7 @@ async fn telemetry(
         return failed(error);
     }
     // A printer not seen for longer than ONLINE_SECONDS: what it was given and had not
-    // answered failed, before this report is taken in (K18 (b), `docs/agent-engine.md`).
+    // answered failed, before this report is taken in (K18 (b), `docs/plans/agent-engine.md`).
     if let Err(error) = store.fail_commands_of_gone_printer(token) {
         return failed(error);
     }

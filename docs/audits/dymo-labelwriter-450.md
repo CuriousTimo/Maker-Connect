@@ -8,7 +8,7 @@ Copyright (C) Sanford L.P., taken as GPL-3 so it combines with our AGPL-3.0), in
 (`ppd/lw450.ppd`). Its runtime is CUPS: OpenPrinting CUPS **v2.4.20, commit `ef80eea`**, in
 `reference/cups-2.4.20` (only the files used; `SOURCE.txt` lists them). Ours:
 `crates/engine/src/ports/dymo_cups/`, a port file by file and function by function
-(`docs/agent-engine.md`, Step 3c, items W1 to W10), with the parts of CUPS the driver runs on ported
+(`docs/plans/agent-engine.md`, Step 3c, items W1 to W10), with the parts of CUPS the driver runs on ported
 beside it (`cups/`). The LabelWriter 450 and the DYMO LabelManager PnP share no code.
 
 ## Result
@@ -299,7 +299,7 @@ Runtime, to approve (proxy). Each function is named with its file and lines in t
 | `print_device`, `find_device`, `open_device`, `print_cb`, `read_thread`, `get_device_id`, `close_device` | `backend/usb-libusb.c:169-687, 820-1043, 1073-1165, 1521-1722, 1820-1873` | `usb_backend.rs` (over `nusb`, W5) |
 | the plain 450's PPD | `ppd/lw450.ppd` | `ppd_lw450.rs`, generated and checked |
 
-## 5. Ours (not the driver's, not CUPS's): `docs/agent-engine.md`, Step 3c
+## 5. Ours (not the driver's, not CUPS's): `docs/plans/agent-engine.md`, Step 3c
 
 W1 the job and its end; W2 the page geometry (the PPD's imageable area at its resolution, the size by the
 job's label length, a picture of another size fails) and W3 the page's colour (RGB 8 bits for

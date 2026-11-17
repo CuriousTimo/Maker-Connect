@@ -11,7 +11,7 @@ The hub is a binary crate with no public test entry points: put the test in
 `spoolman.rs` ~2195-2215); the fixture beside it, loaded with `include_str!`. If a hub test failure
 comes from a file outside `spoolman`, report it and do not fix it. Read `CLAUDE.md` (audits: run the reference's own
 code and ours on the same examples; "Result: identical" or exactly where it differs; a "not
-covered" list; no history), `docs/hub-side.md` (H4, approved), and `docs/audits/dymo-labelmanager.md`
+covered" list; no history), `docs/plans/hub-side.md` (H4, approved), and `docs/audits/dymo-labelmanager.md`
 + `scripts/labelle-port-check.py` as the model. The owner decided ours is API- and data-compatible
 with Spoolman, not a copy (memory `maker-connect-spoolman-compatible`).
 

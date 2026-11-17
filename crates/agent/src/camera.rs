@@ -1,4 +1,4 @@
-//! A USB webcam on the agent (docs/hub-side.md, "USB webcams"; docs/briefs/usb-cam-step1.md, step 1):
+//! A USB webcam on the agent (docs/plans/cameras.md, "USB webcams"; docs/briefs/usb-cam-step1.md, step 1):
 //! one camera by its nokhwa index, a JPEG every [`EVERY`] to the hub ([`protocol::CAMERA_FRAME`]).
 //!
 //! Capture: nokhwa 0.10.11 (owner's exception, 2026-11-16: "nokhwa overal"). The JPEG a UVC camera

@@ -4,7 +4,7 @@
 `5e8f1e5` (`5e8f1e5d4f2f4447c8827df96c174812275d678f`), in `reference/labelle`. Its runtime:
 pyusb 1.3.1 and Pillow 12.3.0 (the versions in `reference/.venv-audit`; Pillow's C source is in
 `reference/pillow-12.3.0`). Ours: `crates/engine/src/ports/labelle/`, a port of labelle file by
-file and function by function (`docs/agent-engine.md`, Step 3b), with pyusb and Pillow ported
+file and function by function (`docs/plans/agent-engine.md`, Step 3b), with pyusb and Pillow ported
 for what labelle calls of them.
 
 Proof: `scripts/labelle-port-check.py` runs **labelle's own command line**
@@ -118,7 +118,7 @@ labelle `5e8f1e5` with pyusb 1.3.1 and Pillow 12.3.0, run by `scripts/labelle-po
 **30 of 30 identical** (rows only on one side: 0).
 <!-- generated: end -->
 
-## 2. Ours, not labelle's (the owner to approve; Step 3b of `docs/agent-engine.md`)
+## 2. Ours, not labelle's (the owner to approve; Step 3b of `docs/plans/agent-engine.md`)
 
 | Item | labelle | Ours | Result |
 |---|---|---|---|

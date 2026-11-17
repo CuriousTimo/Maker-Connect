@@ -11,7 +11,7 @@ Another agent may work in `crates/engine/src/ports/labelle/` at the same time: n
 `crates/engine/Cargo.toml` and `ports/mod.rs` only add lines; keep the engine crate compiling at
 the end of each batch of edits (`cargo check -p maker-connect-engine`).
 
-Read `docs/agent-engine.md` from "Step 3a" to the end: the file list ("What is ported"), M1–M5,
+Read `docs/plans/agent-engine.md` from "Step 3a" to the end: the file list ("What is ported"), M1–M5,
 all translation rules and decisions (MachineCom rules, Sections C–I, B1–B9). Read
 `crates/engine/src/ports/octoprint/` (comm.rs and its numbered differences, settings.rs, events.rs,
 profile.rs, plugin.rs). Keep their style: one Rust file per OctoPrint file, source line per item.
@@ -29,7 +29,7 @@ Python's own `if tags is None: tags = set()`, e.g. :1299, 1423, 1465: keep those
 
 ## Part 2: port, each to its own Rust file
 
-1. `printer/standard.py` → `standard.rs`: the parts the plan lists (`docs/agent-engine.md`,
+1. `printer/standard.py` → `standard.rs`: the parts the plan lists (`docs/plans/agent-engine.md`,
    "What is ported"): `connect` 380, `disconnect` 424, `commands` 463, `script` 480, `jog` 510,
    `home` 553, `extrude` 575, `change_tool` 596, `set_temperature` 606, `_convert_rate_value` 668, `feed_rate` 682, `flow_rate` 689, `select_file` 696,
    `unselect_file` 744, `start_print` 765, `pause_print` 792, `resume_print` 808, `cancel_print`

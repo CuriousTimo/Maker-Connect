@@ -127,7 +127,7 @@ pub(super) fn migrate(db: &Connection) -> rusqlite::Result<()> {
         ("details", "TEXT"),
         ("mesh", "TEXT"),
         ("media", "TEXT"),
-        // The device tree (docs/integrations.md, "Devices in a tree").
+        // The device tree (docs/api/integrations.md, "Devices in a tree").
         ("powered_by", "TEXT"),
         ("power_channel", "INTEGER"),
         ("reached_through", "TEXT"),

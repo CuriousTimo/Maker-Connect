@@ -1,4 +1,4 @@
-//! Maker Connect's engine (`docs/agent-engine.md`, step 1). It manages the machines: which there
+//! Maker Connect's engine (`docs/plans/agent-engine.md`, step 1). It manages the machines: which there
 //! are, their reports, their jobs, and the orders for them. It knows nothing about G-code or
 //! devices: each machine is a [`Port`], which talks to its device exactly as its reference does.
 //!

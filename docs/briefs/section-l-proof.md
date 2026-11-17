@@ -4,7 +4,7 @@ Repo: /Users/timo/Documents/Coding/Maker-Connect (Rust workspace; git repo, neve
 deploy or touch hardware). PATH: `export PATH=/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH`.
 Read `CLAUDE.md` (audits: run the reference's own code and ours on the same examples, compare what
 both send and read, "Result: identical" or exactly where it differs, an explicit "not covered"
-list), `docs/agent-engine.md` (Step 3a "Done when", D11, all decisions), and
+list), `docs/plans/agent-engine.md` (Step 3a "Done when", D11, all decisions), and
 `docs/audits/dymo-labelmanager.md` + `scripts/labelle-port-check.py` as the model.
 This follows the existing CLAUDE.md audit rule; D8 is not needed and is not touched. Running
 OctoPrint's own Python virtual printer unchanged meets the plan's "Done when" ("the ported virtual

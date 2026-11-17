@@ -1,4 +1,4 @@
-//! The machines' ports (`docs/agent-engine.md`, step 3): each a port of one reference, the only
+//! The machines' ports (`docs/plans/agent-engine.md`, step 3): each a port of one reference, the only
 //! code that talks to its device. The DYMO PnP (`--mode dymo-pnp`, labelle), the DYMO LabelWriter 450
 //! (`--mode labelwriter-450`, DYMO's CUPS driver) and the Marlin printer (`--mode marlin`, OctoPrint)
 //! and the DYMO M-series scale (`--mode dymo-scale`, usbscale) so far: the other machines are reported as disconnected until their ports are built.

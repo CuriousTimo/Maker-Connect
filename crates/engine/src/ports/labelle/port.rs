@@ -1,4 +1,4 @@
-//! The port's top edge (`docs/agent-engine.md`, Step 3b): the engine's [`Port`] for the DYMO
+//! The port's top edge (`docs/plans/agent-engine.md`, Step 3b): the engine's [`Port`] for the DYMO
 //! LabelManager PnP, over the labelle port beside it. **All of it is ours** (L1 to L9 there);
 //! labelle has no such part.
 //!

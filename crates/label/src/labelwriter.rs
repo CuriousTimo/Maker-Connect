@@ -2,7 +2,7 @@
 //! head's dots across the label and dots for a length, at 300 dpi.
 //!
 //! The printer itself, its protocol and its USB are the engine's port of DYMO's own CUPS driver
-//! (`crates/engine/src/ports/dymo_cups/`, `docs/agent-engine.md` Step 3c); the code that was here for
+//! (`crates/engine/src/ports/dymo_cups/`, `docs/plans/agent-engine.md` Step 3c); the code that was here for
 //! them (the encoder, the status byte, the USB sending) is gone. The hub should take these two numbers
 //! from the port's constants (the PPD's, `300dpi` and the imageable areas); that waits for the hub side.
 

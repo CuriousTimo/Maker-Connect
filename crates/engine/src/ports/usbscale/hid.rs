@@ -1,4 +1,4 @@
-//! The HID source of the scale port (`docs/agent-engine.md`, Step 3e, E1, E2): a trait, so the tests
+//! The HID source of the scale port (`docs/plans/agent-engine.md`, Step 3e, E1, E2): a trait, so the tests
 //! have a fake, and the real one on hidapi 2.6.7 (the OS's own HID: Linux hidraw, Windows' HID API, macOS
 //! IOKit). **All of it is ours**: usbscale reads USB interrupt transfers with libusb.
 //!

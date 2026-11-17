@@ -1,4 +1,4 @@
-//! The DYMO M-series scale's port (`docs/agent-engine.md`, Step 3e): a port of **usbscale**
+//! The DYMO M-series scale's port (`docs/plans/agent-engine.md`, Step 3e): a port of **usbscale**
 //! (github.com/erjiang/usbscale, commit `9ed1cb55a2dfd0daeb41548031a49ab756cb9114`, in
 //! `reference/usbscale`; Copyright (C) 2011--2023 Eric Jiang; **GPL-3.0-or-later**, which GPLv3 section 13
 //! lets this AGPL-3.0 program combine with). Its source, function by function:

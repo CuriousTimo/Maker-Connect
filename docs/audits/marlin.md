@@ -26,7 +26,7 @@ section "What we send that OctoPrint does not".
 
 **Status (2026-11-10):** every row has a status that is true of the current code
 (`crates/agent/src`, `crates/hub/src`) for a plain Marlin printer (`--mode marlin`; in code
-`Printer::octoprint()`), read against `docs/octoprint-serial-spec.md` and OctoPrint's source:
+`Printer::octoprint()`), read against `docs/protocols/octoprint-serial-spec.md` and OctoPrint's source:
 
 - `**fixed** (test ...)`: the code does what OctoPrint does and the named test asserts it (the
   checker finds the row's G-code in the test's body).

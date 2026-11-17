@@ -1,4 +1,4 @@
-# Maker Connect agent: a DYMO M-series scale (--mode dymo-scale) on Linux (docs/agent-engine.md, Step 3e, E10).
+# Maker Connect agent: a DYMO M-series scale (--mode dymo-scale) on Linux (docs/plans/agent-engine.md, Step 3e, E10).
 # The kernel makes the scale a hidraw device that only root may read; this lets the group plugdev read it.
 # Install (not done by the agent):
 #   sudo cp 60-maker-connect-scale.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger

@@ -3,10 +3,10 @@
 Repo: /Users/timo/Documents/Coding/Maker-Connect (Rust; git repo, never commit unless told; no
 hardware). PATH: `export PATH=/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH`.
 
-Read the last paragraph of `docs/agent-engine.md` ("the PnP's idle status poll comes back"): the
+Read the last paragraph of `docs/plans/agent-engine.md` ("the PnP's idle status poll comes back"): the
 owner's decision, in the form of 2026-11-11. Port: `crates/engine/src/ports/labelle/` (labelle
 5e8f1e5; read `port.rs`, `cli.rs`, `usb_device.rs`, `dymo_labeler.rs`, and Step 3b L1–L10 in
-`docs/agent-engine.md`).
+`docs/plans/agent-engine.md`).
 
 1. While no job runs, every 15 s: open the printer exactly as labelle's print path does
    (`DeviceManager.scan` + `find_and_select_device` + `UsbDevice.setup`, the ported functions, no new

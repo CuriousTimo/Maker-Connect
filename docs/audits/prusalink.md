@@ -114,9 +114,9 @@ Rows with a Result, §1, §2, §5 and §7: 166.
 ## 4. Not covered by this audit
 
 - **Buddy printers** (MINI, MK4, XL, CORE One): they do not use PrusaLink over serial; their
-  own Connect protocol is in `prusa-connect-protocol.md`.
-- **Plain Marlin and other firmware** (OctoPrint's ground): `marlin-serial-protocol.md`.
-- **How PrusaLink talks to Prusa Connect** (its SDK side): in `prusa-connect-protocol.md`.
+  own Connect protocol is in `docs/archive/prusa-connect-protocol.md`.
+- **Plain Marlin and other firmware** (OctoPrint's ground): `docs/archive/marlin-serial-protocol.md`.
+- **How PrusaLink talks to Prusa Connect** (its SDK side): in `docs/archive/prusa-connect-protocol.md`.
 - **Timing and order inside PrusaLink's serial queue** (priorities, `to_front`): read for the
   protocol audit, not repeated here.
 

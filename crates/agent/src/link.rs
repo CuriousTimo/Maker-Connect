@@ -1,4 +1,4 @@
-//! The agent's hub link (`docs/agent-engine.md`, step 2). It registers once (the credentials are
+//! The agent's hub link (`docs/plans/agent-engine.md`, step 2). It registers once (the credentials are
 //! kept in a small state file, so a restart keeps the machine), shows the pairing code until
 //! someone adds the machine on the website, then reports every two seconds what the engine
 //! knows of its machine, and gives the engine what the hub asks: commands, a job (its file

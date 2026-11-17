@@ -3525,7 +3525,7 @@ mod tests {
     #[tokio::test]
     #[cfg_attr(
         not(feature = "cameras"),
-        ignore = "the snapshot is of the build with all modules (docs/hub-modules.md)"
+        ignore = "the snapshot is of the build with all modules (docs/plans/hub-modules.md)"
     )]
     async fn the_routes_are_as_checked_in() {
         use sha2::{Digest, Sha256};

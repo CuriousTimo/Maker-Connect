@@ -4,7 +4,7 @@
 //! `unregister_message_receiver` (:2292) and `send_plugin_message` (:2303).
 //!
 //! There is no plugin loading. The one plugin the port has is `action_command_prompt.rs`
-//! (`docs/agent-engine.md`); it registers the hooks of its `__plugin_hooks__`
+//! (`docs/plans/agent-engine.md`); it registers the hooks of its `__plugin_hooks__`
 //! (`plugins/action_command_prompt/__init__.py:297-302`) with [`PluginManager::register_hook`]. Until
 //! one is registered `get_hooks` takes its first branch (`if hook not in self.plugin_hooks:
 //! return {}`, core.py:2160-2161). The result of the other branch is an `OrderedDict` of plugin

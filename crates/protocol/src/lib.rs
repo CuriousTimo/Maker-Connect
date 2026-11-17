@@ -283,7 +283,7 @@ pub struct Telemetry {
     /// in full (a DYMO's eight bytes), to find out what the rest says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw_status: Option<String>,
-    /// A scale's reading, as the scale says it (`ports/usbscale`, docs/agent-engine.md Step 3e).
+    /// A scale's reading, as the scale says it (`ports/usbscale`, docs/plans/agent-engine.md Step 3e).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale: Option<ScaleReading>,
     /// The agent itself: where it runs.

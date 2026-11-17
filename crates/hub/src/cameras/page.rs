@@ -1,4 +1,4 @@
-//! The Cameras page of a space, one camera's page, and its player and video (docs/hub-side.md,
+//! The Cameras page of a space, one camera's page, and its player and video (docs/plans/cameras.md,
 //! "Step 2, the module `cameras`"). Who may watch: [`Store::may_view_camera`]; adding,
 //! changing and removing take an admin (`access::RULES`, in the audit log), on the Space
 //! page's Cameras tab ([`space_tab`]).

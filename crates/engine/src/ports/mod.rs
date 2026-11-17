@@ -1,4 +1,4 @@
-//! The ports (`docs/agent-engine.md`, step 3): each a port of one reference, the only code that
+//! The ports (`docs/plans/agent-engine.md`, step 3): each a port of one reference, the only code that
 //! talks to its device.
 
 #[cfg(feature = "devices")]

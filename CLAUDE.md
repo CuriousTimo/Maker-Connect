@@ -37,7 +37,7 @@ to tell it is not talking to that reference.
 
 The owner wants a cheap, critical agent that keeps the work on track (`.claude/agents/on-track.md`,
 Sonnet, read only). Run it, and put its verdict in the report:
-- before starting a phase or a step of `docs/agent-engine.md`;
+- before starting a phase or a step of `docs/plans/agent-engine.md`;
 - before reporting work to the owner;
 - whenever the work changes direction.
 

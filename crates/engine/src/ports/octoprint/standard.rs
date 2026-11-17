@@ -64,7 +64,7 @@
 //!    `tags`, `set | {...}` is a `TypeError`, returned as `Err(PrinterError::TypeError)` after the
 //!    axes were validated (:571).
 //! 3. The file manager is the trait `FileManager`, with `LocalFileManager`: the job's file is a local path
-//!    (`docs/agent-engine.md`, "Not wire"), so `path_on_disk` and `path_in_storage` are the path itself,
+//!    (`docs/plans/agent-engine.md`, "Not wire"), so `path_on_disk` and `path_in_storage` are the path itself,
 //!    `split_path` splits at the last `/`, there is no recovery data and `log_print` does nothing.
 //! 4. `Printer` is created with `Printer::new(..) -> Arc<Printer>` (a `Weak` of itself lets `connect` and
 //!    the finalize threads hand `Arc<Printer>` to the comm layer), and `MachineCom` gets `Arc<Printer>` as

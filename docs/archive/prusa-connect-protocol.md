@@ -283,7 +283,7 @@ no profile yet for the CORE One L INDX and the iX: their printer model is Buddy'
 Buddy sends the code with its own title and text in `STATE_CHANGED` (`code`, `title`, `text`,
 buttons); the hub shows them with `(#<code>, prusa.io/<code>)`. The list's texts are not
 copied: the printer sends its own. The MK3 shows MMU errors (`04xxx`) only on its screen; the
-agent reads them from its MMU chatter (docs/marlin-serial-protocol.md).
+agent reads them from its MMU chatter (docs/archive/marlin-serial-protocol.md).
 
 ## Prusa's Connect SDK (PrusaLink, an MK3 behind a Pi)
 
@@ -327,7 +327,7 @@ speaks HTTP polling only (no WebSocket) and differs from Buddy:
 The hub reads its `INFO` and telemetry, settles its commands, and reads the stick again on
 `MEDIUM_*`. **Not built:** its file tree from `INFO` (the USB page asks folder by folder),
 `START_CONNECT_DOWNLOAD` and `/p/teams/…/raw` (sending files to it), cameras. An MK3 is
-connected through the agent instead (docs/marlin-serial-protocol.md).
+connected through the agent instead (docs/archive/marlin-serial-protocol.md).
 
 ## In Maker Connect
 

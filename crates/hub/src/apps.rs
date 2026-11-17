@@ -1,6 +1,6 @@
 //! For other programs (LaserFoundry, a slicer, a script) to send work to a space: with an
 //! API token of the space (Space page), as `Authorization: Bearer mct_…`. The contract is in
-//! `docs/apps-api.md`.
+//! `docs/api/apps-api.md`.
 //!
 //! - `GET /api/apps/v1/info`, without a token: that this is a Maker Connect, and which API.
 //! - `GET /api/apps/v1/me`: the space the token is for, its role.

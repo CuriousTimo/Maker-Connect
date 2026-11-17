@@ -3,7 +3,7 @@
 Repo: /Users/timo/Documents/Coding/Maker-Connect (Rust workspace; git repo, never commit; never
 deploy or touch hardware). PATH: `export PATH=/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH`.
 Read `CLAUDE.md`. The top edge is **ours**: every piece follows an approved decision in
-`docs/agent-engine.md` (O1–O8, S1–S5, M1–M5, the M3 table, B1–B9, and all "Section … decided"
+`docs/plans/agent-engine.md` (O1–O8, S1–S5, M1–M5, the M3 table, B1–B9, and all "Section … decided"
 paragraphs); anything not covered there is listed as a new item "K1, K2…, to approve (proxy)" and
 kept to the minimum. Nothing of ours reaches the printer: every byte comes from the ported
 OctoPrint code (`crates/engine/src/ports/octoprint/`), reference `reference/OctoPrint-1.11.8`.

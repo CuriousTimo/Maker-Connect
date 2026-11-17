@@ -1,7 +1,7 @@
 //! The driver's runtime: CUPS (`reference/cups-2.4.20`, OpenPrinting tag `v2.4.20`, commit `ef80eea`;
 //! Apache-2.0 with the GPL/LGPL exception, `reference/cups-2.4.20/LICENSE` and `NOTICE`). Ported where
 //! `raster2dymolw` uses it; each function names its file:line there. Runtime, to approve (proxy)
-//! (`docs/agent-engine.md`, Step 3c). Copyright 2007-2019 Apple Inc., 2020-2025 OpenPrinting.
+//! (`docs/plans/agent-engine.md`, Step 3c). Copyright 2007-2019 Apple Inc., 2020-2025 OpenPrinting.
 //!
 //! | CUPS file | Here |
 //! |---|---|

@@ -1,4 +1,4 @@
-//! The DYMO LabelWriter 450 port (`docs/agent-engine.md`, Step 3c): **DYMO's own CUPS driver 1.4.0**
+//! The DYMO LabelWriter 450 port (`docs/plans/agent-engine.md`, Step 3c): **DYMO's own CUPS driver 1.4.0**
 //! (`reference/dymo-cups-drivers-1.4.0`, the official tarball from download.dymo.com, sha256
 //! `c60797e7e986ca329f46e9a6ab1cb6382383952b15685ed69fd91f3c7ed64f71`), the filter `raster2dymolw` for
 //! the plain LabelWriter 450 (`ppd/lw450.ppd`), ported file by file and function by function.
@@ -35,7 +35,7 @@
 //! `ProcessImage(const void*, ...)` of both halftonings except as the driver's own tests call it;
 //! the language of the messages (the PPD's other languages).
 //!
-//! **Ours** (listed in `docs/agent-engine.md` Step 3c, W1 to W10): the top edge ([`port`]), the page made
+//! **Ours** (listed in `docs/plans/agent-engine.md` Step 3c, W1 to W10): the top edge ([`port`]), the page made
 //! from the PNG ([`page`]), the stand-ins for what CUPS and the scheduler give the filter
 //! ([`cups_print_environment::FilterIo`], [`cups::usb_backend`]).
 

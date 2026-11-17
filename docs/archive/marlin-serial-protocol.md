@@ -3,7 +3,7 @@
 > **Superseded (2026-11-10).** Written by reading the sources by hand, never checked item by
 > item. What the agent now does is set by its references, each checked by a script: Prusa's
 > MK3 family as PrusaLink (`audits/prusalink.md`, `scripts/prusalink-audit-check.py`), any
-> other Marlin printer as OctoPrint with its defaults (`octoprint-serial-spec.md`,
+> other Marlin printer as OctoPrint with its defaults (`docs/protocols/octoprint-serial-spec.md`,
 > `audits/marlin.md`, `scripts/marlin-audit-check.py`). Where this document says otherwise,
 > they decide.
 

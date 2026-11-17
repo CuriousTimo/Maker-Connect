@@ -187,7 +187,7 @@ roadmap.
 
 The tools that make the jobs stay the makers' own: PrusaSlicer and Cura for printers,
 LaserFoundry for lasers. Maker Connect takes it from the file on. See
-[docs/integrations.md](docs/integrations.md), also for label printers.
+[docs/api/integrations.md](docs/api/integrations.md), also for label printers.
 
 ## Signing in
 
@@ -226,7 +226,7 @@ server: http://maker-connect.local:8460/t/mct_…
 ```
 
 Programs that make the work (a laser program such as LaserFoundry, a slicer, a script) send
-finished files to a space with such a token: [docs/apps-api.md](docs/apps-api.md). The file
+finished files to a space with such a token: [docs/api/apps-api.md](docs/api/apps-api.md). The file
 waits in Files with its machine chosen; nothing starts by itself.
 
 ## Not yet
@@ -249,10 +249,10 @@ home first, and keep hands out of the work area.
   printers; its Bed Level Visualizer plugin (MIT) for the mesh formats.
 - Prusa-Firmware-Buddy (GPL-3.0 code) and Prusa-Firmware: read to learn the Prusa Connect
   protocol and the printers' replies. Prusa Link and the Prusa Connect SDK ("Freeware") were
-  read to understand, never copied. Notes: [docs/printer-protocols.md](docs/printer-protocols.md).
+  read to understand, never copied. Notes: [docs/archive/printer-protocols.md](docs/archive/printer-protocols.md).
 - [thermal-label](https://thermal-label.github.io/) (MIT): the DYMO LabelManager's protocol and
   its media list; [labelle](https://github.com/labelle-org/labelle) (Apache-2.0) for the same
-  protocol in practice. Notes: [docs/integrations.md](docs/integrations.md).
+  protocol in practice. Notes: [docs/api/integrations.md](docs/api/integrations.md).
 - [Marlin's example configurations](https://github.com/MarlinFirmware/Configurations)
   (GPL-3.0): the facts (sizes, temperatures, names) the 3D printer profiles are made from.
 - [Klipper's printer configurations](https://github.com/Klipper3d/klipper/tree/master/config)

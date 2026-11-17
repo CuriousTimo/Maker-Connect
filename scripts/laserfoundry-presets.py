@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The hub's laser profiles from LaserFoundry's own preset list (owner, 2026-11-17: "ja, gebruik de lijst van
-LaserFoundry"). LaserFoundry is the laser stack's one reference (docs/agent-engine.md, owner 2026-11-15).
+LaserFoundry"). LaserFoundry is the laser stack's one reference (docs/plans/agent-engine.md, owner 2026-11-15).
 
   gen    writes profiles/<brand>/<model>.toml for every preset in LaserFoundry's
          crates/ui-egui/data/laser-presets.json, at the revision Cargo.lock pins (cargo metadata finds it)

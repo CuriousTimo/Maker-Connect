@@ -1,4 +1,4 @@
-//! The cameras of a space (docs/hub-side.md, "Step 2, the module `cameras`"): one table, every
+//! The cameras of a space (docs/plans/cameras.md, "Step 2, the module `cameras`"): one table, every
 //! query by space. The password is kept as the machines' tokens are (plain, owner 2026-11-16);
 //! it is never sent back in a page and never logged.
 

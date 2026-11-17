@@ -1,6 +1,6 @@
 # Brief HS4: the other agent ports fail pending commands on close; the hub's gate and 120 s go for them too
 
-Rows: `docs/hub-side.md` HS4; `docs/agent-engine.md` K11, K18 (d). All of it is **ours** (engine to
+Rows: `docs/plans/hub-side.md` HS4; `docs/plans/agent-engine.md` K11, K18 (d). All of it is **ours** (engine to
 hub, nothing new on the wire to any device); no reference is involved.
 
 ## What

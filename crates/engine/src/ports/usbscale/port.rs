@@ -1,4 +1,4 @@
-//! The port's top edge (`docs/agent-engine.md`, Step 3e): the engine's [`Port`] for the DYMO M-series
+//! The port's top edge (`docs/plans/agent-engine.md`, Step 3e): the engine's [`Port`] for the DYMO M-series
 //! scale, over the usbscale port beside it. **All of it is ours** (E3, E5 to E8); the reads on and the
 //! discard of old data are usbscale's `main`, ported.
 //!

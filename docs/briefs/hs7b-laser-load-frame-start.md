@@ -60,7 +60,7 @@ Watchdog before the step (2026-11-17): DRIFTING, corrected here:
   agent is built from). `reference/laserfoundry` is an older copy (`3b9b9fa`, 2026-11-03), where the
   same code sits at `lib.rs:1167` (`start_job`), `:1185` (`$32`), `:1197` (`pending_start`); the
   reference folder should be brought to `61febdb` (separate step).
-- "Framed since the last Set origin or jog" (Q1) contradicts the reviewed plan (hub-side.md: "no 'just
+- "Framed since the last Set origin or jog" (Q1) contradicts the reviewed plan (docs/plans/hub-side.md: "no 'just
   framed' rule"): only the owner can decide it. Q2 (one loaded job, no laser queue) touches HS7a/HS13:
   the owner's too.
 - "One loaded job per laser" and "replace only after a confirm" are ours (hub UI), named as such.

@@ -1,4 +1,4 @@
-//! Hardware test of the DYMO LabelWriter 450 port (`docs/agent-engine.md` D11): one job through the real
+//! Hardware test of the DYMO LabelWriter 450 port (`docs/plans/agent-engine.md` D11): one job through the real
 //! port ([`LabelWriter450`] over nusb), as the agent runs it, without the hub. Ours, test tooling only:
 //! what goes to the printer is the port's (page, `raster2dymolw`, the `usb` backend).
 //!
