@@ -82,19 +82,19 @@
 //! 9. A threaded `finalize` / `log_print` (daemon threads, :1492, :1699, :1773) is a
 //!    `py_threading::Thread` with `daemon = true`.
 
-use super::comm::{py_float_repr, py_int, py_truthy, py_try, MachineCom, MachineComPrintCallback};
+use super::comm::{MachineCom, MachineComPrintCallback, py_float_repr, py_int, py_truthy, py_try};
 use super::comm::{OSError, ValueError};
-use super::events::{event_manager, Events};
-use super::filemanager::{valid_file_type, FileDestinations};
+use super::events::{Events, event_manager};
+use super::filemanager::{FileDestinations, valid_file_type};
 use super::files::get_dos_filename;
-use super::plugin::{plugin_manager, Hooks};
+use super::plugin::{Hooks, plugin_manager};
 use super::profile::PrinterProfileManager;
 use super::py_attr::Attr;
 use super::py_collections::PyDict;
 use super::py_threading::{RLock, Thread};
 use super::settings::settings;
 use fancy_regex::Regex;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, LazyLock, Weak};
 
@@ -107,7 +107,8 @@ pub const VALID_AXES: [&str; 4] = ["x", "y", "z", "e"];
 
 /// `printer/__init__.py:46 valid_tool_regex = re.compile(r"^(tool\d+)$")`. `re.match` anchors the start;
 /// Python's `$` also matches before a final `\n`, which is `\n?\z` here.
-pub static VALID_TOOL_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\A(tool\d+)\n?\z").expect("valid regex"));
+pub static VALID_TOOL_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\A(tool\d+)\n?\z").expect("valid regex"));
 
 /// `printer/__init__.py:49 valid_heater_regex = re.compile(r"^(tool\d*|bed|chamber)$")`
 pub static VALID_HEATER_REGEX: LazyLock<Regex> =
@@ -199,10 +200,16 @@ fn py_repr_str(s: &str) -> String {
 pub(crate) fn py_repr_value(v: &Value) -> String {
     match v {
         Value::String(s) => py_repr_str(s),
-        Value::Array(a) => format!("[{}]", a.iter().map(py_repr_value).collect::<Vec<_>>().join(", ")),
+        Value::Array(a) => format!(
+            "[{}]",
+            a.iter().map(py_repr_value).collect::<Vec<_>>().join(", ")
+        ),
         Value::Object(o) => format!(
             "{{{}}}",
-            o.iter().map(|(k, v)| format!("{}: {}", py_repr_str(k), py_repr_value(v))).collect::<Vec<_>>().join(", ")
+            o.iter()
+                .map(|(k, v)| format!("{}: {}", py_repr_str(k), py_repr_value(v)))
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
         other => py_str_value(other),
     }
@@ -284,7 +291,15 @@ pub trait FileManager: Send + Sync {
     /// `FileManager.save_recovery_data(origin, path, pos)`; `Err(())` is `NoSuchStorage`
     fn save_recovery_data(&self, origin: &str, path: &str, pos: Option<i64>) -> Result<(), ()>;
     /// `FileManager.log_print(destination, path, timestamp, print_time, success, printer_profile)`
-    fn log_print(&self, destination: &str, path: &str, timestamp: f64, print_time: Option<f64>, success: bool, printer_profile: &str);
+    fn log_print(
+        &self,
+        destination: &str,
+        path: &str,
+        timestamp: f64,
+        print_time: Option<f64>,
+        success: bool,
+        printer_profile: &str,
+    );
 }
 
 /// OURS: the file manager for a job whose file is a local path (see the module doc, 3)
@@ -400,7 +415,10 @@ impl Printer {
     /// `standard.py:52 __init__(fileManager, analysisQueue, printerProfileManager)`; what it does with
     /// the analysis queue, the state monitor, the history and the event subscriptions is not ported
     /// (module doc). The hooks are read from the plugin manager here, as Python does.
-    pub fn new(file_manager: Arc<dyn FileManager>, printer_profile_manager: Arc<PrinterProfileManager>) -> Arc<Printer> {
+    pub fn new(
+        file_manager: Arc<dyn FileManager>,
+        printer_profile_manager: Arc<PrinterProfileManager>,
+    ) -> Arc<Printer> {
         Arc::new_cyclic(|weak| Printer {
             weak_self: weak.clone(),
             _file_manager: file_manager,
@@ -499,9 +517,16 @@ impl Printer {
         // logging.getLogger("SERIAL").info("serial.log is currently not enabled, ...")
 
         self._firmware_info.set(None);
-        let callback: Arc<dyn MachineComPrintCallback> =
-            self.weak_self.upgrade().expect("a Printer is always inside the Arc that Printer::new made");
-        let comm = MachineCom::new(port, baudrate, Some(callback), Some(self._printer_profile_manager.clone()));
+        let callback: Arc<dyn MachineComPrintCallback> = self
+            .weak_self
+            .upgrade()
+            .expect("a Printer is always inside the Arc that Printer::new made");
+        let comm = MachineCom::new(
+            port,
+            baudrate,
+            Some(callback),
+            Some(self._printer_profile_manager.clone()),
+        );
         self._comm.set(Some(comm.clone()));
         comm.start();
     }
@@ -535,15 +560,30 @@ impl Printer {
 
         for command in list {
             let Value::String(command) = command else {
-                panic!("TypeError: decoding to str: need a bytes-like object, {} found", py_repr_value(&command))
+                panic!(
+                    "TypeError: decoding to str: need a bytes-like object, {} found",
+                    py_repr_value(&command)
+                )
             };
-            comm.send_command(super::comm::QueuedCommand::Command(command), None, false, false, force, None, Some(tags.clone()));
+            comm.send_command(
+                super::comm::QueuedCommand::Command(command),
+                None,
+                false,
+                false,
+                force,
+                None,
+                Some(tags.clone()),
+            );
         }
     }
 
     /// OURS: `commands` for a list of `str` (the callers below build theirs)
     fn commands_list(&self, commands: &[String], tags: BTreeSet<String>) {
-        self.commands(&Value::Array(commands.iter().cloned().map(Value::String).collect()), Some(tags), false);
+        self.commands(
+            &Value::Array(commands.iter().cloned().map(Value::String).collect()),
+            Some(tags),
+            false,
+        );
     }
 
     /// `standard.py:480 script(name, context=None, must_be_set=True, part_of_job=False, *args, **kwargs)`
@@ -566,7 +606,11 @@ impl Printer {
         // .capitalize() will lowercase all letters but the first
         // this code preserves existing CamelCase
         let mut chars = name.chars();
-        let first: String = chars.next().expect("name is not empty").to_uppercase().collect();
+        let first: String = chars
+            .next()
+            .expect("name is not empty")
+            .to_uppercase()
+            .collect();
         let event_name = format!("{first}{}", chars.as_str());
 
         let event_start = format!("GcodeScript{event_name}Running");
@@ -577,7 +621,12 @@ impl Printer {
 
         event_manager().fire(&event_start, payload.clone());
 
-        let result = comm.send_gcode_script(name, context, Some(with_trigger(&tags, "trigger:printer.script")), part_of_job);
+        let result = comm.send_gcode_script(
+            name,
+            context,
+            Some(with_trigger(&tags, "trigger:printer.script")),
+            part_of_job,
+        );
         if result.is_empty() && must_be_set {
             return Err(PrinterError::UnknownScript(name.to_string()));
         }
@@ -608,7 +657,10 @@ impl Printer {
             }
             let amount = &args[0];
             if py_number(amount).is_none() {
-                return Err(PrinterError::ValueError(format!("amount must be a valid number: {}", py_str_value(amount))));
+                return Err(PrinterError::ValueError(format!(
+                    "amount must be a valid number: {}",
+                    py_str_value(amount)
+                )));
             }
 
             let mut m = Map::new();
@@ -617,7 +669,9 @@ impl Printer {
         }
 
         if !py_truthy(&axes) {
-            return Err(PrinterError::ValueError("At least one axis to jog must be provided".to_string()));
+            return Err(PrinterError::ValueError(
+                "At least one axis to jog must be provided".to_string(),
+            ));
         }
 
         // `for axis in axes`: the keys of a dict, the items of a list
@@ -643,7 +697,11 @@ impl Printer {
 
         let mut command = format!(
             "G0 {}",
-            axes_map.iter().map(|(axis, amt)| format!("{}{}", axis.to_uppercase(), py_str_value(amt))).collect::<Vec<_>>().join(" ")
+            axes_map
+                .iter()
+                .map(|(axis, amt)| format!("{}{}", axis.to_uppercase(), py_str_value(amt)))
+                .collect::<Vec<_>>()
+                .join(" ")
         );
 
         let speed: Value = match speed {
@@ -651,9 +709,7 @@ impl Printer {
                 let printer_profile = self._printer_profile_manager.get_current_or_default();
                 let speeds: Vec<Value> = axes_map
                     .keys()
-                    .map(|axis| {
-                        printer_profile["axes"][axis.as_str()]["speed"].clone()
-                    })
+                    .map(|axis| printer_profile["axes"][axis.as_str()]["speed"].clone())
                     .collect();
                 py_min_values(&speeds)
             }
@@ -681,7 +737,10 @@ impl Printer {
             Value::Array(a) => a.clone(),
             Value::String(_) => vec![axes.clone()],
             other => {
-                return Err(PrinterError::ValueError(format!("axes is neither a list nor a string: {}", py_str_value(other))));
+                return Err(PrinterError::ValueError(format!(
+                    "axes is neither a list nor a string: {}",
+                    py_str_value(other)
+                )));
             }
         };
 
@@ -689,7 +748,10 @@ impl Printer {
             .iter()
             .map(|x| match x {
                 Value::String(s) => s.to_lowercase(),
-                other => panic!("AttributeError: {} object has no attribute 'lower'", py_repr_value(other)),
+                other => panic!(
+                    "AttributeError: {} object has no attribute 'lower'",
+                    py_repr_value(other)
+                ),
             })
             .filter(|x| VALID_AXES.contains(&x.as_str()))
             .collect();
@@ -702,21 +764,38 @@ impl Printer {
 
         let commands = vec![
             "G91".to_string(),
-            format!("G28 {}", validated_axes.iter().map(|x| format!("{}0", x.to_uppercase())).collect::<Vec<_>>().join(" ")),
+            format!(
+                "G28 {}",
+                validated_axes
+                    .iter()
+                    .map(|x| format!("{}0", x.to_uppercase()))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
             "G90".to_string(),
         ];
 
         let Some(tags) = tags else {
-            return Err(PrinterError::TypeError("unsupported operand type(s) for |: 'type' and 'set'".to_string()));
+            return Err(PrinterError::TypeError(
+                "unsupported operand type(s) for |: 'type' and 'set'".to_string(),
+            ));
         };
         self.commands_list(&commands, with_trigger(&Some(tags), "trigger:printer.home"));
         Ok(())
     }
 
     /// `standard.py:575 extrude(amount, speed=None, *args, **kwargs)`
-    pub fn extrude(&self, amount: &Value, speed: Option<&Value>, tags: Option<BTreeSet<String>>) -> Result<(), PrinterError> {
+    pub fn extrude(
+        &self,
+        amount: &Value,
+        speed: Option<&Value>,
+        tags: Option<BTreeSet<String>>,
+    ) -> Result<(), PrinterError> {
         let Some(amount_num) = py_number(amount) else {
-            return Err(PrinterError::ValueError(format!("amount must be a valid number: {}", py_str_value(amount))));
+            return Err(PrinterError::ValueError(format!(
+                "amount must be a valid number: {}",
+                py_str_value(amount)
+            )));
         };
 
         let printer_profile = self._printer_profile_manager.get_current_or_default();
@@ -731,7 +810,10 @@ impl Printer {
             Some(s) => py_min_values(&[s.clone(), max_e_speed]),
         };
         let extrusion_speed = py_number(&extrusion_speed).unwrap_or_else(|| {
-            panic!("TypeError: %d format: a real number is required, not {}", py_repr_value(&extrusion_speed))
+            panic!(
+                "TypeError: %d format: a real number is required, not {}",
+                py_repr_value(&extrusion_speed)
+            )
         });
         let _ = amount_num;
 
@@ -739,7 +821,11 @@ impl Printer {
             &[
                 "G91".to_string(),
                 "M83".to_string(),
-                format!("G1 E{} F{}", py_str_value(amount), py_percent_d(extrusion_speed)),
+                format!(
+                    "G1 E{} F{}",
+                    py_str_value(amount),
+                    py_percent_d(extrusion_speed)
+                ),
                 "M82".to_string(),
                 "G90".to_string(),
             ],
@@ -749,24 +835,47 @@ impl Printer {
     }
 
     /// `standard.py:596 change_tool(tool, *args, **kwargs)`
-    pub fn change_tool(&self, tool: &Value, tags: Option<BTreeSet<String>>) -> Result<(), PrinterError> {
+    pub fn change_tool(
+        &self,
+        tool: &Value,
+        tags: Option<BTreeSet<String>>,
+    ) -> Result<(), PrinterError> {
         let Value::String(tool) = tool else {
-            panic!("TypeError: expected string or bytes-like object, got {}", py_repr_value(tool))
+            panic!(
+                "TypeError: expected string or bytes-like object, got {}",
+                py_repr_value(tool)
+            )
         };
         if !VALID_TOOL_REGEX.is_match(tool).expect("regex runs") {
-            return Err(PrinterError::ValueError(format!("tool must match \"tool[0-9]+\": {tool}")));
+            return Err(PrinterError::ValueError(format!(
+                "tool must match \"tool[0-9]+\": {tool}"
+            )));
         }
 
         let rest: String = tool.chars().skip("tool".len()).collect();
-        let tool_num = py_int(&rest).unwrap_or_else(|| panic!("ValueError: invalid literal for int() with base 10: {rest:?}"));
-        self.commands(&Value::String(format!("T{tool_num}")), Some(with_trigger(&tags, "trigger:printer.change_tool")), false);
+        let tool_num = py_int(&rest).unwrap_or_else(|| {
+            panic!("ValueError: invalid literal for int() with base 10: {rest:?}")
+        });
+        self.commands(
+            &Value::String(format!("T{tool_num}")),
+            Some(with_trigger(&tags, "trigger:printer.change_tool")),
+            false,
+        );
         Ok(())
     }
 
     /// `standard.py:606 set_temperature(heater, value, *args, **kwargs)`
-    pub fn set_temperature(&self, heater: &Value, value: &Value, tags: Option<BTreeSet<String>>) -> Result<(), PrinterError> {
+    pub fn set_temperature(
+        &self,
+        heater: &Value,
+        value: &Value,
+        tags: Option<BTreeSet<String>>,
+    ) -> Result<(), PrinterError> {
         let Value::String(heater) = heater else {
-            panic!("TypeError: expected string or bytes-like object, got {}", py_repr_value(heater))
+            panic!(
+                "TypeError: expected string or bytes-like object, got {}",
+                py_repr_value(heater)
+            )
         };
         if !VALID_HEATER_REGEX.is_match(heater).expect("regex runs") {
             return Err(PrinterError::ValueError(format!(
@@ -777,7 +886,10 @@ impl Printer {
         match py_number(value) {
             Some(n) if !(n.as_f64() < 0.0) => {}
             _ => {
-                return Err(PrinterError::ValueError(format!("value must be a valid number >= 0: {}", py_str_value(value))));
+                return Err(PrinterError::ValueError(format!(
+                    "value must be a valid number >= 0: {}",
+                    py_str_value(value)
+                )));
             }
         }
 
@@ -790,13 +902,23 @@ impl Printer {
         } else if heater.starts_with("tool") {
             // set specific tool
             let printer_profile = self._printer_profile_manager.get_current_or_default();
-            let extruder_count = printer_profile["extruder"]["count"].as_i64().expect("TypeError: extruder count is not an int");
+            let extruder_count = printer_profile["extruder"]["count"]
+                .as_i64()
+                .expect("TypeError: extruder count is not an int");
             let shared_nozzle = py_truthy(&printer_profile["extruder"]["sharedNozzle"]);
             if extruder_count > 1 && !shared_nozzle {
                 let rest: String = heater.chars().skip("tool".len()).collect();
-                let tool_num = py_int(&rest)
-                    .ok_or_else(|| PrinterError::ValueError(format!("invalid literal for int() with base 10: {}", py_repr_str(&rest))))?;
-                self.commands(&Value::String(format!("M104 T{tool_num} S{value}")), Some(tags), false);
+                let tool_num = py_int(&rest).ok_or_else(|| {
+                    PrinterError::ValueError(format!(
+                        "invalid literal for int() with base 10: {}",
+                        py_repr_str(&rest)
+                    ))
+                })?;
+                self.commands(
+                    &Value::String(format!("M104 T{tool_num} S{value}")),
+                    Some(tags),
+                    false,
+                );
             } else {
                 self.commands(&Value::String(format!("M104 S{value}")), Some(tags), false);
             }
@@ -809,9 +931,16 @@ impl Printer {
     }
 
     /// `standard.py:668 _convert_rate_value(factor, min_val=None, max_val=None)`
-    pub fn _convert_rate_value(&self, factor: &Value, min_val: Option<i64>, max_val: Option<i64>) -> Result<i64, PrinterError> {
+    pub fn _convert_rate_value(
+        &self,
+        factor: &Value,
+        min_val: Option<i64>,
+        max_val: Option<i64>,
+    ) -> Result<i64, PrinterError> {
         let Some(n) = py_number(factor) else {
-            return Err(PrinterError::ValueError("factor is not a number".to_string()));
+            return Err(PrinterError::ValueError(
+                "factor is not a number".to_string(),
+            ));
         };
 
         let factor: i64 = match n {
@@ -819,10 +948,14 @@ impl Printer {
                 // int(factor * 100)
                 let x = f * 100.0;
                 if x.is_nan() {
-                    return Err(PrinterError::ValueError("cannot convert float NaN to integer".to_string()));
+                    return Err(PrinterError::ValueError(
+                        "cannot convert float NaN to integer".to_string(),
+                    ));
                 }
                 if x.is_infinite() {
-                    return Err(PrinterError::OverflowError("cannot convert float infinity to integer".to_string()));
+                    return Err(PrinterError::OverflowError(
+                        "cannot convert float infinity to integer".to_string(),
+                    ));
                 }
                 if x.abs() >= 9.2e18 {
                     unimplemented!("standard.py:672 int() of a float beyond the 64-bit range")
@@ -835,12 +968,16 @@ impl Printer {
         // `if min_val and factor < min_val` (a `min_val` of 0 is falsy)
         if let Some(min_val) = min_val.filter(|m| *m != 0) {
             if factor < min_val {
-                return Err(PrinterError::ValueError(format!("factor must be a value >={min_val}")));
+                return Err(PrinterError::ValueError(format!(
+                    "factor must be a value >={min_val}"
+                )));
             }
         }
         if let Some(max_val) = max_val.filter(|m| *m != 0) {
             if factor > max_val {
-                return Err(PrinterError::ValueError(format!("factor must be a value <={max_val}")));
+                return Err(PrinterError::ValueError(format!(
+                    "factor must be a value <={max_val}"
+                )));
             }
         }
 
@@ -848,16 +985,32 @@ impl Printer {
     }
 
     /// `standard.py:682 feed_rate(factor, *args, **kwargs)`
-    pub fn feed_rate(&self, factor: &Value, tags: Option<BTreeSet<String>>) -> Result<(), PrinterError> {
+    pub fn feed_rate(
+        &self,
+        factor: &Value,
+        tags: Option<BTreeSet<String>>,
+    ) -> Result<(), PrinterError> {
         let factor = self._convert_rate_value(factor, Some(1), None)?;
-        self.commands(&Value::String(format!("M220 S{factor}")), Some(with_trigger(&tags, "trigger:printer.feed_rate")), false);
+        self.commands(
+            &Value::String(format!("M220 S{factor}")),
+            Some(with_trigger(&tags, "trigger:printer.feed_rate")),
+            false,
+        );
         Ok(())
     }
 
     /// `standard.py:689 flow_rate(factor, *args, **kwargs)`
-    pub fn flow_rate(&self, factor: &Value, tags: Option<BTreeSet<String>>) -> Result<(), PrinterError> {
+    pub fn flow_rate(
+        &self,
+        factor: &Value,
+        tags: Option<BTreeSet<String>>,
+    ) -> Result<(), PrinterError> {
         let factor = self._convert_rate_value(factor, Some(1), None)?;
-        self.commands(&Value::String(format!("M221 S{factor}")), Some(with_trigger(&tags, "trigger:printer.flow_rate")), false);
+        self.commands(
+            &Value::String(format!("M221 S{factor}")),
+            Some(with_trigger(&tags, "trigger:printer.flow_rate")),
+            false,
+        );
         Ok(())
     }
 
@@ -881,7 +1034,11 @@ impl Printer {
 
         self._validate_job(path, sd)?;
 
-        let origin = if sd { FileDestinations::SDCARD } else { FileDestinations::LOCAL };
+        let origin = if sd {
+            FileDestinations::SDCARD
+        } else {
+            FileDestinations::LOCAL
+        };
         let (path_on_disk, path_in_storage) = if sd {
             (format!("/{path}"), path.to_string())
         } else {
@@ -929,7 +1086,8 @@ impl Printer {
             }
         }
 
-        comm.expect("AttributeError: 'NoneType' object has no attribute 'unselectFile'").unselect_file();
+        comm.expect("AttributeError: 'NoneType' object has no attribute 'unselectFile'")
+            .unselect_file();
         // self._updateProgressData()
         self._set_current_z(None);
     }
@@ -937,7 +1095,12 @@ impl Printer {
     /// `standard.py:765 start_print(pos=None, user=None, *args, **kwargs)`: starts the currently loaded
     /// print job. Only starts if the printer is connected and operational, not currently printing and a
     /// printjob is loaded
-    pub fn start_print(&self, pos: Option<i64>, user: Option<&str>, tags: Option<BTreeSet<String>>) -> Result<(), PrinterError> {
+    pub fn start_print(
+        &self,
+        pos: Option<i64>,
+        user: Option<&str>,
+        tags: Option<BTreeSet<String>>,
+    ) -> Result<(), PrinterError> {
         let comm = match self._comm.get() {
             Some(comm) if comm.is_operational() && !comm.is_printing() => comm,
             _ => return Ok(()),
@@ -954,7 +1117,12 @@ impl Printer {
 
         // self._lastProgressReport = None; self._updateProgressData()
         self._set_current_z(None);
-        comm.start_print(pos, Some(with_trigger(&tags, "trigger:printer.start_print")), false, user)?;
+        comm.start_print(
+            pos,
+            Some(with_trigger(&tags, "trigger:printer.start_print")),
+            false,
+            user,
+        )?;
         Ok(())
     }
 
@@ -968,7 +1136,12 @@ impl Printer {
             return;
         }
 
-        comm.set_pause(true, true, user, Some(with_trigger(&tags, "trigger:printer.pause_print")));
+        comm.set_pause(
+            true,
+            true,
+            user,
+            Some(with_trigger(&tags, "trigger:printer.pause_print")),
+        );
     }
 
     /// `standard.py:808 resume_print(user=None, *args, **kwargs)`: resume the current printjob.
@@ -981,7 +1154,12 @@ impl Printer {
             return;
         }
 
-        comm.set_pause(false, true, user, Some(with_trigger(&tags, "trigger:printer.resume_print")));
+        comm.set_pause(
+            false,
+            true,
+            user,
+            Some(with_trigger(&tags, "trigger:printer.resume_print")),
+        );
     }
 
     /// `standard.py:824 cancel_print(user=None, *args, **kwargs)`: cancel the current printjob.
@@ -992,7 +1170,13 @@ impl Printer {
 
         // tell comm layer to cancel - will also trigger our cancelled handler
         // for further processing
-        comm.cancel_print(None, false, user, Some(with_trigger(&tags, "trigger:printer.cancel_print")), false);
+        comm.cancel_print(
+            None,
+            false,
+            user,
+            Some(with_trigger(&tags, "trigger:printer.cancel_print")),
+            false,
+        );
     }
 
     /// `standard.py:843 get_state_string(state=None, *args, **kwargs)`
@@ -1027,7 +1211,12 @@ impl Printer {
 
         let (port, baudrate) = comm.get_connection();
         let printer_profile = self._printer_profile_manager.get_current_or_default();
-        (comm.get_state_string(None), port, baudrate, Some(printer_profile))
+        (
+            comm.get_state_string(None),
+            port,
+            baudrate,
+            Some(printer_profile),
+        )
     }
 
     /// `standard.py:899 is_closed_or_error`
@@ -1088,7 +1277,9 @@ impl Printer {
     /// `standard.py:934 is_sd_ready`
     pub fn is_sd_ready(&self) -> bool {
         match self._comm.get() {
-            Some(comm) if settings().get_boolean(&["feature", "sdSupport"]) == Some(true) => comm.is_sd_ready(),
+            Some(comm) if settings().get_boolean(&["feature", "sdSupport"]) == Some(true) => {
+                comm.is_sd_ready()
+            }
             _ => false,
         }
     }
@@ -1147,7 +1338,9 @@ impl Printer {
         #[allow(clippy::never_loop)]
         for (_name, _hook) in self.sd_card_upload_hooks.iter() {
             // first sd card upload plugin that feels responsible gets the job
-            unimplemented!("standard.py:998 an octoprint.printer.sdcardupload hook gets callables (module doc, 5)")
+            unimplemented!(
+                "standard.py:998 an octoprint.printer.sdcardupload hook gets callables (module doc, 5)"
+            )
         }
 
         // no plugin feels responsible, use the default implementation
@@ -1157,12 +1350,24 @@ impl Printer {
     /// `standard.py:1020 _get_free_remote_name(filename)`
     pub fn _get_free_remote_name(&self, filename: &str) -> Result<String, PrinterError> {
         self.refresh_sd_files(true, None, None);
-        let existing_sd_files: Vec<String> =
-            self._comm.get().expect("AttributeError: 'NoneType' object has no attribute 'getSdFiles'").get_sd_files().into_iter().map(|x| x.0).collect();
+        let existing_sd_files: Vec<String> = self
+            ._comm
+            .get()
+            .expect("AttributeError: 'NoneType' object has no attribute 'getSdFiles'")
+            .get_sd_files()
+            .into_iter()
+            .map(|x| x.0)
+            .collect();
 
         if valid_file_type(filename, Some("gcode"), None) == Some(true) {
             // figure out remote filename
-            Ok(get_dos_filename(filename, Some(&existing_sd_files), Some("gco"), Some(&["gco", "g"]), None)?)
+            Ok(get_dos_filename(
+                filename,
+                Some(&existing_sd_files),
+                Some("gco"),
+                Some(&["gco", "g"]),
+                None,
+            )?)
         } else {
             // probably something else added through a plugin, use it's basename as-is
             Ok(super::files::basename(filename).to_string())
@@ -1170,9 +1375,17 @@ impl Printer {
     }
 
     /// `standard.py:1038 _add_sd_file(filename, path, tags=None)`
-    pub fn _add_sd_file(&self, filename: &str, path: &str, tags: Option<BTreeSet<String>>) -> Result<Option<String>, PrinterError> {
+    pub fn _add_sd_file(
+        &self,
+        filename: &str,
+        path: &str,
+        tags: Option<BTreeSet<String>>,
+    ) -> Result<Option<String>, PrinterError> {
         // self._create_estimator("stream")
-        let comm = self._comm.get().expect("AttributeError: 'NoneType' object has no attribute 'startFileTransfer'");
+        let comm = self
+            ._comm
+            .get()
+            .expect("AttributeError: 'NoneType' object has no attribute 'startFileTransfer'");
         Ok(comm.start_file_transfer(
             path,
             filename,
@@ -1186,7 +1399,10 @@ impl Printer {
     pub fn delete_sd_file(&self, filename: &str, tags: Option<BTreeSet<String>>) {
         match self._comm.get() {
             Some(comm) if comm.is_sd_ready() => {
-                comm.delete_sd_file(&format!("/{filename}"), Some(with_trigger(&tags, "trigger:printer.delete_sd_file")));
+                comm.delete_sd_file(
+                    &format!("/{filename}"),
+                    Some(with_trigger(&tags, "trigger:printer.delete_sd_file")),
+                );
             }
             _ => {}
         }
@@ -1216,7 +1432,12 @@ impl Printer {
     /// stored on the SD card attached to printer (if available and printer communication available).
     /// Optional blocking parameter allows making the method block (max 10s) until the file list has been
     /// received. `timeout` is `kwargs.get("timeout", 10)`.
-    pub fn refresh_sd_files(&self, blocking: bool, tags: Option<BTreeSet<String>>, timeout: Option<f64>) {
+    pub fn refresh_sd_files(
+        &self,
+        blocking: bool,
+        tags: Option<BTreeSet<String>>,
+        timeout: Option<f64>,
+    ) {
         match self._comm.get() {
             Some(comm) if comm.is_sd_ready() => {
                 comm.refresh_sd_files(
@@ -1252,14 +1473,18 @@ impl Printer {
     /// `standard.py:1236 _validateJob(filename, sd)`
     pub fn _validate_job(&self, filename: &str, sd: bool) -> Result<(), PrinterError> {
         if valid_file_type(filename, Some("machinecode"), None) != Some(true) {
-            return Err(PrinterError::InvalidFileType(format!("{filename} is not a machinecode file, cannot print")));
+            return Err(PrinterError::InvalidFileType(format!(
+                "{filename} is not a machinecode file, cannot print"
+            )));
         }
 
         if sd {
             return Ok(());
         }
 
-        let path_on_disk = self._file_manager.path_on_disk(FileDestinations::LOCAL, filename);
+        let path_on_disk = self
+            ._file_manager
+            .path_on_disk(FileDestinations::LOCAL, filename);
         if std::path::Path::new(filename).is_absolute() && filename != path_on_disk {
             return Err(PrinterError::InvalidFileLocation(format!(
                 "{filename} is not located within local storage, cannot select for printing"
@@ -1275,7 +1500,13 @@ impl Printer {
 
     /// `standard.py:1257 _setJobData(filename, filesize, sd, user=None, data=None)`: sets
     /// `self._selectedFile` (the rest of the method feeds `StateMonitor`, module doc)
-    fn _set_job_data(&self, filename: Option<&str>, filesize: Option<i64>, sd: bool, user: Option<&str>) {
+    fn _set_job_data(
+        &self,
+        filename: Option<&str>,
+        filesize: Option<i64>,
+        sd: bool,
+        user: Option<&str>,
+    ) {
         let _guard = self._selected_file_mutex.lock();
         match filename {
             Some(filename) => {
@@ -1284,7 +1515,8 @@ impl Printer {
                     name_in_storage.to_string()
                 } else {
                     // path_on_disk and the name in storage only feed `StateMonitor`
-                    self._file_manager.path_in_storage(FileDestinations::LOCAL, filename)
+                    self._file_manager
+                        .path_in_storage(FileDestinations::LOCAL, filename)
                 };
                 self._selected_file.set(Some(SelectedFile {
                     filename: path_in_storage,
@@ -1326,42 +1558,63 @@ impl Printer {
         progress: Option<f64>,
         action_user: Option<&str>,
     ) -> Map<String, Value> {
-        let (print_job_file, print_job_size, print_job_user, location): (Option<String>, Option<i64>, Option<String>, Option<String>) =
-            if print_job_file.is_none() {
-                let _guard = self._selected_file_mutex.lock();
-                let Some(selected_file) = self._selected_file.get() else {
-                    return Map::new();
-                };
-
-                (
-                    Some(selected_file.filename.clone()),
-                    selected_file.filesize,
-                    selected_file.user.clone(),
-                    Some(if selected_file.sd { FileDestinations::SDCARD } else { FileDestinations::LOCAL }.to_string()),
-                )
-            } else {
-                (
-                    print_job_file.map(str::to_string),
-                    print_job_size,
-                    print_job_user.map(str::to_string),
-                    location.map(str::to_string),
-                )
+        let (print_job_file, print_job_size, print_job_user, location): (
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+        ) = if print_job_file.is_none() {
+            let _guard = self._selected_file_mutex.lock();
+            let Some(selected_file) = self._selected_file.get() else {
+                return Map::new();
             };
 
-        let (print_job_file, location) = match (print_job_file.filter(|f| !f.is_empty()), location.filter(|l| !l.is_empty())) {
+            (
+                Some(selected_file.filename.clone()),
+                selected_file.filesize,
+                selected_file.user.clone(),
+                Some(
+                    if selected_file.sd {
+                        FileDestinations::SDCARD
+                    } else {
+                        FileDestinations::LOCAL
+                    }
+                    .to_string(),
+                ),
+            )
+        } else {
+            (
+                print_job_file.map(str::to_string),
+                print_job_size,
+                print_job_user.map(str::to_string),
+                location.map(str::to_string),
+            )
+        };
+
+        let (print_job_file, location) = match (
+            print_job_file.filter(|f| !f.is_empty()),
+            location.filter(|l| !l.is_empty()),
+        ) {
             (Some(f), Some(l)) => (f, l),
             _ => return Map::new(),
         };
 
         let (name, path, origin);
         if location == FileDestinations::SDCARD {
-            let full_path = print_job_file.strip_prefix('/').unwrap_or(&print_job_file).to_string();
+            let full_path = print_job_file
+                .strip_prefix('/')
+                .unwrap_or(&print_job_file)
+                .to_string();
             name = full_path.clone();
             path = full_path;
             origin = FileDestinations::SDCARD;
         } else {
-            path = self._file_manager.path_in_storage(FileDestinations::LOCAL, &print_job_file);
-            let (_, n) = self._file_manager.split_path(FileDestinations::LOCAL, &path);
+            path = self
+                ._file_manager
+                .path_in_storage(FileDestinations::LOCAL, &print_job_file);
+            let (_, n) = self
+                ._file_manager
+                .split_path(FileDestinations::LOCAL, &path);
             name = n;
             origin = FileDestinations::LOCAL;
         }
@@ -1370,7 +1623,10 @@ impl Printer {
         result.insert("name".into(), Value::String(name));
         result.insert("path".into(), Value::String(path));
         result.insert("origin".into(), Value::String(origin.to_string()));
-        result.insert("size".into(), print_job_size.map_or(Value::Null, Value::from));
+        result.insert(
+            "size".into(),
+            print_job_size.map_or(Value::Null, Value::from),
+        );
 
         if let Some(position) = position {
             result.insert("position".into(), position);
@@ -1419,17 +1675,27 @@ impl Printer {
             file_manager.log_print(
                 payload.get("origin").and_then(Value::as_str).unwrap_or(""),
                 payload.get("path").and_then(Value::as_str).unwrap_or(""),
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64()),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0.0, |d| d.as_secs_f64()),
                 payload.get("time").and_then(Value::as_f64),
                 false,
-                profile_manager.get_current_or_default()["id"].as_str().unwrap_or(""),
+                profile_manager.get_current_or_default()["id"]
+                    .as_str()
+                    .unwrap_or(""),
             );
             event_manager().fire(Events::PRINT_FAILED, Some(Value::Object(payload)));
         });
     }
 
     /// `standard.py:1868 on_comm_file_transfer_done(local_filename, remote_filename, elapsed, failed=False)`
-    pub fn on_comm_file_transfer_done_failed(&self, local_filename: &str, remote_filename: &str, elapsed: Option<f64>, failed: bool) {
+    pub fn on_comm_file_transfer_done_failed(
+        &self,
+        local_filename: &str,
+        remote_filename: &str,
+        elapsed: Option<f64>,
+        failed: bool,
+    ) {
         self._sd_streaming.set(false);
 
         let payload = json!({"local": local_filename, "remote": remote_filename, "time": elapsed});
@@ -1499,12 +1765,19 @@ impl MachineComPrintCallback for Printer {
     }
 
     /// `standard.py:1459 on_comm_position_update(position, reason=None)`
-    fn on_comm_position_update(&self, position: &BTreeMap<String, Option<f64>>, reason: Option<&str>) {
+    fn on_comm_position_update(
+        &self,
+        position: &BTreeMap<String, Option<f64>>,
+        reason: Option<&str>,
+    ) {
         if let Some(edge) = self._top_edge.get() {
             edge.on_comm_position_update(position, reason);
         }
         let mut payload = Map::new();
-        payload.insert("reason".into(), reason.map_or(Value::Null, |r| Value::String(r.to_string())));
+        payload.insert(
+            "reason".into(),
+            reason.map_or(Value::Null, |r| Value::String(r.to_string())),
+        );
         for (k, v) in position {
             payload.insert(k.clone(), v.map_or(Value::Null, Value::from));
         }
@@ -1527,16 +1800,32 @@ impl MachineComPrintCallback for Printer {
 
         if old_state == Some(MachineCom::STATE_PRINTING) {
             // if we were still printing and went into an error state, mark the print as failed
-            if [MachineCom::STATE_CLOSED, MachineCom::STATE_ERROR, MachineCom::STATE_CLOSED_WITH_ERROR].contains(&state) {
+            if [
+                MachineCom::STATE_CLOSED,
+                MachineCom::STATE_ERROR,
+                MachineCom::STATE_CLOSED_WITH_ERROR,
+            ]
+            .contains(&state)
+            {
                 let _guard = self._selected_file_mutex.lock();
                 if self._selected_file.get().is_some() {
-                    let mut payload = self._payload_for_print_job_event(None, None, None, None, None, None, None, None);
+                    let mut payload = self._payload_for_print_job_event(
+                        None, None, None, None, None, None, None, None,
+                    );
                     if !payload.is_empty() {
-                        let comm = self._comm.get().expect("AttributeError: 'NoneType' object has no attribute 'getPrintTime'");
-                        payload.insert("time".into(), comm.get_print_time().map_or(Value::Null, Value::from));
+                        let comm = self._comm.get().expect(
+                            "AttributeError: 'NoneType' object has no attribute 'getPrintTime'",
+                        );
+                        payload.insert(
+                            "time".into(),
+                            comm.get_print_time().map_or(Value::Null, Value::from),
+                        );
                         payload.insert("reason".into(), Value::String("error".to_string()));
                         payload.insert("error".into(), Value::String(comm.get_error_string()));
-                        payload.insert("progress".into(), comm.get_print_progress().map_or(Value::Null, Value::from));
+                        payload.insert(
+                            "progress".into(),
+                            comm.get_print_progress().map_or(Value::Null, Value::from),
+                        );
 
                         self._finalize_failed(payload);
                     }
@@ -1571,7 +1860,14 @@ impl MachineComPrintCallback for Printer {
     }
 
     /// `standard.py:1543 on_comm_error(error, reason, consequence=None, faq=None, logs=None)`
-    fn on_comm_error(&self, error: &str, reason: &str, consequence: Option<&str>, faq: Option<&str>, logs: Option<&[String]>) {
+    fn on_comm_error(
+        &self,
+        error: &str,
+        reason: &str,
+        consequence: Option<&str>,
+        faq: Option<&str>,
+        logs: Option<&[String]>,
+    ) {
         // store error info
         self._error_info.set(Some(ErrorInformation {
             error: error.to_string(),
@@ -1593,10 +1889,7 @@ impl MachineComPrintCallback for Printer {
             // we have to react to all z-changes, even those that might "go backward" due to a slicer's
             // retraction or anti-backlash-routines. Event subscribes should individually take care to
             // filter out "wrong" z-changes
-            event_manager().fire(
-                Events::Z_CHANGE,
-                Some(json!({"new": new_z, "old": old_z})),
-            );
+            event_manager().fire(Events::Z_CHANGE, Some(json!({"new": new_z, "old": old_z})));
         }
 
         self._set_current_z(new_z);
@@ -1612,10 +1905,21 @@ impl MachineComPrintCallback for Printer {
 
     /// `standard.py:1588 on_comm_file_selected(full_path, size, sd, user=None, data=None)`; `data` only
     /// feeds `StateMonitor`
-    fn on_comm_file_selected(&self, full_path: Option<&str>, size: Option<i64>, sd: bool, user: Option<&str>, _data: Option<&Value>) {
+    fn on_comm_file_selected(
+        &self,
+        full_path: Option<&str>,
+        size: Option<i64>,
+        sd: bool,
+        user: Option<&str>,
+        _data: Option<&Value>,
+    ) {
         if let Some(full_path) = full_path {
             let payload = self._payload_for_print_job_event(
-                Some(if sd { FileDestinations::SDCARD } else { FileDestinations::LOCAL }),
+                Some(if sd {
+                    FileDestinations::SDCARD
+                } else {
+                    FileDestinations::LOCAL
+                }),
                 Some(full_path),
                 None,
                 user,
@@ -1652,10 +1956,14 @@ impl MachineComPrintCallback for Printer {
 
         self._update_job_user(user); // the final job owner should always be whoever _started_ the job
         // self._stateMonitor.trigger_progress_update()
-        let payload = self._payload_for_print_job_event(None, None, None, user, None, None, None, user);
+        let payload =
+            self._payload_for_print_job_event(None, None, None, user, None, None, None, user);
         if !payload.is_empty() {
             event_manager().fire(Events::PRINT_STARTED, Some(Value::Object(payload.clone())));
-            event_manager().fire(Events::CHART_MARKED, Some(json!({"type": "print", "label": "Start"})));
+            event_manager().fire(
+                Events::CHART_MARKED,
+                Some(json!({"type": "print", "label": "Start"})),
+            );
             // self._logger_job.info("Print job started - origin: {}, path: {}, owner: {}, user: {}")
 
             if !suppress_script {
@@ -1671,11 +1979,21 @@ impl MachineComPrintCallback for Printer {
         }
         self._file_manager.delete_recovery_data();
 
-        let mut payload = self._payload_for_print_job_event(None, None, None, None, None, None, None, None);
+        let mut payload =
+            self._payload_for_print_job_event(None, None, None, None, None, None, None, None);
         if !payload.is_empty() {
-            let comm = self._comm.get().expect("AttributeError: 'NoneType' object has no attribute 'getPrintTime'");
-            payload.insert("time".into(), comm.get_print_time().map_or(Value::Null, Value::from));
-            event_manager().fire(Events::CHART_MARKED, Some(json!({"type": "done", "label": "Done"})));
+            let comm = self
+                ._comm
+                .get()
+                .expect("AttributeError: 'NoneType' object has no attribute 'getPrintTime'");
+            payload.insert(
+                "time".into(),
+                comm.get_print_time().map_or(Value::Null, Value::from),
+            );
+            event_manager().fire(
+                Events::CHART_MARKED,
+                Some(json!({"type": "done", "label": "Done"})),
+            );
             // self._updateProgressData(completion=1.0, filepos=payload["size"], printTime=payload["time"], printTimeLeft=0)
             // self._stateMonitor.set_state(...)
 
@@ -1692,10 +2010,14 @@ impl MachineComPrintCallback for Printer {
                 file_manager.log_print(
                     payload.get("origin").and_then(Value::as_str).unwrap_or(""),
                     payload.get("path").and_then(Value::as_str).unwrap_or(""),
-                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64()),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0.0, |d| d.as_secs_f64()),
                     payload.get("time").and_then(Value::as_f64),
                     true,
-                    profile_manager.get_current_or_default()["id"].as_str().unwrap_or(""),
+                    profile_manager.get_current_or_default()["id"]
+                        .as_str()
+                        .unwrap_or(""),
                 );
             });
         }
@@ -1704,10 +2026,14 @@ impl MachineComPrintCallback for Printer {
 
     /// `standard.py:1723 on_comm_print_job_cancelling(firmware_error=None, user=None)`
     fn on_comm_print_job_cancelling(&self, firmware_error: Option<&str>, user: Option<&str>) {
-        let mut payload = self._payload_for_print_job_event(None, None, None, None, None, None, None, user);
+        let mut payload =
+            self._payload_for_print_job_event(None, None, None, None, None, None, None, user);
         if !payload.is_empty() {
             if let Some(firmware_error) = firmware_error.filter(|e| !e.is_empty()) {
-                payload.insert("firmwareError".into(), Value::String(firmware_error.to_string()));
+                payload.insert(
+                    "firmwareError".into(),
+                    Value::String(firmware_error.to_string()),
+                );
             }
             event_manager().fire(Events::PRINT_CANCELLING, Some(Value::Object(payload)));
         }
@@ -1725,7 +2051,14 @@ impl MachineComPrintCallback for Printer {
         let fileposition = comm.as_ref().and_then(|c| c.get_file_position());
         let progress = comm.as_ref().and_then(|c| c.get_print_progress());
         let position = comm.as_ref().map(|c| {
-            Value::Object(c.cancel_position.get().as_dict().into_iter().map(|(k, v)| (k, v.map_or(Value::Null, Value::from))).collect())
+            Value::Object(
+                c.cancel_position
+                    .get()
+                    .as_dict()
+                    .into_iter()
+                    .map(|(k, v)| (k, v.map_or(Value::Null, Value::from)))
+                    .collect(),
+            )
         });
         let mut payload = self._payload_for_print_job_event(
             None,
@@ -1738,11 +2071,21 @@ impl MachineComPrintCallback for Printer {
             user,
         );
         if !payload.is_empty() {
-            let comm = comm.expect("AttributeError: 'NoneType' object has no attribute 'getPrintTime'");
-            payload.insert("time".into(), comm.get_print_time().map_or(Value::Null, Value::from));
+            let comm =
+                comm.expect("AttributeError: 'NoneType' object has no attribute 'getPrintTime'");
+            payload.insert(
+                "time".into(),
+                comm.get_print_time().map_or(Value::Null, Value::from),
+            );
 
-            event_manager().fire(Events::PRINT_CANCELLED, Some(Value::Object(payload.clone())));
-            event_manager().fire(Events::CHART_MARKED, Some(json!({"type": "cancel", "label": "Cancel"})));
+            event_manager().fire(
+                Events::PRINT_CANCELLED,
+                Some(Value::Object(payload.clone())),
+            );
+            event_manager().fire(
+                Events::CHART_MARKED,
+                Some(json!({"type": "cancel", "label": "Cancel"})),
+            );
             // self._logger_job.info("Print job cancelled - origin: {}, path: {}, owner: {}, user: {}, fileposition: {}, position: {}")
 
             if !suppress_script {
@@ -1764,13 +2107,32 @@ impl MachineComPrintCallback for Printer {
         let fileposition = comm.as_ref().and_then(|c| c.get_file_position());
         let progress = comm.as_ref().and_then(|c| c.get_print_progress());
         let position = comm.as_ref().filter(|_| !suppress_script).map(|c| {
-            Value::Object(c.pause_position.get().as_dict().into_iter().map(|(k, v)| (k, v.map_or(Value::Null, Value::from))).collect())
+            Value::Object(
+                c.pause_position
+                    .get()
+                    .as_dict()
+                    .into_iter()
+                    .map(|(k, v)| (k, v.map_or(Value::Null, Value::from)))
+                    .collect(),
+            )
         });
-        let payload = self._payload_for_print_job_event(None, None, None, None, position, fileposition.map(|f| f.pos), progress, user);
+        let payload = self._payload_for_print_job_event(
+            None,
+            None,
+            None,
+            None,
+            position,
+            fileposition.map(|f| f.pos),
+            progress,
+            user,
+        );
         if !payload.is_empty() {
             event_manager().fire(Events::PRINT_PAUSED, Some(Value::Object(payload.clone())));
             // self._logger_job.info("Print job paused - origin: {}, path: {}, owner: {}, user: {}, fileposition: {}, position: {}")
-            event_manager().fire(Events::CHART_MARKED, Some(json!({"type": "pause", "label": "Pause"})));
+            event_manager().fire(
+                Events::CHART_MARKED,
+                Some(json!({"type": "pause", "label": "Pause"})),
+            );
             if !suppress_script {
                 self._script_for_job_event("afterPrintPaused", &payload);
             }
@@ -1782,10 +2144,14 @@ impl MachineComPrintCallback for Printer {
         if let Some(edge) = self._top_edge.get() {
             edge.on_comm_print_job_resumed(suppress_script, user);
         }
-        let payload = self._payload_for_print_job_event(None, None, None, None, None, None, None, user);
+        let payload =
+            self._payload_for_print_job_event(None, None, None, None, None, None, None, user);
         if !payload.is_empty() {
             event_manager().fire(Events::PRINT_RESUMED, Some(Value::Object(payload.clone())));
-            event_manager().fire(Events::CHART_MARKED, Some(json!({"type": "resume", "label": "Resume"})));
+            event_manager().fire(
+                Events::CHART_MARKED,
+                Some(json!({"type": "resume", "label": "Resume"})),
+            );
             // self._logger_job.info("Print job resumed - origin: {}, path: {}, owner: {}, user: {}")
 
             if !suppress_script {
@@ -1795,8 +2161,17 @@ impl MachineComPrintCallback for Printer {
     }
 
     /// `standard.py:1848 on_comm_file_transfer_started(local_filename, remote_filename, filesize, user=None)`
-    fn on_comm_file_transfer_started(&self, local_filename: &str, remote_filename: &str, filesize: Option<i64>, user: Option<&str>) {
-        event_manager().fire(Events::TRANSFER_STARTED, Some(json!({"local": local_filename, "remote": remote_filename})));
+    fn on_comm_file_transfer_started(
+        &self,
+        local_filename: &str,
+        remote_filename: &str,
+        filesize: Option<i64>,
+        user: Option<&str>,
+    ) {
+        event_manager().fire(
+            Events::TRANSFER_STARTED,
+            Some(json!({"local": local_filename, "remote": remote_filename})),
+        );
 
         self._sd_streaming.set(true);
 
@@ -1805,12 +2180,22 @@ impl MachineComPrintCallback for Printer {
     }
 
     /// `standard.py:1868 on_comm_file_transfer_done(local_filename, remote_filename, elapsed, failed=False)`
-    fn on_comm_file_transfer_done(&self, local_filename: &str, remote_filename: &str, elapsed: Option<f64>) {
+    fn on_comm_file_transfer_done(
+        &self,
+        local_filename: &str,
+        remote_filename: &str,
+        elapsed: Option<f64>,
+    ) {
         self.on_comm_file_transfer_done_failed(local_filename, remote_filename, elapsed, false);
     }
 
     /// `standard.py:1899 on_comm_file_transfer_failed(local_filename, remote_filename, elapsed)`
-    fn on_comm_file_transfer_failed(&self, local_filename: &str, remote_filename: &str, elapsed: Option<f64>) {
+    fn on_comm_file_transfer_failed(
+        &self,
+        local_filename: &str,
+        remote_filename: &str,
+        elapsed: Option<f64>,
+    ) {
         self.on_comm_file_transfer_done_failed(local_filename, remote_filename, elapsed, true);
     }
 
@@ -1829,8 +2214,13 @@ impl MachineComPrintCallback for Printer {
 
     /// `standard.py:1915 on_comm_firmware_info(firmware_name, firmware_data)`
     fn on_comm_firmware_info(&self, firmware_name: &str, firmware_data: &PyDict<String>) {
-        let data: Map<String, Value> = firmware_data.iter().map(|(k, v)| (k.clone(), Value::String(v.clone()))).collect();
-        self._firmware_info.set(Some(json!({"name": firmware_name, "data": Value::Object(data)})));
+        let data: Map<String, Value> = firmware_data
+            .iter()
+            .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+            .collect();
+        self._firmware_info.set(Some(
+            json!({"name": firmware_name, "data": Value::Object(data)}),
+        ));
     }
 }
 
@@ -1888,7 +2278,8 @@ mod tests {
         let seen: Arc<Mutex<Vec<(String, Option<Value>)>>> = Arc::new(Mutex::new(Vec::new()));
         for event in events {
             let seen = seen.clone();
-            let listener: Listener = Arc::new(move |e, p| seen.lock().unwrap().push((e.to_string(), p.cloned())));
+            let listener: Listener =
+                Arc::new(move |e, p| seen.lock().unwrap().push((e.to_string(), p.cloned())));
             event_manager().subscribe(event, listener);
         }
         seen
@@ -1902,17 +2293,38 @@ mod tests {
         let (printer, _comm) = printer();
         let _ = printer.script("testEvent", None, true, false, None);
         crate::ports::octoprint::events::wait_idle(); // the events are delivered by the worker thread
-        assert!(seen.lock().unwrap().iter().any(|(e, _)| e == "GcodeScriptTestEventRunning"));
+        assert!(
+            seen.lock()
+                .unwrap()
+                .iter()
+                .any(|(e, _)| e == "GcodeScriptTestEventRunning")
+        );
     }
 
     #[test]
     fn test_event_order() {
-        let seen = record(&["GcodeScriptEventOrderRunning", "GcodeScriptEventOrderFinished"]);
+        let seen = record(&[
+            "GcodeScriptEventOrderRunning",
+            "GcodeScriptEventOrderFinished",
+        ]);
         let (printer, _comm) = printer();
-        printer.script("EventOrder", None, false, false, None).unwrap();
+        printer
+            .script("EventOrder", None, false, false, None)
+            .unwrap();
         crate::ports::octoprint::events::wait_idle(); // the events are delivered by the worker thread
-        let names: Vec<String> = seen.lock().unwrap().iter().map(|(e, _)| e.clone()).collect();
-        assert_eq!(vec!["GcodeScriptEventOrderRunning", "GcodeScriptEventOrderFinished"], names);
+        let names: Vec<String> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(e, _)| e.clone())
+            .collect();
+        assert_eq!(
+            vec![
+                "GcodeScriptEventOrderRunning",
+                "GcodeScriptEventOrderFinished"
+            ],
+            names
+        );
     }
 
     #[test]
@@ -1929,15 +2341,30 @@ mod tests {
         let expected_payload = json!({"payloadKey": "payloadValue"});
         let context = json!({"event": expected_payload});
 
-        printer.script("GetPayload", Some(&context), false, false, None).unwrap();
+        printer
+            .script("GetPayload", Some(&context), false, false, None)
+            .unwrap();
         crate::ports::octoprint::events::wait_idle(); // the events are delivered by the worker thread
-        assert_eq!(Some(expected_payload), seen.lock().unwrap().last().unwrap().1);
+        assert_eq!(
+            Some(expected_payload),
+            seen.lock().unwrap().last().unwrap().1
+        );
 
-        printer.script("WrongPayload", Some(&json!([])), false, false, None).unwrap();
+        printer
+            .script("WrongPayload", Some(&json!([])), false, false, None)
+            .unwrap();
         crate::ports::octoprint::events::wait_idle(); // the events are delivered by the worker thread
         assert_eq!(None, seen.lock().unwrap().last().unwrap().1);
 
-        printer.script("WrongContext", Some(&json!({"noEvent": {}})), false, false, None).unwrap();
+        printer
+            .script(
+                "WrongContext",
+                Some(&json!({"noEvent": {}})),
+                false,
+                false,
+                None,
+            )
+            .unwrap();
         crate::ports::octoprint::events::wait_idle(); // the events are delivered by the worker thread
         assert_eq!(None, seen.lock().unwrap().last().unwrap().1);
     }
@@ -1947,22 +2374,37 @@ mod tests {
     #[test]
     fn ours_script_name_must_be_set() {
         let (printer, _comm) = printer();
-        assert_eq!(Err(PrinterError::ValueError("name must be set".into())), printer.script("", None, true, false, None));
+        assert_eq!(
+            Err(PrinterError::ValueError("name must be set".into())),
+            printer.script("", None, true, false, None)
+        );
         // an unknown script with must_be_set is UnknownScript (:503), after the Running event
-        assert_eq!(Err(PrinterError::UnknownScript("noSuchScript".into())), printer.script("noSuchScript", None, true, false, None));
+        assert_eq!(
+            Err(PrinterError::UnknownScript("noSuchScript".into())),
+            printer.script("noSuchScript", None, true, false, None)
+        );
     }
 
     #[test]
     fn ours_commands_need_a_comm_and_get_their_tag() {
         // no comm: nothing (:467)
-        let printer = Printer::new(Arc::new(LocalFileManager), Arc::new(PrinterProfileManager::new()));
+        let printer = Printer::new(
+            Arc::new(LocalFileManager),
+            Arc::new(PrinterProfileManager::new()),
+        );
         printer.commands(&json!("M105"), None, false);
         let (printer, comm) = printer_printing();
         printer.commands(&json!(["M105", "M114"]), Some(tagset(&["a"])), false);
         assert_eq!(
             vec![
-                ("M105".to_string(), tagset(&["a", "trigger:printer.commands"])),
-                ("M114".to_string(), tagset(&["a", "trigger:printer.commands"])),
+                (
+                    "M105".to_string(),
+                    tagset(&["a", "trigger:printer.commands"])
+                ),
+                (
+                    "M114".to_string(),
+                    tagset(&["a", "trigger:printer.commands"])
+                ),
             ],
             queued(&comm)
         );
@@ -1974,32 +2416,60 @@ mod tests {
     fn ours_jog() {
         let (printer, comm) = printer_printing();
         // the default speed is the slowest of the axes' speeds in the profile (:524); X6000, Z200 -> F200
-        printer.jog(&json!({"x": 10, "z": -1.5}), true, None, &[], None).unwrap();
+        printer
+            .jog(&json!({"x": 10, "z": -1.5}), true, None, &[], None)
+            .unwrap();
         assert_eq!(vec!["G91", "G0 X10 Z-1.5 F200", "G90"], texts(&comm));
         // absolute, with a speed
-        printer.jog(&json!({"y": 5}), false, Some(&json!(3000)), &[], Some(tagset(&["t"]))).unwrap();
+        printer
+            .jog(
+                &json!({"y": 5}),
+                false,
+                Some(&json!(3000)),
+                &[],
+                Some(tagset(&["t"])),
+            )
+            .unwrap();
         let q = queued(&comm);
-        assert_eq!(vec!["G90", "G0 Y5 F3000"], q.iter().map(|(c, _)| c.as_str()).collect::<Vec<_>>());
+        assert_eq!(
+            vec!["G90", "G0 Y5 F3000"],
+            q.iter().map(|(c, _)| c.as_str()).collect::<Vec<_>>()
+        );
         assert!(q[0].1.contains("trigger:printer.jog") && q[0].1.contains("t"));
         // speed 0 and a bool speed give no F (:545)
-        printer.jog(&json!({"y": 5}), false, Some(&json!(0)), &[], None).unwrap();
-        printer.jog(&json!({"y": 5}), false, Some(&json!(true)), &[], None).unwrap();
+        printer
+            .jog(&json!({"y": 5}), false, Some(&json!(0)), &[], None)
+            .unwrap();
+        printer
+            .jog(&json!({"y": 5}), false, Some(&json!(true)), &[], None)
+            .unwrap();
         assert_eq!(vec!["G90", "G0 Y5", "G90", "G0 Y5"], texts(&comm));
         // the legacy format
-        printer.jog(&json!("x"), true, Some(&json!(1)), &[json!(2.5)], None).unwrap();
+        printer
+            .jog(&json!("x"), true, Some(&json!(1)), &[json!(2.5)], None)
+            .unwrap();
         assert_eq!(vec!["G91", "G0 X2.5 F1", "G90"], texts(&comm));
         // the refusals (:513-533)
-        assert_eq!(Err(PrinterError::ValueError("amount not set".into())), printer.jog(&json!("x"), true, None, &[], None));
         assert_eq!(
-            Err(PrinterError::ValueError("amount must be a valid number: abc".into())),
+            Err(PrinterError::ValueError("amount not set".into())),
+            printer.jog(&json!("x"), true, None, &[], None)
+        );
+        assert_eq!(
+            Err(PrinterError::ValueError(
+                "amount must be a valid number: abc".into()
+            )),
             printer.jog(&json!("x"), true, None, &[json!("abc")], None)
         );
         assert_eq!(
-            Err(PrinterError::ValueError("At least one axis to jog must be provided".into())),
+            Err(PrinterError::ValueError(
+                "At least one axis to jog must be provided".into()
+            )),
             printer.jog(&json!({}), true, None, &[], None)
         );
         assert_eq!(
-            Err(PrinterError::ValueError("Invalid axis q, valid axes are x, y, z, e".into())),
+            Err(PrinterError::ValueError(
+                "Invalid axis q, valid axes are x, y, z, e".into()
+            )),
             printer.jog(&json!({"q": 1}), true, None, &[], None)
         );
         assert!(texts(&comm).is_empty());
@@ -2008,22 +2478,34 @@ mod tests {
     #[test]
     fn ours_home() {
         let (printer, comm) = printer_printing();
-        printer.home(&json!(["x", "Y"]), Some(tagset(&["api"]))).unwrap();
+        printer
+            .home(&json!(["x", "Y"]), Some(tagset(&["api"])))
+            .unwrap();
         let q = queued(&comm);
-        assert_eq!(vec!["G91", "G28 X0 Y0", "G90"], q.iter().map(|(c, _)| c.as_str()).collect::<Vec<_>>());
+        assert_eq!(
+            vec!["G91", "G28 X0 Y0", "G90"],
+            q.iter().map(|(c, _)| c.as_str()).collect::<Vec<_>>()
+        );
         assert!(q[1].1.contains("trigger:printer.home") && q[1].1.contains("api"));
         printer.home(&json!("z"), Some(BTreeSet::new())).unwrap();
         assert_eq!(vec!["G91", "G28 Z0", "G90"], texts(&comm));
         assert_eq!(
-            Err(PrinterError::ValueError("axes is neither a list nor a string: 5".into())),
+            Err(PrinterError::ValueError(
+                "axes is neither a list nor a string: 5".into()
+            )),
             printer.home(&json!(5), Some(BTreeSet::new()))
         );
         assert_eq!(
-            Err(PrinterError::ValueError("axes contains invalid axes: ['x', 'q']".into())),
+            Err(PrinterError::ValueError(
+                "axes contains invalid axes: ['x', 'q']".into()
+            )),
             printer.home(&json!(["x", "q"]), Some(BTreeSet::new()))
         );
         // :571 `kwargs.get("tags", set)`: without tags it is Python's TypeError, after the check
-        assert!(matches!(printer.home(&json!(["x"]), None), Err(PrinterError::TypeError(_))));
+        assert!(matches!(
+            printer.home(&json!(["x"]), None),
+            Err(PrinterError::TypeError(_))
+        ));
         assert!(texts(&comm).is_empty());
     }
 
@@ -2034,12 +2516,21 @@ mod tests {
         printer.extrude(&json!(5), None, None).unwrap();
         assert_eq!(vec!["G91", "M83", "G1 E5 F300", "M82", "G90"], texts(&comm));
         // a speed above the profile's is capped, one below is kept (:589-591)
-        printer.extrude(&json!(-2.5), Some(&json!(1000)), None).unwrap();
-        assert_eq!(vec!["G91", "M83", "G1 E-2.5 F300", "M82", "G90"], texts(&comm));
-        printer.extrude(&json!(1), Some(&json!(120.7)), None).unwrap();
+        printer
+            .extrude(&json!(-2.5), Some(&json!(1000)), None)
+            .unwrap();
+        assert_eq!(
+            vec!["G91", "M83", "G1 E-2.5 F300", "M82", "G90"],
+            texts(&comm)
+        );
+        printer
+            .extrude(&json!(1), Some(&json!(120.7)), None)
+            .unwrap();
         assert_eq!(vec!["G91", "M83", "G1 E1 F120", "M82", "G90"], texts(&comm));
         assert_eq!(
-            Err(PrinterError::ValueError("amount must be a valid number: x".into())),
+            Err(PrinterError::ValueError(
+                "amount must be a valid number: x".into()
+            )),
             printer.extrude(&json!("x"), None, None)
         );
     }
@@ -2050,34 +2541,58 @@ mod tests {
         printer.change_tool(&json!("tool2"), None).unwrap();
         assert_eq!(vec!["T2"], texts(&comm));
         assert_eq!(
-            Err(PrinterError::ValueError("tool must match \"tool[0-9]+\": tool".into())),
+            Err(PrinterError::ValueError(
+                "tool must match \"tool[0-9]+\": tool".into()
+            )),
             printer.change_tool(&json!("tool"), None)
         );
-        printer.set_temperature(&json!("tool"), &json!(200), None).unwrap();
-        printer.set_temperature(&json!("tool1"), &json!(210.5), None).unwrap(); // one extruder: no T
-        printer.set_temperature(&json!("bed"), &json!(60), None).unwrap();
-        printer.set_temperature(&json!("chamber"), &json!(0), None).unwrap();
-        assert_eq!(vec!["M104 S200", "M104 S210.5", "M140 S60", "M141 S0"], texts(&comm));
-        assert!(matches!(printer.set_temperature(&json!("hotend"), &json!(1), None), Err(PrinterError::ValueError(_))));
+        printer
+            .set_temperature(&json!("tool"), &json!(200), None)
+            .unwrap();
+        printer
+            .set_temperature(&json!("tool1"), &json!(210.5), None)
+            .unwrap(); // one extruder: no T
+        printer
+            .set_temperature(&json!("bed"), &json!(60), None)
+            .unwrap();
+        printer
+            .set_temperature(&json!("chamber"), &json!(0), None)
+            .unwrap();
         assert_eq!(
-            Err(PrinterError::ValueError("value must be a valid number >= 0: -1".into())),
+            vec!["M104 S200", "M104 S210.5", "M140 S60", "M141 S0"],
+            texts(&comm)
+        );
+        assert!(matches!(
+            printer.set_temperature(&json!("hotend"), &json!(1), None),
+            Err(PrinterError::ValueError(_))
+        ));
+        assert_eq!(
+            Err(PrinterError::ValueError(
+                "value must be a valid number >= 0: -1".into()
+            )),
             printer.set_temperature(&json!("bed"), &json!(-1), None)
         );
         assert_eq!(
-            Err(PrinterError::ValueError("value must be a valid number >= 0: hot".into())),
+            Err(PrinterError::ValueError(
+                "value must be a valid number >= 0: hot".into()
+            )),
             printer.set_temperature(&json!("bed"), &json!("hot"), None)
         );
     }
 
     #[test]
     fn ours_set_temperature_of_a_specific_tool_with_several_extruders() {
-        let profile = PrinterProfileManager::with_current(json!({"extruder": {"count": 2, "sharedNozzle": false}}));
+        let profile = PrinterProfileManager::with_current(
+            json!({"extruder": {"count": 2, "sharedNozzle": false}}),
+        );
         let profile = Arc::new(profile);
         let printer = Printer::new(Arc::new(LocalFileManager), profile.clone());
         let comm = MachineCom::new(None, None, None, Some(profile));
         comm._change_state(MachineCom::STATE_PRINTING);
         printer.set_comm(Some(comm.clone()));
-        printer.set_temperature(&json!("tool1"), &json!(215), None).unwrap();
+        printer
+            .set_temperature(&json!("tool1"), &json!(215), None)
+            .unwrap();
         assert_eq!(vec!["M104 T1 S215"], texts(&comm));
     }
 
@@ -2088,23 +2603,55 @@ mod tests {
         printer.feed_rate(&json!(150), None).unwrap();
         printer.flow_rate(&json!(1.1), None).unwrap(); // int(1.1 * 100) = 110
         assert_eq!(vec!["M220 S50", "M220 S150", "M221 S110"], texts(&comm));
-        assert_eq!(Err(PrinterError::ValueError("factor is not a number".into())), printer.feed_rate(&json!("x"), None));
-        assert_eq!(Err(PrinterError::ValueError("factor must be a value >=1".into())), printer.feed_rate(&json!(0), None));
-        assert_eq!(Err(PrinterError::ValueError("factor must be a value >=1".into())), printer.flow_rate(&json!(0.001), None));
+        assert_eq!(
+            Err(PrinterError::ValueError("factor is not a number".into())),
+            printer.feed_rate(&json!("x"), None)
+        );
+        assert_eq!(
+            Err(PrinterError::ValueError(
+                "factor must be a value >=1".into()
+            )),
+            printer.feed_rate(&json!(0), None)
+        );
+        assert_eq!(
+            Err(PrinterError::ValueError(
+                "factor must be a value >=1".into()
+            )),
+            printer.flow_rate(&json!(0.001), None)
+        );
         // `_convert_rate_value`'s max (:676)
-        assert_eq!(Err(PrinterError::ValueError("factor must be a value <=10".into())), printer._convert_rate_value(&json!(11), None, Some(10)));
-        assert_eq!(Ok(7), printer._convert_rate_value(&json!(7), None, Some(10)));
+        assert_eq!(
+            Err(PrinterError::ValueError(
+                "factor must be a value <=10".into()
+            )),
+            printer._convert_rate_value(&json!(11), None, Some(10))
+        );
+        assert_eq!(
+            Ok(7),
+            printer._convert_rate_value(&json!(7), None, Some(10))
+        );
     }
 
     #[test]
     fn ours_state_getters_without_a_comm() {
-        let printer = Printer::new(Arc::new(LocalFileManager), Arc::new(PrinterProfileManager::new()));
+        let printer = Printer::new(
+            Arc::new(LocalFileManager),
+            Arc::new(PrinterProfileManager::new()),
+        );
         assert_eq!("Offline", printer.get_state_string(None));
         assert_eq!("OFFLINE", printer.get_state_id(None));
         assert_eq!("", printer.get_error());
-        assert_eq!(("Closed".to_string(), None, None, None), printer.get_current_connection());
+        assert_eq!(
+            ("Closed".to_string(), None, None, None),
+            printer.get_current_connection()
+        );
         assert!(printer.is_closed_or_error());
-        assert!(!printer.is_operational() && !printer.is_printing() && !printer.is_ready() && !printer.is_sd_ready());
+        assert!(
+            !printer.is_operational()
+                && !printer.is_printing()
+                && !printer.is_ready()
+                && !printer.is_sd_ready()
+        );
         assert_eq!(Vec::<Value>::new(), printer.get_sd_files(false));
         // with nothing connected, every control does nothing (:467, :792, :808, :824, :1052-1080)
         printer.pause_print(None, None);
@@ -2115,35 +2662,67 @@ mod tests {
         printer.release_sd_card(None);
         printer.refresh_sd_files(false, None, None);
         assert_eq!(Ok(()), printer.start_print(None, None, None));
-        assert_eq!(Ok(()), printer.select_file("a.gcode", false, false, None, None, None));
+        assert_eq!(
+            Ok(()),
+            printer.select_file("a.gcode", false, false, None, None, None)
+        );
     }
 
     #[test]
     fn ours_validate_job() {
         let (printer, _comm) = printer();
-        assert!(matches!(printer._validate_job("a.stl", false), Err(PrinterError::InvalidFileType(_))));
-        assert!(matches!(printer._validate_job("a.stl", true), Err(PrinterError::InvalidFileType(_))));
+        assert!(matches!(
+            printer._validate_job("a.stl", false),
+            Err(PrinterError::InvalidFileType(_))
+        ));
+        assert!(matches!(
+            printer._validate_job("a.stl", true),
+            Err(PrinterError::InvalidFileType(_))
+        ));
         assert_eq!(Ok(()), printer._validate_job("a.gcode", true)); // an SD file is not looked for
-        assert!(matches!(printer._validate_job("/no/such/dir/a.gcode", false), Err(PrinterError::InvalidFileLocation(_))));
+        assert!(matches!(
+            printer._validate_job("/no/such/dir/a.gcode", false),
+            Err(PrinterError::InvalidFileLocation(_))
+        ));
     }
 
     #[test]
     fn ours_selected_file_and_payload() {
         let (printer, _comm) = printer();
         // nothing selected: {} (:1927)
-        assert!(printer._payload_for_print_job_event(None, None, None, None, None, None, None, None).is_empty());
+        assert!(
+            printer
+                ._payload_for_print_job_event(None, None, None, None, None, None, None, None)
+                .is_empty()
+        );
         printer._set_job_data(Some("/jobs/a.gcode"), Some(10), false, Some("owner"));
-        let payload = printer._payload_for_print_job_event(None, None, None, None, None, Some(4), Some(0.456), Some("me"));
+        let payload = printer._payload_for_print_job_event(
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(4),
+            Some(0.456),
+            Some("me"),
+        );
         assert_eq!(
             json!({"name": "a.gcode", "path": "/jobs/a.gcode", "origin": "local", "size": 10, "fileposition": 4, "progress": 45, "owner": "owner", "user": "me"}),
             Value::Object(payload)
         );
         printer._update_job_user(Some("other"));
-        assert_eq!(Some("other".to_string()), printer._selected_file.get().unwrap().user);
+        assert_eq!(
+            Some("other".to_string()),
+            printer._selected_file.get().unwrap().user
+        );
         // an SD file loses its leading slash (:1264, :1946)
         printer._set_job_data(Some("/B.GCO"), None, true, None);
-        let payload = printer._payload_for_print_job_event(None, None, None, None, None, None, None, None);
-        assert_eq!(json!({"name": "B.GCO", "path": "B.GCO", "origin": "sdcard", "size": null}), Value::Object(payload));
+        let payload =
+            printer._payload_for_print_job_event(None, None, None, None, None, None, None, None);
+        assert_eq!(
+            json!({"name": "B.GCO", "path": "B.GCO", "origin": "sdcard", "size": null}),
+            Value::Object(payload)
+        );
         printer._set_job_data(None, None, false, None);
         assert!(printer._selected_file.get().is_none());
     }
@@ -2153,21 +2732,37 @@ mod tests {
         let (printer, _comm) = printer();
         printer.on_comm_error("e", "r", Some("c"), None, Some(&["l1".to_string()]));
         assert_eq!(
-            Some(json!({"error": "e", "reason": "r", "consequence": "c", "faq": null, "logs": ["l1"]})),
+            Some(
+                json!({"error": "e", "reason": "r", "consequence": "c", "faq": null, "logs": ["l1"]})
+            ),
             printer.error_info()
         );
         let mut data = PyDict::new();
         data.insert("FIRMWARE_NAME", "Marlin".to_string());
         printer.on_comm_firmware_info("Marlin", &data);
-        assert_eq!(Some(json!({"name": "Marlin", "data": {"FIRMWARE_NAME": "Marlin"}})), printer.firmware_info());
+        assert_eq!(
+            Some(json!({"name": "Marlin", "data": {"FIRMWARE_NAME": "Marlin"}})),
+            printer.firmware_info()
+        );
         // a z change fires an event once per change (:1567)
         let seen = record(&["ZChange"]);
         printer.on_comm_z_change(Some(1.0));
         printer.on_comm_z_change(Some(1.0));
         printer.on_comm_z_change(Some(2.0));
         crate::ports::octoprint::events::wait_idle(); // the events are delivered by the worker thread
-        let payloads: Vec<Option<Value>> = seen.lock().unwrap().iter().map(|(_, p)| p.clone()).collect();
-        assert_eq!(vec![Some(json!({"new": 1.0, "old": null})), Some(json!({"new": 2.0, "old": 1.0}))], payloads);
+        let payloads: Vec<Option<Value>> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, p)| p.clone())
+            .collect();
+        assert_eq!(
+            vec![
+                Some(json!({"new": 1.0, "old": null})),
+                Some(json!({"new": 2.0, "old": 1.0}))
+            ],
+            payloads
+        );
     }
 
     #[test]
@@ -2177,9 +2772,17 @@ mod tests {
         printer.on_comm_state_change(MachineCom::STATE_CLOSED);
         assert!(printer.comm().is_none());
         crate::ports::octoprint::events::wait_idle(); // the events are delivered by the worker thread
-        let names: Vec<String> = seen.lock().unwrap().iter().map(|(e, _)| e.clone()).collect();
+        let names: Vec<String> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(e, _)| e.clone())
+            .collect();
         assert_eq!(vec!["Disconnected", "PrinterStateChanged"], names);
         // with the comm gone the state id is OFFLINE (:849)
-        assert_eq!(Some(json!({"state_id": "OFFLINE", "state_string": "Offline"})), seen.lock().unwrap()[1].1);
+        assert_eq!(
+            Some(json!({"state_id": "OFFLINE", "state_string": "Offline"})),
+            seen.lock().unwrap()[1].1
+        );
     }
 }

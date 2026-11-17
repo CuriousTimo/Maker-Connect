@@ -57,7 +57,8 @@ fn tokens(bytes: &[u8]) -> Wire {
             b'?' if line.is_empty() => wire.polls += 1,
             b'!' | b'~' | 0x18 if line.is_empty() => wire.tokens.push(format!("<{:02x}>", b)),
             b'\n' => {
-                wire.tokens.push(String::from_utf8_lossy(&line).into_owned());
+                wire.tokens
+                    .push(String::from_utf8_lossy(&line).into_owned());
                 line.clear();
             }
             b => line.push(b),
@@ -91,7 +92,9 @@ fn wait_every(what: &str, every: Duration, mut ready: impl FnMut() -> bool) {
 }
 
 fn job_program(lines: usize) -> String {
-    (0..lines).map(|i| format!("G1 X{} Y{} S300 F3000\n", i % 50, i / 50)).collect()
+    (0..lines)
+        .map(|i| format!("G1 X{} Y{} S300 F3000\n", i % 50, i / 50))
+        .collect()
 }
 
 /// The program of a frame as the port makes it: `gcode::frame` over the controller's own
@@ -156,7 +159,10 @@ fn direct(steps: &[Step], restart: Option<usize>) -> Outcome {
     let mut out = Outcome::default();
     {
         // `ui-egui/src/lib.rs:1177`
-        let link = Link::connect(Box::new(Recorder { inner: sim(), wire: wire.clone() }));
+        let link = Link::connect(Box::new(Recorder {
+            inner: sim(),
+            wire: wire.clone(),
+        }));
         // `ui-egui/src/lib.rs:1401-1405`: the settings once the first status report is in.
         wait("a status", || link.snapshot().status.is_some());
         link.request_settings().unwrap();
@@ -216,7 +222,8 @@ fn direct(steps: &[Step], restart: Option<usize>) -> Outcome {
                     wait("the stop", || finished(&link.snapshot()));
                     let acknowledged = link.snapshot().progress.map_or(0, |p| p.acknowledged);
                     let total = program.lines().count();
-                    let line = restart.unwrap_or_else(|| restart_line(program, acknowledged).min(total.max(1)));
+                    let line = restart
+                        .unwrap_or_else(|| restart_line(program, acknowledged).min(total.max(1)));
                     out.restart_line = Some(line);
                     let text = laserfoundry_gcode::resume_from(program, line).unwrap();
                     // The earlier job's state still shows until the link takes this one up.
@@ -252,9 +259,22 @@ impl Port_ {
         let (orders, port_orders) = channel();
         let (port_events, events) = channel();
         let thread = std::thread::spawn(move || port.run(port_orders, port_events));
-        let dir = std::env::temp_dir().join(format!("laserfoundry-proof-{}-{:?}", std::process::id(), std::thread::current().id()));
+        let dir = std::env::temp_dir().join(format!(
+            "laserfoundry-proof-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
-        Port_ { orders, events, thread: Some(thread), telemetry: Telemetry::default(), ends: Vec::new(), done: Vec::new(), next_id: 1, dir }
+        Port_ {
+            orders,
+            events,
+            thread: Some(thread),
+            telemetry: Telemetry::default(),
+            ends: Vec::new(),
+            done: Vec::new(),
+            next_id: 1,
+            dir,
+        }
     }
 
     fn pump(&mut self) {
@@ -275,7 +295,11 @@ impl Port_ {
             if ready(self) {
                 return;
             }
-            assert!(Instant::now() < deadline, "timed out waiting for {what}: {:?}", self.telemetry);
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {what}: {:?}",
+                self.telemetry
+            );
             std::thread::sleep(LOOK);
         }
     }
@@ -292,7 +316,16 @@ impl Port_ {
     fn job(&mut self, id: i64, program: &str, from_line: Option<u64>) {
         let file = self.dir.join(format!("job-{id}"));
         std::fs::write(&file, program).unwrap();
-        let order = JobOrder { id, name: format!("job-{id}"), download: String::new(), size: program.len() as u64, from_line, tape_mm: None, label_length_mm: None, page_size: None };
+        let order = JobOrder {
+            id,
+            name: format!("job-{id}"),
+            download: String::new(),
+            size: program.len() as u64,
+            from_line,
+            tape_mm: None,
+            label_length_mm: None,
+            page_size: None,
+        };
         self.orders.send(Order::Job { order, file }).unwrap();
     }
 
@@ -300,7 +333,6 @@ impl Port_ {
         self.until("a job end", |p| p.ends.iter().any(|e| e.id == id));
         self.ends.iter().find(|e| e.id == id).unwrap().clone()
     }
-
 }
 
 impl Drop for Port_ {
@@ -326,13 +358,25 @@ fn ours(steps: &[Step], restart: Option<usize>) -> Outcome {
         let mut job_id = 0;
         for step in steps {
             match step {
-                Step::Home => port.command(Action::Home { axes: vec![maker_connect_protocol::Axis::X, maker_connect_protocol::Axis::Y] }),
+                Step::Home => port.command(Action::Home {
+                    axes: vec![
+                        maker_connect_protocol::Axis::X,
+                        maker_connect_protocol::Axis::Y,
+                    ],
+                }),
                 Step::Unlock => port.command(Action::Unlock),
-                Step::Jog(dx, dy, feed) => port.command(Action::Jog { x: Some(*dx), y: Some(*dy), z: None, feed: Some(*feed) }),
+                Step::Jog(dx, dy, feed) => port.command(Action::Jog {
+                    x: Some(*dx),
+                    y: Some(*dy),
+                    z: None,
+                    feed: Some(*feed),
+                }),
                 Step::SetOrigin => port.command(Action::SetOrigin),
                 Step::GoOrigin => port.command(Action::GoOrigin),
                 Step::ReadSettings => port.command(Action::ReadSettings),
-                Step::Line(line) => port.command(Action::Gcode { text: (*line).to_owned() }),
+                Step::Line(line) => port.command(Action::Gcode {
+                    text: (*line).to_owned(),
+                }),
                 Step::Job(program) => {
                     job_id += 1;
                     port.job(job_id, program, None);
@@ -345,7 +389,9 @@ fn ours(steps: &[Step], restart: Option<usize>) -> Outcome {
                     std::thread::sleep(HOLD);
                     port.orders.send(Order::Control(JobControl::Pause)).unwrap();
                     std::thread::sleep(PAUSED);
-                    port.orders.send(Order::Control(JobControl::Resume)).unwrap();
+                    port.orders
+                        .send(Order::Control(JobControl::Resume))
+                        .unwrap();
                     assert!(port.ended(job_id).ok);
                 }
                 Step::Stop(program) => {
@@ -379,7 +425,10 @@ fn frame_ours(steps: &[Step], bounds: [f64; 4]) -> Outcome {
     assert_eq!(steps.len(), 1, "a frame scenario is a frame alone");
     let wire = Arc::new(Mutex::new(Vec::new()));
     {
-        let mut machine = GrblMachine::new(Box::new(Recorder { inner: sim(), wire: wire.clone() }));
+        let mut machine = GrblMachine::new(Box::new(Recorder {
+            inner: sim(),
+            wire: wire.clone(),
+        }));
         wait("the settings", || {
             let update = machine.report();
             update.telemetry.grbl.is_some()
@@ -387,11 +436,18 @@ fn frame_ours(steps: &[Step], bounds: [f64; 4]) -> Outcome {
         let ticket = machine.frame(bounds).unwrap();
         let mut done = false;
         wait("the frame", || {
-            done |= machine.report().done.iter().any(|d| d.ticket == ticket && d.result.is_ok());
+            done |= machine
+                .report()
+                .done
+                .iter()
+                .any(|d| d.ticket == ticket && d.result.is_ok());
             done
         });
     }
-    Outcome { wire: tokens(&wire.lock().unwrap()), restart_line: None }
+    Outcome {
+        wire: tokens(&wire.lock().unwrap()),
+        restart_line: None,
+    }
 }
 
 // ---- the comparison ----
@@ -404,16 +460,37 @@ fn is_realtime(token: &str) -> bool {
 /// lines are the program's, in order, each once.
 fn framing(wire: &Wire, program: &str) -> Vec<String> {
     let lines: Vec<&str> = program.lines().collect();
-    let job: Vec<&str> = wire.tokens.iter().filter(|t| t.starts_with('G')).map(String::as_str).collect();
-    assert!(job.len() <= lines.len() && job == lines[..job.len()], "the lines are not the program's");
-    wire.tokens.iter().filter(|t| is_realtime(t) || t.starts_with('$')).cloned().collect()
+    let job: Vec<&str> = wire
+        .tokens
+        .iter()
+        .filter(|t| t.starts_with('G'))
+        .map(String::as_str)
+        .collect();
+    assert!(
+        job.len() <= lines.len() && job == lines[..job.len()],
+        "the lines are not the program's"
+    );
+    wire.tokens
+        .iter()
+        .filter(|t| is_realtime(t) || t.starts_with('$'))
+        .cloned()
+        .collect()
 }
 
 fn same(name: &str, steps: Vec<Step>) -> (Wire, Wire) {
     let reference = direct(&steps, None);
     let ours = ours(&steps, None);
-    eprintln!("{name}: reference tokens {:?}", reference.wire.tokens.iter().take(12).collect::<Vec<_>>());
-    eprintln!("{name}: reference {} tokens, {} status polls (not compared); ours {} tokens, {} polls", reference.wire.tokens.len(), reference.wire.polls, ours.wire.tokens.len(), ours.wire.polls);
+    eprintln!(
+        "{name}: reference tokens {:?}",
+        reference.wire.tokens.iter().take(12).collect::<Vec<_>>()
+    );
+    eprintln!(
+        "{name}: reference {} tokens, {} status polls (not compared); ours {} tokens, {} polls",
+        reference.wire.tokens.len(),
+        reference.wire.polls,
+        ours.wire.tokens.len(),
+        ours.wire.polls
+    );
     (reference.wire, ours.wire)
 }
 
@@ -430,14 +507,37 @@ fn every_control_sends_the_same_bytes() {
         ("home", vec![Step::Home]),
         ("unlock", vec![Step::Unlock]),
         ("jog", vec![Step::Jog(10.0, -2.5, 3000.0)]),
-        ("set and go to origin", vec![Step::Jog(30.0, 40.0, 3000.0), Step::SetOrigin, Step::Jog(5.0, 5.0, 1000.0), Step::GoOrigin]),
+        (
+            "set and go to origin",
+            vec![
+                Step::Jog(30.0, 40.0, 3000.0),
+                Step::SetOrigin,
+                Step::Jog(5.0, 5.0, 1000.0),
+                Step::GoOrigin,
+            ],
+        ),
         ("read settings", vec![Step::ReadSettings]),
         ("typed line", vec![Step::Line("G0 X20 Y20")]),
-        ("everything in a row", vec![Step::Home, Step::Unlock, Step::Jog(1.0, 2.0, 500.0), Step::SetOrigin, Step::GoOrigin, Step::ReadSettings, Step::Line("M5")]),
+        (
+            "everything in a row",
+            vec![
+                Step::Home,
+                Step::Unlock,
+                Step::Jog(1.0, 2.0, 500.0),
+                Step::SetOrigin,
+                Step::GoOrigin,
+                Step::ReadSettings,
+                Step::Line("M5"),
+            ],
+        ),
     ] {
         let (reference, ours) = same(name, steps);
         assert_eq!(ours.tokens, reference.tokens, "{name}");
-        assert!(reference.tokens.len() >= 2, "{name}: {:?}", reference.tokens);
+        assert!(
+            reference.tokens.len() >= 2,
+            "{name}: {:?}",
+            reference.tokens
+        );
     }
 }
 
@@ -455,20 +555,35 @@ fn a_frame_sends_the_same_bytes() {
     let reference = direct(&[Step::Frame(bounds)], None);
     let ours = frame_ours(&[Step::Frame(bounds)], bounds);
     assert_eq!(ours.wire.tokens, reference.wire.tokens);
-    eprintln!("frame: {} tokens, first {:?}", reference.wire.tokens.len(), reference.wire.tokens.iter().take(9).collect::<Vec<_>>());
-    assert!(reference.wire.tokens.len() > 8, "{:?}", reference.wire.tokens);
+    eprintln!(
+        "frame: {} tokens, first {:?}",
+        reference.wire.tokens.len(),
+        reference.wire.tokens.iter().take(9).collect::<Vec<_>>()
+    );
+    assert!(
+        reference.wire.tokens.len() > 8,
+        "{:?}",
+        reference.wire.tokens
+    );
 }
 
 #[test]
 fn pause_resume_and_stop_send_the_same_realtime_bytes() {
     let program = job_program(400);
     for (name, step, expected) in [
-        ("pause and resume", Step::PauseResume(program.clone()), vec!["$$", "<21>", "<7e>"]),
+        (
+            "pause and resume",
+            Step::PauseResume(program.clone()),
+            vec!["$$", "<21>", "<7e>"],
+        ),
         ("stop", Step::Stop(program.clone()), vec!["$$", "<18>"]),
     ] {
         let reference = direct(&[step.clone()], None);
         let ours = ours(&[step], None);
-        eprintln!("{name}: {} polls reference, {} ours; {:?}", reference.wire.polls, ours.wire.polls, expected);
+        eprintln!(
+            "{name}: {} polls reference, {} ours; {:?}",
+            reference.wire.polls, ours.wire.polls, expected
+        );
         assert_eq!(framing(&reference.wire, &program), expected, "{name}");
         assert_eq!(framing(&ours.wire, &program), expected, "{name}");
     }
@@ -484,9 +599,16 @@ fn a_restart_from_a_line_sends_the_same_bytes() {
     // Ours restarted at the reference's line: the second job is the same bytes, line for line.
     let ours = ours(&[step], Some(line));
     let rebuilt = laserfoundry_gcode::resume_from(&program, line).unwrap();
-    let rebuilt: Vec<&str> = rebuilt.lines().filter(|l| !l.is_empty() && !l.starts_with(';')).collect();
+    let rebuilt: Vec<&str> = rebuilt
+        .lines()
+        .filter(|l| !l.is_empty() && !l.starts_with(';'))
+        .collect();
     for (name, wire) in [("reference", &reference.wire), ("ours", &ours.wire)] {
-        assert_eq!(wire.tokens.iter().filter(|t| *t == "<18>").count(), 1, "{name}");
+        assert_eq!(
+            wire.tokens.iter().filter(|t| *t == "<18>").count(),
+            1,
+            "{name}"
+        );
         let at = wire.tokens.iter().position(|t| t == "<18>").unwrap();
         let second: Vec<&str> = wire.tokens[at + 1..].iter().map(String::as_str).collect();
         assert_eq!(second, rebuilt, "{name}: the second job");

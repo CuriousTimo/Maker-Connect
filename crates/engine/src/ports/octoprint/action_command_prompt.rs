@@ -44,11 +44,11 @@
 //!    `prompt_is_active()` are OURS accessors for the top edge (M3's "Attention" state).
 
 use super::comm::{py_split_none, py_strip};
-use super::events::{event_manager, Events, Listener};
+use super::events::{Events, Listener, event_manager};
 use super::plugin::{HookFn, PluginManager};
 use super::py_attr::Attr;
 use super::standard::Printer;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 /// `plugin identifier` (the name of the plugin's package)
@@ -65,7 +65,11 @@ pub struct Prompt {
 impl Prompt {
     /// `:14 __init__(text)`
     pub fn new(text: &str) -> Prompt {
-        Prompt { text: text.to_string(), choices: Vec::new(), _active: false }
+        Prompt {
+            text: text.to_string(),
+            choices: Vec::new(),
+            _active: false,
+        }
     }
 
     /// `:21 active` (a property)
@@ -113,7 +117,8 @@ impl ActionCommandPromptPlugin {
 
     /// `:45 __init__()` followed by `:53 initialize()` (the settings are the defaults, ours 1)
     pub fn new(printer: Arc<Printer>) -> Arc<ActionCommandPromptPlugin> {
-        let (enable, command, enable_emergency_sending, enable_signal_support) = Self::get_settings_defaults();
+        let (enable, command, enable_emergency_sending, enable_signal_support) =
+            Self::get_settings_defaults();
         Arc::new(ActionCommandPromptPlugin {
             _printer: printer,
             _prompt: Attr::new(None),
@@ -127,7 +132,12 @@ impl ActionCommandPromptPlugin {
 
     /// `:98 get_settings_defaults()`: `enable`, `command`, `enable_emergency_sending`, `enable_signal_support`
     pub fn get_settings_defaults() -> (String, String, bool, bool) {
-        ("detected".to_string(), Self::COMMAND.to_string(), true, true)
+        (
+            "detected".to_string(),
+            Self::COMMAND.to_string(),
+            true,
+            true,
+        )
     }
 
     /// `:297-302 __plugin_hooks__`, without `octoprint.access.permissions`, and the `EventHandlerPlugin`
@@ -145,7 +155,10 @@ impl ActionCommandPromptPlugin {
         let me = self.clone();
         let action: HookFn = Arc::new(move |args| {
             // action_command_handler(comm, line, action, *args, **kwargs): [line, action, name, params]
-            me.action_command_handler(args[0].as_str().unwrap_or(""), args[1].as_str().unwrap_or(""));
+            me.action_command_handler(
+                args[0].as_str().unwrap_or(""),
+                args[1].as_str().unwrap_or(""),
+            );
             Value::Null
         });
         manager.register_hook("octoprint.comm.protocol.action", IDENTIFIER, action);
@@ -167,13 +180,21 @@ impl ActionCommandPromptPlugin {
             );
             Value::Null
         });
-        manager.register_hook("octoprint.comm.protocol.firmware.capabilities", IDENTIFIER, capabilities);
+        manager.register_hook(
+            "octoprint.comm.protocol.firmware.capabilities",
+            IDENTIFIER,
+            capabilities,
+        );
     }
 
     /// `:86 on_event(event, payload)`
     pub fn on_event(&self, event: &str, _payload: Option<&Value>) {
-        if event == Events::CONNECTED && self._enable.get() == "always" && self._enable_signal_support.get() {
-            self._printer.commands(&json!([format!("{} P1", self._command.get())]), None, false);
+        if event == Events::CONNECTED
+            && self._enable.get() == "always"
+            && self._enable_signal_support.get()
+        {
+            self._printer
+                .commands(&json!([format!("{} P1", self._command.get())]), None, false);
         } else if event == Events::DISCONNECTED {
             self._close_prompt();
         }
@@ -181,12 +202,14 @@ impl ActionCommandPromptPlugin {
 
     /// OURS (5): the prompt's text and choices while there is one (`on_api_get`, :136)
     pub fn prompt(&self) -> Option<(String, Vec<String>)> {
-        self._prompt.with(|p| p.as_ref().map(|p| (p.text.clone(), p.choices.clone())))
+        self._prompt
+            .with(|p| p.as_ref().map(|p| (p.text.clone(), p.choices.clone())))
     }
 
     /// OURS (5): `self._prompt is not None and self._prompt.active`
     pub fn prompt_is_active(&self) -> bool {
-        self._prompt.with(|p| p.as_ref().is_some_and(Prompt::active))
+        self._prompt
+            .with(|p| p.as_ref().is_some_and(Prompt::active))
     }
 
     /// `:122 on_api_command("select", data)`, `data["choice"] = choice`: what the API checks before it
@@ -196,7 +219,10 @@ impl ActionCommandPromptPlugin {
         if self._prompt.with(Option::is_none) {
             return Err((409, "No active prompt".to_string()));
         }
-        if !self._prompt.with(|p| p.as_ref().is_some_and(|p| p.validate_choice(choice))) {
+        if !self
+            ._prompt
+            .with(|p| p.as_ref().is_some_and(|p| p.validate_choice(choice)))
+        {
             return Err((400, format!("{choice} is not a valid value for choice")));
         }
         self._answer_prompt(choice);
@@ -212,10 +238,17 @@ impl ActionCommandPromptPlugin {
         }
 
         let parts = py_split_none(action, 1);
-        let (action, parameter) = if parts.len() == 1 { (parts[0], "") } else { (parts[0], parts[1]) };
+        let (action, parameter) = if parts.len() == 1 {
+            (parts[0], "")
+        } else {
+            (parts[0], parts[1])
+        };
 
         if action == "prompt_begin" {
-            if self._prompt.with(|p| p.as_ref().is_some_and(Prompt::active)) {
+            if self
+                ._prompt
+                .with(|p| p.as_ref().is_some_and(Prompt::active))
+            {
                 // self._logger.warning("Prompt is already defined")
                 return;
             }
@@ -224,16 +257,26 @@ impl ActionCommandPromptPlugin {
             if self._prompt.with(|p| p.is_none()) {
                 return;
             }
-            if self._prompt.with(|p| p.as_ref().is_some_and(Prompt::active)) {
+            if self
+                ._prompt
+                .with(|p| p.as_ref().is_some_and(Prompt::active))
+            {
                 // self._logger.warning("Prompt is already active")
                 return;
             }
-            self._prompt.with_mut(|p| p.as_mut().expect("checked above").add_choice(py_strip(parameter)));
+            self._prompt.with_mut(|p| {
+                p.as_mut()
+                    .expect("checked above")
+                    .add_choice(py_strip(parameter))
+            });
         } else if action == "prompt_show" {
             if self._prompt.with(|p| p.is_none()) {
                 return;
             }
-            if self._prompt.with(|p| p.as_ref().is_some_and(Prompt::active)) {
+            if self
+                ._prompt
+                .with(|p| p.as_ref().is_some_and(Prompt::active))
+            {
                 // self._logger.warning("Prompt is already active")
                 return;
             }
@@ -279,8 +322,15 @@ impl ActionCommandPromptPlugin {
         }
 
         // comm_instance._emergency_force_send(cmd, f"Force-sending {self._command} to the printer", gcode=gcode)
-        let comm = self._printer.comm().expect("AttributeError: 'NoneType' object has no attribute '_emergency_force_send'");
-        match comm._emergency_force_send(cmd, &format!("Force-sending {command} to the printer"), gcode) {
+        let comm = self
+            ._printer
+            .comm()
+            .expect("AttributeError: 'NoneType' object has no attribute '_emergency_force_send'");
+        match comm._emergency_force_send(
+            cmd,
+            &format!("Force-sending {command} to the printer"),
+            gcode,
+        ) {
             None => Value::Null,
             Some(_) => json!([null]),
         }
@@ -293,7 +343,11 @@ impl ActionCommandPromptPlugin {
         if capability == Self::CAP_PROMPT_SUPPORT && enabled {
             self._cap_prompt_support.set(true);
             if self._enable.get() == "detected" && self._enable_signal_support.get() {
-                self._printer.commands(&json!([format!("{} P1", self._command.get())]), None, false);
+                self._printer.commands(
+                    &json!([format!("{} P1", self._command.get())]),
+                    None,
+                    false,
+                );
             }
         }
     }
@@ -313,10 +367,16 @@ impl ActionCommandPromptPlugin {
             return;
         }
 
-        self._prompt.with_mut(|p| p.as_mut().expect("AttributeError: 'NoneType' object has no attribute 'activate'").activate());
+        self._prompt.with_mut(|p| {
+            p.as_mut()
+                .expect("AttributeError: 'NoneType' object has no attribute 'activate'")
+                .activate()
+        });
         let (text, choices) = self.prompt().expect("the prompt exists");
-        super::plugin::plugin_manager()
-            .send_plugin_message(IDENTIFIER, &json!({"action": "show", "text": text, "choices": choices}));
+        super::plugin::plugin_manager().send_plugin_message(
+            IDENTIFIER,
+            &json!({"action": "show", "text": text, "choices": choices}),
+        );
     }
 
     /// `:260 _close_prompt()`
@@ -326,7 +386,8 @@ impl ActionCommandPromptPlugin {
         }
 
         self._prompt.set(None);
-        super::plugin::plugin_manager().send_plugin_message(IDENTIFIER, &json!({"action": "close"}));
+        super::plugin::plugin_manager()
+            .send_plugin_message(IDENTIFIER, &json!({"action": "close"}));
     }
 
     /// `:269 _answer_prompt(choice)`
@@ -339,11 +400,16 @@ impl ActionCommandPromptPlugin {
         let command = self._command.get();
         if command.contains("{choice}") {
             only_plain_choice(&command);
-            let formatted = super::py_format::format(&command, &[], &[("choice".to_string(), Some(choice.to_string()))])
-                .unwrap_or_else(|e| panic!("{e:?}"));
+            let formatted = super::py_format::format(
+                &command,
+                &[],
+                &[("choice".to_string(), Some(choice.to_string()))],
+            )
+            .unwrap_or_else(|e| panic!("{e:?}"));
             self._printer.commands(&json!([formatted]), None, true);
         } else {
-            self._printer.commands(&json!([format!("{command} S{choice}")]), None, true);
+            self._printer
+                .commands(&json!([format!("{command} S{choice}")]), None, true);
         }
     }
 }
@@ -370,9 +436,13 @@ fn only_plain_choice(command: &str) {
                     }
                     j += 1;
                 }
-                let field: String = chars[i + 1..if depth == 0 { j - 1 } else { j }].iter().collect();
+                let field: String = chars[i + 1..if depth == 0 { j - 1 } else { j }]
+                    .iter()
+                    .collect();
                 if field.starts_with("choice") && field != "choice" {
-                    unimplemented!("action_command_prompt: the command {command:?} formats `choice` ({{{field}}}) with more than a plain {{choice}}: `str.format` gets an int, ours a str");
+                    unimplemented!(
+                        "action_command_prompt: the command {command:?} formats `choice` ({{{field}}}) with more than a plain {{choice}}: `str.format` gets an int, ours a str"
+                    );
                 }
                 i += 1;
             }
@@ -425,7 +495,12 @@ mod tests {
     }
 
     /// a printer with an operational comm on a `Wire`, whose hooks are the plugin's
-    fn setup() -> (Arc<ActionCommandPromptPlugin>, Arc<Printer>, Arc<MachineCom>, Arc<Wire>) {
+    fn setup() -> (
+        Arc<ActionCommandPromptPlugin>,
+        Arc<Printer>,
+        Arc<MachineCom>,
+        Arc<Wire>,
+    ) {
         let profile = Arc::new(PrinterProfileManager::new());
         let printer = Printer::new(Arc::new(LocalFileManager), profile.clone());
         let plugin = ActionCommandPromptPlugin::new(printer.clone());
@@ -438,13 +513,25 @@ mod tests {
             let c = Arc::get_mut(&mut comm).expect("nothing else holds the comm yet");
             c._printer_action_hooks = manager.get_hooks("octoprint.comm.protocol.action");
             let mut group = PyDict::new();
-            group.insert("info", manager.get_hooks("octoprint.comm.protocol.firmware.info"));
-            group.insert("capabilities", manager.get_hooks("octoprint.comm.protocol.firmware.capabilities"));
-            group.insert("capability_report", manager.get_hooks("octoprint.comm.protocol.firmware.capability_report"));
+            group.insert(
+                "info",
+                manager.get_hooks("octoprint.comm.protocol.firmware.info"),
+            );
+            group.insert(
+                "capabilities",
+                manager.get_hooks("octoprint.comm.protocol.firmware.capabilities"),
+            );
+            group.insert(
+                "capability_report",
+                manager.get_hooks("octoprint.comm.protocol.firmware.capability_report"),
+            );
             c._firmware_info_hooks = group;
             let mut gcode = PyDict::new();
             for phase in ["queuing", "queued", "sending", "sent"] {
-                gcode.insert(phase, manager.get_hooks(&format!("octoprint.comm.protocol.gcode.{phase}")));
+                gcode.insert(
+                    phase,
+                    manager.get_hooks(&format!("octoprint.comm.protocol.gcode.{phase}")),
+                );
             }
             c._gcode_hooks = gcode;
         }
@@ -476,14 +563,30 @@ mod tests {
     #[test]
     fn ours_command_with_more_than_a_plain_choice_is_unimplemented() {
         // the same text for a str and an int
-        for ok in ["M876 S{choice}", "{choice}", "{{choice:03d}} {choice}", "{{{choice}}}", "G4 {choice} {choice}", "M876 S{choice} {{x}}"] {
+        for ok in [
+            "M876 S{choice}",
+            "{choice}",
+            "{{choice:03d}} {choice}",
+            "{{{choice}}}",
+            "G4 {choice} {choice}",
+            "M876 S{choice} {{x}}",
+        ] {
             only_plain_choice(ok);
         }
-        for bad in ["M876 S{choice:03d} {choice}", "{choice} {choice!r}", "{choice} {choice.real}", "{choice} {choice[0]}", "{choice} {x:{choice:d}}"] {
+        for bad in [
+            "M876 S{choice:03d} {choice}",
+            "{choice} {choice!r}",
+            "{choice} {choice.real}",
+            "{choice} {choice[0]}",
+            "{choice} {x:{choice:d}}",
+        ] {
             let r = std::panic::catch_unwind(|| only_plain_choice(bad));
             let err = r.expect_err(bad);
             let text = err.downcast_ref::<String>().cloned().unwrap_or_default();
-            assert!(text.starts_with("not implemented: action_command_prompt"), "{bad}: {text}");
+            assert!(
+                text.starts_with("not implemented: action_command_prompt"),
+                "{bad}: {text}"
+            );
         }
     }
 
@@ -493,7 +596,12 @@ mod tests {
         let mut p = Prompt::new("q");
         p.add_choice("a");
         p.add_choice("b");
-        assert!(!p.validate_choice(-1) && p.validate_choice(0) && p.validate_choice(1) && !p.validate_choice(2));
+        assert!(
+            !p.validate_choice(-1)
+                && p.validate_choice(0)
+                && p.validate_choice(1)
+                && !p.validate_choice(2)
+        );
         assert!(!p.active());
         p.activate();
         assert!(p.active());
@@ -502,7 +610,10 @@ mod tests {
     #[test]
     fn ours_defaults() {
         // :98
-        assert_eq!(("detected".to_string(), "M876".to_string(), true, true), ActionCommandPromptPlugin::get_settings_defaults());
+        assert_eq!(
+            ("detected".to_string(), "M876".to_string(), true, true),
+            ActionCommandPromptPlugin::get_settings_defaults()
+        );
     }
 
     #[test]
@@ -512,7 +623,10 @@ mod tests {
         plugin.action_command_handler("//action:prompt_begin Hi", "prompt_begin Hi");
         plugin.action_command_handler("", "prompt_button Yes");
         plugin.action_command_handler("", "prompt_show");
-        assert_eq!(Some(("Hi".to_string(), vec!["Yes".to_string()])), plugin.prompt());
+        assert_eq!(
+            Some(("Hi".to_string(), vec!["Yes".to_string()])),
+            plugin.prompt()
+        );
         assert!(!plugin.prompt_is_active());
     }
 
@@ -521,11 +635,12 @@ mod tests {
         let (plugin, _printer, comm, wire) = setup();
         let messages: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
         let m2 = messages.clone();
-        let receiver: crate::ports::octoprint::plugin::MessageReceiver = Arc::new(move |plugin, data| {
-            if plugin == IDENTIFIER {
-                m2.lock().unwrap().push(data.clone());
-            }
-        });
+        let receiver: crate::ports::octoprint::plugin::MessageReceiver =
+            Arc::new(move |plugin, data| {
+                if plugin == IDENTIFIER {
+                    m2.lock().unwrap().push(data.clone());
+                }
+            });
         super::super::plugin::plugin_manager().register_message_receiver(receiver.clone());
 
         // :234-241: the capability makes the plugin send `M876 P1`
@@ -541,7 +656,10 @@ mod tests {
         plugin.action_command_handler("", "prompt_begin Other");
         plugin.action_command_handler("", "prompt_choice Late");
         assert_eq!(
-            Some(("Change filament".to_string(), vec!["Continue".to_string(), "Cancel".to_string()])),
+            Some((
+                "Change filament".to_string(),
+                vec!["Continue".to_string(), "Cancel".to_string()]
+            )),
             plugin.prompt()
         );
         // another action is not ours (:161)
@@ -554,7 +672,11 @@ mod tests {
 
         // (the plugin manager is global: messages of other tests may be in the list, so look from our `show` on)
         let seen = messages.lock().unwrap().clone();
-        let from_show: Vec<Value> = seen.into_iter().skip_while(|m| m["action"] != "show").take(2).collect();
+        let from_show: Vec<Value> = seen
+            .into_iter()
+            .skip_while(|m| m["action"] != "show")
+            .take(2)
+            .collect();
         assert_eq!(
             vec![
                 json!({"action": "show", "text": "Change filament", "choices": ["Continue", "Cancel"]}),
@@ -575,31 +697,57 @@ mod tests {
         // :201-231 through `MachineCom.sendCommand`: not forced before PROMPT_SUPPORT, with the
         // emergency parser and the prompt support M876 Sx is written at once (comm.py:5565)
         let (plugin, _printer, comm, wire) = setup();
-        comm._capability_support.with_mut(|d| d.insert(MachineCom::CAPABILITY_EMERGENCY_PARSER, Some(true)));
-        comm._firmware_capabilities.with_mut(|d| d.insert(MachineCom::CAPABILITY_EMERGENCY_PARSER, true));
+        comm._capability_support
+            .with_mut(|d| d.insert(MachineCom::CAPABILITY_EMERGENCY_PARSER, Some(true)));
+        comm._firmware_capabilities
+            .with_mut(|d| d.insert(MachineCom::CAPABILITY_EMERGENCY_PARSER, true));
         comm._clear_to_send.set();
         let cmd = |s: &str| crate::ports::octoprint::comm::QueuedCommand::Command(s.to_string());
 
         // detected, but no prompt support yet: the hook does nothing, the command is queued
-        assert_eq!(Some(true), comm.send_command(cmd("M876 S1"), None, false, false, false, None, None));
+        assert_eq!(
+            Some(true),
+            comm.send_command(cmd("M876 S1"), None, false, false, false, None, None)
+        );
         assert_eq!("", wire.text());
         assert_eq!(vec!["M876 S1"], sent_lines(&wire, &comm));
 
         plugin._cap_prompt_support.set(true);
         // `M876 P1` has no S: queued
-        assert_eq!(Some(true), comm.send_command(cmd("M876 P1"), None, false, false, false, None, None));
+        assert_eq!(
+            Some(true),
+            comm.send_command(cmd("M876 P1"), None, false, false, false, None, None)
+        );
         assert_eq!("", wire.text());
         assert_eq!(vec!["M876 P1"], sent_lines(&wire, &comm));
         // `M876 S1`: written ahead of the queue, not queued
-        assert_eq!(Some(false), comm.send_command(cmd("M876 S1"), None, false, false, false, None, None));
+        assert_eq!(
+            Some(false),
+            comm.send_command(cmd("M876 S1"), None, false, false, false, None, None)
+        );
         assert_eq!("M876 S1\n", wire.text());
         // another gcode is none of its business (:213)
-        assert_eq!(Some(true), comm.send_command(cmd("G1 X1 S1"), None, false, false, false, None, None));
-        assert_eq!(Value::Null, plugin.gcode_queuing_handler(Some("queuing"), Some("G1 S1"), None, Some("G1"), None));
+        assert_eq!(
+            Some(true),
+            comm.send_command(cmd("G1 X1 S1"), None, false, false, false, None, None)
+        );
+        assert_eq!(
+            Value::Null,
+            plugin.gcode_queuing_handler(Some("queuing"), Some("G1 S1"), None, Some("G1"), None)
+        );
 
         // enable_emergency_sending false: no force
         plugin._enable_emergency_sending.set(false);
-        assert_eq!(Value::Null, plugin.gcode_queuing_handler(Some("queuing"), Some("M876 S1"), None, Some("M876"), None));
+        assert_eq!(
+            Value::Null,
+            plugin.gcode_queuing_handler(
+                Some("queuing"),
+                Some("M876 S1"),
+                None,
+                Some("M876"),
+                None
+            )
+        );
     }
 
     #[test]
@@ -636,7 +784,10 @@ mod tests {
             "octoprint.comm.protocol.gcode.queuing",
             "octoprint.comm.protocol.firmware.capabilities",
         ] {
-            assert_eq!(vec!["action_command_prompt".to_string()], manager.get_hooks(hook).keys().cloned().collect::<Vec<_>>());
+            assert_eq!(
+                vec!["action_command_prompt".to_string()],
+                manager.get_hooks(hook).keys().cloned().collect::<Vec<_>>()
+            );
         }
         assert!(manager.get_hooks("octoprint.access.permissions").is_empty());
     }

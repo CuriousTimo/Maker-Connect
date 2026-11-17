@@ -8,29 +8,34 @@
 // Ported to the letter (CLAUDE.md, "port, don't paraphrase"): the reference's own structure is kept,
 // so clippy's style, complexity and performance rewrites are not applied here; its correctness
 // lints still hold.
-#![allow(clippy::style, clippy::complexity, clippy::perf, clippy::manual_unwrap_or_default)]
+#![allow(
+    clippy::style,
+    clippy::complexity,
+    clippy::perf,
+    clippy::manual_unwrap_or_default
+)]
+pub mod action_command_prompt;
+pub mod api_printer;
 pub mod comm;
 pub mod events;
 pub mod filemanager;
 pub mod files;
-pub mod plugin;
-pub mod profile;
-pub mod py_attr;
-pub mod py_collections;
-pub mod py_queue;
-pub mod py_threading;
-pub mod settings;
-pub mod text;
-pub mod util;
 pub mod platform;
-#[cfg(unix)]
-pub mod serial;
-pub mod py_glob;
-pub mod py_format;
-pub mod py_percent;
-pub mod standard;
-pub mod action_command_prompt;
-pub mod api_printer;
+pub mod plugin;
 pub mod port;
+pub mod profile;
 #[cfg(test)]
 mod proof;
+pub mod py_attr;
+pub mod py_collections;
+pub mod py_format;
+pub mod py_glob;
+pub mod py_percent;
+pub mod py_queue;
+pub mod py_threading;
+#[cfg(unix)]
+pub mod serial;
+pub mod settings;
+pub mod standard;
+pub mod text;
+pub mod util;

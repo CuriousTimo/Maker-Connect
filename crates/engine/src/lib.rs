@@ -130,18 +130,28 @@ impl Engine {
     pub fn add(&mut self, port: Box<dyn Port>) -> MachineId {
         let (orders, port_orders) = channel();
         let (port_events, events) = channel();
-        let report = Arc::new(Mutex::new(Report { connected: true, ..Report::default() }));
+        let report = Arc::new(Mutex::new(Report {
+            connected: true,
+            ..Report::default()
+        }));
         let runs = std::thread::spawn(move || port.run(port_orders, port_events));
         let listens = {
             let report = report.clone();
             std::thread::spawn(move || listen(&events, &report))
         };
-        self.machines.push(Some(Machine { orders, report, threads: vec![runs, listens] }));
+        self.machines.push(Some(Machine {
+            orders,
+            report,
+            threads: vec![runs, listens],
+        }));
         MachineId(self.machines.len() - 1)
     }
 
     fn machine(&self, id: MachineId) -> Result<&Machine, Closed> {
-        self.machines.get(id.0).and_then(Option::as_ref).ok_or(Closed)
+        self.machines
+            .get(id.0)
+            .and_then(Option::as_ref)
+            .ok_or(Closed)
     }
 
     /// Gives a machine an order; its port takes them one at a time, in this order (O2).
@@ -171,7 +181,11 @@ impl Engine {
 
     /// Closes a machine: its port is told to let go, and the engine waits for it to end.
     pub fn remove(&mut self, id: MachineId) -> Result<(), Closed> {
-        let machine = self.machines.get_mut(id.0).and_then(Option::take).ok_or(Closed)?;
+        let machine = self
+            .machines
+            .get_mut(id.0)
+            .and_then(Option::take)
+            .ok_or(Closed)?;
         let _ = machine.orders.send(Order::Close);
         drop(machine.orders);
         for thread in machine.threads {
@@ -224,17 +238,36 @@ mod tests {
             for order in orders {
                 self.seen.lock().unwrap().push(order.clone());
                 let _ = match order {
-                    Order::Command { id, action: Action::Gcode { text } } if text == "gone" => {
+                    Order::Command {
+                        id,
+                        action: Action::Gcode { text },
+                    } if text == "gone" => {
                         let _ = events.send(Event::Gone);
-                        events.send(Event::Done(CommandDone { id, ok: true, reason: None, output: Vec::new() }))
+                        events.send(Event::Done(CommandDone {
+                            id,
+                            ok: true,
+                            reason: None,
+                            output: Vec::new(),
+                        }))
                     }
-                    Order::Command { id, action: Action::Gcode { text } } if text == "back" => {
+                    Order::Command {
+                        id,
+                        action: Action::Gcode { text },
+                    } if text == "back" => {
                         let _ = events.send(Event::Back);
-                        events.send(Event::Done(CommandDone { id, ok: true, reason: None, output: Vec::new() }))
+                        events.send(Event::Done(CommandDone {
+                            id,
+                            ok: true,
+                            reason: None,
+                            output: Vec::new(),
+                        }))
                     }
-                    Order::Command { id, .. } => {
-                        events.send(Event::Done(CommandDone { id, ok: true, reason: None, output: vec![format!("{id}")] }))
-                    }
+                    Order::Command { id, .. } => events.send(Event::Done(CommandDone {
+                        id,
+                        ok: true,
+                        reason: None,
+                        output: vec![format!("{id}")],
+                    })),
                     Order::Job { order, .. } => events.send(Event::JobEnd(JobEnd {
                         id: order.id,
                         ok: true,
@@ -257,7 +290,12 @@ mod tests {
     }
 
     fn gcode(id: u32, text: &str) -> Order {
-        Order::Command { id, action: Action::Gcode { text: text.to_owned() } }
+        Order::Command {
+            id,
+            action: Action::Gcode {
+                text: text.to_owned(),
+            },
+        }
     }
 
     /// Waits until `ready` holds of the machine's report (the port runs on its own thread).
@@ -281,15 +319,32 @@ mod tests {
             engine.send(id, gcode(n, "G28")).unwrap();
         }
         let report = until(&engine, id, |r| r.done.len() == 5);
-        assert_eq!(report.done.iter().map(|d| d.id).collect::<Vec<_>>(), [1, 2, 3, 4, 5]);
-        let ids: Vec<u32> = seen.lock().unwrap().iter().filter_map(|o| match o {
-            Order::Command { id, .. } => Some(*id),
-            _ => None,
-        }).collect();
+        assert_eq!(
+            report.done.iter().map(|d| d.id).collect::<Vec<_>>(),
+            [1, 2, 3, 4, 5]
+        );
+        let ids: Vec<u32> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|o| match o {
+                Order::Command { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect();
         assert_eq!(ids, [1, 2, 3, 4, 5]);
         // Reported up to the third: the rest stays.
         engine.reported(id, 3, 0).unwrap();
-        assert_eq!(engine.report(id).unwrap().done.iter().map(|d| d.id).collect::<Vec<_>>(), [4, 5]);
+        assert_eq!(
+            engine
+                .report(id)
+                .unwrap()
+                .done
+                .iter()
+                .map(|d| d.id)
+                .collect::<Vec<_>>(),
+            [4, 5]
+        );
         engine.reported(id, 9, 9).unwrap();
         assert!(engine.report(id).unwrap().done.is_empty());
     }
@@ -298,8 +353,25 @@ mod tests {
     #[test]
     fn a_job_is_known_until_it_ends() {
         let (engine, id, _) = engine_with_echo();
-        let order = JobOrder { id: 42, name: "benchy.gcode".into(), download: "/f/1".into(), size: 10, from_line: None, tape_mm: None, label_length_mm: None, page_size: None };
-        engine.send(id, Order::Job { order, file: PathBuf::from("/tmp/benchy.gcode") }).unwrap();
+        let order = JobOrder {
+            id: 42,
+            name: "benchy.gcode".into(),
+            download: "/f/1".into(),
+            size: 10,
+            from_line: None,
+            tape_mm: None,
+            label_length_mm: None,
+            page_size: None,
+        };
+        engine
+            .send(
+                id,
+                Order::Job {
+                    order,
+                    file: PathBuf::from("/tmp/benchy.gcode"),
+                },
+            )
+            .unwrap();
         let report = until(&engine, id, |r| !r.job_ends.is_empty());
         assert_eq!(report.job, None, "ended");
         assert_eq!(report.job_ends[0].id, 42);
@@ -313,7 +385,11 @@ mod tests {
         engine.send(id, gcode(1, "gone")).unwrap();
         let report = until(&engine, id, |r| !r.done.is_empty());
         assert!(!report.connected);
-        assert_eq!(report.telemetry, Telemetry::default(), "its report untouched");
+        assert_eq!(
+            report.telemetry,
+            Telemetry::default(),
+            "its report untouched"
+        );
         engine.send(id, gcode(2, "back")).unwrap();
         let report = until(&engine, id, |r| r.done.len() == 2);
         assert!(report.connected);
@@ -332,13 +408,43 @@ mod tests {
     /// The typed actions read as the hub writes them (JSON, tagged by `action`).
     #[test]
     fn actions_are_typed_on_the_wire() {
-        let jog: Action = serde_json::from_str(r#"{"action":"jog","x":10.0,"feed":3000.0}"#).unwrap();
-        assert_eq!(jog, Action::Jog { x: Some(10.0), y: None, z: None, feed: Some(3000.0) });
-        let heat: Action = serde_json::from_str(r#"{"action":"temperature","heater":"nozzle","celsius":215.0}"#).unwrap();
-        assert_eq!(heat, Action::Temperature { heater: maker_connect_protocol::Heater::Nozzle, celsius: 215.0 });
+        let jog: Action =
+            serde_json::from_str(r#"{"action":"jog","x":10.0,"feed":3000.0}"#).unwrap();
+        assert_eq!(
+            jog,
+            Action::Jog {
+                x: Some(10.0),
+                y: None,
+                z: None,
+                feed: Some(3000.0)
+            }
+        );
+        let heat: Action =
+            serde_json::from_str(r#"{"action":"temperature","heater":"nozzle","celsius":215.0}"#)
+                .unwrap();
+        assert_eq!(
+            heat,
+            Action::Temperature {
+                heater: maker_connect_protocol::Heater::Nozzle,
+                celsius: 215.0
+            }
+        );
         let home: Action = serde_json::from_str(r#"{"action":"home","axes":["x","y"]}"#).unwrap();
-        assert_eq!(home, Action::Home { axes: vec![maker_connect_protocol::Axis::X, maker_connect_protocol::Axis::Y] });
+        assert_eq!(
+            home,
+            Action::Home {
+                axes: vec![
+                    maker_connect_protocol::Axis::X,
+                    maker_connect_protocol::Axis::Y
+                ]
+            }
+        );
         let typed: Action = serde_json::from_str(r#"{"action":"gcode","text":"M105"}"#).unwrap();
-        assert_eq!(typed, Action::Gcode { text: "M105".into() });
+        assert_eq!(
+            typed,
+            Action::Gcode {
+                text: "M105".into()
+            }
+        );
     }
 }

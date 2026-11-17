@@ -43,7 +43,12 @@ pub struct UsbError {
 impl UsbError {
     /// `USBError(strerror)`.
     pub fn new(strerror: &str) -> UsbError {
-        UsbError { strerror: strerror.to_owned(), backend_error_code: None, errno: None, timeout: false }
+        UsbError {
+            strerror: strerror.to_owned(),
+            backend_error_code: None,
+            errno: None,
+            timeout: false,
+        }
     }
 }
 
@@ -71,7 +76,9 @@ impl std::fmt::Display for Error {
                 Some(n) => write!(f, "[Errno {n}] {}", e.strerror),
                 None => write!(f, "[Errno None] {}", e.strerror),
             },
-            Error::Value(m) | Error::NotImplemented(m) | Error::Index(m) | Error::NoBackend(m) => f.write_str(m),
+            Error::Value(m) | Error::NotImplemented(m) | Error::Index(m) | Error::NoBackend(m) => {
+                f.write_str(m)
+            }
         }
     }
 }
@@ -126,9 +133,26 @@ pub struct EndpointDescriptor {
 pub trait Backend {
     fn enumerate_devices(&self) -> Result<Vec<DevId>, Error>;
     fn get_device_descriptor(&self, dev: DevId) -> Result<DeviceDescriptor, Error>;
-    fn get_configuration_descriptor(&self, dev: DevId, config: usize) -> Result<ConfigurationDescriptor, Error>;
-    fn get_interface_descriptor(&self, dev: DevId, intf: usize, alt: usize, config: usize) -> Result<InterfaceDescriptor, Error>;
-    fn get_endpoint_descriptor(&self, dev: DevId, ep: usize, intf: usize, alt: usize, config: usize) -> Result<EndpointDescriptor, Error>;
+    fn get_configuration_descriptor(
+        &self,
+        dev: DevId,
+        config: usize,
+    ) -> Result<ConfigurationDescriptor, Error>;
+    fn get_interface_descriptor(
+        &self,
+        dev: DevId,
+        intf: usize,
+        alt: usize,
+        config: usize,
+    ) -> Result<InterfaceDescriptor, Error>;
+    fn get_endpoint_descriptor(
+        &self,
+        dev: DevId,
+        ep: usize,
+        intf: usize,
+        alt: usize,
+        config: usize,
+    ) -> Result<EndpointDescriptor, Error>;
     fn open_device(&self, dev: DevId) -> Result<Handle, Error>;
     fn close_device(&self, handle: Handle);
     fn set_configuration(&self, handle: Handle, config_value: u8) -> Result<(), Error>;
@@ -137,12 +161,49 @@ pub trait Backend {
     fn release_interface(&self, handle: Handle, intf: u8) -> Result<(), Error>;
     fn is_kernel_driver_active(&self, handle: Handle, intf: u8) -> Result<bool, Error>;
     fn detach_kernel_driver(&self, handle: Handle, intf: u8) -> Result<(), Error>;
-    fn bulk_write(&self, handle: Handle, ep: u8, intf: u8, data: &[u8], timeout: u32) -> Result<usize, Error>;
-    fn bulk_read(&self, handle: Handle, ep: u8, intf: u8, buff: &mut [u8], timeout: u32) -> Result<usize, Error>;
-    fn intr_write(&self, handle: Handle, ep: u8, intf: u8, data: &[u8], timeout: u32) -> Result<usize, Error>;
-    fn intr_read(&self, handle: Handle, ep: u8, intf: u8, buff: &mut [u8], timeout: u32) -> Result<usize, Error>;
+    fn bulk_write(
+        &self,
+        handle: Handle,
+        ep: u8,
+        intf: u8,
+        data: &[u8],
+        timeout: u32,
+    ) -> Result<usize, Error>;
+    fn bulk_read(
+        &self,
+        handle: Handle,
+        ep: u8,
+        intf: u8,
+        buff: &mut [u8],
+        timeout: u32,
+    ) -> Result<usize, Error>;
+    fn intr_write(
+        &self,
+        handle: Handle,
+        ep: u8,
+        intf: u8,
+        data: &[u8],
+        timeout: u32,
+    ) -> Result<usize, Error>;
+    fn intr_read(
+        &self,
+        handle: Handle,
+        ep: u8,
+        intf: u8,
+        buff: &mut [u8],
+        timeout: u32,
+    ) -> Result<usize, Error>;
     #[allow(clippy::too_many_arguments)]
-    fn ctrl_transfer(&self, handle: Handle, bm_request_type: u8, b_request: u8, w_value: u16, w_index: u16, buff: &mut [u8], timeout: u32) -> Result<usize, Error>;
+    fn ctrl_transfer(
+        &self,
+        handle: Handle,
+        bm_request_type: u8,
+        b_request: u8,
+        w_value: u16,
+        w_index: u16,
+        buff: &mut [u8],
+        timeout: u32,
+    ) -> Result<usize, Error>;
 }
 
 /// `usb.core.Configuration` (the parts used).
@@ -239,7 +300,8 @@ impl Device {
     fn managed_set_configuration(&self) -> Result<(), Error> {
         let cfg = self.configuration(0)?;
         let handle = self.managed_open()?;
-        self.backend.set_configuration(handle, cfg.desc.b_configuration_value)?;
+        self.backend
+            .set_configuration(handle, cfg.desc.b_configuration_value)?;
         // cache the index
         self.active_cfg_index.set(Some(cfg.index));
         self.intf_setting.borrow_mut().clear();
@@ -272,25 +334,38 @@ impl Device {
 
     /// `setup_request`: the interface and endpoint of an endpoint address, the interface
     /// claimed.
-    fn setup_request(&self, endpoint_address: u8) -> Result<(InterfaceDescriptor, EndpointDescriptor), Error> {
+    fn setup_request(
+        &self,
+        endpoint_address: u8,
+    ) -> Result<(InterfaceDescriptor, EndpointDescriptor), Error> {
         let (intf, ep) = self.get_interface_and_endpoint(endpoint_address)?;
         self.managed_claim_interface(intf.b_interface_number)?;
         Ok((intf, ep))
     }
 
     /// `get_interface_and_endpoint`.
-    fn get_interface_and_endpoint(&self, endpoint_address: u8) -> Result<(InterfaceDescriptor, EndpointDescriptor), Error> {
+    fn get_interface_and_endpoint(
+        &self,
+        endpoint_address: u8,
+    ) -> Result<(InterfaceDescriptor, EndpointDescriptor), Error> {
         if let Some(found) = self.ep_info.borrow().get(&endpoint_address) {
             return Ok(found.clone());
         }
         let cfg = self.get_active_configuration()?;
         let mut found = None;
         self.for_each_interface(&cfg, |intf| {
-            let setting = self.intf_setting.borrow().get(&intf.desc.b_interface_number).copied().unwrap_or(0);
+            let setting = self
+                .intf_setting
+                .borrow()
+                .get(&intf.desc.b_interface_number)
+                .copied()
+                .unwrap_or(0);
             if intf.desc.b_alternate_setting != setting {
                 return Ok(false);
             }
-            if let Some(ep) = self.find_endpoint(intf, |e| e.b_endpoint_address == endpoint_address)? {
+            if let Some(ep) =
+                self.find_endpoint(intf, |e| e.b_endpoint_address == endpoint_address)?
+            {
                 found = Some((intf.desc.clone(), ep));
                 return Ok(true);
             }
@@ -298,10 +373,15 @@ impl Device {
         })?;
         match found {
             Some(found) => {
-                self.ep_info.borrow_mut().insert(endpoint_address, found.clone());
+                self.ep_info
+                    .borrow_mut()
+                    .insert(endpoint_address, found.clone());
                 Ok(found)
             }
-            None => Err(Error::Value(format!("Invalid endpoint address {:#x}", endpoint_address))),
+            None => Err(Error::Value(format!(
+                "Invalid endpoint address {:#x}",
+                endpoint_address
+            ))),
         }
     }
 
@@ -352,7 +432,10 @@ impl Device {
     }
 
     /// `util.find_descriptor(device, ...)` over `Device.__iter__` (`core.py:1148`).
-    fn find_configuration(&self, matches: impl Fn(&ConfigurationDescriptor) -> bool) -> Result<Option<Configuration>, Error> {
+    fn find_configuration(
+        &self,
+        matches: impl Fn(&ConfigurationDescriptor) -> bool,
+    ) -> Result<Option<Configuration>, Error> {
         for i in 0..self.desc.b_num_configurations as usize {
             let cfg = self.configuration(i)?;
             if matches(&cfg.desc) {
@@ -364,16 +447,28 @@ impl Device {
 
     /// `Configuration.__iter__` (`core.py:651`): every alternate setting of every interface,
     /// until `f` says it is done. A `USBError` or `IndexError` ends one interface's settings.
-    fn for_each_interface(&self, cfg: &Configuration, mut f: impl FnMut(&Interface) -> Result<bool, Error>) -> Result<(), Error> {
+    fn for_each_interface(
+        &self,
+        cfg: &Configuration,
+        mut f: impl FnMut(&Interface) -> Result<bool, Error>,
+    ) -> Result<(), Error> {
         for i in 0..cfg.desc.b_num_interfaces as usize {
             let mut alt = 0;
             loop {
-                let desc = match self.backend.get_interface_descriptor(self.dev, i, alt, cfg.index) {
+                let desc = match self
+                    .backend
+                    .get_interface_descriptor(self.dev, i, alt, cfg.index)
+                {
                     Ok(desc) => desc,
                     Err(Error::Usb(_) | Error::Index(_)) => break,
                     Err(e) => return Err(e),
                 };
-                let intf = Interface { index: i, alternate_index: alt, configuration: cfg.index, desc };
+                let intf = Interface {
+                    index: i,
+                    alternate_index: alt,
+                    configuration: cfg.index,
+                    desc,
+                };
                 if f(&intf)? {
                     return Ok(());
                 }
@@ -384,7 +479,11 @@ impl Device {
     }
 
     /// `util.find_descriptor(cfg, ...)` of an interface (`custom_match` or fields).
-    pub fn find_interface(&self, cfg: &Configuration, matches: impl Fn(&InterfaceDescriptor) -> bool) -> Result<Option<Interface>, Error> {
+    pub fn find_interface(
+        &self,
+        cfg: &Configuration,
+        matches: impl Fn(&InterfaceDescriptor) -> bool,
+    ) -> Result<Option<Interface>, Error> {
         let mut found = None;
         self.for_each_interface(cfg, |intf| {
             if matches(&intf.desc) {
@@ -397,9 +496,19 @@ impl Device {
     }
 
     /// `util.find_descriptor(intf, ...)` of an endpoint (`Interface.__iter__`, `core.py:530`).
-    pub fn find_endpoint(&self, intf: &Interface, matches: impl Fn(&EndpointDescriptor) -> bool) -> Result<Option<EndpointDescriptor>, Error> {
+    pub fn find_endpoint(
+        &self,
+        intf: &Interface,
+        matches: impl Fn(&EndpointDescriptor) -> bool,
+    ) -> Result<Option<EndpointDescriptor>, Error> {
         for i in 0..intf.desc.b_num_endpoints as usize {
-            let desc = self.backend.get_endpoint_descriptor(self.dev, i, intf.index, intf.alternate_index, intf.configuration)?;
+            let desc = self.backend.get_endpoint_descriptor(
+                self.dev,
+                i,
+                intf.index,
+                intf.alternate_index,
+                intf.configuration,
+            )?;
             if matches(&desc) {
                 return Ok(Some(desc));
             }
@@ -436,8 +545,20 @@ impl Device {
         let handle = self.handle.get().expect("setup_request opened the device");
         let timeout = self.timeout(timeout);
         match ep.bm_attributes & 3 {
-            ENDPOINT_TYPE_BULK => self.backend.bulk_write(handle, ep.b_endpoint_address, intf.b_interface_number, data, timeout),
-            ENDPOINT_TYPE_INTR => self.backend.intr_write(handle, ep.b_endpoint_address, intf.b_interface_number, data, timeout),
+            ENDPOINT_TYPE_BULK => self.backend.bulk_write(
+                handle,
+                ep.b_endpoint_address,
+                intf.b_interface_number,
+                data,
+                timeout,
+            ),
+            ENDPOINT_TYPE_INTR => self.backend.intr_write(
+                handle,
+                ep.b_endpoint_address,
+                intf.b_interface_number,
+                data,
+                timeout,
+            ),
             _ => Err(Error::NotImplemented("iso_write".to_owned())),
         }
     }
@@ -450,8 +571,20 @@ impl Device {
         // `util.create_buffer(size)`
         let mut buff = vec![0u8; size];
         let ret = match ep.bm_attributes & 3 {
-            ENDPOINT_TYPE_BULK => self.backend.bulk_read(handle, ep.b_endpoint_address, intf.b_interface_number, &mut buff, timeout)?,
-            ENDPOINT_TYPE_INTR => self.backend.intr_read(handle, ep.b_endpoint_address, intf.b_interface_number, &mut buff, timeout)?,
+            ENDPOINT_TYPE_BULK => self.backend.bulk_read(
+                handle,
+                ep.b_endpoint_address,
+                intf.b_interface_number,
+                &mut buff,
+                timeout,
+            )?,
+            ENDPOINT_TYPE_INTR => self.backend.intr_read(
+                handle,
+                ep.b_endpoint_address,
+                intf.b_interface_number,
+                &mut buff,
+                timeout,
+            )?,
             _ => return Err(Error::NotImplemented("iso_read".to_owned())),
         };
         buff.truncate(ret);
@@ -460,7 +593,14 @@ impl Device {
 
     /// `Device.ctrl_transfer` of a device-to-host request of `length` bytes (`core.py:1057`):
     /// the bytes read.
-    pub fn ctrl_transfer_in(&self, bm_request_type: u8, b_request: u8, w_value: u16, w_index: u16, length: usize) -> Result<Vec<u8>, Error> {
+    pub fn ctrl_transfer_in(
+        &self,
+        bm_request_type: u8,
+        b_request: u8,
+        w_value: u16,
+        w_index: u16,
+        length: usize,
+    ) -> Result<Vec<u8>, Error> {
         let mut buff = vec![0u8; length];
         let handle = self.managed_open()?;
         // Thanks to Johannes Stezenbach to point me out that we need to claim the recipient
@@ -470,7 +610,15 @@ impl Device {
         if recipient == CTRL_RECIPIENT_INTERFACE && rqtype != CTRL_TYPE_VENDOR {
             self.managed_claim_interface((w_index & 0xff) as u8)?;
         }
-        let ret = self.backend.ctrl_transfer(handle, bm_request_type, b_request, w_value, w_index, &mut buff, self.timeout(None))?;
+        let ret = self.backend.ctrl_transfer(
+            handle,
+            bm_request_type,
+            b_request,
+            w_value,
+            w_index,
+            &mut buff,
+            self.timeout(None),
+        )?;
         buff.truncate(ret);
         Ok(buff)
     }
@@ -501,7 +649,11 @@ impl Device {
         self.cached_string(&self.manufacturer, self.desc.i_manufacturer)
     }
 
-    fn cached_string(&self, cache: &RefCell<Option<String>>, index: u8) -> Result<Option<String>, Error> {
+    fn cached_string(
+        &self,
+        cache: &RefCell<Option<String>>,
+        index: u8,
+    ) -> Result<Option<String>, Error> {
         if cache.borrow().is_none() {
             let value = get_string(self, index)?;
             *cache.borrow_mut() = value;
@@ -533,7 +685,13 @@ impl Drop for Device {
 }
 
 /// `control.get_descriptor(dev, desc_size, desc_type, desc_index, wIndex)` (`control.py:152`).
-fn get_descriptor(dev: &Device, desc_size: usize, desc_type: u16, desc_index: u16, w_index: u16) -> Result<Vec<u8>, Error> {
+fn get_descriptor(
+    dev: &Device,
+    desc_size: usize,
+    desc_type: u16,
+    desc_index: u16,
+    w_index: u16,
+) -> Result<Vec<u8>, Error> {
     let w_value = desc_index | (desc_type << 8);
     // `util.build_request_type(CTRL_IN, CTRL_TYPE_STANDARD, CTRL_RECIPIENT_DEVICE)`
     let bm_request_type = CTRL_IN;
@@ -551,7 +709,10 @@ fn get_langids(dev: &Device) -> Result<Vec<u16>, Error> {
     let end = (buf[0] as usize).min(buf.len());
     let lows = buf[2..end].iter().step_by(2);
     let highs = buf[3..end].iter().step_by(2);
-    Ok(lows.zip(highs).map(|(x, y)| *x as u16 + ((*y as u16) << 8)).collect())
+    Ok(lows
+        .zip(highs)
+        .map(|(x, y)| *x as u16 + ((*y as u16) << 8))
+        .collect())
 }
 
 /// `util.get_string(dev, index)` (`util.py:283`).
@@ -573,12 +734,20 @@ pub fn get_string(dev: &Device, index: u8) -> Result<Option<String>, Error> {
     // should be even, ignore any trailing byte (see #154)
     let blen = (buf[0] & 0xfe) as usize;
     let bytes = buf.get(2..blen.min(buf.len())).unwrap_or(&[]);
-    let units: Vec<u16> = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
-    String::from_utf16(&units).map(Some).map_err(|e| Error::Value(format!("'utf-16-le' codec can't decode: {e}")))
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect();
+    String::from_utf16(&units)
+        .map(Some)
+        .map_err(|e| Error::Value(format!("'utf-16-le' codec can't decode: {e}")))
 }
 
 /// `usb.core.find(find_all=True, backend=..., custom_match=...)` (`core.py:1235`).
-pub fn find(backend: &Rc<dyn Backend>, custom_match: impl Fn(&Device) -> bool) -> Result<Vec<Rc<Device>>, Error> {
+pub fn find(
+    backend: &Rc<dyn Backend>,
+    custom_match: impl Fn(&Device) -> bool,
+) -> Result<Vec<Rc<Device>>, Error> {
     let mut found = Vec::new();
     for dev in backend.enumerate_devices()? {
         let d = Device::new(dev, backend.clone())?;

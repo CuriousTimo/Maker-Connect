@@ -6,7 +6,7 @@
 //! a page header from a PPD and its marked options), `cupsRasterReadHeader2` and `cupsRasterReadPixels` over
 //! a page held in memory (W10; the stream's file format is not ported).
 
-use super::options::{cups_get_option, CupsOption};
+use super::options::{CupsOption, cups_get_option};
 use super::ppd::PpdFile;
 use std::collections::VecDeque;
 
@@ -160,12 +160,16 @@ fn scan_dict(code: &str) -> Option<Vec<PsObj>> {
 /// (`raster-interpret.c:1420-1650`): the dictionary's names and values set the header. 0, or -1.
 fn exec_ps(h: &mut PageHeader, code: &str) -> i32 {
     // the code is `<<...>>setpagedevice`
-    let Some(objs) = scan_dict(code) else { return -1 };
+    let Some(objs) = scan_dict(code) else {
+        return -1;
+    };
 
     let mut n = 0;
     while n < objs.len() {
         // "Grab the name..."
-        let PsObj::Name(name) = &objs[n] else { return -1 };
+        let PsObj::Name(name) = &objs[n] else {
+            return -1;
+        };
         let name = name.as_str();
         n += 1;
         let obj = objs.get(n);
@@ -213,7 +217,12 @@ fn exec_ps(h: &mut PageHeader, code: &str) -> i32 {
         } else if name == "cupsBorderlessScalingFactor" && num(obj).is_some() {
             h.cups_borderless_scaling_factor = num(obj).unwrap() as f32;
         } else if name.starts_with("cupsInteger") && num(obj).is_some() {
-            let i: i32 = name[11..].chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(0);
+            let i: i32 = name[11..]
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>()
+                .parse()
+                .unwrap_or(0);
             if !(0..=15).contains(&i) {
                 return -1;
             }
@@ -234,7 +243,10 @@ fn exec_ps(h: &mut PageHeader, code: &str) -> i32 {
 /// `cupsRasterInterpretPPD` / `_cupsRasterInterpretPPD` (`raster-interpret.c:125-475`): "Create a page header
 /// from a PPD file and options". `ppd`'s marked options are those of the job (`ppdMarkDefaults`,
 /// `cupsMarkOptions`). Returns the header, or the error CUPS would add (`-1`).
-pub fn cups_raster_interpret_ppd(ppd: &mut PpdFile, options: &[CupsOption]) -> Result<PageHeader, String> {
+pub fn cups_raster_interpret_ppd(
+    ppd: &mut PpdFile,
+    options: &[CupsOption],
+) -> Result<PageHeader, String> {
     // "Reset the page header to the defaults..." (:155-185); `#ifdef __APPLE__ cupsInteger[0] = 0x80000000`
     // is not taken (a Linux build; the PPD sets `cupsInteger0` for every size anyway).
     let mut h = PageHeader {
@@ -358,21 +370,35 @@ pub fn cups_raster_interpret_ppd(ppd: &mut PpdFile, options: &[CupsOption]) -> R
     h.cups_height = ((top - bottom) * sf * h.hw_resolution[1] as f32 / 72.0f32 + 0.5f32) as u32;
 
     match h.cups_color_space {
-        CUPS_CSPACE_W | CUPS_CSPACE_K | CUPS_CSPACE_WHITE | CUPS_CSPACE_GOLD | CUPS_CSPACE_SILVER | CUPS_CSPACE_SW => {
+        CUPS_CSPACE_W | CUPS_CSPACE_K | CUPS_CSPACE_WHITE | CUPS_CSPACE_GOLD
+        | CUPS_CSPACE_SILVER | CUPS_CSPACE_SW => {
             h.cups_num_colors = 1;
             h.cups_bits_per_pixel = h.cups_bits_per_color;
         }
         CUPS_CSPACE_KCMYCM if h.cups_bits_per_color == 1 => {
-            h.cups_bits_per_pixel = if h.cups_color_order == CUPS_ORDER_CHUNKED { 8 } else { 1 };
+            h.cups_bits_per_pixel = if h.cups_color_order == CUPS_ORDER_CHUNKED {
+                8
+            } else {
+                1
+            };
             h.cups_num_colors = 6;
         }
-        CUPS_CSPACE_KCMYCM | CUPS_CSPACE_RGBA | CUPS_CSPACE_RGBW | CUPS_CSPACE_CMYK | CUPS_CSPACE_YMCK | CUPS_CSPACE_KCMY | CUPS_CSPACE_GMCK | CUPS_CSPACE_GMCS => {
-            h.cups_bits_per_pixel = if h.cups_color_order == CUPS_ORDER_CHUNKED { h.cups_bits_per_color * 4 } else { h.cups_bits_per_color };
+        CUPS_CSPACE_KCMYCM | CUPS_CSPACE_RGBA | CUPS_CSPACE_RGBW | CUPS_CSPACE_CMYK
+        | CUPS_CSPACE_YMCK | CUPS_CSPACE_KCMY | CUPS_CSPACE_GMCK | CUPS_CSPACE_GMCS => {
+            h.cups_bits_per_pixel = if h.cups_color_order == CUPS_ORDER_CHUNKED {
+                h.cups_bits_per_color * 4
+            } else {
+                h.cups_bits_per_color
+            };
             h.cups_num_colors = 4;
         }
         CUPS_CSPACE_DEVICE1..=CUPS_CSPACE_DEVICEF => {
             h.cups_num_colors = h.cups_color_space - CUPS_CSPACE_DEVICE1 + 1;
-            h.cups_bits_per_pixel = if h.cups_color_order == CUPS_ORDER_CHUNKED { h.cups_bits_per_color * h.cups_num_colors } else { h.cups_bits_per_color };
+            h.cups_bits_per_pixel = if h.cups_color_order == CUPS_ORDER_CHUNKED {
+                h.cups_bits_per_color * h.cups_num_colors
+            } else {
+                h.cups_bits_per_color
+            };
         }
         _ => {
             // :407-431 `default`: RGB, CMY, YMC, CIE, ICC, ... "Ensure that colorimetric colorspaces use at
@@ -432,7 +458,15 @@ pub struct CupsRaster {
 impl CupsRaster {
     /// `cupsRasterOpen(fd, CUPS_RASTER_READ)`, over these pages.
     pub fn open(pages: Vec<RasterPage>) -> CupsRaster {
-        CupsRaster { pages: pages.into(), pixels: Vec::new(), pos: 0, remaining: 0, header: PageHeader::default(), bpp: 0, errors: String::new() }
+        CupsRaster {
+            pages: pages.into(),
+            pixels: Vec::new(),
+            pos: 0,
+            remaining: 0,
+            header: PageHeader::default(),
+            bpp: 0,
+            errors: String::new(),
+        }
     }
 
     fn add_error(&mut self, text: String) {
@@ -448,24 +482,45 @@ impl CupsRaster {
         // "Set the 'cupsNumColors' field according to the colorspace..." only for v1 streams or when it is 0
         if h.cups_num_colors == 0 {
             match h.cups_color_space {
-                CUPS_CSPACE_W | CUPS_CSPACE_K | CUPS_CSPACE_WHITE | CUPS_CSPACE_GOLD | CUPS_CSPACE_SILVER | CUPS_CSPACE_SW => h.cups_num_colors = 1,
-                CUPS_CSPACE_RGB | CUPS_CSPACE_CMY | CUPS_CSPACE_YMC | CUPS_CSPACE_CIEXYZ | CUPS_CSPACE_CIELAB | CUPS_CSPACE_SRGB | CUPS_CSPACE_ADOBERGB | CUPS_CSPACE_ICC1..=CUPS_CSPACE_ICCF => h.cups_num_colors = 3,
-                CUPS_CSPACE_RGBA | CUPS_CSPACE_RGBW | CUPS_CSPACE_CMYK | CUPS_CSPACE_YMCK | CUPS_CSPACE_KCMY | CUPS_CSPACE_GMCK | CUPS_CSPACE_GMCS => h.cups_num_colors = 4,
-                CUPS_CSPACE_KCMYCM => h.cups_num_colors = if h.cups_bits_per_pixel < 8 { 6 } else { 4 },
-                CUPS_CSPACE_DEVICE1..=CUPS_CSPACE_DEVICEF => h.cups_num_colors = h.cups_color_space - CUPS_CSPACE_DEVICE1 + 1,
+                CUPS_CSPACE_W | CUPS_CSPACE_K | CUPS_CSPACE_WHITE | CUPS_CSPACE_GOLD
+                | CUPS_CSPACE_SILVER | CUPS_CSPACE_SW => h.cups_num_colors = 1,
+                CUPS_CSPACE_RGB
+                | CUPS_CSPACE_CMY
+                | CUPS_CSPACE_YMC
+                | CUPS_CSPACE_CIEXYZ
+                | CUPS_CSPACE_CIELAB
+                | CUPS_CSPACE_SRGB
+                | CUPS_CSPACE_ADOBERGB
+                | CUPS_CSPACE_ICC1..=CUPS_CSPACE_ICCF => h.cups_num_colors = 3,
+                CUPS_CSPACE_RGBA | CUPS_CSPACE_RGBW | CUPS_CSPACE_CMYK | CUPS_CSPACE_YMCK
+                | CUPS_CSPACE_KCMY | CUPS_CSPACE_GMCK | CUPS_CSPACE_GMCS => h.cups_num_colors = 4,
+                CUPS_CSPACE_KCMYCM => {
+                    h.cups_num_colors = if h.cups_bits_per_pixel < 8 { 6 } else { 4 }
+                }
+                CUPS_CSPACE_DEVICE1..=CUPS_CSPACE_DEVICEF => {
+                    h.cups_num_colors = h.cups_color_space - CUPS_CSPACE_DEVICE1 + 1
+                }
                 _ => return false, // "Unknown color space"
             }
         }
 
         // "Set the number of bytes per pixel/color..."
-        self.bpp = if h.cups_color_order == CUPS_ORDER_CHUNKED { (h.cups_bits_per_pixel + 7) / 8 } else { (h.cups_bits_per_color + 7) / 8 };
+        self.bpp = if h.cups_color_order == CUPS_ORDER_CHUNKED {
+            (h.cups_bits_per_pixel + 7) / 8
+        } else {
+            (h.cups_bits_per_color + 7) / 8
+        };
 
         if self.bpp == 0 {
             self.bpp = 1;
         }
 
         // "Set the number of remaining rows..."
-        self.remaining = if h.cups_color_order == CUPS_ORDER_PLANAR { h.cups_height * h.cups_num_colors } else { h.cups_height };
+        self.remaining = if h.cups_color_order == CUPS_ORDER_PLANAR {
+            h.cups_height * h.cups_num_colors
+        } else {
+            h.cups_height
+        };
 
         // "Validate the page header..."
         let mut errs: Vec<String> = Vec::new();
@@ -474,8 +529,10 @@ impl CupsRaster {
             ret = false;
         }
 
-        if (h.cups_color_order != CUPS_ORDER_CHUNKED && h.cups_bits_per_pixel != h.cups_bits_per_color)
-            || (h.cups_color_order == CUPS_ORDER_CHUNKED && h.cups_bits_per_pixel != h.cups_bits_per_color * h.cups_num_colors)
+        if (h.cups_color_order != CUPS_ORDER_CHUNKED
+            && h.cups_bits_per_pixel != h.cups_bits_per_color)
+            || (h.cups_color_order == CUPS_ORDER_CHUNKED
+                && h.cups_bits_per_pixel != h.cups_bits_per_color * h.cups_num_colors)
         {
             errs.push(format!("Invalid bits per pixel {}.", h.cups_bits_per_pixel));
             ret = false;
@@ -490,10 +547,16 @@ impl CupsRaster {
             errs.push("Invalid raster line length 0.".to_owned());
             ret = false;
         } else if h.cups_bytes_per_line > CUPS_MAX_BYTES_PER_LINE {
-            errs.push(format!("Raster line length {} is greater than {} bytes.", h.cups_bytes_per_line, CUPS_MAX_BYTES_PER_LINE));
+            errs.push(format!(
+                "Raster line length {} is greater than {} bytes.",
+                h.cups_bytes_per_line, CUPS_MAX_BYTES_PER_LINE
+            ));
             ret = false;
         } else if h.cups_bytes_per_line % self.bpp != 0 {
-            errs.push(format!("Raster line length {} is not a multiple of the pixel size ({}).", h.cups_bytes_per_line, self.bpp));
+            errs.push(format!(
+                "Raster line length {} is not a multiple of the pixel size ({}).",
+                h.cups_bytes_per_line, self.bpp
+            ));
             ret = false;
         } else if h.cups_bytes_per_line != bytes_per_line {
             errs.push(format!(

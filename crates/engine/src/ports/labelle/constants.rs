@@ -20,8 +20,14 @@ pub fn supported_products() -> Vec<(u16, String)> {
         (0x1004, unconfirmed("LabelManager 420P (mode switch)")),
         (0x1005, "LabelManager 280 (no mode switch)".to_owned()),
         (0x1006, "LabelManager 280 (no mode switch)".to_owned()),
-        (0x1007, unconfirmed("LabelManager Wireless PnP (no mode switch)")),
-        (0x1008, unconfirmed("LabelManager Wireless PnP (mode switch)")),
+        (
+            0x1007,
+            unconfirmed("LabelManager Wireless PnP (no mode switch)"),
+        ),
+        (
+            0x1008,
+            unconfirmed("LabelManager Wireless PnP (mode switch)"),
+        ),
         (0x1009, unconfirmed("MobileLabeler")),
     ]
 }

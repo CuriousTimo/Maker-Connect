@@ -16,7 +16,10 @@ impl<T> PyDeque<T> {
     /// `deque([], maxlen)`. (Python raises `ValueError` for a negative `maxlen`; callers pass
     /// an `Option<usize>` after that check.)
     pub fn new(maxlen: Option<usize>) -> Self {
-        PyDeque { items: VecDeque::new(), maxlen }
+        PyDeque {
+            items: VecDeque::new(),
+            maxlen,
+        }
     }
 
     pub fn maxlen(&self) -> Option<usize> {
@@ -55,7 +58,11 @@ impl<T> PyDeque<T> {
 
     /// `d[i]` for a non-negative or negative index (`None` is `IndexError`).
     pub fn get(&self, i: isize) -> Option<&T> {
-        let idx = if i < 0 { self.items.len().checked_sub(i.unsigned_abs())? } else { i as usize };
+        let idx = if i < 0 {
+            self.items.len().checked_sub(i.unsigned_abs())?
+        } else {
+            i as usize
+        };
         self.items.get(idx)
     }
 }
@@ -173,17 +180,30 @@ mod tests {
         d.insert("b", 1);
         d.insert("a", 2);
         d.insert("b", 3);
-        assert_eq!(vec![("b", 3), ("a", 2)], d.iter().map(|(k, v)| (k.as_str(), *v)).collect::<Vec<_>>());
+        assert_eq!(
+            vec![("b", 3), ("a", 2)],
+            d.iter().map(|(k, v)| (k.as_str(), *v)).collect::<Vec<_>>()
+        );
         assert_eq!(Some(2), d.pop("a"));
         assert_eq!(None, d.get("a"));
     }
 
     #[test]
     fn dict_eq_ignores_order() {
-        let a: PyDict<i32> = [("a".to_string(), 1), ("b".to_string(), 2)].into_iter().collect();
-        let b: PyDict<i32> = [("b".to_string(), 2), ("a".to_string(), 1)].into_iter().collect();
+        let a: PyDict<i32> = [("a".to_string(), 1), ("b".to_string(), 2)]
+            .into_iter()
+            .collect();
+        let b: PyDict<i32> = [("b".to_string(), 2), ("a".to_string(), 1)]
+            .into_iter()
+            .collect();
         assert_eq!(a, b);
-        assert_eq!(vec!["a", "b"], a.keys().map(|k| k.as_str()).collect::<Vec<_>>());
-        assert_eq!(vec!["b", "a"], b.keys().map(|k| k.as_str()).collect::<Vec<_>>());
+        assert_eq!(
+            vec!["a", "b"],
+            a.keys().map(|k| k.as_str()).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            vec!["b", "a"],
+            b.keys().map(|k| k.as_str()).collect::<Vec<_>>()
+        );
     }
 }

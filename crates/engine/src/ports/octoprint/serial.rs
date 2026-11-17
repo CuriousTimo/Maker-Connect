@@ -28,10 +28,10 @@
 //!  6. The data of `BufferedReadlineWrapper` (`_buffered`) lives on the wrapper (Python's
 //!     `wrapt.ObjectProxy` stores it on the wrapped object, which nobody else reads).
 
-use super::comm::{py_float_repr, SerialError, SerialTransport};
+use super::comm::{SerialError, SerialTransport, py_float_repr};
 use std::os::fd::{AsRawFd, RawFd};
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::Duration;
 
 /// `serial.LF` (`serialutil.py:25`)
@@ -151,11 +151,17 @@ impl Serial {
         exclusive: Option<bool>,
     ) -> Result<Serial, SerialError> {
         if !(0..=u32::MAX as i64).contains(&baudrate) {
-            return Err(SerialError::other("ValueError", format!("Not a valid baudrate: {baudrate:?}")));
+            return Err(SerialError::other(
+                "ValueError",
+                format!("Not a valid baudrate: {baudrate:?}"),
+            ));
         }
         for t in [timeout, write_timeout].into_iter().flatten() {
             if t < 0.0 {
-                return Err(SerialError::other("ValueError", format!("Not a valid timeout: {}", py_float_repr(t))));
+                return Err(SerialError::other(
+                    "ValueError",
+                    format!("Not a valid timeout: {}", py_float_repr(t)),
+                ));
             }
         }
         Ok(Serial {
@@ -187,8 +193,11 @@ impl Serial {
 
     /// `serial_obj.parity = serial.PARITY_ODD` (`odd`) / `serial.PARITY_NONE`
     pub fn set_parity_odd(&self, odd: bool) {
-        *self.parity.lock().unwrap_or_else(|e| e.into_inner()) =
-            if odd { serialport::Parity::Odd } else { serialport::Parity::None };
+        *self.parity.lock().unwrap_or_else(|e| e.into_inner()) = if odd {
+            serialport::Parity::Odd
+        } else {
+            serialport::Parity::None
+        };
     }
 
     /// `serial_obj.baudrate`
@@ -200,14 +209,23 @@ impl Serial {
     /// an open port is reconfigured.
     pub fn set_baudrate(&self, baudrate: i64) -> Result<(), SerialError> {
         if !(0..=u32::MAX as i64).contains(&baudrate) {
-            return Err(SerialError::other("ValueError", format!("Not a valid baudrate: {baudrate:?}")));
+            return Err(SerialError::other(
+                "ValueError",
+                format!("Not a valid baudrate: {baudrate:?}"),
+            ));
         }
         *self.baudrate.lock().unwrap_or_else(|e| e.into_inner()) = baudrate;
         if self.is_open() {
             use serialport::SerialPort;
-            if let Some(tty) = self.handle.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-                tty.set_baud_rate(baudrate as u32)
-                    .map_err(|e| SerialError::serial_exception(format!("Could not configure port: {e}")))?;
+            if let Some(tty) = self
+                .handle
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_mut()
+            {
+                tty.set_baud_rate(baudrate as u32).map_err(|e| {
+                    SerialError::serial_exception(format!("Could not configure port: {e}"))
+                })?;
             }
         }
         Ok(())
@@ -223,7 +241,10 @@ impl Serial {
         if timeout.is_some_and(|t| t < 0.0) {
             return Err(SerialError::other(
                 "ValueError",
-                format!("Not a valid timeout: {}", py_float_repr(timeout.expect("checked"))),
+                format!(
+                    "Not a valid timeout: {}",
+                    py_float_repr(timeout.expect("checked"))
+                ),
             ));
         }
         *self.timeout.lock().unwrap_or_else(|e| e.into_inner()) = timeout;
@@ -250,7 +271,11 @@ impl Serial {
         use serialport::SerialPort;
 
         let port = match self.port() {
-            None => return Err(SerialError::serial_exception("Port must be configured before it can be used.")),
+            None => {
+                return Err(SerialError::serial_exception(
+                    "Port must be configured before it can be used.",
+                ));
+            }
             Some(p) => p,
         };
         if self.is_open() {
@@ -263,9 +288,9 @@ impl Serial {
             .timeout(Duration::ZERO)
             .dtr_on_open(true);
         builder = builder.exclusive(self.exclusive == Some(true));
-        let mut tty = builder
-            .open_native()
-            .map_err(|e| SerialError::serial_exception(format!("could not open port {port}: {e}")))?;
+        let mut tty = builder.open_native().map_err(|e| {
+            SerialError::serial_exception(format!("could not open port {port}: {e}"))
+        })?;
 
         // :337 `if not self._rtscts: self._update_rts_state()` (and DTR: the crate did that)
         let _ = tty.write_request_to_send(true);
@@ -297,7 +322,12 @@ impl Serial {
         };
         if let Err(e) = setup() {
             // :350-368 close everything again, raise the original
-            for p in [&self.pipe_abort_read_r, &self.pipe_abort_read_w, &self.pipe_abort_write_r, &self.pipe_abort_write_w] {
+            for p in [
+                &self.pipe_abort_read_r,
+                &self.pipe_abort_read_w,
+                &self.pipe_abort_write_r,
+                &self.pipe_abort_write_w,
+            ] {
                 close_fd(p);
             }
             drop(tty);
@@ -333,19 +363,29 @@ impl Serial {
     }
 
     fn port_not_open() -> SerialError {
-        SerialError::new("PortNotOpenError", "Attempting to use a port that is not open", true)
+        SerialError::new(
+            "PortNotOpenError",
+            "Attempting to use a port that is not open",
+            true,
+        )
     }
 
     /// `serialposix.py:546 in_waiting`: the number of bytes in the input buffer (`TIOCINQ`).
     pub fn in_waiting(&self) -> Result<usize, SerialError> {
         let Some(fd) = self.fd() else {
             // `fcntl.ioctl(None, ..)`
-            return Err(SerialError::other("TypeError", "argument must be an int, or have a fileno() method.".to_string()));
+            return Err(SerialError::other(
+                "TypeError",
+                "argument must be an int, or have a fileno() method.".to_string(),
+            ));
         };
         let mut n: libc::c_int = 0;
         // SAFETY: FIONREAD writes one int.
         if unsafe { libc::ioctl(fd, libc::FIONREAD as _, &mut n) } < 0 {
-            return Err(SerialError::other("OSError", os_error_text(&std::io::Error::last_os_error())));
+            return Err(SerialError::other(
+                "OSError",
+                os_error_text(&std::io::Error::last_os_error()),
+            ));
         }
         Ok(n as usize)
     }
@@ -363,8 +403,16 @@ impl Serial {
             let fd = self.fd.load(Ordering::SeqCst);
             let pipe_r = self.pipe_abort_read_r.load(Ordering::SeqCst);
             let mut fds = [
-                libc::pollfd { fd, events: libc::POLLIN, revents: 0 },
-                libc::pollfd { fd: pipe_r, events: libc::POLLIN, revents: 0 },
+                libc::pollfd {
+                    fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: pipe_r,
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
             ];
             let wait_ms: libc::c_int = match timeout.time_left() {
                 None => -1,
@@ -398,10 +446,20 @@ impl Serial {
                 Err(e) => {
                     // ignore BlockingIOErrors and EINTR. other errors are shown
                     let ignored = e.raw_os_error().is_some_and(|code| {
-                        [libc::EAGAIN, libc::EALREADY, libc::EWOULDBLOCK, libc::EINPROGRESS, libc::EINTR].contains(&code)
+                        [
+                            libc::EAGAIN,
+                            libc::EALREADY,
+                            libc::EWOULDBLOCK,
+                            libc::EINPROGRESS,
+                            libc::EINTR,
+                        ]
+                        .contains(&code)
                     });
                     if !ignored {
-                        return Err(SerialError::serial_exception(format!("read failed: {}", os_error_text(&e))));
+                        return Err(SerialError::serial_exception(format!(
+                            "read failed: {}",
+                            os_error_text(&e)
+                        )));
                     }
                 }
                 Ok(buf) => {
@@ -451,10 +509,20 @@ impl Serial {
                 // `except OSError`: ignore BlockingIOErrors and EINTR. other errors are shown
                 let e = std::io::Error::last_os_error();
                 let ignored = e.raw_os_error().is_some_and(|code| {
-                    [libc::EAGAIN, libc::EALREADY, libc::EWOULDBLOCK, libc::EINPROGRESS, libc::EINTR].contains(&code)
+                    [
+                        libc::EAGAIN,
+                        libc::EALREADY,
+                        libc::EWOULDBLOCK,
+                        libc::EINPROGRESS,
+                        libc::EINTR,
+                    ]
+                    .contains(&code)
                 });
                 if !ignored {
-                    return Err(SerialError::serial_exception(format!("write failed: {}", os_error_text(&e))));
+                    return Err(SerialError::serial_exception(format!(
+                        "write failed: {}",
+                        os_error_text(&e)
+                    )));
                 }
                 Step::Next
             } else {
@@ -474,7 +542,11 @@ impl Serial {
                     if abort {
                         Step::Break
                     } else if !ready {
-                        return Err(if infinite { SerialError::serial_exception("write failed (select)") } else { timeout_error() });
+                        return Err(if infinite {
+                            SerialError::serial_exception("write failed (select)")
+                        } else {
+                            timeout_error()
+                        });
                     } else {
                         d = &d[n..];
                         tx_len -= n;
@@ -500,8 +572,16 @@ impl Serial {
         let fd = self.fd.load(Ordering::SeqCst);
         let pipe_r = self.pipe_abort_write_r.load(Ordering::SeqCst);
         let mut fds = [
-            libc::pollfd { fd: pipe_r, events: libc::POLLIN, revents: 0 },
-            libc::pollfd { fd, events: libc::POLLOUT, revents: 0 },
+            libc::pollfd {
+                fd: pipe_r,
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd,
+                events: libc::POLLOUT,
+                revents: 0,
+            },
         ];
         let wait_ms: libc::c_int = match time_left {
             None => -1,
@@ -512,12 +592,22 @@ impl Serial {
         if rc < 0 {
             let e = std::io::Error::last_os_error();
             let ignored = e.raw_os_error().is_some_and(|code| {
-                [libc::EAGAIN, libc::EALREADY, libc::EWOULDBLOCK, libc::EINPROGRESS, libc::EINTR].contains(&code)
+                [
+                    libc::EAGAIN,
+                    libc::EALREADY,
+                    libc::EWOULDBLOCK,
+                    libc::EINPROGRESS,
+                    libc::EINTR,
+                ]
+                .contains(&code)
             });
             if ignored {
                 return Ok((false, false));
             }
-            return Err(SerialError::serial_exception(format!("write failed: {}", os_error_text(&e))));
+            return Err(SerialError::serial_exception(format!(
+                "write failed: {}",
+                os_error_text(&e)
+            )));
         }
         if fds[0].revents != 0 {
             let mut junk = [0u8; 1000];
@@ -549,7 +639,10 @@ impl Serial {
         // SAFETY: writing one byte from a static buffer.
         let n = unsafe { libc::write(pipe_w.load(Ordering::SeqCst), b"x".as_ptr().cast(), 1) };
         if n < 0 {
-            return Err(SerialError::other("OSError", os_error_text(&std::io::Error::last_os_error())));
+            return Err(SerialError::other(
+                "OSError",
+                os_error_text(&std::io::Error::last_os_error()),
+            ));
         }
         Ok(())
     }
@@ -558,12 +651,25 @@ impl Serial {
     /// attribute does not exist elsewhere, where `comm.py:3922` takes its `else`).
     #[cfg(target_os = "linux")]
     pub fn set_low_latency_mode(&self, low_latency_settings: bool) -> Result<(), SerialError> {
-        let fd = self.fd().ok_or_else(|| SerialError::other("TypeError", "argument must be an int, or have a fileno() method.".to_string()))?;
+        let fd = self.fd().ok_or_else(|| {
+            SerialError::other(
+                "TypeError",
+                "argument must be an int, or have a fileno() method.".to_string(),
+            )
+        })?;
         let mut buf = [0 as libc::c_int; 32];
         let fail = |e: std::io::Error| {
             SerialError::other(
                 "ValueError",
-                format!("Failed to update ASYNC_LOW_LATENCY flag to {}: {}", if low_latency_settings { "True" } else { "False" }, os_error_text(&e)),
+                format!(
+                    "Failed to update ASYNC_LOW_LATENCY flag to {}: {}",
+                    if low_latency_settings {
+                        "True"
+                    } else {
+                        "False"
+                    },
+                    os_error_text(&e)
+                ),
             )
         };
         // SAFETY: TIOCGSERIAL / TIOCSSERIAL read and write a serial_struct, which fits in 32 ints.
@@ -603,7 +709,8 @@ impl Serial {
             },
             self.baudrate(),
             parity,
-            self.timeout().map_or_else(|| "None".to_string(), py_float_repr),
+            self.timeout()
+                .map_or_else(|| "None".to_string(), py_float_repr),
         )
     }
 }
@@ -625,7 +732,10 @@ pub struct BufferedReadlineWrapper {
 impl BufferedReadlineWrapper {
     /// :6911 `__init__(obj)`
     pub fn new(obj: Serial) -> Self {
-        BufferedReadlineWrapper { serial: obj, buffered: Mutex::new(Vec::new()) }
+        BufferedReadlineWrapper {
+            serial: obj,
+            buffered: Mutex::new(Vec::new()),
+        }
     }
 
     /// the wrapped object
@@ -748,7 +858,9 @@ mod tests {
     }
 
     fn put(w: RawFd, data: &[u8]) {
-        assert_eq!(data.len() as isize, unsafe { libc::write(w, data.as_ptr().cast(), data.len()) });
+        assert_eq!(data.len() as isize, unsafe {
+            libc::write(w, data.as_ptr().cast(), data.len())
+        });
     }
 
     #[test]
@@ -787,7 +899,10 @@ mod tests {
         unsafe { libc::close(w) };
         let e = s.read(1).unwrap_err();
         assert!(e.serial_exception);
-        assert!(e.message.starts_with("device reports readiness to read but returned no data"));
+        assert!(
+            e.message
+                .starts_with("device reports readiness to read but returned no data")
+        );
     }
 
     #[test]
@@ -811,15 +926,32 @@ mod tests {
         assert_eq!("TypeError", s.in_waiting().unwrap_err().type_name);
         s.cancel_read().unwrap();
         s.close();
-        assert!(s.open().unwrap_err().message.starts_with("Port must be configured"));
+        assert!(
+            s.open()
+                .unwrap_err()
+                .message
+                .starts_with("Port must be configured")
+        );
     }
 
     #[test]
     fn new_checks_baudrate_and_timeout() {
-        assert_eq!("ValueError", Serial::new(-1, None, None, None).err().unwrap().type_name);
-        assert_eq!("ValueError", Serial::new(9600, Some(-1.0), None, None).err().unwrap().type_name);
+        assert_eq!(
+            "ValueError",
+            Serial::new(-1, None, None, None).err().unwrap().type_name
+        );
+        assert_eq!(
+            "ValueError",
+            Serial::new(9600, Some(-1.0), None, None)
+                .err()
+                .unwrap()
+                .type_name
+        );
         let s = Serial::new(9600, Some(1.0), None, None).unwrap();
-        assert_eq!("ValueError", s.set_timeout(Some(-0.5)).unwrap_err().type_name);
+        assert_eq!(
+            "ValueError",
+            s.set_timeout(Some(-0.5)).unwrap_err().type_name
+        );
         s.set_timeout(Some(2.0)).unwrap();
         assert_eq!(Some(2.0), s.timeout());
         s.set_baudrate(250000).unwrap();
@@ -862,7 +994,10 @@ mod tests {
         let s = Serial::new(115200, Some(30.0), Some(0.0), Some(true)).unwrap();
         s.set_port("/dev/ttyFAKE");
         let r = BufferedReadlineWrapper::new(s);
-        assert_eq!(Some(Some("/dev/ttyFAKE".to_string())), SerialTransport::port(&r));
+        assert_eq!(
+            Some(Some("/dev/ttyFAKE".to_string())),
+            SerialTransport::port(&r)
+        );
         assert_eq!(Some(Some(115200)), SerialTransport::baudrate(&r));
         assert_eq!(Some(30.0), SerialTransport::timeout(&r));
         r.set_timeout(2.5);
@@ -884,7 +1019,12 @@ mod tests {
         s.set_port("/dev/maker-connect-test-does-not-exist");
         let e = s.open().unwrap_err();
         assert!(e.serial_exception);
-        assert!(e.message.starts_with("could not open port /dev/maker-connect-test-does-not-exist"), "{}", e.message);
+        assert!(
+            e.message
+                .starts_with("could not open port /dev/maker-connect-test-does-not-exist"),
+            "{}",
+            e.message
+        );
         assert!(!s.is_open());
     }
 

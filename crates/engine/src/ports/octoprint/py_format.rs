@@ -41,12 +41,25 @@ fn isprintable(c: char) -> bool {
             .filter(|l| !l.starts_with('#'))
             .map(|l| {
                 let (a, b) = l.split_once('-').expect("first-last");
-                (u32::from_str_radix(a, 16).unwrap(), u32::from_str_radix(b, 16).unwrap())
+                (
+                    u32::from_str_radix(a, 16).unwrap(),
+                    u32::from_str_radix(b, 16).unwrap(),
+                )
             })
             .collect()
     });
     let cp = c as u32;
-    NON_PRINTABLE.binary_search_by(|&(a, b)| if cp < a { std::cmp::Ordering::Greater } else if cp > b { std::cmp::Ordering::Less } else { std::cmp::Ordering::Equal }).is_err()
+    NON_PRINTABLE
+        .binary_search_by(|&(a, b)| {
+            if cp < a {
+                std::cmp::Ordering::Greater
+            } else if cp > b {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+        .is_err()
 }
 
 /// `Py_UNICODE_TODECIMAL`: the value of any Unicode decimal digit (`unicode_format.h get_integer`,
@@ -60,7 +73,11 @@ fn decimal(c: char) -> Option<usize> {
 
 /// Python `repr(str)`; `ascii_only` is `ascii()`.
 pub fn py_str_repr(s: &str, ascii_only: bool) -> String {
-    let quote = if s.contains('\'') && !s.contains('"') { '"' } else { '\'' };
+    let quote = if s.contains('\'') && !s.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
     let mut out = String::new();
     out.push(quote);
     for c in s.chars() {
@@ -73,7 +90,9 @@ pub fn py_str_repr(s: &str, ascii_only: bool) -> String {
                 out.push('\\');
                 out.push(c);
             }
-            c if (c as u32) < 0x20 || c as u32 == 0x7f => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
+                out.push_str(&format!("\\x{:02x}", c as u32))
+            }
             c if c.is_ascii() => out.push(c),
             c if !ascii_only && isprintable(c) => out.push(c),
             c if (c as u32) < 0x100 => out.push_str(&format!("\\x{:02x}", c as u32)),
@@ -87,9 +106,16 @@ pub fn py_str_repr(s: &str, ascii_only: bool) -> String {
 
 /// `str.format(*args, **kwargs)` with `str`/`None` arguments (`kwargs` in the order of the dict):
 /// `do_string_format` (unicode_format.h:995 region) with `recursion_depth = 2`.
-pub fn format(template: &str, args: &[Arg], kwargs: &[(String, Arg)]) -> Result<String, FormatError> {
+pub fn format(
+    template: &str,
+    args: &[Arg],
+    kwargs: &[(String, Arg)],
+) -> Result<String, FormatError> {
     let chars: Vec<char> = template.chars().collect();
-    let mut auto = AutoNumber { state: AutoNumberState::Init, field_number: 0 };
+    let mut auto = AutoNumber {
+        state: AutoNumberState::Init,
+        field_number: 0,
+    };
     build_string(&chars, args, kwargs, 2, &mut auto)
 }
 
@@ -111,7 +137,13 @@ fn value_error(text: &str) -> FormatError {
 }
 
 /// `build_string` (unicode_format.h:900)
-fn build_string(input: &[char], args: &[Arg], kwargs: &[(String, Arg)], recursion_depth: i32, auto: &mut AutoNumber) -> Result<String, FormatError> {
+fn build_string(
+    input: &[char],
+    args: &[Arg],
+    kwargs: &[(String, Arg)],
+    recursion_depth: i32,
+    auto: &mut AutoNumber,
+) -> Result<String, FormatError> {
     // check the recursion level
     if recursion_depth <= 0 {
         return Err(value_error("Max string recursion exceeded"));
@@ -129,7 +161,13 @@ struct Field {
 
 /// `do_markup` (unicode_format.h:870) with `MarkupIterator_next` (:675) inlined: literal text up to
 /// the next brace, `{{` / `}}` escapes, then a field.
-fn do_markup(input: &[char], args: &[Arg], kwargs: &[(String, Arg)], recursion_depth: i32, auto: &mut AutoNumber) -> Result<String, FormatError> {
+fn do_markup(
+    input: &[char],
+    args: &[Arg],
+    kwargs: &[(String, Arg)],
+    recursion_depth: i32,
+    auto: &mut AutoNumber,
+) -> Result<String, FormatError> {
     let end = input.len();
     let mut pos = 0usize;
     let mut out = String::new();
@@ -178,7 +216,14 @@ fn do_markup(input: &[char], args: &[Arg], kwargs: &[(String, Arg)], recursion_d
 
         // this is markup; parse the field
         let field = parse_field(input, &mut pos, end)?;
-        out.push_str(&output_markup(input, &field, args, kwargs, recursion_depth, auto)?);
+        out.push_str(&output_markup(
+            input,
+            &field,
+            args,
+            kwargs,
+            recursion_depth,
+            auto,
+        )?);
     }
     Ok(out)
 }
@@ -186,7 +231,12 @@ fn do_markup(input: &[char], args: &[Arg], kwargs: &[(String, Arg)], recursion_d
 /// `parse_field` (unicode_format.h:553)
 fn parse_field(input: &[char], pos: &mut usize, end: usize) -> Result<Field, FormatError> {
     let mut c = '\0';
-    let mut field = Field { name: (*pos, *pos), spec: (0, 0), spec_needs_expanding: false, conversion: None };
+    let mut field = Field {
+        name: (*pos, *pos),
+        spec: (0, 0),
+        spec_needs_expanding: false,
+        conversion: None,
+    };
 
     // Search for the field name. it's terminated by the end of the string, or a ':' or '!'
     while *pos < end {
@@ -212,7 +262,9 @@ fn parse_field(input: &[char], pos: &mut usize, end: usize) -> Result<Field, For
         if c == '!' {
             // there must be another character present
             if *pos >= end {
-                return Err(value_error("end of string while looking for conversion specifier"));
+                return Err(value_error(
+                    "end of string while looking for conversion specifier",
+                ));
             }
             field.conversion = Some(input[*pos]);
             *pos += 1;
@@ -283,17 +335,27 @@ fn output_markup(
             None => "None".to_string(),
         }),
         Some(c) => {
-            return Err(FormatError::ValueError(if (c as u32) > 32 && (c as u32) < 127 {
-                format!("Unknown conversion specifier {c}")
-            } else {
-                format!("Unknown conversion specifier \\x{:x}", c as u32)
-            }))
+            return Err(FormatError::ValueError(
+                if (c as u32) > 32 && (c as u32) < 127 {
+                    format!("Unknown conversion specifier {c}")
+                } else {
+                    format!("Unknown conversion specifier \\x{:x}", c as u32)
+                },
+            ));
         }
     };
 
     // if needed, recursively compute the format_spec
     let spec_chars: Vec<char> = if field.spec_needs_expanding {
-        build_string(&input[field.spec.0..field.spec.1], args, kwargs, recursion_depth - 1, auto)?.chars().collect()
+        build_string(
+            &input[field.spec.0..field.spec.1],
+            args,
+            kwargs,
+            recursion_depth - 1,
+            auto,
+        )?
+        .chars()
+        .collect()
     } else {
         input[field.spec.0..field.spec.1].to_vec()
     };
@@ -305,7 +367,9 @@ fn output_markup(
             if spec_chars.is_empty() {
                 Ok("None".to_string())
             } else {
-                Err(FormatError::TypeError("unsupported format string passed to NoneType.__format__".to_string()))
+                Err(FormatError::TypeError(
+                    "unsupported format string passed to NoneType.__format__".to_string(),
+                ))
             }
         }
     }
@@ -319,7 +383,9 @@ fn get_integer(s: &[char]) -> Result<Option<i64>, FormatError> {
     }
     let mut accumulator: i64 = 0;
     for &c in s {
-        let Some(digit) = decimal(c) else { return Ok(None) };
+        let Some(digit) = decimal(c) else {
+            return Ok(None);
+        };
         let digit = digit as i64;
         // Detect possible overflow before it happens
         if accumulator > (i64::MAX - digit) / 10 {
@@ -332,9 +398,17 @@ fn get_integer(s: &[char]) -> Result<Option<i64>, FormatError> {
 
 /// `get_field_object` (unicode_format.h:395) with `field_name_split` (:339) and `FieldNameIterator_next` (:290).
 /// The names of what a `str` and `None` have as attributes are in `py_str_attrs.txt` (CPython 3.13's `dir`).
-fn get_field_object(name: &[char], args: &[Arg], kwargs: &[(String, Arg)], auto: &mut AutoNumber) -> Result<Arg, FormatError> {
+fn get_field_object(
+    name: &[char],
+    args: &[Arg],
+    kwargs: &[(String, Arg)],
+    auto: &mut AutoNumber,
+) -> Result<Arg, FormatError> {
     // field_name_split: find the part up until the first '.' or '['
-    let first_end = name.iter().position(|c| *c == '[' || *c == '.').unwrap_or(name.len());
+    let first_end = name
+        .iter()
+        .position(|c| *c == '[' || *c == '.')
+        .unwrap_or(name.len());
     let first = &name[..first_end];
     let mut rest = first_end;
 
@@ -350,16 +424,24 @@ fn get_field_object(name: &[char], args: &[Arg], kwargs: &[(String, Arg)], auto:
     // Initialize our auto numbering state if this is the first time we're either auto-numbering or
     // manually numbering.
     if auto.state == AutoNumberState::Init && using_numeric_index {
-        auto.state = if field_name_is_empty { AutoNumberState::Auto } else { AutoNumberState::Manual };
+        auto.state = if field_name_is_empty {
+            AutoNumberState::Auto
+        } else {
+            AutoNumberState::Manual
+        };
     }
     // Make sure our state is consistent with what we're doing this time through.
     if using_numeric_index {
         if auto.state == AutoNumberState::Manual {
             if field_name_is_empty {
-                return Err(value_error("cannot switch from manual field specification to automatic field numbering"));
+                return Err(value_error(
+                    "cannot switch from manual field specification to automatic field numbering",
+                ));
             }
         } else if !field_name_is_empty {
-            return Err(value_error("cannot switch from automatic field numbering to manual field specification"));
+            return Err(value_error(
+                "cannot switch from automatic field numbering to manual field specification",
+            ));
         }
     }
     // Zero length field means we want to do auto-numbering of the fields.
@@ -382,7 +464,7 @@ fn get_field_object(name: &[char], args: &[Arg], kwargs: &[(String, Arg)], auto:
             None => {
                 return Err(FormatError::IndexError(format!(
                     "Replacement index {index} out of range for positional args tuple"
-                )))
+                )));
             }
         },
     };
@@ -427,7 +509,9 @@ fn get_field_object(name: &[char], args: &[Arg], kwargs: &[(String, Arg)], auto:
             }
             _ => {
                 // Invalid character follows ']'
-                return Err(value_error("Only '.' or '[' may follow ']' in format field specifier"));
+                return Err(value_error(
+                    "Only '.' or '[' may follow ']' in format field specifier",
+                ));
             }
         }
 
@@ -439,9 +523,16 @@ fn get_field_object(name: &[char], args: &[Arg], kwargs: &[(String, Arg)], auto:
         if is_attribute {
             // getattr lookup "."
             let attr: String = item.iter().collect();
-            let known = if obj.is_some() { str_attrs("str").contains(&attr.as_str()) } else { str_attrs("None").contains(&attr.as_str()) };
+            let known = if obj.is_some() {
+                str_attrs("str").contains(&attr.as_str())
+            } else {
+                str_attrs("None").contains(&attr.as_str())
+            };
             if known {
-                unimplemented!("str.format: the attribute {attr:?} of a {} as a field", if obj.is_some() { "str" } else { "None" });
+                unimplemented!(
+                    "str.format: the attribute {attr:?} of a {} as a field",
+                    if obj.is_some() { "str" } else { "None" }
+                );
             }
             return Err(FormatError::AttributeError(format!(
                 "'{}' object has no attribute '{attr}'",
@@ -450,13 +541,23 @@ fn get_field_object(name: &[char], args: &[Arg], kwargs: &[(String, Arg)], auto:
         }
         // getitem lookup "[]"
         obj = match (&obj, name_idx) {
-            (None, _) => return Err(FormatError::TypeError("'NoneType' object is not subscriptable".to_string())),
+            (None, _) => {
+                return Err(FormatError::TypeError(
+                    "'NoneType' object is not subscriptable".to_string(),
+                ));
+            }
             (Some(_), None) => {
-                return Err(FormatError::TypeError("string indices must be integers, not 'str'".to_string()))
+                return Err(FormatError::TypeError(
+                    "string indices must be integers, not 'str'".to_string(),
+                ));
             }
             (Some(s), Some(i)) => match usize::try_from(i).ok().and_then(|i| s.chars().nth(i)) {
                 Some(c) => Some(c.to_string()),
-                None => return Err(FormatError::IndexError("string index out of range".to_string())),
+                None => {
+                    return Err(FormatError::IndexError(
+                        "string index out of range".to_string(),
+                    ));
+                }
             },
         };
     }
@@ -469,7 +570,10 @@ fn str_attrs(which: &str) -> &'static [&'static str] {
     use std::sync::LazyLock;
     static ATTRS: LazyLock<(Vec<&'static str>, Vec<&'static str>)> = LazyLock::new(|| {
         let (mut s, mut n) = (Vec::new(), Vec::new());
-        for line in include_str!("py_str_attrs.txt").lines().filter(|l| !l.starts_with('#')) {
+        for line in include_str!("py_str_attrs.txt")
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+        {
             let (kind, name) = line.split_once(' ').expect("kind name");
             match kind {
                 "str" => s.push(name),
@@ -479,11 +583,7 @@ fn str_attrs(which: &str) -> &'static [&'static str] {
         }
         (s, n)
     });
-    if which == "str" {
-        &ATTRS.0
-    } else {
-        &ATTRS.1
-    }
+    if which == "str" { &ATTRS.0 } else { &ATTRS.1 }
 }
 
 /// `_PyUnicode_FormatAdvancedWriter` for a `str` (formatter_unicode.c:1451): `parse_internal_render_format_spec`
@@ -543,7 +643,9 @@ fn format_str(s: &str, spec: &[char]) -> Result<String, FormatError> {
     let get_integer = |pos: &mut usize| -> Result<(usize, i64), FormatError> {
         let (mut accumulator, mut numdigits) = (0i64, 0usize);
         while *pos < end {
-            let Some(digit) = decimal(spec[*pos]) else { break };
+            let Some(digit) = decimal(spec[*pos]) else {
+                break;
+            };
             let digit = digit as i64;
             if accumulator > (i64::MAX - digit) / 10 {
                 return Err(value_error("Too many decimal digits in format string"));
@@ -607,13 +709,19 @@ fn format_str(s: &str, spec: &[char]) -> Result<String, FormatError> {
         match type_char {
             'd' | 'e' | 'f' | 'g' | 'E' | 'G' | '%' | 'F' | '\0' => {}
             'b' | 'o' | 'x' | 'X' if thousands == '_' => {}
-            _ => return Err(FormatError::ValueError(format!("Cannot specify '{thousands}' with '{type_char}'."))),
+            _ => {
+                return Err(FormatError::ValueError(format!(
+                    "Cannot specify '{thousands}' with '{type_char}'."
+                )));
+            }
         }
     }
 
     // type conversion?
     if type_char != 's' {
-        return Err(FormatError::ValueError(format!("Unknown format code '{type_char}' for object of type 'str'")));
+        return Err(FormatError::ValueError(format!(
+            "Unknown format code '{type_char}' for object of type 'str'"
+        )));
     }
 
     // format_string_internal: sign is not allowed on strings
@@ -626,15 +734,21 @@ fn format_str(s: &str, spec: &[char]) -> Result<String, FormatError> {
     }
     // negative 0 coercion is not allowed on strings
     if no_neg_0 {
-        return Err(value_error("Negative zero coercion (z) not allowed in string format specifier"));
+        return Err(value_error(
+            "Negative zero coercion (z) not allowed in string format specifier",
+        ));
     }
     // alternate is not allowed on strings
     if alternate {
-        return Err(value_error("Alternate form (#) not allowed in string format specifier"));
+        return Err(value_error(
+            "Alternate form (#) not allowed in string format specifier",
+        ));
     }
     // '=' alignment not allowed on strings
     if align == '=' {
-        return Err(value_error("'=' alignment not allowed in string format specifier"));
+        return Err(value_error(
+            "'=' alignment not allowed in string format specifier",
+        ));
     }
 
     // if precision is specified, output no more that format.precision characters
@@ -645,7 +759,11 @@ fn format_str(s: &str, spec: &[char]) -> Result<String, FormatError> {
 
     // `calc_padding`
     let len = text.len() as i64;
-    let total = if width >= 0 && width > len { width } else { len };
+    let total = if width >= 0 && width > len {
+        width
+    } else {
+        len
+    };
     let pad = total - len;
     let (lpad, rpad) = match align {
         '>' => (pad, 0),
@@ -669,27 +787,60 @@ mod tests {
         items.iter().map(|x| x.map(str::to_string)).collect()
     }
     fn kw(items: &[(&str, Option<&str>)]) -> Vec<(String, Arg)> {
-        items.iter().map(|(k, v)| (k.to_string(), v.map(str::to_string))).collect()
+        items
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.map(str::to_string)))
+            .collect()
     }
 
     #[test]
     fn positional_automatic_and_manual() {
-        assert_eq!(Ok("Temp 21.5C".to_string()), format("Temp {0}C", &a(&[Some("21.5")]), &[]));
-        assert_eq!(Ok("a-b".to_string()), format("{}-{}", &a(&[Some("a"), Some("b")]), &[]));
-        assert_eq!(Ok("b a b".to_string()), format("{1} {0} {1}", &a(&[Some("a"), Some("b")]), &[]));
+        assert_eq!(
+            Ok("Temp 21.5C".to_string()),
+            format("Temp {0}C", &a(&[Some("21.5")]), &[])
+        );
+        assert_eq!(
+            Ok("a-b".to_string()),
+            format("{}-{}", &a(&[Some("a"), Some("b")]), &[])
+        );
+        assert_eq!(
+            Ok("b a b".to_string()),
+            format("{1} {0} {1}", &a(&[Some("a"), Some("b")]), &[])
+        );
         assert_eq!(Ok("{x}".to_string()), format("{{x}}", &[], &[]));
         assert_eq!(Ok("None".to_string()), format("{0}", &a(&[None]), &[]));
-        assert!(matches!(format("{} {0}", &a(&[Some("a")]), &[]), Err(FormatError::ValueError(_))));
-        assert!(matches!(format("{0} {}", &a(&[Some("a")]), &[]), Err(FormatError::ValueError(_))));
+        assert!(matches!(
+            format("{} {0}", &a(&[Some("a")]), &[]),
+            Err(FormatError::ValueError(_))
+        ));
+        assert!(matches!(
+            format("{0} {}", &a(&[Some("a")]), &[]),
+            Err(FormatError::ValueError(_))
+        ));
     }
 
     #[test]
     fn missing_arguments() {
-        assert!(matches!(format("{1}", &a(&[Some("a")]), &[]), Err(FormatError::IndexError(_))));
-        assert!(matches!(format("{}", &[], &[]), Err(FormatError::IndexError(_))));
-        assert_eq!(Err(FormatError::KeyError("name".to_string())), format("{name}", &[], &[]));
-        assert_eq!(Ok("v".to_string()), format("{name}", &[], &kw(&[("name", Some("v"))])));
-        assert_eq!(Ok("None".to_string()), format("{name}", &[], &kw(&[("name", None)])));
+        assert!(matches!(
+            format("{1}", &a(&[Some("a")]), &[]),
+            Err(FormatError::IndexError(_))
+        ));
+        assert!(matches!(
+            format("{}", &[], &[]),
+            Err(FormatError::IndexError(_))
+        ));
+        assert_eq!(
+            Err(FormatError::KeyError("name".to_string())),
+            format("{name}", &[], &[])
+        );
+        assert_eq!(
+            Ok("v".to_string()),
+            format("{name}", &[], &kw(&[("name", Some("v"))]))
+        );
+        assert_eq!(
+            Ok("None".to_string()),
+            format("{name}", &[], &kw(&[("name", None)]))
+        );
     }
 
     #[test]
@@ -703,27 +854,60 @@ mod tests {
         assert_eq!(Ok("*ab**".to_string()), format("{0:*^5}", &x, &[]));
         assert_eq!(Ok("a".to_string()), format("{0:.1}", &x, &[]));
         assert_eq!(Ok("ab000".to_string()), format("{0:05}", &x, &[]));
-        assert_eq!(Ok("ab  ".to_string()), format("{0:{1}}", &a(&[Some("ab"), Some("4")]), &[]));
-        assert!(matches!(format("{0:d}", &x, &[]), Err(FormatError::ValueError(_))));
-        assert!(matches!(format("{0:+}", &x, &[]), Err(FormatError::ValueError(_))));
-        assert!(matches!(format("{0:=5}", &x, &[]), Err(FormatError::ValueError(_))));
-        assert!(matches!(format("{0:5}", &a(&[None]), &[]), Err(FormatError::TypeError(_))));
-        assert_eq!(Ok("None  ".to_string()), format("{0!s:6}", &a(&[None]), &[]));
+        assert_eq!(
+            Ok("ab  ".to_string()),
+            format("{0:{1}}", &a(&[Some("ab"), Some("4")]), &[])
+        );
+        assert!(matches!(
+            format("{0:d}", &x, &[]),
+            Err(FormatError::ValueError(_))
+        ));
+        assert!(matches!(
+            format("{0:+}", &x, &[]),
+            Err(FormatError::ValueError(_))
+        ));
+        assert!(matches!(
+            format("{0:=5}", &x, &[]),
+            Err(FormatError::ValueError(_))
+        ));
+        assert!(matches!(
+            format("{0:5}", &a(&[None]), &[]),
+            Err(FormatError::TypeError(_))
+        ));
+        assert_eq!(
+            Ok("None  ".to_string()),
+            format("{0!s:6}", &a(&[None]), &[])
+        );
     }
 
     #[test]
     fn indexing_and_attributes() {
         let x = a(&[Some("abc")]);
         assert_eq!(Ok("b".to_string()), format("{0[1]}", &x, &[]));
-        assert!(matches!(format("{0[5]}", &x, &[]), Err(FormatError::IndexError(_))));
-        assert!(matches!(format("{0[x]}", &x, &[]), Err(FormatError::TypeError(_))));
-        assert!(matches!(format("{0.nope}", &x, &[]), Err(FormatError::AttributeError(_))));
+        assert!(matches!(
+            format("{0[5]}", &x, &[]),
+            Err(FormatError::IndexError(_))
+        ));
+        assert!(matches!(
+            format("{0[x]}", &x, &[]),
+            Err(FormatError::TypeError(_))
+        ));
+        assert!(matches!(
+            format("{0.nope}", &x, &[]),
+            Err(FormatError::AttributeError(_))
+        ));
     }
 
     #[test]
     fn syntax_errors() {
         for t in ["{", "}", "{0", "a } b", "{0!}", "{0!x}", "{0!rx}"] {
-            assert!(matches!(format(t, &a(&[Some("a")]), &[]), Err(FormatError::ValueError(_))), "{t}");
+            assert!(
+                matches!(
+                    format(t, &a(&[Some("a")]), &[]),
+                    Err(FormatError::ValueError(_))
+                ),
+                "{t}"
+            );
         }
     }
 
@@ -745,7 +929,8 @@ mod tests {
     #[test]
     fn matches_cpython_3_13_str_format() {
         let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("py_format_expected.json")).expect("the fixture is JSON");
+            serde_json::from_str(include_str!("py_format_expected.json"))
+                .expect("the fixture is JSON");
         let arg = |v: &serde_json::Value| -> Arg { v.as_str().map(str::to_string) };
         let class = |e: &FormatError| match e {
             FormatError::KeyError(_) => "KeyError",
@@ -760,15 +945,23 @@ mod tests {
         for case in cases {
             let template = case["template"].as_str().unwrap();
             let args: Vec<Arg> = case["args"].as_array().unwrap().iter().map(arg).collect();
-            let kwargs: Vec<(String, Arg)> =
-                case["kwargs"].as_array().unwrap().iter().map(|kv| (kv[0].as_str().unwrap().to_string(), arg(&kv[1]))).collect();
+            let kwargs: Vec<(String, Arg)> = case["kwargs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|kv| (kv[0].as_str().unwrap().to_string(), arg(&kv[1])))
+                .collect();
             let got = std::panic::catch_unwind(|| format(template, &args, &kwargs));
             let what = format!("{template:?} args={args:?} kwargs={kwargs:?}");
             if case.get("unimplemented").is_some() {
                 unimplemented += 1;
                 match got {
-                    Err(p) if p.downcast_ref::<String>().is_some_and(|m| m.starts_with("not implemented")) => {}
-                    other => differs.push(format!("{what}: Python accepts it, expected `unimplemented!`, got {other:?}")),
+                    Err(p)
+                        if p.downcast_ref::<String>()
+                            .is_some_and(|m| m.starts_with("not implemented")) => {}
+                    other => differs.push(format!(
+                        "{what}: Python accepts it, expected `unimplemented!`, got {other:?}"
+                    )),
                 }
                 continue;
             }
@@ -780,6 +973,17 @@ mod tests {
             }
         }
         assert!(unimplemented > 0);
-        assert!(differs.is_empty(), "{} of {} cases differ, first:\n{}", differs.len(), cases.len(), differs.iter().take(25).cloned().collect::<Vec<_>>().join("\n"));
+        assert!(
+            differs.is_empty(),
+            "{} of {} cases differ, first:\n{}",
+            differs.len(),
+            cases.len(),
+            differs
+                .iter()
+                .take(25)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
     }
 }

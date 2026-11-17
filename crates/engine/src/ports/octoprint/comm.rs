@@ -5,24 +5,30 @@
 //! Translated section by section; each item names its source lines.
 #![allow(non_upper_case_globals)]
 
-use super::filemanager::{valid_file_type, FileDestinations};
+use super::filemanager::{FileDestinations, valid_file_type};
 use super::files::{basename, get_dos_filename, m20_timestamp_to_unix_timestamp, splitext};
-use super::py_queue::{Deque, Empty, GetError, PutError, Queue, QueueStorage, ValueError as PyValueError};
-use super::py_threading::{blocking_point, time_sleep, Event};
+use super::py_queue::{
+    Deque, Empty, GetError, PutError, Queue, QueueStorage, ValueError as PyValueError,
+};
 #[cfg(test)]
 use super::py_threading::LockExt;
+use super::py_threading::{Event, blocking_point, time_sleep};
 use super::settings::settings;
-use super::util::{filter_non_ascii, filter_non_utf8, dict_merge, get_bom, get_exception_string, to_unicode, chunks, PrependableQueue, PrependableStorage, TypeAlreadyInQueue, TypedQueue, PREPEND_DEFAULT_TIMEOUT};
-use std::hash::Hash;
-use std::sync::Arc;
-use std::fmt::Display;
-use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::collections::HashSet;
+use super::util::{
+    PREPEND_DEFAULT_TIMEOUT, PrependableQueue, PrependableStorage, TypeAlreadyInQueue, TypedQueue,
+    chunks, dict_merge, filter_non_ascii, filter_non_utf8, get_bom, get_exception_string,
+    to_unicode,
+};
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Display;
+use std::hash::Hash;
+use std::ops::Deref;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use fancy_regex::Regex;
 
@@ -76,7 +82,11 @@ pub(crate) fn py_ascii_digits(s: &str) -> std::borrow::Cow<'_, str> {
         include_str!("py_decimal_zeros.txt")
             .lines()
             .filter(|l| !l.starts_with('#'))
-            .flat_map(|l| l.split_whitespace().map(|z| u32::from_str_radix(z, 16).unwrap()).collect::<Vec<_>>())
+            .flat_map(|l| {
+                l.split_whitespace()
+                    .map(|z| u32::from_str_radix(z, 16).unwrap())
+                    .collect::<Vec<_>>()
+            })
             .collect()
     });
     if s.is_ascii() {
@@ -102,7 +112,10 @@ pub(crate) fn py_int(s: &str) -> Option<i64> {
         Some(r) => (true, r),
         None => (false, s.strip_prefix('+').unwrap_or(s)),
     };
-    if digits.is_empty() || digits.starts_with('_') || digits.ends_with('_') || digits.contains("__")
+    if digits.is_empty()
+        || digits.starts_with('_')
+        || digits.ends_with('_')
+        || digits.contains("__")
     {
         return None;
     }
@@ -127,7 +140,11 @@ pub(crate) fn py_float(s: &str) -> Option<f64> {
     let s = py_strip(&s);
     if s.contains('_') {
         // Python allows single underscores between digits
-        if s.starts_with('_') || s.ends_with('_') || s.contains("__") || s.contains("_.") || s.contains("._")
+        if s.starts_with('_')
+            || s.ends_with('_')
+            || s.contains("__")
+            || s.contains("_.")
+            || s.contains("._")
         {
             return None;
         }
@@ -138,7 +155,11 @@ pub(crate) fn py_float(s: &str) -> Option<f64> {
 
 /// Python `repr()` of a `bytes` object (needed because `str.format` of bytes yields its repr).
 fn py_bytes_repr(b: &[u8]) -> String {
-    let quote = if b.contains(&b'\'') && !b.contains(&b'"') { b'"' } else { b'\'' };
+    let quote = if b.contains(&b'\'') && !b.contains(&b'"') {
+        b'"'
+    } else {
+        b'\''
+    };
     let mut out = String::new();
     out.push('b');
     out.push(quote as char);
@@ -232,17 +253,66 @@ pub static regex_float: LazyLock<Regex> = LazyLock::new(|| compile(regex_float_p
 /// Regexes for parsing various GCODE command parameters.
 pub static regexes_parameters: LazyLock<BTreeMap<&'static str, Regex>> = LazyLock::new(|| {
     let mut m = BTreeMap::new();
-    m.insert("floatE", compile(&format!(r"(^|[^A-Za-z])[Ee](?P<value>{regex_float_pattern})")));
-    m.insert("floatF", compile(&format!(r"(^|[^A-Za-z])[Ff](?P<value>{regex_float_pattern})")));
-    m.insert("floatP", compile(&format!(r"(^|[^A-Za-z])[Pp](?P<value>{regex_float_pattern})")));
-    m.insert("floatR", compile(&format!(r"(^|[^A-Za-z])[Rr](?P<value>{regex_float_pattern})")));
-    m.insert("floatS", compile(&format!(r"(^|[^A-Za-z])[Ss](?P<value>{regex_float_pattern})")));
-    m.insert("floatX", compile(&format!(r"(^|[^A-Za-z])[Xx](?P<value>{regex_float_pattern})")));
-    m.insert("floatY", compile(&format!(r"(^|[^A-Za-z])[Yy](?P<value>{regex_float_pattern})")));
-    m.insert("floatZ", compile(&format!(r"(^|[^A-Za-z])[Zz](?P<value>{regex_float_pattern})")));
-    m.insert("intN", compile(&format!(r"(^|[^A-Za-z])[Nn](?P<value>{regex_int_pattern})")));
-    m.insert("intS", compile(&format!(r"(^|[^A-Za-z])[Ss](?P<value>{regex_int_pattern})")));
-    m.insert("intT", compile(&format!(r"(^|[^A-Za-z])[Tt](?P<value>{regex_int_pattern})")));
+    m.insert(
+        "floatE",
+        compile(&format!(
+            r"(^|[^A-Za-z])[Ee](?P<value>{regex_float_pattern})"
+        )),
+    );
+    m.insert(
+        "floatF",
+        compile(&format!(
+            r"(^|[^A-Za-z])[Ff](?P<value>{regex_float_pattern})"
+        )),
+    );
+    m.insert(
+        "floatP",
+        compile(&format!(
+            r"(^|[^A-Za-z])[Pp](?P<value>{regex_float_pattern})"
+        )),
+    );
+    m.insert(
+        "floatR",
+        compile(&format!(
+            r"(^|[^A-Za-z])[Rr](?P<value>{regex_float_pattern})"
+        )),
+    );
+    m.insert(
+        "floatS",
+        compile(&format!(
+            r"(^|[^A-Za-z])[Ss](?P<value>{regex_float_pattern})"
+        )),
+    );
+    m.insert(
+        "floatX",
+        compile(&format!(
+            r"(^|[^A-Za-z])[Xx](?P<value>{regex_float_pattern})"
+        )),
+    );
+    m.insert(
+        "floatY",
+        compile(&format!(
+            r"(^|[^A-Za-z])[Yy](?P<value>{regex_float_pattern})"
+        )),
+    );
+    m.insert(
+        "floatZ",
+        compile(&format!(
+            r"(^|[^A-Za-z])[Zz](?P<value>{regex_float_pattern})"
+        )),
+    );
+    m.insert(
+        "intN",
+        compile(&format!(r"(^|[^A-Za-z])[Nn](?P<value>{regex_int_pattern})")),
+    );
+    m.insert(
+        "intS",
+        compile(&format!(r"(^|[^A-Za-z])[Ss](?P<value>{regex_int_pattern})")),
+    );
+    m.insert(
+        "intT",
+        compile(&format!(r"(^|[^A-Za-z])[Tt](?P<value>{regex_int_pattern})")),
+    );
     m
 });
 
@@ -280,7 +350,9 @@ pub static regex_sdPrintingByte: LazyLock<Regex> =
 ///   * ``name``: name of the file reported as having been opened (str)
 ///   * ``size``: size of the file in bytes (int)
 pub static regex_sdFileOpened: LazyLock<Regex> = LazyLock::new(|| {
-    compile(&format!(r"File opened:\s*(?P<name>.*?)\s+Size:\s*(?P<size>{regex_int_pattern})"))
+    compile(&format!(
+        r"File opened:\s*(?P<name>.*?)\s+Size:\s*(?P<size>{regex_int_pattern})"
+    ))
 });
 
 /// comm.py:119 regex_temp
@@ -311,7 +383,9 @@ pub static regex_temp: LazyLock<Regex> = LazyLock::new(|| {
 ///     report belongs (int)
 ///   * ``target``: new target temperature (float)
 pub static regex_repetierTempExtr: LazyLock<Regex> = LazyLock::new(|| {
-    compile(&format!(r"TargetExtr(?P<toolnum>\d+):(?P<target>{regex_float_pattern})"))
+    compile(&format!(
+        r"TargetExtr(?P<toolnum>\d+):(?P<target>{regex_float_pattern})"
+    ))
 });
 
 /// comm.py:146 regex_repetierTempBed
@@ -350,8 +424,11 @@ pub static regex_position: LazyLock<Regex> = LazyLock::new(|| {
 ///
 ///   * ``id``: id of the extruder or which the position is reported
 ///   * ``value``: reported position value
-pub static regex_e_positions: LazyLock<Regex> =
-    LazyLock::new(|| compile(&format!(r"E(?P<id>\d+):\s*(?P<value>{regex_float_pattern})")));
+pub static regex_e_positions: LazyLock<Regex> = LazyLock::new(|| {
+    compile(&format!(
+        r"E(?P<id>\d+):\s*(?P<value>{regex_float_pattern})"
+    ))
+});
 
 /// comm.py:179 regex_firmware_splitter
 ///
@@ -550,7 +627,11 @@ pub fn convert_pause_triggers(
     let mut result = BTreeMap::new();
     for t in ["enable", "disable", "toggle"] {
         if !triggers[t].is_empty() {
-            let joined = triggers[t].iter().map(|p| format!("({p})")).collect::<Vec<_>>().join("|");
+            let joined = triggers[t]
+                .iter()
+                .map(|p| format!("({p})"))
+                .collect::<Vec<_>>()
+                .join("|");
             result.insert(t.to_string(), Regex::new(&joined)?);
         }
     }
@@ -604,7 +685,8 @@ impl FeedbackControls {
         let idx = match self.0.iter().position(|(k, _)| k == key) {
             Some(i) => i,
             None => {
-                self.0.push((key.to_string(), FeedbackControlEntry::default()));
+                self.0
+                    .push((key.to_string(), FeedbackControlEntry::default()));
                 self.0.len() - 1
             }
         };
@@ -645,8 +727,14 @@ pub fn convert_feedback_controls(
                 }
             }
 
-            let template_key = control.template_key.as_ref().expect("KeyError: 'template_key'");
-            result.entry(key).templates.insert(template_key, template.clone());
+            let template_key = control
+                .template_key
+                .as_ref()
+                .expect("KeyError: 'template_key'");
+            result
+                .entry(key)
+                .templates
+                .insert(template_key, template.clone());
         } else if let Some(children) = &control.children {
             for c in children {
                 preprocess_feedback_control(c, result);
@@ -865,7 +953,11 @@ fn parse_file_list_line_tail(
         if l.starts_with('"') && l.ends_with('"') {
             // apparently some firmwares enclose the long name in quotes...
             // (longname[1:-1])
-            longname = Some(if l.len() >= 2 { l[1..l.len() - 1].to_string() } else { String::new() });
+            longname = Some(if l.len() >= 2 {
+                l[1..l.len() - 1].to_string()
+            } else {
+                String::new()
+            });
         }
     }
 
@@ -930,7 +1022,10 @@ pub fn parse_temperature_line(line: &str, current: i64) -> (i64, Temperatures) {
         // update instead of killing the connection
     }
 
-    (max_tool_num.max(current), canonicalize_temperatures(&result, current))
+    (
+        max_tool_num.max(current),
+        canonicalize_temperatures(&result, current),
+    )
 }
 
 /// comm.py:6560 parse_firmware_line
@@ -968,8 +1063,20 @@ pub fn parse_firmware_line(line: &str) -> PyDict<String> {
         let captures = captures.expect("regex runtime error");
         let whole = captures.get(0).unwrap();
         split_line.push(stripped[last..whole.start()].to_string());
-        split_line.push(captures.get(1).map(|m| m.as_str()).unwrap_or("").to_string());
-        split_line.push(captures.get(2).map(|m| m.as_str()).unwrap_or("").to_string());
+        split_line.push(
+            captures
+                .get(1)
+                .map(|m| m.as_str())
+                .unwrap_or("")
+                .to_string(),
+        );
+        split_line.push(
+            captures
+                .get(2)
+                .map(|m| m.as_str())
+                .unwrap_or("")
+                .to_string(),
+        );
         last = whole.end();
     }
     split_line.push(stripped[last..].to_string());
@@ -1055,7 +1162,9 @@ pub fn parse_resend_line(line: &str) -> Option<i64> {
 pub fn parse_position_line(line: &str) -> Option<BTreeMap<String, f64>> {
     let captures = re_captures(&regex_position, line);
     if let Some(captures) = captures {
-        let f = |name: &str| py_float(captures.name(name).unwrap().as_str()).expect("float() of float pattern");
+        let f = |name: &str| {
+            py_float(captures.name(name).unwrap().as_str()).expect("float() of float pattern")
+        };
         let mut result = BTreeMap::new();
         result.insert("x".to_string(), f("x"));
         result.insert("y".to_string(), f("y"));
@@ -1136,8 +1245,13 @@ pub fn gcode_and_subcode_for_cmd(cmd: Option<&str>) -> (Option<String>, Option<S
 pub type Tags = Rc<RefCell<BTreeSet<String>>>;
 
 /// One normalized entry: `(command, command_type, gcode, subcode, tags)`.
-pub type NormalizedCommand =
-    (Option<String>, Option<String>, Option<String>, Option<String>, Option<Tags>);
+pub type NormalizedCommand = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<Tags>,
+);
 
 /// A tuple returned by a command handler (1, 2 or 3 entries, or any other length).
 /// The elements are `command`, `command_type` and (third) a set of tags.
@@ -1225,8 +1339,13 @@ pub fn _normalize_command_handler_result(
     handler_results: Option<HandlerResults>,
     tags_to_add: Option<&BTreeSet<String>>,
 ) -> Vec<NormalizedCommand> {
-    let original: NormalizedCommand =
-        (command.clone(), command_type.clone(), gcode.clone(), subcode.clone(), tags.clone());
+    let original: NormalizedCommand = (
+        command.clone(),
+        command_type.clone(),
+        gcode.clone(),
+        subcode.clone(),
+        tags.clone(),
+    );
     let (mut command, mut command_type, mut gcode, mut subcode, mut tags) =
         (command, command_type, gcode, subcode, tags);
 
@@ -1405,11 +1524,18 @@ impl PositionRecord {
 
     /// `__init__(self, *args, **kwargs)`: `kwargs` as (name, value) pairs; `*args` is unused.
     pub fn new(kwargs: &[(&str, Option<f64>)]) -> Self {
-        let mut rec = PositionRecord { attrs: BTreeMap::new(), valid: None };
+        let mut rec = PositionRecord {
+            attrs: BTreeMap::new(),
+            valid: None,
+        };
         let attrs = rec._attrs(kwargs.iter().map(|(k, _)| *k));
         for attr in attrs {
             // kwargs.get(attr)
-            let v = kwargs.iter().rev().find(|(k, _)| *k == attr).and_then(|(_, v)| *v);
+            let v = kwargs
+                .iter()
+                .rev()
+                .find(|(k, _)| *k == attr)
+                .and_then(|(_, v)| *v);
             rec.setattr(&attr, v);
         }
         rec
@@ -1448,15 +1574,25 @@ impl PositionRecord {
 
     pub fn as_dict(&self) -> BTreeMap<String, Option<f64>> {
         let attrs = self._attrs(self.attrs.keys().map(|k| k.as_str()));
-        attrs.into_iter().map(|attr| {
-            let v = self.getattr(&attr).expect("getattr(self, attr)");
-            (attr, v)
-        }).collect()
+        attrs
+            .into_iter()
+            .map(|attr| {
+                let v = self.getattr(&attr).expect("getattr(self, attr)");
+                (attr, v)
+            })
+            .collect()
     }
 
     fn _attrs<'a>(&self, args: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> {
-        let mut r: BTreeSet<String> = Self::_standard_attrs.iter().map(|s| s.to_string()).collect();
-        r.extend(args.into_iter().filter(|key| Self::valid_e(key)).map(|k| k.to_string()));
+        let mut r: BTreeSet<String> = Self::_standard_attrs
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        r.extend(
+            args.into_iter()
+                .filter(|key| Self::valid_e(key))
+                .map(|k| k.to_string()),
+        );
         r
     }
 
@@ -1507,7 +1643,8 @@ pub struct TemperatureRecord {
 }
 
 /// comm.py:361 TemperatureRecord.RESERVED_IDENTIFIER_REGEX (used with `fullmatch`, hence the anchors)
-pub static RESERVED_IDENTIFIER_REGEX: LazyLock<Regex> = LazyLock::new(|| compile(r"\A(?:B|C|T\d*)\z"));
+pub static RESERVED_IDENTIFIER_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| compile(r"\A(?:B|C|T\d*)\z"));
 
 impl TemperatureRecord {
     pub fn new() -> Self {
@@ -1525,7 +1662,12 @@ impl TemperatureRecord {
     }
 
     pub fn set_tool(&mut self, tool: i64, actual: Option<f64>, target: Option<f64>) {
-        let current = self._tools.iter().find(|(k, _)| *k == tool).map(|(_, v)| *v).unwrap_or((None, None));
+        let current = self
+            ._tools
+            .iter()
+            .find(|(k, _)| *k == tool)
+            .map(|(_, v)| *v)
+            .unwrap_or((None, None));
         let new = Self::_to_new_tuple(Some(current), actual, target);
         dict_set(&mut self._tools, tool, new);
     }
@@ -1541,9 +1683,19 @@ impl TemperatureRecord {
     }
 
     /// Raises `ValueError` (a [`PyValueError`] with the formatted message) for a reserved identifier.
-    pub fn set_custom(&mut self, identifier: &str, actual: Option<f64>, target: Option<f64>) -> Result<(), PyValueError> {
-        if RESERVED_IDENTIFIER_REGEX.is_match(identifier).unwrap_or(false) {
-            return Err(PyValueError(format!("{identifier} is a reserved identifier")));
+    pub fn set_custom(
+        &mut self,
+        identifier: &str,
+        actual: Option<f64>,
+        target: Option<f64>,
+    ) -> Result<(), PyValueError> {
+        if RESERVED_IDENTIFIER_REGEX
+            .is_match(identifier)
+            .unwrap_or(false)
+        {
+            return Err(PyValueError(format!(
+                "{identifier} is a reserved identifier"
+            )));
         }
         let current = self
             ._custom
@@ -1581,18 +1733,46 @@ impl TemperatureRecord {
 
         let tools = self.tools();
         for (tool, data) in tools {
-            dict_set(&mut result, ScriptKey::Tool(tool), ScriptTemp { actual: data.0, target: data.1 });
+            dict_set(
+                &mut result,
+                ScriptKey::Tool(tool),
+                ScriptTemp {
+                    actual: data.0,
+                    target: data.1,
+                },
+            );
         }
 
         let bed = self.bed();
-        dict_set(&mut result, ScriptKey::Name("b".into()), ScriptTemp { actual: bed.0, target: bed.1 });
+        dict_set(
+            &mut result,
+            ScriptKey::Name("b".into()),
+            ScriptTemp {
+                actual: bed.0,
+                target: bed.1,
+            },
+        );
 
         let chamber = self.chamber();
-        dict_set(&mut result, ScriptKey::Name("c".into()), ScriptTemp { actual: chamber.0, target: chamber.1 });
+        dict_set(
+            &mut result,
+            ScriptKey::Name("c".into()),
+            ScriptTemp {
+                actual: chamber.0,
+                target: chamber.1,
+            },
+        );
 
         let custom = self.custom();
         for (identifier, data) in custom {
-            dict_set(&mut result, ScriptKey::Name(identifier), ScriptTemp { actual: data.0, target: data.1 });
+            dict_set(
+                &mut result,
+                ScriptKey::Name(identifier),
+                ScriptTemp {
+                    actual: data.0,
+                    target: data.1,
+                },
+            );
         }
 
         result
@@ -1601,7 +1781,11 @@ impl TemperatureRecord {
     /// `_to_new_tuple(cls, current, actual, target)`. `current` is `Option` for Python's
     /// `current is None`; the `isinstance(current, tuple)` / `len(current) != 2` checks cannot fail
     /// for a [`TempTuple`].
-    fn _to_new_tuple(current: Option<TempTuple>, actual: Option<f64>, target: Option<f64>) -> TempTuple {
+    fn _to_new_tuple(
+        current: Option<TempTuple>,
+        actual: Option<f64>,
+        target: Option<f64>,
+    ) -> TempTuple {
         let current = current.unwrap_or((None, None));
 
         if actual.is_none() && target.is_none() {
@@ -1670,7 +1854,10 @@ impl<T, K: Hash + Eq + Clone + Display> Deref for CommandQueue<T, K> {
 
 impl<T, K: Hash + Eq + Clone + Display> CommandQueue<T, K> {
     pub fn new(maxsize: i64) -> Self {
-        let q = CommandQueue { queue: TypedQueue::new(maxsize), _unblocked: Event::new() };
+        let q = CommandQueue {
+            queue: TypedQueue::new(maxsize),
+            _unblocked: Event::new(),
+        };
         q._unblocked.set();
         q
     }
@@ -1764,9 +1951,13 @@ impl<T, K: Hash + Eq + Clone + Display> QueueStorage for SendStorage<T, K> {
         self._check_type(item_type)?;
 
         if target.as_deref() == Some("resend") {
-            self._resend_queue.put(item, true, None).expect("put on an unbounded queue");
+            self._resend_queue
+                .put(item, true, None)
+                .expect("put on an unbounded queue");
         } else {
-            self._send_queue.put(item, true, None).expect("put on an unbounded queue");
+            self._send_queue
+                .put(item, true, None)
+                .expect("put on an unbounded queue");
         }
 
         Ok(())
@@ -1807,9 +1998,13 @@ impl<T, K: Hash + Eq + Clone + Display> PrependableStorage for SendStorage<T, K>
         self._check_type(item_type)?;
 
         if target.as_deref() == Some("resend") {
-            self._resend_queue.prepend(item, true, PREPEND_DEFAULT_TIMEOUT).expect("prepend on an unbounded queue");
+            self._resend_queue
+                .prepend(item, true, PREPEND_DEFAULT_TIMEOUT)
+                .expect("prepend on an unbounded queue");
         } else {
-            self._send_queue.prepend(item, true, PREPEND_DEFAULT_TIMEOUT).expect("prepend on an unbounded queue");
+            self._send_queue
+                .prepend(item, true, PREPEND_DEFAULT_TIMEOUT)
+                .expect("prepend on an unbounded queue");
         }
         Ok(())
     }
@@ -2171,17 +2366,20 @@ impl Deref for SendQueueMarker {
 // ---------------------------------------------------------------------------------------------
 
 #[allow(unused_imports)]
-use super::events::{event_manager, Events};
-use super::plugin::{plugin_manager, Hooks, PluginManager};
+use super::events::{Events, event_manager};
+use super::plugin::{Hooks, PluginManager, plugin_manager};
 use super::profile::PrinterProfileManager;
 use super::py_attr::Attr;
 use super::py_collections::{PyDeque, PyDict};
 use super::py_threading::{RLock, RuntimeError, Thread, Timer};
-use super::settings::{GetKwargs, Settings};
-use super::util::{get_exception_string_of, sanitize_ascii, CountedEvent, ExceptionInfo, Interval, RepeatedTimer, ResettableTimer, EXCEPTION_STRING_FMT};
-use super::{platform, py_format, py_glob};
 #[cfg(unix)]
 use super::serial;
+use super::settings::{GetKwargs, Settings};
+use super::util::{
+    CountedEvent, EXCEPTION_STRING_FMT, ExceptionInfo, Interval, RepeatedTimer, ResettableTimer,
+    get_exception_string_of, sanitize_ascii,
+};
+use super::{platform, py_format, py_glob};
 use serde_json::Value;
 
 /// OURS (difference 20): the `try: ... except Exception:` of Python. A Python exception is a panic
@@ -2229,7 +2427,9 @@ fn settings_str(v: &Value) -> Option<String> {
     match v {
         Value::Null => None,
         Value::String(s) => Some(s.clone()),
-        other => unimplemented!("a non-string value {other:?} in controls / printerParameters.pauseTriggers"),
+        other => unimplemented!(
+            "a non-string value {other:?} in controls / printerParameters.pauseTriggers"
+        ),
     }
 }
 
@@ -2245,7 +2445,10 @@ fn feedback_controls_from_value(v: &Option<Value>) -> Vec<FeedbackControl> {
             regex: text("regex").map(PyText::Str),
             template: text("template").map(PyText::Str),
             template_key: text("template_key"),
-            children: o.get("children").and_then(|c| c.as_array()).map(|c| c.iter().map(control).collect()),
+            children: o
+                .get("children")
+                .and_then(|c| c.as_array())
+                .map(|c| c.iter().map(control).collect()),
         }
     }
     match v {
@@ -2274,7 +2477,9 @@ fn pause_triggers_from_value(v: &Option<Value>) -> Vec<BTreeMap<String, String>>
             .collect(),
         // `convert_pause_triggers`: `if not configured_triggers: return {}` (comm.py:6290)
         v if !v.as_ref().is_some_and(py_truthy) => Vec::new(),
-        Some(other) => panic!("TypeError: the printerParameters.pauseTriggers setting is not a list: {other:?}"),
+        Some(other) => panic!(
+            "TypeError: the printerParameters.pauseTriggers setting is not a list: {other:?}"
+        ),
         None => unreachable!("None is falsy"),
     }
 }
@@ -2283,7 +2488,9 @@ fn pause_triggers_from_value(v: &Option<Value>) -> Vec<BTreeMap<String, String>>
 /// (`systemcommands/__init__.py:89`, which runs the configured command through
 /// `util/commandline.py` `CommandlineCaller`, not ported): a stub, it panics.
 fn system_command_manager_perform_system_shutdown() -> bool {
-    unimplemented!("systemcommands/__init__.py:89 perform_system_shutdown (util/commandline.py CommandlineCaller is not ported)")
+    unimplemented!(
+        "systemcommands/__init__.py:89 perform_system_shutdown (util/commandline.py CommandlineCaller is not ported)"
+    )
 }
 
 /// `time.monotonic()`: seconds from an arbitrary start (the first call), as in CPython.
@@ -2308,7 +2515,12 @@ pub enum QueuedCommand {
 }
 
 /// OURS (difference 13): `(cmd, cmd_type, on_sent, tags)` (comm.py:1303, 1312).
-pub type CommandQueueItem = (QueuedCommand, Option<String>, Option<OnSent>, BTreeSet<String>);
+pub type CommandQueueItem = (
+    QueuedCommand,
+    Option<String>,
+    Option<OnSent>,
+    BTreeSet<String>,
+);
 
 /// OURS (difference 13): what `_send_queue` holds: a `SendQueueMarker` (comm.py:1214) or
 /// `(command, linenumber, command_type, on_sent, False, tags)` (comm.py:4630).
@@ -2337,7 +2549,11 @@ pub struct SerialError {
 
 impl SerialError {
     pub fn new(type_name: &str, message: impl Into<String>, serial_exception: bool) -> Self {
-        SerialError { type_name: type_name.to_string(), message: message.into(), serial_exception }
+        SerialError {
+            type_name: type_name.to_string(),
+            message: message.into(),
+            serial_exception,
+        }
     }
 
     /// `serial.SerialException(message)`
@@ -2409,7 +2625,12 @@ pub trait MachineComPrintCallback: Send + Sync {
     ) {
     }
     /// comm.py:5696
-    fn on_comm_position_update(&self, _position: &BTreeMap<String, Option<f64>>, _reason: Option<&str>) {}
+    fn on_comm_position_update(
+        &self,
+        _position: &BTreeMap<String, Option<f64>>,
+        _reason: Option<&str>,
+    ) {
+    }
     /// comm.py:5699
     fn on_comm_state_change(&self, _state: i64) {}
     /// comm.py:5702
@@ -2466,9 +2687,21 @@ pub trait MachineComPrintCallback: Send + Sync {
     ) {
     }
     /// comm.py:5749
-    fn on_comm_file_transfer_done(&self, _local_filename: &str, _remote_filename: &str, _elapsed: Option<f64>) {}
+    fn on_comm_file_transfer_done(
+        &self,
+        _local_filename: &str,
+        _remote_filename: &str,
+        _elapsed: Option<f64>,
+    ) {
+    }
     /// comm.py:5752
-    fn on_comm_file_transfer_failed(&self, _local_filename: &str, _remote_filename: &str, _elapsed: Option<f64>) {}
+    fn on_comm_file_transfer_failed(
+        &self,
+        _local_filename: &str,
+        _remote_filename: &str,
+        _elapsed: Option<f64>,
+    ) {
+    }
     /// comm.py:5755
     fn on_comm_force_disconnect(&self) {}
     /// comm.py:5758
@@ -2496,7 +2729,9 @@ fn py_in_list(haystack: &Option<Value>, needle: Option<&str>) -> bool {
         Some(Value::Array(a)) => needle.is_some_and(|n| a.iter().any(|x| x.as_str() == Some(n))),
         Some(Value::String(s)) => match needle {
             Some(n) => s.contains(n),
-            None => panic!("TypeError: 'in <string>' requires string as left operand, not NoneType"),
+            None => {
+                panic!("TypeError: 'in <string>' requires string as left operand, not NoneType")
+            }
         },
         other => panic!("TypeError: argument of type {other:?} is not iterable"),
     }
@@ -2508,8 +2743,12 @@ fn py_in_list(haystack: &Option<Value>, needle: Option<&str>) -> bool {
 fn value_to_cmd(v: &Option<Value>) -> QueuedCommand {
     match v {
         Some(Value::String(s)) => QueuedCommand::Command(s.clone()),
-        None | Some(Value::Null) => panic!("TypeError: argument of type 'NoneType' is not iterable"),
-        Some(_) => unimplemented!("util/__init__.py:94 to_unicode: str() of a settings value that is not a str"),
+        None | Some(Value::Null) => {
+            panic!("TypeError: argument of type 'NoneType' is not iterable")
+        }
+        Some(_) => unimplemented!(
+            "util/__init__.py:94 to_unicode: str() of a settings value that is not a str"
+        ),
     }
 }
 
@@ -2528,7 +2767,11 @@ pub(crate) fn py_truthy(v: &Value) -> bool {
 /// OURS: a `dict` of `str` as the JSON object a hook or an event payload gets, in the dict's order
 /// (serde_json keeps the insertion order).
 fn py_dict_to_json(d: &PyDict<String>) -> Value {
-    Value::Object(d.iter().map(|(k, v)| (k.clone(), Value::String(v.clone()))).collect())
+    Value::Object(
+        d.iter()
+            .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+            .collect(),
+    )
 }
 
 /// What `_payload_for_error` (comm.py:4152) returns: the dict, as fields (`faq`, `logs` are
@@ -2552,7 +2795,10 @@ impl ErrorPayload {
             m.insert("consequence".to_string(), Value::String(c.clone()));
         }
         if let Some(l) = &self.logs {
-            m.insert("logs".to_string(), Value::Array(l.iter().map(|x| Value::String(x.clone())).collect()));
+            m.insert(
+                "logs".to_string(),
+                Value::Array(l.iter().map(|x| Value::String(x.clone())).collect()),
+            );
         }
         if let Some(f) = &self.faq {
             m.insert("faq".to_string(), Value::String(f.clone()));
@@ -2572,10 +2818,24 @@ fn py_max(a: f64, b: f64) -> f64 {
 /// `line` are where the `try:` is (`ExceptionInfo`).
 fn exception_string_of_panic(text: &str, fmt: &str, function: &str, line: u32) -> String {
     let (type_name, message) = match text.split_once(": ") {
-        Some((t, m)) if (t.ends_with("Error") || t.ends_with("Exception")) && t.chars().all(|c| c.is_ascii_alphanumeric()) => (t, m),
+        Some((t, m))
+            if (t.ends_with("Error") || t.ends_with("Exception"))
+                && t.chars().all(|c| c.is_ascii_alphanumeric()) =>
+        {
+            (t, m)
+        }
         _ => ("Exception", text),
     };
-    get_exception_string_of(&ExceptionInfo { type_name, message, file: "comm.rs", function, line }, fmt)
+    get_exception_string_of(
+        &ExceptionInfo {
+            type_name,
+            message,
+            file: "comm.rs",
+            function,
+            line,
+        },
+        fmt,
+    )
 }
 
 /// What one pass of `_send_loop`'s body does next (OURS, difference 29): `continue` (the next entry
@@ -2626,7 +2886,14 @@ fn json_opt_str(v: &Option<String>) -> Value {
 
 /// OURS (difference 31): a set of tags as the (sorted) JSON array a hook gets, `None` as `null`
 fn json_tags(tags: &Option<Tags>) -> Value {
-    tags.as_ref().map_or(Value::Null, |t| Value::Array(t.borrow().iter().map(|s| Value::String(s.clone())).collect()))
+    tags.as_ref().map_or(Value::Null, |t| {
+        Value::Array(
+            t.borrow()
+                .iter()
+                .map(|s| Value::String(s.clone()))
+                .collect(),
+        )
+    })
 }
 
 /// OURS (difference 31): what a gcode hook returned (JSON) as the handler results
@@ -2637,7 +2904,9 @@ fn hook_value_to_results(v: &Value) -> Option<HandlerResults> {
         match v {
             Value::Null => None,
             Value::String(s) => Some(s.clone()),
-            other => unimplemented!("a plugin hook result with {other:?} where a command is expected"),
+            other => {
+                unimplemented!("a plugin hook result with {other:?} where a command is expected")
+            }
         }
     }
     fn entry(v: &Value) -> HandlerResultEntry {
@@ -2653,7 +2922,9 @@ fn hook_value_to_results(v: &Value) -> Option<HandlerResults> {
                     match g {
                         Value::Null => None,
                         Value::Array(g) => Some(g.iter().filter_map(text).collect()),
-                        other => unimplemented!("a plugin hook result with {other:?} where tags are expected"),
+                        other => unimplemented!(
+                            "a plugin hook result with {other:?} where tags are expected"
+                        ),
                     },
                 ),
                 _ => HandlerTuple::Other,
@@ -2712,8 +2983,11 @@ fn decode_serial_bytes(bytes: &[u8], encoding: &Option<Value>) -> String {
                 panic!("UnicodeDecodeError: 'ascii' codec can't decode bytes")
             }
         }
-        "utf-8" | "utf8" | "u8" => String::from_utf8(bytes.to_vec()).expect("UnicodeDecodeError: 'utf-8' codec can't decode bytes"),
-        "latin-1" | "latin1" | "iso-8859-1" | "iso8859-1" | "l1" => bytes.iter().map(|b| *b as char).collect(),
+        "utf-8" | "utf8" | "u8" => String::from_utf8(bytes.to_vec())
+            .expect("UnicodeDecodeError: 'utf-8' codec can't decode bytes"),
+        "latin-1" | "latin1" | "iso-8859-1" | "iso8859-1" | "l1" => {
+            bytes.iter().map(|b| *b as char).collect()
+        }
         other => unimplemented!("bytes.decode with the codec {other:?}"),
     }
 }
@@ -2743,12 +3017,25 @@ pub(crate) fn py_float_repr(x: f64) -> String {
         } else if decpt >= n {
             format!("{sign}{digits}{}.0", "0".repeat((decpt - n) as usize))
         } else {
-            format!("{sign}{}.{}", &digits[..decpt as usize], &digits[decpt as usize..])
+            format!(
+                "{sign}{}.{}",
+                &digits[..decpt as usize],
+                &digits[decpt as usize..]
+            )
         }
     } else {
-        let rest = if n > 1 { format!(".{}", &digits[1..]) } else { String::new() };
+        let rest = if n > 1 {
+            format!(".{}", &digits[1..])
+        } else {
+            String::new()
+        };
         let e = decpt - 1;
-        format!("{sign}{}{rest}e{}{:02}", &digits[..1], if e < 0 { "-" } else { "+" }, e.abs())
+        format!(
+            "{sign}{}{rest}e{}{:02}",
+            &digits[..1],
+            if e < 0 { "-" } else { "+" },
+            e.abs()
+        )
     }
 }
 
@@ -3002,7 +3289,10 @@ struct TextHandle {
 impl TextHandle {
     /// `open(filename, encoding="utf-8-sig", errors="replace", newline="")`
     fn open(filename: &str) -> std::io::Result<TextHandle> {
-        Ok(TextHandle { reader: std::io::BufReader::new(std::fs::File::open(filename)?), first: true })
+        Ok(TextHandle {
+            reader: std::io::BufReader::new(std::fs::File::open(filename)?),
+            first: true,
+        })
     }
 
     /// `readline()`: `""` at the end of the file
@@ -3164,7 +3454,9 @@ impl PrintingGcodeFileInformation {
             while processed.is_none() {
                 if self._handle.with(|h| h.is_none()) {
                     // file got closed just now
-                    self.base._pos.set(self.base._size.get().expect("TypeError: _pos = None"));
+                    self.base
+                        ._pos
+                        .set(self.base._size.get().expect("TypeError: _pos = None"));
                     self.base._done.set(true);
                     report_stats();
                     return Ok((None, None, None));
@@ -3186,7 +3478,11 @@ impl PrintingGcodeFileInformation {
                 processed = process(&line, offsets.as_ref(), current_tool);
             }
             self._read_lines.set(self._read_lines.get() + 1);
-            Ok((processed, Some(self.base._pos.get()), Some(self._read_lines.get())))
+            Ok((
+                processed,
+                Some(self.base._pos.get()),
+                Some(self._read_lines.get()),
+            ))
         };
 
         // except Exception as e: self.close(); self._logger.exception(...); raise e
@@ -3204,7 +3500,11 @@ impl PrintingGcodeFileInformation {
     }
 
     /// comm.py:5984 `_process`
-    fn _process(line: &str, offsets: Option<&TemperatureOffsets>, current_tool: Option<i64>) -> Option<String> {
+    fn _process(
+        line: &str,
+        offsets: Option<&TemperatureOffsets>,
+        current_tool: Option<i64>,
+    ) -> Option<String> {
         process_gcode_line(line, offsets, current_tool)
     }
 
@@ -3245,7 +3545,12 @@ pub struct StreamingGcodeFileInformation {
 
 impl StreamingGcodeFileInformation {
     /// comm.py:5994 `__init__(self, path, localFilename, remoteFilename, user=None)`
-    pub fn new(path: &str, local_filename: &str, remote_filename: &str, user: Option<&str>) -> Result<Self, OSError> {
+    pub fn new(
+        path: &str,
+        local_filename: &str,
+        remote_filename: &str,
+        user: Option<&str>,
+    ) -> Result<Self, OSError> {
         Ok(StreamingGcodeFileInformation {
             inner: PrintingGcodeFileInformation::new(path, None, None, user)?,
             _localFilename: local_filename.to_string(),
@@ -3254,7 +3559,11 @@ impl StreamingGcodeFileInformation {
     }
 
     /// comm.py:6009 `_process`
-    fn _process(line: &str, _offsets: Option<&TemperatureOffsets>, _current_tool: Option<i64>) -> Option<String> {
+    fn _process(
+        line: &str,
+        _offsets: Option<&TemperatureOffsets>,
+        _current_tool: Option<i64>,
+    ) -> Option<String> {
         process_gcode_line(line, None, None)
     }
 
@@ -3290,7 +3599,8 @@ impl PrintingFileInformation for StreamingGcodeFileInformation {
     }
 
     fn get_next(&self) -> Result<NextLine, OSError> {
-        self.inner.get_next_with(&Self::_process, &|| self._report_stats())
+        self.inner
+            .get_next_with(&Self::_process, &|| self._report_stats())
     }
 
     fn is_streaming_gcode_file_information(&self) -> bool {
@@ -3320,14 +3630,23 @@ pub struct SpecialStreamingGcodeFileInformation {
 
 impl SpecialStreamingGcodeFileInformation {
     /// `__init__` of `StreamingGcodeFileInformation` (comm.py:5994)
-    pub fn new(path: &str, local_filename: &str, remote_filename: &str, user: Option<&str>) -> Result<Self, OSError> {
+    pub fn new(
+        path: &str,
+        local_filename: &str,
+        remote_filename: &str,
+        user: Option<&str>,
+    ) -> Result<Self, OSError> {
         Ok(SpecialStreamingGcodeFileInformation {
             inner: StreamingGcodeFileInformation::new(path, local_filename, remote_filename, user)?,
         })
     }
 
     /// comm.py:6039 `_process`
-    fn _process(line: &str, _offsets: Option<&TemperatureOffsets>, _current_tool: Option<i64>) -> Option<String> {
+    fn _process(
+        line: &str,
+        _offsets: Option<&TemperatureOffsets>,
+        _current_tool: Option<i64>,
+    ) -> Option<String> {
         let line = line.trim_end_matches(py_isspace);
         if line.is_empty() {
             return None;
@@ -3359,7 +3678,9 @@ impl PrintingFileInformation for SpecialStreamingGcodeFileInformation {
     }
 
     fn get_next(&self) -> Result<NextLine, OSError> {
-        self.inner.inner.get_next_with(&Self::_process, &|| self.inner._report_stats())
+        self.inner
+            .inner
+            .get_next_with(&Self::_process, &|| self.inner._report_stats())
     }
 
     fn is_streaming_gcode_file_information(&self) -> bool {
@@ -3403,14 +3724,17 @@ pub fn serial_list() -> Vec<String> {
 pub(crate) fn test_serial_dir() -> String {
     let dir = std::env::temp_dir().join("maker-connect-test-serial-dev");
     std::fs::create_dir_all(&dir).expect("create the temp directory that stands in for /dev");
-    dir.to_str().expect("a temp directory with a text name").to_string()
+    dir.to_str()
+        .expect("a temp directory with a text name")
+        .to_string()
 }
 
 /// OURS (test seam, `port.rs`'s tests): under `cfg(test)` a port name that a test registered here opens as
 /// that serial object, in place of a device (a fake printer in memory). Like the guard below, it is
 /// compiled only into the tests.
 #[cfg(test)]
-pub(crate) static TEST_TRANSPORTS: std::sync::Mutex<Vec<(String, Arc<dyn SerialTransport>)>> = std::sync::Mutex::new(Vec::new());
+pub(crate) static TEST_TRANSPORTS: std::sync::Mutex<Vec<(String, Arc<dyn SerialTransport>)>> =
+    std::sync::Mutex::new(Vec::new());
 
 /// OURS (test guard): under `cfg(test)` `_open_serial` panics on any port outside the temp directory,
 /// except the nonexistent `/dev/maker-connect-test-does-not-exist`. No test may open a real device.
@@ -3422,11 +3746,14 @@ fn test_guard_open_serial(port: &str) {
     let temp = std::env::temp_dir();
     let inside = |p: &std::path::Path, t: &std::path::Path| {
         // no `..` that could leave the directory, compared as written and as resolved
-        !p.components().any(|c| matches!(c, std::path::Component::ParentDir))
+        !p.components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
             && (p.starts_with(t) || t.canonicalize().is_ok_and(|t| p.starts_with(t)))
     };
     if !inside(std::path::Path::new(port), &temp) {
-        panic!("test guard: _open_serial({port:?}) is outside the temp directory {temp:?}; no test may open a real device");
+        panic!(
+            "test guard: _open_serial({port:?}) is outside the temp directory {temp:?}; no test may open a real device"
+        );
     }
 }
 
@@ -3435,7 +3762,9 @@ fn test_guard_open_serial(port: &str) {
 fn serial_list_in(dev: &str) -> Vec<String> {
     let mut candidates: Vec<String> = Vec::new();
     if cfg!(windows) {
-        unimplemented!("comm.py:198 serialList: the Windows registry (winreg) branch is not ported");
+        unimplemented!(
+            "comm.py:198 serialList: the Windows registry (winreg) branch is not ported"
+        );
     } else {
         // try: with os.scandir("/dev") as it: ... except Exception: logger.exception(...)
         if let Ok(it) = std::fs::read_dir(dev) {
@@ -3453,17 +3782,26 @@ fn serial_list_in(dev: &str) -> Vec<String> {
     let additional_ports = settings().get(&["serial", "additionalPorts"]);
     if let Some(additional_ports) = additional_ports.as_ref().filter(|v| py_truthy(v)) {
         let Value::Array(additional_ports) = additional_ports else {
-            panic!("TypeError: the serial.additionalPorts setting is not a list: {additional_ports:?}");
+            panic!(
+                "TypeError: the serial.additionalPorts setting is not a list: {additional_ports:?}"
+            );
         };
         for additional in additional_ports {
-            let pattern = additional.as_str().expect("TypeError: expected str, bytes or os.PathLike object");
+            let pattern = additional
+                .as_str()
+                .expect("TypeError: expected str, bytes or os.PathLike object");
             candidates.extend(py_glob::glob(pattern));
         }
     }
 
     let hooks = plugin_manager().get_hooks("octoprint.comm.transport.serial.additional_port_names");
     for (_name, hook) in hooks.iter() {
-        let args = [Value::Array(candidates.iter().map(|c| Value::String(c.clone())).collect())];
+        let args = [Value::Array(
+            candidates
+                .iter()
+                .map(|c| Value::String(c.clone()))
+                .collect(),
+        )];
         match py_try(|| hook(&args)) {
             Err(_) => {
                 // logging.getLogger(__name__).exception("Error while retrieving additional serial port names from hook {}")
@@ -3489,7 +3827,9 @@ fn serial_list_in(dev: &str) -> Vec<String> {
             panic!("TypeError: the serial.blacklistedPorts setting is not a list");
         };
         for pattern in patterns {
-            let pattern = pattern.as_str().expect("TypeError: expected str, bytes or os.PathLike object, not non-str");
+            let pattern = pattern
+                .as_str()
+                .expect("TypeError: expected str, bytes or os.PathLike object, not non-str");
             candidates.retain(|x| !py_glob::fnmatch(x, pattern));
         }
     }
@@ -3520,7 +3860,11 @@ pub fn baudrate_list(candidates: Option<Vec<i64>>) -> Vec<i64> {
     };
     // `sorted(additionalBaudrates, reverse=True)`: numbers among themselves, strings among themselves
     if additional_baudrates.iter().all(|v| v.is_number()) {
-        additional_baudrates.sort_by(|a, b| b.as_f64().partial_cmp(&a.as_f64()).expect("a number setting is no NaN"));
+        additional_baudrates.sort_by(|a, b| {
+            b.as_f64()
+                .partial_cmp(&a.as_f64())
+                .expect("a number setting is no NaN")
+        });
     } else if additional_baudrates.iter().all(|v| v.is_string()) {
         additional_baudrates.sort_by(|a, b| b.as_str().cmp(&a.as_str()));
     } else if additional_baudrates.len() > 1 {
@@ -3581,7 +3925,6 @@ pub struct FilePosition {
     pub pos: i64,
 }
 
-
 /// Python truthiness of a `getBoolean` result (`None` is falsy).
 fn truthy(b: Option<bool>) -> bool {
     b == Some(true)
@@ -3594,7 +3937,9 @@ fn py_float_value(v: &Value) -> Result<f64, ()> {
         Value::Number(n) => Ok(n.as_f64().expect("float(): number out of range")),
         Value::Bool(b) => Ok(if *b { 1.0 } else { 0.0 }),
         Value::String(s) => py_float(s).ok_or(()),
-        other => panic!("TypeError: float() argument must be a string or a real number, not {other:?}"),
+        other => {
+            panic!("TypeError: float() argument must be a string or a real number, not {other:?}")
+        }
     }
 }
 
@@ -3607,7 +3952,9 @@ fn py_int_value(v: &Value) -> Result<i64, ()> {
         },
         Value::Bool(b) => Ok(*b as i64),
         Value::String(s) => py_int(s).ok_or(()),
-        other => panic!("TypeError: int() argument must be a string or a real number, not {other:?}"),
+        other => {
+            panic!("TypeError: int() argument must be a string or a real number, not {other:?}")
+        }
     }
 }
 
@@ -3849,7 +4196,9 @@ impl Drop for JobOnHold<'_> {
         if c._job_on_hold.counter() == 0 {
             c._continue_sending();
         }
-        c._job_on_hold.release().expect("release of the job_on_hold lock");
+        c._job_on_hold
+            .release()
+            .expect("release of the job_on_hold lock");
     }
 }
 
@@ -3944,7 +4293,9 @@ impl MachineCom {
         // self._phaseLogger = logging.getLogger(__name__ + ".command_phases")
 
         let port = match port {
-            None => settings().get(&["serial", "port"]).and_then(|v| v.as_str().map(str::to_string)),
+            None => settings()
+                .get(&["serial", "port"])
+                .and_then(|v| v.as_str().map(str::to_string)),
             some => some,
         };
         let baudrate = match baudrate {
@@ -3963,7 +4314,11 @@ impl MachineCom {
         };
 
         let mut timeout_intervals = PyDict::new();
-        let kw = GetKwargs { merged: true, asdict: true, ..GetKwargs::default() };
+        let kw = GetKwargs {
+            merged: true,
+            asdict: true,
+            ..GetKwargs::default()
+        };
         for (key, value) in settings()
             .get_with(&["serial", "timeout"], &kw)
             .expect("no error_on_path")
@@ -3992,7 +4347,10 @@ impl MachineCom {
         let cap = |name: &str| settings().get_boolean(&["serial", "capabilities", name]);
         let mut capability_support = PyDict::new();
         capability_support.insert(Self::CAPABILITY_AUTOREPORT_TEMP, cap("autoreport_temp"));
-        capability_support.insert(Self::CAPABILITY_AUTOREPORT_SD_STATUS, cap("autoreport_sdstatus"));
+        capability_support.insert(
+            Self::CAPABILITY_AUTOREPORT_SD_STATUS,
+            cap("autoreport_sdstatus"),
+        );
         capability_support.insert(Self::CAPABILITY_AUTOREPORT_POS, cap("autoreport_pos"));
         capability_support.insert(Self::CAPABILITY_BUSY_PROTOCOL, cap("busy_protocol"));
         capability_support.insert(Self::CAPABILITY_EMERGENCY_PARSER, cap("emergency_parser"));
@@ -4066,17 +4424,23 @@ impl MachineCom {
             _hello_sent: Attr::new(0),
             _trigger_ok_for_m29: settings().get_boolean(&["serial", "triggerOkForM29"]),
 
-            _alwaysSendChecksum: Attr::new(settings().get_boolean(&["serial", "alwaysSendChecksum"])),
+            _alwaysSendChecksum: Attr::new(
+                settings().get_boolean(&["serial", "alwaysSendChecksum"]),
+            ),
             _neverSendChecksum: settings().get_boolean(&["serial", "neverSendChecksum"]),
             _sendChecksumWithUnknownCommands: Attr::new(
                 settings().get_boolean(&["serial", "sendChecksumWithUnknownCommands"]),
             ),
-            _unknownCommandsNeedAck: Attr::new(settings().get_boolean(&["serial", "unknownCommandsNeedAck"])),
+            _unknownCommandsNeedAck: Attr::new(
+                settings().get_boolean(&["serial", "unknownCommandsNeedAck"]),
+            ),
             _sdAlwaysAvailable: Attr::new(settings().get_boolean(&["serial", "sdAlwaysAvailable"])),
             _sdRelativePath: Attr::new(settings().get_boolean(&["serial", "sdRelativePath"])),
             _sdLowerCase: Attr::new(settings().get_boolean(&["serial", "sdLowerCase"])),
             _sdCancelCommand: settings().get(&["serial", "sdCancelCommand"]),
-            _blockWhileDwelling: Attr::new(settings().get_boolean(&["serial", "blockWhileDwelling"])),
+            _blockWhileDwelling: Attr::new(
+                settings().get_boolean(&["serial", "blockWhileDwelling"]),
+            ),
             _send_m112_on_error: settings().get_boolean(&["serial", "sendM112OnError"]),
             _disable_sd_printing_detection: Attr::new(
                 settings().get_boolean(&["serial", "disableSdPrintingDetection"]),
@@ -4120,7 +4484,8 @@ impl MachineCom {
 
             _terminal_log: Attr::new(PyDeque::new(Some(std::cmp::min(
                 20,
-                usize::try_from(terminal_log_size).expect("ValueError: maxlen must be non-negative"),
+                usize::try_from(terminal_log_size)
+                    .expect("ValueError: maxlen must be non-negative"),
             )))),
 
             _disconnect_on_errors: settings().get_boolean(&["serial", "disconnectOnErrors"]),
@@ -4151,7 +4516,8 @@ impl MachineCom {
             _sd_status_timer: Attr::new(None),
 
             _consecutive_not_sd_printing: Attr::new(0),
-            _consecutive_not_sd_printing_maximum: settings().get_int(&["serial", "maxNotSdPrinting"]),
+            _consecutive_not_sd_printing_maximum: settings()
+                .get_int(&["serial", "maxNotSdPrinting"]),
 
             _job_queue: JobQueue::new(0),
 
@@ -4182,8 +4548,14 @@ impl MachineCom {
             ]),
             _firmware_info_hooks: group(&[
                 ("info", "octoprint.comm.protocol.firmware.info"),
-                ("capabilities", "octoprint.comm.protocol.firmware.capabilities"),
-                ("capability_report", "octoprint.comm.protocol.firmware.capability_report"),
+                (
+                    "capabilities",
+                    "octoprint.comm.protocol.firmware.capabilities",
+                ),
+                (
+                    "capability_report",
+                    "octoprint.comm.protocol.firmware.capability_report",
+                ),
             ]),
 
             _printer_action_hooks: hooks("octoprint.comm.protocol.action"),
@@ -4266,9 +4638,13 @@ impl MachineCom {
         // self._comm in the printer interface is still None on first pushs from
         // the comm layer during detection
         let me = self.clone();
-        self.monitoring_thread.start(move || me._monitor()).expect("RuntimeError: threads can only be started once");
+        self.monitoring_thread
+            .start(move || me._monitor())
+            .expect("RuntimeError: threads can only be started once");
         let me = self.clone();
-        self.sending_thread.start(move || me._send_loop()).expect("RuntimeError: threads can only be started once");
+        self.sending_thread
+            .start(move || me._send_loop())
+            .expect("RuntimeError: threads can only be started once");
     }
 
     // `__del__` (comm.py:853) is `impl Drop for MachineCom` below (difference 6).
@@ -4281,8 +4657,14 @@ impl MachineCom {
     /// comm.py:861 `_capability_supported(cap)`
     pub fn _capability_supported(&self, cap: &str) -> bool {
         // `self._capability_support.get(cap, False) and self._firmware_capabilities.get(cap, False)`
-        truthy(self._capability_support.with(|d| d.get(cap).copied()).unwrap_or(Some(false)))
-            && self._firmware_capabilities.with(|d| d.get(cap).copied()).unwrap_or(false)
+        truthy(
+            self._capability_support
+                .with(|d| d.get(cap).copied())
+                .unwrap_or(Some(false)),
+        ) && self
+            ._firmware_capabilities
+            .with(|d| d.get(cap).copied())
+            .unwrap_or(false)
     }
 
     /// comm.py:866 `received_resends` (property)
@@ -4310,9 +4692,9 @@ impl MachineCom {
         let resend_ratio = self.resend_ratio();
         if resend_ratio >= self._resend_ratio_threshold
             && self._transmitted_lines.get()
-                > self
-                    ._resend_ratio_start
-                    .expect("TypeError: '>' not supported between instances of 'int' and 'NoneType'")
+                > self._resend_ratio_start.expect(
+                    "TypeError: '>' not supported between instances of 'int' and 'NoneType'",
+                )
             && !self._resend_ratio_reported.get()
         {
             let message = format!(
@@ -4377,7 +4759,8 @@ impl MachineCom {
     /// comm.py:929 `_log(message)`
     pub fn _log(&self, message: &str) {
         // message = to_unicode(message)  (difference 14)
-        self._terminal_log.with_mut(|l| l.append(message.to_string()));
+        self._terminal_log
+            .with_mut(|l| l.append(message.to_string()));
         self._callback.on_comm_log(message);
         // self._serialLogger.debug(message)
     }
@@ -4387,7 +4770,11 @@ impl MachineCom {
     pub fn _to_logfile_with_terminal(&self, message: Option<&str>, level: i64) {
         let mut log = format!(
             "Last lines in terminal:\n{}",
-            self._terminal_log.with(|l| l.iter().map(|x| format!("| {x}")).collect::<Vec<_>>().join("\n"))
+            self._terminal_log.with(|l| l
+                .iter()
+                .map(|x| format!("| {x}"))
+                .collect::<Vec<_>>()
+                .join("\n"))
         );
         if let Some(message) = message {
             log = format!("{message}\n| {log}");
@@ -4468,7 +4855,12 @@ impl MachineCom {
 
     /// comm.py:1019 `isClosedOrError`
     pub fn is_closed_or_error(&self) -> bool {
-        [Self::STATE_ERROR, Self::STATE_CLOSED, Self::STATE_CLOSED_WITH_ERROR].contains(&self._state.get())
+        [
+            Self::STATE_ERROR,
+            Self::STATE_CLOSED,
+            Self::STATE_CLOSED_WITH_ERROR,
+        ]
+        .contains(&self._state.get())
     }
 
     /// comm.py:1026 `isError`
@@ -4519,13 +4911,19 @@ impl MachineCom {
     /// comm.py:1053 `isSdFileSelected` (`self._currentFile` is read twice, as in Python)
     pub fn is_sd_file_selected(&self) -> bool {
         self._currentFile.get().is_some()
-            && self._currentFile.get().is_some_and(|f| f.is_printing_sd_file_information())
+            && self
+                ._currentFile
+                .get()
+                .is_some_and(|f| f.is_printing_sd_file_information())
     }
 
     /// comm.py:1058 `isStreaming`
     pub fn is_streaming(&self) -> bool {
         self._currentFile.get().is_some()
-            && self._currentFile.get().is_some_and(|f| f.is_streaming_gcode_file_information())
+            && self
+                ._currentFile
+                .get()
+                .is_some_and(|f| f.is_streaming_gcode_file_information())
             && !self
                 ._currentFile
                 .get()
@@ -4595,7 +4993,9 @@ impl MachineCom {
                         .get()
                         .expect("AttributeError: 'NoneType' object has no attribute 'getStartTime'")
                         .get_start_time()
-                        .expect("TypeError: unsupported operand type(s) for -: 'float' and 'NoneType'")
+                        .expect(
+                            "TypeError: unsupported operand type(s) for -: 'float' and 'NoneType'",
+                        )
                     - self._pauseWaitTimeLost.get(),
             )
         }
@@ -4658,7 +5058,10 @@ impl MachineCom {
 
     /// comm.py:1175 `job_put_on_hold(blocking=True)` (a context manager, difference 7): `Err` is
     /// `RuntimeError("Could not acquire job_on_hold lock")`.
-    pub fn job_put_on_hold(self: &Arc<Self>, blocking: bool) -> Result<JobOnHold<'_>, RuntimeError> {
+    pub fn job_put_on_hold(
+        self: &Arc<Self>,
+        blocking: bool,
+    ) -> Result<JobOnHold<'_>, RuntimeError> {
         if !self._job_on_hold.acquire(blocking) {
             return Err(RuntimeError("Could not acquire job_on_hold lock"));
         }
@@ -4761,7 +5164,13 @@ impl MachineCom {
             self._send_queue_active.set(false);
             self._clear_to_send.acquire(true);
             self._send_queue
-                .put(SendQueueEntry::Marker(SendQueueMarker::new(None)), None, None, true, None)
+                .put(
+                    SendQueueEntry::Marker(SendQueueMarker::new(None)),
+                    None,
+                    None,
+                    true,
+                    None,
+                )
                 .unwrap_or_else(|_| panic!("put of a SendQueueMarker on an unbounded queue"));
         };
 
@@ -4774,8 +5183,13 @@ impl MachineCom {
                     None => {
                         // `__del__` (difference 32): an empty script sends nothing; a script with lines
                         // would need the `Arc`, which a value that is being dropped does not have
-                        if !self._get_gcode_script("beforePrinterDisconnected", None).is_empty() {
-                            unimplemented!("comm.py:853 __del__ -> close(): sending the beforePrinterDisconnected script while the MachineCom is dropped");
+                        if !self
+                            ._get_gcode_script("beforePrinterDisconnected", None)
+                            .is_empty()
+                        {
+                            unimplemented!(
+                                "comm.py:853 __del__ -> close(): sending the beforePrinterDisconnected script while the MachineCom is dropped"
+                            );
                         }
                     }
                 }
@@ -4873,7 +5287,8 @@ impl MachineCom {
         let cmd = match cmd {
             QueuedCommand::Marker(marker) => QueuedCommand::Marker(marker),
             QueuedCommand::Command(cmd) => {
-                let mut cmd = to_unicode(&PyText::Str(cmd), "utf-8", "replace").expect("errors=\"replace\"");
+                let mut cmd =
+                    to_unicode(&PyText::Str(cmd), "utf-8", "replace").expect("errors=\"replace\"");
                 if !processed {
                     match process_gcode_line(&cmd, None, None) {
                         None => return Some(false),
@@ -4891,10 +5306,20 @@ impl MachineCom {
 
         if part_of_job {
             self._job_queue
-                .put((cmd, cmd_type.map(str::to_string), on_sent, with_tags(&tags, &["source:job"])), true, None)
+                .put(
+                    (
+                        cmd,
+                        cmd_type.map(str::to_string),
+                        on_sent,
+                        with_tags(&tags, &["source:job"]),
+                    ),
+                    true,
+                    None,
+                )
                 .unwrap_or_else(|_| panic!("put on the unbounded job queue"));
             Some(true)
-        } else if self.is_printing() && !self.is_sd_file_selected() && !self.job_on_hold() && !force {
+        } else if self.is_printing() && !self.is_sd_file_selected() && !self.job_on_hold() && !force
+        {
             match self._command_queue.put(
                 (cmd, cmd_type.map(str::to_string), on_sent, tags),
                 cmd_type.map(str::to_string),
@@ -4924,7 +5349,11 @@ impl MachineCom {
     /// insertion order; `last_position` (a `PositionRecord`) is its `as_dict()`.
     /// OURS: a hook is called with `("gcode", scriptName)` (the comm instance is not passed,
     /// plugin.rs).
-    pub fn _get_gcode_script(&self, script_name: &str, replacements: Option<&Value>) -> Vec<(String, BTreeSet<String>)> {
+    pub fn _get_gcode_script(
+        &self,
+        script_name: &str,
+        replacements: Option<&Value>,
+    ) -> Vec<(String, BTreeSet<String>)> {
         self.get_gcode_script_in(settings(), script_name, replacements)
     }
 
@@ -4953,13 +5382,23 @@ impl MachineCom {
                     ScriptKey::Tool(n) => minijinja::Value::from(n),
                     ScriptKey::Name(n) => minijinja::Value::from(n),
                 };
-                (k, minijinja::Value::from_serialize(&serde_json::json!({"actual": data.actual, "target": data.target})))
+                (
+                    k,
+                    minijinja::Value::from_serialize(
+                        &serde_json::json!({"actual": data.actual, "target": data.target}),
+                    ),
+                )
             });
             temperature_dicts.push((key, minijinja::Value::from_iter(d)));
             Value::Null
         };
         let position_dict = |p: &PositionRecord| -> Value {
-            Value::Object(p.as_dict().into_iter().map(|(k, v)| (k, serde_json::json!(v))).collect())
+            Value::Object(
+                p.as_dict()
+                    .into_iter()
+                    .map(|(k, v)| (k, serde_json::json!(v)))
+                    .collect(),
+            )
         };
 
         context["printer_profile"] = self
@@ -4968,16 +5407,22 @@ impl MachineCom {
             .expect("AttributeError: 'NoneType' object has no attribute 'get_current_or_default'")
             .get_current_or_default();
         context["last_position"] = self.last_position.with(|p| position_dict(p));
-        context["last_temperature"] = self.last_temperature.with(|t| script_dict("last_temperature", t));
+        context["last_temperature"] = self
+            .last_temperature
+            .with(|t| script_dict("last_temperature", t));
         context["last_fanspeed"] = serde_json::json!(self.last_fanspeed.get());
 
         if script_name == "afterPrintPaused" || script_name == "beforePrintResumed" {
             context["pause_position"] = self.pause_position.with(|p| position_dict(p));
-            context["pause_temperature"] = self.pause_temperature.with(|t| script_dict("pause_temperature", t));
+            context["pause_temperature"] = self
+                .pause_temperature
+                .with(|t| script_dict("pause_temperature", t));
             context["pause_fanspeed"] = serde_json::json!(self.pause_fanspeed.get());
         } else if script_name == "afterPrintCancelled" {
             context["cancel_position"] = self.cancel_position.with(|p| position_dict(p));
-            context["cancel_temperature"] = self.cancel_temperature.with(|t| script_dict("cancel_temperature", t));
+            context["cancel_temperature"] = self
+                .cancel_temperature
+                .with(|t| script_dict("cancel_temperature", t));
             context["cancel_fanspeed"] = serde_json::json!(self.cancel_fanspeed.get());
         }
 
@@ -4988,7 +5433,10 @@ impl MachineCom {
 
         for (name, hook) in self._gcodescript_hooks.iter() {
             let retval = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                hook(&[Value::String("gcode".to_string()), Value::String(script_name.to_string())])
+                hook(&[
+                    Value::String("gcode".to_string()),
+                    Value::String(script_name.to_string()),
+                ])
             })) {
                 Ok(retval) => retval,
                 Err(_) => {
@@ -4999,26 +5447,35 @@ impl MachineCom {
             if retval.is_null() {
                 continue;
             }
-            let Value::Array(retval) = retval else { continue };
+            let Value::Array(retval) = retval else {
+                continue;
+            };
             if ![2, 3, 4].contains(&retval.len()) {
                 continue;
             }
 
-            let to_list = |data: &Value, t: &BTreeSet<String>| -> Option<Vec<(Value, BTreeSet<String>)>> {
-                let data: Vec<Value> = match data {
-                    Value::String(s) => s.split('\n').map(|x| Value::String(py_strip(x).to_string())).collect(),
-                    Value::Array(a) => a.clone(),
-                    _ => return None,
+            let to_list =
+                |data: &Value, t: &BTreeSet<String>| -> Option<Vec<(Value, BTreeSet<String>)>> {
+                    let data: Vec<Value> = match data {
+                        Value::String(s) => s
+                            .split('\n')
+                            .map(|x| Value::String(py_strip(x).to_string()))
+                            .collect(),
+                        Value::Array(a) => a.clone(),
+                        _ => return None,
+                    };
+                    Some(data.into_iter().map(|x| (x, t.clone())).collect())
                 };
-                Some(data.into_iter().map(|x| (x, t.clone())).collect())
-            };
 
             let mut additional_tags: BTreeSet<String> = BTreeSet::new();
             additional_tags.insert(format!("plugin:{name}"));
             if retval.len() == 4 {
-                let Value::Array(extra) = &retval[3] else { panic!("TypeError: set(retval[3])") };
+                let Value::Array(extra) = &retval[3] else {
+                    panic!("TypeError: set(retval[3])")
+                };
                 for t in extra {
-                    additional_tags.insert(t.as_str().expect("TypeError: tag is not a str").to_string());
+                    additional_tags
+                        .insert(t.as_str().expect("TypeError: tag is not a str").to_string());
                 }
             }
 
@@ -5033,24 +5490,36 @@ impl MachineCom {
 
             if retval.len() == 3 {
                 let variables = retval[2].clone();
-                context = dict_merge(&context, &serde_json::json!({"plugins": {name.clone(): variables}}), None);
+                context = dict_merge(
+                    &context,
+                    &serde_json::json!({"plugins": {name.clone(): variables}}),
+                    None,
+                );
             }
         }
 
-        let context = minijinja::Value::from_iter(context.as_object().expect("a dict").iter().map(|(k, v)| {
-            let value = match temperature_dicts.iter().find(|(name, _)| name == k) {
-                Some((_, dict)) => dict.clone(),
-                None => minijinja::Value::from_serialize(v),
-            };
-            (minijinja::Value::from(k.as_str()), value)
-        }));
+        let context = minijinja::Value::from_iter(context.as_object().expect("a dict").iter().map(
+            |(k, v)| {
+                let value = match temperature_dicts.iter().find(|(name, _)| name == k) {
+                    Some((_, dict)) => dict.clone(),
+                    None => minijinja::Value::from_serialize(v),
+                };
+                (minijinja::Value::from(k.as_str()), value)
+            },
+        ));
         let template = settings.load_script_value("gcode", script_name, Some(context));
         let script_lines: Vec<(Value, BTreeSet<String>)> = match template {
             None => Vec::new(),
-            Some(t) => t.split('\n').map(|l| (Value::String(l.to_string()), BTreeSet::new())).collect(),
+            Some(t) => t
+                .split('\n')
+                .map(|l| (Value::String(l.to_string()), BTreeSet::new()))
+                .collect(),
         };
 
-        let script_lines = script_lines_prefix.into_iter().chain(script_lines).chain(script_lines_suffix);
+        let script_lines = script_lines_prefix
+            .into_iter()
+            .chain(script_lines)
+            .chain(script_lines_suffix);
 
         // process(line): `process_gcode_line(line), tags`; filter: line is not None and not blank
         script_lines
@@ -5077,16 +5546,32 @@ impl MachineCom {
         let script_lines = self._get_gcode_script(script_name, replacements);
         let tags_to_use = with_tags(
             &tags,
-            &["trigger:comm.send_gcode_script", "source:script", &format!("script:{script_name}")],
+            &[
+                "trigger:comm.send_gcode_script",
+                "source:script",
+                &format!("script:{script_name}"),
+            ],
         );
         for (line, line_tags) in &script_lines {
             // 2-tuple: line + tags
             let ttu: BTreeSet<String> = tags_to_use.union(line_tags).cloned().collect();
 
-            self.send_command(QueuedCommand::Command(line.clone()), None, part_of_job, false, false, None, Some(ttu));
+            self.send_command(
+                QueuedCommand::Command(line.clone()),
+                None,
+                part_of_job,
+                false,
+                false,
+                None,
+                Some(ttu),
+            );
         }
 
-        script_lines.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>().join("\n")
+        script_lines
+            .iter()
+            .map(|(l, _)| l.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// comm.py:1453 `startPrint(pos=None, tags=None, external_sd=False, user=None)`; `Err` is
@@ -5106,7 +5591,11 @@ impl MachineCom {
             return Err(ValueError("No file selected for printing"));
         }
 
-        self._heatupWaitStartTime.set(if !self._heating.get() { None } else { Some(time_monotonic()) });
+        self._heatupWaitStartTime.set(if !self._heating.get() {
+            None
+        } else {
+            Some(time_monotonic())
+        });
         self._heatupWaitTimeLost.set(0.0);
         self._pauseWaitStartTime.set(Some(0.0)); // `= 0` (falsy)
         self._pauseWaitTimeLost.set(0.0);
@@ -5126,7 +5615,11 @@ impl MachineCom {
             self._change_state(Self::STATE_STARTING);
 
             if !self.is_sd_file_selected() {
-                self.reset_line_numbers(0, true, Some(with_tags(&BTreeSet::new(), &["trigger:comm.start_print"])));
+                self.reset_line_numbers(
+                    0,
+                    true,
+                    Some(with_tags(&BTreeSet::new(), &["trigger:comm.start_print"])),
+                );
             }
 
             self._callback.on_comm_print_job_started(false, user);
@@ -5137,7 +5630,10 @@ impl MachineCom {
                     self._ignore_select.set(true);
 
                     self.send_command(
-                        QueuedCommand::Command(format!("M23 {}", self.current_file().get_filename())),
+                        QueuedCommand::Command(format!(
+                            "M23 {}",
+                            self.current_file().get_filename()
+                        )),
                         None,
                         true,
                         false,
@@ -5178,7 +5674,10 @@ impl MachineCom {
             let me = self.clone();
             self.send_command(
                 QueuedCommand::Marker(
-                    SendQueueMarker::new(Some(Box::new(move || me._change_state(Self::STATE_PRINTING)))).0,
+                    SendQueueMarker::new(Some(Box::new(move || {
+                        me._change_state(Self::STATE_PRINTING)
+                    })))
+                    .0,
                 ),
                 None,
                 true,
@@ -5201,13 +5700,22 @@ impl MachineCom {
 
     /// comm.py:1540 `_get_free_remote_name(filename)`
     pub fn _get_free_remote_name(self: &Arc<Self>, filename: &str) -> String {
-        if !self._capability_supported(Self::CAPABILITY_LFN_WRITE) && valid_file_type(filename, Some("gcode"), None) == Some(true) {
+        if !self._capability_supported(Self::CAPABILITY_LFN_WRITE)
+            && valid_file_type(filename, Some("gcode"), None) == Some(true)
+        {
             // figure out remote filename
             self.refresh_sd_files(None, true, Some(10.0));
-            let existing_sd_files: Vec<String> = self.get_sd_files().into_iter().map(|x| x.0).collect();
+            let existing_sd_files: Vec<String> =
+                self.get_sd_files().into_iter().map(|x| x.0).collect();
             // an uncaught ValueError is a panic (difference 3)
-            get_dos_filename(filename, Some(&existing_sd_files), Some("gco"), Some(&["gco", "g"]), None)
-                .unwrap_or_else(|e| panic!("ValueError: {}", e.0))
+            get_dos_filename(
+                filename,
+                Some(&existing_sd_files),
+                Some("gco"),
+                Some(&["gco", "g"]),
+                None,
+            )
+            .unwrap_or_else(|e| panic!("ValueError: {}", e.0))
         } else {
             // either LFN_WRITE is supported, or this is not a gcode file
             basename(filename).to_string()
@@ -5240,12 +5748,25 @@ impl MachineCom {
 
         {
             let _job_lock = self._jobLock.lock();
-            self.reset_line_numbers(0, false, Some(with_tags(&BTreeSet::new(), &["trigger:comm.start_file_transfer"])));
+            self.reset_line_numbers(
+                0,
+                false,
+                Some(with_tags(
+                    &BTreeSet::new(),
+                    &["trigger:comm.start_file_transfer"],
+                )),
+            );
 
             if special {
-                self._currentFile.set(Some(Arc::new(SpecialStreamingGcodeFileInformation::new(path, filename, &remote, None)?)));
+                self._currentFile
+                    .set(Some(Arc::new(SpecialStreamingGcodeFileInformation::new(
+                        path, filename, &remote, None,
+                    )?)));
             } else {
-                self._currentFile.set(Some(Arc::new(StreamingGcodeFileInformation::new(path, filename, &remote, None)?)));
+                self._currentFile
+                    .set(Some(Arc::new(StreamingGcodeFileInformation::new(
+                        path, filename, &remote, None,
+                    )?)));
             }
             self.current_file().start()?;
 
@@ -5259,7 +5780,12 @@ impl MachineCom {
                 Some(with_tags(&tags, &["trigger:comm.start_file_transfer"])),
             );
             let file = self.current_file();
-            self._callback.on_comm_file_transfer_started(filename, &remote, file.get_filesize(), file.get_user().as_deref());
+            self._callback.on_comm_file_transfer_started(
+                filename,
+                &remote,
+                file.get_filesize(),
+                file.get_user().as_deref(),
+            );
         }
 
         Ok(Some(remote))
@@ -5302,12 +5828,21 @@ impl MachineCom {
             me._change_state(Self::STATE_OPERATIONAL);
 
             if failed {
-                me._callback.on_comm_file_transfer_failed(&local2, &remote2, elapsed);
+                me._callback
+                    .on_comm_file_transfer_failed(&local2, &remote2, elapsed);
             } else {
-                me._callback.on_comm_file_transfer_done(&local2, &remote2, elapsed);
+                me._callback
+                    .on_comm_file_transfer_done(&local2, &remote2, elapsed);
             }
 
-            me.refresh_sd_files(Some(with_tags(&BTreeSet::new(), &["trigger:comm.finish_file_transfer"])), false, Some(10.0));
+            me.refresh_sd_files(
+                Some(with_tags(
+                    &BTreeSet::new(),
+                    &["trigger:comm.finish_file_transfer"],
+                )),
+                false,
+                Some(10.0),
+            );
         };
 
         self._send_command(
@@ -5357,13 +5892,25 @@ impl MachineCom {
             );
         } else {
             let (me1, me2) = (self.clone(), self.clone());
-            self._currentFile.set(Some(Arc::new(PrintingGcodeFileInformation::new(
-                filename,
-                Some(Arc::new(move || me1.get_offsets().iter().map(|(k, v)| (k.clone(), *v)).collect())),
-                Some(Arc::new(move || me2.get_current_tool())),
+            self._currentFile
+                .set(Some(Arc::new(PrintingGcodeFileInformation::new(
+                    filename,
+                    Some(Arc::new(move || {
+                        me1.get_offsets()
+                            .iter()
+                            .map(|(k, v)| (k.clone(), *v))
+                            .collect()
+                    })),
+                    Some(Arc::new(move || me2.get_current_tool())),
+                    user,
+                )?)));
+            self._callback.on_comm_file_selected(
+                Some(filename),
+                self.current_file().get_filesize(),
+                false,
                 user,
-            )?)));
-            self._callback.on_comm_file_selected(Some(filename), self.current_file().get_filesize(), false, user, None);
+                None,
+            );
         }
         Ok(())
     }
@@ -5375,12 +5922,16 @@ impl MachineCom {
         }
 
         self._currentFile.set(None);
-        self._callback.on_comm_file_selected(None, None, false, None, None);
+        self._callback
+            .on_comm_file_selected(None, None, false, None, None);
     }
 
     /// comm.py:1683 `_cancel_preparation_failed()`
     pub fn _cancel_preparation_failed(self: &Arc<Self>) {
-        let timeout = self._timeout_intervals.with(|d| d.get("positionLogWait").copied()).unwrap_or(10.0);
+        let timeout = self
+            ._timeout_intervals
+            .with(|d| d.get("positionLogWait").copied())
+            .unwrap_or(10.0);
         self._log(&format!(
             "Did not receive parseable position data from printer within {}s, continuing without it",
             py_float_repr(timeout)
@@ -5410,7 +5961,8 @@ impl MachineCom {
 
         self.current_file().set_done(true);
         self._record_file_position();
-        self._callback.on_comm_print_job_cancelled(false, user.as_deref());
+        self._callback
+            .on_comm_print_job_cancelled(false, user.as_deref());
 
         let me = self.clone();
         let finalize = move || me._change_state(Self::STATE_OPERATIONAL);
@@ -5466,7 +6018,8 @@ impl MachineCom {
             return;
         }
 
-        self._callback.on_comm_print_job_cancelling(firmware_error, user);
+        self._callback
+            .on_comm_print_job_cancelling(firmware_error, user);
 
         let _job_lock = self._jobLock.lock();
         let pos_autoreporting = self._pos_autoreporting.get();
@@ -5478,7 +6031,11 @@ impl MachineCom {
             let record_position_tags = record_position_tags.clone();
             Arc::new(move || {
                 if pos_autoreporting {
-                    me._set_autoreport_pos_interval(None, false, Some(record_position_tags.clone()));
+                    me._set_autoreport_pos_interval(
+                        None,
+                        false,
+                        Some(record_position_tags.clone()),
+                    );
                 }
             })
         };
@@ -5501,7 +6058,9 @@ impl MachineCom {
                     }
                     let me2 = me.clone();
                     let timer = Arc::new(ResettableTimer::new(
-                        me._timeout_intervals.with(|d| d.get("positionLogWait").copied()).unwrap_or(10.0),
+                        me._timeout_intervals
+                            .with(|d| d.get("positionLogWait").copied())
+                            .unwrap_or(10.0),
                         Arc::new(move || me2._cancel_preparation_failed()),
                         None,
                         None,
@@ -5537,20 +6096,49 @@ impl MachineCom {
 
         if self.is_sd_file_selected() && !external_sd {
             let t: BTreeSet<String> = tags.union(&cancel_tags).cloned().collect();
-            self.send_command(value_to_cmd(&self._sdCancelCommand), None, true, false, false, None, Some(t.clone())); // pause print
-            self.send_command(QueuedCommand::Command("M27".to_string()), None, true, false, false, None, Some(t.clone())); // get current byte position in file
-            self.send_command(QueuedCommand::Command("M26 S0".to_string()), None, true, false, false, None, Some(t)); // reset position in file to byte 0
+            self.send_command(
+                value_to_cmd(&self._sdCancelCommand),
+                None,
+                true,
+                false,
+                false,
+                None,
+                Some(t.clone()),
+            ); // pause print
+            self.send_command(
+                QueuedCommand::Command("M27".to_string()),
+                None,
+                true,
+                false,
+                false,
+                None,
+                Some(t.clone()),
+            ); // get current byte position in file
+            self.send_command(
+                QueuedCommand::Command("M26 S0".to_string()),
+                None,
+                true,
+                false,
+                false,
+                None,
+                Some(t),
+            ); // reset position in file to byte 0
         }
 
         if truthy(self._log_position_on_cancel) && !disable_log_position {
             {
                 let _g = self._action_users_mutex.lock();
-                self._action_users.with_mut(|d| d.insert("cancel", user.map(str::to_string)));
+                self._action_users
+                    .with_mut(|d| d.insert("cancel", user.map(str::to_string)));
             }
 
             // disable position autoreporting if enabled
             if pos_autoreporting {
-                self._set_autoreport_pos_interval(Some(0), true, Some(tags.union(&record_position_tags).cloned().collect()));
+                self._set_autoreport_pos_interval(
+                    Some(0),
+                    true,
+                    Some(tags.union(&record_position_tags).cloned().collect()),
+                );
             }
             self.send_command(
                 QueuedCommand::Command("M400".to_string()),
@@ -5569,7 +6157,10 @@ impl MachineCom {
 
     /// comm.py:1844 `_pause_preparation_failed()`
     pub fn _pause_preparation_failed(self: &Arc<Self>) {
-        let timeout = self._timeout_intervals.with(|d| d.get("positionLogWait").copied()).unwrap_or(10.0);
+        let timeout = self
+            ._timeout_intervals
+            .with(|d| d.get("positionLogWait").copied())
+            .unwrap_or(10.0);
         self._log(&format!(
             "Did not receive parseable position data from printer within {}s, continuing without it",
             py_float_repr(timeout)
@@ -5579,7 +6170,12 @@ impl MachineCom {
     }
 
     /// comm.py:1854 `_pause_preparation_done(check_timer=True, suppress_script=False, user=None)`
-    pub fn _pause_preparation_done(self: &Arc<Self>, check_timer: bool, suppress_script: bool, user: Option<String>) {
+    pub fn _pause_preparation_done(
+        self: &Arc<Self>,
+        check_timer: bool,
+        suppress_script: bool,
+        user: Option<String>,
+    ) {
         let mut user = user;
         if user.is_none() {
             let _g = self._action_users_mutex.lock();
@@ -5597,7 +6193,8 @@ impl MachineCom {
             return;
         }
 
-        self._callback.on_comm_print_job_paused(suppress_script, user.as_deref());
+        self._callback
+            .on_comm_print_job_paused(suppress_script, user.as_deref());
 
         let me = self.clone();
         let finalize = move || {
@@ -5621,7 +6218,13 @@ impl MachineCom {
     }
 
     /// comm.py:1882 `setPause(pause, local_handling=True, user=None, tags=None)`
-    pub fn set_pause(self: &Arc<Self>, pause: bool, local_handling: bool, user: Option<&str>, tags: Option<BTreeSet<String>>) {
+    pub fn set_pause(
+        self: &Arc<Self>,
+        pause: bool,
+        local_handling: bool,
+        user: Option<&str>,
+        tags: Option<BTreeSet<String>>,
+    ) {
         if self.is_streaming() {
             return;
         }
@@ -5630,8 +6233,14 @@ impl MachineCom {
             return;
         }
 
-        let pause_tags = with_tags(&BTreeSet::new(), &["trigger:comm.set_pause", "trigger:pause"]);
-        let resume_tags = with_tags(&BTreeSet::new(), &["trigger:comm.set_pause", "trigger:resume"]);
+        let pause_tags = with_tags(
+            &BTreeSet::new(),
+            &["trigger:comm.set_pause", "trigger:pause"],
+        );
+        let resume_tags = with_tags(
+            &BTreeSet::new(),
+            &["trigger:comm.set_pause", "trigger:resume"],
+        );
         let record_position_tags = with_tags(&pause_tags, &["trigger:record_position"]);
 
         let tags = tags.unwrap_or_default();
@@ -5640,9 +6249,15 @@ impl MachineCom {
         // elif user: self._logger.info(f"Pausing/resuming job on behalf of user {user}")
 
         let valid_paused_states = [Self::STATE_PAUSED, Self::STATE_PAUSING];
-        let valid_running_states = [Self::STATE_PRINTING, Self::STATE_STARTING, Self::STATE_RESUMING];
+        let valid_running_states = [
+            Self::STATE_PRINTING,
+            Self::STATE_STARTING,
+            Self::STATE_RESUMING,
+        ];
 
-        if !valid_paused_states.contains(&self._state.get()) && !valid_running_states.contains(&self._state.get()) {
+        if !valid_paused_states.contains(&self._state.get())
+            && !valid_running_states.contains(&self._state.get())
+        {
             return;
         }
 
@@ -5650,12 +6265,14 @@ impl MachineCom {
         let pos_autoreporting = self._pos_autoreporting.get();
         if !pause && valid_paused_states.contains(&self._state.get()) {
             if let Some(start) = self._pauseWaitStartTime.get().filter(|s| *s != 0.0) {
-                self._pauseWaitTimeLost.set(self._pauseWaitTimeLost.get() + (time_monotonic() - start));
+                self._pauseWaitTimeLost
+                    .set(self._pauseWaitTimeLost.get() + (time_monotonic() - start));
                 self._pauseWaitStartTime.set(None);
             }
 
             self._change_state(Self::STATE_RESUMING);
-            self._callback.on_comm_print_job_resumed(!local_handling, user);
+            self._callback
+                .on_comm_print_job_resumed(!local_handling, user);
 
             if self.is_sd_file_selected() {
                 if local_handling {
@@ -5722,7 +6339,11 @@ impl MachineCom {
                 let record_position_tags = record_position_tags.clone();
                 Arc::new(move || {
                     if pos_autoreporting {
-                        me._set_autoreport_pos_interval(None, false, Some(record_position_tags.clone()));
+                        me._set_autoreport_pos_interval(
+                            None,
+                            false,
+                            Some(record_position_tags.clone()),
+                        );
                     }
                 })
             };
@@ -5746,7 +6367,9 @@ impl MachineCom {
                         }
                         let me2 = me.clone();
                         let timer = Arc::new(ResettableTimer::new(
-                            me._timeout_intervals.with(|d| d.get("positionLogWait").copied()).unwrap_or(10.0),
+                            me._timeout_intervals
+                                .with(|d| d.get("positionLogWait").copied())
+                                .unwrap_or(10.0),
                             Arc::new(move || me2._pause_preparation_failed()),
                             None,
                             None,
@@ -5770,12 +6393,17 @@ impl MachineCom {
             if truthy(self._log_position_on_pause) && local_handling {
                 {
                     let _g = self._action_users_mutex.lock();
-                    self._action_users.with_mut(|d| d.insert("pause", user.map(str::to_string)));
+                    self._action_users
+                        .with_mut(|d| d.insert("pause", user.map(str::to_string)));
                 }
 
                 // disable position autoreporting if enabled
                 if pos_autoreporting {
-                    self._set_autoreport_pos_interval(Some(0), true, Some(tags.union(&record_position_tags).cloned().collect()));
+                    self._set_autoreport_pos_interval(
+                        Some(0),
+                        true,
+                        Some(tags.union(&record_position_tags).cloned().collect()),
+                    );
                 }
                 self.send_command(
                     QueuedCommand::Command("M400".to_string()),
@@ -5815,7 +6443,10 @@ impl MachineCom {
 
     /// `getSdFiles()` as the list `on_comm_sd_files` takes
     fn sd_files_for_callback(&self) -> Vec<Value> {
-        self.get_sd_files().into_iter().map(|(n, s, l, t)| serde_json::json!([n, s, l, t])).collect()
+        self.get_sd_files()
+            .into_iter()
+            .map(|(n, s, l, t)| serde_json::json!([n, s, l, t]))
+            .collect()
     }
 
     /// comm.py:2027 `deleteSdFile(filename, tags=None)`
@@ -5828,7 +6459,9 @@ impl MachineCom {
 
         if !self.is_operational()
             || (self.is_busy()
-                && self._currentFile.get().is_some_and(|f| f.is_printing_sd_file_information() && f.get_filename() == filename))
+                && self._currentFile.get().is_some_and(|f| {
+                    f.is_printing_sd_file_information() && f.get_filename() == filename
+                }))
         {
             // do not delete a file from sd we are currently printing from
             return;
@@ -5847,7 +6480,12 @@ impl MachineCom {
     }
 
     /// comm.py:2051 `refreshSdFiles(tags=None, blocking=False, timeout=10)`
-    pub fn refresh_sd_files(self: &Arc<Self>, tags: Option<BTreeSet<String>>, blocking: bool, timeout: Option<f64>) {
+    pub fn refresh_sd_files(
+        self: &Arc<Self>,
+        tags: Option<BTreeSet<String>>,
+        blocking: bool,
+        timeout: Option<f64>,
+    ) {
         if !truthy(self._sdEnabled) {
             return;
         }
@@ -5867,7 +6505,11 @@ impl MachineCom {
 
         let tags = tags.unwrap_or_default();
 
-        let command = if self._capability_supported(Self::CAPABILITY_EXTENDED_M20) { "M20 L T" } else { "M20" };
+        let command = if self._capability_supported(Self::CAPABILITY_EXTENDED_M20) {
+            "M20 L T"
+        } else {
+            "M20"
+        };
 
         self._sdFilesAvailable.clear();
         self.send_command(
@@ -5908,7 +6550,8 @@ impl MachineCom {
         if truthy(self._sdAlwaysAvailable.get()) {
             self._sdAvailable.set(true);
             self.refresh_sd_files(None, false, Some(10.0));
-            self._callback.on_comm_sd_state_change(self._sdAvailable.get());
+            self._callback
+                .on_comm_sd_state_change(self._sdAvailable.get());
         }
     }
 
@@ -5937,8 +6580,10 @@ impl MachineCom {
         self._sdAvailable.set(false);
         self._sdFiles.set(PyDict::new());
 
-        self._callback.on_comm_sd_state_change(self._sdAvailable.get());
-        self._callback.on_comm_sd_files(&self.sd_files_for_callback());
+        self._callback
+            .on_comm_sd_state_change(self._sdAvailable.get());
+        self._callback
+            .on_comm_sd_files(&self.sd_files_for_callback());
     }
 
     /// comm.py:2126 `sayHello(tags=None)`
@@ -5959,7 +6604,12 @@ impl MachineCom {
     }
 
     /// comm.py:2141 `resetLineNumbers(number=0, part_of_job=False, tags=None)`
-    pub fn reset_line_numbers(self: &Arc<Self>, number: i64, part_of_job: bool, tags: Option<BTreeSet<String>>) {
+    pub fn reset_line_numbers(
+        self: &Arc<Self>,
+        number: i64,
+        part_of_job: bool,
+        tags: Option<BTreeSet<String>>,
+    ) {
         if !self.is_operational() {
             return;
         }
@@ -5987,7 +6637,11 @@ impl MachineCom {
         let filename = file.get_filename();
         let pos = file.get_filepos();
 
-        Some(FilePosition { origin, filename, pos })
+        Some(FilePosition {
+            origin,
+            filename,
+            pos,
+        })
     }
 
     /// comm.py:2169 `_recordFilePosition()`
@@ -5995,8 +6649,11 @@ impl MachineCom {
         if self._currentFile.get().is_none() {
             return;
         }
-        let data = self.get_file_position().expect("AttributeError: 'NoneType' object is not subscriptable");
-        self._callback.on_comm_record_fileposition(data.origin, &data.filename, Some(data.pos));
+        let data = self
+            .get_file_position()
+            .expect("AttributeError: 'NoneType' object is not subscriptable");
+        self._callback
+            .on_comm_record_fileposition(data.origin, &data.filename, Some(data.pos));
     }
 
     // ~~ communication monitoring and handling
@@ -6011,21 +6668,29 @@ impl MachineCom {
         let profile = || {
             self._printerProfileManager
                 .as_ref()
-                .expect("AttributeError: 'NoneType' object has no attribute 'get_current_or_default'")
+                .expect(
+                    "AttributeError: 'NoneType' object has no attribute 'get_current_or_default'",
+                )
                 .get_current_or_default()
         };
         let (max_tool_num, mut parsed_temps) = parse_temperature_line(line, current_tool);
 
-        let extruder_count = profile()["extruder"]["count"].as_i64().expect("TypeError: extruder count");
+        let extruder_count = profile()["extruder"]["count"]
+            .as_i64()
+            .expect("TypeError: extruder count");
         let max_tool_num = std::cmp::max(max_tool_num, extruder_count - 1);
 
         for (name, hook) in self._temperature_hooks.iter() {
             let temps_value: Value = Value::Object(
-                parsed_temps.iter().map(|(k, (a, t))| (k.clone(), serde_json::json!([a, t]))).collect(),
+                parsed_temps
+                    .iter()
+                    .map(|(k, (a, t))| (k.clone(), serde_json::json!([a, t])))
+                    .collect(),
             );
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hook(&[temps_value]))) {
                 Ok(result) => {
-                    self._known_broken_temperature_hooks.with_mut(|s| s.remove(name));
+                    self._known_broken_temperature_hooks
+                        .with_mut(|s| s.remove(name));
                     match &result {
                         Value::Null => return,
                         Value::Object(o) if o.is_empty() => return,
@@ -6044,7 +6709,9 @@ impl MachineCom {
                 }
                 Err(_) => {
                     // level = logging.DEBUG; if name not in known broken: level = logging.ERROR; add
-                    let _newly_broken = self._known_broken_temperature_hooks.with_mut(|s| s.insert(name.clone()));
+                    let _newly_broken = self
+                        ._known_broken_temperature_hooks
+                        .with_mut(|s| s.insert(name.clone()));
                     // self._logger.log(level, f"Error while processing temperatures in {name}", ...)
                 }
             }
@@ -6069,21 +6736,25 @@ impl MachineCom {
                 } else {
                     (actual, target) = parsed_temps.pop(&tool).expect("checked above");
                 }
-                self.last_temperature.with_mut(|t| t.set_tool(n, Some(actual), target));
+                self.last_temperature
+                    .with_mut(|t| t.set_tool(n, Some(actual), target));
             }
         }
 
         // bed temperature
         if let Some((actual, target)) = parsed_temps.pop("B") {
-            self.last_temperature.with_mut(|t| t.set_bed(Some(actual), target));
+            self.last_temperature
+                .with_mut(|t| t.set_bed(Some(actual), target));
         }
 
         // chamber temperature
         if parsed_temps.contains_key("C")
-            && (self._capability_supported(Self::CAPABILITY_CHAMBER_TEMP) || py_truthy(&profile()["heatedChamber"]))
+            && (self._capability_supported(Self::CAPABILITY_CHAMBER_TEMP)
+                || py_truthy(&profile()["heatedChamber"]))
         {
             let (actual, target) = parsed_temps.pop("C").expect("checked above");
-            self.last_temperature.with_mut(|t| t.set_chamber(Some(actual), target));
+            self.last_temperature
+                .with_mut(|t| t.set_chamber(Some(actual), target));
         }
 
         // all other injected temperatures or temperature-like entries
@@ -6091,9 +6762,13 @@ impl MachineCom {
             if self._known_invalid_custom_temps.with(|s| s.contains(key)) {
                 continue;
             }
-            if let Err(_ex) = self.last_temperature.with_mut(|t| t.set_custom(key, Some(*actual), *target)) {
+            if let Err(_ex) = self
+                .last_temperature
+                .with_mut(|t| t.set_custom(key, Some(*actual), *target))
+            {
                 if !self._known_invalid_custom_temps.with(|s| s.contains(key)) {
-                    self._known_invalid_custom_temps.with_mut(|s| s.insert(key.clone()));
+                    self._known_invalid_custom_temps
+                        .with_mut(|s| s.insert(key.clone()));
                     // self._logger.warning(f"Could not add custom temperature record {key}, skipping it from now on: {ex}")
                 }
             }
@@ -6103,7 +6778,9 @@ impl MachineCom {
     /// `self._currentFile` where Python goes on to use it as an object (`None` is an
     /// `AttributeError`, difference 3)
     fn current_file(&self) -> Arc<dyn PrintingFileInformation> {
-        self._currentFile.get().expect("AttributeError: 'NoneType' object has no attribute (the current file)")
+        self._currentFile
+            .get()
+            .expect("AttributeError: 'NoneType' object has no attribute (the current file)")
     }
 
     // ~~ comm.py:2260-3307 Serial monitor processing received messages
@@ -6133,12 +6810,20 @@ impl MachineCom {
         self._consecutive_timeouts.set(0);
 
         // Open the serial port
-        let needs_detection = !(self._port.as_deref().is_some_and(|p| !p.is_empty() && p != "AUTO") && self._baudrate != 0);
+        let needs_detection = !(self
+            ._port
+            .as_deref()
+            .is_some_and(|p| !p.is_empty() && p != "AUTO")
+            && self._baudrate != 0);
         let mut try_hello = false;
 
         if !needs_detection {
             self._change_state(Self::STATE_OPEN_SERIAL);
-            if !self._open_serial(self._port.as_deref().expect("checked above"), self._baudrate, true) {
+            if !self._open_serial(
+                self._port.as_deref().expect("checked above"),
+                self._baudrate,
+                true,
+            ) {
                 return;
             }
             try_hello = !wait_for_start;
@@ -6160,11 +6845,14 @@ impl MachineCom {
         // Start monitoring the serial port
         self._log(&format!(
             "Connected to: {}, starting monitor",
-            self._serial.get().map_or_else(|| "None".to_string(), |s| s.str())
+            self._serial
+                .get()
+                .map_or_else(|| "None".to_string(), |s| s.str())
         ));
 
         let mut start_seen = false;
-        let mut support_repetier_target_temp = truthy(settings().get_boolean(&["serial", "repetierTargetTemp"]));
+        let mut support_repetier_target_temp =
+            truthy(settings().get_boolean(&["serial", "repetierTargetTemp"]));
         let support_wait = truthy(settings().get_boolean(&["serial", "supportWait"]));
 
         // enqueue the "hello command" first thing
@@ -6183,14 +6871,19 @@ impl MachineCom {
         // .bed, .chamber, .custom)` that Python writes out four times (comm.py:2756, 2776, 2790,
         // 2806); closures inside `_monitor`, not methods.
         let capabilities_value = || {
-            Value::Object(self._firmware_capabilities.with(|d| d.iter().map(|(k, v)| (k.clone(), Value::Bool(*v))).collect()))
+            Value::Object(self._firmware_capabilities.with(|d| {
+                d.iter()
+                    .map(|(k, v)| (k.clone(), Value::Bool(*v)))
+                    .collect()
+            }))
         };
         let notify_temperature_update = || {
             let tools = self.last_temperature.with(|t| t.tools());
             let bed = self.last_temperature.with(|t| t.bed());
             let chamber = self.last_temperature.with(|t| t.chamber());
             let custom = self.last_temperature.with(|t| t.custom());
-            self._callback.on_comm_temperature_update(&tools, bed, chamber, &custom);
+            self._callback
+                .on_comm_temperature_update(&tools, bed, chamber, &custom);
         };
 
         while self._monitoring_active.get() {
@@ -6204,7 +6897,8 @@ impl MachineCom {
 
                 if py_strip(&line) != "" {
                     self._consecutive_timeouts.set(0);
-                    self._timeout.set(Some(self._get_new_communication_timeout()));
+                    self._timeout
+                        .set(Some(self._get_new_communication_timeout()));
 
                     if let Some(dwelling_until) = self._dwelling_until.get().filter(|d| *d != 0.0) {
                         if now > dwelling_until {
@@ -6225,7 +6919,8 @@ impl MachineCom {
                 //~~ busy protocol handling
                 if line.starts_with("echo:busy:") || line.starts_with("busy:") {
                     // reset the ok timeout, the regular comm timeout has already been reset
-                    self._ok_timeout.set(Some(self._get_new_communication_timeout()));
+                    self._ok_timeout
+                        .set(Some(self._get_new_communication_timeout()));
 
                     // make sure the printer sends busy in a small enough interval to match our timeout
                     if !self._busy_protocol_detected.get()
@@ -6240,8 +6935,10 @@ impl MachineCom {
                         // self._logger.info(to_log)
 
                         self._busy_protocol_detected.set(true);
-                        let communication_busy =
-                            self._timeout_intervals.with(|d| d.get("communicationBusy").copied()).unwrap_or(2.0);
+                        let communication_busy = self
+                            ._timeout_intervals
+                            .with(|d| d.get("communicationBusy").copied())
+                            .unwrap_or(2.0);
                         let busy_interval = std::cmp::max(communication_busy as i64 - 1, 1);
 
                         // def busyIntervalSet(busy_interval): ... (the logger.info is a comment)
@@ -6253,11 +6950,16 @@ impl MachineCom {
                             let timeout = me._get_communication_timeout_interval();
                             me._serial
                                 .get()
-                                .expect("AttributeError: 'NoneType' object has no attribute 'timeout'")
+                                .expect(
+                                    "AttributeError: 'NoneType' object has no attribute 'timeout'",
+                                )
                                 .set_timeout(timeout);
                         });
 
-                        self._set_busy_protocol_interval(Some(busy_interval), Some(busy_interval_set));
+                        self._set_busy_protocol_interval(
+                            Some(busy_interval),
+                            Some(busy_interval_set),
+                        );
                     }
 
                     let state = self._state.get();
@@ -6270,56 +6972,124 @@ impl MachineCom {
                     let debugging_output = py_strip(&line[2..]);
                     if debugging_output.starts_with("action:") {
                         let action_command = py_strip(&debugging_output["action:".len()..]);
-                        let (action_name, action_params) = if let Some((n, p)) = action_command.split_once(' ') {
-                            (py_strip(n), p)
-                        } else {
-                            (action_command, "")
-                        };
+                        let (action_name, action_params) =
+                            if let Some((n, p)) = action_command.split_once(' ') {
+                                (py_strip(n), p)
+                            } else {
+                                (action_command, "")
+                            };
 
                         if action_name == "start" {
                             if self._currentFile.get().is_some() {
-                                self._dual_log("(Re)Starting current job on request of the printer...", LOGGING_INFO, "");
-                                self.start_print(None, Some(with_tags(&BTreeSet::new(), &["trigger:serial.action_command.start"])), false, None)
-                                    .expect("ValueError: No file selected for printing");
+                                self._dual_log(
+                                    "(Re)Starting current job on request of the printer...",
+                                    LOGGING_INFO,
+                                    "",
+                                );
+                                self.start_print(
+                                    None,
+                                    Some(with_tags(
+                                        &BTreeSet::new(),
+                                        &["trigger:serial.action_command.start"],
+                                    )),
+                                    false,
+                                    None,
+                                )
+                                .expect("ValueError: No file selected for printing");
                             }
                         } else if action_name == "cancel" {
-                            self._dual_log("Cancelling on request of the printer...", LOGGING_INFO, "");
+                            self._dual_log(
+                                "Cancelling on request of the printer...",
+                                LOGGING_INFO,
+                                "",
+                            );
                             self.cancel_print(
                                 None,
                                 false,
                                 None,
-                                Some(with_tags(&BTreeSet::new(), &["trigger:serial.action_command.cancel"])),
+                                Some(with_tags(
+                                    &BTreeSet::new(),
+                                    &["trigger:serial.action_command.cancel"],
+                                )),
                                 false,
                             );
                         } else if action_name == "pause" {
-                            self._dual_log("Pausing on request of the printer...", LOGGING_INFO, "");
-                            self.set_pause(true, true, None, Some(with_tags(&BTreeSet::new(), &["trigger:serial.action_command.pause"])));
+                            self._dual_log(
+                                "Pausing on request of the printer...",
+                                LOGGING_INFO,
+                                "",
+                            );
+                            self.set_pause(
+                                true,
+                                true,
+                                None,
+                                Some(with_tags(
+                                    &BTreeSet::new(),
+                                    &["trigger:serial.action_command.pause"],
+                                )),
+                            );
                         } else if action_name == "paused" {
-                            self._dual_log("Printer signalled that it paused, switching state...", LOGGING_INFO, "");
+                            self._dual_log(
+                                "Printer signalled that it paused, switching state...",
+                                LOGGING_INFO,
+                                "",
+                            );
                             self.set_pause(
                                 true,
                                 false,
                                 None,
-                                Some(with_tags(&BTreeSet::new(), &["trigger:serial.action_command.paused"])),
+                                Some(with_tags(
+                                    &BTreeSet::new(),
+                                    &["trigger:serial.action_command.paused"],
+                                )),
                             );
                         } else if action_name == "resume" {
-                            self._dual_log("Resuming on request of the printer...", LOGGING_INFO, "");
-                            self.set_pause(false, true, None, Some(with_tags(&BTreeSet::new(), &["trigger:serial.action_command.resume"])));
+                            self._dual_log(
+                                "Resuming on request of the printer...",
+                                LOGGING_INFO,
+                                "",
+                            );
+                            self.set_pause(
+                                false,
+                                true,
+                                None,
+                                Some(with_tags(
+                                    &BTreeSet::new(),
+                                    &["trigger:serial.action_command.resume"],
+                                )),
+                            );
                         } else if action_name == "resumed" {
-                            self._dual_log("Printer signalled that it resumed, switching state...", LOGGING_INFO, "");
+                            self._dual_log(
+                                "Printer signalled that it resumed, switching state...",
+                                LOGGING_INFO,
+                                "",
+                            );
                             self.set_pause(
                                 false,
                                 false,
                                 None,
-                                Some(with_tags(&BTreeSet::new(), &["trigger:serial.action_command.resumed"])),
+                                Some(with_tags(
+                                    &BTreeSet::new(),
+                                    &["trigger:serial.action_command.resumed"],
+                                )),
                             );
                         } else if action_name == "disconnect" {
-                            self._dual_log("Disconnecting on request of the printer...", LOGGING_INFO, "");
+                            self._dual_log(
+                                "Disconnecting on request of the printer...",
+                                LOGGING_INFO,
+                                "",
+                            );
                             self._callback.on_comm_force_disconnect();
                         } else if action_name == "shutdown" {
                             if truthy(self._enable_shutdown_action_command) {
-                                self._dual_log("Shutting down system on request of printer...", LOGGING_WARNING, "");
-                                if let Err(ex) = py_try(system_command_manager_perform_system_shutdown) {
+                                self._dual_log(
+                                    "Shutting down system on request of printer...",
+                                    LOGGING_WARNING,
+                                    "",
+                                );
+                                if let Err(ex) =
+                                    py_try(system_command_manager_perform_system_shutdown)
+                                {
                                     // except Exception as ex: self._log(f"Error executing system shutdown: {ex}")
                                     self._log(&format!("Error executing system shutdown: {ex}"));
                                 }
@@ -6331,17 +7101,27 @@ impl MachineCom {
                                 );
                             }
                         } else if truthy(self._sdEnabled) && action_name == "sd_inserted" {
-                            self._dual_log("Printer reported SD card as inserted", LOGGING_INFO, "");
+                            self._dual_log(
+                                "Printer reported SD card as inserted",
+                                LOGGING_INFO,
+                                "",
+                            );
                             self._sdAvailable.set(true);
                             self.refresh_sd_files(None, false, Some(10.0));
-                            self._callback.on_comm_sd_state_change(self._sdAvailable.get());
+                            self._callback
+                                .on_comm_sd_state_change(self._sdAvailable.get());
                         } else if truthy(self._sdEnabled) && action_name == "sd_ejected" {
                             self._dual_log("Printer reported SD card as ejected", LOGGING_INFO, "");
                             self._sdAvailable.set(false);
                             self._sdFiles.set(PyDict::new());
-                            self._callback.on_comm_sd_state_change(self._sdAvailable.get());
+                            self._callback
+                                .on_comm_sd_state_change(self._sdAvailable.get());
                         } else if truthy(self._sdEnabled) && action_name == "sd_updated" {
-                            self._dual_log("Printer reported a change on the SD card", LOGGING_INFO, "");
+                            self._dual_log(
+                                "Printer reported a change on the SD card",
+                                LOGGING_INFO,
+                                "",
+                            );
                             self.refresh_sd_files(None, false, Some(10.0));
                         }
 
@@ -6377,14 +7157,20 @@ impl MachineCom {
 
                 //~~ SD file list
                 // if we are currently receiving an sd file list, each line is just a filename, so just read it and abort processing
-                if truthy(self._sdEnabled) && self._sdFileList.get() && !line.contains("End file list") {
+                if truthy(self._sdEnabled)
+                    && self._sdFileList.get()
+                    && !line.contains("End file list")
+                {
                     let (mut filename, size, mut timestamp, longname) = parse_file_list_line(&line);
 
                     if valid_file_type(&filename, Some("machinecode"), None) == Some(true) {
                         if filter_non_ascii(&filename) {
                             // self._logger.warning("Got a file from printer's SD that has a non-ascii filename ({!r}), "
                             //                      "that shouldn't happen according to the protocol")
-                        } else if longname.as_deref().is_some_and(|l| !l.is_empty() && filter_non_utf8(l)) {
+                        } else if longname
+                            .as_deref()
+                            .is_some_and(|l| !l.is_empty() && filter_non_utf8(l))
+                        {
                             // self._logger.warning("Got a file from printer's SD that has a non-utf8 longname ({!r}), "
                             //                      "that shouldn't happen according to the protocol")
                         } else {
@@ -6400,12 +7186,19 @@ impl MachineCom {
                                 // and sets something ridiculously low (e.g. 2000-01-01), so let's ignore timestamps like that here
                                 timestamp = None;
                             }
-                            let data = SDFileData { name: filename.clone(), size, timestamp, longname };
+                            let data = SDFileData {
+                                name: filename.clone(),
+                                size,
+                                timestamp,
+                                longname,
+                            };
                             self._sdFiles.with_mut(|d| d.insert(&filename, data));
                         }
                         return Flow::Next;
                     }
-                } else if let Some(sd_file_long_name) = self._sdFileLongName.get().filter(|n| !n.is_empty()) {
+                } else if let Some(sd_file_long_name) =
+                    self._sdFileLongName.get().filter(|n| !n.is_empty())
+                {
                     // Response to M33: just one line with the long name. Yay.
                     //
                     // As we have NO way to parse the request short name from that, and also no indicator
@@ -6417,7 +7210,9 @@ impl MachineCom {
                     // It would have been so much easier if M33's output was something sensible like
                     // "<short name>: <long name>" or such, but why make things easy...
                     let (_, ext) = splitext(&lower_line);
-                    if !ext.is_empty() && valid_file_type(&lower_line, Some("machinecode"), None) == Some(true) {
+                    if !ext.is_empty()
+                        && valid_file_type(&lower_line, Some("machinecode"), None) == Some(true)
+                    {
                         let data = self._sdFiles.with(|d| d.get(&sd_file_long_name).cloned());
                         if let Some(data) = data {
                             let new = SDFileData {
@@ -6426,7 +7221,8 @@ impl MachineCom {
                                 timestamp: data.timestamp,
                                 longname: Some(line.clone()),
                             };
-                            self._sdFiles.with_mut(|d| d.insert(&sd_file_long_name, new));
+                            self._sdFiles
+                                .with_mut(|d| d.insert(&sd_file_long_name, new));
                         }
                         self._sdFileLongName.set(None);
                     }
@@ -6435,7 +7231,8 @@ impl MachineCom {
                 let mut handled = false;
 
                 // process oks
-                if line.starts_with("ok") || (self.is_printing() && support_wait && line == "wait") {
+                if line.starts_with("ok") || (self.is_printing() && support_wait && line == "wait")
+                {
                     // ok only considered handled if it's alone on the line, might be
                     // a response to an M105 or an M114
                     self._handle_ok();
@@ -6454,13 +7251,20 @@ impl MachineCom {
                     handled = true;
                 }
                 // process timeouts
-                else if ((line.is_empty() && now >= self._timeout.get().expect("TypeError: '>=' not supported between 'float' and 'NoneType'"))
+                else if ((line.is_empty()
+                    && now
+                        >= self._timeout.get().expect(
+                            "TypeError: '>=' not supported between 'float' and 'NoneType'",
+                        ))
                     || (self.is_printing()
                         && !self.is_sd_printing()
                         && (!self.job_on_hold() || self._resendActive.get())
                         && !self._long_running_command.get()
                         && !self._heating.get()
-                        && now >= self._ok_timeout.get().expect("TypeError: '>=' not supported between 'float' and 'NoneType'")))
+                        && now
+                            >= self._ok_timeout.get().expect(
+                                "TypeError: '>=' not supported between 'float' and 'NoneType'",
+                            )))
                     && (!truthy(self._blockWhileDwelling.get())
                         || self._dwelling_until.get().filter(|d| *d != 0.0).is_none()
                         || now > self._dwelling_until.get().expect("checked above"))
@@ -6478,7 +7282,8 @@ impl MachineCom {
                     // Both variants can only happen if we are not currently blocked by a dwelling command
 
                     self._handle_timeout();
-                    self._ok_timeout.set(Some(self._get_new_communication_timeout()));
+                    self._ok_timeout
+                        .set(Some(self._get_new_communication_timeout()));
 
                     // timeout only considered handled if the printer is printing and it was a comm timeout, not an ok
                     // timeout
@@ -6487,7 +7292,8 @@ impl MachineCom {
 
                 // we don't have to process the rest if the line has already been handled fully
                 let state = self._state.get();
-                if handled && state != Self::STATE_CONNECTING && state != Self::STATE_DETECT_SERIAL {
+                if handled && state != Self::STATE_CONNECTING && state != Self::STATE_DETECT_SERIAL
+                {
                     return Flow::Next;
                 }
 
@@ -6505,7 +7311,12 @@ impl MachineCom {
                     }
 
                     // notify plugins
-                    for (_name, hook) in self._firmware_info_hooks.get("capability_report").expect("KeyError: 'capability_report'").iter() {
+                    for (_name, hook) in self
+                        ._firmware_info_hooks
+                        .get("capability_report")
+                        .expect("KeyError: 'capability_report'")
+                        .iter()
+                    {
                         // hook(self, copy.copy(self._firmware_capabilities))
                         let caps = capabilities_value();
                         if let Err(_) = py_try(|| hook(&[caps])) {
@@ -6527,16 +7338,22 @@ impl MachineCom {
                         // no way to track it ourselves when not streaming
                         // the file - this all sucks sooo much
                         self.last_position.with_mut(|p| p.valid = Some(true));
-                        self.last_position.with_mut(|p| p.setattr("x", parsed.get("x").copied()));
-                        self.last_position.with_mut(|p| p.setattr("y", parsed.get("y").copied()));
-                        self.last_position.with_mut(|p| p.setattr("z", parsed.get("z").copied()));
+                        self.last_position
+                            .with_mut(|p| p.setattr("x", parsed.get("x").copied()));
+                        self.last_position
+                            .with_mut(|p| p.setattr("y", parsed.get("y").copied()));
+                        self.last_position
+                            .with_mut(|p| p.setattr("z", parsed.get("z").copied()));
 
                         if parsed.contains_key("e") {
-                            self.last_position.with_mut(|p| p.setattr("e", parsed.get("e").copied()));
+                            self.last_position
+                                .with_mut(|p| p.setattr("e", parsed.get("e").copied()));
                         } else {
                             // multiple extruder coordinates provided, find current one
                             let e = if !self.is_sd_file_selected() {
-                                parsed.get(&format!("e{}", self._currentTool.get())).copied()
+                                parsed
+                                    .get(&format!("e{}", self._currentTool.get()))
+                                    .copied()
                             } else {
                                 None
                             };
@@ -6544,12 +7361,21 @@ impl MachineCom {
                         }
 
                         for key in parsed.keys().filter(|x| x.starts_with('e') && x.len() > 1) {
-                            self.last_position.with_mut(|p| p.setattr(key, parsed.get(key).copied()));
+                            self.last_position
+                                .with_mut(|p| p.setattr(key, parsed.get(key).copied()));
                         }
 
-                        let t = if !self.is_sd_file_selected() { Some(self._currentTool.get() as f64) } else { None };
+                        let t = if !self.is_sd_file_selected() {
+                            Some(self._currentTool.get() as f64)
+                        } else {
+                            None
+                        };
                         self.last_position.with_mut(|p| p.setattr("t", t));
-                        let f = if !self.is_sd_file_selected() { self._currentF.get() } else { None };
+                        let f = if !self.is_sd_file_selected() {
+                            self._currentF.get()
+                        } else {
+                            None
+                        };
                         self.last_position.with_mut(|p| p.setattr("f", f));
 
                         let mut reason: Option<&str> = None;
@@ -6558,9 +7384,11 @@ impl MachineCom {
                             reason = Some("pause");
                             self._record_pause_data.set(false);
                             let last_position = self.last_position.get();
-                            self.pause_position.with_mut(|p| p.copy_from(&last_position));
+                            self.pause_position
+                                .with_mut(|p| p.copy_from(&last_position));
                             let last_temperature = self.last_temperature.get();
-                            self.pause_temperature.with_mut(|t| t.copy_from(&last_temperature));
+                            self.pause_temperature
+                                .with_mut(|t| t.copy_from(&last_temperature));
                             self.pause_fanspeed.set(self.last_fanspeed.get());
                             self._pause_preparation_done(true, false, None);
                         }
@@ -6569,14 +7397,17 @@ impl MachineCom {
                             reason = Some("cancel");
                             self._record_cancel_data.set(false);
                             let last_position = self.last_position.get();
-                            self.cancel_position.with_mut(|p| p.copy_from(&last_position));
+                            self.cancel_position
+                                .with_mut(|p| p.copy_from(&last_position));
                             let last_temperature = self.last_temperature.get();
-                            self.cancel_temperature.with_mut(|t| t.copy_from(&last_temperature));
+                            self.cancel_temperature
+                                .with_mut(|t| t.copy_from(&last_temperature));
                             self.cancel_fanspeed.set(self.last_fanspeed.get());
                             self._cancel_preparation_done(true, None);
                         }
 
-                        self._callback.on_comm_position_update(&self.last_position.get().as_dict(), reason);
+                        self._callback
+                            .on_comm_position_update(&self.last_position.get().as_dict(), reason);
                     }
                 }
                 //~~ temperature processing
@@ -6599,20 +7430,27 @@ impl MachineCom {
 
                     self._process_temperatures(&line);
                     notify_temperature_update();
-                } else if support_repetier_target_temp && (line.contains("TargetExtr") || line.contains("TargetBed")) {
+                } else if support_repetier_target_temp
+                    && (line.contains("TargetExtr") || line.contains("TargetBed"))
+                {
                     let match_extr = re_match(&regex_repetierTempExtr, &line);
                     let match_bed = re_match(&regex_repetierTempBed, &line);
 
                     if let Some(match_extr) = match_extr {
-                        let tool_num = py_int(match_extr.get(1).expect("group 1").as_str()).expect("int() of \\d+");
+                        let tool_num = py_int(match_extr.get(1).expect("group 1").as_str())
+                            .expect("int() of \\d+");
                         // try: ... except ValueError: pass
-                        if let Some(target) = py_float(match_extr.get(2).expect("group 2").as_str()) {
-                            self.last_temperature.with_mut(|t| t.set_tool(tool_num, None, Some(target)));
+                        if let Some(target) = py_float(match_extr.get(2).expect("group 2").as_str())
+                        {
+                            self.last_temperature
+                                .with_mut(|t| t.set_tool(tool_num, None, Some(target)));
                             notify_temperature_update();
                         }
                     } else if let Some(match_bed) = match_bed {
-                        if let Some(target) = py_float(match_bed.get(1).expect("group 1").as_str()) {
-                            self.last_temperature.with_mut(|t| t.set_bed(None, Some(target)));
+                        if let Some(target) = py_float(match_bed.get(1).expect("group 1").as_str())
+                        {
+                            self.last_temperature
+                                .with_mut(|t| t.set_bed(None, Some(target)));
                             notify_temperature_update();
                         }
                     }
@@ -6621,13 +7459,19 @@ impl MachineCom {
                 else if lower_line.starts_with("cap:") {
                     let parsed = parse_capability_line(&lower_line);
                     if let Some((capability, enabled)) = parsed {
-                        self._firmware_capabilities.with_mut(|d| d.insert(&capability, enabled));
+                        self._firmware_capabilities
+                            .with_mut(|d| d.insert(&capability, enabled));
 
-                        if truthy(self._capability_support.with(|d| d.get(&capability).copied()).unwrap_or(Some(false))) {
+                        if truthy(
+                            self._capability_support
+                                .with(|d| d.get(&capability).copied())
+                                .unwrap_or(Some(false)),
+                        ) {
                             if capability == Self::CAPABILITY_AUTOREPORT_TEMP && enabled {
                                 // self._logger.info("Firmware states that it supports temperature autoreporting")
                                 self._set_autoreport_temperature_interval(None);
-                            } else if capability == Self::CAPABILITY_AUTOREPORT_SD_STATUS && enabled {
+                            } else if capability == Self::CAPABILITY_AUTOREPORT_SD_STATUS && enabled
+                            {
                                 // self._logger.info("Firmware states that it supports sd status autoreporting")
                                 self._set_autoreport_sdstatus_interval(None);
                             } else if capability == Self::CAPABILITY_AUTOREPORT_POS && enabled {
@@ -6643,9 +7487,18 @@ impl MachineCom {
                         }
 
                         // notify plugins
-                        for (_name, hook) in self._firmware_info_hooks.get("capabilities").expect("KeyError: 'capabilities'").iter() {
+                        for (_name, hook) in self
+                            ._firmware_info_hooks
+                            .get("capabilities")
+                            .expect("KeyError: 'capabilities'")
+                            .iter()
+                        {
                             // hook(self, capability, enabled, copy.copy(self._firmware_capabilities))
-                            let args = [Value::from(capability.as_str()), Value::from(enabled), capabilities_value()];
+                            let args = [
+                                Value::from(capability.as_str()),
+                                Value::from(enabled),
+                                capabilities_value(),
+                            ];
                             if let Err(_) = py_try(|| hook(&args)) {
                                 // self._logger.exception("Error processing firmware capability hook {}:")
                             }
@@ -6674,8 +7527,12 @@ impl MachineCom {
                         let name = data.get("NAME");
                         let ver = data.get("VER");
                         if let (Some(name), Some(ver)) = (name, ver) {
-                            if !name.is_empty() && name.to_lowercase().contains("malyan") && !ver.is_empty() {
-                                firmware_name = Some(format!("{} {}", py_strip(name), py_strip(ver)));
+                            if !name.is_empty()
+                                && name.to_lowercase().contains("malyan")
+                                && !ver.is_empty()
+                            {
+                                firmware_name =
+                                    Some(format!("{} {}", py_strip(name), py_strip(ver)));
                             }
                         }
                     }
@@ -6685,8 +7542,11 @@ impl MachineCom {
                         Some(serde_json::json!({"name": firmware_name, "data": py_dict_to_json(&data)})),
                     );
 
-                    if !self._firmware_info_received.get() && firmware_name.as_deref().is_some_and(|n| !n.is_empty()) {
-                        let firmware_name = py_strip(firmware_name.as_deref().expect("checked above")).to_string();
+                    if !self._firmware_info_received.get()
+                        && firmware_name.as_deref().is_some_and(|n| !n.is_empty())
+                    {
+                        let firmware_name =
+                            py_strip(firmware_name.as_deref().expect("checked above")).to_string();
                         // self._logger.info(f'Printer reports firmware name "{firmware_name}"')
                         // self._logger.info(f"Firmware info line: {line}")
 
@@ -6733,9 +7593,15 @@ impl MachineCom {
                         self._firmware_name.set(Some(firmware_name.clone()));
 
                         // notify plugins
-                        for (_name, hook) in self._firmware_info_hooks.get("info").expect("KeyError: 'info'").iter() {
+                        for (_name, hook) in self
+                            ._firmware_info_hooks
+                            .get("info")
+                            .expect("KeyError: 'info'")
+                            .iter()
+                        {
                             // hook(self, firmware_name, copy.copy(data))
-                            let args = [Value::from(firmware_name.as_str()), py_dict_to_json(&data)];
+                            let args =
+                                [Value::from(firmware_name.as_str()), py_dict_to_json(&data)];
                             if let Err(_) = py_try(|| hook(&args)) {
                                 // self._logger.exception("Error processing firmware info hook {}:")
                             }
@@ -6764,7 +7630,9 @@ impl MachineCom {
 
                         if truthy(self._sanity_check_tools) {
                             // log to terminal and remember as invalid
-                            let message = format!("T{invalid_tool} reported as invalid, reverting to T{fallback_tool}");
+                            let message = format!(
+                                "T{invalid_tool} reported as invalid, reverting to T{fallback_tool}"
+                            );
                             self._log(&format!("Warn: {message}"));
                             // self._logger.warning(message)
                             event_manager().fire(
@@ -6772,7 +7640,8 @@ impl MachineCom {
                                 Some(serde_json::json!({"tool": invalid_tool, "fallback": fallback_tool})),
                             );
 
-                            self._known_invalid_tools.with_mut(|s| s.insert(invalid_tool.to_string()));
+                            self._known_invalid_tools
+                                .with_mut(|s| s.insert(invalid_tool.to_string()));
 
                             // we actually do send a T command here instead of just settings self._currentTool just in case
                             // we had any scripts or plugins modify stuff due to the prior tool change
@@ -6783,7 +7652,10 @@ impl MachineCom {
                                 false,
                                 false,
                                 None,
-                                Some(with_tags(&BTreeSet::new(), &["trigger:revert_invalid_tool"])),
+                                Some(with_tags(
+                                    &BTreeSet::new(),
+                                    &["trigger:revert_invalid_tool"],
+                                )),
                             );
                         } else {
                             // just log to terminal, user disabled sanity check
@@ -6804,26 +7676,31 @@ impl MachineCom {
                     {
                         self._sdAvailable.set(false);
                         self._sdFiles.set(PyDict::new());
-                        self._callback.on_comm_sd_state_change(self._sdAvailable.get());
-                    } else if (line.contains("SD card ok") || line.contains("Card successfully initialized"))
+                        self._callback
+                            .on_comm_sd_state_change(self._sdAvailable.get());
+                    } else if (line.contains("SD card ok")
+                        || line.contains("Card successfully initialized"))
                         && !self._sdAvailable.get()
                     {
                         self._sdAvailable.set(true);
                         self.refresh_sd_files(None, false, Some(10.0));
-                        self._callback.on_comm_sd_state_change(self._sdAvailable.get());
+                        self._callback
+                            .on_comm_sd_state_change(self._sdAvailable.get());
                     } else if line.contains("Begin file list") {
                         self._sdFiles.set(PyDict::new());
                         self._sdFileList.set(true);
                     } else if line.contains("End file list") {
                         self._sdFileList.set(false);
                         self._sdFilesAvailable.set();
-                        self._callback.on_comm_sd_files(&self.sd_files_for_callback());
+                        self._callback
+                            .on_comm_sd_files(&self.sd_files_for_callback());
                     } else if line.contains("SD printing byte") {
                         // answer to M27, at least on Marlin, Repetier and Sprinter: "SD printing byte %d/%d"
                         let m = re_captures(&regex_sdPrintingByte, &line);
                         if let Some(m) = m {
                             // try: ... except Exception: self._logger.exception("Error while parsing SD status report")
-                            let current = py_int(m.name("current").expect("group current").as_str());
+                            let current =
+                                py_int(m.name("current").expect("group current").as_str());
                             let total = py_int(m.name("total").expect("group total").as_str());
                             if let (Some(current), Some(total)) = (current, total) {
                                 if current == total
@@ -6834,7 +7711,8 @@ impl MachineCom {
                                     && !self.is_finishing()
                                 {
                                     // apparently not SD printing - some Marlin versions report it like that for some reason
-                                    self._consecutive_not_sd_printing.set(self._consecutive_not_sd_printing.get() + 1);
+                                    self._consecutive_not_sd_printing
+                                        .set(self._consecutive_not_sd_printing.get() + 1);
                                     if self._consecutive_not_sd_printing.get()
                                         > self
                                             ._consecutive_not_sd_printing_maximum
@@ -6854,8 +7732,9 @@ impl MachineCom {
                                             && self._currentFile.get().is_some()
                                             && current > self.current_file().get_filepos()
                                         {
-                                            self.start_print(None, None, true, None)
-                                                .expect("ValueError: No file selected for printing");
+                                            self.start_print(None, None, true, None).expect(
+                                                "ValueError: No file selected for printing",
+                                            );
                                         }
 
                                         self.current_file().set_pos(current);
@@ -6875,7 +7754,8 @@ impl MachineCom {
                         && !self.is_starting()
                         && !self.is_finishing()
                     {
-                        self._consecutive_not_sd_printing.set(self._consecutive_not_sd_printing.get() + 1);
+                        self._consecutive_not_sd_printing
+                            .set(self._consecutive_not_sd_printing.get() + 1);
                         if self._consecutive_not_sd_printing.get()
                             > self
                                 ._consecutive_not_sd_printing_maximum
@@ -6890,14 +7770,17 @@ impl MachineCom {
                         let (mut name, size);
                         if let Some(m) = m {
                             name = m.name("name").expect("group name").as_str().to_string();
-                            size = py_int(m.name("size").expect("group size").as_str()).expect("int() of \\d+");
+                            size = py_int(m.name("size").expect("group size").as_str())
+                                .expect("int() of \\d+");
                         } else {
                             name = "Unknown".to_string();
                             size = 0;
                         }
                         let mut user: Option<String> = None;
 
-                        if let Some(sd_file_to_select) = self._sdFileToSelect.get().filter(|n| !n.is_empty()) {
+                        if let Some(sd_file_to_select) =
+                            self._sdFileToSelect.get().filter(|n| !n.is_empty())
+                        {
                             name = sd_file_to_select;
                             user = self._sdFileToSelectUser.get();
                         }
@@ -6906,16 +7789,28 @@ impl MachineCom {
                         self._sdFileToSelectUser.set(None);
 
                         self._currentFile
-                            .set(Some(Arc::new(PrintingSdFileInformation::new(&name, Some(size), user.as_deref()))));
+                            .set(Some(Arc::new(PrintingSdFileInformation::new(
+                                &name,
+                                Some(size),
+                                user.as_deref(),
+                            ))));
                     } else if line.contains("File selected") {
                         if self._ignore_select.get() {
                             self._ignore_select.set(false);
                         } else if self._currentFile.get().is_some() && self.is_sd_file_selected() {
                             // final answer to M23, at least on Marlin, Repetier and Sprinter: "File selected"
                             let file = self.current_file();
-                            let data = self._sdFiles.with(|d| d.get(&file.get_filename()).cloned()).map(|d| {
-                                serde_json::json!([d.name, d.size, d.timestamp, d.longname.map_or(Value::Bool(false), Value::from)])
-                            });
+                            let data = self
+                                ._sdFiles
+                                .with(|d| d.get(&file.get_filename()).cloned())
+                                .map(|d| {
+                                    serde_json::json!([
+                                        d.name,
+                                        d.size,
+                                        d.timestamp,
+                                        d.longname.map_or(Value::Bool(false), Value::from)
+                                    ])
+                                });
                             self._callback.on_comm_file_selected(
                                 Some(&file.get_filename()),
                                 file.get_filesize(),
@@ -6933,7 +7828,15 @@ impl MachineCom {
                         self.current_file().set_done(true);
                         self.current_file().set_pos(0);
 
-                        self.send_command(QueuedCommand::Command("M400".to_string()), None, true, false, false, None, None);
+                        self.send_command(
+                            QueuedCommand::Command("M400".to_string()),
+                            None,
+                            true,
+                            false,
+                            false,
+                            None,
+                            None,
+                        );
                         self._callback.on_comm_print_job_done(false);
 
                         // def finalize(): self._changeState(self.STATE_OPERATIONAL)
@@ -6967,10 +7870,18 @@ impl MachineCom {
                 self._callback.on_comm_message(&line);
 
                 //~~ Parsing for feedback commands
-                if !feedback_controls.is_empty() && feedback_matcher.is_some() && !feedback_errors.iter().any(|e| e == "_all") {
+                if !feedback_controls.is_empty()
+                    && feedback_matcher.is_some()
+                    && !feedback_errors.iter().any(|e| e == "_all")
+                {
                     let matcher = feedback_matcher.as_ref().expect("checked above");
                     if let Err(_) = py_try(|| {
-                        self._process_registered_message(&line, matcher, &feedback_controls, &mut feedback_errors)
+                        self._process_registered_message(
+                            &line,
+                            matcher,
+                            &feedback_controls,
+                            &mut feedback_errors,
+                        )
                     }) {
                         // something went wrong while feedback matching
                         // self._logger.exception("Error while trying to apply feedback control matching, disabling it")
@@ -6980,11 +7891,20 @@ impl MachineCom {
 
                 //~~ Parsing for pause triggers
                 if !pause_triggers.is_empty() && !self.is_streaming() {
-                    if pause_triggers.get("enable").is_some_and(|r| re_search(r, &line)) {
+                    if pause_triggers
+                        .get("enable")
+                        .is_some_and(|r| re_search(r, &line))
+                    {
                         self.set_pause(true, true, None, None);
-                    } else if pause_triggers.get("disable").is_some_and(|r| re_search(r, &line)) {
+                    } else if pause_triggers
+                        .get("disable")
+                        .is_some_and(|r| re_search(r, &line))
+                    {
                         self.set_pause(false, true, None, None);
-                    } else if pause_triggers.get("toggle").is_some_and(|r| re_search(r, &line)) {
+                    } else if pause_triggers
+                        .get("toggle")
+                        .is_some_and(|r| re_search(r, &line))
+                    {
                         self.set_pause(!self.is_paused(), true, None, None);
                     }
                 }
@@ -6992,7 +7912,10 @@ impl MachineCom {
                 //# Serial detection
                 if self._state.get() == Self::STATE_DETECT_SERIAL {
                     if line.is_empty()
-                        || time_monotonic() > self._ok_timeout.get().expect("TypeError: '>' not supported between 'float' and 'NoneType'")
+                        || time_monotonic()
+                            > self._ok_timeout.get().expect(
+                                "TypeError: '>' not supported between 'float' and 'NoneType'",
+                            )
                     {
                         self._perform_detection_step(false);
                     } else if line.contains("start") || line.starts_with("ok") {
@@ -7014,7 +7937,10 @@ impl MachineCom {
                         }
                         self._on_connected();
                     } else if time_monotonic()
-                        > self._timeout.get().expect("TypeError: '>' not supported between 'float' and 'NoneType'")
+                        > self
+                            ._timeout
+                            .get()
+                            .expect("TypeError: '>' not supported between 'float' and 'NoneType'")
                     {
                         if try_hello && self._hello_sent.get() < 3 {
                             self._log("No answer from the printer within the connection timeout, trying another hello");
@@ -7037,7 +7963,9 @@ impl MachineCom {
                 {
                     if line == "start" {
                         // exact match, to be on the safe side
-                        let _hold = self.job_put_on_hold(true).expect("RuntimeError: job_put_on_hold");
+                        let _hold = self
+                            .job_put_on_hold(true)
+                            .expect("RuntimeError: job_put_on_hold");
                         let idle = self._state.get() == Self::STATE_OPERATIONAL;
                         if idle {
                             let message = "Printer sent 'start' while already operational. External reset? Resetting line numbers to be on the safe side";
@@ -7046,7 +7974,11 @@ impl MachineCom {
 
                             self._on_external_reset();
                         } else {
-                            let verb = if self.is_streaming() { "streaming to SD" } else { "printing" };
+                            let verb = if self.is_streaming() {
+                                "streaming to SD"
+                            } else {
+                                "printing"
+                            };
                             let message = format!(
                                 "Printer sent 'start' while {verb}. External reset? Aborting job since printer lost state."
                             );
@@ -7057,7 +7989,10 @@ impl MachineCom {
                             self.cancel_print(None, true, None, None, false);
                         }
 
-                        event_manager().fire(Events::PRINTER_RESET, Some(serde_json::json!({"idle": idle})));
+                        event_manager().fire(
+                            Events::PRINTER_RESET,
+                            Some(serde_json::json!({"idle": idle})),
+                        );
                     }
                 }
 
@@ -7094,7 +8029,8 @@ impl MachineCom {
             self._resend_ok_timer.set(None);
         }
 
-        self._ok_timeout.set(Some(self._get_new_communication_timeout()));
+        self._ok_timeout
+            .set(Some(self._get_new_communication_timeout()));
         self._clear_to_send.set();
 
         // reset long running commands, persisted current tools and heatup counters on ok
@@ -7131,7 +8067,11 @@ impl MachineCom {
         let general_message = "Configure long running commands or increase communication timeout if that happens regularly on specific commands or long moves.";
 
         // figure out which consecutive timeout maximum we have to use
-        let maximum = |key: &str| self._consecutive_timeout_maximums.with(|d| d.get(key).copied()).unwrap_or(0);
+        let maximum = |key: &str| {
+            self._consecutive_timeout_maximums
+                .with(|d| d.get(key).copied())
+                .unwrap_or(0)
+        };
         let consecutive_max = if self._long_running_command.get() {
             maximum("long")
         } else if Self::PRINTING_STATES.contains(&self._state.get()) {
@@ -7141,7 +8081,8 @@ impl MachineCom {
         };
 
         // now increment the timeout counter
-        self._consecutive_timeouts.set(self._consecutive_timeouts.get() + 1);
+        self._consecutive_timeouts
+            .set(self._consecutive_timeouts.get() + 1);
         // self._logger.debug(f"Now at {self._consecutive_timeouts} consecutive timeouts")
 
         if 0 < consecutive_max && consecutive_max < self._consecutive_timeouts.get() {
@@ -7152,7 +8093,9 @@ impl MachineCom {
             );
             // self._logger.info(message)
             self._log(&format!("{message} {general_message}"));
-            self._errorValue.set("Too many consecutive timeouts, printer still connected and alive?".to_string());
+            self._errorValue.set(
+                "Too many consecutive timeouts, printer still connected and alive?".to_string(),
+            );
             event_manager().fire(
                 Events::ERROR,
                 Some(serde_json::json!({"error": self._errorValue.get(), "reason": "timeout"})),
@@ -7173,22 +8116,29 @@ impl MachineCom {
         } else if self._long_running_command.get() {
             // long running command active, ignore timeout
             // self._logger.debug("Ran into a communication timeout, but a command known to be a long runner is currently active")
-        } else if Self::PRINTING_STATES.contains(&self._state.get()) || self._state.get() == Self::STATE_PAUSED {
+        } else if Self::PRINTING_STATES.contains(&self._state.get())
+            || self._state.get() == Self::STATE_PAUSED
+        {
             // printing, try to tickle the printer
-            let message = "Communication timeout while printing, trying to trigger response from printer.";
+            let message =
+                "Communication timeout while printing, trying to trigger response from printer.";
             // self._logger.info(message)
             self._log(&format!("{message} {general_message}"));
             if self._send_command(
                 QueuedCommand::Command("M105".to_string()),
                 Some("temperature"),
                 None,
-                Some(with_tags(&BTreeSet::new(), &["trigger:comm.handle_timeout"])),
+                Some(with_tags(
+                    &BTreeSet::new(),
+                    &["trigger:comm.handle_timeout"],
+                )),
             ) {
                 self._clear_to_send.set();
             }
         } else if self._clear_to_send.blocked() {
             // timeout while idle and no oks left, let's try to tickle the printer
-            let message = "Communication timeout while idle, trying to trigger response from printer.";
+            let message =
+                "Communication timeout while idle, trying to trigger response from printer.";
             // self._logger.info(message)
             self._log(&format!("{message} {general_message}"));
             self._clear_to_send.set();
@@ -7233,7 +8183,11 @@ impl MachineCom {
             log(&format!(
                 "Performing autodetection with {} port/baudrate candidates: {}",
                 candidates.len(),
-                candidates.iter().map(|x| format!("{}@{}", x.0, x.1)).collect::<Vec<_>>().join(", ")
+                candidates
+                    .iter()
+                    .map(|x| format!("{}@{}", x.0, x.1))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
 
@@ -7262,7 +8216,12 @@ impl MachineCom {
                     self._log(&format!(
                         "Unexpected error while setting timeout {}: {}",
                         py_float_repr(timeout),
-                        exception_string_of_panic(&text, EXCEPTION_STRING_FMT, "_perform_detection_step", line!())
+                        exception_string_of_panic(
+                            &text,
+                            EXCEPTION_STRING_FMT,
+                            "_perform_detection_step",
+                            line!()
+                        )
                     ));
                     // self._logger.exception(f"Unexpected error while setting timeout {timeout}")
                 }
@@ -7273,7 +8232,9 @@ impl MachineCom {
             }
         };
 
-        while !self._detection_candidates.get().is_empty() || self._detection_retry.get() < Self::DETECTION_RETRIES {
+        while !self._detection_candidates.get().is_empty()
+            || self._detection_retry.get() < Self::DETECTION_RETRIES
+        {
             if self._state.get() != Self::STATE_DETECT_SERIAL {
                 return;
             }
@@ -7296,7 +8257,9 @@ impl MachineCom {
                     let other_port = match &serial {
                         None => true,
                         Some(s) => {
-                            s.port().expect("AttributeError: the serial object has no attribute 'port'") != Some(p.clone())
+                            s.port()
+                                .expect("AttributeError: the serial object has no attribute 'port'")
+                                != Some(p.clone())
                         }
                     };
                     if other_port {
@@ -7305,9 +8268,7 @@ impl MachineCom {
                             return false;
                         }
                     } else {
-                        serial
-                            .expect("checked above")
-                            .set_baudrate(b);
+                        serial.expect("checked above").set_baudrate(b);
                     }
 
                     self._detection_retry.set(0);
@@ -7321,7 +8282,12 @@ impl MachineCom {
                     Err(text) => {
                         self._log(&format!(
                             "Unexpected error while setting baudrate {b}: {}",
-                            exception_string_of_panic(&text, EXCEPTION_STRING_FMT, "_perform_detection_step", line!())
+                            exception_string_of_panic(
+                                &text,
+                                EXCEPTION_STRING_FMT,
+                                "_perform_detection_step",
+                                line!()
+                            )
                         ));
                         // self._logger.exception(f"Unexpected error while setting baudrate {b}")
                     }
@@ -7329,7 +8295,8 @@ impl MachineCom {
             }
         }
 
-        let error_text = "No more candidates to test, and no working port/baudrate combination detected.";
+        let error_text =
+            "No more candidates to test, and no working port/baudrate combination detected.";
         self._trigger_error(error_text, "autodetect", true);
     }
 
@@ -7356,7 +8323,8 @@ impl MachineCom {
     pub fn _continue_sending(self: &Arc<Self>) -> Option<bool> {
         // Ensure we have at least one line in the send queue, but don't spam it
         while self._active() && self._send_queue.qsize() == 0 {
-            let job_active = (self._state.get() == Self::STATE_STARTING || self._state.get() == Self::STATE_PRINTING)
+            let job_active = (self._state.get() == Self::STATE_STARTING
+                || self._state.get() == Self::STATE_PRINTING)
                 && !(self._currentFile.get().is_none_or(|f| f.done()) || self.is_sd_printing());
 
             if self._send_from_command_queue() {
@@ -7401,7 +8369,8 @@ impl MachineCom {
             let result = py_try(|| {
                 let feedback_key: String = match_key.chars().skip("group".len()).collect();
                 let group = feedback_match.name(match_key);
-                let (Some(control), Some(group)) = (feedback_controls.get(&feedback_key), group) else {
+                let (Some(control), Some(group)) = (feedback_controls.get(&feedback_key), group)
+                else {
                     return;
                 };
                 if feedback_errors.iter().any(|e| e == &feedback_key) {
@@ -7418,7 +8387,9 @@ impl MachineCom {
                 };
 
                 // `match.groups()` and `match.groupdict()`
-                let groups: Vec<Option<String>> = (1..m.len()).map(|i| m.get(i).map(|g| g.as_str().to_string())).collect();
+                let groups: Vec<Option<String>> = (1..m.len())
+                    .map(|i| m.get(i).map(|g| g.as_str().to_string()))
+                    .collect();
                 let groupdict: Vec<(String, Option<String>)> = matcher
                     .capture_names()
                     .flatten()
@@ -7483,7 +8454,10 @@ impl MachineCom {
                 false,
                 false,
                 None,
-                Some(with_tags(&BTreeSet::new(), &["trigger:comm.poll_temperature"])),
+                Some(with_tags(
+                    &BTreeSet::new(),
+                    &["trigger:comm.poll_temperature"],
+                )),
             );
         }
     }
@@ -7511,7 +8485,10 @@ impl MachineCom {
                 false,
                 false,
                 None,
-                Some(with_tags(&BTreeSet::new(), &["trigger:comm.poll_sd_status"])),
+                Some(with_tags(
+                    &BTreeSet::new(),
+                    &["trigger:comm.poll_sd_status"],
+                )),
             );
         }
     }
@@ -7519,14 +8496,19 @@ impl MachineCom {
     /// `int(self._timeout_intervals.get(key, default))` inside a `try: ... except Exception:`:
     /// `None` is the exception (`int()` of a NaN or an infinity).
     fn timeout_interval_int(&self, key: &str, default: f64) -> Option<i64> {
-        let v = self._timeout_intervals.with(|d| d.get(key).copied()).unwrap_or(default);
+        let v = self
+            ._timeout_intervals
+            .with(|d| d.get(key).copied())
+            .unwrap_or(default);
         if v.is_finite() { Some(v as i64) } else { None }
     }
 
     /// comm.py:3667 `_set_autoreport_temperature_interval(interval=None)`
     pub fn _set_autoreport_temperature_interval(self: &Arc<Self>, interval: Option<i64>) {
         let interval = match interval {
-            None => self.timeout_interval_int("temperatureAutoreport", 2.0).unwrap_or(2),
+            None => self
+                .timeout_interval_int("temperatureAutoreport", 2.0)
+                .unwrap_or(2),
             Some(i) => i,
         };
         self.send_command(
@@ -7536,14 +8518,19 @@ impl MachineCom {
             false,
             false,
             None,
-            Some(with_tags(&BTreeSet::new(), &["trigger:comm.set_autoreport_temperature_interval"])),
+            Some(with_tags(
+                &BTreeSet::new(),
+                &["trigger:comm.set_autoreport_temperature_interval"],
+            )),
         );
     }
 
     /// comm.py:3678 `_set_autoreport_sdstatus_interval(interval=None)`
     pub fn _set_autoreport_sdstatus_interval(self: &Arc<Self>, interval: Option<i64>) {
         let interval = match interval {
-            None => self.timeout_interval_int("sdStatusAutoreport", 1.0).unwrap_or(1),
+            None => self
+                .timeout_interval_int("sdStatusAutoreport", 1.0)
+                .unwrap_or(1),
             Some(i) => i,
         };
         self.send_command(
@@ -7553,12 +8540,20 @@ impl MachineCom {
             false,
             false,
             None,
-            Some(with_tags(&BTreeSet::new(), &["trigger:comm.set_autoreport_sdstatus_interval"])),
+            Some(with_tags(
+                &BTreeSet::new(),
+                &["trigger:comm.set_autoreport_sdstatus_interval"],
+            )),
         );
     }
 
     /// comm.py:3689 `_set_autoreport_pos_interval(interval=None, part_of_job=False, tags=None)`
-    pub fn _set_autoreport_pos_interval(self: &Arc<Self>, interval: Option<i64>, part_of_job: bool, tags: Option<BTreeSet<String>>) {
+    pub fn _set_autoreport_pos_interval(
+        self: &Arc<Self>,
+        interval: Option<i64>,
+        part_of_job: bool,
+        tags: Option<BTreeSet<String>>,
+    ) {
         let tags = tags.unwrap_or_default();
         let interval = match interval {
             None => self.timeout_interval_int("posAutoreport", 5.0).unwrap_or(5),
@@ -7571,12 +8566,19 @@ impl MachineCom {
             false,
             false,
             None,
-            Some(with_tags(&tags, &["trigger:comm.set_autoreport_pos_interval"])),
+            Some(with_tags(
+                &tags,
+                &["trigger:comm.set_autoreport_pos_interval"],
+            )),
         );
     }
 
     /// comm.py:3703 `_set_busy_protocol_interval(interval=None, callback=None)`
-    pub fn _set_busy_protocol_interval(self: &Arc<Self>, interval: Option<i64>, callback: Option<OnSent>) {
+    pub fn _set_busy_protocol_interval(
+        self: &Arc<Self>,
+        interval: Option<i64>,
+        callback: Option<OnSent>,
+    ) {
         let interval = match interval {
             None => match self.timeout_interval_int("communicationBusy", 3.0) {
                 Some(i) => (i - 1).max(1),
@@ -7591,7 +8593,10 @@ impl MachineCom {
             false,
             false,
             callback,
-            Some(with_tags(&BTreeSet::new(), &["trigger:comm.set_busy_protocol_interval"])),
+            Some(with_tags(
+                &BTreeSet::new(),
+                &["trigger:comm.set_busy_protocol_interval"],
+            )),
         );
     }
 
@@ -7614,7 +8619,9 @@ impl MachineCom {
             true,
         ));
         self._temperature_timer.set(Some(timer.clone()));
-        timer.start().expect("RuntimeError: threads can only be started once");
+        timer
+            .start()
+            .expect("RuntimeError: threads can only be started once");
 
         let (me, me2) = (self.clone(), self.clone());
         let timer = Arc::new(RepeatedTimer::new(
@@ -7628,11 +8635,17 @@ impl MachineCom {
             true,
         ));
         self._sd_status_timer.set(Some(timer.clone()));
-        timer.start().expect("RuntimeError: threads can only be started once");
+        timer
+            .start()
+            .expect("RuntimeError: threads can only be started once");
 
         self._change_state(Self::STATE_OPERATIONAL);
 
-        self.reset_line_numbers(0, false, Some(with_tags(&BTreeSet::new(), &["trigger:comm.on_connected"])));
+        self.reset_line_numbers(
+            0,
+            false,
+            Some(with_tags(&BTreeSet::new(), &["trigger:comm.on_connected"])),
+        );
         self.send_command(
             QueuedCommand::Command("M115".to_string()),
             None,
@@ -7644,14 +8657,26 @@ impl MachineCom {
         );
 
         if self._sdAvailable.get() {
-            self.refresh_sd_files(Some(with_tags(&BTreeSet::new(), &["trigger:comm.on_connected"])), false, Some(10.0));
+            self.refresh_sd_files(
+                Some(with_tags(&BTreeSet::new(), &["trigger:comm.on_connected"])),
+                false,
+                Some(10.0),
+            );
         } else {
-            self.init_sd_card(Some(with_tags(&BTreeSet::new(), &["trigger:comm.on_connected"])));
+            self.init_sd_card(Some(with_tags(
+                &BTreeSet::new(),
+                &["trigger:comm.on_connected"],
+            )));
         }
 
         let payload = serde_json::json!({"port": self._port, "baudrate": self._baudrate});
         event_manager().fire(Events::CONNECTED, Some(payload.clone()));
-        self.send_gcode_script("afterPrinterConnected", Some(&serde_json::json!({"event": payload})), None, false);
+        self.send_gcode_script(
+            "afterPrinterConnected",
+            Some(&serde_json::json!({"event": payload})),
+            None,
+            false,
+        );
     }
 
     /// comm.py:3752 `_on_external_reset()`
@@ -7673,8 +8698,18 @@ impl MachineCom {
             }
         }
 
-        self.say_hello(Some(with_tags(&BTreeSet::new(), &["trigger:comm.on_external_reset"])));
-        self.reset_line_numbers(0, false, Some(with_tags(&BTreeSet::new(), &["trigger:comm.on_external_reset"])));
+        self.say_hello(Some(with_tags(
+            &BTreeSet::new(),
+            &["trigger:comm.on_external_reset"],
+        )));
+        self.reset_line_numbers(
+            0,
+            false,
+            Some(with_tags(
+                &BTreeSet::new(),
+                &["trigger:comm.on_external_reset"],
+            )),
+        );
 
         if self._temperature_autoreporting.get() {
             self._set_autoreport_temperature_interval(None);
@@ -7694,7 +8729,9 @@ impl MachineCom {
 
     /// `self._timeout_intervals.get(key, default)`
     fn timeout_interval(&self, key: &str, default: f64) -> f64 {
-        self._timeout_intervals.with(|d| d.get(key).copied()).unwrap_or(default)
+        self._timeout_intervals
+            .with(|d| d.get(key).copied())
+            .unwrap_or(default)
     }
 
     /// comm.py:3778 `_get_temperature_timer_interval()`
@@ -7722,7 +8759,10 @@ impl MachineCom {
         }
 
         let bed = self.last_temperature.with(|t| t.bed());
-        if bed.1.is_some_and(|t| t > self._temperatureTargetSetThreshold as f64) {
+        if bed
+            .1
+            .is_some_and(|t| t > self._temperatureTargetSetThreshold as f64)
+        {
             return get("temperatureTargetSet", target_default);
         }
 
@@ -7800,7 +8840,9 @@ impl MachineCom {
                 let (cmd, cmd_type, callback, tags) = entry;
                 self._send_command(cmd, cmd_type.as_deref(), callback, Some(tags))
             }));
-            self._command_queue.task_done().expect("ValueError: task_done() called too many times");
+            self._command_queue
+                .task_done()
+                .expect("ValueError: task_done() called too many times");
             match sent {
                 Ok(true) => {
                     // we actually did add this cmd to the send queue, so let's
@@ -7849,23 +8891,38 @@ impl MachineCom {
         // OURS (test seam): a registered fake printer
         #[cfg(test)]
         {
-            let fake = TEST_TRANSPORTS.plock().iter().find(|(p, _)| p == port).map(|(_, t)| t.clone());
+            let fake = TEST_TRANSPORTS
+                .plock()
+                .iter()
+                .find(|(p, _)| p == port)
+                .map(|(_, t)| t.clone());
             if let Some(fake) = fake {
                 return succeeded(fake);
             }
         }
 
         for (name, factory) in self._serial_factory_hooks.iter() {
-            let args = [Value::from(port), Value::from(baudrate), serde_json::json!(timeout)];
+            let args = [
+                Value::from(port),
+                Value::from(baudrate),
+                serde_json::json!(timeout),
+            ];
             match py_try(|| factory(&args)) {
                 Err(text) => {
                     return failed(
                         name,
-                        exception_string_of_panic(&text, EXCEPTION_STRING_FMT, "_open_serial", line!()),
+                        exception_string_of_panic(
+                            &text,
+                            EXCEPTION_STRING_FMT,
+                            "_open_serial",
+                            line!(),
+                        ),
                     );
                 }
                 Ok(Value::Null) => {}
-                Ok(_) => unimplemented!("plugin.rs: a serial factory hook that returns a serial object"),
+                Ok(_) => {
+                    unimplemented!("plugin.rs: a serial factory hook that returns a serial object")
+                }
             }
         }
 
@@ -7898,10 +8955,18 @@ impl MachineCom {
         baudrate: i64,
         timeout: Option<f64>,
     ) -> Result<Option<Arc<dyn SerialTransport>>, SerialError> {
-        self._dual_log(&format!("Connecting to port {port}, baudrate {baudrate}"), LOGGING_INFO, "");
+        self._dual_log(
+            &format!("Connecting to port {port}, baudrate {baudrate}"),
+            LOGGING_INFO,
+            "",
+        );
 
         // `serial_port_args`: baudrate, timeout, write_timeout=0, and exclusive=True when set
-        let exclusive = if truthy(settings().get_boolean(&["serial", "exclusive"])) { Some(true) } else { None };
+        let exclusive = if truthy(settings().get_boolean(&["serial", "exclusive"])) {
+            Some(true)
+        } else {
+            None
+        };
 
         // try: ... except serial.SerialException: return None
         let opened = (|| -> Result<serial::Serial, SerialError> {
@@ -7909,8 +8974,8 @@ impl MachineCom {
             serial_obj.set_port(port);
 
             let use_parity_workaround = settings().get(&["serial", "useParityWorkaround"]);
-            let needs_parity_workaround =
-                platform::get_os() == "linux" && std::path::Path::new("/etc/debian_version").exists(); // See #673
+            let needs_parity_workaround = platform::get_os() == "linux"
+                && std::path::Path::new("/etc/debian_version").exists(); // See #673
 
             let always = use_parity_workaround.as_ref().and_then(Value::as_str) == Some("always");
             let detect = use_parity_workaround.as_ref().and_then(Value::as_str) == Some("detect");
@@ -7936,7 +9001,8 @@ impl MachineCom {
         // Set close_exec flag on serial handle, see #3212
         if let Some(fd) = serial_obj.fd() {
             // posix
-            platform::set_close_exec(fd).map_err(|e| SerialError::other("OSError", e.to_string()))?;
+            platform::set_close_exec(fd)
+                .map_err(|e| SerialError::other("OSError", e.to_string()))?;
         }
 
         let wrapper = Arc::new(serial::BufferedReadlineWrapper::new(serial_obj));
@@ -7968,7 +9034,8 @@ impl MachineCom {
     }
 
     /// comm.py:3981 `_recoverable_communication_errors`
-    pub const _recoverable_communication_errors: [&'static str; 2] = ["no line number with checksum", "missing linenumber"];
+    pub const _recoverable_communication_errors: [&'static str; 2] =
+        ["no line number with checksum", "missing linenumber"];
     /// comm.py:3985 `_resend_request_communication_errors`
     pub const _resend_request_communication_errors: [&'static str; 5] = [
         "line number", // since this error class gets checked after recoverable
@@ -8012,15 +9079,19 @@ impl MachineCom {
                 line = format!(
                     "{}{}",
                     py_rstrip(&line),
-                    self._readline().expect("TypeError: can only concatenate str (not \"NoneType\") to str")
+                    self._readline()
+                        .expect("TypeError: can only concatenate str (not \"NoneType\") to str")
                 );
                 lower_line = line.to_lowercase();
             } else if re_search(&regex_marlinKillError, &line) {
                 // special delivery for marlin kill errors that are split across multiple error lines
-                let next_line = self._readline().expect("AttributeError: 'NoneType' object has no attribute 'strip'");
+                let next_line = self
+                    ._readline()
+                    .expect("AttributeError: 'NoneType' object has no attribute 'strip'");
                 let mut next_line = py_strip(&next_line).to_string();
                 if next_line.to_lowercase().starts_with("error:") {
-                    next_line = py_strip(&next_line.chars().skip(6).collect::<String>()).to_string();
+                    next_line =
+                        py_strip(&next_line.chars().skip(6).collect::<String>()).to_string();
                 }
                 line = format!("{} - {}", py_rstrip(&line), next_line);
                 lower_line = line.to_lowercase();
@@ -8035,12 +9106,18 @@ impl MachineCom {
             )
             .to_string();
 
-            if Self::_recoverable_communication_errors.iter().any(|x| lower_line.contains(x)) {
+            if Self::_recoverable_communication_errors
+                .iter()
+                .any(|x| lower_line.contains(x))
+            {
                 // manually trigger an ack for comm errors the printer doesn't send a resend request for but
                 // from which we can recover from by just pushing on (because that then WILL trigger a fitting
                 // resend request)
                 self._handle_ok();
-            } else if Self::_resend_request_communication_errors.iter().any(|x| lower_line.contains(x)) {
+            } else if Self::_resend_request_communication_errors
+                .iter()
+                .any(|x| lower_line.contains(x))
+            {
                 // skip comm errors that the printer sends a resend request for anyhow
                 self._lastCommError.set(Some(stripped_error.clone()));
             } else if Self::_sd_card_errors.iter().any(|x| lower_line.contains(x)) {
@@ -8064,16 +9141,24 @@ impl MachineCom {
                 }
 
                 self._to_logfile_with_terminal(
-                    Some(&format!("Received an error from the printer's firmware: {stripped_error}")),
+                    Some(&format!(
+                        "Received an error from the printer's firmware: {stripped_error}"
+                    )),
                     LOGGING_WARNING,
                 );
 
                 if !truthy(self._ignore_errors) {
-                    if truthy(self._disconnect_on_errors) || Self::_fatal_errors.iter().any(|x| lower_line.contains(x)) {
+                    if truthy(self._disconnect_on_errors)
+                        || Self::_fatal_errors.iter().any(|x| lower_line.contains(x))
+                    {
                         self._trigger_error(&stripped_error, "firmware", true);
                     } else if self.is_printing() {
                         let consequence = "cancel";
-                        let payload = self._payload_for_error("firmware", Some(consequence), Some(&stripped_error));
+                        let payload = self._payload_for_error(
+                            "firmware",
+                            Some(consequence),
+                            Some(&stripped_error),
+                        );
                         self._callback.on_comm_error(
                             &stripped_error,
                             "firmware",
@@ -8118,7 +9203,13 @@ impl MachineCom {
         };
 
         let payload = self._payload_for_error(reason, consequence, None);
-        self._callback.on_comm_error(text, reason, consequence, payload.faq.as_deref(), payload.logs.as_deref());
+        self._callback.on_comm_error(
+            text,
+            reason,
+            consequence,
+            payload.faq.as_deref(),
+            payload.logs.as_deref(),
+        );
         event_manager().fire(Events::ERROR, Some(payload.to_json()));
 
         if close {
@@ -8135,11 +9226,24 @@ impl MachineCom {
         ("maxtemp", &["maxtemp"]),
         ("thermal-runaway", &["runaway"]),
         ("heating-failed", &["heating failed"]),
-        ("probing-failed", &["probing failed", "bed leveling", "reference point", "bltouch"]),
+        (
+            "probing-failed",
+            &[
+                "probing failed",
+                "bed leveling",
+                "reference point",
+                "bltouch",
+            ],
+        ),
     ];
 
     /// comm.py:4152 `_payload_for_error(reason, consequence=None, error=None)`
-    pub fn _payload_for_error(&self, reason: &str, consequence: Option<&str>, error: Option<&str>) -> ErrorPayload {
+    pub fn _payload_for_error(
+        &self,
+        reason: &str,
+        consequence: Option<&str>,
+        error: Option<&str>,
+    ) -> ErrorPayload {
         let error = match error {
             None => self.get_error_string(),
             Some(e) => e.to_string(),
@@ -8200,7 +9304,8 @@ impl MachineCom {
                             "",
                         );
                     }
-                    self._errorValue.set(get_exception_string_of(&info, "{type}: {message}"));
+                    self._errorValue
+                        .set(get_exception_string_of(&info, "{type}: {message}"));
                     self.close(true, true, Some(10.0));
                 }
                 return None;
@@ -8241,7 +9346,9 @@ impl MachineCom {
                 }
                 Ok(Value::Null) => return Some(String::new()),
                 Ok(Value::String(s)) => ret = s,
-                Ok(_) => unimplemented!("plugin.rs: a received-message hook that returns something else than a str or None"),
+                Ok(_) => unimplemented!(
+                    "plugin.rs: a received-message hook that returns something else than a str or None"
+                ),
             }
         }
 
@@ -8249,7 +9356,9 @@ impl MachineCom {
     }
 
     /// comm.py:4232 `_get_next_from_job()`: `(line, pos, lineno)`; the line is a str or a marker
-    pub fn _get_next_from_job(self: &Arc<Self>) -> (Option<QueuedCommand>, Option<i64>, Option<i64>) {
+    pub fn _get_next_from_job(
+        self: &Arc<Self>,
+    ) -> (Option<QueuedCommand>, Option<i64>, Option<i64>) {
         let Some(current_file) = self._currentFile.get() else {
             return (None, None, None);
         };
@@ -8267,12 +9376,24 @@ impl MachineCom {
         };
 
         let Some(line) = line else {
-            if self._currentFile.get().is_some_and(|f| f.is_streaming_gcode_file_information()) {
+            if self
+                ._currentFile
+                .get()
+                .is_some_and(|f| f.is_streaming_gcode_file_information())
+            {
                 self._finish_file_transfer(false, None);
                 return (None, pos, lineno);
             } else {
                 self._change_state(Self::STATE_FINISHING);
-                self.send_command(QueuedCommand::Command("M400".to_string()), None, true, false, false, None, None);
+                self.send_command(
+                    QueuedCommand::Command("M400".to_string()),
+                    None,
+                    true,
+                    false,
+                    false,
+                    None,
+                    None,
+                );
                 self._callback.on_comm_print_job_done(false);
 
                 let me = self.clone();
@@ -8281,7 +9402,9 @@ impl MachineCom {
                 };
 
                 return (
-                    Some(QueuedCommand::Marker(SendQueueMarker::new(Some(Box::new(finalize))).0)),
+                    Some(QueuedCommand::Marker(
+                        SendQueueMarker::new(Some(Box::new(finalize))).0,
+                    )),
                     None,
                     None,
                 );
@@ -8295,7 +9418,9 @@ impl MachineCom {
         let _job_lock = self._jobLock.lock();
         while self._active() {
             // we loop until we've actually enqueued a line for sending
-            if self._state.get() != Self::STATE_STARTING && self._state.get() != Self::STATE_PRINTING {
+            if self._state.get() != Self::STATE_STARTING
+                && self._state.get() != Self::STATE_PRINTING
+            {
                 // we are no longer printing, return false
                 return false;
             } else if self.job_on_hold() {
@@ -8306,7 +9431,15 @@ impl MachineCom {
             let (line, pos, lineno) = self._get_next_from_job();
             let line = match line {
                 Some(QueuedCommand::Marker(marker)) => {
-                    self.send_command(QueuedCommand::Marker(marker), None, true, false, false, None, None);
+                    self.send_command(
+                        QueuedCommand::Marker(marker),
+                        None,
+                        true,
+                        false,
+                        false,
+                        None,
+                        None,
+                    );
                     self._callback.on_comm_progress();
 
                     // end of file, return false so that the next round in continue_sending will process
@@ -8320,14 +9453,19 @@ impl MachineCom {
                 Some(QueuedCommand::Command(line)) => line,
             };
 
-            let py_int_or_none = |v: Option<i64>| v.map_or_else(|| "None".to_string(), |v| v.to_string());
+            let py_int_or_none =
+                |v: Option<i64>| v.map_or_else(|| "None".to_string(), |v| v.to_string());
             let result = self._send_command(
                 QueuedCommand::Command(line),
                 None,
                 None,
                 Some(with_tags(
                     &BTreeSet::new(),
-                    &["source:file", &format!("filepos:{}", py_int_or_none(pos)), &format!("fileline:{}", py_int_or_none(lineno))],
+                    &[
+                        "source:file",
+                        &format!("filepos:{}", py_int_or_none(pos)),
+                        &format!("fileline:{}", py_int_or_none(lineno)),
+                    ],
                 )),
             );
             self._callback.on_comm_progress();
@@ -8360,13 +9498,19 @@ impl MachineCom {
 
     /// comm.py:4318 `_handle_resend_request(line)`: Python's `True` / `False`
     pub fn _handle_resend_request(self: &Arc<Self>, line: &str) -> bool {
-        self._received_resend_requests.set(self._received_resend_requests.get() + 1);
+        self._received_resend_requests
+            .set(self._received_resend_requests.get() + 1);
         self._reevaluate_resend_ratio();
 
         // try: ... finally: ...
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self._handle_resend_request_body(line)));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self._handle_resend_request_body(line)
+        }));
 
-        let trigger_ok_after_resend = self._trigger_ok_after_resend.as_ref().and_then(Value::as_str);
+        let trigger_ok_after_resend = self
+            ._trigger_ok_after_resend
+            .as_ref()
+            .and_then(Value::as_str);
         if trigger_ok_after_resend == Some("always") {
             self._handle_ok();
         } else if trigger_ok_after_resend == Some("detect") {
@@ -8378,7 +9522,9 @@ impl MachineCom {
                 true,
             ));
             self._resend_ok_timer.set(Some(timer.clone()));
-            timer.start().expect("RuntimeError: threads can only be started once");
+            timer
+                .start()
+                .expect("RuntimeError: threads can only be started once");
         }
 
         match result {
@@ -8419,32 +9565,37 @@ impl MachineCom {
         let resend_delta = self._current_line.get() - line_to_resend;
 
         if let Some(last_comm_error) = &last_comm_error
-            && (last_comm_error.to_lowercase().contains("line number") || last_comm_error.to_lowercase().contains("expected line"))
+            && (last_comm_error.to_lowercase().contains("line number")
+                || last_comm_error.to_lowercase().contains("expected line"))
             && Some(line_to_resend) == self._lastResendNumber.get()
             && self._resendDelta.get().is_some()
             && self._currentResendCount.get() < resend_delta
         {
             // self._logger.info("Ignoring resend request for line %d, that still originates from lines we sent before we got the first resend request")
-            self._currentResendCount.set(self._currentResendCount.get() + 1);
+            self._currentResendCount
+                .set(self._currentResendCount.get() + 1);
             return true;
         }
 
         if self._currentConsecutiveResendNumber.get() == Some(line_to_resend) {
-            self._currentConsecutiveResendCount.set(self._currentConsecutiveResendCount.get() + 1);
+            self._currentConsecutiveResendCount
+                .set(self._currentConsecutiveResendCount.get() + 1);
             if self._currentConsecutiveResendCount.get()
-                >= self
-                    ._maxConsecutiveResends
-                    .expect("TypeError: '>=' not supported between instances of 'int' and 'NoneType'")
+                >= self._maxConsecutiveResends.expect(
+                    "TypeError: '>=' not supported between instances of 'int' and 'NoneType'",
+                )
             {
                 // printer keeps requesting the same line again and again, something is severely broken here
-                let error_text =
-                    format!("Printer keeps requesting line {line_to_resend} again and again, communication stuck");
+                let error_text = format!(
+                    "Printer keeps requesting line {line_to_resend} again and again, communication stuck"
+                );
                 self._log(&error_text);
                 // self._logger.warning(error_text)
                 self._trigger_error(&error_text, "resend_loop", true);
             }
         } else {
-            self._currentConsecutiveResendNumber.set(Some(line_to_resend));
+            self._currentConsecutiveResendNumber
+                .set(Some(line_to_resend));
             self._currentConsecutiveResendCount.set(0);
         }
 
@@ -8460,9 +9611,10 @@ impl MachineCom {
         // this it to prevent the log from getting flooded for extremely bad communication issues
         if truthy(self._log_resends) {
             let now = time_monotonic();
-            let new_rate_window = self._log_resends_rate_start.get().is_none_or(|start| {
-                start + (self._log_resends_rate_frame as f64) < now
-            });
+            let new_rate_window = self
+                ._log_resends_rate_start
+                .get()
+                .is_none_or(|start| start + (self._log_resends_rate_frame as f64) < now);
             let in_rate = self._log_resends_rate_count.get() < self._log_resends_max;
 
             if new_rate_window || in_rate {
@@ -8479,7 +9631,8 @@ impl MachineCom {
                     )),
                     LOGGING_INFO,
                 );
-                self._log_resends_rate_count.set(self._log_resends_rate_count.get() + 1);
+                self._log_resends_rate_count
+                    .set(self._log_resends_rate_count.get() + 1);
             }
         }
 
@@ -8516,7 +9669,12 @@ impl MachineCom {
             if self._resendDelta.get().is_none() {
                 self._resendDelta.set(Some(0));
             }
-            self._resendDelta.set(Some(self._resendDelta.get().expect("TypeError: unsupported operand type(s) for +=") + 1));
+            self._resendDelta.set(Some(
+                self._resendDelta
+                    .get()
+                    .expect("TypeError: unsupported operand type(s) for +=")
+                    + 1,
+            ));
         } else if self._resendDelta.get().is_none() {
             // we might enter this twice in quick succession if we get triggered by the
             // resend_ok_timer, so make sure that resendDelta is actually still set (see #2632)
@@ -8524,7 +9682,10 @@ impl MachineCom {
         }
 
         let line_number = self._current_line.get()
-            - self._resendDelta.get().expect("TypeError: unsupported operand type(s) for -: 'int' and 'NoneType'");
+            - self
+                ._resendDelta
+                .get()
+                .expect("TypeError: unsupported operand type(s) for -: 'int' and 'NoneType'");
 
         if !self._resend_check_possibility(line_number) {
             // Something has gone wrong if we get here, but we already logged and
@@ -8533,18 +9694,37 @@ impl MachineCom {
         }
 
         // `self._lastLines[-self._resendDelta]`
-        let index = -(self._resendDelta.get().expect("TypeError: bad operand type for unary -: 'NoneType'") as isize);
+        let index = -(self
+            ._resendDelta
+            .get()
+            .expect("TypeError: bad operand type for unary -: 'NoneType'")
+            as isize);
         let last_line = self
             ._lastLines
             .with(|l| l.get(index).cloned())
             .expect("IndexError: deque index out of range");
         let cmd = decode_serial_bytes(&last_line, &self._serial_encoding);
-        let result = self._enqueue_for_sending(QueuedCommand::Command(cmd), Some(line_number), None, None, true, None);
+        let result = self._enqueue_for_sending(
+            QueuedCommand::Command(cmd),
+            Some(line_number),
+            None,
+            None,
+            true,
+            None,
+        );
 
         self._resendDelta.set(Some(
-            self._resendDelta.get().expect("TypeError: unsupported operand type(s) for -=") - 1,
+            self._resendDelta
+                .get()
+                .expect("TypeError: unsupported operand type(s) for -=")
+                - 1,
         ));
-        if self._resendDelta.get().expect("TypeError: '<=' not supported between instances of 'NoneType' and 'int'") <= 0 {
+        if self
+            ._resendDelta
+            .get()
+            .expect("TypeError: '<=' not supported between instances of 'NoneType' and 'int'")
+            <= 0
+        {
             // reset everything BUT the resendActive flag - that will have to stay active until we receive
             // our next ok!
             self._resendDelta.set(None);
@@ -8566,7 +9746,9 @@ impl MachineCom {
         };
         let history = self._lastLines.with(|l| l.len()) as i64;
         if delta() > history || self._lastLines.with(|l| l.len()) == 0 || delta() < 0 {
-            let error_text = format!("Should resend line {lineno} but no sufficient history is available, can't resend");
+            let error_text = format!(
+                "Should resend line {lineno} but no sufficient history is available, can't resend"
+            );
             self._log(&error_text);
             // self._logger.warning(error_text + ". Line to resend is {}, current line is {}, line history has {} entries.")
             if self.is_printing() {
@@ -8607,7 +9789,14 @@ impl MachineCom {
             QueuedCommand::Marker(marker) => {
                 // `isinstance(cmd, QueueMarker)`: every marker in this port is a `SendQueueMarker`
                 // (difference 28), so the `else: return False` branch cannot be reached
-                self._enqueue_for_sending(QueuedCommand::Marker(marker), None, None, None, false, None);
+                self._enqueue_for_sending(
+                    QueuedCommand::Marker(marker),
+                    None,
+                    None,
+                    None,
+                    false,
+                    None,
+                );
                 return true;
             }
             QueuedCommand::Command(cmd) => cmd,
@@ -8633,7 +9822,13 @@ impl MachineCom {
             }
             results
         } else {
-            vec![(Some(cmd.clone()), cmd_type.map(str::to_string), gcode, subcode, tags)]
+            vec![(
+                Some(cmd.clone()),
+                cmd_type.map(str::to_string),
+                gcode,
+                subcode,
+                tags,
+            )]
         };
 
         // process helper
@@ -8649,7 +9844,11 @@ impl MachineCom {
                 return false;
             };
 
-            if let Some(event) = gcode.as_deref().filter(|g| !g.is_empty()).and_then(gcode_to_event) {
+            if let Some(event) = gcode
+                .as_deref()
+                .filter(|g| !g.is_empty())
+                .and_then(gcode_to_event)
+            {
                 // if this is a gcode bound to an event, trigger that now
                 event_manager().fire(event, None);
             }
@@ -8688,7 +9887,8 @@ impl MachineCom {
 
         // process all but the last ...
         for (cmd, cmd_type, gcode, subcode, tags) in results {
-            enqueued_something = process(cmd, cmd_type, gcode, subcode, None, tags) || enqueued_something;
+            enqueued_something =
+                process(cmd, cmd_type, gcode, subcode, None, tags) || enqueued_something;
         }
 
         // ... and then process the last one with the on_sent callback attached
@@ -8754,7 +9954,6 @@ impl MachineCom {
         eats_clear
     }
 
-
     /// comm.py:4653 `_send_loop()`
     ///
     /// The send loop is responsible of sending commands in ``self._send_queue`` over the line, if it is cleared for
@@ -8781,10 +9980,14 @@ impl MachineCom {
                 };
 
                 // try: ... finally: self._send_queue.task_done()
-                let inner = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self._send_loop_entry(entry)));
+                let inner = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    self._send_loop_entry(entry)
+                }));
                 // no matter _how_ we exit this block, we signal that we
                 // are done processing the last fetched queue entry
-                self._send_queue.task_done().expect("ValueError: task_done() called too many times");
+                self._send_queue
+                    .task_done()
+                    .expect("ValueError: task_done() called too many times");
                 let step = match inner {
                     Ok(step) => step,
                     Err(payload) => std::panic::resume_unwind(payload),
@@ -8816,21 +10019,35 @@ impl MachineCom {
         let now = time_monotonic();
         if truthy(self._blockWhileDwelling.get())
             && self._dwelling_until.get().is_some_and(|d| d != 0.0)
-            && now < self._dwelling_until.get().expect("TypeError: '<' not supported between instances of 'float' and 'bool'")
+            && now
+                < self
+                    ._dwelling_until
+                    .get()
+                    .expect("TypeError: '<' not supported between instances of 'float' and 'bool'")
         {
-            let until = self._dwelling_until.get().expect("TypeError: unsupported operand type(s) for -");
+            let until = self
+                ._dwelling_until
+                .get()
+                .expect("TypeError: unsupported operand type(s) for -");
             std::thread::sleep(std::time::Duration::from_secs_f64((until - now).max(0.0)));
             self._dwelling_until.set(None); // `= False`
         }
 
         // fetch command, command type and optional linenumber and sent callback from queue
         let (command, linenumber, command_type, on_sent, processed, tags) = match entry {
-            SendQueueEntry::Line { command, linenumber, command_type, on_sent, flag, tags } => {
-                (command, linenumber, command_type, on_sent, flag, tags)
-            }
+            SendQueueEntry::Line {
+                command,
+                linenumber,
+                command_type,
+                on_sent,
+                flag,
+                tags,
+            } => (command, linenumber, command_type, on_sent, flag, tags),
             // `command, linenumber, ... = entry` of a bare marker (comm.py:1214 puts one while
             // `_send_queue_active` is already False, so the check above breaks first)
-            SendQueueEntry::Marker(_) => panic!("TypeError: cannot unpack non-iterable SendQueueMarker object"),
+            SendQueueEntry::Marker(_) => {
+                panic!("TypeError: cannot unpack non-iterable SendQueueMarker object")
+            }
         };
 
         let mut command = match command {
@@ -8959,18 +10176,39 @@ impl MachineCom {
         subcode: Option<String>,
         tags: Option<Tags>,
     ) -> Vec<NormalizedCommand> {
-        let (gcode, subcode) = if gcode.is_none() { gcode_and_subcode_for_cmd(Some(command)) } else { (gcode, subcode) };
-        let mut results: Vec<NormalizedCommand> =
-            vec![(Some(command.to_string()), command_type.clone(), gcode.clone(), subcode.clone(), tags.clone())];
+        let (gcode, subcode) = if gcode.is_none() {
+            gcode_and_subcode_for_cmd(Some(command))
+        } else {
+            (gcode, subcode)
+        };
+        let mut results: Vec<NormalizedCommand> = vec![(
+            Some(command.to_string()),
+            command_type.clone(),
+            gcode.clone(),
+            subcode.clone(),
+            tags.clone(),
+        )];
 
-        self._log_command_phase(phase, command, command_type.as_deref(), gcode.as_deref(), subcode.as_deref(), &tags);
+        self._log_command_phase(
+            phase,
+            command,
+            command_type.as_deref(),
+            gcode.as_deref(),
+            subcode.as_deref(),
+            &tags,
+        );
 
-        if (self.is_streaming() && self.is_printing()) || !["queuing", "queued", "sending", "sent"].contains(&phase) {
+        if (self.is_streaming() && self.is_printing())
+            || !["queuing", "queued", "sending", "sent"].contains(&phase)
+        {
             return results;
         }
 
         // send it through the phase specific handlers provided by plugins
-        let hooks = self._gcode_hooks.get(phase).expect("KeyError: the phase has hooks");
+        let hooks = self
+            ._gcode_hooks
+            .get(phase)
+            .expect("KeyError: the phase has hooks");
         for (name, hook) in hooks.iter() {
             let hook_run = py_try(|| -> Vec<NormalizedCommand> {
                 let mut new_results: Vec<NormalizedCommand> = Vec::new();
@@ -8985,8 +10223,13 @@ impl MachineCom {
                         json_tags(tags),
                     ]);
 
-                    let tags_to_add: BTreeSet<String> =
-                        ["source:rewrite".to_string(), format!("phase:{phase}"), format!("plugin:{name}")].into_iter().collect();
+                    let tags_to_add: BTreeSet<String> = [
+                        "source:rewrite".to_string(),
+                        format!("phase:{phase}"),
+                        format!("plugin:{name}"),
+                    ]
+                    .into_iter()
+                    .collect();
                     let normalized = _normalize_command_handler_result(
                         command.clone(),
                         command_type.clone(),
@@ -9001,7 +10244,13 @@ impl MachineCom {
                     if phase != "queuing" && normalized.len() > 1 {
                         // self._logger.error("Error while processing hook {name} for phase {phase} and command
                         // {command}: Hook returned multi-entry result ... Ignoring hook result and sending command as-is.")
-                        new_results.push((command.clone(), command_type.clone(), gcode.clone(), subcode.clone(), tags.clone()));
+                        new_results.push((
+                            command.clone(),
+                            command_type.clone(),
+                            gcode.clone(),
+                            subcode.clone(),
+                            tags.clone(),
+                        ));
                     } else {
                         new_results.extend(normalized);
                     }
@@ -9030,7 +10279,9 @@ impl MachineCom {
         for (command, command_type, gcode, subcode, tags) in results.iter() {
             if let Some(g) = gcode {
                 // `hasattr(self, "_gcode_" + gcode + "_" + phase)`
-                let cmd = command.as_deref().expect("a command in the results is never None");
+                let cmd = command
+                    .as_deref()
+                    .expect("a command in the results is never None");
                 if let Some(handler_results) = self._gcode_handler(g, phase, cmd) {
                     new_results.extend(_normalize_command_handler_result(
                         command.clone(),
@@ -9043,10 +10294,22 @@ impl MachineCom {
                     ));
                     modified = true;
                 } else {
-                    new_results.push((command.clone(), command_type.clone(), gcode.clone(), subcode.clone(), tags.clone()));
+                    new_results.push((
+                        command.clone(),
+                        command_type.clone(),
+                        gcode.clone(),
+                        subcode.clone(),
+                        tags.clone(),
+                    ));
                 }
             } else {
-                new_results.push((command.clone(), command_type.clone(), gcode.clone(), subcode.clone(), tags.clone()));
+                new_results.push((
+                    command.clone(),
+                    command_type.clone(),
+                    gcode.clone(),
+                    subcode.clone(),
+                    tags.clone(),
+                ));
             }
         }
 
@@ -9063,7 +10326,9 @@ impl MachineCom {
         if phase == "queuing" || phase == "sending" {
             let mut new_results: Vec<NormalizedCommand> = Vec::new();
             for (command, command_type, gcode, subcode, tags) in results.iter() {
-                let cmd = command.as_deref().expect("a command in the results is never None");
+                let cmd = command
+                    .as_deref()
+                    .expect("a command in the results is never None");
                 let handler_results = if phase == "queuing" {
                     self._command_phase_queuing(cmd, gcode.as_deref(), tags)
                 } else {
@@ -9088,7 +10353,12 @@ impl MachineCom {
     }
 
     /// comm.py:4947 `_process_atcommand_phase(phase, command, tags=None)`
-    pub fn _process_atcommand_phase(self: &Arc<Self>, phase: &str, command: &str, tags: Option<Tags>) {
+    pub fn _process_atcommand_phase(
+        self: &Arc<Self>,
+        phase: &str,
+        command: &str,
+        tags: Option<Tags>,
+    ) {
         if (self.is_streaming() && self.is_printing()) || !["queuing", "sending"].contains(&phase) {
             return;
         }
@@ -9097,13 +10367,22 @@ impl MachineCom {
         let (atcommand, parameters) = if split.len() == 2 {
             (split[0], split[1])
         } else {
-            (split.first().copied().expect("IndexError: list index out of range"), "")
+            (
+                split
+                    .first()
+                    .copied()
+                    .expect("IndexError: list index out of range"),
+                "",
+            )
         };
 
         let atcommand: String = atcommand.chars().skip(1).collect();
 
         // send it through the phase specific handlers provided by plugins
-        let hooks = self._atcommand_hooks.get(phase).expect("KeyError: the phase has hooks");
+        let hooks = self
+            ._atcommand_hooks
+            .get(phase)
+            .expect("KeyError: the phase has hooks");
         for (_name, hook) in hooks.iter() {
             // try: hook(self, phase, atcommand, parameters, tags=tags) except Exception: (log)
             let _ = py_try(|| {
@@ -9138,8 +10417,10 @@ impl MachineCom {
 
     /// comm.py:4990 `_needs_checksum(gcode=None)`
     pub fn _needs_checksum(&self, gcode: Option<&str>) -> bool {
-        let command_requiring_checksum = gcode.is_some() && py_in_list(&self._checksum_requiring_commands, gcode);
-        let command_allowing_checksum = gcode.is_some() || truthy(self._sendChecksumWithUnknownCommands.get());
+        let command_requiring_checksum =
+            gcode.is_some() && py_in_list(&self._checksum_requiring_commands, gcode);
+        let command_allowing_checksum =
+            gcode.is_some() || truthy(self._sendChecksumWithUnknownCommands.get());
         command_requiring_checksum || (command_allowing_checksum && self._checksum_enabled())
     }
 
@@ -9180,7 +10461,11 @@ impl MachineCom {
     /// comm.py:5024 `_do_send_with_checksum(command, linenumber)`
     pub fn _do_send_with_checksum(self: &Arc<Self>, command: &[u8], linenumber: i64) {
         let mut command_to_send: Vec<u8> = b"N".to_vec();
-        command_to_send.extend(encode_serial_text(&linenumber.to_string(), &self._serial_encoding, false));
+        command_to_send.extend(encode_serial_text(
+            &linenumber.to_string(),
+            &self._serial_encoding,
+            false,
+        ));
         command_to_send.push(b' ');
         command_to_send.extend_from_slice(command);
         let mut checksum: u8 = 0;
@@ -9188,7 +10473,11 @@ impl MachineCom {
             checksum ^= c;
         }
         command_to_send.push(b'*');
-        command_to_send.extend(encode_serial_text(&checksum.to_string(), &self._serial_encoding, false));
+        command_to_send.extend(encode_serial_text(
+            &checksum.to_string(),
+            &self._serial_encoding,
+            false,
+        ));
         self._do_send_without_checksum(&command_to_send, true);
     }
 
@@ -9202,7 +10491,10 @@ impl MachineCom {
         }
 
         if log {
-            self._log(&format!("Send: {}", decode_serial_bytes(cmd, &self._serial_encoding)));
+            self._log(&format!(
+                "Send: {}",
+                decode_serial_bytes(cmd, &self._serial_encoding)
+            ));
         }
 
         let mut cmd: Vec<u8> = cmd.to_vec();
@@ -9216,7 +10508,10 @@ impl MachineCom {
                     blocking_point("serial write");
                     serial.write(to_send)
                 }
-                None => Err(SerialError::other("AttributeError", "'NoneType' object has no attribute 'write'")),
+                None => Err(SerialError::other(
+                    "AttributeError",
+                    "'NoneType' object has no attribute 'write'",
+                )),
             }
         };
         let total = cmd.len() as i64;
@@ -9250,7 +10545,8 @@ impl MachineCom {
                         "",
                     );
                 }
-                self._errorValue.set(get_exception_string_of(&info, "{type}: {message}"));
+                self._errorValue
+                    .set(get_exception_string_of(&info, "{type}: {message}"));
                 self.close(true, true, Some(10.0));
             }
         };
@@ -9280,16 +10576,17 @@ impl MachineCom {
             if old_written == written {
                 // nothing written this pass
                 passes += 1;
-                let max_write_passes = self
-                    ._max_write_passes
-                    .expect("TypeError: '>' not supported between instances of 'int' and 'NoneType'");
+                let max_write_passes = self._max_write_passes.expect(
+                    "TypeError: '>' not supported between instances of 'int' and 'NoneType'",
+                );
                 if passes > max_write_passes {
                     // nothing written in max consecutive passes, we give up
                     let message = format!(
                         "Could not write anything to the serial port in {max_write_passes} tries, something appears to be wrong with the printer communication"
                     );
                     self._dual_log(&message, LOGGING_ERROR, "");
-                    self._errorValue.set("Could not write to serial port".to_string());
+                    self._errorValue
+                        .set("Could not write to serial port".to_string());
                     self.close(true, true, Some(10.0));
                     break;
                 }
@@ -9297,12 +10594,15 @@ impl MachineCom {
                 // may be busy, so give things a little time before we try again. Extend this
                 // period each time we fail until either we write the data or run out of retry attempts.
                 if passes > 1 {
-                    std::thread::sleep(std::time::Duration::from_secs_f64((passes - 1) as f64 / 10.0));
+                    std::thread::sleep(std::time::Duration::from_secs_f64(
+                        (passes - 1) as f64 / 10.0,
+                    ));
                 }
             }
         }
 
-        self._transmitted_lines.set(self._transmitted_lines.get() + 1);
+        self._transmitted_lines
+            .set(self._transmitted_lines.get() + 1);
     }
 
     // ~~ command handlers
@@ -9328,7 +10628,10 @@ impl MachineCom {
 
     /// `profile[key]` of the profile dict (`KeyError` is a panic)
     fn _profile_key(profile: &Value, key: &str) -> Value {
-        profile.get(key).cloned().unwrap_or_else(|| panic!("KeyError: '{key}'"))
+        profile
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| panic!("KeyError: '{key}'"))
     }
 
     /// `self._callback.on_comm_temperature_update(self.last_temperature.tools, .bed, .chamber, .custom)`,
@@ -9338,12 +10641,14 @@ impl MachineCom {
         let bed = self.last_temperature.with(|t| t.bed());
         let chamber = self.last_temperature.with(|t| t.chamber());
         let custom = self.last_temperature.with(|t| t.custom());
-        self._callback.on_comm_temperature_update(&tools, bed, chamber, &custom);
+        self._callback
+            .on_comm_temperature_update(&tools, bed, chamber, &custom);
     }
 
     /// `int(match.group("value"))` (a `ValueError` that nothing catches is a panic, difference 3)
     fn _int_group(m: &fancy_regex::Captures) -> i64 {
-        py_int(m.name("value").expect("group value").as_str()).expect("ValueError: invalid literal for int() with base 10")
+        py_int(m.name("value").expect("group value").as_str())
+            .expect("ValueError: invalid literal for int() with base 10")
     }
 
     /// `float(match.group("value"))`: `None` is `ValueError`
@@ -9353,7 +10658,12 @@ impl MachineCom {
 
     /// OURS (difference 30): `hasattr(self, "_gcode_" + gcode + "_" + phase)` and the call. `None`
     /// is "no such handler"; `Some(result)` is what the handler returned (`None` / `Some(..)`).
-    fn _gcode_handler(self: &Arc<Self>, gcode: &str, phase: &str, cmd: &str) -> Option<Option<HandlerResults>> {
+    fn _gcode_handler(
+        self: &Arc<Self>,
+        gcode: &str,
+        phase: &str,
+        cmd: &str,
+    ) -> Option<Option<HandlerResults>> {
         Some(match (gcode, phase) {
             ("T", "queuing") => self._gcode_T_queuing(cmd),
             ("T", "sending") => self._gcode_T_sending(cmd),
@@ -9397,7 +10707,9 @@ impl MachineCom {
                 self._log(&format!("Warn: {message}"));
                 event_manager().fire(
                     Events::COMMAND_SUPPRESSED,
-                    Some(serde_json::json!({"command": cmd, "message": message, "severity": "warn"})),
+                    Some(
+                        serde_json::json!({"command": cmd, "message": message, "severity": "warn"}),
+                    ),
                 );
                 return Some(none_tuple());
             }
@@ -9409,7 +10721,9 @@ impl MachineCom {
             // `convert(data)`: a 2-tuple `(line, tags)` becomes `(line, None, tags)`
             let convert = |data: Vec<(String, BTreeSet<String>)>| -> Vec<HandlerResultEntry> {
                 data.into_iter()
-                    .map(|(line, tags)| HandlerResultEntry::Tuple(HandlerTuple::Three(Some(line), None, Some(tags))))
+                    .map(|(line, tags)| {
+                        HandlerResultEntry::Tuple(HandlerTuple::Three(Some(line), None, Some(tags)))
+                    })
                     .collect()
             };
 
@@ -9432,7 +10746,9 @@ impl MachineCom {
                 // self._logger.warning(message)
                 event_manager().fire(
                     Events::COMMAND_SUPPRESSED,
-                    Some(serde_json::json!({"command": cmd, "message": message, "severity": "warn"})),
+                    Some(
+                        serde_json::json!({"command": cmd, "message": message, "severity": "warn"}),
+                    ),
                 );
                 return Some(none_tuple());
             }
@@ -9553,7 +10869,12 @@ impl MachineCom {
     }
 
     /// comm.py:5296 `_gcode_M104_sent(cmd, cmd_type=None, gcode=None, subcode=None, wait=False, support_r=False)`
-    pub fn _gcode_M104_sent(&self, cmd: &str, wait: bool, support_r: bool) -> Option<HandlerResults> {
+    pub fn _gcode_M104_sent(
+        &self,
+        cmd: &str,
+        wait: bool,
+        support_r: bool,
+    ) -> Option<HandlerResults> {
         let mut tool_num = self._currentTool.get();
 
         if let Some(tool_match) = re_captures(&regexes_parameters["intT"], cmd) {
@@ -9571,10 +10892,14 @@ impl MachineCom {
         }
 
         if let Some(m) = m {
-            if self.last_temperature.with(|t| t.tools().iter().any(|(k, _)| *k == tool_num)) {
+            if self
+                .last_temperature
+                .with(|t| t.tools().iter().any(|(k, _)| *k == tool_num))
+            {
                 // try: ... except ValueError: pass
                 if let Some(target) = Self::_float_group(&m) {
-                    self.last_temperature.with_mut(|t| t.set_tool(tool_num, None, Some(target)));
+                    self.last_temperature
+                        .with_mut(|t| t.set_tool(tool_num, None, Some(target)));
                     self._notify_temperature_update();
                 }
             }
@@ -9583,7 +10908,12 @@ impl MachineCom {
     }
 
     /// comm.py:5326 `_gcode_M140_sent(cmd, cmd_type=None, gcode=None, subcode=None, wait=False, support_r=False)`
-    pub fn _gcode_M140_sent(&self, cmd: &str, _wait: bool, support_r: bool) -> Option<HandlerResults> {
+    pub fn _gcode_M140_sent(
+        &self,
+        cmd: &str,
+        _wait: bool,
+        support_r: bool,
+    ) -> Option<HandlerResults> {
         let mut m = re_captures(&regexes_parameters["floatS"], cmd);
         if m.is_none() && support_r {
             m = re_captures(&regexes_parameters["floatR"], cmd);
@@ -9591,7 +10921,8 @@ impl MachineCom {
 
         if let Some(m) = m {
             if let Some(target) = Self::_float_group(&m) {
-                self.last_temperature.with_mut(|t| t.set_bed(None, Some(target)));
+                self.last_temperature
+                    .with_mut(|t| t.set_bed(None, Some(target)));
                 self._notify_temperature_update();
             }
         }
@@ -9599,7 +10930,12 @@ impl MachineCom {
     }
 
     /// comm.py:5352 `_gcode_M141_sent(cmd, cmd_type=None, gcode=None, subcode=None, wait=False, support_r=False)`
-    pub fn _gcode_M141_sent(&self, cmd: &str, _wait: bool, support_r: bool) -> Option<HandlerResults> {
+    pub fn _gcode_M141_sent(
+        &self,
+        cmd: &str,
+        _wait: bool,
+        support_r: bool,
+    ) -> Option<HandlerResults> {
         let mut m = re_captures(&regexes_parameters["floatS"], cmd);
         if m.is_none() && support_r {
             m = re_captures(&regexes_parameters["floatR"], cmd);
@@ -9607,7 +10943,8 @@ impl MachineCom {
 
         if let Some(m) = m {
             if let Some(target) = Self::_float_group(&m) {
-                self.last_temperature.with_mut(|t| t.set_chamber(None, Some(target)));
+                self.last_temperature
+                    .with_mut(|t| t.set_chamber(None, Some(target)));
                 self._notify_temperature_update();
             }
         }
@@ -9651,7 +10988,10 @@ impl MachineCom {
         if let Some(m) = re_captures(&regexes_parameters["intS"], cmd) {
             let interval = Self::_int_group(&m);
             self._temperature_autoreporting.set(
-                self._firmware_capabilities.with(|d| d.get(Self::CAPABILITY_AUTOREPORT_TEMP).copied()).unwrap_or(false) && (interval > 0),
+                self._firmware_capabilities
+                    .with(|d| d.get(Self::CAPABILITY_AUTOREPORT_TEMP).copied())
+                    .unwrap_or(false)
+                    && (interval > 0),
             );
         }
         None
@@ -9662,7 +11002,9 @@ impl MachineCom {
         if let Some(m) = re_captures(&regexes_parameters["intS"], cmd) {
             let interval = Self::_int_group(&m);
             self._sdstatus_autoreporting.set(
-                self._firmware_capabilities.with(|d| d.get(Self::CAPABILITY_AUTOREPORT_SD_STATUS).copied()).unwrap_or(false)
+                self._firmware_capabilities
+                    .with(|d| d.get(Self::CAPABILITY_AUTOREPORT_SD_STATUS).copied())
+                    .unwrap_or(false)
                     && (interval > 0),
             );
         }
@@ -9674,7 +11016,10 @@ impl MachineCom {
         if let Some(m) = re_captures(&regexes_parameters["intS"], cmd) {
             let interval = Self::_int_group(&m);
             self._pos_autoreporting.set(
-                self._firmware_capabilities.with(|d| d.get(Self::CAPABILITY_AUTOREPORT_POS).copied()).unwrap_or(false) && (interval > 0),
+                self._firmware_capabilities
+                    .with(|d| d.get(Self::CAPABILITY_AUTOREPORT_POS).copied())
+                    .unwrap_or(false)
+                    && (interval > 0),
             );
         }
         None
@@ -9736,7 +11081,11 @@ impl MachineCom {
             .expect("TypeError: 'range' object cannot be interpreted as an integer");
         for tool in 0..count {
             let command = format!("M104 T{tool} S0");
-            self._do_increment_and_send_with_checksum(&encode_serial_text(&command, &self._serial_encoding, false));
+            self._do_increment_and_send_with_checksum(&encode_serial_text(
+                &command,
+                &self._serial_encoding,
+                false,
+            ));
         }
         if py_truthy(&Self::_profile_key(&self._current_profile(), "heatedBed")) {
             self._do_increment_and_send_with_checksum(b"M140 S0");
@@ -9777,12 +11126,16 @@ impl MachineCom {
 
         let mut timeout = 0.0;
         if let Some(p) = p_match {
-            timeout = Self::_float_group(&p).expect("ValueError: could not convert string to float") / 1000.0;
+            timeout = Self::_float_group(&p)
+                .expect("ValueError: could not convert string to float")
+                / 1000.0;
         } else if let Some(s) = s_match {
-            timeout = Self::_float_group(&s).expect("ValueError: could not convert string to float");
+            timeout =
+                Self::_float_group(&s).expect("ValueError: could not convert string to float");
         }
 
-        self._timeout.set(Some(self._get_new_communication_timeout() + timeout));
+        self._timeout
+            .set(Some(self._get_new_communication_timeout() + timeout));
         self._dwelling_until.set(Some(time_monotonic() + timeout));
         None
     }
@@ -9805,7 +11158,12 @@ impl MachineCom {
     }
 
     /// comm.py:5565 `_emergency_force_send(cmd, message, gcode=None)`
-    pub fn _emergency_force_send(self: &Arc<Self>, cmd: &str, _message: &str, gcode: Option<&str>) -> Option<HandlerResults> {
+    pub fn _emergency_force_send(
+        self: &Arc<Self>,
+        cmd: &str,
+        _message: &str,
+        gcode: Option<&str>,
+    ) -> Option<HandlerResults> {
         // only jump the queue with our command if the EMERGENCY_PARSER capability is available
         if !self._capability_supported(Self::CAPABILITY_EMERGENCY_PARSER) {
             return None;
@@ -9827,10 +11185,15 @@ impl MachineCom {
     pub fn _validate_tool(&self, tool: i64) -> bool {
         !truthy(self._sanity_check_tools)
             || (tool
-                < Self::_profile_key(&Self::_profile_key(&self._current_profile(), "extruder"), "count")
-                    .as_i64()
-                    .expect("TypeError: '<' not supported between instances of 'int' and a non-int")
-                && !self._known_invalid_tools.with(|s| s.contains(&tool.to_string())))
+                < Self::_profile_key(
+                    &Self::_profile_key(&self._current_profile(), "extruder"),
+                    "count",
+                )
+                .as_i64()
+                .expect("TypeError: '<' not supported between instances of 'int' and a non-int")
+                && !self
+                    ._known_invalid_tools
+                    .with(|s| s.contains(&tool.to_string())))
     }
 
     /// comm.py:5587 `_reset_position_timers()`
@@ -9846,38 +11209,87 @@ impl MachineCom {
     // ~~ atcommands
 
     /// comm.py:5595 `_atcommand_pause_queuing(command, parameters, tags=None)`
-    pub fn _atcommand_pause_queuing(self: &Arc<Self>, _command: &str, _parameters: &str, tags: &Option<Tags>) {
-        let not_in = tags.as_ref().is_none_or(|t| !t.borrow().contains("script:afterPrintPaused"));
+    pub fn _atcommand_pause_queuing(
+        self: &Arc<Self>,
+        _command: &str,
+        _parameters: &str,
+        tags: &Option<Tags>,
+    ) {
+        let not_in = tags
+            .as_ref()
+            .is_none_or(|t| !t.borrow().contains("script:afterPrintPaused"));
         if not_in {
-            self.set_pause(true, true, None, Some(with_tags(&BTreeSet::new(), &["trigger:atcommand_pause"])));
+            self.set_pause(
+                true,
+                true,
+                None,
+                Some(with_tags(&BTreeSet::new(), &["trigger:atcommand_pause"])),
+            );
         }
     }
 
     /// comm.py:5602 `_atcommand_cancel_queuing(command, parameters, tags=None)` (also `_atcommand_abort_queuing`, :5608)
-    pub fn _atcommand_cancel_queuing(self: &Arc<Self>, _command: &str, _parameters: &str, tags: &Option<Tags>) {
-        let not_in = tags.as_ref().is_none_or(|t| !t.borrow().contains("script:afterPrintCancelled"));
+    pub fn _atcommand_cancel_queuing(
+        self: &Arc<Self>,
+        _command: &str,
+        _parameters: &str,
+        tags: &Option<Tags>,
+    ) {
+        let not_in = tags
+            .as_ref()
+            .is_none_or(|t| !t.borrow().contains("script:afterPrintCancelled"));
         if not_in {
-            self.cancel_print(None, false, None, Some(with_tags(&BTreeSet::new(), &["trigger:atcommand_cancel"])), false);
+            self.cancel_print(
+                None,
+                false,
+                None,
+                Some(with_tags(&BTreeSet::new(), &["trigger:atcommand_cancel"])),
+                false,
+            );
         }
     }
 
     /// comm.py:5610 `_atcommand_resume_queuing(command, parameters, tags=None)`
-    pub fn _atcommand_resume_queuing(self: &Arc<Self>, _command: &str, _parameters: &str, tags: &Option<Tags>) {
-        let not_in = tags.as_ref().is_none_or(|t| !t.borrow().contains("script:beforePrintResumed"));
+    pub fn _atcommand_resume_queuing(
+        self: &Arc<Self>,
+        _command: &str,
+        _parameters: &str,
+        tags: &Option<Tags>,
+    ) {
+        let not_in = tags
+            .as_ref()
+            .is_none_or(|t| !t.borrow().contains("script:beforePrintResumed"));
         if not_in {
-            self.set_pause(false, true, None, Some(with_tags(&BTreeSet::new(), &["trigger:atcommand_resume"])));
+            self.set_pause(
+                false,
+                true,
+                None,
+                Some(with_tags(&BTreeSet::new(), &["trigger:atcommand_resume"])),
+            );
         }
     }
 
     // ~~ command phase handlers
 
     /// comm.py:5617 `_command_phase_queuing(cmd, cmd_type=None, gcode=None, subcode=None, tags=...)`
-    pub fn _command_phase_queuing(self: &Arc<Self>, cmd: &str, gcode: Option<&str>, tags: &Option<Tags>) -> Option<HandlerResults> {
+    pub fn _command_phase_queuing(
+        self: &Arc<Self>,
+        cmd: &str,
+        gcode: Option<&str>,
+        tags: &Option<Tags>,
+    ) -> Option<HandlerResults> {
         if let Some(gcode) = gcode {
-            let tags: BTreeSet<String> = tags.as_ref().map(|t| t.borrow().clone()).unwrap_or_default();
+            let tags: BTreeSet<String> = tags
+                .as_ref()
+                .map(|t| t.borrow().clone())
+                .unwrap_or_default();
 
             if py_in_list(&self._emergency_commands, Some(gcode)) && gcode != "M112" {
-                return self._emergency_force_send(cmd, &format!("Force-sending {gcode} to the printer"), Some(gcode));
+                return self._emergency_force_send(
+                    cmd,
+                    &format!("Force-sending {gcode} to the printer"),
+                    Some(gcode),
+                );
             }
 
             if self.is_printing()
@@ -9890,23 +11302,31 @@ impl MachineCom {
             }
 
             if py_in_list(&self._blocked_commands, Some(gcode)) {
-                let message = format!("Not sending {gcode} to printer as it's configured as a blocked command");
+                let message = format!(
+                    "Not sending {gcode} to printer as it's configured as a blocked command"
+                );
                 self._log(&format!("Info: {message}"));
                 // self._logger.info(message)
                 event_manager().fire(
                     Events::COMMAND_SUPPRESSED,
-                    Some(serde_json::json!({"command": cmd, "message": message, "severity": "warn"})),
+                    Some(
+                        serde_json::json!({"command": cmd, "message": message, "severity": "warn"}),
+                    ),
                 );
                 return Some(none_tuple());
             }
 
             if py_in_list(&self._ignored_commands, Some(gcode)) {
-                let message = format!("Not sending {gcode} to printer as it's configured as an ignored command");
+                let message = format!(
+                    "Not sending {gcode} to printer as it's configured as an ignored command"
+                );
                 self._log(&format!("Info: {message}"));
                 // self._logger.info(message)
                 event_manager().fire(
                     Events::COMMAND_SUPPRESSED,
-                    Some(serde_json::json!({"command": cmd, "message": message, "severity": "info"})),
+                    Some(
+                        serde_json::json!({"command": cmd, "message": message, "severity": "info"}),
+                    ),
                 );
                 return Some(none_tuple());
             }
@@ -9932,7 +11352,6 @@ impl Drop for MachineCom {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -9984,7 +11403,12 @@ mod tests {
     #[test]
     fn test_apply_temperature_offsets() {
         let t = offs(&[("tool0", 10.0), ("tool1", 20.0), ("bed", 30.0)]);
-        let tc = offs(&[("tool0", 10.0), ("tool1", 20.0), ("bed", 30.0), ("chamber", 40.0)]);
+        let tc = offs(&[
+            ("tool0", 10.0),
+            ("tool1", 20.0),
+            ("bed", 30.0),
+            ("chamber", 40.0),
+        ]);
         let empty = offs(&[]);
         let t0 = offs(&[("tool0", 0.0)]);
         let t20 = offs(&[("tool0", 20.0)]);
@@ -10014,11 +11438,17 @@ mod tests {
             match expected {
                 None => assert_eq!(input, actual, "{input:?}"),
                 Some(expected) => {
-                    let m = search.captures(&actual).unwrap().expect("No temperature found");
+                    let m = search
+                        .captures(&actual)
+                        .unwrap()
+                        .expect("No temperature found");
                     let g1 = m.get(1).unwrap();
                     let temperature: f64 = g1.as_str().parse().unwrap();
                     assert_eq!(expected, temperature, "{input:?}");
-                    assert_eq!(input.get(..g1.start()).unwrap_or(input), &actual[..g1.start()]);
+                    assert_eq!(
+                        input.get(..g1.start()).unwrap_or(input),
+                        &actual[..g1.start()]
+                    );
                     // (Python slicing past the end gives "")
                     assert_eq!(input.get(g1.end()..).unwrap_or(""), &actual[g1.end()..]);
                 }
@@ -10038,7 +11468,10 @@ mod tests {
     }
 
     fn trigger(items: &[(&str, &str)]) -> BTreeMap<String, String> {
-        items.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        items
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -10070,7 +11503,10 @@ mod tests {
     /// `hashlib.md5(input).hexdigest()`, for the test below (the `md-5` crate).
     fn md5sum(input: &[u8]) -> String {
         use md5::{Digest, Md5};
-        Md5::digest(input).iter().map(|b| format!("{b:02x}")).collect()
+        Md5::digest(input)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
     }
 
     #[test]
@@ -10137,14 +11573,23 @@ mod tests {
         let temp = controls.get(&temp_key).unwrap();
 
         assert!(temp.matcher.is_some());
-        assert_eq!(temp_regex, temp.matcher.as_ref().unwrap().as_str().as_bytes());
+        assert_eq!(
+            temp_regex,
+            temp.matcher.as_ref().unwrap().as_str().as_bytes()
+        );
         assert_eq!(Some(PyText::Bytes(temp_regex.to_vec())), temp.pattern);
 
         assert_eq!(2, temp.templates.len());
         assert!(temp.templates.contains_key(&temp_template_key));
-        assert_eq!(PyText::Bytes(temp_template.to_vec()), *temp.templates.get(&temp_template_key).unwrap());
+        assert_eq!(
+            PyText::Bytes(temp_template.to_vec()),
+            *temp.templates.get(&temp_template_key).unwrap()
+        );
         assert!(temp.templates.contains_key(&temp2_template_key));
-        assert_eq!(PyText::Bytes(temp2_template.to_vec()), *temp.templates.get(&temp2_template_key).unwrap());
+        assert_eq!(
+            PyText::Bytes(temp2_template.to_vec()),
+            *temp.templates.get(&temp2_template_key).unwrap()
+        );
 
         // x_regex is used once, so we should have only one template for it
         assert!(controls.contains_key(&x_key));
@@ -10156,7 +11601,10 @@ mod tests {
 
         assert_eq!(1, x.templates.len());
         assert!(x.templates.contains_key(&x_template_key));
-        assert_eq!(PyText::Bytes(x_template.to_vec()), *x.templates.get(&x_template_key).unwrap());
+        assert_eq!(
+            PyText::Bytes(x_template.to_vec()),
+            *x.templates.get(&x_template_key).unwrap()
+        );
 
         // f"(?P<group{temp_key}>{temp_regex})|(?P<group{x_key}>{x_regex})": in Python an
         // f-string puts the repr of a bytes object into the text, spelled out here.
@@ -10188,7 +11636,11 @@ mod tests {
 
             if should_match {
                 let m = m.unwrap_or_else(|| panic!("no match for {line:?}"));
-                assert_eq!(expected_value, Some(m.name("value").unwrap().as_str()), "{line:?}");
+                assert_eq!(
+                    expected_value,
+                    Some(m.name("value").unwrap().as_str()),
+                    "{line:?}"
+                );
             } else {
                 assert!(m.is_none(), "{line:?}");
             }
@@ -10233,14 +11685,27 @@ mod tests {
     }
 
     fn temps(items: &[(&str, f64, Option<f64>)]) -> Temperatures {
-        items.iter().map(|(k, a, t)| (k.to_string(), (*a, *t))).collect()
+        items
+            .iter()
+            .map(|(k, a, t)| (k.to_string(), (*a, *t)))
+            .collect()
     }
 
     #[test]
     fn test_process_temperature_line() {
         let cases: Vec<(&str, i64, Temperatures, i64)> = vec![
-            ("T:23.0 B:60.0", 0, temps(&[("T0", 23.0, None), ("B", 60.0, None)]), 0),
-            ("T:23.0 B:60.0", 1, temps(&[("T1", 23.0, None), ("B", 60.0, None)]), 1),
+            (
+                "T:23.0 B:60.0",
+                0,
+                temps(&[("T0", 23.0, None), ("B", 60.0, None)]),
+                0,
+            ),
+            (
+                "T:23.0 B:60.0",
+                1,
+                temps(&[("T1", 23.0, None), ("B", 60.0, None)]),
+                1,
+            ),
             (
                 "T:23.0/220.0 B:60.0/70.0",
                 0,
@@ -10384,7 +11849,10 @@ mod tests {
     #[test]
     fn test_parse_firmware_line() {
         let d = |items: &[(&str, &str)]| -> PyDict<String> {
-            items.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+            items
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
         };
         let cases: Vec<(&str, PyDict<String>)> = vec![
             (
@@ -10397,15 +11865,30 @@ mod tests {
             ),
             (
                 "NAME: Malyan VER: 2.9 MODEL: M200 HW: HA02",
-                d(&[("NAME", "Malyan"), ("VER", "2.9"), ("MODEL", "M200"), ("HW", "HA02")]),
+                d(&[
+                    ("NAME", "Malyan"),
+                    ("VER", "2.9"),
+                    ("MODEL", "M200"),
+                    ("HW", "HA02"),
+                ]),
             ),
             (
                 "NAME. Malyan\tVER: 3.8\tMODEL: M100\tHW: HB02",
-                d(&[("NAME", "Malyan"), ("VER", "3.8"), ("MODEL", "M100"), ("HW", "HB02")]),
+                d(&[
+                    ("NAME", "Malyan"),
+                    ("VER", "3.8"),
+                    ("MODEL", "M100"),
+                    ("HW", "HB02"),
+                ]),
             ),
             (
                 "NAME. Malyan VER: 3.7 MODEL: M300 HW: HG01",
-                d(&[("NAME", "Malyan"), ("VER", "3.7"), ("MODEL", "M300"), ("HW", "HG01")]),
+                d(&[
+                    ("NAME", "Malyan"),
+                    ("VER", "3.7"),
+                    ("MODEL", "M300"),
+                    ("HW", "HG01"),
+                ]),
             ),
             (
                 "FIRMWARE_NAME:Marlin 1.1.0 From Archive SOURCE_CODE_URL:http:// ... PROTOCOL_VERSION:1.0 MACHINE_TYPE:www.cxsw3d.com EXTRUDER_COUNT:1 UUID:00000000-0000-0000-0000-000000000000",
@@ -10423,7 +11906,10 @@ mod tests {
                 "FIRMWARE_NAME:Marlin 2.0.7.2 (Nov 27 2020 14:30:11) SOURCE_CODE_URL:https://github.com/MarlinFirmware/Marlin PROTOCOL_VERSION:1.0 MACHINE_TYPE:Ender 5 Pro EXTRUDER_COUNT:1 UUID:cede2a2f-41a2-4748-9b12-c55c62f367ff",
                 d(&[
                     ("FIRMWARE_NAME", "Marlin 2.0.7.2 (Nov 27 2020 14:30:11)"),
-                    ("SOURCE_CODE_URL", "https://github.com/MarlinFirmware/Marlin"),
+                    (
+                        "SOURCE_CODE_URL",
+                        "https://github.com/MarlinFirmware/Marlin",
+                    ),
                     ("PROTOCOL_VERSION", "1.0"),
                     ("MACHINE_TYPE", "Ender 5 Pro"),
                     ("EXTRUDER_COUNT", "1"),
@@ -10457,7 +11943,11 @@ mod tests {
             ("WRONG:FLAG", None),
         ];
         for (line, expected) in cases {
-            assert_eq!(expected.map(|(a, b)| (s(a), b)), parse_capability_line(line), "{line:?}");
+            assert_eq!(
+                expected.map(|(a, b)| (s(a), b)),
+                parse_capability_line(line),
+                "{line:?}"
+            );
         }
     }
 
@@ -10524,11 +12014,25 @@ mod tests {
     // --- Not in test_comm_helpers.py: the examples from the docstring of
     // --- _normalize_command_handler_result (comm.py:6745-6770), which are Python doctests.
 
-    type Plain = (Option<String>, Option<String>, Option<String>, Option<String>, Option<Vec<String>>);
+    type Plain = (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<Vec<String>>,
+    );
 
     fn plain(r: Vec<NormalizedCommand>) -> Vec<Plain> {
         r.into_iter()
-            .map(|(c, ct, g, sc, t)| (c, ct, g, sc, t.map(|t| t.borrow().iter().cloned().collect())))
+            .map(|(c, ct, g, sc, t)| {
+                (
+                    c,
+                    ct,
+                    g,
+                    sc,
+                    t.map(|t| t.borrow().iter().cloned().collect()),
+                )
+            })
             .collect()
     }
 
@@ -10595,13 +12099,22 @@ mod tests {
             vec![pl("M110", None, "M110", None)],
             norm(None, Some(HandlerResults::Entry(st("M110"))), None)
         );
-        assert_eq!(vec![pl("M110", None, "M110", None)], norm(None, list(vec![st("M110")]), None));
         assert_eq!(
-            vec![pl("M110", None, "M110", None), pl("M117 Foobar", None, "M117", None)],
+            vec![pl("M110", None, "M110", None)],
+            norm(None, list(vec![st("M110")]), None)
+        );
+        assert_eq!(
+            vec![
+                pl("M110", None, "M110", None),
+                pl("M117 Foobar", None, "M117", None)
+            ],
             norm(None, list(vec![st("M110"), st("M117 Foobar")]), None)
         );
         assert_eq!(
-            vec![pl("M110", None, "M110", None), pl("M117 Foobar", None, "M117", None)],
+            vec![
+                pl("M110", None, "M110", None),
+                pl("M117 Foobar", None, "M117", None)
+            ],
             norm(None, list(vec![t1("M110"), st("M117 Foobar")]), None)
         );
         assert_eq!(
@@ -10609,7 +12122,11 @@ mod tests {
                 pl("M110", Some("lineno_reset"), "M110", None),
                 pl("M117 Foobar", None, "M117", None)
             ],
-            norm(None, list(vec![t2(Some("M110"), "lineno_reset"), st("M117 Foobar")]), None)
+            norm(
+                None,
+                list(vec![t2(Some("M110"), "lineno_reset"), st("M117 Foobar")]),
+                None
+            )
         );
         assert_eq!(Vec::<Plain>::new(), norm(None, list(vec![]), None));
         assert_eq!(
@@ -10639,8 +12156,15 @@ mod tests {
         );
         let tg = Some(&["tag1", "tag2"][..]);
         assert_eq!(
-            vec![pl("M110", None, "M110", tg), pl("M117 Foobar", None, "M117", tg)],
-            norm(tags_of(&["tag1", "tag2"]), list(vec![st("M110"), st("M117 Foobar")]), None)
+            vec![
+                pl("M110", None, "M110", tg),
+                pl("M117 Foobar", None, "M117", tg)
+            ],
+            norm(
+                tags_of(&["tag1", "tag2"]),
+                list(vec![st("M110"), st("M117 Foobar")]),
+                None
+            )
         );
         let tg3 = Some(&["tag1", "tag2", "tag3"][..]);
         let add = set(&["tag3"]);
@@ -10664,7 +12188,11 @@ mod tests {
             ],
             norm(
                 tags_of(&["tag1", "tag2"]),
-                list(vec![st("M110"), t2(Some("M105"), "temperature_poll"), st("M117 Foobar")]),
+                list(vec![
+                    st("M110"),
+                    t2(Some("M105"), "temperature_poll"),
+                    st("M117 Foobar")
+                ]),
                 Some(&add)
             )
         );
@@ -10690,7 +12218,13 @@ mod tests {
     #[test]
     #[allow(non_snake_case)] // the reference's name
     fn test__validate_m20_timestamp() {
-        for (val, expected) in [("aaa", false), ("1234", false), ("0x21bf7d", true), ("0xghijk", false), ("0x28210800", true)] {
+        for (val, expected) in [
+            ("aaa", false),
+            ("1234", false),
+            ("0x21bf7d", true),
+            ("0xghijk", false),
+            ("0x28210800", true),
+        ] {
             assert_eq!(expected, _validate_m20_timestamp(val), "{val}");
         }
     }
@@ -10702,19 +12236,90 @@ mod tests {
         let ts = || Some(m20_timestamp_to_unix_timestamp("0x21bf7d").expect("a valid timestamp"));
         let s = |x: &str| x.to_string();
         let cases: Vec<(&str, (String, Option<i64>, Option<i64>, Option<String>))> = vec![
-            ("line that makes little sense", (s("line that makes little sense"), None, None, None)),
+            (
+                "line that makes little sense",
+                (s("line that makes little sense"), None, None, None),
+            ),
             ("name.gco", (s("name.gco"), None, None, None)),
-            ("name.gco invalid-size", (s("name.gco invalid-size"), None, None, None)),
-            ("name.gco 3424324", (s("name.gco"), Some(3424324), None, None)),
-            ("name.gco 3424324 longname.gcode", (s("name.gco"), Some(3424324), None, Some(s("longname.gcode")))),
-            ("name.gco 3424324 0x21bf7d", (s("name.gco"), Some(3424324), ts(), None)),
-            ("name.gco 3424324 0xinvalid_timestamp_as_longname", (s("name.gco"), Some(3424324), None, Some(s("0xinvalid_timestamp_as_longname")))),
-            ("longname.gcode 3424324 0x21bf7d", (s("longname.gcode"), Some(3424324), ts(), None)),
-            ("longname.gcode 3424324 longname.gcode", (s("longname.gcode"), Some(3424324), None, Some(s("longname.gcode")))),
-            ("name.gco 32424 0x21bf7d long name without quoting", (s("name.gco"), Some(32424), ts(), Some(s("long name without quoting")))),
-            ("name.gco 32424 0x21bf7d long   name   without   quoting", (s("name.gco"), Some(32424), ts(), Some(s("long   name   without   quoting")))),
-            ("name.gco 32424 0x21bf7d \"long name with quoting\"", (s("name.gco"), Some(32424), ts(), Some(s("long name with quoting")))),
-            ("name.gco 32424 0x21bf7d \"long   name   with   quoting\"", (s("name.gco"), Some(32424), ts(), Some(s("long   name   with   quoting")))),
+            (
+                "name.gco invalid-size",
+                (s("name.gco invalid-size"), None, None, None),
+            ),
+            (
+                "name.gco 3424324",
+                (s("name.gco"), Some(3424324), None, None),
+            ),
+            (
+                "name.gco 3424324 longname.gcode",
+                (
+                    s("name.gco"),
+                    Some(3424324),
+                    None,
+                    Some(s("longname.gcode")),
+                ),
+            ),
+            (
+                "name.gco 3424324 0x21bf7d",
+                (s("name.gco"), Some(3424324), ts(), None),
+            ),
+            (
+                "name.gco 3424324 0xinvalid_timestamp_as_longname",
+                (
+                    s("name.gco"),
+                    Some(3424324),
+                    None,
+                    Some(s("0xinvalid_timestamp_as_longname")),
+                ),
+            ),
+            (
+                "longname.gcode 3424324 0x21bf7d",
+                (s("longname.gcode"), Some(3424324), ts(), None),
+            ),
+            (
+                "longname.gcode 3424324 longname.gcode",
+                (
+                    s("longname.gcode"),
+                    Some(3424324),
+                    None,
+                    Some(s("longname.gcode")),
+                ),
+            ),
+            (
+                "name.gco 32424 0x21bf7d long name without quoting",
+                (
+                    s("name.gco"),
+                    Some(32424),
+                    ts(),
+                    Some(s("long name without quoting")),
+                ),
+            ),
+            (
+                "name.gco 32424 0x21bf7d long   name   without   quoting",
+                (
+                    s("name.gco"),
+                    Some(32424),
+                    ts(),
+                    Some(s("long   name   without   quoting")),
+                ),
+            ),
+            (
+                "name.gco 32424 0x21bf7d \"long name with quoting\"",
+                (
+                    s("name.gco"),
+                    Some(32424),
+                    ts(),
+                    Some(s("long name with quoting")),
+                ),
+            ),
+            (
+                "name.gco 32424 0x21bf7d \"long   name   with   quoting\"",
+                (
+                    s("name.gco"),
+                    Some(32424),
+                    ts(),
+                    Some(s("long   name   with   quoting")),
+                ),
+            ),
         ];
         for (val, expected) in cases {
             assert_eq!(expected, parse_file_list_line(val), "{val}");
@@ -10735,10 +12340,21 @@ mod tests {
 
     #[test]
     fn parse_file_list_line_shapes() {
-        assert_eq!(("a.gco".to_string(), None, None, None), parse_file_list_line("a.gco"));
-        assert_eq!(("a.gco".to_string(), Some(123), None, None), parse_file_list_line("a.gco 123"));
         assert_eq!(
-            ("a.gco".to_string(), Some(123), None, Some("Long  Name.gcode".to_string())),
+            ("a.gco".to_string(), None, None, None),
+            parse_file_list_line("a.gco")
+        );
+        assert_eq!(
+            ("a.gco".to_string(), Some(123), None, None),
+            parse_file_list_line("a.gco 123")
+        );
+        assert_eq!(
+            (
+                "a.gco".to_string(),
+                Some(123),
+                None,
+                Some("Long  Name.gcode".to_string())
+            ),
             parse_file_list_line("a.gco 123 Long  Name.gcode")
         );
         assert_eq!(
@@ -10746,7 +12362,12 @@ mod tests {
             parse_file_list_line("a.gco 12x")
         );
         assert_eq!(
-            ("a.gco".to_string(), Some(5), None, Some("Quoted".to_string())),
+            (
+                "a.gco".to_string(),
+                Some(5),
+                None,
+                Some("Quoted".to_string())
+            ),
             parse_file_list_line("a.gco 5 \"Quoted\"")
         );
     }
@@ -10772,7 +12393,11 @@ mod tests {
                 "regex_resend_linenumber" => &regex_resend_linenumber,
                 "regex_serial_devices" => &regex_serial_devices,
                 "_temp_command_regex" => &_temp_command_regex,
-                other => return other.strip_prefix("regexes_parameters.").map(|k| &regexes_parameters[k]),
+                other => {
+                    return other
+                        .strip_prefix("regexes_parameters.")
+                        .map(|k| &regexes_parameters[k]);
+                }
             })
         };
         let mut checked = 0;
@@ -10786,7 +12411,6 @@ mod tests {
         assert_eq!(checked, 26);
     }
 
-
     /// Python reads Unicode decimal digits: `int('٣') == 3`, `float('٣.٥') == 3.5`; a resend
     /// request `Resend: N٣` is line 3, not a crash.
     #[test]
@@ -10795,7 +12419,6 @@ mod tests {
         assert_eq!(py_float("٣.٥"), Some(3.5));
         assert_eq!(parse_resend_line("Resend: N٣"), Some(3));
     }
-
 }
 
 #[cfg(test)]
@@ -10805,11 +12428,22 @@ mod tests_records_and_queues {
     use super::*;
 
     fn coords(items: &[(&str, f64)]) -> Vec<(&'static str, Option<f64>)> {
-        items.iter().map(|(k, v)| (Box::leak(k.to_string().into_boxed_str()) as &'static str, Some(*v))).collect()
+        items
+            .iter()
+            .map(|(k, v)| {
+                (
+                    Box::leak(k.to_string().into_boxed_str()) as &'static str,
+                    Some(*v),
+                )
+            })
+            .collect()
     }
 
     fn expected(items: &[(&str, f64)], extra_none: &[&str]) -> BTreeMap<String, Option<f64>> {
-        let mut e: BTreeMap<String, Option<f64>> = items.iter().map(|(k, v)| (k.to_string(), Some(*v))).collect();
+        let mut e: BTreeMap<String, Option<f64>> = items
+            .iter()
+            .map(|(k, v)| (k.to_string(), Some(*v)))
+            .collect();
         for k in extra_none {
             e.insert(k.to_string(), None);
         }
@@ -10862,7 +12496,14 @@ mod tests_records_and_queues {
         let c1 = [("x", 1.0), ("y", 2.0), ("z", 3.0), ("e0", 4.0), ("e1", 5.0)];
         let position1 = PositionRecord::new(&coords(&c1));
 
-        let c2 = [("x", 2.0), ("y", 4.0), ("z", 6.0), ("e0", 8.0), ("e1", 10.0), ("e2", 12.0)];
+        let c2 = [
+            ("x", 2.0),
+            ("y", 4.0),
+            ("z", 6.0),
+            ("e0", 8.0),
+            ("e1", 10.0),
+            ("e2", 12.0),
+        ];
         let mut position2 = PositionRecord::new(&coords(&c2));
 
         let expected_before = expected(&c2, &["e", "f", "t"]);
@@ -10877,12 +12518,27 @@ mod tests_records_and_queues {
     // TestTemperatureRecord.test_set_custom (@data)
     #[test]
     fn test_set_custom() {
-        for identifier in ["TX", "B2", "BX", "SOMETHING_CUSTOM", "1234B456", "blub", "fnord", "C1", "CX"] {
+        for identifier in [
+            "TX",
+            "B2",
+            "BX",
+            "SOMETHING_CUSTOM",
+            "1234B456",
+            "blub",
+            "fnord",
+            "C1",
+            "CX",
+        ] {
             let mut temperature = TemperatureRecord::new();
 
-            temperature.set_custom(identifier, Some(1.0), Some(2.0)).unwrap();
+            temperature
+                .set_custom(identifier, Some(1.0), Some(2.0))
+                .unwrap();
 
-            assert!(temperature.custom().iter().any(|(k, _)| k == identifier), "{identifier}");
+            assert!(
+                temperature.custom().iter().any(|(k, _)| k == identifier),
+                "{identifier}"
+            );
         }
     }
 
@@ -10912,7 +12568,16 @@ mod tests_records_and_queues {
         assert_eq!(t.tools(), vec![(0, (Some(20.0), Some(200.0)))]);
         assert_eq!(t.bed(), (Some(1.0), Some(2.0)));
         let d = t.as_script_dict();
-        assert_eq!(d[0], (ScriptKey::Tool(0), ScriptTemp { actual: Some(20.0), target: Some(200.0) }));
+        assert_eq!(
+            d[0],
+            (
+                ScriptKey::Tool(0),
+                ScriptTemp {
+                    actual: Some(20.0),
+                    target: Some(200.0)
+                }
+            )
+        );
     }
 
     /// ours: CommandQueue: type uniqueness, order, blocked() and clear().
@@ -10920,7 +12585,10 @@ mod tests_records_and_queues {
     fn ours_command_queue() {
         let q: CommandQueue<&str, &str> = CommandQueue::new(0);
         q.put("a", Some("T"), true, None).unwrap();
-        assert!(matches!(q.put("b", Some("T"), true, None), Err(PutError::Raised(_))));
+        assert!(matches!(
+            q.put("b", Some("T"), true, None),
+            Err(PutError::Raised(_))
+        ));
         q.put("c", None, true, None).unwrap();
         q.prepend("p", None, true, None).unwrap();
         assert_eq!(q.get(true, None).unwrap(), "p");
@@ -10938,7 +12606,8 @@ mod tests_records_and_queues {
     fn ours_send_queue() {
         let q: SendQueue<&str, &str> = SendQueue::new(0);
         q.put("s1", None, None, true, None).unwrap();
-        q.put("r1", None, Some("resend".into()), true, None).unwrap();
+        q.put("r1", None, Some("resend".into()), true, None)
+            .unwrap();
         assert_eq!(q.qsize(), 2);
         q.set_resend_active(true);
         assert_eq!(q.qsize(), 1);
@@ -10993,7 +12662,10 @@ mod machinecom_tests {
             *self.sd_files.lock().unwrap() += 1;
         }
         fn on_comm_record_fileposition(&self, origin: &str, name: &str, pos: Option<i64>) {
-            self.positions.lock().unwrap().push((origin.to_string(), name.to_string(), pos));
+            self.positions
+                .lock()
+                .unwrap()
+                .push((origin.to_string(), name.to_string(), pos));
         }
     }
 
@@ -11017,11 +12689,21 @@ mod machinecom_tests {
     }
 
     fn gcode_file() -> Arc<PrintingGcodeFileInformation> {
-        Arc::new(PrintingGcodeFileInformation::new(&temp_file(b"G1 X1\n"), None, None, None).unwrap())
+        Arc::new(
+            PrintingGcodeFileInformation::new(&temp_file(b"G1 X1\n"), None, None, None).unwrap(),
+        )
     }
 
     fn streaming_file() -> Arc<StreamingGcodeFileInformation> {
-        Arc::new(StreamingGcodeFileInformation::new(&temp_file(b"G1 X1\n"), "local.gcode", "/remote.gco", None).unwrap())
+        Arc::new(
+            StreamingGcodeFileInformation::new(
+                &temp_file(b"G1 X1\n"),
+                "local.gcode",
+                "/remote.gco",
+                None,
+            )
+            .unwrap(),
+        )
     }
 
     struct FakeSerial {
@@ -11035,7 +12717,11 @@ mod machinecom_tests {
         }
         fn close(&self) -> Result<(), String> {
             *self.closed.lock().unwrap() = true;
-            if self.fail_close { Err("boom".to_string()) } else { Ok(()) }
+            if self.fail_close {
+                Err("boom".to_string())
+            } else {
+                Ok(())
+            }
         }
         fn str(&self) -> String {
             "FakeSerial".to_string()
@@ -11074,7 +12760,9 @@ mod machinecom_tests {
     #[test]
     fn machinecom_attrs_exist() {
         let src = include_str!("comm.rs");
-        let st = src.find("pub struct MachineCom {").expect("struct MachineCom");
+        let st = src
+            .find("pub struct MachineCom {")
+            .expect("struct MachineCom");
         let body = &src[st..st + src[st..].find("\n}\n").unwrap()];
         let not_ported = ["_logger", "_serialLogger", "_phaseLogger"];
         let mut n = (0, 0);
@@ -11101,7 +12789,10 @@ mod machinecom_tests {
                         .find(|l| l.trim_start().starts_with(&format!("pub {name}:")))
                         .unwrap_or_else(|| panic!("attribute {name} is missing"));
                     if parts.contains(&"reassigned") {
-                        assert!(field.contains("Attr<"), "{name} is reassigned in Python, so it must be an Attr");
+                        assert!(
+                            field.contains("Attr<"),
+                            "{name} is reassigned in Python, so it must be an Attr"
+                        );
                     }
                     n.1 += 1;
                 }
@@ -11124,13 +12815,35 @@ mod machinecom_tests {
         assert_eq!(None, c._clear_to_send.min());
         assert_eq!(0.1, c._resend_ratio_threshold);
         assert_eq!(Some(100), c._resend_ratio_start);
-        assert_eq!(Some(50), c._lastLines.with(|l| l.maxlen()).map(|m| m as i64));
-        assert_eq!(Some(20), c._terminal_log.with(|l| l.maxlen()).map(|m| m as i64));
-        assert_eq!(Some(10.0), c._timeout_intervals.with(|d| d.get("detectionFirst").copied()));
-        assert_eq!(Some(2), c._consecutive_timeout_maximums.with(|d| d.get("idle").copied()));
+        assert_eq!(
+            Some(50),
+            c._lastLines.with(|l| l.maxlen()).map(|m| m as i64)
+        );
+        assert_eq!(
+            Some(20),
+            c._terminal_log.with(|l| l.maxlen()).map(|m| m as i64)
+        );
+        assert_eq!(
+            Some(10.0),
+            c._timeout_intervals
+                .with(|d| d.get("detectionFirst").copied())
+        );
+        assert_eq!(
+            Some(2),
+            c._consecutive_timeout_maximums
+                .with(|d| d.get("idle").copied())
+        );
         // serial.capabilities has no "chamber_temp" in the defaults: None (falsy)
-        assert_eq!(Some(None), c._capability_support.with(|d| d.get("CHAMBER_TEMPERATURE").copied()));
-        assert_eq!(Some(Some(true)), c._capability_support.with(|d| d.get("AUTOREPORT_TEMP").copied()));
+        assert_eq!(
+            Some(None),
+            c._capability_support
+                .with(|d| d.get("CHAMBER_TEMPERATURE").copied())
+        );
+        assert_eq!(
+            Some(Some(true)),
+            c._capability_support
+                .with(|d| d.get("AUTOREPORT_TEMP").copied())
+        );
         assert!(c._active());
         assert!(!c.monitoring_thread.is_alive() && !c.sending_thread.is_alive());
         assert!(c._gcode_hooks.get("queuing").unwrap().is_empty());
@@ -11197,7 +12910,10 @@ mod machinecom_tests {
         let (c, _) = comm();
         for s in 0..=15 {
             c._state.set(s);
-            assert_eq!(MachineCom::OPERATIONAL_STATES.contains(&s), c.is_operational());
+            assert_eq!(
+                MachineCom::OPERATIONAL_STATES.contains(&s),
+                c.is_operational()
+            );
             assert_eq!(MachineCom::PRINTING_STATES.contains(&s), c.is_printing());
             assert_eq!([11, 12, 13].contains(&s), c.is_closed_or_error());
             assert_eq!([12, 13].contains(&s), c.is_error());
@@ -11314,7 +13030,17 @@ mod machinecom_tests {
     #[test]
     fn change_state_closed_clears_sd_files_and_closes_file() {
         let (c, rec) = comm();
-        c._sdFiles.with_mut(|d| d.insert("a.gco", SDFileData { name: "a.gco".into(), size: None, timestamp: None, longname: None }));
+        c._sdFiles.with_mut(|d| {
+            d.insert(
+                "a.gco",
+                SDFileData {
+                    name: "a.gco".into(),
+                    size: None,
+                    timestamp: None,
+                    longname: None,
+                },
+            )
+        });
         c._sdFileList.set(true);
         let f = gcode_file();
         f.start().unwrap();
@@ -11336,7 +13062,10 @@ mod machinecom_tests {
         c._currentFile.set(Some(sd_file()));
         c._state.set(MachineCom::STATE_PRINTING);
         c._change_state(MachineCom::STATE_CLOSED);
-        assert_eq!(vec![("sdcard".to_string(), "x.gco".to_string(), Some(42))], *rec.positions.lock().unwrap());
+        assert_eq!(
+            vec![("sdcard".to_string(), "x.gco".to_string(), Some(42))],
+            *rec.positions.lock().unwrap()
+        );
     }
 
     #[test]
@@ -11377,9 +13106,15 @@ mod machinecom_tests {
         let (c, _) = comm();
         assert_eq!((None, Some(0)), c.get_connection());
         assert!(c.get_transport().is_none());
-        c._serial.set(Some(Arc::new(FakeSerial { fail_close: false, closed: Mutex::new(false) })));
+        c._serial.set(Some(Arc::new(FakeSerial {
+            fail_close: false,
+            closed: Mutex::new(false),
+        })));
         // the transport has a port, no baudrate attribute
-        assert_eq!((Some("/dev/ttyFAKE".to_string()), Some(0)), c.get_connection());
+        assert_eq!(
+            (Some("/dev/ttyFAKE".to_string()), Some(0)),
+            c.get_connection()
+        );
         assert!(c.get_transport().is_some());
     }
 
@@ -11425,7 +13160,10 @@ mod machinecom_tests {
     #[test]
     fn close_with_serial_and_error() {
         let (c, _) = comm();
-        let s = Arc::new(FakeSerial { fail_close: false, closed: Mutex::new(false) });
+        let s = Arc::new(FakeSerial {
+            fail_close: false,
+            closed: Mutex::new(false),
+        });
         c._serial.set(Some(s.clone()));
         c.close(true, true, Some(10.0));
         assert!(*s.closed.lock().unwrap());
@@ -11433,7 +13171,10 @@ mod machinecom_tests {
         assert_eq!(MachineCom::STATE_CLOSED_WITH_ERROR, c.get_state());
 
         let (c, _) = comm();
-        let s = Arc::new(FakeSerial { fail_close: true, closed: Mutex::new(false) });
+        let s = Arc::new(FakeSerial {
+            fail_close: true,
+            closed: Mutex::new(false),
+        });
         c._serial.set(Some(s));
         c.close(false, true, Some(10.0)); // state NONE is not operational: no script
         assert_eq!(MachineCom::STATE_CLOSED_WITH_ERROR, c.get_state());
@@ -11481,8 +13222,20 @@ mod section_f_tests {
     }
 
     impl MachineComPrintCallback for Rec {
-        fn on_comm_file_selected(&self, f: Option<&str>, size: Option<i64>, sd: bool, user: Option<&str>, _data: Option<&Value>) {
-            self.selected.lock().unwrap().push((f.map(str::to_string), size, sd, user.map(str::to_string)));
+        fn on_comm_file_selected(
+            &self,
+            f: Option<&str>,
+            size: Option<i64>,
+            sd: bool,
+            user: Option<&str>,
+            _data: Option<&Value>,
+        ) {
+            self.selected.lock().unwrap().push((
+                f.map(str::to_string),
+                size,
+                sd,
+                user.map(str::to_string),
+            ));
         }
         fn on_comm_sd_files(&self, files: &[Value]) {
             self.sd_files.lock().unwrap().push(files.to_vec());
@@ -11491,7 +13244,10 @@ mod section_f_tests {
             self.sd_state.lock().unwrap().push(ready);
         }
         fn on_comm_record_fileposition(&self, origin: &str, name: &str, pos: Option<i64>) {
-            self.positions.lock().unwrap().push((origin.to_string(), name.to_string(), pos));
+            self.positions
+                .lock()
+                .unwrap()
+                .push((origin.to_string(), name.to_string(), pos));
         }
         fn on_comm_log(&self, message: &str) {
             self.logs.lock().unwrap().push(message.to_string());
@@ -11570,14 +13326,22 @@ mod section_f_tests {
         assert_eq!(None, f.get_start_time());
         assert_eq!("local", f.get_file_location());
         assert_eq!(Some("alice".to_string()), f.get_user());
-        assert!(f.checksum() && !f.is_printing_sd_file_information() && !f.is_streaming_gcode_file_information());
+        assert!(
+            f.checksum()
+                && !f.is_printing_sd_file_information()
+                && !f.is_streaming_gcode_file_information()
+        );
         // not open: nothing
         assert_eq!((None, None, None), f.get_next().unwrap());
         f.start().unwrap();
         assert!(f.get_start_time().is_some() && !f.done());
         let lines = all_lines(&f);
         assert_eq!(
-            vec![("G1 X1".to_string(), 14, 1), ("M104 S200".to_string(), 37, 2), ("G28".to_string(), 40, 3)],
+            vec![
+                ("G1 X1".to_string(), 14, 1),
+                ("M104 S200".to_string(), 37, 2),
+                ("G28".to_string(), 40, 3)
+            ],
             lines
         );
         assert!(f.done());
@@ -11597,7 +13361,11 @@ mod section_f_tests {
         let lines = all_lines(&f);
         // \xff is U+FFFD (3 bytes) after the replacement
         assert_eq!(
-            vec![("G1".to_string(), 6, 1), ("G2".to_string(), 9, 2), ("\u{fffd}G3".to_string(), 15, 3)],
+            vec![
+                ("G1".to_string(), 6, 1),
+                ("G2".to_string(), 9, 2),
+                ("\u{fffd}G3".to_string(), 15, 3)
+            ],
             lines
         );
     }
@@ -11629,7 +13397,13 @@ mod section_f_tests {
         let mut h = TextHandle::open(&path).unwrap();
         h.seek(23).unwrap();
         let mut pos = 23;
-        for (line, want_pos) in [("M104 S200\r\n", 34), ("G1 X20\n", 41), ("\n", 42), ("M84", 45), ("", 45)] {
+        for (line, want_pos) in [
+            ("M104 S200\r\n", 34),
+            ("G1 X20\n", 41),
+            ("\n", 42),
+            ("M84", 45),
+            ("", 45),
+        ] {
             let got = h.readline().unwrap();
             pos += got.len() as i64;
             assert_eq!((line, want_pos), (got.as_str(), pos));
@@ -11652,9 +13426,15 @@ mod section_f_tests {
         let f = PrintingGcodeFileInformation::new(&path, None, None, None).unwrap();
         f.start().unwrap();
         assert_eq!(3, f.get_filepos());
-        assert_eq!((Some("G28".to_string()), Some(8), Some(1)), f.get_next().unwrap());
+        assert_eq!(
+            (Some("G28".to_string()), Some(8), Some(1)),
+            f.get_next().unwrap()
+        );
         // "; café\n" ends at 16 and is skipped, "G1 X10\r" ends at 23
-        assert_eq!((Some("G1 X10".to_string()), Some(23), Some(2)), f.get_next().unwrap());
+        assert_eq!(
+            (Some("G1 X10".to_string()), Some(23), Some(2)),
+            f.get_next().unwrap()
+        );
         f.close();
 
         let f = PrintingGcodeFileInformation::new(&path, None, None, None).unwrap();
@@ -11663,7 +13443,11 @@ mod section_f_tests {
         assert_eq!(23, f.get_filepos());
         // "\n" (42) is skipped
         assert_eq!(
-            vec![("M104 S200".to_string(), 34, 1), ("G1 X20".to_string(), 41, 2), ("M84".to_string(), 45, 3)],
+            vec![
+                ("M104 S200".to_string(), 34, 1),
+                ("G1 X20".to_string(), 41, 2),
+                ("M84".to_string(), 45, 3)
+            ],
             all_lines(&f)
         );
         assert_eq!(45, f.get_filepos());
@@ -11672,12 +13456,22 @@ mod section_f_tests {
     #[test]
     fn ours_gcode_file_offsets_and_tool() {
         let path = temp_file(b"M104 S200\nM140 S60\n");
-        let offsets: OffsetsCallback = Arc::new(|| [("tool0".to_string(), 5.0), ("bed".to_string(), -10.0)].into_iter().collect());
+        let offsets: OffsetsCallback = Arc::new(|| {
+            [("tool0".to_string(), 5.0), ("bed".to_string(), -10.0)]
+                .into_iter()
+                .collect()
+        });
         let tool: CurrentToolCallback = Arc::new(|| 0);
         let f = PrintingGcodeFileInformation::new(&path, Some(offsets), Some(tool), None).unwrap();
         f.start().unwrap();
         let lines: Vec<String> = all_lines(&f).into_iter().map(|l| l.0).collect();
-        assert_eq!(vec!["M104 S205.000000".to_string(), "M140 S50.000000".to_string()], lines);
+        assert_eq!(
+            vec![
+                "M104 S205.000000".to_string(),
+                "M140 S50.000000".to_string()
+            ],
+            lines
+        );
     }
 
     #[test]
@@ -11689,23 +13483,37 @@ mod section_f_tests {
         f.start().unwrap();
         f.seek(3).unwrap();
         assert_eq!(3, f.get_filepos());
-        assert_eq!(vec![("G2".to_string(), 6, 1), ("G3".to_string(), 9, 2)], all_lines(&f));
+        assert_eq!(
+            vec![("G2".to_string(), 6, 1), ("G3".to_string(), 9, 2)],
+            all_lines(&f)
+        );
         f.start().unwrap();
         f.close();
         assert_eq!((None, None, None), f.get_next().unwrap());
 
         assert_eq!(
-            Err(OSError("File /nonexistent/x.gcode does not exist".to_string())),
+            Err(OSError(
+                "File /nonexistent/x.gcode does not exist".to_string()
+            )),
             PrintingGcodeFileInformation::new("/nonexistent/x.gcode", None, None, None).map(|_| ())
         );
         // a directory is not a file
-        assert!(PrintingGcodeFileInformation::new(std::env::temp_dir().to_str().unwrap(), None, None, None).is_err());
+        assert!(
+            PrintingGcodeFileInformation::new(
+                std::env::temp_dir().to_str().unwrap(),
+                None,
+                None,
+                None
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn ours_streaming_and_special_files() {
         let path = temp_file(b"G1 X1 ; c\n\n  raw line  \n");
-        let s = StreamingGcodeFileInformation::new(&path, "local.gcode", "/remote.gco", None).unwrap();
+        let s =
+            StreamingGcodeFileInformation::new(&path, "local.gcode", "/remote.gco", None).unwrap();
         assert!(s.is_streaming_gcode_file_information() && s.checksum());
         assert_eq!("local.gcode", s.get_local_filename());
         assert_eq!("/remote.gco", s.get_remote_filename());
@@ -11713,12 +13521,16 @@ mod section_f_tests {
         let lines: Vec<String> = all_lines(&s).into_iter().map(|l| l.0).collect();
         assert_eq!(vec!["G1 X1".to_string(), "raw line".to_string()], lines);
 
-        let sp = SpecialStreamingGcodeFileInformation::new(&path, "local.bin", "/remote.bin", None).unwrap();
+        let sp = SpecialStreamingGcodeFileInformation::new(&path, "local.bin", "/remote.bin", None)
+            .unwrap();
         assert!(sp.is_streaming_gcode_file_information() && !sp.checksum());
         assert_eq!("/remote.bin", sp.get_remote_filename());
         sp.start().unwrap();
         let lines: Vec<String> = all_lines(&sp).into_iter().map(|l| l.0).collect();
-        assert_eq!(vec!["G1 X1 ; c".to_string(), "  raw line".to_string()], lines);
+        assert_eq!(
+            vec!["G1 X1 ; c".to_string(), "  raw line".to_string()],
+            lines
+        );
     }
 
     #[test]
@@ -11755,10 +13567,35 @@ mod section_f_tests {
     #[test]
     fn ours_send_command_to_job_queue() {
         let (c, _) = comm();
-        assert_eq!(Some(true), c.send_command(cmd("G1 X1 ; c"), None, true, false, false, None, Some(tags(&["a"]))));
-        assert_eq!(Some(false), c.send_command(cmd("; only a comment"), None, true, false, false, None, None));
+        assert_eq!(
+            Some(true),
+            c.send_command(
+                cmd("G1 X1 ; c"),
+                None,
+                true,
+                false,
+                false,
+                None,
+                Some(tags(&["a"]))
+            )
+        );
+        assert_eq!(
+            Some(false),
+            c.send_command(
+                cmd("; only a comment"),
+                None,
+                true,
+                false,
+                false,
+                None,
+                None
+            )
+        );
         // processed: no stripping
-        assert_eq!(Some(true), c.send_command(cmd("G1 ; c"), Some("t"), true, true, false, None, None));
+        assert_eq!(
+            Some(true),
+            c.send_command(cmd("G1 ; c"), Some("t"), true, true, false, None, None)
+        );
         let items = drain_job(&c);
         assert_eq!(2, items.len());
         assert_eq!("G1 X1", cmd_text(&items[0]));
@@ -11771,12 +13608,48 @@ mod section_f_tests {
     fn ours_send_command_while_printing_goes_to_command_queue() {
         let (c, _) = comm();
         // not operational, not forced: nothing
-        assert_eq!(None, c.send_command(cmd("G1"), None, false, false, false, None, None));
+        assert_eq!(
+            None,
+            c.send_command(cmd("G1"), None, false, false, false, None, None)
+        );
         c._state.set(MachineCom::STATE_PRINTING);
-        assert_eq!(Some(true), c.send_command(cmd("M105"), Some("temperature"), false, false, false, None, None));
+        assert_eq!(
+            Some(true),
+            c.send_command(
+                cmd("M105"),
+                Some("temperature"),
+                false,
+                false,
+                false,
+                None,
+                None
+            )
+        );
         // the same type twice: TypeAlreadyInQueue
-        assert_eq!(Some(false), c.send_command(cmd("M105"), Some("temperature"), false, false, false, None, None));
-        assert_eq!(Some(true), c.send_command(cmd("G1"), None, false, false, false, None, Some(tags(&["x"]))));
+        assert_eq!(
+            Some(false),
+            c.send_command(
+                cmd("M105"),
+                Some("temperature"),
+                false,
+                false,
+                false,
+                None,
+                None
+            )
+        );
+        assert_eq!(
+            Some(true),
+            c.send_command(
+                cmd("G1"),
+                None,
+                false,
+                false,
+                false,
+                None,
+                Some(tags(&["x"]))
+            )
+        );
         let first = c._command_queue.get(false, None).unwrap();
         assert_eq!("M105", cmd_text(&first));
         let second = c._command_queue.get(false, None).unwrap();
@@ -11789,17 +13662,30 @@ mod section_f_tests {
     fn ours_send_command_marker_goes_to_queue_untouched() {
         let (c, _) = comm();
         let marker = QueuedCommand::Marker(SendQueueMarker::new(None).0);
-        assert_eq!(Some(true), c.send_command(marker, None, true, false, false, None, None));
+        assert_eq!(
+            Some(true),
+            c.send_command(marker, None, true, false, false, None, None)
+        );
         assert_eq!("<marker>", cmd_text(&drain_job(&c)[0]));
     }
 
     #[test]
     fn ours_get_gcode_script_cancel() {
         let (c, _) = comm();
-        assert_eq!(Vec::<(String, BTreeSet<String>)>::new(), c._get_gcode_script("nonexistent", None));
-        let lines: Vec<String> = c._get_gcode_script("afterPrintCancelled", None).into_iter().map(|l| l.0).collect();
         assert_eq!(
-            vec!["M84", "M104 T0 S0", "M104 T1 S0", "M140 S0", "M106 S0"].into_iter().map(String::from).collect::<Vec<_>>(),
+            Vec::<(String, BTreeSet<String>)>::new(),
+            c._get_gcode_script("nonexistent", None)
+        );
+        let lines: Vec<String> = c
+            ._get_gcode_script("afterPrintCancelled", None)
+            .into_iter()
+            .map(|l| l.0)
+            .collect();
+        assert_eq!(
+            vec!["M84", "M104 T0 S0", "M104 T1 S0", "M140 S0", "M106 S0"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>(),
             lines
         );
     }
@@ -11812,7 +13698,13 @@ mod section_f_tests {
         let items = drain_job(&c);
         assert_eq!(5, items.len());
         assert_eq!(
-            tags(&["t", "trigger:comm.send_gcode_script", "source:script", "script:afterPrintCancelled", "source:job"]),
+            tags(&[
+                "t",
+                "trigger:comm.send_gcode_script",
+                "source:script",
+                "script:afterPrintCancelled",
+                "source:job"
+            ]),
             items[0].3
         );
         assert_eq!("", c.send_gcode_script("nonexistent", None, None, true));
@@ -11837,7 +13729,11 @@ mod section_f_tests {
             "{{ last_temperature[0].actual }} {{ last_temperature[1].target }} {{ last_temperature.b.actual }}\n\
              {% for k in last_temperature %}{{ k }},{% endfor %}",
         );
-        let lines: Vec<String> = c.get_gcode_script_in(&settings, "t_int_keys", None).into_iter().map(|l| l.0).collect();
+        let lines: Vec<String> = c
+            .get_gcode_script_in(&settings, "t_int_keys", None)
+            .into_iter()
+            .map(|l| l.0)
+            .collect();
         // Python's output: "21.5 210.0 22.0\n0,1,b,c,zz,aa,"
         assert_eq!(vec!["21.5 210.0 22.0", "0,1,b,c,zz,aa,"], lines);
     }
@@ -11847,7 +13743,10 @@ mod section_f_tests {
         let (c, _) = comm();
         c._printerProfileManager.as_ref().unwrap(); // the profile is in the context
         // a replacement is visible to the template; the comm's own entries win over it
-        let lines = c._get_gcode_script("afterPrintCancelled", Some(&serde_json::json!({"x": 1, "printer_profile": 5})));
+        let lines = c._get_gcode_script(
+            "afterPrintCancelled",
+            Some(&serde_json::json!({"x": 1, "printer_profile": 5})),
+        );
         assert_eq!(5, lines.len());
     }
 
@@ -11858,13 +13757,19 @@ mod section_f_tests {
         let (c, rec) = comm();
         let path = temp_file(b"G1 X1\n");
         c.select_file(&path, false, Some("u"), None).unwrap();
-        assert_eq!(vec![(Some(path.clone()), Some(6), false, Some("u".to_string()))], *rec.selected.lock().unwrap());
+        assert_eq!(
+            vec![(Some(path.clone()), Some(6), false, Some("u".to_string()))],
+            *rec.selected.lock().unwrap()
+        );
         let f = c._currentFile.get().unwrap();
         assert_eq!(path, f.get_filename());
         c.unselect_file();
         assert!(c._currentFile.get().is_none());
         assert_eq!((None, None, false, None), rec.selected.lock().unwrap()[1]);
-        assert!(c.select_file("/nonexistent.gcode", false, None, None).is_err());
+        assert!(
+            c.select_file("/nonexistent.gcode", false, None, None)
+                .is_err()
+        );
         // not operational: SD is not used
         assert!(c.select_file("a.gco", true, None, None).is_ok());
         assert!(c._sdFileToSelect.get().is_none());
@@ -11895,7 +13800,10 @@ mod section_f_tests {
     #[test]
     fn ours_unselect_while_busy_does_nothing() {
         let (c, rec) = comm();
-        c._currentFile.set(Some(Arc::new(PrintingSdFileInformation::new("a", None, None))));
+        c._currentFile
+            .set(Some(Arc::new(PrintingSdFileInformation::new(
+                "a", None, None,
+            ))));
         c._state.set(MachineCom::STATE_PRINTING);
         c.unselect_file();
         assert!(c._currentFile.get().is_some());
@@ -11910,8 +13818,24 @@ mod section_f_tests {
     fn ours_get_sd_files() {
         let (c, _) = comm();
         c._sdFiles.with_mut(|d| {
-            d.insert("a.gco", SDFileData { name: "a.gco".into(), size: Some(10), timestamp: Some(5), longname: None });
-            d.insert("B", SDFileData { name: "B".into(), size: None, timestamp: None, longname: Some("Long B.gcode".into()) });
+            d.insert(
+                "a.gco",
+                SDFileData {
+                    name: "a.gco".into(),
+                    size: Some(10),
+                    timestamp: Some(5),
+                    longname: None,
+                },
+            );
+            d.insert(
+                "B",
+                SDFileData {
+                    name: "B".into(),
+                    size: None,
+                    timestamp: None,
+                    longname: Some("Long B.gcode".into()),
+                },
+            );
         });
         assert_eq!(
             vec![
@@ -11928,7 +13852,17 @@ mod section_f_tests {
         c._state.set(MachineCom::STATE_PRINTING);
         c.init_sd_card(Some(tags(&["t"])));
         c.release_sd_card(None);
-        c._sdFiles.with_mut(|d| d.insert("a.gco", SDFileData { name: "a.gco".into(), size: None, timestamp: None, longname: None }));
+        c._sdFiles.with_mut(|d| {
+            d.insert(
+                "a.gco",
+                SDFileData {
+                    name: "a.gco".into(),
+                    size: None,
+                    timestamp: None,
+                    longname: None,
+                },
+            )
+        });
         c.delete_sd_file("DIR/File.GCO", None);
         c.refresh_sd_files(None, false, Some(10.0)); // busy: nothing
         let mut texts = Vec::new();
@@ -11965,7 +13899,10 @@ mod section_f_tests {
         c.reset_line_numbers(7, true, Some(tags(&["t"])));
         let items = drain_job(&c);
         assert_eq!("M110 N7", cmd_text(&items[0]));
-        assert_eq!(tags(&["t", "trigger:comm.reset_line_numbers", "source:job"]), items[0].3);
+        assert_eq!(
+            tags(&["t", "trigger:comm.reset_line_numbers", "source:job"]),
+            items[0].3
+        );
         c._state.set(MachineCom::STATE_NONE);
     }
 
@@ -11976,7 +13913,10 @@ mod section_f_tests {
         let (c, _) = comm();
         assert_eq!(Ok(()), c.start_print(None, None, false, None)); // not operational
         c._state.set(MachineCom::STATE_OPERATIONAL);
-        assert_eq!(Err(ValueError("No file selected for printing")), c.start_print(None, None, false, None));
+        assert_eq!(
+            Err(ValueError("No file selected for printing")),
+            c.start_print(None, None, false, None)
+        );
         c._state.set(MachineCom::STATE_PRINTING);
         assert_eq!(Ok(()), c.start_print(None, None, false, None)); // already printing
         c._state.set(MachineCom::STATE_NONE);
@@ -11990,13 +13930,18 @@ mod section_f_tests {
         c.cancel_print(None, false, None, None, false); // not busy
         c.cancel_file_transfer(None); // not streaming
         c.set_pause(true, true, None, None); // no file
-        c._currentFile.set(Some(Arc::new(PrintingSdFileInformation::new("a", None, None))));
+        c._currentFile
+            .set(Some(Arc::new(PrintingSdFileInformation::new(
+                "a", None, None,
+            ))));
         c.set_pause(true, true, None, None); // not in a pausable state
         assert_eq!(MachineCom::STATE_OPERATIONAL, c.get_state());
         c._state.set(MachineCom::STATE_CANCELLING);
         c.cancel_print(None, false, None, None, false); // already cancelling
         c._state.set(MachineCom::STATE_PRINTING);
-        c._currentFile.set(Some(Arc::new(StreamingGcodeFileInformation::new(&temp_file(b""), "l", "/r", None).unwrap())));
+        c._currentFile.set(Some(Arc::new(
+            StreamingGcodeFileInformation::new(&temp_file(b""), "l", "/r", None).unwrap(),
+        )));
         c.set_pause(true, true, None, None); // streaming
         assert_eq!(MachineCom::STATE_PRINTING, c.get_state());
         c._currentFile.set(None);
@@ -12006,7 +13951,10 @@ mod section_f_tests {
     #[test]
     fn ours_start_file_transfer_not_operational() {
         let (c, _) = comm();
-        assert_eq!(Ok(None), c.start_file_transfer("p", "f.gcode", None, false, None));
+        assert_eq!(
+            Ok(None),
+            c.start_file_transfer("p", "f.gcode", None, false, None)
+        );
     }
 
     #[test]
@@ -12031,7 +13979,10 @@ mod section_f_tests {
         c._pause_preparation_failed();
         assert!(!c._record_pause_data.get());
         let logs = rec.logs.lock().unwrap();
-        assert_eq!("Did not receive parseable position data from printer within 10.0s, continuing without it", logs[0]);
+        assert_eq!(
+            "Did not receive parseable position data from printer within 10.0s, continuing without it",
+            logs[0]
+        );
         assert_eq!(2, logs.len());
     }
 
@@ -12045,11 +13996,18 @@ mod section_f_tests {
         f.set_pos(4);
         c._currentFile.set(Some(Arc::new(f)));
         assert_eq!(
-            Some(FilePosition { origin: "sdcard", filename: "a.gco".to_string(), pos: 4 }),
+            Some(FilePosition {
+                origin: "sdcard",
+                filename: "a.gco".to_string(),
+                pos: 4
+            }),
             c.get_file_position()
         );
         c._record_file_position();
-        assert_eq!(vec![("sdcard".to_string(), "a.gco".to_string(), Some(4))], *rec.positions.lock().unwrap());
+        assert_eq!(
+            vec![("sdcard".to_string(), "a.gco".to_string(), Some(4))],
+            *rec.positions.lock().unwrap()
+        );
     }
 
     #[test]
@@ -12069,7 +14027,10 @@ mod section_f_tests {
         c._process_temperatures("ok T:21.3 /0.0 B:22.1 /60.0 C:30 /0 X:5");
         assert_eq!(vec![(0, (Some(21.3), Some(0.0)))], c.get_temp());
         assert_eq!((Some(22.1), Some(60.0)), c.get_bed_temp());
-        assert_eq!((Some(30.0), Some(0.0)), c.last_temperature.with(|t| t.chamber()));
+        assert_eq!(
+            (Some(30.0), Some(0.0)),
+            c.last_temperature.with(|t| t.chamber())
+        );
     }
 
     /// The custom temperatures are recorded in the order the line gave them (Python's dict order).
@@ -12079,22 +14040,32 @@ mod section_f_tests {
         c._process_temperatures("T:20 /0 Z:1 /0 A:2 /0 M:3 /0");
         assert_eq!(
             vec!["Z", "A", "M"],
-            c.last_temperature.with(|t| t.custom().into_iter().map(|(k, _)| k).collect::<Vec<_>>())
+            c.last_temperature
+                .with(|t| t.custom().into_iter().map(|(k, _)| k).collect::<Vec<_>>())
         );
         let (_, parsed) = parse_temperature_line("T:20 Z:1 A:2 B:3", 0);
         // `T` becomes `T0` at the end (`result["T0"] = result["T"]; del result["T"]`)
-        assert_eq!(vec!["Z", "A", "B", "T0"], parsed.keys().map(|k| k.as_str()).collect::<Vec<_>>());
+        assert_eq!(
+            vec!["Z", "A", "B", "T0"],
+            parsed.keys().map(|k| k.as_str()).collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn ours_process_temperatures_tools_and_current_tool() {
         let (c, _) = comm();
         c._process_temperatures("T0:20 /0 T1:30 /210");
-        assert_eq!(vec![(0, (Some(20.0), Some(0.0))), (1, (Some(30.0), Some(210.0)))], c.get_temp());
+        assert_eq!(
+            vec![(0, (Some(20.0), Some(0.0))), (1, (Some(30.0), Some(210.0)))],
+            c.get_temp()
+        );
         // current tool 1: a bare `T:` is tool 1's
         c._currentTool.set(1);
         c._process_temperatures("T:40 /220");
-        assert_eq!(vec![(0, (Some(20.0), Some(0.0))), (1, (Some(40.0), Some(220.0)))], c.get_temp());
+        assert_eq!(
+            vec![(0, (Some(20.0), Some(0.0))), (1, (Some(40.0), Some(220.0)))],
+            c.get_temp()
+        );
     }
 
     #[test]
@@ -12142,7 +14113,12 @@ mod section_g_tests {
     fn ours_monitor_with_port_and_baudrate_opens_the_serial_port() {
         // a port that does not exist: `_open_serial` fails (the default factory returns `None`),
         // `_monitor` returns with the state of the opening still set
-        let c = MachineCom::new(Some("/dev/maker-connect-test-does-not-exist".to_string()), Some(115200), None, None);
+        let c = MachineCom::new(
+            Some("/dev/maker-connect-test-does-not-exist".to_string()),
+            Some(115200),
+            None,
+            None,
+        );
         c._monitor();
         assert_eq!(c.get_state(), MachineCom::STATE_OPEN_SERIAL);
         assert!(c._serial.get().is_none());
@@ -12151,8 +14127,12 @@ mod section_g_tests {
     #[test]
     fn ours_py_try_catches_exceptions_but_not_stubs() {
         assert_eq!(py_try(|| 1), Ok(1));
-        assert_eq!(py_try(|| -> i32 { panic!("TypeError: boom") }), Err("TypeError: boom".to_string()));
-        let r = std::panic::catch_unwind(|| py_try(|| -> i32 { unimplemented!("comm.py:1, test") }));
+        assert_eq!(
+            py_try(|| -> i32 { panic!("TypeError: boom") }),
+            Err("TypeError: boom".to_string())
+        );
+        let r =
+            std::panic::catch_unwind(|| py_try(|| -> i32 { unimplemented!("comm.py:1, test") }));
         assert!(r.is_err());
     }
 
@@ -12185,7 +14165,9 @@ mod section_g_tests {
         assert_eq!(child.regex, Some(PyText::Str("a(b)".to_string())));
         assert!(feedback_controls_from_value(&None).is_empty());
 
-        let t = pause_triggers_from_value(&Some(serde_json::json!([{"regex": "pause", "type": "enable"}])));
+        let t = pause_triggers_from_value(&Some(
+            serde_json::json!([{"regex": "pause", "type": "enable"}]),
+        ));
         assert_eq!(t[0]["regex"], "pause");
         assert!(pause_triggers_from_value(&None).is_empty());
     }
@@ -12237,7 +14219,15 @@ mod section_h_tests {
     #[derive(Default)]
     struct Rec {
         states: Mutex<Vec<i64>>,
-        errors: Mutex<Vec<(String, String, Option<String>, Option<String>, Option<Vec<String>>)>>,
+        errors: Mutex<
+            Vec<(
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<Vec<String>>,
+            )>,
+        >,
         logs: Mutex<Vec<String>>,
         progress: Mutex<usize>,
         job_done: Mutex<usize>,
@@ -12247,7 +14237,14 @@ mod section_h_tests {
         fn on_comm_state_change(&self, state: i64) {
             self.states.lock().unwrap().push(state);
         }
-        fn on_comm_error(&self, error: &str, reason: &str, consequence: Option<&str>, faq: Option<&str>, logs: Option<&[String]>) {
+        fn on_comm_error(
+            &self,
+            error: &str,
+            reason: &str,
+            consequence: Option<&str>,
+            faq: Option<&str>,
+            logs: Option<&[String]>,
+        ) {
             self.errors.lock().unwrap().push((
                 error.to_string(),
                 reason.to_string(),
@@ -12317,7 +14314,11 @@ mod section_h_tests {
         }
         fn set_baudrate(&self, _baudrate: i64) {}
         fn readline(&self) -> Result<Vec<u8>, SerialError> {
-            self.lines.lock().unwrap().pop_front().unwrap_or(Ok(Vec::new()))
+            self.lines
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or(Ok(Vec::new()))
         }
         fn write(&self, data: &[u8]) -> Result<Option<i64>, SerialError> {
             self.written.lock().unwrap().extend_from_slice(data);
@@ -12328,7 +14329,9 @@ mod section_h_tests {
     /// the printer profile `_trigger_emergency_stop` reads (OURS)
     #[allow(non_snake_case)]
     fn StaticProfile() -> PrinterProfileManager {
-        PrinterProfileManager::with_current(serde_json::json!({"extruder": {"count": 1}, "heatedBed": true, "heatedChamber": false}))
+        PrinterProfileManager::with_current(
+            serde_json::json!({"extruder": {"count": 1}, "heatedBed": true, "heatedChamber": false}),
+        )
     }
 
     fn new_comm(configure: impl FnOnce(&mut MachineCom)) -> (Arc<MachineCom>, Arc<Rec>) {
@@ -12372,7 +14375,10 @@ mod section_h_tests {
 
     fn assert_disconnected(c: &MachineCom, rec: &Rec) {
         assert!(!c.get_error_string().is_empty());
-        assert_eq!(vec![MachineCom::STATE_ERROR, MachineCom::STATE_CLOSED_WITH_ERROR], *rec.states.lock().unwrap());
+        assert_eq!(
+            vec![MachineCom::STATE_ERROR, MachineCom::STATE_CLOSED_WITH_ERROR],
+            *rec.states.lock().unwrap()
+        );
     }
 
     fn assert_not_disconnected(c: &MachineCom, rec: &Rec) {
@@ -12382,11 +14388,25 @@ mod section_h_tests {
 
     fn assert_print_cancelled(rec: &Rec) {
         let errors = rec.errors.lock().unwrap();
-        assert_eq!(1, errors.iter().filter(|e| e.2.as_deref() == Some("cancel")).count());
+        assert_eq!(
+            1,
+            errors
+                .iter()
+                .filter(|e| e.2.as_deref() == Some("cancel"))
+                .count()
+        );
     }
 
     fn assert_not_print_cancelled(rec: &Rec) {
-        assert_eq!(0, rec.errors.lock().unwrap().iter().filter(|e| e.2.as_deref() == Some("cancel")).count());
+        assert_eq!(
+            0,
+            rec.errors
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| e.2.as_deref() == Some("cancel"))
+                .count()
+        );
     }
 
     fn assert_cleared_to_send(c: &MachineCom) {
@@ -12528,10 +14548,14 @@ mod section_h_tests {
     #[test]
     fn test_unknown_handled() {
         // Should pass
-        for line in ["Error: This should get handled", "!! This should also get handled"] {
+        for line in [
+            "Error: This should get handled",
+            "!! This should also get handled",
+        ] {
             let (c, rec) = set_up(|c| {
                 // def handler(comm, message, *args, **kwargs): return "handled" in message
-                let handler: super::super::plugin::HookFn = Arc::new(|args| Value::Bool(args[0].as_str().unwrap().contains("handled")));
+                let handler: super::super::plugin::HookFn =
+                    Arc::new(|args| Value::Bool(args[0].as_str().unwrap().contains("handled")));
                 c._error_message_hooks.insert("test", handler);
             });
             let result = c._handle_errors(Some(line));
@@ -12680,30 +14704,59 @@ mod section_h_tests {
         let result = c._handle_errors(Some("fatal: out of cheese"));
         assert_eq!(Some("Error:fatal: out of cheese".to_string()), result);
         assert_eq!("fatal: out of cheese", c.get_error_string());
-        assert_eq!(vec![MachineCom::STATE_ERROR, MachineCom::STATE_CLOSED_WITH_ERROR], *rec.states.lock().unwrap());
+        assert_eq!(
+            vec![MachineCom::STATE_ERROR, MachineCom::STATE_CLOSED_WITH_ERROR],
+            *rec.states.lock().unwrap()
+        );
         let errors = rec.errors.lock().unwrap();
-        assert_eq!(("fatal: out of cheese".to_string(), "firmware".to_string(), Some("disconnect".to_string())), (errors[0].0.clone(), errors[0].1.clone(), errors[0].2.clone()));
+        assert_eq!(
+            (
+                "fatal: out of cheese".to_string(),
+                "firmware".to_string(),
+                Some("disconnect".to_string())
+            ),
+            (
+                errors[0].0.clone(),
+                errors[0].1.clone(),
+                errors[0].2.clone()
+            )
+        );
     }
 
     #[test]
     fn ours_handle_errors_joins_split_min_max_and_kill_errors() {
         // regex_minMaxError: "Error:x\n" and the next line is the rest
         let (c, _) = set_up(|c| c._send_m112_on_error = Some(false));
-        c._serial.set(Some(Scripted::new(vec![Ok(b": Extruder switched off. MAXTEMP triggered !\n")])));
+        c._serial.set(Some(Scripted::new(vec![Ok(
+            b": Extruder switched off. MAXTEMP triggered !\n",
+        )])));
         let result = c._handle_errors(Some("Error:0\n"));
-        assert_eq!(Some("Error:0: Extruder switched off. MAXTEMP triggered !\n".to_string()), result);
-        assert_eq!("0: Extruder switched off. MAXTEMP triggered !", c.get_error_string());
+        assert_eq!(
+            Some("Error:0: Extruder switched off. MAXTEMP triggered !\n".to_string()),
+            result
+        );
+        assert_eq!(
+            "0: Extruder switched off. MAXTEMP triggered !",
+            c.get_error_string()
+        );
 
         // regex_marlinKillError: the next line, without its "Error:", is appended after " - "
         let (c, rec) = set_up(|c| c._send_m112_on_error = Some(false));
-        c._serial.set(Some(Scripted::new(vec![Ok(b"Error:Printer halted. kill() called!\n")])));
-        let result = c._handle_errors(Some("Error:Heating failed, system stopped! Heater_ID: bed\n"));
+        c._serial.set(Some(Scripted::new(vec![Ok(
+            b"Error:Printer halted. kill() called!\n",
+        )])));
+        let result = c._handle_errors(Some(
+            "Error:Heating failed, system stopped! Heater_ID: bed\n",
+        ));
         assert_eq!(
             Some("Error:Heating failed, system stopped! Heater_ID: bed - Printer halted. kill() called!".to_string()),
             result
         );
         let errors = rec.errors.lock().unwrap();
-        assert_eq!("Heating failed, system stopped! Heater_ID: bed - Printer halted. kill() called!", errors[0].0);
+        assert_eq!(
+            "Heating failed, system stopped! Heater_ID: bed - Printer halted. kill() called!",
+            errors[0].0
+        );
         assert_eq!(Some("firmware-heating-failed".to_string()), errors[0].3);
         assert!(errors[0].4.is_some());
     }
@@ -12716,29 +14769,55 @@ mod section_h_tests {
         c._errorValue.set("boom".to_string());
         let p = c._payload_for_error("connection", None, None);
         assert_eq!(
-            ErrorPayload { error: "boom".to_string(), reason: "connection".to_string(), consequence: None, logs: None, faq: None },
+            ErrorPayload {
+                error: "boom".to_string(),
+                reason: "connection".to_string(),
+                consequence: None,
+                logs: None,
+                faq: None
+            },
             p
         );
-        assert_eq!(serde_json::json!({"error": "boom", "reason": "connection"}), p.to_json());
-        assert_eq!(vec!["error", "reason"], p.to_json().as_object().unwrap().keys().collect::<Vec<_>>());
+        assert_eq!(
+            serde_json::json!({"error": "boom", "reason": "connection"}),
+            p.to_json()
+        );
+        assert_eq!(
+            vec!["error", "reason"],
+            p.to_json().as_object().unwrap().keys().collect::<Vec<_>>()
+        );
 
         let p = c._payload_for_error("firmware", Some("cancel"), Some("MINTEMP triggered"));
         assert_eq!(Some("firmware-mintemp".to_string()), p.faq);
         assert_eq!(Some(vec!["one".to_string(), "two".to_string()]), p.logs);
         assert_eq!(Some("cancel".to_string()), p.consequence);
-        assert_eq!(vec!["error", "reason", "consequence", "logs", "faq"], p.to_json().as_object().unwrap().keys().collect::<Vec<_>>());
+        assert_eq!(
+            vec!["error", "reason", "consequence", "logs", "faq"],
+            p.to_json().as_object().unwrap().keys().collect::<Vec<_>>()
+        );
 
         for (error, faq) in [
             ("MAXTEMP triggered", Some("firmware-maxtemp")),
-            ("Thermal Runaway, system stopped", Some("firmware-thermal-runaway")),
+            (
+                "Thermal Runaway, system stopped",
+                Some("firmware-thermal-runaway"),
+            ),
             ("Probing failed", Some("firmware-probing-failed")),
             ("BLTouch error", Some("firmware-probing-failed")),
             ("Printer on fire", None),
         ] {
-            assert_eq!(faq.map(str::to_string), c._payload_for_error("firmware", None, Some(error)).faq, "{error}");
+            assert_eq!(
+                faq.map(str::to_string),
+                c._payload_for_error("firmware", None, Some(error)).faq,
+                "{error}"
+            );
         }
         // an empty consequence is no consequence
-        assert_eq!(None, c._payload_for_error("firmware", Some(""), Some("x")).consequence);
+        assert_eq!(
+            None,
+            c._payload_for_error("firmware", Some(""), Some("x"))
+                .consequence
+        );
     }
 
     #[test]
@@ -12748,8 +14827,14 @@ mod section_h_tests {
             let (c, rec) = new_comm(|c| c._send_m112_on_error = Some(true));
             c._trigger_error("no luck", reason, true);
             assert_eq!("no luck", c.get_error_string());
-            assert_eq!(vec![MachineCom::STATE_ERROR, MachineCom::STATE_CLOSED_WITH_ERROR], *rec.states.lock().unwrap());
-            assert_eq!(Some("disconnect".to_string()), rec.errors.lock().unwrap()[0].2);
+            assert_eq!(
+                vec![MachineCom::STATE_ERROR, MachineCom::STATE_CLOSED_WITH_ERROR],
+                *rec.states.lock().unwrap()
+            );
+            assert_eq!(
+                Some("disconnect".to_string()),
+                rec.errors.lock().unwrap()[0].2
+            );
         }
         // close=False: no consequence, the connection stays
         let (c, rec) = new_comm(|c| c._send_m112_on_error = Some(true));
@@ -12760,7 +14845,9 @@ mod section_h_tests {
         super::super::events::wait_idle(); // the events are delivered by the worker thread
         let events = EVENTS.plock();
         assert!(events.iter().any(|(e, p)| e == "Error"
-            && p.as_ref().is_some_and(|p| p["error"] == "minor" && p["reason"] == "firmware" && p.get("consequence").is_none())));
+            && p.as_ref().is_some_and(|p| p["error"] == "minor"
+                && p["reason"] == "firmware"
+                && p.get("consequence").is_none())));
     }
 
     #[test]
@@ -12845,7 +14932,10 @@ mod section_h_tests {
         c._state.set(MachineCom::STATE_OPERATIONAL);
         c._consecutive_timeouts.set(2);
         c._handle_timeout();
-        assert_eq!("Too many consecutive timeouts, printer still connected and alive?", c.get_error_string());
+        assert_eq!(
+            "Too many consecutive timeouts, printer still connected and alive?",
+            c.get_error_string()
+        );
         assert_eq!(MachineCom::STATE_CLOSED_WITH_ERROR, c.get_state());
         assert!(rec.logs.lock().unwrap().iter().any(|l| l.starts_with(
             "No response from printer after 3 consecutive communication timeouts, considering it dead. Configure long running commands"
@@ -12853,7 +14943,9 @@ mod section_h_tests {
         super::super::events::wait_idle(); // the events are delivered by the worker thread
         let events = EVENTS.plock();
         assert!(events.iter().any(|(e, p)| e == "Error"
-            && p.as_ref().is_some_and(|p| p["reason"] == "timeout" && p["error"] == "Too many consecutive timeouts, printer still connected and alive?")));
+            && p.as_ref().is_some_and(|p| p["reason"] == "timeout"
+                && p["error"]
+                    == "Too many consecutive timeouts, printer still connected and alive?")));
     }
 
     #[test]
@@ -12862,31 +14954,51 @@ mod section_h_tests {
         // init with a port and a baud rate: one candidate; not in DETECT_SERIAL, so no step
         let (c, rec) = new_comm(|_| {});
         c._detection_retry.set(0);
-        let mut port_c = MachineCom::new(Some(none.to_string()), Some(250000), Some(rec.clone()), None);
+        let mut port_c = MachineCom::new(
+            Some(none.to_string()),
+            Some(250000),
+            Some(rec.clone()),
+            None,
+        );
         let c2 = Arc::get_mut(&mut port_c).unwrap();
         c2._detection_retry.set(0);
         port_c._perform_detection_step(true);
-        assert_eq!(vec![(none.to_string(), 250000)], port_c._detection_candidates.get());
+        assert_eq!(
+            vec![(none.to_string(), 250000)],
+            port_c._detection_candidates.get()
+        );
         assert_eq!(MachineCom::DETECTION_RETRIES, port_c._detection_retry.get());
-        assert!(rec.logs.lock().unwrap().contains(&format!("Performing autodetection with 1 port/baudrate candidates: {none}@250000")));
+        assert!(rec.logs.lock().unwrap().contains(&format!(
+            "Performing autodetection with 1 port/baudrate candidates: {none}@250000"
+        )));
 
         // a step with a candidate that cannot be opened is skipped, and with no candidate left it is an error
         let (c, rec) = new_comm(|_| {});
         c._state.set(MachineCom::STATE_DETECT_SERIAL);
         c._detection_retry.set(MachineCom::DETECTION_RETRIES);
-        c._detection_candidates.set(vec![(none.to_string(), 115200)]);
+        c._detection_candidates
+            .set(vec![(none.to_string(), 115200)]);
         c._perform_detection_step(false);
         let logs = rec.logs.lock().unwrap();
         assert!(logs.contains(&format!("Trying port {none}, baudrate 115200")));
-        assert!(logs.contains(&format!("Could not open port {none}, baudrate 115200, skipping")));
-        assert_eq!("No more candidates to test, and no working port/baudrate combination detected.", c.get_error_string());
+        assert!(logs.contains(&format!(
+            "Could not open port {none}, baudrate 115200, skipping"
+        )));
+        assert_eq!(
+            "No more candidates to test, and no working port/baudrate combination detected.",
+            c.get_error_string()
+        );
         assert_eq!(MachineCom::STATE_CLOSED_WITH_ERROR, c.get_state());
-        assert_eq!(Some("disconnect".to_string()), rec.errors.lock().unwrap()[0].2);
+        assert_eq!(
+            Some("disconnect".to_string()),
+            rec.errors.lock().unwrap()[0].2
+        );
         assert_eq!("autodetect", rec.errors.lock().unwrap()[0].1);
 
         // not in DETECT_SERIAL: the loop returns at once
         let (c, rec) = new_comm(|_| {});
-        c._detection_candidates.set(vec![(none.to_string(), 115200)]);
+        c._detection_candidates
+            .set(vec![(none.to_string(), 115200)]);
         c._perform_detection_step(false);
         assert_eq!(1, c._detection_candidates.get().len());
         assert!(rec.states.lock().unwrap().is_empty());
@@ -12913,10 +15025,26 @@ mod section_h_tests {
         assert_eq!(None, c._continue_sending());
         // streaming: the command queue is irrelevant
         let (c, _) = new_comm(|_| {});
-        let file = StreamingGcodeFileInformation::new(&temp_gcode(b"G1 X1\n"), "local.gcode", "/remote.gco", None).unwrap();
+        let file = StreamingGcodeFileInformation::new(
+            &temp_gcode(b"G1 X1\n"),
+            "local.gcode",
+            "/remote.gco",
+            None,
+        )
+        .unwrap();
         c._currentFile.set(Some(Arc::new(file)));
         c._command_queue
-            .put((QueuedCommand::Command("G28".to_string()), None, None, BTreeSet::new()), None, true, None)
+            .put(
+                (
+                    QueuedCommand::Command("G28".to_string()),
+                    None,
+                    None,
+                    BTreeSet::new(),
+                ),
+                None,
+                true,
+                None,
+            )
             .unwrap_or_else(|_| panic!("put"));
         assert!(!c._send_from_command_queue());
         assert_eq!(1, c._command_queue.qsize());
@@ -12941,7 +15069,9 @@ mod section_h_tests {
     fn queued(c: &MachineCom) -> Vec<(String, Option<String>, BTreeSet<String>)> {
         let mut out = Vec::new();
         while let Ok((cmd, cmd_type, _, tags)) = c._command_queue.get(false, None) {
-            let QueuedCommand::Command(cmd) = cmd else { panic!("a marker") };
+            let QueuedCommand::Command(cmd) = cmd else {
+                panic!("a marker")
+            };
             out.push((cmd, cmd_type, tags));
             c._command_queue.task_done().unwrap();
         }
@@ -12959,12 +15089,17 @@ mod section_h_tests {
         c._state.set(MachineCom::STATE_PRINTING);
         c._poll_temperature();
         assert_eq!(
-            vec![("M105".to_string(), Some("temperature_poll".to_string()), tagset(&["trigger:comm.poll_temperature"]))],
+            vec![(
+                "M105".to_string(),
+                Some("temperature_poll".to_string()),
+                tagset(&["trigger:comm.poll_temperature"])
+            )],
             queued(&c)
         );
         // each condition of the poll stops it
         for stop in [
-            Box::new(|c: &MachineCom| c._temperature_autoreporting.set(true)) as Box<dyn Fn(&MachineCom)>,
+            Box::new(|c: &MachineCom| c._temperature_autoreporting.set(true))
+                as Box<dyn Fn(&MachineCom)>,
             Box::new(|c| c._connection_closing.set(true)),
             Box::new(|c| c._long_running_command.set(true)),
             Box::new(|c| c._heating.set(true)),
@@ -12984,7 +15119,12 @@ mod section_h_tests {
         c._state.set(MachineCom::STATE_PRINTING);
         c._poll_sd_status();
         assert!(queued(&c).is_empty());
-        c._currentFile.set(Some(Arc::new(PrintingSdFileInformation::new("x.gco", Some(84), None))));
+        c._currentFile
+            .set(Some(Arc::new(PrintingSdFileInformation::new(
+                "x.gco",
+                Some(84),
+                None,
+            ))));
         // (with an SD file selected the poll would be sent with `_sendCommand`, comm.py:4509: not
         // reachable yet; operational and idle, `isSdPrinting` is false)
         c._state.set(MachineCom::STATE_OPERATIONAL);
@@ -13013,11 +15153,22 @@ mod section_h_tests {
         let got = queued(&c);
         let texts: Vec<&str> = got.iter().map(|g| g.0.as_str()).collect();
         // `part_of_job=True` goes to the job queue
-        assert_eq!(vec!["M155 S2", "M155 S7", "M27 S1", "M27 S0", "M154 S5", "M113 S2", "M113 S4"], texts);
-        assert_eq!(tagset(&["a", "trigger:comm.set_autoreport_pos_interval"]), got[4].2);
+        assert_eq!(
+            vec![
+                "M155 S2", "M155 S7", "M27 S1", "M27 S0", "M154 S5", "M113 S2", "M113 S4"
+            ],
+            texts
+        );
+        assert_eq!(
+            tagset(&["a", "trigger:comm.set_autoreport_pos_interval"]),
+            got[4].2
+        );
         let (line, _, _, tags) = c._job_queue.get_nowait().unwrap();
         assert!(matches!(line, QueuedCommand::Command(l) if l == "M154 S0"));
-        assert_eq!(tagset(&["source:job", "trigger:comm.set_autoreport_pos_interval"]), tags);
+        assert_eq!(
+            tagset(&["source:job", "trigger:comm.set_autoreport_pos_interval"]),
+            tags
+        );
 
         // an interval that is no int falls back to the default
         let (c, _) = new_comm(|_| {});
@@ -13041,7 +15192,8 @@ mod section_h_tests {
         let (c, _) = new_comm(|_| {});
         // sd status
         assert_eq!(1.0, c._get_sd_status_timer_interval());
-        c._timeout_intervals.with_mut(|d| d.insert("sdStatus", -3.0));
+        c._timeout_intervals
+            .with_mut(|d| d.insert("sdStatus", -3.0));
         assert_eq!(1.0, c._get_sd_status_timer_interval());
         c._timeout_intervals.with_mut(|d| d.insert("sdStatus", 2.5));
         assert_eq!(2.5, c._get_sd_status_timer_interval());
@@ -13049,24 +15201,30 @@ mod section_h_tests {
         // temperature: temperature 5 (default settings), temperatureTargetSet 2
         let (c, _) = new_comm(|_| {});
         assert_eq!(5.0, c._get_temperature_timer_interval());
-        c.last_temperature.with_mut(|t| t.set_tool(0, Some(20.0), Some(0.0)));
+        c.last_temperature
+            .with_mut(|t| t.set_tool(0, Some(20.0), Some(0.0)));
         assert_eq!(5.0, c._get_temperature_timer_interval());
-        c.last_temperature.with_mut(|t| t.set_tool(0, Some(20.0), Some(200.0)));
+        c.last_temperature
+            .with_mut(|t| t.set_tool(0, Some(20.0), Some(200.0)));
         assert_eq!(2.0, c._get_temperature_timer_interval());
-        c.last_temperature.with_mut(|t| t.set_tool(0, Some(20.0), Some(0.0)));
-        c.last_temperature.with_mut(|t| t.set_bed(Some(20.0), Some(60.0)));
+        c.last_temperature
+            .with_mut(|t| t.set_tool(0, Some(20.0), Some(0.0)));
+        c.last_temperature
+            .with_mut(|t| t.set_bed(Some(20.0), Some(60.0)));
         assert_eq!(2.0, c._get_temperature_timer_interval());
         // busy: always `temperature`
         c._state.set(MachineCom::STATE_PRINTING);
         assert_eq!(5.0, c._get_temperature_timer_interval());
         // an interval <= 0 is 1.0
-        c._timeout_intervals.with_mut(|d| d.insert("temperature", 0.0));
+        c._timeout_intervals
+            .with_mut(|d| d.insert("temperature", 0.0));
         assert_eq!(1.0, c._get_temperature_timer_interval());
 
         // communication timeout: max(communication 30, temperature + 1)
         let (c, _) = new_comm(|_| {});
         assert_eq!(30.0, c._get_communication_timeout_interval());
-        c._timeout_intervals.with_mut(|d| d.insert("temperature", 40.0));
+        c._timeout_intervals
+            .with_mut(|d| d.insert("temperature", 40.0));
         assert_eq!(41.0, c._get_communication_timeout_interval());
         c._temperature_autoreporting.set(true); // temperatureAutoreport 2: 3
         assert_eq!(30.0, c._get_communication_timeout_interval());
@@ -13093,7 +15251,9 @@ mod section_h_tests {
         // a file: the line, its position and line number; then the end: M400, the job is done,
         // the marker finishes the print
         let (c, rec) = new_comm(|_| {});
-        c._currentFile.set(Some(Arc::new(PrintingGcodeFileInformation::new(&temp_gcode(b"G1 X1\n"), None, None, None).unwrap())));
+        c._currentFile.set(Some(Arc::new(
+            PrintingGcodeFileInformation::new(&temp_gcode(b"G1 X1\n"), None, None, None).unwrap(),
+        )));
         c._currentFile.get().unwrap().start().unwrap();
         c._state.set(MachineCom::STATE_PRINTING);
         let (line, pos, lineno) = c._get_next_from_job();
@@ -13108,7 +15268,9 @@ mod section_h_tests {
         assert!(matches!(m400, QueuedCommand::Command(l) if l == "M400"));
         assert_eq!(tagset(&["source:job"]), tags);
         // the marker's callback: finalize
-        let QueuedCommand::Marker(marker) = line.unwrap() else { unreachable!() };
+        let QueuedCommand::Marker(marker) = line.unwrap() else {
+            unreachable!()
+        };
         marker.run();
         assert_eq!(MachineCom::STATE_OPERATIONAL, c.get_state());
 
@@ -13120,7 +15282,9 @@ mod section_h_tests {
         assert!(!c._send_from_job());
         // at the end of the file: the marker is queued for the job and the loop returns false
         let (c, rec) = new_comm(|_| {});
-        c._currentFile.set(Some(Arc::new(PrintingGcodeFileInformation::new(&temp_gcode(b""), None, None, None).unwrap())));
+        c._currentFile.set(Some(Arc::new(
+            PrintingGcodeFileInformation::new(&temp_gcode(b""), None, None, None).unwrap(),
+        )));
         c._currentFile.get().unwrap().start().unwrap();
         c._state.set(MachineCom::STATE_PRINTING);
         assert!(!c._send_from_job());
@@ -13137,7 +15301,12 @@ mod section_h_tests {
         let none = "/dev/maker-connect-test-does-not-exist";
         assert!(!c._open_serial(none, 115200, true));
         assert!(c._serial.get().is_none());
-        assert!(rec.logs.lock().unwrap().contains(&format!("Connecting to port {none}, baudrate 115200")));
+        assert!(
+            rec.logs
+                .lock()
+                .unwrap()
+                .contains(&format!("Connecting to port {none}, baudrate 115200"))
+        );
         // no error was triggered: the default factory returned None
         assert!(rec.errors.lock().unwrap().is_empty());
         assert_eq!(MachineCom::STATE_NONE, c.get_state());
@@ -13168,25 +15337,47 @@ mod section_h_tests {
 
         // an exception: logged, the error value is "type: message", the connection is closed
         let (c, rec) = new_comm(|_| {});
-        c._serial.set(Some(Scripted::new(vec![Err(SerialError::serial_exception("device reports readiness"))])));
+        c._serial.set(Some(Scripted::new(vec![Err(
+            SerialError::serial_exception("device reports readiness"),
+        )])));
         assert_eq!(None, c._readline());
-        assert_eq!("SerialException: device reports readiness", c.get_error_string());
+        assert_eq!(
+            "SerialException: device reports readiness",
+            c.get_error_string()
+        );
         assert_eq!(MachineCom::STATE_CLOSED_WITH_ERROR, c.get_state());
         let logs = rec.logs.lock().unwrap();
         assert!(logs.iter().any(|l| l.starts_with(
             "Unexpected error while reading serial port, please consult octoprint.log for details: SerialException: 'device reports readiness' @ comm.rs:_readline:"
         )));
-        assert!(logs.contains(&"Please see https://faq.octoprint.org/serialerror for possible reasons of this.".to_string()));
+        assert!(
+            logs.contains(
+                &"Please see https://faq.octoprint.org/serialerror for possible reasons of this."
+                    .to_string()
+            )
+        );
         drop(logs);
 
         // an exception that is no SerialException: no hint; while closing: nothing at all
         let (c, rec) = new_comm(|_| {});
-        c._serial.set(Some(Scripted::new(vec![Err(SerialError::other("OSError", "x")), Err(SerialError::other("OSError", "y"))])));
+        c._serial.set(Some(Scripted::new(vec![
+            Err(SerialError::other("OSError", "x")),
+            Err(SerialError::other("OSError", "y")),
+        ])));
         assert_eq!(None, c._readline());
-        assert!(!rec.logs.lock().unwrap().iter().any(|l| l.starts_with("Please see")));
+        assert!(
+            !rec.logs
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|l| l.starts_with("Please see"))
+        );
         let (c, rec) = new_comm(|_| {});
         c._connection_closing.set(true);
-        c._serial.set(Some(Scripted::new(vec![Err(SerialError::other("OSError", "y"))])));
+        c._serial
+            .set(Some(Scripted::new(vec![Err(SerialError::other(
+                "OSError", "y",
+            ))])));
         assert_eq!(None, c._readline());
         assert!(rec.logs.lock().unwrap().is_empty());
         assert_eq!("", c.get_error_string());
@@ -13238,7 +15429,8 @@ mod section_h_tests {
 
         // the same line again after a "line number" error, while the first request is handled:
         // ignored but true
-        c._lastCommError.set(Some("Line Number is not Last Line Number+1".to_string()));
+        c._lastCommError
+            .set(Some("Line Number is not Last Line Number+1".to_string()));
         assert!(c._handle_resend_request("Resend: 8"));
         assert_eq!(1, c._currentResendCount.get());
 
@@ -13251,7 +15443,10 @@ mod section_h_tests {
         c._currentConsecutiveResendNumber.set(Some(8));
         c._currentConsecutiveResendCount.set(9);
         c._handle_resend_request("Resend: 8");
-        assert_eq!("Printer keeps requesting line 8 again and again, communication stuck", c.get_error_string());
+        assert_eq!(
+            "Printer keeps requesting line 8 again and again, communication stuck",
+            c.get_error_string()
+        );
         assert_eq!(MachineCom::STATE_CLOSED_WITH_ERROR, c.get_state());
         assert_eq!("resend_loop", rec.errors.lock().unwrap()[0].1);
 
@@ -13264,19 +15459,24 @@ mod section_h_tests {
         c._current_line.set(10);
         c._state.set(MachineCom::STATE_PRINTING);
         c._handle_resend_request("Resend: 8");
-        assert_eq!("Should resend line 8 but no sufficient history is available, can't resend", c.get_error_string());
+        assert_eq!(
+            "Should resend line 8 but no sufficient history is available, can't resend",
+            c.get_error_string()
+        );
         assert_eq!("resend", rec.errors.lock().unwrap()[0].1);
     }
 
     #[test]
     fn ours_handle_resend_request_timer_and_ok() {
         // supportResendsWithoutOk "always": an ok at once
-        let (c, _) = resend_comm(|c| c._trigger_ok_after_resend = Some(Value::String("always".to_string())));
+        let (c, _) =
+            resend_comm(|c| c._trigger_ok_after_resend = Some(Value::String("always".to_string())));
         assert!(!c._handle_resend_request("ok"));
         assert!(c._ok_timeout.get().is_some());
 
         // "detect": a timer that simulates the ok; cancelled here so that it never runs
-        let (c, _) = resend_comm(|c| c._trigger_ok_after_resend = Some(Value::String("detect".to_string())));
+        let (c, _) =
+            resend_comm(|c| c._trigger_ok_after_resend = Some(Value::String("detect".to_string())));
         assert!(!c._handle_resend_request("ok"));
         let timer = c._resend_ok_timer.get().expect("the timer");
         timer.cancel();
@@ -13309,7 +15509,12 @@ mod section_h_tests {
         assert!(c._resend_check_possibility(1));
         c._resendDelta.set(Some(2));
         assert!(!c._resend_check_possibility(1));
-        assert!(rec.logs.lock().unwrap().contains(&"Should resend line 1 but no sufficient history is available, can't resend".to_string()));
+        assert!(
+            rec.logs.lock().unwrap().contains(
+                &"Should resend line 1 but no sufficient history is available, can't resend"
+                    .to_string()
+            )
+        );
         assert_eq!(None, c._resendDelta.get());
         c._resendDelta.set(Some(-1));
         assert!(!c._resend_check_possibility(1));
@@ -13328,25 +15533,29 @@ mod section_h_tests {
     #[test]
     fn ours_process_registered_message() {
         install_sink();
-        let controls = vec![FeedbackControl {
-            key: Some("k1".to_string()),
-            regex: Some(PyText::Str("Temp: (\\d+)/(?P<target>\\d+)".to_string())),
-            template: Some(PyText::Str("now {0} of {1}".to_string())),
-            template_key: Some("t1".to_string()),
-            children: None,
-        }, FeedbackControl {
-            key: Some("k1".to_string()),
-            regex: Some(PyText::Str("Temp: (\\d+)/(?P<target>\\d+)".to_string())),
-            template: Some(PyText::Str("goal {target}".to_string())),
-            template_key: Some("t2".to_string()),
-            children: None,
-        }, FeedbackControl {
-            key: Some("k1".to_string()),
-            regex: Some(PyText::Str("Temp: (\\d+)/(?P<target>\\d+)".to_string())),
-            template: Some(PyText::Str("{9}".to_string())),
-            template_key: Some("t3".to_string()),
-            children: None,
-        }];
+        let controls = vec![
+            FeedbackControl {
+                key: Some("k1".to_string()),
+                regex: Some(PyText::Str("Temp: (\\d+)/(?P<target>\\d+)".to_string())),
+                template: Some(PyText::Str("now {0} of {1}".to_string())),
+                template_key: Some("t1".to_string()),
+                children: None,
+            },
+            FeedbackControl {
+                key: Some("k1".to_string()),
+                regex: Some(PyText::Str("Temp: (\\d+)/(?P<target>\\d+)".to_string())),
+                template: Some(PyText::Str("goal {target}".to_string())),
+                template_key: Some("t2".to_string()),
+                children: None,
+            },
+            FeedbackControl {
+                key: Some("k1".to_string()),
+                regex: Some(PyText::Str("Temp: (\\d+)/(?P<target>\\d+)".to_string())),
+                template: Some(PyText::Str("{9}".to_string())),
+                template_key: Some("t3".to_string()),
+                children: None,
+            },
+        ];
         let (feedback_controls, matcher) = convert_feedback_controls(&controls).unwrap();
         let matcher = matcher.unwrap();
         let (c, _) = new_comm(|_| {});
@@ -13360,14 +15569,22 @@ mod section_h_tests {
         let ev = events
             .iter()
             .rev()
-            .find(|(e, p)| e == "RegisteredMessageReceived" && p.as_ref().is_some_and(|p| p["key"] == "k1"))
+            .find(|(e, p)| {
+                e == "RegisteredMessageReceived" && p.as_ref().is_some_and(|p| p["key"] == "k1")
+            })
             .expect("the event");
         let p = ev.1.as_ref().unwrap();
         assert_eq!("Temp: 21/200", p["matched"]);
         // `{0} {1}` positional, `{target}` is a KeyError and retried with the names, `{9}` is an
         // IndexError: no output for that key
-        assert_eq!(serde_json::json!({"t1": "now 21 of 200", "t2": "goal 200"}), p["outputs"]);
-        assert_eq!(vec!["t1", "t2"], p["outputs"].as_object().unwrap().keys().collect::<Vec<_>>());
+        assert_eq!(
+            serde_json::json!({"t1": "now 21 of 200", "t2": "goal 200"}),
+            p["outputs"]
+        );
+        assert_eq!(
+            vec!["t1", "t2"],
+            p["outputs"].as_object().unwrap().keys().collect::<Vec<_>>()
+        );
         drop(events);
 
         // a key that is in feedback_errors is skipped
@@ -13378,7 +15595,9 @@ mod section_h_tests {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .iter()
-                .filter(|(e, p)| e == "RegisteredMessageReceived" && p.as_ref().is_some_and(|p| p["key"] == "k1"))
+                .filter(|(e, p)| {
+                    e == "RegisteredMessageReceived" && p.as_ref().is_some_and(|p| p["key"] == "k1")
+                })
                 .count()
         };
         let before = count_k1();
@@ -13389,31 +15608,69 @@ mod section_h_tests {
 
     #[test]
     fn ours_serial_list_and_baudrate_list() {
-        let dir = std::env::temp_dir().join(format!("maker-connect-serial-list-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("maker-connect-serial-list-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        for f in ["ttyUSB0", "ttyACM1", "cu.usbserial-1", "tty.usbmodem2", "ttyS0", "rfcomm0", "null", "tty", "zero"] {
+        for f in [
+            "ttyUSB0",
+            "ttyACM1",
+            "cu.usbserial-1",
+            "tty.usbmodem2",
+            "ttyS0",
+            "rfcomm0",
+            "null",
+            "tty",
+            "zero",
+        ] {
             std::fs::write(dir.join(f), b"").unwrap();
         }
         let d = dir.to_str().unwrap();
         let mut got = serial_list_in(d);
         got.sort();
-        let mut expected: Vec<String> =
-            ["ttyUSB0", "ttyACM1", "cu.usbserial-1", "tty.usbmodem2", "ttyS0", "rfcomm0"].iter().map(|f| format!("{d}/{f}")).collect();
+        let mut expected: Vec<String> = [
+            "ttyUSB0",
+            "ttyACM1",
+            "cu.usbserial-1",
+            "tty.usbmodem2",
+            "ttyS0",
+            "rfcomm0",
+        ]
+        .iter()
+        .map(|f| format!("{d}/{f}"))
+        .collect();
         expected.sort();
         assert_eq!(expected, got);
         assert!(serial_list_in("/maker-connect-test-does-not-exist").is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
 
-        assert_eq!(vec![115200, 250000, 230400, 57600, 38400, 19200, 9600], baudrate_list(None));
-        assert_eq!(vec![115200, 250000], baudrate_list(Some(vec![115200, 250000])));
+        assert_eq!(
+            vec![115200, 250000, 230400, 57600, 38400, 19200, 9600],
+            baudrate_list(None)
+        );
+        assert_eq!(
+            vec![115200, 250000],
+            baudrate_list(Some(vec![115200, 250000]))
+        );
     }
 
     #[test]
     fn ours_get_exception_string_of() {
-        let info = ExceptionInfo { type_name: "ValueError", message: "bad {file}", file: "comm.rs", function: "f", line: 12 };
-        assert_eq!("ValueError: 'bad {file}' @ comm.rs:f:12", get_exception_string_of(&info, EXCEPTION_STRING_FMT));
-        assert_eq!("ValueError: bad {file}", get_exception_string_of(&info, "{type}: {message}"));
+        let info = ExceptionInfo {
+            type_name: "ValueError",
+            message: "bad {file}",
+            file: "comm.rs",
+            function: "f",
+            line: 12,
+        };
+        assert_eq!(
+            "ValueError: 'bad {file}' @ comm.rs:f:12",
+            get_exception_string_of(&info, EXCEPTION_STRING_FMT)
+        );
+        assert_eq!(
+            "ValueError: bad {file}",
+            get_exception_string_of(&info, "{type}: {message}")
+        );
         assert_eq!(
             "Exception: 'plain' @ comm.rs:g:1",
             exception_string_of_panic("plain", EXCEPTION_STRING_FMT, "g", 1)
@@ -13429,8 +15686,17 @@ mod section_h_tests {
         let enc = |s: &str| Some(Value::String(s.to_string()));
         assert_eq!("N3 G1*1", decode_serial_bytes(b"N3 G1*1", &enc("ascii")));
         assert_eq!("\u{e9}", decode_serial_bytes(b"\xe9", &enc("latin-1")));
-        assert_eq!("\u{e9}", decode_serial_bytes("\u{e9}".as_bytes(), &enc("UTF-8")));
-        assert!(std::panic::catch_unwind(|| decode_serial_bytes(b"\xe9", &Some(Value::String("ascii".to_string())))).is_err());
+        assert_eq!(
+            "\u{e9}",
+            decode_serial_bytes("\u{e9}".as_bytes(), &enc("UTF-8"))
+        );
+        assert!(
+            std::panic::catch_unwind(|| decode_serial_bytes(
+                b"\xe9",
+                &Some(Value::String("ascii".to_string()))
+            ))
+            .is_err()
+        );
     }
 
     // ---- the three fixes of "Section G, decided" -------------------------------------------------
@@ -13438,36 +15704,80 @@ mod section_h_tests {
     #[test]
     fn ours_non_list_controls_and_triggers_panic() {
         // falsy values: `convert_feedback_controls` / `convert_pause_triggers` return early
-        for v in [None, Some(Value::Null), Some(serde_json::json!([])), Some(serde_json::json!({})), Some(serde_json::json!(0)), Some(serde_json::json!(""))] {
+        for v in [
+            None,
+            Some(Value::Null),
+            Some(serde_json::json!([])),
+            Some(serde_json::json!({})),
+            Some(serde_json::json!(0)),
+            Some(serde_json::json!("")),
+        ] {
             assert!(feedback_controls_from_value(&v).is_empty());
             assert!(pause_triggers_from_value(&v).is_empty());
         }
         // anything else that is no list is a panic, not an empty list
-        for v in [serde_json::json!({"a": 1}), serde_json::json!("text"), serde_json::json!(3), serde_json::json!(true)] {
-            assert!(std::panic::catch_unwind(|| feedback_controls_from_value(&Some(v.clone()))).is_err(), "{v}");
-            assert!(std::panic::catch_unwind(|| pause_triggers_from_value(&Some(v.clone()))).is_err(), "{v}");
+        for v in [
+            serde_json::json!({"a": 1}),
+            serde_json::json!("text"),
+            serde_json::json!(3),
+            serde_json::json!(true),
+        ] {
+            assert!(
+                std::panic::catch_unwind(|| feedback_controls_from_value(&Some(v.clone())))
+                    .is_err(),
+                "{v}"
+            );
+            assert!(
+                std::panic::catch_unwind(|| pause_triggers_from_value(&Some(v.clone()))).is_err(),
+                "{v}"
+            );
         }
     }
 
     #[test]
     fn ours_parse_firmware_line_keeps_the_order_of_the_line() {
         let d = parse_firmware_line("NAME: Malyan VER: 2.9 MODEL: M200 HW: HA02");
-        assert_eq!(vec!["NAME", "VER", "MODEL", "HW"], d.keys().map(String::as_str).collect::<Vec<_>>());
+        assert_eq!(
+            vec!["NAME", "VER", "MODEL", "HW"],
+            d.keys().map(String::as_str).collect::<Vec<_>>()
+        );
         let d = parse_firmware_line("ZZZ:1 AAA:2 FIRMWARE_NAME:Marlin MMM:3");
-        assert_eq!(vec!["ZZZ", "AAA", "FIRMWARE_NAME", "MMM"], d.keys().map(String::as_str).collect::<Vec<_>>());
+        assert_eq!(
+            vec!["ZZZ", "AAA", "FIRMWARE_NAME", "MMM"],
+            d.keys().map(String::as_str).collect::<Vec<_>>()
+        );
         // a repeated key keeps its first place and takes the last value
         let d = parse_firmware_line("B:1 A:2 B:3");
-        assert_eq!(vec!["B", "A"], d.keys().map(String::as_str).collect::<Vec<_>>());
+        assert_eq!(
+            vec!["B", "A"],
+            d.keys().map(String::as_str).collect::<Vec<_>>()
+        );
         assert_eq!(Some(&"3".to_string()), d.get("B"));
         // the FIRMWARE_DATA payload follows it
-        assert_eq!(vec!["B", "A"], py_dict_to_json(&d).as_object().unwrap().keys().collect::<Vec<_>>());
+        assert_eq!(
+            vec!["B", "A"],
+            py_dict_to_json(&d)
+                .as_object()
+                .unwrap()
+                .keys()
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn ours_py_try_returns_the_panic_text() {
-        assert_eq!(Err("TypeError: boom".to_string()), py_try(|| -> i32 { panic!("TypeError: boom") }));
-        assert_eq!(Err("with 7".to_string()), py_try(|| -> i32 { panic!("with {}", 7) }));
-        assert_eq!(Err(String::new()), py_try(|| -> i32 { std::panic::panic_any(5i32) }));
+        assert_eq!(
+            Err("TypeError: boom".to_string()),
+            py_try(|| -> i32 { panic!("TypeError: boom") })
+        );
+        assert_eq!(
+            Err("with 7".to_string()),
+            py_try(|| -> i32 { panic!("with {}", 7) })
+        );
+        assert_eq!(
+            Err(String::new()),
+            py_try(|| -> i32 { std::panic::panic_any(5i32) })
+        );
     }
 }
 
@@ -13490,7 +15800,11 @@ mod section_i_tests {
 
     impl Wire {
         fn new(results: Vec<Result<Option<i64>, SerialError>>) -> Arc<Wire> {
-            Arc::new(Wire { written: Mutex::new(Vec::new()), calls: Mutex::new(Vec::new()), results: Mutex::new(results.into()) })
+            Arc::new(Wire {
+                written: Mutex::new(Vec::new()),
+                calls: Mutex::new(Vec::new()),
+                results: Mutex::new(results.into()),
+            })
         }
         fn text(&self) -> String {
             String::from_utf8(self.written.lock().unwrap().clone()).unwrap()
@@ -13517,7 +15831,12 @@ mod section_i_tests {
         }
         fn write(&self, data: &[u8]) -> Result<Option<i64>, SerialError> {
             self.calls.lock().unwrap().push(data.to_vec());
-            let result = self.results.lock().unwrap().pop_front().unwrap_or(Ok(Some(data.len() as i64)));
+            let result = self
+                .results
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or(Ok(Some(data.len() as i64)));
             if let Ok(Some(n)) = &result {
                 let n = (*n).clamp(0, data.len() as i64) as usize;
                 self.written.lock().unwrap().extend_from_slice(&data[..n]);
@@ -13560,8 +15879,10 @@ mod section_i_tests {
     }
 
     fn enable_emergency_parser(c: &MachineCom) {
-        c._capability_support.with_mut(|d| d.insert(MachineCom::CAPABILITY_EMERGENCY_PARSER, Some(true)));
-        c._firmware_capabilities.with_mut(|d| d.insert(MachineCom::CAPABILITY_EMERGENCY_PARSER, true));
+        c._capability_support
+            .with_mut(|d| d.insert(MachineCom::CAPABILITY_EMERGENCY_PARSER, Some(true)));
+        c._firmware_capabilities
+            .with_mut(|d| d.insert(MachineCom::CAPABILITY_EMERGENCY_PARSER, true));
     }
 
     fn queued_commands(c: &MachineCom) -> Vec<String> {
@@ -13569,7 +15890,10 @@ mod section_i_tests {
         while let Ok(entry) = c._send_queue.get(false, None) {
             c._send_queue.task_done().unwrap();
             match entry {
-                SendQueueEntry::Line { command: QueuedCommand::Command(s), .. } => out.push(s),
+                SendQueueEntry::Line {
+                    command: QueuedCommand::Command(s),
+                    ..
+                } => out.push(s),
                 _ => out.push("<marker>".to_string()),
             }
         }
@@ -13596,10 +15920,22 @@ mod section_i_tests {
 
             // `sendCommand` forces an emergency command (comm.py:1297); `_gcode_..._queuing` does not
             // exist for it, `_command_phase_queuing` sends it at once (comm.py:5617, 5565)
-            assert_eq!(Some(false), send(&c, command), "{command}: not enqueued, sent directly");
-            assert_eq!(format!("{command}\n"), wire.text(), "{command} written ahead of the queue");
+            assert_eq!(
+                Some(false),
+                send(&c, command),
+                "{command}: not enqueued, sent directly"
+            );
+            assert_eq!(
+                format!("{command}\n"),
+                wire.text(),
+                "{command} written ahead of the queue"
+            );
             assert_eq!(0, c._clear_to_send.counter(), "{command} uses up an ok");
-            assert_eq!(vec!["G1 X1".to_string()], queued_commands(&c), "{command} is not in the send queue");
+            assert_eq!(
+                vec!["G1 X1".to_string()],
+                queued_commands(&c),
+                "{command} is not in the send queue"
+            );
         }
     }
 
@@ -13614,7 +15950,10 @@ mod section_i_tests {
             assert_eq!(Some(true), send(&c, command));
             assert_eq!("", wire.text(), "{command}: nothing is written");
             assert_eq!(1, c._clear_to_send.counter(), "{command}: no ok is used up");
-            assert_eq!(vec!["G1 X1".to_string(), command.to_string()], queued_commands(&c));
+            assert_eq!(
+                vec!["G1 X1".to_string(), command.to_string()],
+                queued_commands(&c)
+            );
         }
     }
 
@@ -13631,7 +15970,10 @@ mod section_i_tests {
         assert!(lines[2].starts_with("N2 M104 T0 S0*"), "{lines:?}");
         assert!(lines[3].starts_with("N3 M140 S0*"), "{lines:?}");
         assert_eq!(4, lines.len());
-        assert_eq!("Closing serial port due to emergency stop M112.", c.get_error_string());
+        assert_eq!(
+            "Closing serial port due to emergency stop M112.",
+            c.get_error_string()
+        );
         assert_eq!(MachineCom::STATE_CLOSED_WITH_ERROR, c.get_state());
     }
 
@@ -13653,7 +15995,9 @@ mod section_i_tests {
         assert_eq!(Some(false), send(&c, "M140 S60"));
         assert_eq!(Some(false), send(&c, "M190 S60"));
         assert!(queued_commands(&c).is_empty());
-        assert!(c._terminal_log.with(|l| l.iter().any(|m| m.starts_with("Warn: Not sending \"M140 S60\", printer profile has no heated bed"))));
+        assert!(c._terminal_log.with(|l| l.iter().any(|m| {
+            m.starts_with("Warn: Not sending \"M140 S60\", printer profile has no heated bed")
+        })));
         assert_eq!(Some(true), send(&c, "M104 S200"));
     }
 
@@ -13662,7 +16006,10 @@ mod section_i_tests {
         let wire = Wire::new(vec![]);
         let c = comm_on(&wire, |_| {});
         assert_eq!(Some(false), send(&c, "T3"));
-        assert!(c._terminal_log.with(|l| l.iter().any(|m| m.starts_with("Warn: Not queuing T3, that tool doesn't exist"))));
+        assert!(c._terminal_log.with(|l| {
+            l.iter()
+                .any(|m| m.starts_with("Warn: Not queuing T3, that tool doesn't exist"))
+        }));
         assert_eq!(Some(true), send(&c, "T0"));
         assert_eq!(vec!["T0".to_string()], queued_commands(&c));
 
@@ -13675,7 +16022,8 @@ mod section_i_tests {
     fn ours_sent_phase_tracks_z_f_fan_and_targets() {
         let wire = Wire::new(vec![]);
         let c = comm_on(&wire, |_| {});
-        c.last_temperature.with_mut(|t| t.set_tool(0, Some(20.0), None));
+        c.last_temperature
+            .with_mut(|t| t.set_tool(0, Some(20.0), None));
 
         c._process_command_phase("sent", "G1 Z5.5 F3000", None, None, None, None);
         assert_eq!(Some(5.5), c._currentZ.get());
@@ -13687,13 +16035,17 @@ mod section_i_tests {
         assert_eq!(Some(0), c.last_fanspeed.get());
 
         c._process_command_phase("sent", "M104 S200", None, None, None, None);
-        assert_eq!(Some(200.0), c.last_temperature.with(|t| t.tools())[0].1 .1);
+        assert_eq!(Some(200.0), c.last_temperature.with(|t| t.tools())[0].1.1);
         c._process_command_phase("sent", "M140 S60", None, None, None, None);
         assert_eq!(Some(60.0), c.last_temperature.with(|t| t.bed()).1);
 
         c._process_command_phase("sent", "M109 S210", None, None, None, None);
-        assert!(c._heating.get() && c._long_running_command.get() && c._heatupWaitStartTime.get().is_some());
-        assert_eq!(Some(210.0), c.last_temperature.with(|t| t.tools())[0].1 .1);
+        assert!(
+            c._heating.get()
+                && c._long_running_command.get()
+                && c._heatupWaitStartTime.get().is_some()
+        );
+        assert_eq!(Some(210.0), c.last_temperature.with(|t| t.tools())[0].1.1);
     }
 
     #[test]
@@ -13733,12 +16085,22 @@ mod section_i_tests {
 
     #[test]
     fn ours_a_write_that_times_out_is_tried_once_more() {
-        let wire = Wire::new(vec![Err(SerialError::new("SerialTimeoutException", "Write timeout", true))]);
+        let wire = Wire::new(vec![Err(SerialError::new(
+            "SerialTimeoutException",
+            "Write timeout",
+            true,
+        ))]);
         let c = comm_on(&wire, |_| {});
         c._do_send_without_checksum(b"M105", true);
-        assert_eq!(vec![b"M105\n".to_vec(), b"M105\n".to_vec()], *wire.calls.lock().unwrap());
+        assert_eq!(
+            vec![b"M105\n".to_vec(), b"M105\n".to_vec()],
+            *wire.calls.lock().unwrap()
+        );
         assert_eq!("M105\n", wire.text());
-        assert!(c._terminal_log.with(|l| l.iter().any(|m| m == "Serial timeout while writing to serial port, trying again.")));
+        assert!(c._terminal_log.with(|l| {
+            l.iter()
+                .any(|m| m == "Serial timeout while writing to serial port, trying again.")
+        }));
         assert_eq!(1, c._transmitted_lines.get());
     }
 
@@ -13747,7 +16109,10 @@ mod section_i_tests {
         let wire = Wire::new(vec![Ok(Some(2))]);
         let c = comm_on(&wire, |_| {});
         c._do_send_without_checksum(b"M105", true);
-        assert_eq!(vec![b"M105\n".to_vec(), b"05\n".to_vec()], *wire.calls.lock().unwrap());
+        assert_eq!(
+            vec![b"M105\n".to_vec(), b"05\n".to_vec()],
+            *wire.calls.lock().unwrap()
+        );
         assert_eq!("M105\n", wire.text());
     }
 
@@ -13772,7 +16137,9 @@ mod section_i_tests {
 
     #[test]
     fn ours_any_other_write_error_closes_with_the_error_text() {
-        let wire = Wire::new(vec![Err(SerialError::serial_exception("write failed: boom"))]);
+        let wire = Wire::new(vec![Err(SerialError::serial_exception(
+            "write failed: boom",
+        ))]);
         let c = comm_on(&wire, |_| {});
         c._do_send_without_checksum(b"M105", true);
         assert_eq!("SerialException: write failed: boom", c.get_error_string());
@@ -13788,7 +16155,10 @@ mod section_i_tests {
         assert!(!c._needs_checksum(None));
         c._firmware_info_received.set(false);
         assert!(c._needs_checksum(Some("G1")));
-        assert!(!c._needs_checksum(None), "unknown commands only with sendChecksumWithUnknownCommands");
+        assert!(
+            !c._needs_checksum(None),
+            "unknown commands only with sendChecksumWithUnknownCommands"
+        );
         c._do_send("G1 X1", Some("G1"));
         assert!(wire.text().starts_with("N1 G1 X1*"));
         assert_eq!(2, c._current_line.get());
@@ -13809,11 +16179,22 @@ mod section_i_tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert_eq!("G28\n", wire.text());
-        assert!(c._long_running_command.get(), "G28 is a long running command");
+        assert!(
+            c._long_running_command.get(),
+            "G28 is a long running command"
+        );
 
         // the ok that the loop waits for, then the end: inactive and a marker
         c._send_queue_active.set(false);
-        c._send_queue.put(SendQueueEntry::Marker(SendQueueMarker::new(None)), None, None, true, None).unwrap();
+        c._send_queue
+            .put(
+                SendQueueEntry::Marker(SendQueueMarker::new(None)),
+                None,
+                None,
+                true,
+                None,
+            )
+            .unwrap();
         c._clear_to_send.set();
         handle.join().expect("the send loop ends");
     }
@@ -13827,7 +16208,9 @@ mod section_i_tests {
         let flag = ran.clone();
         assert!(c._enqueue_for_sending(cmd("   "), None, None, None, false, None));
         assert!(c._enqueue_for_sending(
-            QueuedCommand::Marker(SendQueueMarker::new(Some(Box::new(move || flag.store(true, Ordering::SeqCst)))).0),
+            QueuedCommand::Marker(
+                SendQueueMarker::new(Some(Box::new(move || flag.store(true, Ordering::SeqCst)))).0
+            ),
             None,
             None,
             None,
@@ -13844,7 +16227,15 @@ mod section_i_tests {
         assert!(ran.load(Ordering::SeqCst));
         assert_eq!("", wire.text());
         c._send_queue_active.set(false);
-        c._send_queue.put(SendQueueEntry::Marker(SendQueueMarker::new(None)), None, None, true, None).unwrap();
+        c._send_queue
+            .put(
+                SendQueueEntry::Marker(SendQueueMarker::new(None)),
+                None,
+                None,
+                true,
+                None,
+            )
+            .unwrap();
         c._clear_to_send.set();
         handle.join().expect("the send loop ends");
     }
@@ -13854,7 +16245,11 @@ mod section_i_tests {
         let wire = Wire::new(vec![]);
         let c = comm_on(&wire, |_| {});
         // `@pause` with the tag of the script that paused already does nothing; an unknown one neither
-        let tags = Some(Rc::new(RefCell::new(["script:afterPrintPaused".to_string()].into_iter().collect::<BTreeSet<_>>())));
+        let tags = Some(Rc::new(RefCell::new(
+            ["script:afterPrintPaused".to_string()]
+                .into_iter()
+                .collect::<BTreeSet<_>>(),
+        )));
         c._process_atcommand_phase("queuing", "@pause", tags.clone());
         c._process_atcommand_phase("queuing", "@nosuchcommand with parameters", None);
         assert!(queued_commands(&c).is_empty());
@@ -13866,10 +16261,34 @@ mod section_i_tests {
     #[test]
     fn ours_the_serial_text_is_encoded_with_the_serial_encoding() {
         let ascii = Some(Value::String("ascii".to_string()));
-        assert_eq!(b"M117 caf?".to_vec(), encode_serial_text("M117 caf\u{e9}", &ascii, true));
-        assert_eq!("M117 caf\u{e9}".as_bytes().to_vec(), encode_serial_text("M117 caf\u{e9}", &Some(Value::String("utf-8".to_string())), true));
-        assert_eq!(b"M117 caf\xe9".to_vec(), encode_serial_text("M117 caf\u{e9}", &Some(Value::String("latin-1".to_string())), true));
-        assert!(std::panic::catch_unwind(|| encode_serial_text("caf\u{e9}", &Some(Value::String("ascii".to_string())), false)).is_err());
+        assert_eq!(
+            b"M117 caf?".to_vec(),
+            encode_serial_text("M117 caf\u{e9}", &ascii, true)
+        );
+        assert_eq!(
+            "M117 caf\u{e9}".as_bytes().to_vec(),
+            encode_serial_text(
+                "M117 caf\u{e9}",
+                &Some(Value::String("utf-8".to_string())),
+                true
+            )
+        );
+        assert_eq!(
+            b"M117 caf\xe9".to_vec(),
+            encode_serial_text(
+                "M117 caf\u{e9}",
+                &Some(Value::String("latin-1".to_string())),
+                true
+            )
+        );
+        assert!(
+            std::panic::catch_unwind(|| encode_serial_text(
+                "caf\u{e9}",
+                &Some(Value::String("ascii".to_string())),
+                false
+            ))
+            .is_err()
+        );
     }
 
     #[test]
@@ -13877,10 +16296,21 @@ mod section_i_tests {
         // `serial_list()` scans a temp directory, not /dev
         assert!(serial_list().is_empty());
         // `_open_serial` panics on a path outside the temp directory ...
-        for port in ["/dev/ttyUSB0", "/dev/tty.usbmodem1", "/tmp/../dev/ttyUSB0", "relative"] {
+        for port in [
+            "/dev/ttyUSB0",
+            "/dev/tty.usbmodem1",
+            "/tmp/../dev/ttyUSB0",
+            "relative",
+        ] {
             let c = MachineCom::new(None, None, None, None);
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c._open_serial(port, 115200, false)));
-            let text = result.unwrap_err().downcast_ref::<String>().cloned().unwrap_or_default();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                c._open_serial(port, 115200, false)
+            }));
+            let text = result
+                .unwrap_err()
+                .downcast_ref::<String>()
+                .cloned()
+                .unwrap_or_default();
             assert!(text.starts_with("test guard:"), "{port}: {text}");
         }
         // ... but not on the nonexistent path every test may use

@@ -31,7 +31,7 @@ use super::comm::{py_float, py_int, py_truthy, py_try};
 use super::py_attr::Attr;
 use super::settings::settings;
 use super::util::dict_contains_keys;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 /// `profile.py:123 BedFormFactor`
 pub struct BedFormFactor;
@@ -78,7 +78,9 @@ fn convert_int(v: &Value) -> Result<Value, String> {
             } else {
                 let f = n.as_f64().expect("a JSON number is an f64");
                 if !f.is_finite() {
-                    return Err("OverflowError: cannot convert float infinity to integer".to_string());
+                    return Err(
+                        "OverflowError: cannot convert float infinity to integer".to_string()
+                    );
                 }
                 let t = f.trunc();
                 if t.abs() >= 9.2e18 {
@@ -87,8 +89,12 @@ fn convert_int(v: &Value) -> Result<Value, String> {
                 Ok(Value::from(t as i64))
             }
         }
-        Value::String(s) => py_int(s).map(Value::from).ok_or_else(|| format!("ValueError: invalid literal for int() with base 10: {s:?}")),
-        other => Err(format!("TypeError: int() argument must be a string or a real number, not {other:?}")),
+        Value::String(s) => py_int(s)
+            .map(Value::from)
+            .ok_or_else(|| format!("ValueError: invalid literal for int() with base 10: {s:?}")),
+        other => Err(format!(
+            "TypeError: int() argument must be a string or a real number, not {other:?}"
+        )),
     }
 }
 
@@ -97,8 +103,11 @@ fn convert_float(v: &Value) -> Result<f64, String> {
     match v {
         Value::Bool(b) => Ok(*b as i64 as f64),
         Value::Number(n) => Ok(n.as_f64().expect("a JSON number is an f64")),
-        Value::String(s) => py_float(s).ok_or_else(|| format!("ValueError: could not convert string to float: {s:?}")),
-        other => Err(format!("TypeError: float() argument must be a string or a real number, not {other:?}")),
+        Value::String(s) => py_float(s)
+            .ok_or_else(|| format!("ValueError: could not convert string to float: {s:?}")),
+        other => Err(format!(
+            "TypeError: float() argument must be a string or a real number, not {other:?}"
+        )),
     }
 }
 
@@ -114,30 +123,30 @@ fn walk<'a>(profile: &'a mut Value, path: &[&str]) -> &'a mut Value {
     for part in &path[..path.len() - 1] {
         match value {
             Value::Object(m) if m.contains_key(*part) => value = m.get_mut(*part).unwrap(),
-            _ => panic!("RuntimeError: {} is not contained in profile", path.join(".")),
+            _ => panic!(
+                "RuntimeError: {} is not contained in profile",
+                path.join(".")
+            ),
         }
     }
     match value {
-        Value::Object(m) if m.contains_key(path[path.len() - 1]) => m.get_mut(path[path.len() - 1]).unwrap(),
-        _ => panic!("RuntimeError: {} is not contained in profile", path.join(".")),
+        Value::Object(m) if m.contains_key(path[path.len() - 1]) => {
+            m.get_mut(path[path.len() - 1]).unwrap()
+        }
+        _ => panic!(
+            "RuntimeError: {} is not contained in profile",
+            path.join(".")
+        ),
     }
 }
 
 /// Python `min(a, b)` / `max(a, b)` of two floats: the first unless the second is strictly less / greater
 fn py_min(a: f64, b: f64) -> f64 {
-    if b < a {
-        b
-    } else {
-        a
-    }
+    if b < a { b } else { a }
 }
 
 fn py_max(a: f64, b: f64) -> f64 {
-    if b > a {
-        b
-    } else {
-        a
-    }
+    if b > a { b } else { a }
 }
 
 impl PrinterProfileManager {
@@ -176,13 +185,17 @@ impl PrinterProfileManager {
 
     /// OURS: `__init__` (:213) without the profile folder: `self._current = None`
     pub fn new() -> Self {
-        PrinterProfileManager { _current: Attr::new(None) }
+        PrinterProfileManager {
+            _current: Attr::new(None),
+        }
     }
 
     /// OURS (for the tests and for the top edge): a manager whose current profile is `profile`, as if
     /// `select` had loaded it from a file
     pub fn with_current(profile: Value) -> Self {
-        PrinterProfileManager { _current: Attr::new(Some(profile)) }
+        PrinterProfileManager {
+            _current: Attr::new(Some(profile)),
+        }
     }
 
     /// `:368 select(identifier)`
@@ -288,7 +301,12 @@ impl PrinterProfileManager {
 
         // convert floats
         let mut volume_not_finite = false;
-        for path in [&["volume", "width"][..], &["volume", "depth"], &["volume", "height"], &["extruder", "nozzleDiameter"]] {
+        for path in [
+            &["volume", "width"][..],
+            &["volume", "depth"],
+            &["volume", "height"],
+            &["extruder", "nozzleDiameter"],
+        ] {
             let converted = py_try(|| {
                 let slot = walk(&mut profile, path);
                 match convert_float(slot) {
@@ -336,29 +354,43 @@ impl PrinterProfileManager {
         if volume_not_finite {
             return None;
         }
-        for path in [&["volume", "width"][..], &["volume", "depth"], &["volume", "height"]] {
-            let x = walk(&mut profile, path).as_f64().expect("converted to a float above");
+        for path in [
+            &["volume", "width"][..],
+            &["volume", "depth"],
+            &["volume", "height"],
+        ] {
+            let x = walk(&mut profile, path)
+                .as_f64()
+                .expect("converted to a float above");
             if !(x > 0.0 && x < 10000.0) {
                 return None;
             }
         }
 
         // validate extruder count range
-        let count = walk(&mut profile, &["extruder", "count"]).as_i64().expect("converted to an int above");
+        let count = walk(&mut profile, &["extruder", "count"])
+            .as_i64()
+            .expect("converted to an int above");
         if !(count > 0 && count < 100) {
             return None;
         }
 
         // validate form factor
         let form_factor = profile["volume"]["formFactor"].clone();
-        if !BedFormFactor::values().iter().any(|v| form_factor == Value::String(v.to_string())) {
+        if !BedFormFactor::values()
+            .iter()
+            .any(|v| form_factor == Value::String(v.to_string()))
+        {
             // self._logger.warning("Profile has invalid value volume.formFactor: {formFactor}")
             return None;
         }
 
         // validate origin type
         let origin = profile["volume"]["origin"].clone();
-        if !BedOrigin::values().iter().any(|v| origin == Value::String(v.to_string())) {
+        if !BedOrigin::values()
+            .iter()
+            .any(|v| origin == Value::String(v.to_string()))
+        {
             // self._logger.warning("Profile has invalid value in volume.origin: {origin}")
             return None;
         }
@@ -381,15 +413,29 @@ impl PrinterProfileManager {
             } else {
                 let default_box = Self::_default_box_for_volume(&profile["volume"]);
                 let mut cb: Map<String, Value> = custom_box.as_object().expect("an object").clone();
-                for (prop, is_min) in [("x_min", true), ("y_min", true), ("z_min", true), ("x_max", false), ("y_max", false), ("z_max", false)] {
-                    let limit = default_box.get(prop).and_then(Value::as_f64).expect("the default box has the property");
+                for (prop, is_min) in [
+                    ("x_min", true),
+                    ("y_min", true),
+                    ("z_min", true),
+                    ("x_max", false),
+                    ("y_max", false),
+                    ("z_max", false),
+                ] {
+                    let limit = default_box
+                        .get(prop)
+                        .and_then(Value::as_f64)
+                        .expect("the default box has the property");
                     if cb.get(prop).is_none_or(Value::is_null) {
                         cb.insert(prop.to_string(), float_value(limit));
                     } else {
                         let value = &cb[prop];
                         match convert_float(value) {
                             Ok(f) => {
-                                let limited = if is_min { py_min(f, limit) } else { py_max(f, limit) };
+                                let limited = if is_min {
+                                    py_min(f, limit)
+                                } else {
+                                    py_max(f, limit)
+                                };
                                 if !limited.is_finite() {
                                     unimplemented!("profile.py:773 a non-finite custom_box value")
                                 }
@@ -407,13 +453,19 @@ impl PrinterProfileManager {
                 // default box
                 let mut differs = false;
                 for (prop, value) in &cb {
-                    let expected = default_box.get(prop).unwrap_or_else(|| panic!("KeyError: {prop:?}"));
+                    let expected = default_box
+                        .get(prop)
+                        .unwrap_or_else(|| panic!("KeyError: {prop:?}"));
                     if value.as_f64() != expected.as_f64() {
                         differs = true;
                         break;
                     }
                 }
-                profile["volume"]["custom_box"] = if differs { Value::Object(cb) } else { Value::Bool(false) };
+                profile["volume"]["custom_box"] = if differs {
+                    Value::Object(cb)
+                } else {
+                    Value::Bool(false)
+                };
             }
         }
 
@@ -457,7 +509,11 @@ impl PrinterProfileManager {
 
     /// `:812 _default_box_for_volume(volume)`
     pub fn _default_box_for_volume(volume: &Value) -> Map<String, Value> {
-        let num = |k: &str| volume[k].as_f64().unwrap_or_else(|| panic!("TypeError: volume[{k:?}] is not a number"));
+        let num = |k: &str| {
+            volume[k]
+                .as_f64()
+                .unwrap_or_else(|| panic!("TypeError: volume[{k:?}] is not a number"))
+        };
         let mut b = Map::new();
         if volume["origin"] == BedOrigin::CENTER {
             let half_width = num("width") / 2.0;
@@ -503,7 +559,20 @@ mod tests {
         assert_eq!(false, d["heatedChamber"]);
         assert_eq!(1, d["extruder"]["count"]);
         let keys: Vec<&String> = d.as_object().unwrap().keys().collect();
-        assert_eq!(vec!["id", "name", "model", "color", "volume", "heatedBed", "heatedChamber", "extruder", "axes"], keys);
+        assert_eq!(
+            vec![
+                "id",
+                "name",
+                "model",
+                "color",
+                "volume",
+                "heatedBed",
+                "heatedChamber",
+                "extruder",
+                "axes"
+            ],
+            keys
+        );
     }
 
     #[test]
@@ -512,9 +581,15 @@ mod tests {
         // default and returns False; deselect clears it
         let m = PrinterProfileManager::new();
         assert!(m.get_current().is_none());
-        assert_eq!(PrinterProfileManager::default_profile(), m.get_current_or_default());
+        assert_eq!(
+            PrinterProfileManager::default_profile(),
+            m.get_current_or_default()
+        );
         assert!(!m.select(None));
-        assert_eq!(Some(PrinterProfileManager::default_profile()), m.get_current());
+        assert_eq!(
+            Some(PrinterProfileManager::default_profile()),
+            m.get_current()
+        );
         assert!(!m.select(Some("other"))); // ours: no profile file exists
         m.deselect();
         assert!(m.get_current().is_none());
@@ -525,7 +600,9 @@ mod tests {
     #[test]
     fn ours_ensure_valid_profile_default_is_valid() {
         let m = PrinterProfileManager::new();
-        let valid = m._ensure_valid_profile(PrinterProfileManager::default_profile()).expect("valid");
+        let valid = m
+            ._ensure_valid_profile(PrinterProfileManager::default_profile())
+            .expect("valid");
         assert_eq!(json!([[0.0, 0.0]]), valid["extruder"]["offsets"]);
         assert_eq!(json!(200.0), valid["volume"]["width"]);
         assert_eq!(json!(200), valid["axes"]["z"]["speed"]);
@@ -579,7 +656,10 @@ mod tests {
         // a custom box equal to the default box is removed (:790); a smaller one is kept and completed (:758-786)
         let mut p = PrinterProfileManager::default_profile();
         p["volume"]["custom_box"] = json!({"x_min": 0, "x_max": 200});
-        assert_eq!(json!(false), m._ensure_valid_profile(p).unwrap()["volume"]["custom_box"]);
+        assert_eq!(
+            json!(false),
+            m._ensure_valid_profile(p).unwrap()["volume"]["custom_box"]
+        );
         let mut p = PrinterProfileManager::default_profile();
         p["volume"]["custom_box"] = json!({"x_min": 10, "x_max": 500});
         let b = m._ensure_valid_profile(p).unwrap()["volume"]["custom_box"].clone();

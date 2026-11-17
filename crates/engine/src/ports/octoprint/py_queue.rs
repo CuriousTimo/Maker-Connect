@@ -66,7 +66,9 @@ pub struct Deque<T> {
 impl<T> Deque<T> {
     /// `_init(maxsize)`
     pub fn new() -> Self {
-        Deque { queue: VecDeque::new() }
+        Deque {
+            queue: VecDeque::new(),
+        }
     }
 }
 
@@ -87,7 +89,10 @@ impl<T> QueueStorage for Deque<T> {
         Ok(())
     }
     fn _get(&mut self) -> Result<T, Empty> {
-        Ok(self.queue.pop_front().expect("deque.popleft() on an empty deque (IndexError)"))
+        Ok(self
+            .queue
+            .pop_front()
+            .expect("deque.popleft() on an empty deque (IndexError)"))
     }
 }
 
@@ -125,7 +130,11 @@ impl<S: QueueStorage> Queue<S> {
     pub fn new(maxsize: i64, storage: S) -> Self {
         Queue {
             maxsize,
-            mutex: Mutex::new(QueueState { queue: storage, unfinished_tasks: 0, is_shutdown: false }),
+            mutex: Mutex::new(QueueState {
+                queue: storage,
+                unfinished_tasks: 0,
+                is_shutdown: false,
+            }),
             not_empty: Condvar::new(),
             not_full: Condvar::new(),
             all_tasks_done: Condvar::new(),
@@ -215,7 +224,12 @@ impl<S: QueueStorage> Queue<S> {
     /// is ignored in that case).
     ///
     /// Raises ShutDown if the queue has been shut down.
-    pub fn put(&self, item: S::Item, block: bool, timeout: Option<f64>) -> Result<(), PutError<S::Error>> {
+    pub fn put(
+        &self,
+        item: S::Item,
+        block: bool,
+        timeout: Option<f64>,
+    ) -> Result<(), PutError<S::Error>> {
         let mut g = self.lock();
         if g.is_shutdown {
             return Err(PutError::ShutDown);
@@ -233,7 +247,9 @@ impl<S: QueueStorage> Queue<S> {
                     }
                 }
             } else if timeout.unwrap() < 0.0 {
-                return Err(PutError::ValueError("'timeout' must be a non-negative number".to_string()));
+                return Err(PutError::ValueError(
+                    "'timeout' must be a non-negative number".to_string(),
+                ));
             } else {
                 let end = endtime(timeout.unwrap());
                 while g.queue._qsize() as i64 >= self.maxsize {
@@ -282,7 +298,9 @@ impl<S: QueueStorage> Queue<S> {
                 }
             }
         } else if timeout.unwrap() < 0.0 {
-            return Err(GetError::ValueError("'timeout' must be a non-negative number".to_string()));
+            return Err(GetError::ValueError(
+                "'timeout' must be a non-negative number".to_string(),
+            ));
         } else {
             let end = endtime(timeout.unwrap());
             while g.queue._qsize() == 0 {

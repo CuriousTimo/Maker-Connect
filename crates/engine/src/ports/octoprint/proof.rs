@@ -18,12 +18,12 @@ use super::port::OctoPrintPort;
 use crate::{Engine, Order};
 use fancy_regex::Regex;
 use maker_connect_protocol::{Action, JobControl, JobOrder, MachineState};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -63,7 +63,14 @@ struct Recorder {
 
 impl Recorder {
     fn new() -> Recorder {
-        Recorder { inner: Mutex::new(RecInner { writes: vec![], reads: vec![], last: Instant::now() }), cond: Condvar::new() }
+        Recorder {
+            inner: Mutex::new(RecInner {
+                writes: vec![],
+                reads: vec![],
+                last: Instant::now(),
+            }),
+            cond: Condvar::new(),
+        }
     }
 
     fn write(&self, data: &[u8]) {
@@ -102,14 +109,23 @@ impl Recorder {
         let mut inner = lock(&self.inner);
         loop {
             let list = if reads { &inner.reads } else { &inner.writes };
-            if list.iter().filter(|x| rx.is_match(x).unwrap_or(false)).count() >= count {
+            if list
+                .iter()
+                .filter(|x| rx.is_match(x).unwrap_or(false))
+                .count()
+                >= count
+            {
                 return true;
             }
             let now = Instant::now();
             if now >= end {
                 return false;
             }
-            inner = self.cond.wait_timeout(inner, end - now).unwrap_or_else(|e| e.into_inner()).0;
+            inner = self
+                .cond
+                .wait_timeout(inner, end - now)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
         }
     }
 }
@@ -132,7 +148,13 @@ struct Bridge {
 }
 
 impl Bridge {
-    fn start(name: &str, scenario: &str, read_timeout: f64, baud: i64, rec: Arc<Recorder>) -> Arc<Bridge> {
+    fn start(
+        name: &str,
+        scenario: &str,
+        read_timeout: f64,
+        baud: i64,
+        rec: Arc<Recorder>,
+    ) -> Arc<Bridge> {
         let python = root().join("reference/.venv-octoprint-313/bin/python");
         let mut child = Command::new(&python)
             .arg(root().join("scripts/octoprint-vp-bridge.py"))
@@ -154,7 +176,9 @@ impl Bridge {
             std::thread::spawn(move || {
                 for line in BufReader::new(stdout).lines().map_while(Result::ok) {
                     let mut parts = line.splitn(3, ' ');
-                    let (Some(id), Some(status)) = (parts.next(), parts.next()) else { continue };
+                    let (Some(id), Some(status)) = (parts.next(), parts.next()) else {
+                        continue;
+                    };
                     let rest = parts.next().unwrap_or("").to_string();
                     let Ok(id) = id.parse::<u64>() else { continue };
                     if id == 0 {
@@ -165,7 +189,10 @@ impl Bridge {
                         Ok(rest)
                     } else {
                         let (class, msg) = rest.split_once(' ').unwrap_or((rest.as_str(), ""));
-                        Err((class.to_string(), String::from_utf8_lossy(&unhex(msg)).into_owned()))
+                        Err((
+                            class.to_string(),
+                            String::from_utf8_lossy(&unhex(msg)).into_owned(),
+                        ))
                     };
                     if let Some(tx) = lock(&waiting).remove(&id) {
                         let _ = tx.send(reply);
@@ -173,11 +200,16 @@ impl Bridge {
                 }
                 // the bridge ended: everything still waiting fails
                 for (_, tx) in lock(&waiting).drain() {
-                    let _ = tx.send(Err(("SerialException".to_string(), "the bridge ended".to_string())));
+                    let _ = tx.send(Err((
+                        "SerialException".to_string(),
+                        "the bridge ended".to_string(),
+                    )));
                 }
             });
         }
-        ready_rx.recv_timeout(Duration::from_secs(60)).expect("the bridge did not say it was ready");
+        ready_rx
+            .recv_timeout(Duration::from_secs(60))
+            .expect("the bridge did not say it was ready");
         Arc::new(Bridge {
             name: name.to_string(),
             baud,
@@ -201,12 +233,23 @@ impl Bridge {
         lock(&self.waiting).insert(id, tx);
         {
             let mut stdin = lock(&self.stdin);
-            if writeln!(stdin, "{id} {request}").and_then(|()| stdin.flush()).is_err() {
+            if writeln!(stdin, "{id} {request}")
+                .and_then(|()| stdin.flush())
+                .is_err()
+            {
                 lock(&self.waiting).remove(&id);
-                return Err(("SerialException".to_string(), "the bridge ended".to_string()));
+                return Err((
+                    "SerialException".to_string(),
+                    "the bridge ended".to_string(),
+                ));
             }
         }
-        rx.recv().unwrap_or_else(|_| Err(("SerialException".to_string(), "the bridge ended".to_string())))
+        rx.recv().unwrap_or_else(|_| {
+            Err((
+                "SerialException".to_string(),
+                "the bridge ended".to_string(),
+            ))
+        })
     }
 }
 
@@ -217,7 +260,9 @@ impl Drop for Bridge {
 }
 
 fn unhex(s: &str) -> Vec<u8> {
-    (0..s.len() / 2).filter_map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).ok()).collect()
+    (0..s.len() / 2)
+        .filter_map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).ok())
+        .collect()
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -237,7 +282,9 @@ impl SerialTransport for Bridge {
         Some(Some(self.baud))
     }
     fn close(&self) -> Result<(), String> {
-        self.call("C").map(|_| ()).map_err(|(class, msg)| format!("{class}: {msg}"))
+        self.call("C")
+            .map(|_| ())
+            .map_err(|(class, msg)| format!("{class}: {msg}"))
     }
     fn str(&self) -> String {
         format!("VIRTUAL(read_timeout={})", lock(&self.read_timeout))
@@ -254,7 +301,9 @@ impl SerialTransport for Bridge {
         Some(*lock(&self.read_timeout))
     }
     fn set_baudrate(&self, baudrate: i64) {
-        panic!("VirtualPrinter.baudrate has no setter in OctoPrint's virtual printer; set to {baudrate}");
+        panic!(
+            "VirtualPrinter.baudrate has no setter in OctoPrint's virtual printer; set to {baudrate}"
+        );
     }
     fn readline(&self) -> Result<Vec<u8>, SerialError> {
         match self.call("R") {
@@ -271,7 +320,11 @@ impl SerialTransport for Bridge {
     fn write(&self, data: &[u8]) -> Result<Option<i64>, SerialError> {
         self.rec.write(data);
         match self.call(&format!("W {}", hex(data))) {
-            Ok(n) => Ok(Some(n.trim().parse::<i64>().expect("the bridge says how many bytes"))),
+            Ok(n) => Ok(Some(
+                n.trim()
+                    .parse::<i64>()
+                    .expect("the bridge says how many bytes"),
+            )),
             Err((class, msg)) => Err(serial_error(class, msg)),
         }
     }
@@ -314,9 +367,16 @@ fn run_scenario(top: &Value, scn: &Value, work: &Path) -> Value {
         merge(&mut octoprint, own);
     }
     // SAFETY: set before the settings singleton is first read, in a process of its own
-    unsafe { std::env::set_var("MAKER_CONNECT_OCTOPRINT_PROOF_SETTINGS", octoprint.to_string()) };
+    unsafe {
+        std::env::set_var(
+            "MAKER_CONNECT_OCTOPRINT_PROOF_SETTINGS",
+            octoprint.to_string(),
+        )
+    };
 
-    let read_timeout = super::settings::settings().get_float(&["serial", "timeout", "connection"]).expect("serial.timeout.connection");
+    let read_timeout = super::settings::settings()
+        .get_float(&["serial", "timeout", "connection"])
+        .expect("serial.timeout.connection");
     let serial_dir = PathBuf::from(super::comm::test_serial_dir());
     // a name `serialList` finds (regex_serial_devices) so that auto-detection has a port to try
     let device = serial_dir.join(format!("ttyUSBproof{}", std::process::id()));
@@ -342,21 +402,40 @@ fn run_scenario(top: &Value, scn: &Value, work: &Path) -> Value {
             if let Some(ms) = step.get("settle") {
                 rec.settle(ms.as_u64().expect("ms"));
             } else if step.get("wait_operational").is_some() {
-                wait_until("operational", || engine.report(id).is_ok_and(|r| r.telemetry.state == MachineState::Idle))?;
+                wait_until("operational", || {
+                    engine
+                        .report(id)
+                        .is_ok_and(|r| r.telemetry.state == MachineState::Idle)
+                })?;
             } else if let Some(w) = step.get("wait_write") {
-                let (m, c) = (w["match"].as_str().expect("match"), w.get("count").and_then(Value::as_u64).unwrap_or(1) as usize);
+                let (m, c) = (
+                    w["match"].as_str().expect("match"),
+                    w.get("count").and_then(Value::as_u64).unwrap_or(1) as usize,
+                );
                 if !rec.wait_count(false, m, c) {
                     return Err(format!("timed out waiting for a write matching \"{m}\""));
                 }
             } else if let Some(w) = step.get("wait_read") {
-                let (m, c) = (w["match"].as_str().expect("match"), w.get("count").and_then(Value::as_u64).unwrap_or(1) as usize);
+                let (m, c) = (
+                    w["match"].as_str().expect("match"),
+                    w.get("count").and_then(Value::as_u64).unwrap_or(1) as usize,
+                );
                 if !rec.wait_count(true, m, c) {
                     return Err(format!("timed out waiting for a line matching \"{m}\""));
                 }
             } else if let Some(action) = step.get("command") {
                 next_command += 1;
-                let action: Action = serde_json::from_value(action.clone()).map_err(|e| format!("bad action: {e}"))?;
-                engine.send(id, Order::Command { id: next_command, action }).map_err(|_| "the port ended".to_string())?;
+                let action: Action = serde_json::from_value(action.clone())
+                    .map_err(|e| format!("bad action: {e}"))?;
+                engine
+                    .send(
+                        id,
+                        Order::Command {
+                            id: next_command,
+                            action,
+                        },
+                    )
+                    .map_err(|_| "the port ended".to_string())?;
             } else if let Some(job) = step.get("job") {
                 next_command += 1;
                 let file_name = job["file"].as_str().expect("file");
@@ -364,8 +443,19 @@ fn run_scenario(top: &Value, scn: &Value, work: &Path) -> Value {
                 let own = work.join(format!("job-{next_command}"));
                 std::fs::copy(&source, &own).map_err(|e| format!("copying {source:?}: {e}"))?;
                 let size = std::fs::metadata(&own).map(|m| m.len()).unwrap_or(0);
-                let order = JobOrder { id: i64::from(next_command), name: file_name.to_string(), download: String::new(), size, from_line: None, tape_mm: None, label_length_mm: None, page_size: None };
-                engine.send(id, Order::Job { order, file: own }).map_err(|_| "the port ended".to_string())?;
+                let order = JobOrder {
+                    id: i64::from(next_command),
+                    name: file_name.to_string(),
+                    download: String::new(),
+                    size,
+                    from_line: None,
+                    tape_mm: None,
+                    label_length_mm: None,
+                    page_size: None,
+                };
+                engine
+                    .send(id, Order::Job { order, file: own })
+                    .map_err(|_| "the port ended".to_string())?;
             } else if let Some(control) = step.get("control") {
                 let control = match control.as_str().expect("control") {
                     "pause" => JobControl::Pause,
@@ -373,9 +463,13 @@ fn run_scenario(top: &Value, scn: &Value, work: &Path) -> Value {
                     "stop" => JobControl::Stop,
                     other => return Err(format!("no control {other}")),
                 };
-                engine.send(id, Order::Control(control)).map_err(|_| "the port ended".to_string())?;
+                engine
+                    .send(id, Order::Control(control))
+                    .map_err(|_| "the port ended".to_string())?;
             } else if let Some(choice) = step.get("answer") {
-                engine.send(id, Order::Answer(choice.as_u64().expect("a button") as u8)).map_err(|_| "the port ended".to_string())?;
+                engine
+                    .send(id, Order::Answer(choice.as_u64().expect("a button") as u8))
+                    .map_err(|_| "the port ended".to_string())?;
             } else if step.get("close").is_some() {
                 // Order::Close: the port disconnects and ends; give it a time to do so
                 closed = true;
@@ -434,7 +528,13 @@ fn normalise(moving: bool, reads: &[String]) -> (Vec<String>, usize, usize) {
 }
 
 fn strings(v: &Value) -> Vec<String> {
-    v.as_array().map(|a| a.iter().map(|s| s.as_str().unwrap_or("").to_string()).collect()).unwrap_or_default()
+    v.as_array()
+        .map(|a| {
+            a.iter()
+                .map(|s| s.as_str().unwrap_or("").to_string())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The lines that are in one list and not in the other, as `-line` (the reference's only) and `+line`
@@ -444,7 +544,11 @@ fn diff_lines(reference: &[String], ours: &[String]) -> Vec<String> {
     let mut lcs = vec![vec![0usize; m + 1]; n + 1];
     for i in (0..n).rev() {
         for j in (0..m).rev() {
-            lcs[i][j] = if reference[i] == ours[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
+            lcs[i][j] = if reference[i] == ours[j] {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
         }
     }
     let (mut i, mut j, mut out) = (0, 0, Vec::new());
@@ -465,11 +569,18 @@ fn diff_lines(reference: &[String], ours: &[String]) -> Vec<String> {
 
 /// Compares one run of ours with the reference for one scenario: both layers and the error
 fn compare_run(scn: &Value, reference: &Value, ours: &Value) -> Value {
-    let moving = scn.get("temperatures_moving").and_then(Value::as_bool).unwrap_or(false);
+    let moving = scn
+        .get("temperatures_moving")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let (rw, ow) = (strings(&reference["writes"]), strings(&ours["writes"]));
     let (rr, dropped_ref, masked_ref) = normalise(moving, &strings(&reference["reads"]));
     let (or, dropped_ours, masked_ours) = normalise(moving, &strings(&ours["reads"]));
-    let error_difference: Vec<Value> = if reference["error"] == ours["error"] { vec![] } else { vec![json!({ "reference": reference["error"], "ours": ours["error"] })] };
+    let error_difference: Vec<Value> = if reference["error"] == ours["error"] {
+        vec![]
+    } else {
+        vec![json!({ "reference": reference["error"], "ours": ours["error"] })]
+    };
     json!({
         "signature": { "writes": diff_lines(&rw, &ow), "reads": diff_lines(&rr, &or), "error": error_difference },
         "writes_identical": rw == ow,
@@ -492,7 +603,11 @@ fn signatures(compared: &[Value]) -> Value {
             None => seen.push((c["signature"].clone(), 1)),
         }
     }
-    Value::Array(seen.into_iter().map(|(signature, runs)| json!({ "runs": runs, "signature": signature })).collect())
+    Value::Array(
+        seen.into_iter()
+            .map(|(signature, runs)| json!({ "runs": runs, "signature": signature }))
+            .collect(),
+    )
 }
 
 /// How many runs of ours (of `runs`) were identical in a layer
@@ -503,9 +618,25 @@ fn count(compared: &[Value], key: &str) -> usize {
 /// Ours, `RUNS` times, against the reference's transcript: "identical" if every run was identical in
 /// both layers (and ended as the reference did), "differs" if none was, else "varies"
 fn compare(scn: &Value, reference: &Value, runs: &[Value], reproducible: bool) -> Value {
-    let compared: Vec<Value> = runs.iter().map(|r| compare_run(scn, reference, r)).collect();
-    let whole = compared.iter().filter(|c| c["writes_identical"] == true && c["reads_identical"] == true && c["error_identical"] == true).count();
-    let verdict = if whole == runs.len() { "identical" } else if whole == 0 { "differs" } else { "varies" };
+    let compared: Vec<Value> = runs
+        .iter()
+        .map(|r| compare_run(scn, reference, r))
+        .collect();
+    let whole = compared
+        .iter()
+        .filter(|c| {
+            c["writes_identical"] == true
+                && c["reads_identical"] == true
+                && c["error_identical"] == true
+        })
+        .count();
+    let verdict = if whole == runs.len() {
+        "identical"
+    } else if whole == 0 {
+        "differs"
+    } else {
+        "varies"
+    };
     json!({
         "reproducible": reproducible,
         "verdict": verdict,
@@ -534,11 +665,22 @@ mod tests {
     #[test]
     #[ignore = "the child of the proof; the proof starts it (scripts/octoprint-own-process-tests.sh)"]
     fn proof_child_run() {
-        let (Ok(name), Ok(out)) = (std::env::var("MAKER_CONNECT_PROOF_SCENARIO"), std::env::var("MAKER_CONNECT_PROOF_OUT")) else {
+        let (Ok(name), Ok(out)) = (
+            std::env::var("MAKER_CONNECT_PROOF_SCENARIO"),
+            std::env::var("MAKER_CONNECT_PROOF_OUT"),
+        ) else {
             return;
         };
-        let top: Value = serde_json::from_str(&std::fs::read_to_string(fixtures().join("scenarios.json")).unwrap()).unwrap();
-        let scn = top["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name.as_str()).expect("a scenario of that name");
+        let top: Value = serde_json::from_str(
+            &std::fs::read_to_string(fixtures().join("scenarios.json")).unwrap(),
+        )
+        .unwrap();
+        let scn = top["scenarios"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["name"] == name.as_str())
+            .expect("a scenario of that name");
         let work = std::env::temp_dir().join(format!("maker-connect-proof-{}", std::process::id()));
         std::fs::create_dir_all(&work).unwrap();
         let transcript = run_scenario(&top, scn, &work);
@@ -564,52 +706,75 @@ mod tests {
         if std::env::var("MAKER_CONNECT_PROOF_SCENARIO").is_ok() {
             return;
         }
-        let top: Value = serde_json::from_str(&std::fs::read_to_string(fixtures().join("scenarios.json")).unwrap()).unwrap();
-        let summary: Value = serde_json::from_str(&std::fs::read_to_string(fixtures().join("reference/summary.json")).expect("run `scripts/octoprint-port-check.py reference` first")).unwrap();
+        let top: Value = serde_json::from_str(
+            &std::fs::read_to_string(fixtures().join("scenarios.json")).unwrap(),
+        )
+        .unwrap();
+        let summary: Value = serde_json::from_str(
+            &std::fs::read_to_string(fixtures().join("reference/summary.json"))
+                .expect("run `scripts/octoprint-port-check.py reference` first"),
+        )
+        .unwrap();
         let scenarios = top["scenarios"].as_array().unwrap().clone();
         std::fs::create_dir_all(fixtures().join("ours")).unwrap();
 
         // each run of each scenario in a process of its own, six at a time
         let exe = std::env::current_exe().unwrap();
-        let tmp = std::env::temp_dir().join(format!("maker-connect-proof-runs-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("maker-connect-proof-runs-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         let queue = Arc::new(Mutex::new(
-            scenarios.iter().flat_map(|s| (0..RUNS).map(move |k| (s["name"].as_str().unwrap().to_string(), k))).collect::<Vec<_>>(),
+            scenarios
+                .iter()
+                .flat_map(|s| (0..RUNS).map(move |k| (s["name"].as_str().unwrap().to_string(), k)))
+                .collect::<Vec<_>>(),
         ));
         let ran: Arc<Mutex<HashMap<(String, usize), bool>>> = Arc::new(Mutex::new(HashMap::new()));
         let workers: Vec<_> = (0..6)
             .map(|_| {
                 let (queue, ran, exe, tmp) = (queue.clone(), ran.clone(), exe.clone(), tmp.clone());
-                std::thread::spawn(move || loop {
-                    let Some((name, k)) = lock(&queue).pop() else { return };
-                    let out = tmp.join(format!("{name}.{k}.json"));
-                    let private = tmp.join(format!("{name}.{k}.d"));
-                    std::fs::create_dir_all(&private).expect("a private temp directory");
-                    let mut child = Command::new(&exe)
-                        .args(["--ignored", "--exact", "ports::octoprint::proof::tests::proof_child_run", "--nocapture", "--test-threads=1"])
-                        .env("MAKER_CONNECT_PROOF_SCENARIO", &name)
-                        .env("MAKER_CONNECT_PROOF_OUT", &out)
-                        // a temp directory of its own: the stand-in device file that the auto-detection finds
-                        // is in `<temp>/maker-connect-test-serial-dev`, which other tests (running at the
-                        // same time) expect to be empty, and which another run must not find either
-                        .env("TMPDIR", &private)
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .spawn()
-                        .expect("the test binary again");
-                    let deadline = Instant::now() + Duration::from_secs(240);
-                    let finished = loop {
-                        match child.try_wait() {
-                            Ok(Some(_)) => break true,
-                            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
-                            _ => break false,
+                std::thread::spawn(move || {
+                    loop {
+                        let Some((name, k)) = lock(&queue).pop() else {
+                            return;
+                        };
+                        let out = tmp.join(format!("{name}.{k}.json"));
+                        let private = tmp.join(format!("{name}.{k}.d"));
+                        std::fs::create_dir_all(&private).expect("a private temp directory");
+                        let mut child = Command::new(&exe)
+                            .args([
+                                "--ignored",
+                                "--exact",
+                                "ports::octoprint::proof::tests::proof_child_run",
+                                "--nocapture",
+                                "--test-threads=1",
+                            ])
+                            .env("MAKER_CONNECT_PROOF_SCENARIO", &name)
+                            .env("MAKER_CONNECT_PROOF_OUT", &out)
+                            // a temp directory of its own: the stand-in device file that the auto-detection finds
+                            // is in `<temp>/maker-connect-test-serial-dev`, which other tests (running at the
+                            // same time) expect to be empty, and which another run must not find either
+                            .env("TMPDIR", &private)
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::null())
+                            .spawn()
+                            .expect("the test binary again");
+                        let deadline = Instant::now() + Duration::from_secs(240);
+                        let finished = loop {
+                            match child.try_wait() {
+                                Ok(Some(_)) => break true,
+                                Ok(None) if Instant::now() < deadline => {
+                                    std::thread::sleep(Duration::from_millis(100))
+                                }
+                                _ => break false,
+                            }
+                        };
+                        if !finished {
+                            let _ = child.kill();
+                            let _ = child.wait();
                         }
-                    };
-                    if !finished {
-                        let _ = child.kill();
-                        let _ = child.wait();
+                        lock(&ran).insert((name, k), finished);
                     }
-                    lock(&ran).insert((name, k), finished);
                 })
             })
             .collect();
@@ -621,7 +786,11 @@ mod tests {
         let mut result = serde_json::Map::new();
         for scn in &scenarios {
             let name = scn["name"].as_str().unwrap();
-            let reference: Value = serde_json::from_str(&std::fs::read_to_string(fixtures().join(format!("reference/{name}.json"))).unwrap()).unwrap();
+            let reference: Value = serde_json::from_str(
+                &std::fs::read_to_string(fixtures().join(format!("reference/{name}.json")))
+                    .unwrap(),
+            )
+            .unwrap();
             let reproducible = summary[name]["reproducible"].as_bool().unwrap_or(false);
             let runs: Vec<Value> = (0..RUNS)
                 .map(|k| match std::fs::read_to_string(tmp.join(format!("{name}.{k}.json"))) {
@@ -629,14 +798,28 @@ mod tests {
                     Err(_) => json!({ "scenario": name, "writes": [], "reads": [], "error": if finished.get(&(name.to_string(), k)) == Some(&true) { "the run wrote no transcript" } else { "the run did not end within 240 s" } }),
                 })
                 .collect();
-            std::fs::write(fixtures().join(format!("ours/{name}.json")), serde_json::to_string(&json!({ "runs": runs })).unwrap()).unwrap();
-            result.insert(name.to_string(), compare(scn, &reference, &runs, reproducible));
+            std::fs::write(
+                fixtures().join(format!("ours/{name}.json")),
+                serde_json::to_string(&json!({ "runs": runs })).unwrap(),
+            )
+            .unwrap();
+            result.insert(
+                name.to_string(),
+                compare(scn, &reference, &runs, reproducible),
+            );
         }
         let _ = std::fs::remove_dir_all(&tmp);
         let result = Value::Object(result);
-        std::fs::write(fixtures().join("ours/result.json"), serde_json::to_string_pretty(&result).unwrap() + "\n").unwrap();
+        std::fs::write(
+            fixtures().join("ours/result.json"),
+            serde_json::to_string_pretty(&result).unwrap() + "\n",
+        )
+        .unwrap();
 
-        println!("{:<24} {:<13} {:<10} {:>10} {:>8} {:>8}  {}", "scenario", "reproducible", "verdict", "identical", "writes", "reads", "");
+        println!(
+            "{:<24} {:<13} {:<10} {:>10} {:>8} {:>8}  {}",
+            "scenario", "reproducible", "verdict", "identical", "writes", "reads", ""
+        );
         for (name, r) in result.as_object().unwrap() {
             println!(
                 "{:<24} {:<13} {:<10} {:>7}/{} {:>6}/{} {:>6}/{}",
@@ -659,26 +842,48 @@ mod tests {
         // fails here. The startup race (see the audit) happens before any scenario's own steps, so what is
         // known is known for every scenario. `MAKER_CONNECT_PROOF_UPDATE=1` adds what was measured to the list.
         let known_path = fixtures().join("known-differences.json");
-        let mut known: Value = std::fs::read_to_string(&known_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({}));
+        let mut known: Value = std::fs::read_to_string(&known_path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_else(|| json!({}));
         let update = std::env::var("MAKER_CONNECT_PROOF_UPDATE").is_ok();
         let mut unknown = Vec::new();
-        let union = |known: &Value, key: &str| -> Vec<Value> { known.as_object().unwrap().values().flat_map(|v| v[key].as_array().unwrap().clone()).collect() };
-        let (known_writes, known_errors, known_lines) = (union(&known, "writes"), union(&known, "errors"), union(&known, "read_lines"));
+        let union = |known: &Value, key: &str| -> Vec<Value> {
+            known
+                .as_object()
+                .unwrap()
+                .values()
+                .flat_map(|v| v[key].as_array().unwrap().clone())
+                .collect()
+        };
+        let (known_writes, known_errors, known_lines) = (
+            union(&known, "writes"),
+            union(&known, "errors"),
+            union(&known, "read_lines"),
+        );
         for (name, r) in result.as_object().unwrap() {
             let mut now = known.get(name).cloned().unwrap_or_else(|| json!({ "reproducible": r["reproducible"], "writes": [], "read_lines": [], "errors": [] }));
             for s in r["signatures"].as_array().unwrap() {
                 let signature = &s["signature"];
-                let (writes, reads, error) = (&signature["writes"], signature["reads"].as_array().unwrap(), &signature["error"]);
+                let (writes, reads, error) = (
+                    &signature["writes"],
+                    signature["reads"].as_array().unwrap(),
+                    &signature["error"],
+                );
                 if !writes.as_array().unwrap().is_empty() && !known_writes.contains(writes) {
                     unknown.push(format!("{name}: writes {writes}"));
                 }
-                if !writes.as_array().unwrap().is_empty() && !now["writes"].as_array().unwrap().contains(writes) {
+                if !writes.as_array().unwrap().is_empty()
+                    && !now["writes"].as_array().unwrap().contains(writes)
+                {
                     now["writes"].as_array_mut().unwrap().push(writes.clone());
                 }
                 if !error.as_array().unwrap().is_empty() && !known_errors.contains(error) {
                     unknown.push(format!("{name}: error {error}"));
                 }
-                if !error.as_array().unwrap().is_empty() && !now["errors"].as_array().unwrap().contains(error) {
+                if !error.as_array().unwrap().is_empty()
+                    && !now["errors"].as_array().unwrap().contains(error)
+                {
                     now["errors"].as_array_mut().unwrap().push(error.clone());
                 }
                 for line in reads {
@@ -691,14 +896,25 @@ mod tests {
                 }
             }
             if known.get(name).is_some() && known[name]["reproducible"] != r["reproducible"] {
-                unknown.push(format!("{name}: reproducible is {} (known: {})", r["reproducible"], known[name]["reproducible"]));
+                unknown.push(format!(
+                    "{name}: reproducible is {} (known: {})",
+                    r["reproducible"], known[name]["reproducible"]
+                ));
             }
             known[name] = now;
         }
         if update {
-            std::fs::write(&known_path, serde_json::to_string_pretty(&known).unwrap() + "\n").unwrap();
+            std::fs::write(
+                &known_path,
+                serde_json::to_string_pretty(&known).unwrap() + "\n",
+            )
+            .unwrap();
         } else if known_path.exists() {
-            assert!(unknown.is_empty(), "differences that are not in tests/octoprint/known-differences.json:\n{}", unknown.join("\n"));
+            assert!(
+                unknown.is_empty(),
+                "differences that are not in tests/octoprint/known-differences.json:\n{}",
+                unknown.join("\n")
+            );
         }
     }
 }

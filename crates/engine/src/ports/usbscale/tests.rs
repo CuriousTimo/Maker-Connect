@@ -66,7 +66,13 @@ impl HidDevice for FakeDevice {
 }
 
 fn info(path: &str, usage_page: u16) -> HidInfo {
-    HidInfo { path: path.into(), vendor_id: 0x0922, product_id: 0x8003, product: "M2".into(), usage_page }
+    HidInfo {
+        path: path.into(),
+        vendor_id: 0x0922,
+        product_id: 0x8003,
+        product: "M2".into(),
+        usage_page,
+    }
 }
 
 /// A report: ID 3, status 4, unit 2 (g), exponent 0, the weight.
@@ -74,18 +80,30 @@ fn weight(grams: u16) -> Item {
     Item::Report(vec![3, 4, 2, 0, grams as u8, (grams >> 8) as u8])
 }
 
-fn start(world: &Shared, find: Duration, read_ms: i32) -> (Sender<Order>, Receiver<Event>, std::thread::JoinHandle<()>) {
+fn start(
+    world: &Shared,
+    find: Duration,
+    read_ms: i32,
+) -> (Sender<Order>, Receiver<Event>, std::thread::JoinHandle<()>) {
     let (orders, port_orders) = channel();
     let (port_events, events) = channel();
     let world = world.clone();
-    let port = UsbScale::with_times(Box::new(move || Ok(Box::new(Fake(world.clone())) as Box<dyn HidSource>)), None, find, read_ms);
+    let port = UsbScale::with_times(
+        Box::new(move || Ok(Box::new(Fake(world.clone())) as Box<dyn HidSource>)),
+        None,
+        find,
+        read_ms,
+    );
     let run = std::thread::spawn(move || Box::new(port).run(port_orders, port_events));
     (orders, events, run)
 }
 
 fn world_with(scripts: Vec<Vec<Item>>) -> Shared {
     let world = World {
-        devices: vec![info("/dev/hidraw3", SCALE_USAGE_PAGE), info("/dev/hidraw0", 1)],
+        devices: vec![
+            info("/dev/hidraw3", SCALE_USAGE_PAGE),
+            info("/dev/hidraw0", 1),
+        ],
         scripts: scripts.into_iter().map(VecDeque::from).collect(),
         log: Vec::new(),
     };
@@ -93,7 +111,9 @@ fn world_with(scripts: Vec<Vec<Item>>) -> Shared {
 }
 
 fn next(events: &Receiver<Event>) -> Event {
-    events.recv_timeout(Duration::from_secs(5)).expect("an event")
+    events
+        .recv_timeout(Duration::from_secs(5))
+        .expect("an event")
 }
 
 fn reading(event: &Event) -> Option<&ScaleReading> {
@@ -104,7 +124,10 @@ fn reading(event: &Event) -> Option<&ScaleReading> {
 }
 
 fn nothing_more(events: &Receiver<Event>) {
-    assert!(events.recv_timeout(Duration::from_millis(150)).is_err(), "an event where none was due");
+    assert!(
+        events.recv_timeout(Duration::from_millis(150)).is_err(),
+        "an event where none was due"
+    );
 }
 
 #[test]
@@ -125,8 +148,14 @@ fn the_old_data_is_discarded_after_each_open() {
     ]);
     let (orders, events, run) = start(&world, Duration::from_millis(30), 20);
     let idle = next(&events);
-    assert!(matches!(&idle, Event::Telemetry(t) if t.state == MachineState::Idle && t.scale.is_none()));
-    assert_eq!(reading(&next(&events)).unwrap().raw, 3, "the 1st and 2nd reports are discarded");
+    assert!(
+        matches!(&idle, Event::Telemetry(t) if t.state == MachineState::Idle && t.scale.is_none())
+    );
+    assert_eq!(
+        reading(&next(&events)).unwrap().raw,
+        3,
+        "the 1st and 2nd reports are discarded"
+    );
     assert_eq!(reading(&next(&events)).unwrap().raw, 4);
     // the second open (after a failed read: the script ran out reads timeouts, so close here)
     orders.send(Order::Close).unwrap();
@@ -135,7 +164,10 @@ fn the_old_data_is_discarded_after_each_open() {
 
 #[test]
 fn the_discard_starts_again_with_each_open() {
-    let world = world_with(vec![vec![weight(1), weight(2), weight(3), Item::Fail], vec![weight(11), weight(12), weight(13)]]);
+    let world = world_with(vec![
+        vec![weight(1), weight(2), weight(3), Item::Fail],
+        vec![weight(11), weight(12), weight(13)],
+    ]);
     let (orders, events, run) = start(&world, Duration::from_millis(30), 20);
     let mut seen = Vec::new();
     while seen.len() < 2 {
@@ -167,7 +199,14 @@ fn one_event_per_change_and_nothing_on_no_change() {
     assert_eq!(reading(&next(&events)).unwrap().raw, 11);
     let odd = next(&events);
     let odd = reading(&odd).unwrap();
-    assert_eq!((odd.status_text.as_str(), odd.unit_name.as_str(), odd.exponent), ("unknown 9", "unknown unit 200", -1));
+    assert_eq!(
+        (
+            odd.status_text.as_str(),
+            odd.unit_name.as_str(),
+            odd.exponent
+        ),
+        ("unknown 9", "unknown unit 200", -1)
+    );
     assert_eq!(odd.weight, 0.1);
     nothing_more(&events);
     orders.send(Order::Close).unwrap();
@@ -188,9 +227,13 @@ fn a_report_usbscale_refuses_is_shown_once_and_reading_goes_on() {
     let (orders, events, run) = start(&world, Duration::from_millis(30), 20);
     next(&events);
     let refused = next(&events);
-    assert!(matches!(&refused, Event::Telemetry(t) if t.problem.as_deref() == Some("Error reading scale data") && t.scale.is_none()));
+    assert!(
+        matches!(&refused, Event::Telemetry(t) if t.problem.as_deref() == Some("Error reading scale data") && t.scale.is_none())
+    );
     let good = next(&events);
-    assert!(matches!(&good, Event::Telemetry(t) if t.problem.is_none() && t.scale.as_ref().unwrap().raw == 7));
+    assert!(
+        matches!(&good, Event::Telemetry(t) if t.problem.is_none() && t.scale.as_ref().unwrap().raw == 7)
+    );
     orders.send(Order::Close).unwrap();
     run.join().unwrap();
 }
@@ -199,7 +242,10 @@ fn a_report_usbscale_refuses_is_shown_once_and_reading_goes_on() {
 #[test]
 fn a_read_error_is_gone_and_a_refind_is_back_after_the_interval() {
     let interval = Duration::from_millis(300);
-    let world = world_with(vec![vec![weight(1), weight(2), weight(3), Item::Fail], vec![weight(8), weight(9), weight(10)]]);
+    let world = world_with(vec![
+        vec![weight(1), weight(2), weight(3), Item::Fail],
+        vec![weight(8), weight(9), weight(10)],
+    ]);
     // the device is unplugged: listed again only later
     let saved = std::mem::take(&mut world.lock().unwrap().devices);
     let (orders, events, run) = start(&world, interval, 20);
@@ -213,7 +259,10 @@ fn a_read_error_is_gone_and_a_refind_is_back_after_the_interval() {
             break Instant::now();
         }
     };
-    assert!(back_at - gone_at >= interval - Duration::from_millis(20), "looked for again only after the interval");
+    assert!(
+        back_at - gone_at >= interval - Duration::from_millis(20),
+        "looked for again only after the interval"
+    );
     let mut raws = Vec::new();
     let mut gone_again = false;
     while raws.len() < 1 || !gone_again {
@@ -245,7 +294,11 @@ fn close_is_seen_within_the_read_timeout() {
     let at = Instant::now();
     orders.send(Order::Close).unwrap();
     run.join().unwrap();
-    assert!(at.elapsed() < Duration::from_millis(100 + 150), "took {:?}", at.elapsed());
+    assert!(
+        at.elapsed() < Duration::from_millis(100 + 150),
+        "took {:?}",
+        at.elapsed()
+    );
     // while gone and waiting to look again, at once
     let world = world_with(vec![]);
     world.lock().unwrap().devices.clear();
@@ -266,7 +319,12 @@ fn nothing_is_ever_sent_to_the_scale() {
     next(&events);
     next(&events);
     // a command and a job are refused, not passed on
-    orders.send(Order::Command { id: 7, action: maker_connect_protocol::Action::Unlock }).unwrap();
+    orders
+        .send(Order::Command {
+            id: 7,
+            action: maker_connect_protocol::Action::Unlock,
+        })
+        .unwrap();
     let done = loop {
         if let Event::Done(d) = next(&events) {
             break d;
@@ -276,14 +334,30 @@ fn nothing_is_ever_sent_to_the_scale() {
     orders.send(Order::Close).unwrap();
     run.join().unwrap();
     let log = world.lock().unwrap().log.clone();
-    assert!(log.iter().all(|c| ["list", "open", "read"].contains(&c.as_str())), "{log:?}");
+    assert!(
+        log.iter()
+            .all(|c| ["list", "open", "read"].contains(&c.as_str())),
+        "{log:?}"
+    );
     assert!(log.iter().filter(|c| *c == "read").count() >= 4);
     // by construction: the traits have nothing to send with
     let source = include_str!("hid.rs");
-    for call in ["write", "send_feature_report", "get_feature_report", "send_output_report", "get_input_report", "set_blocking_mode"] {
-        assert!(!source.contains(&format!(".{call}(")), "hid.rs calls {call}");
+    for call in [
+        "write",
+        "send_feature_report",
+        "get_feature_report",
+        "send_output_report",
+        "get_input_report",
+        "set_blocking_mode",
+    ] {
+        assert!(
+            !source.contains(&format!(".{call}(")),
+            "hid.rs calls {call}"
+        );
     }
-    assert!(!source.contains("fn write") && !source.contains("fn send") && !source.contains("fn get_"));
+    assert!(
+        !source.contains("fn write") && !source.contains("fn send") && !source.contains("fn get_")
+    );
 }
 
 #[test]
@@ -294,16 +368,37 @@ fn the_device_is_chosen_by_usage_page_never_guessed() {
     // no scale: refused, what was seen is listed
     shared.lock().unwrap().devices = vec![info("/dev/hidraw0", 1), info("/dev/hidraw1", 0xFF00)];
     let error = hid::select(&mut source, None).unwrap_err();
-    assert!(error.contains("/dev/hidraw0  0922:8003  M2  usage page 0x01") && error.contains("usage page 0xff00"), "{error}");
+    assert!(
+        error.contains("/dev/hidraw0  0922:8003  M2  usage page 0x01")
+            && error.contains("usage page 0xff00"),
+        "{error}"
+    );
     // one: it
-    shared.lock().unwrap().devices.push(info("/dev/hidraw3", SCALE_USAGE_PAGE));
+    shared
+        .lock()
+        .unwrap()
+        .devices
+        .push(info("/dev/hidraw3", SCALE_USAGE_PAGE));
     assert_eq!(hid::select(&mut source, None).unwrap(), "/dev/hidraw3");
     // two: refused and both listed (not the others)
-    shared.lock().unwrap().devices.push(info("/dev/hidraw4", SCALE_USAGE_PAGE));
+    shared
+        .lock()
+        .unwrap()
+        .devices
+        .push(info("/dev/hidraw4", SCALE_USAGE_PAGE));
     let error = hid::select(&mut source, None).unwrap_err();
-    assert!(error.contains("2 HID devices") && error.contains("/dev/hidraw3") && error.contains("/dev/hidraw4") && !error.contains("/dev/hidraw0"), "{error}");
+    assert!(
+        error.contains("2 HID devices")
+            && error.contains("/dev/hidraw3")
+            && error.contains("/dev/hidraw4")
+            && !error.contains("/dev/hidraw0"),
+        "{error}"
+    );
     // --port is taken as given
-    assert_eq!(hid::select(&mut source, Some("/dev/hidraw9")).unwrap(), "/dev/hidraw9");
+    assert_eq!(
+        hid::select(&mut source, Some("/dev/hidraw9")).unwrap(),
+        "/dev/hidraw9"
+    );
     // port::check is the same, over the real source: only that it exists
     let _: fn(Option<&str>) -> Result<(), String> = port::check;
 }
@@ -311,10 +406,32 @@ fn the_device_is_chosen_by_usage_page_never_guessed() {
 #[test]
 fn print_scale_data_reads_the_six_bytes() {
     let r = usbscale::print_scale_data(&[3, 4, 11, 0xFF, 0x34, 0x12]).unwrap();
-    assert_eq!((r.status, r.status_text.as_str(), r.unit, r.unit_name.as_str(), r.exponent, r.raw), (4, "", 11, "oz", -1, 0x1234));
+    assert_eq!(
+        (
+            r.status,
+            r.status_text.as_str(),
+            r.unit,
+            r.unit_name.as_str(),
+            r.exponent,
+            r.raw
+        ),
+        (4, "", 11, "oz", -1, 0x1234)
+    );
     assert_eq!(r.weight, 4660.0 * 0.1);
-    assert_eq!(usbscale::print_scale_data(&[4, 2, 2, 0, 0, 0]).unwrap().status_text, "Scale is zero'd...", "report ID 4 as 3 (E9)");
-    assert_eq!(usbscale::print_scale_data(&[0, 3, 4, 2, 0, 5, 0]), Err(Rejected::NotAReport(0)));
-    assert_eq!(usbscale::print_scale_data(&[3, 4, 2]), Err(Rejected::Short(3)));
+    assert_eq!(
+        usbscale::print_scale_data(&[4, 2, 2, 0, 0, 0])
+            .unwrap()
+            .status_text,
+        "Scale is zero'd...",
+        "report ID 4 as 3 (E9)"
+    );
+    assert_eq!(
+        usbscale::print_scale_data(&[0, 3, 4, 2, 0, 5, 0]),
+        Err(Rejected::NotAReport(0))
+    );
+    assert_eq!(
+        usbscale::print_scale_data(&[3, 4, 2]),
+        Err(Rejected::Short(3))
+    );
     assert_eq!(usbscale::UNITS.len(), 13);
 }

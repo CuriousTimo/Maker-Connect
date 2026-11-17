@@ -45,14 +45,23 @@ pub struct DeviceManager {
 impl DeviceManager {
     /// `__init__`.
     pub fn new(backend: Rc<dyn Backend>) -> DeviceManager {
-        DeviceManager { backend, devices: BTreeMap::new() }
+        DeviceManager {
+            backend,
+            devices: BTreeMap::new(),
+        }
     }
 
     /// `scan` (`device_manager.py:31`): whether the devices changed.
     pub fn scan(&mut self) -> Result<bool, Error> {
         let prev: Vec<String> = self.devices.keys().cloned().collect();
-        let cur: Result<BTreeMap<String, UsbDevice>, PyusbError> = UsbDevice::supported_devices(&self.backend)
-            .map(|devices| devices.into_iter().map(|d| (d.hash(), d)).filter(|(h, _)| !h.is_empty()).collect());
+        let cur: Result<BTreeMap<String, UsbDevice>, PyusbError> =
+            UsbDevice::supported_devices(&self.backend).map(|devices| {
+                devices
+                    .into_iter()
+                    .map(|d| (d.hash(), d))
+                    .filter(|(h, _)| !h.is_empty())
+                    .collect()
+            });
         let mut cur = match cur {
             Ok(cur) => cur,
             // POSSIBLE_USB_ERRORS = (NoBackendError, USBError)
@@ -71,7 +80,10 @@ impl DeviceManager {
             self.devices.remove(dev);
         }
         for dev in cur_keys.iter().filter(|h| !prev.contains(h)) {
-            self.devices.insert(dev.clone(), Rc::new(RefCell::new(cur.remove(dev).expect("it is there"))));
+            self.devices.insert(
+                dev.clone(),
+                Rc::new(RefCell::new(cur.remove(dev).expect("it is there"))),
+            );
         }
         Ok(prev != cur_keys)
     }
@@ -88,8 +100,11 @@ impl DeviceManager {
 
     /// `find_and_select_device(None)` (`device_manager.py:69`).
     pub fn find_and_select_device(&self) -> Result<SharedDevice, Error> {
-        let devices: Vec<SharedDevice> =
-            self.matching_devices().into_iter().filter(|d| d.borrow().is_supported()).collect();
+        let devices: Vec<SharedDevice> = self
+            .matching_devices()
+            .into_iter()
+            .filter(|d| d.borrow().is_supported())
+            .collect();
         if devices.is_empty() {
             return Err(Error::Manager("No matching devices found".to_owned()));
         }

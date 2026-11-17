@@ -131,7 +131,12 @@ impl LabelWriterDriver {
     // ---- :84-146 ------------------------------------------------------------------------------
 
     /// `SendNotCompressedData` (:84-101).
-    fn send_not_compressed_data(&mut self, buf: &[u8], leader_blanks: usize, trailer_blanks: usize) {
+    fn send_not_compressed_data(
+        &mut self,
+        buf: &[u8],
+        leader_blanks: usize,
+        trailer_blanks: usize,
+    ) {
         let syn = SYN;
         let data_size = buf.len() - leader_blanks - trailer_blanks;
 
@@ -394,7 +399,12 @@ fn next_bit(cur_byte_no: &mut usize, cur_bit_no: &mut usize) {
 }
 
 /// `GetCompressedSequenceValue` (:173-203).
-fn get_compressed_sequence_value(data: &[u8], data_len: usize, cur_byte_no: &mut usize, cur_bit_no: &mut usize) -> u8 {
+fn get_compressed_sequence_value(
+    data: &[u8],
+    data_len: usize,
+    cur_byte_no: &mut usize,
+    cur_bit_no: &mut usize,
+) -> u8 {
     let mut bit_count: u8 = 0;
     let start_bit_value = get_bit_value(data[*cur_byte_no], *cur_bit_no);
     next_bit(cur_byte_no, cur_bit_no);
@@ -431,7 +441,12 @@ fn compress_data(compressed_data: &mut Buffer, data: &[u8], data_size: usize) {
             compressed_data.clear(); // will write non-compressed data
             return;
         }
-        compressed_data.push(get_compressed_sequence_value(data, data_size, &mut cur_byte_no, &mut cur_bit_no));
+        compressed_data.push(get_compressed_sequence_value(
+            data,
+            data_size,
+            &mut cur_byte_no,
+            &mut cur_bit_no,
+        ));
         compressed_offset += 1;
     }
 }
@@ -452,11 +467,13 @@ fn shift_data_right(buf: &[u8], shifted_buf: &mut [u8], mut shift_value: usize) 
     shifted_buf[shifted_offset] = buf[0] >> shift_value; // first
     let mut i = 1;
     while i < buf.len() && i < shifted_len {
-        shifted_buf[shifted_offset + i] = (((buf[i - 1] as u32) << (8 - shift_value)) | ((buf[i] as u32) >> shift_value)) as u8;
+        shifted_buf[shifted_offset + i] =
+            (((buf[i - 1] as u32) << (8 - shift_value)) | ((buf[i] as u32) >> shift_value)) as u8;
         i += 1;
     }
     if i < shifted_len {
-        shifted_buf[shifted_offset + buf.len()] = ((buf[buf.len() - 1] as u32) << (8 - shift_value)) as u8;
+        shifted_buf[shifted_offset + buf.len()] =
+            ((buf[buf.len() - 1] as u32) << (8 - shift_value)) as u8;
     }
 }
 
@@ -475,7 +492,8 @@ fn shift_data_left(buf: &[u8], shifted_buf: &mut [u8], mut shift_value: usize) {
     // shift bits
     let mut i = 0;
     while i < buf.len() - 1 && i < shifted_len {
-        shifted_buf[i] = (((buf[i] as u32) << shift_value) | ((buf[i + 1] as u32) >> (8 - shift_value))) as u8;
+        shifted_buf[i] =
+            (((buf[i] as u32) << shift_value) | ((buf[i + 1] as u32) >> (8 - shift_value))) as u8;
         i += 1;
     }
     if i < shifted_len {
@@ -547,7 +565,9 @@ impl PrinterDriver for LabelWriterDriver {
         }
 
         if b.len() > self.max_print_width {
-            stderr::write("WARNING: CLabelWriterDriver::ProcessRasterLine(): page width is greater max page width, truncated\n");
+            stderr::write(
+                "WARNING: CLabelWriterDriver::ProcessRasterLine(): page width is greater max page width, truncated\n",
+            );
             b.truncate(self.max_print_width);
         }
 

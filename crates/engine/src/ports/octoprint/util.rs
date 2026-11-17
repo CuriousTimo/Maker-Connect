@@ -22,9 +22,10 @@ pub fn filter_non_utf8(_line: &str) -> bool {
 ///
 /// Taken from <http://stackoverflow.com/a/312464/2028598>
 pub(crate) fn chunks<T>(l: &[T], n: usize) -> impl Iterator<Item = &[T]> {
-    (0..l.len()).step_by(n).map(move |i| &l[i..(i + n).min(l.len())])
+    (0..l.len())
+        .step_by(n)
+        .map(move |i| &l[i..(i + n).min(l.len())])
 }
-
 
 use super::comm::{PyText, ValueError};
 use serde_json::Value;
@@ -39,9 +40,9 @@ use serde_json::Value;
 pub fn to_unicode(s_or_u: &PyText, encoding: &str, errors: &str) -> Result<String, ValueError> {
     match s_or_u {
         PyText::Bytes(b) => match (encoding, errors) {
-            ("utf-8", "strict") => {
-                std::str::from_utf8(b).map(str::to_string).map_err(|_| ValueError("UnicodeDecodeError"))
-            }
+            ("utf-8", "strict") => std::str::from_utf8(b)
+                .map(str::to_string)
+                .map_err(|_| ValueError("UnicodeDecodeError")),
             ("utf-8", "replace") => Ok(String::from_utf8_lossy(b).into_owned()),
             ("ascii", "strict") => {
                 if b.is_ascii() {
@@ -50,8 +51,13 @@ pub fn to_unicode(s_or_u: &PyText, encoding: &str, errors: &str) -> Result<Strin
                     Err(ValueError("UnicodeDecodeError"))
                 }
             }
-            ("ascii", "replace") => Ok(b.iter().map(|c| if c.is_ascii() { *c as char } else { '\u{fffd}' }).collect()),
-            _ => unimplemented!("util/__init__.py:91, decode with another encoding or error handler"),
+            ("ascii", "replace") => Ok(b
+                .iter()
+                .map(|c| if c.is_ascii() { *c as char } else { '\u{fffd}' })
+                .collect()),
+            _ => {
+                unimplemented!("util/__init__.py:91, decode with another encoding or error handler")
+            }
         },
         PyText::Str(s) => Ok(s.clone()),
     }
@@ -68,7 +74,8 @@ pub fn get_exception_string() -> String {
 /// `ValueError`, which a typed argument cannot be): `to_unicode(line, encoding="ascii",
 /// errors="replace").rstrip()`; a `str` is returned by `to_unicode` as it is.
 pub fn sanitize_ascii(line: &str) -> String {
-    let s = to_unicode(&PyText::Str(line.to_string()), "ascii", "replace").expect("errors=\"replace\"");
+    let s =
+        to_unicode(&PyText::Str(line.to_string()), "ascii", "replace").expect("errors=\"replace\"");
     super::comm::py_rstrip(&s).to_string()
 }
 
@@ -109,7 +116,9 @@ pub fn get_exception_string_of(exc: &ExceptionInfo, fmt: &str) -> String {
                 out.push_str(&v);
                 rest = &rest[k.len()..];
             }
-            None => unimplemented!("util/__init__.py:447 get_exception_string with a format other than the five names"),
+            None => unimplemented!(
+                "util/__init__.py:447 get_exception_string with a format other than the five names"
+            ),
         }
     }
     out.push_str(rest);
@@ -128,8 +137,16 @@ pub fn dict_merge(
     b: &Value,
     leaf_merger: Option<&dyn Fn(&Value, &Value) -> Result<Option<Value>, ()>>,
 ) -> Value {
-    let a = if a.is_null() { Value::Object(Default::default()) } else { a.clone() };
-    let b = if b.is_null() { Value::Object(Default::default()) } else { b.clone() };
+    let a = if a.is_null() {
+        Value::Object(Default::default())
+    } else {
+        a.clone()
+    };
+    let b = if b.is_null() {
+        Value::Object(Default::default())
+    } else {
+        b.clone()
+    };
 
     let Value::Object(b) = b else {
         return b;
@@ -209,7 +226,9 @@ pub const BOMS: [(&str, &[u8]); 5] = [
 pub fn get_bom(filename: &str, encoding: &str) -> std::io::Result<Option<Vec<u8>>> {
     use std::io::Read;
     let mut header = Vec::new();
-    std::fs::File::open(filename)?.take(4).read_to_end(&mut header)?;
+    std::fs::File::open(filename)?
+        .take(4)
+        .read_to_end(&mut header)?;
 
     for (enc, bom) in BOMS {
         if header.starts_with(bom) && encoding.to_lowercase() == enc {
@@ -224,7 +243,9 @@ pub fn get_bom(filename: &str, encoding: &str) -> std::io::Result<Option<Vec<u8>
 // ---------------------------------------------------------------------------------------------
 
 use super::py_queue::{Deque, Empty, PutError, Queue, QueueStorage};
-use super::py_threading::{cond_wait, deadline_after, lock, wait_cv, Event, RLock, RuntimeError, Thread};
+use super::py_threading::{
+    Event, RLock, RuntimeError, Thread, cond_wait, deadline_after, lock, wait_cv,
+};
 use std::collections::HashSet;
 use std::fmt::Display;
 use std::hash::Hash;
@@ -570,7 +591,12 @@ impl CountedEvent {
     /// `CountedEvent(value, minimum, maximum, **kwargs)`: `max_kwarg` is `kwargs.get("max", maximum)`'s
     /// keyword: `None` when no `max=` was given, `Some(x)` when `max=x` was given (`x` itself may be
     /// `None`). The Python defaults are `value=0, minimum=Some(0), maximum=None`.
-    pub fn new(value: i64, minimum: Option<i64>, maximum: Option<i64>, max_kwarg: Option<Option<i64>>) -> Self {
+    pub fn new(
+        value: i64,
+        minimum: Option<i64>,
+        maximum: Option<i64>,
+        max_kwarg: Option<Option<i64>>,
+    ) -> Self {
         let e = CountedEvent {
             _counter: AtomicI64::new(0),
             _min: Mutex::new(minimum),
@@ -700,18 +726,27 @@ impl<S: PrependableStorage> Deref for PrependableQueue<S> {
 impl<T> PrependableQueue<Deque<T>> {
     /// `PrependableQueue(maxsize=0)`
     pub fn new(maxsize: i64) -> Self {
-        PrependableQueue { queue: Queue::new(maxsize, Deque::new()) }
+        PrependableQueue {
+            queue: Queue::new(maxsize, Deque::new()),
+        }
     }
 }
 
 impl<S: PrependableStorage> PrependableQueue<S> {
     /// `PrependableQueue.__init__` for a subclass that brings its own `_put`/`_get`/`_prepend`.
     pub fn with_storage(maxsize: i64, storage: S) -> Self {
-        PrependableQueue { queue: Queue::new(maxsize, storage) }
+        PrependableQueue {
+            queue: Queue::new(maxsize, storage),
+        }
     }
 
     /// `prepend(self, item, block=True, timeout=True)`; see [`PREPEND_DEFAULT_TIMEOUT`].
-    pub fn prepend(&self, item: S::Item, block: bool, timeout: Option<f64>) -> Result<(), PutError<S::Error>> {
+    pub fn prepend(
+        &self,
+        item: S::Item,
+        block: bool,
+        timeout: Option<f64>,
+    ) -> Result<(), PutError<S::Error>> {
         let q = &self.queue;
         let mut g = q.lock();
         if q.maxsize > 0 {
@@ -724,7 +759,9 @@ impl<S: PrependableStorage> PrependableQueue<S> {
                     g = wait_cv(&q.not_full, g);
                 }
             } else if timeout.unwrap() < 0.0 {
-                return Err(PutError::ValueError("'timeout' must be a non-negative number".to_string()));
+                return Err(PutError::ValueError(
+                    "'timeout' must be a non-negative number".to_string(),
+                ));
             } else {
                 let endtime = deadline_after(timeout.unwrap());
                 while g.queue._qsize() as i64 == q.maxsize {
@@ -840,7 +877,10 @@ impl<T, K: Hash + Eq + Clone + Display> TypedQueue<T, K> {
         TypedQueue {
             queue: PrependableQueue::with_storage(
                 maxsize,
-                TypedStorage { queue: Deque::new(), _lookup: HashSet::new() },
+                TypedStorage {
+                    queue: Deque::new(),
+                    _lookup: HashSet::new(),
+                },
             ),
         }
     }
@@ -897,10 +937,16 @@ mod tests {
     }
     impl Mock {
         fn new() -> Self {
-            Mock { calls: Arc::new(AtomicUsize::new(0)), side_effect: None }
+            Mock {
+                calls: Arc::new(AtomicUsize::new(0)),
+                side_effect: None,
+            }
         }
         fn with_side_effect(f: impl Fn() + Send + Sync + 'static) -> Self {
-            Mock { calls: Arc::new(AtomicUsize::new(0)), side_effect: Some(Arc::new(f)) }
+            Mock {
+                calls: Arc::new(AtomicUsize::new(0)),
+                side_effect: Some(Arc::new(f)),
+            }
         }
         fn call_count(&self) -> usize {
             self.calls.load(Ordering::SeqCst)
@@ -985,7 +1031,11 @@ mod tests {
             flag.store(true, Ordering::SeqCst);
             t.finished().set();
             t.join(None).unwrap();
-            assert_eq!(0, seen_set.load(Ordering::SeqCst), "round {round}: the first run saw the flag already set");
+            assert_eq!(
+                0,
+                seen_set.load(Ordering::SeqCst),
+                "round {round}: the first run saw the flag already set"
+            );
         }
     }
 
@@ -996,7 +1046,15 @@ mod tests {
         let c2 = countdown.clone();
         let timer_task = Mock::with_side_effect(move || c2.step());
 
-        let t = timer(0.1, timer_task.cb(), false, countdown_cond(&countdown), None, None, None);
+        let t = timer(
+            0.1,
+            timer_task.cb(),
+            false,
+            countdown_cond(&countdown),
+            None,
+            None,
+            None,
+        );
         t.start().unwrap();
 
         // wait for it
@@ -1013,7 +1071,15 @@ mod tests {
         let timer_task = Mock::with_side_effect(move || c2.step());
         let on_finished = Mock::new();
 
-        let t = timer(0.1, timer_task.cb(), false, countdown_cond(&countdown), None, None, Some(on_finished.cb()));
+        let t = timer(
+            0.1,
+            timer_task.cb(),
+            false,
+            countdown_cond(&countdown),
+            None,
+            None,
+            Some(on_finished.cb()),
+        );
         t.start().unwrap();
         t.join(None).unwrap();
 
@@ -1198,7 +1264,13 @@ mod tests {
         let timer_task = Mock::new();
         let on_cancelled_cb = Mock::new();
 
-        let t = ResettableTimer::new(10.0, timer_task.cb(), None, Some(on_cancelled_cb.cb()), true);
+        let t = ResettableTimer::new(
+            10.0,
+            timer_task.cb(),
+            None,
+            Some(on_cancelled_cb.cb()),
+            true,
+        );
         t.start().unwrap();
 
         sleep(5.0);
@@ -1422,7 +1494,10 @@ mod tests {
         let err = q.put("b", Some("M105"), true, None).unwrap_err();
         assert_eq!(
             err,
-            PutError::Raised(TypeAlreadyInQueue::new("M105", "Type M105 is already in queue".to_string()))
+            PutError::Raised(TypeAlreadyInQueue::new(
+                "M105",
+                "Type M105 is already in queue".to_string()
+            ))
         );
         assert_eq!(q.qsize(), 1);
         q.prepend("p", None, true, None).unwrap();
@@ -1555,10 +1630,19 @@ mod section_f_helper_tests {
 
     #[test]
     fn test_to_unicode() {
-        assert_eq!("test", to_unicode(&PyText::Str("test".into()), "utf-8", "strict").unwrap());
-        assert_eq!("test", to_unicode(&PyText::Bytes(b"test".to_vec()), "utf-8", "strict").unwrap());
+        assert_eq!(
+            "test",
+            to_unicode(&PyText::Str("test".into()), "utf-8", "strict").unwrap()
+        );
+        assert_eq!(
+            "test",
+            to_unicode(&PyText::Bytes(b"test".to_vec()), "utf-8", "strict").unwrap()
+        );
         let data = "äöüß";
-        assert_eq!(data, to_unicode(&PyText::Bytes(data.as_bytes().to_vec()), "utf-8", "strict").unwrap());
+        assert_eq!(
+            data,
+            to_unicode(&PyText::Bytes(data.as_bytes().to_vec()), "utf-8", "strict").unwrap()
+        );
         // test_to_unicode_bytes_utf8_vs_ascii: UnicodeDecodeError
         assert!(to_unicode(&PyText::Bytes(data.as_bytes().to_vec()), "ascii", "strict").is_err());
         // ... with errors="replace": the bytes decode to U+FFFD each
@@ -1571,8 +1655,11 @@ mod section_f_helper_tests {
     fn fixture(content: &[u8]) -> String {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static N: AtomicUsize = AtomicUsize::new(0);
-        let path = std::env::temp_dir()
-            .join(format!("maker-connect-util-bom-{}-{}", std::process::id(), N.fetch_add(1, Ordering::SeqCst)));
+        let path = std::env::temp_dir().join(format!(
+            "maker-connect-util-bom-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::SeqCst)
+        ));
         std::fs::write(&path, content).unwrap();
         path.to_str().unwrap().to_string()
     }
@@ -1584,7 +1671,10 @@ mod section_f_helper_tests {
         // test_get_bom_no_bom
         assert_eq!(None, get_bom(&without_bom, "utf-8-sig").unwrap());
         // test_get_bom_utf8_bom
-        assert_eq!(Some(b"\xef\xbb\xbf".to_vec()), get_bom(&with_bom, "utf-8-sig").unwrap());
+        assert_eq!(
+            Some(b"\xef\xbb\xbf".to_vec()),
+            get_bom(&with_bom, "utf-8-sig").unwrap()
+        );
         // test_get_bom_wrong_encoding
         assert_eq!(None, get_bom(&with_bom, "utf-16-le").unwrap());
     }
@@ -1593,7 +1683,10 @@ mod section_f_helper_tests {
     #[test]
     fn ours_get_bom_others() {
         let le = fixture(b"\xff\xfeA\x00");
-        assert_eq!(Some(b"\xff\xfe".to_vec()), get_bom(&le, "UTF-16-LE").unwrap());
+        assert_eq!(
+            Some(b"\xff\xfe".to_vec()),
+            get_bom(&le, "UTF-16-LE").unwrap()
+        );
         assert!(get_bom("/nonexistent/file", "utf-8-sig").is_err());
     }
 
@@ -1609,7 +1702,9 @@ mod section_f_helper_tests {
 
         let leaf_merger = |a: &Value, b: &Value| -> Result<Option<Value>, ()> {
             match (a, b) {
-                (Value::Array(x), Value::Array(y)) => Ok(Some(Value::Array(x.iter().chain(y).cloned().collect()))),
+                (Value::Array(x), Value::Array(y)) => {
+                    Ok(Some(Value::Array(x.iter().chain(y).cloned().collect())))
+                }
                 _ => Err(()),
             }
         };
@@ -1630,7 +1725,10 @@ mod section_f_helper_tests {
         let context = json!({"printer_profile": {"a": 1}});
         let merged = dict_merge(&context, &json!({"plugins": {"p": {"x": 1}}}), None);
         let merged = dict_merge(&merged, &json!({"plugins": {"q": 2}}), None);
-        assert_eq!(json!({"printer_profile": {"a": 1}, "plugins": {"p": {"x": 1}, "q": 2}}), merged);
+        assert_eq!(
+            json!({"printer_profile": {"a": 1}, "plugins": {"p": {"x": 1}, "q": 2}}),
+            merged
+        );
         assert_eq!(json!(5), dict_merge(&context, &json!(5), None)); // `not isinstance(b, dict)`
     }
 }

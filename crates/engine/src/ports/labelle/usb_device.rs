@@ -8,7 +8,9 @@
 //! Not ported: `hash` (a plain alias of `usb_id`: used as `usb_id`), `serial_number` and the
 //! text of `device_info` (it only goes to `LOG.debug`; the reads that build it are made).
 
-use super::constants::{DEV_VENDOR, HID_INTERFACE_CLASS, PRINTER_INTERFACE_CLASS, is_supported_product};
+use super::constants::{
+    DEV_VENDOR, HID_INTERFACE_CLASS, PRINTER_INTERFACE_CLASS, is_supported_product,
+};
 use super::pyusb::{self, Backend, Device, Endpoint, Error as UsbError};
 use std::rc::Rc;
 
@@ -74,7 +76,12 @@ pub struct UsbDevice {
 impl UsbDevice {
     /// `__init__`.
     pub fn new(dev: Rc<Device>) -> UsbDevice {
-        UsbDevice { dev, intf: None, devin: None, devout: None }
+        UsbDevice {
+            dev,
+            intf: None,
+            devin: None,
+            devout: None,
+        }
     }
 
     /// `id_vendor` (`usb_device.py:61`).
@@ -94,7 +101,12 @@ impl UsbDevice {
 
     /// `usb_id` (`usb_device.py:79`), and so `hash`.
     pub fn usb_id(&self) -> String {
-        format!("Bus {:03} Device {:03}: ID {}", self.dev.desc.bus, self.dev.desc.address, self.vendor_product_id())
+        format!(
+            "Bus {:03} Device {:03}: ID {}",
+            self.dev.desc.bus,
+            self.dev.desc.address,
+            self.vendor_product_id()
+        )
     }
 
     /// `hash` (`usb_device.py:39`).
@@ -115,7 +127,10 @@ impl UsbDevice {
     /// `supported_devices` (`usb_device.py:96`): every device of labelle's vendor. (labelle
     /// returns a `set`; the order of its iteration is not defined, so callers sort.)
     pub fn supported_devices(backend: &Rc<dyn Backend>) -> Result<Vec<UsbDevice>, UsbError> {
-        Ok(pyusb::find(backend, |d| UsbDevice::is_supported_vendor(d))?.into_iter().map(UsbDevice::new).collect())
+        Ok(pyusb::find(backend, |d| UsbDevice::is_supported_vendor(d))?
+            .into_iter()
+            .map(UsbDevice::new)
+            .collect())
     }
 
     /// `device_info` (`usb_device.py:105`): the reads it makes (the manufacturer, product and
@@ -199,9 +214,10 @@ impl UsbDevice {
     /// `setup` (`usb_device.py:217`).
     pub fn setup(&mut self) -> Result<(), Error> {
         match self.setup_inner() {
-            Err(Error::Usb(UsbError::Usb(e))) => {
-                Err(Error::UsbDevice(format!("Failed setup USB device: {}", UsbError::Usb(e))))
-            }
+            Err(Error::Usb(UsbError::Usb(e))) => Err(Error::UsbDevice(format!(
+                "Failed setup USB device: {}",
+                UsbError::Usb(e)
+            ))),
             other => other,
         }
     }
@@ -210,12 +226,18 @@ impl UsbDevice {
     fn setup_inner(&mut self) -> Result<(), Error> {
         self.set_configuration()?;
         let cfg = self.dev.get_active_configuration()?;
-        let mut intf = self.dev.find_interface(&cfg, |i| i.b_interface_class == PRINTER_INTERFACE_CLASS)?;
+        let mut intf = self
+            .dev
+            .find_interface(&cfg, |i| i.b_interface_class == PRINTER_INTERFACE_CLASS)?;
         if intf.is_none() {
             let cfg = self.dev.get_active_configuration()?;
-            intf = self.dev.find_interface(&cfg, |i| i.b_interface_class == HID_INTERFACE_CLASS)?;
+            intf = self
+                .dev
+                .find_interface(&cfg, |i| i.b_interface_class == HID_INTERFACE_CLASS)?;
             if intf.is_none() {
-                return Err(Error::UsbDevice("Could not open a valid interface".to_owned()));
+                return Err(Error::UsbDevice(
+                    "Could not open a valid interface".to_owned(),
+                ));
             }
         }
         let intf = intf.expect("an interface was found");
@@ -227,17 +249,29 @@ impl UsbDevice {
             Err(UsbError::NotImplemented(_)) => {}
             Err(e) => return Err(e.into()),
         }
-        let devout = self.dev.find_endpoint(&intf, |e| pyusb::endpoint_is_out(e.b_endpoint_address))?;
-        let devin = self.dev.find_endpoint(&intf, |e| pyusb::endpoint_is_in(e.b_endpoint_address))?;
+        let devout = self
+            .dev
+            .find_endpoint(&intf, |e| pyusb::endpoint_is_out(e.b_endpoint_address))?;
+        let devin = self
+            .dev
+            .find_endpoint(&intf, |e| pyusb::endpoint_is_in(e.b_endpoint_address))?;
         let (Some(devout), Some(devin)) = (devout, devin) else {
             self.intf = None;
             self.devin = None;
             self.devout = None;
-            return Err(Error::UsbDevice("The device endpoints not be found".to_owned()));
+            return Err(Error::UsbDevice(
+                "The device endpoints not be found".to_owned(),
+            ));
         };
         self.intf = Some(intf);
-        self.devin = Some(Endpoint { device: self.dev.clone(), desc: devin });
-        self.devout = Some(Endpoint { device: self.dev.clone(), desc: devout });
+        self.devin = Some(Endpoint {
+            device: self.dev.clone(),
+            desc: devin,
+        });
+        self.devout = Some(Endpoint {
+            device: self.dev.clone(),
+            desc: devout,
+        });
         Ok(())
     }
 

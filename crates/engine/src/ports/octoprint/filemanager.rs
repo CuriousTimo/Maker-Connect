@@ -26,7 +26,10 @@ impl FileDestinations {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExtensionTreeValue {
     /// `ContentTypeMapping(extensions, content_type)`
-    ContentTypeMapping { extensions: Vec<String>, content_type: Option<String> },
+    ContentTypeMapping {
+        extensions: Vec<String>,
+        content_type: Option<String>,
+    },
     /// `ContentTypeDetector(extensions, detector)`, see the module doc
     ContentTypeDetector { extensions: Vec<String> },
     /// a `list`
@@ -45,7 +48,10 @@ pub fn full_extension_tree() -> ExtensionTree {
         ExtensionTreeValue::Dict(vec![(
             "gcode".to_string(),
             ExtensionTreeValue::ContentTypeMapping {
-                extensions: ["gcode", "gco", "g", "gc~"].iter().map(|s| s.to_string()).collect(),
+                extensions: ["gcode", "gco", "g", "gc~"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
                 content_type: Some("text/plain".to_string()),
             },
         )]),
@@ -55,7 +61,9 @@ pub fn full_extension_tree() -> ExtensionTree {
 
     let extension_tree_hooks = plugin_manager().get_hooks("octoprint.filemanager.extension_tree");
     if !extension_tree_hooks.is_empty() {
-        unimplemented!("filemanager/__init__.py:97-110, merging the result of an extension tree hook");
+        unimplemented!(
+            "filemanager/__init__.py:97-110, merging the result of an extension tree hook"
+        );
     }
 
     result
@@ -106,7 +114,9 @@ pub fn get_all_extensions(subtree: Option<&ExtensionTreeValue>) -> Vec<String> {
                 match value {
                     ExtensionTreeValue::Dict(_) => result.extend(get_all_extensions(Some(value))),
                     ExtensionTreeValue::ContentTypeMapping { extensions, .. }
-                    | ExtensionTreeValue::ContentTypeDetector { extensions } => result.extend(extensions.clone()),
+                    | ExtensionTreeValue::ContentTypeDetector { extensions } => {
+                        result.extend(extensions.clone())
+                    }
                     ExtensionTreeValue::List(l) => result.extend(l.clone()),
                 }
             }
@@ -120,7 +130,11 @@ pub fn get_all_extensions(subtree: Option<&ExtensionTreeValue>) -> Vec<String> {
 
 /// `filemanager/__init__.py:180 valid_extension(extension, type=None, tree=None)`. `None` is
 /// Python's `None` (a `type` without extensions).
-pub fn valid_extension(extension: &str, r#type: Option<&str>, tree: Option<&ExtensionTree>) -> Option<bool> {
+pub fn valid_extension(
+    extension: &str,
+    r#type: Option<&str>,
+    tree: Option<&ExtensionTree>,
+) -> Option<bool> {
     match r#type {
         None | Some("") => {
             let all = match tree {
@@ -140,7 +154,11 @@ pub fn valid_extension(extension: &str, r#type: Option<&str>, tree: Option<&Exte
 }
 
 /// `filemanager/__init__.py:194 valid_file_type(filename, type=None, tree=None)`
-pub fn valid_file_type(filename: &str, r#type: Option<&str>, tree: Option<&ExtensionTree>) -> Option<bool> {
+pub fn valid_file_type(
+    filename: &str,
+    r#type: Option<&str>,
+    tree: Option<&ExtensionTree>,
+) -> Option<bool> {
     let (_, extension) = splitext(filename);
     let extension = extension.get(1..).unwrap_or("").to_lowercase();
     valid_extension(&extension, r#type, tree)
@@ -162,8 +180,16 @@ mod tests {
     fn test_full_extension_tree_default() {
         let full = full_extension_tree();
         assert_eq!(1, full.len());
-        let ExtensionTreeValue::Dict(machinecode) = &full[0].1 else { panic!() };
-        let ExtensionTreeValue::ContentTypeMapping { extensions, content_type } = &machinecode[0].1 else { panic!() };
+        let ExtensionTreeValue::Dict(machinecode) = &full[0].1 else {
+            panic!()
+        };
+        let ExtensionTreeValue::ContentTypeMapping {
+            extensions,
+            content_type,
+        } = &machinecode[0].1
+        else {
+            panic!()
+        };
         assert_eq!(s(&["gcode", "gco", "g", "gc~"]), *extensions);
         assert_eq!(Some("text/plain".to_string()), *content_type);
     }
@@ -177,9 +203,18 @@ mod tests {
 
     #[test]
     fn test_valid_file_type_with_type() {
-        assert_eq!(Some(false), valid_file_type("foo.stl", Some("machinecode"), None));
-        assert_eq!(Some(true), valid_file_type("foo.gcode", Some("machinecode"), None));
-        assert_eq!(Some(true), valid_file_type("foo.gcode", Some("gcode"), None));
+        assert_eq!(
+            Some(false),
+            valid_file_type("foo.stl", Some("machinecode"), None)
+        );
+        assert_eq!(
+            Some(true),
+            valid_file_type("foo.gcode", Some("machinecode"), None)
+        );
+        assert_eq!(
+            Some(true),
+            valid_file_type("foo.gcode", Some("gcode"), None)
+        );
         assert_eq!(None, valid_file_type("foo.gcode", Some("nothing"), None));
     }
 
@@ -195,12 +230,21 @@ mod tests {
                         content_type: Some("text/plain".to_string()),
                     },
                 ),
-                ("foo".to_string(), ExtensionTreeValue::List(s(&["foo", "f"]))),
+                (
+                    "foo".to_string(),
+                    ExtensionTreeValue::List(s(&["foo", "f"])),
+                ),
             ]),
         )];
         assert_eq!(Some(true), valid_file_type("foo.foo", None, Some(&tree)));
         assert_eq!(Some(false), valid_file_type("foo.amf", None, Some(&tree)));
-        assert_eq!(Some(true), valid_file_type("foo.foo", Some("machinecode"), Some(&tree)));
-        assert_eq!(Some(true), valid_file_type("foo.foo", Some("foo"), Some(&tree)));
+        assert_eq!(
+            Some(true),
+            valid_file_type("foo.foo", Some("machinecode"), Some(&tree))
+        );
+        assert_eq!(
+            Some(true),
+            valid_file_type("foo.foo", Some("foo"), Some(&tree))
+        );
     }
 }

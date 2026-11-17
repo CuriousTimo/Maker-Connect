@@ -72,7 +72,12 @@ const WRITE_BLOCK: usize = 64 * 1024;
 
 impl<'a> DymoLabelerFunctions<'a> {
     /// `__init__` (`dymo_labeler.py:64`).
-    fn new(devout: &'a Endpoint, devin: &'a Endpoint, synwait: Option<usize>, heard: &'a mut dyn FnMut(&[u8])) -> Self {
+    fn new(
+        devout: &'a Endpoint,
+        devin: &'a Endpoint,
+        synwait: Option<usize>,
+        heard: &'a mut dyn FnMut(&[u8]),
+    ) -> Self {
         DymoLabelerFunctions {
             cmd: Vec::new(),
             response: false,
@@ -134,7 +139,10 @@ impl<'a> DymoLabelerFunctions<'a> {
                     let mut pos: i64 = -1; // Index of last SYN character encountered in iteration
                     while syn_count < synwait {
                         // `pos += self._cmd[pos + 1 :].index(SYN) + 1`
-                        match self.cmd[(pos + 1) as usize..].iter().position(|&b| b == SYN) {
+                        match self.cmd[(pos + 1) as usize..]
+                            .iter()
+                            .position(|&b| b == SYN)
+                        {
                             Some(i) => {
                                 pos += i as i64 + 1;
                                 syn_count += 1;
@@ -261,13 +269,24 @@ impl DymoLabeler {
 
     /// `labeler_margin_px` (`dymo_labeler.py:279`): (horizontal, vertical).
     pub fn labeler_margin_px(&self) -> (f64, f64) {
-        let vertical_margin_mm = f64::max(0.0, (self.tape_size_mm as f64 - Self::LABELER_PRINT_HEAD_HEIGHT_MM) / 2.0);
-        (mm_to_px(self.minimum_horizontal_margin_mm()), mm_to_px(vertical_margin_mm))
+        let vertical_margin_mm = f64::max(
+            0.0,
+            (self.tape_size_mm as f64 - Self::LABELER_PRINT_HEAD_HEIGHT_MM) / 2.0,
+        );
+        (
+            mm_to_px(self.minimum_horizontal_margin_mm()),
+            mm_to_px(vertical_margin_mm),
+        )
     }
 
     /// `print` (`dymo_labeler.py:307`): the label bitmap (mode "1", pixels equal to 1 burned) to
     /// the printer. `heard` is given every answer (ours).
-    pub fn print(&self, device: &UsbDevice, bitmap: &Image, heard: &mut dyn FnMut(&[u8])) -> Result<(), Error> {
+    pub fn print(
+        &self,
+        device: &UsbDevice,
+        bitmap: &Image,
+        heard: &mut dyn FnMut(&[u8]),
+    ) -> Result<(), Error> {
         // Convert the image to the proper matrix for the dymo labeler object so that rows span
         // the width of the label, and the first row corresponds to the left edge of the label.
         let rotated_bitmap = bitmap.rotate_270();
@@ -279,7 +298,9 @@ impl DymoLabeler {
         // Regather the bytes into rows
         let stream_row_length = bitmap.height.div_ceil(8);
         if stream_row_length == 0 {
-            return Err(Error::Other("integer division or modulo by zero".to_owned()));
+            return Err(Error::Other(
+                "integer division or modulo by zero".to_owned(),
+            ));
         }
         if stream.len() / stream_row_length != bitmap.width {
             return Err(Error::Other(
@@ -287,18 +308,27 @@ impl DymoLabeler {
             ));
         }
         // Convert bytes into ints
-        let label_matrix: Vec<Vec<u8>> = stream.chunks(stream_row_length).map(<[u8]>::to_vec).collect();
+        let label_matrix: Vec<Vec<u8>> = stream
+            .chunks(stream_row_length)
+            .map(<[u8]>::to_vec)
+            .collect();
 
         // `_functions`: a new `DymoLabelerFunctions` with `synwait=64`.
         let (Some(devout), Some(devin)) = (device.devout(), device.devin()) else {
-            return Err(Error::Other("'NoneType' object has no attribute 'write'".to_owned()));
+            return Err(Error::Other(
+                "'NoneType' object has no attribute 'write'".to_owned(),
+            ));
         };
         let mut functions = DymoLabelerFunctions::new(devout, devin, Some(SYNWAIT), heard);
-        let result = functions.print_label(label_matrix).map(|()| device.dispose());
+        let result = functions
+            .print_label(label_matrix)
+            .map(|()| device.dispose());
         // POSSIBLE_USB_ERRORS = (UsbDeviceError, NoBackendError, USBError)
         match result {
             Ok(()) => Ok(()),
-            Err(e @ (PyusbError::Usb(_) | PyusbError::NoBackend(_))) => Err(Error::Print(e.to_string())),
+            Err(e @ (PyusbError::Usb(_) | PyusbError::NoBackend(_))) => {
+                Err(Error::Print(e.to_string()))
+            }
             Err(e) => Err(Error::Other(e.to_string())),
         }
     }
@@ -313,13 +343,17 @@ impl DymoLabeler {
     /// and read.
     pub fn status_poll(device: &UsbDevice, heard: &mut dyn FnMut(&[u8])) -> Result<(), Error> {
         let (Some(devout), Some(devin)) = (device.devout(), device.devin()) else {
-            return Err(Error::Other("'NoneType' object has no attribute 'write'".to_owned()));
+            return Err(Error::Other(
+                "'NoneType' object has no attribute 'write'".to_owned(),
+            ));
         };
         let mut functions = DymoLabelerFunctions::new(devout, devin, None, heard);
         let result = functions.get_status().map(|_| device.dispose());
         match result {
             Ok(()) => Ok(()),
-            Err(e @ (PyusbError::Usb(_) | PyusbError::NoBackend(_))) => Err(Error::Print(e.to_string())),
+            Err(e @ (PyusbError::Usb(_) | PyusbError::NoBackend(_))) => {
+                Err(Error::Print(e.to_string()))
+            }
             Err(e) => Err(Error::Other(e.to_string())),
         }
     }

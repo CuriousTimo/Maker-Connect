@@ -1,15 +1,17 @@
 //! The ports (`docs/plans/agent-engine.md`, step 3): each a port of one reference, the only code that
 //! talks to its device.
 
-#[cfg(feature = "devices")]
-pub mod octoprint;
+/// DYMO Connect's catalogue of the 450's rolls (HS2b): generated data, no device code.
+// Generated (byte for byte its generator's output, checked): cargo fmt leaves it alone.
+#[rustfmt::skip]
+pub mod dymo_connect_lw450;
+pub mod dymo_cups;
+pub mod geometry;
 #[cfg(feature = "devices")]
 pub mod labelle;
 #[cfg(feature = "devices")]
 pub mod laserfoundry;
-pub mod dymo_cups;
+#[cfg(feature = "devices")]
+pub mod octoprint;
 #[cfg(feature = "devices")]
 pub mod usbscale;
-pub mod geometry;
-/// DYMO Connect's catalogue of the 450's rolls (HS2b): generated data, no device code.
-pub mod dymo_connect_lw450;

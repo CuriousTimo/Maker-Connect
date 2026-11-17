@@ -25,6 +25,8 @@
 
 pub mod options;
 pub mod ppd;
+// Generated (byte for byte its generator's output, checked): cargo fmt leaves it alone.
+#[rustfmt::skip]
 pub mod ppd_lw450;
 pub mod raster;
 #[cfg(feature = "devices")]

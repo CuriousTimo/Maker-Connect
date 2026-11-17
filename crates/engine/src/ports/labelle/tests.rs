@@ -3,8 +3,8 @@
 //! these tests run the port on a recorder over the same devices and compare, and compare the
 //! constants with what the script read from labelle's source.
 
-use super::constants::{self, Direction};
 use super::cli::{self, Printer};
+use super::constants::{self, Direction};
 use super::dymo_labeler::{self, COMMANDS};
 use super::pillow::{Image, Mode};
 use super::pyusb::{
@@ -76,24 +76,43 @@ struct Fake {
 }
 
 fn timeout_error() -> Error {
-    Error::Usb(UsbError { strerror: "Operation timed out".into(), backend_error_code: Some(-7), errno: Some(110), timeout: true })
+    Error::Usb(UsbError {
+        strerror: "Operation timed out".into(),
+        backend_error_code: Some(-7),
+        errno: Some(110),
+        timeout: true,
+    })
 }
 
 fn usb_error(strerror: &str, code: i32, errno: i32) -> Error {
-    Error::Usb(UsbError { strerror: strerror.into(), backend_error_code: Some(code), errno: Some(errno), timeout: false })
+    Error::Usb(UsbError {
+        strerror: strerror.into(),
+        backend_error_code: Some(code),
+        errno: Some(errno),
+        timeout: false,
+    })
 }
 
 impl Fake {
     fn rec(&self, handle: Handle, text: String) {
         let d = &self.devices[self.handles.borrow()[handle]];
-        self.log.borrow_mut().push(format!("{}.{} {text}", d.bus, d.addr));
+        self.log
+            .borrow_mut()
+            .push(format!("{}.{} {text}", d.bus, d.addr));
     }
 
     fn dev_of(&self, handle: Handle) -> &FakeDev {
         &self.devices[self.handles.borrow()[handle]]
     }
 
-    fn write(&self, kind: &str, handle: Handle, ep: u8, data: &[u8], timeout: u32) -> Result<usize, Error> {
+    fn write(
+        &self,
+        kind: &str,
+        handle: Handle,
+        ep: u8,
+        data: &[u8],
+        timeout: u32,
+    ) -> Result<usize, Error> {
         let hex: String = data.iter().map(|b| format!("{b:02x}")).collect();
         self.rec(handle, format!("{kind}_write {ep:02x} {hex} {timeout}"));
         self.writes.set(self.writes.get() + 1);
@@ -107,8 +126,18 @@ impl Fake {
         Ok(data.len())
     }
 
-    fn read(&self, kind: &str, handle: Handle, ep: u8, buff: &mut [u8], timeout: u32) -> Result<usize, Error> {
-        self.rec(handle, format!("{kind}_read {ep:02x} {} {timeout}", buff.len()));
+    fn read(
+        &self,
+        kind: &str,
+        handle: Handle,
+        ep: u8,
+        buff: &mut [u8],
+        timeout: u32,
+    ) -> Result<usize, Error> {
+        self.rec(
+            handle,
+            format!("{kind}_read {ep:02x} {} {timeout}", buff.len()),
+        );
         self.reads.set(self.reads.get() + 1);
         for flag in &self.dev_of(handle).flags {
             if let Some(n) = flag.strip_prefix("failread=")
@@ -141,17 +170,33 @@ impl Backend for Fake {
         })
     }
 
-    fn get_configuration_descriptor(&self, dev: DevId, config: usize) -> Result<ConfigurationDescriptor, Error> {
+    fn get_configuration_descriptor(
+        &self,
+        dev: DevId,
+        config: usize,
+    ) -> Result<ConfigurationDescriptor, Error> {
         if config != 0 {
             return Err(Error::Index("config".into()));
         }
-        Ok(ConfigurationDescriptor { b_configuration_value: 1, b_num_interfaces: self.devices[dev].groups().len() as u8 })
+        Ok(ConfigurationDescriptor {
+            b_configuration_value: 1,
+            b_num_interfaces: self.devices[dev].groups().len() as u8,
+        })
     }
 
-    fn get_interface_descriptor(&self, dev: DevId, intf: usize, alt: usize, _config: usize) -> Result<InterfaceDescriptor, Error> {
+    fn get_interface_descriptor(
+        &self,
+        dev: DevId,
+        intf: usize,
+        alt: usize,
+        _config: usize,
+    ) -> Result<InterfaceDescriptor, Error> {
         let d = &self.devices[dev];
         let groups = d.groups();
-        let i = groups.get(intf).and_then(|g| g.get(alt)).ok_or_else(|| Error::Index("interface".into()))?;
+        let i = groups
+            .get(intf)
+            .and_then(|g| g.get(alt))
+            .ok_or_else(|| Error::Index("interface".into()))?;
         Ok(InterfaceDescriptor {
             b_interface_number: i.number,
             b_alternate_setting: i.alt,
@@ -160,11 +205,21 @@ impl Backend for Fake {
         })
     }
 
-    fn get_endpoint_descriptor(&self, dev: DevId, ep: usize, intf: usize, alt: usize, _config: usize) -> Result<EndpointDescriptor, Error> {
+    fn get_endpoint_descriptor(
+        &self,
+        dev: DevId,
+        ep: usize,
+        intf: usize,
+        alt: usize,
+        _config: usize,
+    ) -> Result<EndpointDescriptor, Error> {
         let d = &self.devices[dev];
         let groups = d.groups();
         let (address, interrupt) = groups[intf][alt].endpoints[ep];
-        Ok(EndpointDescriptor { b_endpoint_address: address, bm_attributes: if interrupt { 3 } else { 2 } })
+        Ok(EndpointDescriptor {
+            b_endpoint_address: address,
+            bm_attributes: if interrupt { 3 } else { 2 },
+        })
     }
 
     fn open_device(&self, dev: DevId) -> Result<Handle, Error> {
@@ -210,11 +265,25 @@ impl Backend for Fake {
     fn is_kernel_driver_active(&self, handle: Handle, intf: u8) -> Result<bool, Error> {
         let d = self.dev_of(handle);
         if d.has("nokernelapi") {
-            self.rec(handle, format!("is_kernel_driver_active {intf} -> NotImplementedError"));
+            self.rec(
+                handle,
+                format!("is_kernel_driver_active {intf} -> NotImplementedError"),
+            );
             return Err(Error::NotImplemented("is_kernel_driver_active".into()));
         }
-        let bound = d.drivers.borrow().iter().find(|(n, _)| *n == intf).is_some_and(|(_, b)| *b);
-        self.rec(handle, format!("is_kernel_driver_active {intf} -> {}", if bound { "True" } else { "False" }));
+        let bound = d
+            .drivers
+            .borrow()
+            .iter()
+            .find(|(n, _)| *n == intf)
+            .is_some_and(|(_, b)| *b);
+        self.rec(
+            handle,
+            format!(
+                "is_kernel_driver_active {intf} -> {}",
+                if bound { "True" } else { "False" }
+            ),
+        );
         Ok(bound)
     }
 
@@ -228,24 +297,67 @@ impl Backend for Fake {
         Ok(())
     }
 
-    fn bulk_write(&self, handle: Handle, ep: u8, _intf: u8, data: &[u8], timeout: u32) -> Result<usize, Error> {
+    fn bulk_write(
+        &self,
+        handle: Handle,
+        ep: u8,
+        _intf: u8,
+        data: &[u8],
+        timeout: u32,
+    ) -> Result<usize, Error> {
         self.write("bulk", handle, ep, data, timeout)
     }
 
-    fn bulk_read(&self, handle: Handle, ep: u8, _intf: u8, buff: &mut [u8], timeout: u32) -> Result<usize, Error> {
+    fn bulk_read(
+        &self,
+        handle: Handle,
+        ep: u8,
+        _intf: u8,
+        buff: &mut [u8],
+        timeout: u32,
+    ) -> Result<usize, Error> {
         self.read("bulk", handle, ep, buff, timeout)
     }
 
-    fn intr_write(&self, handle: Handle, ep: u8, _intf: u8, data: &[u8], timeout: u32) -> Result<usize, Error> {
+    fn intr_write(
+        &self,
+        handle: Handle,
+        ep: u8,
+        _intf: u8,
+        data: &[u8],
+        timeout: u32,
+    ) -> Result<usize, Error> {
         self.write("intr", handle, ep, data, timeout)
     }
 
-    fn intr_read(&self, handle: Handle, ep: u8, _intf: u8, buff: &mut [u8], timeout: u32) -> Result<usize, Error> {
+    fn intr_read(
+        &self,
+        handle: Handle,
+        ep: u8,
+        _intf: u8,
+        buff: &mut [u8],
+        timeout: u32,
+    ) -> Result<usize, Error> {
         self.read("intr", handle, ep, buff, timeout)
     }
 
-    fn ctrl_transfer(&self, handle: Handle, bm: u8, req: u8, value: u16, index: u16, buff: &mut [u8], timeout: u32) -> Result<usize, Error> {
-        self.rec(handle, format!("ctrl_transfer {bm:02x} {req:02x} {value:04x} {index:04x} {} {timeout}", buff.len()));
+    fn ctrl_transfer(
+        &self,
+        handle: Handle,
+        bm: u8,
+        req: u8,
+        value: u16,
+        index: u16,
+        buff: &mut [u8],
+        timeout: u32,
+    ) -> Result<usize, Error> {
+        self.rec(
+            handle,
+            format!(
+                "ctrl_transfer {bm:02x} {req:02x} {value:04x} {index:04x} {} {timeout}",
+                buff.len()
+            ),
+        );
         if bm & 0x80 != 0 && req == 6 && value >> 8 == 3 {
             let i = (value & 0xFF) as u8;
             let data: Vec<u8> = if i == 0 {
@@ -254,7 +366,10 @@ impl Backend for Fake {
                 }
                 vec![4, 3, 0x09, 0x04]
             } else {
-                let text: Vec<u8> = format!("DYMO string {i}").encode_utf16().flat_map(u16::to_le_bytes).collect();
+                let text: Vec<u8> = format!("DYMO string {i}")
+                    .encode_utf16()
+                    .flat_map(u16::to_le_bytes)
+                    .collect();
                 let mut data = vec![2 + text.len() as u8, 3];
                 data.extend(text);
                 data
@@ -267,21 +382,33 @@ impl Backend for Fake {
 }
 
 /// The scenes of `scenes.txt`: the devices of each.
-fn scenes() -> Vec<(String, Vec<(u32, u32, u16, u16, [u8; 3], u8, Vec<String>, Vec<Iface>)>)> {
-    let text = std::fs::read_to_string(fixtures().join("scenes.txt")).expect("run scripts/labelle-port-check.py");
+fn scenes() -> Vec<(
+    String,
+    Vec<(u32, u32, u16, u16, [u8; 3], u8, Vec<String>, Vec<Iface>)>,
+)> {
+    let text = std::fs::read_to_string(fixtures().join("scenes.txt"))
+        .expect("run scripts/labelle-port-check.py");
     let mut scenes: Vec<(String, Vec<_>)> = Vec::new();
     for line in text.lines() {
         let w: Vec<&str> = line.split_whitespace().collect();
         match w[0] {
             "scene" => scenes.push((w[1].to_owned(), Vec::new())),
             "dev" => {
-                let flags = if w[9] == "-" { Vec::new() } else { w[9].split(',').map(str::to_owned).collect() };
+                let flags = if w[9] == "-" {
+                    Vec::new()
+                } else {
+                    w[9].split(',').map(str::to_owned).collect()
+                };
                 scenes.last_mut().unwrap().1.push((
                     w[1].parse().unwrap(),
                     w[2].parse().unwrap(),
                     u16::from_str_radix(w[3], 16).unwrap(),
                     u16::from_str_radix(w[4], 16).unwrap(),
-                    [w[5].parse().unwrap(), w[6].parse().unwrap(), w[7].parse().unwrap()],
+                    [
+                        w[5].parse().unwrap(),
+                        w[6].parse().unwrap(),
+                        w[7].parse().unwrap(),
+                    ],
                     w[8].parse().unwrap(),
                     flags,
                     Vec::new(),
@@ -292,13 +419,20 @@ fn scenes() -> Vec<(String, Vec<(u32, u32, u16, u16, [u8; 3], u8, Vec<String>, V
                     .split(',')
                     .map(|e| (u8::from_str_radix(&e[..2], 16).unwrap(), e.ends_with('i')))
                     .collect();
-                scenes.last_mut().unwrap().1.last_mut().unwrap().7.push(Iface {
-                    number: w[1].parse().unwrap(),
-                    alt: w[2].parse().unwrap(),
-                    class: u8::from_str_radix(w[3], 16).unwrap(),
-                    bound: w[4] == "+",
-                    endpoints,
-                });
+                scenes
+                    .last_mut()
+                    .unwrap()
+                    .1
+                    .last_mut()
+                    .unwrap()
+                    .7
+                    .push(Iface {
+                        number: w[1].parse().unwrap(),
+                        alt: w[2].parse().unwrap(),
+                        class: u8::from_str_radix(w[3], 16).unwrap(),
+                        bound: w[4] == "+",
+                        endpoints,
+                    });
             }
             other => panic!("scenes.txt: {other}"),
         }
@@ -313,23 +447,34 @@ fn fake(scene: &str) -> (Rc<dyn Backend>, Rc<RefCell<Vec<String>>>) {
 
 /// [`fake`] with one more flag on each device (`failread=N`, `failwrite=N`).
 fn fake_flagged(scene: &str, extra: Option<&str>) -> (Rc<dyn Backend>, Rc<RefCell<Vec<String>>>) {
-    let (_, devices) = scenes().into_iter().find(|(name, _)| name == scene).unwrap_or_else(|| panic!("scene {scene}"));
+    let (_, devices) = scenes()
+        .into_iter()
+        .find(|(name, _)| name == scene)
+        .unwrap_or_else(|| panic!("scene {scene}"));
     let log = Rc::new(RefCell::new(Vec::new()));
     let devices = devices
         .into_iter()
-        .map(|(bus, addr, vid, pid, strings, active, flags, ifaces)| FakeDev {
-            bus,
-            addr,
-            vid,
-            pid,
-            strings,
-            active: Cell::new(active),
-            flags: flags.into_iter().chain(extra.map(str::to_owned)).collect(),
-            drivers: RefCell::new(ifaces.iter().map(|i| (i.number, i.bound)).collect()),
-            ifaces,
-        })
+        .map(
+            |(bus, addr, vid, pid, strings, active, flags, ifaces)| FakeDev {
+                bus,
+                addr,
+                vid,
+                pid,
+                strings,
+                active: Cell::new(active),
+                flags: flags.into_iter().chain(extra.map(str::to_owned)).collect(),
+                drivers: RefCell::new(ifaces.iter().map(|i| (i.number, i.bound)).collect()),
+                ifaces,
+            },
+        )
         .collect();
-    let backend = Fake { devices, log: log.clone(), handles: RefCell::new(Vec::new()), writes: Cell::new(0), reads: Cell::new(0) };
+    let backend = Fake {
+        devices,
+        log: log.clone(),
+        handles: RefCell::new(Vec::new()),
+        writes: Cell::new(0),
+        reads: Cell::new(0),
+    };
     (Rc::new(backend), log)
 }
 
@@ -352,13 +497,19 @@ fn run_case(scene: &str, picture: &str, tape: Option<i64>) -> Vec<String> {
 
 #[test]
 fn proof_every_example_goes_as_labelle_sends_it() {
-    let cases = std::fs::read_to_string(fixtures().join("cases.txt")).expect("run scripts/labelle-port-check.py");
-    let theirs = std::fs::read_to_string(fixtures().join("labelle.txt")).expect("run scripts/labelle-port-check.py");
+    let cases = std::fs::read_to_string(fixtures().join("cases.txt"))
+        .expect("run scripts/labelle-port-check.py");
+    let theirs = std::fs::read_to_string(fixtures().join("labelle.txt"))
+        .expect("run scripts/labelle-port-check.py");
     let mut out = String::new();
     for line in cases.lines() {
         let w: Vec<&str> = line.split_whitespace().collect();
         assert_eq!(w[0], "case");
-        let tape = if w[3] == "none" { None } else { Some(w[3].parse().unwrap()) };
+        let tape = if w[3] == "none" {
+            None
+        } else {
+            Some(w[3].parse().unwrap())
+        };
         let picture = fixtures().join("pngs").join(w[4]);
         out.push_str(&format!("case {}\n", w[1]));
         for op in run_case(w[2], &picture.to_string_lossy(), tape) {
@@ -368,7 +519,11 @@ fn proof_every_example_goes_as_labelle_sends_it() {
     }
     std::fs::write(fixtures().join("ours.txt"), &out).unwrap();
     // Constants and command bytes: what ours says, in the lines of the script's extraction.
-    std::fs::write(fixtures().join("ours-constants.txt"), constants_rows().join("\n") + "\n").unwrap();
+    std::fs::write(
+        fixtures().join("ours-constants.txt"),
+        constants_rows().join("\n") + "\n",
+    )
+    .unwrap();
     let mut case = String::new();
     for (i, (a, b)) in theirs.lines().zip(out.lines()).enumerate() {
         if a.starts_with("case ") {
@@ -376,7 +531,11 @@ fn proof_every_example_goes_as_labelle_sends_it() {
         }
         assert_eq!(a, b, "line {} of labelle.txt, in {case}", i + 1);
     }
-    assert_eq!(theirs.lines().count(), out.lines().count(), "as many operations");
+    assert_eq!(
+        theirs.lines().count(),
+        out.lines().count(),
+        "as many operations"
+    );
 }
 
 /// The constants as the script reads them from labelle's source.
@@ -385,25 +544,47 @@ fn constants_rows() -> Vec<String> {
     for (id, name) in constants::supported_products() {
         rows.push(format!("SUPPORTED_PRODUCTS {id:#06x} {name}"));
     }
-    rows.push(format!("UNCONFIRMED_MESSAGE {}", constants::UNCONFIRMED_MESSAGE));
+    rows.push(format!(
+        "UNCONFIRMED_MESSAGE {}",
+        constants::UNCONFIRMED_MESSAGE
+    ));
     rows.push(format!("DEV_VENDOR {}", constants::DEV_VENDOR));
-    rows.push(format!("PRINTER_INTERFACE_CLASS {}", constants::PRINTER_INTERFACE_CLASS));
-    rows.push(format!("HID_INTERFACE_CLASS {}", constants::HID_INTERFACE_CLASS));
+    rows.push(format!(
+        "PRINTER_INTERFACE_CLASS {}",
+        constants::PRINTER_INTERFACE_CLASS
+    ));
+    rows.push(format!(
+        "HID_INTERFACE_CLASS {}",
+        constants::HID_INTERFACE_CLASS
+    ));
     rows.push(format!("ESC {}", constants::ESC));
     rows.push(format!("SYN {}", constants::SYN));
-    rows.push(format!("DEFAULT_MARGIN_PX {}", constants::DEFAULT_MARGIN_PX));
+    rows.push(format!(
+        "DEFAULT_MARGIN_PX {}",
+        constants::DEFAULT_MARGIN_PX
+    ));
     rows.push(format!("DPI {}", constants::DPI));
     rows.push(format!("MM_PER_INCH {}", constants::MM_PER_INCH));
     rows.push(format!(
         "SUPPORTED_TAPE_SIZES_MM ({})",
-        dymo_labeler::DymoLabeler::SUPPORTED_TAPE_SIZES_MM.iter().map(i64::to_string).collect::<Vec<_>>().join(", ")
+        dymo_labeler::DymoLabeler::SUPPORTED_TAPE_SIZES_MM
+            .iter()
+            .map(i64::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
     ));
-    rows.push(format!("DEFAULT_TAPE_SIZE_MM {}", dymo_labeler::DymoLabeler::DEFAULT_TAPE_SIZE_MM));
+    rows.push(format!(
+        "DEFAULT_TAPE_SIZE_MM {}",
+        dymo_labeler::DymoLabeler::DEFAULT_TAPE_SIZE_MM
+    ));
     rows.push(format!(
         "LABELER_DISTANCE_BETWEEN_PRINT_HEAD_AND_CUTTER_MM {}",
         dymo_labeler::DymoLabeler::LABELER_DISTANCE_BETWEEN_PRINT_HEAD_AND_CUTTER_MM
     ));
-    rows.push(format!("LABELER_PRINT_HEAD_HEIGHT_MM {}", dymo_labeler::DymoLabeler::LABELER_PRINT_HEAD_HEIGHT_MM));
+    rows.push(format!(
+        "LABELER_PRINT_HEAD_HEIGHT_MM {}",
+        dymo_labeler::DymoLabeler::LABELER_PRINT_HEAD_HEIGHT_MM
+    ));
     for (method, letter) in COMMANDS {
         rows.push(format!("COMMAND {method} ESC {}", letter as char));
     }
@@ -416,8 +597,13 @@ fn constants_rows() -> Vec<String> {
 
 /// The rows of the script's extraction (labelle's source) that start with `name`.
 fn their_rows(name: &str) -> Vec<String> {
-    let text = std::fs::read_to_string(fixtures().join("constants.txt")).expect("run scripts/labelle-port-check.py");
-    let rows: Vec<String> = text.lines().filter(|r| r.starts_with(name)).map(str::to_owned).collect();
+    let text = std::fs::read_to_string(fixtures().join("constants.txt"))
+        .expect("run scripts/labelle-port-check.py");
+    let rows: Vec<String> = text
+        .lines()
+        .filter(|r| r.starts_with(name))
+        .map(str::to_owned)
+        .collect();
     assert!(!rows.is_empty(), "labelle's source has no `{name}`");
     rows
 }
@@ -516,21 +702,35 @@ fn margins_of_a_picture_on_12mm_tape() {
     use super::render_engines::print_payload::PrintPayloadRenderEngine;
     let labeler = dymo_labeler::DymoLabeler::new(Some(12)).unwrap();
     assert_eq!(labeler.height_px(), 64);
-    let render = PrintPayloadRenderEngine::new(Direction::Left, constants::DEFAULT_MARGIN_PX, labeler.labeler_margin_px(), None, Some(0.0));
+    let render = PrintPayloadRenderEngine::new(
+        Direction::Left,
+        constants::DEFAULT_MARGIN_PX,
+        labeler.labeler_margin_px(),
+        None,
+        Some(0.0),
+    );
     let mut payload = Image::new(Mode::One, 100, 64);
     payload.data[0] = 255;
     let (bitmap, offset) = render.render_with_meta(&payload).unwrap();
     // 56 - 8.1 mm in pixels (57.40...) = -1.40...: pasted at -1; the width is 100 + 2 * 56.
     assert!((offset - (56.0 - 8.1 * 180.0 / 25.4)).abs() < 1e-9);
     assert_eq!((bitmap.width, bitmap.height), (212, 64));
-    assert_eq!(bitmap.data[0], 0, "the payload's first column is cut off by the paste at -1");
+    assert_eq!(
+        bitmap.data[0], 0,
+        "the payload's first column is cut off by the paste at -1"
+    );
 }
 
 #[test]
 fn the_tape_defaults_as_labelle_does() {
-    assert_eq!(dymo_labeler::DymoLabeler::new(None).unwrap().tape_size_mm, 12);
     assert_eq!(
-        dymo_labeler::DymoLabeler::new(Some(24)).unwrap_err().to_string(),
+        dymo_labeler::DymoLabeler::new(None).unwrap().tape_size_mm,
+        12
+    );
+    assert_eq!(
+        dymo_labeler::DymoLabeler::new(Some(24))
+            .unwrap_err()
+            .to_string(),
         "Unsupported tape size 24mm. Supported sizes: (19, 12, 9, 6)"
     );
     let _ = Printer::Absent;
@@ -541,7 +741,15 @@ fn the_tape_defaults_as_labelle_does() {
 mod idle_poll {
     use super::*;
 
-    fn poll(scene: &str, extra: Option<&str>) -> (Result<(), cli::CliError>, Vec<String>, Vec<Vec<u8>>, Option<Printer>) {
+    fn poll(
+        scene: &str,
+        extra: Option<&str>,
+    ) -> (
+        Result<(), cli::CliError>,
+        Vec<String>,
+        Vec<Vec<u8>>,
+        Option<Printer>,
+    ) {
         usb_device::set_platform_for_test(Some("Linux"));
         let (backend, log) = fake_flagged(scene, extra);
         let mut printer = None;
@@ -557,17 +765,31 @@ mod idle_poll {
         assert!(result.is_ok());
         assert_eq!(printer, Some(Printer::Present));
         let writes: Vec<&String> = ops.iter().filter(|o| o.contains("_write ")).collect();
-        let reads: Vec<&String> = ops.iter().filter(|o| o.contains("_read ") && !o.contains("ctrl")).collect();
+        let reads: Vec<&String> = ops
+            .iter()
+            .filter(|o| o.contains("_read ") && !o.contains("ctrl"))
+            .collect();
         assert_eq!(writes.len(), 1, "{ops:?}");
-        assert!(writes[0].contains("_write ") && writes[0].split(' ').nth(3) == Some("1b41"), "{writes:?}");
+        assert!(
+            writes[0].contains("_write ") && writes[0].split(' ').nth(3) == Some("1b41"),
+            "{writes:?}"
+        );
         assert_eq!(reads.len(), 1, "{ops:?}");
         assert!(reads[0].contains(" 512 "), "{reads:?}");
         assert_eq!(heard, vec![ANSWER.to_vec()]);
         // the write comes before the read, and the device is released after it
         let w = ops.iter().position(|o| o.contains("_write ")).unwrap();
-        let r = ops.iter().position(|o| o.contains("_read ") && !o.contains("ctrl")).unwrap();
+        let r = ops
+            .iter()
+            .position(|o| o.contains("_read ") && !o.contains("ctrl"))
+            .unwrap();
         assert!(w < r);
-        assert!(ops[r + 1..].iter().any(|o| o.contains("release_interface") || o.contains("close_device")), "{ops:?}");
+        assert!(
+            ops[r + 1..]
+                .iter()
+                .any(|o| o.contains("release_interface") || o.contains("close_device")),
+            "{ops:?}"
+        );
     }
 
     #[test]
@@ -583,8 +805,16 @@ mod idle_poll {
         let (result, ops, _, printer) = poll("single", Some("failread=1"));
         assert!(result.is_err());
         assert_eq!(printer, Some(Printer::Present));
-        let r = ops.iter().rposition(|o| o.contains("_read ") && !o.contains("ctrl")).unwrap();
-        assert!(ops[r + 1..].iter().any(|o| o.contains("release_interface") || o.contains("close_device")), "{ops:?}");
+        let r = ops
+            .iter()
+            .rposition(|o| o.contains("_read ") && !o.contains("ctrl"))
+            .unwrap();
+        assert!(
+            ops[r + 1..]
+                .iter()
+                .any(|o| o.contains("release_interface") || o.contains("close_device")),
+            "{ops:?}"
+        );
     }
 }
 
@@ -607,26 +837,49 @@ mod port {
     }
 
     fn job(id: i64, tape_mm: Option<u32>) -> JobOrder {
-        JobOrder { id, name: "label.png".into(), download: "/f".into(), size: 0, from_line: None, tape_mm, label_length_mm: None, page_size: None }
+        JobOrder {
+            id,
+            name: "label.png".into(),
+            download: "/f".into(),
+            size: 0,
+            from_line: None,
+            tape_mm,
+            label_length_mm: None,
+            page_size: None,
+        }
     }
 
     fn next(events: &Receiver<Event>) -> Event {
-        events.recv_timeout(Duration::from_secs(10)).expect("an event")
+        events
+            .recv_timeout(Duration::from_secs(10))
+            .expect("an event")
     }
 
     #[test]
     fn a_command_a_control_and_an_answer_fail_loudly() {
         let (orders, events, run) = start("normal");
         assert!(matches!(next(&events), Event::Telemetry(t) if t.state == MachineState::Idle));
-        orders.send(Order::Command { id: 7, action: Action::Home { axes: Vec::new() } }).unwrap();
+        orders
+            .send(Order::Command {
+                id: 7,
+                action: Action::Home { axes: Vec::new() },
+            })
+            .unwrap();
         match next(&events) {
-            Event::Done(d) => assert_eq!((d.id, d.ok, d.reason.as_deref()), (7, false, Some(NO_SUCH_CONTROL))),
+            Event::Done(d) => assert_eq!(
+                (d.id, d.ok, d.reason.as_deref()),
+                (7, false, Some(NO_SUCH_CONTROL))
+            ),
             other => panic!("{other:?}"),
         }
         orders.send(Order::Control(JobControl::Stop)).unwrap();
-        assert!(matches!(next(&events), Event::Telemetry(t) if t.problem.as_deref() == Some(NO_JOB_CONTROL)));
+        assert!(
+            matches!(next(&events), Event::Telemetry(t) if t.problem.as_deref() == Some(NO_JOB_CONTROL))
+        );
         orders.send(Order::Answer(1)).unwrap();
-        assert!(matches!(next(&events), Event::Telemetry(t) if t.problem.as_deref() == Some(NO_QUESTION)));
+        assert!(
+            matches!(next(&events), Event::Telemetry(t) if t.problem.as_deref() == Some(NO_QUESTION))
+        );
         orders.send(Order::Close).unwrap();
         run.join().unwrap();
     }
@@ -636,13 +889,27 @@ mod port {
     #[test]
     fn a_command_after_the_close_fails() {
         let (orders, events, run) = start("normal");
-        orders.send(Order::Command { id: 7, action: Action::Home { axes: Vec::new() } }).unwrap();
+        orders
+            .send(Order::Command {
+                id: 7,
+                action: Action::Home { axes: Vec::new() },
+            })
+            .unwrap();
         orders.send(Order::Close).unwrap();
-        let _ = orders.send(Order::Command { id: 8, action: Action::Home { axes: Vec::new() } });
+        let _ = orders.send(Order::Command {
+            id: 8,
+            action: Action::Home { axes: Vec::new() },
+        });
         run.join().unwrap();
         let done: Vec<_> = events
             .try_iter()
-            .filter_map(|e| if let Event::Done(d) = e { Some((d.id, d.ok, d.reason)) } else { None })
+            .filter_map(|e| {
+                if let Event::Done(d) = e {
+                    Some((d.id, d.ok, d.reason))
+                } else {
+                    None
+                }
+            })
             .collect();
         assert_eq!(
             done,
@@ -658,7 +925,12 @@ mod port {
         let (orders, events, run) = start("single");
         let png = fixtures().join("pngs/hub_label.png");
         let _ = next(&events);
-        orders.send(Order::Job { order: job(5, Some(12)), file: png.clone() }).unwrap();
+        orders
+            .send(Order::Job {
+                order: job(5, Some(12)),
+                file: png.clone(),
+            })
+            .unwrap();
         let mut ended = None;
         let mut cassette = None;
         while ended.is_none() {
@@ -675,11 +947,19 @@ mod port {
         assert!(end.ok && end.id == 5, "{end:?}");
         assert_eq!(cassette, Some("40 00 12 4e 0d 6b 00 00".to_owned()));
         // An unsupported tape size: failed with labelle's text.
-        orders.send(Order::Job { order: job(6, Some(24)), file: png.clone() }).unwrap();
+        orders
+            .send(Order::Job {
+                order: job(6, Some(24)),
+                file: png.clone(),
+            })
+            .unwrap();
         loop {
             if let Event::JobEnd(end) = next(&events) {
                 assert!(!end.ok && end.id == 6);
-                assert_eq!(end.reason.as_deref(), Some("Unsupported tape size 24mm. Supported sizes: (19, 12, 9, 6)"));
+                assert_eq!(
+                    end.reason.as_deref(),
+                    Some("Unsupported tape size 24mm. Supported sizes: (19, 12, 9, 6)")
+                );
                 break;
             }
         }
@@ -692,7 +972,12 @@ mod port {
         let png = fixtures().join("pngs/hub_label.png");
         let (orders, events, run) = start("no_dymo");
         let _ = next(&events);
-        orders.send(Order::Job { order: job(1, Some(12)), file: png }).unwrap();
+        orders
+            .send(Order::Job {
+                order: job(1, Some(12)),
+                file: png,
+            })
+            .unwrap();
         let mut seen = Vec::new();
         loop {
             match next(&events) {
@@ -715,7 +1000,12 @@ mod port {
     fn start_polling(
         interval: Duration,
         make: impl Fn(usize) -> &'static str + Send + 'static,
-    ) -> (Sender<Order>, Receiver<Event>, Receiver<std::time::Instant>, std::thread::JoinHandle<()>) {
+    ) -> (
+        Sender<Order>,
+        Receiver<Event>,
+        Receiver<std::time::Instant>,
+        std::thread::JoinHandle<()>,
+    ) {
         usb_device::set_platform_for_test(None);
         let (orders, port_orders) = channel();
         let (port_events, events) = channel();
@@ -776,7 +1066,12 @@ mod port {
             }
             "single"
         });
-        orders.send(Order::Job { order: job(1, Some(12)), file: png }).unwrap();
+        orders
+            .send(Order::Job {
+                order: job(1, Some(12)),
+                file: png,
+            })
+            .unwrap();
         let job_made = made.recv_timeout(Duration::from_secs(5)).expect("the job");
         // the job is held for several intervals: no poll starts
         std::thread::sleep(interval * 5);
@@ -787,9 +1082,13 @@ mod port {
             ended = matches!(next(&events), Event::JobEnd(e) if e.ok);
         }
         let ended_at = std::time::Instant::now();
-        let poll = made.recv_timeout(Duration::from_secs(5)).expect("a poll after the job");
+        let poll = made
+            .recv_timeout(Duration::from_secs(5))
+            .expect("a poll after the job");
         assert!(poll.duration_since(job_made) >= interval * 5);
-        assert!(poll >= ended_at - Duration::from_millis(20) + interval - Duration::from_millis(20));
+        assert!(
+            poll >= ended_at - Duration::from_millis(20) + interval - Duration::from_millis(20)
+        );
         orders.send(Order::Close).unwrap();
         run.join().unwrap();
     }
@@ -811,9 +1110,15 @@ mod port {
         // the poll has started (its backend is being made) ...
         made.recv_timeout(Duration::from_secs(5)).expect("the poll");
         // ... a job comes: nothing of it happens while the poll holds the printer
-        orders.send(Order::Job { order: job(2, Some(12)), file: png }).unwrap();
+        orders
+            .send(Order::Job {
+                order: job(2, Some(12)),
+                file: png,
+            })
+            .unwrap();
         std::thread::sleep(Duration::from_millis(200));
-        assert!(!events.try_iter().any(|e| matches!(e, Event::JobEnd(_)) || matches!(&e, Event::Telemetry(t) if t.state == MachineState::Busy)));
+        assert!(!events.try_iter().any(|e| matches!(e, Event::JobEnd(_))
+            || matches!(&e, Event::Telemetry(t) if t.state == MachineState::Busy)));
         assert!(made.try_recv().is_err());
         drop(held);
         // the poll ends (Idle, raw status), then the job runs
@@ -821,7 +1126,9 @@ mod port {
         loop {
             match next(&events) {
                 Event::Telemetry(t) if t.state == MachineState::Busy => order_seen.push("busy"),
-                Event::Telemetry(t) if t.raw_status.is_some() && order_seen.is_empty() => order_seen.push("poll"),
+                Event::Telemetry(t) if t.raw_status.is_some() && order_seen.is_empty() => {
+                    order_seen.push("poll")
+                }
                 Event::JobEnd(e) => {
                     assert!(e.ok && e.id == 2);
                     break;
@@ -840,11 +1147,17 @@ mod port {
         let interval = Duration::from_millis(30);
         let png = fixtures().join("pngs/hub_label.png");
         // polls 0 and 1 find no printer, the job (3rd) and later ones find it
-        let (orders, events, made, run) = start_polling(interval, |n| if n < 2 { "no_dymo" } else { "single" });
+        let (orders, events, made, run) =
+            start_polling(interval, |n| if n < 2 { "no_dymo" } else { "single" });
         made.recv_timeout(Duration::from_secs(5)).unwrap();
         made.recv_timeout(Duration::from_secs(5)).unwrap();
         let mut seen = Vec::new();
-        orders.send(Order::Job { order: job(3, Some(12)), file: png }).unwrap();
+        orders
+            .send(Order::Job {
+                order: job(3, Some(12)),
+                file: png,
+            })
+            .unwrap();
         loop {
             match next(&events) {
                 Event::Gone => seen.push("gone"),
@@ -873,11 +1186,16 @@ mod port {
     #[test]
     fn a_failed_poll_is_no_gone_fails_no_job_and_the_next_one_comes() {
         let interval = Duration::from_millis(30);
-        let (orders, events, made, run) = start_polling(interval, |n| if n == 0 { "no_interface" } else { "single" });
+        let (orders, events, made, run) =
+            start_polling(interval, |n| if n == 0 { "no_interface" } else { "single" });
         made.recv_timeout(Duration::from_secs(5)).unwrap();
         made.recv_timeout(Duration::from_secs(5)).unwrap();
         orders.send(Order::Close).unwrap();
         run.join().unwrap();
-        assert!(!events.try_iter().any(|e| matches!(e, Event::Gone | Event::JobEnd(_))));
+        assert!(
+            !events
+                .try_iter()
+                .any(|e| matches!(e, Event::Gone | Event::JobEnd(_)))
+        );
     }
 }

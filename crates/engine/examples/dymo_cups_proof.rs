@@ -28,7 +28,11 @@ impl FilterIo for RecordingIo {
         self.back.read(buffer, timeout)
     }
     fn getenv(&self, name: &str) -> Option<String> {
-        if name == "DEVICE_URI" { self.device_uri.clone() } else { None }
+        if name == "DEVICE_URI" {
+            self.device_uri.clone()
+        } else {
+            None
+        }
     }
     fn ppd_open_file(&self) -> Option<PpdFile> {
         Some(PpdFile::lw450())
@@ -70,17 +74,30 @@ fn main() {
     )
     .unwrap();
     std::fs::write(format!("{out}/page.pixels"), &page.pixels).unwrap();
-    std::fs::write(format!("{out}/page.size"), format!("{}\n", h.cups_page_size_name)).unwrap();
+    std::fs::write(
+        format!("{out}/page.size"),
+        format!("{}\n", h.cups_page_size_name),
+    )
+    .unwrap();
 
     let back = BackChannel::new();
     if status != "-" {
-        let bytes: Vec<u8> = (0..status.len() / 2).map(|i| u8::from_str_radix(&status[2 * i..2 * i + 2], 16).unwrap()).collect();
+        let bytes: Vec<u8> = (0..status.len() / 2)
+            .map(|i| u8::from_str_radix(&status[2 * i..2 * i + 2], 16).unwrap())
+            .collect();
         back.write(&bytes);
     }
-    let io = Rc::new(RefCell::new(RecordingIo { stdout: Vec::new(), back, device_uri }));
+    let io = Rc::new(RefCell::new(RecordingIo {
+        stdout: Vec::new(),
+        back,
+        device_uri,
+    }));
     let shared: SharedIo = io.clone();
     stderr::start(None);
-    let argv: Vec<String> = ["raster2dymolw", "1", "maker-connect", "proof", "1", options].iter().map(|s| s.to_string()).collect();
+    let argv: Vec<String> = ["raster2dymolw", "1", "maker-connect", "proof", "1", options]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let mut filter = None;
     let raster = maker_connect_engine::ports::dymo_cups::cups::raster::CupsRaster::open(vec![page]);
     let status = raster2dymolw::main(shared, &argv, raster, &mut filter);

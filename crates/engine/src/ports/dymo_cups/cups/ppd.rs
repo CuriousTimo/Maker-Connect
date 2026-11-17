@@ -6,7 +6,7 @@
 //! ([`super::ppd_lw450`], generated from `lw450.ppd`). The calls the raster interpreter makes on it
 //! (`ppdPageSize`, `ppdEmitString`) are here too.
 
-use super::options::{cups_get_option, CupsOption};
+use super::options::{CupsOption, cups_get_option};
 
 /// `ppd_choice_t`'s `choice`, `code` and the PPD line of its `*Option Choice` (ours: `line`).
 #[derive(Debug, Clone, Copy)]
@@ -71,11 +71,25 @@ pub struct PpdFile {
 impl PpdFile {
     /// The plain LabelWriter 450's PPD (`lw450.ppd`), as `ppdOpenFile` would give it: nothing marked.
     pub fn lw450() -> PpdFile {
-        PpdFile::new(super::ppd_lw450::MODEL_NAME, super::ppd_lw450::OPTIONS, super::ppd_lw450::SIZES)
+        PpdFile::new(
+            super::ppd_lw450::MODEL_NAME,
+            super::ppd_lw450::OPTIONS,
+            super::ppd_lw450::SIZES,
+        )
     }
 
-    pub fn new(modelname: &'static str, options: &'static [OptionData], sizes: &'static [SizeData]) -> PpdFile {
-        PpdFile { modelname, options, sizes, marked: vec![None; options.len()], size_marked: vec![false; sizes.len()] }
+    pub fn new(
+        modelname: &'static str,
+        options: &'static [OptionData],
+        sizes: &'static [SizeData],
+    ) -> PpdFile {
+        PpdFile {
+            modelname,
+            options,
+            sizes,
+            marked: vec![None; options.len()],
+            size_marked: vec![false; sizes.len()],
+        }
     }
 
     /// Ours (W2): the names of the `PageSize` choices, in the PPD's order.
@@ -88,16 +102,23 @@ impl PpdFile {
 
     /// `ppdFindOption` (`ppd-mark.c:434-479`), the by-group search: the option, compared without case.
     pub fn find_option(&self, option: &str) -> Option<usize> {
-        self.options.iter().position(|o| o.keyword.eq_ignore_ascii_case(option))
+        self.options
+            .iter()
+            .position(|o| o.keyword.eq_ignore_ascii_case(option))
     }
 
     /// `ppdFindChoice` (`ppd-mark.c:379-399`): the choice of an option, compared without case.
     pub fn find_choice(&self, option: usize, choice: &str) -> Option<usize> {
         let mut choice = choice;
-        if choice.starts_with('{') || (choice.len() >= 7 && choice[..7].eq_ignore_ascii_case("Custom.")) {
+        if choice.starts_with('{')
+            || (choice.len() >= 7 && choice[..7].eq_ignore_ascii_case("Custom."))
+        {
             choice = "Custom";
         }
-        self.options[option].choices.iter().position(|c| c.name.eq_ignore_ascii_case(choice))
+        self.options[option]
+            .choices
+            .iter()
+            .position(|c| c.name.eq_ignore_ascii_case(choice))
     }
 
     /// `ppdFindMarkedChoice` (`ppd-mark.c:405-428`): the marked choice of an option, as its [`Choice`].
@@ -115,7 +136,9 @@ impl PpdFile {
                     // `ppd->variable_sizes` is false: the PPD has no custom size choice here
                     return None;
                 }
-                self.sizes.iter().position(|s| s.name.eq_ignore_ascii_case(name))?
+                self.sizes
+                    .iter()
+                    .position(|s| s.name.eq_ignore_ascii_case(name))?
             }
             None => self.size_marked.iter().position(|m| *m)?,
         };
@@ -158,11 +181,15 @@ impl PpdFile {
     fn mark_option_quick(&mut self, option: &str, choice: &str) {
         // :798-818 AP_D_InputSlot: the PPD has no InputSlot option (`ppdFindOption` NULL): nothing to clear
         let mut option_name = option;
-        if option_name.eq_ignore_ascii_case("media") || option_name.eq_ignore_ascii_case("media-col") {
+        if option_name.eq_ignore_ascii_case("media")
+            || option_name.eq_ignore_ascii_case("media-col")
+        {
             option_name = "PageSize";
         }
 
-        let Some(o) = self.find_option(option_name) else { return };
+        let Some(o) = self.find_option(option_name) else {
+            return;
+        };
 
         let c: usize;
         let mut choice = choice;
@@ -172,7 +199,9 @@ impl PpdFile {
                 None => return,
                 Some(_) => unreachable!("the plain 450's PPD has no Custom choice"),
             }
-        } else if option_name.eq_ignore_ascii_case("PageRegion") || option_name.eq_ignore_ascii_case("PageSize") {
+        } else if option_name.eq_ignore_ascii_case("PageRegion")
+            || option_name.eq_ignore_ascii_case("PageSize")
+        {
             // page sizes as PPD, legacy, or PWG names
             let Some(ppdsize) = self.page_size(Some(choice)) else {
                 // not a PPD size name: `_ppdCacheGetPageSize(ppd->cache, ...)`, no cache here: NULL
@@ -190,7 +219,11 @@ impl PpdFile {
             }
             unreachable!("the plain 450's PPD has no Custom choice");
         } else {
-            match self.options[o].choices.iter().position(|ch| ch.name.eq_ignore_ascii_case(choice)) {
+            match self.options[o]
+                .choices
+                .iter()
+                .position(|ch| ch.name.eq_ignore_ascii_case(choice))
+            {
                 Some(i) => c = i,
                 None => return,
             }
@@ -200,14 +233,20 @@ impl PpdFile {
         // PickOne: `o->ui != PPD_UI_PICKMANY`.)
         self.marked[o] = None; // unmark the old choice
 
-        if option_name.eq_ignore_ascii_case("PageSize") || option_name.eq_ignore_ascii_case("PageRegion") {
+        if option_name.eq_ignore_ascii_case("PageSize")
+            || option_name.eq_ignore_ascii_case("PageRegion")
+        {
             // mark current page size
             for j in 0..self.sizes.len() {
                 self.size_marked[j] = self.sizes[j].name.eq_ignore_ascii_case(choice);
             }
 
             // unmark the current PageSize or PageRegion setting, as appropriate
-            let other = if option_name.eq_ignore_ascii_case("PageSize") { "PageRegion" } else { "PageSize" };
+            let other = if option_name.eq_ignore_ascii_case("PageSize") {
+                "PageRegion"
+            } else {
+                "PageSize"
+            };
             if let Some(oo) = self.find_option(other) {
                 self.marked[oo] = None;
             }
@@ -236,10 +275,14 @@ impl PpdFile {
                 || optptr.name.eq_ignore_ascii_case("sides")
             {
                 continue;
-            } else if optptr.name.eq_ignore_ascii_case("resolution") || optptr.name.eq_ignore_ascii_case("printer-resolution") {
+            } else if optptr.name.eq_ignore_ascii_case("resolution")
+                || optptr.name.eq_ignore_ascii_case("printer-resolution")
+            {
                 self.mark_option_quick("Resolution", &optptr.value);
                 // SetResolution, JCLResolution, CNRes_PGP: options this PPD does not have
-            } else if optptr.name.eq_ignore_ascii_case("multiple-document-handling")
+            } else if optptr
+                .name
+                .eq_ignore_ascii_case("multiple-document-handling")
                 || optptr.name.eq_ignore_ascii_case("finishings")
                 || optptr.name.eq_ignore_ascii_case("APPrinterPreset")
             {
@@ -268,7 +311,9 @@ impl PpdFile {
         }
 
         // ppdCollect2: the marked array is sorted by option keyword (`ppd_compare_choices`, ppd.c:2500)
-        let mut idx: Vec<usize> = (0..self.options.len()).filter(|i| self.marked[*i].is_some()).collect();
+        let mut idx: Vec<usize> = (0..self.options.len())
+            .filter(|i| self.marked[*i].is_some())
+            .collect();
         idx.sort_by(|a, b| self.options[*a].keyword.cmp(self.options[*b].keyword));
 
         let mut collect: Vec<(usize, f32)> = Vec::new();

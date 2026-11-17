@@ -71,7 +71,10 @@ impl Image {
                 }
             }
             other => {
-                return Err(format!("conversion from {} to L not supported", other.name()));
+                return Err(format!(
+                    "conversion from {} to L not supported",
+                    other.name()
+                ));
             }
         }
         Ok(out)
@@ -98,7 +101,11 @@ impl Image {
             let (mut l_, mut l0, mut l1) = (0i32, 0i32, 0i32);
             for x in 0..self.width {
                 // pick closest colour
-                let value = if self.mode == Mode::L { row[x] as i32 } else { l(&row[x * 4..]) / 1000 };
+                let value = if self.mode == Mode::L {
+                    row[x] as i32
+                } else {
+                    l(&row[x * 4..]) / 1000
+                };
                 l_ = clip8(value + (l_ + errors[x + 1]) / 16);
                 out_row[x] = if l_ > 128 { 255 } else { 0 };
                 // propagate errors
@@ -168,7 +175,11 @@ impl Image {
                 }
             }
             (from, to) => {
-                return Err(format!("conversion from {} to {} not supported", from.name(), to.name()));
+                return Err(format!(
+                    "conversion from {} to {} not supported",
+                    from.name(),
+                    to.name()
+                ));
             }
         }
         Ok(out)

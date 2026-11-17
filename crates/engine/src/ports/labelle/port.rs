@@ -48,13 +48,19 @@ impl DymoPnp {
 
     /// The port over another backend (the tests').
     pub fn with_backend(make_backend: MakeBackend) -> DymoPnp {
-        DymoPnp { make_backend, poll_interval: POLL_INTERVAL }
+        DymoPnp {
+            make_backend,
+            poll_interval: POLL_INTERVAL,
+        }
     }
 
     /// The tests' port with a shorter poll interval.
     #[cfg(test)]
     pub fn with_poll_interval(make_backend: MakeBackend, poll_interval: Duration) -> DymoPnp {
-        DymoPnp { make_backend, poll_interval }
+        DymoPnp {
+            make_backend,
+            poll_interval,
+        }
     }
 }
 
@@ -66,7 +72,11 @@ impl Default for DymoPnp {
 
 /// `40 00 12 64`: bytes as hex.
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ")
+    bytes
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// What the port tells of the printer between prints (L6): its last answer, in hex.
@@ -129,31 +139,32 @@ impl Port for DymoPnp {
         // L11: the first poll 15 s after start-up, then 15 s after a poll or a job ended.
         let mut next_poll = Instant::now() + self.poll_interval;
         loop {
-            let order = match orders.recv_timeout(next_poll.saturating_duration_since(Instant::now())) {
-                Ok(order) => order,
-                Err(RecvTimeoutError::Disconnected) => return,
-                Err(RecvTimeoutError::Timeout) => {
-                    // L11: no job runs (this thread runs one thing at a time, so a job that
-                    // arrives waits for the poll to release the printer). The state stays Idle.
-                    let mut printer = None;
-                    let result = match (self.make_backend)() {
-                        Ok(backend) => {
-                            let mut heard = |answer: &[u8]| {
-                                seen.heard(answer);
-                                let _ = events.send(seen.telemetry(MachineState::Idle, None));
-                            };
-                            cli::poll_status(backend, &mut heard, &mut printer)
-                        }
-                        Err(why) => Err(cli::CliError(why)),
-                    };
-                    // A failed poll other than "no printer": released, no job fails, no Gone,
-                    // no retry (the next poll comes on its time).
-                    let _ = result;
-                    found(printer, &mut gone, &events);
-                    next_poll = Instant::now() + self.poll_interval;
-                    continue;
-                }
-            };
+            let order =
+                match orders.recv_timeout(next_poll.saturating_duration_since(Instant::now())) {
+                    Ok(order) => order,
+                    Err(RecvTimeoutError::Disconnected) => return,
+                    Err(RecvTimeoutError::Timeout) => {
+                        // L11: no job runs (this thread runs one thing at a time, so a job that
+                        // arrives waits for the poll to release the printer). The state stays Idle.
+                        let mut printer = None;
+                        let result = match (self.make_backend)() {
+                            Ok(backend) => {
+                                let mut heard = |answer: &[u8]| {
+                                    seen.heard(answer);
+                                    let _ = events.send(seen.telemetry(MachineState::Idle, None));
+                                };
+                                cli::poll_status(backend, &mut heard, &mut printer)
+                            }
+                            Err(why) => Err(cli::CliError(why)),
+                        };
+                        // A failed poll other than "no printer": released, no job fails, no Gone,
+                        // no retry (the next poll comes on its time).
+                        let _ = result;
+                        found(printer, &mut gone, &events);
+                        next_poll = Instant::now() + self.poll_interval;
+                        continue;
+                    }
+                };
             match order {
                 // L4
                 Order::Command { id, .. } => {
@@ -175,16 +186,34 @@ impl Port for DymoPnp {
                                 seen.heard(answer);
                                 let _ = events.send(seen.telemetry(MachineState::Busy, None));
                             };
-                            cli::print_picture(backend, &file.to_string_lossy(), tape, &mut heard, &mut printer)
-                                .map_err(|e| e.to_string())
+                            cli::print_picture(
+                                backend,
+                                &file.to_string_lossy(),
+                                tape,
+                                &mut heard,
+                                &mut printer,
+                            )
+                            .map_err(|e| e.to_string())
                         }
                         Err(why) => Err(why),
                     };
                     // L7: the printer is there, or not, as this print found it.
                     found(printer, &mut gone, &events);
                     let end = match result {
-                        Ok(()) => JobEnd { id: order.id, ok: true, stopped: false, reason: None, restart_line: None },
-                        Err(why) => JobEnd { id: order.id, ok: false, stopped: false, reason: Some(why), restart_line: None },
+                        Ok(()) => JobEnd {
+                            id: order.id,
+                            ok: true,
+                            stopped: false,
+                            reason: None,
+                            restart_line: None,
+                        },
+                        Err(why) => JobEnd {
+                            id: order.id,
+                            ok: false,
+                            stopped: false,
+                            reason: Some(why),
+                            restart_line: None,
+                        },
                     };
                     let _ = events.send(seen.telemetry(MachineState::Idle, None));
                     let _ = events.send(Event::JobEnd(end));
@@ -227,7 +256,14 @@ mod tests {
         assert_eq!(read(&[0x60, 0, 0, 100, 0, 0, 0, 0]).1, Some(true));
         assert_eq!(read(&[0x60, 0, 0, 100, 0, 0, 0, 0]).2, Some(100));
         // 0x00: no cassette; byte 3 over 100 is no charge; none is kept from before
-        assert_eq!(read(&[0x00, 0, 0, 101, 0, 0, 0, 0]), (Some("00 00 00 65 00 00 00 00".to_owned()), Some(false), None));
+        assert_eq!(
+            read(&[0x00, 0, 0, 101, 0, 0, 0, 0]),
+            (
+                Some("00 00 00 65 00 00 00 00".to_owned()),
+                Some(false),
+                None
+            )
+        );
         let mut seen = Seen::default();
         seen.heard(&[0x40, 0, 0, 50, 0, 0, 0, 0]);
         seen.heard(&[0x40, 0, 0, 200, 0, 0, 0, 0]);

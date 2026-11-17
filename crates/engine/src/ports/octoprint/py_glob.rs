@@ -72,7 +72,10 @@ fn _translate(pat: &str) -> Vec<Option<String>> {
                     if !chunk.is_empty() {
                         chunks.push(chunk);
                     } else {
-                        chunks.last_mut().expect("a chunk before the last hyphen").push('-');
+                        chunks
+                            .last_mut()
+                            .expect("a chunk before the last hyphen")
+                            .push('-');
                     }
                     // Remove empty ranges -- invalid in RE.
                     let mut k = chunks.len().saturating_sub(1);
@@ -82,7 +85,8 @@ fn _translate(pat: &str) -> Vec<Option<String>> {
                         if prev_last > next_first {
                             let mut p: Vec<char> = chunks[k - 1].chars().collect();
                             p.pop();
-                            let merged: String = p.into_iter().chain(chunks[k].chars().skip(1)).collect();
+                            let merged: String =
+                                p.into_iter().chain(chunks[k].chars().skip(1)).collect();
                             chunks[k - 1] = merged;
                             chunks.remove(k);
                         }
@@ -97,7 +101,16 @@ fn _translate(pat: &str) -> Vec<Option<String>> {
                         .join("-");
                 }
                 // Escape set operations (&&, ~~ and ||).
-                stuff = stuff.chars().map(|c| if "&~|".contains(c) { format!("\\{c}") } else { c.to_string() }).collect();
+                stuff = stuff
+                    .chars()
+                    .map(|c| {
+                        if "&~|".contains(c) {
+                            format!("\\{c}")
+                        } else {
+                            c.to_string()
+                        }
+                    })
+                    .collect();
                 i = j + 1;
                 if stuff.is_empty() {
                     // Empty range: never match.
@@ -161,7 +174,11 @@ pub fn filter(names: &[String], pat: &str) -> Vec<String> {
     let re = Regex::new(&translate(pat)).unwrap_or_else(|e| panic!("re.error: {e}"));
     names
         .iter()
-        .filter(|name| re.find(name).expect("regex runtime error").is_some_and(|m| m.start() == 0))
+        .filter(|name| {
+            re.find(name)
+                .expect("regex runtime error")
+                .is_some_and(|m| m.start() == 0)
+        })
         .cloned()
         .collect()
 }
@@ -175,7 +192,11 @@ pub fn fnmatch(name: &str, pat: &str) -> bool {
 pub fn path_split(p: &str) -> (String, String) {
     let i = p.rfind('/').map_or(0, |i| i + 1);
     let (head, tail) = (&p[..i], &p[i..]);
-    let head = if !head.is_empty() && head.chars().any(|c| c != '/') { head.trim_end_matches('/') } else { head };
+    let head = if !head.is_empty() && head.chars().any(|c| c != '/') {
+        head.trim_end_matches('/')
+    } else {
+        head
+    };
     (head.to_string(), tail.to_string())
 }
 
@@ -204,7 +225,11 @@ fn _ishidden(path: &str) -> bool {
 fn _join(dirname: &str, basename: &str) -> String {
     // It is common if dirname or basename is empty
     if dirname.is_empty() || basename.is_empty() {
-        return if dirname.is_empty() { basename.to_string() } else { dirname.to_string() };
+        return if dirname.is_empty() {
+            basename.to_string()
+        } else {
+            dirname.to_string()
+        };
     }
     path_join(dirname, basename)
 }
@@ -232,7 +257,11 @@ fn _listdir(dirname: &str, dironly: bool) -> Vec<String> {
             // an error while iterating ends the iteration (`except OSError: return`)
             break;
         };
-        if !dironly || entry.file_type().is_ok_and(|t| t.is_dir() || (t.is_symlink() && _isdir(&entry.path().to_string_lossy()))) {
+        if !dironly
+            || entry.file_type().is_ok_and(|t| {
+                t.is_dir() || (t.is_symlink() && _isdir(&entry.path().to_string_lossy()))
+            })
+        {
             names.push(entry.file_name().to_string_lossy().into_owned());
         }
     }
@@ -288,7 +317,11 @@ fn _iglob(pathname: &str, dironly: bool) -> Vec<String> {
     };
     let mut out = Vec::new();
     for dirname in dirs {
-        let names = if has_magic(&basename) { _glob1(&_join("", &dirname), &basename, dironly) } else { _glob0(&_join("", &dirname), &basename) };
+        let names = if has_magic(&basename) {
+            _glob1(&_join("", &dirname), &basename, dironly)
+        } else {
+            _glob0(&_join("", &dirname), &basename)
+        };
         for name in names {
             out.push(path_join(&dirname, &name));
         }
@@ -363,9 +396,15 @@ mod tests {
     #[test]
     fn test_path_split_join() {
         // posixpath.py behaviour (Lib/test/test_posixpath.py test_split, test_join)
-        assert_eq!(("/foo".to_string(), "bar".to_string()), path_split("/foo/bar"));
+        assert_eq!(
+            ("/foo".to_string(), "bar".to_string()),
+            path_split("/foo/bar")
+        );
         assert_eq!(("/".to_string(), "foo".to_string()), path_split("/foo"));
-        assert_eq!(("/foo/bar".to_string(), "".to_string()), path_split("/foo/bar/"));
+        assert_eq!(
+            ("/foo/bar".to_string(), "".to_string()),
+            path_split("/foo/bar/")
+        );
         assert_eq!(("//".to_string(), "foo".to_string()), path_split("//foo"));
         assert_eq!(("".to_string(), "foo".to_string()), path_split("foo"));
         assert_eq!("/bar/baz", path_join("/foo", "/bar/baz"));
@@ -379,7 +418,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("maker-connect-glob-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sub")).unwrap();
-        for f in ["ttyUSB0", "ttyUSB1", "ttyACM0", ".hidden", "sub/x1", "sub/x2"] {
+        for f in [
+            "ttyUSB0", "ttyUSB1", "ttyACM0", ".hidden", "sub/x1", "sub/x2",
+        ] {
             std::fs::write(dir.join(f), b"").unwrap();
         }
         let d = dir.to_str().unwrap();

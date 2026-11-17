@@ -48,13 +48,28 @@ impl UsbScale {
 
     /// The port over another source (the tests').
     pub fn with_source(make_source: MakeSource, port: Option<String>) -> UsbScale {
-        UsbScale { make_source, port, find_interval: FIND_INTERVAL, read_timeout_ms: READ_TIMEOUT_MS }
+        UsbScale {
+            make_source,
+            port,
+            find_interval: FIND_INTERVAL,
+            read_timeout_ms: READ_TIMEOUT_MS,
+        }
     }
 
     /// The tests' port with shorter times.
     #[cfg(test)]
-    pub fn with_times(make_source: MakeSource, port: Option<String>, find_interval: Duration, read_timeout_ms: i32) -> UsbScale {
-        UsbScale { make_source, port, find_interval, read_timeout_ms }
+    pub fn with_times(
+        make_source: MakeSource,
+        port: Option<String>,
+        find_interval: Duration,
+        read_timeout_ms: i32,
+    ) -> UsbScale {
+        UsbScale {
+            make_source,
+            port,
+            find_interval,
+            read_timeout_ms,
+        }
     }
 }
 
@@ -77,7 +92,12 @@ fn handle(order: Order, events: &Sender<Event>) -> bool {
     match order {
         Order::Close => return true,
         Order::Command { id, .. } => {
-            let _ = events.send(Event::Done(CommandDone { id, ok: false, reason: Some(NO_COMMANDS.to_owned()), output: Vec::new() }));
+            let _ = events.send(Event::Done(CommandDone {
+                id,
+                ok: false,
+                reason: Some(NO_COMMANDS.to_owned()),
+                output: Vec::new(),
+            }));
         }
         Order::Job { order, .. } => {
             let _ = events.send(Event::JobEnd(JobEnd {
@@ -101,7 +121,12 @@ enum Next {
 }
 
 /// One report: `libusb_interrupt_transfer`'s place. A read that times out only looks at the orders (E6).
-fn next_report(device: &mut dyn HidDevice, timeout_ms: i32, orders: &Receiver<Order>, events: &Sender<Event>) -> Next {
+fn next_report(
+    device: &mut dyn HidDevice,
+    timeout_ms: i32,
+    orders: &Receiver<Order>,
+    events: &Sender<Event>,
+) -> Next {
     // hidapi returns the report as it came, report ID first (E8)
     let mut buf = [0u8; 64];
     loop {
@@ -125,7 +150,12 @@ fn next_report(device: &mut dyn HidDevice, timeout_ms: i32, orders: &Receiver<Or
 
 /// usbscale's `main` after the open: "we get old data the first time, so let's just get that out of the
 /// way now", then the loop, `weigh_count` and all. True: closed; false: the device failed.
-fn read_loop(device: &mut dyn HidDevice, timeout_ms: i32, orders: &Receiver<Order>, events: &Sender<Event>) -> bool {
+fn read_loop(
+    device: &mut dyn HidDevice,
+    timeout_ms: i32,
+    orders: &Receiver<Order>,
+    events: &Sender<Event>,
+) -> bool {
     let mut weigh_count = WEIGH_COUNT - 1;
     let mut shown: Option<ScaleReading> = None;
     let mut problem = false;

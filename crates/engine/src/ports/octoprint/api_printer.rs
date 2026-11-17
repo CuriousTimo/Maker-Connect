@@ -40,8 +40,8 @@
 
 use super::comm::py_truthy;
 use super::filemanager::valid_file_type;
-use super::settings::{settings, Settings};
-use super::standard::{py_repr_value, Printer};
+use super::settings::{Settings, settings};
+use super::standard::{Printer, py_repr_value};
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
@@ -55,7 +55,10 @@ pub enum ApiError {
 }
 
 fn abort(status: u16, description: &str) -> ApiError {
-    ApiError::Abort { status, description: description.to_string() }
+    ApiError::Abort {
+        status,
+        description: description.to_string(),
+    }
 }
 
 /// `if not printer.is_operational(): abort(409, description="Printer is not operational")`
@@ -129,7 +132,10 @@ pub fn printer_chamber_state(printer: &Printer) -> Result<(), ApiError> {
 pub fn printer_printhead_command(printer: &Printer, command: &str) -> Result<(), ApiError> {
     if !printer.is_operational() || (printer.is_printing() && command != "feedrate") {
         // do not jog when a print job is running or we don't have a connection
-        return Err(abort(409, "Printer is not operational or currently printing"));
+        return Err(abort(
+            409,
+            "Printer is not operational or currently printing",
+        ));
     }
     Ok(())
 }
@@ -145,7 +151,10 @@ pub fn job_start(printer: &Printer) -> Result<(), ApiError> {
         return Err(abort(409, "Printer is not operational"));
     }
     if active_print_job(printer) {
-        return Err(abort(409, "Printer already has an active print job, did you mean 'restart'?"));
+        return Err(abort(
+            409,
+            "Printer already has an active print job, did you mean 'restart'?",
+        ));
     }
     Ok(())
 }
@@ -156,7 +165,10 @@ pub fn job_restart(printer: &Printer) -> Result<(), ApiError> {
         return Err(abort(409, "Printer is not operational"));
     }
     if !printer.is_paused() {
-        return Err(abort(409, "Printer does not have an active print job or is not paused"));
+        return Err(abort(
+            409,
+            "Printer does not have an active print job or is not paused",
+        ));
     }
     Ok(())
 }
@@ -167,7 +179,10 @@ pub fn job_pause(printer: &Printer) -> Result<(), ApiError> {
         return Err(abort(409, "Printer is not operational"));
     }
     if !active_print_job(printer) {
-        return Err(abort(409, "Printer is neither printing nor paused, 'pause' command cannot be performed"));
+        return Err(abort(
+            409,
+            "Printer is neither printing nor paused, 'pause' command cannot be performed",
+        ));
     }
     Ok(())
 }
@@ -178,7 +193,10 @@ pub fn job_cancel(printer: &Printer) -> Result<(), ApiError> {
         return Err(abort(409, "Printer is not operational"));
     }
     if !active_print_job(printer) {
-        return Err(abort(409, "Printer is neither printing nor paused, 'cancel' command cannot be performed"));
+        return Err(abort(
+            409,
+            "Printer is neither printing nor paused, 'cancel' command cannot be performed",
+        ));
     }
     Ok(())
 }
@@ -186,21 +204,29 @@ pub fn job_cancel(printer: &Printer) -> Result<(), ApiError> {
 /// `gcodeFileCommand` (`files.py:846`), command `select` (:871-888), for the file `filename`
 pub fn file_select(printer: &Printer, filename: &str) -> Result<(), ApiError> {
     if valid_file_type(filename, Some("machinecode"), None) != Some(true) {
-        return Err(abort(415, "Cannot select file for printing, not a machinecode file"));
+        return Err(abort(
+            415,
+            "Cannot select file for printing, not a machinecode file",
+        ));
     }
     if !printer.is_ready() {
-        return Err(abort(409, "Printer is already printing, cannot select a new file"));
+        return Err(abort(
+            409,
+            "Printer is already printing, cannot select a new file",
+        ));
     }
     Ok(())
 }
 
 /// `abort(404)` without a description: werkzeug's `NotFound.description`
-const NOT_FOUND: &str =
-    "The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.";
+const NOT_FOUND: &str = "The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.";
 
 /// `_verifyFileExists("sdcard", filename)` (`files.py:505`): `filename in (x["name"] for x in printer.get_sd_files())`
 fn sd_file_exists(printer: &Printer, filename: &str) -> bool {
-    printer.get_sd_files(false).iter().any(|x| x["name"].as_str() == Some(filename))
+    printer
+        .get_sd_files(false)
+        .iter()
+        .any(|x| x["name"].as_str() == Some(filename))
 }
 
 /// `gcodeFileCommand`, command `select`, target `sdcard` with `print` (:871-905): the 404 of `_verifyFileExists`
@@ -211,7 +237,10 @@ pub fn sd_file_select_and_print(printer: &Printer, filename: &str) -> Result<(),
     }
     file_select(printer, filename)?;
     if !printer.is_operational() {
-        return Err(abort(409, "Printer is not operational, cannot directly start printing"));
+        return Err(abort(
+            409,
+            "Printer is not operational, cannot directly start printing",
+        ));
     }
     Ok(())
 }
@@ -224,7 +253,10 @@ pub fn sd_file_delete(printer: &Printer, filename: &str) -> Result<(), ApiError>
         return Err(abort(404, NOT_FOUND));
     }
     if selected_sd_file(printer).as_deref() == Some(filename) && active_print_job(printer) {
-        return Err(abort(409, "Trying to delete a file that is currently in use"));
+        return Err(abort(
+            409,
+            "Trying to delete a file that is currently in use",
+        ));
     }
     Ok(())
 }
@@ -232,7 +264,13 @@ pub fn sd_file_delete(printer: &Printer, filename: &str) -> Result<(), ApiError>
 /// `_getCurrentFile()` (`files.py:1403`) for the sdcard: the name of the selected file when it is on it
 pub fn selected_sd_file(printer: &Printer) -> Option<String> {
     let position = printer.comm()?.get_file_position()?;
-    (position.origin == "sdcard").then(|| position.filename.strip_prefix('/').unwrap_or(&position.filename).to_string())
+    (position.origin == "sdcard").then(|| {
+        position
+            .filename
+            .strip_prefix('/')
+            .unwrap_or(&position.filename)
+            .to_string()
+    })
 }
 
 /// `settings().getBoolean(["feature", "sdSupport"])` (:357)
@@ -259,7 +297,10 @@ pub fn get_temperature_data(printer: &Printer) -> Result<(), ApiError> {
 
 /// `tags = {"source:api", "api:printer.command"}` (:413)
 pub fn printer_command_tags() -> BTreeSet<String> {
-    ["source:api", "api:printer.command"].iter().map(|s| s.to_string()).collect()
+    ["source:api", "api:printer.command"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 /// What `printerCommand` (:396) hands to the printer after its checks
@@ -294,20 +335,31 @@ pub fn printer_command(data: &Value) -> Result<PrinterCommand, ApiError> {
         Value::Object(o) => o.contains_key(k),
         Value::Array(a) => a.iter().any(|x| x.as_str() == Some(k)),
         Value::String(s) => s.contains(k),
-        other => panic!("TypeError: argument of type {} is not iterable", py_repr_value(other)),
+        other => panic!(
+            "TypeError: argument of type {} is not iterable",
+            py_repr_value(other)
+        ),
     };
 
     if has("command") && has("commands") {
-        return Err(abort(400, "'command' and 'commands' are mutually exclusive"));
+        return Err(abort(
+            400,
+            "'command' and 'commands' are mutually exclusive",
+        ));
     } else if (has("command") || has("commands")) && has("script") {
-        return Err(abort(400, "'command'/'commands' and 'script' are mutually exclusive"));
+        return Err(abort(
+            400,
+            "'command'/'commands' and 'script' are mutually exclusive",
+        ));
     } else if !(has("command") || has("commands") || has("script")) {
         return Err(abort(400, "Need one of 'command', 'commands' or 'script'"));
     }
 
     // from here on `data[...]` of a non-dict is Python's `TypeError`
     let Value::Object(data) = data else {
-        return Err(ApiError::Exception("TypeError: list indices must be integers or slices, not str".to_string()));
+        return Err(ApiError::Exception(
+            "TypeError: list indices must be integers or slices, not str".to_string(),
+        ));
     };
 
     let mut parameters: Value = Value::Object(Map::new());
@@ -341,12 +393,18 @@ pub fn printer_command(data: &Value) -> Result<PrinterCommand, ApiError> {
         }
 
         match script_name {
-            Value::String(name) if !name.is_empty() => {
-                Ok(PrinterCommand::Script { name: name.clone(), context: Value::Object(context) })
-            }
+            Value::String(name) if !name.is_empty() => Ok(PrinterCommand::Script {
+                name: name.clone(),
+                context: Value::Object(context),
+            }),
             // `printer.script(...)`: `ValueError("name must be set")` / `name[0]` of a non-str
-            other if !py_truthy(other) => Err(ApiError::Exception("ValueError: name must be set".to_string())),
-            other => Err(ApiError::Exception(format!("TypeError: {} is not a script name", py_repr_value(other)))),
+            other if !py_truthy(other) => Err(ApiError::Exception(
+                "ValueError: name must be set".to_string(),
+            )),
+            other => Err(ApiError::Exception(format!(
+                "TypeError: {} is not a script name",
+                py_repr_value(other)
+            ))),
         }
     }
 }
@@ -362,13 +420,18 @@ pub fn printer_command(data: &Value) -> Result<PrinterCommand, ApiError> {
 pub fn command_to_send(command: &Value, parameters: &Value) -> Result<Value, ApiError> {
     use super::py_percent::{percent_format, tp_name};
     let Some(parameter_count) = py_len(parameters) else {
-        return Err(ApiError::Exception(format!("TypeError: object of type '{}' has no len()", tp_name(parameters))));
+        return Err(ApiError::Exception(format!(
+            "TypeError: object of type '{}' has no len()",
+            tp_name(parameters)
+        )));
     };
     if parameter_count == 0 {
         return Ok(command.clone());
     }
     match command {
-        Value::String(template) => percent_format(template, parameters).map(Value::String).map_err(|e| ApiError::Exception(e.to_string())),
+        Value::String(template) => percent_format(template, parameters)
+            .map(Value::String)
+            .map_err(|e| ApiError::Exception(e.to_string())),
         other => Err(ApiError::Exception(format!(
             "TypeError: unsupported operand type(s) for %: '{}' and '{}'",
             tp_name(other),
@@ -383,10 +446,10 @@ mod tests {
     //! through its HTTP tests, which are not ported). Each names the source line it checks. The `%`
     //! cases are those of `py_percent_expected.json`, made by CPython 3.13.12.
     use super::*;
-    use serde_json::json;
     use crate::ports::octoprint::comm::MachineCom;
     use crate::ports::octoprint::profile::PrinterProfileManager;
     use crate::ports::octoprint::standard::{LocalFileManager, Printer};
+    use serde_json::json;
     use std::sync::Arc;
 
     fn printer_in(state: Option<i64>, profile: Value) -> Arc<Printer> {
@@ -407,7 +470,10 @@ mod tests {
     fn status(r: Result<(), ApiError>) -> Option<(u16, String)> {
         match r {
             Ok(()) => None,
-            Err(ApiError::Abort { status, description }) => Some((status, description)),
+            Err(ApiError::Abort {
+                status,
+                description,
+            }) => Some((status, description)),
             Err(e) => panic!("{e:?}"),
         }
     }
@@ -425,7 +491,16 @@ mod tests {
         assert_eq!(expected, status(printer_chamber_state(&off)));
         assert_eq!(expected, status(get_temperature_data(&off)));
         let on = printer_in(Some(MachineCom::STATE_OPERATIONAL), profile(true, true));
-        for check in [printer_state, printer_tool_command, printer_tool_state, printer_bed_command, printer_bed_state, printer_chamber_command, printer_chamber_state, get_temperature_data] {
+        for check in [
+            printer_state,
+            printer_tool_command,
+            printer_tool_state,
+            printer_bed_command,
+            printer_bed_state,
+            printer_chamber_command,
+            printer_chamber_state,
+            get_temperature_data,
+        ] {
             assert_eq!(None, status(check(&on)));
         }
     }
@@ -446,18 +521,30 @@ mod tests {
     #[test]
     fn ours_printing_and_busy() {
         let printing = printer_in(Some(MachineCom::STATE_PRINTING), profile(true, true));
-        assert_eq!(Some((409, "Printer is currently printing".to_string())), status(printer_tool_extrude(&printing)));
-        let busy = Some((409, "Printer is not operational or currently printing".to_string()));
+        assert_eq!(
+            Some((409, "Printer is currently printing".to_string())),
+            status(printer_tool_extrude(&printing))
+        );
+        let busy = Some((
+            409,
+            "Printer is not operational or currently printing".to_string(),
+        ));
         assert_eq!(busy, status(printer_printhead_command(&printing, "jog")));
         assert_eq!(busy, status(printer_printhead_command(&printing, "home")));
-        assert_eq!(None, status(printer_printhead_command(&printing, "feedrate"))); // :302
+        assert_eq!(
+            None,
+            status(printer_printhead_command(&printing, "feedrate"))
+        ); // :302
         let off = printer_in(None, profile(true, true));
         assert_eq!(busy, status(printer_printhead_command(&off, "feedrate")));
         let idle = printer_in(Some(MachineCom::STATE_OPERATIONAL), profile(true, true));
         assert_eq!(None, status(printer_tool_extrude(&idle)));
         assert_eq!(None, status(printer_printhead_command(&idle, "jog")));
 
-        let sd_busy = Some((409, "Printer is not operational or currently busy".to_string()));
+        let sd_busy = Some((
+            409,
+            "Printer is not operational or currently busy".to_string(),
+        ));
         assert_eq!(sd_busy, status(printer_sd_command(&printing)));
         assert_eq!(sd_busy, status(printer_sd_command(&off)));
         let paused = printer_in(Some(MachineCom::STATE_PAUSED), profile(true, true));
@@ -465,8 +552,12 @@ mod tests {
         assert_eq!(None, status(printer_sd_command(&idle)));
         // `abort(404, ...)` follows `sd_support` (the global settings have the default, `true`)
         assert!(sd_support(settings()));
-        assert!(!sd_support(&Settings::from_defaults(json!({"feature": {"sdSupport": false}}))));
-        assert!(!sd_support(&Settings::from_defaults(json!({"feature": {"sdSupport": null}}))));
+        assert!(!sd_support(&Settings::from_defaults(
+            json!({"feature": {"sdSupport": false}})
+        )));
+        assert!(!sd_support(&Settings::from_defaults(
+            json!({"feature": {"sdSupport": null}})
+        )));
     }
 
     /// K2: `job.py`'s and `files.py`'s refusals, with their texts
@@ -492,7 +583,11 @@ mod tests {
         assert_eq!(None, status(job_restart(&paused)));
         assert_eq!(not_operational, status(job_restart(&off)));
         // pause and cancel (:48-68)
-        let neither = |what: &str| conflict(&format!("Printer is neither printing nor paused, '{what}' command cannot be performed"));
+        let neither = |what: &str| {
+            conflict(&format!(
+                "Printer is neither printing nor paused, '{what}' command cannot be performed"
+            ))
+        };
         assert_eq!(neither("pause"), status(job_pause(&idle)));
         assert_eq!(None, status(job_pause(&printing)));
         assert_eq!(None, status(job_pause(&paused)));
@@ -503,14 +598,34 @@ mod tests {
         assert_eq!(not_operational, status(job_cancel(&off)));
         // select (files.py:877-888)
         assert_eq!(None, status(file_select(&idle, "benchy.gcode")));
-        assert_eq!(Some((415, "Cannot select file for printing, not a machinecode file".to_string())), status(file_select(&idle, "benchy.stl")));
-        assert_eq!(Some((415, "Cannot select file for printing, not a machinecode file".to_string())), status(file_select(&idle, "job-42")));
-        assert_eq!(conflict("Printer is already printing, cannot select a new file"), status(file_select(&printing, "benchy.gcode")));
+        assert_eq!(
+            Some((
+                415,
+                "Cannot select file for printing, not a machinecode file".to_string()
+            )),
+            status(file_select(&idle, "benchy.stl"))
+        );
+        assert_eq!(
+            Some((
+                415,
+                "Cannot select file for printing, not a machinecode file".to_string()
+            )),
+            status(file_select(&idle, "job-42"))
+        );
+        assert_eq!(
+            conflict("Printer is already printing, cannot select a new file"),
+            status(file_select(&printing, "benchy.gcode"))
+        );
     }
 
     #[test]
     fn ours_printer_command_validation() {
-        let abort400 = |d: &str| Err(ApiError::Abort { status: 400, description: d.to_string() });
+        let abort400 = |d: &str| {
+            Err(ApiError::Abort {
+                status: 400,
+                description: d.to_string(),
+            })
+        };
         assert_eq!(
             abort400("'command' and 'commands' are mutually exclusive"),
             printer_command(&json!({"command": "M105", "commands": ["M105"]}))
@@ -523,31 +638,70 @@ mod tests {
             abort400("'command'/'commands' and 'script' are mutually exclusive"),
             printer_command(&json!({"commands": ["M105"], "script": "x"}))
         );
-        assert_eq!(abort400("Need one of 'command', 'commands' or 'script'"), printer_command(&json!({"parameters": {}})));
-        assert_eq!(abort400("commands is invalid"), printer_command(&json!({"commands": "M105"})));
-        assert_eq!(Ok(PrinterCommand::Commands(vec![json!("M105")])), printer_command(&json!({"command": "M105"})));
-        assert_eq!(Ok(PrinterCommand::Commands(vec![json!("M105"), json!("M114")])), printer_command(&json!({"commands": ["M105", "M114"]})));
+        assert_eq!(
+            abort400("Need one of 'command', 'commands' or 'script'"),
+            printer_command(&json!({"parameters": {}}))
+        );
+        assert_eq!(
+            abort400("commands is invalid"),
+            printer_command(&json!({"commands": "M105"}))
+        );
+        assert_eq!(
+            Ok(PrinterCommand::Commands(vec![json!("M105")])),
+            printer_command(&json!({"command": "M105"}))
+        );
+        assert_eq!(
+            Ok(PrinterCommand::Commands(vec![json!("M105"), json!("M114")])),
+            printer_command(&json!({"commands": ["M105", "M114"]}))
+        );
         // `{}` and a falsy parameters leave the command alone (:424)
-        assert_eq!(Ok(PrinterCommand::Commands(vec![json!("M104 S%d")])), printer_command(&json!({"command": "M104 S%d", "parameters": {}})));
-        assert_eq!(Ok(PrinterCommand::Commands(vec![json!("M104 S200")])), printer_command(&json!({"command": "M104 S%(t)d", "parameters": {"t": 200}})));
+        assert_eq!(
+            Ok(PrinterCommand::Commands(vec![json!("M104 S%d")])),
+            printer_command(&json!({"command": "M104 S%d", "parameters": {}}))
+        );
+        assert_eq!(
+            Ok(PrinterCommand::Commands(vec![json!("M104 S200")])),
+            printer_command(&json!({"command": "M104 S%(t)d", "parameters": {"t": 200}}))
+        );
         // the script and its context (:434-440)
         assert_eq!(
-            Ok(PrinterCommand::Script { name: "myScript".into(), context: json!({"parameters": {}}) }),
+            Ok(PrinterCommand::Script {
+                name: "myScript".into(),
+                context: json!({"parameters": {}})
+            }),
             printer_command(&json!({"script": "myScript"}))
         );
         assert_eq!(
-            Ok(PrinterCommand::Script { name: "myScript".into(), context: json!({"parameters": {"a": 1}, "context": {"b": 2}}) }),
-            printer_command(&json!({"script": "myScript", "parameters": {"a": 1}, "context": {"b": 2}}))
+            Ok(PrinterCommand::Script {
+                name: "myScript".into(),
+                context: json!({"parameters": {"a": 1}, "context": {"b": 2}})
+            }),
+            printer_command(
+                &json!({"script": "myScript", "parameters": {"a": 1}, "context": {"b": 2}})
+            )
         );
-        assert_eq!(ApiError::Abort { status: 404, description: "Unknown script".into() }, unknown_script());
-        assert_eq!(["api:printer.command", "source:api"], printer_command_tags().iter().map(String::as_str).collect::<Vec<_>>()[..]);
+        assert_eq!(
+            ApiError::Abort {
+                status: 404,
+                description: "Unknown script".into()
+            },
+            unknown_script()
+        );
+        assert_eq!(
+            ["api:printer.command", "source:api"],
+            printer_command_tags()
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()[..]
+        );
     }
 
     /// `printer.py:424-432` for a command and parameters of every JSON kind, against CPython 3.13.12
     /// (`scripts/octoprint-percent-check.py`, `wire` of `py_percent_expected.json`)
     #[test]
     fn matches_cpython_3_13_wire() {
-        let fixture: Value = serde_json::from_str(include_str!("py_percent_expected.json")).expect("fixture");
+        let fixture: Value =
+            serde_json::from_str(include_str!("py_percent_expected.json")).expect("fixture");
         let cases = fixture["wire"].as_array().expect("wire");
         assert!(cases.len() > 400);
         let mut failures = Vec::new();
@@ -558,22 +712,44 @@ mod tests {
                 Err(other) => panic!("{other:?}"),
             };
             if actual != case["expected"] {
-                failures.push(format!("{} % {} -> {actual}, CPython: {}", case["command"], case["parameters"], case["expected"]));
+                failures.push(format!(
+                    "{} % {} -> {actual}, CPython: {}",
+                    case["command"], case["parameters"], case["expected"]
+                ));
             }
         }
-        assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
+        assert!(
+            failures.is_empty(),
+            "{} of {} differ:\n{}",
+            failures.len(),
+            cases.len(),
+            failures.join("\n")
+        );
     }
 
     /// what CPython 3.13.12 answers and the port refuses (`unimplemented!`, listed in `py_percent.rs`)
     #[test]
     fn cases_the_port_refuses_are_unimplemented() {
-        let fixture: Value = serde_json::from_str(include_str!("py_percent_expected.json")).expect("fixture");
+        let fixture: Value =
+            serde_json::from_str(include_str!("py_percent_expected.json")).expect("fixture");
         for case in fixture["unimplemented"].as_array().expect("unimplemented") {
-            let (format, args) = (case["format"].as_str().unwrap().to_string(), case["args"].clone());
-            let result = std::panic::catch_unwind(|| crate::ports::octoprint::py_percent::percent_format(&format, &args));
+            let (format, args) = (
+                case["format"].as_str().unwrap().to_string(),
+                case["args"].clone(),
+            );
+            let result = std::panic::catch_unwind(|| {
+                crate::ports::octoprint::py_percent::percent_format(&format, &args)
+            });
             let err = result.expect_err(&format!("{format:?} % {args} must be unimplemented!"));
-            let text = err.downcast_ref::<String>().cloned().or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
-            assert!(text.contains("not implemented"), "{format:?} % {args}: {text}");
+            let text = err
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_default();
+            assert!(
+                text.contains("not implemented"),
+                "{format:?} % {args}: {text}"
+            );
         }
     }
 }

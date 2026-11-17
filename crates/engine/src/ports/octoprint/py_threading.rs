@@ -66,7 +66,9 @@ pub(crate) fn blocking_point(kind: &'static str) {
         #[cfg(debug_assertions)]
         {
             let at = std::panic::Location::caller();
-            let name = START_NAME.try_with(|n| n.borrow().clone()).unwrap_or_default();
+            let name = START_NAME
+                .try_with(|n| n.borrow().clone())
+                .unwrap_or_default();
             lock(&FIRST_BLOCKING).push((name, kind, format!("{}:{}", at.file(), at.line())));
         }
         let _ = kind;
@@ -144,7 +146,9 @@ pub(crate) fn cond_wait<'a, T>(
                 return (g, true);
             }
             blocking_point("Condition wait");
-            let (g, r) = cv.wait_timeout(g, d - now).unwrap_or_else(|e| e.into_inner());
+            let (g, r) = cv
+                .wait_timeout(g, d - now)
+                .unwrap_or_else(|e| e.into_inner());
             (g, r.timed_out())
         }
     }
@@ -165,7 +169,13 @@ pub struct Event {
 
 impl Event {
     pub fn new() -> Self {
-        Event { _cond: Mutex::new(EventState { flag: false, notified: 0 }), cv: Condvar::new() }
+        Event {
+            _cond: Mutex::new(EventState {
+                flag: false,
+                notified: 0,
+            }),
+            cv: Condvar::new(),
+        }
     }
 
     /// Return true if and only if the internal flag is true.
@@ -229,7 +239,10 @@ pub struct RLock {
 
 impl RLock {
     pub fn new() -> Self {
-        RLock { state: Mutex::new((None, 0)), cv: Condvar::new() }
+        RLock {
+            state: Mutex::new((None, 0)),
+            cv: Condvar::new(),
+        }
     }
 
     /// `acquire(blocking=True)`
@@ -348,7 +361,10 @@ pub struct Thread {
 
 impl Thread {
     pub fn new(daemon: bool) -> Self {
-        Thread { daemon, started: Mutex::new(None) }
+        Thread {
+            daemon,
+            started: Mutex::new(None),
+        }
     }
 
     /// `start()`: `RuntimeError` if started before. Returns when the new thread has first blocked or
@@ -374,14 +390,25 @@ impl Thread {
         if s.is_some() {
             return Err(RuntimeError("threads can only be started once"));
         }
-        let fin = Arc::new(Finished { done: Mutex::new(false), cv: Condvar::new() });
+        let fin = Arc::new(Finished {
+            done: Mutex::new(false),
+            cv: Condvar::new(),
+        });
         let guard = FinishGuard(fin.clone());
-        let handshake = Arc::new(Handshake { done: Mutex::new(false), cv: Condvar::new() });
+        let handshake = Arc::new(Handshake {
+            done: Mutex::new(false),
+            cv: Condvar::new(),
+        });
         let theirs = handshake.clone();
         #[cfg(debug_assertions)]
         let name = {
             let at = std::panic::Location::caller();
-            format!("{} (started at {}:{})", std::any::type_name::<F>(), at.file(), at.line())
+            format!(
+                "{} (started at {}:{})",
+                std::any::type_name::<F>(),
+                at.file(),
+                at.line()
+            )
         };
         std::thread::Builder::new()
             .spawn(move || {
@@ -409,7 +436,10 @@ impl Thread {
             #[cfg(debug_assertions)]
             {
                 let left = bound.saturating_sub(began.elapsed());
-                let (g, r) = handshake.cv.wait_timeout(done, left).unwrap_or_else(|e| e.into_inner());
+                let (g, r) = handshake
+                    .cv
+                    .wait_timeout(done, left)
+                    .unwrap_or_else(|e| e.into_inner());
                 done = g;
                 if r.timed_out() && !*done {
                     panic!(
@@ -437,7 +467,8 @@ impl Thread {
             blocking_point("Thread.join");
         }
         while !*g {
-            let (ng, timed_out) = cond_wait(&fin.cv, g, if timeout.is_some() { deadline } else { None });
+            let (ng, timed_out) =
+                cond_wait(&fin.cv, g, if timeout.is_some() { deadline } else { None });
             g = ng;
             if timed_out && timeout.is_some() {
                 break;
@@ -572,9 +603,15 @@ mod start_tests {
                 g.wait(None);
             })
             .unwrap();
-            assert!(before.load(Ordering::SeqCst), "the thread ran to its first blocking point");
+            assert!(
+                before.load(Ordering::SeqCst),
+                "the thread ran to its first blocking point"
+            );
             flag.store(true, Ordering::SeqCst); // set by the starter after start() returned
-            assert!(!seen.load(Ordering::SeqCst), "the new thread saw the flag before the starter set it");
+            assert!(
+                !seen.load(Ordering::SeqCst),
+                "the new thread saw the flag before the starter set it"
+            );
             gate.set();
             t.join(None).unwrap();
         }
@@ -591,7 +628,11 @@ mod start_tests {
             .start(move || {
                 let inner = Thread::new(true);
                 let i2 = i.clone();
-                inner.start(move || { i2.fetch_add(1, Ordering::SeqCst); }).unwrap();
+                inner
+                    .start(move || {
+                        i2.fetch_add(1, Ordering::SeqCst);
+                    })
+                    .unwrap();
                 assert_eq!(1, i.load(Ordering::SeqCst));
             })
             .unwrap();
@@ -606,7 +647,11 @@ mod start_tests {
     fn the_watchdog_panics_when_start_waits_longer_than_the_bound() {
         let t = Thread::new(true);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            t.start_bounded(|| std::thread::sleep(Duration::from_millis(1500)), Duration::from_millis(200)).unwrap();
+            t.start_bounded(
+                || std::thread::sleep(Duration::from_millis(1500)),
+                Duration::from_millis(200),
+            )
+            .unwrap();
         }));
         let err = result.expect_err("the watchdog fires");
         let text = err.downcast_ref::<String>().cloned().unwrap_or_default();

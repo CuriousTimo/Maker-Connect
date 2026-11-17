@@ -28,7 +28,11 @@ impl HidInfo {
             self.path,
             self.vendor_id,
             self.product_id,
-            if self.product.is_empty() { "(no product name)" } else { &self.product },
+            if self.product.is_empty() {
+                "(no product name)"
+            } else {
+                &self.product
+            },
             self.usage_page
         )
     }
@@ -54,19 +58,35 @@ pub fn select(source: &mut dyn HidSource, port: Option<&str>) -> Result<String, 
         return Ok(path.to_owned());
     }
     let all = source.list()?;
-    let scales: Vec<&HidInfo> = all.iter().filter(|d| d.usage_page == SCALE_USAGE_PAGE).collect();
+    let scales: Vec<&HidInfo> = all
+        .iter()
+        .filter(|d| d.usage_page == SCALE_USAGE_PAGE)
+        .collect();
     match scales.as_slice() {
         [one] => Ok(one.path.clone()),
         [] => {
-            let seen: String = all.iter().map(|d| format!("\n  {}", d.describe())).collect();
+            let seen: String = all
+                .iter()
+                .map(|d| format!("\n  {}", d.describe()))
+                .collect();
             Err(format!(
                 "no HID device with usage page 0x8d (a scale) found; name it with --port. HID devices seen: {}",
-                if seen.is_empty() { " none".to_owned() } else { seen }
+                if seen.is_empty() {
+                    " none".to_owned()
+                } else {
+                    seen
+                }
             ))
         }
         many => {
-            let seen: String = many.iter().map(|d| format!("\n  {}", d.describe())).collect();
-            Err(format!("{} HID devices with usage page 0x8d (a scale); choose one with --port:{seen}", many.len()))
+            let seen: String = many
+                .iter()
+                .map(|d| format!("\n  {}", d.describe()))
+                .collect();
+            Err(format!(
+                "{} HID devices with usage page 0x8d (a scale); choose one with --port:{seen}",
+                many.len()
+            ))
         }
     }
 }
@@ -83,7 +103,9 @@ mod real {
 
     impl Hidapi {
         pub fn new() -> Result<Hidapi, String> {
-            hidapi::HidApi::new().map(|api| Hidapi { api }).map_err(|e| e.to_string())
+            hidapi::HidApi::new()
+                .map(|api| Hidapi { api })
+                .map_err(|e| e.to_string())
         }
     }
 
@@ -91,7 +113,9 @@ mod real {
 
     impl HidDevice for Device {
         fn read(&mut self, buf: &mut [u8], timeout_ms: i32) -> Result<usize, String> {
-            self.0.read_timeout(buf, timeout_ms).map_err(|e| e.to_string())
+            self.0
+                .read_timeout(buf, timeout_ms)
+                .map_err(|e| e.to_string())
         }
     }
 
@@ -113,7 +137,10 @@ mod real {
 
         fn open(&mut self, path: &str) -> Result<Box<dyn HidDevice>, String> {
             let path = CString::new(path).map_err(|e| e.to_string())?;
-            self.api.open_path(&path).map(|d| Box::new(Device(d)) as Box<dyn HidDevice>).map_err(|e| e.to_string())
+            self.api
+                .open_path(&path)
+                .map(|d| Box::new(Device(d)) as Box<dyn HidDevice>)
+                .map_err(|e| e.to_string())
         }
     }
 }

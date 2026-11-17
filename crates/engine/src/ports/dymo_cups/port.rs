@@ -10,18 +10,18 @@
 //! - What the monitor reads during a print is reported as it is (W7); nothing else.
 //! - A command, a pause/resume/stop (outside a print) or an answer fails loudly: the driver has none (W6).
 
-use super::cups::usb_backend::{print_device, BackChannel, Pipe, UsbHost, CUPS_BACKEND_OK};
 use super::cups::ppd::PpdFile;
-use super::cups_print_environment::{Cancelled, FilterIo, SharedIo, READ_DATA_LINE};
+use super::cups::usb_backend::{BackChannel, CUPS_BACKEND_OK, Pipe, UsbHost, print_device};
+use super::cups_print_environment::{Cancelled, FilterIo, READ_DATA_LINE, SharedIo};
 use super::{cups::ppd_lw450::REASONS, page, raster2dymolw, stderr};
 use crate::{Event, Order, Port};
 use maker_connect_protocol::{CommandDone, JobControl, JobEnd, JobOrder, MachineState, Telemetry};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
-use std::sync::mpsc::{Receiver, Sender};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, Sender};
 
 /// W6: the answer to a command.
 pub const NO_SUCH_CONTROL: &str = "the DYMO driver has no such control";
@@ -81,7 +81,10 @@ impl Seen {
 
 /// W7: the PPD's own reason text (`lw450.ppd:47-55`) for a `STATE:` keyword.
 fn reason_text(keyword: &str) -> Option<&'static str> {
-    REASONS.iter().find(|(k, _, _)| *k == keyword).map(|(_, t, _)| *t)
+    REASONS
+        .iter()
+        .find(|(k, _, _)| *k == keyword)
+        .map(|(_, t, _)| *t)
 }
 
 /// The filter's process, as the scheduler runs it (ours): `write(1, ...)` is the backend's pipe, fd 3 the
@@ -102,7 +105,9 @@ impl PortIo {
     /// W6: Stop during a print ends it (SIGTERM); the other orders wait.
     fn look_for_orders(&mut self) {
         // K18 / HS4 (ours): after a Close nothing more is read; the rest stays for the port's Close
-        while !self.closed && let Ok(order) = self.orders.try_recv() {
+        while !self.closed
+            && let Ok(order) = self.orders.try_recv()
+        {
             match order {
                 Order::Control(JobControl::Stop) => self.stopped = true,
                 Order::Close => {
@@ -158,13 +163,18 @@ enum Outcome {
 
 /// The last `ERROR:` line of the filter, without its tag (W1, W9).
 fn last_error(lines: &[String]) -> Option<String> {
-    lines.iter().rev().find_map(|l| l.strip_prefix("ERROR: ").map(|e| e.trim_end().to_owned()))
+    lines
+        .iter()
+        .rev()
+        .find_map(|l| l.strip_prefix("ERROR: ").map(|e| e.trim_end().to_owned()))
 }
 
 /// The first `ERROR:` line, without its tag: the backend's, which comes before the filter's own errors
 /// about the pipe it can no longer write to (W1, W9).
 fn first_error(lines: &[String]) -> Option<String> {
-    lines.iter().find_map(|l| l.strip_prefix("ERROR: ").map(|e| e.trim_end().to_owned()))
+    lines
+        .iter()
+        .find_map(|l| l.strip_prefix("ERROR: ").map(|e| e.trim_end().to_owned()))
 }
 
 impl Port for LabelWriter450 {
@@ -187,18 +197,43 @@ impl Port for LabelWriter450 {
             match order {
                 // W6
                 Order::Command { id, .. } => {
-                    let _ = events.send(Event::Done(CommandDone { id, ok: false, reason: Some(NO_SUCH_CONTROL.to_owned()), output: Vec::new() }));
+                    let _ = events.send(Event::Done(CommandDone {
+                        id,
+                        ok: false,
+                        reason: Some(NO_SUCH_CONTROL.to_owned()),
+                        output: Vec::new(),
+                    }));
                 }
                 Order::Job { order, file } => {
                     let _ = events.send(seen.telemetry(MachineState::Busy, None));
-                    let (outcome, raw) = print_job(&self.host, &order, &file, &orders, &pending, &events, &mut gone, &seen);
+                    let (outcome, raw) = print_job(
+                        &self.host, &order, &file, &orders, &pending, &events, &mut gone, &seen,
+                    );
                     if raw.is_some() {
                         seen.raw_status = raw;
                     }
                     let end = match outcome {
-                        Outcome::Done => JobEnd { id: order.id, ok: true, stopped: false, reason: None, restart_line: None },
-                        Outcome::Stopped => JobEnd { id: order.id, ok: false, stopped: true, reason: Some("stopped".to_owned()), restart_line: None },
-                        Outcome::Failed(why) => JobEnd { id: order.id, ok: false, stopped: false, reason: Some(why), restart_line: None },
+                        Outcome::Done => JobEnd {
+                            id: order.id,
+                            ok: true,
+                            stopped: false,
+                            reason: None,
+                            restart_line: None,
+                        },
+                        Outcome::Stopped => JobEnd {
+                            id: order.id,
+                            ok: false,
+                            stopped: true,
+                            reason: Some("stopped".to_owned()),
+                            restart_line: None,
+                        },
+                        Outcome::Failed(why) => JobEnd {
+                            id: order.id,
+                            ok: false,
+                            stopped: false,
+                            reason: Some(why),
+                            restart_line: None,
+                        },
                     };
                     let _ = events.send(seen.telemetry(MachineState::Idle, None));
                     let _ = events.send(Event::JobEnd(end));
@@ -244,7 +279,13 @@ fn print_job(
         Err(why) => return (Outcome::Failed(why), None),
     };
     let ppd_open = || Some(PpdFile::lw450());
-    let raster = match page::make_raster(&picture, order.page_size.as_deref(), order.label_length_mm, "", &ppd_open) {
+    let raster = match page::make_raster(
+        &picture,
+        order.page_size.as_deref(),
+        order.label_length_mm,
+        "",
+        &ppd_open,
+    ) {
         Ok(r) => r,
         Err(why) => return (Outcome::Failed(why), None),
     };
@@ -265,7 +306,14 @@ fn print_job(
     // W5, W8: the backend, `print_device`, starts with the filter: it finds the printer, waiting for it
     let is_gone = Arc::new(AtomicBool::new(*gone));
     let backend = {
-        let (host, pipe, bc, stop, ev, is_gone) = (host.clone(), pipe.clone(), back_channel.clone(), backend_stop.clone(), events.clone(), is_gone.clone());
+        let (host, pipe, bc, stop, ev, is_gone) = (
+            host.clone(),
+            pipe.clone(),
+            back_channel.clone(),
+            backend_stop.clone(),
+            events.clone(),
+            is_gone.clone(),
+        );
         std::thread::spawn(move || {
             stderr::start(None);
             let (ev2, gone2) = (ev.clone(), is_gone.clone());
@@ -328,7 +376,9 @@ fn print_job(
     ];
     let shared: SharedIo = io.clone();
     let mut filter = None;
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| raster2dymolw::main(shared, &argv, raster, &mut filter)));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        raster2dymolw::main(shared, &argv, raster, &mut filter)
+    }));
     let cancelled = match &result {
         Err(payload) => {
             if payload.downcast_ref::<Cancelled>().is_none() {
@@ -363,10 +413,15 @@ fn print_job(
     let outcome = if cancelled || io.borrow().stopped || backend_status.is_none() {
         Outcome::Stopped
     } else if backend_status != Some(CUPS_BACKEND_OK) {
-        Outcome::Failed(first_error(&backend_lines).unwrap_or_else(|| "Unable to send data to printer.".to_owned()))
+        Outcome::Failed(
+            first_error(&backend_lines)
+                .unwrap_or_else(|| "Unable to send data to printer.".to_owned()),
+        )
     } else if let Ok(status) = result {
         if status != 0 {
-            Outcome::Failed(last_error(&lines).unwrap_or_else(|| format!("raster2dymolw failed ({status})")))
+            Outcome::Failed(
+                last_error(&lines).unwrap_or_else(|| format!("raster2dymolw failed ({status})")),
+            )
         } else {
             Outcome::Done
         }

@@ -73,9 +73,19 @@ impl CupsPrintEnvironmentForDriver {
                 None => file_name += "~dymo",
             }
             file_name += ".prn";
-            prn_file = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(true).open(file_name).ok();
+            prn_file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(file_name)
+                .ok();
         }
-        CupsPrintEnvironmentForDriver { io, prn_file, language_monitor }
+        CupsPrintEnvironmentForDriver {
+            io,
+            prn_file,
+            language_monitor,
+        }
     }
 }
 
@@ -83,18 +93,30 @@ impl PrintEnvironment for CupsPrintEnvironmentForDriver {
     /// `WriteData` (:54-76).
     fn write_data(&mut self, data_buffer: &[u8]) {
         check_cancel(&self.io);
-        stderr::write(&format!("DEBUG: CCupsPrintEnvironmentForDriver::WriteData() buffer size is {}\n", data_buffer.len()));
+        stderr::write(&format!(
+            "DEBUG: CCupsPrintEnvironmentForDriver::WriteData() buffer size is {}\n",
+            data_buffer.len()
+        ));
 
         if !data_buffer.is_empty() {
             if let Err(errno) = self.io.borrow_mut().write_stdout(data_buffer) {
                 let _ = errno;
-                stderr::write(&format!("ERROR: CCupsPrintEnvironmentForDriver::WriteData() write() failed, errno={}\n", errno));
+                stderr::write(&format!(
+                    "ERROR: CCupsPrintEnvironmentForDriver::WriteData() write() failed, errno={}\n",
+                    errno
+                ));
             }
 
             if let Some(f) = self.prn_file.as_mut() {
                 use std::io::Write;
-                let res = f.write_all(data_buffer).map(|_| data_buffer.len()).unwrap_or(0);
-                stderr::write(&format!("DEBUG: CCupsPrintEnvironmentForDriver::WriteData() PRN fwrite result is {}\n", res));
+                let res = f
+                    .write_all(data_buffer)
+                    .map(|_| data_buffer.len())
+                    .unwrap_or(0);
+                stderr::write(&format!(
+                    "DEBUG: CCupsPrintEnvironmentForDriver::WriteData() PRN fwrite result is {}\n",
+                    res
+                ));
             }
 
             self.language_monitor.borrow_mut().process_data(data_buffer);
@@ -128,7 +150,11 @@ pub struct CupsPrintEnvironmentForLm {
 impl CupsPrintEnvironmentForLm {
     /// :102-104.
     pub fn new(io: SharedIo) -> Self {
-        CupsPrintEnvironmentForLm { io, job_status: JobStatus::Ok, last_state: None }
+        CupsPrintEnvironmentForLm {
+            io,
+            job_status: JobStatus::Ok,
+            last_state: None,
+        }
     }
 }
 
@@ -136,10 +162,16 @@ impl PrintEnvironment for CupsPrintEnvironmentForLm {
     /// `WriteData` (:111-125).
     fn write_data(&mut self, data_buffer: &[u8]) {
         check_cancel(&self.io);
-        stderr::write(&format!("DEBUG: CCupsPrintEnvironmentForLM::WriteData() buffer size is {}\n", data_buffer.len()));
+        stderr::write(&format!(
+            "DEBUG: CCupsPrintEnvironmentForLM::WriteData() buffer size is {}\n",
+            data_buffer.len()
+        ));
         if !data_buffer.is_empty() {
             if let Err(errno) = self.io.borrow_mut().write_stdout(data_buffer) {
-                stderr::write(&format!("ERROR: CCupsPrintEnvironmentForLM::WriteData() write() failed, errno={}\n", errno));
+                stderr::write(&format!(
+                    "ERROR: CCupsPrintEnvironmentForLM::WriteData() write() failed, errno={}\n",
+                    errno
+                ));
             }
         }
     }
@@ -153,13 +185,18 @@ impl PrintEnvironment for CupsPrintEnvironmentForLm {
         let bytes_read = self.io.borrow_mut().back_channel_read(&mut buf, 2.5);
         if bytes_read == -1 {
             // the C++ prints errno; the read has none here
-            stderr::write("DEBUG: CCupsPrintEnvironmentForLM::ReadData() unable to read data, errno=0\n");
+            stderr::write(
+                "DEBUG: CCupsPrintEnvironmentForLM::ReadData() unable to read data, errno=0\n",
+            );
         } else if bytes_read == 0 {
             stderr::write("DEBUG: CCupsPrintEnvironmentForLM::ReadData() no data\n");
         } else {
             data_buffer.splice(0..0, buf[..bytes_read as usize].iter().copied());
 
-            stderr::write(&format!("{}{} bytes {:x}\n", READ_DATA_LINE, bytes_read, data_buffer[0]));
+            stderr::write(&format!(
+                "{}{} bytes {:x}\n",
+                READ_DATA_LINE, bytes_read, data_buffer[0]
+            ));
         }
         data_buffer
     }
@@ -178,12 +215,30 @@ impl PrintEnvironment for CupsPrintEnvironmentForLm {
 
         let (text, state) = match job_status {
             JobStatus::Ok => ("STATE: none\n", None),
-            JobStatus::PaperOut => ("STATE: com.dymo.out-of-paper-error\n", Some("com.dymo.out-of-paper-error")),
-            JobStatus::Error => ("STATE: com.dymo.general-error\n", Some("com.dymo.general-error")),
-            JobStatus::PaperSizeError => ("STATE: com.dymo.paper-size-error\n", Some("com.dymo.paper-size-error")),
-            JobStatus::PaperSizeUndefinedError => ("STATE: com.dymo.paper-size-undefine-error\n", Some("com.dymo.paper-size-undefine-error")),
-            JobStatus::HeadOverheat => ("STATE: com.dymo.head-overheat-error\n", Some("com.dymo.head-overheat-error")),
-            JobStatus::SlotStatusError => ("STATE: com.dymo.slot-status-error\n", Some("com.dymo.slot-status-error")),
+            JobStatus::PaperOut => (
+                "STATE: com.dymo.out-of-paper-error\n",
+                Some("com.dymo.out-of-paper-error"),
+            ),
+            JobStatus::Error => (
+                "STATE: com.dymo.general-error\n",
+                Some("com.dymo.general-error"),
+            ),
+            JobStatus::PaperSizeError => (
+                "STATE: com.dymo.paper-size-error\n",
+                Some("com.dymo.paper-size-error"),
+            ),
+            JobStatus::PaperSizeUndefinedError => (
+                "STATE: com.dymo.paper-size-undefine-error\n",
+                Some("com.dymo.paper-size-undefine-error"),
+            ),
+            JobStatus::HeadOverheat => (
+                "STATE: com.dymo.head-overheat-error\n",
+                Some("com.dymo.head-overheat-error"),
+            ),
+            JobStatus::SlotStatusError => (
+                "STATE: com.dymo.slot-status-error\n",
+                Some("com.dymo.slot-status-error"),
+            ),
             JobStatus::Busy => ("STATE: com.dymo.busy-error\n", Some("com.dymo.busy-error")),
             JobStatus::Deleted => unreachable!("assert(0): the switch has no case for jsDeleted"),
         };

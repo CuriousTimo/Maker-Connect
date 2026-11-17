@@ -19,7 +19,9 @@ use super::cups_filter_label_writer::process_ppd_options;
 use super::dummy_language_monitor::DummyLanguageMonitor;
 use super::error_diffusion_halftoning::ErrorDiffusionHalftoning;
 use super::halftoning::{HalftoneFilter, ImageBuffer, ImageType};
-use super::label_writer_driver::{get_roll_select_command, Density, LabelWriterDriver, PaperType, Quality, Roll};
+use super::label_writer_driver::{
+    Density, LabelWriterDriver, PaperType, Quality, Roll, get_roll_select_command,
+};
 use super::label_writer_language_monitor::LabelWriterLanguageMonitor;
 use super::nll_halftoning::NllHalftoning;
 use super::printer_driver::{Buffer, JobStatus, LanguageMonitor, PrintEnvironment, PrinterDriver};
@@ -81,7 +83,10 @@ struct MockLwlmPrintEnvironment {
 
 impl MockLwlmPrintEnvironment {
     fn new() -> Self {
-        MockLwlmPrintEnvironment { base: MockPrintEnvironment::default(), mode: vec![Mode::Tof] }
+        MockLwlmPrintEnvironment {
+            base: MockPrintEnvironment::default(),
+            mode: vec![Mode::Tof],
+        }
     }
     fn set_mode(&mut self, mode: Mode) {
         self.mode.clear();
@@ -111,7 +116,11 @@ impl PrintEnvironment for MockLwlmPrintEnvironment {
     fn read_data(&mut self) -> Buffer {
         let mut data = Buffer::new();
 
-        let mode = if self.mode.len() > 1 { self.mode.pop().unwrap() } else { *self.mode.last().unwrap() };
+        let mode = if self.mode.len() > 1 {
+            self.mode.pop().unwrap()
+        } else {
+            *self.mode.last().unwrap()
+        };
 
         match mode {
             Mode::Tof => data.push(TOF_BIT),
@@ -156,7 +165,13 @@ fn driver_test_prolog_epilog_command() {
     driver.end_page();
     driver.end_doc();
 
-    let printer_commands = cat(&[&reset(), &[ESC, b'Q', 0x00, 0x00, ESC, b'B', 0, ESC, b'h', ESC, b'e', ESC, b'L', 0x08, 0x00, ESC, b'E']]);
+    let printer_commands = cat(&[
+        &reset(),
+        &[
+            ESC, b'Q', 0x00, 0x00, ESC, b'B', 0, ESC, b'h', ESC, b'e', ESC, b'L', 0x08, 0x00, ESC,
+            b'E',
+        ],
+    ]);
     assert_eq!(printer_commands, env.borrow().get_data());
 }
 
@@ -175,7 +190,8 @@ fn driver_test_compression() {
     driver.process_raster_line(&line3);
 
     let printer_commands = [
-        ESC, b'B', 0, ESC, b'D', 0x08, ETB, 0xbf, ESC, b'B', 0, SYN, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, ESC, b'B', 0, ESC, b'D', 0x18, ETB, 0xff, 0xbf,
+        ESC, b'B', 0, ESC, b'D', 0x08, ETB, 0xbf, ESC, b'B', 0, SYN, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+        0xaa, 0xaa, 0xaa, ESC, b'B', 0, ESC, b'D', 0x18, ETB, 0xff, 0xbf,
     ];
     assert_eq!(printer_commands.to_vec(), env.borrow().get_data());
 }
@@ -197,7 +213,9 @@ fn driver_test_empty_lines() {
     }
     driver.process_raster_line(&line1);
 
-    let printer_commands = [ESC, b'f', 1, 0xff, ESC, b'f', 1, 2, ESC, b'B', 0, ESC, b'D', 0x08, ETB, 0xbf];
+    let printer_commands = [
+        ESC, b'f', 1, 0xff, ESC, b'f', 1, 2, ESC, b'B', 0, ESC, b'D', 0x08, ETB, 0xbf,
+    ];
     assert_eq!(printer_commands.to_vec(), env.borrow().get_data());
 }
 
@@ -218,7 +236,8 @@ fn driver_test_dot_tab() {
     driver.process_raster_line(&line4);
 
     let printer_commands = [
-        ESC, b'B', 0, ESC, b'D', 0x08, ETB, 0xbf, ESC, b'B', 2, ESC, b'D', 0x06, ETB, 0xaf, ESC, b'B', 2, ETB, 0xaf, ESC, b'B', 1, ESC, b'D', 0x07, ETB, 0xb7,
+        ESC, b'B', 0, ESC, b'D', 0x08, ETB, 0xbf, ESC, b'B', 2, ESC, b'D', 0x06, ETB, 0xaf, ESC,
+        b'B', 2, ETB, 0xaf, ESC, b'B', 1, ESC, b'D', 0x07, ETB, 0xb7,
     ];
     assert_eq!(printer_commands.to_vec(), env.borrow().get_data());
 }
@@ -258,14 +277,21 @@ fn driver_test_400_end_page_end_doc() {
 
     let printer_commands = cat(&[
         &reset(),
-        &[ESC, b'Q', 0x00, 0x00, ESC, b'B', 0, ESC, b'h', ESC, b'e', ESC, b'L', 0x08, 0x00, ESC, b'G', ESC, b'L', 0x08, 0x00, ESC, b'G', ESC, b'E'],
+        &[
+            ESC, b'Q', 0x00, 0x00, ESC, b'B', 0, ESC, b'h', ESC, b'e', ESC, b'L', 0x08, 0x00, ESC,
+            b'G', ESC, b'L', 0x08, 0x00, ESC, b'G', ESC, b'E',
+        ],
     ]);
     assert_eq!(printer_commands, env.borrow().get_data());
 }
 
 // ---- TestLabelWriterFilter.cpp ------------------------------------------------------------------
 
-fn filter_driver() -> (Rc<RefCell<MockPrintEnvironment>>, LabelWriterDriver, PpdFile) {
+fn filter_driver() -> (
+    Rc<RefCell<MockPrintEnvironment>>,
+    LabelWriterDriver,
+    PpdFile,
+) {
     // setUp (:35-45): the PPD opened and its defaults marked, the driver, the monitor (a dummy one, which
     // `ProcessPPDOptions` does not use)
     let mut ppd = PpdFile::lw450();
@@ -456,7 +482,10 @@ fn lm_test_reset_printer() {
     lm.start_doc();
     lm.end_doc();
 
-    assert_eq!(LabelWriterDriver::get_reset_command(), env.borrow().get_data());
+    assert_eq!(
+        LabelWriterDriver::get_reset_command(),
+        env.borrow().get_data()
+    );
 }
 
 /// `LabelWriterLMTest::testStatusReadFailed`
@@ -564,19 +593,28 @@ fn halftone_test_white() {
 /// `ErrorDiffusionTest::testRed`
 #[test]
 fn halftone_test_red() {
-    process_three(&[0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0], [0xe8, 0xb8, 0xd0]);
+    process_three(
+        &[0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0],
+        [0xe8, 0xb8, 0xd0],
+    );
 }
 
 /// `ErrorDiffusionTest::testGreen`
 #[test]
 fn halftone_test_green() {
-    process_three(&[0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0], [0x50, 0x48, 0x50]);
+    process_three(
+        &[0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0],
+        [0x50, 0x48, 0x50],
+    );
 }
 
 /// `ErrorDiffusionTest::testBlue`
 #[test]
 fn halftone_test_blue() {
-    process_three(&[0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff], [0xf8, 0xf8, 0xe8]);
+    process_three(
+        &[0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff],
+        [0xf8, 0xf8, 0xe8],
+    );
 }
 
 /// `NonLinearLaplacianTest::testBlock` (NLL, :38-84): 8x10 pixels wide, 24bits per pixel
@@ -591,7 +629,11 @@ fn nll_test_block() {
     }
     let mut input_image: ImageBuffer = Vec::new();
     for i in 0..10 {
-        input_image.push(if (1..8).contains(&i) { black_line.clone() } else { white_line.clone() });
+        input_image.push(if (1..8).contains(&i) {
+            black_line.clone()
+        } else {
+            white_line.clone()
+        });
     }
 
     let mut output_data: Vec<u8> = Vec::new();
@@ -612,7 +654,10 @@ fn nll_test_block() {
 fn cups_parse_options_as_cups() {
     // options.c:260-465: names, booleans (`no` prefix), values, quotes, braces
     let mut o = Vec::new();
-    cups_parse_options("DymoHalftoning=NLL noduplex landscape copies=2 title='a b' x={k=v}", &mut o);
+    cups_parse_options(
+        "DymoHalftoning=NLL noduplex landscape copies=2 title='a b' x={k=v}",
+        &mut o,
+    );
     let get = |n: &str| o.iter().find(|x| x.name == n).map(|x| x.value.clone());
     assert_eq!(get("DymoHalftoning").as_deref(), Some("NLL"));
     assert_eq!(get("duplex").as_deref(), Some("false"));
@@ -630,9 +675,18 @@ fn ppd_defaults_are_marked_as_cups_marks_them() {
     let mut ppd = PpdFile::lw450();
     ppd.mark_defaults();
     assert_eq!(ppd.find_marked_choice("Resolution").unwrap().name, "300dpi");
-    assert_eq!(ppd.find_marked_choice("DymoHalftoning").unwrap().name, "ErrorDiffusion");
-    assert_eq!(ppd.find_marked_choice("DymoPrintDensity").unwrap().name, "Normal");
-    assert_eq!(ppd.find_marked_choice("DymoPrintQuality").unwrap().name, "Text");
+    assert_eq!(
+        ppd.find_marked_choice("DymoHalftoning").unwrap().name,
+        "ErrorDiffusion"
+    );
+    assert_eq!(
+        ppd.find_marked_choice("DymoPrintDensity").unwrap().name,
+        "Normal"
+    );
+    assert_eq!(
+        ppd.find_marked_choice("DymoPrintQuality").unwrap().name,
+        "Text"
+    );
     assert_eq!(ppd.find_marked_choice("PageSize").unwrap().name, "w167h288");
     // ppd_defaults leaves PageRegion alone (ppd-mark.c:731-748)
     assert!(ppd.find_marked_choice("PageRegion").is_none());
@@ -647,7 +701,7 @@ mod top_edge {
     use crate::{Event, Order, Port};
     use maker_connect_protocol::{Action, JobControl, JobOrder, MachineState};
     use std::collections::VecDeque;
-    use std::sync::mpsc::{channel, Receiver};
+    use std::sync::mpsc::{Receiver, channel};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -668,7 +722,12 @@ mod top_edge {
             }
             self.written.lock().unwrap().extend_from_slice(data);
             if data == [0x1b, b'A'] {
-                let s = self.statuses.lock().unwrap().pop_front().unwrap_or(self.last_status);
+                let s = self
+                    .statuses
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .unwrap_or(self.last_status);
                 self.pending.lock().unwrap().push_back(s);
             }
             Ok(data.len())
@@ -695,7 +754,10 @@ mod top_edge {
 
     impl UsbHost for BenchHost {
         fn find_device(&self, manufacturer: &str, model: &str) -> Option<Arc<dyn UsbPrinterIo>> {
-            self.asked.lock().unwrap().push((manufacturer.to_owned(), model.to_owned()));
+            self.asked
+                .lock()
+                .unwrap()
+                .push((manufacturer.to_owned(), model.to_owned()));
             let mut a = self.absent.lock().unwrap();
             if *a > 0 {
                 *a -= 1;
@@ -713,12 +775,20 @@ mod top_edge {
             pending: Mutex::new(VecDeque::new()),
             fail_writes: false,
         });
-        (Arc::new(BenchHost { printer: printer.clone(), absent: Mutex::new(absent), asked: Mutex::new(Vec::new()) }), printer)
+        (
+            Arc::new(BenchHost {
+                printer: printer.clone(),
+                absent: Mutex::new(absent),
+                asked: Mutex::new(Vec::new()),
+            }),
+            printer,
+        )
     }
 
     /// A PNG of the given size, RGB, a black frame on white.
     fn png(name: &str, w: u32, h: u32) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("dymo-lw450-test-{}-{name}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("dymo-lw450-test-{}-{name}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("label.png");
         let mut data = vec![255u8; (w * h * 3) as usize];
@@ -730,7 +800,11 @@ mod top_edge {
                 }
             }
         }
-        let mut enc = png::Encoder::new(std::io::BufWriter::new(std::fs::File::create(&path).unwrap()), w, h);
+        let mut enc = png::Encoder::new(
+            std::io::BufWriter::new(std::fs::File::create(&path).unwrap()),
+            w,
+            h,
+        );
         enc.set_color(png::ColorType::Rgb);
         enc.set_depth(png::BitDepth::Eight);
         enc.write_header().unwrap().write_image_data(&data).unwrap();
@@ -738,10 +812,25 @@ mod top_edge {
     }
 
     fn job(id: i64, length: Option<u32>) -> JobOrder {
-        JobOrder { id, name: "label".to_owned(), download: String::new(), size: 0, from_line: None, tape_mm: None, label_length_mm: length, page_size: None }
+        JobOrder {
+            id,
+            name: "label".to_owned(),
+            download: String::new(),
+            size: 0,
+            from_line: None,
+            tape_mm: None,
+            label_length_mm: length,
+            page_size: None,
+        }
     }
 
-    fn start(host: Arc<BenchHost>) -> (std::sync::mpsc::Sender<Order>, Receiver<Event>, std::thread::JoinHandle<()>) {
+    fn start(
+        host: Arc<BenchHost>,
+    ) -> (
+        std::sync::mpsc::Sender<Order>,
+        Receiver<Event>,
+        std::thread::JoinHandle<()>,
+    ) {
         let (otx, orx) = channel();
         let (etx, erx) = channel();
         let port = Box::new(LabelWriter450::with_host(host));
@@ -752,7 +841,10 @@ mod top_edge {
     fn until_job_end(erx: &Receiver<Event>) -> (maker_connect_protocol::JobEnd, Vec<Event>) {
         let mut seen = Vec::new();
         loop {
-            match erx.recv_timeout(Duration::from_secs(120)).expect("no JobEnd") {
+            match erx
+                .recv_timeout(Duration::from_secs(120))
+                .expect("no JobEnd")
+            {
                 Event::JobEnd(e) => return (e, seen),
                 other => seen.push(other),
             }
@@ -772,20 +864,38 @@ mod top_edge {
 
         // w72h72: 1 in x 1 in, 271 x 254 dots at 300 dpi, 25 mm (`PaperDimension` 72 pt)
         let file = png("job", 271, 254);
-        otx.send(Order::Job { order: job(7, Some(25)), file }).unwrap();
+        otx.send(Order::Job {
+            order: job(7, Some(25)),
+            file,
+        })
+        .unwrap();
         let (end, seen) = until_job_end(&erx);
         assert!(end.ok, "{end:?}");
         assert_eq!(end.id, 7);
         assert!(matches!(&seen[0], Event::Telemetry(t) if t.state == MachineState::Idle));
-        assert!(seen.iter().any(|e| matches!(e, Event::Telemetry(t) if t.state == MachineState::Busy)));
-        assert_eq!(host.asked.lock().unwrap()[0], ("DYMO".to_owned(), "LabelWriter 450".to_owned()));
+        assert!(
+            seen.iter()
+                .any(|e| matches!(e, Event::Telemetry(t) if t.state == MachineState::Busy))
+        );
+        assert_eq!(
+            host.asked.lock().unwrap()[0],
+            ("DYMO".to_owned(), "LabelWriter 450".to_owned())
+        );
 
         let w = printer.written.lock().unwrap().clone();
         // the monitor's reset, the driver's reset, `ESC Q 0 0`, `ESC B 0`, quality text, density normal
         assert_eq!(&w[..156], &[0x1b; 156][..]);
         assert_eq!(&w[156..312], &[0x1b; 156][..]);
-        assert_eq!(&w[312..326], &[0x1b, b'Q', 0, 0, 0x1b, b'B', 0, 0x1b, b'h', 0x1b, b'e', 0x1b, b'A', 0x1b][..]);
-        assert!(w.windows(4).any(|x| x == [0x1b, b'L', 0x01, 0x2c]), "ESC L 300: 72 pt at 300 dpi, `PageSize[1] * HWResolution[1] / 72`");
+        assert_eq!(
+            &w[312..326],
+            &[
+                0x1b, b'Q', 0, 0, 0x1b, b'B', 0, 0x1b, b'h', 0x1b, b'e', 0x1b, b'A', 0x1b
+            ][..]
+        );
+        assert!(
+            w.windows(4).any(|x| x == [0x1b, b'L', 0x01, 0x2c]),
+            "ESC L 300: 72 pt at 300 dpi, `PageSize[1] * HWResolution[1] / 72`"
+        );
         assert!(w.ends_with(&[0x1b, b'E']));
         // W5: idle again after it
         let last = erx.recv_timeout(Duration::from_secs(5));
@@ -799,10 +909,18 @@ mod top_edge {
     fn a_picture_that_does_not_fit_fails() {
         let (host, printer) = bench(&[], 0x02, 0);
         let (otx, erx, h) = start(host);
-        otx.send(Order::Job { order: job(1, Some(25)), file: png("wrong", 100, 100) }).unwrap();
+        otx.send(Order::Job {
+            order: job(1, Some(25)),
+            file: png("wrong", 100, 100),
+        })
+        .unwrap();
         let (end, _) = until_job_end(&erx);
         assert!(!end.ok && !end.stopped);
-        assert!(end.reason.unwrap().contains("no label of the PPD is 25 mm long and 100 x 100 dots"));
+        assert!(
+            end.reason
+                .unwrap()
+                .contains("no label of the PPD is 25 mm long and 100 x 100 dots")
+        );
         assert!(printer.written.lock().unwrap().is_empty());
         otx.send(Order::Close).unwrap();
         h.join().unwrap();
@@ -810,9 +928,17 @@ mod top_edge {
         let (host, _) = bench(&[], 0x02, 0);
         let (otx, erx, h) = start(host);
         // no length: the PPD's default `w167h288`, 665 x 1112
-        otx.send(Order::Job { order: job(2, None), file: png("default", 271, 254) }).unwrap();
+        otx.send(Order::Job {
+            order: job(2, None),
+            file: png("default", 271, 254),
+        })
+        .unwrap();
         let (end, _) = until_job_end(&erx);
-        assert!(end.reason.unwrap().contains("the label (w167h288) needs 665 x 1112 dots"));
+        assert!(
+            end.reason
+                .unwrap()
+                .contains("the label (w167h288) needs 665 x 1112 dots")
+        );
         otx.send(Order::Close).unwrap();
         h.join().unwrap();
     }
@@ -822,7 +948,11 @@ mod top_edge {
     fn the_driver_has_no_controls() {
         let (host, _) = bench(&[], 0x02, 0);
         let (otx, erx, h) = start(host);
-        otx.send(Order::Command { id: 3, action: Action::Home { axes: Vec::new() } }).unwrap();
+        otx.send(Order::Command {
+            id: 3,
+            action: Action::Home { axes: Vec::new() },
+        })
+        .unwrap();
         otx.send(Order::Control(JobControl::Pause)).unwrap();
         otx.send(Order::Answer(1)).unwrap();
         let mut done = None;
@@ -840,7 +970,10 @@ mod top_edge {
         }
         let d = done.unwrap();
         assert!(!d.ok && d.id == 3 && d.reason.as_deref() == Some(NO_SUCH_CONTROL));
-        assert_eq!(problems, vec![NO_JOB_CONTROL.to_owned(), NO_QUESTION.to_owned()]);
+        assert_eq!(
+            problems,
+            vec![NO_JOB_CONTROL.to_owned(), NO_QUESTION.to_owned()]
+        );
         otx.send(Order::Close).unwrap();
         h.join().unwrap();
     }
@@ -851,14 +984,31 @@ mod top_edge {
     fn commands_waiting_at_close_fail() {
         let (host, _) = bench(&[], 0x02, 1000);
         let (otx, erx, h) = start(host);
-        otx.send(Order::Job { order: job(4, Some(25)), file: png("close", 271, 254) }).unwrap();
-        otx.send(Order::Command { id: 3, action: Action::Home { axes: Vec::new() } }).unwrap();
+        otx.send(Order::Job {
+            order: job(4, Some(25)),
+            file: png("close", 271, 254),
+        })
+        .unwrap();
+        otx.send(Order::Command {
+            id: 3,
+            action: Action::Home { axes: Vec::new() },
+        })
+        .unwrap();
         otx.send(Order::Close).unwrap();
-        let _ = otx.send(Order::Command { id: 5, action: Action::Home { axes: Vec::new() } });
+        let _ = otx.send(Order::Command {
+            id: 5,
+            action: Action::Home { axes: Vec::new() },
+        });
         h.join().unwrap();
         let done: Vec<_> = erx
             .try_iter()
-            .filter_map(|e| if let Event::Done(d) = e { Some((d.id, d.ok, d.reason)) } else { None })
+            .filter_map(|e| {
+                if let Event::Done(d) = e {
+                    Some((d.id, d.ok, d.reason))
+                } else {
+                    None
+                }
+            })
             .collect();
         assert_eq!(
             done,
@@ -876,7 +1026,11 @@ mod top_edge {
         // status 0xa0: error and paper out, for ever
         let (host, _printer) = bench(&[], 0xa0, 0);
         let (otx, erx, h) = start(host);
-        otx.send(Order::Job { order: job(5, Some(25)), file: png("stop", 271, 254) }).unwrap();
+        otx.send(Order::Job {
+            order: job(5, Some(25)),
+            file: png("stop", 271, 254),
+        })
+        .unwrap();
         // wait for the problem to show
         let mut problem = None;
         let mut raw = None;
@@ -903,11 +1057,21 @@ mod top_edge {
     fn gone_and_back_at_print_time() {
         let (host, printer) = bench(&[], 0x02, 1);
         let (otx, erx, h) = start(host);
-        otx.send(Order::Job { order: job(9, Some(25)), file: png("gone", 271, 254) }).unwrap();
+        otx.send(Order::Job {
+            order: job(9, Some(25)),
+            file: png("gone", 271, 254),
+        })
+        .unwrap();
         let (end, seen) = until_job_end(&erx);
         assert!(end.ok, "{end:?}");
-        let gone = seen.iter().position(|e| matches!(e, Event::Gone)).expect("Gone");
-        let back = seen.iter().position(|e| matches!(e, Event::Back)).expect("Back");
+        let gone = seen
+            .iter()
+            .position(|e| matches!(e, Event::Gone))
+            .expect("Gone");
+        let back = seen
+            .iter()
+            .position(|e| matches!(e, Event::Back))
+            .expect("Back");
         assert!(gone < back);
         assert!(!printer.written.lock().unwrap().is_empty());
         otx.send(Order::Close).unwrap();
@@ -919,9 +1083,16 @@ mod top_edge {
     fn a_stop_ends_the_wait_for_the_printer() {
         let (host, _) = bench(&[], 0x02, 1000);
         let (otx, erx, h) = start(host);
-        otx.send(Order::Job { order: job(4, Some(25)), file: png("wait", 271, 254) }).unwrap();
+        otx.send(Order::Job {
+            order: job(4, Some(25)),
+            file: png("wait", 271, 254),
+        })
+        .unwrap();
         loop {
-            if matches!(erx.recv_timeout(Duration::from_secs(10)).unwrap(), Event::Gone) {
+            if matches!(
+                erx.recv_timeout(Duration::from_secs(10)).unwrap(),
+                Event::Gone
+            ) {
                 break;
             }
         }
@@ -945,12 +1116,23 @@ mod top_edge {
             fail_writes: true,
         });
         let _ = (host, printer);
-        let host = Arc::new(BenchHost { printer: failing, absent: Mutex::new(0), asked: Mutex::new(Vec::new()) });
+        let host = Arc::new(BenchHost {
+            printer: failing,
+            absent: Mutex::new(0),
+            asked: Mutex::new(Vec::new()),
+        });
         let (otx, erx, h) = start(host);
-        otx.send(Order::Job { order: job(6, Some(25)), file: png("fail", 271, 254) }).unwrap();
+        otx.send(Order::Job {
+            order: job(6, Some(25)),
+            file: png("fail", 271, 254),
+        })
+        .unwrap();
         let (end, _) = until_job_end(&erx);
         assert!(!end.ok && !end.stopped);
-        assert_eq!(end.reason.as_deref(), Some("Unable to send data to printer."));
+        assert_eq!(
+            end.reason.as_deref(),
+            Some("Unable to send data to printer.")
+        );
         otx.send(Order::Close).unwrap();
         h.join().unwrap();
     }
@@ -990,5 +1172,8 @@ fn the_read_data_debug_line_is_the_drivers_text() {
     stderr::start(None);
     assert_eq!(env.read_data(), vec![0xa0]);
     let lines = stderr::take();
-    assert_eq!(lines, vec!["DEBUG: CCupsPrintEnvironmentForLM::ReadData() has read 1 bytes a0\n".to_owned()]);
+    assert_eq!(
+        lines,
+        vec!["DEBUG: CCupsPrintEnvironmentForLM::ReadData() has read 1 bytes a0\n".to_owned()]
+    );
 }

@@ -15,9 +15,11 @@
 //!   over white paper, 16 bits cut to 8; or, for `DymoHalftoning Default` (1 bit, `cupsColorSpace 3`),
 //!   black where the driver's `RGBToGrayScale` is under 128, packed 8 to a byte, black is 1 (W3).
 
-use super::cups::options::{cups_parse_options, CupsOption};
+use super::cups::options::{CupsOption, cups_parse_options};
 use super::cups::ppd::PpdFile;
-use super::cups::raster::{cups_raster_interpret_ppd, CupsRaster, PageHeader, RasterPage, CUPS_CSPACE_K, CUPS_CSPACE_RGB};
+use super::cups::raster::{
+    CUPS_CSPACE_K, CUPS_CSPACE_RGB, CupsRaster, PageHeader, RasterPage, cups_raster_interpret_ppd,
+};
 use super::halftoning::{HalftoneBase, ImageType};
 
 /// A decoded PNG: RGB, 8 bits, `width * height * 3` bytes.
@@ -39,7 +41,9 @@ pub fn decode_png_reader<R: std::io::Read>(r: R) -> Result<Picture, String> {
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = decoder.read_info().map_err(|e| format!("not a PNG: {e}"))?;
     let mut buf = vec![0; reader.output_buffer_size()];
-    let info = reader.next_frame(&mut buf).map_err(|e| format!("not a PNG: {e}"))?;
+    let info = reader
+        .next_frame(&mut buf)
+        .map_err(|e| format!("not a PNG: {e}"))?;
     let (w, h) = (info.width as usize, info.height as usize);
     if info.bit_depth != png::BitDepth::Eight {
         return Err("the PNG is not 8 bits per channel after decoding".to_owned());
@@ -47,7 +51,8 @@ pub fn decode_png_reader<R: std::io::Read>(r: R) -> Result<Picture, String> {
     let data = &buf[..info.buffer_size()];
     let mut rgb = Vec::with_capacity(w * h * 3);
     // alpha laid over white paper: c * a/255 + 255 * (255-a)/255, rounded
-    let over_white = |c: u8, a: u8| -> u8 { ((c as u32 * a as u32 + 255 * (255 - a as u32) + 127) / 255) as u8 };
+    let over_white =
+        |c: u8, a: u8| -> u8 { ((c as u32 * a as u32 + 255 * (255 - a as u32) + 127) / 255) as u8 };
     match info.color_type {
         png::ColorType::Grayscale => {
             for g in data {
@@ -63,12 +68,20 @@ pub fn decode_png_reader<R: std::io::Read>(r: R) -> Result<Picture, String> {
         png::ColorType::Rgb => rgb.extend_from_slice(data),
         png::ColorType::Rgba => {
             for p in data.chunks_exact(4) {
-                rgb.extend_from_slice(&[over_white(p[0], p[3]), over_white(p[1], p[3]), over_white(p[2], p[3])]);
+                rgb.extend_from_slice(&[
+                    over_white(p[0], p[3]),
+                    over_white(p[1], p[3]),
+                    over_white(p[2], p[3]),
+                ]);
             }
         }
         png::ColorType::Indexed => return Err("an indexed PNG was not expanded".to_owned()),
     }
-    Ok(Picture { width: w as u32, height: h as u32, rgb })
+    Ok(Picture {
+        width: w as u32,
+        height: h as u32,
+        rgb,
+    })
 }
 
 /// A page's geometry from the PPD: the marked options made into CUPS's page header.
@@ -87,7 +100,13 @@ pub fn make_raster(
     option_string: &str,
     open_ppd: &dyn Fn() -> Option<PpdFile>,
 ) -> Result<CupsRaster, String> {
-    Ok(CupsRaster::open(vec![make_page(picture, page_size, label_length_mm, option_string, open_ppd)?]))
+    Ok(CupsRaster::open(vec![make_page(
+        picture,
+        page_size,
+        label_length_mm,
+        option_string,
+        open_ppd,
+    )?]))
 }
 
 /// The page for a picture: its header and its pixels.
@@ -133,14 +152,27 @@ pub fn make_page(
                     continue;
                 }
                 let h = header_for(&mut ppd, &options)?;
-                if h.cups_width == picture.width && h.cups_height == picture.height && !found.iter().any(|(f, _)| same_page(f, &h)) {
+                if h.cups_width == picture.width
+                    && h.cups_height == picture.height
+                    && !found.iter().any(|(f, _)| same_page(f, &h))
+                {
                     found.push((h, name));
                 }
             }
             match found.len() {
                 1 => found.remove(0).0,
-                0 => return Err(format!("no label of the PPD is {mm} mm long and {} x {} dots", picture.width, picture.height)),
-                _ => return Err(format!("several labels of the PPD are {mm} mm long and {} x {} dots", picture.width, picture.height)),
+                0 => {
+                    return Err(format!(
+                        "no label of the PPD is {mm} mm long and {} x {} dots",
+                        picture.width, picture.height
+                    ));
+                }
+                _ => {
+                    return Err(format!(
+                        "several labels of the PPD are {mm} mm long and {} x {} dots",
+                        picture.width, picture.height
+                    ));
+                }
             }
         }
     };
@@ -148,7 +180,11 @@ pub fn make_page(
     if header.cups_width != picture.width || header.cups_height != picture.height {
         return Err(format!(
             "the picture is {} x {} dots, the label ({}) needs {} x {} dots",
-            picture.width, picture.height, header.cups_page_size_name, header.cups_width, header.cups_height
+            picture.width,
+            picture.height,
+            header.cups_page_size_name,
+            header.cups_width,
+            header.cups_height
         ));
     }
 
@@ -177,7 +213,11 @@ fn pixels_for(header: &PageHeader, picture: &Picture) -> Result<Vec<u8>, String>
                 let mut line = vec![0u8; header.cups_bytes_per_line as usize];
                 for x in 0..w {
                     let i = (y * w + x) * 3;
-                    let gray = base.rgb_to_gray_scale(picture.rgb[i], picture.rgb[i + 1], picture.rgb[i + 2]);
+                    let gray = base.rgb_to_gray_scale(
+                        picture.rgb[i],
+                        picture.rgb[i + 1],
+                        picture.rgb[i + 2],
+                    );
                     if gray < 128 {
                         line[x / 8] |= 1 << (7 - x % 8);
                     }
@@ -186,6 +226,8 @@ fn pixels_for(header: &PageHeader, picture: &Picture) -> Result<Vec<u8>, String>
             }
             Ok(out)
         }
-        (cs, bpp) => Err(format!("the PPD's page has colour space {cs}, {bpp} bits per pixel: not made from a picture")),
+        (cs, bpp) => Err(format!(
+            "the PPD's page has colour space {cs}, {bpp} bits per pixel: not made from a picture"
+        )),
     }
 }

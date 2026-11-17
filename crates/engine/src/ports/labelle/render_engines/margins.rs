@@ -7,7 +7,8 @@ use super::render_engine::RenderError;
 
 /// `is_env_var_true("LABELLE_DEV_MODE_NO_MARGINS")` (`env_config.py:4`, `:9`).
 fn is_dev_mode_no_margins() -> bool {
-    std::env::var("LABELLE_DEV_MODE_NO_MARGINS").is_ok_and(|v| matches!(v.to_lowercase().as_str(), "1" | "true"))
+    std::env::var("LABELLE_DEV_MODE_NO_MARGINS")
+        .is_ok_and(|v| matches!(v.to_lowercase().as_str(), "1" | "true"))
 }
 
 /// Python's `round(x)` of a float: halves to the even one.
@@ -60,7 +61,8 @@ impl MarginsRenderEngine {
 
     /// `_calculate_visible_width` (`margins.py:57`).
     fn calculate_visible_width(&self, payload_width_px: usize) -> Result<f64, RenderError> {
-        let minimal_label_width_px = payload_width_px as f64 + self.visible_horizontal_margin_px * 2.0;
+        let minimal_label_width_px =
+            payload_width_px as f64 + self.visible_horizontal_margin_px * 2.0;
         // `if self.max_width_px is not None and ...`: a max of 0 is a value here (`is not None`).
         if let Some(max) = self.max_width_px
             && minimal_label_width_px > max
@@ -95,9 +97,17 @@ impl MarginsRenderEngine {
         let vertical_offset_px = 0.0;
         let bitmap_height = payload_bitmap.height as f64;
 
-        let mut bitmap = Image::new(Mode::One, label_width_px.ceil() as usize, bitmap_height.ceil() as usize);
+        let mut bitmap = Image::new(
+            Mode::One,
+            label_width_px.ceil() as usize,
+            bitmap_height.ceil() as usize,
+        );
         bitmap
-            .paste(payload_bitmap, py_round(horizontal_offset_px), py_round(vertical_offset_px))
+            .paste(
+                payload_bitmap,
+                py_round(horizontal_offset_px),
+                py_round(vertical_offset_px),
+            )
             .map_err(RenderError::Pillow)?;
         Ok((bitmap, horizontal_offset_px))
     }

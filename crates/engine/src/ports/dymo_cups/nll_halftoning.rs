@@ -71,7 +71,7 @@ struct NllBlock<'a> {
     image: &'a ImageBuffer,
     x1: i32,
     y1: i32,
-    pixels: Vec<i32>,   // pixels' gray values
+    pixels: Vec<i32>,    // pixels' gray values
     classes: Vec<usize>, // pixels' classes
     image_width: usize,
     image_height: usize,
@@ -82,13 +82,26 @@ impl<'a> NllBlock<'a> {
     fn new(parent: &'a NllHalftoning, image: &'a ImageBuffer, x1: i32, y1: i32) -> Self {
         let image_width = parent.base.calc_image_width(&image[0]);
         let image_height = image.len();
-        NllBlock { parent, image, x1, y1, pixels: vec![0; 18], classes: vec![0; 18], image_width, image_height }
+        NllBlock {
+            parent,
+            image,
+            x1,
+            y1,
+            pixels: vec![0; 18],
+            classes: vec![0; 18],
+            image_width,
+            image_height,
+        }
     }
 
     /// `FillBlock` (:447-455): "fill block information".
     fn fill_block(&mut self) {
         for i in 0..self.pixels.len() {
-            self.fill_pixel(i + 1, self.x1 + PIXEL_OFFSETS[i].x, self.y1 + PIXEL_OFFSETS[i].y);
+            self.fill_pixel(
+                i + 1,
+                self.x1 + PIXEL_OFFSETS[i].x,
+                self.y1 + PIXEL_OFFSETS[i].y,
+            );
         }
         self.reduce_classes();
     }
@@ -154,10 +167,18 @@ impl<'a> NllBlock<'a> {
     /// `GetNLL` (:521-545): "return Laplacian value for pixel with coords (x, y)".
     fn get_nll(&self, x: i32, y: i32) -> i32 {
         let a = self.get_pixel_gray(x, y)
-            - (self.get_pixel_gray(x - 1, y - 1) + self.get_pixel_gray(x + 1, y - 1) + self.get_pixel_gray(x - 1, y + 1) + self.get_pixel_gray(x + 1, y + 1)) / 4;
+            - (self.get_pixel_gray(x - 1, y - 1)
+                + self.get_pixel_gray(x + 1, y - 1)
+                + self.get_pixel_gray(x - 1, y + 1)
+                + self.get_pixel_gray(x + 1, y + 1))
+                / 4;
 
         let b = self.get_pixel_gray(x, y)
-            - (self.get_pixel_gray(x, y - 1) + self.get_pixel_gray(x, y + 1) + self.get_pixel_gray(x - 1, y) + self.get_pixel_gray(x + 1, y)) / 4;
+            - (self.get_pixel_gray(x, y - 1)
+                + self.get_pixel_gray(x, y + 1)
+                + self.get_pixel_gray(x - 1, y)
+                + self.get_pixel_gray(x + 1, y))
+                / 4;
 
         if a > 0 && b > 0 {
             return a.min(b);
@@ -198,7 +219,12 @@ impl<'a> NllBlock<'a> {
     }
 
     /// `OutputClass` (:579-610): "output Pixels of specific class; return number of pixels drawn".
-    fn output_class(&mut self, class_no: usize, max_pixels_to_output: usize, output_image: &mut ImageBuffer) -> usize {
+    fn output_class(
+        &mut self,
+        class_no: usize,
+        max_pixels_to_output: usize,
+        output_image: &mut ImageBuffer,
+    ) -> usize {
         if max_pixels_to_output == 0 {
             return 0;
         }
@@ -227,13 +253,19 @@ impl<'a> NllBlock<'a> {
 
     /// `OutputPixel(size_t PixelNo)` (:612-616).
     fn output_pixel(&mut self, pixel_no: usize, output_image: &mut ImageBuffer) {
-        self.output_pixel_xy(self.x1 + PIXEL_OFFSETS[pixel_no - 1].x, self.y1 + PIXEL_OFFSETS[pixel_no - 1].y, output_image);
+        self.output_pixel_xy(
+            self.x1 + PIXEL_OFFSETS[pixel_no - 1].x,
+            self.y1 + PIXEL_OFFSETS[pixel_no - 1].y,
+            output_image,
+        );
     }
 
     /// `OutputPixel(int x, int y)` (:618-623).
     fn output_pixel_xy(&mut self, x: i32, y: i32, output_image: &mut ImageBuffer) {
         if self.is_in_image(x, y) {
-            self.parent.base.set_pixel_bw(&mut output_image[y as usize], x, 1);
+            self.parent
+                .base
+                .set_pixel_bw(&mut output_image[y as usize], x, 1);
         }
     }
 
@@ -246,7 +278,11 @@ impl<'a> NllBlock<'a> {
 impl NllHalftoning {
     /// `CNLLHalftoning::CNLLHalftoning(Threshold, Input, Output)` (:256-261): throws for an output image
     /// type other than `itBW`.
-    pub fn new(threshold: i32, input_image_type: ImageType, output_image_type: ImageType) -> Result<Self, HalftoneError> {
+    pub fn new(
+        threshold: i32,
+        input_image_type: ImageType,
+        output_image_type: ImageType,
+    ) -> Result<Self, HalftoneError> {
         let base = HalftoneBase::new(input_image_type, output_image_type);
         if base.get_output_image_type() != ImageType::BW {
             return Err(HalftoneError::UnsupportedImageType);

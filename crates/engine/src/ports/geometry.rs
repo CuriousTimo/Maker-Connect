@@ -18,7 +18,10 @@ pub mod lw450 {
 
     /// The PPD marked as `ppdMarkDefaults` and the options give it (`CupsFilter.h:225-238`). Moved here
     /// from `page.rs` (HS1); the port uses it from here.
-    pub fn marked_ppd(open: &dyn Fn() -> Option<PpdFile>, options: &[CupsOption]) -> Result<PpdFile, String> {
+    pub fn marked_ppd(
+        open: &dyn Fn() -> Option<PpdFile>,
+        options: &[CupsOption],
+    ) -> Result<PpdFile, String> {
         let mut ppd = open().ok_or("no PPD")?;
         ppd.mark_defaults();
         for o in options {
@@ -60,7 +63,11 @@ pub mod lw450 {
             ppd.mark_defaults();
             ppd.page_size_names()
         };
-        let choices = OPTIONS.iter().find(|o| o.keyword == "PageSize").map(|o| o.choices).unwrap_or(&[]);
+        let choices = OPTIONS
+            .iter()
+            .find(|o| o.keyword == "PageSize")
+            .map(|o| o.choices)
+            .unwrap_or(&[]);
         names
             .into_iter()
             .filter_map(|name| {
@@ -108,7 +115,14 @@ pub mod lw450 {
                 let cells = roll
                     .cells
                     .iter()
-                    .map(|[x, y, w, h]| [dot(x / 20.0 - left), dot(y / 20.0 - top_margin), dot(w / 20.0), dot(h / 20.0)])
+                    .map(|[x, y, w, h]| {
+                        [
+                            dot(x / 20.0 - left),
+                            dot(y / 20.0 - top_margin),
+                            dot(w / 20.0),
+                            dot(h / 20.0),
+                        ]
+                    })
                     .collect();
                 Some(CatalogRoll { roll, page, cells })
             })
@@ -143,13 +157,22 @@ pub mod lw450 {
         #[cfg(feature = "devices")]
         #[test]
         fn the_port_takes_every_size_the_facade_gives() {
-            use crate::ports::dymo_cups::page::{make_page, Picture};
+            use crate::ports::dymo_cups::page::{Picture, make_page};
             let open = || Some(PpdFile::lw450());
             for g in page_sizes() {
                 let (w, h) = (g.dots[0], g.dots[1]);
-                let picture = Picture { width: w, height: h, rgb: vec![255; (w * h * 3) as usize] };
+                let picture = Picture {
+                    width: w,
+                    height: h,
+                    rgb: vec![255; (w * h * 3) as usize],
+                };
                 match make_page(&picture, None, Some(g.length_mm), "", &open) {
-                    Ok(page) => assert_eq!([page.header.cups_width, page.header.cups_height], g.dots, "{}", g.name),
+                    Ok(page) => assert_eq!(
+                        [page.header.cups_width, page.header.cups_height],
+                        g.dots,
+                        "{}",
+                        g.name
+                    ),
                     // a length shared by different pages of the same dots: the port refuses it as ambiguous
                     Err(e) => assert!(e.starts_with("several labels"), "{}: {e}", g.name),
                 }
@@ -163,10 +186,14 @@ pub mod lw450 {
 mod named_page_tests {
     use super::lw450::page_sizes;
     use crate::ports::dymo_cups::cups::ppd::PpdFile;
-    use crate::ports::dymo_cups::page::{make_page, Picture};
+    use crate::ports::dymo_cups::page::{Picture, make_page};
 
     fn blank(w: u32, h: u32) -> Picture {
-        Picture { width: w, height: h, rgb: vec![255; (w * h * 3) as usize] }
+        Picture {
+            width: w,
+            height: h,
+            rgb: vec![255; (w * h * 3) as usize],
+        }
     }
 
     #[test]
@@ -175,9 +202,25 @@ mod named_page_tests {
         for name in ["w79h252", "w79h252.1", "w79h252.2"] {
             let g = page_sizes().into_iter().find(|g| g.name == name).unwrap();
             // by length the port cannot tell them apart in this PPD
-            let by_length = make_page(&blank(g.dots[0], g.dots[1]), None, Some(g.length_mm), "", &open);
-            assert!(by_length.unwrap_err().starts_with("several labels"), "{name}");
-            let page = make_page(&blank(g.dots[0], g.dots[1]), Some(name), Some(g.length_mm), "", &open).unwrap();
+            let by_length = make_page(
+                &blank(g.dots[0], g.dots[1]),
+                None,
+                Some(g.length_mm),
+                "",
+                &open,
+            );
+            assert!(
+                by_length.unwrap_err().starts_with("several labels"),
+                "{name}"
+            );
+            let page = make_page(
+                &blank(g.dots[0], g.dots[1]),
+                Some(name),
+                Some(g.length_mm),
+                "",
+                &open,
+            )
+            .unwrap();
             assert_eq!(page.header.cups_page_size_name, name);
             assert_eq!([page.header.cups_width, page.header.cups_height], g.dots);
         }
@@ -196,6 +239,9 @@ mod named_page_tests {
     fn a_job_without_a_name_keeps_the_length_rule() {
         let open = || Some(PpdFile::lw450());
         let page = make_page(&blank(271, 254), None, Some(25), "", &open).unwrap();
-        assert_eq!([page.header.cups_width, page.header.cups_height], [271, 254]);
+        assert_eq!(
+            [page.header.cups_width, page.header.cups_height],
+            [271, 254]
+        );
     }
 }

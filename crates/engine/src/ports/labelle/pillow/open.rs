@@ -16,7 +16,11 @@ const MAX_IMAGE_PIXELS: u64 = 1024 * 1024 * 1024 / 4 / 3;
 
 /// Python's `repr()` of a `str`, for the messages that show a path.
 pub fn py_repr(s: &str) -> String {
-    let quote = if s.contains('\'') && !s.contains('"') { '"' } else { '\'' };
+    let quote = if s.contains('\'') && !s.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
     let mut out = String::new();
     out.push(quote);
     for c in s.chars() {
@@ -29,7 +33,9 @@ pub fn py_repr(s: &str) -> String {
                 out.push('\\');
                 out.push(c);
             }
-            c if (c as u32) < 0x20 || c as u32 == 0x7f => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
+                out.push_str(&format!("\\x{:02x}", c as u32))
+            }
             c => out.push(c),
         }
     }
@@ -59,11 +65,16 @@ impl std::fmt::Display for OpenError {
 pub fn open(bytes: &[u8], filename: &str) -> Result<Image, OpenError> {
     // `PngImagePlugin._accept`: the PNG signature.
     if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return Err(OpenError::Unidentified(format!("cannot identify image file {}", py_repr(filename))));
+        return Err(OpenError::Unidentified(format!(
+            "cannot identify image file {}",
+            py_repr(filename)
+        )));
     }
     let mut decoder = png::Decoder::new(bytes);
     decoder.set_transformations(png::Transformations::IDENTITY);
-    let mut reader = decoder.read_info().map_err(|e| OpenError::Other(format!("the PNG does not read: {e}")))?;
+    let mut reader = decoder
+        .read_info()
+        .map_err(|e| OpenError::Other(format!("the PNG does not read: {e}")))?;
     let (width, height) = (reader.info().width as usize, reader.info().height as usize);
     let (depth, color) = (reader.info().bit_depth as u8, reader.info().color_type);
     let palette_chunk = reader.info().palette.as_ref().map(|p| p.to_vec());
@@ -76,7 +87,9 @@ pub fn open(bytes: &[u8], filename: &str) -> Result<Image, OpenError> {
         )));
     }
     let mut buffer = vec![0; reader.output_buffer_size()];
-    let frame = reader.next_frame(&mut buffer).map_err(|e| OpenError::Other(format!("the PNG does not read: {e}")))?;
+    let frame = reader
+        .next_frame(&mut buffer)
+        .map_err(|e| OpenError::Other(format!("the PNG does not read: {e}")))?;
     let line = frame.line_size;
     let rows = (0..height).map(|y| &buffer[y * line..(y + 1) * line]);
 
@@ -90,7 +103,12 @@ pub fn open(bytes: &[u8], filename: &str) -> Result<Image, OpenError> {
         (8, C::GrayscaleAlpha) => Mode::LA,
         (16, C::GrayscaleAlpha) => Mode::Rgba,
         (8 | 16, C::Rgba) => Mode::Rgba,
-        _ => return Err(OpenError::Unidentified(format!("cannot identify image file {}", py_repr(filename)))),
+        _ => {
+            return Err(OpenError::Unidentified(format!(
+                "cannot identify image file {}",
+                py_repr(filename)
+            )));
+        }
     };
     let mut image = Image::new(mode, width, height);
     for (y, row) in rows.enumerate() {
@@ -143,7 +161,12 @@ pub fn open(bytes: &[u8], filename: &str) -> Result<Image, OpenError> {
         for i in 0..256 {
             palette[i * 4 + 3] = 255;
         }
-        for (i, rgb) in palette_chunk.unwrap_or_default().chunks_exact(3).take(256).enumerate() {
+        for (i, rgb) in palette_chunk
+            .unwrap_or_default()
+            .chunks_exact(3)
+            .take(256)
+            .enumerate()
+        {
             palette[i * 4..i * 4 + 3].copy_from_slice(rgb);
         }
         image.palette = Some(palette);

@@ -79,8 +79,10 @@ impl Events {
 impl Events {
     /// `events.py:149 _to_identifier(name)`, with `_first_cap_re` (:145) and `_all_cap_re` (:146)
     pub fn _to_identifier(name: &str) -> String {
-        static FIRST_CAP_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([^_])([A-Z][a-z]+)").expect("valid regex"));
-        static ALL_CAP_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([a-z0-9])([A-Z])").expect("valid regex"));
+        static FIRST_CAP_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"([^_])([A-Z][a-z]+)").expect("valid regex"));
+        static ALL_CAP_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"([a-z0-9])([A-Z])").expect("valid regex"));
         let s1 = FIRST_CAP_RE.replace_all(name, r"${1}_${2}");
         ALL_CAP_RE.replace_all(&s1, r"${1}_${2}").to_uppercase()
     }
@@ -150,7 +152,10 @@ impl EventManager {
             pending: std::sync::atomic::AtomicI64::new(0),
         });
         let me = manager.clone();
-        manager.worker.start(move || me._work()).expect("the worker starts once");
+        manager
+            .worker
+            .start(move || me._work())
+            .expect("the worker starts once");
         manager
     }
 
@@ -161,7 +166,9 @@ impl EventManager {
             while !self.shutdown_signaled.load(Ordering::SeqCst) {
                 let (event, payload) = match self.queue.get(true, None) {
                     Ok(item) => item,
-                    Err(GetError::Empty) | Err(GetError::ShutDown) | Err(GetError::ValueError(_)) => {
+                    Err(GetError::Empty)
+                    | Err(GetError::ShutDown)
+                    | Err(GetError::ValueError(_)) => {
                         panic!("Exception: the event queue raised")
                     }
                 };
@@ -171,8 +178,12 @@ impl EventManager {
                     self.shutdown_signaled.store(true, Ordering::SeqCst);
                 }
 
-                let listeners: Vec<Listener> =
-                    self.registered_listeners.plock().get(&event).cloned().unwrap_or_default();
+                let listeners: Vec<Listener> = self
+                    .registered_listeners
+                    .plock()
+                    .get(&event)
+                    .cloned()
+                    .unwrap_or_default();
                 // self._logger_fire.debug(f"Firing event: {event} (Payload: {payload!r})")
 
                 for listener in listeners {
@@ -225,17 +236,24 @@ impl EventManager {
         if send_held_back {
             // self._logger.info("Adding {} events to queue that were held back before startup event")
             while let Ok(item) = self.held_back.get(false, None) {
-                self.queue.put(item, true, None).expect("an unbounded queue accepts the item");
+                self.queue
+                    .put(item, true, None)
+                    .expect("an unbounded queue accepts the item");
             }
         }
     }
 
     /// `events.py:238 _enqueue`
     fn _enqueue(&self, event: &str, payload: Option<Value>) {
-        let q = if self.startup_signaled.load(Ordering::SeqCst) { &self.queue } else { &self.held_back };
+        let q = if self.startup_signaled.load(Ordering::SeqCst) {
+            &self.queue
+        } else {
+            &self.held_back
+        };
         #[cfg(test)]
         self.pending.fetch_add(1, Ordering::SeqCst);
-        q.put((event.to_string(), payload), true, None).expect("an unbounded queue accepts the item");
+        q.put((event.to_string(), payload), true, None)
+            .expect("an unbounded queue accepts the item");
     }
 
     /// `events.py:253 subscribe(event, callback)`: 'Subscribe a listener to an event -- pass in the event
@@ -267,7 +285,10 @@ impl EventManager {
     pub(crate) fn wait_idle(&self) {
         let start = std::time::Instant::now();
         while self.pending.load(Ordering::SeqCst) > 0 {
-            assert!(start.elapsed() < std::time::Duration::from_secs(10), "the event worker did not deliver the events in 10 s");
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(10),
+                "the event worker did not deliver the events in 10 s"
+            );
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
     }
@@ -316,12 +337,18 @@ mod tests {
         assert!(!m.worker.is_alive(), "the worker ends after SHUTDOWN");
     }
 
-    fn recorder(m: &EventManager, events: &[&str]) -> Arc<Mutex<Vec<(String, Option<Value>, std::thread::ThreadId)>>> {
+    fn recorder(
+        m: &EventManager,
+        events: &[&str],
+    ) -> Arc<Mutex<Vec<(String, Option<Value>, std::thread::ThreadId)>>> {
         let seen = Arc::new(Mutex::new(Vec::new()));
         for event in events {
             let seen = seen.clone();
-            let listener: Listener =
-                Arc::new(move |e, p| seen.lock().unwrap().push((e.to_string(), p.cloned(), std::thread::current().id())));
+            let listener: Listener = Arc::new(move |e, p| {
+                seen.lock()
+                    .unwrap()
+                    .push((e.to_string(), p.cloned(), std::thread::current().id()))
+            });
             m.subscribe(event, listener);
         }
         seen
@@ -334,7 +361,10 @@ mod tests {
         let s2 = seen.clone();
         let l: Listener = Arc::new(move |event, payload| {
             assert_eq!("Test", event);
-            s2.fetch_add(payload.and_then(Value::as_i64).unwrap_or(1), Ordering::SeqCst);
+            s2.fetch_add(
+                payload.and_then(Value::as_i64).unwrap_or(1),
+                Ordering::SeqCst,
+            );
         });
         m.subscribe("Test", l.clone());
         m.subscribe("Test", l.clone()); // already subscribed (:256)
@@ -388,9 +418,18 @@ mod tests {
 
         m.fire(Events::STARTUP, None);
         m.wait_idle();
-        let names: Vec<(String, Option<Value>)> = seen.lock().unwrap().iter().map(|(e, p, _)| (e.clone(), p.clone())).collect();
+        let names: Vec<(String, Option<Value>)> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(e, p, _)| (e.clone(), p.clone()))
+            .collect();
         assert_eq!(
-            vec![("Startup".to_string(), None), ("A".to_string(), Some(json!(1))), ("B".to_string(), Some(json!(2)))],
+            vec![
+                ("Startup".to_string(), None),
+                ("A".to_string(), Some(json!(1))),
+                ("B".to_string(), Some(json!(2)))
+            ],
             names
         );
         assert_eq!(0, m.held_back.qsize());
@@ -411,7 +450,12 @@ mod tests {
         m.fire("After", None);
         m.worker.join(Some(10.0)).expect("started");
         assert!(!m.worker.is_alive());
-        let names: Vec<String> = seen.lock().unwrap().iter().map(|(e, _, _)| e.clone()).collect();
+        let names: Vec<String> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(e, _, _)| e.clone())
+            .collect();
         assert_eq!(vec!["Shutdown".to_string()], names);
         assert!(m.shutdown_signaled.load(Ordering::SeqCst));
         assert_eq!(1, m.queue.qsize());
@@ -434,7 +478,10 @@ mod tests {
         m.wait_idle(); // STARTUP is delivered before the plugin and the sink are registered
         let log: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let l = log.clone();
-        m.subscribe("Order", Arc::new(move |e, _| l.lock().unwrap().push(format!("listener {e}"))));
+        m.subscribe(
+            "Order",
+            Arc::new(move |e, _| l.lock().unwrap().push(format!("listener {e}"))),
+        );
         let l = log.clone();
         m.register_event_handler_plugin(Arc::new(move |e, _| {
             l.lock().unwrap().push(format!("plugin {e}"));
@@ -448,8 +495,21 @@ mod tests {
         m.fire("Order", None); // the worker is alive after a plugin and a sink that raised
         m.wait_idle();
         assert_eq!(
-            vec!["listener Order", "plugin Order", "sink Order", "plugin Boom", "sink Boom", "listener Order", "plugin Order", "sink Order"],
-            log.lock().unwrap().iter().map(String::as_str).collect::<Vec<_>>()
+            vec![
+                "listener Order",
+                "plugin Order",
+                "sink Order",
+                "plugin Boom",
+                "sink Boom",
+                "listener Order",
+                "plugin Order",
+                "sink Order"
+            ],
+            log.lock()
+                .unwrap()
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
         );
         shutdown(&m);
     }

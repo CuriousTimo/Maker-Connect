@@ -67,7 +67,10 @@ pub const TICK: Duration = Duration::from_millis(100);
 
 /// How the port gets its machine.
 enum Source {
-    Open { port: Option<String>, baud: Option<u32> },
+    Open {
+        port: Option<String>,
+        baud: Option<u32>,
+    },
     Machine(Box<GrblMachine>),
 }
 
@@ -79,12 +82,16 @@ pub struct LaserFoundryPort {
 impl LaserFoundryPort {
     /// The port for `--port` and `--baud` as given (G14).
     pub fn new(port: Option<String>, baud: Option<u32>) -> Self {
-        LaserFoundryPort { source: Source::Open { port, baud } }
+        LaserFoundryPort {
+            source: Source::Open { port, baud },
+        }
     }
 
     /// The port over a machine already made (the tests', and simulators').
     pub fn with_machine(machine: GrblMachine) -> Self {
-        LaserFoundryPort { source: Source::Machine(Box::new(machine)) }
+        LaserFoundryPort {
+            source: Source::Machine(Box::new(machine)),
+        }
     }
 }
 
@@ -126,13 +133,29 @@ pub fn commands_for(action: &Action) -> Result<Vec<Command>, String> {
 
 fn done(id: u32, result: Result<Vec<String>, String>) -> Event {
     Event::Done(match result {
-        Ok(output) => CommandDone { id, ok: true, reason: None, output },
-        Err(reason) => CommandDone { id, ok: false, reason: Some(reason), output: Vec::new() },
+        Ok(output) => CommandDone {
+            id,
+            ok: true,
+            reason: None,
+            output,
+        },
+        Err(reason) => CommandDone {
+            id,
+            ok: false,
+            reason: Some(reason),
+            output: Vec::new(),
+        },
     })
 }
 
 fn failed_job(id: i64, reason: String) -> Event {
-    Event::JobEnd(JobEnd { id, ok: false, stopped: false, reason: Some(reason), restart_line: None })
+    Event::JobEnd(JobEnd {
+        id,
+        ok: false,
+        stopped: false,
+        reason: Some(reason),
+        restart_line: None,
+    })
 }
 
 impl Port for LaserFoundryPort {
@@ -170,7 +193,9 @@ impl Port for LaserFoundryPort {
                         }
                         Order::Command { id, action } => {
                             let result = match (&mut machine, &action) {
-                                (Some(machine), Action::Frame { download }) => frame_of(machine, download),
+                                (Some(machine), Action::Frame { download }) => {
+                                    frame_of(machine, download)
+                                }
                                 (None, _) => Err("Not connected".to_owned()),
                                 (machine, action) => match (machine, commands_for(action)) {
                                     (_, Err(why)) => Err(why),
@@ -189,11 +214,18 @@ impl Port for LaserFoundryPort {
                         }
                         Order::Job { order, file } => {
                             let started = match &mut machine {
-                                None => Err("Connect to a machine (or the simulator) first".to_owned()),
+                                None => {
+                                    Err("Connect to a machine (or the simulator) first".to_owned())
+                                }
                                 Some(machine) => std::fs::read_to_string(&file)
                                     .map_err(|e| format!("could not read the job's file: {e}"))
                                     .and_then(|program| {
-                                        machine.start(order.id, &order.name, program, order.from_line)
+                                        machine.start(
+                                            order.id,
+                                            &order.name,
+                                            program,
+                                            order.from_line,
+                                        )
                                     }),
                             };
                             if let Err(why) = started {
@@ -217,7 +249,9 @@ impl Port for LaserFoundryPort {
                     return;
                 }
             }
-            let Some(machine) = machine.as_mut() else { continue };
+            let Some(machine) = machine.as_mut() else {
+                continue;
+            };
             let update = machine.report();
             let mut telemetry = update.telemetry;
             if telemetry.problem.is_none() {
@@ -264,7 +298,8 @@ fn open(port: Option<String>, baud: Option<u32>) -> Result<GrblMachine, String> 
 
 /// G4: the frame of the file the link fetched, at `path`.
 fn frame_of(machine: &mut GrblMachine, path: &str) -> Result<Ticket, String> {
-    let file = std::fs::File::open(path).map_err(|e| format!("could not read the frame's file: {e}"))?;
+    let file =
+        std::fs::File::open(path).map_err(|e| format!("could not read the frame's file: {e}"))?;
     let bounds = extent(std::io::BufReader::new(file)).ok_or("the file has no moves to frame")?;
     machine.frame(bounds)
 }
@@ -276,8 +311,15 @@ pub fn extent(lines: impl std::io::BufRead) -> Option<[f64; 4]> {
     let (mut x, mut y) = (0.0f64, 0.0f64);
     let mut bounds: Option<[f64; 4]> = None;
     for line in lines.lines().map_while(Result::ok) {
-        let code = line.split([';', '(']).next().unwrap_or("").trim().to_ascii_uppercase();
-        let Some(first) = code.split_whitespace().next() else { continue };
+        let code = line
+            .split([';', '('])
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_uppercase();
+        let Some(first) = code.split_whitespace().next() else {
+            continue;
+        };
         let value = |letter: char| {
             code.split_whitespace()
                 .skip(1)

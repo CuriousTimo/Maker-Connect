@@ -51,7 +51,10 @@ pub fn plugin_manager() -> &'static PluginManager {
 impl PluginManager {
     /// OURS: an empty manager (no plugin loaded)
     pub fn new() -> PluginManager {
-        PluginManager { plugin_hooks: Mutex::new(Vec::new()), registered_clients: Mutex::new(Vec::new()) }
+        PluginManager {
+            plugin_hooks: Mutex::new(Vec::new()),
+            registered_clients: Mutex::new(Vec::new()),
+        }
     }
 
     /// OURS: what plugin loading does for one entry of a plugin's `__plugin_hooks__`

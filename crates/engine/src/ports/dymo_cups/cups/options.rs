@@ -23,7 +23,10 @@ fn add_option(name: &str, value: &str, options: &mut Vec<CupsOption>) {
             return;
         }
     }
-    options.push(CupsOption { name: name.to_owned(), value: value.to_owned() });
+    options.push(CupsOption {
+        name: name.to_owned(),
+        value: value.to_owned(),
+    });
 }
 
 /// `cupsParseOptions(arg, num_options, &options)` (:260-465), `options.c`: the options found added to `options`.
@@ -155,5 +158,8 @@ pub fn cups_parse_options(arg: &str, options: &mut Vec<CupsOption>) {
 
 /// `cupsGetOption` (`options.c`): the value of the named option, the name compared without case.
 pub fn cups_get_option<'a>(name: &str, options: &'a [CupsOption]) -> Option<&'a str> {
-    options.iter().find(|o| o.name.eq_ignore_ascii_case(name)).map(|o| o.value.as_str())
+    options
+        .iter()
+        .find(|o| o.name.eq_ignore_ascii_case(name))
+        .map(|o| o.value.as_str())
 }

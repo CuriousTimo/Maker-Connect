@@ -81,7 +81,10 @@ pub struct BackChannel {
 
 impl BackChannel {
     pub fn new() -> Arc<BackChannel> {
-        Arc::new(BackChannel { state: Mutex::new((VecDeque::new(), false)), cond: Condvar::new() })
+        Arc::new(BackChannel {
+            state: Mutex::new((VecDeque::new(), false)),
+            cond: Condvar::new(),
+        })
     }
 
     /// `cupsBackChannelWrite(buffer, bytes, timeout)`: all the bytes, or -1 (never: the pipe has room).
@@ -104,7 +107,11 @@ impl BackChannel {
     /// -1 on a timeout; 0 at the end of the pipe.
     pub fn read(&self, buffer: &mut [u8], timeout: f64) -> isize {
         let mut s = self.state.lock().unwrap();
-        let deadline = if timeout < 0.0 { None } else { Some(Instant::now() + Duration::from_secs_f64(timeout)) };
+        let deadline = if timeout < 0.0 {
+            None
+        } else {
+            Some(Instant::now() + Duration::from_secs_f64(timeout))
+        };
         while s.0.is_empty() && !s.1 {
             match deadline {
                 None => s = self.cond.wait(s).unwrap(),
@@ -145,7 +152,14 @@ const PIPE_SIZE: usize = 65536;
 
 impl Pipe {
     pub fn new() -> Arc<Pipe> {
-        Arc::new(Pipe { state: Mutex::new(PipeState { data: VecDeque::new(), writer_closed: false, reader_gone: false }), cond: Condvar::new() })
+        Arc::new(Pipe {
+            state: Mutex::new(PipeState {
+                data: VecDeque::new(),
+                writer_closed: false,
+                reader_gone: false,
+            }),
+            cond: Condvar::new(),
+        })
     }
 
     /// `write(1, ...)` of the filter: all of `data`, waiting while the pipe is full; `Err(EPIPE)` when the
@@ -162,7 +176,11 @@ impl Pipe {
                 if cancelled() {
                     return Err(32);
                 }
-                s = self.cond.wait_timeout(s, Duration::from_millis(50)).unwrap().0;
+                s = self
+                    .cond
+                    .wait_timeout(s, Duration::from_millis(50))
+                    .unwrap()
+                    .0;
                 continue;
             }
             let n = room.min(rest.len());
@@ -218,7 +236,13 @@ pub fn print_device(
     waiting: &mut dyn FnMut(),
     found: &mut dyn FnMut(),
 ) -> Option<i32> {
-    let printer = wait_for_printer(host, manufacturer, model, &mut || stop.load(Ordering::SeqCst), waiting);
+    let printer = wait_for_printer(
+        host,
+        manufacturer,
+        model,
+        &mut || stop.load(Ordering::SeqCst),
+        waiting,
+    );
     let Some(printer) = printer else {
         pipe.close_reader();
         return None;
@@ -257,8 +281,15 @@ impl Backend {
 
         if printer.has_read_endpoint() {
             have_backchannel = true;
-            let (p, bc, stop, done) = (printer.clone(), back_channel.clone(), read_thread_stop.clone(), read_thread_done.clone());
-            read_thread = Some(std::thread::spawn(move || read_thread_fn(&*p, &bc, &stop, &done)));
+            let (p, bc, stop, done) = (
+                printer.clone(),
+                back_channel.clone(),
+                read_thread_stop.clone(),
+                read_thread_done.clone(),
+            );
+            read_thread = Some(std::thread::spawn(move || {
+                read_thread_fn(&*p, &bc, &stop, &done)
+            }));
         } else {
             stderr::write("DEBUG: Uni-directional device/mode, back channel deactivated.\n");
         }
@@ -266,7 +297,16 @@ impl Backend {
         // "The main thread sends the print file..."
         stderr::write("INFO: Sending data to printer.\n");
 
-        Backend { printer, back_channel, read_thread, read_thread_stop, read_thread_done, have_backchannel, total_bytes: 0, status: CUPS_BACKEND_OK }
+        Backend {
+            printer,
+            back_channel,
+            read_thread,
+            read_thread_stop,
+            read_thread_done,
+            have_backchannel,
+            total_bytes: 0,
+            status: CUPS_BACKEND_OK,
+        }
     }
 
     /// The body of the read loop (:340-444) for one read of the filter's pipe: "Check if we have print data
@@ -279,10 +319,15 @@ impl Backend {
         for chunk in data.chunks(8192) {
             let mut print_bytes = chunk.len();
             let mut print_ptr = 0usize;
-            stderr::write(&format!("DEBUG: Read {} bytes of print data...\n", print_bytes));
+            stderr::write(&format!(
+                "DEBUG: Read {} bytes of print data...\n",
+                print_bytes
+            ));
 
             while print_bytes > 0 {
-                let mut iostatus = self.printer.bulk_write(&chunk[print_ptr..print_ptr + print_bytes]);
+                let mut iostatus = self
+                    .printer
+                    .bulk_write(&chunk[print_ptr..print_ptr + print_bytes]);
 
                 // "Ignore timeout errors, but retain the number of bytes written to avoid sending
                 // duplicate data..."
@@ -293,19 +338,26 @@ impl Backend {
                 // "If we've stalled, retry the write..."
                 else if iostatus == Err(UsbError::Pipe) {
                     stderr::write("DEBUG: Got USB pipe stalled during write.\n");
-                    iostatus = self.printer.bulk_write(&chunk[print_ptr..print_ptr + print_bytes]);
+                    iostatus = self
+                        .printer
+                        .bulk_write(&chunk[print_ptr..print_ptr + print_bytes]);
                 }
                 // "Retry a write after an aborted write since we probably just got SIGTERM..."
                 else if iostatus == Err(UsbError::Interrupted) {
                     stderr::write("DEBUG: Got USB return aborted during write.\n");
-                    iostatus = self.printer.bulk_write(&chunk[print_ptr..print_ptr + print_bytes]);
+                    iostatus = self
+                        .printer
+                        .bulk_write(&chunk[print_ptr..print_ptr + print_bytes]);
                 }
 
                 match iostatus {
                     Err(e) => {
                         // "Write error - bail if we don't see an error we can retry..."
                         stderr::write("ERROR: Unable to send data to printer.\n");
-                        stderr::write(&format!("DEBUG: libusb write operation returned {:x}.\n", e.code()));
+                        stderr::write(&format!(
+                            "DEBUG: libusb write operation returned {:x}.\n",
+                            e.code()
+                        ));
                         self.status = CUPS_BACKEND_FAILED;
                         return Err(32);
                     }
@@ -335,14 +387,20 @@ impl Backend {
             if !*done {
                 stderr::write("DEBUG: Waiting for read thread to exit...\n");
 
-                let (d, timeout) = cond.wait_timeout_while(done, Duration::from_secs(WAIT_EOF_DELAY), |d| !*d).unwrap();
+                let (d, timeout) = cond
+                    .wait_timeout_while(done, Duration::from_secs(WAIT_EOF_DELAY), |d| !*d)
+                    .unwrap();
                 done = d;
 
                 // "If it didn't exit abort the pending read and wait an additional second..."
                 if timeout.timed_out() && !*done {
-                    stderr::write("DEBUG: Read thread still active, aborting the pending read...\n");
+                    stderr::write(
+                        "DEBUG: Read thread still active, aborting the pending read...\n",
+                    );
                     self.printer.close();
-                    let (d, _) = cond.wait_timeout_while(done, Duration::from_secs(1), |d| !*d).unwrap();
+                    let (d, _) = cond
+                        .wait_timeout_while(done, Duration::from_secs(1), |d| !*d)
+                        .unwrap();
                     done = d;
                 }
             }
@@ -360,20 +418,32 @@ impl Backend {
 }
 
 /// `read_thread` (`usb-libusb.c:1820-1873`): "Thread to read the backchannel data on."
-fn read_thread_fn(printer: &dyn UsbPrinterIo, back_channel: &BackChannel, stop: &AtomicBool, done: &(Mutex<bool>, Condvar)) {
+fn read_thread_fn(
+    printer: &dyn UsbPrinterIo,
+    back_channel: &BackChannel,
+    stop: &AtomicBool,
+    done: &(Mutex<bool>, Condvar),
+) {
     loop {
         // "Try reading from the OUT (to host) endpoint..."
         let rd = printer.bulk_read(512, 60000);
         let mut ok_bytes = false;
         match &rd {
             Ok(b) if !b.is_empty() => {
-                stderr::write(&format!("DEBUG: Read {} bytes of back-channel data...\n", b.len()));
+                stderr::write(&format!(
+                    "DEBUG: Read {} bytes of back-channel data...\n",
+                    b.len()
+                ));
                 back_channel.write(b);
                 ok_bytes = true;
             }
-            Err(UsbError::Timeout) => stderr::write("DEBUG: Got USB transaction timeout during read.\n"),
+            Err(UsbError::Timeout) => {
+                stderr::write("DEBUG: Got USB transaction timeout during read.\n")
+            }
             Err(UsbError::Pipe) => stderr::write("DEBUG: Got USB pipe stalled during read.\n"),
-            Err(UsbError::Interrupted) => stderr::write("DEBUG: Got USB return aborted during read.\n"),
+            Err(UsbError::Interrupted) => {
+                stderr::write("DEBUG: Got USB return aborted during read.\n")
+            }
             _ => {}
         }
 
@@ -438,9 +508,9 @@ mod nusb_host {
     use nusb::MaybeFuture;
     use nusb::descriptors::TransferType;
     use nusb::transfer::{Buffer, Bulk, ControlIn, ControlType, In, Out, Recipient, TransferError};
-    use std::sync::{Arc, Mutex};
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     /// The system's USB (`libusb_init`, `libusb_get_device_list`).
@@ -506,7 +576,9 @@ mod nusb_host {
             TransferError::Cancelled => UsbError::Interrupted,
             TransferError::Stall => UsbError::Pipe,
             TransferError::Disconnected => UsbError::Other(-4),
-            TransferError::Fault | TransferError::Unknown(_) | TransferError::InvalidArgument => UsbError::Other(-1),
+            TransferError::Fault | TransferError::Unknown(_) | TransferError::InvalidArgument => {
+                UsbError::Other(-1)
+            }
         }
     }
 
@@ -519,13 +591,19 @@ mod nusb_host {
             let done = ep.transfer_blocking(buf, Duration::from_secs(3600));
             match done.status {
                 Ok(()) => Ok(done.actual_len),
-                Err(TransferError::Cancelled) if done.actual_len == 0 && !self.closing.load(Ordering::SeqCst) => Err(UsbError::Timeout),
+                Err(TransferError::Cancelled)
+                    if done.actual_len == 0 && !self.closing.load(Ordering::SeqCst) =>
+                {
+                    Err(UsbError::Timeout)
+                }
                 Err(e) => Err(map_err(e)),
             }
         }
 
         fn bulk_read(&self, max: usize, timeout_ms: u64) -> Result<Vec<u8>, UsbError> {
-            let Some(read) = &self.read else { return Err(UsbError::Other(-1)) };
+            let Some(read) = &self.read else {
+                return Err(UsbError::Other(-1));
+            };
             let mut ep = read.lock().unwrap();
             let start = std::time::Instant::now();
             loop {
@@ -587,7 +665,14 @@ mod nusb_host {
         let data = control_in(
             device,
             &BTreeMap::new(),
-            ControlIn { control_type: ControlType::Class, recipient: Recipient::Interface, request: 0, value: conf, index: ((iface as u16) << 8) | altset as u16, length: 1024 },
+            ControlIn {
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+                request: 0,
+                value: conf,
+                index: ((iface as u16) << 8) | altset as u16,
+                length: 1024,
+            },
             Duration::from_millis(5000),
         )
         .ok()?;
@@ -614,9 +699,18 @@ mod nusb_host {
     /// assembly.
     fn make_mfg_mdl(device_id: &str, device_info: &nusb::DeviceInfo) -> (String, String) {
         let values = get_1284_values(device_id);
-        let get = |k: &str| values.iter().find(|(n, _)| n.eq_ignore_ascii_case(k)).map(|(_, v)| v.clone());
-        let mut mfg = get("MANUFACTURER").or_else(|| get("MFG")).or_else(|| device_info.manufacturer_string().map(str::to_owned));
-        let mut mdl = get("MODEL").or_else(|| get("MDL")).or_else(|| device_info.product_string().map(str::to_owned));
+        let get = |k: &str| {
+            values
+                .iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case(k))
+                .map(|(_, v)| v.clone())
+        };
+        let mut mfg = get("MANUFACTURER")
+            .or_else(|| get("MFG"))
+            .or_else(|| device_info.manufacturer_string().map(str::to_owned));
+        let mut mdl = get("MODEL")
+            .or_else(|| get("MDL"))
+            .or_else(|| device_info.product_string().map(str::to_owned));
 
         if let Some(m) = &mfg {
             if m.eq_ignore_ascii_case("Hewlett-Packard") {
@@ -626,9 +720,18 @@ mod nusb_host {
             }
         }
         let mfg = mfg.unwrap_or_else(|| "Unknown".to_owned());
-        let mut mdl_s = mdl.take().unwrap_or_else(|| if mfg.to_ascii_lowercase().starts_with("unknown") { "Printer".to_owned() } else { "Unknown Model".to_owned() });
+        let mut mdl_s = mdl.take().unwrap_or_else(|| {
+            if mfg.to_ascii_lowercase().starts_with("unknown") {
+                "Printer".to_owned()
+            } else {
+                "Unknown Model".to_owned()
+            }
+        });
         let l = mfg.len();
-        if mdl_s.len() > l && mdl_s[..l].eq_ignore_ascii_case(&mfg) && mdl_s.as_bytes()[l].is_ascii_whitespace() {
+        if mdl_s.len() > l
+            && mdl_s[..l].eq_ignore_ascii_case(&mfg)
+            && mdl_s.as_bytes()[l].is_ascii_whitespace()
+        {
             mdl_s = mdl_s[l + 1..].trim_start().to_owned();
         }
         (mfg, mdl_s)
@@ -643,7 +746,9 @@ mod nusb_host {
                 if info.vendor_id() == 0 || info.product_id() == 0 {
                     continue;
                 }
-                let Ok(device) = info.open().wait() else { continue };
+                let Ok(device) = info.open().wait() else {
+                    continue;
+                };
 
                 // `find_device`'s loops (:855-1000): the first configuration/interface whose best alternate
                 // setting is a printer interface that `print_cb` takes
@@ -657,7 +762,11 @@ mod nusb_host {
                         for alt in iface.alt_settings() {
                             alt_count += 1;
                             // "Currently we only support unidirectional and bidirectional printers."
-                            if alt.class() != 7 || alt.subclass() != 1 || (alt.protocol() != 1 && alt.protocol() != 2) || alt.protocol() < protocol {
+                            if alt.class() != 7
+                                || alt.subclass() != 1
+                                || (alt.protocol() != 1 && alt.protocol() != 2)
+                                || alt.protocol() < protocol
+                            {
                                 continue;
                             }
                             let (mut read_endp, mut write_endp) = (None, None);
@@ -672,37 +781,73 @@ mod nusb_host {
                             }
                             if let Some(w) = write_endp {
                                 protocol = alt.protocol();
-                                best = Some((alt.alternate_setting(), w, if protocol > 1 { read_endp } else { None }));
+                                best = Some((
+                                    alt.alternate_setting(),
+                                    w,
+                                    if protocol > 1 { read_endp } else { None },
+                                ));
                             }
                         }
-                        let Some((altset, write_addr, read_addr)) = best else { continue };
+                        let Some((altset, write_addr, read_addr)) = best else {
+                            continue;
+                        };
                         let iface_number = iface.interface_number();
 
                         // get_device_id and `print_cb`
-                        let device_id = get_device_id(&device, conf_index as u16, iface_number, altset).unwrap_or_default();
+                        let device_id =
+                            get_device_id(&device, conf_index as u16, iface_number, altset)
+                                .unwrap_or_default();
                         let (mfg, mdl) = make_mfg_mdl(&device_id, &info);
                         if mfg != manufacturer || mdl != model {
                             continue;
                         }
-                        found = Some((conf_index, config.configuration_value(), iface_number, altset, read_addr, write_addr, alt_count));
+                        found = Some((
+                            conf_index,
+                            config.configuration_value(),
+                            iface_number,
+                            altset,
+                            read_addr,
+                            write_addr,
+                            alt_count,
+                        ));
                         break 'search;
                     }
                 }
-                let Some((_conf_index, config_value, iface_number, altset, read_addr, write_addr, alt_count)) = found else { continue };
+                let Some((
+                    _conf_index,
+                    config_value,
+                    iface_number,
+                    altset,
+                    read_addr,
+                    write_addr,
+                    alt_count,
+                )) = found
+                else {
+                    continue;
+                };
 
                 // open_device: "Set the desired configuration, but only if it needs changing."
-                let current = device.active_configuration().map(|c| c.configuration_value()).unwrap_or(0);
+                let current = device
+                    .active_configuration()
+                    .map(|c| c.configuration_value())
+                    .unwrap_or(0);
                 if config_value != current {
                     let _ = device.set_configuration(config_value).wait();
                 }
                 // "Get the "usblp" kernel module out of the way", "Claim interfaces as needed..."
-                let Ok(interface) = device.detach_and_claim_interface(iface_number).wait() else { continue };
+                let Ok(interface) = device.detach_and_claim_interface(iface_number).wait() else {
+                    continue;
+                };
                 // "Set alternate setting, but only if there is more than one option."
                 if alt_count > 1 && interface.set_alt_setting(altset).wait().is_err() {
                     continue;
                 }
-                let Ok(write) = interface.endpoint::<Bulk, Out>(write_addr) else { continue };
-                let read = read_addr.and_then(|a| interface.endpoint::<Bulk, In>(a).ok()).map(Mutex::new);
+                let Ok(write) = interface.endpoint::<Bulk, Out>(write_addr) else {
+                    continue;
+                };
+                let read = read_addr
+                    .and_then(|a| interface.endpoint::<Bulk, In>(a).ok())
+                    .map(Mutex::new);
                 return Some(Arc::new(NusbPrinter {
                     device,
                     write: Mutex::new(write),

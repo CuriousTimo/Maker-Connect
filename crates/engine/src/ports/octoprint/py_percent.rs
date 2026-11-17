@@ -73,7 +73,10 @@ impl PercentError {
 
     pub fn message(&self) -> &str {
         match self {
-            PercentError::TypeError(m) | PercentError::ValueError(m) | PercentError::KeyError(m) | PercentError::OverflowError(m) => m,
+            PercentError::TypeError(m)
+            | PercentError::ValueError(m)
+            | PercentError::KeyError(m)
+            | PercentError::OverflowError(m) => m,
         }
     }
 }
@@ -110,7 +113,10 @@ pub fn tp_name(v: &Value) -> &'static str {
 fn as_long(v: &Value) -> Option<i128> {
     match v {
         Value::Bool(b) => Some(*b as i128),
-        Value::Number(n) => n.as_i64().map(i128::from).or_else(|| n.as_u64().map(i128::from)),
+        Value::Number(n) => n
+            .as_i64()
+            .map(i128::from)
+            .or_else(|| n.as_u64().map(i128::from)),
         _ => None,
     }
 }
@@ -168,7 +174,12 @@ fn dtoa(d: f64, mode: i32, ndigits: i64) -> (String, i64) {
             return (String::new(), -ndigits);
         }
         let decpt = int_part.len() as i64 - lz as i64;
-        (all.trim_start_matches('0').trim_end_matches('0').to_string(), decpt)
+        (
+            all.trim_start_matches('0')
+                .trim_end_matches('0')
+                .to_string(),
+            decpt,
+        )
     }
 }
 
@@ -201,7 +212,14 @@ pub fn double_to_string(val: f64, format_code: char, precision: i64, alt: bool) 
 
 /// `format_float_short` (pystrtod.c:969) with `always_add_sign`, `add_dot_0_if_integer` and
 /// `no_negative_zero` all 0 (what `formatfloat` passes) and the lower- or upper-case `float_strings`.
-fn format_float_short(d: f64, format_code: char, mode: i32, precision: i64, upper: bool, use_alt_formatting: bool) -> String {
+fn format_float_short(
+    d: f64,
+    format_code: char,
+    mode: i32,
+    precision: i64,
+    upper: bool,
+    use_alt_formatting: bool,
+) -> String {
     let mut buf = String::new();
     let sign;
     let digits: String;
@@ -213,7 +231,11 @@ fn format_float_short(d: f64, format_code: char, mode: i32, precision: i64, uppe
             buf.push('-');
         }
         let word = if d.is_nan() { "nan" } else { "inf" };
-        buf.push_str(&if upper { word.to_uppercase() } else { word.to_string() });
+        buf.push_str(&if upper {
+            word.to_uppercase()
+        } else {
+            word.to_string()
+        });
         return buf;
     }
     let (dg, dp) = dtoa(d, mode, precision);
@@ -249,7 +271,11 @@ fn format_float_short(d: f64, format_code: char, mode: i32, precision: i64, uppe
     }
     // ensure vdigits_start < decpt <= vdigits_end
     let vdigits_start = if decpt <= 0 { decpt - 1 } else { 0 };
-    vdigits_end = if vdigits_end > decpt { vdigits_end } else { decpt };
+    vdigits_end = if vdigits_end > decpt {
+        vdigits_end
+    } else {
+        decpt
+    };
 
     if sign {
         buf.push('-');
@@ -291,7 +317,11 @@ fn format_float_short(d: f64, format_code: char, mode: i32, precision: i64, uppe
     if use_exp {
         buf.push(if upper { 'E' } else { 'e' });
         // sprintf(p, "%+.02d", exp)
-        buf.push_str(&format!("{}{:02}", if exp < 0 { '-' } else { '+' }, exp.abs()));
+        buf.push_str(&format!(
+            "{}{:02}",
+            if exp < 0 { '-' } else { '+' },
+            exp.abs()
+        ));
     }
     buf
 }
@@ -305,7 +335,10 @@ fn format_float_short(d: f64, format_code: char, mode: i32, precision: i64, uppe
 enum Long {
     Small(i128),
     /// the decimal digits of a (big) integer that came from a float, and its sign
-    FromFloat { negative: bool, digits: String },
+    FromFloat {
+        negative: bool,
+        digits: String,
+    },
 }
 
 /// `PyNumber_ToBase(val, base)` (`_PyLong_Format`, longobject.c:2461): decimal, or `long_format_binary`
@@ -355,7 +388,11 @@ fn float_to_decimal_integer(x: f64) -> Long {
     let bits = t.abs().to_bits();
     let exp = ((bits >> 52) & 0x7ff) as i64 - 1075;
     let m = (bits & ((1u64 << 52) - 1)) | (1u64 << 52);
-    let mut limbs: Vec<u32> = vec![(m % 1_000_000_000) as u32, ((m / 1_000_000_000) % 1_000_000_000) as u32, (m / 1_000_000_000_000_000_000) as u32];
+    let mut limbs: Vec<u32> = vec![
+        (m % 1_000_000_000) as u32,
+        ((m / 1_000_000_000) % 1_000_000_000) as u32,
+        (m / 1_000_000_000_000_000_000) as u32,
+    ];
     for _ in 0..exp {
         let mut carry = 0u64;
         for l in limbs.iter_mut() {
@@ -374,7 +411,10 @@ fn float_to_decimal_integer(x: f64) -> Long {
     for l in limbs.iter().rev().skip(1) {
         digits.push_str(&format!("{l:09}"));
     }
-    Long::FromFloat { negative: t < 0.0, digits }
+    Long::FromFloat {
+        negative: t < 0.0,
+        digits,
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -462,17 +502,26 @@ impl<'a> Ctx<'a> {
     fn formatfloat(&self, v: &Value, arg: &Arg) -> R<String> {
         let x = as_double(v)?;
         let prec = if arg.prec < 0 { 6 } else { arg.prec };
-        double_to_string(x, char::from_u32(arg.ch).expect("eEfFgG"), prec, arg.flags & F_ALT != 0)
+        double_to_string(
+            x,
+            char::from_u32(arg.ch).expect("eEfFgG"),
+            prec,
+            arg.flags & F_ALT != 0,
+        )
     }
 
     /// `_PyUnicode_FormatLong` (:14009)
     fn format_long(val: &Long, alt: bool, prec: i64, type_: u32) -> R<Vec<char>> {
         // Avoid exceeding SSIZE_T_MAX
         if prec > i32::MAX as i64 - 3 {
-            return Err(PercentError::OverflowError("precision too large".to_string()));
+            return Err(PercentError::OverflowError(
+                "precision too large".to_string(),
+            ));
         }
         if prec > MEMORY_LIMIT {
-            unimplemented!("%-formatting of an integer with a precision above {MEMORY_LIMIT} (ours, 5)");
+            unimplemented!(
+                "%-formatting of an integer with a precision above {MEMORY_LIMIT} (ours, 5)"
+            );
         }
         let mut numnondigits: i64 = 0;
         let result = match type_ {
@@ -525,9 +574,15 @@ impl<'a> Ctx<'a> {
         let wrongtype = |v: &Value| -> R<Formatted> {
             let c = char::from_u32(type_).expect("conversion");
             if type_ == ch('o') || type_ == ch('x') || type_ == ch('X') {
-                type_error(format!("%{c} format: an integer is required, not {}", tp_name(v)))
+                type_error(format!(
+                    "%{c} format: an integer is required, not {}",
+                    tp_name(v)
+                ))
             } else {
-                type_error(format!("%{c} format: a real number is required, not {}", tp_name(v)))
+                type_error(format!(
+                    "%{c} format: a real number is required, not {}",
+                    tp_name(v)
+                ))
             }
         };
         // PyNumber_Check: int, bool, float
@@ -547,13 +602,20 @@ impl<'a> Ctx<'a> {
                     return value_error("cannot convert float NaN to integer");
                 }
                 if x.is_infinite() {
-                    return Err(PercentError::OverflowError("cannot convert float infinity to integer".to_string()));
+                    return Err(PercentError::OverflowError(
+                        "cannot convert float infinity to integer".to_string(),
+                    ));
                 }
                 float_to_decimal_integer(x)
             }
         };
 
-        if is_long_exact(v) && arg.width == -1 && arg.prec == -1 && arg.flags & (F_SIGN | F_BLANK) == 0 && type_ != ch('X') {
+        if is_long_exact(v)
+            && arg.width == -1
+            && arg.prec == -1
+            && arg.flags & (F_SIGN | F_BLANK) == 0
+            && type_ != ch('X')
+        {
             // Fast path: `_PyLong_FormatWriter(writer, v, base, alternate)`
             let alternate = arg.flags & F_ALT != 0;
             let base = if type_ == ch('o') {
@@ -567,13 +629,22 @@ impl<'a> Ctx<'a> {
             if base != 10 && !alternate {
                 // long_format_binary with alternate = 0: no prefix
                 let neg = s.starts_with('-');
-                s = format!("{}{}", if neg { "-" } else { "" }, &s[if neg { 3 } else { 2 }..]);
+                s = format!(
+                    "{}{}",
+                    if neg { "-" } else { "" },
+                    &s[if neg { 3 } else { 2 }..]
+                );
             }
             self.writer.push_str(&s);
             return Ok(Formatted::Written);
         }
 
-        Ok(Formatted::Str(Self::format_long(&iobj, arg.flags & F_ALT != 0, arg.prec, type_)?))
+        Ok(Formatted::Str(Self::format_long(
+            &iobj,
+            arg.flags & F_ALT != 0,
+            arg.prec,
+            type_,
+        )?))
     }
 
     /// `formatchar` (:14232)
@@ -592,11 +663,15 @@ impl<'a> Ctx<'a> {
         };
         // `x < 0 || x > MAX_UNICODE` (an overflow of C long is -1 there)
         if x < 0 || x > MAX_UNICODE {
-            return Err(PercentError::OverflowError("%c arg not in range(0x110000)".to_string()));
+            return Err(PercentError::OverflowError(
+                "%c arg not in range(0x110000)".to_string(),
+            ));
         }
         match char::from_u32(x as u32) {
             Some(c) => Ok(c),
-            None => unimplemented!("%c of the surrogate code point {x:#x}: a Python str with a lone surrogate (ours, 4)"),
+            None => unimplemented!(
+                "%c of the surrogate code point {x:#x}: a Python str with a lone surrogate (ours, 4)"
+            ),
         }
     }
 
@@ -629,7 +704,9 @@ impl<'a> Ctx<'a> {
             if self.fmtcnt < 0 || pcount > 0 {
                 return value_error("incomplete format key");
             }
-            let key: String = self.fmt[keystart as usize..(keystart + keylen) as usize].iter().collect();
+            let key: String = self.fmt[keystart as usize..(keystart + keylen) as usize]
+                .iter()
+                .collect();
             // `PyObject_GetItem(ctx->dict, key)`
             let found = match dict {
                 Value::Object(o) => match o.get(&key) {
@@ -670,7 +747,9 @@ impl<'a> Ctx<'a> {
             };
             // PyLong_AsSsize_t
             if n > i64::MAX as i128 || n < i64::MIN as i128 {
-                return Err(PercentError::OverflowError("Python int too large to convert to C ssize_t".to_string()));
+                return Err(PercentError::OverflowError(
+                    "Python int too large to convert to C ssize_t".to_string(),
+                ));
             }
             arg.width = n as i64;
             if arg.width < 0 {
@@ -716,7 +795,9 @@ impl<'a> Ctx<'a> {
                 };
                 // PyLong_AsInt
                 if n > i32::MAX as i128 || n < i32::MIN as i128 {
-                    return Err(PercentError::OverflowError("Python int too large to convert to C int".to_string()));
+                    return Err(PercentError::OverflowError(
+                        "Python int too large to convert to C int".to_string(),
+                    ));
                 }
                 arg.prec = n as i64;
                 if arg.prec < 0 {
@@ -769,7 +850,8 @@ impl<'a> Ctx<'a> {
             Some('s') | Some('r') | Some('a') => {
                 if is_long_exact(v) && arg.width == -1 && arg.prec == -1 {
                     // Fast path
-                    self.writer.push_str(&long_to_base(&Long::Small(as_long(v).expect("int")), 10));
+                    self.writer
+                        .push_str(&long_to_base(&Long::Small(as_long(v).expect("int")), 10));
                     return Ok(Formatted::Written);
                 }
                 let s = match (c, v) {
@@ -780,13 +862,15 @@ impl<'a> Ctx<'a> {
                 };
                 Ok(Formatted::Str(s.chars().collect()))
             }
-            Some('i') | Some('d') | Some('u') | Some('o') | Some('x') | Some('X') => match self.mainformatlong(v, arg)? {
-                Formatted::Written => Ok(Formatted::Written),
-                s => {
-                    arg.sign = true;
-                    Ok(s)
+            Some('i') | Some('d') | Some('u') | Some('o') | Some('x') | Some('X') => {
+                match self.mainformatlong(v, arg)? {
+                    Formatted::Written => Ok(Formatted::Written),
+                    s => {
+                        arg.sign = true;
+                        Ok(s)
+                    }
                 }
-            },
+            }
             Some('e') | Some('E') | Some('f') | Some('F') | Some('g') | Some('G') => {
                 if arg.width == -1 && arg.prec == -1 && arg.flags & (F_SIGN | F_BLANK) == 0 {
                     // Fast path
@@ -808,7 +892,11 @@ impl<'a> Ctx<'a> {
             }
             _ => value_error(format!(
                 "unsupported format character '{}' (0x{:x}) at index {}",
-                if (31..=126).contains(&arg.ch) { char::from_u32(arg.ch).expect("ASCII") } else { '?' },
+                if (31..=126).contains(&arg.ch) {
+                    char::from_u32(arg.ch).expect("ASCII")
+                } else {
+                    '?'
+                },
                 arg.ch,
                 self.fmtpos - 1
             )),
@@ -823,7 +911,10 @@ impl<'a> Ctx<'a> {
         }
 
         let mut len = s.len() as i64;
-        if (arg.width == -1 || arg.width <= len) && (arg.prec == -1 || arg.prec >= len) && arg.flags & (F_SIGN | F_BLANK) == 0 {
+        if (arg.width == -1 || arg.width <= len)
+            && (arg.prec == -1 || arg.prec >= len)
+            && arg.flags & (F_SIGN | F_BLANK) == 0
+        {
             // Fast path
             self.writer.extend(s.iter());
             return;
@@ -871,7 +962,8 @@ impl<'a> Ctx<'a> {
         }
 
         // Write the numeric prefix for "x", "X" and "o" formats if the alternate form is used.
-        let alt_prefix = arg.flags & F_ALT != 0 && (arg.ch == ch('x') || arg.ch == ch('X') || arg.ch == ch('o'));
+        let alt_prefix =
+            arg.flags & F_ALT != 0 && (arg.ch == ch('x') || arg.ch == ch('X') || arg.ch == ch('o'));
         if alt_prefix {
             if fill != ' ' {
                 self.writer.push(s[pindex]);
@@ -888,7 +980,8 @@ impl<'a> Ctx<'a> {
         // Pad left with the fill character if needed
         if arg.width > len && arg.flags & F_LJUST == 0 {
             let sublen = arg.width - len;
-            self.writer.extend(std::iter::repeat(fill).take(sublen as usize));
+            self.writer
+                .extend(std::iter::repeat(fill).take(sublen as usize));
             arg.width = len;
         }
 
@@ -912,7 +1005,8 @@ impl<'a> Ctx<'a> {
         // Pad right with the fill character if needed
         if arg.width > len {
             let sublen = arg.width - len;
-            self.writer.extend(std::iter::repeat(' ').take(sublen as usize));
+            self.writer
+                .extend(std::iter::repeat(' ').take(sublen as usize));
         }
     }
 
@@ -925,7 +1019,13 @@ impl<'a> Ctx<'a> {
             self.writer.push('%');
             return Ok(());
         }
-        let mut arg = Arg { ch: c, flags: 0, width: -1, prec: -1, sign: false };
+        let mut arg = Arg {
+            ch: c,
+            flags: 0,
+            width: -1,
+            prec: -1,
+            sign: false,
+        };
 
         self.parse(&mut arg)?;
 
@@ -950,7 +1050,11 @@ pub fn percent_format(format: &str, args: &Value) -> R<String> {
         arglen: -1,
         argidx: -2,
         // `PyMapping_Check(args) && !PyTuple_Check(args) && !PyUnicode_Check(args)`
-        dict: if matches!(args, Value::Object(_) | Value::Array(_)) { Some(args) } else { None },
+        dict: if matches!(args, Value::Object(_) | Value::Array(_)) {
+            Some(args)
+        } else {
+            None
+        },
         fmtcnt: fmt.len() as i64,
         fmtpos: 0,
         fmt,
@@ -972,7 +1076,8 @@ pub fn percent_format(format: &str, args: &Value) -> R<String> {
             if ctx.fmtcnt < 0 {
                 ctx.fmtpos -= 1;
             }
-            ctx.writer.extend(ctx.fmt[nonfmtpos as usize..ctx.fmtpos as usize].iter());
+            ctx.writer
+                .extend(ctx.fmt[nonfmtpos as usize..ctx.fmtpos as usize].iter());
         } else {
             ctx.fmtpos += 1;
             ctx.format_one()?;
@@ -994,7 +1099,8 @@ mod tests {
     /// `Class: message` of the exception
     #[test]
     fn matches_cpython_3_13_percent() {
-        let fixture: Value = serde_json::from_str(include_str!("py_percent_expected.json")).expect("fixture");
+        let fixture: Value =
+            serde_json::from_str(include_str!("py_percent_expected.json")).expect("fixture");
         let cases = fixture["cases"].as_array().expect("cases");
         assert!(cases.len() > 1000, "the fixture has {} cases", cases.len());
         let mut failures = Vec::new();
@@ -1006,17 +1112,42 @@ mod tests {
                 Err(e) => json!({"error": e.to_string()}),
             };
             if &actual != expected {
-                failures.push(format!("{format:?} % {} -> {actual}, CPython: {expected}", case["args"]));
+                failures.push(format!(
+                    "{format:?} % {} -> {actual}, CPython: {expected}",
+                    case["args"]
+                ));
             }
         }
-        assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.iter().take(40).cloned().collect::<Vec<_>>().join("\n"));
+        assert!(
+            failures.is_empty(),
+            "{} of {} differ:\n{}",
+            failures.len(),
+            cases.len(),
+            failures
+                .iter()
+                .take(40)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
     }
 
     #[test]
     fn known_bugs_of_the_hand_written_version_are_gone() {
-        assert_eq!(Err(PercentError::TypeError("not enough arguments for format string".into())), percent_format("%s %s", &json!("a")));
+        assert_eq!(
+            Err(PercentError::TypeError(
+                "not enough arguments for format string".into()
+            )),
+            percent_format("%s %s", &json!("a"))
+        );
         assert_eq!(Ok("5".to_string()), percent_format("%ld", &json!(5)));
-        assert_eq!(Ok("1000000000000000019884624838656".to_string()), percent_format("%d", &json!(1e30)));
-        assert_eq!(Ok("18446744073709551615".to_string()), percent_format("%d", &json!(u64::MAX)));
+        assert_eq!(
+            Ok("1000000000000000019884624838656".to_string()),
+            percent_format("%d", &json!(1e30))
+        );
+        assert_eq!(
+            Ok("18446744073709551615".to_string()),
+            percent_format("%d", &json!(u64::MAX))
+        );
     }
 }

@@ -66,15 +66,16 @@
 use super::action_command_prompt::ActionCommandPromptPlugin;
 use super::api_printer::{self, ApiError, PrinterCommand};
 use super::comm::{MachineCom, MachineComPrintCallback, TempTuple};
-use super::events::{event_manager, EventSink, Events};
-use super::plugin::{plugin_manager, HookFn, MessageReceiver};
+use super::events::{EventSink, Events, event_manager};
+use super::plugin::{HookFn, MessageReceiver, plugin_manager};
 use super::profile::PrinterProfileManager;
 use super::standard::{LocalFileManager, Printer, PrinterError};
 use crate::{Event, Order, Port};
 use maker_connect_protocol::{
-    Action, Axis, CommandDone, Heater, JobControl, JobEnd, JobOrder, JobProgress, MachineState, Prompt, Telemetry,
+    Action, Axis, CommandDone, Heater, JobControl, JobEnd, JobOrder, JobProgress, MachineState,
+    Prompt, Telemetry,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
@@ -86,7 +87,10 @@ pub const NO_SUCH_CONTROL: &str = "OctoPrint has no such control";
 /// K1: the lines of typed G-code, each as one Enter in the terminal (`terminal.js:421`): split at
 /// `\n`, a trailing `\r` dropped, lines that are the empty string skipped, nothing trimmed.
 fn gcode_lines(text: &str) -> Vec<&str> {
-    text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).filter(|l| !l.is_empty()).collect()
+    text.split('\n')
+        .map(|l| l.strip_suffix('\r').unwrap_or(l))
+        .filter(|l| !l.is_empty())
+        .collect()
 }
 
 /// K12
@@ -105,7 +109,10 @@ impl OctoPrintPort {
     /// `port` and `baudrate` as the agent's `--port` and `--baud`; `None` is OctoPrint's own choice
     /// (`connect`: the settings, then detection)
     pub fn new(port: Option<String>, baudrate: Option<u32>) -> OctoPrintPort {
-        OctoPrintPort { port, baudrate: baudrate.map(i64::from) }
+        OctoPrintPort {
+            port,
+            baudrate: baudrate.map(i64::from),
+        }
     }
 }
 
@@ -114,12 +121,17 @@ impl Port for OctoPrintPort {
         // events.py: nothing is delivered before STARTUP
         event_manager().fire(Events::STARTUP, None);
 
-        let printer = Printer::new(Arc::new(LocalFileManager), Arc::new(PrinterProfileManager::new()));
+        let printer = Printer::new(
+            Arc::new(LocalFileManager),
+            Arc::new(PrinterProfileManager::new()),
+        );
         let plugin = ActionCommandPromptPlugin::new(printer.clone());
         plugin.register();
 
         let edge = Edge::new(events);
-        edge.printer.set(Arc::downgrade(&printer)).expect("set once");
+        edge.printer
+            .set(Arc::downgrade(&printer))
+            .expect("set once");
         edge.install();
         event_manager().set_sink(edge.clone());
         printer.set_top_edge(edge.clone());
@@ -223,7 +235,11 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 /// OctoPrint's web page sends a number as JSON, and Python reads `215` as an `int` and `215.5` as a
 /// `float`: `S215`, not `S215.0`, goes to the printer
 fn json_number(n: f64) -> Value {
-    if n.fract() == 0.0 && n.abs() < 9.0e15 { Value::from(n as i64) } else { Value::from(n) }
+    if n.fract() == 0.0 && n.abs() < 9.0e15 {
+        Value::from(n as i64)
+    } else {
+        Value::from(n)
+    }
 }
 
 fn f32_of(v: Option<f64>) -> Option<f32> {
@@ -267,7 +283,9 @@ fn api_text(e: ApiError) -> String {
 }
 
 fn tags_for(api: &str, id: u32) -> BTreeSet<String> {
-    ["source:api".to_string(), api.to_string(), tag_of(id)].into_iter().collect()
+    ["source:api".to_string(), api.to_string(), tag_of(id)]
+        .into_iter()
+        .collect()
 }
 
 fn tag_of(id: u32) -> String {
@@ -297,7 +315,10 @@ impl Edge {
     /// The hooks (M4, tags) and the prompt plugin's messages (M3)
     fn install(self: &Arc<Self>) {
         let manager = plugin_manager();
-        for hook in ["octoprint.comm.protocol.gcode.queuing", "octoprint.comm.protocol.gcode.sent"] {
+        for hook in [
+            "octoprint.comm.protocol.gcode.queuing",
+            "octoprint.comm.protocol.gcode.sent",
+        ] {
             let me = self.clone();
             let handler: HookFn = Arc::new(move |args: &[Value]| {
                 // (phase, command, command_type, gcode, subcode, tags)
@@ -308,7 +329,11 @@ impl Edge {
                     lock(&me.inner).emergency = true;
                 }
                 let tags = args.get(5).and_then(Value::as_array);
-                if let Some(tag) = tags.and_then(|t| t.iter().filter_map(Value::as_str).find(|t| t.starts_with("maker-connect:"))) {
+                if let Some(tag) = tags.and_then(|t| {
+                    t.iter()
+                        .filter_map(Value::as_str)
+                        .find(|t| t.starts_with("maker-connect:"))
+                }) {
                     me.line_phase(phase, tag);
                 }
                 Value::Null
@@ -356,7 +381,12 @@ impl Edge {
             t.prompt = Some(prompt.clone());
         }
         let current_tool = progress.as_ref().map(|p| p.2);
-        let tool0 = inner.temps.tools.iter().find(|(n, _)| *n == 0).map(|(_, t)| *t);
+        let tool0 = inner
+            .temps
+            .tools
+            .iter()
+            .find(|(n, _)| *n == 0)
+            .map(|(_, t)| *t);
         t.nozzle_c = tool0.and_then(|t| f32_of(t.0));
         t.nozzle_target_c = tool0.and_then(|t| f32_of(t.1));
         t.bed_c = f32_of(inner.temps.bed.0);
@@ -381,9 +411,15 @@ impl Edge {
         if let Some(job) = &inner.job {
             t.job = Some(JobProgress {
                 file: job.name.clone(),
-                done: progress.as_ref().and_then(|p| p.0).map_or(0, |p| p.max(0) as u64),
+                done: progress
+                    .as_ref()
+                    .and_then(|p| p.0)
+                    .map_or(0, |p| p.max(0) as u64),
                 total: job.size,
-                elapsed_s: progress.as_ref().and_then(|p| p.1).map(|s| s.max(0.0) as u64),
+                elapsed_s: progress
+                    .as_ref()
+                    .and_then(|p| p.1)
+                    .map(|s| s.max(0.0) as u64),
                 remaining_s: None,
             });
         }
@@ -398,8 +434,15 @@ impl Edge {
     fn line_phase(&self, phase: &str, tag: &str) {
         {
             let mut inner = lock(&self.inner);
-            let Inner { pending, recent, ok_since_send, .. } = &mut *inner;
-            let Some(p) = pending.iter_mut().find(|p| p.tag == tag) else { return };
+            let Inner {
+                pending,
+                recent,
+                ok_since_send,
+                ..
+            } = &mut *inner;
+            let Some(p) = pending.iter_mut().find(|p| p.tag == tag) else {
+                return;
+            };
             match phase {
                 "queuing" => p.queued += 1,
                 "sent" => {
@@ -433,7 +476,12 @@ impl Edge {
             done
         };
         for p in done {
-            self.send(Event::Done(CommandDone { id: p.id, ok: true, reason: None, output: p.output }));
+            self.send(Event::Done(CommandDone {
+                id: p.id,
+                ok: true,
+                reason: None,
+                output: p.output,
+            }));
         }
     }
 
@@ -451,7 +499,12 @@ impl Edge {
     }
 
     fn done_now(&self, id: u32, ok: bool, reason: Option<String>, output: Vec<String>) {
-        self.send(Event::Done(CommandDone { id, ok, reason, output }));
+        self.send(Event::Done(CommandDone {
+            id,
+            ok,
+            reason,
+            output,
+        }));
     }
 
     // ---- orders ----
@@ -483,7 +536,11 @@ impl Edge {
                         p.sd_list = sd_list;
                         if p.queued == 0 && !sd_list {
                             // K11: nothing was sent
-                            let p = inner.pending.iter().position(|p| p.id == id).and_then(|i| inner.pending.remove(i));
+                            let p = inner
+                                .pending
+                                .iter()
+                                .position(|p| p.id == id)
+                                .and_then(|i| inner.pending.remove(i));
                             drop(inner);
                             self.send(Event::Done(CommandDone {
                                 id,
@@ -517,10 +574,21 @@ impl Edge {
                 api_printer::check_operational(printer).map_err(refuse)?;
                 // K1: one command for each non-empty line, as typed
                 let lines = gcode_lines(&text);
-                let PrinterCommand::Commands(commands) = api_printer::printer_command(&json!({ "commands": lines })).map_err(refuse)? else {
+                let PrinterCommand::Commands(commands) =
+                    api_printer::printer_command(&json!({ "commands": lines })).map_err(refuse)?
+                else {
                     unreachable!("a command, not a script")
                 };
-                printer.commands(&Value::Array(commands), Some(api_printer::printer_command_tags().into_iter().chain([tag_of(id)]).collect()), false);
+                printer.commands(
+                    &Value::Array(commands),
+                    Some(
+                        api_printer::printer_command_tags()
+                            .into_iter()
+                            .chain([tag_of(id)])
+                            .collect(),
+                    ),
+                    false,
+                );
             }
             Action::Home { axes } => {
                 api_printer::printer_printhead_command(printer, "home").map_err(refuse)?;
@@ -537,7 +605,12 @@ impl Edge {
                         )
                     })
                     .collect();
-                printer.home(&Value::Array(axes), Some(tags_for("api:printer.printhead", id))).map_err(printer_error)?;
+                printer
+                    .home(
+                        &Value::Array(axes),
+                        Some(tags_for("api:printer.printhead", id)),
+                    )
+                    .map_err(printer_error)?;
             }
             Action::Jog { x, y, z, feed } => {
                 api_printer::printer_printhead_command(printer, "jog").map_err(refuse)?;
@@ -549,13 +622,25 @@ impl Edge {
                 }
                 let speed = feed.map(json_number);
                 printer
-                    .jog(&Value::Object(axes), true, speed.as_ref(), &[], Some(tags_for("api:printer.printhead", id)))
+                    .jog(
+                        &Value::Object(axes),
+                        true,
+                        speed.as_ref(),
+                        &[],
+                        Some(tags_for("api:printer.printhead", id)),
+                    )
                     .map_err(printer_error)?;
             }
             Action::Extrude { mm } => {
                 api_printer::printer_tool_command(printer).map_err(refuse)?;
                 api_printer::printer_tool_extrude(printer).map_err(refuse)?;
-                printer.extrude(&json_number(mm), None, Some(tags_for("api:printer.tool", id))).map_err(printer_error)?;
+                printer
+                    .extrude(
+                        &json_number(mm),
+                        None,
+                        Some(tags_for("api:printer.tool", id)),
+                    )
+                    .map_err(printer_error)?;
             }
             Action::Temperature { heater, celsius } => {
                 let name = match heater {
@@ -568,9 +653,17 @@ impl Edge {
                         "bed"
                     }
                 };
-                let api = if name == "bed" { "api:printer.bed" } else { "api:printer.tool" };
+                let api = if name == "bed" {
+                    "api:printer.bed"
+                } else {
+                    "api:printer.tool"
+                };
                 printer
-                    .set_temperature(&Value::String(name.to_string()), &json_number(celsius), Some(tags_for(api, id)))
+                    .set_temperature(
+                        &Value::String(name.to_string()),
+                        &json_number(celsius),
+                        Some(tags_for(api, id)),
+                    )
                     .map_err(printer_error)?;
             }
             Action::Fan { on } => {
@@ -582,13 +675,19 @@ impl Edge {
             Action::Speed { percent } => {
                 api_printer::printer_printhead_command(printer, "feedrate").map_err(refuse)?;
                 printer
-                    .feed_rate(&Value::from(percent), Some(tags_for("api:printer.printhead", id)))
+                    .feed_rate(
+                        &Value::from(percent),
+                        Some(tags_for("api:printer.printhead", id)),
+                    )
                     .map_err(|_| "factor is invalid".to_string())?;
             }
             Action::Flow { percent } => {
                 api_printer::printer_tool_command(printer).map_err(refuse)?;
                 printer
-                    .flow_rate(&Value::from(percent), Some(tags_for("api:printer.tool", id)))
+                    .flow_rate(
+                        &Value::from(percent),
+                        Some(tags_for("api:printer.tool", id)),
+                    )
                     .map_err(|_| "factor is invalid".to_string())?;
             }
             Action::SdList => {
@@ -601,7 +700,16 @@ impl Edge {
             Action::SdPrint { file } => {
                 api_printer::sd_file_select_and_print(printer, &file).map_err(refuse)?;
                 // K7
-                printer.select_file(&file, true, true, None, None, Some(tags_for("api:files.sd", id))).map_err(printer_error)?;
+                printer
+                    .select_file(
+                        &file,
+                        true,
+                        true,
+                        None,
+                        None,
+                        Some(tags_for("api:files.sd", id)),
+                    )
+                    .map_err(printer_error)?;
             }
             Action::SdDelete { file } => {
                 api_printer::sd_file_delete(printer, &file).map_err(refuse)?;
@@ -624,46 +732,95 @@ impl Edge {
     }
 
     /// The control panel's buttons send `{type: "command", command}` through `printerCommand` (M1)
-    fn control_panel_command(&self, printer: &Arc<Printer>, id: u32, text: &str) -> Result<(), String> {
+    fn control_panel_command(
+        &self,
+        printer: &Arc<Printer>,
+        id: u32,
+        text: &str,
+    ) -> Result<(), String> {
         api_printer::check_operational(printer).map_err(api_text)?;
-        let PrinterCommand::Commands(commands) = api_printer::printer_command(&json!({ "command": text })).map_err(api_text)? else {
+        let PrinterCommand::Commands(commands) =
+            api_printer::printer_command(&json!({ "command": text })).map_err(api_text)?
+        else {
             unreachable!("a command, not a script")
         };
-        printer.commands(&Value::Array(commands), Some(api_printer::printer_command_tags().into_iter().chain([tag_of(id)]).collect()), false);
+        printer.commands(
+            &Value::Array(commands),
+            Some(
+                api_printer::printer_command_tags()
+                    .into_iter()
+                    .chain([tag_of(id)])
+                    .collect(),
+            ),
+            false,
+        );
         Ok(())
     }
 
     /// `Order::Job`: K6, then `select_file(file, sd=false)` and `start_print` as the files and job APIs do
     fn start_job(self: &Arc<Self>, printer: &Arc<Printer>, order: JobOrder, file: &Path) {
         lock(&self.inner).refusal = None;
-        let mut job = ActiveJob { id: order.id, name: order.name.clone(), size: order.size, dir: None, started: false };
+        let mut job = ActiveJob {
+            id: order.id,
+            name: order.name.clone(),
+            size: order.size,
+            dir: None,
+            started: false,
+        };
         let end = |me: &Edge, job: ActiveJob, why: String| {
-            me.finish_job(job, JobEnd { id: order.id, ok: false, stopped: false, reason: Some(why), restart_line: None });
+            me.finish_job(
+                job,
+                JobEnd {
+                    id: order.id,
+                    ok: false,
+                    stopped: false,
+                    reason: Some(why),
+                    restart_line: None,
+                },
+            );
         };
         // K3
         if order.from_line.is_some() {
             return end(self, job, NO_SUCH_CONTROL.to_string());
         }
         // K6
-        let name = Path::new(&order.name).file_name().map_or_else(|| "job".to_string(), |n| n.to_string_lossy().into_owned());
+        let name = Path::new(&order.name)
+            .file_name()
+            .map_or_else(|| "job".to_string(), |n| n.to_string_lossy().into_owned());
         let dir = file.with_file_name(format!("job-{}.d", order.id));
         let linked = dir.join(&name);
-        let made = std::fs::create_dir_all(&dir)
-            .and_then(|()| std::fs::hard_link(file, &linked).or_else(|_| std::fs::copy(file, &linked).map(|_| ())));
+        let made = std::fs::create_dir_all(&dir).and_then(|()| {
+            std::fs::hard_link(file, &linked).or_else(|_| std::fs::copy(file, &linked).map(|_| ()))
+        });
         job.dir = Some(dir);
         if let Err(e) = made {
             return end(self, job, format!("could not give OctoPrint the file: {e}"));
         }
-        lock(&self.inner).job = Some(ActiveJob { id: job.id, name: job.name.clone(), size: job.size, dir: job.dir.clone(), started: false });
-        let tags = || -> BTreeSet<String> { ["source:api", "api:job"].iter().map(|s| s.to_string()).collect() };
+        lock(&self.inner).job = Some(ActiveJob {
+            id: job.id,
+            name: job.name.clone(),
+            size: job.size,
+            dir: job.dir.clone(),
+            started: false,
+        });
+        let tags = || -> BTreeSet<String> {
+            ["source:api", "api:job"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        };
         let path = linked.to_string_lossy().into_owned();
         let attempt = (|| -> Result<(), String> {
             // files.py, `select`
             api_printer::file_select(printer, &path).map_err(api_text)?;
-            printer.select_file(&path, false, false, None, None, Some(tags())).map_err(|e| e.to_string())?;
+            printer
+                .select_file(&path, false, false, None, None, Some(tags()))
+                .map_err(|e| e.to_string())?;
             // job.py, `start`
             api_printer::job_start(printer).map_err(api_text)?;
-            printer.start_print(None, None, Some(tags())).map_err(|e| e.to_string())?;
+            printer
+                .start_print(None, None, Some(tags()))
+                .map_err(|e| e.to_string())?;
             Ok(())
         })();
         if let Err(why) = attempt {
@@ -674,7 +831,11 @@ impl Edge {
         }
         // K12
         let started = lock(&self.inner).job.as_ref().is_some_and(|j| j.started);
-        if !started && printer.comm().is_none_or(|c| c.get_state() == MachineCom::STATE_OPERATIONAL) {
+        if !started
+            && printer
+                .comm()
+                .is_none_or(|c| c.get_state() == MachineCom::STATE_OPERATIONAL)
+        {
             if let Some(job) = lock(&self.inner).job.take() {
                 end(self, job, NOT_STARTED.to_string());
             }
@@ -684,19 +845,31 @@ impl Edge {
 
     /// `Order::Control` (`job.py:48-68`)
     fn control(&self, printer: &Arc<Printer>, control: JobControl) {
-        let tags = || -> BTreeSet<String> { ["source:api", "api:job"].iter().map(|s| s.to_string()).collect() };
-        let refused = match control {
-            JobControl::Pause => api_printer::job_pause(printer).map(|()| printer.pause_print(None, Some(tags()))),
-            JobControl::Resume => api_printer::job_pause(printer).map(|()| printer.resume_print(None, Some(tags()))),
-            JobControl::Stop => api_printer::job_cancel(printer).map(|()| printer.cancel_print(None, Some(tags()))),
+        let tags = || -> BTreeSet<String> {
+            ["source:api", "api:job"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
         };
+        let refused =
+            match control {
+                JobControl::Pause => api_printer::job_pause(printer)
+                    .map(|()| printer.pause_print(None, Some(tags()))),
+                JobControl::Resume => api_printer::job_pause(printer)
+                    .map(|()| printer.resume_print(None, Some(tags()))),
+                JobControl::Stop => api_printer::job_cancel(printer)
+                    .map(|()| printer.cancel_print(None, Some(tags()))),
+            };
         lock(&self.inner).refusal = refused.err().map(api_text);
         self.publish();
     }
 
     /// `Order::Answer`: the prompt plugin's `select` (`action_command_prompt/__init__.py:122`)
     fn answer(&self, plugin: &ActionCommandPromptPlugin, button: u8) {
-        lock(&self.inner).refusal = plugin.api_select(i64::from(button)).err().map(|(_, text)| text);
+        lock(&self.inner).refusal = plugin
+            .api_select(i64::from(button))
+            .err()
+            .map(|(_, text)| text);
         self.publish();
     }
 
@@ -711,16 +884,35 @@ impl Edge {
 
     /// A print event of OctoPrint's: the job it ends, if it is one of ours
     fn print_event(&self, event: &str, payload: Option<&Value>) {
-        let reason = payload.and_then(|p| p.get("reason")).and_then(Value::as_str);
-        let error = payload.and_then(|p| p.get("error")).and_then(Value::as_str).filter(|e| !e.is_empty());
-        let end = |id: i64, ok: bool, stopped: bool, why: Option<String>| JobEnd { id, ok, stopped, reason: why, restart_line: None };
-        let Some(job) = lock(&self.inner).job.take_if(|_| event == Events::PRINT_DONE || event == Events::PRINT_FAILED) else {
+        let reason = payload
+            .and_then(|p| p.get("reason"))
+            .and_then(Value::as_str);
+        let error = payload
+            .and_then(|p| p.get("error"))
+            .and_then(Value::as_str)
+            .filter(|e| !e.is_empty());
+        let end = |id: i64, ok: bool, stopped: bool, why: Option<String>| JobEnd {
+            id,
+            ok,
+            stopped,
+            reason: why,
+            restart_line: None,
+        };
+        let Some(job) = lock(&self.inner)
+            .job
+            .take_if(|_| event == Events::PRINT_DONE || event == Events::PRINT_FAILED)
+        else {
             return;
         };
         let end = match (event, reason) {
             (Events::PRINT_DONE, _) => end(job.id, true, false, None),
             (_, Some("cancelled")) => end(job.id, false, true, None),
-            _ => end(job.id, false, false, Some(error.unwrap_or("OctoPrint: the print failed").to_string())),
+            _ => end(
+                job.id,
+                false,
+                false,
+                Some(error.unwrap_or("OctoPrint: the print failed").to_string()),
+            ),
         };
         self.finish_job(job, end);
         self.publish();
@@ -731,11 +923,20 @@ impl Edge {
     fn prompt_message(&self, data: &Value) {
         let prompt = match data.get("action").and_then(Value::as_str) {
             Some("show") => Some(Prompt {
-                text: data.get("text").and_then(Value::as_str).unwrap_or("").to_string(),
+                text: data
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
                 buttons: data
                     .get("choices")
                     .and_then(Value::as_array)
-                    .map(|c| c.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .map(|c| {
+                        c.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
                     .unwrap_or_default(),
             }),
             Some("close") => None,
@@ -762,9 +963,18 @@ impl Edge {
         if done.is_empty() {
             return;
         }
-        let names: Vec<String> = printer.get_sd_files(false).iter().filter_map(|f| f["name"].as_str().map(str::to_string)).collect();
+        let names: Vec<String> = printer
+            .get_sd_files(false)
+            .iter()
+            .filter_map(|f| f["name"].as_str().map(str::to_string))
+            .collect();
         for p in done {
-            self.send(Event::Done(CommandDone { id: p.id, ok: true, reason: None, output: names.clone() }));
+            self.send(Event::Done(CommandDone {
+                id: p.id,
+                ok: true,
+                reason: None,
+                output: names.clone(),
+            }));
         }
     }
 }
@@ -778,7 +988,9 @@ impl MachineComPrintCallback for Edge {
             inner.ok_since_send = false;
             return;
         }
-        let Some(line) = message.strip_prefix("Recv: ") else { return };
+        let Some(line) = message.strip_prefix("Recv: ") else {
+            return;
+        };
         {
             let mut inner = lock(&self.inner);
             let ok = line.starts_with("ok");
@@ -803,14 +1015,31 @@ impl MachineComPrintCallback for Edge {
 
     /// K18-1: comm's error path (comm.py:4110-4136) calls `_trigger_emergency_stop(close=False)` right after
     /// this callback when its consequence is `emergency`
-    fn on_comm_error(&self, _error: &str, _reason: &str, consequence: Option<&str>, _faq: Option<&str>, _logs: Option<&[String]>) {
+    fn on_comm_error(
+        &self,
+        _error: &str,
+        _reason: &str,
+        consequence: Option<&str>,
+        _faq: Option<&str>,
+        _logs: Option<&[String]>,
+    ) {
         if consequence == Some("emergency") {
             lock(&self.inner).emergency = true;
         }
     }
 
-    fn on_comm_temperature_update(&self, temp: &[(i64, TempTuple)], bed_temp: TempTuple, chamber_temp: TempTuple, _custom_temp: &[(String, TempTuple)]) {
-        lock(&self.inner).temps = Temps { tools: temp.to_vec(), bed: bed_temp, chamber: chamber_temp };
+    fn on_comm_temperature_update(
+        &self,
+        temp: &[(i64, TempTuple)],
+        bed_temp: TempTuple,
+        chamber_temp: TempTuple,
+        _custom_temp: &[(String, TempTuple)],
+    ) {
+        lock(&self.inner).temps = Temps {
+            tools: temp.to_vec(),
+            bed: bed_temp,
+            chamber: chamber_temp,
+        };
         self.publish();
     }
 
@@ -818,8 +1047,14 @@ impl MachineComPrintCallback for Edge {
         self.publish();
     }
 
-    fn on_comm_position_update(&self, position: &BTreeMap<String, Option<f64>>, _reason: Option<&str>) {
-        if let (Some(Some(x)), Some(Some(y)), Some(Some(z))) = (position.get("x"), position.get("y"), position.get("z")) {
+    fn on_comm_position_update(
+        &self,
+        position: &BTreeMap<String, Option<f64>>,
+        _reason: Option<&str>,
+    ) {
+        if let (Some(Some(x)), Some(Some(y)), Some(Some(z))) =
+            (position.get("x"), position.get("y"), position.get("z"))
+        {
             lock(&self.inner).position = Some([*x as f32, *y as f32, *z as f32]);
             self.publish();
         }
@@ -845,14 +1080,22 @@ impl MachineComPrintCallback for Edge {
 
     /// K4, M3, and a job that a connection that ended leaves behind
     fn on_comm_state_change(&self, state: i64) {
-        let text = self.printer().and_then(|p| p.comm()).map(|c| c.get_state_string(Some(state)));
-        let error = self.printer().and_then(|p| p.comm()).map(|c| c.get_error_string()).filter(|e| !e.is_empty());
+        let text = self
+            .printer()
+            .and_then(|p| p.comm())
+            .map(|c| c.get_state_string(Some(state)));
+        let error = self
+            .printer()
+            .and_then(|p| p.comm())
+            .map(|c| c.get_error_string())
+            .filter(|e| !e.is_empty());
         let (gone, back, job) = {
             let mut inner = lock(&self.inner);
             inner.state = Some(state);
             inner.state_text = text.unwrap_or_default();
             inner.refusal = None;
-            let closed = state == MachineCom::STATE_CLOSED || state == MachineCom::STATE_CLOSED_WITH_ERROR;
+            let closed =
+                state == MachineCom::STATE_CLOSED || state == MachineCom::STATE_CLOSED_WITH_ERROR;
             let gone = closed && !inner.gone;
             let back = state == MachineCom::STATE_OPERATIONAL && inner.gone;
             if gone {
@@ -865,14 +1108,28 @@ impl MachineComPrintCallback for Edge {
             }
             // `Printer.on_comm_state_change` fails a print that was printing; any other job that
             // the connection leaves behind ends here
-            let ended = matches!(state, MachineCom::STATE_CLOSED | MachineCom::STATE_CLOSED_WITH_ERROR | MachineCom::STATE_ERROR);
+            let ended = matches!(
+                state,
+                MachineCom::STATE_CLOSED
+                    | MachineCom::STATE_CLOSED_WITH_ERROR
+                    | MachineCom::STATE_ERROR
+            );
             let job = if ended { inner.job.take() } else { None };
             (gone, back, job)
         };
         if let Some(job) = job {
             let why = error.unwrap_or_else(|| lock(&self.inner).state_text.clone());
             let id = job.id;
-            self.finish_job(job, JobEnd { id, ok: false, stopped: false, reason: Some(why), restart_line: None });
+            self.finish_job(
+                job,
+                JobEnd {
+                    id,
+                    ok: false,
+                    stopped: false,
+                    reason: Some(why),
+                    restart_line: None,
+                },
+            );
         }
         if gone {
             // K18
@@ -938,7 +1195,15 @@ mod tests {
         for text in ["Offline", "Operational", "Printing", "Paused"] {
             assert!(plain(text), "{text}");
         }
-        for text in ["Connecting", "Starting", "Pausing", "Cancelling", "Error", "Offline after error", "Printing from SD"] {
+        for text in [
+            "Connecting",
+            "Starting",
+            "Pausing",
+            "Cancelling",
+            "Error",
+            "Offline after error",
+            "Printing from SD",
+        ] {
             assert!(!plain(text), "{text}");
         }
     }
@@ -982,7 +1247,9 @@ mod tests {
             output: output.iter().map(|l| l.to_string()).collect(),
             sd_list: false,
         };
-        lock(&edge.inner).pending.extend([pending(1, &["echo:busy"]), pending(2, &[])]);
+        lock(&edge.inner)
+            .pending
+            .extend([pending(1, &["echo:busy"]), pending(2, &[])]);
         edge.fail_pending();
         let done: Vec<CommandDone> = rx
             .try_iter()
@@ -994,8 +1261,18 @@ mod tests {
         let why = Some("the printer connection closed".to_string());
         assert_eq!(
             vec![
-                CommandDone { id: 1, ok: false, reason: why.clone(), output: vec!["echo:busy".to_string()] },
-                CommandDone { id: 2, ok: false, reason: why, output: Vec::new() },
+                CommandDone {
+                    id: 1,
+                    ok: false,
+                    reason: why.clone(),
+                    output: vec!["echo:busy".to_string()]
+                },
+                CommandDone {
+                    id: 2,
+                    ok: false,
+                    reason: why,
+                    output: Vec::new()
+                },
             ],
             done
         );
@@ -1045,7 +1322,9 @@ mod tests {
         fn set_baudrate(&self, _baudrate: i64) {}
         fn readline(&self) -> Result<Vec<u8>, super::super::comm::SerialError> {
             if self.unplugged.load(Ordering::SeqCst) {
-                return Err(super::super::comm::SerialError::serial_exception("device reports readiness to read but returned no data (device disconnected or multiple access on port?)"));
+                return Err(super::super::comm::SerialError::serial_exception(
+                    "device reports readiness to read but returned no data (device disconnected or multiple access on port?)",
+                ));
             }
             let rx = lock(&self.from_printer);
             // a timeout, as pyserial's, is an empty line
@@ -1081,7 +1360,11 @@ mod tests {
         fn new() -> Arc<FakePrinter> {
             static COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
             let name = std::path::Path::new(&super::super::comm::test_serial_dir())
-                .join(format!("ttyFAKE{}-{}", std::process::id(), COUNT.fetch_add(1, Ordering::SeqCst)))
+                .join(format!(
+                    "ttyFAKE{}-{}",
+                    std::process::id(),
+                    COUNT.fetch_add(1, Ordering::SeqCst)
+                ))
                 .to_string_lossy()
                 .into_owned();
             let (tx, rx) = std::sync::mpsc::channel();
@@ -1101,7 +1384,11 @@ mod tests {
         /// the commands received so far, without line numbers and checksums, and without the
         /// temperature polls comm makes by itself
         fn commands(&self) -> Vec<String> {
-            lock(&self.received).iter().map(|l| strip(l)).filter(|c| c != "M105").collect()
+            lock(&self.received)
+                .iter()
+                .map(|l| strip(l))
+                .filter(|c| c != "M105")
+                .collect()
         }
 
         /// a line from the printer
@@ -1110,25 +1397,44 @@ mod tests {
         }
     }
 
-    fn until(engine: &Engine, id: MachineId, what: &str, ready: impl Fn(&Report) -> bool) -> Report {
+    fn until(
+        engine: &Engine,
+        id: MachineId,
+        what: &str,
+        ready: impl Fn(&Report) -> bool,
+    ) -> Report {
         let deadline = Instant::now() + Duration::from_secs(40);
         loop {
             let report = engine.report(id).unwrap();
             if ready(&report) {
                 return report;
             }
-            assert!(Instant::now() < deadline, "waited for {what}; the report: {report:#?}");
+            assert!(
+                Instant::now() < deadline,
+                "waited for {what}; the report: {report:#?}"
+            );
             std::thread::sleep(Duration::from_millis(20));
         }
     }
 
     fn done_of(engine: &Engine, id: MachineId, command: u32) -> CommandDone {
-        let report = until(engine, id, &format!("command {command} done"), |r| r.done.iter().any(|d| d.id == command));
+        let report = until(engine, id, &format!("command {command} done"), |r| {
+            r.done.iter().any(|d| d.id == command)
+        });
         report.done.into_iter().find(|d| d.id == command).unwrap()
     }
 
     fn job_order(id: i64, name: &str, size: u64) -> JobOrder {
-        JobOrder { id, name: name.to_string(), download: String::new(), size, from_line: None, tape_mm: None, label_length_mm: None, page_size: None }
+        JobOrder {
+            id,
+            name: name.to_string(),
+            download: String::new(),
+            size,
+            from_line: None,
+            tape_mm: None,
+            label_length_mm: None,
+            page_size: None,
+        }
     }
 
     fn command(engine: &Engine, id: MachineId, n: u32, action: Action) -> CommandDone {
@@ -1149,97 +1455,267 @@ mod tests {
     fn the_top_edge_on_a_fake_printer() {
         let printer = FakePrinter::new();
         let mut engine = Engine::new();
-        let id = engine.add(Box::new(OctoPrintPort::new(Some(printer.name.clone()), Some(115_200))));
+        let id = engine.add(Box::new(OctoPrintPort::new(
+            Some(printer.name.clone()),
+            Some(115_200),
+        )));
 
         // M3: operational is Idle; the temperatures come from comm's own polling
-        let report = until(&engine, id, "Idle", |r| r.telemetry.state == MachineState::Idle && r.telemetry.nozzle_c.is_some());
+        let report = until(&engine, id, "Idle", |r| {
+            r.telemetry.state == MachineState::Idle && r.telemetry.nozzle_c.is_some()
+        });
         assert_eq!(Some(21.0), report.telemetry.nozzle_c);
         assert_eq!(Some(20.0), report.telemetry.bed_c);
         assert_eq!(None, report.telemetry.problem, "Operational is plain");
         assert!(report.connected);
 
         // M1 + M4: a Home XY sends what `home(["x","y"])` sends, done after the `ok`s
-        let done = command(&engine, id, 1, Action::Home { axes: vec![Axis::X, Axis::Y] });
+        let done = command(
+            &engine,
+            id,
+            1,
+            Action::Home {
+                axes: vec![Axis::X, Axis::Y],
+            },
+        );
         assert!(done.ok, "{done:?}");
         let sent = printer.commands();
         let at = sent.iter().position(|c| c == "G91").expect("G91 sent");
         assert_eq!(["G91", "G28 X0 Y0", "G90"], sent[at..at + 3]);
-        assert!(done.output.iter().all(|l| l.starts_with("ok") || l.contains("T:")), "{done:?}");
-        assert_eq!(3, done.output.iter().filter(|l| l.starts_with("ok")).count(), "an ok for each line: {done:?}");
+        assert!(
+            done.output
+                .iter()
+                .all(|l| l.starts_with("ok") || l.contains("T:")),
+            "{done:?}"
+        );
+        assert_eq!(
+            3,
+            done.output.iter().filter(|l| l.starts_with("ok")).count(),
+            "an ok for each line: {done:?}"
+        );
 
         // typed G-code as typed, whole; its answer is the output
-        let done = command(&engine, id, 2, Action::Gcode { text: "M105".into() });
+        let done = command(
+            &engine,
+            id,
+            2,
+            Action::Gcode {
+                text: "M105".into(),
+            },
+        );
         assert!(done.ok);
-        assert!(done.output.iter().any(|l| l.starts_with("ok T:21.0")), "{done:?}");
-        assert!(command(&engine, id, 20, Action::Gcode { text: "m114".into() }).ok);
-        assert!(printer.commands().contains(&"m114".to_string()), "as typed (K1): {:?}", printer.commands());
+        assert!(
+            done.output.iter().any(|l| l.starts_with("ok T:21.0")),
+            "{done:?}"
+        );
+        assert!(
+            command(
+                &engine,
+                id,
+                20,
+                Action::Gcode {
+                    text: "m114".into()
+                }
+            )
+            .ok
+        );
+        assert!(
+            printer.commands().contains(&"m114".to_string()),
+            "as typed (K1): {:?}",
+            printer.commands()
+        );
 
         // K1: a line each, empty ones send nothing, the others as typed (leading spaces kept)
-        assert!(command(&engine, id, 21, Action::Gcode { text: "G28\n\nG1 X1".into() }).ok);
+        assert!(
+            command(
+                &engine,
+                id,
+                21,
+                Action::Gcode {
+                    text: "G28\n\nG1 X1".into()
+                }
+            )
+            .ok
+        );
         let sent = printer.commands();
         let at = sent.iter().position(|c| c == "G28").expect("G28 sent");
         assert_eq!(["G28", "G1 X1"], sent[at..at + 2], "{sent:?}");
 
         // M1: Z home, a jog with the numbers as the page sends them, fan, temperature
-        assert!(command(&engine, id, 3, Action::Home { axes: vec![Axis::Z] }).ok);
+        assert!(
+            command(
+                &engine,
+                id,
+                3,
+                Action::Home {
+                    axes: vec![Axis::Z]
+                }
+            )
+            .ok
+        );
         assert!(printer.commands().contains(&"G28 Z0".to_string()));
-        assert!(command(&engine, id, 4, Action::Jog { x: Some(10.0), y: None, z: None, feed: Some(3000.0) }).ok);
-        assert!(printer.commands().contains(&"G0 X10 F3000".to_string()), "{:?}", printer.commands());
+        assert!(
+            command(
+                &engine,
+                id,
+                4,
+                Action::Jog {
+                    x: Some(10.0),
+                    y: None,
+                    z: None,
+                    feed: Some(3000.0)
+                }
+            )
+            .ok
+        );
+        assert!(
+            printer.commands().contains(&"G0 X10 F3000".to_string()),
+            "{:?}",
+            printer.commands()
+        );
         assert!(command(&engine, id, 5, Action::Fan { on: true }).ok);
         assert!(printer.commands().contains(&"M106 S255".to_string()));
-        assert!(command(&engine, id, 6, Action::Temperature { heater: Heater::Nozzle, celsius: 215.0 }).ok);
-        assert!(printer.commands().iter().any(|c| c == "M104 S215"), "{:?}", printer.commands());
+        assert!(
+            command(
+                &engine,
+                id,
+                6,
+                Action::Temperature {
+                    heater: Heater::Nozzle,
+                    celsius: 215.0
+                }
+            )
+            .ok
+        );
+        assert!(
+            printer.commands().iter().any(|c| c == "M104 S215"),
+            "{:?}",
+            printer.commands()
+        );
         assert!(command(&engine, id, 7, Action::MotorsOff).ok);
         assert!(printer.commands().contains(&"M18".to_string()));
 
         // M2
-        let done = command(&engine, id, 8, Action::LoadFilament { nozzle_c: None, bed_c: None });
+        let done = command(
+            &engine,
+            id,
+            8,
+            Action::LoadFilament {
+                nozzle_c: None,
+                bed_c: None,
+            },
+        );
         assert!(!done.ok);
         assert_eq!(Some(NO_SUCH_CONTROL.to_string()), done.reason);
-        let done = command(&engine, id, 9, Action::Frame { download: String::new() });
+        let done = command(
+            &engine,
+            id,
+            9,
+            Action::Frame {
+                download: String::new(),
+            },
+        );
         assert_eq!(Some(NO_SUCH_CONTROL.to_string()), done.reason);
 
         // the card: ready, SdList is done with its list (K11), and a file that is not on it is OctoPrint's 404
-        until(&engine, id, "the SD card", |r| r.telemetry.sd_card == Some(true));
+        until(&engine, id, "the SD card", |r| {
+            r.telemetry.sd_card == Some(true)
+        });
         let done = command(&engine, id, 11, Action::SdList);
         assert!(done.ok, "{done:?}");
-        assert!(done.output.iter().any(|n| n.eq_ignore_ascii_case("benchy.gco")), "{done:?}");
-        let done = command(&engine, id, 12, Action::SdPrint { file: "nothere.gco".into() });
+        assert!(
+            done.output
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case("benchy.gco")),
+            "{done:?}"
+        );
+        let done = command(
+            &engine,
+            id,
+            12,
+            Action::SdPrint {
+                file: "nothere.gco".into(),
+            },
+        );
         assert!(!done.ok);
-        assert!(done.reason.as_deref().is_some_and(|r| r.starts_with("The requested URL was not found")), "{done:?}");
-        let done = command(&engine, id, 13, Action::SdDelete { file: "nothere.gco".into() });
+        assert!(
+            done.reason
+                .as_deref()
+                .is_some_and(|r| r.starts_with("The requested URL was not found")),
+            "{done:?}"
+        );
+        let done = command(
+            &engine,
+            id,
+            13,
+            Action::SdDelete {
+                file: "nothere.gco".into(),
+            },
+        );
         assert!(!done.ok, "{done:?}");
 
         // a job: the file given as `job-<id>`, a long one, slow enough to pause it
-        let dir = std::env::temp_dir().join(format!("maker-connect-top-edge-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("maker-connect-top-edge-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("job-42");
         let gcode: String = (0..60).map(|i| format!("G1 X{i}\n")).collect();
         std::fs::write(&file, &gcode).unwrap();
         *lock(&printer.slow) = Duration::from_millis(50);
-        engine.send(id, Order::Job { order: job_order(42, "benchy.gcode", gcode.len() as u64), file: file.clone() }).unwrap();
-        let report = until(&engine, id, "Busy", |r| r.telemetry.state == MachineState::Busy && r.telemetry.job.is_some());
+        engine
+            .send(
+                id,
+                Order::Job {
+                    order: job_order(42, "benchy.gcode", gcode.len() as u64),
+                    file: file.clone(),
+                },
+            )
+            .unwrap();
+        let report = until(&engine, id, "Busy", |r| {
+            r.telemetry.state == MachineState::Busy && r.telemetry.job.is_some()
+        });
         assert_eq!(Some(42), report.job);
         let progress = report.telemetry.job.unwrap();
         assert_eq!("benchy.gcode", progress.file);
         assert_eq!(gcode.len() as u64, progress.total);
 
         // OctoPrint's refusal while it prints, as its text
-        let done = command(&engine, id, 10, Action::Home { axes: vec![Axis::X] });
+        let done = command(
+            &engine,
+            id,
+            10,
+            Action::Home {
+                axes: vec![Axis::X],
+            },
+        );
         assert!(!done.ok);
-        assert_eq!(Some("Printer is not operational or currently printing".to_string()), done.reason);
-        assert!(!printer.commands().iter().any(|c| c == "G28 X0"), "nothing was sent");
+        assert_eq!(
+            Some("Printer is not operational or currently printing".to_string()),
+            done.reason
+        );
+        assert!(
+            !printer.commands().iter().any(|c| c == "G28 X0"),
+            "nothing was sent"
+        );
         // a second job is refused with job.py's text (files.py first: it is not ready)
         // pause, resume, stop: once it prints (a pause while it starts is overtaken by the print, as OctoPrint's)
         let deadline = Instant::now() + Duration::from_secs(20);
         while !printer.commands().contains(&"G1 X3".to_string()) {
-            assert!(Instant::now() < deadline, "the print did not go on: {:?}", printer.commands());
+            assert!(
+                Instant::now() < deadline,
+                "the print did not go on: {:?}",
+                printer.commands()
+            );
             std::thread::sleep(Duration::from_millis(20));
         }
         engine.send(id, Order::Control(JobControl::Pause)).unwrap();
-        until(&engine, id, "Paused", |r| r.telemetry.state == MachineState::Paused);
+        until(&engine, id, "Paused", |r| {
+            r.telemetry.state == MachineState::Paused
+        });
         engine.send(id, Order::Control(JobControl::Resume)).unwrap();
-        until(&engine, id, "Busy again", |r| r.telemetry.state == MachineState::Busy);
+        until(&engine, id, "Busy again", |r| {
+            r.telemetry.state == MachineState::Busy
+        });
         // a pause of a printer that is paused is refused with job.py's text only when not active; stopping works
         engine.send(id, Order::Control(JobControl::Stop)).unwrap();
         let report = until(&engine, id, "the job's end", |r| !r.job_ends.is_empty());
@@ -1249,14 +1725,26 @@ mod tests {
         assert_eq!(None, report.job);
         assert!(!dir.join("job-42.d").exists(), "K6: the link is removed");
         engine.reported(id, 0, 1).unwrap();
-        until(&engine, id, "Idle after the stop", |r| r.telemetry.state == MachineState::Idle);
+        until(&engine, id, "Idle after the stop", |r| {
+            r.telemetry.state == MachineState::Idle
+        });
 
         // a whole print, to its end
         *lock(&printer.slow) = Duration::ZERO;
         let short = dir.join("job-43");
         std::fs::write(&short, "G28\nG1 X1\nG1 X2\n").unwrap();
-        engine.send(id, Order::Job { order: job_order(43, "short.gcode", 16), file: short }).unwrap();
-        let report = until(&engine, id, "the end of job 43", |r| r.job_ends.iter().any(|e| e.id == 43));
+        engine
+            .send(
+                id,
+                Order::Job {
+                    order: job_order(43, "short.gcode", 16),
+                    file: short,
+                },
+            )
+            .unwrap();
+        let report = until(&engine, id, "the end of job 43", |r| {
+            r.job_ends.iter().any(|e| e.id == 43)
+        });
         let end = report.job_ends.iter().find(|e| e.id == 43).unwrap();
         assert!(end.ok, "{end:?}");
         assert!(printer.commands().contains(&"G1 X2".to_string()));
@@ -1264,43 +1752,107 @@ mod tests {
         // a file that is not machinecode: OctoPrint's text, nothing sent
         let stl = dir.join("job-44");
         std::fs::write(&stl, "solid").unwrap();
-        engine.send(id, Order::Job { order: job_order(44, "part.stl", 5), file: stl }).unwrap();
-        let report = until(&engine, id, "the end of job 44", |r| r.job_ends.iter().any(|e| e.id == 44));
+        engine
+            .send(
+                id,
+                Order::Job {
+                    order: job_order(44, "part.stl", 5),
+                    file: stl,
+                },
+            )
+            .unwrap();
+        let report = until(&engine, id, "the end of job 44", |r| {
+            r.job_ends.iter().any(|e| e.id == 44)
+        });
         let end = report.job_ends.iter().find(|e| e.id == 44).unwrap();
-        assert_eq!(Some("Cannot select file for printing, not a machinecode file".to_string()), end.reason);
+        assert_eq!(
+            Some("Cannot select file for printing, not a machinecode file".to_string()),
+            end.reason
+        );
         // K3
         let resumed = dir.join("job-45");
         std::fs::write(&resumed, "G28\n").unwrap();
         let mut order = job_order(45, "again.gcode", 4);
         order.from_line = Some(3);
-        engine.send(id, Order::Job { order, file: resumed }).unwrap();
-        let report = until(&engine, id, "the end of job 45", |r| r.job_ends.iter().any(|e| e.id == 45));
-        assert_eq!(Some(NO_SUCH_CONTROL.to_string()), report.job_ends.iter().find(|e| e.id == 45).unwrap().reason);
+        engine
+            .send(
+                id,
+                Order::Job {
+                    order,
+                    file: resumed,
+                },
+            )
+            .unwrap();
+        let report = until(&engine, id, "the end of job 45", |r| {
+            r.job_ends.iter().any(|e| e.id == 45)
+        });
+        assert_eq!(
+            Some(NO_SUCH_CONTROL.to_string()),
+            report.job_ends.iter().find(|e| e.id == 45).unwrap().reason
+        );
 
         // job.py's refusal of a stop with no job: the report says it (K8)
         engine.send(id, Order::Control(JobControl::Stop)).unwrap();
-        let report = until(&engine, id, "the refusal", |r| r.telemetry.problem.is_some());
-        assert_eq!(Some("Printer is neither printing nor paused, 'cancel' command cannot be performed".to_string()), report.telemetry.problem);
+        let report = until(&engine, id, "the refusal", |r| {
+            r.telemetry.problem.is_some()
+        });
+        assert_eq!(
+            Some(
+                "Printer is neither printing nor paused, 'cancel' command cannot be performed"
+                    .to_string()
+            ),
+            report.telemetry.problem
+        );
 
         // a question on the printer's screen is Attention, and its answer is `M876 S<n>`
         printer.say("//action:prompt_begin Change the filament?");
         printer.say("//action:prompt_button Continue");
         printer.say("//action:prompt_button Stop");
         printer.say("//action:prompt_show");
-        let report = until(&engine, id, "Attention", |r| r.telemetry.state == MachineState::Attention);
+        let report = until(&engine, id, "Attention", |r| {
+            r.telemetry.state == MachineState::Attention
+        });
         let prompt = report.telemetry.prompt.expect("its prompt");
         assert_eq!("Change the filament?", prompt.text);
         assert_eq!(["Continue", "Stop"], prompt.buttons[..]);
         engine.send(id, Order::Answer(1)).unwrap();
-        until(&engine, id, "Idle after the answer", |r| r.telemetry.state == MachineState::Idle);
-        assert!(printer.commands().contains(&"M876 S1".to_string()), "{:?}", printer.commands());
+        until(&engine, id, "Idle after the answer", |r| {
+            r.telemetry.state == MachineState::Idle
+        });
+        assert!(
+            printer.commands().contains(&"M876 S1".to_string()),
+            "{:?}",
+            printer.commands()
+        );
 
         // M4 with several commands pending (the hub's gate is gone, K18): an M109 the printer does not
         // answer, then an M112 typed after it. Comm forces the M112 ahead (`serial.emergencyCommands`),
         // sends it and the heaters off by itself, and closes: Gone.
-        engine.send(id, Order::Command { id: 90, action: Action::Gcode { text: "M109 S200".into() } }).unwrap();
-        until(&engine, id, "the M109 on the wire", |_| printer.commands().contains(&"M109 S200".to_string()));
-        engine.send(id, Order::Command { id: 91, action: Action::Gcode { text: "M112".into() } }).unwrap();
+        engine
+            .send(
+                id,
+                Order::Command {
+                    id: 90,
+                    action: Action::Gcode {
+                        text: "M109 S200".into(),
+                    },
+                },
+            )
+            .unwrap();
+        until(&engine, id, "the M109 on the wire", |_| {
+            printer.commands().contains(&"M109 S200".to_string())
+        });
+        engine
+            .send(
+                id,
+                Order::Command {
+                    id: 91,
+                    action: Action::Gcode {
+                        text: "M112".into(),
+                    },
+                },
+            )
+            .unwrap();
         let report = until(&engine, id, "Gone", |r| !r.connected);
         assert!(!report.connected);
         // What the port reports (K18, K18-1): the M112 is failed by the close, as K18 says, and so is the
@@ -1308,18 +1860,35 @@ mod tests {
         // which carry no tags and fire no hook, so they credit no pending command.
         let m112 = done_of(&engine, id, 91);
         assert_eq!(
-            CommandDone { id: 91, ok: false, reason: Some("the printer connection closed".to_string()), output: Vec::new() },
+            CommandDone {
+                id: 91,
+                ok: false,
+                reason: Some("the printer connection closed".to_string()),
+                output: Vec::new()
+            },
             m112
         );
         let m109 = done_of(&engine, id, 90);
         assert_eq!(
-            CommandDone { id: 90, ok: false, reason: Some("the printer connection closed".to_string()), output: Vec::new() },
+            CommandDone {
+                id: 90,
+                ok: false,
+                reason: Some("the printer connection closed".to_string()),
+                output: Vec::new()
+            },
             m109,
             "the M109 fails with the close, never `ok`"
         );
         let sent = printer.commands();
-        let at = sent.iter().position(|c| c == "M109 S200").expect("M109 sent");
-        assert_eq!(["M109 S200", "M112", "M112", "M104 T0 S0", "M140 S0"], sent[at..], "forced ahead, then the heaters off");
+        let at = sent
+            .iter()
+            .position(|c| c == "M109 S200")
+            .expect("M109 sent");
+        assert_eq!(
+            ["M109 S200", "M112", "M112", "M104 T0 S0", "M140 S0"],
+            sent[at..],
+            "forced ahead, then the heaters off"
+        );
 
         // closing: disconnect, then SHUTDOWN
         engine.remove(id).unwrap();
@@ -1337,7 +1906,9 @@ mod tests {
                 .iter()
                 .map(|(t, k, _)| format!("{t} | {k}"))
                 .collect();
-            let has = |start: &str, kind: &str| seen.iter().any(|x| x.contains(start) && x.ends_with(kind));
+            let has = |start: &str, kind: &str| {
+                seen.iter().any(|x| x.contains(start) && x.ends_with(kind))
+            };
             assert!(has("EventManager::new", "Condition wait"), "{seen:?}");
             assert!(has("comm.rs:4267", "serial readline"), "{seen:?}");
             assert!(seen.iter().any(|x| x.contains("comm.rs:4269")), "{seen:?}");
@@ -1357,19 +1928,41 @@ mod tests {
     fn k4_an_unplugged_cable_is_gone() {
         let printer = FakePrinter::new();
         let mut engine = Engine::new();
-        let id = engine.add(Box::new(OctoPrintPort::new(Some(printer.name.clone()), Some(115_200))));
-        let report = until(&engine, id, "Idle", |r| r.telemetry.state == MachineState::Idle && r.telemetry.nozzle_c.is_some());
+        let id = engine.add(Box::new(OctoPrintPort::new(
+            Some(printer.name.clone()),
+            Some(115_200),
+        )));
+        let report = until(&engine, id, "Idle", |r| {
+            r.telemetry.state == MachineState::Idle && r.telemetry.nozzle_c.is_some()
+        });
         assert!(report.connected);
 
         // an M109 the printer never answers, on the wire, then the cable is pulled
-        engine.send(id, Order::Command { id: 90, action: Action::Gcode { text: "M109 S200".into() } }).unwrap();
-        until(&engine, id, "the M109 on the wire", |_| printer.commands().contains(&"M109 S200".to_string()));
+        engine
+            .send(
+                id,
+                Order::Command {
+                    id: 90,
+                    action: Action::Gcode {
+                        text: "M109 S200".into(),
+                    },
+                },
+            )
+            .unwrap();
+        until(&engine, id, "the M109 on the wire", |_| {
+            printer.commands().contains(&"M109 S200".to_string())
+        });
         printer.unplugged.store(true, Ordering::SeqCst);
 
         let report = until(&engine, id, "Gone", |r| !r.connected);
         assert!(!report.connected);
         assert_eq!(
-            CommandDone { id: 90, ok: false, reason: Some("the printer connection closed".to_string()), output: Vec::new() },
+            CommandDone {
+                id: 90,
+                ok: false,
+                reason: Some("the printer connection closed".to_string()),
+                output: Vec::new()
+            },
             done_of(&engine, id, 90)
         );
         engine.remove(id).unwrap();

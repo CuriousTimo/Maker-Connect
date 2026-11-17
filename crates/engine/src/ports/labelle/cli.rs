@@ -62,14 +62,19 @@ fn open_printer(
         }
         CliError(e.to_string())
     })?;
-    let device = device_manager.find_and_select_device().map_err(|e: device_manager::Error| {
-        if e == device_manager::Error::Manager("No matching devices found".to_owned()) {
-            *printer = Some(Printer::Absent);
-        }
-        CliError(e.to_string())
-    })?;
+    let device = device_manager
+        .find_and_select_device()
+        .map_err(|e: device_manager::Error| {
+            if e == device_manager::Error::Manager("No matching devices found".to_owned()) {
+                *printer = Some(Printer::Absent);
+            }
+            CliError(e.to_string())
+        })?;
     *printer = Some(Printer::Present);
-    device.borrow_mut().setup().map_err(|e| CliError(e.to_string()))?;
+    device
+        .borrow_mut()
+        .setup()
+        .map_err(|e| CliError(e.to_string()))?;
     // The manager is returned too: it lives as long as the command does (`get_device_manager()`).
     Ok((device_manager, device))
 }
@@ -84,7 +89,8 @@ pub fn poll_status(
     printer: &mut Option<Printer>,
 ) -> Result<(), CliError> {
     let (_device_manager, device) = open_printer(backend, printer)?;
-    let result = DymoLabeler::status_poll(&device.borrow(), heard).map_err(|e| CliError(e.to_string()));
+    let result =
+        DymoLabeler::status_poll(&device.borrow(), heard).map_err(|e| CliError(e.to_string()));
     if result.is_err() {
         device.borrow().dispose();
     }
@@ -115,7 +121,8 @@ pub fn print_picture(
     let (_device_manager, device) = open_printer(backend, printer)?;
 
     let result = (|| {
-        let dymo_labeler = DymoLabeler::new(tape_size_mm).map_err(|e: dymo_labeler::Error| CliError(e.to_string()))?;
+        let dymo_labeler = DymoLabeler::new(tape_size_mm)
+            .map_err(|e: dymo_labeler::Error| CliError(e.to_string()))?;
         let render_context = RenderContext::new(dymo_labeler.height_px());
         let render = PrintPayloadRenderEngine::new(
             justify,
@@ -125,10 +132,16 @@ pub fn print_picture(
             Some(min_payload_len_px),
         );
         // `HorizontallyCombinedRenderEngine([engine]).render(context)`, then the margins.
-        let payload = picture_engine.render(&render_context).map_err(|e| CliError(e.to_string()))?;
+        let payload = picture_engine
+            .render(&render_context)
+            .map_err(|e| CliError(e.to_string()))?;
         let payload = horizontally_combined::render(vec![payload]).map_err(CliError)?;
-        let (bitmap, _) = render.render_with_meta(&payload).map_err(|e| CliError(e.to_string()))?;
-        dymo_labeler.print(&device.borrow(), &bitmap, heard).map_err(|e| CliError(e.to_string()))
+        let (bitmap, _) = render
+            .render_with_meta(&payload)
+            .map_err(|e| CliError(e.to_string()))?;
+        dymo_labeler
+            .print(&device.borrow(), &bitmap, heard)
+            .map_err(|e| CliError(e.to_string()))
     })();
     if result.is_err() {
         // What the end of labelle's process does: the OS lets go of the device.

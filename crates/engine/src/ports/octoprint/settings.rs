@@ -61,7 +61,7 @@
 
 use super::comm::{py_float, py_int};
 use super::util::CaseInsensitiveSet;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::sync::{LazyLock, OnceLock};
 
 /// `settings/__init__.py:102 NoSuchSettingsPath`
@@ -74,7 +74,14 @@ pub struct NoSuchSettingsPath;
 /// conversion in various places.
 #[allow(non_upper_case_globals)] // settings.py's own name, kept
 pub static valid_boolean_trues: LazyLock<CaseInsensitiveSet> = LazyLock::new(|| {
-    CaseInsensitiveSet::new(&[json!(true), json!("true"), json!("yes"), json!("y"), json!("1"), json!(1)])
+    CaseInsensitiveSet::new(&[
+        json!(true),
+        json!("true"),
+        json!("yes"),
+        json!("y"),
+        json!("1"),
+        json!(1),
+    ])
 });
 
 /// `settings/__init__.py:94 default_settings`: the file written by `scripts/octoprint-settings.py`.
@@ -112,14 +119,15 @@ impl Settings {
     /// `settings/__init__.py:94 default_settings` read from `default_settings.json`.
     pub fn new() -> Settings {
         #[allow(unused_mut)]
-        let mut default_settings: Value =
-            serde_json::from_str(DEFAULT_SETTINGS_JSON).expect("default_settings.json is valid JSON");
+        let mut default_settings: Value = serde_json::from_str(DEFAULT_SETTINGS_JSON)
+            .expect("default_settings.json is valid JSON");
         // OURS (test seam, `proof.rs`): the settings the proof against OctoPrint changes from the
         // defaults, the same on both sides (`scripts/octoprint-port-check.py`; OctoPrint's side reads
         // them from its `config.yaml`). Compiled only into the tests, and only read when a test sets it.
         #[cfg(test)]
         if let Ok(overlay) = std::env::var("MAKER_CONNECT_OCTOPRINT_PROOF_SETTINGS") {
-            let overlay: Value = serde_json::from_str(&overlay).expect("the proof's settings are JSON");
+            let overlay: Value =
+                serde_json::from_str(&overlay).expect("the proof's settings are JSON");
             fn merge(into: &mut Value, from: &Value) {
                 match (into, from) {
                     (Value::Object(a), Value::Object(b)) => {
@@ -194,7 +202,11 @@ impl Settings {
                 let s = v.as_str().expect("AttributeError: encode");
                 let mut key_hash = Md5::new();
                 key_hash.update(s.as_bytes());
-                key_hash.finalize().iter().map(|b| format!("{b:02x}")).collect()
+                key_hash
+                    .finalize()
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect()
             }
 
             if truthy(result.get("regex")) && truthy(result.get("template")) {
@@ -279,7 +291,11 @@ impl Settings {
         match last {
             Ok(_) => {
                 if kwargs.asdict {
-                    Ok(results_dict.into_iter().next().map(|(_, v)| v).expect("one result"))
+                    Ok(results_dict
+                        .into_iter()
+                        .next()
+                        .map(|(_, v)| v)
+                        .expect("one result"))
                 } else {
                     Ok(results_list.pop().expect("one result"))
                 }
@@ -305,7 +321,11 @@ impl Settings {
 
     /// `settings/__init__.py:1962 get` with keyword arguments: `Err` is the raised
     /// `NoSuchSettingsPath` (only with `error_on_path`).
-    pub fn get_with(&self, path: &[&str], kwargs: &GetKwargs) -> Result<Option<Value>, NoSuchSettingsPath> {
+    pub fn get_with(
+        &self,
+        path: &[&str],
+        kwargs: &GetKwargs,
+    ) -> Result<Option<Value>, NoSuchSettingsPath> {
         let result = match path.split_last() {
             // `if not path: raise NoSuchSettingsPath()`
             None => Err(NoSuchSettingsPath),
@@ -390,7 +410,9 @@ impl Settings {
                 }
             }
             Value::String(s) => py_int(s),
-            other => panic!("TypeError: int() argument must be a string or a real number, not {other}"),
+            other => {
+                panic!("TypeError: int() argument must be a string or a real number, not {other}")
+            }
         };
 
         match int_value {
@@ -435,7 +457,9 @@ impl Settings {
             Value::Bool(b) => Some(*b as i64 as f64),
             Value::Number(n) => Some(n.as_f64().expect("f64")),
             Value::String(s) => py_float(s),
-            other => panic!("TypeError: float() argument must be a string or a real number, not {other}"),
+            other => {
+                panic!("TypeError: float() argument must be a string or a real number, not {other}")
+            }
         };
 
         match float_value {
@@ -462,7 +486,11 @@ impl Settings {
     }
 
     /// `settings/__init__.py:2028 getBoolean` with the `get` keyword arguments.
-    pub fn get_boolean_with(&self, path: &[&str], kwargs: &GetKwargs) -> Result<Option<bool>, NoSuchSettingsPath> {
+    pub fn get_boolean_with(
+        &self,
+        path: &[&str],
+        kwargs: &GetKwargs,
+    ) -> Result<Option<bool>, NoSuchSettingsPath> {
         let value = self.get_with(path, kwargs)?;
         Ok(Self::_to_boolean(value))
     }
@@ -474,7 +502,9 @@ impl Settings {
             Some(Value::Bool(b)) => Some(b),
             // isinstance(value, (int, float)): value != 0
             Some(Value::Number(n)) => Some(n.as_f64() != Some(0.0)),
-            Some(Value::String(s)) => Some(valid_boolean_trues.contains(&Value::String(s.to_lowercase()))),
+            Some(Value::String(s)) => {
+                Some(valid_boolean_trues.contains(&Value::String(s.to_lowercase())))
+            }
             // return value is not None
             Some(_) => Some(true),
         }
@@ -507,9 +537,18 @@ fn snippet_extension(source: &str) -> String {
         .replace_all(source, |c: &fancy_regex::Captures| {
             let name = &c["name"];
             // `if not node.template.value.startswith("/"): value = "snippets/" + value`
-            let name = if name.starts_with('/') { name.to_string() } else { format!("snippets/{name}") };
+            let name = if name.starts_with('/') {
+                name.to_string()
+            } else {
+                format!("snippets/{name}")
+            };
             let q = &c["q"];
-            format!("{{%{} include {q}{name}{q}{} {}%}}", &c["l"], c["rest"].trim_end(), &c["r"])
+            format!(
+                "{{%{} include {q}{name}{q}{} {}%}}",
+                &c["l"],
+                c["rest"].trim_end(),
+                &c["r"]
+            )
         })
         .into_owned()
 }
@@ -521,7 +560,10 @@ fn snippet_extension(source: &str) -> String {
 /// `uptodate` callback (`mtime == last_modified`) only matters for with a config file on disk. The
 /// source is also not checked for being a `str`: Python's Jinja2 would raise on a non-string there
 /// and `_get_script_template` turns that into `None`; here it is `Err`, which gives `None` too.
-fn settings_script_loader_get_source(scripts: &Value, template: &str) -> Result<Option<String>, minijinja::Error> {
+fn settings_script_loader_get_source(
+    scripts: &Value,
+    template: &str,
+) -> Result<Option<String>, minijinja::Error> {
     // `parts = template.split("/")`; `if not len(parts)` is never true for `str.split`.
     let mut script = scripts;
     for part in template.split('/') {
@@ -547,7 +589,9 @@ fn settings_script_loader_get_templates(scripts: &Value) -> Vec<String> {
         for (key, value) in map {
             if value.is_object() {
                 templates.extend(
-                    settings_script_loader_get_templates(value).into_iter().map(|x| format!("{key}/{x}")),
+                    settings_script_loader_get_templates(value)
+                        .into_iter()
+                        .map(|x| format!("{key}/{x}")),
                 );
             } else if value.is_string() {
                 templates.push(key.clone());
@@ -564,7 +608,10 @@ fn settings_script_loader_get_templates(scripts: &Value) -> Vec<String> {
 /// The file system loader is `FilteredFileSystemLoader(getBaseFolder("scripts"), ...)` over
 /// OctoPrint's basedir. We have defaults only and no basedir, so it finds nothing (ours: no folder
 /// is invented); the choice loader therefore always ends at the settings loader.
-fn select_loader_get_source(scripts: &Value, template: &str) -> Result<Option<String>, minijinja::Error> {
+fn select_loader_get_source(
+    scripts: &Value,
+    template: &str,
+) -> Result<Option<String>, minijinja::Error> {
     if let Some((prefix, name)) = template.split_once(':') {
         return match prefix {
             "bundled" => settings_script_loader_get_source(scripts, name),
@@ -584,7 +631,11 @@ fn rel_split_prefix(template: &str) -> (&str, &str) {
 
 /// `settings/__init__.py:885 RelEnvironment._join_prefix`
 fn rel_join_prefix(prefix: &str, template: &str) -> String {
-    if !prefix.is_empty() { format!("{prefix}:{template}") } else { template.to_string() }
+    if !prefix.is_empty() {
+        format!("{prefix}:{template}")
+    } else {
+        template.to_string()
+    }
 }
 
 /// `settings/__init__.py:885 RelEnvironment.join_path`
@@ -646,12 +697,18 @@ impl Settings {
         // `Environment.list_templates` returns `sorted(names)`; `ChoiceLoader` puts them in a set
         names.sort();
         names.dedup();
-        names.into_iter().map(|x| x[prefix.len()..].to_string()).collect()
+        names
+            .into_iter()
+            .map(|x| x[prefix.len()..].to_string())
+            .collect()
     }
 
     /// `get(["scripts"], merged=True)`, as `SettingsScriptLoader` asks for it.
     fn scripts(&self) -> Value {
-        let kwargs = GetKwargs { merged: true, ..Default::default() };
+        let kwargs = GetKwargs {
+            merged: true,
+            ..Default::default()
+        };
         self.get_with(&["scripts"], &kwargs)
             .expect("error_on_path is False")
             .unwrap_or(Value::Null)
@@ -663,7 +720,12 @@ impl Settings {
     ///
     /// `context` is a JSON object (`None` for Python's `None`), so every key is a string; see
     /// [`Settings::load_script_value`] for a context with int keys.
-    pub fn load_script(&self, script_type: &str, name: &str, context: Option<&Value>) -> Option<String> {
+    pub fn load_script(
+        &self,
+        script_type: &str,
+        name: &str,
+        context: Option<&Value>,
+    ) -> Option<String> {
         match context {
             Some(Value::Object(_)) => self.load_script_value(
                 script_type,
@@ -684,7 +746,12 @@ impl Settings {
     /// dict; here the caller's value is not touched (ours; the caller, `comm.py:1393`, does not
     /// read it again). A context that is not a mapping, or has a key that is not a str, is `None`
     /// (`**context` raises `TypeError`).
-    pub fn load_script_value(&self, script_type: &str, name: &str, context: Option<minijinja::Value>) -> Option<String> {
+    pub fn load_script_value(
+        &self,
+        script_type: &str,
+        name: &str,
+        context: Option<minijinja::Value>,
+    ) -> Option<String> {
         let mut pairs: Vec<(minijinja::Value, minijinja::Value)> = Vec::new();
         if let Some(context) = context {
             if context.kind() != minijinja::value::ValueKind::Map {
@@ -751,7 +818,10 @@ mod tests {
     #[test]
     fn test_get_int_converted() {
         let settings = Settings::new();
-        assert_eq!(Some(10), settings.get_int(&["serial", "timeout", "connection"]));
+        assert_eq!(
+            Some(10),
+            settings.get_int(&["serial", "timeout", "connection"])
+        );
     }
 
     /// test_get_int_invalid (reference: `["server", "host"]`, 0.0.0.0 in the fixture, the default
@@ -776,7 +846,10 @@ mod tests {
     #[test]
     fn test_get_float_converted() {
         let settings = Settings::new();
-        assert_eq!(Some(10.0), settings.get_float(&["serial", "timeout", "connection"]));
+        assert_eq!(
+            Some(10.0),
+            settings.get_float(&["serial", "timeout", "connection"])
+        );
     }
 
     /// test_get_float_invalid
@@ -816,7 +889,10 @@ mod tests {
     #[test]
     fn test_get_map_merged() {
         let settings = Settings::new();
-        let kwargs = GetKwargs { merged: true, ..Default::default() };
+        let kwargs = GetKwargs {
+            merged: true,
+            ..Default::default()
+        };
         let data = settings.get_with(&["devel"], &kwargs).unwrap().unwrap();
         assert_eq!(defaults_json()["devel"], data);
     }
@@ -826,7 +902,11 @@ mod tests {
     fn test_get_multiple() {
         let settings = Settings::new();
         let data = settings
-            .get_keys(&["serial"], &["timeout", "additionalPorts"], &GetKwargs::default())
+            .get_keys(
+                &["serial"],
+                &["timeout", "additionalPorts"],
+                &GetKwargs::default(),
+            )
             .unwrap()
             .unwrap();
         let data = data.as_array().expect("list");
@@ -839,7 +919,10 @@ mod tests {
     #[test]
     fn test_get_multiple_asdict() {
         let settings = Settings::new();
-        let kwargs = GetKwargs { asdict: true, ..Default::default() };
+        let kwargs = GetKwargs {
+            asdict: true,
+            ..Default::default()
+        };
         let data = settings
             .get_keys(&["serial"], &["timeout", "additionalPorts"], &kwargs)
             .unwrap()
@@ -861,8 +944,14 @@ mod tests {
     #[test]
     fn test_get_invalid_error() {
         let settings = Settings::new();
-        let kwargs = GetKwargs { error_on_path: true, ..Default::default() };
-        assert_eq!(Err(NoSuchSettingsPath), settings.get_with(&["i", "do", "not", "exist"], &kwargs));
+        let kwargs = GetKwargs {
+            error_on_path: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            Err(NoSuchSettingsPath),
+            settings.get_with(&["i", "do", "not", "exist"], &kwargs)
+        );
     }
 
     /// test_get_empty_path
@@ -870,7 +959,10 @@ mod tests {
     fn test_get_empty_path() {
         let settings = Settings::new();
         assert_eq!(None, settings.get(&[]));
-        let kwargs = GetKwargs { error_on_path: true, ..Default::default() };
+        let kwargs = GetKwargs {
+            error_on_path: true,
+            ..Default::default()
+        };
         assert_eq!(Err(NoSuchSettingsPath), settings.get_with(&[], &kwargs));
     }
 
@@ -912,12 +1004,19 @@ mod tests {
         let mut n = 0;
         for line in list.lines() {
             let mut cols = line.split('\t');
-            let (at, _method, path, state) =
-                (cols.next().unwrap(), cols.next().unwrap(), cols.next().unwrap(), cols.next().unwrap());
+            let (at, _method, path, state) = (
+                cols.next().unwrap(),
+                cols.next().unwrap(),
+                cols.next().unwrap(),
+                cols.next().unwrap(),
+            );
             assert_ne!(path, "NOT LITERAL", "{at}");
             let path: Vec<String> = serde_json::from_str(path).unwrap();
             let path: Vec<&str> = path.iter().map(String::as_str).collect();
-            let kw = GetKwargs { error_on_path: true, ..Default::default() };
+            let kw = GetKwargs {
+                error_on_path: true,
+                ..Default::default()
+            };
             match state {
                 "exists" => assert!(s.get_with(&path, &kw).is_ok(), "{at} {path:?}"),
                 "missing" => {
@@ -935,7 +1034,11 @@ mod tests {
     #[test]
     fn ours_serial_timeout_merged_asdict() {
         let s = Settings::new();
-        let kw = GetKwargs { merged: true, asdict: true, ..Default::default() };
+        let kw = GetKwargs {
+            merged: true,
+            asdict: true,
+            ..Default::default()
+        };
         let v = s.get_with(&["serial", "timeout"], &kw).unwrap().unwrap();
         assert_eq!(defaults_json()["serial"]["timeout"], v);
     }
@@ -965,7 +1068,10 @@ mod tests {
         assert_eq!(Ok(Some(10)), s.get_int_with(&["i"], &kw, Some(10), None));
         assert_eq!(Ok(Some(5)), s.get_int_with(&["i"], &kw, None, Some(5)));
         assert_eq!(Ok(Some(7)), s.get_int_with(&["i"], &kw, Some(1), Some(9)));
-        assert_eq!(Ok(Some(3.0)), s.get_float_with(&["i"], &kw, None, Some(3.0)));
+        assert_eq!(
+            Ok(Some(3.0)),
+            s.get_float_with(&["i"], &kw, None, Some(3.0))
+        );
         // getBoolean
         assert_eq!(None, s.get_boolean(&["n"]));
         assert_eq!(None, s.get_boolean(&["missing"]));
@@ -1007,7 +1113,9 @@ mod tests {
     /// only they go straight into our defaults).
     fn settings_with_extra_scripts(expected: &Value) -> Settings {
         let mut settings = Settings::new();
-        let gcode = settings.default_settings["scripts"]["gcode"].as_object_mut().unwrap();
+        let gcode = settings.default_settings["scripts"]["gcode"]
+            .as_object_mut()
+            .unwrap();
         for (key, value) in expected["extra_scripts"].as_object().unwrap() {
             gcode.insert(key.clone(), value.clone());
         }
@@ -1025,7 +1133,9 @@ mod tests {
                 };
                 (key, tagged_context(v))
             })),
-            Value::Array(a) => minijinja::Value::from(a.iter().map(tagged_context).collect::<Vec<_>>()),
+            Value::Array(a) => {
+                minijinja::Value::from(a.iter().map(tagged_context).collect::<Vec<_>>())
+            }
             other => minijinja::Value::from_serialize(other),
         }
     }
@@ -1046,7 +1156,11 @@ mod tests {
         let cases = expected["cases"].as_array().unwrap();
         assert!(cases.len() > 800);
         for case in cases {
-            let context = if case["context"].is_null() { None } else { Some(&case["context"]) };
+            let context = if case["context"].is_null() {
+                None
+            } else {
+                Some(&case["context"])
+            };
             let got = settings.load_script_value(
                 case["type"].as_str().unwrap(),
                 case["name"].as_str().unwrap(),
@@ -1055,19 +1169,41 @@ mod tests {
             let want = case["expected"].as_str().map(str::to_string);
             if KNOWN_DIFFER.contains(&case["name"].as_str().unwrap()) {
                 if case["context"].get("last_position").is_some() || case["name"] == "t_raw_snip" {
-                    assert_ne!(got, want, "{} no longer differs: take it off KNOWN_DIFFER", case["name"]);
+                    assert_ne!(
+                        got, want,
+                        "{} no longer differs: take it off KNOWN_DIFFER",
+                        case["name"]
+                    );
                 }
                 continue;
             }
             if got != want {
-                mismatches.push(format!("{} / {} / {}: want {:?}, got {:?}", case["type"], case["name"], case["context"], want, got));
+                mismatches.push(format!(
+                    "{} / {} / {}: want {:?}, got {:?}",
+                    case["type"], case["name"], case["context"], want, got
+                ));
             }
         }
         for (script_type, names) in expected["list_scripts"].as_object().unwrap() {
-            let want: Vec<String> = names.as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_string()).collect();
-            assert_eq!(settings.list_scripts(script_type), want, "listScripts({script_type})");
+            let want: Vec<String> = names
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x.as_str().unwrap().to_string())
+                .collect();
+            assert_eq!(
+                settings.list_scripts(script_type),
+                want,
+                "listScripts({script_type})"
+            );
         }
-        assert!(mismatches.is_empty(), "{} of {} differ:\n{}", mismatches.len(), cases.len(), mismatches.join("\n"));
+        assert!(
+            mismatches.is_empty(),
+            "{} of {} differ:\n{}",
+            mismatches.len(),
+            cases.len(),
+            mismatches.join("\n")
+        );
     }
 
     /// `get(["scripts"], merged=True)` as the loader calls it (ours).
@@ -1084,8 +1220,12 @@ mod tests {
     fn load_script_default_after_print_cancelled() {
         let ctx = json!({"printer_profile": {"heatedBed": true, "extruder": {"count": 2, "sharedNozzle": false}}});
         assert_eq!(
-            Settings::new().load_script("gcode", "afterPrintCancelled", Some(&ctx)).as_deref(),
-            Some("; disable motors\nM84\n\n;disable all heaters\nM104 T0 S0\nM104 T1 S0\n\nM140 S0\n\n;disable fan\nM106 S0")
+            Settings::new()
+                .load_script("gcode", "afterPrintCancelled", Some(&ctx))
+                .as_deref(),
+            Some(
+                "; disable motors\nM84\n\n;disable all heaters\nM104 T0 S0\nM104 T1 S0\n\nM140 S0\n\n;disable fan\nM106 S0"
+            )
         );
     }
 
@@ -1094,7 +1234,10 @@ mod tests {
     fn load_script_missing_is_none() {
         let settings = Settings::new();
         assert_eq!(settings.load_script("gcode", "doesNotExist", None), None);
-        assert_eq!(settings.load_script("gcode", "beforePrintStarted", None), None);
+        assert_eq!(
+            settings.load_script("gcode", "beforePrintStarted", None),
+            None
+        );
     }
 
     /// `RelEnvironment.join_path` (`:885`) (ours: values worked out from the source).
@@ -1102,7 +1245,10 @@ mod tests {
     fn rel_join_path_cases() {
         assert_eq!(rel_join_path("snippets/a", "gcode/x"), "gcode/snippets/a");
         assert_eq!(rel_join_path("/gcode/a", "gcode/x"), "gcode/a");
-        assert_eq!(rel_join_path("bundled:/gcode/a", "gcode/x"), "bundled:gcode/a");
+        assert_eq!(
+            rel_join_path("bundled:/gcode/a", "gcode/x"),
+            "bundled:gcode/a"
+        );
         assert_eq!(rel_join_path("a", "file:gcode/x"), "gcode/a");
         assert_eq!(rel_join_path("a", "x"), "/a");
     }
@@ -1110,7 +1256,13 @@ mod tests {
     /// `SnippetExtension.parse` (`:823`) (ours).
     #[test]
     fn snippet_extension_rewrite() {
-        assert_eq!(snippet_extension("{% snippet 'a' %}"), "{% include 'snippets/a' %}");
-        assert_eq!(snippet_extension("{%- snippet '/a/b' -%}"), "{%- include '/a/b' -%}");
+        assert_eq!(
+            snippet_extension("{% snippet 'a' %}"),
+            "{% include 'snippets/a' %}"
+        );
+        assert_eq!(
+            snippet_extension("{%- snippet '/a/b' -%}"),
+            "{%- include '/a/b' -%}"
+        );
     }
 }

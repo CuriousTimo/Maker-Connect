@@ -52,7 +52,12 @@ mod tests {
 
     #[test]
     fn get_os_is_a_known_name() {
-        assert!(["windows", "linux", "macos", "freebsd", "android", "unmapped"].contains(&get_os()));
+        assert!(
+            [
+                "windows", "linux", "macos", "freebsd", "android", "unmapped"
+            ]
+            .contains(&get_os())
+        );
         #[cfg(target_os = "macos")]
         assert_eq!("macos", get_os());
         #[cfg(target_os = "linux")]
@@ -70,7 +75,9 @@ mod tests {
             assert_eq!(0, libc::fcntl(f.as_raw_fd(), libc::F_GETFD));
         }
         set_close_exec(f.as_raw_fd()).unwrap();
-        assert_eq!(libc::FD_CLOEXEC, unsafe { libc::fcntl(f.as_raw_fd(), libc::F_GETFD) });
+        assert_eq!(libc::FD_CLOEXEC, unsafe {
+            libc::fcntl(f.as_raw_fd(), libc::F_GETFD)
+        });
         assert!(set_close_exec(-1).is_err());
     }
 }

@@ -20,7 +20,12 @@ use super::cups_print_environment::SharedIo;
 use super::stderr;
 
 /// `main(argc, argv)` (:55-125) for the 450: `argv` is as the scheduler passes it. Returns the exit status.
-pub fn main(io: SharedIo, argv: &[String], raster: CupsRaster, filter_out: &mut Option<CupsFilter>) -> i32 {
+pub fn main(
+    io: SharedIo,
+    argv: &[String],
+    raster: CupsRaster,
+    filter_out: &mut Option<CupsFilter>,
+) -> i32 {
     stderr::write("DEBUG: starting (raster2dymolw)\n");
 
     let Some(ppd) = io.borrow().ppd_open_file() else {
@@ -30,7 +35,9 @@ pub fn main(io: SharedIo, argv: &[String], raster: CupsRaster, filter_out: &mut 
     };
 
     let m = ppd.modelname;
-    if m.eq_ignore_ascii_case("DYMO LabelWriter Twin Turbo") || m.eq_ignore_ascii_case("DYMO LabelWriter 450 Twin Turbo") {
+    if m.eq_ignore_ascii_case("DYMO LabelWriter Twin Turbo")
+        || m.eq_ignore_ascii_case("DYMO LabelWriter 450 Twin Turbo")
+    {
         // :78-91 not ported
         stderr::write("ERROR: the Twin Turbo filter is not ported\n");
         1

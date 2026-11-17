@@ -14,10 +14,12 @@
 //! The raster comes in as an in-memory [`CupsRaster`] instead of `open(argv[6])`/stdin and `cupsRasterOpen`
 //! (W10); the page's rows are what `cupsRasterReadPixels` gives.
 
-use super::cups::options::{cups_parse_options, CupsOption};
+use super::cups::options::{CupsOption, cups_parse_options};
 use super::cups::raster::CupsRaster;
 use super::cups_filter_label_writer::{process_page_options_with_lm, process_ppd_options_with_lm};
-use super::cups_print_environment::{CupsPrintEnvironmentForDriver, CupsPrintEnvironmentForLm, SharedIo};
+use super::cups_print_environment::{
+    CupsPrintEnvironmentForDriver, CupsPrintEnvironmentForLm, SharedIo,
+};
 use super::error_diffusion_halftoning::ErrorDiffusionHalftoning;
 use super::halftoning::{HalftoneFilter, ImageBuffer, ImageType};
 use super::label_writer_driver::LabelWriterDriver;
@@ -44,11 +46,26 @@ impl CupsFilter {
     /// the driver (which forwards to the monitor), the driver. `device_uri` is `getenv("DEVICE_URI")`.
     pub fn new(io: SharedIo) -> Self {
         let device_uri = io.borrow().getenv("DEVICE_URI");
-        let print_environment_for_lm = Rc::new(RefCell::new(CupsPrintEnvironmentForLm::new(io.clone())));
-        let language_monitor = Rc::new(RefCell::new(LabelWriterLanguageMonitor::new(print_environment_for_lm.clone(), true, 10, device_uri)));
-        let print_environment_for_driver = Rc::new(RefCell::new(CupsPrintEnvironmentForDriver::new(io.clone(), language_monitor.clone())));
+        let print_environment_for_lm =
+            Rc::new(RefCell::new(CupsPrintEnvironmentForLm::new(io.clone())));
+        let language_monitor = Rc::new(RefCell::new(LabelWriterLanguageMonitor::new(
+            print_environment_for_lm.clone(),
+            true,
+            10,
+            device_uri,
+        )));
+        let print_environment_for_driver = Rc::new(RefCell::new(
+            CupsPrintEnvironmentForDriver::new(io.clone(), language_monitor.clone()),
+        ));
         let driver = LabelWriterDriver::new400(print_environment_for_driver.clone());
-        CupsFilter { io, print_environment_for_lm, language_monitor, print_environment_for_driver, driver, halftoning_method: String::new() }
+        CupsFilter {
+            io,
+            print_environment_for_lm,
+            language_monitor,
+            print_environment_for_driver,
+            driver,
+            halftoning_method: String::new(),
+        }
     }
 
     /// The monitor and its environment, for the telemetry (W7, ours).
@@ -81,15 +98,34 @@ impl CupsFilter {
             page += 1;
 
             stderr::write(&format!("PAGE: {} 1\n", page));
-            stderr::write(&format!("DEBUG: ----- PageHeader.cupsBytesPerLine = {}\n", page_header.cups_bytes_per_line as i32));
-            stderr::write(&format!("DEBUG: ----- PageHeader.cupsBitsPerColor = {}\n", page_header.cups_bits_per_color as i32));
-            stderr::write(&format!("DEBUG: ----- PageHeader.cupsBitsPerPixel = {}\n", page_header.cups_bits_per_pixel as i32));
-            stderr::write(&format!("DEBUG: ----- PageHeader.cupsColorOrder = {}\n", page_header.cups_color_order as i32));
-            stderr::write(&format!("DEBUG: ----- PageHeader.cupsHeight = {}\n", page_header.cups_height as i32));
+            stderr::write(&format!(
+                "DEBUG: ----- PageHeader.cupsBytesPerLine = {}\n",
+                page_header.cups_bytes_per_line as i32
+            ));
+            stderr::write(&format!(
+                "DEBUG: ----- PageHeader.cupsBitsPerColor = {}\n",
+                page_header.cups_bits_per_color as i32
+            ));
+            stderr::write(&format!(
+                "DEBUG: ----- PageHeader.cupsBitsPerPixel = {}\n",
+                page_header.cups_bits_per_pixel as i32
+            ));
+            stderr::write(&format!(
+                "DEBUG: ----- PageHeader.cupsColorOrder = {}\n",
+                page_header.cups_color_order as i32
+            ));
+            stderr::write(&format!(
+                "DEBUG: ----- PageHeader.cupsHeight = {}\n",
+                page_header.cups_height as i32
+            ));
 
             let mut buffer: Buffer = vec![0; page_header.cups_bytes_per_line as usize];
 
-            process_page_options_with_lm(&mut self.driver, &mut self.language_monitor.borrow_mut(), &page_header);
+            process_page_options_with_lm(
+                &mut self.driver,
+                &mut self.language_monitor.borrow_mut(),
+                &page_header,
+            );
             self.language_monitor.borrow_mut().start_page();
 
             if self.print_environment_for_lm.borrow_mut().get_job_status() != JobStatus::Ok {
@@ -107,10 +143,15 @@ impl CupsFilter {
             let mut h: Option<Box<dyn HalftoneFilter>> = None;
             if use_custom_halftoning {
                 if self.halftoning_method == "NLL" {
-                    h = Some(Box::new(NllHalftoning::new(5, ImageType::RGB, ImageType::BW).expect("itBW")));
+                    h = Some(Box::new(
+                        NllHalftoning::new(5, ImageType::RGB, ImageType::BW).expect("itBW"),
+                    ));
                 } else {
                     // error diffusion is default
-                    h = Some(Box::new(ErrorDiffusionHalftoning::new(ImageType::RGB, ImageType::BW, true).expect("itBW")));
+                    h = Some(Box::new(
+                        ErrorDiffusionHalftoning::new(ImageType::RGB, ImageType::BW, true)
+                            .expect("itBW"),
+                    ));
                 }
 
                 is_process_line_supported = h.as_ref().unwrap().is_process_line_supported();
@@ -118,7 +159,11 @@ impl CupsFilter {
 
             for y in 0..page_header.cups_height as usize {
                 if (y & 15) == 0 {
-                    stderr::write(&format!("INFO: Printing page {}, {}% complete...\n", page, (100 * y / page_header.cups_height as usize) as i32));
+                    stderr::write(&format!(
+                        "INFO: Printing page {}, {}% complete...\n",
+                        page,
+                        (100 * y / page_header.cups_height as usize) as i32
+                    ));
                 }
 
                 for b in buffer.iter_mut() {
@@ -127,7 +172,10 @@ impl CupsFilter {
 
                 let bytes_read = raster_data.cups_raster_read_pixels(&mut buffer);
                 if bytes_read != page_header.cups_bytes_per_line {
-                    stderr::write(&format!("Error: cupsRasterReadPixels() failed: expected {} read, actually was {}", page_header.cups_bytes_per_line as i32, bytes_read as i32));
+                    stderr::write(&format!(
+                        "Error: cupsRasterReadPixels() failed: expected {} read, actually was {}",
+                        page_header.cups_bytes_per_line as i32, bytes_read as i32
+                    ));
 
                     break;
                 }
@@ -148,7 +196,9 @@ impl CupsFilter {
             // process cached image by custom halftoning if needed
             if use_custom_halftoning && !is_process_line_supported {
                 let mut output_image: ImageBuffer = Vec::new();
-                h.as_mut().unwrap().process_image(&input_image, &mut output_image);
+                h.as_mut()
+                    .unwrap()
+                    .process_image(&input_image, &mut output_image);
                 for line in &output_image {
                     self.driver.process_raster_line(line);
                 }
@@ -172,7 +222,10 @@ impl CupsFilter {
 
     /// `CCupsFilter::InitDocument(const char* opts)` (:212-249).
     fn init_document(&mut self, opts: &str) {
-        stderr::write(&format!("DEBUG: -----------------------------options are: {}\n", opts));
+        stderr::write(&format!(
+            "DEBUG: -----------------------------options are: {}\n",
+            opts
+        ));
 
         let Some(mut ppd) = self.io.borrow().ppd_open_file() else {
             stderr::write("WARNING: Unable to open ppd file, use default settings - \n");
@@ -192,7 +245,11 @@ impl CupsFilter {
         // do CUPS specific
         ppd.cups_mark_options(&options);
 
-        process_ppd_options_with_lm(&mut self.driver, &mut self.language_monitor.borrow_mut(), &ppd);
+        process_ppd_options_with_lm(
+            &mut self.driver,
+            &mut self.language_monitor.borrow_mut(),
+            &ppd,
+        );
 
         // extract halftoning method used
         if let Some(choice) = ppd.find_marked_choice("DymoHalftoning") {

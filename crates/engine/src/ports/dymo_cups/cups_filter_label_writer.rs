@@ -17,7 +17,9 @@
 
 use super::cups::ppd::PpdFile;
 use super::cups::raster::PageHeader;
-use super::label_writer_driver::{Density, LabelWriterDriver, PaperType, Point, Quality, Resolution};
+use super::label_writer_driver::{
+    Density, LabelWriterDriver, PaperType, Point, Quality, Resolution,
+};
 use super::label_writer_language_monitor::LabelWriterLanguageMonitor;
 use super::stderr;
 
@@ -79,26 +81,48 @@ pub fn process_ppd_options(driver: &mut LabelWriterDriver, ppd: &PpdFile) {
 
 /// `CDriverInitializerLabelWriter::ProcessPageOptions` (:78-95).
 pub fn process_page_options(driver: &mut LabelWriterDriver, page_header: &PageHeader) {
-    if page_header.cups_media_type == PaperType::Regular as u32 || page_header.cups_media_type == PaperType::Continuous as u32 {
-        driver.set_paper_type(if page_header.cups_media_type == 0 { PaperType::Regular } else { PaperType::Continuous });
+    if page_header.cups_media_type == PaperType::Regular as u32
+        || page_header.cups_media_type == PaperType::Continuous as u32
+    {
+        driver.set_paper_type(if page_header.cups_media_type == 0 {
+            PaperType::Regular
+        } else {
+            PaperType::Continuous
+        });
     } else {
-        stderr::write(&format!("WARNING: Invalid value for cupsMediaType ({})\n", page_header.cups_media_type as i32));
+        stderr::write(&format!(
+            "WARNING: Invalid value for cupsMediaType ({})\n",
+            page_header.cups_media_type as i32
+        ));
         driver.set_paper_type(PaperType::Regular);
     }
     // unsigned arithmetic: PageSize[1] * HWResolution[1] / 72
-    driver.set_page_height((page_header.page_size[1].wrapping_mul(page_header.hw_resolution[1]) / 72) as usize);
+    driver.set_page_height(
+        (page_header.page_size[1].wrapping_mul(page_header.hw_resolution[1]) / 72) as usize,
+    );
 
     // page offset
-    driver.set_page_offset(Point { x: page_header.cups_integer[0] as i32, y: 0 });
+    driver.set_page_offset(Point {
+        x: page_header.cups_integer[0] as i32,
+        y: 0,
+    });
 }
 
 /// `CDriverInitializerLabelWriterWithLM::ProcessPPDOptions` (:125-128).
-pub fn process_ppd_options_with_lm(driver: &mut LabelWriterDriver, _lm: &mut LabelWriterLanguageMonitor, ppd: &PpdFile) {
+pub fn process_ppd_options_with_lm(
+    driver: &mut LabelWriterDriver,
+    _lm: &mut LabelWriterLanguageMonitor,
+    ppd: &PpdFile,
+) {
     process_ppd_options(driver, ppd);
 }
 
 /// `CDriverInitializerLabelWriterWithLM::ProcessPageOptions` (:130-135).
-pub fn process_page_options_with_lm(driver: &mut LabelWriterDriver, lm: &mut LabelWriterLanguageMonitor, page_header: &PageHeader) {
+pub fn process_page_options_with_lm(
+    driver: &mut LabelWriterDriver,
+    lm: &mut LabelWriterLanguageMonitor,
+    page_header: &PageHeader,
+) {
     process_page_options(driver, page_header);
     lm.set_paper_type(driver.get_paper_type());
 }

@@ -199,7 +199,11 @@ impl Image {
     /// `Image.resize(size)` with no resample filter and no box (`Image.py:2329`): Pillow's
     /// default, BICUBIC, or NEAREST for "1" and "P".
     pub fn resize(&self, size: (usize, usize)) -> Result<Image, String> {
-        self.resize_with(size, None, (0.0, 0.0, self.width as f32, self.height as f32))
+        self.resize_with(
+            size,
+            None,
+            (0.0, 0.0, self.width as f32, self.height as f32),
+        )
     }
 
     /// `Image.resize(size, resample, box)`. `resample`: None is the default.

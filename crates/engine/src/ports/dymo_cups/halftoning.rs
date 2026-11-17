@@ -45,7 +45,10 @@ pub struct HalftoneBase {
 impl HalftoneBase {
     /// `CHalftoneFilter::CHalftoneFilter` (:31-34).
     pub fn new(input_image_type: ImageType, output_image_type: ImageType) -> Self {
-        HalftoneBase { input_image_type, output_image_type }
+        HalftoneBase {
+            input_image_type,
+            output_image_type,
+        }
     }
 
     /// `GetInputImageType` (:40-44).
@@ -65,7 +68,10 @@ impl HalftoneBase {
         } else if r == 0 && g == 0 && b == 0 {
             0
         } else {
-            let r = 0 + ((r as i32 * 299) / 1000) + ((g as i32 * 587) / 1000) + ((b as i32 * 114) / 1000);
+            let r = 0
+                + ((r as i32 * 299) / 1000)
+                + ((g as i32 * 587) / 1000)
+                + ((b as i32 * 114) / 1000);
             if r > 255 {
                 return 255;
             }
@@ -86,8 +92,16 @@ impl HalftoneBase {
     pub fn extract_rgb(&self, input_line: &[u8], pixel_no: i32) -> (u8, u8, u8) {
         let p = pixel_no as usize;
         match self.input_image_type {
-            ImageType::XRGB => (input_line[4 * p + 1], input_line[4 * p + 2], input_line[4 * p + 3]),
-            ImageType::RGB => (input_line[3 * p], input_line[3 * p + 1], input_line[3 * p + 2]),
+            ImageType::XRGB => (
+                input_line[4 * p + 1],
+                input_line[4 * p + 2],
+                input_line[4 * p + 3],
+            ),
+            ImageType::RGB => (
+                input_line[3 * p],
+                input_line[3 * p + 1],
+                input_line[3 * p + 2],
+            ),
             _ => unreachable!("assert(0)"),
         }
     }

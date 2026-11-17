@@ -34,15 +34,24 @@ fn write_png(path: &std::path::Path, w: usize, h: usize, rgb: &[u8]) {
     let mut enc = png::Encoder::new(std::io::BufWriter::new(file), w as u32, h as u32);
     enc.set_color(png::ColorType::Rgb);
     enc.set_depth(png::BitDepth::Eight);
-    enc.write_header().expect("PNG header").write_image_data(rgb).expect("PNG data");
+    enc.write_header()
+        .expect("PNG header")
+        .write_image_data(rgb)
+        .expect("PNG data");
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     // `--size PAGESIZE`: the page in dots as the port's geometry gives it; nothing is sent
     if args.len() == 2 && args[0] == "--size" {
-        match maker_connect_engine::ports::geometry::lw450::page_sizes().into_iter().find(|g| g.name == args[1]) {
-            Some(g) => println!("{}: {} x {} dots, length {} mm", g.name, g.dots[0], g.dots[1], g.length_mm),
+        match maker_connect_engine::ports::geometry::lw450::page_sizes()
+            .into_iter()
+            .find(|g| g.name == args[1])
+        {
+            Some(g) => println!(
+                "{}: {} x {} dots, length {} mm",
+                g.name, g.dots[0], g.dots[1], g.length_mm
+            ),
             None => eprintln!("no PageSize {} in the PPD", args[1]),
         }
         return;
@@ -52,7 +61,10 @@ fn main() {
         std::process::exit(2);
     }
     let length_mm: u32 = args[0].parse().expect("LENGTH_MM");
-    let (w, h): (usize, usize) = (args[1].parse().expect("WIDTH_DOTS"), args[2].parse().expect("HEIGHT_DOTS"));
+    let (w, h): (usize, usize) = (
+        args[1].parse().expect("WIDTH_DOTS"),
+        args[2].parse().expect("HEIGHT_DOTS"),
+    );
 
     let file = std::env::temp_dir().join("lw450_print.png");
     write_png(&file, w, h, &test_picture(w, h));
@@ -72,7 +84,9 @@ fn main() {
         label_length_mm: Some(length_mm),
         page_size: None,
     };
-    order_tx.send(Order::Job { order, file }).expect("send the job");
+    order_tx
+        .send(Order::Job { order, file })
+        .expect("send the job");
     for event in event_rx.iter() {
         println!("{event:?}");
         if matches!(event, maker_connect_engine::Event::JobEnd(_)) {

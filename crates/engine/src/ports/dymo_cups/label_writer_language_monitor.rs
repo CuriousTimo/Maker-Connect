@@ -11,7 +11,7 @@
 //! reprinting last page on end of roll". It asks the printer for its status (`ESC A`) and reads the answer
 //! on the back channel; only inside a print (`StartPage`, `EndPage`).
 
-use super::label_writer_driver::{get_roll_select_command, LabelWriterDriver, PaperType, Roll};
+use super::label_writer_driver::{LabelWriterDriver, PaperType, Roll, get_roll_select_command};
 use super::printer_driver::{Buffer, JobStatus, LanguageMonitor, SharedEnvironment};
 use super::stderr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -33,7 +33,8 @@ pub struct LabelWriterLanguageMonitor {
     page_data: Buffer,
     use_sleep: bool,
     last_status: u8,
-    #[allow(dead_code)] // :103 LastReadStatusResult_, initialised and never read (its uses are commented out)
+    #[allow(dead_code)]
+    // :103 LastReadStatusResult_, initialised and never read (its uses are commented out)
     last_read_status_result: bool,
     read_status_timeout: usize,
     /// Ours: what `getenv("DEVICE_URI")` gives (:84); see [`super::cups_print_environment::FilterIo::getenv`].
@@ -44,19 +45,28 @@ pub struct LabelWriterLanguageMonitor {
 
 /// `time(NULL)`.
 fn time_now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// `ctime(&t)`: "Sun Nov 15 17:15:00 2026\n". Ours: in UTC (the C library uses the local zone), the text
 /// goes only to the `DEBUG:` line.
 fn ctime(t: u64) -> String {
     const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
     let days = (t / 86400) as i64;
     let secs = t % 86400;
     let (mut y, mut d) = (1970i64, days);
     loop {
-        let len = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 { 366 } else { 365 };
+        let len = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 {
+            366
+        } else {
+            365
+        };
         if d < len {
             break;
         }
@@ -64,7 +74,20 @@ fn ctime(t: u64) -> String {
         y += 1;
     }
     let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
-    let ml = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let ml = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut m = 0;
     while d >= ml[m] {
         d -= ml[m];
@@ -85,7 +108,12 @@ fn ctime(t: u64) -> String {
 impl LabelWriterLanguageMonitor {
     /// `CLabelWriterLanguageMonitor::CLabelWriterLanguageMonitor(Environment, UseSleep = true,
     /// ReadStatusTimeout = 10)` (.h:47, .cpp:34-37). `device_uri` is ours (see the field).
-    pub fn new(environment: SharedEnvironment, use_sleep: bool, read_status_timeout: usize, device_uri: Option<String>) -> Self {
+    pub fn new(
+        environment: SharedEnvironment,
+        use_sleep: bool,
+        read_status_timeout: usize,
+        device_uri: Option<String>,
+    ) -> Self {
         LabelWriterLanguageMonitor {
             environment,
             paper_type: PaperType::Regular,
@@ -160,18 +188,26 @@ impl LabelWriterLanguageMonitor {
                 && (status & ROLL_CHANGED_BIT) == 0
                 && (time_now().saturating_sub(begin_time) as f64) < self.read_status_timeout as f64
             {
-                stderr::write(&format!("DEBUG: CLabelWriterLanguageMonitor::CheckStatusAndReprint() 2 {}\n", i));
+                stderr::write(&format!(
+                    "DEBUG: CLabelWriterLanguageMonitor::CheckStatusAndReprint() 2 {}\n",
+                    i
+                ));
                 _status_ok = self.read_status(&mut status);
                 i += 1;
             }
 
             if time_now().saturating_sub(begin_time) as f64 >= self.read_status_timeout as f64 {
-                stderr::write("DEBUG: CLabelWriterLanguageMonitor::CheckStatusAndReprint() timeout\n");
+                stderr::write(
+                    "DEBUG: CLabelWriterLanguageMonitor::CheckStatusAndReprint() timeout\n",
+                );
                 break;
             }
 
             // error - needs reprint
-            if (status & ERROR_BIT) != 0 || (status & ROLL_CHANGED_BIT) != 0 || (status & TOF_BIT) == 0 {
+            if (status & ERROR_BIT) != 0
+                || (status & ROLL_CHANGED_BIT) != 0
+                || (status & TOF_BIT) == 0
+            {
                 // force error bit in case of timeout
                 if (status & TOF_BIT) == 0 && (status & ROLL_CHANGED_BIT) == 0 {
                     status |= ERROR_BIT;
@@ -198,7 +234,10 @@ impl LabelWriterLanguageMonitor {
     /// `ReadStatus` (:177-227): "Read status byte from the printer; return true if status has been read".
     fn read_status(&mut self, status: &mut u8) -> bool {
         let t = time_now();
-        stderr::write(&format!("DEBUG: CLabelWriterLanguageMonitor::ReadStatus() {}\n", ctime(t)));
+        stderr::write(&format!(
+            "DEBUG: CLabelWriterLanguageMonitor::ReadStatus() {}\n",
+            ctime(t)
+        ));
 
         let mut result = false;
         *status = 0; // default
@@ -206,7 +245,9 @@ impl LabelWriterLanguageMonitor {
 
         {
             let request_status_command = LabelWriterDriver::get_request_status_command();
-            self.environment.borrow_mut().write_data(&request_status_command);
+            self.environment
+                .borrow_mut()
+                .write_data(&request_status_command);
         }
 
         let buf = self.environment.borrow_mut().read_data();
@@ -224,7 +265,10 @@ impl LabelWriterLanguageMonitor {
         self.last_status = *status;
         self.last_raw_status = buf.first().copied();
 
-        stderr::write(&format!("DEBUG: ReadStatus() returned {:x} {}\n", status, result as i32));
+        stderr::write(&format!(
+            "DEBUG: ReadStatus() returned {:x} {}\n",
+            status, result as i32
+        ));
         result
     }
 
@@ -275,7 +319,9 @@ impl LabelWriterLanguageMonitor {
         // send form feed first
         if (self.last_status & ROLL_CHANGED_BIT) == 0 {
             let short_form_feed_command = LabelWriterDriver::get_short_form_feed_command();
-            self.environment.borrow_mut().write_data(&short_form_feed_command);
+            self.environment
+                .borrow_mut()
+                .write_data(&short_form_feed_command);
         }
 
         let page_data = self.page_data.clone();

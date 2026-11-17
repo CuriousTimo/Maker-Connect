@@ -18,7 +18,9 @@ const _UNICODE_VARIATIONS_END: char = '\u{fe0f}';
 
 /// `util/text.py:36 remove_unicode_variations`: `re.compile("[︀-️]").sub("", text)`
 pub fn remove_unicode_variations(text: &str) -> String {
-    text.chars().filter(|c| !(_UNICODE_VARIATIONS_START..=_UNICODE_VARIATIONS_END).contains(c)).collect()
+    text.chars()
+        .filter(|c| !(_UNICODE_VARIATIONS_START..=_UNICODE_VARIATIONS_END).contains(c))
+        .collect()
 }
 
 /// `util/text.py:16 demojify`: `to_unicode`, remove variations, `emoji.demojize(text,
@@ -26,7 +28,9 @@ pub fn remove_unicode_variations(text: &str) -> String {
 pub fn demojify(text: &str) -> String {
     let text = remove_unicode_variations(text);
     if !text.is_ascii() {
-        unimplemented!("emoji.demojize (third-party `emoji` package), called at util/text.py:20, for non-ASCII text");
+        unimplemented!(
+            "emoji.demojize (third-party `emoji` package), called at util/text.py:20, for non-ASCII text"
+        );
     }
     text
 }
@@ -36,7 +40,9 @@ pub fn demojify(text: &str) -> String {
 /// `text` (`__call__`, main.py:144). ASCII text only (see the module doc).
 fn slugify(text: &str, safe_chars: &str) -> String {
     if !text.is_ascii() {
-        unimplemented!("unidecode.unidecode (third-party `unidecode` package), called at vendor/awesome_slugify/main.py:171, for non-ASCII text");
+        unimplemented!(
+            "unidecode.unidecode (third-party `unidecode` package), called at vendor/awesome_slugify/main.py:171, for non-ASCII text"
+        );
     }
 
     // text_parts = self.upper_to_upper_letters_re.split(text); every part goes through
@@ -64,7 +70,11 @@ fn slugify(text: &str, safe_chars: &str) -> String {
 ///
 /// Sanitizes text by running it through slugify and optionally emoji translating.
 pub fn sanitize(text: &str, safe_chars: &str, demoji: bool) -> String {
-    let text = if demoji { demojify(text) } else { text.to_string() };
+    let text = if demoji {
+        demojify(text)
+    } else {
+        text.to_string()
+    };
     slugify(&text, safe_chars)
 }
 

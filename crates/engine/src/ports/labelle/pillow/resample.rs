@@ -36,7 +36,12 @@ fn clip8(value: i32) -> u8 {
 
 /// `precompute_coeffs` (`Resample.c:183`) for the bicubic filter: the filter size, the bounds
 /// (`xmin`, `xmax` for each output pixel) and the coefficients.
-fn precompute_coeffs(in_size: usize, in0: f32, in1: f32, out_size: usize) -> (usize, Vec<(i32, i32)>, Vec<f64>) {
+fn precompute_coeffs(
+    in_size: usize,
+    in0: f32,
+    in1: f32,
+    out_size: usize,
+) -> (usize, Vec<(i32, i32)>, Vec<f64>) {
     // prepare for horizontal stretch
     let scale = (in1 - in0) as f64 / out_size as f64;
     let filterscale = if scale < 1.0 { 1.0 } else { scale };
@@ -102,7 +107,14 @@ fn channels(mode: Mode) -> &'static [usize] {
 }
 
 /// `_ImagingResampleHorizontal_8bpc` (`Resample.c:288`).
-fn horizontal_8bpc(out: &mut Image, im: &Image, offset: usize, ksize: usize, bounds: &[(i32, i32)], prekk: &[f64]) {
+fn horizontal_8bpc(
+    out: &mut Image,
+    im: &Image,
+    offset: usize,
+    ksize: usize,
+    bounds: &[(i32, i32)],
+    prekk: &[f64],
+) {
     let kk = normalize_coeffs_8bpc(prekk);
     let pixel = im.mode.pixelsize();
     for yy in 0..out.height {
@@ -114,7 +126,9 @@ fn horizontal_8bpc(out: &mut Image, im: &Image, offset: usize, ksize: usize, bou
             for &c in channels(im.mode) {
                 let mut ss = 1i32 << (PRECISION_BITS - 1);
                 for x in 0..xmax as usize {
-                    ss = ss.wrapping_add((line_in[(x + xmin as usize) * pixel + c] as i32).wrapping_mul(k[x]));
+                    ss = ss.wrapping_add(
+                        (line_in[(x + xmin as usize) * pixel + c] as i32).wrapping_mul(k[x]),
+                    );
                 }
                 line_out[xx * pixel + c] = clip8(ss);
             }
@@ -144,7 +158,12 @@ fn vertical_8bpc(out: &mut Image, im: &Image, ksize: usize, bounds: &[(i32, i32)
 
 /// `ImagingResample` and `ImagingResampleInner` (`Resample.c:711`, `:773`) with the bicubic
 /// filter.
-fn resample_bicubic(im: &Image, xsize: usize, ysize: usize, box_: (f32, f32, f32, f32)) -> Result<Image, String> {
+fn resample_bicubic(
+    im: &Image,
+    xsize: usize,
+    ysize: usize,
+    box_: (f32, f32, f32, f32),
+) -> Result<Image, String> {
     if matches!(im.mode, Mode::P | Mode::One) {
         return Err("The image mode is not supported".to_owned());
     }
@@ -154,7 +173,8 @@ fn resample_bicubic(im: &Image, xsize: usize, ysize: usize, box_: (f32, f32, f32
     }
     let need_horizontal = xsize != im.width || box_.0 != 0.0 || box_.2 != xsize as f32;
     let need_vertical = ysize != im.height || box_.1 != 0.0 || box_.3 != ysize as f32;
-    let (ksize_vert, mut bounds_vert, kk_vert) = precompute_coeffs(im.height, box_.1, box_.3, ysize);
+    let (ksize_vert, mut bounds_vert, kk_vert) =
+        precompute_coeffs(im.height, box_.1, box_.3, ysize);
     // First used row in the source image
     let ybox_first = bounds_vert[0].0;
     // Last used row in the source image
@@ -163,13 +183,21 @@ fn resample_bicubic(im: &Image, xsize: usize, ysize: usize, box_: (f32, f32, f32
     let mut temp: Option<Image> = None;
     // two-pass resize, horizontal pass
     if need_horizontal {
-        let (ksize_horiz, bounds_horiz, kk_horiz) = precompute_coeffs(im.width, box_.0, box_.2, xsize);
+        let (ksize_horiz, bounds_horiz, kk_horiz) =
+            precompute_coeffs(im.width, box_.0, box_.2, xsize);
         // Shift bounds for vertical pass
         for b in bounds_vert.iter_mut() {
             b.0 -= ybox_first;
         }
         let mut t = Image::new(im.mode, xsize, (ybox_last - ybox_first) as usize);
-        horizontal_8bpc(&mut t, im, ybox_first as usize, ksize_horiz, &bounds_horiz, &kk_horiz);
+        horizontal_8bpc(
+            &mut t,
+            im,
+            ybox_first as usize,
+            ksize_horiz,
+            &bounds_horiz,
+            &kk_horiz,
+        );
         temp = Some(t);
     }
     let source = temp.as_ref().unwrap_or(im);
@@ -227,7 +255,12 @@ fn scale_affine(im: &Image, xsize: usize, ysize: usize, box_: (f32, f32, f32, f3
 }
 
 /// `_resize` (`_imaging.c:1937`).
-pub fn resize(im: &Image, size: (usize, usize), filter: Filter, box_: (f32, f32, f32, f32)) -> Result<Image, String> {
+pub fn resize(
+    im: &Image,
+    size: (usize, usize),
+    filter: Filter,
+    box_: (f32, f32, f32, f32),
+) -> Result<Image, String> {
     let (xsize, ysize) = size;
     if xsize < 1 || ysize < 1 {
         return Err("height and width must be > 0".to_owned());
@@ -254,7 +287,8 @@ pub fn resize(im: &Image, size: (usize, usize), filter: Filter, box_: (f32, f32,
         out.palette = im.palette.clone();
         for y in 0..ysize {
             let from = ((y0 + y) * im.width + x0) * pixel;
-            out.data[y * xsize * pixel..(y + 1) * xsize * pixel].copy_from_slice(&im.data[from..from + xsize * pixel]);
+            out.data[y * xsize * pixel..(y + 1) * xsize * pixel]
+                .copy_from_slice(&im.data[from..from + xsize * pixel]);
         }
         return Ok(out);
     }

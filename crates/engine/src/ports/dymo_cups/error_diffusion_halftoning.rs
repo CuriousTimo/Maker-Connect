@@ -16,32 +16,50 @@ use super::printer_driver::Buffer;
 /// `CErrorDiffusionHalftoning`.
 pub struct ErrorDiffusionHalftoning {
     base: HalftoneBase,
-    image_width: usize,     // image width in pixels
-    errors: Vec<i32>,       // errors buffer
-    gray_line: Vec<i32>,    // current line in gray scale color
+    image_width: usize,            // image width in pixels
+    errors: Vec<i32>,              // errors buffer
+    gray_line: Vec<i32>,           // current line in gray scale color
     use_printer_color_space: bool, // if true then use 1 as black, 0 - as white; otherwise 0 is black 1 - white
 }
 
 impl ErrorDiffusionHalftoning {
     /// `CErrorDiffusionHalftoning::CErrorDiffusionHalftoning(Input, Output, UsePrinterColorSpace = true)`
     /// (.h:34, .cpp:29-34): throws for an output image type other than `itBW`.
-    pub fn new(input_image_type: ImageType, output_image_type: ImageType, use_printer_color_space: bool) -> Result<Self, HalftoneError> {
+    pub fn new(
+        input_image_type: ImageType,
+        output_image_type: ImageType,
+        use_printer_color_space: bool,
+    ) -> Result<Self, HalftoneError> {
         let base = HalftoneBase::new(input_image_type, output_image_type);
         if base.get_output_image_type() != ImageType::BW {
             return Err(HalftoneError::UnsupportedImageType);
         }
-        Ok(ErrorDiffusionHalftoning { base, image_width: 0, errors: Vec::new(), gray_line: Vec::new(), use_printer_color_space })
+        Ok(ErrorDiffusionHalftoning {
+            base,
+            image_width: 0,
+            errors: Vec::new(),
+            gray_line: Vec::new(),
+            use_printer_color_space,
+        })
     }
 
     /// `ProcessImage(const void* ImageData, ImageWidth, ImageHeight, LineDelta, OutputImage)` (:137-156):
     /// the image as a block of memory, `line_delta` bytes from one line to the next.
-    pub fn process_image_data(&mut self, image_data: &[u8], image_width: usize, image_height: usize, line_delta: usize, output_image: &mut ImageBuffer) {
+    pub fn process_image_data(
+        &mut self,
+        image_data: &[u8],
+        image_width: usize,
+        image_height: usize,
+        line_delta: usize,
+        output_image: &mut ImageBuffer,
+    ) {
         output_image.clear();
 
         let buffer_size = self.base.calc_buffer_size(image_width);
 
         for i in 0..image_height {
-            let input_line: Buffer = image_data[line_delta * i..line_delta * i + buffer_size].to_vec();
+            let input_line: Buffer =
+                image_data[line_delta * i..line_delta * i + buffer_size].to_vec();
 
             output_image.push(Buffer::new());
             let last = output_image.len() - 1;
@@ -107,7 +125,8 @@ impl HalftoneFilter for ErrorDiffusionHalftoning {
             let mut error = self.gray_line[i] - pixel_value * 255;
 
             if self.use_printer_color_space {
-                self.base.set_pixel_bw(output_line, i as i32, (pixel_value == 0) as i32);
+                self.base
+                    .set_pixel_bw(output_line, i as i32, (pixel_value == 0) as i32);
             } else {
                 self.base.set_pixel_bw(output_line, i as i32, pixel_value);
             }
