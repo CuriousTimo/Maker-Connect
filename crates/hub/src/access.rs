@@ -387,6 +387,13 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Machine(Level::Operate),
         Some("sent a command to"),
     ),
+    // HS6: stopping never waits for PPE or for 'operate': whoever may use the machine may press it.
+    (
+        "POST",
+        "/machines/{id}/emergency-stop",
+        Need::Machine(Level::Use),
+        Some("pressed the emergency stop of"),
+    ),
     (
         "POST",
         "/machines/{id}/job",

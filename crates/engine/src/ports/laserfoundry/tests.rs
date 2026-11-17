@@ -204,3 +204,30 @@ fn the_extent_of_a_program_is_where_its_moves_go() {
     assert_eq!(extent(p.as_bytes()), Some([10.0, 15.0, 30.0, 20.0]));
     assert_eq!(extent("M5\n".as_bytes()), None);
 }
+
+/// K18 / HS4 (ours): a command the machine has not answered when the port closes fails, "the printer
+/// connection closed", as does one that comes after the Close; none stays pending.
+#[test]
+fn commands_pending_at_close_fail() {
+    let mut sim = SimulatedGrbl::new();
+    sim.set_latency(Duration::from_secs(3));
+    let (orders, port_orders) = channel();
+    let (port_events, events) = channel();
+    let port: Box<dyn Port> = Box::new(LaserFoundryPort::with_machine(GrblMachine::new(Box::new(sim))));
+    let thread = std::thread::spawn(move || port.run(port_orders, port_events));
+    let gcode = |text: &str| Action::Gcode { text: text.into() };
+    orders.send(Order::Command { id: 1, action: gcode("G4 P0") }).unwrap();
+    orders.send(Order::Command { id: 2, action: gcode("G4 P0") }).unwrap();
+    // the port has taken the two before the Close arrives
+    std::thread::sleep(Duration::from_millis(300));
+    orders.send(Order::Close).unwrap();
+    let _ = orders.send(Order::Command { id: 3, action: gcode("G4 P0") });
+    thread.join().unwrap();
+    let mut done: Vec<_> = events
+        .try_iter()
+        .filter_map(|e| if let Event::Done(d) = e { Some((d.id, d.ok, d.reason)) } else { None })
+        .collect();
+    done.sort_by_key(|d| d.0);
+    let closed = Some(crate::CONNECTION_CLOSED.to_owned());
+    assert_eq!(done, vec![(1, false, closed.clone()), (2, false, closed.clone()), (3, false, closed)]);
+}

@@ -197,7 +197,11 @@ impl Port for DymoPnp {
                 Order::Answer(_) => {
                     let _ = events.send(seen.telemetry(MachineState::Idle, Some(NO_QUESTION)));
                 }
-                Order::Close => return,
+                // K18 / HS4 (ours): a command still waiting fails, "the printer connection closed"
+                Order::Close => {
+                    crate::fail_queued_commands(&orders, &events);
+                    return;
+                }
             }
         }
     }

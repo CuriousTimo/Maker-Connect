@@ -1050,6 +1050,15 @@ struct JobForm {
     action: String,
 }
 
+/// HS6: the job route's Stop, for the emergency-stop button of a laser (LaserFoundry's Stop).
+pub(crate) async fn stop_job(
+    access: crate::access::Access,
+    state: State<Shared>,
+    id: Path<String>,
+) -> Response {
+    control_job(access, state, id, Form(JobForm { action: "stop".to_owned() })).await
+}
+
 /// Pause, resume or stop a machine's job.
 async fn control_job(
     access: crate::access::Access,

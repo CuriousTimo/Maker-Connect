@@ -1,4 +1,4 @@
-use crate::commands::command;
+use crate::commands::{command, emergency_stop};
 use crate::link::{pair, register, telemetry};
 use crate::web::machines::{
     add_klipper, add_virtual, answer, choose_media, choose_profile, history, laser_power,
@@ -36,6 +36,7 @@ pub fn app(store: Shared) -> Router {
         .route("/machines/{id}/name", post(rename))
         .route("/machines/{id}/labels", post(set_labels))
         .route("/machines/{id}/command", post(command))
+        .route("/machines/{id}/emergency-stop", post(emergency_stop))
         .route("/machines/{id}/remove", post(remove))
         .route("/machines/{id}/move", post(move_machine))
         .route("/machines/{id}/out-of-use", post(out_of_use))

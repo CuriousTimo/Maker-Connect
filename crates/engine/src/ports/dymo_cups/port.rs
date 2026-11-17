@@ -101,12 +101,16 @@ struct PortIo {
 impl PortIo {
     /// W6: Stop during a print ends it (SIGTERM); the other orders wait.
     fn look_for_orders(&mut self) {
-        while let Ok(order) = self.orders.try_recv() {
+        // K18 / HS4 (ours): after a Close nothing more is read; the rest stays for the port's Close
+        while !self.closed && let Ok(order) = self.orders.try_recv() {
             match order {
                 Order::Control(JobControl::Stop) => self.stopped = true,
                 Order::Close => {
                     self.closed = true;
                     self.stopped = true;
+                    // K18 / HS4 (ours): what comes after the Close stays in the channel; the port's
+                    // Close fails the commands in it
+                    break;
                 }
                 other => self.pending.borrow_mut().push_back(other),
             }
@@ -206,7 +210,16 @@ impl Port for LabelWriter450 {
                 Order::Answer(_) => {
                     let _ = events.send(seen.telemetry(MachineState::Idle, Some(NO_QUESTION)));
                 }
-                Order::Close => return,
+                // K18 / HS4 (ours): a command still waiting fails, "the printer connection closed"
+                Order::Close => {
+                    for order in pending.borrow_mut().drain(..) {
+                        if let Order::Command { id, .. } = order {
+                            crate::fail_command(id, &events);
+                        }
+                    }
+                    crate::fail_queued_commands(&orders, &events);
+                    return;
+                }
             }
         }
     }

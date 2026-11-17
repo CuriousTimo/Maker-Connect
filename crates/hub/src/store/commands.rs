@@ -1,5 +1,20 @@
 use super::*;
 
+/// Whether an agent machine runs on the Marlin/OctoPrint port: an FDM printer with a plain Marlin
+/// profile (`plain_marlin`, K5) whose firmware is Marlin or not named (not Buddy, Klipper, the MK3
+/// family or GRBL). K18.
+pub fn on_marlin_port(m: &Machine) -> bool {
+    m.link == "agent"
+        && m.kind == maker_connect_protocol::MachineKind::Fdm
+        && crate::machine_page::plain_marlin(m)
+        && m
+            .profile
+            .as_deref()
+            .and_then(crate::profiles::find)
+            .and_then(|p| p.firmware.as_deref())
+            .is_none_or(|f| f == "marlin")
+}
+
 impl Store {
     /// The owner gives a machine a command: its id, or None when the machine is not in
     /// the space or cannot take commands (yet: only printers on built-in Prusa Connect).
@@ -168,10 +183,11 @@ impl Store {
             .collect()
     }
 
-    /// Whether the machine behind this token is an agent machine whose port is the Marlin/OctoPrint
-    /// port: an agent link, a plain Marlin profile (`plain_marlin`, as K5, and Marlin or no firmware named) and an FDM printer (the
-    /// DYMO, LabelWriter and laser ports are agent machines too, and keep the gate). K18.
-    pub fn is_marlin_agent(&self, token: &str) -> rusqlite::Result<bool> {
+    /// Whether the machine behind this token is an agent machine whose port fails its pending commands
+    /// on close (K18, HS4): the Marlin/OctoPrint port (an agent link, an FDM printer, a plain Marlin
+    /// profile as K5, Marlin or no firmware named), the DYMO PnP and LabelWriter 450 ports (a label
+    /// printer) and the laser port (a laser). Buddy, Klipper and the MK3 family keep the gate.
+    pub fn fails_pending_on_close(&self, token: &str) -> rusqlite::Result<bool> {
         let Some(space) = self
             .db
             .query_row(
@@ -190,13 +206,8 @@ impl Store {
             // `plain_marlin` alone would take a Buddy or Klipper profile too (it leaves out only the
             // MK3 family and GRBL): the Marlin port's machines are the ones whose profile says Marlin
             // or says nothing
-            m.kind == maker_connect_protocol::MachineKind::Fdm
-                && crate::machine_page::plain_marlin(&m)
-                && m.profile
-                    .as_deref()
-                    .and_then(crate::profiles::find)
-                    .and_then(|p| p.firmware.as_deref())
-                    .is_none_or(|f| f == "marlin")
+            use maker_connect_protocol::MachineKind;
+            matches!(m.kind, MachineKind::Label | MachineKind::Laser) || on_marlin_port(&m)
         }))
     }
 
@@ -216,7 +227,7 @@ impl Store {
         }
     }
 
-    /// K18, the agent-gone rule (ours): a Marlin agent machine not seen for longer than
+    /// K18, the agent-gone rule (ours): an agent machine whose port fails pending on close not seen for longer than
     /// `ONLINE_SECONDS` has its Sent and Accepted commands (not the Queued ones) failed with "the
     /// agent was gone", checked on its next report, before that report is taken in.
     pub fn fail_commands_of_gone_agent(&mut self, token: &str) -> rusqlite::Result<()> {
@@ -228,7 +239,7 @@ impl Store {
             .query_row("SELECT last_seen FROM machines WHERE token = ?1", [token], |r| r.get(0))
             .optional()?
             .flatten();
-        if seen.is_none_or(|t| now() - t <= ONLINE_SECONDS) || !self.is_marlin_agent(token)? {
+        if seen.is_none_or(|t| now() - t <= ONLINE_SECONDS) || !self.fails_pending_on_close(token)? {
             return Ok(());
         }
         let mut any = false;
@@ -249,7 +260,7 @@ impl Store {
         Ok(())
     }
 
-    /// All Queued commands of a Marlin agent machine, in the existing order (someone's before the
+    /// All Queued commands of an agent machine whose port fails pending on close, in the existing order (someone's before the
     /// hub's own background ones), each now Sent: no gate and no 120 s (K18).
     pub fn next_commands_for_agent(&mut self, token: &str) -> rusqlite::Result<Vec<(u32, String)>> {
         let Some(machine) = self.machine_id(token)? else {

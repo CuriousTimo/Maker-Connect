@@ -239,6 +239,70 @@ fn typed_gcode(text: &str) -> Result<(String, String), &'static str> {
     Ok((label, text.to_owned()))
 }
 
+/// HS6 (ours, in our UI): what the machine page's emergency-stop button does for a machine; the
+/// reference of each is in `docs/briefs/hs6-emergency-stop.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmergencyStop {
+    /// An agent machine on the Marlin/OctoPrint port: the typed `M112`, which OctoPrint's comm
+    /// turns into its own emergency stop (`util/comm.py:5524`, `:5487-5522`).
+    TypedM112,
+    /// A laser: LaserFoundry's own Stop, `Link::stop` (`ui-egui/src/panels.rs:774-775`), a soft
+    /// reset. LaserFoundry has no other stop.
+    LaserStop,
+}
+
+/// The emergency stop a machine has, if any. A label printer has none, and neither has a Prusa on
+/// Buddy (`docs/briefs/hs6-emergency-stop.md`); the hub's own machines (built-in Connect,
+/// SimplyPrint, Klipper) have none here.
+pub fn emergency_stop_of(machine: &store::Machine) -> Option<EmergencyStop> {
+    use protocol::MachineKind;
+    if machine.kind == MachineKind::Laser {
+        return Some(EmergencyStop::LaserStop);
+    }
+    store::on_marlin_port(machine).then_some(EmergencyStop::TypedM112)
+}
+
+/// The machine page's emergency-stop button.
+pub(crate) async fn emergency_stop(
+    access: crate::access::Access,
+    State(shared): State<Shared>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    let (space, machine) = {
+        let store = shared.lock().unwrap();
+        let space = match store.space_of(&access) {
+            Ok((space, _)) => space,
+            Err(error) => return failed(error),
+        };
+        match store.machine(space, &id) {
+            Ok(Some(machine)) => (space, machine),
+            Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
+            Err(error) => return failed(error),
+        }
+    };
+    // Stopping never waits for PPE (`safety.rs`), and needs 'use' on the machine, as Stop does.
+    match emergency_stop_of(&machine) {
+        None => (StatusCode::CONFLICT, "this machine has no emergency stop").into_response(),
+        Some(EmergencyStop::TypedM112) => {
+            let queued = shared.lock().unwrap().queue_action(
+                space,
+                &id,
+                "Emergency stop",
+                &protocol::Action::Gcode { text: "M112".to_owned() },
+            );
+            match queued {
+                Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
+                Ok(None) => (StatusCode::NOT_FOUND, "no such machine, or it takes no commands").into_response(),
+                Err(error) => failed(error),
+            }
+        }
+        // The laser's Stop, the same route as its Stop button.
+        Some(EmergencyStop::LaserStop) => {
+            crate::files::stop_job(access, State(shared), axum::extract::Path(id)).await
+        }
+    }
+}
+
 pub(crate) async fn command(
     access: crate::access::Access,
     State(store): State<Shared>,
@@ -643,5 +707,88 @@ mod tests {
         let (_, body) = call(&agent, json(protocol::TELEMETRY, Some(&registered.token), serde_json::to_string(&telemetry).unwrap())).await;
         let reply: TelemetryReply = serde_json::from_str(&body).unwrap();
         assert_eq!(reply.commands.len(), 1, "{body}");
+    }
+
+    /// HS6: an agent machine of each kind, registered, paired, with a first report (so it is online).
+    async fn agent_of(
+        store: &Arc<Mutex<Store>>,
+        kind: MachineKind,
+        profile: Option<&str>,
+    ) -> (String, String) {
+        let agent = crate::app(store.clone());
+        let register = Register { protocol: protocol::VERSION, name: "m".into(), kind, agent_version: "0.2.0".into() };
+        let (_, body) = call(&agent, json(protocol::REGISTER, None, serde_json::to_string(&register).unwrap())).await;
+        let registered: Registered = serde_json::from_str(&body).unwrap();
+        {
+            let store = store.lock().unwrap();
+            let space = store.default_space().unwrap().0;
+            store.pair(space, &registered.pairing_code).unwrap();
+            // 'use' only, not 'operate': whoever may use the machine may press the emergency stop
+            let user: i64 = store.db.query_row("SELECT id FROM users WHERE name = 'tester'", [], |r| r.get(0)).unwrap();
+            store.set_grant(space, &registered.machine_id, user, crate::access::Level::Use, user, None).unwrap();
+            if profile.is_some() {
+                store.set_profile(space, &registered.machine_id, profile).unwrap();
+            }
+        }
+        let telemetry = Telemetry { state: MachineState::Idle, ..Telemetry::default() };
+        call(&agent, json(protocol::TELEMETRY, Some(&registered.token), serde_json::to_string(&telemetry).unwrap())).await;
+        (registered.machine_id, registered.token)
+    }
+
+    /// HS6: the commands the agent is given on its next report.
+    async fn given(store: &Arc<Mutex<Store>>, token: &str) -> Vec<protocol::Action> {
+        let agent = crate::app(store.clone());
+        let telemetry = Telemetry { state: MachineState::Idle, ..Telemetry::default() };
+        let (_, body) = call(&agent, json(protocol::TELEMETRY, Some(token), serde_json::to_string(&telemetry).unwrap())).await;
+        serde_json::from_str::<TelemetryReply>(&body).unwrap().commands.into_iter().map(|c| c.action).collect()
+    }
+
+    /// HS6: the button's route, per kind: a Marlin machine is sent exactly the typed `M112` (the path
+    /// `b3_b5_...` shows for the terminal), a laser is sent LaserFoundry's Stop (`JobControl::Stop`, the
+    /// route of its Stop button); a label printer, a Prusa (Buddy) and a machine whose profile is not
+    /// Marlin are refused and are sent nothing. The page shows the button for the first two only.
+    #[tokio::test]
+    async fn hs6_the_emergency_stop_is_each_kinds_own() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = crate::auth::signed_in_app(store.clone());
+        let press = |id: &str| Request::post(format!("/machines/{id}/emergency-stop")).body(Body::empty()).unwrap();
+        let page = |id: &str| Request::get(format!("/machines/{id}")).body(Body::empty()).unwrap();
+
+        // a Marlin agent machine: the typed M112, and nothing else
+        let (marlin, token) = agent_of(&store, MachineKind::Fdm, None).await;
+        let (status, why) = call(&app, press(&marlin)).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{why}");
+        assert_eq!(given(&store, &token).await, [protocol::Action::Gcode { text: "M112".into() }]);
+        assert!(call(&app, page(&marlin)).await.1.contains("emergency-stop"));
+        // with 'use' alone, the terminal is refused: the button is a stop, which 'use' allows
+        let typed = Request::post(format!("/machines/{marlin}/command"))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from("gcode=M105"))
+            .unwrap();
+        assert_eq!(call(&app, typed).await.0, StatusCode::FORBIDDEN);
+
+        // a laser: LaserFoundry's Stop, to the agent as a job control
+        let (laser, _) = agent_of(&store, MachineKind::Laser, None).await;
+        let (status, why) = call(&app, press(&laser)).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{why}");
+        assert!(matches!(
+            store.lock().unwrap().own_job_control.remove(&laser),
+            Some(protocol::JobControl::Stop)
+        ));
+        assert!(call(&app, page(&laser)).await.1.contains("emergency-stop"));
+
+        // none: a label printer, a Prusa on Buddy, a profile that is not Marlin
+        for (kind, profile) in [
+            (MachineKind::Label, None),
+            (MachineKind::Fdm, Some("prusa/mini")),
+            (MachineKind::Fdm, Some("prusa/mk4s")),
+        ] {
+            let (id, token) = agent_of(&store, kind, profile).await;
+            let (status, why) = call(&app, press(&id)).await;
+            assert_eq!(status, StatusCode::CONFLICT, "{kind:?} {profile:?}: {why}");
+            assert!(given(&store, &token).await.is_empty(), "{kind:?} {profile:?}: nothing sent");
+            assert!(store.lock().unwrap().own_job_control.remove(&id).is_none());
+            assert!(!call(&app, page(&id)).await.1.contains("emergency-stop"), "{kind:?} {profile:?}");
+        }
     }
 }
