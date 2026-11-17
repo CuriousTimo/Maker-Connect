@@ -255,7 +255,7 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   /* Green: available. Blue: busy. */
   .dot.busy { background: var(--busy); box-shadow: 0 0 0 3px color-mix(in srgb, var(--busy) 25%, transparent); }
   .dot.paused, .dot.attention { background: var(--warn); } .dot.error { background: var(--bad); }
-  .dot.cooling { background: var(--busy); } .dot.out { background: transparent; box-shadow: inset 0 0 0 1.5px var(--off); }
+  .dot.cooling { background: var(--busy); } .dot.loaded { background: var(--accent); } .dot.out { background: transparent; box-shadow: inset 0 0 0 1.5px var(--off); }
   /* The counts, at the top of every page. */
   .topbar { view-transition-name: topbar; position: fixed; inset: 0 0 auto 0; height: var(--top); z-index: 11; display: flex; align-items: center; gap: 14px; padding: 0 16px; background: color-mix(in srgb, var(--card) 70%, var(--bg)); border-bottom: 1px solid var(--line); box-sizing: border-box; }
   .top-right { margin-left: auto; display: flex; align-items: center; gap: 14px; min-width: 0; }
@@ -464,6 +464,7 @@ pub(crate) const STYLE: &str = r#"  :root { color-scheme: light dark; --bg: #f6f
   .state.error { background: var(--bad); color: #fff; box-shadow: none; }
   .state.attention { background: var(--warn); color: #fff; box-shadow: none; }
   .state.cooling { color: var(--busy); box-shadow: inset 0 0 0 1.5px var(--busy); }
+  .state.loaded { color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
   .state.out { background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--off); }
   .attention-count b { color: var(--warn) !important; }
   .thumb { width: 56px; height: 56px; border-radius: 10px; background: var(--line); }

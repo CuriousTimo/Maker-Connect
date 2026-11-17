@@ -48,7 +48,7 @@ async fn page(access: Access, State(store): State<Shared>) -> Response {
   <datalist id="sheet-kinds"><option value="Smooth PEI"><option value="Textured PEI"><option value="Satin"><option value="Glass"><option value="Garolite"><option value="PEO"></datalist>
   <section class="p-machines">
     <h3>Machines that take work</h3>
-    <p class="intro">Only these get plates from the queue; the others are used by hand.</p>
+    <p class="intro">Only these get plates from the queue; the others are used by hand. A laser is never started from the queue: someone loads and starts it at the laser.</p>
     <div class="p-machine-list" data-machines></div>
   </section>
 </main>
@@ -187,7 +187,7 @@ const PROJECTS_SCRIPT: &str = r#"
         <form class="add-part" data-add-part="${pr.id}"><input name="name" required maxlength="80" placeholder="A part: Bracket" aria-label="Name of a new part"><input name="target" type="number" min="1" required placeholder="how many" aria-label="How many" style="width:8em"><button class="ghost">Add part</button></form>
       </article>`;
     }).join("") : '<p class="empty">No project yet. Make one, give it parts, and a file for each machine model that may make them.</p>';
-    document.querySelector("[data-machines]").innerHTML = data.machines.filter((m) => m.kind === "fdm" || m.kind === "laser").map((m) => `<label class="p-machine${m.farm ? " on" : ""}"><input type="checkbox" data-farm="${esc(m.id)}"${m.farm ? " checked" : ""}${m.manage ? "" : " disabled title=\"Who manages it decides\""}> ${esc(m.name)} <small class="muted">${esc(model(m.profile))}${m.sheet ? ` · ${esc(m.sheet)}` : ""}</small>${m.compatible && m.compatible[1] ? ` <small class="fit" title="Open parts it could make now, of all open parts">${m.compatible[0]}/${m.compatible[1]} parts</small>` : ""}</label>`).join("") || '<p class="muted">No machines yet.</p>';
+    document.querySelector("[data-machines]").innerHTML = data.machines.filter((m) => m.kind === "fdm").map((m) => `<label class="p-machine${m.farm ? " on" : ""}"><input type="checkbox" data-farm="${esc(m.id)}"${m.farm ? " checked" : ""}${m.manage ? "" : " disabled title=\"Who manages it decides\""}> ${esc(m.name)} <small class="muted">${esc(model(m.profile))}${m.sheet ? ` · ${esc(m.sheet)}` : ""}</small>${m.compatible && m.compatible[1] ? ` <small class="fit" title="Open parts it could make now, of all open parts">${m.compatible[0]}/${m.compatible[1]} parts</small>` : ""}</label>`).join("") || '<p class="muted">No machines yet.</p>';
   }
 
   function timeline(s) {

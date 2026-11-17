@@ -27,6 +27,13 @@
   const kindOf = (f) => (f.meta && f.meta.kind && KINDS[f.meta.kind] ? f.meta.kind : "other");
   let machines = []; // the space's machines, from the live list: id, name, kind
   const machineName = (id) => machines.find((m) => m.id === id)?.name || "a removed machine";
+  // A job's state in the words of the file's kind: a laser burns, the others print (HS7b: a
+  // loaded laser job is not started).
+  const stateWord = (f, state) => {
+    const laser = f.meta?.kind === "laser";
+    return ({ finished: laser ? "Burned" : "Printed", stopped: "Stopped", failed: "Failed", printing: laser ? "Burning" : "Printing", paused: "Paused", queued: "Queued", stopping: "Stopping", loaded: "Loaded, not started," })[state] || state;
+  };
+  const notYet = (f) => (f.meta?.kind === "laser" ? "Not burned yet" : "Not printed yet");
 
   function card(f) {
     const m = f.meta || {};
@@ -40,8 +47,8 @@
     const label = m.label_dots ? `${Math.round((m.label_dots[0] / 180) * 25.4)} mm label` : null;
     const last = f.printed[0];
     const printed = last
-      ? `<div class="printed">${last.state === "finished" ? "Printed" : esc(last.state)} on <b>${esc(machineName(last.machine_id))}</b> ${ago(last.at)}${f.printed.length > 1 ? ` · ${f.printed.length}${f.printed.length === 5 ? "+" : ""} times` : ""}</div>`
-      : `<div class="printed">Not printed yet</div>`;
+      ? `<div class="printed">${esc(stateWord(f, last.state))} on <b>${esc(machineName(last.machine_id))}</b> ${ago(last.at)}${f.printed.length > 1 ? ` · ${f.printed.length}${f.printed.length === 5 ? "+" : ""} times` : ""}</div>`
+      : `<div class="printed">${notYet(f)}</div>`;
     return `<article class="file${selected.has(f.id) ? " picked" : ""}" data-id="${esc(f.id)}" draggable="true">
       <input type="checkbox" class="pick" aria-label="Select ${esc(f.name)}"${selected.has(f.id) ? " checked" : ""}>
       <span class="kind">${KINDS[kindOf(f)]}</span>
@@ -52,11 +59,11 @@
         <div class="when">${ago(f.uploaded_at)} · ${bytes(f.size)}${m.slicer ? ` · ${esc(m.slicer)}` : ""}</div>
         ${printed}
         <form data-print>
-          <select name="machine" aria-label="Machine to print on"${f.machines.length ? "" : " disabled"}>
-            <option value="">${f.machines.length ? (ready ? "Print on…" : "No machine for it") : "No machines yet"}</option>${options}
-          </select><input type="number" name="copies" class="copies" min="1" max="50" value="1" aria-label="Copies" title="Copies: the first now, the rest in its queue"${ready ? "" : " disabled"}>
+          <select name="machine" aria-label="${m.kind === "laser" ? "Laser to load it on" : "Machine to print on"}"${f.machines.length ? "" : " disabled"}>
+            <option value="">${f.machines.length ? (ready ? (m.kind === "laser" ? "Load on…" : "Print on…") : "No machine for it") : "No machines yet"}</option>${options}
+          </select>${m.kind === "laser" ? "" : `<input type="number" name="copies" class="copies" min="1" max="50" value="1" aria-label="Copies" title="Copies: the first now, the rest in its queue"${ready ? "" : " disabled"}>`}
           ${m.kind === "laser" ? `<button type="button" class="ghost" data-frame${ready ? "" : " disabled"} title="Run the outline with the laser off">Frame</button>` : ""}
-          <button${ready ? "" : " disabled"}>${m.kind === "laser" ? "Start" : "Print"}</button>
+          <button${ready ? "" : " disabled"}>${m.kind === "laser" ? "Load" : "Print"}</button>
         </form>
         <p class="note" data-note role="status"></p>
         <div class="more"><a href="files/${encodeURIComponent(f.id)}/download">Download</a><button type="button" data-remove>Remove</button></div>
@@ -82,14 +89,14 @@
       <td class="num">${cell(duration(m.estimated_s) || label)}</td>
       <td class="num">${cell(m.filament_type ? `${m.filament_type} ${filament}`.trim() : filament)}${m.layer_height_mm != null ? `<small class="muted sub">${m.layer_height_mm} mm layers</small>` : ""}</td>
       <td class="num up">${ago(f.uploaded_at)}<small class="muted sub">${bytes(f.size)}</small></td>
-      <td class="num clip" title="${last ? esc(`${machineName(last.machine_id)}, ${ago(last.at)}`) : ""}">${last ? `${esc(machineName(last.machine_id))}<small class="muted"> · ${ago(last.at)}</small>` : '<span class="muted">not yet</span>'}</td>
+      <td class="num clip" title="${last ? esc(`${stateWord(f, last.state)} on ${machineName(last.machine_id)}, ${ago(last.at)}`) : ""}">${last ? `${last.state === "loaded" ? "Loaded on " : ""}${esc(machineName(last.machine_id))}<small class="muted"> · ${ago(last.at)}</small>` : '<span class="muted">not yet</span>'}</td>
       <td class="row-actions"><a href="files/${encodeURIComponent(f.id)}/download" title="Download" aria-label="Download"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v8.5M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a><button type="button" data-remove title="Remove" aria-label="Remove"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.6 6.5v5M9.4 6.5v5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td>
       <td><form data-print>
-        <select name="machine" aria-label="Machine to print on"${f.machines.length ? "" : " disabled"}>
-          <option value="">${f.machines.length ? (ready ? "Print on…" : "No machine for it") : "No machines"}</option>${options}
-        </select><input type="number" name="copies" class="copies" min="1" max="50" value="1" aria-label="Copies" title="Copies: the first now, the rest in its queue"${ready ? "" : " disabled"}>
-        ${m.kind === "laser" ? `<button type="button" class="ghost icon" data-frame${ready ? "" : " disabled"} title="Frame: run the outline with the laser off" aria-label="Frame"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.5 2"/></svg></button>` : ""}
-        <button class="icon"${ready ? "" : " disabled"} title="${m.kind === "laser" ? "Start" : "Print"}" aria-label="${m.kind === "laser" ? "Start" : "Print"}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L12.8 8z" fill="currentColor"/></svg></button>
+        <select name="machine" aria-label="${m.kind === "laser" ? "Laser to load it on" : "Machine to print on"}"${f.machines.length ? "" : " disabled"}>
+          <option value="">${f.machines.length ? (ready ? (m.kind === "laser" ? "Load on…" : "Print on…") : "No machine for it") : "No machines"}</option>${options}
+        </select>${m.kind === "laser" ? "" : `<input type="number" name="copies" class="copies" min="1" max="50" value="1" aria-label="Copies" title="Copies: the first now, the rest in its queue"${ready ? "" : " disabled"}>`}
+        ${m.kind === "laser" ? `<button type="button" class="ghost icon" data-frame${ready ? "" : " disabled"} title="Frame: run the outline with the laser off (on a laser with nothing loaded; a loaded job is framed on its machine page)" aria-label="Frame"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.5 2"/></svg></button>` : ""}
+        <button class="icon"${ready ? "" : " disabled"} title="${m.kind === "laser" ? "Load" : "Print"}" aria-label="${m.kind === "laser" ? "Load" : "Print"}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L12.8 8z" fill="currentColor"/></svg></button>
       </form><span class="note" data-note role="status"></span></td>
     </tr>`;
   }
@@ -179,7 +186,7 @@
     const groups = Object.keys(GROUPS).map((k) => [k, shown.filter((f) => kindOf(f) === k)]).filter(([, fs]) => fs.length);
     const headed = groups.length > 1;
     // A table per group, all with the same columns; the column names on the first only.
-    const table = (fs, first) => `<div class="table-wrap"><table class="file-table"><colgroup><col class="c-pick"><col><col class="c-sliced"><col class="c-time"><col class="c-material"><col class="c-uploaded up"><col class="c-printed"><col class="c-icons"><col class="c-print"></colgroup>${first ? '<thead><tr><th></th><th>File</th><th>Sliced for</th><th>Time</th><th>Material</th><th class="up">Uploaded</th><th>Last printed</th><th></th><th></th></tr></thead>' : ""}<tbody>${fs.map(row).join("")}</tbody></table></div>`;
+    const table = (fs, first) => `<div class="table-wrap"><table class="file-table"><colgroup><col class="c-pick"><col><col class="c-sliced"><col class="c-time"><col class="c-material"><col class="c-uploaded up"><col class="c-printed"><col class="c-icons"><col class="c-print"></colgroup>${first ? '<thead><tr><th></th><th>File</th><th>Sliced for</th><th>Time</th><th>Material</th><th class="up">Uploaded</th><th>Last run</th><th></th><th></th></tr></thead>' : ""}<tbody>${fs.map(row).join("")}</tbody></table></div>`;
     const tables = groups.map(([k, fs], i) => (headed ? `<h3 class="files-group">${GROUPS[k]} <small>${fs.length}</small></h3>` : "") + table(fs, i === 0)).join("");
     const cards = groups.map(([k, fs]) => (headed ? `<h3 class="files-group">${GROUPS[k]} <small>${fs.length}</small></h3>` : "") + fs.map(card).join("")).join("");
     list.classList.toggle("list", view === "list" && shown.length > 0);
@@ -294,10 +301,9 @@
       row("Label", m.label_dots ? `${mm((m.label_dots[0] / 180) * 25.4)} long, ${m.label_dots[1]} dots high` : null),
       row("Uploaded", `${ago(f.uploaded_at)} · ${bytes(f.size)}`),
     ].join("");
-    const states = { finished: "Printed", stopped: "Stopped", failed: "Failed", printing: "Printing", paused: "Paused", queued: "Queued", stopping: "Stopping" };
     const history = f.printed.length
-      ? f.printed.map((p) => `<li>${esc(states[p.state] || p.state)} on <b>${esc(machineName(p.machine_id))}</b> <span class="muted">${ago(p.at)}</span></li>`).join("")
-      : '<li class="muted">Not printed yet</li>';
+      ? f.printed.map((p) => `<li>${esc(stateWord(f, p.state))} on <b>${esc(machineName(p.machine_id))}</b> <span class="muted">${ago(p.at)}</span></li>`).join("")
+      : `<li class="muted">${notYet(f)}</li>`;
     const options = f.machines.map((t) =>
       `<option value="${esc(t.id)}"${t.ok || t.queue ? "" : " disabled"}>${esc(t.name)}${t.note ? ` — ${esc(t.note)}` : ""}</option>`).join("");
     const ready = f.machines.some((t) => t.ok || t.queue);
@@ -310,15 +316,15 @@
       <div class="fd-picture${label ? " label" : ""}">${picture}</div>
       <div class="fd-side">
         <dl class="fd-facts">${facts}</dl>
-        <div><h4>Printed</h4><ul class="fd-history">${history}</ul></div>
+        <div><h4>Runs</h4><ul class="fd-history">${history}</ul></div>
         <div class="fd-actions">
           <h4>Print</h4>
           <form data-print>
-            <select name="machine" aria-label="Machine to print on"${f.machines.length ? "" : " disabled"}>
-              <option value="">${f.machines.length ? (ready ? "Print on…" : "No machine for it") : "No machines yet"}</option>${options}
-            </select><input type="number" name="copies" class="copies" min="1" max="50" value="1" aria-label="Copies" title="Copies: the first now, the rest in its queue"${ready ? "" : " disabled"}>
+            <select name="machine" aria-label="${m.kind === "laser" ? "Laser to load it on" : "Machine to print on"}"${f.machines.length ? "" : " disabled"}>
+              <option value="">${f.machines.length ? (ready ? (m.kind === "laser" ? "Load on…" : "Print on…") : "No machine for it") : "No machines yet"}</option>${options}
+            </select>${m.kind === "laser" ? "" : `<input type="number" name="copies" class="copies" min="1" max="50" value="1" aria-label="Copies" title="Copies: the first now, the rest in its queue"${ready ? "" : " disabled"}>`}
             ${m.kind === "laser" ? `<button type="button" class="ghost" data-frame${ready ? "" : " disabled"} title="Run the outline with the laser off">Frame</button>` : ""}
-            <button${ready ? "" : " disabled"}>${m.kind === "laser" ? "Start" : "Print"}</button>
+            <button${ready ? "" : " disabled"}>${m.kind === "laser" ? "Load" : "Print"}</button>
           </form>
           <p class="note" data-note role="status"></p>
           <div class="more"><a href="files/${encodeURIComponent(f.id)}/download">Download</a><button type="button" data-remove>Remove</button></div>
@@ -409,12 +415,28 @@
     const machine = form.machine.value;
     if (!machine) { note.textContent = "Choose a machine first."; return; }
     const copies = Math.max(1, Math.min(50, Number(form.copies?.value) || 1));
-    const response = await fetch(`files/${encodeURIComponent(file.dataset.id)}/print`, {
+    const send = (replace) => fetch(`files/${encodeURIComponent(file.dataset.id)}/print`, {
       method: "POST",
-      body: new URLSearchParams({ machine, copies }),
+      body: new URLSearchParams({ machine, ...(form.copies ? { copies } : {}), ...(replace ? { replace: "true" } : {}) }),
       headers: { "x-requested-with": "fetch" },
     });
+    let response = await send(false);
     const name = form.machine.selectedOptions[0]?.textContent.split(" — ")[0] || "the machine";
+    // A laser with a job loaded: replaced only after the person confirms (HS7b).
+    if (response.status === 409 && response.headers.get("content-type")?.includes("json")) {
+      const { confirm } = await response.json();
+      if (!(await ask(confirm, { ok: "Replace" }))) return;
+      response = await send(true);
+    }
+    // A laser: loaded, not started; framed and started at the laser (HS7b).
+    if (response.status === 200 && response.headers.get("content-type")?.includes("json")) {
+      const data = await response.clone().json();
+      if (data.loaded) {
+        toast(`Loaded on ${name}: frame it and press Start burn at the laser`);
+        location.href = `machines/${encodeURIComponent(machine)}#control`;
+        return;
+      }
+    }
     if (response.status === 202) {
       // Into its queue: it starts by itself when the machine is free.
       const { queued, copies: n } = await response.json();

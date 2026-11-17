@@ -3276,22 +3276,55 @@ mod tests {
             assert_eq!(job.by.as_deref(), Some("adam"));
             assert_eq!(s.start_queued().unwrap(), 0, "a loaded job waits");
             assert_eq!(s.dispatch().unwrap(), 0);
+        }
+        // A token's replace takes nothing off: the loaded job stays (it is refused first).
+        let (status, body) = w
+            .send(
+                HttpRequest::post("/files/f1/print")
+                    .header("authorization", format!("Bearer {api}"))
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("machine={laser}&replace=true")))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!((status, body.as_str()), (StatusCode::CONFLICT, LASER_NEVER_ALONE));
+        assert_eq!(w.store.lock().unwrap().active_job(&laser).unwrap().unwrap().state, JobState::Loaded);
+        // Stop on a loaded job is the laser's own Stop (a soft reset): the job stays loaded.
+        let (status, body) = w.post(&adam, &format!("/machines/{laser}/job"), "action=stop").await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        assert!(matches!(
+            w.store.lock().unwrap().own_job_control.remove(&laser),
+            Some(maker_connect_protocol::JobControl::Stop)
+        ));
+        assert_eq!(w.store.lock().unwrap().active_job(&laser).unwrap().unwrap().state, JobState::Loaded);
+        let (status, _) = w.post(&adam, &format!("/machines/{laser}/job"), "action=pause").await;
+        assert_eq!(status, StatusCode::CONFLICT, "a loaded job is not paused");
+        // "Take it off" (unload): it ends stopped, never started.
+        let (status, body) = w.post(&adam, &format!("/machines/{laser}/job"), "action=unload").await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        assert!(w.store.lock().unwrap().active_job(&laser).unwrap().is_none());
+        let (status, body) = w.post(&adam, "/files/f1/print", &format!("machine={laser}")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(jobs(&w), (2, 0));
+        {
+            let mut s = w.store.lock().unwrap();
+            let job = s.active_job(&laser).unwrap().unwrap();
             s.set_job(job.id, JobState::Finished, None).unwrap();
             s.report(&token, &Default::default()).unwrap();
         }
-        assert_eq!(jobs(&w), (1, 0));
+        assert_eq!(jobs(&w), (2, 0));
         // "Start again from there": a person; interrupted jobs start again.
         {
             let mut s = w.store.lock().unwrap();
-            let job = s.job(1).unwrap().unwrap();
+            let job = s.job(2).unwrap().unwrap();
             s.set_job(job.id, JobState::Stopped, None).unwrap();
             s.set_restart_line(job.id, 5).unwrap();
         }
         let (status, body) = w.post(&adam, &format!("/machines/{laser}/job"), "action=restart").await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        assert_eq!(jobs(&w).0, 2);
+        assert_eq!(jobs(&w).0, 3);
         // Stop with no job: a laser's (a soft reset) goes to the agent; a printer's is "no job".
-        w.store.lock().unwrap().set_job(2, JobState::Finished, None).unwrap();
+        w.store.lock().unwrap().set_job(3, JobState::Finished, None).unwrap();
         w.store.lock().unwrap().report(&token, &Default::default()).unwrap();
         let (status, body) = w.post(&adam, &format!("/machines/{laser}/job"), "action=stop").await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");

@@ -926,7 +926,9 @@
     const own = !m.job && progress && ["busy", "paused", "attention"].includes(t.state)
       ? { state: t.state === "paused" ? "paused" : "printing", file_name: progress.file || "a print the printer runs itself", own: true }
       : null;
-    const job = m.job || own;
+    // HS7b: a loaded laser job is not running: the Loaded job card shows it, not the Job card.
+    const loaded = m.job?.state === "loaded";
+    const job = (loaded ? null : m.job) || own;
     const percent = progress && progress.total ? (progress.done / progress.total) * 100 : null;
     const values = {
       job_pct: percent == null ? null : percent.toFixed(0),
@@ -957,10 +959,13 @@
       if (burn) { burn.disabled = !m.laser_framed; burn.title = m.laser_framed ? "" : "Frame the loaded job first"; }
     }
     for (const el of document.querySelectorAll("[data-job]")) el.hidden = !job;
+    for (const el of document.querySelectorAll("[data-job-only]")) el.hidden = !job;
+    const stopHint = document.querySelector("[data-laser-stop]");
+    if (stopHint) stopHint.hidden = !laser || !!job;
     // A laser's Stop (a soft reset) is there with no job too.
     for (const el of document.querySelectorAll("[data-job-actions]")) el.hidden = !job && !laser;
     const none = document.querySelector("[data-no-job]");
-    if (none) none.hidden = !!job;
+    if (none) none.hidden = !!job || loaded;
     // An interrupted job that can start again where it stopped.
     const resume = document.querySelector("[data-resume]"), last = !job && m.resumable;
     if (resume) {

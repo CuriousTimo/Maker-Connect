@@ -1,6 +1,6 @@
 (() => {
   // A label printer's page: the label drawn as SVG at the tape's size, rendered at one pixel
-  // per dot, shown as the dots that will burn, and sent as a PNG (a file, then a job).
+  // per dot, shown as the dots that will print, and sent as a PNG (a file, then a job).
   const ID = document.querySelector("main").dataset.id;
   const TABS = ["overview", "label", "settings"];
   function show() {

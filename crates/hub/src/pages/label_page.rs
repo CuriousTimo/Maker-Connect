@@ -173,7 +173,7 @@ pub fn render(
   <section class="tab" id="label" role="tabpanel" hidden>
 {no_profile}    <div class="grid-label"{no_profile_hidden}>
       <div class="card">
-        <div class="card-head"><div><h3>Label</h3><p class="card-sub">Drawn at the {medium}'s size; the preview shows the dots that will burn</p></div></div>
+        <div class="card-head"><div><h3>Label</h3><p class="card-sub">Drawn at the {medium}'s size; the preview shows the dots that will print</p></div></div>
         <div class="label-editor">
           <label class="field wide-field"><span>Text</span><textarea data-text rows="2" maxlength="200" placeholder="Maker Connect">Maker Connect</textarea><small>A new line for a second line</small></label>
           <label class="field"><span>Font</span><select data-font>

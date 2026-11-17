@@ -37,6 +37,12 @@ pub(crate) fn shown_state(machine: &Machine) -> (String, String) {
             (Some(problem), maker_connect_protocol::MachineState::Idle) => {
                 (problem.clone(), "attention".to_owned())
             }
+            // HS7b: a laser with a job loaded, idle: it waits to be framed and started there.
+            (None, maker_connect_protocol::MachineState::Idle)
+                if machine.job.as_ref().is_some_and(|j| j.state == store::JobState::Loaded) =>
+            {
+                ("Loaded".to_owned(), "loaded".to_owned())
+            }
             _ => (t.state.label().to_owned(), t.state.label().to_lowercase()),
         },
     }
@@ -267,8 +273,8 @@ fn notices(machine: &Machine) -> String {
     }
     if let Some(u) = machine.upkeep.as_ref().filter(|u| u.due) {
         out += &format!(
-            r##"<div class="notice bed"><span><b>Service due</b>: {:.0} of {:.0} printing hours. It takes no work from the queue until it is done.</span><a href="#settings">Upkeep</a></div>"##,
-            u.since_h, u.every_h
+            r##"<div class="notice bed"><span><b>Service due</b>: {:.0} of {:.0} {}. It takes no work from the queue until it is done.</span><a href="#settings">Upkeep</a></div>"##,
+            u.since_h, u.every_h, work_hours(machine.kind)
         );
     }
     // A plate for a project waits for someone: the same as the script draws (confirmHtml).
@@ -681,7 +687,7 @@ fn loaded_card(machine: &Machine, extra: &Extra) -> String {
     <form method="post" action="../files/{file}/frame" data-async data-done="Framing"><input type="hidden" name="machine" value="{id}"><button class="ghost">Frame</button></form>
     <form method="post" action="{id}/start-burn" data-async data-done="Burning" data-then="reload" data-confirm="{confirm}" data-confirm-ok="Start burn" data-confirm-danger><input type="hidden" name="confirm" value="true"><button class="danger" data-start-burn{disabled}>Start burn</button></form>
   </div>
-  <form method="post" action="{id}/job" data-async data-done="Taken off" data-then="reload" data-confirm="Take {name} off the laser? It was never started."><input type="hidden" name="action" value="stop"><button class="ghost">Take it off</button></form>
+  <form method="post" action="{id}/job" data-async data-done="Taken off" data-then="reload" data-confirm="Take {name} off the laser? It was never started."><input type="hidden" name="action" value="unload"><button class="ghost">Take it off</button></form>
   <p class="hint">Another file sent to this laser replaces this one only after you confirm.</p>
 </div>"#,
         name = escape(&job.file_name),
@@ -710,7 +716,10 @@ fn job_card(machine: &Machine) -> String {
                     | maker_connect_protocol::MachineState::Attention
             )
         });
-    let running = job.is_some() || own;
+    let laser = machine.kind == maker_connect_protocol::MachineKind::Laser;
+    // HS7b: a loaded laser job is not running: the "Loaded job" card shows it, not this one.
+    let loaded = job.is_some_and(|j| j.state == store::JobState::Loaded);
+    let running = (job.is_some() && !loaded) || own;
     let width = percent.clone().unwrap_or_else(|| "0".to_owned());
     let time = |s: Option<u64>| s.map_or("–".to_owned(), duration);
     let thumbnail = job.map_or(String::new(), |j| {
@@ -735,11 +744,12 @@ fn job_card(machine: &Machine) -> String {
     </div>
   </div>
   <form class="job-actions" data-job-actions action="{id}/job"{actions_hidden}>
-    <button name="action" value="pause">Pause</button>
-    <button name="action" value="resume">Resume</button>
+    <button name="action" value="pause" data-job-only{only_hidden}>Pause</button>
+    <button name="action" value="resume" data-job-only{only_hidden}>Resume</button>
     <button name="action" value="stop" class="danger">Stop</button>
   </form>
-  <p class="empty no-job" data-no-job{shown}>No job. <a href="../files">Print a file</a> on this machine.</p>
+  <p class="empty no-job" data-no-job{shown}>{no_job}</p>
+  <p class="hint" data-laser-stop{stop_hint_hidden}>Stop halts the laser at once (a soft reset), also while it frames.</p>
   <div class="resume" data-resume{resume_hidden}>
     <p><b>Interrupted:</b> <span data-live="resume_name">{resume_name}</span> ({resume_why}). It can start again from line <b data-live="resume_line">{resume_line}</b>, a little before where it stopped; the head goes there with the laser off first.</p>
     <form data-restart action="{id}/job"><button name="action" value="restart">Start again from there</button></form>
@@ -748,14 +758,22 @@ fn job_card(machine: &Machine) -> String {
         // Its state only: the file is in the card itself.
         state = escape(note.split(" · ").next().unwrap_or_default()),
         left = escape(&left),
+        no_job = if laser {
+            r#"Nothing loaded. <a href="../files">Load a file</a> on this laser from Files."#
+        } else {
+            r#"No job. <a href="../files">Print a file</a> on this machine."#
+        },
         hidden = if running { "" } else { " hidden" },
         // A laser's Stop (a soft reset) stays also with no job.
-        actions_hidden = if running || machine.kind == maker_connect_protocol::MachineKind::Laser {
+        actions_hidden = if running || laser {
             ""
         } else {
             " hidden"
         },
-        shown = if running { " hidden" } else { "" },
+        // A loaded job is shown in its own card above, so no "nothing loaded" here.
+        shown = if running || loaded { " hidden" } else { "" },
+        only_hidden = if running { "" } else { " hidden" },
+        stop_hint_hidden = if laser && !running { "" } else { " hidden" },
         name = escape(match job {
             Some(j) => j.file_name.as_str(),
             None if own => progress
@@ -956,15 +974,24 @@ fn queue_card(machine: &Machine) -> String {
     }
     // A laser's queue never starts by itself (crate::store::StartedBy).
     let laser = machine.kind == maker_connect_protocol::MachineKind::Laser;
-    let sub = if laser {
-        "Next first; it waits for someone at the laser. Drag your own prints to change their order; staff move any."
+    // HS7b: a laser takes one loaded job and has no queue; what waits here is from before.
+    let (sub, empty) = if laser {
+        (
+            "A laser takes one loaded job, no queue. What still waits here is from before: Load one, or take it out.",
+            r#"Nothing waits, and nothing new comes here: <a href="../files">Load a file</a> from Files; it shows on Control."#,
+        )
     } else {
-        "Next first; it starts by itself when the machine is free and its bed clear. Drag your own prints to change their order; staff move any."
+        (
+            "Next first; it starts by itself when the machine is free and its bed clear. Drag your own prints to change their order; staff move any.",
+            r#"Nothing waits. "Print on" a busy machine puts a file here, or drag one from Files onto this machine in the sidebar."#,
+        )
     };
     card(
         "Queue",
         sub,
-        r#"<p class="notice q-held" data-queue-held hidden><span>The last job <b data-held-why></b>: nothing starts until the bed is clear. Is it?</span><button type="button" data-bed-clear>Bed clear: go on</button></p><ol class="queue" data-queue></ol><p class="empty" data-queue-empty>Nothing waits. "Print on" a busy machine puts a file here, or drag one from Files onto this machine in the sidebar.</p>"#,
+        &format!(
+            r#"<p class="notice q-held" data-queue-held hidden><span>The last job <b data-held-why></b>: nothing starts until the bed is clear. Is it?</span><button type="button" data-bed-clear>Bed clear: go on</button></p><ol class="queue" data-queue></ol><p class="empty" data-queue-empty>{empty}</p>"#
+        ),
     )
 }
 
@@ -1046,17 +1073,27 @@ fn jobs_card(machine: &Machine, extra: &Extra) -> String {
     )
 }
 
+/// What its upkeep counts, in the words of its kind (ours, UI only): hours of its jobs.
+fn work_hours(kind: MachineKind) -> &'static str {
+    match kind {
+        MachineKind::Laser => "burning hours",
+        MachineKind::Cnc | MachineKind::Cutter => "cutting hours",
+        _ => "printing hours",
+    }
+}
+
 /// Its upkeep: a service every so many printing hours; who manages it sets that, and says
 /// when the service was done.
 fn upkeep_card(machine: &Machine, manage: bool) -> String {
+    let hours = work_hours(machine.kind);
     let state = match &machine.upkeep {
         None => "No service interval set.".to_owned(),
         Some(u) if u.due => format!(
-            "<b>Service due</b>: {:.0} of {:.0} printing hours. It takes no work from the queue until it is done.",
+            "<b>Service due</b>: {:.0} of {:.0} {hours}. It takes no work from the queue until it is done.",
             u.since_h, u.every_h
         ),
         Some(u) => format!(
-            "{:.0} of {:.0} printing hours since the last service: {:.0} h to go.",
+            "{:.0} of {:.0} {hours} since the last service: {:.0} h to go.",
             u.since_h,
             u.every_h,
             u.every_h - u.since_h
@@ -1064,7 +1101,7 @@ fn upkeep_card(machine: &Machine, manage: bool) -> String {
     };
     let forms = if manage {
         format!(
-            r#"<form method="post" action="{id}/upkeep" data-async data-done="Saved" data-then="reload" class="upkeep-form"><label>Service every <input name="every_h" type="number" min="1" step="1" value="{every}" placeholder="200" style="width:7em"> printing hours</label><button class="ghost">Save</button></form>
+            r#"<form method="post" action="{id}/upkeep" data-async data-done="Saved" data-then="reload" class="upkeep-form"><label>Service every <input name="every_h" type="number" min="1" step="1" value="{every}" placeholder="200" style="width:7em"> {hours}</label><button class="ghost">Save</button></form>
 <form method="post" action="{id}/serviced" data-async data-done="Maintenance noted: the count starts again" data-then="reload" data-confirm="The service is done: start counting again?"><button>Maintenance done</button></form>"#,
             id = escape(&machine.id),
             every = machine
@@ -1078,7 +1115,12 @@ fn upkeep_card(machine: &Machine, manage: bool) -> String {
     };
     card(
         "Upkeep",
-        "Cleaning, lubrication, belts, nozzle: every so many hours",
+        match machine.kind {
+            MachineKind::Fdm => "Cleaning, lubrication, belts, nozzle: every so many hours",
+            MachineKind::Laser => "Cleaning the lens, belts, air assist: every so many hours",
+            MachineKind::Label => "Cleaning the print head and rollers: every so many hours",
+            _ => "Cleaning and checking: every so many hours",
+        },
         &format!(r#"<p>{state}</p>{forms}"#),
     )
 }
@@ -1920,6 +1962,14 @@ pub(crate) fn settings(
             .unwrap_or(""),
     );
     // Out of use: why, and back; or a reason to take it out.
+    // The example reason fits the kind of machine (ours, UI only).
+    let why_example = match machine.kind {
+        MachineKind::Fdm => "Why: nozzle clogged, waiting for a part",
+        MachineKind::Laser => "Why: lens dirty, waiting for a part",
+        MachineKind::Cnc => "Why: spindle bearing worn, waiting for a part",
+        MachineKind::Label => "Why: cutter stuck, waiting for a part",
+        _ => "Why: broken, waiting for a part",
+    };
     let in_use = match &machine.out_of_use {
         Some(o) => format!(
             r#"<p class="hint">Out of use{}{}.</p><form method="post" action="{id}/out-of-use" data-async data-done="Back in use" data-then="reload"><input type="hidden" name="action" value="back"><button>Back in use</button></form>"#,
@@ -1935,7 +1985,7 @@ pub(crate) fn settings(
             }
         ),
         None => format!(
-            r#"<form method="post" action="{id}/out-of-use" data-async data-done="Out of use" data-then="reload"><input type="hidden" name="action" value="out"><input name="reason" maxlength="200" placeholder="Why: nozzle clogged, waiting for a part" aria-label="Why it is out of use"><button class="ghost">Take out of use</button></form><p class="hint">A machine out of use takes no jobs; commands still reach it, to mend it.</p>"#
+            r#"<form method="post" action="{id}/out-of-use" data-async data-done="Out of use" data-then="reload"><input type="hidden" name="action" value="out"><input name="reason" maxlength="200" placeholder="{why_example}" aria-label="Why it is out of use"><button class="ghost">Take out of use</button></form><p class="hint">A machine out of use takes no jobs; commands still reach it, to mend it.</p>"#
         ),
     };
     // A laser's module: the controller knows S1000 is full power, not how many watts.
@@ -1957,8 +2007,15 @@ pub(crate) fn settings(
     // To another space of whoever manages it there too: a makerspace's other workshop.
     // Safety: what someone must have and wear to use it; ticked off before each use.
     let safety = {
+        let laser = machine.kind == maker_connect_protocol::MachineKind::Laser;
         let boxes: String = crate::safety::CATALOGUE
             .iter()
+            // Laser glasses are offered on a laser only (kept where someone chose them).
+            .filter(|item| {
+                laser
+                    || **item != "Laser safety glasses"
+                    || machine.ppe.iter().any(|p| p.eq_ignore_ascii_case(item))
+            })
             .map(|item| {
                 format!(
                     r#"<label class="ppe-item"><input type="checkbox" name="item" value="{v}"{c}> {v}</label>"#,
@@ -2018,12 +2075,14 @@ pub(crate) fn settings(
 <h4>Profile</h4>
 {current}
 <details class="change-profile"><summary class="ghost-button">Change profile</summary>
-<div class="picker in-card" data-picker data-action="{id}/profile" data-selected="{chosen}" data-auto="{auto}"></div>
+<div class="picker in-card" data-picker data-action="{id}/profile" data-selected="{chosen}" data-auto="{auto}" data-kind="{own_kind}"></div>
 </details>
 {laser}<h4>In use</h4>
 {in_use}
 {safety}{move_section}<h4>Remove</h4>
-<form method="post" action="{id}/remove" data-async data-done="Machine removed" data-confirm="Remove this machine from the space?" data-then="../"><button class="danger">Remove machine</button></form>"#
+<form method="post" action="{id}/remove" data-async data-done="Machine removed" data-confirm="Remove this machine from the space?" data-then="../"><button class="danger">Remove machine</button></form>"#,
+        // a machine's profile is one of its own kind (owner, 2026-11-17: a laser was offered every printer)
+        own_kind = serde_json::to_value(machine.kind).ok().and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default(),
     );
     let about = machine_facts(machine, machine.profile.as_deref().and_then(profiles::find));
     let storage: String = details

@@ -45,7 +45,7 @@ pub async fn page(access: crate::access::Access, State(store): State<Shared>) ->
     <select data-sort aria-label="Sort">
       <option value="new">Newest first</option>
       <option value="old">Oldest first</option>
-      <option value="printed">Last printed</option>
+      <option value="printed">Last run</option>
       <option value="name">Name</option>
       <option value="size">Largest first</option>
     </select>

@@ -158,10 +158,10 @@ fn labelwriter_fits(
     media: Option<&str>,
 ) -> Result<(), String> {
     let Some(media) = media else {
-        return Err("say which labels are loaded, under Settings".to_owned());
+        return Err("say which labels are loaded, on its Label tab".to_owned());
     };
     let Some(page) = profiles::labelwriter_page(profile, media) else {
-        return Err("say which labels are loaded, under Settings".to_owned());
+        return Err("say which labels are loaded, on its Label tab".to_owned());
     };
     if [w, h] != page.dots {
         return Err(format!(
@@ -196,7 +196,7 @@ fn label_check(
         .as_deref()
         .and_then(|m| profiles::media(profile, m))
     else {
-        return Err("say which tape or labels are loaded, under Settings".to_owned());
+        return Err("say which tape is loaded, on its Label tab".to_owned());
     };
     let (dots, along) = profiles::media_dots(profile, media);
     if height as usize > dots {
@@ -300,12 +300,47 @@ async fn list(access: crate::access::Access, State(store): State<Shared>) -> Res
         Ok(found) => found,
         Err(error) => return failed(error),
     };
+    // Which machines this person may use (by permission, whatever their role): the others say
+    // so here, before the button, rather than refusing after it. Granted only in Space.
+    let mut may_use = std::collections::HashSet::new();
+    for machine in &machines {
+        match store.may(&access, &machine.id, crate::access::Level::Use) {
+            Ok(Some(true)) => {
+                may_use.insert(machine.id.clone());
+            }
+            Ok(_) => {}
+            Err(error) => return failed(error),
+        }
+    }
+    let no_permission = if access.role >= crate::access::Role::Admin {
+        "you have no permission to use it yet: Space → Members"
+    } else {
+        "you have no permission to use it: ask the staff"
+    };
     let listed: Vec<Listed> = files
         .into_iter()
         .map(|file| {
             let mut targets: Vec<Target> = machines
                 .iter()
                 .map(|machine| {
+                    // HS7b: a laser takes one loaded job and has no queue: loaded here already, or
+                    // it replaces what is loaded (the person is asked first).
+                    if machine.kind == maker_connect_protocol::MachineKind::Laser {
+                        let loaded = machine.job.as_ref().filter(|j| j.state == crate::store::JobState::Loaded);
+                        let mut free = machine.clone();
+                        if loaded.is_some() {
+                            free.job = None;
+                        }
+                        let (ok, note) = match (fit(&file, &free), loaded) {
+                            (Err(why), _) => (false, Some(why)),
+                            (Ok(_), Some(j)) if j.file_id == file.id => {
+                                (false, Some("loaded here: frame it and press Start burn at the laser".to_owned()))
+                            }
+                            (Ok(_), Some(j)) => (true, Some(format!("replaces {} (asks first)", j.file_name))),
+                            (Ok(warning), None) => (true, warning),
+                        };
+                        return Target { id: machine.id.clone(), name: machine.name.clone(), ok, queue: false, note };
+                    }
                     let waiting = machine.queue.len();
                     let (ok, queue, note) = match fit(&file, machine) {
                         Ok(warning) if waiting == 0 => (true, false, warning),
@@ -330,6 +365,13 @@ async fn list(access: crate::access::Access, State(store): State<Shared>) -> Res
                     }
                 })
                 .collect();
+            for t in &mut targets {
+                if !may_use.contains(&t.id) {
+                    t.ok = false;
+                    t.queue = false;
+                    t.note = Some(no_permission.to_owned());
+                }
+            }
             targets.sort_by_key(|t| (!t.ok, !t.queue));
             Listed {
                 printed: prints.remove(&file.id).unwrap_or_default(),
@@ -753,6 +795,11 @@ async fn print(
         }
         match store.active_job(&machine.id) {
             Ok(Some(job)) if job.state == crate::store::JobState::Loaded => {
+                // Only who may load one replaces it (a person at a session,
+                // crate::store::LASER_NEVER_ALONE): refused before it is asked, nothing removed.
+                if !crate::store::StartedBy::person(&access).is_person_at_a_session() {
+                    return (StatusCode::CONFLICT, crate::store::LASER_NEVER_ALONE).into_response();
+                }
                 if form.replace != Some(true) {
                     return (
                         StatusCode::CONFLICT,
@@ -1082,11 +1129,19 @@ async fn control_job(
         }
         Err(error) => return failed(error),
     };
-    // HS7b: a laser's loaded job is taken off it (it never ran)
-    if (form.action.as_str(), job.state) == ("stop", JobState::Loaded) {
-        return match store.unload_laser_job(&id) {
-            Ok(_) => StatusCode::NO_CONTENT.into_response(),
-            Err(error) => failed(error),
+    // HS7b: a loaded laser job never ran. "unload" takes it off the laser; Stop stays the
+    // laser's own Stop (a soft reset), as with no job, so a moving head (a frame) is stopped.
+    if job.state == JobState::Loaded {
+        return match form.action.as_str() {
+            "unload" => match store.unload_laser_job(&id) {
+                Ok(_) => StatusCode::NO_CONTENT.into_response(),
+                Err(error) => failed(error),
+            },
+            "stop" => {
+                store.own_job_control.insert(id, maker_connect_protocol::JobControl::Stop);
+                StatusCode::NO_CONTENT.into_response()
+            }
+            _ => (StatusCode::CONFLICT, "not now: the job is loaded, not started").into_response(),
         };
     }
     let next = match (form.action.as_str(), job.state) {

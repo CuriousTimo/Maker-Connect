@@ -187,6 +187,8 @@
     if (t.state === "attention" || (t.state === "idle" && t.problem)) return { text: t.problem || "Attention", cls: "attention" };
     // A failed or stopped job may have left something: nothing starts until the bed is clear.
     if (m.queue_held && t.state === "idle") return { text: "Check the bed", cls: "attention" };
+    // HS7b: a laser with a job loaded, idle: it waits to be framed and started there.
+    if (m.job?.state === "loaded" && t.state === "idle") return { text: "Loaded", cls: "loaded" };
     const names = { disconnected: "Disconnected", idle: "Idle", busy: "Busy", paused: "Paused", error: "Error" };
     return { text: names[t.state] || t.state, cls: t.state };
   }
@@ -284,8 +286,17 @@
       document.body.classList.remove("dragging-file");
       const file = e.dataTransfer.getData("application/x-maker-file");
       const name = a.querySelector(".side-name")?.textContent || "the machine";
-      const r = await fetch(`${ROOT}files/${encodeURIComponent(file)}/print`, { method: "POST", body: new URLSearchParams({ machine: a.dataset.mid }), headers: { "x-requested-with": "fetch" } });
-      if (r.status === 202) {
+      const send = (replace) => fetch(`${ROOT}files/${encodeURIComponent(file)}/print`, { method: "POST", body: new URLSearchParams({ machine: a.dataset.mid, ...(replace ? { replace: "true" } : {}) }), headers: { "x-requested-with": "fetch" } });
+      let r = await send(false);
+      // A laser with a job loaded: replaced only after the person confirms (HS7b).
+      if (r.status === 409 && r.headers.get("content-type")?.includes("json")) {
+        const { confirm } = await r.json();
+        if (!(await ask(confirm, { ok: "Replace" }))) return;
+        r = await send(true);
+      }
+      const loaded = r.status === 200 && r.headers.get("content-type")?.includes("json") ? (await r.clone().json()).loaded : null;
+      if (loaded) toast(`Loaded on ${name}: frame it and press Start burn at the laser`);
+      else if (r.status === 202) {
         const { queued } = await r.json();
         toast(`In the queue of ${name}: ${queued === 1 ? "next" : `number ${queued}`}`);
       } else if (r.ok) toast(`Printing on ${name}`);
@@ -461,7 +472,10 @@
         <div class="picker-kinds" data-firmwares role="group" aria-label="Firmware"></div>
         <ul class="picker-list" role="listbox"><li class="picker-none">Loading…</li></ul>`;
       const search = el.querySelector(".picker-search"), kinds = el.querySelector(".picker-kinds"), list = el.querySelector(".picker-list");
-      const all = await load();
+      // On a machine's settings only profiles of its own kind (owner, 2026-11-17: a laser was offered
+      // every printer); the add dialog keeps every kind.
+      const own = el.dataset.kind || "";
+      const all = (await load()).filter((p) => !own || p.kind === own);
       let kind = "", firmware = "", items = [], at = 0;
       const counts = {}, firmwares = {};
       for (const p of all) {
@@ -481,6 +495,8 @@
       });
       kinds.innerHTML = [["", `All ${all.length}`], ...Object.keys(KINDS).filter((k) => counts[k]).map((k) => [k, `${KINDS[k]} ${counts[k]}`])]
         .map(([k, t]) => `<button type="button" data-kind="${k}" aria-pressed="${k === kind}">${escapeHtml(t)}</button>`).join("");
+      // one kind only: no kind buttons
+      kinds.hidden = !!own;
       function fill() {
         const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
         const found = all.filter((p) => (!kind || p.kind === kind) && (!firmware || p.firmware === firmware) && words.every((w) => `${p.brand} ${p.model}`.toLowerCase().includes(w)));
