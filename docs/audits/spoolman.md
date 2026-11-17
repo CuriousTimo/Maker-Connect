@@ -19,7 +19,7 @@ The routes and the query parameters are read from Spoolman's own OpenAPI (`spool
 | The hub sends null fields where Spoolman leaves them out | 144 |
 | Colour hex in lower case (`2b2b33`) where Spoolman keeps the case it was given | 81 |
 | A filament's `spool_weight` that Spoolman takes from its vendor's `empty_spool_weight` is null in the hub | 43 |
-| `vary: Accept-Encoding` (Spoolman's gzip layer) is not sent by the hub | 93 |
+| `vary: Accept-Encoding` (Spoolman's gzip layer) is not sent by the hub | 92 |
 | Error bodies are plain text in the hub, JSON (`message` or `detail`) in Spoolman | 35 |
 | `x-total-count` differs (the list itself differs) | 26 |
 | Spoolman's extra answer headers: `x-total-spools`, `x-total-remaining-weight`, `content-disposition`, `location` | 17 |
@@ -72,7 +72,7 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 
 | # | Request | Spoolman | Ours | Result |
 |---|---|---|---|---|
-| 1 | info: `GET /info` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $.version: Spoolman "0.27.1", ours "0.23.0" |
+| 1 | info: `GET /info` | 200 object | 200, differs | body $.version: Spoolman "0.27.1", ours "0.23.0" |
 | 2 | health: `GET /health` | 200 object | 200, same | **identical** |
 | 3 | backup: `POST /backup` | 200 object | 501, differs | status: Spoolman 200, ours 501<br>header content-type: only Spoolman ("application/json")<br>body: Spoolman JSON, ours "" |
 | 4 | empty vendor list: `GET /vendor` | 200 list of 0, x-total-count 0 | 200, same | **identical** |

@@ -32,6 +32,14 @@ step "clippy" quiet cargo clippy --workspace --all-targets --locked -- -D warnin
 step "tests" quiet cargo test --workspace --locked
 step "docs links" python3 -I scripts/docs-links-check.py
 
+# Fixtures made by real CPython 3.13 / OctoPrint's own code / real Spoolman: regenerated, and they
+# must not change in this run (compared before and after, so an uncommitted fixture is judged too).
+FIXTURES="crates/engine/src/ports/octoprint/py_format_expected.json crates/engine/src/ports/octoprint/py_nonprintable.txt
+          crates/engine/src/ports/octoprint/py_percent_expected.json crates/engine/src/ports/octoprint/py_str_attrs.txt
+          crates/engine/src/ports/octoprint/scripts_expected.json crates/hub/src/spoolman/audit-fixture.json"
+# shellcheck disable=SC2086
+BEFORE=$(shasum $FIXTURES)
+
 # Audits that must hold: every row the checker can prove, proven.
 for c in buddy-audit-check klipper-audit-check labelle-port-check dymo-labelwriter-450-check \
          spoolman-audit-check usbscale-audit-check; do
@@ -39,17 +47,13 @@ for c in buddy-audit-check klipper-audit-check labelle-port-check dymo-labelwrit
 done
 step "laser profiles = LaserFoundry's presets" quiet python3 -I scripts/laserfoundry-presets.py check
 
-# Fixtures made by real CPython 3.13 / OctoPrint's own code: regenerated, and they must not change.
 step "octoprint scripts (jinja2)" quiet "$OCTOPRINT_PY" scripts/octoprint-scripts-check.py
 step "octoprint script context" quiet "$OCTOPRINT_PY" scripts/octoprint-script-context-check.py
 step "octoprint file read (CPython 3.13)" quiet "$PY313" scripts/octoprint-file-read-check.py
 step "octoprint str.format (CPython 3.13)" quiet "$PY313" scripts/octoprint-format-check.py
 step "octoprint % (CPython 3.13)" quiet "$PY313" scripts/octoprint-percent-check.py
-FIXTURES="crates/engine/src/ports/octoprint/py_format_expected.json crates/engine/src/ports/octoprint/py_nonprintable.txt
-          crates/engine/src/ports/octoprint/py_percent_expected.json crates/engine/src/ports/octoprint/py_str_attrs.txt
-          crates/engine/src/ports/octoprint/scripts_expected.json"
 # shellcheck disable=SC2086
-step "regenerated fixtures unchanged" git diff --quiet --exit-code -- $FIXTURES
+step "regenerated fixtures unchanged" test "$BEFORE" = "$(shasum $FIXTURES)"
 
 if [ "${1:-}" = "--proof" ]; then
     step "Marlin port vs OctoPrint (proof)" "$OCTOPRINT_313_PY" scripts/octoprint-port-check.py compare

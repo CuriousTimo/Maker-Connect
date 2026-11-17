@@ -435,7 +435,7 @@ fn stray_id(req: &Value, ours: &Answer) -> Option<(&'static str, i64)> {
 }
 
 /// Every request of the fixture, in order, against the hub: the lines of what differs.
-fn measure() -> (usize, usize, String) {
+fn measure() -> (usize, usize, String, Vec<String>) {
     let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
     let requests = fixture["requests"].as_array().unwrap().clone();
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -463,6 +463,9 @@ fn measure() -> (usize, usize, String) {
                 .build();
             let mut lines = String::new();
             let mut identical = 0;
+            // What the hub answered, per request: shown when the list differs (a flake there is
+            // then diagnosable from the failure alone).
+            let mut answered = Vec::new();
             for (i, req) in requests.iter().enumerate() {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -470,6 +473,7 @@ fn measure() -> (usize, usize, String) {
                     .as_secs() as i64;
                 let ours = send(&agent, &base, req);
                 let d = compare(req, &ours, now);
+                answered.push(format!("{} {:?}", ours.status, ours.headers));
                 let head = format!(
                     "{:03} {} {} {}",
                     i + 1,
@@ -505,7 +509,7 @@ fn measure() -> (usize, usize, String) {
                     }
                 }
             }
-            (requests.len(), identical, lines)
+            (requests.len(), identical, lines, answered)
         })
         .await
         .unwrap()
@@ -514,7 +518,7 @@ fn measure() -> (usize, usize, String) {
 
 #[test]
 fn the_hub_differs_from_spoolman_exactly_as_listed() {
-    let (total, identical, lines) = measure();
+    let (total, identical, lines, answered) = measure();
     let summary = format!("{identical} of {total} identical\n");
     let report = format!("{summary}{lines}");
     if std::env::var("SPOOLMAN_AUDIT_WRITE").is_ok() {
@@ -531,8 +535,21 @@ fn the_hub_differs_from_spoolman_exactly_as_listed() {
         .filter(|&i| want.get(i) != got.get(i))
         .collect();
     if let Some(&first) = changed.iter().next() {
+        // The request that line belongs to: the last "NNN name METHOD path" head at or before it.
+        let request = got[..=first.min(got.len().saturating_sub(1))]
+            .iter()
+            .rev()
+            .find_map(|l| l.get(..3).and_then(|n| n.parse::<usize>().ok()));
+        let what_ours_said = request
+            .and_then(|n| answered.get(n - 1))
+            .map_or(String::new(), |a| {
+                format!(
+                    "\nthe hub answered request {:03}: {a}",
+                    request.unwrap_or(0)
+                )
+            });
         panic!(
-            "the measured differences are not the written list (first change at line {}):\nwritten:  {:?}\nmeasured: {:?}\n(SPOOLMAN_AUDIT_WRITE=1 rewrites the list)",
+            "the measured differences are not the written list (first change at line {}):\nwritten:  {:?}\nmeasured: {:?}{what_ours_said}\n(SPOOLMAN_AUDIT_WRITE=1 rewrites the list)",
             first + 1,
             want.get(first),
             got.get(first)

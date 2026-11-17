@@ -1,6 +1,5 @@
 69 of 376 identical
 001 info GET /api/v1/info
-    header vary: only Spoolman ("Accept-Encoding")
     body $.version: Spoolman "0.27.1", ours "0.23.0"
 002 health GET /api/v1/health
     identical

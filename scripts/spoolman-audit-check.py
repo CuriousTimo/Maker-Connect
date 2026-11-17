@@ -589,7 +589,12 @@ def main():
                    check=True, env={**os.environ, "UV_PROJECT_ENVIRONMENT": str(VENV)},
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    work = Path(tempfile.mkdtemp(prefix="spoolman-audit-"))
+    # A fixed path, never $TMPDIR or a random name: Spoolman's /info answer holds this path, and its length decides
+    # whether the answer passes 500 bytes, where Spoolman's gzip middleware starts (and adds
+    # `vary: Accept-Encoding`). A $TMPDIR of another length made the recording differ per machine.
+    work = Path("/tmp/maker-connect-spoolman-audit")  # one fixed path: the same length every run
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir()
     (work / "cwd" / "client_v2" / "build").mkdir(parents=True)
     (work / "cwd" / "client_v2" / "build" / "200.html").write_text("x")
     shutil.copy(REF / "pyproject.toml", work / "cwd" / "pyproject.toml")
