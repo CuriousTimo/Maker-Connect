@@ -22,7 +22,10 @@ impl Tape {
         if ![19, 12, 9, 6].contains(&width_mm) {
             return None;
         }
-        Some(Tape { width_mm, dots: (8 * width_mm / 12) as usize * 8 })
+        Some(Tape {
+            width_mm,
+            dots: (8 * width_mm / 12) as usize * 8,
+        })
     }
 }
 
