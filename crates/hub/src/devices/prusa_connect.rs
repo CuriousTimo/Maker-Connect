@@ -373,7 +373,7 @@ fn fill_in(telemetry: &mut Telemetry, last: Telemetry) {
 }
 
 /// What an `INFO` event tells about the printer, its secrets (the Prusa Link key) left out.
-fn to_details(info: &Value) -> Details {
+pub(crate) fn to_details(info: &Value) -> Details {
     let some = |value: &Value| value.as_str().filter(|s| !s.is_empty()).map(str::to_owned);
     let network = &info["network_info"];
     Details {
