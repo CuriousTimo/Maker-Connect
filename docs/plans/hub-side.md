@@ -165,6 +165,11 @@ USB webcams and network cameras: `docs/plans/cameras.md`.
 
 ## On the list (owner, 2026-11-16; not started)
 
+- The Marlin port on Windows (owner, 2026-11-17, "zet 2 op de lijst"): OctoPrint's serial layer is
+  ported for Linux and macOS only. Still to port, each from its own reference: pyserial's Windows backend
+  (opening a COM port), `serialList`'s Windows registry branch (comm.py:198), and local time to a
+  timestamp on Windows (the M20 timestamps). Until then the agent refuses `mode = "marlin"` on Windows,
+  and the ten tests that need these are ignored there, with the reason.
 - Hub CPU and memory monitoring (owner: "hub cpu en mem monitoring").
 - Maybe: CPU and memory of an agent's host (owner: "agent host cpu en mem monitoring? <- niet zeker over
   deze").

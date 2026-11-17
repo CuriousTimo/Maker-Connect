@@ -96,7 +96,7 @@ row). What a port does not know, it does not guess.
 | Devices | How they connect | The one reference | On real hardware |
 |---|---|---|---|
 | **Prusa MINI** (Buddy firmware) | Its own firmware speaks Prusa Connect to the hub: no agent | Buddy 6.3.0 | Yes: a MINI on firmware 6.3.0 |
-| **3D printers on Marlin** | Agent, USB serial, `mode = "marlin"` | OctoPrint 1.11.8 | Not yet: proved against OctoPrint on its virtual printer |
+| **3D printers on Marlin** | Agent, USB serial, `mode = "marlin"` (Linux and macOS; not yet Windows) | OctoPrint 1.11.8 | Not yet: proved against OctoPrint on its virtual printer |
 | **Prusa MK3S, MK2.5S** (8-bit firmware) | Agent, USB or an MK3S's RPi port | PrusaLink (the port is planned: [docs/plans/mk3-port-plan.md](docs/plans/mk3-port-plan.md)) | An MK3S through a Pi Zero 2 W with the earlier agent |
 | **3D printers on Klipper** | Moonraker connects by itself: no agent | Moonraker | Not yet |
 | **Lasers on GRBL**: Ortur, Creality Falcon, Sculpfun, xTool, … | Agent, USB serial, `mode = "grbl"` | LaserFoundry v0.5.0 | Yes: an Ortur Laser Master 2 Pro S2 (motion and framing; no burning yet) |
@@ -110,7 +110,7 @@ row). What a port does not know, it does not guess.
 | The agent runs on | Build | On real hardware |
 |---|---|---|
 | macOS, Apple silicon | `macos-aarch64` | Yes |
-| Windows 10/11, x64 | `windows-x86_64.exe` | Yes |
+| Windows 10/11, x64 (not yet for Marlin printers) | `windows-x86_64.exe` | Yes |
 | Linux ARM64: Orange Pi Zero3, Raspberry Pi 4 and 5 | `linux-aarch64` | Not yet |
 | Linux ARM 32-bit: a Raspberry Pi on a 32-bit OS, Orange Pi PC | `linux-armv6` | Yes: a Pi Zero 2 W, an Orange Pi PC |
 | Linux x86-64: a PC, a NAS | `linux-x86_64` | Not yet |

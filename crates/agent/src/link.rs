@@ -134,6 +134,11 @@ fn options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>> {
             .or(all.firmware.as_deref().filter(|f| *f != "auto")),
     )?;
     let kind = parse_kind(all.kind.as_deref())?;
+    // The Marlin port (OctoPrint's serial layer) is ported for Linux and macOS: pyserial's Windows
+    // backend and serialList's registry branch are not (yet); refused here, never a crash later.
+    if cfg!(windows) && mode == Mode::Marlin {
+        return Err("mode marlin: Marlin printers are supported on Linux and macOS for now, not yet on Windows".into());
+    }
     if mode == Mode::Cameras && all.camera.is_none() {
         return Err("mode cameras: say which camera with --camera <index>".into());
     }

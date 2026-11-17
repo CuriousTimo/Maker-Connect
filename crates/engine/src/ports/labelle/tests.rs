@@ -496,6 +496,10 @@ fn run_case(scene: &str, picture: &str, tape: Option<i64>) -> Vec<String> {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "labelle's answers were recorded on macOS: a path in its error message has / there and \\ on Windows"
+)]
 fn proof_every_example_goes_as_labelle_sends_it() {
     let cases = std::fs::read_to_string(fixtures().join("cases.txt"))
         .expect("run scripts/labelle-port-check.py");

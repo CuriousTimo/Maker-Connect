@@ -12219,6 +12219,10 @@ mod tests {
     /// `tests/util/test_comm.py:test__validate_m20_timestamp` (pytest, parametrized), all 5 cases
     #[test]
     #[allow(non_snake_case)] // the reference's name
+    #[cfg_attr(
+        windows,
+        ignore = "the Marlin port is Linux and macOS only for now: M20 timestamps: local time is ported for Unix only"
+    )]
     fn test__validate_m20_timestamp() {
         for (val, expected) in [
             ("aaa", false),
@@ -12233,6 +12237,10 @@ mod tests {
 
     /// `tests/util/test_comm.py:test_parse_file_list_line` (pytest, parametrized), all 13 cases
     #[test]
+    #[cfg_attr(
+        windows,
+        ignore = "the Marlin port is Linux and macOS only for now: M20 timestamps: local time is ported for Unix only"
+    )]
     fn test_parse_file_list_line() {
         use super::super::files::m20_timestamp_to_unix_timestamp;
         let ts = || Some(m20_timestamp_to_unix_timestamp("0x21bf7d").expect("a valid timestamp"));
@@ -12329,6 +12337,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        windows,
+        ignore = "the Marlin port is Linux and macOS only for now: M20 timestamps: local time is ported for Unix only"
+    )]
     fn m20_timestamp_validation() {
         assert!(!_validate_m20_timestamp("12345678"));
         assert!(!_validate_m20_timestamp("0x"));
@@ -12760,6 +12772,10 @@ mod machinecom_tests {
     /// attribute); `reassigned` attributes must be `Attr<..>` fields. Not ported (logging,
     /// difference 1): `_logger`, `_serialLogger`, `_phaseLogger`.
     #[test]
+    #[cfg_attr(
+        windows,
+        ignore = "the Marlin port is Linux and macOS only for now: opening a serial port: pyserial's Windows port is not ported"
+    )]
     fn machinecom_attrs_exist() {
         let src = include_str!("comm.rs");
         let st = src
@@ -14112,6 +14128,10 @@ mod section_g_tests {
     use super::*;
 
     #[test]
+    #[cfg_attr(
+        windows,
+        ignore = "the Marlin port is Linux and macOS only for now: opening a serial port: pyserial's Windows port is not ported"
+    )]
     fn ours_monitor_with_port_and_baudrate_opens_the_serial_port() {
         // a port that does not exist: `_open_serial` fails (the default factory returns `None`),
         // `_monitor` returns with the state of the opening still set
@@ -14951,6 +14971,10 @@ mod section_h_tests {
     }
 
     #[test]
+    #[cfg_attr(
+        windows,
+        ignore = "the Marlin port is Linux and macOS only for now: opening a serial port: pyserial's Windows port is not ported"
+    )]
     fn ours_perform_detection_step() {
         let none = "/dev/maker-connect-test-does-not-exist";
         // init with a port and a baud rate: one candidate; not in DETECT_SERIAL, so no step
@@ -15298,6 +15322,10 @@ mod section_h_tests {
     }
 
     #[test]
+    #[cfg_attr(
+        windows,
+        ignore = "the Marlin port is Linux and macOS only for now: opening a serial port: pyserial's Windows port is not ported"
+    )]
     fn ours_open_serial_of_a_missing_port() {
         let (c, rec) = new_comm(|_| {});
         let none = "/dev/maker-connect-test-does-not-exist";
@@ -15609,6 +15637,10 @@ mod section_h_tests {
     }
 
     #[test]
+    #[cfg_attr(
+        windows,
+        ignore = "the Marlin port is Linux and macOS only for now: serialList: its Windows registry branch is not ported"
+    )]
     fn ours_serial_list_and_baudrate_list() {
         let dir =
             std::env::temp_dir().join(format!("maker-connect-serial-list-{}", std::process::id()));
@@ -16294,6 +16326,10 @@ mod section_i_tests {
     }
 
     #[test]
+    #[cfg_attr(
+        windows,
+        ignore = "the Marlin port is Linux and macOS only for now: serialList: its Windows registry branch is not ported"
+    )]
     fn ours_the_test_guard_keeps_tests_off_the_real_devices() {
         // `serial_list()` scans a temp directory, not /dev
         assert!(serial_list().is_empty());
