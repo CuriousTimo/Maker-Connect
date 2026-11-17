@@ -64,6 +64,10 @@ pub struct Extra {
     pub move_to: Vec<(String, String)>,
     pub jobs: Vec<store::Job>,
     pub stats: store::JobStats,
+    /// HS7b: a laser's loaded job was framed completely after its last Set origin.
+    pub laser_framed: bool,
+    /// HS7b: a Set origin was done on this laser since the hub started.
+    pub laser_origin_set: bool,
 }
 
 /// The whole page.
@@ -169,7 +173,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         filament = filament_card(machine),
         sheet = sheet_card(machine),
         upkeep = upkeep_card(machine, extra.manage),
-        control = control(machine, profile),
+        control = control(machine, profile, &loaded_card(machine, extra)),
         telemetry = telemetry_tab(machine),
         settings = settings(machine, &extra.move_to, extra.ppe_checks, extra.manage),
         terminal = terminal(machine),
@@ -641,6 +645,51 @@ fn job_tile(machine: &Machine) -> String {
         escape(&left),
         escape(percent.as_deref().unwrap_or("–")),
         escape(&note)
+    )
+}
+
+/// HS7b (owner, 2026-11-17): a laser's loaded job: sent to the laser and ready, not started. The
+/// person frames it, sets the origin and frames again where needed, jogs, then presses Start burn
+/// (`files.rs` `start_burn` checks it all again). Ours: the card, its texts and the confirm.
+fn loaded_card(machine: &Machine, extra: &Extra) -> String {
+    let Some(job) = machine.job.as_ref().filter(|j| j.state == store::JobState::Loaded) else {
+        return String::new();
+    };
+    let id = escape(&machine.id);
+    let framed = if extra.laser_framed {
+        "Framed"
+    } else if extra.laser_origin_set {
+        "Not framed since the last Set origin"
+    } else {
+        "Not framed yet"
+    };
+    let confirm = if extra.laser_origin_set {
+        crate::files::ORIGIN_CONFIRM.to_owned()
+    } else {
+        crate::files::start_confirm(&job.file_name)
+    };
+    format!(
+        r#"<div class="card loaded-card">
+  <div class="card-head"><div class="card-title"><h3>Loaded job</h3><p class="card-sub">Sent to the laser, not started</p></div></div>
+  <p><b>{name}</b>{by}</p>
+  <ol class="loaded-steps">
+    <li>Frame it: the head runs its outline with the laser off. <b data-loaded-framed>{framed}</b></li>
+    <li>Set origin and jog where it has to go, then frame again (after a Set origin it must be framed again).</li>
+    <li>Start burn, at the laser, glasses on.</li>
+  </ol>
+  <div class="buttons">
+    <form method="post" action="../files/{file}/frame" data-async data-done="Framing"><input type="hidden" name="machine" value="{id}"><button class="ghost">Frame</button></form>
+    <form method="post" action="{id}/start-burn" data-async data-done="Burning" data-then="reload" data-confirm="{confirm}" data-confirm-ok="Start burn" data-confirm-danger><input type="hidden" name="confirm" value="true"><button class="danger" data-start-burn{disabled}>Start burn</button></form>
+  </div>
+  <form method="post" action="{id}/job" data-async data-done="Taken off" data-then="reload" data-confirm="Take {name} off the laser? It was never started."><input type="hidden" name="action" value="stop"><button class="ghost">Take it off</button></form>
+  <p class="hint">Another file sent to this laser replaces this one only after you confirm.</p>
+</div>"#,
+        name = escape(&job.file_name),
+        by = job.by.as_deref().map_or(String::new(), |b| format!(" <small>loaded by {}</small>", escape(b))),
+        file = escape(&job.file_id),
+        framed = framed,
+        confirm = escape(&confirm),
+        disabled = if extra.laser_framed { "" } else { " disabled title=\"Frame the loaded job first\"" },
     )
 }
 
@@ -1343,7 +1392,7 @@ pub(crate) fn plain_marlin(machine: &Machine) -> bool {
         && machine.profile.as_deref().and_then(crate::profiles::find).and_then(|p| p.firmware.as_deref()) != Some("grbl")
 }
 
-fn control(machine: &Machine, profile: Option<&Profile>) -> String {
+fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
     let position = t.and_then(|t| t.position_mm);
     // X and Y not told now (a Prusa printing tells only Z): "–", not the last ones told.
@@ -1455,7 +1504,7 @@ fn control(machine: &Machine, profile: Option<&Profile>) -> String {
         escape(&machine.id)
     );
     format!(
-        r#"<div class="grid-control">{bed}<div class="stack">{}{}{}</div></div>"#,
+        r#"<div class="grid-control">{bed}<div class="stack">{loaded}{}{}{}</div></div>"#,
         job_card(machine),
         card(
             "Control",
@@ -2146,13 +2195,13 @@ mod tests {
             id
         };
         let marlin = store.machine(space, &register("Ender")).unwrap().unwrap();
-        let page = control(&marlin, None);
+        let page = control(&marlin, None, "");
         assert!(page.contains(r#"value="home-xy""#) && page.contains(r#"value="home-z""#), "{page}");
         assert!(!page.contains(r#"value="home""#), "{page}");
         // a Prusa MK3 (its firmware says so) keeps one button
         let mut mk3 = store.machine(space, &register("MK3")).unwrap().unwrap();
         mk3.profile = Some("prusa/mk3s".to_owned());
-        let page = control(&mk3, profiles::find("prusa/mk3s"));
+        let page = control(&mk3, profiles::find("prusa/mk3s"), "");
         assert!(page.contains(r#"value="home""#) && !page.contains("home-xy"), "{page}");
     }
 

@@ -246,7 +246,7 @@ impl Store {
     fn under_way(&self, part: i64) -> rusqlite::Result<(i64, i64)> {
         self.db.query_row(
             "SELECT COUNT(*), COALESCE(SUM(per_plate), 0) FROM jobs WHERE part_id = ?1 AND (
-                 state IN ('queued', 'printing', 'paused', 'stopping')
+                 state IN ('loaded', 'queued', 'printing', 'paused', 'stopping')
                  OR (state = 'finished' AND confirmed_at IS NULL))",
             [part],
             |r| Ok((r.get(0)?, r.get(1)?)),
@@ -1154,7 +1154,7 @@ async fn remove_project(
         .db
         .query_row(
             "SELECT COUNT(*) FROM jobs j JOIN parts p ON p.id = j.part_id WHERE p.project_id = ?1
-               AND (j.state IN ('queued', 'printing', 'paused', 'stopping') OR (j.state IN ('finished', 'stopped', 'failed') AND j.confirmed_at IS NULL))",
+               AND (j.state IN ('loaded', 'queued', 'printing', 'paused', 'stopping') OR (j.state IN ('finished', 'stopped', 'failed') AND j.confirmed_at IS NULL))",
             [id],
             |r| r.get(0),
         )

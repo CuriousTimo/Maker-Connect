@@ -425,6 +425,8 @@ impl Store {
             let seen = last_seen.map(|t| now - t);
             let online = seen.is_some_and(|s| s <= ONLINE_SECONDS);
             Ok(Machine {
+                laser_framed: false,
+                laser_origin_set: false,
                 id: r.get(0)?,
                 name: r.get(1)?,
                 kind: serde_json::from_str(&kind).unwrap_or(MachineKind::Other),
@@ -591,6 +593,10 @@ impl Store {
                 machine.agent_update = Some(format!("{} ({})", offered.commit, offered.built));
             }
             machine.job = self.active_job(&machine.id)?;
+            machine.laser_framed = machine.job.as_ref().is_some_and(|j| {
+                j.state == JobState::Loaded && self.laser_framed.get(&machine.id) == Some(&j.file_id)
+            });
+            machine.laser_origin_set = self.laser_origin_set.contains(&machine.id);
             if machine.job.is_none() {
                 machine.resumable = self.resumable_job(&machine.id)?;
             }

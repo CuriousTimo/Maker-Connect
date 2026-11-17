@@ -391,7 +391,89 @@ pub(crate) mod tests {
             .body(Body::from(format!("machine={}", registered.machine_id)))
             .unwrap();
         let (status, body) = call(&app, print).await;
+        // HS7b: a laser's job is loaded, not started: nothing goes to the laser yet
+        assert_eq!((status, body.as_str()), (StatusCode::OK, r#"{"loaded":"sign.gcode"}"#));
+        // another file sent to it replaces the loaded one only after the person confirms
+        let again = |replace: bool| {
+            Request::post(format!("/files/{}/print", file["id"].as_str().unwrap()))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(format!("machine={}{}", registered.machine_id, if replace { "&replace=true" } else { "" })))
+                .unwrap()
+        };
+        let (status, body) = call(&app, again(false)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(body.contains("replace it with"), "{body}");
+        let (status, body) = call(&app, again(true)).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let stopped: i64 = store.lock().unwrap().db
+            .query_row("SELECT COUNT(*) FROM jobs WHERE state = 'stopped' AND reason LIKE 'replaced%'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stopped, 1, "the replaced job ends stopped, never started");
+        assert_eq!(report(idle()).await.job, None, "a loaded job is not given out");
+        let start_burn = |confirm: bool| {
+            Request::post(format!("/machines/{}/start-burn", registered.machine_id))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(if confirm { "confirm=true" } else { "" }))
+                .unwrap()
+        };
+        let laser_idle = || Telemetry {
+            state: MachineState::Idle,
+            grbl: Some(protocol::GrblSettings { laser_mode: Some(true), ..Default::default() }),
+            ..Telemetry::default()
+        };
+        // Start burn needs a frame first
+        let (status, body) = call(&app, start_burn(false)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(body.contains("$32"), "laser mode unknown: refused first, as LaserFoundry: {body}");
+        report(laser_idle()).await;
+        let (status, body) = call(&app, start_burn(false)).await;
+        assert_eq!((status, body.as_str()), (StatusCode::CONFLICT, "frame the loaded job first (after a Set origin it is framed again)"));
+        // the frame: queued as LaserFoundry's frame of the loaded file, done by the laser
+        let frame = Request::post(format!("/files/{}/frame", file["id"].as_str().unwrap()))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("x-requested-with", "fetch")
+            .body(Body::from(format!("machine={}", registered.machine_id)))
+            .unwrap();
+        let (status, body) = call(&app, frame).await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        let reply = report(laser_idle()).await;
+        let command = reply.commands.first().expect("the frame goes to the laser");
+        assert!(matches!(command.action, protocol::Action::Frame { .. }));
+        assert_eq!(reply.job, None);
+        report(Telemetry { done: vec![finished(command.id)], ..laser_idle() }).await;
+        // a Set origin after the frame: framed again first, then the person confirms
+        let set_origin = Request::post(format!("/machines/{}/command", registered.machine_id))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("x-requested-with", "fetch")
+            .body(Body::from("action=set-origin"))
+            .unwrap();
+        let (status, body) = call(&app, set_origin).await;
+        assert!(status.is_success(), "{status} {body}");
+        let reply = report(laser_idle()).await;
+        let command = reply.commands.first().expect("Set origin goes to the laser");
+        assert!(matches!(command.action, protocol::Action::SetOrigin));
+        report(Telemetry { done: vec![finished(command.id)], ..laser_idle() }).await;
+        let (status, body) = call(&app, start_burn(true)).await;
+        assert_eq!((status, body.as_str()), (StatusCode::CONFLICT, "frame the loaded job first (after a Set origin it is framed again)"));
+        let frame = Request::post(format!("/files/{}/frame", file["id"].as_str().unwrap()))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("x-requested-with", "fetch")
+            .body(Body::from(format!("machine={}", registered.machine_id)))
+            .unwrap();
+        assert_eq!(call(&app, frame).await.0, StatusCode::NO_CONTENT);
+        let reply = report(laser_idle()).await;
+        let command = reply.commands.first().expect("the frame again");
+        report(Telemetry { done: vec![finished(command.id)], ..laser_idle() }).await;
+        let (status, body) = call(&app, start_burn(false)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(body.contains(crate::files::ORIGIN_CONFIRM), "after a Set origin the person confirms: {body}");
+        // framed and confirmed: Start burn goes, and the job is given out once
+        let (status, body) = call(&app, start_burn(true)).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        let (status, body) = call(&app, start_burn(true)).await;
+        assert_eq!((status, body.as_str()), (StatusCode::CONFLICT, "busy with sign.gcode"), "once");
 
         let order = report(idle()).await.job.expect("the job is given out");
         assert_eq!(order.name, "sign.gcode");

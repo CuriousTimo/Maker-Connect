@@ -393,6 +393,14 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Machine(Level::Use),
         Some("paused, resumed or stopped the job on"),
     ),
+    // HS7b: Start burn fires the laser: operate it (memory maker-connect-laser-never-unattended), PPE and a
+    // session are checked in the handler.
+    (
+        "POST",
+        "/machines/{id}/start-burn",
+        Need::Machine(Level::Operate),
+        Some("started the burn on"),
+    ),
     (
         "POST",
         "/machines/{id}/taken",
@@ -3252,22 +3260,26 @@ mod tests {
             "a token never starts a laser"
         );
         assert_eq!(jobs(&w), (0, 0));
-        // A person: three copies; the first starts, the other two wait.
+        // HS7b: a laser takes one loaded job: no copies, no queue.
         let (status, body) = w
             .post(&adam, "/files/f1/print", &format!("machine={laser}&copies=3"))
             .await;
+        assert_eq!((status, body.as_str()), (StatusCode::CONFLICT, "a laser takes one job at a time: no copies"));
+        // A person: the job is loaded, not started; nothing starts it by itself.
+        let (status, body) = w.post(&adam, "/files/f1/print", &format!("machine={laser}")).await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(jobs(&w), (1, 2));
+        assert_eq!(jobs(&w), (1, 0));
         {
             let mut s = w.store.lock().unwrap();
             let job = s.active_job(&laser).unwrap().unwrap();
+            assert_eq!(job.state, JobState::Loaded);
             assert_eq!(job.by.as_deref(), Some("adam"));
+            assert_eq!(s.start_queued().unwrap(), 0, "a loaded job waits");
+            assert_eq!(s.dispatch().unwrap(), 0);
             s.set_job(job.id, JobState::Finished, None).unwrap();
             s.report(&token, &Default::default()).unwrap();
-            assert_eq!(s.start_queued().unwrap(), 0, "the copies wait");
-            assert_eq!(s.dispatch().unwrap(), 0);
         }
-        assert_eq!(jobs(&w), (1, 2));
+        assert_eq!(jobs(&w), (1, 0));
         // "Start again from there": a person; interrupted jobs start again.
         {
             let mut s = w.store.lock().unwrap();

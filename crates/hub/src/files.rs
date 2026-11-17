@@ -37,6 +37,7 @@ pub fn routes() -> Router<Shared> {
         .route("/files/{id}/print", post(print))
         .route("/files/{id}/frame", post(frame))
         .route("/machines/{id}/job", post(control_job))
+        .route("/machines/{id}/start-burn", post(start_burn))
 }
 
 /// Whether the slicer's printer model is this one: PrusaSlicer writes `MK3S`, OrcaSlicer
@@ -701,6 +702,9 @@ struct PrintForm {
     machine: String,
     /// How many times: the first now (when the machine is free), the rest in its queue.
     copies: Option<u32>,
+    /// HS7b: a laser with a loaded job: take it off and load this one instead (the person
+    /// confirmed).
+    replace: Option<bool>,
 }
 
 /// Copies at most, in one go.
@@ -733,6 +737,51 @@ async fn print(
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
     };
+    // HS7b (owner, 2026-11-17): a laser takes one loaded job, no queue and no copies; it is
+    // loaded, not started (the person at the laser frames, sets the origin, presses Start burn).
+    if machine.kind == maker_connect_protocol::MachineKind::Laser {
+        if form.copies.unwrap_or(1) > 1 {
+            return (StatusCode::CONFLICT, "a laser takes one job at a time: no copies").into_response();
+        }
+        // its loaded job is the one asked about below, not "busy"
+        let mut free = machine.clone();
+        if free.job.as_ref().is_some_and(|j| j.state == crate::store::JobState::Loaded) {
+            free.job = None;
+        }
+        if let Err(why) = fit(&file, &free) {
+            return (StatusCode::CONFLICT, why).into_response();
+        }
+        match store.active_job(&machine.id) {
+            Ok(Some(job)) if job.state == crate::store::JobState::Loaded => {
+                if form.replace != Some(true) {
+                    return (
+                        StatusCode::CONFLICT,
+                        Json(serde_json::json!({
+                            "loaded": job.file_name,
+                            "confirm": format!("{} is loaded on this laser: replace it with {}?", job.file_name, file.name),
+                        })),
+                    )
+                        .into_response();
+                }
+                if let Err(error) = store.unload_laser_job(&machine.id) {
+                    return failed(error);
+                }
+            }
+            Ok(Some(job)) => {
+                return (StatusCode::CONFLICT, format!("busy with {}", job.file_name)).into_response();
+            }
+            Ok(None) => {}
+            Err(error) => return failed(error),
+        }
+        return match store.add_job(space, &machine.id, &file, None, crate::store::StartedBy::person(&access)) {
+            Ok(Ok(_)) if headers.contains_key("x-requested-with") => {
+                Json(serde_json::json!({ "loaded": file.name })).into_response()
+            }
+            Ok(Ok(_)) => Redirect::to(&format!("/machines/{}#control", machine.id)).into_response(),
+            Ok(Err(why)) => (StatusCode::CONFLICT, why).into_response(),
+            Err(error) => failed(error),
+        };
+    }
     // Free, and nothing waiting before it: now. Busy, or others waiting: to the back of its
     // queue (crate::queue). Not for this machine at all: no.
     let copies = form.copies.unwrap_or(1).clamp(1, MAX_COPIES);
@@ -822,6 +871,15 @@ async fn frame(
     if machine.kind != maker_connect_protocol::MachineKind::Laser {
         return (StatusCode::CONFLICT, "framing is for lasers").into_response();
     }
+    // HS7b: the loaded job is framed on its laser; it does not make the laser busy for its own frame.
+    let mut machine = machine;
+    if machine
+        .job
+        .as_ref()
+        .is_some_and(|j| j.state == crate::store::JobState::Loaded && j.file_id == file.id)
+    {
+        machine.job = None;
+    }
     if let Err(why) = fit(&file, &machine) {
         return (StatusCode::CONFLICT, why).into_response();
     }
@@ -846,6 +904,96 @@ async fn frame(
     match store.queue_command(space, &machine.id, &format!("Frame {}", file.name), &gcode) {
         Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
         Ok(None) => (StatusCode::CONFLICT, "the machine takes no commands").into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+#[derive(Deserialize)]
+struct StartBurnForm {
+    /// The person confirmed the job's place on the bed is not checked (after a Set origin).
+    confirm: Option<bool>,
+}
+
+/// HS7b: the confirm of every Start burn (ours).
+pub(crate) fn start_confirm(file: &str) -> String {
+    format!("Start burn: the laser fires on {file}. Framed, in place, glasses on?")
+}
+
+/// HS7b: the confirm after a Set origin (ours, after LaserFoundry's own: `ui-egui` `lib.rs:1250`).
+pub(crate) const ORIGIN_CONFIRM: &str = "An origin was set on this laser: the job's place on the bed is not checked by the hub. Framed and in place?";
+
+/// HS7b: Start burn, on the laser's machine page: the loaded job goes to the laser. Only a person at
+/// the laser (operate, PPE, a session; never an API token), only when the job is loaded and was framed
+/// completely after the last Set origin (owner, 2026-11-17), the laser idle with laser mode on (`$32`,
+/// as LaserFoundry refuses otherwise), and after a Set origin with the person's confirm.
+async fn start_burn(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    Path(id): Path<String>,
+    Form(form): Form<StartBurnForm>,
+) -> Response {
+    let mut store = store.lock().unwrap();
+    let Ok(Some((space, _))) = store.space_of(&access).map(Some) else {
+        return (StatusCode::FORBIDDEN, "no space").into_response();
+    };
+    if let Err(refused) = crate::access::check_machine(&store, &access, &id, crate::access::Level::Operate) {
+        return *refused;
+    }
+    if let Err(refused) = crate::safety::check_ppe(&store, &access, &id) {
+        return *refused;
+    }
+    if !crate::store::StartedBy::person(&access).is_person_at_a_session() {
+        return (StatusCode::FORBIDDEN, crate::store::LASER_NEVER_ALONE).into_response();
+    }
+    let machine = match store.machine(space, &id) {
+        Ok(Some(machine)) => machine,
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
+        Err(error) => return failed(error),
+    };
+    if machine.kind != maker_connect_protocol::MachineKind::Laser {
+        return (StatusCode::CONFLICT, "Start burn is for lasers").into_response();
+    }
+    let job = match store.active_job(&machine.id) {
+        Ok(Some(job)) if job.state == crate::store::JobState::Loaded => job,
+        Ok(Some(job)) => return (StatusCode::CONFLICT, format!("busy with {}", job.file_name)).into_response(),
+        Ok(None) => return (StatusCode::CONFLICT, "no job is loaded on this laser").into_response(),
+        Err(error) => return failed(error),
+    };
+    let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
+    let Some(t) = telemetry else {
+        return (StatusCode::CONFLICT, "offline").into_response();
+    };
+    if t.state != maker_connect_protocol::MachineState::Idle {
+        return (StatusCode::CONFLICT, "the laser is not idle").into_response();
+    }
+    if let Some(problem) = &t.problem {
+        return (StatusCode::CONFLICT, problem.clone()).into_response();
+    }
+    // LaserFoundry's own refusal and text (`ui-egui` `lib.rs:1240-1247`)
+    if t.grbl.as_ref().and_then(|g| g.laser_mode) != Some(true) {
+        return (
+            StatusCode::CONFLICT,
+            "Laser mode ($32) is off on this controller: turn it on in the machine settings before running a job",
+        )
+            .into_response();
+    }
+    if store.laser_framed_file(&machine.id) != Some(job.file_id.as_str()) {
+        return (
+            StatusCode::CONFLICT,
+            "frame the loaded job first (after a Set origin it is framed again)",
+        )
+            .into_response();
+    }
+    // The person confirms every Start burn (ours); after a Set origin the confirm says the hub does not
+    // check the job's place on the bed (LaserFoundry's own confirm, `ui-egui` `lib.rs:1250`). After a hub
+    // restart the hub no longer knows whether an origin was set: the confirm is asked all the same.
+    if form.confirm != Some(true) {
+        let text = if store.laser_origin_was_set(&machine.id) { ORIGIN_CONFIRM.to_owned() } else { start_confirm(&job.file_name) };
+        return (StatusCode::CONFLICT, Json(serde_json::json!({ "confirm": text }))).into_response();
+    }
+    match store.start_burn(&machine.id, job.id, Some(access.actor.as_str())) {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (StatusCode::CONFLICT, "the loaded job changed: look again").into_response(),
         Err(error) => failed(error),
     }
 }
@@ -934,6 +1082,13 @@ async fn control_job(
         }
         Err(error) => return failed(error),
     };
+    // HS7b: a laser's loaded job is taken off it (it never ran)
+    if (form.action.as_str(), job.state) == ("stop", JobState::Loaded) {
+        return match store.unload_laser_job(&id) {
+            Ok(_) => StatusCode::NO_CONTENT.into_response(),
+            Err(error) => failed(error),
+        };
+    }
     let next = match (form.action.as_str(), job.state) {
         ("pause", JobState::Printing) => JobState::Paused,
         ("resume", JobState::Paused) => JobState::Printing,

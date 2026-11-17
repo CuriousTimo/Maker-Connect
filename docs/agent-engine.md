@@ -483,6 +483,11 @@ testen en gebruiken voordat we het als merge aan hun aanbieden"). So keep the ch
 their style, close to their MakerFoundry code. Not started: after the laser port, in the owner's
 order.
 
+**Owner, 2026-11-17, the fork's button:** "Send to Maker Connect is onlogisch voor de fork ... door de
+hub zelf geserveerd, dat is nl al maker connect. -> Send to [lasernaam]". The fork served by the hub
+is already Maker Connect: its button names the laser it sends to ("Send to Ortur Laser Master"), and
+what it sends becomes that laser's loaded job (HS7b: one loaded job, no laser queue).
+
 **Owner overrules the watchdog on LaserFoundry (2026-11-15):** "LaserFoundry is inderdaad nieuw en
 1 persoon. maar dat zijn wij ook. omdat het al in Rust is kunnen we het niet alleen zo gebruiken,
 maar ook zo aan bijdragen. die andere projecten zoals Universal G-code Sender, gSender of LaserGRBL

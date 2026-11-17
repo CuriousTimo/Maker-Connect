@@ -639,6 +639,8 @@ pub(crate) async fn machine_page(
                 stats: store
                     .job_stats(access.space, &machine.id)
                     .unwrap_or_default(),
+                laser_framed: machine.laser_framed,
+                laser_origin_set: machine.laser_origin_set,
             };
             Html(machine_page::render(&space, &machine, &extra)).into_response()
         }

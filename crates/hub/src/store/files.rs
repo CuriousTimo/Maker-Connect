@@ -87,7 +87,7 @@ impl Store {
     pub fn remove_file(&mut self, space: i64, id: &str) -> rusqlite::Result<bool> {
         // Not while a machine runs it (or has it queued).
         let in_use: i64 = self.db.query_row(
-            "SELECT COUNT(*) FROM jobs WHERE file_id = ?1 AND state IN ('queued', 'printing', 'paused', 'stopping')",
+            "SELECT COUNT(*) FROM jobs WHERE file_id = ?1 AND state IN ('loaded', 'queued', 'printing', 'paused', 'stopping')",
             [id],
             |r| r.get(0),
         )?;

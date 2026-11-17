@@ -352,14 +352,48 @@ impl Store {
             .get_mut(&machine)
             .and_then(|commands| commands.iter_mut().find(|c| c.id == id))
         {
+            // In the hub's log: how each command ended (the reason a machine gave).
+            println!(
+                "command {} on {machine}: {state:?}{}",
+                command.label,
+                reason.as_deref().map(|r| format!(" ({r})")).unwrap_or_default()
+            );
             command.state = state;
             command.reason = reason;
             command.output.extend(output);
             let excess = command.output.len().saturating_sub(OUTPUT_KEPT);
             command.output.drain(..excess);
             command.at = now();
+            // HS7b (ours, the hub's own state; nothing of it reaches the wire): a laser's completed
+            // frame of a file, and a completed Set origin, which a later Start burn needs to know.
+            if state == CommandState::Finished && command.action {
+                let action = serde_json::from_str::<maker_connect_protocol::Action>(&command.gcode).ok();
+                match action {
+                    Some(maker_connect_protocol::Action::Frame { download }) => {
+                        if let Some(file) = download.rsplit('/').next() {
+                            self.laser_framed.insert(machine.clone(), file.to_owned());
+                        }
+                    }
+                    Some(maker_connect_protocol::Action::SetOrigin) => {
+                        self.laser_framed.remove(&machine);
+                        self.laser_origin_set.insert(machine.clone());
+                    }
+                    _ => {}
+                }
+            }
             self.changed();
         }
         Ok(())
+    }
+
+    /// HS7b: the file a laser last framed completely, since its last Set origin (none after one).
+    pub fn laser_framed_file(&self, machine: &str) -> Option<&str> {
+        self.laser_framed.get(machine).map(String::as_str)
+    }
+
+    /// HS7b: whether a Set origin was done on this laser since the hub started (its place on the
+    /// bed is then not known to the hub: Start burn asks the person to confirm, as LaserFoundry does).
+    pub fn laser_origin_was_set(&self, machine: &str) -> bool {
+        self.laser_origin_set.contains(machine)
     }
 }

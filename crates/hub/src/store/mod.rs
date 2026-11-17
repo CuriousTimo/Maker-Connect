@@ -49,7 +49,7 @@ impl<'a> StartedBy<'a> {
         }
     }
 
-    fn is_person_at_a_session(&self) -> bool {
+    pub(crate) fn is_person_at_a_session(&self) -> bool {
         matches!(self, StartedBy::Person { session: Some(_), .. })
     }
 
@@ -124,6 +124,10 @@ pub struct Machine {
     pub mesh: Option<StoredMesh>,
     /// What it is printing (or has queued, or paused).
     pub job: Option<Job>,
+    /// HS7b: a laser's loaded job was framed completely after its last Set origin (live on its page).
+    pub laser_framed: bool,
+    /// HS7b: a Set origin was done on this laser since the hub started.
+    pub laser_origin_set: bool,
     /// Its last job, when that was interrupted and can start again where it stopped.
     pub resumable: Option<Job>,
     /// What the owner says is loaded: a label printer's tape (a media id of its profile).
@@ -429,6 +433,9 @@ pub struct Job {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum JobState {
+    /// HS7b: a laser's job, sent to it and ready, not started: the person at the laser frames,
+    /// sets the origin and presses Start burn. Never sent to the machine as a job until then.
+    Loaded,
     /// Waiting for the machine to take it.
     Queued,
     Printing,
@@ -444,7 +451,7 @@ impl JobState {
     pub fn active(self) -> bool {
         matches!(
             self,
-            JobState::Queued | JobState::Printing | JobState::Paused | JobState::Stopping
+            JobState::Loaded | JobState::Queued | JobState::Printing | JobState::Paused | JobState::Stopping
         )
     }
 
@@ -498,6 +505,10 @@ pub struct Store {
     /// job of the hub's, so said once with its next report.
     pub(crate) own_job_control:
         std::collections::HashMap<String, maker_connect_protocol::JobControl>,
+    /// HS7b: per laser, the file id it last framed completely since its last Set origin.
+    pub(crate) laser_framed: std::collections::HashMap<String, String>,
+    /// HS7b: lasers on which a Set origin was done since the hub started.
+    pub(crate) laser_origin_set: std::collections::HashSet<String>,
     next_command: u32,
     /// Temperature history per machine id, oldest first.
     history: std::collections::HashMap<String, std::collections::VecDeque<Sample>>,
@@ -572,6 +583,8 @@ impl Store {
             own_prints: Default::default(),
             answers: Default::default(),
             own_job_control: Default::default(),
+            laser_framed: Default::default(),
+            laser_origin_set: Default::default(),
             // Ids that do not repeat soon after a restart, as a printer may remember the last.
             next_command: (now() % 1_000_000_000) as u32,
             history: Default::default(),

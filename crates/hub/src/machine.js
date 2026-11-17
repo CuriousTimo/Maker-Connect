@@ -486,7 +486,7 @@
       at += (it.estimated_s || 0) * 1000;
       const facts = [minutes(it.estimated_s), it.by, i === 0 && t.state !== "busy" ? "next" : `starts around ${starts}`].filter(Boolean).join(" · ");
       const mine = it.by_user === ME, change = mayChange(it);
-      return `<li${change ? ' draggable="true"' : ""} data-qid="${it.id}" data-mine="${mine}" class="${mine ? "mine" : ""}${change ? "" : " fixed"}"><span class="q-grip" aria-hidden="true">${change ? "⠿" : ""}</span><span class="q-n">${i + 1}</span>${it.thumbnail ? `<img src="../files/${encodeURIComponent(it.file_id)}/thumbnail.png" alt="">` : '<span class="q-img"></span>'}<span class="q-name"><b title="${escapeHtml(it.file_name)}">${escapeHtml(it.file_name)}</b><small>${mine ? '<span class="q-mine">yours</span> · ' : ""}${escapeHtml(facts)}${it.problem ? ` · <span class="q-problem">${escapeHtml(it.problem)}</span>` : ""}</small></span>${change ? `<button type="button" class="q-x" data-qremove="${it.id}" title="Take out of the queue" aria-label="Take out of the queue">×</button>` : "<span></span>"}</li>`;
+      return `<li${change ? ' draggable="true"' : ""} data-qid="${it.id}" data-mine="${mine}" class="${mine ? "mine" : ""}${change ? "" : " fixed"}"><span class="q-grip" aria-hidden="true">${change ? "⠿" : ""}</span><span class="q-n">${i + 1}</span>${it.thumbnail ? `<img src="../files/${encodeURIComponent(it.file_id)}/thumbnail.png" alt="">` : '<span class="q-img"></span>'}<span class="q-name"><b title="${escapeHtml(it.file_name)}">${escapeHtml(it.file_name)}</b><small>${mine ? '<span class="q-mine">yours</span> · ' : ""}${escapeHtml(facts)}${it.problem ? ` · <span class="q-problem">${escapeHtml(it.problem)}</span>` : ""}</small></span>${m.kind === "laser" && change ? `<button type="button" class="ghost q-load" data-qload="${it.id}" data-file="${escapeHtml(it.file_id)}" title="Load it on the laser (HS7b: a laser takes one loaded job, no queue)">Load</button>` : ""}${change ? `<button type="button" class="q-x" data-qremove="${it.id}" title="Take out of the queue" aria-label="Take out of the queue">×</button>` : "<span></span>"}</li>`;
     }).join("");
   }
   if (queueList) {
@@ -528,6 +528,22 @@
       const r = await fetch(`${ID}/taken`, { method: "POST", headers: { "x-requested-with": "fetch" } });
       toast(r.ok ? "Bed clear: the queue goes on" : `Not done: ${await r.text()}`, r.ok ? "ok" : "bad");
       shownQueue = "";
+    });
+    // HS7b: a laser has no queue any more; what still waits in it from before is loaded by hand.
+    queueList.addEventListener("click", async (e) => {
+      const load = e.target.closest("[data-qload]");
+      if (!load) return;
+      const send = (replace) => fetch(`../files/${encodeURIComponent(load.dataset.file)}/print`, { method: "POST", body: new URLSearchParams({ machine: ID, ...(replace ? { replace: "true" } : {}) }), headers: { "x-requested-with": "fetch" } });
+      let r = await send(false);
+      if (r.status === 409 && r.headers.get("content-type")?.includes("json")) {
+        const { confirm } = await r.json();
+        if (!(await ask(confirm, { ok: "Replace" }))) return;
+        r = await send(true);
+      }
+      if (!r.ok) { toast(`Not loaded: ${await r.text()}`, "bad"); return; }
+      await fetch(`${ID}/queue/${load.dataset.qload}/remove`, { method: "POST", headers: { "x-requested-with": "fetch" } });
+      toast("Loaded on the laser");
+      setTimeout(() => location.reload(), 300);
     });
     queueList.addEventListener("click", async (e) => {
       const x = e.target.closest("[data-qremove]");
@@ -933,6 +949,13 @@
     const bar = document.querySelector("[data-job-bar]");
     if (bar) bar.style.width = `${percent ?? 0}%`;
     const laser = m.kind === "laser";
+    // HS7b: the loaded job's frame, live: Start burn once the laser reported the frame done.
+    const framedNote = document.querySelector("[data-loaded-framed]");
+    if (framedNote && m.job?.state === "loaded") {
+      framedNote.textContent = m.laser_framed ? "Framed" : m.laser_origin_set ? "Not framed since the last Set origin" : "Not framed yet";
+      const burn = document.querySelector("[data-start-burn]");
+      if (burn) { burn.disabled = !m.laser_framed; burn.title = m.laser_framed ? "" : "Frame the loaded job first"; }
+    }
     for (const el of document.querySelectorAll("[data-job]")) el.hidden = !job;
     // A laser's Stop (a soft reset) is there with no job too.
     for (const el of document.querySelectorAll("[data-job-actions]")) el.hidden = !job && !laser;

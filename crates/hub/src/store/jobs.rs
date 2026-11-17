@@ -42,20 +42,53 @@ impl Store {
         from_line: Option<u64>,
         started: StartedBy,
     ) -> rusqlite::Result<Result<i64, &'static str>> {
-        if self.is_laser(space, machine)? && !started.is_person_at_a_session() {
+        let laser = self.is_laser(space, machine)?;
+        if laser && !started.is_person_at_a_session() {
             return Ok(Err(LASER_NEVER_ALONE));
         }
         let by = started.name();
         if self.active_job(machine)?.is_some() {
             return Ok(Err("the machine has a job already"));
         }
+        // HS7b (owner, 2026-11-17): a laser's job is loaded, not started: the person at the laser
+        // frames it, sets the origin and presses Start burn (`start_burn`).
+        let state = if laser { "loaded" } else { "queued" };
+        if laser {
+            // a new load is framed anew (proxy, 2026-11-17)
+            self.laser_framed.remove(machine);
+        }
         self.db.execute(
             "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at, from_line, by_name)
-             VALUES (?1, ?2, ?3, ?4, 'queued', ?5, ?6, ?7)",
-            params![space, machine, file.id, file.name, now(), from_line.map(|l| l as i64), by],
+             VALUES (?1, ?2, ?3, ?4, ?8, ?5, ?6, ?7)",
+            params![space, machine, file.id, file.name, now(), from_line.map(|l| l as i64), by, state],
         )?;
         self.changed();
         Ok(Ok(self.db.last_insert_rowid()))
+    }
+
+    /// HS7b (ours, owner 2026-11-17: one loaded job per laser): takes a laser's loaded job off it,
+    /// so another can be loaded (the person confirmed). It never ran: it ends stopped, with why.
+    pub fn unload_laser_job(&mut self, machine: &str) -> rusqlite::Result<bool> {
+        let n = self.db.execute(
+            "UPDATE jobs SET state = 'stopped', ended_at = ?2, reason = 'replaced by another job before it was started'
+             WHERE machine_id = ?1 AND state = 'loaded'",
+            params![machine, now()],
+        )?;
+        self.laser_framed.remove(machine);
+        self.changed();
+        Ok(n > 0)
+    }
+
+    /// HS7b: Start burn: the loaded job goes to the laser (its agent takes it as a queued job).
+    /// Only the caller's checks decide whether it may; this only moves a loaded job on.
+    pub fn start_burn(&mut self, machine: &str, job: i64, by: Option<&str>) -> rusqlite::Result<bool> {
+        let n = self.db.execute(
+            "UPDATE jobs SET state = 'queued', by_name = COALESCE(?3, by_name)
+             WHERE id = ?1 AND machine_id = ?2 AND state = 'loaded'",
+            params![job, machine, by],
+        )?;
+        self.changed();
+        Ok(n > 0)
     }
 
     /// Whether a machine is a laser (by its kind, without loading the whole machine).
@@ -96,7 +129,7 @@ impl Store {
             .query_row(
                 "SELECT id, machine_id, file_id, file_name, state, created_at, started_at, ended_at, reason,
                      from_line, restart_line, by_name
-                 FROM jobs WHERE machine_id = ?1 AND state IN ('queued', 'printing', 'paused', 'stopping')
+                 FROM jobs WHERE machine_id = ?1 AND state IN ('loaded', 'queued', 'printing', 'paused', 'stopping')
                  ORDER BY id LIMIT 1",
                 [machine],
                 Self::job_from,

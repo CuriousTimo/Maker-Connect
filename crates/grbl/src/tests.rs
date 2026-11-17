@@ -401,6 +401,12 @@ fn a_frame_runs_as_a_job_and_answers_its_command() {
     for line in program.lines().filter(|l| !l.is_empty() && !l.starts_with(';')) {
         assert!(sent.contains(&format!("{line}\n")), "{line} not in {sent:?}");
     }
+    // HS7b safety (proxy, 2026-11-17): what a frame sends never asks for power: every S word is 0,
+    // and the laser is switched off (M5) at its end.
+    for word in sent.split_whitespace().filter(|w| w.starts_with('S') && w.len() > 1) {
+        assert_eq!(word[1..].parse::<f64>().ok(), Some(0.0), "a frame asked for power: {word} in {sent:?}");
+    }
+    assert!(sent.contains("M5\n"), "the frame ends with the laser off: {sent:?}");
     // Outside the travel it reads: the program is not made.
     assert!(run.machine.frame([10.0, 10.0, 300.0, 20.0]).is_err());
 }
