@@ -387,6 +387,10 @@ fetching camera-given URLs that point elsewhere.
 - Hub CPU and memory monitoring (owner: "hub cpu en mem monitoring").
 - Maybe: CPU and memory of an agent's host (owner: "agent host cpu en mem monitoring? <- niet zeker over
   deze").
+- Idea, to look at later (owner, 2026-11-17): web slicing in the hub by integrating
+  https://github.com/steenfeldt/mica-slicer ("a native 3D-printing slicer for macOS, Linux and Windows, written
+  in Rust"; seen 2026-11-17: 3 stars, last push 2026-11-09, **no licence on GitHub** — so it may not be
+  used until its author gives one; CLAUDE.md: ask the owner first; also a one-person project).
 - **One agent for several devices, with a small web page to manage it (owner, 2026-11-17, plan for later:
   "1 agent voor meerder devices. de devices zijn module zoals we nu ook al hebben? kleine simpele web
   management page on de agent om modules en settings te beheren").** Today one agent process drives one
