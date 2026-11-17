@@ -24,6 +24,9 @@ pub const VERSION: u32 = 1;
 
 pub const REGISTER: &str = "/api/agent/v1/register";
 pub const TELEMETRY: &str = "/api/agent/v1/telemetry";
+/// `POST` one JPEG of a USB camera (`{index}`: its nokhwa index on the agent), the body the JPEG
+/// (`image/jpeg`), the token as for [`TELEMETRY`] (docs/briefs/usb-cam-step1.md).
+pub const CAMERA_FRAME: &str = "/api/agent/v1/cameras/{index}/frame";
 
 /// What kind of machine an agent drives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -23,7 +23,7 @@ pub fn open(options: &Options) -> Option<Box<dyn Port>> {
         Mode::LabelWriter450 => Some(Box::new(maker_connect_engine::ports::dymo_cups::LabelWriter450::new())),
         // `--port` = the HID path; without it the one device with usage page 0x8D (checked at start)
         Mode::DymoScale => Some(Box::new(maker_connect_engine::ports::usbscale::UsbScale::new(options.port.clone()))),
-        Mode::Prusa => None,
+        Mode::Prusa | Mode::Cameras => None,
     }
 }
 

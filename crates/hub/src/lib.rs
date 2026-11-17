@@ -39,6 +39,7 @@ pub mod spoolmandb;
 pub mod stock;
 pub mod store;
 pub mod updates;
+pub mod usbcam;
 pub mod web;
 
 use std::sync::{Arc, Mutex};

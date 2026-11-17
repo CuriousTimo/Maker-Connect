@@ -151,6 +151,8 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ("*", "/logo.svg", Need::Public, None),
     ("*", maker_connect_protocol::REGISTER, Need::Public, None),
     ("*", maker_connect_protocol::TELEMETRY, Need::Public, None),
+    // A USB camera's frame: the agent's token, checked by the route (crate::usbcam).
+    ("*", maker_connect_protocol::CAMERA_FRAME, Need::Public, None),
     ("*", "/api/agent/v1/jobs/{id}/file", Need::Public, None),
     ("*", "/api/agent/v1/files/{id}", Need::Public, None),
     ("*", "/p/register", Need::Public, None),
@@ -866,6 +868,10 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Role(Role::Admin),
         Some("backed up the materials"),
     ),
+    // The USB cameras' test page (crate::usbcam, docs/briefs/usb-cam-step1.md): admins only.
+    ("GET", "/usb-cameras/test", Need::Role(Role::Admin), None),
+    ("GET", "/usb-cameras/test/events", Need::Role(Role::Admin), None),
+    ("GET", "/usb-cameras/test/frame/{machine}/{index}", Need::Role(Role::Admin), None),
     // Cameras (crate::cameras, owner 2026-11-16): watching is checked per camera by its
     // handler (`Store::may_view_camera`); adding, changing and removing take an admin.
     ("GET", "/cameras", Need::Role(Role::Guest), None),

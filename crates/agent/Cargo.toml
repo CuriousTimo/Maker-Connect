@@ -18,3 +18,9 @@ serialport = { version = "4", default-features = false }
 libc = "0.2"
 toml = "1.1.8"
 ureq = { version = "2", features = ["json"] }
+# USB webcams (docs/hub-side.md, "USB webcams"; owner: nokhwa on every OS): V4L2, Media Foundation,
+# AVFoundation; no decoding (`default-features = false`).
+nokhwa = { version = "=0.10.11", default-features = false, features = ["input-native"] }
+
+[dev-dependencies]
+jpeg-encoder = "0.6"

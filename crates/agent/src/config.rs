@@ -6,6 +6,7 @@
 //! kind = "label"          # fdm, laser, label, ...
 //! mode = "dymo-pnp"       # required: prusa, marlin, grbl, dymo-pnp, labelwriter-450, dymo-scale
 //! # port = "COM3"         # a serial port; left out, the port's reference finds one
+//! # camera = 0          # a USB camera, by its nokhwa index (mode cameras: only that)
 //! # baud = 250000         # left out, the port's reference decides
 //! # state = "maker-connect-agent.json"
 //! ```
@@ -42,6 +43,9 @@ pub struct Config {
     /// `marlin` (OctoPrint, any other).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
+    /// A USB camera by its nokhwa index (docs/briefs/usb-cam-step1.md).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera: Option<u32>,
 }
 
 impl Config {
@@ -56,6 +60,7 @@ impl Config {
             firmware: other.firmware.or(self.firmware),
             state: other.state.or(self.state),
             mode: other.mode.or(self.mode),
+            camera: other.camera.or(self.camera),
         }
     }
 }

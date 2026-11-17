@@ -38,6 +38,8 @@ pub(crate) struct Options {
     new_code: bool,
     /// What the machine on the port is (`--mode prusa|marlin|grbl|dymo-pnp|labelwriter-450|dymo-scale`).
     pub(crate) mode: Mode,
+    /// A USB camera by its nokhwa index (`--camera`).
+    camera: Option<u32>,
 }
 
 /// What the machine on the port is, as told at startup (`--mode`), never guessed and with no default
@@ -52,19 +54,22 @@ pub(crate) enum Mode {
     DymoPnp,
     LabelWriter450,
     DymoScale,
+    /// No machine: only a USB camera (`--camera`), docs/briefs/usb-cam-step1.md.
+    Cameras,
 }
 
 /// `--mode`, which must be given (B4).
 fn parse_mode(given: Option<&str>) -> Result<Mode, String> {
     match given {
-        None => Err("mode: say what is on the port with --mode prusa, marlin, grbl, dymo-pnp, labelwriter-450 or dymo-scale: there is no default".to_owned()),
+        None => Err("mode: say what is on the port with --mode prusa, marlin, grbl, dymo-pnp, labelwriter-450, dymo-scale or cameras: there is no default".to_owned()),
         Some("prusa") => Ok(Mode::Prusa),
         Some("marlin") => Ok(Mode::Marlin),
         Some("grbl") => Ok(Mode::Grbl),
         Some("dymo-pnp") => Ok(Mode::DymoPnp),
         Some("labelwriter-450") => Ok(Mode::LabelWriter450),
         Some("dymo-scale") => Ok(Mode::DymoScale),
-        Some(other) => Err(format!("mode: prusa, marlin, grbl, dymo-pnp, labelwriter-450 or dymo-scale, not {other}")),
+        Some("cameras") => Ok(Mode::Cameras),
+        Some(other) => Err(format!("mode: prusa, marlin, grbl, dymo-pnp, labelwriter-450, dymo-scale or cameras, not {other}")),
     }
 }
 
@@ -98,6 +103,7 @@ fn options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>> {
             "--baud" => typed.baud = Some(value()?.parse()?),
             "--firmware" => typed.firmware = Some(value()?),
             "--mode" => typed.mode = Some(value()?),
+            "--camera" => typed.camera = Some(value()?.parse()?),
             "--state" => typed.state = Some(value()?),
             "--config" => named = Some(value()?),
             "--save" => save = true,
@@ -123,6 +129,9 @@ fn options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>> {
     // `--mode`, never a default (B4); an older config's `firmware = "grbl"` or `"marlin"` still reads.
     let mode = parse_mode(all.mode.as_deref().or(all.firmware.as_deref().filter(|f| *f != "auto")))?;
     let kind = parse_kind(all.kind.as_deref())?;
+    if mode == Mode::Cameras && all.camera.is_none() {
+        return Err("mode cameras: say which camera with --camera <index>".into());
+    }
     // The credentials beside the config file, so a double-click finds them too.
     let state = all.state.map(PathBuf::from).unwrap_or_else(|| {
         path.parent()
@@ -145,6 +154,7 @@ fn options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>> {
         state: state.to_string_lossy().into_owned(),
         new_code,
         mode,
+        camera: all.camera,
     })
 }
 
@@ -628,6 +638,11 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         "{} reports to {} as machine {}",
         options.name, options.hub, registered.machine_id
     );
+    // A USB camera: its frames go to the hub on their own thread, with the token as it is now.
+    let camera_token = std::sync::Arc::new(std::sync::Mutex::new(registered.token.clone()));
+    if let Some(index) = options.camera {
+        crate::camera::spawn(options.hub.clone(), camera_token.clone(), index);
+    }
     let mut engine = Engine::new();
     let mut machine: Option<MachineId> = crate::ports::open(&options).map(|port| engine.add(port));
     if machine.is_none() {
@@ -784,6 +799,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 println!("the hub does not know this machine any more: registering again");
                 match register(&options) {
                     Ok(again) => {
+                        *camera_token.lock().unwrap() = again.token.clone();
                         registered = again;
                         paired = None;
                     }
@@ -982,6 +998,15 @@ mod tests {
         }
         let options = options(&args(&["--kind", "fdm", "--mode", "marlin", "--port", "/dev/ttyACM0", "--baud", "250000"])).unwrap();
         assert_eq!((options.port.as_deref(), options.baud), (Some("/dev/ttyACM0"), Some(250_000)));
+    }
+
+    /// `--mode cameras` needs `--camera`; `--camera` reads as an index.
+    #[test]
+    fn mode_cameras_needs_a_camera_index() {
+        let error = options(&args(&["--kind", "other", "--mode", "cameras"])).err().map(|e| e.to_string()).unwrap();
+        assert!(error.contains("--camera"), "{error}");
+        let options = options(&args(&["--kind", "other", "--mode", "cameras", "--camera", "1"])).unwrap();
+        assert_eq!((options.mode, options.camera), (Mode::Cameras, Some(1)));
     }
 
     /// B6: `job_id` is the engine's job; Disconnected while the device is gone

@@ -73,6 +73,7 @@ pub fn app(store: Shared) -> Router {
         .merge(farm::routes())
         .merge(projects_page::routes())
         .merge(cameras_routes())
+        .merge(crate::usbcam::routes())
         // After a route is matched: what it needs, against who asks (access::RULES).
         .route_layer(axum::middleware::from_fn_with_state(
             store.clone(),

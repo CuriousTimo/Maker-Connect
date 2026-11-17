@@ -5,6 +5,7 @@
 //! knows, and gives the engine what the hub asks; each machine's port ([`ports`]) is the only
 //! code that talks to its device, as its reference does.
 
+mod camera;
 mod config;
 mod link;
 mod ports;
@@ -20,7 +21,8 @@ Usage:
                           [--hub <http://host:8460>] [--name <name>]
                           --kind fdm|laser|cnc|cutter|label|paper|scale|other
                           [--port <serial port> [--baud <rate>]]
-                          --mode prusa|marlin|grbl|dymo-pnp|labelwriter-450|dymo-scale
+                          --mode prusa|marlin|grbl|dymo-pnp|labelwriter-450|dymo-scale|cameras
+                          [--camera <nokhwa index>]
                           [--state <file>] [--new-code]
                                                        report a machine to the hub; shows the
                                                        pairing code to add it on the website;
@@ -46,6 +48,10 @@ Usage:
                                                        connect-scale.rules in /etc/udev/rules.d/
                                                        (then udevadm control --reload; udevadm
                                                        trigger) and the user in the group plugdev.
+                                                       cameras (no machine, only --camera: a USB
+                                                       webcam by its nokhwa index, a JPEG every 5 s
+                                                       to the hub's test page; needs --kind other;
+                                                       on Linux the user in the group video).
                                                        --port and --baud: left out, OctoPrint's
                                                        own settings and detection choose.
                                                        --kind label: a DYMO LabelManager PnP or
