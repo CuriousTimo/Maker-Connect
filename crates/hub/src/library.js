@@ -315,7 +315,7 @@
     return `${crumbs}
       <div class="i-top">
         <div class="i-head">${swatch(f, true)}<div><h3>${esc(nameOf(f))} <small class="muted">${code(s.id)}</small></h3><small>${esc([f.material, kindOf(f) === "filament" && f.diameter && `${f.diameter} mm`].filter(Boolean).join(" · "))} · ${status}</small></div></div>
-        <div class="i-actions"><button type="button" class="ghost" data-adjust>Adjust weight</button><button type="button" class="ghost" data-print-label>Print label</button><button type="button" class="ghost" data-clone title="A new, full spool like this one">Duplicate</button><button type="button" class="ghost" data-archive>${s.archived ? "Unarchive" : "Archive"}</button></div>
+        <div class="i-actions"><button type="button" class="ghost" data-adjust>Adjust weight</button><button type="button" class="ghost" data-print-label>Print label</button><button type="button" class="ghost" data-clone title="A new, full spool like this one">Duplicate</button><button type="button" class="ghost" data-archive>${s.archived ? "Unarchive" : "Archive"}</button><button type="button" class="ghost danger" data-delete="spool:${s.id}" title="Remove it for good (asks first)">Remove</button></div>
       </div>
       <div class="i-left"><b>${amount(leftOf(s), unit)}</b><span>${s.initial_weight ? `of ${amount(s.initial_weight, unit)} remaining` : "remaining"}${metres}${p != null ? ` · ${Math.round(p * 100)} %` : ""}</span><span class="i-used">used ${amount(used, unit)}</span></div>
       <div class="bar wide${p != null && p < 0.15 ? " low" : ""}"><i style="width:${p == null ? 0 : Math.round(p * 100)}%"></i></div>
@@ -352,7 +352,6 @@
           </div>
           <h4>Tags</h4>${tagsBlock("spool", s)}
           <h4>History</h4><ul class="history" data-history><li class="muted">…</li></ul>
-          ${s.archived ? `<p><button type="button" class="link" data-delete="spool:${s.id}">Remove for good</button></p>` : ""}
         </div>
       </div>`;
   }
@@ -817,7 +816,9 @@
       const of = feeders.filter((m) => m.kind === k).sort((a, b) => a.name.localeCompare(b.name));
       return of.length ? `<div class="printer-group"><h4>${title} <span class="muted">${of.length}</span></h4><div class="printer-row">${of.map(drop).join("")}</div></div>` : "";
     }).join("")}</div>` : "";
-    $("[data-board]").innerHTML = pickers + strip + `<div class="board-grid">` + cols.map((c) => `<div class="col${c.key !== null && picked ? " target" : ""}"${c.key !== null ? ` data-drop="${esc(c.key)}"` : ""}>
+    const pickedSpool = picked != null && spools.find((x) => x.id === picked);
+    const pickedBar = pickedSpool ? `<div class="board-picked" role="status"><span><b>${code(pickedSpool.id)}</b> ${esc(nameOf(pickedSpool.filament))} picked: tap where it goes</span><button type="button" class="ghost" data-open-picked>Open</button><button type="button" class="ghost" data-cancel-pick>Cancel</button></div>` : "";
+    $("[data-board]").innerHTML = pickers + pickedBar + strip + `<div class="board-grid">` + cols.map((c) => `<div class="col${c.key !== null && picked ? " target" : ""}"${c.key !== null ? ` data-drop="${esc(c.key)}"` : ""}>
         <div class="col-head"><b>${esc(c.title)}</b><small>${c.code ? `<code>${esc(c.code)}</code> · ` : ""}${c.spools.length}</small>${c.code ? `<span class="col-tools"><button type="button" class="icon-button" data-label-place="${esc(c.code)}" title="Print its label" aria-label="Print the label of ${esc(c.title)}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6.5 9.5 3H17v7.5L10.5 17 3 10.5z"/><circle cx="13.5" cy="6.5" r="1.3"/></svg></button><button type="button" class="icon-button" data-edit-place="${esc(c.code)}" title="Edit: name, description, slots, remove" aria-label="Edit ${esc(c.title)}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16l1-4 8.5-8.5 3 3L8 15z"/><path d="m11.5 5.5 3 3"/></svg></button></span>` : ""}</div>
         ${modelOf(c.key) ? `<small class="muted" style="padding:0 4px">${esc(modelOf(c.key))}</small>` : ""}
         ${!field && placeOf(c.key)?.description ? `<small class="muted" style="padding:0 4px">${esc(placeOf(c.key).description)}</small>` : ""}
@@ -882,6 +883,9 @@
     moveTo(Number(e.dataTransfer.getData("text/plain")), col.dataset.drop, col.dataset.slot, fromPrinter);
   });
   board.addEventListener("click", (e) => {
+    // The picked spool: opened (to change or remove it), or put down again.
+    if (e.target.closest("[data-open-picked]")) { const id = picked; picked = null; markTargets(null); switchView("library"); choose("spool", String(id)); return; }
+    if (e.target.closest("[data-cancel-pick]")) { picked = null; renderBoard(); markTargets(null); return; }
     const c = e.target.closest("[data-card]");
     if (c) { const id = Number(c.dataset.card); fromPrinter = !!c.closest("[data-machine]"); picked = picked === id ? null : id; renderBoard(); markTargets(picked); return; }
     const target = e.target.closest("[data-machine]") || e.target.closest("[data-slot]") || e.target.closest("[data-drop]");

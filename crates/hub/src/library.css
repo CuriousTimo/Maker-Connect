@@ -209,3 +209,5 @@
   .icon-button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border-radius: 7px; background: transparent; color: var(--muted); border: 1px solid transparent; cursor: pointer; }
   .icon-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
   .icon-button:hover, .icon-button:focus-visible { color: var(--ink); background: var(--line); border-color: var(--line); }
+  .board-picked { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 12%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+  .board-picked span { flex: 1; min-width: 12em; }
