@@ -16,7 +16,7 @@ that it could one day be hosted for many makerspaces at once.
 A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 
 <p align="center">
-  <img src="docs/screenshots/machines.png" alt="The machines of a space, grouped by kind, in the same columns: three printers, one printing a cube at 33 %, a laser and a DYMO label printer, each with what it does now, how it connects, when it was seen and its state" width="860">
+  <img src="docs/screenshots/machines.png" alt="The machines of a space, grouped by kind: three Prusa printers (a MINI printing a Benchy), a laser with a job loaded, and two DYMO label printers, each with what it does now and its state" width="860">
 </p>
 
 | | |
@@ -27,8 +27,10 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 | **Bed level**: the mesh as a surface, a map and a table | **Files**: sorted and filtered by type and machine, where each was printed, removed many at once |
 | ![A label printer's label tab: text, font, a QR code, and the preview of the dots that will burn on 12 mm tape](docs/screenshots/label.png) | ![The downloads page: the agent for macOS and Windows, with the command to start it](docs/screenshots/downloads.png) |
 | **Label**: text, a QR code or barcode, a drawing; the preview is the dots that will burn | **Downloads**: the agent for each platform, with the command for this hub |
-| ![A laser's control tab: the work area, a jog pad with eight directions round Home, the step and speed, Set origin here and Go to origin](docs/screenshots/laser-control.png) | ![The Materials page: filament and label tapes with their spools and cassettes, where each is, a scan box](docs/screenshots/materials.png) |
-| **A laser's Control**: a jog pad (eight directions, a step from 0.1 to 50 mm, the arrow keys), the job's origin set where the head is | **Materials**: spools grouped by filament, what is left of each, the chosen one in its inspector; Spoolman's API speaks here too |
+| ![A laser's control tab: the work area, the loaded job with Frame, Start burn (not yet: frame it first) and Take it off, the emergency stop, and the jog pad](docs/screenshots/laser-control.png) | ![The Materials page: filament and label tapes with their spools and cassettes, where each is, a scan box](docs/screenshots/materials.png) |
+| **A laser's Control**: the loaded job is framed, then started by a person at the laser (Start burn); the emergency stop; the jog pad | **Materials**: spools grouped by filament, what is left of each, the chosen one in its inspector; Spoolman's API speaks here too |
+| ![Prepare: the laser design tool, which opens in a new tab](docs/screenshots/prepare.png) | ![The LabelWriter 450's label tab: DYMO's S0722530 roll, two labels side by side on one page, with what the PPD says about it](docs/screenshots/labelwriter.png) |
+| **Prepare**: the tools that make the work; today laser design (LaserFoundry in the browser) | **LabelWriter 450**: the label drawn on the roll loaded, from DYMO Connect's catalogue |
 | ![The Now page: three printers busy with their progress and finish time, who started each job, and the whole fleet by kind](docs/screenshots/now.png) | ![A printer's queue: two Benchies waiting, whose they are and when each starts](docs/screenshots/queue.png) |
 | **Now**: what runs, what needs someone, what ends next and who started it, the fleet by kind; also as a wall screen | **Queue**: per machine, next first; it starts by itself once the bed is clear; drag your own prints, staff move any |
 | ![Space → Members: the members with their roles, and a matrix of who may use which machine group](docs/screenshots/permissions.png) | ![The About page: release and build, system, processor and memory, and Updates saying this is the newest release](docs/screenshots/about.png) |

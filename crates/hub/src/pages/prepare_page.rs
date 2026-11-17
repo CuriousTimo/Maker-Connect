@@ -12,9 +12,10 @@ use axum::{
 
 const PREPARE_STYLE: &str = "
   .tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .tool { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
   .tool h3 { margin: 0 0 6px; }
   .tool p { margin: 0 0 12px; color: var(--muted); }
-  .tool .state { font-size: 13px; }
+  .tool .tool-note { font-size: 13px; margin: 10px 0 0; }
   .tool a.button { display: inline-block; font-weight: 600; padding: 8px 14px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; }
 ";
 
@@ -33,13 +34,13 @@ pub async fn page(access: crate::access::Access, State(store): State<Shared>) ->
     // Ours (UI only): the card's line for each state.
     let action = match laser {
         Availability::Open => {
-            r#"<a class="button" href="laser-design/" target="_blank" rel="noopener">Open laser design</a><p class="state">Opens in a new tab. <i>Send to</i> a laser loads it there; you frame and start it on the laser's page.</p>"#.to_owned()
+            r#"<a class="button" href="laser-design/" target="_blank" rel="noopener">Open laser design</a><p class="tool-note">Opens in a new tab. <i>Send to</i> a laser loads it there; you frame and start it on the laser's page.</p>"#.to_owned()
         }
-        Availability::NotBuilt => r#"<p class="state">Not in this hub's build.</p>"#.to_owned(),
-        Availability::Guest => r#"<p class="state">A guest may look, not send: ask an admin for a member role.</p>"#.to_owned(),
-        Availability::NoLaser => r#"<p class="state">There is no laser in this space.</p>"#.to_owned(),
+        Availability::NotBuilt => r#"<p class="tool-note">Not in this hub's build.</p>"#.to_owned(),
+        Availability::Guest => r#"<p class="tool-note">A guest may look, not send: ask an admin for a member role.</p>"#.to_owned(),
+        Availability::NoLaser => r#"<p class="tool-note">There is no laser in this space.</p>"#.to_owned(),
         Availability::NotPermitted => {
-            r#"<p class="state">You may not use a laser here yet: permission is given in Space.</p>"#.to_owned()
+            r#"<p class="tool-note">You may not use a laser here yet: permission is given in Space.</p>"#.to_owned()
         }
     };
     Html(format!(
