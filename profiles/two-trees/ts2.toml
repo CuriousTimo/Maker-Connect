@@ -4,6 +4,5 @@ brand = "Two Trees"
 model = "TS2"
 kind = "laser"
 build_volume_mm = [450, 450, 0]  # check on the machine: its $130 and $131
-bed_origin_mm = [0, 0]           # check: GRBL machines often home to a back corner
 firmware = "grbl"
 laser_w = 10                     # optical power of the module it is sold with

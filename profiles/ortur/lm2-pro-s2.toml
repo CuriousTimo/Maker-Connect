@@ -7,5 +7,4 @@ kind = "laser"
 build_volume_mm = [400, 400, 0]
 bed_origin_mm = [0, 0]           # it homes to the front left corner (seen by the owner, 2026-11-17)
 firmware = "grbl"                # Ortur's own GRBL 1.1 build, over USB serial
-max_speed_mm_min = 15000         # check: no source written down
 laser_w = 10                     # the LU2-10A module: 10 W optical

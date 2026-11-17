@@ -4,6 +4,5 @@ brand = "Atomstack"
 model = "X20 Pro"
 kind = "laser"
 build_volume_mm = [400, 400, 0]  # check
-bed_origin_mm = [0, 0]           # check: GRBL machines often home to a back corner
 firmware = "grbl"
 laser_w = 20                     # optical power of the module it is sold with
