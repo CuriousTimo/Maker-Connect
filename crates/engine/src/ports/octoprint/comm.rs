@@ -2367,6 +2367,8 @@ impl Deref for SendQueueMarker {
 
 #[allow(unused_imports)]
 use super::events::{Events, event_manager};
+#[cfg(unix)]
+use super::platform;
 use super::plugin::{Hooks, PluginManager, plugin_manager};
 use super::profile::PrinterProfileManager;
 use super::py_attr::Attr;
@@ -2379,7 +2381,7 @@ use super::util::{
     CountedEvent, EXCEPTION_STRING_FMT, ExceptionInfo, Interval, RepeatedTimer, ResettableTimer,
     get_exception_string_of, sanitize_ascii,
 };
-use super::{platform, py_format, py_glob};
+use super::{py_format, py_glob};
 use serde_json::Value;
 
 /// OURS (difference 20): the `try: ... except Exception:` of Python. A Python exception is a panic

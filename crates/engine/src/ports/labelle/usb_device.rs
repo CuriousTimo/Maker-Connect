@@ -1,5 +1,5 @@
 //! `src/labelle/lib/devices/usb_device.py` (labelle 5e8f1e5): `UsbDevice`, function by
-//! function, over [`pyusb`](super::pyusb).
+//! function, over [`super::pyusb`].
 //!
 //! labelle: Copyright (c) 2011 Sebastian J. Bronner <waschtl@sbronner.com>; the file's own notice:
 //! "Copying and distribution of this file, with or without modification, are permitted in any

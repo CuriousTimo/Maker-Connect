@@ -15,7 +15,7 @@ use axum::{
 };
 use std::io::Read;
 
-/// The files, packed: "MCSAMPLES1\n", "<name>\t<bytes>\n" per file, an empty line, the files.
+/// The files, packed: `"MCSAMPLES1\n"`, `"<name>\t<bytes>\n"` per file, an empty line, the files.
 const PACKED: &[u8] = include_bytes!("../samples/samples.zst");
 
 /// Its window covers all the files together (`--long=25`); ours, so we trust it.

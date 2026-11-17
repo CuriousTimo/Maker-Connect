@@ -30,6 +30,7 @@ fmt_check() { local n; n=$(cargo fmt --all -- --check 2>/dev/null | grep -c '^Di
 step "fmt" fmt_check
 step "clippy" quiet cargo clippy --workspace --all-targets --locked -- -D warnings
 step "tests" quiet cargo test --workspace --locked
+step "docs (rustdoc -D warnings)" quiet env RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --document-private-items --locked
 step "docs links" python3 -I scripts/docs-links-check.py
 
 # Fixtures made by real CPython 3.13 / OctoPrint's own code / real Spoolman: regenerated, and they

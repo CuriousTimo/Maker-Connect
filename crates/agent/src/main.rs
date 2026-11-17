@@ -2,7 +2,7 @@
 //!
 //! The module next to a machine (`docs/plans/agent-engine.md`): its hub link ([`link`]) reports to the
 //! Maker Connect hub ([`maker_connect_protocol`]) what the engine ([`maker_connect_engine`])
-//! knows, and gives the engine what the hub asks; each machine's port ([`ports`]) is the only
+//! knows, and gives the engine what the hub asks; each machine's port ([`mod@ports`]) is the only
 //! code that talks to its device, as its reference does.
 
 mod camera;

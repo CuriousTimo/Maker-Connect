@@ -1836,18 +1836,20 @@ async fn untag_filament(
 }
 
 /// The readers that scanned lately (in memory, as Spoolman's), and the scans as they come,
-/// each with its space: a space sees only its own readers and scans.
-struct Scans {
+/// each with its space: a space sees only its own readers and scans. One per hub (kept in its
+/// `Store`), so two hubs in one process, as tests run them, never see each other's.
+pub(crate) struct Scans {
     readers: std::sync::Mutex<Vec<(i64, Value)>>,
     sent: tokio::sync::broadcast::Sender<(i64, Value)>,
 }
 
-fn scans() -> &'static Scans {
-    static SCANS: std::sync::OnceLock<Scans> = std::sync::OnceLock::new();
-    SCANS.get_or_init(|| Scans {
-        readers: std::sync::Mutex::new(Vec::new()),
-        sent: tokio::sync::broadcast::channel(64).0,
-    })
+impl Default for Scans {
+    fn default() -> Self {
+        Scans {
+            readers: std::sync::Mutex::new(Vec::new()),
+            sent: tokio::sync::broadcast::channel(64).0,
+        }
+    }
 }
 
 /// A reader reports a tag it read: what it is linked to comes back, and the scan goes out on
@@ -1903,8 +1905,9 @@ async fn scan(
         "decoded": null,
         "created": false,
     });
+    let scans = store.lock().unwrap().spoolman_scans.clone();
     {
-        let mut readers = scans().readers.lock().unwrap();
+        let mut readers = scans.readers.lock().unwrap();
         readers.retain(|(s, r)| !(*s == access.space && r["reader_id"] == reader));
         readers.push((
             access.space,
@@ -1916,7 +1919,7 @@ async fn scan(
             }),
         ));
     }
-    let _ = scans().sent.send((
+    let _ = scans.sent.send((
         access.space,
         json!({
             "type": "added",
@@ -1928,8 +1931,9 @@ async fn scan(
     Json(result).into_response()
 }
 
-async fn readers(access: crate::access::Access) -> Json<Value> {
-    let readers = scans().readers.lock().unwrap();
+async fn readers(access: crate::access::Access, State(store): State<Shared>) -> Json<Value> {
+    let scans = store.lock().unwrap().spoolman_scans.clone();
+    let readers = scans.readers.lock().unwrap();
     Json(Value::Array(
         readers
             .iter()
@@ -1939,26 +1943,40 @@ async fn readers(access: crate::access::Access) -> Json<Value> {
     ))
 }
 
-async fn scan_live(access: crate::access::Access, MaybeWs(ws): MaybeWs) -> Response {
+async fn scan_live(
+    access: crate::access::Access,
+    State(store): State<Shared>,
+    MaybeWs(ws): MaybeWs,
+) -> Response {
+    let scans = store.lock().unwrap().spoolman_scans.clone();
     match ws {
-        Some(ws) => ws.on_upgrade(move |socket| scan_feed(socket, access.space, None)),
+        Some(ws) => ws.on_upgrade(move |socket| scan_feed(socket, scans, access.space, None)),
         None => StatusCode::METHOD_NOT_ALLOWED.into_response(),
     }
 }
 
 async fn scan_live_reader(
     access: crate::access::Access,
+    State(store): State<Shared>,
     MaybeWs(ws): MaybeWs,
     Path(reader): Path<String>,
 ) -> Response {
+    let scans = store.lock().unwrap().spoolman_scans.clone();
     match ws {
-        Some(ws) => ws.on_upgrade(move |socket| scan_feed(socket, access.space, Some(reader))),
+        Some(ws) => {
+            ws.on_upgrade(move |socket| scan_feed(socket, scans, access.space, Some(reader)))
+        }
         None => StatusCode::METHOD_NOT_ALLOWED.into_response(),
     }
 }
 
-async fn scan_feed(mut socket: WebSocket, space: i64, reader: Option<String>) {
-    let mut feed = scans().sent.subscribe();
+async fn scan_feed(
+    mut socket: WebSocket,
+    scans: std::sync::Arc<Scans>,
+    space: i64,
+    reader: Option<String>,
+) {
+    let mut feed = scans.sent.subscribe();
     loop {
         tokio::select! {
             scan = feed.recv() => {

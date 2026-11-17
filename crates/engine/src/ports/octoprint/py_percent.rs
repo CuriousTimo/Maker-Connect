@@ -24,10 +24,10 @@
 //!
 //! 1. `_Py_dg_dtoa` (`Python/dtoa.c`, modes 2 and 3) is not ported; Rust's `{:.*e}` / `{:.*}` give
 //!    the same correctly rounded digits of the exact binary value (round half to even on an exact tie).
-//!    The wrapper that turns the digits into dtoa's `(digits, decpt)` is [`dtoa`]; the fixture proves
+//!    The wrapper that turns the digits into dtoa's `(digits, decpt)` is `dtoa`; the fixture proves
 //!    it on many floats (every `e f g` case of `scripts/octoprint-percent-check.py`).
 //! 2. A float as `%d` (`int(float)`, `PyNumber_Long`) of any size is printed exactly
-//!    ([`float_to_decimal_integer`], a small bignum, not `Objects/longobject.c` `PyLong_FromDouble`).
+//!    (`float_to_decimal_integer`, a small bignum, not `Objects/longobject.c` `PyLong_FromDouble`).
 //! 3. Integers: a JSON integer is an `i64` or `u64` (`serde_json::Value`); an integer literal beyond
 //!    `u64` is already a `f64` when it reaches here. That cannot be told from a float, so the top edge
 //!    that parses the request MUST refuse an integer literal beyond `u64` (a loud error) before it

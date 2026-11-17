@@ -803,7 +803,7 @@ impl Store {
     }
 
     /// What the machines that take work will print, and when: worked out from the jobs running
-    /// and the dispatcher's own rule ([`Store::candidate_with`]), without changing anything.
+    /// and the dispatcher's own rule (`Store::candidate_with`), without changing anything.
     /// print-farm-manager's projection: a schedule that disagrees with dispatch is worse than
     /// none, so both use the same rule.
     pub fn schedule(&self, space: i64) -> rusqlite::Result<Vec<Lane>> {

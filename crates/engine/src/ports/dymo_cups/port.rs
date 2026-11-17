@@ -3,7 +3,7 @@
 //!
 //! - A job is a PNG, made into the page CUPS would hand the filter ([`page`]) and printed by
 //!   `raster2dymolw`'s run ([`raster2dymolw::main`]), whose output goes to the `usb` backend
-//!   ([`cups::usb_backend`]); it ends done, or failed with the driver's own error line (W1).
+//!   (`cups::usb_backend`); it ends done, or failed with the driver's own error line (W1).
 //! - Nothing is sent while idle. The printer is looked for when a job prints and waited for as the backend
 //!   does (every 5 s, for ever): `Gone` when it is not there, `Back` when it is (W5, W8).
 //! - A Stop during a print is CUPS's cancel: the filter is terminated (W6).

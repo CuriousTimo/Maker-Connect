@@ -524,6 +524,8 @@ pub struct Store {
     pub(crate) laser_framed: std::collections::HashMap<String, String>,
     /// HS7b: lasers on which a Set origin was done since the hub started.
     pub(crate) laser_origin_set: std::collections::HashSet<String>,
+    /// Spoolman's tag readers and scans of this hub (in memory, as Spoolman keeps them).
+    pub(crate) spoolman_scans: std::sync::Arc<crate::spoolman::Scans>,
     next_command: u32,
     /// Temperature history per machine id, oldest first.
     history: std::collections::HashMap<String, std::collections::VecDeque<Sample>>,
@@ -598,6 +600,7 @@ impl Store {
             own_prints: Default::default(),
             answers: Default::default(),
             own_job_control: Default::default(),
+            spoolman_scans: Default::default(),
             laser_framed: Default::default(),
             laser_origin_set: Default::default(),
             // Ids that do not repeat soon after a restart, as a printer may remember the last.

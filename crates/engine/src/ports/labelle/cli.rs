@@ -80,7 +80,7 @@ fn open_printer(
 }
 
 /// **Ours** (L11, the owner's exception of 2026-11-16): the idle status poll. The printer is
-/// opened as the print path does ([`open_printer`]), one `ESC A` is sent and its answer read
+/// opened as the print path does (`open_printer`), one `ESC A` is sent and its answer read
 /// ([`DymoLabeler::status_poll`]), the printer is released. An error after the printer is set up
 /// releases it, as the print path does.
 pub fn poll_status(

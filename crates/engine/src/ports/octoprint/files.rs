@@ -282,7 +282,7 @@ pub fn get_dos_filename(
 /// `util/files.py:134 find_collision_free_name(filename, extension, existing_filenames,
 /// max_power=2)`
 ///
-/// Tries to find a collision free translation of "<filename>.<extension>" to the 8.3 DOS
+/// Tries to find a collision free translation of "`<filename>.<extension>`" to the 8.3 DOS
 /// compatible format, preventing collisions with any of the ``existing_filenames``. See the
 /// docstring of the original for the algorithm.
 ///

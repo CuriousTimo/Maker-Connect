@@ -10,7 +10,7 @@
 //! blocks (or ends) before the starting thread gets the GIL back. That "the starter continues only
 //! after the new thread's first blocking point" is not a line of `threading.py`, it is the GIL, which is
 //! not ported. Here: `start()` returns when the new thread reaches its first blocking point
-//! ([`blocking_point`]: an `Event`/`Condition` wait, a lock acquire that has to wait, `Queue.get`/a
+//! (`blocking_point`: an `Event`/`Condition` wait, a lock acquire that has to wait, `Queue.get`/a
 //! blocking `put`, `time.sleep`, `Thread.join`, a serial `readline`/`write`) or its end. CPython's
 //! forced switch every 5 ms and every other release of the GIL are not modelled. No timing of ours.
 //! In debug builds only (`cfg(debug_assertions)`, never on the wire) a watchdog panics when a `start()`

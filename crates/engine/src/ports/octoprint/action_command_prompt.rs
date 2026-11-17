@@ -38,7 +38,7 @@
 //!    (`py_format.rs` takes `str`/`None` arguments only), where Python passes an `int`. A plain
 //!    `{choice}` is the same text for both. A user-set `command` that has more than a plain
 //!    `{choice}` as a field (a format spec `{choice:03d}`, a conversion `{choice!r}`, an attribute or
-//!    an index) is `unimplemented!` (a known gap, [`only_plain_choice`]). The default `M876` has no
+//!    an index) is `unimplemented!` (a known gap, `only_plain_choice`). The default `M876` has no
 //!    `{choice}`.
 //! 5. `prompt()` (the prompt's text and choices while it exists, the content of `on_api_get`, :148) and
 //!    `prompt_is_active()` are OURS accessors for the top edge (M3's "Attention" state).

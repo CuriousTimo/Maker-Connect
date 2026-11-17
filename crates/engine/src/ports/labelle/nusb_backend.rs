@@ -1,5 +1,5 @@
 //! **Ours:** `nusb` (pure Rust, the crate `crates/label` used) standing for pyusb's libusb1
-//! backend (`usb/backend/libusb1.py`): the operations of [`Backend`](super::pyusb::Backend)
+//! backend (`usb/backend/libusb1.py`): the operations of [`super::pyusb::Backend`]
 //! that labelle's code reaches, on nusb. Errors are given the text and `errno` pyusb gives for
 //! the libusb error they stand for (`libusb1.py:_strerror`, `_libusb_errno`).
 //!

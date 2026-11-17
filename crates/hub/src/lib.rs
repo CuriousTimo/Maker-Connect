@@ -4,7 +4,7 @@
 //! other services, so it runs on a Pi, a NAS, an old laptop or in Docker; everything
 //! belongs to a space ([`store`]), so the same software could serve many makerspaces.
 //!
-//! - `POST` [`protocol::REGISTER`], [`protocol::TELEMETRY`]: the agents ([`maker_connect_protocol`]).
+//! - `POST` [`maker_connect_protocol::REGISTER`], [`maker_connect_protocol::TELEMETRY`]: the agents ([`maker_connect_protocol`]).
 //! - `GET /`: the machines of the space, live; `POST /pair`: add a machine with its code.
 //! - `GET /api/machines`: the same list as JSON; `GET /api/machines/stream`: that list
 //!   again on every change, as server-sent events, for the page.

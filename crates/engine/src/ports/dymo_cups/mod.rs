@@ -24,7 +24,7 @@
 //! | `common/ErrorDiffusionHalftoning.{h,cpp}` | [`error_diffusion_halftoning`] |
 //! | `common/NonLinearLaplacianHalftoning.{h,cpp}` | [`nll_halftoning`] |
 //! | `ppd/lw450.ppd` | [`cups::ppd_lw450`] (generated, checked by `scripts/dymo-labelwriter-450-check.py`) |
-//! | `lw/tests/*`, `common/tests/*` | [`tests`] |
+//! | `lw/tests/*`, `common/tests/*` | `tests` |
 //!
 //! **Not ported (not covered):** `CLabelWriterDriverTwinTurbo` and the Twin Turbo, Turbo, DUO and
 //! LabelManager variants (`lw450t`, `lw450dl`, `lw450dt`, `lw450tt`, `lm450`, `se450` and the other PPDs);
