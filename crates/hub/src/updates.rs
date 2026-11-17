@@ -597,6 +597,7 @@ pub(crate) mod tests {
         format!("{base}/releases")
     }
 
+    #[cfg(unix)]
     fn archive(program: &[u8]) -> Vec<u8> {
         let mut tar = tar::Builder::new(Vec::new());
         let mut header = tar::Header::new_gnu();
@@ -667,6 +668,7 @@ pub(crate) mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    #[cfg(unix)]
     use maker_connect_update::Start;
 
     /// An agent asked to update gets the order, fetches its build through the hub (checked),

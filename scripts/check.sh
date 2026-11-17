@@ -29,6 +29,9 @@ quiet() { "$@" >/tmp/maker-connect-check.$$ 2>&1; local e=$?; [ $e -ne 0 ] && ta
 fmt_check() { local n; n=$(cargo fmt --all -- --check 2>/dev/null | grep -c '^Diff in'); [ "$n" -eq 0 ] || { echo "   $n places differ from cargo fmt (run: cargo fmt --all)"; return 1; }; }
 step "fmt" fmt_check
 step "clippy" quiet cargo clippy --workspace --all-targets --locked -- -D warnings
+# Windows (CI runs it there): clippy for x86_64-pc-windows-gnu, with zig as the C compiler.
+step "clippy (Windows)" quiet env CC_x86_64_pc_windows_gnu="$PWD/scripts/zigcc-windows.sh" AR_x86_64_pc_windows_gnu="$PWD/scripts/zig-ar.sh" \
+    cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings
 step "tests" quiet cargo test --workspace --locked
 step "docs (rustdoc -D warnings)" quiet env RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --document-private-items --locked
 step "docs links" python3 -I scripts/docs-links-check.py
