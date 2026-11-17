@@ -54,6 +54,14 @@ mkdir -p "$out"
 # it opens, the agent tells the hub.
 export MAKER_CONNECT_RELEASE="$version"
 
+# The hub carries the laser design page (HS13): our LaserFoundry fork's browser version, built at
+# the commit in scripts/laserfoundry-web.pin and packed gzip into the binary (feature `laser-design`).
+features=""
+if [ "$part" = hub ]; then
+    scripts/laserfoundry-web.sh
+    features="--features laser-design"
+fi
+
 # os arch target(with a glibc for zig) how
 targets="macos aarch64 aarch64-apple-darwin cargo
 macos x86_64 x86_64-apple-darwin cargo
@@ -64,9 +72,9 @@ linux armv6 arm-unknown-linux-gnueabihf.2.28 zig"
 
 echo "$targets" | while read -r os arch target how; do
     if [ "$how" = cargo ]; then
-        cargo build --release --locked -p "$crate" --target "$target"
+        cargo build --release --locked -p "$crate" $features --target "$target"
     else
-        cargo zigbuild --release --locked -p "$crate" --target "$target"
+        cargo zigbuild --release --locked -p "$crate" $features --target "$target"
     fi
     dir="target/${target%%.2.*}/release"
     exe=""; [ "$os" = windows ] && exe=".exe"

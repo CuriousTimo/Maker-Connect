@@ -75,7 +75,7 @@ struct MachinesQuery {
 }
 
 /// A machine as a program needs it.
-fn machine_json(machine: &crate::store::Machine, may: Option<Level>) -> Value {
+pub(crate) fn machine_json(machine: &crate::store::Machine, may: Option<Level>) -> Value {
     let profile = machine.profile.as_deref().and_then(profiles::find);
     let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
     let grbl = telemetry.and_then(|t| t.grbl.as_ref());

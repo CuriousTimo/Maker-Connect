@@ -177,6 +177,11 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Role(Role::Member),
         Some("sent a file from a program"),
     ),
+    // HS13: the LaserFoundry fork the hub serves; the handlers also ask that the person may use a laser.
+    ("GET", "/laser-design", Need::Role(Role::Member), None),
+    ("GET", "/laser-design/", Need::Role(Role::Member), None),
+    ("GET", "/laser-design/{*file}", Need::Role(Role::Member), None),
+    ("GET", "/api/laser-design/lasers", Need::Role(Role::Member), None),
     // One's own.
     ("POST", "/logout", Need::Signed, None),
     ("GET", "/api/me", Need::Signed, None),

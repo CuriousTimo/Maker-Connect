@@ -67,6 +67,7 @@ pub fn app(store: Shared) -> Router {
         .merge(samples::routes())
         .merge(queue::routes())
         .merge(apps::routes())
+        .merge(crate::laser_design::routes())
         .merge(printer_files::routes())
         .merge(sd_card::routes())
         .merge(now_page::routes())

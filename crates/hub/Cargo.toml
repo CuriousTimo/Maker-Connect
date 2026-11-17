@@ -16,6 +16,10 @@ path = "src/main.rs"
 # Network cameras over RTSP, the module `cameras` (docs/plans/cameras.md, "Network cameras").
 cameras = ["dep:retina", "dep:bytes", "dep:url"]
 
+# HS13: the LaserFoundry web fork, packed gzip into the binary. Needs `crates/hub/laser-design/`, made by
+# `scripts/laserfoundry-web.sh`; without the feature the hub builds and serves "not built in" there.
+laser-design = []
+
 [[example]]
 name = "mse_record"
 required-features = ["cameras"]

@@ -28,6 +28,7 @@ pub mod downloads;
 pub mod farm;
 pub mod files;
 pub mod gcode;
+pub mod laser_design;
 pub mod link;
 pub mod pages;
 pub mod profiles;

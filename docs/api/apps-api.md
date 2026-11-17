@@ -168,3 +168,19 @@ under File:
 3. Show `check`, then open `page` in the browser.
 
 This can be done as a plugin, or as a merge request to their repository.
+
+## The page the hub serves itself (not part of v1)
+
+The hub serves its own copy of the LaserFoundry browser version at `/laser-design/` (`docs/briefs/hs13-laserfoundry-web.md`).
+That page does not use the API above: it is on the hub's own origin, so it signs in with the person's **session cookie** (a
+browser session, which v1 never accepts), and it can replace a loaded laser job only after the person confirms, which a token may
+not do. It uses these routes of the hub's own, all with the cookie:
+
+| Route | What |
+|---|---|
+| `GET /api/apps/v1/info` (no sign-in) | tells the page that a Maker Connect served it |
+| `GET /api/laser-design/lasers` | the lasers the person may use (use or more), each as `machines?kind=laser` above gives it |
+| `POST /api/files?name=<name>.gcode` | keeps the file (the body) in Files: `201 {"id": …}` |
+| `POST /files/{id}/print` (form `machine`, `replace`) | loads it as that laser's job: `200 {"loaded": name}`; with a job already loaded `409 {"loaded", "confirm"}`, and again with `replace=true` once the person agreed |
+
+Nothing starts: a laser job is only loaded; a person at the laser frames it and presses Start burn. v1 is unchanged.

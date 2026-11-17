@@ -57,6 +57,7 @@ committed with the work. All briefs below are built.
 | `briefs/hs6-emergency-stop.md`         | HS6: an emergency stop per kind                                  | `f30810c` |
 | `briefs/hs15-buddy-audit.md`           | HS15: the Buddy 6.3.0 audit                                      | `9f75435` |
 | `briefs/usb-cam-step1.md`              | USB webcams, step 1                                              | `89a8c4e` |
+| `briefs/hs13-laserfoundry-web.md`     | HS13: the LaserFoundry web fork, served by the hub               | this commit |
 
 ## Archive: superseded, kept for reference
 
