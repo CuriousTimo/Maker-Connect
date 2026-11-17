@@ -588,9 +588,7 @@ pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> ru
                     // five digits) each have a help page at prusa.io/<code>, as the printer's
                     // own screen shows.
                     if let Some(code) = text("code") {
-                        let help = (code.len() == 5 && code.bytes().all(|b| b.is_ascii_digit()))
-                            .then(|| format!(", prusa.io/{code}"))
-                            .unwrap_or_default();
+                        let help = if code.len() == 5 && code.bytes().all(|b| b.is_ascii_digit()) { format!(", prusa.io/{code}") } else { Default::default() };
                         body = format!("{body} (#{code}{help})").trim().to_owned();
                     }
                     store.asking.insert(machine.clone(), (title, body));
@@ -2164,7 +2162,7 @@ mod flow {
         call(&app, report(r#"{"state":"PRINTING","job_id":30,"progress":99,"time_printing":60}"#)).await;
         call(&app, report(r#"{"state":"FINISHED"}"#)).await;
         assert_eq!(jobs().0, 2);
-        assert_eq!(held(&store.lock().unwrap()).0, true, "a finished print on its bed");
+        assert!(held(&store.lock().unwrap()).0, "a finished print on its bed");
     }
 
     /// Seen on the MINI (2026-11-08): a download only to the stick opens the file's print

@@ -608,7 +608,7 @@ mod tests {
         for _ in 0..8 {
             let telemetry = Telemetry {
                 state: MachineState::Idle,
-                done: done.drain(..).collect(),
+                done: std::mem::take(&mut done),
                 ..Telemetry::default()
             };
             let (_, body) = call(&agent, json(protocol::TELEMETRY, Some(&registered.token), serde_json::to_string(&telemetry).unwrap())).await;
@@ -676,7 +676,7 @@ mod tests {
             let telemetry = Telemetry {
                 state: if round < 8 { MachineState::Busy } else { MachineState::Attention },
                 job_id: (round < 8).then_some(7),
-                done: done.drain(..).collect(),
+                done: std::mem::take(&mut done),
                 ..Telemetry::default()
             };
             let (_, body) = call(&agent, json(protocol::TELEMETRY, Some(&registered.token), serde_json::to_string(&telemetry).unwrap())).await;

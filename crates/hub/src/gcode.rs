@@ -413,10 +413,10 @@ fn read_label(path: &Path) -> io::Result<(FileMeta, Option<Vec<u8>>)> {
         .read_info()
         .ok()
         .map(|r| [r.info().width, r.info().height]);
-    let label = maker_connect_label::Label::from_png(&png);
-    if label.is_err() && png_dots.is_none() {
-        return Err(io::Error::other(label.unwrap_err()));
-    }
+    let label = match (maker_connect_label::Label::from_png(&png), png_dots) {
+        (Err(error), None) => return Err(io::Error::other(error)),
+        (label, _) => label,
+    };
     let meta = FileMeta {
         kind: Some(MachineKind::Label),
         label_dots: label.ok().map(|l| [l.length as u32, l.height as u32]),

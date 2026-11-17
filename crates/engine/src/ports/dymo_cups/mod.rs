@@ -39,6 +39,10 @@
 //! from the PNG ([`page`]), the stand-ins for what CUPS and the scheduler give the filter
 //! ([`cups_print_environment::FilterIo`], [`cups::usb_backend`]).
 
+// Ported to the letter (CLAUDE.md, "port, don't paraphrase"): the reference's own structure is kept,
+// so clippy's style, complexity and performance rewrites are not applied here; its correctness
+// lints still hold.
+#![allow(clippy::style, clippy::complexity, clippy::perf)]
 pub mod cups;
 #[cfg(feature = "devices")]
 pub mod cups_filter;

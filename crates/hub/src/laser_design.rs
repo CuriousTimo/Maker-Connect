@@ -73,14 +73,14 @@ async fn lasers(access: Access, State(store): State<Shared>) -> Response {
 }
 
 /// Whether this person may open the page: a member who may use a laser.
-fn may_open(store: &crate::store::Store, access: &Access) -> Result<(), Response> {
+fn may_open(store: &crate::store::Store, access: &Access) -> Result<(), Box<Response>> {
     if access.role < Role::Member {
-        return Err((StatusCode::FORBIDDEN, "a guest may look, not send: ask an admin for a member role").into_response());
+        return Err(Box::new((StatusCode::FORBIDDEN, "a guest may look, not send: ask an admin for a member role").into_response()));
     }
     match usable_lasers(store, access) {
         Ok(list) if !list.is_empty() => Ok(()),
-        Ok(_) => Err((StatusCode::FORBIDDEN, "there is no laser in this space that you may use").into_response()),
-        Err(error) => Err(failed(error)),
+        Ok(_) => Err(Box::new((StatusCode::FORBIDDEN, "there is no laser in this space that you may use").into_response())),
+        Err(error) => Err(Box::new(failed(error))),
     }
 }
 
@@ -96,7 +96,7 @@ async fn file(access: Access, State(store): State<Shared>, Path(file): Path<Stri
 /// Permissions-Policy.
 fn serve(access: &Access, store: &Shared, assets: &'static [Asset], name: &str) -> Response {
     if let Err(refused) = may_open(&store.lock().unwrap(), access) {
-        return refused;
+        return *refused;
     }
     if assets.is_empty() {
         return (StatusCode::NOT_FOUND, "this hub was built without the laser design page (feature laser-design)").into_response();

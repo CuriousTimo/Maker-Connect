@@ -21,6 +21,10 @@
 //! Not ported: usbscale's `find_nth_scale`/`scales.h` VID:PID table (E2), `--index`, `--human`, `zero`
 //! (tare), argp, libusb (all of it).
 
+// Ported to the letter (CLAUDE.md, "port, don't paraphrase"): the reference's own structure is kept,
+// so clippy's style, complexity and performance rewrites are not applied here; its correctness
+// lints still hold.
+#![allow(clippy::style, clippy::complexity, clippy::perf)]
 pub mod hid;
 pub mod port;
 pub mod usbscale;

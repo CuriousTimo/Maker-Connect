@@ -1143,6 +1143,8 @@ impl Printer {
         self._streaming_failed_callback.set(on_failure);
 
         // `sd_upload_started` / `_succeeded` / `_failed` (:964-995) are only handed to the hooks
+        // Ported as written: the loop hands the job to the first hook (none are supported).
+        #[allow(clippy::never_loop)]
         for (_name, _hook) in self.sd_card_upload_hooks.iter() {
             // first sd card upload plugin that feels responsible gets the job
             unimplemented!("standard.py:998 an octoprint.printer.sdcardupload hook gets callables (module doc, 5)")

@@ -303,9 +303,8 @@ impl GrblMachine {
     pub fn frame(&mut self, bounds: [f64; 4]) -> Result<Ticket, String> {
         // The machine of the program is the document's in the app; here (ours, G12): the
         // controller's own travel and power range, once read.
-        let mut machine = laserfoundry_doc::Machine::default();
         // The bounds are a file's own machine coordinates: no flip of Y (G12).
-        machine.origin = laserfoundry_doc::Origin::TopLeft;
+        let mut machine = laserfoundry_doc::Machine { origin: laserfoundry_doc::Origin::TopLeft, ..Default::default() };
         if let Some(snap) = &self.snap {
             let number = |id: u32| {
                 snap.settings

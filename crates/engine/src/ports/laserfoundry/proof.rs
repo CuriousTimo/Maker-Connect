@@ -301,10 +301,6 @@ impl Port_ {
         self.ends.iter().find(|e| e.id == id).unwrap().clone()
     }
 
-    fn acknowledged(&mut self) -> u64 {
-        self.pump();
-        self.telemetry.job.as_ref().map_or(0, |j| j.done)
-    }
 }
 
 impl Drop for Port_ {
@@ -365,7 +361,7 @@ fn ours(steps: &[Step], restart: Option<usize>) -> Outcome {
                     std::thread::sleep(HOLD);
                     port.orders.send(Order::Control(JobControl::Stop)).unwrap();
                     let first = port.ended(job_id);
-                    let line = restart.map_or_else(|| first.restart_line.unwrap() as usize, |l| l);
+                    let line = restart.unwrap_or_else(|| first.restart_line.unwrap() as usize);
                     out.restart_line = first.restart_line.map(|l| l as usize);
                     job_id += 1;
                     port.job(job_id, program, Some(line as u64));

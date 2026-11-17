@@ -26,6 +26,10 @@
 //! engines, the old `status_session`. Ours, the owner's exception (L11): while idle, `port.rs` polls
 //! the printer every 15 s with one `ESC A` (`cli::poll_status`, `DymoLabeler::status_poll`).
 
+// Ported to the letter (CLAUDE.md, "port, don't paraphrase"): the reference's own structure is kept,
+// so clippy's style, complexity and performance rewrites are not applied here; its correctness
+// lints still hold.
+#![allow(clippy::style, clippy::complexity, clippy::perf)]
 pub mod cli;
 pub mod constants;
 pub mod device_manager;

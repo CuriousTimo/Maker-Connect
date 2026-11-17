@@ -5,6 +5,10 @@
 //! the GNU Affero General Public License v3 (as Maker Connect is). Each file here names the
 //! OctoPrint file and lines it is ported from.
 
+// Ported to the letter (CLAUDE.md, "port, don't paraphrase"): the reference's own structure is kept,
+// so clippy's style, complexity and performance rewrites are not applied here; its correctness
+// lints still hold.
+#![allow(clippy::style, clippy::complexity, clippy::perf, clippy::manual_unwrap_or_default)]
 pub mod comm;
 pub mod events;
 pub mod filemanager;

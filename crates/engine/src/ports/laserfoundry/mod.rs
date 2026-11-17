@@ -7,6 +7,10 @@
 //! Only the GRBL laser. Marlin and Smoothieware lasers stay closed (no mode) until tried on a
 //! machine; `--mode grbl` on a Smoothieware machine is untried.
 
+// Ported to the letter (CLAUDE.md, "port, don't paraphrase"): the reference's own structure is kept,
+// so clippy's style, complexity and performance rewrites are not applied here; its correctness
+// lints still hold.
+#![allow(clippy::style, clippy::complexity, clippy::perf)]
 pub mod port;
 
 #[cfg(test)]

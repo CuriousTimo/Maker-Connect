@@ -650,6 +650,21 @@ pub(crate) async fn machine_page(
     }
 }
 
+/// A machine's Camera tab, when the hub has cameras and one on it may be watched.
+fn camera_tab(
+    store: &crate::store::Store,
+    access: &crate::access::Access,
+    machine: &str,
+) -> Option<String> {
+    #[cfg(feature = "cameras")]
+    return crate::cameras::page::machine_tab(store, access, machine);
+    #[cfg(not(feature = "cameras"))]
+    {
+        let _ = (store, access, machine);
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -812,20 +827,5 @@ mod tests {
             std::fs::write(format!("{dir}/lw450.html"), &page).unwrap();
             std::fs::write(format!("{dir}/bare.html"), call(&app, get(&bare)).await.1).unwrap();
         }
-    }
-}
-
-/// A machine's Camera tab, when the hub has cameras and one on it may be watched.
-fn camera_tab(
-    store: &crate::store::Store,
-    access: &crate::access::Access,
-    machine: &str,
-) -> Option<String> {
-    #[cfg(feature = "cameras")]
-    return crate::cameras::page::machine_tab(store, access, machine);
-    #[cfg(not(feature = "cameras"))]
-    {
-        let _ = (store, access, machine);
-        None
     }
 }

@@ -39,8 +39,9 @@
    "path": "/api/v1/info",
    "status": 200,
    "headers": {
-    "content-length": "499",
-    "content-type": "application/json"
+    "content-length": "503",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
    },
    "response_json": {
     "version": "0.27.1",

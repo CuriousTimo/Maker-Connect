@@ -72,6 +72,7 @@ pub struct NoSuchSettingsPath;
 ///
 /// Values that are considered to be equivalent to the boolean ``True`` value, used for type
 /// conversion in various places.
+#[allow(non_upper_case_globals)] // settings.py's own name, kept
 pub static valid_boolean_trues: LazyLock<CaseInsensitiveSet> = LazyLock::new(|| {
     CaseInsensitiveSet::new(&[json!(true), json!("true"), json!("yes"), json!("y"), json!("1"), json!(1)])
 });

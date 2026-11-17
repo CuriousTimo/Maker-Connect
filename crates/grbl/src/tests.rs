@@ -386,9 +386,13 @@ fn a_frame_runs_as_a_job_and_answers_its_command() {
     let ticket = run.machine.frame([10.0, 10.0, 30.0, 20.0]).unwrap();
     assert_eq!(run.answer(ticket).unwrap(), Vec::<String>::new());
     assert!(run.ended.is_empty(), "a frame is no job of the hub's");
-    let mut machine = laserfoundry_doc::Machine::default();
-    machine.origin = laserfoundry_doc::Origin::TopLeft;
-    (machine.bed_width, machine.bed_height, machine.max_s) = (100.0, 80.0, 1000);
+    let machine = laserfoundry_doc::Machine {
+        origin: laserfoundry_doc::Origin::TopLeft,
+        bed_width: 100.0,
+        bed_height: 80.0,
+        max_s: 1000,
+        ..Default::default()
+    };
     let program = laserfoundry_gcode::frame(
         laserfoundry_geom::Rect::new(10.0, 10.0, 30.0, 20.0),
         &machine,

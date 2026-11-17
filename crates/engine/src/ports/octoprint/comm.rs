@@ -8,7 +8,9 @@
 use super::filemanager::{valid_file_type, FileDestinations};
 use super::files::{basename, get_dos_filename, m20_timestamp_to_unix_timestamp, splitext};
 use super::py_queue::{Deque, Empty, GetError, PutError, Queue, QueueStorage, ValueError as PyValueError};
-use super::py_threading::{blocking_point, time_sleep, Event, LockExt};
+use super::py_threading::{blocking_point, time_sleep, Event};
+#[cfg(test)]
+use super::py_threading::LockExt;
 use super::settings::settings;
 use super::util::{filter_non_ascii, filter_non_utf8, dict_merge, get_bom, get_exception_string, to_unicode, chunks, PrependableQueue, PrependableStorage, TypeAlreadyInQueue, TypedQueue, PREPEND_DEFAULT_TIMEOUT};
 use std::hash::Hash;

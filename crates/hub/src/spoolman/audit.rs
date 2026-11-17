@@ -113,13 +113,12 @@ fn norm_text(t: &str, now: i64) -> String {
     let mut out = String::new();
     let mut i = 0;
     while i < t.len() {
-        if t.is_char_boundary(i) {
-            if let Some(n) = iso_len(&b[i..]) {
+        if t.is_char_boundary(i)
+            && let Some(n) = iso_len(&b[i..]) {
                 out.push_str(&norm_ts(&t[i..i + n], now));
                 i += n;
                 continue;
             }
-        }
         let c = t[i..].chars().next().unwrap();
         out.push(c);
         i += c.len_utf8();
@@ -131,19 +130,18 @@ fn norm_value(v: &mut Value, now: i64) {
     match v {
         Value::Object(m) => m.values_mut().for_each(|x| norm_value(x, now)),
         Value::Array(a) => a.iter_mut().for_each(|x| norm_value(x, now)),
-        Value::String(s) => {
-            if iso_len(s.as_bytes()) == Some(s.len()) {
+        Value::String(s)
+            if iso_len(s.as_bytes()) == Some(s.len()) => {
                 *s = norm_ts(s, now);
             }
-        }
         _ => {}
     }
 }
 
 fn norm_special(path: &str, body: &mut Value) {
     let p = path.split('?').next().unwrap_or(path);
-    if p == "/api/v1/info" {
-        if let Some(m) = body.as_object_mut() {
+    if p == "/api/v1/info"
+        && let Some(m) = body.as_object_mut() {
             for k in ["data_dir", "logs_dir", "backups_dir"] {
                 m.insert(k.into(), "<path>".into());
             }
@@ -151,14 +149,11 @@ fn norm_special(path: &str, body: &mut Value) {
                 m.insert(k.into(), "<volatile>".into());
             }
         }
-    }
-    if p == "/api/v1/backup" {
-        if let Some(m) = body.as_object_mut() {
-            if m.contains_key("path") {
+    if p == "/api/v1/backup"
+        && let Some(m) = body.as_object_mut()
+            && m.contains_key("path") {
                 m.insert("path".into(), "<path>".into());
             }
-        }
-    }
 }
 
 fn norm_header(v: &str) -> String {

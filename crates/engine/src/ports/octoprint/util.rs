@@ -883,7 +883,6 @@ mod tests {
     use super::*;
     use crate::ports::octoprint::py_queue::GetError;
     use std::sync::atomic::AtomicUsize;
-    use std::time::Duration;
 
     /// `time.sleep(s)`: a blocking point of the GIL approximation (`py_threading.rs`)
     fn sleep(s: f64) {
