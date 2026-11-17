@@ -146,10 +146,13 @@ pub(crate) fn cond_wait<'a, T>(
                 return (g, true);
             }
             blocking_point("Condition wait");
-            let (g, r) = cv
+            let (g, _) = cv
                 .wait_timeout(g, d - now)
                 .unwrap_or_else(|e| e.into_inner());
-            (g, r.timed_out())
+            // Timed out only once the deadline has passed, as CPython's timed waits count it
+            // (`_PyDeadline_Get`): Windows rounds a condvar's timeout to milliseconds and can say
+            // "timed out" just before it; the caller's loop then waits the rest.
+            (g, Instant::now() >= d)
         }
     }
 }
