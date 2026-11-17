@@ -1,10 +1,12 @@
 name: CI
 
-# Day-to-day checks run locally (fmt, clippy, tests, docs; scripts/build-downloads.sh for
-# the agent). CI runs only for beta tags, pull requests and manual runs, not for every push
-# to main: it costs budget.
+# Day-to-day checks run locally first (scripts/check.sh: fmt, clippy, tests and the audit
+# checkers). CI runs them again on GitHub for every push to main, beta tags, pull requests and
+# manual runs (owner, 2026-11-17: the repository is public, so the standard runners cost nothing).
+# Releases are not made here: they are signed locally with the release key, which never goes to GitHub.
 on:
   push:
+    branches: [main]
     tags: ["hub-v*-beta*", "agent-v*-beta*"]
   pull_request:
     branches: [main]

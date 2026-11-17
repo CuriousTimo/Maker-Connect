@@ -86,7 +86,7 @@ row). What a port does not know, it does not guess.
   one loaded job, no queue.
 - **Machine pages**: Overview, Control, Terminal, Telemetry, Bed level, Settings, a Camera
   tab; a state badge that says what it does (printing, loaded, cooling, take the print).
-- **287 machine profiles**, and the laser profiles from LaserFoundry's own preset list.
+- **331 machine profiles of 99 brands** (3D printers mostly from Marlin's and Klipper's configurations, lasers from LaserFoundry's own preset list), listed in the wiki's [Supported Machines](https://github.com/CuriousTimo/Maker-Connect/wiki/Supported-Machines).
 - **Updates with a way back**: signed releases, a trial on a copy of the database, and back by
   itself if the new build does not confirm.
 - **Virtual machines** for every profile, to try everything without a machine.
