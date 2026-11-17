@@ -11,6 +11,7 @@
   .notice.out { border-color: var(--off); }
   .notice.ask { border-color: var(--warn); }
   .notice .notice-buttons { flex: 0 0 auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .notice a.button { display: inline-block; font-weight: 600; padding: 8px 14px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; }
   .notice.bed { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--card)); }
   /* Scrolls sideways on a narrow screen, without a scrollbar of its own (the tabs' 1px over
      the line would otherwise show one under them, on Windows). */

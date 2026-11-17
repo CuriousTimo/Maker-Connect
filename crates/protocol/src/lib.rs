@@ -433,6 +433,10 @@ pub struct JobOrder {
     /// LabelWriter finds the gap after it). None on tape or a continuous roll.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_length_mm: Option<u32>,
+    /// A LabelWriter's job: the PPD's `PageSize` choice of the roll loaded (`w79h252.2`), as CUPS's
+    /// `-o PageSize=<name>`; the port marks exactly that page (W2b). None: the length chooses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_size: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -644,5 +648,24 @@ mod tests {
         let text = serde_json::to_string(&home).unwrap();
         assert_eq!(text, r#"{"action":"home","axes":["x","y","z"]}"#);
         assert_eq!(serde_json::from_str::<Action>(&text).unwrap(), home);
+    }
+}
+
+/// W2b (proxy, 2026-11-17): `page_size` is optional on the wire both ways.
+#[cfg(test)]
+mod job_order_page_size {
+    use super::JobOrder;
+
+    #[test]
+    fn with_and_without_page_size() {
+        let without = r#"{"id":1,"name":"a.png","download":"/f","size":3,"label_length_mm":89}"#;
+        let order: JobOrder = serde_json::from_str(without).unwrap();
+        assert_eq!(order.page_size, None);
+        assert!(!serde_json::to_string(&order).unwrap().contains("page_size"));
+        let with = r#"{"id":1,"name":"a.png","download":"/f","size":3,"label_length_mm":89,"page_size":"w79h252.2"}"#;
+        let order: JobOrder = serde_json::from_str(with).unwrap();
+        assert_eq!(order.page_size.as_deref(), Some("w79h252.2"));
+        let back: JobOrder = serde_json::from_str(&serde_json::to_string(&order).unwrap()).unwrap();
+        assert_eq!(back.page_size.as_deref(), Some("w79h252.2"));
     }
 }

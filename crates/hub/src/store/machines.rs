@@ -269,6 +269,24 @@ impl Store {
         }))
     }
 
+    /// HS2b (W2b): a LabelWriter's loaded roll as the PPD's `PageSize` choice (its medium id when the
+    /// profile takes its media from the port), for the job to name its page.
+    pub fn loaded_page_size(&self, machine: &str) -> rusqlite::Result<Option<String>> {
+        let found: Option<(Option<String>, Option<String>)> = self
+            .db
+            .query_row(
+                "SELECT profile, media FROM machines WHERE id = ?1",
+                [machine],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        Ok(found.and_then(|(profile, media)| {
+            let profile = crate::profiles::find(&profile?)?;
+            let media = media?;
+            crate::profiles::labelwriter_page(Some(profile), &media).map(|g| g.name.to_owned())
+        }))
+    }
+
     /// Hangs a device behind a channel of another of the space (None: on no plug). Refused
     /// when the other is not in the space, or is behind this one already (a loop).
     pub fn set_powered_by(

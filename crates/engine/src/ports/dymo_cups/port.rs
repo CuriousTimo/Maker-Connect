@@ -231,7 +231,7 @@ fn print_job(
         Err(why) => return (Outcome::Failed(why), None),
     };
     let ppd_open = || Some(PpdFile::lw450());
-    let raster = match page::make_raster(&picture, order.label_length_mm, "", &ppd_open) {
+    let raster = match page::make_raster(&picture, order.page_size.as_deref(), order.label_length_mm, "", &ppd_open) {
         Ok(r) => r,
         Err(why) => return (Outcome::Failed(why), None),
     };

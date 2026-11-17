@@ -831,6 +831,7 @@ mod tests {
             from_line: None,
             tape_mm: Some(12),
             label_length_mm: None,
+            page_size: None,
         }
     }
 

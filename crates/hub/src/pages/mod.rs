@@ -1,6 +1,7 @@
 pub mod access_page;
 pub mod files_page;
 pub mod label_page;
+pub mod labelwriter_page;
 pub mod machine_page;
 pub mod now_page;
 pub mod permissions_page;

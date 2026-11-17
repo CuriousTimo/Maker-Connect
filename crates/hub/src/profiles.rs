@@ -58,6 +58,10 @@ pub struct Profile {
     /// The media it takes (a label printer's tapes), the owner choosing which is loaded.
     #[serde(default)]
     pub media: Vec<Media>,
+    /// HS1: the media come from a port's geometry instead of this file (`"lw450"`: the
+    /// LabelWriter 450's `PageSize` choices, `maker_connect_engine::ports::geometry::lw450`).
+    #[serde(default)]
+    pub media_from_port: Option<String>,
     /// The firmware version its data is for (`2.1.3` for Marlin's examples).
     #[serde(default)]
     pub firmware_version: Option<String>,
@@ -113,6 +117,7 @@ pub fn from_controller(kind: MachineKind, travel_mm: [f64; 3]) -> Profile {
         head_dots: None,
         battery: false,
         media: Vec::new(),
+        media_from_port: None,
         firmware_version: None,
         motion: None,
         source: None,
@@ -196,12 +201,62 @@ pub fn all() -> &'static [Profile] {
                 let mut profile: Profile =
                     toml::from_str(text).unwrap_or_else(|error| panic!("profiles/{path}: {error}"));
                 profile.id = path.trim_end_matches(".toml").to_owned();
+                match profile.media_from_port.as_deref() {
+                    None => {}
+                    Some("lw450") => profile.media = lw450_media(),
+                    Some(other) => panic!("profiles/{path}: no port geometry {other}"),
+                }
                 profile
             })
             .collect();
         profiles.sort_by(|a, b| (&a.brand, &a.model).cmp(&(&b.brand, &b.model)));
         profiles
     })
+}
+
+/// The LabelWriter 450's rolls (HS2b): one per SKU of DYMO Connect's catalogue (the number on the box),
+/// its page from the port's PPD. The id is the SKU (several SKUs share a page); the job names the page
+/// (`loaded_page_size`). The name is DYMO's own, plus the page's size in mm by the port's rounding.
+fn lw450_media() -> Vec<Media> {
+    maker_connect_engine::ports::geometry::lw450::rolls()
+        .into_iter()
+        .map(|r| {
+            let (w, l) = (r.page.width_mm, r.page.length_mm);
+            Media {
+                id: r.roll.sku.to_owned(),
+                name: match r.roll.name {
+                    Some(name) => format!("{name} · {w} × {l} mm"),
+                    None => format!("{w} × {l} mm"),
+                },
+                width_mm: w,
+                length_mm: Some(l),
+                per_roll: None,
+                ink: Some("#000".to_owned()),
+                background: Some("#fff".to_owned()),
+            }
+        })
+        .collect()
+}
+
+/// HS2b: a LabelWriter roll (by its medium id, the SKU) as the port's catalogue gives it.
+pub fn labelwriter_roll(
+    profile: Option<&Profile>,
+    media: &str,
+) -> Option<maker_connect_engine::ports::geometry::lw450::CatalogRoll> {
+    match profile?.media_from_port.as_deref() {
+        Some("lw450") => maker_connect_engine::ports::geometry::lw450::rolls()
+            .into_iter()
+            .find(|r| r.roll.sku == media),
+        _ => None,
+    }
+}
+
+/// HS2: a LabelWriter roll's page as its port gives it (by the medium's id).
+pub fn labelwriter_page(
+    profile: Option<&Profile>,
+    media: &str,
+) -> Option<maker_connect_engine::ports::geometry::lw450::PageGeometry> {
+    labelwriter_roll(profile, media).map(|r| r.page)
 }
 
 /// Every TOML file in a folder and the folders in it.
@@ -497,5 +552,34 @@ mod tests {
             6,
             "50, 100, 150 both ways"
         );
+    }
+}
+
+#[cfg(test)]
+mod hs1_tests {
+    /// HS1: the hub takes the ports' geometry without their device code.
+    #[test]
+    fn the_hub_has_no_device_crates() {
+        let out = std::process::Command::new(env!("CARGO"))
+            .args(["tree", "-p", "maker-connect-hub", "-e", "normal", "--prefix", "none"])
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .expect("cargo tree");
+        let tree = String::from_utf8_lossy(&out.stdout);
+        assert!(tree.contains("maker-connect-engine"), "{tree}");
+        for name in ["serialport ", "nusb ", "hidapi "] {
+            assert!(!tree.lines().any(|l| l.starts_with(name)), "the hub pulls in {name}");
+        }
+    }
+
+    /// HS2b: the 450's rolls are DYMO Connect's catalogue, each SKU once, S0722530 (11353) among them.
+    #[test]
+    fn the_450_takes_its_rolls_from_the_catalogue() {
+        let profile = super::find("dymo/labelwriter-450").unwrap();
+        assert_eq!(profile.media.len(), maker_connect_engine::ports::dymo_connect_lw450::ROLLS.len());
+        let m = super::media(profile, "S0722530").unwrap();
+        assert_eq!(m.name, "LW LABEL MULTI-PURPOSE 13X25MM · 25 × 25 mm");
+        assert_eq!(super::labelwriter_page(Some(profile), "S0722530").unwrap().name, "w72h72.2");
+        assert!(profile.media.iter().all(|m| m.per_roll.is_none()));
     }
 }

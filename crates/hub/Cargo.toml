@@ -23,6 +23,8 @@ required-features = ["cameras"]
 [dependencies]
 maker-connect-grbl = { path = "../grbl" }
 maker-connect-label = { path = "../label" }
+# HS1: the ports' geometry only (`ports::geometry`); no device code (`default-features = false`).
+maker-connect-engine = { path = "../engine", default-features = false }
 axum = { version = "0.8.9", features = ["ws"] }
 barcoders = { version = "2", default-features = false, features = ["std"] }
 base64 = "0.22"

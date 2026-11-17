@@ -344,3 +344,96 @@ vendor and product table, `STATUS_REQUEST`, `RESET_ESCAPES`, `TOP_AT_DOT_ZERO` a
 `usb` module (its 16 KiB chunks, status timing and orientation guess) with their tests. Left, nothing
 uses them any more: the `usb` feature and the `nusb` dependency in `crates/label/Cargo.toml` (outside
 the two files B8 allowed).
+
+## PPD 3.1 and DYMO Connect's catalogue (HS2b, 2026-11-17)
+
+The PPD is DYMO's current one (`*FileVersion "3.1"`), from DYMO Connect for Desktop 1.6.4.18's macOS driver
+(`reference/dymo-connect-1.6.4.18/ppd/lw450.ppd`, taken out by `scripts/dymo-connect-extract.py`; owner, 2026-11-17:
+"gebruik ... de nieuwe ppd"). The filter stays DYMO's CUPS driver 1.4.0: **filter and PPD come from two DYMO
+packages**, paired by the owner's choice; DYMO never shipped them together. They are proven together here:
+`python3 -I scripts/dymo-labelwriter-450-check.py proof` (the real `raster2dymolw` 1.4.0 built here and libcups
+2.4.20 on the new PPD vs the port): **61 of 61 `PageSize` headers identical, 14 of 14 cases identical**. The
+`cupsFilter` line of the new PPD (the macOS filter path) is not used: the agent runs the ported filter.
+
+Every line that differs between the two PPDs (`<` 1.4.0's, `>` 3.1's):
+
+    < *% $Id: lw450.ppd 16401 2011-10-31 18:51:16Z pineichen $
+    > *% $Id: lw450.ppd 18293 2012-05-28 16:46:08Z aleksandr $
+    < *FileVersion:   "3.0"
+    > *FileVersion:   "3.1"
+    < *cupsFilter:    "application/vnd.cups-raster 0 raster2dymolw"
+    > *cupsFilter:    "application/vnd.cups-raster 0 /Library/Printers/DYMO/Filters/raster2dymolw"
+    < *APPrinterIconPath: "/Library/Printers/DYMO/CUPS/Resources/LW450.icns"
+    > *APPrinterIconPath: "/Library/Printers/DYMO/Icons/LW450.icns"
+    < *PageSize w102h252/30321 Large Address: "<</PageSize[102 252]/ImagingBBox null/cupsInteger0 0>>setpagedevice"
+    > *PageSize w102h252/30321 Large Address: "<</PageSize[102 251]/ImagingBBox null/cupsInteger0 0>>setpagedevice"
+    < *PageRegion w102h252/30321 Large Address: "<</PageSize[102 252]/ImagingBBox null/cupsInteger0 0>>setpagedevice"
+    > *PageRegion w102h252/30321 Large Address: "<</PageSize[102 251]/ImagingBBox null/cupsInteger0 0>>setpagedevice"
+    < *ImageableArea w102h252/30321 Large Address: "4.32 4.32 98.40 234.96"
+    > *ImageableArea w102h252/30321 Large Address: "4.32 3.84 98.40 234.48"
+    < *PaperDimension w79h252/30252 Address: "78.96 252.00"
+    > *PaperDimension w79h252/30252 Address: "78.48 252.00"
+    < *PaperDimension w102h252/30321 Large Address: "101.28 251.04"
+    > *PaperDimension w102h252/30321 Large Address: "101.52 250.56"
+    > 
+    > *OpenUI *DymoContinuousPaper/Continuous Paper: PickOne
+    > *OrderDependency: 110 AnySetup *DymoContinuousPaper
+    > *DefaultDymoContinuousPaper: 0
+    > *DymoContinuousPaper 0/Disabled: ""
+    > *DymoContinuousPaper 1/Enabled: "/cupsMediaType 1>>setpagedevice"
+    > 
+    > *de.Translation DymoContinuousPaper/Endlospapier: ""
+    > *de.DymoContinuousPaper 0/Deaktiviert: ""
+    > *de.DymoContinuousPaper 1/Aktiviert: ""
+    > 
+    > *es.Translation DymoContinuousPaper/Papel continuo: ""
+    > *es.DymoContinuousPaper 0/Inhabilitado: ""
+    > *es.DymoContinuousPaper 1/Habilitado: ""
+    > 
+    > *es_CO.Translation DymoContinuousPaper/Papel continuo: ""
+    > *es_CO.DymoContinuousPaper 0/Inhabilitado: ""
+    > *es_CO.DymoContinuousPaper 1/Habilitado: ""
+    > *fr.Translation DymoContinuousPaper/Papier continu: ""
+    > *fr.DymoContinuousPaper 0/Désactivé: ""
+    > *fr.DymoContinuousPaper 1/Activé: ""
+    > 
+    > *fr_CA.Translation DymoContinuousPaper/Papier continu: ""
+    > *fr_CA.DymoContinuousPaper 0/Désactivé: ""
+    > *fr_CA.DymoContinuousPaper 1/Activé: ""
+    > 
+    > *it.Translation DymoContinuousPaper/Carta continua: ""
+    > *it.DymoContinuousPaper 0/Disabilitato: ""
+    > *it.DymoContinuousPaper 1/Abilitato: ""
+    > 
+    > *nl.Translation DymoContinuousPaper/Kettingformulieren: ""
+    > *nl.DymoContinuousPaper 0/Uitgeschakeld: ""
+    > *nl.DymoContinuousPaper 1/Ingeschakeld: ""
+    > 
+    > *pt.Translation DymoContinuousPaper/Papel contínuo: ""
+    > *pt.DymoContinuousPaper 0/Desativado: ""
+    > *pt.DymoContinuousPaper 1/Ativado: ""
+    > 
+    > *pt_BR.Translation DymoContinuousPaper/Papel contínuo: ""
+    > *pt_BR.DymoContinuousPaper 0/Desativado: ""
+    > *pt_BR.DymoContinuousPaper 1/Ativado: ""
+    > 
+    > *CloseUI: *DymoContinuousPaper
+    > 
+    < *%  End of "$Id: lw450.ppd 16401 2011-10-31 18:51:16Z pineichen $"
+    > *%  End of "$Id: lw450.ppd 18293 2012-05-28 16:46:08Z aleksandr $"
+
+W2b (proxy, 2026-11-17): in the new PPD 30252 Address and 30320/99010 Address are both 89 mm and 299 × 963 dots but
+different pages, so the length cannot choose. A job may name its `PageSize` choice (`JobOrder.page_size`), as CUPS's
+`-o PageSize=<name>`: exactly that choice is marked, an unknown name fails, the length rule is not used; jobs without it
+keep the length rule. The proof names the page for those three (and only where the length is not unique).
+
+The hub's rolls and the labels on each page come from DYMO Connect's own catalogue (`DYMO.LabelAPI.dll`:
+`SKUs`, `Labels`, `SkuLinks`), generated into `crates/engine/src/ports/dymo_connect_lw450.rs` and checked by
+`python3 -I scripts/dymo-connect-catalog.py` (57 rolls for the 450; the 49 die-cut SKUs not covered are listed in
+the file with why). This is the hub's layout only: nothing of it reaches the printer. Where DYMO's twips origin
+lies on the page (taken as the page's left and top edge) is **not yet verified** on the printer.
+Ours in the catalogue's reading (`scripts/dymo-connect-catalog.py`): the region order for a SKU's name (NL, BE, GB,
+US, DE, FR, then the others alphabetically); in a `Path`, a rectangle inside another is a hole, not a label (a badge's
+slot), and a `Path` of lines only is one label, the box around its points. These decide only how the hub draws the
+labels; approved by the owner, 2026-11-17 ("akkoord met alle drie").
+

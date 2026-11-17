@@ -738,7 +738,7 @@ mod top_edge {
     }
 
     fn job(id: i64, length: Option<u32>) -> JobOrder {
-        JobOrder { id, name: "label".to_owned(), download: String::new(), size: 0, from_line: None, tape_mm: None, label_length_mm: length }
+        JobOrder { id, name: "label".to_owned(), download: String::new(), size: 0, from_line: None, tape_mm: None, label_length_mm: length, page_size: None }
     }
 
     fn start(host: Arc<BenchHost>) -> (std::sync::mpsc::Sender<Order>, Receiver<Event>, std::thread::JoinHandle<()>) {

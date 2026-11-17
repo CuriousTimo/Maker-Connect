@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn a_job_is_known_until_it_ends() {
         let (engine, id, _) = engine_with_echo();
-        let order = JobOrder { id: 42, name: "benchy.gcode".into(), download: "/f/1".into(), size: 10, from_line: None, tape_mm: None, label_length_mm: None };
+        let order = JobOrder { id: 42, name: "benchy.gcode".into(), download: "/f/1".into(), size: 10, from_line: None, tape_mm: None, label_length_mm: None, page_size: None };
         engine.send(id, Order::Job { order, file: PathBuf::from("/tmp/benchy.gcode") }).unwrap();
         let report = until(&engine, id, |r| !r.job_ends.is_empty());
         assert_eq!(report.job, None, "ended");

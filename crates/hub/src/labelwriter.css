@@ -1,0 +1,53 @@
+
+  /* A DYMO LabelWriter's page (HS2): its own, apart from the LabelManager's label.css. */
+  .lw-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 860px) { .lw-grid { grid-template-columns: 1fr; } }
+  .lw-preview { display: grid; justify-items: center; gap: 10px; overflow-x: auto; padding: 24px; border-radius: 10px; margin-top: 12px; background: repeating-linear-gradient(45deg, var(--bg), var(--bg) 6px, var(--line) 6px, var(--line) 7px); }
+  .lw-paper { position: relative; background: #fff; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--off), 0 2px 6px rgb(0 0 0 / .18); }
+  .lw-paper canvas { position: absolute; display: block; image-rendering: pixelated; outline: 1px dashed var(--accent); }
+  .lw-legend { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; font-size: 12px; color: var(--muted); }
+  .lw-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .lw-legend i { display: inline-block; width: 14px; height: 10px; box-sizing: border-box; }
+  .lw-legend .k-paper { background: #fff; box-shadow: inset 0 0 0 1px var(--off); border-radius: 2px; }
+  .lw-legend .k-area { border: 1px dashed var(--accent); }
+  .lw-legend .k-split { border-left: 2px dotted var(--warn); }
+  .lw-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 12px 0 0; font-size: 13px; }
+  .lw-facts div { background: var(--bg); border-radius: 8px; padding: 10px; }
+  .lw-facts dt { color: var(--muted); font-weight: 600; }
+  .lw-facts dd { margin: 2px 0 0; }
+  @media (max-width: 520px) { .lw-facts { grid-template-columns: 1fr; } }
+  .lw-ours { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0 0; padding: 12px; border-radius: 10px; font-size: 13px; background: color-mix(in srgb, var(--warn) 12%, var(--card)); }
+  .lw-ours b { flex: none; padding: 2px 8px; border-radius: 999px; background: var(--warn); color: #fff; font-size: 11px; text-transform: uppercase; }
+  .lw-note { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+  .lw-editor { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px 16px; margin-top: 16px; }
+  .lw-editor .field { display: grid; gap: 4px; align-content: start; }
+  .lw-editor .field > span { color: var(--muted); font-size: 13px; font-weight: 600; }
+  .lw-editor .field small { color: var(--muted); font-size: 12px; }
+  .lw-editor .wide { grid-column: 1 / -1; }
+  .lw-editor textarea, .lw-editor input, .lw-editor select { width: 100%; box-sizing: border-box; min-width: 0; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); }
+  .lw-editor textarea { resize: vertical; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill { min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-weight: 600; }
+  .pill[aria-pressed=true] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .lw-print { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .lw-print label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; }
+  .lw-print input { width: 64px; min-height: 40px; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); }
+  .lw-print button:disabled { opacity: .5; cursor: not-allowed; }
+  .lw-print span[role=status] { color: var(--muted); }
+  [data-code-note] { color: var(--bad) !important; }
+  .lw-rolls { display: grid; gap: 6px; max-height: 620px; overflow-y: auto; padding-right: 4px; margin-top: 4px; }
+  .roll { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); text-align: left; font-size: 14px; font-weight: 500; }
+  .roll:hover { border-color: var(--muted); }
+  .roll[aria-pressed=true] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .roll-shape { flex: none; width: 56px; display: flex; justify-content: center; align-items: center; }
+  .roll-shape span { display: block; background: #fff; border-radius: 3px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .25), 0 1px 2px rgb(0 0 0 / .15); }
+  .roll-text { display: grid; gap: 2px; min-width: 0; }
+  .roll-text small { color: var(--muted); font-size: 12px; }
+  .hint { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+  .lw-empty { margin: 24px 0; color: var(--muted); font-size: 14px; text-align: center; }
+  .lw-find { display: grid; gap: 4px; margin-top: 12px; }
+  .lw-find > span { color: var(--muted); font-size: 13px; font-weight: 600; }
+  .lw-find input { width: 100%; box-sizing: border-box; min-height: 40px; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); }
+  .lw-out { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: 13px; }
+  .roll-shape span { position: relative; }
+  .roll-split { position: absolute; left: 50%; top: 2px; bottom: 2px; border-left: 1px dotted var(--warn); }

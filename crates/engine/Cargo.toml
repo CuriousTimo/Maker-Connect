@@ -5,43 +5,51 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+# HS1 (`docs/briefs/hs1-lw450-geometry.md`): `devices` (default) holds every port and every device
+# or heavy dependency. Without it the engine is its core and the ports' geometry
+# (`ports::geometry`, over the 450's pure PPD code), for the hub.
+[features]
+default = ["devices"]
+devices = ["dep:fancy-regex", "dep:serde_json", "dep:md-5", "dep:minijinja", "dep:serialport", "dep:libc",
+           "dep:png", "dep:nusb", "dep:maker-connect-grbl", "dep:hidapi"]
+
 [dependencies]
 maker-connect-protocol = { path = "../protocol" }
 # Python `re` (lookaheads included) for the ported regexes (owner's approval M5).
-fancy-regex = "0.14"
+fancy-regex = { version = "0.14", optional = true }
 
 # The OctoPrint settings are JSON values (`ports/octoprint/settings.rs`).
-serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"], optional = true }
 # Python's hashlib.md5 (a ported OctoPrint test, and `Settings._process_custom_controls`).
-md-5 = "0.10"
+md-5 = { version = "0.10", optional = true }
 
 # Stand-in for Jinja2 (owner's approval, section D of the Marlin port): `Settings.loadScript`
 # (`ports/octoprint/settings.rs`). Only the features whose Jinja2 counterparts scripts can use.
-minijinja = { version = "2", default-features = false, features = ["serde", "std_collections", "builtins", "multi_template", "macros", "loader", "adjacent_loop_items", "preserve_order"] }
+minijinja = { version = "2", optional = true, default-features = false, features = ["serde", "std_collections", "builtins", "multi_template", "macros", "loader", "adjacent_loop_items", "preserve_order"] }
 
 # pyserial's stand-in (owner's approval M5) for `ports/octoprint/serial.rs`, and the `fcntl`/`poll`
 # calls it and `util/platform` make.
-serialport = { version = "4", default-features = false }
-libc = "0.2"
+serialport = { version = "4", default-features = false, optional = true }
+libc = { version = "0.2", optional = true }
 
 # The DYMO LabelManager PnP port (`ports/labelle/`, step 3b): `png` stands for Pillow's PNG
 # decoder (`Image.open`) and `nusb` for pyusb's libusb1 backend (ours, as the owner approved the
 # stand-ins; both are what `crates/label` used).
-png = "0.17"
-nusb = "0.2"
+png = { version = "0.17", optional = true }
+nusb = { version = "0.2", optional = true }
 
 # The laser port (`ports/laserfoundry/`, step 3d): `crates/grbl`, which is LaserFoundry v0.5.0's
 # device and G-code crates and the link logic of its app. `serial` for LaserFoundry's own serial transport.
-maker-connect-grbl = { path = "../grbl", features = ["serial"] }
+maker-connect-grbl = { path = "../grbl", features = ["serial"], optional = true }
 
 # The DYMO M-series scale port (`ports/usbscale/`, step 3e, E1): hidapi 2.6.7, the OS's own HID on
 # every platform (Linux hidraw through `basic-udev`, no libudev to link; Windows' HID API; macOS IOKit).
 [target.'cfg(target_os = "linux")'.dependencies]
-hidapi = { version = "2.6.7", default-features = false, features = ["linux-native-basic-udev"] }
+hidapi = { version = "2.6.7", default-features = false, features = ["linux-native-basic-udev"], optional = true }
 [target.'cfg(windows)'.dependencies]
-hidapi = { version = "2.6.7", default-features = false, features = ["windows-native"] }
+hidapi = { version = "2.6.7", default-features = false, features = ["windows-native"], optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
-hidapi = "2.6.7"
+hidapi = { version = "2.6.7", optional = true }
 
 # The laser port's proof drives LaserFoundry's own `Link` and `gcode::frame` beside it
 # (`ports/laserfoundry/proof.rs`); the same release `crates/grbl` is pinned to.

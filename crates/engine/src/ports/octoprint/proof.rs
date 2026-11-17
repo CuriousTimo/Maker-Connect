@@ -364,7 +364,7 @@ fn run_scenario(top: &Value, scn: &Value, work: &Path) -> Value {
                 let own = work.join(format!("job-{next_command}"));
                 std::fs::copy(&source, &own).map_err(|e| format!("copying {source:?}: {e}"))?;
                 let size = std::fs::metadata(&own).map(|m| m.len()).unwrap_or(0);
-                let order = JobOrder { id: i64::from(next_command), name: file_name.to_string(), download: String::new(), size, from_line: None, tape_mm: None, label_length_mm: None };
+                let order = JobOrder { id: i64::from(next_command), name: file_name.to_string(), download: String::new(), size, from_line: None, tape_mm: None, label_length_mm: None, page_size: None };
                 engine.send(id, Order::Job { order, file: own }).map_err(|_| "the port ended".to_string())?;
             } else if let Some(control) = step.get("control") {
                 let control = match control.as_str().expect("control") {

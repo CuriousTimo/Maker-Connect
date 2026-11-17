@@ -1155,7 +1155,10 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
     let material = t
         .and_then(|t| t.material.clone())
         .or_else(|| machine.details.as_ref().and_then(|d| d.material.clone()));
-    let tiles = if label {
+    // A label printer without a profile: the hub does not know which kind, so no cassette or roll tiles.
+    let tiles = if label && profile.is_none() {
+        job_tile(machine)
+    } else if label {
         let media = profile.and_then(|p| profiles::media(p, machine.media.as_deref()?));
         // A LabelWriter: a roll of die-cut labels, mains power; a LabelManager: a cassette
         // of tape, and a battery.
@@ -1290,8 +1293,9 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
     };
     let _ = label;
     format!(
-        r#"<div class="tiles">{tiles}</div>
+        r#"{}<div class="tiles">{tiles}</div>
 <div class="grid-2">{}{side}</div>"#,
+        if profile.is_none() { no_profile_notice() } else { String::new() },
         card(
             "Machine",
             "",
@@ -1300,6 +1304,12 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
             )
         ),
     )
+}
+
+/// A machine without a profile: said plainly at the top, with the way to choose one (owner,
+/// 2026-11-17: a LabelWriter without its profile got the LabelManager's page and looked off).
+pub(crate) fn no_profile_notice() -> String {
+    r##"<div class="notices" style="margin: 0 0 16px"><div class="notice ask"><span><b>No profile yet.</b> Choose what this machine is under Settings: its pages are made for it (a label printer its labels, a printer its bed).</span><div class="notice-buttons"><a class="button" href="#settings">Choose a profile</a></div></div></div>"##.to_owned()
 }
 
 fn commands(machine: &Machine) -> String {

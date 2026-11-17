@@ -76,36 +76,24 @@ fn header_for(ppd: &mut PpdFile, options: &[CupsOption]) -> Result<PageHeader, S
     cups_raster_interpret_ppd(ppd, options)
 }
 
-/// The job's label length in mm of a `PageSize` choice: its `PaperDimension` length, in points, to mm,
-/// rounded (ours, W2).
-fn length_mm(length_pt: f32) -> u32 {
-    (length_pt as f64 * 25.4 / 72.0).round() as u32
-}
-
-/// The PPD marked as `ppdMarkDefaults` and the options give it (`CupsFilter.h:225-238`).
-fn marked_ppd(open: &dyn Fn() -> Option<PpdFile>, options: &[CupsOption]) -> Result<PpdFile, String> {
-    let mut ppd = open().ok_or("no PPD")?;
-    ppd.mark_defaults();
-    for o in options {
-        ppd.mark_option(&o.name, &o.value);
-    }
-    ppd.cups_mark_options(options);
-    Ok(ppd)
-}
+// `length_mm` and `marked_ppd` (W2) live in `ports::geometry::lw450` (HS1), so the hub reads the same rule.
+use crate::ports::geometry::lw450::{length_mm, marked_ppd};
 
 /// The page for a picture, as a raster of one page.
 pub fn make_raster(
     picture: &Picture,
+    page_size: Option<&str>,
     label_length_mm: Option<u32>,
     option_string: &str,
     open_ppd: &dyn Fn() -> Option<PpdFile>,
 ) -> Result<CupsRaster, String> {
-    Ok(CupsRaster::open(vec![make_page(picture, label_length_mm, option_string, open_ppd)?]))
+    Ok(CupsRaster::open(vec![make_page(picture, page_size, label_length_mm, option_string, open_ppd)?]))
 }
 
 /// The page for a picture: its header and its pixels.
 pub fn make_page(
     picture: &Picture,
+    page_size: Option<&str>,
     label_length_mm: Option<u32>,
     option_string: &str,
     open_ppd: &dyn Fn() -> Option<PpdFile>,
@@ -120,12 +108,22 @@ pub fn make_page(
     };
 
     // the header of the PPD's own choices
-    let header = match label_length_mm {
-        None => {
+    let header = match (page_size, label_length_mm) {
+        // W2b (proxy, 2026-11-17): the job names the PageSize choice, as CUPS's `-o PageSize=<name>`:
+        // exactly that choice is marked, an unknown name fails, and the length rule is not used
+        (Some(name), _) => {
+            if !sizes.contains(&name) {
+                return Err(format!("no PageSize {name} in the PPD"));
+            }
+            let mut ppd = marked_ppd(open_ppd, &options)?;
+            ppd.mark_option("PageSize", name);
+            header_for(&mut ppd, &options)?
+        }
+        (None, None) => {
             let mut ppd = marked_ppd(open_ppd, &options)?;
             header_for(&mut ppd, &options)?
         }
-        Some(mm) => {
+        (None, Some(mm)) => {
             let mut found: Vec<(PageHeader, &'static str)> = Vec::new();
             for name in &sizes {
                 let mut ppd = marked_ppd(open_ppd, &options)?;

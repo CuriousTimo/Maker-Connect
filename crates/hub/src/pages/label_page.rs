@@ -171,7 +171,7 @@ pub fn render(
 {overview}
   </section>
   <section class="tab" id="label" role="tabpanel" hidden>
-    <div class="grid-label">
+{no_profile}    <div class="grid-label"{no_profile_hidden}>
       <div class="card">
         <div class="card-head"><div><h3>Label</h3><p class="card-sub">Drawn at the {medium}'s size; the preview shows the dots that will burn</p></div></div>
         <div class="label-editor">
@@ -258,5 +258,8 @@ pub fn render(
         tape = tape_json(profile, machine),
         settings = machine_page::settings(machine, move_to, false, manage),
         overview = machine_page::overview(machine, profile, ""),
+        no_profile = if profile.is_none() { machine_page::no_profile_notice() } else { String::new() },
+        // Without a profile the hub does not know what kind of label printer this is: only the notice.
+        no_profile_hidden = if profile.is_none() { " hidden" } else { "" },
     )
 }

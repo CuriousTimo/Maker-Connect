@@ -43,6 +43,10 @@ pub struct FileMeta {
     /// it, in dots.
     #[serde(default)]
     pub label_dots: Option<[u32; 2]>,
+    /// A label's PNG as it is: width and height in pixels (HS2). A LabelWriter's page is this
+    /// size exactly (the port's raster: width across the head); the PnP reads `label_dots`.
+    #[serde(default)]
+    pub png_dots: Option<[u32; 2]>,
     /// What PrusaSlicer says besides (the keys Prusa's own gcode-metadata reads): the
     /// nozzle and bed temperatures, the filament's colour (`#RRGGBB`), whether it wants a
     /// high-flow nozzle or an abrasive-proof one, infill, supports, and the objects in it
@@ -403,10 +407,20 @@ pub fn read(path: &Path) -> io::Result<(FileMeta, Option<Vec<u8>>)> {
 /// A label: a PNG, one pixel per dot. It is its own thumbnail.
 fn read_label(path: &Path) -> io::Result<(FileMeta, Option<Vec<u8>>)> {
     let png = std::fs::read(path)?;
-    let label = maker_connect_label::Label::from_png(&png).map_err(io::Error::other)?;
+    // HS2: the PNG's own size, for a LabelWriter page (up to 3066 dots high, more than
+    // `Label::from_png` takes for a tape); the PnP's `label_dots` as before.
+    let png_dots = png::Decoder::new(&png[..])
+        .read_info()
+        .ok()
+        .map(|r| [r.info().width, r.info().height]);
+    let label = maker_connect_label::Label::from_png(&png);
+    if label.is_err() && png_dots.is_none() {
+        return Err(io::Error::other(label.unwrap_err()));
+    }
     let meta = FileMeta {
         kind: Some(MachineKind::Label),
-        label_dots: Some([label.length as u32, label.height as u32]),
+        label_dots: label.ok().map(|l| [l.length as u32, l.height as u32]),
+        png_dots,
         thumbnail: true,
         ..FileMeta::default()
     };

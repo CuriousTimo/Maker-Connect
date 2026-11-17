@@ -244,6 +244,7 @@ pub(crate) fn agent_job(
                 from_line: job.from_line,
                 tape_mm: media.map(|(width, _)| width),
                 label_length_mm: media.and_then(|(_, length)| length),
+                page_size: store.loaded_page_size(&machine)?,
             };
             (Some(order), None)
         }

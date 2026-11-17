@@ -123,6 +123,56 @@ pub fn suits(file: &StoredFile, machine: &Machine) -> Result<Option<String>, Str
     Ok(warning)
 }
 
+/// HS2: whether a page fits a LabelWriter now: the PNG must be exactly the loaded roll's page
+/// as its port gives it (`ports::geometry::lw450`: width across the head, `cupsWidth` ×
+/// `cupsHeight`); the job then tells the agent the roll's length (`label_length_mm`).
+fn labelwriter_check(
+    file: &StoredFile,
+    machine: &Machine,
+    profile: Option<&profiles::Profile>,
+) -> Result<Option<String>, String> {
+    let Some([w, h]) = file.meta.png_dots else {
+        return Err("not a label".to_owned());
+    };
+    labelwriter_fits([w, h], profile, machine.media.as_deref())?;
+    if !matches!(machine.link.as_str(), "virtual" | "agent") {
+        return Err("labels go through an agent".to_owned());
+    }
+    if !machine.online {
+        return Err("offline".to_owned());
+    }
+    if let Some(problem) = machine.telemetry.as_ref().and_then(|t| t.problem.as_ref()) {
+        return Err(problem.clone());
+    }
+    if let Some(job) = &machine.job {
+        return Err(format!("busy with {}", job.file_name));
+    }
+    Ok(None)
+}
+
+/// HS2: a page of `[w, h]` dots against the roll loaded (`media`, the PPD's choice name).
+fn labelwriter_fits(
+    [w, h]: [u32; 2],
+    profile: Option<&profiles::Profile>,
+    media: Option<&str>,
+) -> Result<(), String> {
+    let Some(media) = media else {
+        return Err("say which labels are loaded, under Settings".to_owned());
+    };
+    let Some(page) = profiles::labelwriter_page(profile, media) else {
+        return Err("say which labels are loaded, under Settings".to_owned());
+    };
+    if [w, h] != page.dots {
+        return Err(format!(
+            "this page is {w} × {h} dots; the loaded roll {} takes {} × {}",
+            profile.and_then(|p| profiles::media(p, media)).map_or(media, |m| m.name.as_str()),
+            page.dots[0],
+            page.dots[1]
+        ));
+    }
+    Ok(())
+}
+
 /// Whether a label fits a label printer now: the tape loaded (as the owner said) must be
 /// as high as the label.
 fn label_check(
@@ -130,6 +180,10 @@ fn label_check(
     machine: &Machine,
     profile: Option<&profiles::Profile>,
 ) -> Result<Option<String>, String> {
+    // HS2: a LabelWriter's page is the port's raster exactly; the PnP below as it was.
+    if profile.is_some_and(|p| p.firmware.as_deref() == Some("dymo-lw")) {
+        return labelwriter_check(file, machine, profile);
+    }
     let Some([length, height]) = file.meta.label_dots else {
         return Err("not a label".to_owned());
     };
@@ -1281,17 +1335,21 @@ mod tests {
         assert!(listed.meta.thumbnail);
     }
 
-    /// A LabelWriter takes a die-cut label as large as the labels loaded, not larger; the
-    /// job tells the agent the label's length, so the printer finds the next gap.
+    /// HS2: a LabelWriter takes a page of exactly its loaded roll's raster (the port's), and
+    /// the job tells the agent the roll's length, so the printer finds the next gap.
     #[tokio::test]
-    async fn a_die_cut_label_fits_its_labels() {
+    async fn a_labelwriter_page_is_its_rolls_raster() {
         let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
-        // 99012 Large Address: 36 × 89 mm, 425 × 1051 dots at 300 dpi.
-        let upload = |length: usize, height: usize| {
+        // S0722400, DYMO's European Large Address roll (DYMO Connect's catalogue): its page and raster from the port.
+        let page = crate::profiles::labelwriter_page(crate::profiles::find("dymo/labelwriter-450"), "S0722400").unwrap();
+        let [pw, ph] = page.dots;
+        let (pw, ph) = (pw as usize, ph as usize);
+        let upload = |w: usize, h: usize| {
             let app = app.clone();
             async move {
-                let label = maker_connect_label::Label::blank(length, height);
+                // `Label::blank(length, height)` writes a PNG of `length` × `height` pixels
+                let label = maker_connect_label::Label::blank(w, h);
                 let (status, body) = call(
                     &app,
                     Request::post("/api/files?name=address.png")
@@ -1306,20 +1364,12 @@ mod tests {
                     .to_owned()
             }
         };
-        let (fits, too_long, too_high) = (
-            upload(1051, 425).await,
-            upload(1060, 425).await,
-            upload(1051, 430).await,
-        );
+        let (fits, too_wide, too_long) =
+            (upload(pw, ph).await, upload(pw + 1, ph).await, upload(pw, ph + 1).await);
         let (writer, token) = {
             let mut store = store.lock().unwrap();
             let space = store.default_space().unwrap().0;
             let profile = crate::profiles::find("dymo/labelwriter-450").unwrap();
-            let (across, along) = crate::profiles::media_dots(
-                profile,
-                crate::profiles::media(profile, "99012").unwrap(),
-            );
-            assert_eq!((across, along), (425, Some(1051)));
             let writer = store.add_virtual(space, profile).unwrap();
             crate::auth::tester_may_operate(&store, space, &writer);
             let token = store.virtual_machines().unwrap()[0].1.clone();
@@ -1328,7 +1378,7 @@ mod tests {
                 ..Default::default()
             };
             store.report(&token, &idle).unwrap();
-            store.set_media(space, &writer, Some("99012")).unwrap();
+            store.set_media(space, &writer, Some("S0722400")).unwrap();
             (writer, token)
         };
         let print = |file: &str| {
@@ -1338,15 +1388,11 @@ mod tests {
                 .body(Body::from(format!("machine={writer}")))
                 .unwrap()
         };
-        let (status, why) = call(&app, print(&too_long)).await;
-        assert_eq!(status, StatusCode::CONFLICT);
-        assert!(
-            why.contains("1060 dots long") && why.contains("1051"),
-            "{why}"
-        );
-        let (status, why) = call(&app, print(&too_high)).await;
-        assert_eq!(status, StatusCode::CONFLICT);
-        assert!(why.contains("a label takes 425"), "{why}");
+        for file in [&too_wide, &too_long] {
+            let (status, why) = call(&app, print(file)).await;
+            assert_eq!(status, StatusCode::CONFLICT);
+            assert!(why.contains(&format!("takes {pw} × {ph}")), "{why}");
+        }
         assert_eq!(call(&app, print(&fits)).await.0, StatusCode::NO_CONTENT);
         let mut store = store.lock().unwrap();
         let report = maker_connect_protocol::Telemetry {
@@ -1357,6 +1403,22 @@ mod tests {
             .unwrap()
             .0
             .unwrap();
-        assert_eq!((order.tape_mm, order.label_length_mm), (Some(36), Some(89)));
+        assert_eq!((order.tape_mm, order.label_length_mm), (Some(page.width_mm), Some(page.length_mm)));
+        // HS2b (W2b): the job names the roll's page, as CUPS's `-o PageSize=<name>`
+        assert_eq!(order.page_size.as_deref(), Some(page.name));
+    }
+
+    /// HS2: every die-cut roll of the 450 takes a page of its own raster and no other.
+    #[test]
+    fn every_labelwriter_roll_takes_its_own_raster() {
+        let profile = crate::profiles::find("dymo/labelwriter-450").unwrap();
+        for media in &profile.media {
+            let page = crate::profiles::labelwriter_page(Some(profile), &media.id).unwrap();
+            let [w, h] = page.dots;
+            assert_eq!(super::labelwriter_fits([w, h], Some(profile), Some(&media.id)), Ok(()), "{}", media.id);
+            assert!(super::labelwriter_fits([w + 1, h], Some(profile), Some(&media.id)).is_err());
+            assert!(super::labelwriter_fits([w, h + 1], Some(profile), Some(&media.id)).is_err());
+            assert_eq!(page.length_mm, media.length_mm.unwrap());
+        }
     }
 }

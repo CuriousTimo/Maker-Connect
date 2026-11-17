@@ -607,7 +607,7 @@ mod port {
     }
 
     fn job(id: i64, tape_mm: Option<u32>) -> JobOrder {
-        JobOrder { id, name: "label.png".into(), download: "/f".into(), size: 0, from_line: None, tape_mm, label_length_mm: None }
+        JobOrder { id, name: "label.png".into(), download: "/f".into(), size: 0, from_line: None, tape_mm, label_length_mm: None, page_size: None }
     }
 
     fn next(events: &Receiver<Event>) -> Event {

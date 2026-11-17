@@ -40,21 +40,36 @@
 //! ([`cups_print_environment::FilterIo`], [`cups::usb_backend`]).
 
 pub mod cups;
+#[cfg(feature = "devices")]
 pub mod cups_filter;
+#[cfg(feature = "devices")]
 pub mod cups_filter_label_writer;
+#[cfg(feature = "devices")]
 pub mod cups_print_environment;
+#[cfg(feature = "devices")]
 pub mod dummy_language_monitor;
+#[cfg(feature = "devices")]
 pub mod error_diffusion_halftoning;
+#[cfg(feature = "devices")]
 pub mod halftoning;
+#[cfg(feature = "devices")]
 pub mod label_writer_driver;
+#[cfg(feature = "devices")]
 pub mod label_writer_language_monitor;
+#[cfg(feature = "devices")]
 pub mod nll_halftoning;
+#[cfg(feature = "devices")]
 pub mod page;
+#[cfg(feature = "devices")]
 pub mod port;
+#[cfg(feature = "devices")]
 pub mod printer_driver;
+#[cfg(feature = "devices")]
 pub mod raster2dymolw;
+#[cfg(feature = "devices")]
 pub mod stderr;
-#[cfg(test)]
+#[cfg(all(test, feature = "devices"))]
 mod tests;
 
+#[cfg(feature = "devices")]
 pub use port::LabelWriter450;

@@ -27,4 +27,5 @@ pub mod options;
 pub mod ppd;
 pub mod ppd_lw450;
 pub mod raster;
+#[cfg(feature = "devices")]
 pub mod usb_backend;

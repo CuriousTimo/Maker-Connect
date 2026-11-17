@@ -132,13 +132,13 @@ fn a_job_runs_ends_and_is_reported() {
     let file = dir.join("job-1");
     std::fs::write(&file, "G90\nM4\nG1 X5 Y5 S100 F1000\nM5\n").unwrap();
     let mut port = Running::sim();
-    let order = JobOrder { id: 1, name: "a.gcode".into(), download: String::new(), size: 0, from_line: None, tape_mm: None, label_length_mm: None };
+    let order = JobOrder { id: 1, name: "a.gcode".into(), download: String::new(), size: 0, from_line: None, tape_mm: None, label_length_mm: None, page_size: None };
     port.orders.send(Order::Job { order, file }).unwrap();
     port.until("the end", |seen| seen.iter().any(|e| matches!(e, Event::JobEnd(_))));
     let end = port.seen.iter().find_map(|e| if let Event::JobEnd(end) = e { Some(end.clone()) } else { None }).unwrap();
     assert!(end.ok && end.id == 1, "{end:?}");
     // A missing file ends a job failed.
-    let order = JobOrder { id: 2, name: "b".into(), download: String::new(), size: 0, from_line: None, tape_mm: None, label_length_mm: None };
+    let order = JobOrder { id: 2, name: "b".into(), download: String::new(), size: 0, from_line: None, tape_mm: None, label_length_mm: None, page_size: None };
     port.orders.send(Order::Job { order, file: dir.join("missing") }).unwrap();
     port.until("the failure", |seen| seen.iter().any(|e| matches!(e, Event::JobEnd(end) if end.id == 2)));
     std::fs::remove_dir_all(&dir).ok();
@@ -169,7 +169,7 @@ fn a_machine_that_did_not_open_is_disconnected_and_says_why() {
     port.until("the report", |seen| {
         seen.iter().any(|e| matches!(e, Event::Telemetry(t) if t.problem.as_deref().is_some_and(|p| p.starts_with("Could not open the machine"))))
     });
-    let order = JobOrder { id: 1, name: "a".into(), download: String::new(), size: 0, from_line: None, tape_mm: None, label_length_mm: None };
+    let order = JobOrder { id: 1, name: "a".into(), download: String::new(), size: 0, from_line: None, tape_mm: None, label_length_mm: None, page_size: None };
     port.orders.send(Order::Job { order, file: "/nonexistent".into() }).unwrap();
     port.until("the failure", |seen| seen.iter().any(|e| matches!(e, Event::JobEnd(end) if !end.ok)));
     port.orders.send(Order::Control(JobControl::Stop)).unwrap();

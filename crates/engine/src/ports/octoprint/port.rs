@@ -1128,7 +1128,7 @@ mod tests {
     }
 
     fn job_order(id: i64, name: &str, size: u64) -> JobOrder {
-        JobOrder { id, name: name.to_string(), download: String::new(), size, from_line: None, tape_mm: None, label_length_mm: None }
+        JobOrder { id, name: name.to_string(), download: String::new(), size, from_line: None, tape_mm: None, label_length_mm: None, page_size: None }
     }
 
     fn command(engine: &Engine, id: MachineId, n: u32, action: Action) -> CommandDone {

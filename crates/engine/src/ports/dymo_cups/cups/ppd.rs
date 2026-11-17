@@ -12,6 +12,9 @@ use super::options::{cups_get_option, CupsOption};
 #[derive(Debug, Clone, Copy)]
 pub struct Choice {
     pub name: &'static str,
+    /// The choice's translation string (`*PageSize w72h72/11353 Multi-Purpose:`), as the PPD has it;
+    /// None when the line has none. Only for the hub's UI (HS1); never sent.
+    pub text: Option<&'static str>,
     pub code: &'static str,
     pub line: u32,
 }

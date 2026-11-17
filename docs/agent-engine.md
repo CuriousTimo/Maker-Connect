@@ -760,3 +760,13 @@ Needs the real M2 (the audit's not-covered list): its VID:PID and report descrip
 Figure 27's 6 bytes), whether the first report is stale, the report rate, the kg/lb button (units and exponents),
 known weights, over 2 kg (status 6), under zero after a tare (status 5, its weight bytes), auto-off, unplug and
 replug, the first byte per OS, hidraw permissions and hidapi's `usage_page` on the Pi, macOS input-monitoring.
+
+## Later: one agent, several machines (owner, 2026-11-17)
+
+Owner: "zet één agent meerdere machines op de lijst" (asked after the LabelWriter 450 needed a second
+agent beside the PnP's on .67). The engine already holds several machines, one per port on its own
+thread (O1); the agent does not: its config has one `mode`, `name` and `kind`, and it registers one
+machine with the hub (`crates/agent/src/config.rs`, `link.rs`). To do: several machines in one config,
+each with its own mode/port and its own registration and pairing code, reported over the one link.
+Design first (architect + proxy), then the owner. Until then: one agent process per machine (the
+450's test agent: `~/maker-connect-lw450/`, user-service `maker-connect-agent-lw450`).

@@ -3,7 +3,7 @@
 //! backend and writes what it writes, so the script can run DYMO's own `raster2dymolw` on the same page
 //! and compare. Not part of the agent.
 //!
-//! `dymo_cups_proof PNG LENGTH_MM|- OPTIONS DEVICE_URI STATUS_HEX|- OUT_DIR`
+//! `dymo_cups_proof PNG LENGTH_MM|-|ps:PAGESIZE OPTIONS DEVICE_URI STATUS_HEX|- OUT_DIR`
 
 use maker_connect_engine::ports::dymo_cups::cups::ppd::PpdFile;
 use maker_connect_engine::ports::dymo_cups::cups::usb_backend::BackChannel;
@@ -41,12 +41,17 @@ impl FilterIo for RecordingIo {
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let (png, length, options, uri, status, out) = (&a[1], &a[2], &a[3], &a[4], &a[5], &a[6]);
-    let length_mm = if length == "-" { None } else { Some(length.parse::<u32>().unwrap()) };
+    // LENGTH_MM, `-` for none, or `ps:<PageSize choice>` for a job that names its page (W2b)
+    let (page_size, length_mm) = match length.strip_prefix("ps:") {
+        Some(name) => (Some(name), None),
+        None if length == "-" => (None, None),
+        None => (None, Some(length.parse::<u32>().unwrap())),
+    };
     let device_uri = if uri == "-" { None } else { Some(uri.clone()) };
 
     let picture = page::decode_png(std::path::Path::new(png)).unwrap();
     let open = || Some(PpdFile::lw450());
-    let page = match page::make_page(&picture, length_mm, options, &open) {
+    let page = match page::make_page(&picture, page_size, length_mm, options, &open) {
         Ok(p) => p,
         Err(why) => {
             std::fs::write(format!("{out}/ours.page-error"), why).unwrap();

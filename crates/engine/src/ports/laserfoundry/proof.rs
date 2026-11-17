@@ -292,7 +292,7 @@ impl Port_ {
     fn job(&mut self, id: i64, program: &str, from_line: Option<u64>) {
         let file = self.dir.join(format!("job-{id}"));
         std::fs::write(&file, program).unwrap();
-        let order = JobOrder { id, name: format!("job-{id}"), download: String::new(), size: program.len() as u64, from_line, tape_mm: None, label_length_mm: None };
+        let order = JobOrder { id, name: format!("job-{id}"), download: String::new(), size: program.len() as u64, from_line, tape_mm: None, label_length_mm: None, page_size: None };
         self.orders.send(Order::Job { order, file }).unwrap();
     }
 
