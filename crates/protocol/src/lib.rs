@@ -490,7 +490,9 @@ pub struct GrblSettings {
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Action {
     /// G-code a user typed in: passed through as typed.
-    Gcode { text: String },
+    Gcode {
+        text: String,
+    },
     /// The jog pad: move by so many mm (relative, its step and sign), at the feed the page chose
     /// from its list, or (none chosen) the port's own as its reference has it.
     Jog {
@@ -506,16 +508,29 @@ pub enum Action {
     /// Home these axes, as OctoPrint's API takes them (`home: ["x", "y"]`, `server/api/printer.py:297`):
     /// OctoPrint's panel has one button for X and Y and one for Z; the page's one button of other
     /// machines is all three.
-    Home { axes: Vec<Axis> },
+    Home {
+        axes: Vec<Axis>,
+    },
     /// Extrude (positive) or retract (negative) so many mm.
-    Extrude { mm: f64 },
+    Extrude {
+        mm: f64,
+    },
     /// A heater's target (0: off). Preheat and cool down are this.
-    Temperature { heater: Heater, celsius: f64 },
+    Temperature {
+        heater: Heater,
+        celsius: f64,
+    },
     /// The part-cooling fan on or off.
-    Fan { on: bool },
+    Fan {
+        on: bool,
+    },
     /// Speed and flow factors, in percent.
-    Speed { percent: u16 },
-    Flow { percent: u16 },
+    Speed {
+        percent: u16,
+    },
+    Flow {
+        percent: u16,
+    },
     MotorsOff,
     /// Load or unload filament; the loaded spool's temperatures where the hub knows them.
     LoadFilament {
@@ -534,15 +549,21 @@ pub enum Action {
     ProbeBed,
     /// The machine's own card: list it, print a file of it, delete one.
     SdList,
-    SdPrint { file: String },
-    SdDelete { file: String },
+    SdPrint {
+        file: String,
+    },
+    SdDelete {
+        file: String,
+    },
     /// A laser: unlock after an alarm, set and go to the work origin, read settings.
     Unlock,
     SetOrigin,
     GoOrigin,
     ReadSettings,
     /// A laser: run a file's outline with the beam off; the file as a job's (`download`).
-    Frame { download: String },
+    Frame {
+        download: String,
+    },
 }
 
 /// An axis to home, spelled as OctoPrint's `valid_axes` of the printhead API (`"x"`, `"y"`, `"z"`).
@@ -631,7 +652,15 @@ mod tests {
     fn a_scale_reading_is_plain_json() {
         let telemetry = Telemetry {
             state: MachineState::Idle,
-            scale: Some(ScaleReading { status: 4, status_text: String::new(), unit: 2, unit_name: "g".into(), exponent: -1, raw: 1234, weight: 123.4 }),
+            scale: Some(ScaleReading {
+                status: 4,
+                status_text: String::new(),
+                unit: 2,
+                unit_name: "g".into(),
+                exponent: -1,
+                raw: 1234,
+                weight: 123.4,
+            }),
             ..Telemetry::default()
         };
         let text = serde_json::to_string(&telemetry).unwrap();
@@ -641,13 +670,18 @@ mod tests {
         );
         assert_eq!(serde_json::from_str::<Telemetry>(&text).unwrap(), telemetry);
         assert_eq!(MachineKind::Scale.label(), "Scale");
-        assert_eq!(serde_json::from_str::<MachineKind>("\"scale\"").unwrap(), MachineKind::Scale);
+        assert_eq!(
+            serde_json::from_str::<MachineKind>("\"scale\"").unwrap(),
+            MachineKind::Scale
+        );
     }
 
     /// B5: a home names its axes, spelled as OctoPrint's printhead API has them.
     #[test]
     fn a_home_names_its_axes() {
-        let home = Action::Home { axes: vec![Axis::X, Axis::Y, Axis::Z] };
+        let home = Action::Home {
+            axes: vec![Axis::X, Axis::Y, Axis::Z],
+        };
         let text = serde_json::to_string(&home).unwrap();
         assert_eq!(text, r#"{"action":"home","axes":["x","y","z"]}"#);
         assert_eq!(serde_json::from_str::<Action>(&text).unwrap(), home);
