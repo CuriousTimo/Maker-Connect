@@ -846,7 +846,7 @@ mod top_edge {
     }
 
     /// K18 / HS4 (ours): a command that came during a print is answered; a command that came after the Close
-    /// fails, "the printer connection closed"; none is left unanswered.
+    /// fails, "the connection closed"; none is left unanswered.
     #[test]
     fn commands_waiting_at_close_fail() {
         let (host, _) = bench(&[], 0x02, 1000);

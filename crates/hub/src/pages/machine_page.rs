@@ -706,9 +706,9 @@ fn emergency_form(machine: &Machine) -> String {
         Some(EmergencyStop::TypedM112) => {
             "Sends M112, OctoPrint's emergency stop: the printer halts and its connection closes. Switch it off and on again afterwards."
         }
-        Some(EmergencyStop::LaserStop) => {
-            "LaserFoundry's Stop (a soft reset): motion stops and the laser goes off."
-        }
+        // A laser's emergency stop is its Stop (LaserFoundry has one stop): that button is
+        // named so in the job card, not shown twice (owner, 2026-11-17).
+        Some(EmergencyStop::LaserStop) => return String::new(),
         None => return String::new(),
     };
     format!(
@@ -764,10 +764,10 @@ fn job_card(machine: &Machine) -> String {
   <form class="job-actions" data-job-actions action="{id}/job"{actions_hidden}>
     <button name="action" value="pause" data-job-only{only_hidden}>Pause</button>
     <button name="action" value="resume" data-job-only{only_hidden}>Resume</button>
-    <button name="action" value="stop" class="danger">Stop</button>
+    <button name="action" value="stop" class="danger">{stop_label}</button>
   </form>
   <p class="empty no-job" data-no-job{shown}>{no_job}</p>
-  <p class="hint" data-laser-stop{stop_hint_hidden}>Stop halts the laser at once (a soft reset), also while it frames.</p>
+  <p class="hint" data-laser-stop{stop_hint_hidden}>Emergency stop halts the laser at once (LaserFoundry's Stop, a soft reset): motion stops and the laser goes off, also while it frames.</p>
   {emergency}
   <div class="resume" data-resume{resume_hidden}>
     <p><b>Interrupted:</b> <span data-live="resume_name">{resume_name}</span> ({resume_why}). It can start again from line <b data-live="resume_line">{resume_line}</b>, a little before where it stopped; the head goes there with the laser off first.</p>
@@ -794,6 +794,7 @@ fn job_card(machine: &Machine) -> String {
         shown = if running || loaded { " hidden" } else { "" },
         only_hidden = if running { "" } else { " hidden" },
         stop_hint_hidden = if laser && !running { "" } else { " hidden" },
+        stop_label = if laser { "Emergency stop (soft reset)" } else { "Stop" },
         name = escape(match job {
             Some(j) => j.file_name.as_str(),
             None if own => progress

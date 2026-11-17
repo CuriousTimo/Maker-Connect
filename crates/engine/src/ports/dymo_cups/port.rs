@@ -210,7 +210,7 @@ impl Port for LabelWriter450 {
                 Order::Answer(_) => {
                     let _ = events.send(seen.telemetry(MachineState::Idle, Some(NO_QUESTION)));
                 }
-                // K18 / HS4 (ours): a command still waiting fails, "the printer connection closed"
+                // K18 / HS4 (ours): a command still waiting fails, "the connection closed"
                 Order::Close => {
                     for order in pending.borrow_mut().drain(..) {
                         if let Order::Command { id, .. } = order {

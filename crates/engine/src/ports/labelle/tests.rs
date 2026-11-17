@@ -632,7 +632,7 @@ mod port {
     }
 
     /// K18 / HS4 (ours): the port holds no command pending; one that comes after the Close fails,
-    /// "the printer connection closed".
+    /// "the connection closed".
     #[test]
     fn a_command_after_the_close_fails() {
         let (orders, events, run) = start("normal");

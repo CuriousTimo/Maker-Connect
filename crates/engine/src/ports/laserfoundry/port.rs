@@ -163,7 +163,7 @@ impl Port for LaserFoundryPort {
                 Ok(order) => {
                     note = None;
                     match order {
-                        // K18 / HS4 (ours): every command still pending fails, "the printer connection closed"
+                        // K18 / HS4 (ours): every command still pending fails, "the connection closed"
                         Order::Close => {
                             close(&tickets, &orders, &events);
                             return;
@@ -246,7 +246,7 @@ impl Port for LaserFoundryPort {
 }
 
 /// K18 / HS4 (ours, engine to hub, nothing to the machine): on close every command still pending
-/// (submitted and not answered, or still waiting in the orders) fails, "the printer connection closed".
+/// (submitted and not answered, or still waiting in the orders) fails, "the connection closed".
 fn close(tickets: &HashMap<Ticket, u32>, orders: &Receiver<Order>, events: &Sender<Event>) {
     let mut ids: Vec<u32> = tickets.values().copied().collect();
     ids.sort_unstable();

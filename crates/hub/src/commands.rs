@@ -775,7 +775,10 @@ mod tests {
             store.lock().unwrap().own_job_control.remove(&laser),
             Some(protocol::JobControl::Stop)
         ));
-        assert!(call(&app, page(&laser)).await.1.contains("emergency-stop"));
+        // its page: one button, its Stop named the emergency stop, no second form
+        let page_of_laser = call(&app, page(&laser)).await.1;
+        assert!(!page_of_laser.contains("emergency-stop"), "not shown twice");
+        assert!(page_of_laser.contains(">Emergency stop (soft reset)</button>"));
 
         // none: a label printer, a Prusa on Buddy, a profile that is not Marlin
         for (kind, profile) in [

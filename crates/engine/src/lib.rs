@@ -54,7 +54,7 @@ pub enum Event {
 
 /// K18 / HS4 (ours, engine to hub, nothing on the wire to the device): the reason of a command that
 /// is given up because the connection closed.
-pub const CONNECTION_CLOSED: &str = "the printer connection closed";
+pub const CONNECTION_CLOSED: &str = "the connection closed";
 
 #[cfg(feature = "devices")]
 /// K18 / HS4 (ours): every [`Order::Command`] still waiting in `orders` fails with

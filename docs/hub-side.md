@@ -99,7 +99,7 @@ order. Each item gets its own brief, vetted by the proxy and the watchdog before
 | HS10 | MINI (H2): typed actions → Buddy 6.3.0's own menu G-code (owner's decision), via Prusa Connect; the hub's `M604`, load `M109`/`M701` with 215 °C, etc. go | D9 debt on the MINI | Buddy 6.3.0 |
 | HS11 | Klipper (H3): G-code reference still open for the owner | — | owner to choose |
 | HS12 | Spoolman audit (H4) | approved, waits for its turn | Spoolman eccb05e |
-| HS13 | LaserFoundry web fork, served by the hub: "Send to [laser name]" (owner, 2026-11-17) makes it that laser's loaded job (HS7b: one loaded job, no laser queue) (Apps API v1 extension) | after the laser port (done) | LaserFoundry v0.5.0 |
+| HS13 | LaserFoundry web fork, served by the hub: "Send to [laser name]" (owner, 2026-11-17) makes it that laser's loaded job (HS7b: one loaded job, no laser queue) (Apps API v1 extension). Packed **gzip in the hub binary** (owner, 2026-11-17: "ja, gzip in de binary"; measured on LaserFoundry's own web build: wasm 11.8 MB, 3.8 MB gzip; the hub sends it with `Content-Encoding: gzip`) | after the laser port (done) | LaserFoundry v0.5.0 |
 | HS14 | Docs pass: `docs/design-overview.html`, `docs/audits/README.md`; `scripts/reference-updates.sh` for every reference (pin read from `Cargo.lock`) | decided (points 3, 4) | — |
 
 Proposed order: HS14 (docs, small, makes the plan readable) → HS1 → HS2 → HS3 → HS7 (safety) →

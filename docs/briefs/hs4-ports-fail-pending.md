@@ -6,8 +6,8 @@ hub, nothing new on the wire to any device); no reference is involved.
 ## What
 
 1. Per port: when its connection closes (`Order::Close`, or its orders end), every command still
-   pending gets `Done { ok: false, reason: "the printer connection closed" }`. The text is the one
-   K18 (a) already uses for the Marlin port (ours; one text for all ports, `engine::CONNECTION_CLOSED`).
+   pending gets `Done { ok: false, reason: "the connection closed" }` (ours, `engine::CONNECTION_CLOSED`;
+   the Marlin port keeps K18 (a)'s "the printer connection closed").
 2. The hub's K18 (b) rule (every Queued command at once, no 120 s gate, the agent-gone rule) is
    extended from "Marlin agent machines" to "agent machines whose port fails pending on close":
    Marlin/OctoPrint (as before), label printers (DYMO PnP, LabelWriter 450) and lasers.
@@ -27,8 +27,8 @@ A command that the port had already answered with its own failure keeps that ans
 
 ## Reason texts (ours)
 
-- "the printer connection closed" (port fails; same as K18 (a); used also for the laser, which is not
-  a printer: one text for the hub's UI, for the owner to approve or rename)
+- "the connection closed" (port fails; owner, 2026-11-17: "akkoord met alle voorstellen", the laser
+  is not a printer)
 - "the agent was gone" (hub, K18 (b), unchanged)
 
 ## Hub tests
