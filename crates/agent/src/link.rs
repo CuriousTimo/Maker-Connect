@@ -13,8 +13,8 @@
 use crate::config::{self, Config};
 use maker_connect_engine::{Engine, MachineId, Order, Report};
 use maker_connect_protocol::{
-    self as protocol, CommandDone, JobEnd, MachineKind, MachineState, Register, Registered, Telemetry,
-    TelemetryReply,
+    self as protocol, CommandDone, JobEnd, MachineKind, MachineState, Register, Registered,
+    Telemetry, TelemetryReply,
 };
 use maker_connect_update as update;
 use std::path::{Path, PathBuf};
@@ -76,8 +76,9 @@ fn parse_mode(given: Option<&str>) -> Result<Mode, String> {
 /// `--kind`, which must be given (B4).
 fn parse_kind(given: Option<&str>) -> Result<MachineKind, String> {
     let kind = given.ok_or("kind: say what the machine is with --kind fdm, laser, cnc, cutter, label, paper, scale or other: there is no default")?;
-    serde_json::from_value(serde_json::Value::String(kind.to_owned()))
-        .map_err(|_| format!("kind: fdm, laser, cnc, cutter, label, paper, scale or other, not {kind}"))
+    serde_json::from_value(serde_json::Value::String(kind.to_owned())).map_err(|_| {
+        format!("kind: fdm, laser, cnc, cutter, label, paper, scale or other, not {kind}")
+    })
 }
 
 /// The options: the config file's (see [`crate::config`]), with the command line's on top.
@@ -127,7 +128,11 @@ fn options(args: &[String]) -> Result<Options, Box<dyn std::error::Error>> {
         println!("saved to {}", path.display());
     }
     // `--mode`, never a default (B4); an older config's `firmware = "grbl"` or `"marlin"` still reads.
-    let mode = parse_mode(all.mode.as_deref().or(all.firmware.as_deref().filter(|f| *f != "auto")))?;
+    let mode = parse_mode(
+        all.mode
+            .as_deref()
+            .or(all.firmware.as_deref().filter(|f| *f != "auto")),
+    )?;
     let kind = parse_kind(all.kind.as_deref())?;
     if mode == Mode::Cameras && all.camera.is_none() {
         return Err("mode cameras: say which camera with --camera <index>".into());
@@ -415,9 +420,11 @@ fn fetch_path(hub: &str, token: &str, download: &str, file: &Path) -> Result<(),
             .call()
             .map_err(|e| format!("the file did not come: {e}"))?;
         let mut reader = std::io::Read::take(response.into_reader(), FETCH_LIMIT + 1);
-        let out = std::fs::File::create(file).map_err(|e| format!("the file could not be kept: {e}"))?;
+        let out =
+            std::fs::File::create(file).map_err(|e| format!("the file could not be kept: {e}"))?;
         let mut out = std::io::BufWriter::new(out);
-        let size = std::io::copy(&mut reader, &mut out).map_err(|e| format!("the file did not come: {e}"))?;
+        let size = std::io::copy(&mut reader, &mut out)
+            .map_err(|e| format!("the file did not come: {e}"))?;
         std::io::Write::flush(&mut out).map_err(|e| format!("the file could not be kept: {e}"))?;
         if size > FETCH_LIMIT {
             return Err(format!("the file is larger than {} MB", FETCH_LIMIT >> 20));
@@ -439,7 +446,12 @@ struct Fetching {
 
 impl Fetching {
     fn start(hub: &str, token: &str, order: protocol::JobOrder, file: PathBuf) -> Fetching {
-        let (hub, token, job, path) = (hub.to_owned(), token.to_owned(), order.clone(), file.clone());
+        let (hub, token, job, path) = (
+            hub.to_owned(),
+            token.to_owned(),
+            order.clone(),
+            file.clone(),
+        );
         let (sent, done) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let _ = sent.send(fetch(&hub, &token, &job, &path));
@@ -452,7 +464,9 @@ impl Fetching {
         match self.done.try_recv() {
             Ok(result) => Some(result),
             Err(std::sync::mpsc::TryRecvError::Empty) => None,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(Err("the download ended without an answer".to_owned())),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Some(Err("the download ended without an answer".to_owned()))
+            }
         }
     }
 }
@@ -462,7 +476,13 @@ impl Fetching {
 fn frame_download_ok(download: &str) -> bool {
     download
         .strip_prefix("/api/agent/v1/files/")
-        .is_some_and(|id| !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'))
+        .is_some_and(|id| {
+            !id.is_empty()
+                && id.len() <= 64
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        })
 }
 
 /// A command's file on its way (a laser's Frame): fetched on a thread of its own, as a job's (B2).
@@ -491,13 +511,20 @@ impl Commands {
         engine: &Engine,
         own_done: &mut Vec<CommandDone>,
     ) {
-        let failed = |id: u32, why: &str| CommandDone { id, ok: false, reason: Some(why.to_owned()), output: Vec::new() };
+        let failed = |id: u32, why: &str| CommandDone {
+            id,
+            ok: false,
+            reason: Some(why.to_owned()),
+            output: Vec::new(),
+        };
         loop {
             let (command, file) = if let Some(fetching) = &self.fetching {
                 let result = match fetching.done.try_recv() {
                     Ok(result) => result,
                     Err(std::sync::mpsc::TryRecvError::Empty) => return,
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("the download ended without an answer".to_owned()),
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        Err("the download ended without an answer".to_owned())
+                    }
                 };
                 let CommandFile { command, file, .. } = self.fetching.take().expect("it was there");
                 match result {
@@ -513,7 +540,9 @@ impl Commands {
             let order = match (command, file) {
                 (Some(id), Some(file)) => protocol::MachineCommand {
                     id,
-                    action: protocol::Action::Frame { download: file.to_string_lossy().into_owned() },
+                    action: protocol::Action::Frame {
+                        download: file.to_string_lossy().into_owned(),
+                    },
                 },
                 _ => match self.held.pop_front() {
                     Some(command) => command,
@@ -532,10 +561,22 @@ impl Commands {
                 std::thread::spawn(move || {
                     let _ = sent.send(fetch_path(&hub, &token, &path, &target));
                 });
-                self.fetching = Some(CommandFile { command: order.id, file, done });
+                self.fetching = Some(CommandFile {
+                    command: order.id,
+                    file,
+                    done,
+                });
                 continue;
             }
-            let given = machine.map(|id| engine.send(id, Order::Command { id: order.id, action: order.action }));
+            let given = machine.map(|id| {
+                engine.send(
+                    id,
+                    Order::Command {
+                        id: order.id,
+                        action: order.action,
+                    },
+                )
+            });
             if !matches!(given, Some(Ok(()))) {
                 own_done.push(failed(order.id, "this machine has no port yet"));
             }
@@ -554,11 +595,13 @@ fn stop_on_sigterm() {
         }
         // SAFETY: the handler only stores to an atomic, which is signal-safe.
         unsafe {
-            libc::signal(libc::SIGTERM, on_term as extern "C" fn(libc::c_int) as libc::sighandler_t);
+            libc::signal(
+                libc::SIGTERM,
+                on_term as extern "C" fn(libc::c_int) as libc::sighandler_t,
+            );
         }
     }
 }
-
 
 /// What the hub is told: the engine's report of the machine as its port gave it, Disconnected while
 /// there is no port or its device is gone, with the commands done and the job ended (and the agent's
@@ -577,7 +620,9 @@ fn telemetry_of(
     telemetry.done = report.map(|r| r.done.clone()).unwrap_or_default();
     telemetry.done.extend(own_done.iter().cloned());
     // One job end a report (the protocol's `job_end`); the next ones in the reports after.
-    telemetry.job_end = report.and_then(|r| r.job_ends.first().cloned()).or_else(|| own_end.cloned());
+    telemetry.job_end = report
+        .and_then(|r| r.job_ends.first().cloned())
+        .or_else(|| own_end.cloned());
     // B6
     telemetry.job_id = report.and_then(|r| r.job);
     telemetry.agent = Some(agent.clone());
@@ -657,7 +702,10 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let mut fetching: Option<Fetching> = None;
     // The commands, while a Frame's file comes.
     let mut commands = Commands::default();
-    let files = Path::new(&options.state).parent().unwrap_or(Path::new("")).to_path_buf();
+    let files = Path::new(&options.state)
+        .parent()
+        .unwrap_or(Path::new(""))
+        .to_path_buf();
     stop_on_sigterm();
     loop {
         if STOPPING.load(Ordering::Relaxed) {
@@ -669,15 +717,34 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             let Fetching { order, file, .. } = fetching.take().expect("it was there");
             let given = result.and_then(|()| match machine {
                 Some(id) => engine
-                    .send(id, Order::Job { order: order.clone(), file })
+                    .send(
+                        id,
+                        Order::Job {
+                            order: order.clone(),
+                            file,
+                        },
+                    )
                     .map_err(|_| "its port has ended".to_owned()),
                 None => Err("this machine has no port yet".to_owned()),
             });
             if let Err(why) = given {
-                own_end = Some(JobEnd { id: order.id, ok: false, stopped: false, reason: Some(why), restart_line: None });
+                own_end = Some(JobEnd {
+                    id: order.id,
+                    ok: false,
+                    stopped: false,
+                    reason: Some(why),
+                    restart_line: None,
+                });
             }
         }
-        commands.step(&options.hub, &registered.token, &files, machine, &engine, &mut own_done);
+        commands.step(
+            &options.hub,
+            &registered.token,
+            &files,
+            machine,
+            &engine,
+            &mut own_done,
+        );
         // What the engine knows of the machine; disconnected while it has none, or while its
         // device is gone.
         let report = machine.and_then(|id| engine.report(id).ok());
@@ -765,9 +832,22 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 }
                 // What the hub asks, to the engine in the order given (O2).
                 commands.held.extend(reply.commands);
-                commands.step(&options.hub, &registered.token, &files, machine, &engine, &mut own_done);
+                commands.step(
+                    &options.hub,
+                    &registered.token,
+                    &files,
+                    machine,
+                    &engine,
+                    &mut own_done,
+                );
                 if let Some(order) = reply.job {
-                    let end = |why: &str| JobEnd { id: order.id, ok: false, stopped: false, reason: Some(why.to_owned()), restart_line: None };
+                    let end = |why: &str| JobEnd {
+                        id: order.id,
+                        ok: false,
+                        stopped: false,
+                        reason: Some(why.to_owned()),
+                        restart_line: None,
+                    };
                     match (&fetching, machine) {
                         (_, None) => own_end = Some(end("this machine has no port yet")),
                         // Said again while its file is coming: it is on its way.
@@ -775,7 +855,12 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                         (Some(_), _) => own_end = Some(end("another job's file is still coming")),
                         (None, Some(_)) => {
                             let file = files.join(format!("job-{}", order.id));
-                            fetching = Some(Fetching::start(&options.hub, &registered.token, order.clone(), file));
+                            fetching = Some(Fetching::start(
+                                &options.hub,
+                                &registered.token,
+                                order.clone(),
+                                file,
+                            ));
                         }
                     }
                 }
@@ -830,7 +915,10 @@ mod tests {
                 stream.read_exact(&mut byte).unwrap();
                 request.push(byte[0]);
             }
-            let head = format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len());
+            let head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                body.len()
+            );
             stream.write_all(head.as_bytes()).unwrap();
             stream.write_all(&body).unwrap();
             String::from_utf8_lossy(&request).into_owned()
@@ -863,8 +951,16 @@ mod tests {
         fetch(&hub, "secret", &order(), &file).unwrap();
         assert_eq!(std::fs::read(&file).unwrap(), png);
         let request = served.join().unwrap();
-        assert!(request.starts_with("GET /api/agent/jobs/9/file "), "{request}");
-        assert!(request.to_lowercase().contains("authorization: bearer secret"), "{request}");
+        assert!(
+            request.starts_with("GET /api/agent/jobs/9/file "),
+            "{request}"
+        );
+        assert!(
+            request
+                .to_lowercase()
+                .contains("authorization: bearer secret"),
+            "{request}"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -903,7 +999,16 @@ mod tests {
     #[test]
     fn a_frames_file_comes_only_from_the_agent_files_route() {
         assert!(frame_download_ok("/api/agent/v1/files/ab12-CD_3"));
-        for bad in ["", "/api/agent/v1/files/", "/api/agent/v1/files/../x", "/api/agent/v1/files/a/b", "/api/agent/jobs/9/file", "http://elsewhere/api/agent/v1/files/1", "/etc/passwd", "/api/agent/v1/files/1?x=2"] {
+        for bad in [
+            "",
+            "/api/agent/v1/files/",
+            "/api/agent/v1/files/../x",
+            "/api/agent/v1/files/a/b",
+            "/api/agent/jobs/9/file",
+            "http://elsewhere/api/agent/v1/files/1",
+            "/etc/passwd",
+            "/api/agent/v1/files/1?x=2",
+        ] {
             assert!(!frame_download_ok(bad), "{bad}");
         }
     }
@@ -934,10 +1039,26 @@ mod tests {
         let mut commands = Commands::default();
         let mut own_done = Vec::new();
         commands.held.extend([
-            protocol::MachineCommand { id: 1, action: protocol::Action::Unlock },
-            protocol::MachineCommand { id: 2, action: protocol::Action::Frame { download: "/api/agent/v1/files/f1".into() } },
-            protocol::MachineCommand { id: 3, action: protocol::Action::Home { axes: vec![] } },
-            protocol::MachineCommand { id: 4, action: protocol::Action::Frame { download: "/etc/passwd".into() } },
+            protocol::MachineCommand {
+                id: 1,
+                action: protocol::Action::Unlock,
+            },
+            protocol::MachineCommand {
+                id: 2,
+                action: protocol::Action::Frame {
+                    download: "/api/agent/v1/files/f1".into(),
+                },
+            },
+            protocol::MachineCommand {
+                id: 3,
+                action: protocol::Action::Home { axes: vec![] },
+            },
+            protocol::MachineCommand {
+                id: 4,
+                action: protocol::Action::Frame {
+                    download: "/etc/passwd".into(),
+                },
+            },
         ]);
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
@@ -948,39 +1069,88 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         let request = served.join().unwrap();
-        assert!(request.starts_with("GET /api/agent/v1/files/f1 "), "{request}");
-        assert!(request.to_lowercase().contains("authorization: bearer secret"), "{request}");
+        assert!(
+            request.starts_with("GET /api/agent/v1/files/f1 "),
+            "{request}"
+        );
+        assert!(
+            request
+                .to_lowercase()
+                .contains("authorization: bearer secret"),
+            "{request}"
+        );
         let file = dir.join("frame-2");
         assert_eq!(std::fs::read(&file).unwrap(), b"G90\nG1 X5 Y5 F100\n");
         let orders = seen.lock().unwrap().clone();
-        assert_eq!(orders[0], Order::Command { id: 1, action: protocol::Action::Unlock });
-        assert_eq!(orders[1], Order::Command { id: 2, action: protocol::Action::Frame { download: file.to_string_lossy().into_owned() } });
-        assert_eq!(orders[2], Order::Command { id: 3, action: protocol::Action::Home { axes: vec![] } });
+        assert_eq!(
+            orders[0],
+            Order::Command {
+                id: 1,
+                action: protocol::Action::Unlock
+            }
+        );
+        assert_eq!(
+            orders[1],
+            Order::Command {
+                id: 2,
+                action: protocol::Action::Frame {
+                    download: file.to_string_lossy().into_owned()
+                }
+            }
+        );
+        assert_eq!(
+            orders[2],
+            Order::Command {
+                id: 3,
+                action: protocol::Action::Home { axes: vec![] }
+            }
+        );
         assert_eq!(own_done.len(), 1, "the foreign path fails: {own_done:?}");
         assert!(own_done[0].id == 4 && !own_done[0].ok);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
     fn args(more: &[&str]) -> Vec<String> {
-        let dir = std::env::temp_dir().join(format!("maker-connect-agent-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("maker-connect-agent-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let config = dir.join("empty.toml");
         std::fs::write(&config, "").unwrap();
-        ["--config", config.to_str().unwrap(), "--hub", "http://hub:8460", "--name", "Gonzo"]
-            .iter()
-            .chain(more)
-            .map(|s| s.to_string())
-            .collect()
+        [
+            "--config",
+            config.to_str().unwrap(),
+            "--hub",
+            "http://hub:8460",
+            "--name",
+            "Gonzo",
+        ]
+        .iter()
+        .chain(more)
+        .map(|s| s.to_string())
+        .collect()
     }
 
     /// B4: `--mode` and `--kind` are required, with no default; `--port` and `--baud` too: none given is
     /// none (the port's reference decides)
     #[test]
     fn b4_mode_and_kind_have_no_default() {
-        let error = |more: &[&str]| options(&args(more)).err().map(|e| e.to_string()).expect("an error");
-        assert!(error(&["--kind", "fdm"]).contains("--mode"), "{}", error(&["--kind", "fdm"]));
+        let error = |more: &[&str]| {
+            options(&args(more))
+                .err()
+                .map(|e| e.to_string())
+                .expect("an error")
+        };
+        assert!(
+            error(&["--kind", "fdm"]).contains("--mode"),
+            "{}",
+            error(&["--kind", "fdm"])
+        );
         assert!(error(&["--kind", "fdm"]).contains("no default"));
-        assert!(error(&["--mode", "marlin"]).contains("--kind"), "{}", error(&["--mode", "marlin"]));
+        assert!(
+            error(&["--mode", "marlin"]).contains("--kind"),
+            "{}",
+            error(&["--mode", "marlin"])
+        );
         assert!(error(&["--mode", "marlin"]).contains("no default"));
         assert!(error(&["--kind", "fdm", "--mode", "octoprint"]).contains("not octoprint"));
         for (given, mode) in [
@@ -996,16 +1166,35 @@ mod tests {
             assert_eq!(options.port, None);
             assert_eq!(options.baud, None, "no invented baud rate");
         }
-        let options = options(&args(&["--kind", "fdm", "--mode", "marlin", "--port", "/dev/ttyACM0", "--baud", "250000"])).unwrap();
-        assert_eq!((options.port.as_deref(), options.baud), (Some("/dev/ttyACM0"), Some(250_000)));
+        let options = options(&args(&[
+            "--kind",
+            "fdm",
+            "--mode",
+            "marlin",
+            "--port",
+            "/dev/ttyACM0",
+            "--baud",
+            "250000",
+        ]))
+        .unwrap();
+        assert_eq!(
+            (options.port.as_deref(), options.baud),
+            (Some("/dev/ttyACM0"), Some(250_000))
+        );
     }
 
     /// `--mode cameras` needs `--camera`; `--camera` reads as an index.
     #[test]
     fn mode_cameras_needs_a_camera_index() {
-        let error = options(&args(&["--kind", "other", "--mode", "cameras"])).err().map(|e| e.to_string()).unwrap();
+        let error = options(&args(&["--kind", "other", "--mode", "cameras"]))
+            .err()
+            .map(|e| e.to_string())
+            .unwrap();
         assert!(error.contains("--camera"), "{error}");
-        let options = options(&args(&["--kind", "other", "--mode", "cameras", "--camera", "1"])).unwrap();
+        let options = options(&args(&[
+            "--kind", "other", "--mode", "cameras", "--camera", "1",
+        ]))
+        .unwrap();
         assert_eq!((options.mode, options.camera), (Mode::Cameras, Some(1)));
     }
 
@@ -1014,7 +1203,10 @@ mod tests {
     fn b6_the_job_id_comes_from_the_engine() {
         let agent = protocol::AgentInfo::default();
         let report = Report {
-            telemetry: Telemetry { state: MachineState::Busy, ..Telemetry::default() },
+            telemetry: Telemetry {
+                state: MachineState::Busy,
+                ..Telemetry::default()
+            },
             job: Some(42),
             connected: true,
             ..Report::default()
@@ -1022,11 +1214,21 @@ mod tests {
         let telemetry = telemetry_of(Some(&report), &[], None, &agent);
         assert_eq!(telemetry.job_id, Some(42));
         assert_eq!(telemetry.state, MachineState::Busy);
-        let idle = Report { job: None, connected: true, ..report.clone() };
+        let idle = Report {
+            job: None,
+            connected: true,
+            ..report.clone()
+        };
         assert_eq!(telemetry_of(Some(&idle), &[], None, &agent).job_id, None);
-        let gone = Report { connected: false, ..report };
+        let gone = Report {
+            connected: false,
+            ..report
+        };
         let telemetry = telemetry_of(Some(&gone), &[], None, &agent);
         assert_eq!(telemetry.state, MachineState::Disconnected);
-        assert_eq!(telemetry_of(None, &[], None, &agent).state, MachineState::Disconnected);
+        assert_eq!(
+            telemetry_of(None, &[], None, &agent).state,
+            MachineState::Disconnected
+        );
     }
 }

@@ -14,7 +14,9 @@ use maker_connect_protocol as protocol;
 use nokhwa::{
     Camera,
     pixel_format::RgbFormat,
-    utils::{CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType, Resolution},
+    utils::{
+        CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType, Resolution,
+    },
 };
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -42,8 +44,8 @@ const JPEG_HEADER: [u8; 20] = [
 const DHT_SEGMENT_SIZE: usize = 420;
 const DHT_SEGMENT_HEAD: [u8; 5] = [0xff, 0xc4, 0x01, 0xa2, 0x00];
 const DHT_SEGMENT_FRAG: [u8; 29] = [
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x01, 0x00, 0x03, 0x01, 0x01,
-    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x01, 0x00, 0x03, 0x01,
+    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
 /// FFmpeg's `append_dht_segment`.
@@ -76,7 +78,8 @@ pub fn mjpeg2jpeg(input: &[u8]) -> Result<Vec<u8>, &'static str> {
     if input.len() < input_skip {
         return Err("input is truncated");
     }
-    let mut out = Vec::with_capacity(input.len() - input_skip + JPEG_HEADER.len() + DHT_SEGMENT_SIZE);
+    let mut out =
+        Vec::with_capacity(input.len() - input_skip + JPEG_HEADER.len() + DHT_SEGMENT_SIZE);
     out.extend_from_slice(&JPEG_HEADER);
     append_dht_segment(&mut out);
     out.extend_from_slice(&input[input_skip..]);
@@ -147,23 +150,28 @@ pub fn spawn(hub: String, token: Arc<Mutex<String>>, index: u32) {
 
 fn capture(hub: &str, token: &Mutex<String>, index: u32) -> Result<(), Box<dyn std::error::Error>> {
     // Ours: 640x480 MJPEG at 30 fps, the closest the camera has.
-    let wanted = RequestedFormat::new::<RgbFormat>(RequestedFormatType::Closest(CameraFormat::new(
-        Resolution::new(640, 480),
-        FrameFormat::MJPEG,
-        30,
-    )));
+    let wanted = RequestedFormat::new::<RgbFormat>(RequestedFormatType::Closest(
+        CameraFormat::new(Resolution::new(640, 480), FrameFormat::MJPEG, 30),
+    ));
     let mut camera = Camera::new(CameraIndex::Index(index), wanted)?;
     camera.open_stream()?;
     let format = camera.camera_format();
     if format.format() != FrameFormat::MJPEG {
-        return Err(format!("the camera gives {:?}, step 1 takes MJPEG only", format.format()).into());
+        return Err(format!(
+            "the camera gives {:?}, step 1 takes MJPEG only",
+            format.format()
+        )
+        .into());
     }
     println!(
         "camera {index}: {} at {format}, a frame every {} s",
         camera.info().human_name(),
         EVERY.as_secs()
     );
-    let url = format!("{hub}{}", protocol::CAMERA_FRAME.replace("{index}", &index.to_string()));
+    let url = format!(
+        "{hub}{}",
+        protocol::CAMERA_FRAME.replace("{index}", &index.to_string())
+    );
     let mut last: Option<Instant> = None;
     loop {
         let raw = camera.frame_raw()?;
@@ -224,7 +232,10 @@ mod tests {
         assert!(!has_dht(&sample));
         let fixed = mjpeg2jpeg(&sample).unwrap();
         assert!(has_dht(&fixed));
-        assert_eq!(fixed.len(), sample.len() - 2 + JPEG_HEADER.len() + DHT_SEGMENT_SIZE);
+        assert_eq!(
+            fixed.len(),
+            sample.len() - 2 + JPEG_HEADER.len() + DHT_SEGMENT_SIZE
+        );
         assert_eq!(jpeg_end(&fixed), Some(fixed.len()));
     }
 
@@ -235,7 +246,10 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         for (name, with_app0) in [("plain", false), ("app0", true)] {
             let sample = uvc_like(with_app0);
-            let (input, output) = (dir.join(format!("{name}.jpg")), dir.join(format!("{name}.out.jpg")));
+            let (input, output) = (
+                dir.join(format!("{name}.jpg")),
+                dir.join(format!("{name}.out.jpg")),
+            );
             std::fs::write(&input, &sample).unwrap();
             let run = std::process::Command::new("ffmpeg")
                 .args(["-v", "error", "-y", "-f", "image2", "-c:v", "mjpeg", "-i"])
@@ -248,7 +262,11 @@ mod tests {
                 return;
             };
             assert!(status.success());
-            assert_eq!(mjpeg2jpeg(&sample).unwrap(), std::fs::read(&output).unwrap(), "{name}");
+            assert_eq!(
+                mjpeg2jpeg(&sample).unwrap(),
+                std::fs::read(&output).unwrap(),
+                "{name}"
+            );
         }
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -258,7 +276,11 @@ mod tests {
         let fixed = mjpeg2jpeg(&uvc_like(true)).unwrap();
         let mut buffer = fixed.clone();
         buffer.extend_from_slice(&[0xff, 0xd9, 0, 0, 0xff, 0xd8, 7, 7]);
-        assert_eq!(frame_to_jpeg(&buffer).unwrap(), fixed, "a frame that has tables stays as it is");
+        assert_eq!(
+            frame_to_jpeg(&buffer).unwrap(),
+            fixed,
+            "a frame that has tables stays as it is"
+        );
         let mut raw = uvc_like(false);
         let plain = raw.clone();
         raw.extend_from_slice(&[0xaa; 1000]);

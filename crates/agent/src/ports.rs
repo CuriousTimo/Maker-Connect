@@ -9,20 +9,30 @@ use maker_connect_engine::Port;
 /// The port for the machine the options describe, opened; none yet.
 pub fn open(options: &Options) -> Option<Box<dyn Port>> {
     match options.mode {
-        Mode::DymoPnp => Some(Box::new(maker_connect_engine::ports::labelle::DymoPnp::new())),
+        Mode::DymoPnp => Some(Box::new(
+            maker_connect_engine::ports::labelle::DymoPnp::new(),
+        )),
         // `--port` and `--baud` as given: absent, OctoPrint's own settings and detection decide
-        Mode::Marlin => Some(Box::new(maker_connect_engine::ports::octoprint::port::OctoPrintPort::new(
-            options.port.clone(),
-            options.baud,
-        ))),
+        Mode::Marlin => Some(Box::new(
+            maker_connect_engine::ports::octoprint::port::OctoPrintPort::new(
+                options.port.clone(),
+                options.baud,
+            ),
+        )),
         // `--port` and `--baud` as given; without `--baud`, LaserFoundry's own `DEFAULT_BAUD`
-        Mode::Grbl => Some(Box::new(maker_connect_engine::ports::laserfoundry::port::LaserFoundryPort::new(
-            options.port.clone(),
-            options.baud,
-        ))),
-        Mode::LabelWriter450 => Some(Box::new(maker_connect_engine::ports::dymo_cups::LabelWriter450::new())),
+        Mode::Grbl => Some(Box::new(
+            maker_connect_engine::ports::laserfoundry::port::LaserFoundryPort::new(
+                options.port.clone(),
+                options.baud,
+            ),
+        )),
+        Mode::LabelWriter450 => Some(Box::new(
+            maker_connect_engine::ports::dymo_cups::LabelWriter450::new(),
+        )),
         // `--port` = the HID path; without it the one device with usage page 0x8D (checked at start)
-        Mode::DymoScale => Some(Box::new(maker_connect_engine::ports::usbscale::UsbScale::new(options.port.clone()))),
+        Mode::DymoScale => Some(Box::new(
+            maker_connect_engine::ports::usbscale::UsbScale::new(options.port.clone()),
+        )),
         Mode::Prusa | Mode::Cameras => None,
     }
 }
@@ -31,7 +41,9 @@ pub fn open(options: &Options) -> Option<Box<dyn Port>> {
 /// page 0x8D, or `--port`), else the agent refuses and lists what it saw. Nothing for the other modes.
 pub fn check(options: &Options) -> Result<(), String> {
     match options.mode {
-        Mode::DymoScale => maker_connect_engine::ports::usbscale::port::check(options.port.as_deref()),
+        Mode::DymoScale => {
+            maker_connect_engine::ports::usbscale::port::check(options.port.as_deref())
+        }
         _ => Ok(()),
     }
 }
