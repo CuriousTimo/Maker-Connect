@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE machines SET profile = $1 WHERE token = $2 AND NOT profile_chosen",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7996bfb3fb851c33a9d47f464e5ea24c7b233db61c2745cb6e037bacf751798a"
+}

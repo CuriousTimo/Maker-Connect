@@ -10,6 +10,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod machines;
 
+mod pg_machines;
+
+mod pg_files;
+
 mod commands;
 pub use commands::on_marlin_port;
 
@@ -499,6 +503,8 @@ pub struct Store {
 
 struct Inner {
     pg: pg::Pg,
+    /// Where uploaded files are kept (the same folder as [`Legacy::files_dir`]; transitional).
+    files_dir: std::path::PathBuf,
     legacy: std::sync::Mutex<Legacy>,
     changes: tokio::sync::broadcast::Sender<()>,
     /// While nobody has an account: the code (printed at start) that makes the first one.
@@ -514,6 +520,7 @@ impl Store {
         let store = Self {
             inner: std::sync::Arc::new(Inner {
                 pg,
+                files_dir: legacy.files_dir.clone(),
                 legacy: std::sync::Mutex::new(legacy),
                 changes,
                 setup_code: Default::default(),

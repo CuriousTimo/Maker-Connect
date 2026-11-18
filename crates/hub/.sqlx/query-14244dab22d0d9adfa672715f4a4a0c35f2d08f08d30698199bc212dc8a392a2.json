@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO machines (id, name, kind, agent_version, token, pairing_code, registered_at, link, induction_required)\n             VALUES ($1, $2, $3, $4, $5, $6, at_unix($7), $8, 1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "14244dab22d0d9adfa672715f4a4a0c35f2d08f08d30698199bc212dc8a392a2"
+}

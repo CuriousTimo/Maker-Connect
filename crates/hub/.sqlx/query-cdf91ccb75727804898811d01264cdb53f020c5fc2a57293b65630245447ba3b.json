@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) AS \"n!\" FROM jobs WHERE file_id = $1\n               AND state IN ('loaded', 'queued', 'printing', 'paused', 'stopping')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "cdf91ccb75727804898811d01264cdb53f020c5fc2a57293b65630245447ba3b"
+}

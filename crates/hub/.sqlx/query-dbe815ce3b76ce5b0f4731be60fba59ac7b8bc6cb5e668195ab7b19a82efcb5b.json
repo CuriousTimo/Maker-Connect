@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE machines SET space_id = $1, pairing_code = NULL WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dbe815ce3b76ce5b0f4731be60fba59ac7b8bc6cb5e668195ab7b19a82efcb5b"
+}

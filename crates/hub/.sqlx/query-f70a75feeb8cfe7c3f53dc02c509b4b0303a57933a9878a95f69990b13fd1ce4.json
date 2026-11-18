@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE machines SET powered_by = $1, power_channel = $2 WHERE id = $3 AND space_id = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f70a75feeb8cfe7c3f53dc02c509b4b0303a57933a9878a95f69990b13fd1ce4"
+}

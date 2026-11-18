@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE machines SET space_id = $1, pairing_code = NULL, profile = $2, profile_chosen = true\n             WHERE id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "16de3bf5f6a4cb4e872acbc0c34229e87b84de688ed3a4a9dddcc912dcd6781a"
+}
