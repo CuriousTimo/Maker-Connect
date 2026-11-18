@@ -1,6 +1,6 @@
 use super::*;
 
-impl Store {
+impl Legacy {
     /// Whether a token belongs to a machine.
     pub fn knows(&self, token: &str) -> rusqlite::Result<bool> {
         self.db.query_row(

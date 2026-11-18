@@ -1,6 +1,6 @@
-use crate::store::Store;
+use crate::store::Legacy;
 use crate::{
-    PAGE, STYLE, Shared, access, done, escape, failed, header, label_page, machine_page, profiles,
+    PAGE, STYLE, Store, access, done, escape, failed, header, label_page, machine_page, profiles,
 };
 use axum::{
     Form, Json,
@@ -15,11 +15,11 @@ use maker_connect_protocol as protocol;
 
 pub(crate) async fn machines(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
 ) -> Response {
     let store = store.lock().unwrap();
     match store
-        .space_of(&access)
+        .space_id_of(&access)
         .and_then(|(space, _)| store.machines(space))
     {
         Ok(machines) => Json(machines).into_response(),
@@ -28,10 +28,10 @@ pub(crate) async fn machines(
 }
 
 /// A space's machines as JSON.
-fn machines_json(store: &Shared, access: &access::Access) -> String {
+fn machines_json(store: &Store, access: &access::Access) -> String {
     let store = store.lock().unwrap();
     store
-        .space_of(access)
+        .space_id_of(access)
         .and_then(|(space, _)| store.machines(space))
         .map(|machines| serde_json::to_string(&machines).unwrap_or_default())
         .unwrap_or_else(|_| "[]".to_owned())
@@ -41,7 +41,7 @@ fn machines_json(store: &Shared, access: &access::Access) -> String {
 /// few seconds anyway, as "seen" and "online" change with time alone.
 pub(crate) async fn machine_stream(
     access: access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
 ) -> Sse<impl futures_util::Stream<Item = Result<Event, std::convert::Infallible>>> {
     use std::time::Duration;
     use tokio::sync::broadcast::error::TryRecvError;
@@ -65,8 +65,8 @@ pub(crate) async fn machine_stream(
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
-pub(crate) async fn page(access: crate::access::Access, State(store): State<Shared>) -> Response {
-    match store.lock().unwrap().space_of(&access) {
+pub(crate) async fn page(access: crate::access::Access, State(store): State<Store>) -> Response {
+    match store.lock().unwrap().space_id_of(&access) {
         Ok((_, name)) => Html(
             PAGE.replace("{style}", STYLE)
                 .replace("{space}", &escape(&name))
@@ -127,14 +127,14 @@ pub(crate) struct VirtualForm {
 
 pub(crate) async fn add_virtual(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Form(form): Form<VirtualForm>,
 ) -> Response {
     let Some(profile) = profiles::find(&form.profile) else {
         return (StatusCode::BAD_REQUEST, "no such profile").into_response();
     };
     let mut store = store.lock().unwrap();
-    match store.space_of(&access).and_then(|(space, _)| {
+    match store.space_id_of(&access).and_then(|(space, _)| {
         let id = store.add_virtual(space, profile)?;
         Ok(id)
     }) {
@@ -151,7 +151,7 @@ pub(crate) struct KlipperForm {
 /// A printer on Klipper: made here, its Settings then give the lines for its moonraker.conf.
 pub(crate) async fn add_klipper(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     headers: HeaderMap,
     Form(form): Form<KlipperForm>,
 ) -> Response {
@@ -160,7 +160,7 @@ pub(crate) async fn add_klipper(
         return (StatusCode::BAD_REQUEST, "a name of 1 to 60 characters").into_response();
     }
     let mut store = store.lock().unwrap();
-    let added = store.space_of(&access).and_then(|(space, _)| {
+    let added = store.space_id_of(&access).and_then(|(space, _)| {
         let id = store.add_moonraker(space, name)?;
         Ok((id.clone(), store.moonraker_token(space, &id)?))
     });
@@ -188,7 +188,7 @@ pub(crate) struct MoveForm {
 
 /// The other spaces someone who manages a machine could move it to: where they are owner or
 /// admin too. (uid, "Organisation · Space"); none for a token.
-fn move_targets(store: &Store, access: &access::Access, machine: &str) -> Vec<(String, String)> {
+fn move_targets(store: &Legacy, access: &access::Access, machine: &str) -> Vec<(String, String)> {
     let manages = store
         .may(access, machine, access::Level::Manage)
         .ok()
@@ -209,7 +209,7 @@ fn move_targets(store: &Store, access: &access::Access, machine: &str) -> Vec<(S
 /// Moves a machine to another space of someone who manages both.
 pub(crate) async fn move_machine(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     Form(form): Form<MoveForm>,
 ) -> Response {
@@ -271,13 +271,13 @@ pub(crate) async fn move_machine(
 
 pub(crate) async fn remove(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
 ) -> Response {
     let mut store = store.lock().unwrap();
     match store
-        .space_of(&access)
+        .space_id_of(&access)
         .and_then(|(space, _)| store.remove(space, &id))
     {
         Ok(true) => done(&headers, "/"),
@@ -288,12 +288,12 @@ pub(crate) async fn remove(
 
 pub(crate) async fn history(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Response {
     let store = store.lock().unwrap();
     match store
-        .space_of(&access)
+        .space_id_of(&access)
         .and_then(|(space, _)| store.history(space, &id))
     {
         Ok(Some(samples)) => Json(samples).into_response(),
@@ -316,7 +316,7 @@ pub(crate) struct LabelsForm {
 /// A machine's labels, as typed: to find it, filter on and group by.
 pub(crate) async fn set_labels(
     access: access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     Form(form): Form<LabelsForm>,
 ) -> Response {
@@ -330,7 +330,7 @@ pub(crate) async fn set_labels(
 
 pub(crate) async fn rename(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
     Form(form): Form<NameForm>,
@@ -341,7 +341,7 @@ pub(crate) async fn rename(
     }
     let store = store.lock().unwrap();
     match store
-        .space_of(&access)
+        .space_id_of(&access)
         .and_then(|(space, _)| store.rename(space, &id, name))
     {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
@@ -362,7 +362,7 @@ pub(crate) struct OutOfUseForm {
 /// The owner takes a machine out of use, with why, or brings it back.
 pub(crate) async fn out_of_use(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
     Form(form): Form<OutOfUseForm>,
@@ -382,7 +382,7 @@ pub(crate) async fn out_of_use(
     };
     let store = store.lock().unwrap();
     match store
-        .space_of(&access)
+        .space_id_of(&access)
         .and_then(|(space, _)| store.set_out_of_use(space, &id, reason))
     {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
@@ -401,7 +401,7 @@ pub(crate) struct LaserForm {
 /// A laser's module: its optical power, as the owner says.
 pub(crate) async fn laser_power(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
     Form(form): Form<LaserForm>,
@@ -415,7 +415,7 @@ pub(crate) async fn laser_power(
     };
     let store = store.lock().unwrap();
     match store
-        .space_of(&access)
+        .space_id_of(&access)
         .and_then(|(space, _)| store.set_laser_w(space, &id, watts))
     {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
@@ -427,12 +427,12 @@ pub(crate) async fn laser_power(
 /// Someone took the finished print off the bed: the machine can take the next job.
 pub(crate) async fn taken(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
 ) -> Response {
     let mut store = store.lock().unwrap();
-    let space = match store.space_of(&access) {
+    let space = match store.space_id_of(&access) {
         Ok((space, _)) => space,
         Err(error) => return failed(error),
     };
@@ -446,12 +446,12 @@ pub(crate) async fn taken(
 /// Not ready for the next job after all (PrusaLink's `cancel_ready`).
 pub(crate) async fn not_ready(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
 ) -> Response {
     let mut store = store.lock().unwrap();
-    let space = match store.space_of(&access) {
+    let space = match store.space_id_of(&access) {
         Ok((space, _)) => space,
         Err(error) => return failed(error),
     };
@@ -473,12 +473,12 @@ pub(crate) struct AnswerForm {
 /// `M876 S<index>` (with its next report).
 pub(crate) async fn answer(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     Form(form): Form<AnswerForm>,
 ) -> Response {
     let mut store = store.lock().unwrap();
-    let space = match store.space_of(&access) {
+    let space = match store.space_id_of(&access) {
         Ok((space, _)) => space,
         Err(error) => return failed(error),
     };
@@ -522,7 +522,7 @@ pub(crate) async fn answer(
 
 pub(crate) async fn choose_profile(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
     Form(form): Form<ProfileForm>,
@@ -533,7 +533,7 @@ pub(crate) async fn choose_profile(
     }
     let store = store.lock().unwrap();
     match store
-        .space_of(&access)
+        .space_id_of(&access)
         .and_then(|(space, _)| store.set_profile(space, &id, profile))
     {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
@@ -551,13 +551,13 @@ pub(crate) struct MediaForm {
 /// The owner says which tape (or roll) is loaded.
 pub(crate) async fn choose_media(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
     Form(form): Form<MediaForm>,
 ) -> Response {
     let store = store.lock().unwrap();
-    let space = match store.space_of(&access) {
+    let space = match store.space_id_of(&access) {
         Ok((space, _)) => space,
         Err(error) => return failed(error),
     };
@@ -596,12 +596,12 @@ pub(crate) async fn choose_media(
 /// A machine: its profile to choose (by brand), what the profile knows, and its bed.
 pub(crate) async fn machine_page(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Response {
     let store = store.lock().unwrap();
     let found = store
-        .space_of(&access)
+        .space_id_of(&access)
         .and_then(|(space, name)| Ok((name, store.machine(space, &id)?)));
     match found {
         Ok((space, Some(machine))) if machine.kind == protocol::MachineKind::Label => {
@@ -658,7 +658,7 @@ pub(crate) async fn machine_page(
 
 /// A machine's Camera tab, when the hub has cameras and one on it may be watched.
 fn camera_tab(
-    store: &crate::store::Store,
+    store: &crate::store::Legacy,
     access: &crate::access::Access,
     machine: &str,
 ) -> Option<String> {
@@ -675,7 +675,7 @@ fn camera_tab(
 mod tests {
     use super::*;
     use crate::link::tests::{call, json};
-    use crate::store::Store;
+    use crate::store::Legacy;
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
@@ -686,7 +686,7 @@ mod tests {
     /// The page's stream sends the list at once, and again when a machine changes.
     #[tokio::test]
     async fn the_list_streams_its_changes() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let response = app
             .oneshot(
@@ -725,7 +725,7 @@ mod tests {
     #[tokio::test]
     async fn a_machine_gets_its_profile() {
         let app =
-            crate::auth::signed_in_app(Arc::new(Mutex::new(Store::open(":memory:").unwrap())));
+            crate::auth::signed_in_app(Arc::new(Mutex::new(Legacy::open(":memory:").unwrap())));
         let register =
             r#"{"protocol":1,"name":"Mini","kind":"fdm","agent_version":"0.1.0"}"#.to_owned();
         let (_, body) = call(&app, json(protocol::REGISTER, None, register)).await;
@@ -785,7 +785,7 @@ mod tests {
     /// the LabelWriter's page its raster from the port.
     #[tokio::test]
     async fn a_labelwriter_has_its_own_page() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let (writer, manager) = {
             let mut store = store.lock().unwrap();

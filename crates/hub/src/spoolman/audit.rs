@@ -14,7 +14,7 @@
 //! not as differences.
 
 use super::parse_iso;
-use crate::store::Store;
+use crate::store::Legacy;
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
@@ -443,7 +443,7 @@ fn measure() -> (usize, usize, String, Vec<String>) {
         .build()
         .unwrap();
     rt.block_on(async move {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let app = crate::auth::signed_in_app(store);

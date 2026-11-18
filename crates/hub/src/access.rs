@@ -18,9 +18,9 @@
 //! The space is the boundary: a request carries one [`Access`], and handlers take the space
 //! from it, nowhere else.
 
-use crate::Shared;
+use crate::Store;
 use crate::accounts::{random_token, token_hash};
-use crate::store::{Store, now};
+use crate::store::{Legacy, now};
 use axum::{
     extract::{FromRequestParts, MatchedPath, RawPathParams, Request, State},
     http::{Method, StatusCode, request::Parts},
@@ -904,7 +904,7 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         None,
     ),
     // Cameras (crate::cameras, owner 2026-11-16): watching is checked per camera by its
-    // handler (`Store::may_view_camera`); adding, changing and removing take an admin.
+    // handler (`Legacy::may_view_camera`); adding, changing and removing take an admin.
     ("GET", "/cameras", Need::Role(Role::Guest), None),
     ("GET", "/cameras/{id}", Need::Role(Role::Guest), None),
     ("GET", "/cameras/{id}/live", Need::Role(Role::Guest), None),
@@ -945,7 +945,7 @@ pub fn need(method: &Method, route: &str) -> Option<(Need, Option<&'static str>)
 
 /// After the route is matched: what it needs, against who asks; then, for what changed
 /// something, a line in the audit log.
-pub async fn permit(State(store): State<Shared>, request: Request, next: Next) -> Response {
+pub async fn permit(State(store): State<Store>, request: Request, next: Next) -> Response {
     let (mut parts, body) = request.into_parts();
     let params = RawPathParams::from_request_parts(&mut parts, &())
         .await
@@ -1042,7 +1042,7 @@ fn level_refusal(level: Level) -> &'static str {
 /// For a handler whose machine is in the form or the body (printing a file, framing it,
 /// loading a spool): whether this access has `level` on it; the refusal otherwise.
 pub fn check_machine(
-    store: &Store,
+    store: &Legacy,
     access: &Access,
     machine: &str,
     level: Level,
@@ -1167,279 +1167,7 @@ pub const INVITE_SECONDS: i64 = 7 * 24 * 3600;
 /// Prefix of API tokens, so one is recognised when pasted somewhere it should not be.
 pub const TOKEN_PREFIX: &str = "mct_";
 
-impl Store {
-    /// The space a request acts in, with its name: from who asks.
-    pub fn space_of(&self, access: &Access) -> rusqlite::Result<(i64, String)> {
-        Ok((access.space, self.space_name(access.space)?))
-    }
-
-    /// Someone's role in a space: the higher of their role in its organisation (which
-    /// counts in all its spaces) and in the space itself.
-    pub fn role_of(&self, user: i64, space: i64) -> rusqlite::Result<Option<Role>> {
-        let roles: Vec<String> = {
-            let mut q = self.db.prepare(
-                "SELECT role FROM memberships WHERE user_id = ?1 AND space_id = ?2
-                 UNION ALL
-                 SELECT o.role FROM org_memberships o JOIN spaces s ON s.organisation_id = o.organisation_id
-                 WHERE o.user_id = ?1 AND s.id = ?2",
-            )?;
-            q.query_map(params![user, space], |r| r.get(0))?
-                .collect::<rusqlite::Result<_>>()?
-        };
-        Ok(roles.iter().filter_map(|r| Role::parse(r)).max())
-    }
-
-    /// Someone's role in an organisation itself (not through one of its spaces).
-    pub fn org_role_of(&self, user: i64, organisation: i64) -> rusqlite::Result<Option<Role>> {
-        Ok(self
-            .db
-            .query_row(
-                "SELECT role FROM org_memberships WHERE user_id = ?1 AND organisation_id = ?2",
-                params![user, organisation],
-                |r| r.get::<_, String>(0),
-            )
-            .optional()?
-            .and_then(|r| Role::parse(&r)))
-    }
-
-    pub fn organisation_of(&self, space: i64) -> rusqlite::Result<i64> {
-        self.db.query_row(
-            "SELECT organisation_id FROM spaces WHERE id = ?1",
-            [space],
-            |r| r.get(0),
-        )
-    }
-
-    pub fn organisation_name(&self, organisation: i64) -> rusqlite::Result<String> {
-        self.db.query_row(
-            "SELECT name FROM organisations WHERE id = ?1",
-            [organisation],
-            |r| r.get(0),
-        )
-    }
-
-    pub fn rename_organisation(&self, organisation: i64, name: &str) -> rusqlite::Result<()> {
-        self.db.execute(
-            "UPDATE organisations SET name = ?2 WHERE id = ?1",
-            params![organisation, name],
-        )?;
-        Ok(())
-    }
-
-    /// Puts a user in an organisation (all its spaces) with a role, or changes it.
-    pub fn set_org_membership(
-        &self,
-        user: i64,
-        organisation: i64,
-        role: &str,
-    ) -> rusqlite::Result<()> {
-        self.db.execute(
-            "INSERT INTO org_memberships (user_id, organisation_id, role, created_at) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT (user_id, organisation_id) DO UPDATE SET role = excluded.role",
-            params![user, organisation, role, now()],
-        )?;
-        Ok(())
-    }
-
-    /// The spaces a user can be in (through an organisation or of their own), by
-    /// organisation and name, with their role in each.
-    pub fn spaces_of(&self, user: i64) -> rusqlite::Result<Vec<SpaceOf>> {
-        let rows: Vec<(i64, String, String, String, String)> = {
-            let mut q = self.db.prepare(
-                "SELECT s.id, s.uid, s.name, o.name, r.role FROM (
-                     SELECT space_id AS id, role FROM memberships WHERE user_id = ?1
-                     UNION ALL
-                     SELECT s.id, m.role FROM org_memberships m JOIN spaces s ON s.organisation_id = m.organisation_id
-                     WHERE m.user_id = ?1
-                 ) r JOIN spaces s ON s.id = r.id JOIN organisations o ON o.id = s.organisation_id
-                 ORDER BY o.name COLLATE NOCASE, s.name COLLATE NOCASE, s.id",
-            )?;
-            q.query_map([user], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
-            })?
-            .collect::<rusqlite::Result<_>>()?
-        };
-        let mut out: Vec<SpaceOf> = Vec::new();
-        for (id, uid, name, organisation, role) in rows {
-            let Some(role) = Role::parse(&role) else {
-                continue;
-            };
-            match out.iter_mut().find(|s| s.id == id) {
-                Some(seen) => seen.role = seen.role.max(role),
-                None => out.push(SpaceOf {
-                    id,
-                    uid,
-                    name,
-                    organisation,
-                    role,
-                }),
-            }
-        }
-        Ok(out)
-    }
-
-    pub fn space_name(&self, space: i64) -> rusqlite::Result<String> {
-        self.db
-            .query_row("SELECT name FROM spaces WHERE id = ?1", [space], |r| {
-                r.get(0)
-            })
-    }
-
-    /// A space by its id under the hood.
-    pub fn space_by_uid(&self, uid: &str) -> rusqlite::Result<Option<i64>> {
-        self.db
-            .query_row("SELECT id FROM spaces WHERE uid = ?1", [uid], |r| r.get(0))
-            .optional()
-    }
-
-    pub fn space_uid(&self, space: i64) -> rusqlite::Result<String> {
-        self.db
-            .query_row("SELECT uid FROM spaces WHERE id = ?1", [space], |r| {
-                r.get(0)
-            })
-    }
-
-    /// A new space in an organisation.
-    pub fn create_space(&self, organisation: i64, name: &str) -> rusqlite::Result<i64> {
-        self.db.execute(
-            "INSERT INTO spaces (name, uid, organisation_id) VALUES (?1, ?2, ?3)",
-            params![name, crate::accounts::new_uuid(), organisation],
-        )?;
-        Ok(self.db.last_insert_rowid())
-    }
-
-    /// A new organisation with its first space, its maker the owner of both.
-    pub fn create_organisation(
-        &self,
-        name: &str,
-        space_name: &str,
-        owner: i64,
-    ) -> rusqlite::Result<(i64, i64)> {
-        self.db.execute(
-            "INSERT INTO organisations (uid, name, created_at) VALUES (?1, ?2, ?3)",
-            params![crate::accounts::new_uuid(), name, now()],
-        )?;
-        let organisation = self.db.last_insert_rowid();
-        self.set_org_membership(owner, organisation, Role::Owner.as_str())?;
-        let space = self.create_space(organisation, space_name)?;
-        Ok((organisation, space))
-    }
-
-    /// The session goes on in another space.
-    pub fn set_session_space(&self, session: i64, space: i64) -> rusqlite::Result<()> {
-        self.db.execute(
-            "UPDATE sessions SET space_id = ?2 WHERE id = ?1",
-            params![session, space],
-        )?;
-        Ok(())
-    }
-
-    /// Everyone who can be in a space: the organisation's members (in all its spaces), and
-    /// those of this space only; each with the role that counts here.
-    pub fn members(&self, space: i64) -> rusqlite::Result<Vec<Member>> {
-        let rows: Vec<(i64, String, String, String, i64, bool)> = {
-            let mut q = self.db.prepare(
-                "SELECT u.id, u.name, u.display_name, m.role, m.created_at, 1 FROM org_memberships m
-                 JOIN users u ON u.id = m.user_id JOIN spaces s ON s.organisation_id = m.organisation_id
-                 WHERE s.id = ?1
-                 UNION ALL
-                 SELECT u.id, u.name, u.display_name, m.role, m.created_at, 0 FROM memberships m
-                 JOIN users u ON u.id = m.user_id WHERE m.space_id = ?1",
-            )?;
-            q.query_map([space], |r| {
-                Ok((
-                    r.get(0)?,
-                    r.get(1)?,
-                    r.get(2)?,
-                    r.get(3)?,
-                    r.get(4)?,
-                    r.get(5)?,
-                ))
-            })?
-            .collect::<rusqlite::Result<_>>()?
-        };
-        let mut out: Vec<Member> = Vec::new();
-        for (user_id, name, display_name, role, since, whole) in rows {
-            let Some(role) = Role::parse(&role) else {
-                continue;
-            };
-            match out.iter_mut().find(|m| m.user_id == user_id) {
-                Some(seen) => {
-                    if whole {
-                        seen.org_role = Some(role);
-                    } else {
-                        seen.space_role = Some(role);
-                    }
-                    seen.role = seen.role.max(role);
-                }
-                None => out.push(Member {
-                    user_id,
-                    name,
-                    display_name,
-                    role,
-                    org_role: whole.then_some(role),
-                    space_role: (!whole).then_some(role),
-                    since,
-                }),
-            }
-        }
-        out.sort_by_key(|m| m.display_name.to_lowercase());
-        Ok(out)
-    }
-
-    /// Owners of the organisation a space is in.
-    pub fn owners(&self, space: i64) -> rusqlite::Result<i64> {
-        self.db.query_row(
-            "SELECT COUNT(*) FROM org_memberships m JOIN spaces s ON s.organisation_id = m.organisation_id
-             WHERE s.id = ?1 AND m.role = 'owner'",
-            [space],
-            |r| r.get(0),
-        )
-    }
-
-    /// Takes someone out of a space (`whole`: out of its organisation, so of all its
-    /// spaces), with their inductions there; their sessions find another space.
-    pub fn remove_member(&self, space: i64, user: i64, whole: bool) -> rusqlite::Result<bool> {
-        let n = if whole {
-            let organisation = self.organisation_of(space)?;
-            let n = self.db.execute(
-                "DELETE FROM org_memberships WHERE organisation_id = ?1 AND user_id = ?2",
-                params![organisation, user],
-            )?;
-            self.db.execute(
-                "DELETE FROM machine_grants WHERE user_id = ?2
-                     AND space_id IN (SELECT id FROM spaces WHERE organisation_id = ?1)",
-                params![organisation, user],
-            )?;
-            self.db.execute(
-                "DELETE FROM group_grants WHERE user_id = ?2 AND group_id IN (SELECT g.id FROM machine_groups g
-                     JOIN spaces s ON s.id = g.space_id WHERE s.organisation_id = ?1)",
-                params![organisation, user],
-            )?;
-            n
-        } else {
-            let n = self.db.execute(
-                "DELETE FROM memberships WHERE space_id = ?1 AND user_id = ?2",
-                params![space, user],
-            )?;
-            self.db.execute(
-                "DELETE FROM machine_grants WHERE space_id = ?1 AND user_id = ?2",
-                params![space, user],
-            )?;
-            self.db.execute(
-                "DELETE FROM group_grants WHERE user_id = ?2
-                     AND group_id IN (SELECT id FROM machine_groups WHERE space_id = ?1)",
-                params![space, user],
-            )?;
-            n
-        };
-        self.db.execute(
-            "UPDATE sessions SET space_id = NULL WHERE user_id = ?1",
-            [user],
-        )?;
-        Ok(n > 0)
-    }
-
+impl Legacy {
     /// Whether `access` may do `need` with a machine of its space; `None` when the machine is
     /// not in it. Managing it (settings, permissions, removing) is for owners and admins;
     /// using it (jobs, moving, heating) is by permission for everyone, whatever their role:
@@ -1460,7 +1188,7 @@ impl Store {
     }
 
     /// What `access` may do with a machine of its space as a user of it: view, use, operate
-    /// (managing is [`Store::may`]'s, by role); `None` when the machine is not in it.
+    /// (managing is [`Legacy::may`]'s, by role); `None` when the machine is not in it.
     pub fn machine_level(&self, access: &Access, machine: &str) -> rusqlite::Result<Option<Level>> {
         let found: Option<bool> = self
             .db
@@ -1496,8 +1224,9 @@ impl Store {
         Ok(levels.flatten().filter_map(|l| Level::parse(&l)).max())
     }
 
-    /// The machine groups of a space, with their machines and who has permission on them.
-    pub fn groups(&self, space: i64) -> rusqlite::Result<Vec<Group>> {
+    /// The machine groups of a space, with their machines and who has permission on them. Transitional:
+    /// the grants' names are left to [`Store::groups`] (people are on Postgres); `by` holds the granter's id.
+    pub fn groups_unnamed(&self, space: i64) -> rusqlite::Result<Vec<Group>> {
         let heads: Vec<(i64, String)> = {
             let mut q = self.db.prepare(
                 "SELECT id, name FROM machine_groups WHERE space_id = ?1 ORDER BY name COLLATE NOCASE",
@@ -1517,19 +1246,17 @@ impl Store {
             };
             let grants = {
                 let mut q = self.db.prepare(
-                    "SELECT g.user_id, u.display_name, g.level, b.display_name, g.granted_at, g.expires_at
-                     FROM group_grants g JOIN users u ON u.id = g.user_id
-                     LEFT JOIN users b ON b.id = g.granted_by
-                     WHERE g.group_id = ?1 ORDER BY u.display_name COLLATE NOCASE",
+                    "SELECT g.user_id, g.level, g.granted_by, g.granted_at, g.expires_at
+                     FROM group_grants g WHERE g.group_id = ?1",
                 )?;
                 q.query_map([id], |r| {
                     Ok(Grant {
                         user_id: r.get(0)?,
-                        display_name: r.get(1)?,
-                        level: Level::parse(&r.get::<_, String>(2)?).unwrap_or(Level::View),
-                        by: r.get(3)?,
-                        granted_at: r.get(4)?,
-                        expires_at: r.get(5)?,
+                        display_name: String::new(),
+                        level: Level::parse(&r.get::<_, String>(1)?).unwrap_or(Level::View),
+                        by: r.get::<_, Option<i64>>(2)?.map(|b| b.to_string()),
+                        granted_at: r.get(3)?,
+                        expires_at: r.get(4)?,
                     })
                 })?
                 .collect::<rusqlite::Result<_>>()?
@@ -1572,27 +1299,6 @@ impl Store {
             )?;
         }
         Ok(id)
-    }
-
-    /// What the audit log says of a person and a machine: their names.
-    pub fn names_for_log(&self, user: Option<i64>, machine: Option<&str>) -> (String, String) {
-        let user = user
-            .and_then(|u| {
-                self.db
-                    .query_row("SELECT display_name FROM users WHERE id = ?1", [u], |r| {
-                        r.get(0)
-                    })
-                    .ok()
-            })
-            .unwrap_or_default();
-        let machine = machine
-            .and_then(|m| {
-                self.db
-                    .query_row("SELECT name FROM machines WHERE id = ?1", [m], |r| r.get(0))
-                    .ok()
-            })
-            .unwrap_or_default();
-        (user, machine)
     }
 
     /// A group's name, when it is of the space.
@@ -1730,11 +1436,11 @@ impl Store {
             .optional()
     }
 
-    /// A space's open requests, oldest first.
-    pub fn requests(&self, space: i64) -> rusqlite::Result<Vec<AskedFor>> {
+    /// A space's open requests, oldest first. Transitional: `who` is left to [`Store::requests`].
+    pub fn requests_unnamed(&self, space: i64) -> rusqlite::Result<Vec<AskedFor>> {
         let mut q = self.db.prepare(
-            "SELECT r.id, r.user_id, u.display_name, r.machine_id, m.name, m.induction_required = 2, r.asked_at
-             FROM access_requests r JOIN users u ON u.id = r.user_id JOIN machines m ON m.id = r.machine_id
+            "SELECT r.id, r.user_id, '', r.machine_id, m.name, m.induction_required = 2, r.asked_at
+             FROM access_requests r JOIN machines m ON m.id = r.machine_id
              WHERE r.space_id = ?1 AND m.space_id = ?1 AND r.state = 'open' ORDER BY r.asked_at",
         )?;
         q.query_map([space], |r| {
@@ -1760,7 +1466,7 @@ impl Store {
         give: bool,
         by: i64,
     ) -> rusqlite::Result<Option<AskedFor>> {
-        let Some(request) = self.requests(space)?.into_iter().find(|r| r.id == id) else {
+        let Some(request) = self.requests_unnamed(space)?.into_iter().find(|r| r.id == id) else {
             return Ok(None);
         };
         if give {
@@ -1806,19 +1512,18 @@ impl Store {
         Ok(n > 0)
     }
 
-    pub fn grants(&self, space: i64, machine: &str) -> rusqlite::Result<Vec<Grant>> {
+    /// Transitional: names are left to [`Store::grants`]; `by` holds the granter's id.
+    pub fn grants_unnamed(&self, space: i64, machine: &str) -> rusqlite::Result<Vec<Grant>> {
         let mut q = self.db.prepare(
-            "SELECT g.user_id, u.display_name, g.level, b.display_name, g.granted_at, g.expires_at
-             FROM machine_grants g JOIN users u ON u.id = g.user_id
-             LEFT JOIN users b ON b.id = g.granted_by
-             WHERE g.space_id = ?1 AND g.machine_id = ?2 ORDER BY u.display_name COLLATE NOCASE",
+            "SELECT g.user_id, '', g.level, g.granted_by, g.granted_at, g.expires_at
+             FROM machine_grants g WHERE g.space_id = ?1 AND g.machine_id = ?2",
         )?;
         let rows = q.query_map(params![space, machine], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
-                r.get::<_, Option<String>>(3)?,
+                r.get::<_, Option<i64>>(3)?.map(|b| b.to_string()),
                 r.get::<_, i64>(4)?,
                 r.get::<_, Option<i64>>(5)?,
             ))
@@ -1868,296 +1573,45 @@ impl Store {
         )? > 0)
     }
 
-    /// A new invite link into a space; the token for its address (only its hash is kept).
-    pub fn create_invite(
-        &self,
-        space: i64,
-        role: Role,
-        by: i64,
-        whole_organisation: bool,
-    ) -> rusqlite::Result<String> {
-        let token = random_token();
-        self.db.execute(
-            "INSERT INTO invites (token_hash, space_id, role, created_by, created_at, expires_at, whole_organisation)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![token_hash(&token), space, role.as_str(), by, now(), now() + INVITE_SECONDS, whole_organisation],
-        )?;
-        Ok(token)
+
+    /// Transitional (lanes 1-4): the space a request acts in, for code under the SQLite lock; its name
+    /// is on Postgres ([`Store::space_of`]).
+    pub fn space_id_of(&self, access: &Access) -> rusqlite::Result<(i64, ())> {
+        Ok((access.space, ()))
     }
 
-    fn invites_where(
-        &self,
-        filter: &str,
-        value: &dyn rusqlite::ToSql,
-    ) -> rusqlite::Result<Vec<Invite>> {
-        let mut q = self.db.prepare(&format!(
-            "SELECT i.id, i.space_id, s.name, i.role, b.display_name, i.created_at, i.expires_at,
-                 u.display_name, i.revoked, i.whole_organisation
-             FROM invites i JOIN spaces s ON s.id = i.space_id JOIN users b ON b.id = i.created_by
-             LEFT JOIN users u ON u.id = i.used_by WHERE {filter} ORDER BY i.created_at DESC"
-        ))?;
-        let rows = q.query_map([value], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, String>(4)?,
-                r.get::<_, i64>(5)?,
-                r.get::<_, i64>(6)?,
-                r.get::<_, Option<String>>(7)?,
-                r.get::<_, bool>(8)?,
-                r.get::<_, bool>(9)?,
-            ))
-        })?;
-        Ok(rows
-            .flatten()
-            .filter_map(
-                |(
-                    id,
-                    space,
-                    space_name,
-                    role,
-                    by,
-                    created_at,
-                    expires_at,
-                    used_by,
-                    revoked,
-                    whole_organisation,
-                )| {
-                    Some(Invite {
-                        id,
-                        space,
-                        space_name,
-                        role: Role::parse(&role)?,
-                        by,
-                        created_at,
-                        expires_at,
-                        used_by,
-                        revoked,
-                        whole_organisation,
-                    })
-                },
-            )
-            .collect())
-    }
-
-    /// A space's invite links, newest first.
-    pub fn invites(&self, space: i64) -> rusqlite::Result<Vec<Invite>> {
-        self.invites_where("i.space_id = ?1", &space)
-    }
-
-    /// The invite an address's token is for, open or not.
-    pub fn invite(&self, token: &str) -> rusqlite::Result<Option<Invite>> {
-        Ok(self
-            .invites_where("i.token_hash = ?1", &token_hash(token))?
-            .into_iter()
-            .next())
-    }
-
-    pub fn revoke_invite(&self, space: i64, id: i64) -> rusqlite::Result<bool> {
-        Ok(self.db.execute(
-            "UPDATE invites SET revoked = 1 WHERE id = ?1 AND space_id = ?2",
-            params![id, space],
-        )? > 0)
-    }
-
-    /// Uses an open invite: the user joins its space with its role (or keeps a higher one).
-    /// False when it was taken meanwhile.
-    pub fn use_invite(&self, invite: &Invite, user: i64) -> rusqlite::Result<bool> {
-        let taken = self.db.execute(
-            "UPDATE invites SET used_by = ?2, used_at = ?3
-             WHERE id = ?1 AND used_by IS NULL AND revoked = 0 AND expires_at > ?3",
-            params![invite.id, user, now()],
-        )?;
-        if taken == 0 {
-            return Ok(false);
-        }
-        if invite.whole_organisation {
-            let organisation = self.organisation_of(invite.space)?;
-            if self
-                .org_role_of(user, organisation)?
-                .is_none_or(|r| r < invite.role)
-            {
-                self.set_org_membership(user, organisation, invite.role.as_str())?;
-            }
-        } else if self
-            .role_of(user, invite.space)?
-            .is_none_or(|r| r < invite.role)
-        {
-            self.set_membership(user, invite.space, invite.role.as_str())?;
-        }
-        Ok(true)
-    }
-
-    /// A new API token of a space; the secret, to show once (only its hash is kept).
-    pub fn create_token(
-        &self,
-        space: i64,
-        by: i64,
-        name: &str,
-        role: Role,
-    ) -> rusqlite::Result<String> {
-        let token = format!("{TOKEN_PREFIX}{}", random_token());
-        self.db.execute(
-            "INSERT INTO api_tokens (token_hash, space_id, created_by, name, role, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![token_hash(&token), space, by, name, role.as_str(), now()],
-        )?;
-        Ok(token)
-    }
-
-    pub fn tokens(&self, space: i64) -> rusqlite::Result<Vec<Token>> {
-        let mut q = self.db.prepare(
-            "SELECT t.id, t.name, t.role, u.display_name, t.created_at, t.last_used
-             FROM api_tokens t JOIN users u ON u.id = t.created_by
-             WHERE t.space_id = ?1 AND t.revoked = 0 ORDER BY t.created_at DESC",
-        )?;
-        let rows = q.query_map([space], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, i64>(4)?,
-                r.get::<_, Option<i64>>(5)?,
-            ))
-        })?;
-        Ok(rows
-            .flatten()
-            .filter_map(|(id, name, role, by, created_at, last_used)| {
-                Some(Token {
-                    id,
-                    name,
-                    role: Role::parse(&role)?,
-                    by,
-                    created_at,
-                    last_used,
-                })
-            })
-            .collect())
-    }
-
-    pub fn revoke_token(&self, space: i64, id: i64) -> rusqlite::Result<bool> {
-        Ok(self.db.execute(
-            "UPDATE api_tokens SET revoked = 1 WHERE id = ?1 AND space_id = ?2",
-            params![id, space],
-        )? > 0)
-    }
-
-    /// Who an API token acts for: its space, its role (never more than its maker has there
-    /// now; a maker who left the space takes the token's rights with them).
-    pub fn token_access(&self, token: &str) -> rusqlite::Result<Option<Access>> {
-        let found = self
-            .db
-            .query_row(
-                "SELECT t.id, t.space_id, t.role, t.name, t.created_by, t.last_used
-                 FROM api_tokens t
-                 JOIN users u ON u.id = t.created_by AND u.disabled = 0
-                 WHERE t.token_hash = ?1 AND t.revoked = 0",
-                [token_hash(token)],
-                |r| {
-                    Ok((
-                        r.get::<_, i64>(0)?,
-                        r.get::<_, i64>(1)?,
-                        r.get::<_, String>(2)?,
-                        r.get::<_, String>(3)?,
-                        r.get::<_, i64>(4)?,
-                        r.get::<_, Option<i64>>(5)?,
-                    ))
-                },
-            )
-            .optional()?;
-        let Some((id, space, role, name, user, last_used)) = found else {
-            return Ok(None);
-        };
-        // The maker's role there now, through the organisation or the space.
-        let (Some(role), Some(maker_role)) = (Role::parse(&role), self.role_of(user, space)?)
-        else {
-            return Ok(None);
-        };
-        if last_used.is_none_or(|t| now() - t >= 60) {
+    /// Transitional (lanes 1-4): someone's inductions in these spaces go (they left them).
+    pub(crate) fn remove_grants_of(&self, user: i64, spaces: &[i64]) -> rusqlite::Result<()> {
+        for space in spaces {
             self.db.execute(
-                "UPDATE api_tokens SET last_used = ?2 WHERE id = ?1",
-                params![id, now()],
+                "DELETE FROM machine_grants WHERE space_id = ?1 AND user_id = ?2",
+                params![space, user],
+            )?;
+            self.db.execute(
+                "DELETE FROM group_grants WHERE user_id = ?2
+                     AND group_id IN (SELECT id FROM machine_groups WHERE space_id = ?1)",
+                params![space, user],
             )?;
         }
-        Ok(Some(Access {
-            user_id: user,
-            actor: format!("token \"{name}\""),
-            space,
-            role: role.min(maker_role),
-            token_id: Some(id),
-            session_id: None,
-            instance_admin: false,
-        }))
-    }
-
-    /// A line in a space's audit log.
-    pub fn audit(
-        &self,
-        access: &Access,
-        action: &str,
-        target: &str,
-        detail: &str,
-    ) -> rusqlite::Result<()> {
-        let detail: String = detail.chars().take(500).collect();
-        self.db.execute(
-            "INSERT INTO audit_log (space_id, at, user_id, token_id, actor, action, target, detail)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                access.space,
-                now(),
-                access.user_id,
-                access.token_id,
-                access.actor,
-                action,
-                target,
-                detail
-            ],
-        )?;
         Ok(())
     }
 
-    /// A space's audit log, newest first; a machine's id as its name where it still has one.
-    pub fn audit_log(&self, space: i64, limit: usize) -> rusqlite::Result<Vec<AuditLine>> {
-        let mut q = self.db.prepare(
-            "SELECT a.at, a.actor, a.action,
-                 COALESCE(m.name, a.target), a.detail
-             FROM audit_log a LEFT JOIN machines m ON m.id = a.target AND m.space_id = a.space_id
-             WHERE a.space_id = ?1 ORDER BY a.at DESC, a.id DESC LIMIT ?2",
-        )?;
-        let rows = q.query_map(params![space, limit as i64], |r| {
-            Ok(AuditLine {
-                at: r.get(0)?,
-                actor: r.get(1)?,
-                action: r.get(2)?,
-                target: r.get(3)?,
-                detail: r.get(4)?,
-            })
-        })?;
-        rows.collect()
+    /// A machine's name, in whichever space (the audit log's names).
+    pub(crate) fn machine_name_any_space(&self, machine: &str) -> Option<String> {
+        self.db
+            .query_row("SELECT name FROM machines WHERE id = ?1", [machine], |r| r.get(0))
+            .ok()
     }
 
-    /// Whether anyone signed in may make a space (a hosted service), or only who runs the
-    /// server (the default).
-    pub fn open_spaces(&self) -> bool {
+    /// A machine's name, when it is of the space.
+    pub(crate) fn machine_name_in(&self, space: i64, machine: &str) -> Option<String> {
         self.db
             .query_row(
-                "SELECT value FROM meta WHERE key = 'open_spaces'",
-                [],
-                |r| r.get::<_, String>(0),
+                "SELECT name FROM machines WHERE id = ?1 AND space_id = ?2",
+                params![machine, space],
+                |r| r.get(0),
             )
-            .is_ok_and(|v| v == "1")
-    }
-
-    pub fn set_open_spaces(&self, on: bool) -> rusqlite::Result<()> {
-        self.db.execute(
-            "INSERT INTO meta (key, value) VALUES ('open_spaces', ?1)
-             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-            [if on { "1" } else { "0" }],
-        )?;
-        Ok(())
+            .ok()
     }
 }
 
@@ -2187,7 +1641,7 @@ pub(crate) fn route_sources() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::Store;
+    use crate::store::Legacy;
     use axum::Router;
     use axum::body::Body;
     use axum::http::Request as HttpRequest;
@@ -2236,13 +1690,13 @@ mod tests {
     }
 
     struct World {
-        store: Shared,
+        store: Store,
         app: Router,
     }
 
     impl World {
         fn new() -> Self {
-            let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+            let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
             let app = crate::app(store.clone());
             World { store, app }
         }

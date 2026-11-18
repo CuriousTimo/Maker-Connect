@@ -10,7 +10,7 @@
 //!
 //! By the `qrcode` crate and `barcoders` (both MIT OR Apache-2.0).
 
-use crate::Shared;
+use crate::Store;
 use axum::{
     Json, Router,
     extract::Query,
@@ -20,7 +20,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new().route("/api/codes", get(code))
 }
 

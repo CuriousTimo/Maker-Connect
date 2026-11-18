@@ -6,8 +6,8 @@
 
 use crate::access::{Access, Level, Role};
 use crate::space_page::day;
-use crate::store::Store;
-use crate::{Shared, escape, failed};
+use crate::store::Legacy;
+use crate::{Store, escape, failed};
 use axum::{
     Form, Router,
     extract::{Path, State},
@@ -17,7 +17,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/permissions/people/{user}", post(set_permissions))
         .route("/machines/{id}/ask", post(ask))
@@ -77,7 +77,7 @@ fn x_form(action: &str, title: &str) -> String {
     )
 }
 
-pub(crate) fn parts(store: &Store, access: &Access) -> rusqlite::Result<Parts> {
+pub(crate) fn parts(store: &Legacy, access: &Access) -> rusqlite::Result<Parts> {
     let space = access.space;
     let admin = access.role >= Role::Admin;
     let members = store.members(space)?;
@@ -429,7 +429,7 @@ struct AccessForm {
 
 async fn machine_access(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<AccessForm>,
 ) -> Response {
@@ -460,7 +460,7 @@ struct GrantForm {
 
 async fn grant(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<GrantForm>,
 ) -> Response {
@@ -539,7 +539,7 @@ pub(crate) fn end_of_day(date: &str) -> Option<i64> {
 
 async fn ungrant(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((machine, user)): Path<(String, i64)>,
 ) -> Response {
     match store
@@ -556,7 +556,7 @@ async fn ungrant(
 // ---- machine groups ------------------------------------------------------------------------
 
 /// Someone asks the staff for permission (or a training) on a machine they may not use.
-async fn ask(access: Access, State(store): State<Shared>, Path(machine): Path<String>) -> Response {
+async fn ask(access: Access, State(store): State<Store>, Path(machine): Path<String>) -> Response {
     let store = store.lock().unwrap();
     match store.may(&access, &machine, Level::Use) {
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
@@ -573,7 +573,7 @@ async fn ask(access: Access, State(store): State<Shared>, Path(machine): Path<St
 /// The staff answer a request: `give` (use, on that machine) or `decline`.
 async fn answer(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((id, answer)): Path<(i64, String)>,
 ) -> Response {
     let give = match answer.as_str() {
@@ -618,7 +618,7 @@ struct TickForm {
 /// Answers the level they have now.
 async fn tick(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((group, user)): Path<(i64, i64)>,
     Form(form): Form<TickForm>,
 ) -> Response {
@@ -686,7 +686,7 @@ async fn tick(
 /// that needs permission; ticked (`on`) is given with its level and end, unticked taken away.
 async fn set_permissions(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(user): Path<i64>,
     Form(form): Form<Vec<(String, String)>>,
 ) -> Response {
@@ -786,7 +786,7 @@ struct PermissionForm {
 /// Gives a member permission on a group or a machine, or changes it: from the Members tab.
 async fn give_permission(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(user): Path<i64>,
     Form(form): Form<PermissionForm>,
 ) -> Response {
@@ -855,7 +855,7 @@ struct GroupForm {
 
 async fn new_group(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Form(form): Form<GroupForm>,
 ) -> Response {
     let name: String = form.name.trim().chars().take(60).collect();
@@ -885,7 +885,7 @@ async fn new_group(
 
 async fn remove_group(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(group): Path<i64>,
 ) -> Response {
     let store = store.lock().unwrap();
@@ -911,7 +911,7 @@ struct GroupMachineForm {
 
 async fn group_machine(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(group): Path<i64>,
     Form(form): Form<GroupMachineForm>,
 ) -> Response {
@@ -934,7 +934,7 @@ async fn group_machine(
 
 async fn group_machine_out(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((group, machine)): Path<(i64, String)>,
 ) -> Response {
     let store = store.lock().unwrap();
@@ -956,7 +956,7 @@ async fn group_machine_out(
 
 async fn group_grant(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(group): Path<i64>,
     Form(form): Form<GrantForm>,
 ) -> Response {
@@ -1001,7 +1001,7 @@ async fn group_grant(
 
 async fn group_ungrant(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((group, user)): Path<(i64, i64)>,
 ) -> Response {
     let store = store.lock().unwrap();

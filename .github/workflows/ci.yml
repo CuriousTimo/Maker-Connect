@@ -26,6 +26,21 @@ jobs:
   check:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # The store's tests run on Postgres (docs/plans/hub-core-v2.md §2.7): the Linux jobs get the database as a
+    # service container and turn on `pg-tests`; macOS and Windows runners have no service containers, so
+    # they skip the store tests (everything else runs there). Builds read the checked-in `.sqlx/` cache.
+    services:
+      postgres:
+        image: ${{ startsWith(matrix.os, 'ubuntu') && 'timescale/timescaledb:2.32.0-pg17' || '' }}
+        env:
+          POSTGRES_PASSWORD: mc-ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      SQLX_OFFLINE: "true"
+      PG_TESTS: ${{ startsWith(matrix.os, 'ubuntu') && '--features maker-connect-hub/pg-tests' || '' }}
+      DATABASE_URL: postgres://postgres:mc-ci@127.0.0.1:5432/postgres
     strategy:
       fail-fast: false
       matrix:
@@ -55,7 +70,22 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Tests
-        run: cargo test --workspace --locked
+        shell: bash
+        run: cargo test --workspace --locked $PG_TESTS
+
+      # `.sqlx/` must match the queries: checked against a database with every migration applied.
+      - name: Query cache current (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cargo install sqlx-cli --version 0.9.1 --locked --no-default-features --features rustls,postgres
+          sudo apt-get install -y postgresql-client
+          psql "$DATABASE_URL" -q -c "CREATE DATABASE mc_prepare"
+          for f in $(find crates/hub/src -path '*/migrations/*.sql' | awk -F/ '{print $NF "\t" $0}' | sort | cut -f2); do
+            psql "${DATABASE_URL%/postgres}/mc_prepare" -q -v ON_ERROR_STOP=1 -f "$f"
+          done
+          cd crates/hub && DATABASE_URL="${DATABASE_URL%/postgres}/mc_prepare" SQLX_OFFLINE=false \
+            cargo sqlx prepare --check -- --all-targets --features pg-tests
 
       - name: Documentation
         env:

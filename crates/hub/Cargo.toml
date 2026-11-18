@@ -20,6 +20,10 @@ cameras = ["dep:retina", "dep:bytes", "dep:url"]
 # `scripts/laserfoundry-web.sh`; without the feature the hub builds and serves "not built in" there.
 laser-design = []
 
+# The store's tests on Postgres (`#[sqlx::test]`, DATABASE_URL from `scripts/dev-db.sh up`): on in the Linux CI
+# jobs, which have the database as a service container; macOS and Windows runners have none (hub-core-v2.md §2.7).
+pg-tests = []
+
 [[example]]
 name = "mse_record"
 required-features = ["cameras"]
@@ -43,7 +47,10 @@ maker-connect-update = { path = "../update" }
 flate2 = "1"
 tar = { version = "0.4", default-features = false }
 rand = "0.8"
+# Transitional (hub core v2 step 2, lanes 1-4): modules not yet on Postgres keep SQLite; gone in lane 4.
 rusqlite = { version = "0.41.1", features = ["bundled"] }
+# The store (docs/plans/hub-core-v2.md §2.7): Postgres only, rustls, checked queries with the `.sqlx/` cache.
+sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "macros"] }
 serde = { version = "1.0.229", features = ["derive"] }
 # The hub chooses: Spoolman answers in its models' field order, so JSON objects keep their
 # insertion order (the audit `spoolman::audit` compares it), whatever else is in the build.

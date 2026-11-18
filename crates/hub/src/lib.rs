@@ -43,10 +43,8 @@ pub mod updates;
 pub mod usbcam;
 pub mod web;
 
-use std::sync::{Arc, Mutex};
-use store::Store;
-
-pub type Shared = Arc<Mutex<Store>>;
+pub use store::Store;
+use store::Legacy;
 
 pub(crate) use devices::legacy_gcode::{
     JOG_FEEDS, JOG_STEPS, action, grbl_action, jog_command, probe_gcode, prusa_mk3_machine,
@@ -64,7 +62,7 @@ pub(crate) use web::router::{done, failed};
 pub(crate) use web::shell::{PAGE, STYLE, escape, header};
 
 /// The Space page's Cameras tab (empty without the feature, or for who may not manage them).
-pub(crate) fn cameras_space_tab(store: &store::Store, access: &access::Access) -> String {
+pub(crate) fn cameras_space_tab(store: &store::Legacy, access: &access::Access) -> String {
     #[cfg(feature = "cameras")]
     return cameras::page::space_tab(store, access);
     #[cfg(not(feature = "cameras"))]

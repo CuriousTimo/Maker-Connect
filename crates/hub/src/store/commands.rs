@@ -14,7 +14,7 @@ pub fn on_marlin_port(m: &Machine) -> bool {
             .is_none_or(|f| f == "marlin")
 }
 
-impl Store {
+impl Legacy {
     /// The owner gives a machine a command: its id, or None when the machine is not in
     /// the space or cannot take commands (yet: only printers on built-in Prusa Connect).
     pub fn queue_command(

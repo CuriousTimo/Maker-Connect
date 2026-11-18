@@ -273,6 +273,13 @@ Each step ends green (fmt, clippy `-D warnings`, tests, audit checkers) and is r
 | 6 | **API**: utoipa spec, their 3D-printer REST, ours, Spoolman at `/spoolman/api/v1`, oasdiff in CI | Spec checked in and in sync; tracking test against their server for the 3D-printer paths both serve; Spoolman audit green with base path |
 | 7 | **Web UI on the API**, page by page (Now, machines, machine, files, queue, labels, Space tabs) | No page route changes data; each page's HTML in a template; UI-study states on each page |
 
+**Step 2's tables** (2026-11-18, orchestrator, on-track ON TRACK): step 2 moves today's tables and behaviour
+onto Postgres, with `space_id` and RLS on every tenant table. The tables of §2.7 that only exist for a later
+step come in that step: `action_grants`, `device_groups`, `device_access`, `authz_epoch` and `event`, `sample`
+(step 3); `commands`, `transfers`, `device_capabilities`, `devices.state` (steps 4-5); token scopes and
+generation (step 3). Today's id types stay (integer ids become `bigint`, text ids `text`); uuid v7 comes
+with the API (step 6). Pages and JSON stay byte for byte as they are; timestamps serialise as today.
+
 **Parked:** HS10 (MINI button G-code: owner's choice, lands in the driver after step 5); #2 waits for
 step 5 (the device model first); #4 MK3 PrusaLink HTTP port parked (MK3 to come over `/p/ws`, study §5b);
 Marlin/OctoPrint port frozen as is (only wrapped by the step 1 adapter); HS11 Klipper and the SimplyPrint

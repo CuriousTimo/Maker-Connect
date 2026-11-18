@@ -3,7 +3,7 @@
 //! which machines take work from the queue.
 
 use crate::access::Access;
-use crate::{STYLE, Shared, escape, failed, header};
+use crate::{STYLE, Store, escape, failed, header};
 use axum::{
     Router,
     extract::State,
@@ -11,11 +11,11 @@ use axum::{
     routing::get,
 };
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new().route("/projects", get(page))
 }
 
-async fn page(access: Access, State(store): State<Shared>) -> Response {
+async fn page(access: Access, State(store): State<Store>) -> Response {
     let name = match store.lock().unwrap().space_name(access.space) {
         Ok(name) => name,
         Err(error) => return failed(error),

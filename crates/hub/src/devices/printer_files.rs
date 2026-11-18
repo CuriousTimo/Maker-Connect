@@ -22,8 +22,8 @@
 //! sends no token with it): 96 random bits, a transfer of one file to one printer, for a day.
 
 use crate::access::Access;
-use crate::store::{JobState, Store, now};
-use crate::{Shared, failed};
+use crate::store::{JobState, Legacy, now};
+use crate::{Store, failed};
 use aes::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
 use axum::{
     Form, Json, Router,
@@ -145,7 +145,7 @@ pub struct Transfer {
     pub state: String,
 }
 
-impl Store {
+impl Legacy {
     /// The machine (id, space) by its id, when it is in a space.
     fn printer_of_machine(&self, machine: &str) -> rusqlite::Result<Option<(String, i64)>> {
         self.db
@@ -502,7 +502,7 @@ fn stick_name(name: &str, taken: &[String]) -> String {
 /// The long names in a folder, as the printer last listed it.
 /// The names on the stick in a folder, as far as we know: what the printer listed, and what
 /// we put there ourselves (a listing can be older than our last upload).
-fn names_in(store: &Store, machine: &str, folder: &str) -> Vec<String> {
+fn names_in(store: &Legacy, machine: &str, folder: &str) -> Vec<String> {
     let mut names = listed_in(store, machine, folder).unwrap_or_default();
     names.extend(
         store
@@ -523,7 +523,7 @@ fn names_in(store: &Store, machine: &str, folder: &str) -> Vec<String> {
 /// that folder no longer has it: deleted since (on the printer, or by us; the printer says
 /// so by its short name, which no transfer of ours is known by), and so forgotten.
 fn still_on_stick(
-    store: &Store,
+    store: &Legacy,
     machine: &str,
     file: &str,
     size: u64,
@@ -549,7 +549,7 @@ fn still_on_stick(
 
 /// The names (long and short) the printer last listed in a folder of its stick; None when
 /// it has not listed that folder yet.
-fn listed_in(store: &Store, machine: &str, folder: &str) -> Option<Vec<String>> {
+fn listed_in(store: &Legacy, machine: &str, folder: &str) -> Option<Vec<String>> {
     let entry = store.printer_file(machine, folder).ok()?.0?;
     let children = entry.0["children"].as_array()?.clone();
     Some(
@@ -563,7 +563,7 @@ fn listed_in(store: &Store, machine: &str, folder: &str) -> Option<Vec<String>> 
 }
 
 /// An event from a printer about its files and transfers (called for every event).
-pub fn on_event(store: &mut Store, token: &str, name: &str, event: &Value) -> rusqlite::Result<()> {
+pub fn on_event(store: &mut Legacy, token: &str, name: &str, event: &Value) -> rusqlite::Result<()> {
     let Some((machine, _)) = store.printer_of(token)? else {
         return Ok(());
     };
@@ -774,7 +774,7 @@ fn still_good(entry: &Option<(Value, i64)>, size: Option<u64>) -> bool {
 /// Asks the printer (in the background, behind anyone's own commands) for each printable file
 /// of a folder whose details it does not have yet.
 fn prefetch(
-    store: &mut Store,
+    store: &mut Legacy,
     machine: &str,
     folder: &str,
     listing: &Value,
@@ -841,7 +841,7 @@ fn summary(data: &Value, at: i64) -> Value {
 /// After each report of a printer: a job waiting for it goes to its stick (when it is free),
 /// and a job printing follows the printer's state to its end.
 pub fn on_report(
-    store: &mut Store,
+    store: &mut Legacy,
     token: &str,
     state: &str,
     job: Option<u64>,
@@ -960,7 +960,7 @@ pub fn on_report(
 
 /// The command for a job's pause, resume or stop on a printer on its built-in Connect.
 pub fn job_control(
-    store: &mut Store,
+    store: &mut Legacy,
     space: i64,
     machine: &str,
     action: &str,
@@ -983,7 +983,7 @@ pub fn job_control(
 
 // ---- routes ---------------------------------------------------------------------------
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/api/machines/{id}/usb", get(look))
         .route("/machines/{id}/usb/preview", get(preview))
@@ -1001,7 +1001,7 @@ struct PathQuery {
 
 /// A Prusa printer of the space on its built-in Connect, or the answer to give.
 fn connect_printer(
-    store: &Store,
+    store: &Legacy,
     access: &Access,
     machine: &str,
 ) -> Result<crate::store::Machine, Box<Response>> {
@@ -1025,7 +1025,7 @@ fn connect_printer(
 /// again when that is old; `asking` while an answer is on its way.
 async fn look(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Query(query): Query<PathQuery>,
 ) -> Response {
@@ -1126,7 +1126,7 @@ async fn look(
 
 async fn preview(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Query(query): Query<PathQuery>,
 ) -> Response {
@@ -1172,7 +1172,7 @@ struct PathForm {
 
 /// Sends one of Connect's commands about a path, for someone.
 fn path_command(
-    store: &Shared,
+    store: &Store,
     access: &Access,
     machine: &str,
     command: &str,
@@ -1200,7 +1200,7 @@ fn path_command(
 
 async fn print(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<PathForm>,
 ) -> Response {
@@ -1208,8 +1208,9 @@ async fn print(
         return (StatusCode::BAD_REQUEST, "a file on the stick").into_response();
     };
     {
+        let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
         let s = store.lock().unwrap();
-        if let Err(refused) = crate::safety::check_ppe(&s, &access, &machine) {
+        if let Err(refused) = crate::safety::check_ppe(&s, ppe_checks, &access, &machine) {
             return *refused;
         }
         if let Ok(Some(m)) = s.machine(access.space, &machine) {
@@ -1241,7 +1242,7 @@ async fn print(
 
 async fn delete(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<PathForm>,
 ) -> Response {
@@ -1281,7 +1282,7 @@ async fn delete(
 
 async fn new_folder(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<PathForm>,
 ) -> Response {
@@ -1323,7 +1324,7 @@ struct SendForm {
 /// A file of the space onto the printer's stick (not printed: that is Print on the Files page).
 async fn send(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<SendForm>,
 ) -> Response {
@@ -1375,7 +1376,7 @@ async fn send(
 /// The printer fetches a transfer's file: encrypted (AES-128-CTR), padded to whole blocks,
 /// from where it asks (`Range: bytes=N-`).
 async fn download(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(iv): Path<String>,
     headers: HeaderMap,
 ) -> Response {
@@ -1552,7 +1553,7 @@ mod tests {
 #[cfg(test)]
 mod flow {
     use super::*;
-    use crate::store::{Store, now};
+    use crate::store::{Legacy, now};
     use axum::http::Request;
     use http_body_util::BodyExt;
     use std::sync::{Arc, Mutex};
@@ -1577,7 +1578,7 @@ mod flow {
     /// however often the page asks meanwhile.
     #[tokio::test]
     async fn deleting_on_the_stick() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let (space, mini, token) = {
             let mut s = store.lock().unwrap();
@@ -1630,7 +1631,7 @@ mod flow {
                 .body(Body::from(format!("path={path}")))
                 .unwrap()
         };
-        let reads = |s: &Store| {
+        let reads = |s: &Legacy| {
             s.open_path_commands(&mini)
                 .iter()
                 .filter(|(p, c)| p == "/usb" && c == "SEND_FILE_INFO")
@@ -1750,7 +1751,7 @@ mod flow {
     /// goes), printed, and its job followed to the end.
     #[tokio::test]
     async fn a_mini_and_its_usb_stick() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         // A MINI registered and in the space.
         let (space, mini, token) = {
@@ -2144,7 +2145,7 @@ mod flow {
     /// on the bed, so a queued job could have started on top of it.
     #[tokio::test]
     async fn a_print_the_mini_runs_itself_holds_the_queue_when_it_ends() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let (space, mini, token) = {
             let mut s = store.lock().unwrap();
@@ -2191,7 +2192,7 @@ mod flow {
         };
         // What `files::fit` holds a job back by: a finished print on the bed, or the last job
         // stopped or failed and not said to be cleared.
-        let held = |s: &Store| {
+        let held = |s: &Legacy| {
             let machine = s.machine(space, &mini).unwrap().unwrap();
             (machine.on_bed.is_some(), machine.queue_held.clone())
         };
@@ -2252,7 +2253,7 @@ mod flow {
     /// report that says IDLE with nothing before it: in a print M604 would stop it.
     #[tokio::test]
     async fn a_download_only_to_the_stick_closes_its_preview() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let (mini, token) = {
             let mut s = store.lock().unwrap();
@@ -2419,7 +2420,7 @@ mod flow {
     /// it by its short name, `3DBENC~1.BGC`); Send here kept saying it was there already.
     #[test]
     fn a_file_deleted_from_the_stick_goes_again() {
-        let mut store = Store::open(":memory:").unwrap();
+        let mut store = Legacy::open(":memory:").unwrap();
         let space = store.default_space().unwrap().0;
         let mini = store
             .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())

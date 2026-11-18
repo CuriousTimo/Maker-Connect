@@ -1,14 +1,6 @@
 use super::*;
 
-impl Store {
-    /// The space a self-hosted hub shows: its first.
-    pub fn default_space(&self) -> rusqlite::Result<(i64, String)> {
-        self.db
-            .query_row("SELECT id, name FROM spaces ORDER BY id LIMIT 1", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
-    }
-
+impl Legacy {
     /// A new agent: its machine, not yet in a space, with a token and a pairing code.
     pub fn register(&self, agent: &Register) -> rusqlite::Result<(String, String, String)> {
         self.register_linked(agent, "agent")
@@ -206,7 +198,7 @@ impl Store {
         &mut self,
         token: &str,
         telemetry: &Telemetry,
-    ) -> rusqlite::Result<Option<Option<String>>> {
+    ) -> rusqlite::Result<Option<Option<i64>>> {
         // A mesh and command results are news once, not part of the machine's state.
         let kept = Telemetry {
             done: Vec::new(),
@@ -298,11 +290,11 @@ impl Store {
                 params![profile.id, token],
             )?;
         }
-        let space: Option<String> = self
+        // Its space's id (the name is on Postgres: transitional, the caller looks it up).
+        let space: Option<i64> = self
             .db
             .query_row(
-                "SELECT spaces.name FROM machines LEFT JOIN spaces ON spaces.id = machines.space_id
-                 WHERE machines.token = ?1",
+                "SELECT space_id FROM machines WHERE token = ?1",
                 [token],
                 |r| r.get(0),
             )

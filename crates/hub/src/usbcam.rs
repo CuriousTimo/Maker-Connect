@@ -5,7 +5,7 @@
 //! All ours (no reference: nothing goes to a device). Step 2 moves this into the module `cameras`.
 
 use crate::access::Access;
-use crate::{STYLE, Shared, escape, failed, header};
+use crate::{STYLE, Store, escape, failed, header};
 use axum::{
     Router,
     body::Bytes,
@@ -55,7 +55,7 @@ fn keep(machine: &str, index: u32, jpeg: Bytes) {
     let _ = events().send(event_data(machine, index, slot.seq));
 }
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route(protocol::CAMERA_FRAME, post(frame_in))
         .route("/usb-cameras/test", get(test_page))
@@ -65,7 +65,7 @@ pub fn routes() -> Router<Shared> {
 
 /// An agent's frame, by its token (as for telemetry): only a JPEG is kept.
 async fn frame_in(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(index): Path<u32>,
     headers: HeaderMap,
     body: Bytes,
@@ -90,7 +90,7 @@ async fn frame_in(
 /// The camera's latest frame, if its agent's machine is in the admin's space.
 async fn frame_out(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((machine, index)): Path<(String, u32)>,
 ) -> Response {
     match store.lock().unwrap().machine(access.space, &machine) {
@@ -119,7 +119,7 @@ async fn frame_out(
 /// The cameras of the admin's space that have a frame now, then every new frame of theirs.
 async fn stream(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
 ) -> Sse<impl futures_util::Stream<Item = Result<Event, std::convert::Infallible>>> {
     use tokio::sync::broadcast::error::RecvError;
     let rx = events().subscribe();
@@ -209,7 +209,7 @@ events.onmessage = (e) => {
 </body>
 </html>"##;
 
-async fn test_page(access: Access, State(store): State<Shared>) -> Response {
+async fn test_page(access: Access, State(store): State<Store>) -> Response {
     let space = match store.lock().unwrap().space_name(access.space) {
         Ok(space) => space,
         Err(error) => return failed(error),
@@ -226,7 +226,7 @@ async fn test_page(access: Access, State(store): State<Shared>) -> Response {
 mod tests {
     use super::*;
     use crate::access::Role;
-    use crate::store::Store;
+    use crate::store::Legacy;
     use axum::{body::Body, http::Request};
     use http_body_util::BodyExt;
     use maker_connect_protocol::{MachineKind, Register};
@@ -244,7 +244,7 @@ mod tests {
     }
 
     fn rig() -> Rig {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let (machine, token, admin, member) = {
             let s = store.lock().unwrap();
             let (space, _) = s.default_space().unwrap();

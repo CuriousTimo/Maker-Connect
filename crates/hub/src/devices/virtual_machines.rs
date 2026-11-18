@@ -7,7 +7,7 @@
 //! heating and waiting for their heaters as it says, ten times faster than a real machine,
 //! so a print can be followed in minutes.
 
-use crate::Shared;
+use crate::Store;
 use crate::profiles::{self, Profile};
 use crate::store::{CommandState, JobState};
 use maker_connect_protocol::{MachineKind, MachineState, Telemetry};
@@ -24,7 +24,7 @@ pub const JOB_SPEED: f32 = 10.0;
 const LOOKAHEAD: usize = 64;
 
 /// Runs every virtual machine in the store, for as long as the hub runs.
-pub async fn run(store: Shared) {
+pub async fn run(store: Store) {
     let mut machines: HashMap<String, Sim> = HashMap::new();
     // Virtual label printers: the job printing and the tick it is done.
     let mut labels: HashMap<String, (i64, u32)> = HashMap::new();
@@ -122,7 +122,7 @@ pub async fn run(store: Shared) {
 /// second (the PnP's pace), the job then done. What it printed is the file's picture. A
 /// battery only when its model has one; a cassette only for tape.
 fn virtual_label(
-    store: &mut crate::store::Store,
+    store: &mut crate::store::Legacy,
     id: &str,
     token: &str,
     profile: &profiles::Profile,

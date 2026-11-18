@@ -1,4 +1,4 @@
-use maker_connect_hub::store::{self, Store};
+use maker_connect_hub::store::{self, Legacy};
 use maker_connect_hub::{
     accounts, app, farm, queue, samples, spoolmandb, updates, virtual_machines,
 };
@@ -24,7 +24,7 @@ for when its owner cannot sign in any more.
 /// - `agents/`: the agents of this release go to the downloads when they are another build
 ///   than those offered (`.build` last, so a copy cut short is done again next time).
 /// - `spoolmandb/`: SpoolmanDB as of the release, only when there is no copy yet.
-fn from_release(store: &store::Store) {
+fn from_release(store: &store::Legacy) {
     let Some(here) = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
@@ -90,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     if trial {
-        let opened = Store::open(&db)?;
+        let opened = Legacy::open(&db)?;
         let _app = app(Arc::new(Mutex::new(opened)));
         let _port = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         println!("trial: {} opens its database and starts", store::BUILD);
@@ -111,7 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             maker_connect_update::Start::RollBack(t, why) => go_back(&exe, &again, &t, &why),
         }
     };
-    let mut opened = match Store::open(&db) {
+    let mut opened = match Legacy::open(&db) {
         Ok(store) => store,
         Err(error) => match &on_trial {
             Some(t) => go_back(

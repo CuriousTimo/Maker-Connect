@@ -1,6 +1,6 @@
 use super::*;
 
-impl Store {
+impl Legacy {
     /// A file's place on disk.
     /// Where a file is kept. Named `.gcode` from the first version, whatever is in it (a
     /// label is a PNG), so stores from then keep working.
@@ -12,7 +12,7 @@ impl Store {
         self.files_dir.join(format!("{id}.png"))
     }
 
-    /// A new file of a space, already on disk at [`Store::file_path`] of `id`.
+    /// A new file of a space, already on disk at [`Legacy::file_path`] of `id`.
     pub fn add_file(
         &mut self,
         space: i64,

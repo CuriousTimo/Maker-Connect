@@ -3,7 +3,7 @@
 //! print-farm-manager's dashboard (MIT), made calmer: colour only where someone should look.
 
 use crate::access::Access;
-use crate::{STYLE, Shared, escape, failed, header};
+use crate::{STYLE, Store, escape, failed, header};
 use axum::{
     Json, Router,
     extract::{Query, State},
@@ -13,7 +13,7 @@ use axum::{
 use rusqlite::params;
 use serde::Deserialize;
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/", get(page))
         .route("/api/jobs/summary", get(summary))
@@ -26,7 +26,7 @@ struct Since {
 }
 
 /// How the space's jobs ended since a moment: for "done today".
-async fn summary(access: Access, State(store): State<Shared>, Query(q): Query<Since>) -> Response {
+async fn summary(access: Access, State(store): State<Store>, Query(q): Query<Since>) -> Response {
     let store = store.lock().unwrap();
     let counted = store.db.query_row(
         "SELECT COUNT(*) FILTER (WHERE state = 'finished'), COUNT(*) FILTER (WHERE state = 'failed'),
@@ -44,7 +44,7 @@ async fn summary(access: Access, State(store): State<Shared>, Query(q): Query<Si
     }
 }
 
-async fn page(access: Access, State(store): State<Shared>) -> Response {
+async fn page(access: Access, State(store): State<Store>) -> Response {
     let name = match store.lock().unwrap().space_name(access.space) {
         Ok(name) => name,
         Err(error) => return failed(error),

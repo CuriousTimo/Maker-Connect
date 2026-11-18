@@ -4,7 +4,7 @@
 //! G-code: the same boat for two printers shares most of its lines). Every space gets them
 //! once, so a new user sees at once how it works ([`run`]); the Files page adds them again.
 
-use crate::Shared;
+use crate::Store;
 use crate::access::Access;
 use axum::{
     Json, Router,
@@ -46,13 +46,13 @@ pub fn unpack() -> std::io::Result<Vec<(String, Vec<u8>)>> {
     Ok(files)
 }
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new().route("/api/files/examples", post(add))
 }
 
 /// Keeps one example file in a space's Files, as an upload would: its thumbnail, what it
 /// says of itself.
-fn keep(store: &Shared, space: i64, name: &str, bytes: &[u8]) -> std::io::Result<()> {
+fn keep(store: &Store, space: i64, name: &str, bytes: &[u8]) -> std::io::Result<()> {
     let id = crate::store::random_id();
     let (path, thumbnail) = {
         let store = store.lock().unwrap();
@@ -71,7 +71,7 @@ fn keep(store: &Shared, space: i64, name: &str, bytes: &[u8]) -> std::io::Result
 }
 
 /// Puts the example files a space does not have by name in its Files: how many.
-fn add_to(store: &Shared, space: i64, files: &[(String, Vec<u8>)]) -> std::io::Result<usize> {
+fn add_to(store: &Store, space: i64, files: &[(String, Vec<u8>)]) -> std::io::Result<usize> {
     let have: Vec<String> = store
         .lock()
         .unwrap()
@@ -93,29 +93,26 @@ fn add_to(store: &Shared, space: i64, files: &[(String, Vec<u8>)]) -> std::io::R
 /// Every space gets the example files once, so whoever starts sees how it works: a new
 /// space within moments, the ones there already at the next start. Removed, they stay
 /// removed (the Files page can add them again).
-pub fn give_once(store: &Shared) -> std::io::Result<()> {
-    let pending: Vec<i64> = {
-        let store = store.lock().unwrap();
-        let mut q = store
-            .db
-            .prepare("SELECT id FROM spaces WHERE samples_given = 0")
-            .map_err(std::io::Error::other)?;
-        q.query_map([], |r| r.get(0))
-            .map_err(std::io::Error::other)?
-            .collect::<rusqlite::Result<_>>()
-            .map_err(std::io::Error::other)?
-    };
+pub async fn give_once(store: &Store) -> std::io::Result<()> {
+    let pending = store
+        .spaces_without_samples()
+        .await
+        .map_err(std::io::Error::other)?;
     if pending.is_empty() {
         return Ok(());
     }
-    let files = unpack()?;
+    let files = tokio::task::spawn_blocking(unpack)
+        .await
+        .map_err(std::io::Error::other)??;
     for space in pending {
-        let added = add_to(store, space, &files)?;
+        let s = store.clone();
+        let f = files.clone();
+        let added = tokio::task::spawn_blocking(move || add_to(&s, space, &f))
+            .await
+            .map_err(std::io::Error::other)??;
         store
-            .lock()
-            .unwrap()
-            .db
-            .execute("UPDATE spaces SET samples_given = 1 WHERE id = ?1", [space])
+            .samples_given(space)
+            .await
             .map_err(std::io::Error::other)?;
         if added > 0 {
             println!("example files: {added} into space {space}");
@@ -125,10 +122,9 @@ pub fn give_once(store: &Shared) -> std::io::Result<()> {
 }
 
 /// Now and then: spaces that have not had the example files yet get them.
-pub async fn run(store: Shared) {
+pub async fn run(store: Store) {
     loop {
-        let s = store.clone();
-        if let Ok(Err(error)) = tokio::task::spawn_blocking(move || give_once(&s)).await {
+        if let Err(error) = give_once(&store).await {
             eprintln!("example files: {error}");
         }
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
@@ -136,7 +132,7 @@ pub async fn run(store: Shared) {
 }
 
 /// The Files page's button: the example files not there by name, again.
-async fn add(access: Access, State(store): State<Shared>) -> Response {
+async fn add(access: Access, State(store): State<Store>) -> Response {
     let space = access.space;
     let added = tokio::task::spawn_blocking(move || add_to(&store, space, &unpack()?)).await;
     match added {
@@ -157,8 +153,8 @@ mod tests {
     /// A space gets them once: not twice, and not again after they were removed.
     #[test]
     fn every_space_gets_them_once() {
-        let store: crate::Shared =
-            Arc::new(Mutex::new(crate::store::Store::open(":memory:").unwrap()));
+        let store: crate::Store =
+            Arc::new(Mutex::new(crate::store::Legacy::open(":memory:").unwrap()));
         let space = store.lock().unwrap().default_space().unwrap().0;
         super::give_once(&store).unwrap();
         let n = store.lock().unwrap().files(space).unwrap().len();

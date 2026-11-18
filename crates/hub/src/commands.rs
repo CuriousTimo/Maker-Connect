@@ -1,5 +1,5 @@
 use crate::{
-    JOG_FEEDS, JOG_STEPS, Shared, action, failed, grbl_action, jog_command, probe_gcode, profiles,
+    JOG_FEEDS, JOG_STEPS, Store, action, failed, grbl_action, jog_command, probe_gcode, profiles,
     store,
 };
 use axum::{
@@ -364,12 +364,12 @@ pub fn emergency_stop_of(machine: &store::Machine) -> Option<EmergencyStop> {
 /// The machine page's emergency-stop button.
 pub(crate) async fn emergency_stop(
     access: crate::access::Access,
-    State(shared): State<Shared>,
+    State(shared): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Response {
     let (space, machine) = {
         let store = shared.lock().unwrap();
-        let space = match store.space_of(&access) {
+        let space = match store.space_id_of(&access) {
             Ok((space, _)) => space,
             Err(error) => return failed(error),
         };
@@ -410,20 +410,21 @@ pub(crate) async fn emergency_stop(
 
 pub(crate) async fn command(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
     Form(form): Form<CommandForm>,
 ) -> Response {
+    let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
     let mut store = store.lock().unwrap();
-    let space = match store.space_of(&access) {
+    let space = match store.space_id_of(&access) {
         Ok((space, _)) => space,
         Err(error) => return failed(error),
     };
     // Switching things off never waits for PPE; everything else does.
     let off = form.gcode.trim().is_empty()
         && matches!(form.action.as_str(), "cooldown" | "fan-off" | "motors-off");
-    if !off && let Err(refused) = crate::safety::check_ppe(&store, &access, &id) {
+    if !off && let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &id) {
         return *refused;
     }
     // B3: nothing here refuses a command for a machine behind an agent because of what it is doing
@@ -591,7 +592,7 @@ pub(crate) async fn command(
 mod tests {
     use super::*;
     use crate::link::tests::{call, json};
-    use crate::store::Store;
+    use crate::store::Legacy;
     use axum::body::Body;
     use axum::http::Request;
     use maker_connect_protocol::{
@@ -683,7 +684,7 @@ mod tests {
     /// each, never G-code made by the hub; its SD tab says it is not available yet.
     #[tokio::test]
     async fn an_agents_machine_gets_typed_commands() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let agent = crate::app(store.clone());
         let register = Register {
@@ -801,7 +802,7 @@ mod tests {
     /// such as `M112` reaches the port at once (B7). B5: the two Home buttons of OctoPrint's panel.
     #[tokio::test]
     async fn b3_b5_an_agents_machine_gets_every_command_whatever_it_is_doing() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let agent = crate::app(store.clone());
         let register = Register {
@@ -931,7 +932,7 @@ mod tests {
 
     /// HS6: an agent machine of each kind, registered, paired, with a first report (so it is online).
     async fn agent_of(
-        store: &Arc<Mutex<Store>>,
+        store: &Arc<Mutex<Legacy>>,
         kind: MachineKind,
         profile: Option<&str>,
     ) -> (String, String) {
@@ -996,7 +997,7 @@ mod tests {
     }
 
     /// HS6: the commands the agent is given on its next report.
-    async fn given(store: &Arc<Mutex<Store>>, token: &str) -> Vec<protocol::Action> {
+    async fn given(store: &Arc<Mutex<Legacy>>, token: &str) -> Vec<protocol::Action> {
         let agent = crate::app(store.clone());
         let telemetry = Telemetry {
             state: MachineState::Idle,
@@ -1025,7 +1026,7 @@ mod tests {
     /// Marlin are refused and are sent nothing. The page shows the button for the first two only.
     #[tokio::test]
     async fn hs6_the_emergency_stop_is_each_kinds_own() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let press = |id: &str| {
             Request::post(format!("/machines/{id}/emergency-stop"))

@@ -1,5 +1,5 @@
-use crate::store::Store;
-use crate::{Shared, failed, store, updates};
+use crate::store::Legacy;
+use crate::{Store, failed, store, updates};
 use axum::{
     Form, Json,
     extract::State,
@@ -8,7 +8,7 @@ use axum::{
 };
 use maker_connect_protocol::{self as protocol, Register, Registered, Telemetry, TelemetryReply};
 
-pub(crate) async fn register(State(store): State<Shared>, Json(agent): Json<Register>) -> Response {
+pub(crate) async fn register(State(store): State<Store>, Json(agent): Json<Register>) -> Response {
     if agent.protocol != protocol::VERSION {
         return (
             StatusCode::BAD_REQUEST,
@@ -39,7 +39,7 @@ pub(crate) async fn register(State(store): State<Shared>, Json(agent): Json<Regi
 }
 
 pub(crate) async fn telemetry(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     headers: HeaderMap,
     extensions: axum::http::Extensions,
     Json(report): Json<Telemetry>,
@@ -175,7 +175,7 @@ pub(crate) fn peer_address(
 const POWER_CUT: &str = "a power cut stopped it: resume it here or on the printer";
 
 pub(crate) fn agent_job(
-    store: &mut Store,
+    store: &mut Legacy,
     token: &str,
     report: &Telemetry,
 ) -> rusqlite::Result<(Option<protocol::JobOrder>, Option<protocol::JobControl>)> {
@@ -280,12 +280,12 @@ pub(crate) struct PairForm {
 
 pub(crate) async fn pair(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     headers: HeaderMap,
     Form(form): Form<PairForm>,
 ) -> Response {
     let store = store.lock().unwrap();
-    let paired = store.space_of(&access).and_then(|(space, _)| {
+    let paired = store.space_id_of(&access).and_then(|(space, _)| {
         let paired = store.pair(space, &form.code)?;
         Ok(paired)
     });
@@ -304,7 +304,7 @@ pub(crate) async fn pair(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::store::{self, Store};
+    use crate::store::{self, Legacy};
     use crate::{label_page, machine_page};
     use axum::Router;
     use axum::body::Body;
@@ -316,7 +316,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn an_agent_runs_a_job() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         // The agent's own requests carry its token, no session: as from a real agent.
         let agent = crate::app(store.clone());
@@ -600,7 +600,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn a_cassette_out_needs_attention_not_an_error() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let register = Register {
             protocol: protocol::VERSION,
@@ -660,7 +660,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn an_agent_registers_is_paired_and_listed() {
         let app =
-            crate::auth::signed_in_app(Arc::new(Mutex::new(Store::open(":memory:").unwrap())));
+            crate::auth::signed_in_app(Arc::new(Mutex::new(Legacy::open(":memory:").unwrap())));
         let register = Register {
             protocol: protocol::VERSION,
             name: "MK3S Gonzo".into(),
@@ -738,7 +738,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn unknown_agents_and_versions_are_refused() {
         let app =
-            crate::auth::signed_in_app(Arc::new(Mutex::new(Store::open(":memory:").unwrap())));
+            crate::auth::signed_in_app(Arc::new(Mutex::new(Legacy::open(":memory:").unwrap())));
         let report = r#"{"state":"idle"}"#.to_owned();
         let (status, _) = call(&app, json(protocol::TELEMETRY, Some("nope"), report)).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -767,7 +767,7 @@ pub(crate) mod tests {
 
     /// An agent machine, registered and paired into the default space: (id, token, space).
     fn agent_machine(
-        store: &Arc<Mutex<Store>>,
+        store: &Arc<Mutex<Legacy>>,
         kind: MachineKind,
         profile: Option<&str>,
     ) -> (String, String, i64) {
@@ -788,7 +788,7 @@ pub(crate) mod tests {
         (id, token, space)
     }
 
-    fn queue_gcode(store: &Arc<Mutex<Store>>, space: i64, machine: &str, text: &str) -> u32 {
+    fn queue_gcode(store: &Arc<Mutex<Legacy>>, space: i64, machine: &str, text: &str) -> u32 {
         store
             .lock()
             .unwrap()
@@ -828,7 +828,7 @@ pub(crate) mod tests {
     }
 
     fn state_of(
-        store: &Arc<Mutex<Store>>,
+        store: &Arc<Mutex<Legacy>>,
         space: i64,
         machine: &str,
         id: u32,
@@ -856,7 +856,7 @@ pub(crate) mod tests {
     /// `M109` is still Sent (B7).
     #[tokio::test]
     async fn k18_a_marlin_agent_machine_has_no_gate() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None);
         let a = queue_gcode(&store, space, &id, "G28");
@@ -906,7 +906,7 @@ pub(crate) mod tests {
             (MachineKind::Fdm, Some("prusa/mk4s")),
             (MachineKind::Fdm, Some("alfawise/u30")),
         ] {
-            let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+            let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
             let app = crate::auth::signed_in_app(store.clone());
             let (id, token, space) = agent_machine(&store, kind, profile);
             let a = queue_gcode(&store, space, &id, "G28");
@@ -944,7 +944,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn hs4_label_and_laser_agent_machines_have_no_gate() {
         for kind in [MachineKind::Label, MachineKind::Laser] {
-            let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+            let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
             let app = crate::auth::signed_in_app(store.clone());
             let (id, token, space) = agent_machine(&store, kind, None);
             let a = queue_gcode(&store, space, &id, "G28");
@@ -995,7 +995,7 @@ pub(crate) mod tests {
     /// K18's agent-gone rule: only the Sent and Accepted commands, not the Queued, only of that machine.
     #[tokio::test]
     async fn k18_agent_gone_fails_sent_and_accepted_of_that_machine_only() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None);
         let (other, other_token, _) = agent_machine(&store, MachineKind::Fdm, None);
@@ -1070,7 +1070,7 @@ pub(crate) mod tests {
     /// first one after the gap wins too.
     #[tokio::test]
     async fn k18_a_late_done_wins_over_the_agent_was_gone() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None);
         let a = queue_gcode(&store, space, &id, "M109 S200");

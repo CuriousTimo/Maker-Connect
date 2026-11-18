@@ -15,7 +15,7 @@
 //! any origin, and need the token, never a cookie.
 
 use crate::access::{Access, Level};
-use crate::{Shared, failed, profiles};
+use crate::{Store, failed, profiles};
 use axum::{
     Json, Router,
     body::Body,
@@ -32,7 +32,7 @@ use serde_json::{Value, json};
 pub const API: u32 = 1;
 pub const PREFIX: &str = "/api/apps/v1/";
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/api/apps/v1/info", get(info))
         .route("/api/apps/v1/me", get(me))
@@ -52,7 +52,7 @@ async fn info() -> Json<Value> {
     }))
 }
 
-async fn me(access: Access, State(store): State<Shared>) -> Response {
+async fn me(access: Access, State(store): State<Store>) -> Response {
     let store = store.lock().unwrap();
     let found = (|| -> rusqlite::Result<Value> {
         let organisation = store.organisation_of(access.space)?;
@@ -107,7 +107,7 @@ pub(crate) fn machine_json(machine: &crate::store::Machine, may: Option<Level>) 
 
 async fn machines(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Query(query): Query<MachinesQuery>,
 ) -> Response {
     let store = store.lock().unwrap();
@@ -139,7 +139,7 @@ struct SendQuery {
 /// A file from a program: kept in Files, checked against its machine, and the page to open.
 async fn send(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Query(query): Query<SendQuery>,
     body: Body,
 ) -> Response {
@@ -222,7 +222,7 @@ fn encode(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::access::Role;
-    use crate::store::Store;
+    use crate::store::Legacy;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use http_body_util::BodyExt;
@@ -247,7 +247,7 @@ mod tests {
     /// in Files with the laser chosen, and nothing starts.
     #[tokio::test]
     async fn a_program_sends_a_laser_file() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::app(store.clone());
         let (space, laser, member, guest) = {
             let mut s = store.lock().unwrap();

@@ -1,12 +1,12 @@
 //! The Cameras page of a space, one camera's page, and its player and video (docs/plans/cameras.md,
-//! "Step 2, the module `cameras`"). Who may watch: [`Store::may_view_camera`]; adding,
+//! "Step 2, the module `cameras`"). Who may watch: [`Legacy::may_view_camera`]; adding,
 //! changing and removing take an admin (`access::RULES`, in the audit log), on the Space
 //! page's Cameras tab ([`space_tab`]).
 
 use super::store::{Camera, CameraForm};
 use crate::access::{Access, Role};
-use crate::store::Store;
-use crate::{STYLE, Shared, escape, failed, header};
+use crate::store::Legacy;
+use crate::{STYLE, Store, escape, failed, header};
 use axum::{
     Form, Router,
     extract::{Path, State, WebSocketUpgrade},
@@ -38,7 +38,7 @@ player.src = location.pathname.replace(/\/live$/, "/ws");
 <body></body>
 </html>"#;
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/cameras", get(list).post(add))
         .route("/cameras/{id}", get(camera_page).post(change))
@@ -49,7 +49,7 @@ pub fn routes() -> Router<Shared> {
 }
 
 /// The camera, when `access` may watch it; else the answer.
-fn watchable(store: &Store, access: &Access, id: i64) -> Result<Camera, Box<Response>> {
+fn watchable(store: &Legacy, access: &Access, id: i64) -> Result<Camera, Box<Response>> {
     let camera = match store.camera(access.space, id) {
         Ok(Some(camera)) => camera,
         Ok(None) => {
@@ -72,7 +72,7 @@ async fn video_rtc() -> Response {
     ([(http_header::CONTENT_TYPE, "text/javascript")], VIDEO_RTC).into_response()
 }
 
-async fn live(access: Access, State(store): State<Shared>, Path(id): Path<i64>) -> Response {
+async fn live(access: Access, State(store): State<Store>, Path(id): Path<i64>) -> Response {
     match watchable(&store.lock().unwrap(), &access, id) {
         Ok(_) => Html(LIVE).into_response(),
         Err(refused) => *refused,
@@ -81,7 +81,7 @@ async fn live(access: Access, State(store): State<Shared>, Path(id): Path<i64>) 
 
 async fn mse(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     ws: WebSocketUpgrade,
 ) -> Response {
@@ -100,7 +100,7 @@ async fn mse(
     }
 }
 
-async fn camera_page(access: Access, State(store): State<Shared>, Path(id): Path<i64>) -> Response {
+async fn camera_page(access: Access, State(store): State<Store>, Path(id): Path<i64>) -> Response {
     let store = store.lock().unwrap();
     let camera = match watchable(&store, &access, id) {
         Ok(camera) => camera,
@@ -150,7 +150,7 @@ async fn camera_page(access: Access, State(store): State<Shared>, Path(id): Path
     .into_response()
 }
 
-async fn list(access: Access, State(store): State<Shared>) -> Response {
+async fn list(access: Access, State(store): State<Store>) -> Response {
     let store = store.lock().unwrap();
     let space = match store.space_name(access.space) {
         Ok(space) => space,
@@ -222,7 +222,7 @@ fn watches(camera: &Camera, machines: &[crate::store::Machine]) -> String {
 /// The Cameras tab of the Space page (owner, 2026-11-16: "camera beheer hoort in /space
 /// thuis als tab"): for an admin, every camera of the space to change or remove, and one to
 /// add; empty for others.
-pub(crate) fn space_tab(store: &Store, access: &Access) -> String {
+pub(crate) fn space_tab(store: &Legacy, access: &Access) -> String {
     if access.role < Role::Admin {
         return String::new();
     }
@@ -346,7 +346,7 @@ impl Fields {
 
 async fn add(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     headers: HeaderMap,
     Form(fields): Form<Fields>,
 ) -> Response {
@@ -370,7 +370,7 @@ async fn add(
 
 async fn change(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     headers: HeaderMap,
     Form(fields): Form<Fields>,
@@ -396,7 +396,7 @@ async fn change(
 
 async fn remove(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     headers: HeaderMap,
 ) -> Response {
@@ -411,7 +411,7 @@ async fn remove(
 }
 
 /// The Camera tab of a machine's page: its cameras that `access` may watch.
-pub(crate) fn machine_tab(store: &Store, access: &Access, machine: &str) -> Option<String> {
+pub(crate) fn machine_tab(store: &Legacy, access: &Access, machine: &str) -> Option<String> {
     let cameras = store.machine_cameras(access, machine);
     if cameras.is_empty() {
         return None;

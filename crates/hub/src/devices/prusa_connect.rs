@@ -14,7 +14,7 @@
 //! Not yet: the WebSocket (`/p/ws`) and the commands, and files.
 
 use crate::store::{CommandState, Details, Network, Storage};
-use crate::{Shared, failed};
+use crate::{Store, failed};
 use axum::{
     Router,
     extract::State,
@@ -97,7 +97,7 @@ fn redact(value: &mut Value) {
     }
 }
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/p/register", post(register).get(registered))
         .route("/p/telemetry", post(telemetry))
@@ -131,7 +131,7 @@ fn printer_type(value: &Value) -> Option<String> {
     value.as_str().filter(|s| !s.is_empty()).map(str::to_owned)
 }
 
-async fn register(State(store): State<Shared>, body: String) -> Response {
+async fn register(State(store): State<Store>, body: String) -> Response {
     let about = match parse(&body) {
         Ok(about) => about,
         Err(refused) => return refused.into_response(),
@@ -183,7 +183,7 @@ async fn register(State(store): State<Shared>, body: String) -> Response {
 }
 
 /// The printer asks with its code whether it has been added yet.
-async fn registered(State(store): State<Shared>, headers: HeaderMap) -> Response {
+async fn registered(State(store): State<Store>, headers: HeaderMap) -> Response {
     match store
         .lock()
         .unwrap()
@@ -376,7 +376,7 @@ pub(crate) fn to_details(info: &Value) -> Details {
 }
 
 async fn telemetry(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     headers: HeaderMap,
     extensions: axum::http::Extensions,
     body: String,
@@ -466,7 +466,7 @@ async fn telemetry(
     }
 }
 
-async fn event(State(store): State<Shared>, headers: HeaderMap, body: String) -> Response {
+async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> Response {
     let event = match parse(&body) {
         Ok(event) => event,
         Err(refused) => return refused.into_response(),
@@ -518,7 +518,7 @@ async fn event(State(store): State<Shared>, headers: HeaderMap, body: String) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::Store;
+    use crate::store::Legacy;
     use axum::body::Body;
     use axum::http::Request;
     use std::sync::{Arc, Mutex};
@@ -596,7 +596,7 @@ mod tests {
     /// code on the website, gets its token, and then shows with its telemetry and profile.
     #[tokio::test]
     async fn a_mini_registers_by_itself() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let (status, headers) = call(
             &app,

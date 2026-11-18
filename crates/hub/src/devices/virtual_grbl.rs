@@ -3,7 +3,7 @@
 //! does: report, take jobs and commands, say how they went. So a virtual laser homes, jogs,
 //! frames, streams a job by character counting, stops and starts again as a real one would.
 
-use crate::Shared;
+use crate::Store;
 use crate::store::CommandState;
 use maker_connect_grbl::{GrblMachine, SimulatedGrbl, commands_of};
 use maker_connect_protocol::JobEnd;
@@ -24,7 +24,7 @@ fn running() -> &'static Mutex<HashSet<String>> {
 
 /// Starts a virtual laser's thread, unless it has one. `travel` sets its controller's travel
 /// to the profile's work area.
-pub fn ensure(store: &Shared, id: &str, token: &str, travel: Option<[f64; 2]>) {
+pub fn ensure(store: &Store, id: &str, token: &str, travel: Option<[f64; 2]>) {
     if !running().lock().unwrap().insert(id.to_owned()) {
         return;
     }
@@ -35,7 +35,7 @@ pub fn ensure(store: &Shared, id: &str, token: &str, travel: Option<[f64; 2]>) {
     });
 }
 
-fn run(store: &Shared, id: &str, token: &str, travel: Option<[f64; 2]>) {
+fn run(store: &Store, id: &str, token: &str, travel: Option<[f64; 2]>) {
     let mut sim = SimulatedGrbl::new();
     sim.set_latency(LINE_TIME);
     let mut laser = GrblMachine::new(Box::new(sim));

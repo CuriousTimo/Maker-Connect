@@ -1,6 +1,6 @@
 use super::*;
 
-impl Store {
+impl Legacy {
     pub(super) fn sample(&mut self, machine: &str, telemetry: &Telemetry) {
         let t = now();
         let history = self.history.entry(machine.to_owned()).or_default();

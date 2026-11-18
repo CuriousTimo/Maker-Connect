@@ -8,8 +8,8 @@
 //! queue of its own.
 
 use crate::access::Access;
-use crate::store::{Store, now};
-use crate::{Shared, failed};
+use crate::store::{Legacy, now};
+use crate::{Store, failed};
 use axum::{
     Form, Router,
     extract::{Path, State},
@@ -63,7 +63,7 @@ pub struct Queued {
     pub problem: Option<String>,
 }
 
-impl Store {
+impl Legacy {
     /// How the machine's last job ended, when it failed or was stopped and nobody said yet
     /// that the bed is clear: then its queue waits (what it left may still be there).
     pub fn bed_unchecked(&self, machine: &str) -> rusqlite::Result<Option<String>> {
@@ -291,7 +291,7 @@ impl Store {
 }
 
 /// Every few seconds: the next file of each queue, where it may start.
-pub async fn run(store: Shared) {
+pub async fn run(store: Store) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         if let Err(error) = store.lock().unwrap().start_queued() {
@@ -300,7 +300,7 @@ pub async fn run(store: Shared) {
     }
 }
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/machines/{id}/queue/order", post(order))
         .route("/machines/{id}/queue/{item}/remove", post(remove))
@@ -322,7 +322,7 @@ fn staff(access: &Access) -> bool {
 /// everyone else's stays where it was, so nobody gets ahead of others.
 async fn order(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<OrderForm>,
 ) -> Response {
@@ -370,7 +370,7 @@ async fn order(
 /// Takes a print out of the queue: one's own, or (staff) anyone's.
 async fn remove(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((machine, item)): Path<(String, i64)>,
 ) -> Response {
     let mut store = store.lock().unwrap();
@@ -397,14 +397,14 @@ async fn remove(
 
 #[cfg(test)]
 mod tests {
-    use crate::store::{JobState, Store};
+    use crate::store::{JobState, Legacy};
     use maker_connect_protocol::{MachineState, Telemetry};
 
     /// One after another: the next starts once the machine is free; after a failed job only
     /// when someone said the bed is clear.
     #[test]
     fn a_queue_waits_for_a_clear_bed() {
-        let mut s = Store::open(":memory:").unwrap();
+        let mut s = Legacy::open(":memory:").unwrap();
         let space = s.default_space().unwrap().0;
         let m = s
             .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
@@ -419,7 +419,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        let idle = |s: &mut Store| {
+        let idle = |s: &mut Legacy| {
             s.report(
                 &token,
                 &Telemetry {
@@ -479,7 +479,7 @@ mod tests {
     #[test]
     fn a_laser_never_starts_alone() {
         use crate::store::{LASER_NEVER_ALONE, StartedBy};
-        let mut s = Store::open(":memory:").unwrap();
+        let mut s = Legacy::open(":memory:").unwrap();
         let space = s.default_space().unwrap().0;
         let m = s
             .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())

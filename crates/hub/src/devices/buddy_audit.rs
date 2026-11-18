@@ -16,7 +16,7 @@
 //! Every test cites the reference line it stands for. A row of the audit is "identical" only
 //! for what these tests show.
 
-use crate::store::{CommandState, Store};
+use crate::store::{CommandState, Legacy};
 use axum::{
     Router,
     body::Body,
@@ -370,7 +370,7 @@ pub fn buddy_takes(body: &str) -> Taken {
 
 struct Mini {
     app: Router,
-    store: Arc<Mutex<Store>>,
+    store: Arc<Mutex<Legacy>>,
     token: String,
     id: String,
     space: i64,
@@ -378,7 +378,7 @@ struct Mini {
 
 impl Mini {
     fn new() -> Mini {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let (space, id, token) = {
             let mut s = store.lock().unwrap();
@@ -1032,7 +1032,7 @@ async fn the_answer_to_a_report_is_what_buddy_reads() {
 /// owner adds it, then `200` with a `Token` of at most 20 characters (printer.hpp:190).
 #[tokio::test]
 async fn registration_is_what_registrator_cpp_does() {
-    let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+    let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
     let app = crate::auth::signed_in_app(store.clone());
     let send = |request: Request<Body>| {
         let app = app.clone();

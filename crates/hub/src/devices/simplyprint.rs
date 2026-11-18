@@ -24,7 +24,7 @@
 //! Never sent from here: `new_token` and `complete_setup`. Moonraker answers those by
 //! switching its address back to SimplyPrint's own servers.
 
-use crate::Shared;
+use crate::Store;
 use crate::store::CommandState;
 use axum::Router;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -38,7 +38,7 @@ use maker_connect_protocol::{
 use serde_json::{Value, json};
 use std::time::Duration;
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/simplyprint/{token}", get(connect))
         // Moonraker downloads a job's file with a plain GET: the printer's token is in the address.
@@ -49,7 +49,7 @@ pub fn routes() -> Router<Shared> {
 }
 
 async fn job_file(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((token, job)): Path<(String, i64)>,
 ) -> Response {
     crate::files::job_file(&store, &token, job).await
@@ -57,7 +57,7 @@ async fn job_file(
 
 async fn connect_more(
     ws: WebSocketUpgrade,
-    state: State<Shared>,
+    state: State<Store>,
     Path((token, _)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
@@ -66,7 +66,7 @@ async fn connect_more(
 
 async fn connect(
     ws: WebSocketUpgrade,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(token): Path<String>,
     headers: HeaderMap,
 ) -> Response {
@@ -102,7 +102,7 @@ struct Printer {
     job_end: Option<JobEnd>,
 }
 
-async fn session(mut socket: WebSocket, store: Shared, token: String, name: String, base: String) {
+async fn session(mut socket: WebSocket, store: Store, token: String, name: String, base: String) {
     println!("Moonraker connected: {name}");
     // How often it reports (in ms): every 2 s at least, so it counts as online.
     let hello = json!({"type": "connected", "data": {
@@ -309,7 +309,7 @@ fn state(new: &str) -> MachineState {
 
 /// Reports the printer, and gives back what to send it: the next command, a job's file,
 /// pause, resume or cancel.
-fn report(store: &Shared, token: &str, base: &str, printer: &mut Printer) -> Vec<Value> {
+fn report(store: &Store, token: &str, base: &str, printer: &mut Printer) -> Vec<Value> {
     let mut report = printer.telemetry.clone();
     report.job_id = printer.job;
     report.done = std::mem::take(&mut printer.done);
@@ -372,7 +372,7 @@ fn report(store: &Shared, token: &str, base: &str, printer: &mut Printer) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::Store;
+    use crate::store::Legacy;
     use futures_util::{SinkExt, StreamExt};
     use std::sync::{Arc, Mutex};
     use tokio_tungstenite::tungstenite::Message as WsMessage;
@@ -381,7 +381,7 @@ mod tests {
     /// would, and does what it is asked.
     #[tokio::test]
     async fn a_klipper_printer_connects_takes_a_command_and_prints() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let (space, id, token) = {
             let mut s = store.lock().unwrap();
             let space = s.default_space().unwrap().0;

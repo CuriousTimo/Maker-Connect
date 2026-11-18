@@ -2325,7 +2325,7 @@ mod tests {
     /// Step 3e, E11: a scale's page has one live line, status then weight and unit, as the scale says them.
     #[test]
     fn a_scale_shows_one_live_line() {
-        let mut store = store::Store::open(":memory:").unwrap();
+        let mut store = store::Legacy::open(":memory:").unwrap();
         let space = store.default_space().unwrap().0;
         let (id, token, code) = store
             .register(&maker_connect_protocol::Register {
@@ -2371,7 +2371,7 @@ mod tests {
     /// X/Y and Z (`control.jinja2:71,85`); a printer on Prusa's MK3 ways keeps its one.
     #[test]
     fn b5_a_plain_marlin_machine_has_two_home_buttons() {
-        let store = store::Store::open(":memory:").unwrap();
+        let store = store::Legacy::open(":memory:").unwrap();
         let space = store.default_space().unwrap().0;
         let register = |name: &str| {
             let (id, _token, code) = store
@@ -2406,7 +2406,7 @@ mod tests {
     /// anywhere. Whatever prints, the hub's job or the printer's own, has Stop.
     #[test]
     fn every_print_has_stop() {
-        let mut store = store::Store::open(":memory:").unwrap();
+        let mut store = store::Legacy::open(":memory:").unwrap();
         let space = store.default_space().unwrap().0;
         let mini = store
             .add_virtual(space, profiles::find("prusa/mini").unwrap())
@@ -2417,7 +2417,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        let actions = |store: &store::Store| {
+        let actions = |store: &store::Legacy| {
             let machine = store.machine(space, &mini).unwrap().unwrap();
             let card = job_card(&machine);
             let form = card

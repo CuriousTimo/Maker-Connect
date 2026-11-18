@@ -14,7 +14,7 @@
 //! only LOADED (HS7b); nothing here starts a burn.
 
 use crate::access::{Access, Level, Role};
-use crate::{Shared, failed};
+use crate::{Store, failed};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -56,7 +56,7 @@ pub const ASSETS: &[Asset] = &[
 #[cfg(not(feature = "laser-design"))]
 pub const ASSETS: &[Asset] = &[];
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route(
             "/laser-design",
@@ -69,7 +69,7 @@ pub fn routes() -> Router<Shared> {
 
 /// The lasers of the space the person may use (use or more), as the apps API's `machines` lists them.
 fn usable_lasers(
-    store: &crate::store::Store,
+    store: &crate::store::Legacy,
     access: &Access,
 ) -> rusqlite::Result<Vec<serde_json::Value>> {
     Ok(store
@@ -83,7 +83,7 @@ fn usable_lasers(
         .collect())
 }
 
-async fn lasers(access: Access, State(store): State<Shared>) -> Response {
+async fn lasers(access: Access, State(store): State<Store>) -> Response {
     match usable_lasers(&store.lock().unwrap(), &access) {
         Ok(list) => Json(list).into_response(),
         Err(error) => failed(error),
@@ -106,14 +106,14 @@ pub(crate) enum Availability {
 }
 
 pub(crate) fn availability(
-    store: &crate::store::Store,
+    store: &crate::store::Legacy,
     access: &Access,
 ) -> rusqlite::Result<Availability> {
     availability_of(store, access, !ASSETS.is_empty())
 }
 
 fn availability_of(
-    store: &crate::store::Store,
+    store: &crate::store::Legacy,
     access: &Access,
     built: bool,
 ) -> rusqlite::Result<Availability> {
@@ -138,7 +138,7 @@ fn availability_of(
 }
 
 /// Whether this person may open the page: a member who may use a laser.
-fn may_open(store: &crate::store::Store, access: &Access) -> Result<(), Box<Response>> {
+fn may_open(store: &crate::store::Legacy, access: &Access) -> Result<(), Box<Response>> {
     if access.role < Role::Member {
         return Err(Box::new(
             (
@@ -161,17 +161,17 @@ fn may_open(store: &crate::store::Store, access: &Access) -> Result<(), Box<Resp
     }
 }
 
-async fn index(access: Access, State(store): State<Shared>) -> Response {
+async fn index(access: Access, State(store): State<Store>) -> Response {
     serve(&access, &store, ASSETS, "index.html")
 }
 
-async fn file(access: Access, State(store): State<Shared>, Path(file): Path<String>) -> Response {
+async fn file(access: Access, State(store): State<Store>, Path(file): Path<String>) -> Response {
     serve(&access, &store, ASSETS, &file)
 }
 
 /// The packed file `name`, as the browser takes it: gzip, its type, never cached without asking, and the page's
 /// Permissions-Policy.
-fn serve(access: &Access, store: &Shared, assets: &'static [Asset], name: &str) -> Response {
+fn serve(access: &Access, store: &Store, assets: &'static [Asset], name: &str) -> Response {
     if let Err(refused) = may_open(&store.lock().unwrap(), access) {
         return *refused;
     }

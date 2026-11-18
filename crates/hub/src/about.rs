@@ -4,7 +4,7 @@
 //! also updates it here (crate::updates).
 
 use crate::access::Access;
-use crate::{STYLE, Shared, escape, failed, header};
+use crate::{STYLE, Store, escape, failed, header};
 use axum::{
     Router,
     extract::State,
@@ -18,7 +18,7 @@ const REPO: &str = "https://github.com/CuriousTimo/Maker-Connect";
 /// When this server started (Unix seconds).
 static STARTED: OnceLock<i64> = OnceLock::new();
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     STARTED.get_or_init(crate::store::now);
     Router::new().route("/about", get(page))
 }
@@ -142,7 +142,7 @@ fn row(label: &str, value: Option<String>) -> String {
     })
 }
 
-async fn page(access: Access, State(store): State<Shared>) -> Response {
+async fn page(access: Access, State(store): State<Store>) -> Response {
     let (space, database) = {
         let store = store.lock().unwrap();
         match store.space_name(access.space) {
@@ -353,7 +353,7 @@ mod tests {
         use http_body_util::BodyExt;
         use std::sync::{Arc, Mutex};
         use tower::ServiceExt;
-        let store = crate::store::Store::open(":memory:").unwrap();
+        let store = crate::store::Legacy::open(":memory:").unwrap();
         let app = crate::auth::signed_in_app(Arc::new(Mutex::new(store)));
         let response = app
             .oneshot(Request::get("/about").body(Body::empty()).unwrap())

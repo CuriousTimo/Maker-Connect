@@ -11,7 +11,7 @@
 //! `x86_64`, `aarch64`, `armv6`) gets a card of its own: the system's icon, and the command that
 //! starts it against this hub. Other files are listed under them.
 
-use crate::{STYLE, Shared, escape, failed, header};
+use crate::{STYLE, Store, escape, failed, header};
 use axum::{
     Router,
     body::Body,
@@ -21,7 +21,7 @@ use axum::{
     routing::get,
 };
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/downloads", get(page))
         .route("/downloads/{name}", get(download))
@@ -142,13 +142,13 @@ fn megabytes(size: u64) -> String {
 
 async fn page(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     headers: HeaderMap,
 ) -> Response {
     let role = access.role;
     let (space, dir, on_offer) = {
         let store = store.lock().unwrap();
-        match store.space_of(&access) {
+        match store.space_id_of(&access) {
             Ok((_, space)) => (space, store.downloads_dir.clone(), store.offered_build()),
             Err(error) => return failed(error),
         }
@@ -368,7 +368,7 @@ async fn page(
     .into_response()
 }
 
-async fn download(State(store): State<Shared>, Path(name): Path<String>) -> Response {
+async fn download(State(store): State<Store>, Path(name): Path<String>) -> Response {
     if !plain(&name) {
         return (StatusCode::NOT_FOUND, "no such download").into_response();
     }
@@ -392,7 +392,7 @@ async fn download(State(store): State<Shared>, Path(name): Path<String>) -> Resp
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::Store;
+    use crate::store::Legacy;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use http_body_util::BodyExt;
@@ -430,7 +430,7 @@ mod tests {
     /// Nothing of our own in the folder: the agent of the releases on GitHub, a card each.
     #[tokio::test]
     async fn without_builds_here_the_agent_comes_from_github() {
-        let store = Store::open(":memory:").unwrap();
+        let store = Legacy::open(":memory:").unwrap();
         let app = crate::auth::signed_in_app(Arc::new(Mutex::new(store)));
         let response = app
             .oneshot(Request::get("/downloads").body(Body::empty()).unwrap())
@@ -445,7 +445,7 @@ mod tests {
 
     #[tokio::test]
     async fn files_in_the_folder_are_offered_and_nothing_else() {
-        let store = Store::open(":memory:").unwrap();
+        let store = Legacy::open(":memory:").unwrap();
         let exe = "maker-connect-agent-windows-x86_64.exe";
         std::fs::write(store.downloads_dir.join(exe), b"MZ").unwrap();
         std::fs::write(store.downloads_dir.join("notes.txt"), b"hi").unwrap();

@@ -10,8 +10,8 @@
 //!   free, so labels and tags that name a spool by its id still find it.
 //! - **To a Spoolman**: the same, written to a running one through its API (it gives new ids).
 
-use crate::Shared;
-use crate::store::{Store, now};
+use crate::Store;
+use crate::store::{Legacy, now};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -96,7 +96,7 @@ fn fetch() -> Result<(Vec<Value>, Vec<Value>), String> {
     Ok((get("filaments.json")?, get("materials.json")?))
 }
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/api/v1/external/filament", get(all_filaments))
         .route("/api/v1/external/filament/search", get(search))
@@ -151,7 +151,7 @@ async fn search(Query(q): Query<HashMap<String, String>>) -> Response {
 
 /// A SpoolmanDB filament taken into Materials (its maker a vendor), or the one taken before:
 /// its filament id.
-pub fn take_into(store: &Store, space: i64, f: &Value) -> rusqlite::Result<i64> {
+pub fn take_into(store: &Legacy, space: i64, f: &Value) -> rusqlite::Result<i64> {
     let external = f["id"].as_str().unwrap_or_default();
     if let Some(id) = store
         .db
@@ -223,7 +223,7 @@ pub fn take_into(store: &Store, space: i64, f: &Value) -> rusqlite::Result<i64> 
 
 async fn take(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(external_id): Path<String>,
 ) -> Response {
     let found = catalogue()
@@ -312,7 +312,7 @@ impl Bundle {
     }
 
     /// Into Materials: each with its own id where that is free, else a new one.
-    pub fn into_store(self, store: &Store, space: i64) -> rusqlite::Result<Moved> {
+    pub fn into_store(self, store: &Legacy, space: i64) -> rusqlite::Result<Moved> {
         let mut moved = Moved::default();
         let free = |table: &str, id: i64| -> rusqlite::Result<bool> {
             store.db.query_row(
@@ -467,7 +467,7 @@ impl Bundle {
 }
 
 fn tags_into(
-    store: &Store,
+    store: &Legacy,
     space: i64,
     target: &str,
     id: i64,
@@ -499,7 +499,7 @@ fn tags_into(
 /// `{"url": "http://host:7912"}` for a running Spoolman, or its JSON export of spools.
 async fn import(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Json(body): Json<Value>,
 ) -> Response {
     let bundle = match (body["url"].as_str(), body.as_array()) {
@@ -531,7 +531,7 @@ async fn import(
 /// Everything in Materials, written to a running Spoolman through its API.
 async fn export(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Json(body): Json<Value>,
 ) -> Response {
     let Some(url) = body["url"]
@@ -625,7 +625,7 @@ mod tests {
     /// filament is taken once.
     #[test]
     fn a_spoolman_moves_over_and_spoolmandb_is_taken_once() {
-        let store = Store::open(":memory:").unwrap();
+        let store = Legacy::open(":memory:").unwrap();
         let space = store.default_space().unwrap().0;
         let export = json!([{
             "id": 12, "registered": "2025-03-01T10:00:00Z", "used_weight": 250.0,

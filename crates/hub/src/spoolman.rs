@@ -20,8 +20,8 @@
 //! label `S-0007`. Locations are places here (with a code and a label); Spoolman's are names,
 //! so they go out as their names, and a new name makes a place.
 
-use crate::Shared;
-use crate::store::{SpoolmanEvent, Store, now};
+use crate::Store;
+use crate::store::{SpoolmanEvent, Legacy, now};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -32,7 +32,7 @@ use rusqlite::{OptionalExtension, params};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/api/v1/info", get(info))
         .route(
@@ -202,7 +202,7 @@ fn extra_value(v: Value) -> Value {
     Value::String(v.to_string())
 }
 
-impl Store {
+impl Legacy {
     pub fn sm_vendor(&self, space: i64, id: i64) -> rusqlite::Result<Option<Value>> {
         self.db
             .query_row(
@@ -518,7 +518,7 @@ async fn info() -> Json<Value> {
 async fn list_vendors(
     access: crate::access::Access,
     MaybeWs(ws): MaybeWs,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
     // The same path is its WebSocket: what is added, changed, removed.
@@ -539,7 +539,7 @@ async fn list_vendors(
 async fn list_filaments(
     access: crate::access::Access,
     MaybeWs(ws): MaybeWs,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
     // The same path is its WebSocket: what is added, changed, removed.
@@ -574,7 +574,7 @@ async fn list_filaments(
 async fn list_spools(
     access: crate::access::Access,
     MaybeWs(ws): MaybeWs,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
     // The same path is its WebSocket: what is added, changed, removed.
@@ -622,7 +622,7 @@ async fn list_spools(
     )
 }
 
-fn one_of(access: &crate::access::Access, store: &Shared, resource: &str, id: i64) -> Response {
+fn one_of(access: &crate::access::Access, store: &Store, resource: &str, id: i64) -> Response {
     let store = store.lock().unwrap();
     let space = match space(access) {
         Ok(s) => s,
@@ -638,7 +638,7 @@ fn one_of(access: &crate::access::Access, store: &Shared, resource: &str, id: i6
 async fn one_vendor(
     access: crate::access::Access,
     MaybeWs(ws): MaybeWs,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
     if let Some(ws) = ws {
@@ -649,7 +649,7 @@ async fn one_vendor(
 async fn one_filament(
     access: crate::access::Access,
     MaybeWs(ws): MaybeWs,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
     if let Some(ws) = ws {
@@ -660,7 +660,7 @@ async fn one_filament(
 async fn one_spool(
     access: crate::access::Access,
     MaybeWs(ws): MaybeWs,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
     if let Some(ws) = ws {
@@ -737,7 +737,7 @@ fn vendor_changes(body: &Value) -> Vec<(&'static str, rusqlite::types::Value)> {
 
 async fn add_vendor(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Json(body): Json<Value>,
 ) -> Response {
     if body["name"].as_str().is_none_or(|n| n.trim().is_empty()) {
@@ -762,7 +762,7 @@ async fn add_vendor(
 
 async fn change_vendor(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -779,7 +779,7 @@ async fn change_vendor(
 }
 
 fn filament_changes(
-    store: &Store,
+    store: &Legacy,
     space: i64,
     body: &Value,
 ) -> rusqlite::Result<Vec<(&'static str, rusqlite::types::Value)>> {
@@ -863,7 +863,7 @@ fn filament_changes(
 
 async fn add_filament(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Json(body): Json<Value>,
 ) -> Response {
     for key in ["density", "diameter"] {
@@ -894,7 +894,7 @@ async fn add_filament(
 
 async fn change_filament(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -915,7 +915,7 @@ async fn change_filament(
 }
 
 fn spool_changes(
-    store: &Store,
+    store: &Legacy,
     space: i64,
     body: &Value,
     spool: Option<i64>,
@@ -1023,7 +1023,7 @@ fn spool_changes(
 
 async fn add_spool(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Json(body): Json<Value>,
 ) -> Response {
     if body["filament_id"].as_i64().is_none() {
@@ -1078,7 +1078,7 @@ async fn add_spool(
 
 async fn change_spool(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -1111,7 +1111,7 @@ async fn change_spool(
 
 async fn use_spool(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -1157,7 +1157,7 @@ async fn use_spool(
 
 async fn measure_spool(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -1207,7 +1207,7 @@ async fn measure_spool(
 }
 
 fn respond_made(
-    store: &Store,
+    store: &Legacy,
     space: i64,
     resource: &'static str,
     made: rusqlite::Result<i64>,
@@ -1224,7 +1224,7 @@ fn respond_made(
 }
 
 fn respond_changed(
-    store: &Store,
+    store: &Legacy,
     space: i64,
     resource: &'static str,
     done: rusqlite::Result<i64>,
@@ -1242,7 +1242,7 @@ fn respond_changed(
 
 fn remove(
     access: &crate::access::Access,
-    store: &Shared,
+    store: &Store,
     resource: &'static str,
     id: i64,
 ) -> Response {
@@ -1303,21 +1303,21 @@ fn remove(
 
 async fn remove_vendor(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
     remove(&access, &store, "vendor", id)
 }
 async fn remove_filament(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
     remove(&access, &store, "filament", id)
 }
 async fn remove_spool(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
     remove(&access, &store, "spool", id)
@@ -1325,7 +1325,7 @@ async fn remove_spool(
 
 // ---- lists of values, settings, export ----------------------------------------------
 
-fn distinct(access: &crate::access::Access, store: &Shared, sql: &str) -> Response {
+fn distinct(access: &crate::access::Access, store: &Store, sql: &str) -> Response {
     let store = store.lock().unwrap();
     let space = match space(access) {
         Ok(s) => s,
@@ -1341,14 +1341,14 @@ fn distinct(access: &crate::access::Access, store: &Shared, sql: &str) -> Respon
     }
 }
 
-async fn materials(access: crate::access::Access, State(store): State<Shared>) -> Response {
+async fn materials(access: crate::access::Access, State(store): State<Store>) -> Response {
     distinct(
         &access,
         &store,
         "SELECT DISTINCT material FROM filament WHERE space_id = ?1 AND material IS NOT NULL ORDER BY material",
     )
 }
-async fn locations(access: crate::access::Access, State(store): State<Shared>) -> Response {
+async fn locations(access: crate::access::Access, State(store): State<Store>) -> Response {
     distinct(
         &access,
         &store,
@@ -1358,7 +1358,7 @@ async fn locations(access: crate::access::Access, State(store): State<Shared>) -
 /// Spoolman's rename: `PATCH /location/Shelf A` with `{"name": "Shelf B"}`.
 async fn rename_location(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(name): Path<String>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -1398,14 +1398,14 @@ async fn rename_location(
     }
 }
 
-async fn lot_numbers(access: crate::access::Access, State(store): State<Shared>) -> Response {
+async fn lot_numbers(access: crate::access::Access, State(store): State<Store>) -> Response {
     distinct(
         &access,
         &store,
         "SELECT DISTINCT lot_nr FROM spool WHERE space_id = ?1 AND lot_nr IS NOT NULL ORDER BY lot_nr",
     )
 }
-async fn article_numbers(access: crate::access::Access, State(store): State<Shared>) -> Response {
+async fn article_numbers(access: crate::access::Access, State(store): State<Store>) -> Response {
     distinct(
         &access,
         &store,
@@ -1427,7 +1427,7 @@ const SETTINGS: [(&str, &str, &str); 5] = [
     ("board_field", "string", "\"location\""),
 ];
 
-fn setting_of(store: &Store, space: i64, key: &str) -> Option<Value> {
+fn setting_of(store: &Legacy, space: i64, key: &str) -> Option<Value> {
     let (_, kind, default) = SETTINGS.iter().find(|(k, _, _)| *k == key)?;
     let set: Option<String> = store
         .db
@@ -1446,7 +1446,7 @@ fn setting_of(store: &Store, space: i64, key: &str) -> Option<Value> {
     }))
 }
 
-async fn settings(access: crate::access::Access, State(store): State<Shared>) -> Response {
+async fn settings(access: crate::access::Access, State(store): State<Store>) -> Response {
     let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
@@ -1461,7 +1461,7 @@ async fn settings(access: crate::access::Access, State(store): State<Shared>) ->
 
 async fn setting(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(key): Path<String>,
 ) -> Response {
     let store = store.lock().unwrap();
@@ -1481,7 +1481,7 @@ async fn setting(
 
 async fn set_setting(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(key): Path<String>,
     body: String,
 ) -> Response {
@@ -1515,7 +1515,7 @@ async fn set_setting(
 /// `/export/spools?fmt=csv` (or `json`): every row, nested fields flattened with dots.
 async fn export(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(what): Path<String>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
@@ -1599,7 +1599,7 @@ fn flatten(prefix: &str, v: &Value) -> Vec<(String, String)> {
 
 pub fn upgrade(
     ws: WebSocketUpgrade,
-    store: Shared,
+    store: Store,
     space: i64,
     resource: String,
     id: Option<i64>,
@@ -1611,7 +1611,7 @@ pub fn upgrade(
 }
 
 /// A space's changes, as Spoolman sends them; never another space's.
-async fn live(mut socket: WebSocket, store: Shared, space: i64, resource: String, id: Option<i64>) {
+async fn live(mut socket: WebSocket, store: Store, space: i64, resource: String, id: Option<i64>) {
     let mut events = store.lock().unwrap().subscribe_spoolman();
     // A ping every 30 s, the first after 30 s (not at once: events come first).
     let every = std::time::Duration::from_secs(30);
@@ -1685,7 +1685,7 @@ pub fn normalize_uid(uid: &str) -> Result<String, String> {
 /// Links a tag to a spool or a filament: 201 with the tag, 409 with who holds it.
 fn link(
     access: &crate::access::Access,
-    store: &Shared,
+    store: &Store,
     target: &'static str,
     id: i64,
     body: &Value,
@@ -1765,7 +1765,7 @@ fn link(
 
 fn unlink(
     access: &crate::access::Access,
-    store: &Shared,
+    store: &Store,
     target: &'static str,
     id: i64,
     uid: &str,
@@ -1806,7 +1806,7 @@ fn unlink(
 
 async fn tag_spool(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -1814,14 +1814,14 @@ async fn tag_spool(
 }
 async fn untag_spool(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((id, uid)): Path<(i64, String)>,
 ) -> Response {
     unlink(&access, &store, "spool", id, &uid)
 }
 async fn tag_filament(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -1829,7 +1829,7 @@ async fn tag_filament(
 }
 async fn untag_filament(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((id, uid)): Path<(i64, String)>,
 ) -> Response {
     unlink(&access, &store, "filament", id, &uid)
@@ -1837,7 +1837,7 @@ async fn untag_filament(
 
 /// The readers that scanned lately (in memory, as Spoolman's), and the scans as they come,
 /// each with its space: a space sees only its own readers and scans. One per hub (kept in its
-/// `Store`), so two hubs in one process, as tests run them, never see each other's.
+/// `Legacy`), so two hubs in one process, as tests run them, never see each other's.
 pub(crate) struct Scans {
     readers: std::sync::Mutex<Vec<(i64, Value)>>,
     sent: tokio::sync::broadcast::Sender<(i64, Value)>,
@@ -1856,7 +1856,7 @@ impl Default for Scans {
 /// the scan WebSockets (so a page paired with that reader can open the spool).
 async fn scan(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -1931,7 +1931,7 @@ async fn scan(
     Json(result).into_response()
 }
 
-async fn readers(access: crate::access::Access, State(store): State<Shared>) -> Json<Value> {
+async fn readers(access: crate::access::Access, State(store): State<Store>) -> Json<Value> {
     let scans = store.lock().unwrap().spoolman_scans.clone();
     let readers = scans.readers.lock().unwrap();
     Json(Value::Array(
@@ -1945,7 +1945,7 @@ async fn readers(access: crate::access::Access, State(store): State<Shared>) -> 
 
 async fn scan_live(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     MaybeWs(ws): MaybeWs,
 ) -> Response {
     let scans = store.lock().unwrap().spoolman_scans.clone();
@@ -1957,7 +1957,7 @@ async fn scan_live(
 
 async fn scan_live_reader(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     MaybeWs(ws): MaybeWs,
     Path(reader): Path<String>,
 ) -> Response {
@@ -2015,7 +2015,7 @@ fn entity(entity: &str) -> Option<&'static str> {
         .find(|e| *e == entity)
 }
 
-fn field_list(store: &Store, space: i64, entity: &str) -> rusqlite::Result<Value> {
+fn field_list(store: &Legacy, space: i64, entity: &str) -> rusqlite::Result<Value> {
     let mut q = store.db.prepare(
         "SELECT key, definition FROM extra_field WHERE space_id = ?1 AND entity_type = ?2",
     )?;
@@ -2036,7 +2036,7 @@ fn field_list(store: &Store, space: i64, entity: &str) -> rusqlite::Result<Value
 
 async fn fields(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(e): Path<String>,
 ) -> Response {
     let Some(e) = entity(&e) else {
@@ -2055,7 +2055,7 @@ async fn fields(
 
 async fn set_field(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((e, key)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -2132,7 +2132,7 @@ async fn set_field(
 
 async fn remove_field(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((e, key)): Path<(String, String)>,
 ) -> Response {
     let Some(e) = entity(&e) else {
@@ -2177,7 +2177,7 @@ async fn remove_field(
 /// The values a field has now, for suggestions.
 async fn field_values(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((e, key)): Path<(String, String)>,
 ) -> Response {
     let Some(e) = entity(&e) else {
@@ -2203,7 +2203,7 @@ async fn field_values(
 mod tests {
     use super::*;
 
-    use crate::store::Store;
+    use crate::store::Legacy;
     use futures_util::StreamExt;
     use std::sync::{Arc, Mutex};
 
@@ -2212,7 +2212,7 @@ mod tests {
     /// weighing, and hear about it on the spool's WebSocket.
     #[tokio::test]
     async fn it_answers_as_spoolman_does() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let app = crate::auth::signed_in_app(store.clone());

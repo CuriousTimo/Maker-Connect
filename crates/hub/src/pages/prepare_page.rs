@@ -4,7 +4,7 @@
 //! derived from the space's machines and the permissions set in Space, nothing of its own.
 
 use crate::laser_design::{Availability, availability};
-use crate::{STYLE, Shared, failed, header};
+use crate::{STYLE, Store, failed, header};
 use axum::{
     extract::State,
     response::{Html, IntoResponse, Response},
@@ -19,10 +19,10 @@ const PREPARE_STYLE: &str = "
   .tool a.button { display: inline-block; font-weight: 600; padding: 8px 14px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; }
 ";
 
-pub async fn page(access: crate::access::Access, State(store): State<Shared>) -> Response {
+pub async fn page(access: crate::access::Access, State(store): State<Store>) -> Response {
     let (space, laser) = {
         let store = store.lock().unwrap();
-        let space = match store.space_of(&access) {
+        let space = match store.space_id_of(&access) {
             Ok((_, name)) => name,
             Err(error) => return failed(error),
         };

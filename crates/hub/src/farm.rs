@@ -17,12 +17,12 @@
 //!   failed (*Bad print*). Only that counts: never a time window, never a status seen after
 //!   a restart (print-farm-manager's "phantom credit"). Code never releases a held machine
 //!   by itself.
-//! - **The ledger:** `done` changes in [`Store::adjust_part`] only, with one ledger row each
+//! - **The ledger:** `done` changes in [`Legacy::adjust_part`] only, with one ledger row each
 //!   time; a test reads the source and fails if anything else writes it.
 
 use crate::access::{Access, Level, Role};
-use crate::store::{JobState, Store, now};
-use crate::{Shared, failed};
+use crate::store::{JobState, Legacy, now};
+use crate::{Store, failed};
 use axum::{
     Form, Json, Router,
     extract::{Path, State},
@@ -184,7 +184,7 @@ struct Candidate {
     per_plate: i64,
 }
 
-impl Store {
+impl Legacy {
     /// The space's projects, newest first within their priority, with their parts.
     pub fn projects(&self, space: i64) -> rusqlite::Result<Vec<Project>> {
         let mut q = self.db.prepare(
@@ -665,7 +665,7 @@ pub struct Upkeep {
     pub due: bool,
 }
 
-impl Store {
+impl Legacy {
     /// A machine's upkeep, when a service interval is set.
     pub fn upkeep(&self, machine: &str) -> rusqlite::Result<Option<Upkeep>> {
         let found: Option<(Option<f64>, Option<i64>)> = self
@@ -790,7 +790,7 @@ const SCHEDULE_PLATES: usize = 60;
 /// A plate whose file says nothing of its time is planned as this long.
 const UNKNOWN_PLATE_SECONDS: i64 = 3600;
 
-impl Store {
+impl Legacy {
     /// The names of a part and its project.
     fn part_names(&self, part: i64) -> (Option<String>, Option<String>) {
         self.db
@@ -803,7 +803,7 @@ impl Store {
     }
 
     /// What the machines that take work will print, and when: worked out from the jobs running
-    /// and the dispatcher's own rule (`Store::candidate_with`), without changing anything.
+    /// and the dispatcher's own rule (`Legacy::candidate_with`), without changing anything.
     /// print-farm-manager's projection: a schedule that disagrees with dispatch is worse than
     /// none, so both use the same rule.
     pub fn schedule(&self, space: i64) -> rusqlite::Result<Vec<Lane>> {
@@ -990,7 +990,7 @@ fn fits(file: &PartFile, machine: &crate::store::Machine) -> bool {
 }
 
 /// The dispatcher, in the background.
-pub async fn run(store: Shared) {
+pub async fn run(store: Store) {
     let mut tick = tokio::time::interval(DISPATCH_EVERY);
     loop {
         tick.tick().await;
@@ -1008,7 +1008,7 @@ pub fn per_plate_from_name(name: &str) -> Option<i64> {
 
 // ---- routes ---------------------------------------------------------------------------
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/api/projects", get(list).post(new_project))
         .route("/api/schedule", get(schedule))
@@ -1033,14 +1033,14 @@ fn bad_request(why: &str) -> Response {
     (StatusCode::BAD_REQUEST, why.to_owned()).into_response()
 }
 
-async fn schedule(access: Access, State(store): State<Shared>) -> Response {
+async fn schedule(access: Access, State(store): State<Store>) -> Response {
     match store.lock().unwrap().schedule(access.space) {
         Ok(lanes) => Json(json!({ "now": now(), "lanes": lanes })).into_response(),
         Err(error) => failed(error),
     }
 }
 
-async fn list(access: Access, State(store): State<Shared>) -> Response {
+async fn list(access: Access, State(store): State<Store>) -> Response {
     let store = store.lock().unwrap();
     let machines: Vec<Value> = match store.machines(access.space) {
         Ok(ms) => ms
@@ -1078,7 +1078,7 @@ fn clean(text: &str, max: usize) -> Option<String> {
 
 async fn new_project(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Json(body): Json<ProjectBody>,
 ) -> Response {
     let Some(name) = body.name.as_deref().and_then(|n| clean(n, 80)) else {
@@ -1106,7 +1106,7 @@ async fn new_project(
 
 async fn change_project(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<ProjectBody>,
 ) -> Response {
@@ -1146,7 +1146,7 @@ async fn change_project(
 
 async fn remove_project(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
     let store = store.lock().unwrap();
@@ -1193,7 +1193,7 @@ struct PartBody {
 
 async fn new_part(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(project): Path<i64>,
     Json(body): Json<PartBody>,
 ) -> Response {
@@ -1227,7 +1227,7 @@ async fn new_part(
 
 async fn change_part(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<PartBody>,
 ) -> Response {
@@ -1254,7 +1254,7 @@ async fn change_part(
     }
 }
 
-async fn remove_part(access: Access, State(store): State<Shared>, Path(id): Path<i64>) -> Response {
+async fn remove_part(access: Access, State(store): State<Store>, Path(id): Path<i64>) -> Response {
     let store = store.lock().unwrap();
     match store.under_way(id) {
         Ok((plates, _)) if plates > 0 => {
@@ -1300,7 +1300,7 @@ struct FileBody {
 /// A part's file for one machine model; one per model (a second replaces the first).
 async fn add_file(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(part): Path<i64>,
     Json(body): Json<FileBody>,
 ) -> Response {
@@ -1344,7 +1344,7 @@ async fn add_file(
 
 async fn remove_file(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((part, file)): Path<(i64, i64)>,
 ) -> Response {
     match store.lock().unwrap().db.execute(
@@ -1366,7 +1366,7 @@ struct CountBody {
 /// An admin corrects a part's count (parts made by hand, a miscount): in the ledger, with why.
 async fn correct(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(part): Path<i64>,
     Json(body): Json<CountBody>,
 ) -> Response {
@@ -1391,7 +1391,7 @@ async fn correct(
     }
 }
 
-async fn ledger(access: Access, State(store): State<Shared>, Path(part): Path<i64>) -> Response {
+async fn ledger(access: Access, State(store): State<Store>, Path(part): Path<i64>) -> Response {
     match store.lock().unwrap().ledger(access.space, part) {
         Ok(lines) => Json(lines).into_response(),
         Err(error) => failed(error),
@@ -1405,7 +1405,7 @@ struct FarmForm {
 
 async fn farm_toggle(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<FarmForm>,
 ) -> Response {
@@ -1429,7 +1429,7 @@ struct SheetForm {
 /// Someone swapped the build plate: which is on now.
 async fn sheet(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<SheetForm>,
 ) -> Response {
@@ -1456,7 +1456,7 @@ struct UpkeepForm {
 
 async fn upkeep(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<UpkeepForm>,
 ) -> Response {
@@ -1485,7 +1485,7 @@ async fn upkeep(
 
 async fn serviced(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
 ) -> Response {
     match store.lock().unwrap().serviced(access.space, &machine) {
@@ -1507,7 +1507,7 @@ struct ReadyForm {
 /// Set Ready: the plate is off the bed, `good` parts are good; the machine takes the next.
 async fn ready(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<ReadyForm>,
 ) -> Response {
@@ -1517,14 +1517,14 @@ async fn ready(
 /// Bad print: nothing good came off; the plate goes back in the queue by itself.
 async fn bad(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<ReadyForm>,
 ) -> Response {
     confirm(access, store, machine, form, true)
 }
 
-fn confirm(access: Access, store: Shared, machine: String, form: ReadyForm, bad: bool) -> Response {
+fn confirm(access: Access, store: Store, machine: String, form: ReadyForm, bad: bool) -> Response {
     let mut store = store.lock().unwrap();
     let per_plate = match store.waiting_confirm(&machine) {
         Ok(Some(w)) => w.per_plate,
@@ -1641,7 +1641,7 @@ mod flow {
     /// goes out again, and never more plates than needed.
     #[tokio::test]
     async fn a_project_over_many_printers() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let mk3s = crate::profiles::find("prusa/mk3s").unwrap();
         let (space, a, b, c) = {
@@ -1885,7 +1885,7 @@ mod upkeep {
     /// A machine due for its service takes no plate; once serviced, it does again.
     #[test]
     fn a_part_that_wants_a_plate_waits_for_it() {
-        let mut s = Store::open(":memory:").unwrap();
+        let mut s = Legacy::open(":memory:").unwrap();
         let space = s.default_space().unwrap().0;
         let m = s
             .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
@@ -1934,7 +1934,7 @@ mod upkeep {
 
     #[test]
     fn a_service_due_holds_the_queue() {
-        let mut s = Store::open(":memory:").unwrap();
+        let mut s = Legacy::open(":memory:").unwrap();
         let space = s.default_space().unwrap().0;
         let m = s
             .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())

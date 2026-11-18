@@ -6,7 +6,7 @@
 use crate::access::{Access, Role};
 use crate::accounts::{self, Signed};
 use crate::auth::{Client, from_this_site};
-use crate::{STYLE, Shared, escape, failed, header};
+use crate::{STYLE, Store, escape, failed, header};
 use axum::{
     Extension, Form, Json, Router,
     extract::{Path, State},
@@ -16,7 +16,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/space", get(page))
         .route("/api/space/audit", get(audit))
@@ -150,7 +150,7 @@ pub(crate) const SPACE_STYLE: &str = r#"
 
 async fn page(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     signed: Option<Extension<Signed>>,
 ) -> Response {
     // With an API token (no session) the page shows all but one's own account.
@@ -556,7 +556,7 @@ async fn page(
     }
 }
 
-async fn audit(access: Access, State(store): State<Shared>) -> Response {
+async fn audit(access: Access, State(store): State<Store>) -> Response {
     match store.lock().unwrap().audit_log(access.space, 500) {
         Ok(lines) => Json(lines).into_response(),
         Err(error) => failed(error),
@@ -581,7 +581,7 @@ fn clean_name(name: &str) -> Result<String, Box<Response>> {
 /// The organisation's name: for an admin of the organisation (not of one space).
 async fn rename_organisation(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Form(form): Form<NameForm>,
 ) -> Response {
     let name = match clean_name(&form.name) {
@@ -609,7 +609,7 @@ async fn rename_organisation(
 
 async fn rename(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Form(form): Form<NameForm>,
 ) -> Response {
     let name = match clean_name(&form.name) {
@@ -630,7 +630,7 @@ struct InviteForm {
 
 async fn new_invite(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Form(form): Form<InviteForm>,
 ) -> Response {
     let Some(role) = Role::parse(&form.role) else {
@@ -665,7 +665,7 @@ async fn new_invite(
 
 async fn revoke_invite(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
     match store.lock().unwrap().revoke_invite(access.space, id) {
@@ -687,7 +687,7 @@ struct RoleForm {
 /// owner.
 async fn set_role(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(user): Path<i64>,
     Form(form): Form<RoleForm>,
 ) -> Response {
@@ -754,7 +754,7 @@ struct RemoveForm {
 
 async fn remove_member(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(user): Path<i64>,
     Form(form): Form<RemoveForm>,
 ) -> Response {
@@ -802,7 +802,7 @@ struct TokenForm {
 
 async fn new_token(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Form(form): Form<TokenForm>,
 ) -> Response {
     if access.token_id.is_some() {
@@ -830,7 +830,7 @@ async fn new_token(
 
 async fn revoke_token(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
     match store.lock().unwrap().revoke_token(access.space, id) {
@@ -843,7 +843,7 @@ async fn revoke_token(
 // ---- joining, choosing a space, one's own account ---------------------------------------
 
 /// The session behind a request on a route the guard lets through unsigned (`/invite/…`).
-fn session_of(store: &crate::store::Store, headers: &HeaderMap) -> Option<Signed> {
+fn session_of(store: &crate::store::Legacy, headers: &HeaderMap) -> Option<Signed> {
     let token = crate::auth::cookie(headers, crate::auth::COOKIE)?;
     store.session(&token).ok().flatten()
 }
@@ -853,7 +853,7 @@ fn plain_page(title: &str, body: &str) -> Html<String> {
 }
 
 async fn invite_page(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(token): Path<String>,
     headers: HeaderMap,
 ) -> Response {
@@ -913,7 +913,7 @@ struct JoinForm {
 }
 
 async fn join(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(token): Path<String>,
     Extension(Client(client)): Extension<Client>,
     headers: HeaderMap,
@@ -1016,7 +1016,7 @@ async fn join(
 }
 
 /// Signed in, in no space: how to get into one.
-async fn welcome(State(store): State<Shared>, Extension(signed): Extension<Signed>) -> Response {
+async fn welcome(State(store): State<Store>, Extension(signed): Extension<Signed>) -> Response {
     let store = store.lock().unwrap();
     if store.spaces_of(signed.user_id).is_ok_and(|s| !s.is_empty()) {
         return Redirect::to("/").into_response();
@@ -1042,7 +1042,7 @@ struct SwitchForm {
 }
 
 async fn switch(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Extension(signed): Extension<Signed>,
     Form(form): Form<SwitchForm>,
 ) -> Response {
@@ -1066,7 +1066,7 @@ struct NewSpaceForm {
 }
 
 async fn new_space(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Extension(signed): Extension<Signed>,
     access: Option<Extension<Access>>,
     headers: HeaderMap,
@@ -1124,7 +1124,7 @@ struct PasswordForm {
 
 /// A new password: the current one first; every other session ends, this one goes on.
 async fn password(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Extension(signed): Extension<Signed>,
     headers: HeaderMap,
     Extension(Client(client)): Extension<Client>,
@@ -1183,7 +1183,7 @@ struct OpenForm {
     open: Option<String>,
 }
 
-async fn open_spaces(State(store): State<Shared>, Form(form): Form<OpenForm>) -> Response {
+async fn open_spaces(State(store): State<Store>, Form(form): Form<OpenForm>) -> Response {
     match store.lock().unwrap().set_open_spaces(form.open.is_some()) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),

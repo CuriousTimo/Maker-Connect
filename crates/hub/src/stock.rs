@@ -4,8 +4,8 @@
 //! a ledger of **movements**: every change to an item (received, moved, loaded into a
 //! machine, weighed, used up) is one, with when; amounts follow from them.
 
-use crate::store::{Store, now};
-use crate::{STYLE, Shared, failed, header, profiles};
+use crate::store::{Legacy, now};
+use crate::{STYLE, Store, failed, header, profiles};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -576,7 +576,7 @@ fn next_code(db: &Connection, table: &str, prefix: &str, space: i64) -> rusqlite
     Ok(format!("{prefix}-{:04}", n + 1))
 }
 
-impl Store {
+impl Legacy {
     pub(crate) fn movement(
         &self,
         space: i64,
@@ -1085,7 +1085,7 @@ static FILAMENTS: include_dir::Dir =
 
 async fn change_material(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
     Json(material): Json<Material>,
 ) -> Response {
@@ -1214,7 +1214,7 @@ fn catalogue() -> Vec<Material> {
     out
 }
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/stock", get(page))
         // Spoolman's label links, for labels printed before a move here.
@@ -1246,7 +1246,7 @@ fn space(access: &crate::access::Access) -> Result<i64, Box<Response>> {
     Ok(access.space)
 }
 
-async fn overview(access: crate::access::Access, State(store): State<Shared>) -> Response {
+async fn overview(access: crate::access::Access, State(store): State<Store>) -> Response {
     let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
@@ -1271,7 +1271,7 @@ async fn overview(access: crate::access::Access, State(store): State<Shared>) ->
 
 async fn new_material(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Json(material): Json<Material>,
 ) -> Response {
     if material.name.trim().is_empty() {
@@ -1315,7 +1315,7 @@ struct ChangedLocation {
 
 async fn change_location(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
     Json(c): Json<ChangedLocation>,
 ) -> Response {
@@ -1353,7 +1353,7 @@ async fn change_location(
 
 async fn remove_location(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
     let store = store.lock().unwrap();
@@ -1370,7 +1370,7 @@ async fn remove_location(
 
 async fn new_location(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Json(new): Json<NewLocation>,
 ) -> Response {
     if new.name.trim().is_empty() {
@@ -1416,7 +1416,7 @@ struct Receive {
 
 async fn receive(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Json(r): Json<Receive>,
 ) -> Response {
     let store = store.lock().unwrap();
@@ -1450,7 +1450,7 @@ struct Place {
 
 async fn move_item(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
     Json(p): Json<Place>,
 ) -> Response {
@@ -1468,7 +1468,7 @@ async fn move_item(
 
 async fn load_item(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
     Json(p): Json<Place>,
 ) -> Response {
@@ -1495,7 +1495,7 @@ async fn load_item(
 
 async fn unload_item(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
     let store = store.lock().unwrap();
@@ -1512,7 +1512,7 @@ async fn unload_item(
 
 async fn set_amount(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
     Json(p): Json<Place>,
 ) -> Response {
@@ -1533,7 +1533,7 @@ async fn set_amount(
 
 async fn use_up(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
     let store = store.lock().unwrap();
@@ -1550,7 +1550,7 @@ async fn use_up(
 
 async fn movements(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
     let store = store.lock().unwrap();
@@ -1564,7 +1564,7 @@ async fn movements(
     }
 }
 
-async fn page(access: crate::access::Access, State(store): State<Shared>) -> Response {
+async fn page(access: crate::access::Access, State(store): State<Store>) -> Response {
     let space = match store.lock().unwrap().space_name(access.space) {
         Ok(name) => name,
         Err(error) => return failed(error),
@@ -1685,7 +1685,7 @@ mod tests {
             )
             .unwrap();
         }
-        let store = Store::open(path.to_str().unwrap()).unwrap();
+        let store = Legacy::open(path.to_str().unwrap()).unwrap();
         let space = store.default_space().unwrap().0;
         let material = &store.materials(space).unwrap()[0];
         assert_eq!(
@@ -1713,7 +1713,7 @@ mod tests {
 
     #[test]
     fn an_item_goes_through_its_life() {
-        let mut store = Store::open(":memory:").unwrap();
+        let mut store = Legacy::open(":memory:").unwrap();
         let (space, _) = store.default_space().unwrap();
         let dymo = store
             .add_virtual(space, profiles::find("dymo/labelmanager-pnp").unwrap())

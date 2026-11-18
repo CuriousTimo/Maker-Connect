@@ -1,6 +1,6 @@
 use super::*;
 
-impl Store {
+impl Legacy {
     /// Where each file of a space was printed, newest first, at most `per_file` times each.
     pub fn prints(
         &self,

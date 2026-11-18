@@ -32,7 +32,18 @@ step "clippy" quiet cargo clippy --workspace --all-targets --locked -- -D warnin
 # Windows (CI runs it there): clippy for x86_64-pc-windows-gnu, with zig as the C compiler.
 step "clippy (Windows)" quiet env CC_x86_64_pc_windows_gnu="$PWD/scripts/zigcc-windows.sh" AR_x86_64_pc_windows_gnu="$PWD/scripts/zig-ar.sh" \
     cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings
-step "tests" quiet cargo test --workspace --locked
+# The store's tests need Postgres (scripts/dev-db.sh, on demand): started here when it is not running, and
+# stopped afterwards only if this run started it. Builds use the checked-in `.sqlx/` cache (SQLX_OFFLINE).
+export SQLX_OFFLINE=true
+DEV_DB_WAS_UP=$(docker ps -q --filter "name=^mc-dev-db$" 2>/dev/null)
+if DEV_DB=$(scripts/dev-db.sh up | grep '^DATABASE_URL='); then
+    export "${DEV_DB?}"
+    step "tests" quiet cargo test --workspace --locked --features maker-connect-hub/pg-tests
+    step ".sqlx cache = queries" quiet scripts/dev-db.sh prepare --check
+else
+    step "tests (no dev database)" false
+fi
+[ -z "$DEV_DB_WAS_UP" ] && scripts/dev-db.sh down
 step "docs (rustdoc -D warnings)" quiet env RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --document-private-items --locked
 step "docs links" python3 -I scripts/docs-links-check.py
 # docs/registries/*.md are generated from crates/device/src/registry.rs (hub-core-v2.md §2.10).

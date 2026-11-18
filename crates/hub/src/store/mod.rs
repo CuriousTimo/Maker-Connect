@@ -22,6 +22,7 @@ mod jobs;
 mod files;
 
 mod migrate;
+pub mod pg;
 use migrate::{back_up_before_upgrade, migrate};
 
 /// Whether machines on this link take commands from the website (yet).
@@ -483,7 +484,107 @@ impl JobState {
     }
 }
 
+/// The store: a cloneable handle on the database (docs/plans/hub-core-v2.md §2.7), the change bus,
+/// and what is kept in memory on purpose (each behind its own small lock).
+///
+/// Transitional (hub core v2 step 2, lanes 1-4): modules not yet on Postgres keep their SQLite
+/// queries in [`Legacy`], reached with [`Store::lock`]; lane 4 removes it.
+#[derive(Clone)]
 pub struct Store {
+    inner: std::sync::Arc<Inner>,
+}
+
+struct Inner {
+    pg: pg::Pg,
+    legacy: std::sync::Mutex<Legacy>,
+    changes: tokio::sync::broadcast::Sender<()>,
+    /// While nobody has an account: the code (printed at start) that makes the first one.
+    setup_code: std::sync::Mutex<Option<String>>,
+    /// Failed sign-ins per key (`ip:…`, `name:…`), Unix seconds, for slowing guessing down.
+    failures: std::sync::Mutex<std::collections::HashMap<String, Vec<i64>>>,
+}
+
+impl Store {
+    /// The store over `legacy` (transitional) and Postgres; a setup code while nobody has an account.
+    pub async fn new(legacy: Legacy, pg: pg::Pg) -> Result<Self, sqlx::Error> {
+        let changes = legacy.changes.clone();
+        let store = Self {
+            inner: std::sync::Arc::new(Inner {
+                pg,
+                legacy: std::sync::Mutex::new(legacy),
+                changes,
+                setup_code: Default::default(),
+                failures: Default::default(),
+            }),
+        };
+        if !store.has_users().await? {
+            *store.inner.setup_code.lock().unwrap() = Some(crate::accounts::setup_code());
+        }
+        Ok(store)
+    }
+
+    /// Opens the SQLite file at `path` (transitional) and the database at `database_url`, migrated.
+    pub async fn open(
+        path: &str,
+        database_url: &str,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let legacy = Legacy::open(path)?;
+        let pg = pg::Pg::connect(database_url).await?;
+        Ok(Self::new(legacy, pg).await?)
+    }
+
+    /// For `#[sqlx::test]`: the test's database, and an in-memory SQLite (transitional).
+    #[cfg(all(test, feature = "pg-tests"))]
+    pub(crate) async fn for_test(pool: &sqlx::PgPool) -> Self {
+        Self::new(Legacy::open(":memory:").unwrap(), pg::Pg::from_pool(pool))
+            .await
+            .unwrap()
+    }
+
+    /// Transitional: the modules still on SQLite (lanes 1-4).
+    pub fn lock(
+        &self,
+    ) -> std::sync::LockResult<std::sync::MutexGuard<'_, Legacy>> {
+        self.inner.legacy.lock()
+    }
+
+    pub(crate) fn pg(&self) -> &pg::Pg {
+        &self.inner.pg
+    }
+
+    /// Signals each change to a machine from now on (some may be merged into one).
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<()> {
+        self.inner.changes.subscribe()
+    }
+
+    pub(crate) fn changed(&self) {
+        let _ = self.inner.changes.send(());
+    }
+
+    /// While nobody has an account: the code that makes the first one.
+    pub fn setup_code(&self) -> Option<String> {
+        self.inner.setup_code.lock().unwrap().clone()
+    }
+
+    /// The setup code, taken: whoever takes it makes the first account.
+    pub(crate) fn take_setup_code(&self) -> Option<String> {
+        self.inner.setup_code.lock().unwrap().take()
+    }
+
+    pub(crate) fn set_setup_code(&self, code: Option<String>) {
+        *self.inner.setup_code.lock().unwrap() = code;
+    }
+
+    /// Failed sign-ins per key, Unix seconds (crate::auth).
+    pub(crate) fn failures(
+        &self,
+    ) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, Vec<i64>>> {
+        self.inner.failures.lock().unwrap()
+    }
+}
+
+/// Transitional (lanes 1-4): the modules not yet on Postgres, on one SQLite file. Removed in lane 4.
+pub struct Legacy {
     pub(crate) db: Connection,
     /// Where uploaded files are kept: `<id>.gcode`, and `<id>.png` for a thumbnail.
     pub files_dir: std::path::PathBuf,
@@ -533,10 +634,6 @@ pub struct Store {
     changes: tokio::sync::broadcast::Sender<()>,
     /// A vendor, filament or spool added, changed or removed: for Spoolman's WebSockets.
     spoolman: tokio::sync::broadcast::Sender<SpoolmanEvent>,
-    /// While nobody has an account: the code (printed at start) that makes the first one.
-    pub setup_code: Option<String>,
-    /// Failed sign-ins per key (`ip:…`, `name:…`), Unix seconds, for slowing guessing down.
-    pub(crate) failures: std::collections::HashMap<String, Vec<i64>>,
 }
 
 /// A change to Spoolman's data: `spool` 7 `updated`. A removed one carries what it was.
@@ -550,7 +647,7 @@ pub struct SpoolmanEvent {
     pub was: Option<serde_json::Value>,
 }
 
-impl Store {
+impl Legacy {
     /// Opens (or creates) the store; a new one gets one space.
     pub fn open(path: &str) -> rusqlite::Result<Self> {
         let existed = path != ":memory:" && std::fs::metadata(path).is_ok_and(|m| m.len() > 0);
@@ -586,7 +683,7 @@ impl Store {
             ));
         std::fs::create_dir_all(&downloads_dir)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-        let mut store = Self {
+        let store = Self {
             db,
             files_dir,
             downloads_dir,
@@ -608,12 +705,7 @@ impl Store {
             history: Default::default(),
             changes: tokio::sync::broadcast::channel(16).0,
             spoolman: tokio::sync::broadcast::channel(256).0,
-            setup_code: None,
-            failures: Default::default(),
         };
-        if !store.has_users()? {
-            store.setup_code = Some(crate::accounts::setup_code());
-        }
         Ok(store)
     }
 
@@ -692,12 +784,12 @@ mod tests {
         };
         // A new database: nothing to back up.
         let id = {
-            let mut store = Store::open(path).unwrap();
+            let mut store = Legacy::open(path).unwrap();
             device(&mut store, 1, "MINI")
         };
         assert!(backups().is_empty());
         // The same build again: no copy either.
-        drop(Store::open(path).unwrap());
+        drop(Legacy::open(path).unwrap());
         assert!(backups().is_empty());
         // As if an older build had it last.
         Connection::open(path)
@@ -707,7 +799,7 @@ mod tests {
                 [],
             )
             .unwrap();
-        let store = Store::open(path).unwrap();
+        let store = Legacy::open(path).unwrap();
         let made = backups();
         assert_eq!(made.len(), 1, "{made:?}");
         assert!(
@@ -724,12 +816,12 @@ mod tests {
         assert_eq!(kept, 1);
         assert!(store.machine(1, &id).unwrap().is_some());
         drop(store);
-        drop(Store::open(path).unwrap());
+        drop(Legacy::open(path).unwrap());
         assert_eq!(backups().len(), 1);
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    fn device(store: &mut Store, space: i64, name: &str) -> String {
+    fn device(store: &mut Legacy, space: i64, name: &str) -> String {
         let profile = crate::profiles::find("prusa/mini").unwrap();
         let id = store.add_virtual(space, profile).unwrap();
         store.rename(space, &id, name).unwrap();
@@ -739,7 +831,7 @@ mod tests {
     /// A finished print stays on the bed until taken; a machine out of use says why.
     #[test]
     fn a_print_on_the_bed_and_a_machine_out_of_use() {
-        let mut store = Store::open(":memory:").unwrap();
+        let mut store = Legacy::open(":memory:").unwrap();
         let (space, _) = store.default_space().unwrap();
         let printer = device(&mut store, space, "MINI");
         store
@@ -794,7 +886,7 @@ mod tests {
     /// A finished print counts its filament off the loaded spool; a stopped one its part.
     #[test]
     fn a_job_counts_its_filament_off_the_loaded_spool() {
-        let mut store = Store::open(":memory:").unwrap();
+        let mut store = Legacy::open(":memory:").unwrap();
         let (space, _) = store.default_space().unwrap();
         let printer = device(&mut store, space, "MINI");
         let pla = crate::stock::Material {
@@ -850,7 +942,7 @@ mod tests {
 
     #[test]
     fn devices_hang_behind_a_plug_without_loops() {
-        let mut store = Store::open(":memory:").unwrap();
+        let mut store = Legacy::open(":memory:").unwrap();
         let (space, _) = store.default_space().unwrap();
         let wall = device(&mut store, space, "Wall plug");
         let strip = device(&mut store, space, "Power strip");
@@ -910,7 +1002,7 @@ mod tests {
 
     #[test]
     fn an_agent_behind_the_downloads_is_told() {
-        let mut store = Store::open(":memory:").unwrap();
+        let mut store = Legacy::open(":memory:").unwrap();
         let (space, _) = store.default_space().unwrap();
         let id = device(&mut store, space, "Dymo");
         let token = store.virtual_machines().unwrap()[0].1.clone();

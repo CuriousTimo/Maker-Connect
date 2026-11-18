@@ -3,7 +3,7 @@
 //! it is never sent back in a page and never logged.
 
 use crate::access::{Access, Level, Role};
-use crate::store::{Store, now};
+use crate::store::{Legacy, now};
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub fn migrate(db: &Connection) -> rusqlite::Result<()> {
@@ -67,7 +67,7 @@ fn row(r: &rusqlite::Row) -> rusqlite::Result<Camera> {
     })
 }
 
-impl Store {
+impl Legacy {
     /// A space's cameras, by name.
     pub fn cameras(&self, space: i64) -> rusqlite::Result<Vec<Camera>> {
         let mut q = self.db.prepare(&format!(
@@ -200,7 +200,7 @@ mod tests {
     /// A new store has the table; one opened before it was there gets it.
     #[test]
     fn the_table_is_made_new_and_on_an_older_store() {
-        let s = Store::open(":memory:").unwrap();
+        let s = Legacy::open(":memory:").unwrap();
         let n: i64 =
             s.db.query_row("SELECT COUNT(*) FROM cameras", [], |r| r.get(0))
                 .unwrap();
@@ -208,10 +208,10 @@ mod tests {
         let file = std::env::temp_dir().join(format!("cameras-{}.db", std::process::id()));
         let _ = std::fs::remove_file(&file);
         {
-            let s = Store::open(file.to_str().unwrap()).unwrap();
+            let s = Legacy::open(file.to_str().unwrap()).unwrap();
             s.db.execute_batch("DROP TABLE cameras").unwrap();
         }
-        let s = Store::open(file.to_str().unwrap()).unwrap();
+        let s = Legacy::open(file.to_str().unwrap()).unwrap();
         assert!(s.cameras(1).unwrap().is_empty());
         let _ = std::fs::remove_file(&file);
     }
@@ -219,7 +219,7 @@ mod tests {
     /// Stored, changed (an empty password keeps the old one), removed; another space sees nothing.
     #[test]
     fn a_camera_is_of_its_space() {
-        let s = Store::open(":memory:").unwrap();
+        let s = Legacy::open(":memory:").unwrap();
         let space = s.default_space().unwrap().0;
         let id = s
             .add_camera(space, &form("Hall", None, Role::Member))
@@ -247,7 +247,7 @@ mod tests {
     /// Who may watch (owner, 2026-11-16), per role and kind of camera.
     #[test]
     fn who_may_watch() {
-        let mut s = Store::open(":memory:").unwrap();
+        let mut s = Legacy::open(":memory:").unwrap();
         let space = s.default_space().unwrap().0;
         let open = s
             .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())

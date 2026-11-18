@@ -46,7 +46,7 @@ use bytes::Bytes;
 use futures_util::StreamExt as _;
 use retina::{client::SetupOptions, codec::VideoParameters};
 
-use crate::Shared;
+use crate::Store;
 
 /// A camera to open, as the example's `Source`.
 pub struct Source {
@@ -284,7 +284,7 @@ pub(crate) fn subscribe(
 }
 
 /// Starts the sessions of every camera, when the hub starts.
-pub fn start_all(store: &Shared) {
+pub fn start_all(store: &Store) {
     let cameras = store.lock().unwrap().all_cameras().unwrap_or_default();
     for camera in &cameras {
         start(camera);

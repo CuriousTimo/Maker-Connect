@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::access::{Access, Level};
-use crate::store::{JobState, Store};
+use crate::store::{JobState, Legacy};
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -370,7 +370,7 @@ mod send_tests {
 }
 
 struct World {
-    store: Shared,
+    store: Store,
     app: Router,
     space: i64,
     org: i64,
@@ -378,7 +378,7 @@ struct World {
 
 impl World {
     fn new() -> Self {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let (org, space) = {
             let s = store.lock().unwrap();
             let owner = s.create_user("olga", "Olga", "x", false).unwrap();

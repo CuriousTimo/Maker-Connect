@@ -5,7 +5,7 @@
 //! over USB); Prusas on built-in Connect follow.
 
 use crate::store::{JobState, Machine, StoredFile};
-use crate::{Shared, failed, profiles};
+use crate::{Store, failed, profiles};
 use axum::{
     Form, Json, Router,
     body::Body,
@@ -21,7 +21,7 @@ use tokio::io::AsyncWriteExt;
 /// The largest file taken.
 const MAX_BYTES: u64 = 1024 * 1024 * 1024;
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route(
             "/api/files",
@@ -289,9 +289,9 @@ struct Listed {
     printed: Vec<crate::store::Printed>,
 }
 
-async fn list(access: crate::access::Access, State(store): State<Shared>) -> Response {
+async fn list(access: crate::access::Access, State(store): State<Store>) -> Response {
     let store = store.lock().unwrap();
-    let found = store.space_of(&access).and_then(|(space, _)| {
+    let found = store.space_id_of(&access).and_then(|(space, _)| {
         Ok((
             store.files(space)?,
             store.machines(space)?,
@@ -421,7 +421,7 @@ fn clean_name(name: &str) -> Option<String> {
 /// metadata and thumbnail, added to the space.
 pub(crate) async fn upload(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Query(query): Query<UploadQuery>,
     body: Body,
 ) -> Response {
@@ -434,7 +434,7 @@ pub(crate) async fn upload(
     };
     let (space, id, path, thumbnail_path) = {
         let store = store.lock().unwrap();
-        let space = match store.space_of(&access) {
+        let space = match store.space_id_of(&access) {
             Ok((space, _)) => space,
             Err(error) => return failed(error),
         };
@@ -501,11 +501,11 @@ pub(crate) async fn upload(
 /// A file of the space, or the answer to give when there is none.
 fn find(
     access: &crate::access::Access,
-    store: &Shared,
+    store: &Store,
     id: &str,
 ) -> Result<(i64, StoredFile, std::path::PathBuf), Box<Response>> {
     let store = store.lock().unwrap();
-    let space = store.space_of(access).map_err(|e| Box::new(failed(e)))?.0;
+    let space = store.space_id_of(access).map_err(|e| Box::new(failed(e)))?.0;
     match store.file(space, id) {
         Ok(Some(file)) => Ok((space, file, store.files_dir.clone())),
         Ok(None) => Err(Box::new(
@@ -517,7 +517,7 @@ fn find(
 
 async fn thumbnail(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
     let (_, file, dir) = match find(&access, &store, &id) {
@@ -539,7 +539,7 @@ async fn thumbnail(
 
 async fn download(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
     let (_, file, dir) = match find(&access, &store, &id) {
@@ -553,7 +553,7 @@ async fn download(
 /// address is the one in its [`maker_connect_protocol::JobOrder`]). Only that machine's jobs,
 /// and only files of its space.
 async fn agent_file(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     headers: HeaderMap,
     Path(job): Path<i64>,
 ) -> Response {
@@ -568,7 +568,7 @@ async fn agent_file(
 /// An agent fetches a file of its machine's space that is not a job's (a laser's frame,
 /// `Action::Frame`), with the machine's token: only files of that space.
 async fn agent_space_file(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Response {
@@ -606,7 +606,7 @@ async fn agent_space_file(
 
 /// The file of job `job`, for the machine whose token is `token` (an agent's, or a Klipper
 /// printer's): only that machine's jobs, only files of its space; else 404.
-pub(crate) async fn job_file(store: &Shared, token: &str, job: i64) -> Response {
+pub(crate) async fn job_file(store: &Store, token: &str, job: i64) -> Response {
     let found = {
         let store = store.lock().unwrap();
         (|| -> rusqlite::Result<Option<(StoredFile, std::path::PathBuf)>> {
@@ -691,12 +691,12 @@ fn tokio_util_stream(
 
 async fn remove(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
     let mut store = store.lock().unwrap();
     let removed = store
-        .space_of(&access)
+        .space_id_of(&access)
         .and_then(|(space, _)| store.remove_file(space, &id));
     match removed {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
@@ -710,11 +710,11 @@ async fn remove(
 }
 
 /// `GET /api/storage`: what the files take, and what the disk under them has left.
-async fn storage(access: crate::access::Access, State(store): State<Shared>) -> Response {
+async fn storage(access: crate::access::Access, State(store): State<Store>) -> Response {
     let (dir, used, count) = {
         let store = store.lock().unwrap();
         let files = store
-            .space_of(&access)
+            .space_id_of(&access)
             .and_then(|(space, _)| store.files(space))
             .unwrap_or_default();
         let used: u64 = files.iter().map(|f| f.size).sum();
@@ -738,11 +738,11 @@ struct Many {
 /// runs or has queued. Says how many went, and which stayed.
 async fn remove_many(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Json(many): Json<Many>,
 ) -> Response {
     let mut store = store.lock().unwrap();
-    let space = match store.space_of(&access) {
+    let space = match store.space_id_of(&access) {
         Ok((space, _)) => space,
         Err(error) => return failed(error),
     };
@@ -774,7 +774,7 @@ const MAX_COPIES: u32 = 50;
 /// Puts a file on a machine, when it fits ([`fit`]).
 async fn print(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
     headers: HeaderMap,
     Form(form): Form<PrintForm>,
@@ -783,6 +783,7 @@ async fn print(
         Ok(found) => found,
         Err(response) => return *response,
     };
+    let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
     let mut store = store.lock().unwrap();
     // Running a job, or framing one, is using the machine.
     if let Err(refused) =
@@ -790,7 +791,7 @@ async fn print(
     {
         return *refused;
     }
-    if let Err(refused) = crate::safety::check_ppe(&store, &access, &form.machine) {
+    if let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &form.machine) {
         return *refused;
     }
     let machine = match store.machine(space, &form.machine) {
@@ -868,7 +869,7 @@ async fn print(
     let copies = form.copies.unwrap_or(1).clamp(1, MAX_COPIES);
     let by = Some((access.user_id, access.actor.as_str()));
     // Copies after the first wait in the queue, one after another.
-    let queue_rest = |store: &mut crate::store::Store, n: u32| -> rusqlite::Result<usize> {
+    let queue_rest = |store: &mut crate::store::Legacy, n: u32| -> rusqlite::Result<usize> {
         let mut place = 0;
         for _ in 0..n {
             place = store.queue_add(space, &machine.id, &file, by)?;
@@ -917,7 +918,7 @@ async fn print(
 /// Runs a laser file's outline with the beam off (GRBL jogs), to see where it will go.
 async fn frame(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
     Form(form): Form<PrintForm>,
 ) -> Response {
@@ -934,6 +935,7 @@ async fn frame(
     let Some([x0, y0, x1, y1]) = bounds else {
         return (StatusCode::CONFLICT, "the file has no moves to frame").into_response();
     };
+    let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
     let mut store = store.lock().unwrap();
     // Running a job, or framing one, is using the machine.
     if let Err(refused) =
@@ -941,7 +943,7 @@ async fn frame(
     {
         return *refused;
     }
-    if let Err(refused) = crate::safety::check_ppe(&store, &access, &form.machine) {
+    if let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &form.machine) {
         return *refused;
     }
     let machine = match store.machine(space, &form.machine) {
@@ -1016,12 +1018,13 @@ pub(crate) const ORIGIN_CONFIRM: &str = "An origin was set on this laser: the jo
 /// as LaserFoundry refuses otherwise), and after a Set origin with the person's confirm.
 async fn start_burn(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
     Form(form): Form<StartBurnForm>,
 ) -> Response {
+    let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
     let mut store = store.lock().unwrap();
-    let Ok(Some((space, _))) = store.space_of(&access).map(Some) else {
+    let Ok(Some((space, _))) = store.space_id_of(&access).map(Some) else {
         return (StatusCode::FORBIDDEN, "no space").into_response();
     };
     if let Err(refused) =
@@ -1029,7 +1032,7 @@ async fn start_burn(
     {
         return *refused;
     }
-    if let Err(refused) = crate::safety::check_ppe(&store, &access, &id) {
+    if let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &id) {
         return *refused;
     }
     if !crate::store::StartedBy::person(&access).is_person_at_a_session() {
@@ -1108,7 +1111,7 @@ struct JobForm {
 /// HS6: the job route's Stop, for the emergency-stop button of a laser (LaserFoundry's Stop).
 pub(crate) async fn stop_job(
     access: crate::access::Access,
-    state: State<Shared>,
+    state: State<Store>,
     id: Path<String>,
 ) -> Response {
     control_job(
@@ -1125,20 +1128,21 @@ pub(crate) async fn stop_job(
 /// Pause, resume or stop a machine's job.
 async fn control_job(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
     Form(form): Form<JobForm>,
 ) -> Response {
+    let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
     let mut store = store.lock().unwrap();
     // Starting and resuming wait for PPE; pausing and stopping never do.
     if matches!(form.action.as_str(), "restart" | "resume")
-        && let Err(refused) = crate::safety::check_ppe(&store, &access, &id)
+        && let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &id)
     {
         return *refused;
     }
     // Start an interrupted job again, a little before where it stopped.
     if form.action == "restart" {
-        let space = match store.space_of(&access) {
+        let space = match store.space_id_of(&access) {
             Ok((space, _)) => space,
             Err(error) => return failed(error),
         };
@@ -1254,7 +1258,7 @@ async fn control_job(
 
 #[cfg(test)]
 mod tests {
-    use crate::store::Store;
+    use crate::store::Legacy;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use http_body_util::BodyExt;
@@ -1288,7 +1292,7 @@ mod tests {
         use maker_connect_protocol::{
             GrblSettings, MachineKind, MachineState, Register, Telemetry,
         };
-        let mut store = Store::open(":memory:").unwrap();
+        let mut store = Legacy::open(":memory:").unwrap();
         let space = store.default_space().unwrap().0;
         let (id, token, code) = store
             .register(&Register {
@@ -1359,7 +1363,7 @@ mod tests {
     /// held bodies up to 1 MB and passed on an empty one past that).
     #[tokio::test]
     async fn a_large_file_is_uploaded_whole() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let mut gcode = String::from("; printer_model = MINI\n");
         while gcode.len() < 3_000_000 {
@@ -1386,7 +1390,7 @@ mod tests {
     /// laser, and not twice.
     #[tokio::test]
     async fn a_file_is_uploaded_and_printed() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let gcode = "; generated by PrusaSlicer 2.8.1 on today\nM104 S215\nG28\n; estimated printing time (normal mode) = 2m 5s\n; printer_model = MINI\n";
         let (status, body) = call(
@@ -1562,7 +1566,7 @@ mod tests {
     /// is said and is high enough, and the job tells the agent the tape's width.
     #[tokio::test]
     async fn a_label_is_uploaded_and_printed() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         let mut label = maker_connect_label::Label::blank(120, 40);
         label.set(3, 3, true);
@@ -1636,7 +1640,7 @@ mod tests {
     /// the job tells the agent the roll's length, so the printer finds the next gap.
     #[tokio::test]
     async fn a_labelwriter_page_is_its_rolls_raster() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
         let app = crate::auth::signed_in_app(store.clone());
         // S0722400, DYMO's European Large Address roll (DYMO Connect's catalogue): its page and raster from the port.
         let page = crate::profiles::labelwriter_page(

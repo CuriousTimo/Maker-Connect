@@ -11,7 +11,7 @@
 //!   themselves, and update once their machine is idle, with their own way back.
 
 use crate::access::Access;
-use crate::{Shared, failed};
+use crate::{Store, failed};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -22,7 +22,7 @@ use axum::{
 use maker_connect_update as update;
 use serde::Deserialize;
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/api/update", get(hub_status))
         .route("/about/update", post(update_hub))
@@ -134,7 +134,7 @@ fn unpack(archive: &[u8], program: &str) -> Result<Vec<u8>, String> {
 }
 
 /// What the About page says of updating the hub.
-async fn hub_status(State(store): State<Shared>) -> Response {
+async fn hub_status(State(store): State<Store>) -> Response {
     let printing: i64 = store
         .lock()
         .unwrap()
@@ -174,7 +174,7 @@ async fn hub_status(State(store): State<Shared>) -> Response {
 /// Fetches, checks and tries the newest hub release, and puts it in place of the program at
 /// `exe`; the database backed up first. Returns the release it put in place.
 pub(crate) fn prepare_hub(
-    store: &Shared,
+    store: &Store,
     exe: &std::path::Path,
     url: &str,
 ) -> Result<String, String> {
@@ -250,7 +250,7 @@ pub fn restore_database(trial: &update::Trial) {
     }
 }
 
-async fn update_hub(access: Access, State(store): State<Shared>) -> Response {
+async fn update_hub(access: Access, State(store): State<Store>) -> Response {
     let Ok(exe) = std::env::current_exe() else {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -339,7 +339,7 @@ fn agent_file(os: &str, arch: &str) -> Option<String> {
 /// What to tell an agent in its report's answer: the update asked for it, until it is on
 /// that release or says how its update went.
 pub(crate) fn order_for(
-    store: &crate::store::Store,
+    store: &crate::store::Legacy,
     token: &str,
     report: &maker_connect_protocol::Telemetry,
 ) -> rusqlite::Result<Option<maker_connect_protocol::AgentUpdate>> {
@@ -393,7 +393,7 @@ pub(crate) fn order_for(
 
 /// Asks the agents of `machines` (in space `space`) to update to `tag`.
 fn ask(
-    store: &crate::store::Store,
+    store: &crate::store::Legacy,
     space: i64,
     machines: &[String],
     tag: &str,
@@ -409,7 +409,7 @@ fn ask(
     Ok(asked)
 }
 
-async fn prepared(store: &Shared) -> Result<Prepared, Box<Response>> {
+async fn prepared(store: &Store) -> Result<Prepared, Box<Response>> {
     let downloads = store.lock().unwrap().downloads_dir.clone();
     match tokio::task::spawn_blocking(move || prepare_agent(&downloads, &releases_url())).await {
         Ok(Ok(p)) => Ok(p),
@@ -420,7 +420,7 @@ async fn prepared(store: &Shared) -> Result<Prepared, Box<Response>> {
 
 async fn update_agent(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
     let prepared = match prepared(&store).await {
@@ -447,7 +447,7 @@ async fn update_agent(
     }
 }
 
-async fn update_agents(access: Access, State(store): State<Shared>) -> Response {
+async fn update_agents(access: Access, State(store): State<Store>) -> Response {
     let prepared = match prepared(&store).await {
         Ok(p) => p,
         Err(response) => return *response,
@@ -478,7 +478,7 @@ async fn update_agents(access: Access, State(store): State<Shared>) -> Response 
 /// An agent's build, for an agent asked to update (its token): kept here once fetched, and
 /// checked against the release's signed list before it is kept or handed out.
 async fn agent_build(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     headers: HeaderMap,
     Path((tag, file)): Path<(String, String)>,
 ) -> Response {
@@ -624,8 +624,8 @@ pub(crate) mod tests {
         let dir = std::env::temp_dir().join(format!("mc-hub-update-{}", crate::store::random_id()));
         std::fs::create_dir_all(&dir).unwrap();
         let db = dir.join("maker-connect.db");
-        let store: Shared = std::sync::Arc::new(std::sync::Mutex::new(
-            crate::store::Store::open(db.to_str().unwrap()).unwrap(),
+        let store: Store = std::sync::Arc::new(std::sync::Mutex::new(
+            crate::store::Legacy::open(db.to_str().unwrap()).unwrap(),
         ));
         let exe = dir.join("maker-connect-hub");
         std::fs::write(&exe, "#!/bin/sh\necho old\n").unwrap();
@@ -682,7 +682,7 @@ pub(crate) mod tests {
             build.clone(),
         )])
         .await;
-        let store = crate::store::Store::open(":memory:").unwrap();
+        let store = crate::store::Legacy::open(":memory:").unwrap();
         let (machine_id, token, code) = store
             .register(&maker_connect_protocol::Register {
                 protocol: maker_connect_protocol::VERSION,
@@ -734,7 +734,7 @@ pub(crate) mod tests {
         .unwrap();
 
         // Through the hub, with the agent's token only.
-        let shared: Shared = std::sync::Arc::new(std::sync::Mutex::new(store));
+        let shared: Store = std::sync::Arc::new(std::sync::Mutex::new(store));
         let app = routes().with_state(shared.clone());
         let get = |token: &'static str| {
             let app = app.clone();
