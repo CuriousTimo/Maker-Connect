@@ -1,3 +1,3 @@
 # The commit of our LaserFoundry fork (branch maker-connect) that the hub's copy of the page is built from.
-# scripts/laserfoundry-web.sh builds exactly this commit. Upstream base: LaserFoundry v0.5.0 (61febdb).
-8be0d95d95694b4483baa8da8176f2ed1e2ed74b
+# scripts/laserfoundry-web.sh builds exactly this commit. Upstream base: StitchFoundry/laserfoundry main at 8e9f294 (2026-11-18).
+01234cc1b398b5a6cbb42f963f82c9285f1f07ab
