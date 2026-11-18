@@ -2,6 +2,10 @@
 
 Status: **v3, the owner's plan** (2026-11-12). Steps 1 and 2 may start; the Marlin port waits for D2.
 
+> **2026-11-18 (owner):** the hub core is being redesigned first ([hub-core-v2.md](hub-core-v2.md), after
+> [prusa-connect-study.md](prusa-connect-study.md) §7). Until that design is reviewed, no new phases here start.
+> The Marlin/OctoPrint port is frozen as is (no new audit rows); the MK3 PrusaLink port (#4) is parked.
+
 ## Owner's decisions on the shape (2026-11-12)
 
 - **The hub does no G-code.** The agent does: each port makes the bytes from its reference. The hub
