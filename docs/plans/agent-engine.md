@@ -311,7 +311,7 @@ and `on-track`; marked **(Claude)** for the owner to review. Source: `docs/desig
 | B1 | Order | The owner's latest word: **OctoPrint port → DYMO PnP → hub side**. MK3 (PrusaLink), LabelWriter 450 and the laser stay in the plan, after these, in that order. The Spoolman audit waits for the hub side. | now |
 | B2 | Download | The hub link fetches a job file as bytes, streamed straight to `job-<id>` (no `String`, not all in memory), on its own thread, while the 2 s reports go on; the job goes to the engine when the file is complete. Ours (link). | first item of the DYMO step (a PNG cannot print without it) |
 | B3 | Hub filters for agent machines | The hub stops refusing or holding commands for agent machines (S5: the port refuses as its reference does; OctoPrint refuses through `server/api/printer.py`, ported). The hub page may still hide or grey buttons (UI). Hub-side machines (MINI, Klipper) keep theirs until the hub side. | with the port's top edge (end of the OctoPrint port) |
-| B4 | No silent default | `--mode` is required; no fallback to `marlin`, no default kind. Values: `prusa`, `marlin`, `grbl`, `dymo-pnp`, `labelwriter-450`. | with the port's top edge |
+| B4 | No silent default | `--mode` is required; no fallback to `marlin`, no default kind. Values: `prusa`, `marlin`, `grbl`, `dymo-pnp`, `labelwriter-450`, `labelwriter-320` (Step 3f). | with the port's top edge |
 | B5 | Home | As each reference has it. `Action::Home` gets the axes (`Home { axes }`, as OctoPrint's API `home: ["axes"]`, `server/api/printer.py:297`; this widens O8's `Home`); for OctoPrint machines the page shows OctoPrint's two buttons, XY and Z (`control.jinja2:71,85`), sent as `home(["x","y"])` / `home(["z"])`. | with the port's top edge |
 | B6 | `job_id` | The hub link fills `Telemetry.job_id` from the engine's `Report.job`. Ours (link). | with the port's top edge |
 | B7 | Emergency stop | **No new action** (after the proxy's check: a new action would change O2 and O8). OctoPrint's own path is typed G-code: `M112` (and `M108`, `M410`) sent with `commands()` is forced ahead by `sendCommand` (`comm.py:1297`, `_emergency_commands` from `serial.emergencyCommands`, `schema/config/serial.py:155`). With B3 the hub no longer holds typed G-code for agent machines, so it reaches the port. The page may offer a button that sends `M112` as typed G-code (UI). | with the port's top edge |
@@ -769,6 +769,42 @@ Needs the real M2 (the audit's not-covered list): its VID:PID and report descrip
 Figure 27's 6 bytes), whether the first report is stale, the report rate, the kg/lb button (units and exponents),
 known weights, over 2 kg (status 6), under zero after a tare (status 5, its weight bytes), auto-off, unplug and
 replug, the first byte per OS, hidraw permissions and hidapi's `usage_page` on the Pi, macOS input-monitoring.
+
+### Step 3f: the DYMO LabelWriter 320 (2026-11-18; ours below: to approve (proxy))
+
+(The brief `docs/briefs/labelwriter-320.md` calls this "Step 3d"; that number is the laser's above, so it is 3f.)
+
+Same reference as Step 3c: **DYMO's own CUPS driver 1.4.0** (`reference/dymo-cups-drivers-1.4.0`), the same
+filter `raster2dymolw`, and the same runtime (CUPS 2.4.20), for the **LabelWriter 320** (`ppd/lw320.ppd`:
+`*ModelName` "DYMO LabelWriter 320" at :42, `*cupsModelNumber 0` at :32, `*FileVersion "3.0"` at :23). No other source
+(not DYMO Connect, not `reference/labelwriter`, not the old `crates/label/`). The 450's PPD in the port is DYMO
+Connect's newer one (owner, 2026-11-17); the 320 has no second PPD in the plan, so its values are `lw320.ppd` of
+the 1.4.0 driver; where the two PPDs differ the audit says so.
+
+**The dispatch differs from the 450's, ported exactly.** `raster2dymolw.cpp:78-117` picks the driver by
+`ppd->modelname` (`strcasecmp`): the Twin Turbo names (:78-91) take `CLabelWriterDriverTwinTurbo`; "DYMO LabelWriter
+400", "400 Turbo", "DUO Label", "4XL", "450", "450 Turbo", "450 DUO Label" (:92-110) take `CLabelWriterDriver400`;
+every other name, "DYMO LabelWriter 320" among them, falls to the last `else` (:111-123): the base class
+`CCupsFilter<CLabelWriterDriver, CDriverInitializerLabelWriterWithLM, CLabelWriterLanguageMonitor>` (with
+`IsBackchannelSupported()`, :44-53, true). `CDriverInitializerLabelWriter::ProcessPPDOptions`
+(`CupsFilterLabelWriter.cpp:26-76`) has no "320" branch, so `SetMaxPrintWidth` is not called and the driver keeps its
+`MaxPrintWidth_(84)` (`LabelWriterDriver.cpp:38`, 84 bytes = 672 dots). The base class and the 400 differ in
+`EndDoc` (:57-60 nothing; the 400 sends `ESC E`, :590-594) and `EndPage` (:77-81 `ESC E`; the 400 sends `ESC G`,
+:596-600); the port already carries both (`LabelWriterDriver` with its `Class`). The monitor, the halftoning and
+the initializer are the same for both. Not covered: `lw300`, `lw310`, `lw315`, `lw330`, `lw330t` and the other
+models of the dispatch, the Twin Turbo, the filter without a PPD.
+
+| # | What (ours) | Proposal |
+|---|---|---|
+| W320-1 | The agent mode `labelwriter-320` (`--kind label`, no `--port`), beside `labelwriter-450` in `crates/agent` (`Mode`, parsing, error texts, `ports::open`), and in B4's `--mode` list above. The port is the 450's port with the model as a parameter (`Model::Lw450` / `Model::Lw320`): the same top edge (W1, W4 to W11 of Step 3c) | to approve (proxy) |
+| W320-2 | `DEVICE_URI` `usb://DYMO/LabelWriter%20320`, the manufacturer `DYMO` and model `LabelWriter 320` the ported `find_device` matches (`usb-libusb.c:820ff`, as for the 450: strings, no vendor or product ids): the 450's URI with only the model string changed. The owner's 320 reports `MFG:DYMO;CMD: ;MDL:LabelWriter 320` (read 2026-11-18), which matches; not yet printed to | to approve (proxy) |
+| W320-3 | `ppd_lw320.rs`: generated from `lw320.ppd` by the same generator as `ppd_lw450.rs` (`scripts/dymo-labelwriter-450-check.py gen`, which also checks it), every value with its line. `DEVICE_URI`, argv, the page (W2, W3 of Step 3c) are the 450's, with the 320's PPD: the default `PageSize` `w167h288` (`lw320.ppd:149`), `Resolution` `300dpi` only (:399-403; the 320 has no `300x600dpi`), halftoning `ErrorDiffusion` (:407), density `Normal` (:461), quality `Text` (:525) | to approve (proxy) |
+| W320-4 | Geometry rule: the 450's W2 and W2b unchanged, read from the 320's PPD. 99012 (`w102h252.1`, :196) and 30321 (`w102h252`, :164) are both 102 x 252 pt, the same raster, so "equal choices are the same page" covers them | to approve (proxy) |
+| W320-5 | Hub, only this: a 320 can be added as a machine (profile `dymo/labelwriter-320`: `media_from_port = "lw320"`, `dpi` 300 from `lw320.ppd:401`, `head_dots` 672 from the driver's 84 bytes above); its Label page offers **one entry per `PageSize` of `lw320.ppd`** (id = the choice's name, its text and its size), no DYMO Connect catalogue, no rolls, no labels-per-page. `profiles.rs` and `geometry.rs` take the model instead of being hard-wired to the 450. The differences from the 450's Label page are listed in the report as questions for the owner | to approve (proxy) |
+| W320-6 | Telemetry (W7 of Step 3c) with the 320's own reason texts (`lw320.ppd:47-55`, the same English as the 450's) | to approve (proxy) |
+
+Proof and "not covered": `docs/audits/dymo-labelwriter-320.md` (the checker is `scripts/dymo-labelwriter-450-check.py`,
+one checker per reference; it runs the real `raster2dymolw` on the 320's PPD and ours on the same pages).
 
 ## Later: one agent, several machines (owner, 2026-11-17)
 

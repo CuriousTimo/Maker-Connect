@@ -36,7 +36,7 @@ pub(crate) struct Options {
     state: String,
     /// Register again for a new pairing code, forgetting the credentials kept (`--new-code`).
     new_code: bool,
-    /// What the machine on the port is (`--mode prusa|marlin|grbl|dymo-pnp|labelwriter-450|dymo-scale`).
+    /// What the machine on the port is (`--mode prusa|marlin|grbl|dymo-pnp|labelwriter-450|labelwriter-320|dymo-scale`).
     pub(crate) mode: Mode,
     /// A USB camera by its nokhwa index (`--camera`).
     camera: Option<u32>,
@@ -44,7 +44,7 @@ pub(crate) struct Options {
 
 /// What the machine on the port is, as told at startup (`--mode`), never guessed and with no default
 /// (B4): Prusa's MK3 family (PrusaLink's ways), any other Marlin printer (OctoPrint's ways), GRBL (a
-/// laser), a DYMO LabelManager PnP on USB (labelle's ways), or a LabelWriter 450 (DYMO's CUPS
+/// laser), a DYMO LabelManager PnP on USB (labelle's ways), a LabelWriter 450 or 320 (DYMO's CUPS
 /// driver's ways), or a DYMO M-series scale (usbscale's ways).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mode {
@@ -53,6 +53,8 @@ pub(crate) enum Mode {
     Grbl,
     DymoPnp,
     LabelWriter450,
+    /// Step 3f: the same port and driver, the 320's PPD.
+    LabelWriter320,
     DymoScale,
     /// No machine: only a USB camera (`--camera`), docs/briefs/usb-cam-step1.md.
     Cameras,
@@ -61,15 +63,16 @@ pub(crate) enum Mode {
 /// `--mode`, which must be given (B4).
 fn parse_mode(given: Option<&str>) -> Result<Mode, String> {
     match given {
-        None => Err("mode: say what is on the port with --mode prusa, marlin, grbl, dymo-pnp, labelwriter-450, dymo-scale or cameras: there is no default".to_owned()),
+        None => Err("mode: say what is on the port with --mode prusa, marlin, grbl, dymo-pnp, labelwriter-450, labelwriter-320, dymo-scale or cameras: there is no default".to_owned()),
         Some("prusa") => Ok(Mode::Prusa),
         Some("marlin") => Ok(Mode::Marlin),
         Some("grbl") => Ok(Mode::Grbl),
         Some("dymo-pnp") => Ok(Mode::DymoPnp),
         Some("labelwriter-450") => Ok(Mode::LabelWriter450),
+        Some("labelwriter-320") => Ok(Mode::LabelWriter320),
         Some("dymo-scale") => Ok(Mode::DymoScale),
         Some("cameras") => Ok(Mode::Cameras),
-        Some(other) => Err(format!("mode: prusa, marlin, grbl, dymo-pnp, labelwriter-450, dymo-scale or cameras, not {other}")),
+        Some(other) => Err(format!("mode: prusa, marlin, grbl, dymo-pnp, labelwriter-450, labelwriter-320, dymo-scale or cameras, not {other}")),
     }
 }
 
@@ -1164,6 +1167,7 @@ mod tests {
             ("grbl", Mode::Grbl),
             ("dymo-pnp", Mode::DymoPnp),
             ("labelwriter-450", Mode::LabelWriter450),
+            ("labelwriter-320", Mode::LabelWriter320),
             ("dymo-scale", Mode::DymoScale),
         ] {
             // Marlin is refused on Windows (not ported there yet): said so, never a default.

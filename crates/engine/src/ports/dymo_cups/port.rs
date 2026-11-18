@@ -1,5 +1,5 @@
-//! The port's top edge (`docs/plans/agent-engine.md`, Step 3c): the engine's [`Port`] for the DYMO LabelWriter 450
-//! over the driver beside it. **All of it is ours** (W1 to W10 there); the driver has no such part.
+//! The port's top edge (`docs/plans/agent-engine.md`, Step 3c; the 320 in Step 3f): the engine's [`Port`] for the
+//! DYMO LabelWriter 450 or 320 (a [`Model`]) over the driver beside it. **All of it is ours** (W1 to W10 there); the driver has no such part.
 //!
 //! - A job is a PNG, made into the page CUPS would hand the filter ([`page`]) and printed by
 //!   `raster2dymolw`'s run ([`raster2dymolw::main`]), whose output goes to the `usb` backend
@@ -10,10 +10,10 @@
 //! - What the monitor reads during a print is reported as it is (W7); nothing else.
 //! - A command, a pause/resume/stop (outside a print) or an answer fails loudly: the driver has none (W6).
 
-use super::cups::ppd::PpdFile;
+use super::cups::ppd::{Model, PpdFile};
 use super::cups::usb_backend::{BackChannel, CUPS_BACKEND_OK, Pipe, UsbHost, print_device};
 use super::cups_print_environment::{Cancelled, FilterIo, READ_DATA_LINE, SharedIo};
-use super::{cups::ppd_lw450::REASONS, page, raster2dymolw, stderr};
+use super::{page, raster2dymolw, stderr};
 use crate::{Event, Order, Port};
 use maker_connect_protocol::{CommandDone, JobControl, JobEnd, JobOrder, MachineState, Telemetry};
 use std::cell::RefCell;
@@ -30,35 +30,70 @@ pub const NO_JOB_CONTROL: &str = "the DYMO driver has no pause, resume or stop o
 /// W6: the problem shown when an answer arrives.
 pub const NO_QUESTION: &str = "the DYMO driver asks no question to answer";
 
-/// W4: `DEVICE_URI`.
+/// W4: `DEVICE_URI` of the 450.
 pub const DEVICE_URI: &str = "usb://DYMO/LabelWriter%20450";
 /// W4: the manufacturer and model of that URI, as `make_device_uri` makes them from the printer's IEEE-1284
 /// device ID (`MFG:DYMO;MDL:LabelWriter 450`).
 pub const MANUFACTURER: &str = "DYMO";
 pub const MODEL: &str = "LabelWriter 450";
+/// Step 3f, W320-2: the same for the 320: only the model string changes (`MDL:LabelWriter 320`, as the
+/// owner's 320 reports it; not yet printed to).
+pub const DEVICE_URI_320: &str = "usb://DYMO/LabelWriter%20320";
+pub const MODEL_320: &str = "LabelWriter 320";
 
-/// The port of the DYMO LabelWriter 450.
-pub struct LabelWriter450 {
-    host: Arc<dyn UsbHost>,
+/// The `DEVICE_URI` of a model (W4, W320-2).
+fn device_uri(model: Model) -> &'static str {
+    match model {
+        Model::Lw450 => DEVICE_URI,
+        Model::Lw320 => DEVICE_URI_320,
+    }
 }
 
-impl LabelWriter450 {
-    /// The port over nusb (the system's USB).
+/// The model string the backend matches in `find_device` (W4, W320-2).
+fn device_model(model: Model) -> &'static str {
+    match model {
+        Model::Lw450 => MODEL,
+        Model::Lw320 => MODEL_320,
+    }
+}
+
+/// The port of a DYMO LabelWriter: the 450 (`new`, [`LabelWriter450`]) or any [`Model`] (`for_model`, the 320 of Step 3f).
+pub struct LabelWriter {
+    host: Arc<dyn UsbHost>,
+    model: Model,
+}
+
+/// The port of the DYMO LabelWriter 450.
+pub type LabelWriter450 = LabelWriter;
+
+impl LabelWriter {
+    /// The 450's port over nusb (the system's USB).
     #[cfg(not(test))]
-    pub fn new() -> LabelWriter450 {
-        LabelWriter450::with_host(Arc::new(super::cups::usb_backend::NusbHost))
+    pub fn new() -> LabelWriter {
+        LabelWriter::for_model(Model::Lw450)
     }
 
-    /// The port over another host of USB printers (the tests').
-    pub fn with_host(host: Arc<dyn UsbHost>) -> LabelWriter450 {
-        LabelWriter450 { host }
+    /// The port of a model over nusb (the system's USB).
+    #[cfg(not(test))]
+    pub fn for_model(model: Model) -> LabelWriter {
+        LabelWriter::with_host_for(Arc::new(super::cups::usb_backend::NusbHost), model)
+    }
+
+    /// The 450's port over another host of USB printers (the tests').
+    pub fn with_host(host: Arc<dyn UsbHost>) -> LabelWriter {
+        LabelWriter::with_host_for(host, Model::Lw450)
+    }
+
+    /// A model's port over another host of USB printers (the tests').
+    pub fn with_host_for(host: Arc<dyn UsbHost>, model: Model) -> LabelWriter {
+        LabelWriter { host, model }
     }
 }
 
 #[cfg(not(test))]
-impl Default for LabelWriter450 {
+impl Default for LabelWriter {
     fn default() -> Self {
-        LabelWriter450::new()
+        LabelWriter::new()
     }
 }
 
@@ -79,9 +114,10 @@ impl Seen {
     }
 }
 
-/// W7: the PPD's own reason text (`lw450.ppd:47-55`) for a `STATE:` keyword.
-fn reason_text(keyword: &str) -> Option<&'static str> {
-    REASONS
+/// W7: the PPD's own reason text (`lw450.ppd:47-55`, `lw320.ppd:47-55`) for a `STATE:` keyword.
+fn reason_text(model: Model, keyword: &str) -> Option<&'static str> {
+    model
+        .reasons()
         .iter()
         .find(|(k, _, _)| *k == keyword)
         .map(|(_, t, _)| *t)
@@ -90,6 +126,7 @@ fn reason_text(keyword: &str) -> Option<&'static str> {
 /// The filter's process, as the scheduler runs it (ours): `write(1, ...)` is the backend's pipe, fd 3 the
 /// back channel, the environment is CUPS's.
 struct PortIo {
+    model: Model,
     pipe: Arc<Pipe>,
     /// Ours (W6): set when a Stop comes, so that a backend still waiting for the printer ends.
     backend_stop: Arc<AtomicBool>,
@@ -139,13 +176,13 @@ impl FilterIo for PortIo {
 
     fn getenv(&self, name: &str) -> Option<String> {
         match name {
-            "DEVICE_URI" => Some(DEVICE_URI.to_owned()),
+            "DEVICE_URI" => Some(device_uri(self.model).to_owned()),
             _ => None,
         }
     }
 
     fn ppd_open_file(&self) -> Option<PpdFile> {
-        Some(PpdFile::lw450())
+        Some(self.model.ppd())
     }
 
     fn cancelled(&mut self) -> bool {
@@ -177,7 +214,7 @@ fn first_error(lines: &[String]) -> Option<String> {
         .find_map(|l| l.strip_prefix("ERROR: ").map(|e| e.trim_end().to_owned()))
 }
 
-impl Port for LabelWriter450 {
+impl Port for LabelWriter {
     fn run(self: Box<Self>, orders: Receiver<Order>, events: Sender<Event>) {
         let orders = Rc::new(orders);
         let pending: Rc<RefCell<VecDeque<Order>>> = Rc::new(RefCell::new(VecDeque::new()));
@@ -207,7 +244,8 @@ impl Port for LabelWriter450 {
                 Order::Job { order, file } => {
                     let _ = events.send(seen.telemetry(MachineState::Busy, None));
                     let (outcome, raw) = print_job(
-                        &self.host, &order, &file, &orders, &pending, &events, &mut gone, &seen,
+                        self.model, &self.host, &order, &file, &orders, &pending, &events,
+                        &mut gone, &seen,
                     );
                     if raw.is_some() {
                         seen.raw_status = raw;
@@ -264,6 +302,7 @@ impl Port for LabelWriter450 {
 /// starts them (W5), the filter's run, the backend's end.
 #[allow(clippy::too_many_arguments)]
 fn print_job(
+    model: Model,
     host: &Arc<dyn UsbHost>,
     order: &JobOrder,
     file: &std::path::Path,
@@ -278,7 +317,7 @@ fn print_job(
         Ok(p) => p,
         Err(why) => return (Outcome::Failed(why), None),
     };
-    let ppd_open = || Some(PpdFile::lw450());
+    let ppd_open = || Some(model.ppd());
     let raster = match page::make_raster(
         &picture,
         order.page_size.as_deref(),
@@ -294,6 +333,7 @@ fn print_job(
     let pipe = Pipe::new();
     let backend_stop = Arc::new(AtomicBool::new(false));
     let io = Rc::new(RefCell::new(PortIo {
+        model,
         pipe: pipe.clone(),
         backend_stop: backend_stop.clone(),
         back_channel: back_channel.clone(),
@@ -320,7 +360,7 @@ fn print_job(
             let status = print_device(
                 &*host,
                 MANUFACTURER,
-                MODEL,
+                device_model(model),
                 &pipe,
                 bc,
                 &stop,
@@ -347,7 +387,11 @@ fn print_job(
     stderr::start(Some(Box::new(move |line: &str| {
         if let Some(rest) = line.strip_prefix("STATE: ") {
             let kw = rest.trim_end();
-            let problem = if kw == "none" { None } else { reason_text(kw) };
+            let problem = if kw == "none" {
+                None
+            } else {
+                reason_text(model, kw)
+            };
             let mut s = tel_seen.clone();
             s.raw_status = tel_raw.borrow().clone();
             let _ = tel_events.send(s.telemetry(MachineState::Busy, problem));

@@ -83,7 +83,7 @@
       r.hidden = !on;
       shown += on;
     }
-    count.textContent = `${shown} of ${rolls.length} rolls in DYMO Connect's catalogue for this printer`;
+    count.textContent = `${shown} of ${rolls.length} ${count.dataset.unit}`;
   });
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -179,7 +179,8 @@
   // puts on the page (HS2b; cells in the raster's dots), clipped to the page; then the owner's shift.
   function labelCells() {
     const [W, H] = roll.dots;
-    return (roll.cells || [[0, 0, W, H]]).map(([x, y, w, h]) => {
+    // a 320's page has no cells (no catalogue, Step 3f): the whole page is the one label
+    return (roll.cells?.length ? roll.cells : [[0, 0, W, H]]).map(([x, y, w, h]) => {
       const x0 = Math.max(0, x), y0 = Math.max(0, y), x1 = Math.min(W, x + w), y1 = Math.min(H, y + h);
       return [Math.round(x0), Math.round(y0), Math.max(0, Math.round(x1 - x0)), Math.max(0, Math.round(y1 - y0))];
     });

@@ -4,7 +4,7 @@
 //! hub = "http://192.168.1.20:8460"
 //! name = "Dymo"
 //! kind = "label"          # fdm, laser, label, ...
-//! mode = "dymo-pnp"       # required: prusa, marlin, grbl, dymo-pnp, labelwriter-450, dymo-scale
+//! mode = "dymo-pnp"       # required: prusa, marlin, grbl, dymo-pnp, labelwriter-450, labelwriter-320, dymo-scale
 //! # port = "COM3"         # a serial port; left out, the port's reference finds one
 //! # camera = 0          # a USB camera, by its nokhwa index (mode cameras: only that)
 //! # baud = 250000         # left out, the port's reference decides

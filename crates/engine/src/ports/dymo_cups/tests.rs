@@ -693,6 +693,77 @@ fn ppd_defaults_are_marked_as_cups_marks_them() {
     assert_eq!(ppd.page_size(None).unwrap().name, "w167h288");
 }
 
+// ---- the 320 (ours, Step 3f) ------------------------------------------------------------------------
+
+/// W320-3, W320-4: `lw320.ppd`'s model name, defaults and the page of 99012, which is 30321's.
+#[test]
+fn the_320_ppd_has_its_values() {
+    use super::cups::ppd::Model;
+    let mut ppd = Model::Lw320.ppd();
+    assert_eq!(ppd.modelname, "DYMO LabelWriter 320");
+    ppd.mark_defaults();
+    assert_eq!(ppd.find_marked_choice("PageSize").unwrap().name, "w167h288");
+    assert_eq!(ppd.find_marked_choice("Resolution").unwrap().name, "300dpi");
+    assert_eq!(
+        ppd.find_marked_choice("DymoHalftoning").unwrap().name,
+        "ErrorDiffusion"
+    );
+    assert_eq!(
+        ppd.find_marked_choice("DymoPrintDensity").unwrap().name,
+        "Normal"
+    );
+    assert_eq!(
+        ppd.find_marked_choice("DymoPrintQuality").unwrap().name,
+        "Text"
+    );
+    let open = || Some(Model::Lw320.ppd());
+    let pic = super::page::Picture {
+        width: 392,
+        height: 961,
+        rgb: vec![255; 392 * 961 * 3],
+    };
+    let a = super::page::make_page(&pic, Some("w102h252"), None, "", &open).unwrap();
+    let b = super::page::make_page(&pic, Some("w102h252.1"), None, "", &open).unwrap();
+    assert_eq!(
+        [a.header.cups_width, a.header.cups_height],
+        [b.header.cups_width, b.header.cups_height]
+    );
+    // no 300x600 for the 320
+    assert!(ppd.find_option("Resolution").is_some());
+    assert!(
+        Model::Lw320
+            .options()
+            .iter()
+            .find(|o| o.keyword == "Resolution")
+            .unwrap()
+            .choices
+            .len()
+            == 1
+    );
+}
+
+/// W320-1: the dispatch of `raster2dymolw.cpp:78-117`: the 320's model name is in no list, so it takes the
+/// base class (`Class::Driver`); the 450's takes the 400.
+#[test]
+fn the_dispatch_gives_the_320_the_base_class() {
+    use super::cups::ppd::Model;
+    for (model, filter400) in [(Model::Lw320, false), (Model::Lw450, true)] {
+        let name = model.ppd().modelname;
+        let in_400_list = [
+            "DYMO LabelWriter 400",
+            "DYMO LabelWriter 400 Turbo",
+            "DYMO LabelWriter DUO Label",
+            "DYMO LabelWriter 4XL",
+            "DYMO LabelWriter 450",
+            "DYMO LabelWriter 450 Turbo",
+            "DYMO LabelWriter 450 DUO Label",
+        ]
+        .iter()
+        .any(|n| n.eq_ignore_ascii_case(name));
+        assert_eq!(in_400_list, filter400, "{name}");
+    }
+}
+
 // ---- the top edge (ours, W1 to W10) ------------------------------------------------------------------
 
 mod top_edge {
@@ -836,6 +907,60 @@ mod top_edge {
         let port = Box::new(LabelWriter450::with_host(host));
         let h = std::thread::spawn(move || port.run(orx, etx));
         (otx, erx, h)
+    }
+
+    fn start_320(
+        host: Arc<BenchHost>,
+    ) -> (
+        std::sync::mpsc::Sender<Order>,
+        Receiver<Event>,
+        std::thread::JoinHandle<()>,
+    ) {
+        let (otx, orx) = channel();
+        let (etx, erx) = channel();
+        let port = Box::new(super::super::port::LabelWriter::with_host_for(
+            host,
+            super::super::cups::ppd::Model::Lw320,
+        ));
+        let h = std::thread::spawn(move || port.run(orx, etx));
+        (otx, erx, h)
+    }
+
+    /// Step 3f, W320-1 to W320-4: a 320 job for 99012 (`w102h252.1`) looks for `DYMO` `LabelWriter 320`, and
+    /// the filter takes the base class (`raster2dymolw.cpp:111-123`): the page ends with `ESC E`
+    /// (`LabelWriterDriver.cpp:77-81`) and the document with nothing (:57-60), where the 400's page ends with
+    /// `ESC G` and its document with `ESC E` (:590-600).
+    #[test]
+    fn a_320_job_takes_the_base_class() {
+        let (host, printer) = bench(&[], 0x02, 0);
+        let (otx, erx, h) = start_320(host.clone());
+        let g =
+            crate::ports::geometry::labelwriter::page_sizes(super::super::cups::ppd::Model::Lw320)
+                .into_iter()
+                .find(|g| g.name == "w102h252.1")
+                .unwrap();
+        let mut order = job(3, Some(g.length_mm));
+        order.page_size = Some("w102h252.1".to_owned());
+        otx.send(Order::Job {
+            order,
+            file: png("lw320", g.dots[0], g.dots[1]),
+        })
+        .unwrap();
+        let (end, _) = until_job_end(&erx);
+        assert!(end.ok, "{end:?}");
+        assert_eq!(
+            host.asked.lock().unwrap()[0],
+            ("DYMO".to_owned(), "LabelWriter 320".to_owned())
+        );
+        let w = printer.written.lock().unwrap().clone();
+        // EndPage `ESC E`, then the monitor's `EndPage` status request `ESC A`; no EndDoc after it
+        assert!(w.ends_with(&[0x1b, b'E', 0x1b, b'A']));
+        assert!(
+            !w.ends_with(&[0x1b, b'E', 0x1b, b'A', 0x1b, b'E']),
+            "the 400's EndDoc `ESC E` is not the base class's"
+        );
+        otx.send(Order::Close).unwrap();
+        h.join().unwrap();
     }
 
     fn until_job_end(erx: &Receiver<Event>) -> (maker_connect_protocol::JobEnd, Vec<Event>) {

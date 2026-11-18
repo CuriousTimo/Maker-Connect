@@ -21,7 +21,7 @@ Usage:
                           [--hub <http://host:8460>] [--name <name>]
                           --kind fdm|laser|cnc|cutter|label|paper|scale|other
                           [--port <serial port> [--baud <rate>]]
-                          --mode prusa|marlin|grbl|dymo-pnp|labelwriter-450|dymo-scale|cameras
+                          --mode prusa|marlin|grbl|dymo-pnp|labelwriter-450|labelwriter-320|dymo-scale|cameras
                           [--camera <nokhwa index>]
                           [--state <file>] [--new-code]
                                                        report a machine to the hub; shows the
@@ -38,6 +38,8 @@ Usage:
                                                        by itself, no --port), labelwriter-450
                                                        (a DYMO LabelWriter 450 on USB, as DYMO's
                                                        CUPS driver; found by itself, no --port),
+                                                       labelwriter-320 (a DYMO LabelWriter 320,
+                                                       the same, with the 320's PPD),
                                                        dymo-scale (a DYMO M-series scale, USB,
                                                        its weight reported live, as usbscale
                                                        reads it; --kind scale; --port = its HID
@@ -55,7 +57,7 @@ Usage:
                                                        --port and --baud: left out, OctoPrint's
                                                        own settings and detection choose.
                                                        --kind label: a DYMO LabelManager PnP or
-                                                       LabelWriter 400/450 on USB, found by
+                                                       LabelWriter 400/450/320 on USB, found by
                                                        itself (no --port)
                                                        --new-code: register again for a new
                                                        pairing code (to add it again, or to

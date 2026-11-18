@@ -5,7 +5,7 @@
 //!
 //! `dymo_cups_proof PNG LENGTH_MM|-|ps:PAGESIZE OPTIONS DEVICE_URI STATUS_HEX|- OUT_DIR`
 
-use maker_connect_engine::ports::dymo_cups::cups::ppd::PpdFile;
+use maker_connect_engine::ports::dymo_cups::cups::ppd::{Model, PpdFile};
 use maker_connect_engine::ports::dymo_cups::cups::usb_backend::BackChannel;
 use maker_connect_engine::ports::dymo_cups::cups_print_environment::{FilterIo, SharedIo};
 use maker_connect_engine::ports::dymo_cups::{page, raster2dymolw, stderr};
@@ -35,10 +35,18 @@ impl FilterIo for RecordingIo {
         }
     }
     fn ppd_open_file(&self) -> Option<PpdFile> {
-        Some(PpdFile::lw450())
+        Some(proof_model().ppd())
     }
     fn cancelled(&mut self) -> bool {
         false
+    }
+}
+
+/// The PPD's model: the 450's, or the 320's when `DYMO_PROOF_MODEL=320` (Step 3f; the checker sets it).
+fn proof_model() -> Model {
+    match std::env::var("DYMO_PROOF_MODEL").as_deref() {
+        Ok("320") => Model::Lw320,
+        _ => Model::Lw450,
     }
 }
 
@@ -54,7 +62,7 @@ fn main() {
     let device_uri = if uri == "-" { None } else { Some(uri.clone()) };
 
     let picture = page::decode_png(std::path::Path::new(png)).unwrap();
-    let open = || Some(PpdFile::lw450());
+    let open = || Some(proof_model().ppd());
     let page = match page::make_page(&picture, page_size, length_mm, options, &open) {
         Ok(p) => p,
         Err(why) => {

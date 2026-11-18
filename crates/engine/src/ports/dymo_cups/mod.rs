@@ -1,7 +1,8 @@
-//! The DYMO LabelWriter 450 port (`docs/plans/agent-engine.md`, Step 3c): **DYMO's own CUPS driver 1.4.0**
+//! The DYMO LabelWriter 450 port (`docs/plans/agent-engine.md`, Step 3c; the 320 on the same port, Step 3f): **DYMO's own CUPS driver 1.4.0**
 //! (`reference/dymo-cups-drivers-1.4.0`, the official tarball from download.dymo.com, sha256
 //! `c60797e7e986ca329f46e9a6ab1cb6382383952b15685ed69fd91f3c7ed64f71`), the filter `raster2dymolw` for
-//! the plain LabelWriter 450 (`ppd/lw450.ppd`), ported file by file and function by function.
+//! the plain LabelWriter 450 (`ppd/lw450.ppd`) and the LabelWriter 320 (`ppd/lw320.ppd`, the base class
+//! `CLabelWriterDriver`), ported file by file and function by function.
 //!
 //! Licence: the driver is GPL-2 "or any later version" (Copyright (C) 2008-2011 Sanford L.P.), taken as
 //! GPL-3 so it combines with this program's AGPL-3.0; each ported file keeps its copyright and licence
@@ -23,13 +24,13 @@
 //! | `common/Halftoning.{h,cpp}` | [`halftoning`] |
 //! | `common/ErrorDiffusionHalftoning.{h,cpp}` | [`error_diffusion_halftoning`] |
 //! | `common/NonLinearLaplacianHalftoning.{h,cpp}` | [`nll_halftoning`] |
-//! | `ppd/lw450.ppd` | [`cups::ppd_lw450`] (generated, checked by `scripts/dymo-labelwriter-450-check.py`) |
+//! | `ppd/lw450.ppd`, `ppd/lw320.ppd` | [`cups::ppd_lw450`], [`cups::ppd_lw320`] (generated, checked by `scripts/dymo-labelwriter-450-check.py`) |
 //! | `lw/tests/*`, `common/tests/*` | `tests` |
 //!
 //! **Not ported (not covered):** `CLabelWriterDriverTwinTurbo` and the Twin Turbo, Turbo, DUO and
 //! LabelManager variants (`lw450t`, `lw450dl`, `lw450dt`, `lw450tt`, `lm450`, `se450` and the other PPDs);
-//! the models other than the 450 in `ProcessPPDOptions` (300, 310, 315, 4XL, SE450 widths) and in
-//! `raster2dymolw.cpp`'s dispatch; the filter without a PPD or without the back channel
+//! the models other than the 450 and the 320 in `ProcessPPDOptions` (300, 310, 315, 4XL, SE450 widths) and in
+//! `raster2dymolw.cpp`'s dispatch (the 320 takes its last `else`, :111-123); the filter without a PPD or without the back channel
 //! (`CDummyLanguageMonitor` is ported but only the tests use it); `ProcessDiagonal` and the block test
 //! `IsInImage()` of the NLL halftoning (called only from a commented-out `ProcessImage`, :326-351);
 //! `ProcessImage(const void*, ...)` of both halftonings except as the driver's own tests call it;
@@ -76,4 +77,4 @@ pub mod stderr;
 mod tests;
 
 #[cfg(feature = "devices")]
-pub use port::LabelWriter450;
+pub use port::{LabelWriter, LabelWriter450};

@@ -59,7 +59,8 @@ pub struct Profile {
     #[serde(default)]
     pub media: Vec<Media>,
     /// HS1: the media come from a port's geometry instead of this file (`"lw450"`: the
-    /// LabelWriter 450's `PageSize` choices, `maker_connect_engine::ports::geometry::lw450`).
+    /// LabelWriter 450's rolls, `maker_connect_engine::ports::geometry::lw450`; `"lw320"`: the 320's
+    /// `PageSize` choices, `ports::geometry::labelwriter`).
     #[serde(default)]
     pub media_from_port: Option<String>,
     /// The firmware version its data is for (`2.1.3` for Marlin's examples).
@@ -204,6 +205,7 @@ pub fn all() -> &'static [Profile] {
                 match profile.media_from_port.as_deref() {
                     None => {}
                     Some("lw450") => profile.media = lw450_media(),
+                    Some("lw320") => profile.media = lw320_media(),
                     Some(other) => panic!("profiles/{path}: no port geometry {other}"),
                 }
                 profile
@@ -238,25 +240,71 @@ fn lw450_media() -> Vec<Media> {
         .collect()
 }
 
-/// HS2b: a LabelWriter roll (by its medium id, the SKU) as the port's catalogue gives it.
-pub fn labelwriter_roll(
-    profile: Option<&Profile>,
-    media: &str,
-) -> Option<maker_connect_engine::ports::geometry::lw450::CatalogRoll> {
+/// The LabelWriter 320's labels (Step 3f, W320-5): one per `PageSize` choice of `lw320.ppd`, no catalogue.
+/// The id is the choice's name; the name is the PPD's own text, plus the page's size in mm by the port's
+/// rounding.
+fn lw320_media() -> Vec<Media> {
+    use maker_connect_engine::ports::dymo_cups::cups::ppd::Model;
+    maker_connect_engine::ports::geometry::labelwriter::page_sizes(Model::Lw320)
+        .into_iter()
+        .map(|g| {
+            let (w, l) = (g.width_mm, g.length_mm);
+            Media {
+                id: g.name.to_owned(),
+                name: match g.text {
+                    Some(text) => format!("{text} · {w} × {l} mm"),
+                    None => format!("{w} × {l} mm"),
+                },
+                width_mm: w,
+                length_mm: Some(l),
+                per_roll: None,
+                ink: Some("#000".to_owned()),
+                background: Some("#fff".to_owned()),
+            }
+        })
+        .collect()
+}
+
+/// A LabelWriter's loaded label as the hub's pages and checks need it: its page from the port's PPD and, for
+/// the 450 only, DYMO Connect's roll with the labels on the page (HS2b). The 320 has no roll (Step 3f).
+pub struct LabelWriterEntry {
+    pub roll: Option<&'static maker_connect_engine::ports::dymo_connect_lw450::Roll>,
+    pub page: maker_connect_engine::ports::geometry::labelwriter::PageGeometry,
+    pub cells: Vec<[f32; 4]>,
+}
+
+/// A LabelWriter's label (by its medium id: the SKU for a 450, the `PageSize` name for a 320).
+pub fn labelwriter_entry(profile: Option<&Profile>, media: &str) -> Option<LabelWriterEntry> {
+    use maker_connect_engine::ports::dymo_cups::cups::ppd::Model;
     match profile?.media_from_port.as_deref() {
         Some("lw450") => maker_connect_engine::ports::geometry::lw450::rolls()
             .into_iter()
-            .find(|r| r.roll.sku == media),
+            .find(|r| r.roll.sku == media)
+            .map(|r| LabelWriterEntry {
+                roll: Some(r.roll),
+                page: r.page,
+                cells: r.cells,
+            }),
+        Some("lw320") => {
+            maker_connect_engine::ports::geometry::labelwriter::page_sizes(Model::Lw320)
+                .into_iter()
+                .find(|g| g.name == media)
+                .map(|page| LabelWriterEntry {
+                    roll: None,
+                    page,
+                    cells: Vec::new(),
+                })
+        }
         _ => None,
     }
 }
 
-/// HS2: a LabelWriter roll's page as its port gives it (by the medium's id).
+/// HS2: a LabelWriter label's page as its port gives it (by the medium's id).
 pub fn labelwriter_page(
     profile: Option<&Profile>,
     media: &str,
-) -> Option<maker_connect_engine::ports::geometry::lw450::PageGeometry> {
-    labelwriter_roll(profile, media).map(|r| r.page)
+) -> Option<maker_connect_engine::ports::geometry::labelwriter::PageGeometry> {
+    labelwriter_entry(profile, media).map(|r| r.page)
 }
 
 /// Every TOML file in a folder and the folders in it.
@@ -552,6 +600,29 @@ mod tests {
             6,
             "50, 100, 150 both ways"
         );
+    }
+}
+
+#[cfg(test)]
+mod lw320_tests {
+    /// Step 3f: the 320 offers one entry per `PageSize` of `lw320.ppd`, no catalogue and no labels per page.
+    #[test]
+    fn the_320_has_one_entry_per_page_size_and_no_rolls() {
+        use maker_connect_engine::ports::dymo_cups::cups::ppd_lw320::SIZES;
+        let profile = super::find("dymo/labelwriter-320").unwrap();
+        assert_eq!(profile.media.len(), SIZES.len());
+        for (m, s) in profile.media.iter().zip(SIZES) {
+            assert_eq!(m.id, s.name);
+            let e = super::labelwriter_entry(Some(profile), &m.id).unwrap();
+            assert!(e.roll.is_none() && e.cells.is_empty());
+            assert_eq!(e.page.name, s.name);
+        }
+        // 99012 and 30321 are the same page (102 x 252 pt)
+        let a = super::labelwriter_page(Some(profile), "w102h252").unwrap();
+        let b = super::labelwriter_page(Some(profile), "w102h252.1").unwrap();
+        assert_eq!((a.dots, a.length_mm), (b.dots, b.length_mm));
+        // the 450's rolls are not the 320's
+        assert!(super::labelwriter_page(Some(profile), "S0722530").is_none());
     }
 }
 

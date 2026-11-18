@@ -11,10 +11,10 @@
 //! | `cups/raster-stream.c`, `raster-stubs.c` | [`raster`]: `cupsRasterReadHeader2`, `cupsRasterReadPixels` (an in-memory page, W10) |
 //! | `cups/backchannel.c` | [`usb_backend::BackChannel`]: `cupsBackChannelRead` |
 //! | `backend/usb-libusb.c` | [`usb_backend`]: `print_device`, `find_device`, `open_device`, `print_cb`, `read_thread` |
-//! | the PPD | [`ppd_lw450`] (generated from `ppd/lw450.ppd`) |
+//! | the PPDs | [`ppd_lw450`] (generated from `ppd/lw450.ppd`), [`ppd_lw320`] (generated from `ppd/lw320.ppd`) |
 //!
-//! Not ported (not covered): `ppdOpenFile` and the PPD parser (the plain 450's values are
-//! [`ppd_lw450`], generated and checked against the PPD); `ppdConflicts` (only flags conflicts, marks
+//! Not ported (not covered): `ppdOpenFile` and the PPD parser (the plain 450's and the 320's values are
+//! [`ppd_lw450`] and [`ppd_lw320`], generated and checked against their PPDs); `ppdConflicts` (only flags conflicts, marks
 //! nothing); `cupsMarkOptions`'s mapping of `media`, `output-bin`, `print-quality`, `sides`,
 //! `multiple-document-handling`, `finishings`, `APPrinterPreset`, `mirror` (needs the PPD cache or
 //! attributes; the job passes no options); the `_cupsRasterExecPS` PostScript machine beyond the
@@ -26,6 +26,8 @@
 pub mod options;
 pub mod ppd;
 // Generated (byte for byte its generator's output, checked): cargo fmt leaves it alone.
+#[rustfmt::skip]
+pub mod ppd_lw320;
 #[rustfmt::skip]
 pub mod ppd_lw450;
 pub mod raster;

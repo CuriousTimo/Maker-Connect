@@ -131,10 +131,10 @@ in the port is in the script's list with its reason: nothing is left out unnamed
 | `CDriverInitializerLabelWriterTwinTurboWithLM::ProcessPPDOptions` | `src/lw/CupsFilterLabelWriter.cpp:139` | not ported: Twin Turbo (not a 450) | not covered |
 | `CDriverInitializerLabelWriterTwinTurboWithLM::ProcessPageOptions` | `src/lw/CupsFilterLabelWriter.cpp:146` | not ported: Twin Turbo (not a 450) | not covered |
 | `IsBackchannelSupported` | `src/lw/raster2dymolw.cpp:45` | `crates/engine/src/ports/dymo_cups/raster2dymolw.rs:10` | ported (tested in section 2, proved in section 3) |
-| `main` | `src/lw/raster2dymolw.cpp:56` | `crates/engine/src/ports/dymo_cups/raster2dymolw.rs:22` | ported (tested in section 2, proved in section 3) |
+| `main` | `src/lw/raster2dymolw.cpp:56` | `crates/engine/src/ports/dymo_cups/raster2dymolw.rs:23` | ported (tested in section 2, proved in section 3) |
 | `CCupsFilter::CCupsFilter` | `src/common/CupsFilter.h:60` | ported in `CupsFilter::new` | ported |
-| `CCupsFilter::Run` | `src/common/CupsFilter.h:69` | `crates/engine/src/ports/dymo_cups/cups_filter.rs:81` | ported (tested in section 2, proved in section 3) |
-| `CCupsFilter::InitDocument` | `src/common/CupsFilter.h:214` | `crates/engine/src/ports/dymo_cups/cups_filter.rs:223` | ported (tested in section 2, proved in section 3) |
+| `CCupsFilter::Run` | `src/common/CupsFilter.h:69` | `crates/engine/src/ports/dymo_cups/cups_filter.rs:87` | ported (tested in section 2, proved in section 3) |
+| `CCupsFilter::InitDocument` | `src/common/CupsFilter.h:214` | `crates/engine/src/ports/dymo_cups/cups_filter.rs:229` | ported (tested in section 2, proved in section 3) |
 | `CCupsPrintEnvironmentForDriver::CCupsPrintEnvironmentForDriver` | `src/common/CupsPrintEnvironment.cpp:31` | ported as `CupsPrintEnvironmentForDriver::new` | ported |
 | `CCupsPrintEnvironmentForDriver::~CCupsPrintEnvironmentForDriver` | `src/common/CupsPrintEnvironment.cpp:47` | not ported: closes the PRN file: Rust drops it | not covered |
 | `CCupsPrintEnvironmentForDriver::WriteData` | `src/common/CupsPrintEnvironment.cpp:55` | `crates/engine/src/ports/dymo_cups/cups_print_environment.rs:93` | ported (tested in section 2, proved in section 3) |

@@ -24,14 +24,15 @@ pub(crate) fn roll_json(profile: Option<&Profile>, machine: &Machine) -> String 
     let Some(media) = machine.media.as_deref() else {
         return "null".to_owned();
     };
-    let Some(roll) = profiles::labelwriter_roll(profile, media) else {
+    let Some(roll) = profiles::labelwriter_entry(profile, media) else {
         return "null".to_owned();
     };
     let page = &roll.page;
     serde_json::json!({
-        "id": roll.roll.sku,
-        "name": roll.roll.name,
-        "paper_name": roll.roll.paper,
+        // a 320 has no roll: its entry is the PPD's `PageSize` choice (id = its name, `paper_name` its text)
+        "id": roll.roll.map_or(page.name, |r| r.sku),
+        "name": roll.roll.and_then(|r| r.name),
+        "paper_name": roll.roll.map_or(page.text.unwrap_or(""), |r| r.paper),
         "page_size": page.name,
         "width_mm": page.width_mm,
         "length_mm": page.length_mm,
@@ -53,7 +54,7 @@ fn roll_list(profile: Option<&Profile>, chosen: Option<&str>) -> String {
     };
     let mut out = String::new();
     for media in &profile.media {
-        let Some(roll) = profiles::labelwriter_roll(Some(profile), &media.id) else {
+        let Some(roll) = profiles::labelwriter_entry(Some(profile), &media.id) else {
             continue;
         };
         let [pw, pl] = roll.page.paper_dimension;
@@ -62,20 +63,26 @@ fn roll_list(profile: Option<&Profile>, chosen: Option<&str>) -> String {
         let (sw, sh) = ((pw * k).round().max(6.0), (pl * k).round().max(6.0));
         let n = roll.cells.len();
         out += &format!(
-            r#"<button name="media" value="{id}" class="roll" aria-pressed="{pressed}" data-search="{search}"><span class="roll-shape"><span style="width: {sw}px; height: {sh}px">{split}</span></span><span class="roll-text"><b>{id}</b> {name}<small>{w} × {l} mm{up} · {paper}</small></span></button>"#,
+            r#"<button name="media" value="{id}" class="roll" aria-pressed="{pressed}" data-search="{search}"><span class="roll-shape"><span style="width: {sw}px; height: {sh}px">{split}</span></span><span class="roll-text"><b>{shown}</b> {name}<small>{w} × {l} mm{up} · {paper}</small></span></button>"#,
             id = escape(&media.id),
+            // a 320's entry is a PPD `PageSize` choice: its text, not its name, is what the box shows
+            shown = escape(if roll.roll.is_some() {
+                &media.id
+            } else {
+                roll.page.text.unwrap_or(&media.id)
+            }),
             pressed = chosen == Some(media.id.as_str()),
             search = escape(
                 &format!(
                     "{} {} {} {}",
-                    roll.roll.sku,
-                    roll.roll.name.unwrap_or(""),
-                    roll.roll.paper,
-                    roll.roll.search
+                    roll.roll.map_or(roll.page.name, |r| r.sku),
+                    roll.roll.and_then(|r| r.name).unwrap_or(""),
+                    roll.roll.map_or(roll.page.text.unwrap_or(""), |r| r.paper),
+                    roll.roll.map_or("", |r| r.search)
                 )
                 .to_lowercase()
             ),
-            name = escape(roll.roll.name.unwrap_or("")),
+            name = escape(roll.roll.and_then(|r| r.name).unwrap_or("")),
             w = roll.page.width_mm,
             l = roll.page.length_mm,
             up = if n > 1 {
@@ -83,7 +90,7 @@ fn roll_list(profile: Option<&Profile>, chosen: Option<&str>) -> String {
             } else {
                 String::new()
             },
-            paper = escape(roll.roll.paper),
+            paper = escape(roll.roll.map_or(roll.page.text.unwrap_or(""), |r| r.paper)),
             split = if n > 1 {
                 r#"<i class="roll-split"></i>"#
             } else {
@@ -110,6 +117,12 @@ pub fn render(
     };
     let id = escape(&machine.id);
     let count = profile.map_or(0, |p| p.media.len());
+    // the 450's rolls are DYMO Connect's catalogue; the 320's labels are the PPD's `PageSize` choices
+    let count_unit = if profile.is_some_and(|p| p.media_from_port.as_deref() == Some("lw320")) {
+        "label sizes in DYMO's PPD for this printer"
+    } else {
+        "rolls in DYMO Connect's catalogue for this printer"
+    };
     format!(
         r##"<!doctype html>
 <html lang="en">
@@ -185,7 +198,7 @@ pub fn render(
           <div class="card-head"><div><h3>Roll loaded</h3><p class="card-sub">The page is made for it</p></div></div>
           <p class="hint">The printer says only when the labels have run out, not which roll is in: the number is on the roll's box. Click the one loaded.</p>
           <label class="lw-find"><span>Find a roll</span><input type="search" data-roll-search placeholder="Number on the box or size, e.g. S0722530 or 13x25" autocomplete="off"></label>
-          <p class="hint" data-roll-count>{count} rolls in DYMO Connect's catalogue for this printer</p>
+          <p class="hint" data-roll-count data-unit="{count_unit}">{count} {count_unit}</p>
           <form method="post" action="{id}/media" class="lw-rolls" data-async data-done="Labels changed" data-roll-form>{rolls}</form>
         </div>
       </div>
@@ -219,6 +232,7 @@ pub fn render(
             .job
             .as_ref()
             .map_or("–".to_owned(), |j| escape(&j.file_name)),
+        count_unit = count_unit,
         rolls = roll_list(profile, machine.media.as_deref()),
         roll = roll_json(profile, machine),
         settings = machine_page::settings(machine, move_to, false, manage),

@@ -3,11 +3,11 @@
 //! Built without the `devices` feature, so the hub can depend on it without the device crates.
 //! Ours, thin: every value comes from the ported code beside it, nothing is computed here on its own.
 
-/// The DYMO LabelWriter 450: its `PageSize` choices as the port's PPD code gives them.
-pub mod lw450 {
+/// A DYMO LabelWriter's `PageSize` choices as the port's PPD code gives them, for a `Model` (the 450, Step 3c;
+/// the 320, Step 3f).
+pub mod labelwriter {
     use crate::ports::dymo_cups::cups::options::CupsOption;
-    use crate::ports::dymo_cups::cups::ppd::PpdFile;
-    use crate::ports::dymo_cups::cups::ppd_lw450::{OPTIONS, SIZES};
+    use crate::ports::dymo_cups::cups::ppd::{Model, PpdFile};
     use crate::ports::dymo_cups::cups::raster::cups_raster_interpret_ppd;
 
     /// The job's label length in mm of a `PageSize` choice: its `PaperDimension` length, in points, to mm,
@@ -31,7 +31,7 @@ pub mod lw450 {
         Ok(ppd)
     }
 
-    /// One `PageSize` choice of `lw450.ppd`.
+    /// One `PageSize` choice of a model's PPD.
     #[derive(Debug, Clone, PartialEq)]
     pub struct PageGeometry {
         /// The choice's name (`w72h72`): unique in the PPD.
@@ -56,14 +56,15 @@ pub mod lw450 {
 
     /// Every `PageSize` choice, in PPD order, marked as the port marks it for a job of that size
     /// (`page.rs` `make_page`: the PPD's defaults, no options, then `PageSize`).
-    pub fn page_sizes() -> Vec<PageGeometry> {
-        let open = || Some(PpdFile::lw450());
+    pub fn page_sizes(model: Model) -> Vec<PageGeometry> {
+        let open = || Some(model.ppd());
         let names = {
-            let mut ppd = PpdFile::lw450();
+            let mut ppd = model.ppd();
             ppd.mark_defaults();
             ppd.page_size_names()
         };
-        let choices = OPTIONS
+        let choices = model
+            .options()
             .iter()
             .find(|o| o.keyword == "PageSize")
             .map(|o| o.choices)
@@ -75,7 +76,7 @@ pub mod lw450 {
                 ppd.mark_option("PageSize", name);
                 let size = ppd.page_size(None)?;
                 let header = cups_raster_interpret_ppd(&mut ppd, &[]).ok()?;
-                let data = SIZES.iter().find(|s| s.name == name)?;
+                let data = model.sizes().iter().find(|s| s.name == name)?;
                 Some(PageGeometry {
                     name,
                     text: choices.iter().find(|c| c.name == name).and_then(|c| c.text),
@@ -88,6 +89,21 @@ pub mod lw450 {
                 })
             })
             .collect()
+    }
+}
+
+/// The DYMO LabelWriter 450: its `PageSize` choices (see [`labelwriter`]) and DYMO Connect's catalogue of rolls.
+pub mod lw450 {
+    pub use super::labelwriter::{PageGeometry, length_mm, marked_ppd};
+    use crate::ports::dymo_cups::cups::ppd::Model;
+    #[cfg(test)]
+    use crate::ports::dymo_cups::cups::ppd::PpdFile;
+    #[cfg(test)]
+    use crate::ports::dymo_cups::cups::ppd_lw450::SIZES;
+
+    /// Every `PageSize` choice of the 450's PPD, in its order.
+    pub fn page_sizes() -> Vec<PageGeometry> {
+        super::labelwriter::page_sizes(Model::Lw450)
     }
 
     /// A roll from DYMO Connect's catalogue (HS2b) with its labels in the page's raster.

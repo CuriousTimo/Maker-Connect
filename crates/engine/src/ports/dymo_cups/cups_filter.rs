@@ -9,7 +9,8 @@
 
 //! `CupsFilter.h`: "Generic Cups filter" `CCupsFilter<D, DI, LM>`. Here for the 450's instance
 //! (`raster2dymolw.cpp:100-103`): `CCupsFilter<CLabelWriterDriver400, CDriverInitializerLabelWriterWithLM,
-//! CLabelWriterLanguageMonitor>`. The other instances are not ported.
+//! CLabelWriterLanguageMonitor>`, and the 320's (`raster2dymolw.cpp:113-116`): the same with `CLabelWriterDriver`
+//! (the `class` argument). The other instances are not ported.
 //!
 //! The raster comes in as an in-memory [`CupsRaster`] instead of `open(argv[6])`/stdin and `cupsRasterOpen`
 //! (W10); the page's rows are what `cupsRasterReadPixels` gives.
@@ -22,7 +23,7 @@ use super::cups_print_environment::{
 };
 use super::error_diffusion_halftoning::ErrorDiffusionHalftoning;
 use super::halftoning::{HalftoneFilter, ImageBuffer, ImageType};
-use super::label_writer_driver::LabelWriterDriver;
+use super::label_writer_driver::{Class, LabelWriterDriver};
 use super::label_writer_language_monitor::LabelWriterLanguageMonitor;
 use super::nll_halftoning::NllHalftoning;
 use super::printer_driver::{Buffer, JobStatus, LanguageMonitor, PrintEnvironment, PrinterDriver};
@@ -44,7 +45,7 @@ pub struct CupsFilter {
 impl CupsFilter {
     /// `CCupsFilter::CCupsFilter` (:59-65): the environment of the monitor, the monitor, the environment of
     /// the driver (which forwards to the monitor), the driver. `device_uri` is `getenv("DEVICE_URI")`.
-    pub fn new(io: SharedIo) -> Self {
+    pub fn new(io: SharedIo, class: Class) -> Self {
         let device_uri = io.borrow().getenv("DEVICE_URI");
         let print_environment_for_lm =
             Rc::new(RefCell::new(CupsPrintEnvironmentForLm::new(io.clone())));
@@ -57,7 +58,12 @@ impl CupsFilter {
         let print_environment_for_driver = Rc::new(RefCell::new(
             CupsPrintEnvironmentForDriver::new(io.clone(), language_monitor.clone()),
         ));
-        let driver = LabelWriterDriver::new400(print_environment_for_driver.clone());
+        let driver = match class {
+            // raster2dymolw.cpp:100-103
+            Class::Driver400 => LabelWriterDriver::new400(print_environment_for_driver.clone()),
+            // raster2dymolw.cpp:113-116
+            Class::Driver => LabelWriterDriver::new(print_environment_for_driver.clone()),
+        };
         CupsFilter {
             io,
             print_environment_for_lm,

@@ -781,6 +781,47 @@ mod tests {
         assert!(page.contains("250 × 210 × 320 mm"));
     }
 
+    /// Step 3f: a 320 has the LabelWriter page with one entry per `PageSize`, and choosing one gives its raster.
+    #[tokio::test]
+    async fn a_labelwriter_320_offers_its_page_sizes() {
+        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        let app = crate::auth::signed_in_app(store.clone());
+        let writer = {
+            let mut store = store.lock().unwrap();
+            let space = store.default_space().unwrap().0;
+            let writer = store
+                .add_virtual(space, profiles::find("dymo/labelwriter-320").unwrap())
+                .unwrap();
+            crate::auth::tester_may_operate(&store, space, &writer);
+            writer
+        };
+        let (status, page) = call(
+            &app,
+            Request::get(format!("/machines/{writer}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            page.contains(r#"value="w102h252.1""#),
+            "99012 among the sizes"
+        );
+        assert!(page.contains("99012 Large Address"));
+        assert!(!page.contains("rolls in DYMO Connect's catalogue for this printer</p>"));
+        assert!(page.contains("label sizes in DYMO's PPD for this printer</p>"));
+        let choose = Request::post(format!("/machines/{writer}/media"))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("x-requested-with", "fetch")
+            .body(Body::from("media=w102h252.1"))
+            .unwrap();
+        let (status, body) = call(&app, choose).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let roll: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(roll["page_size"], "w102h252.1");
+        assert_eq!(roll["cells"].as_array().unwrap().len(), 0);
+    }
+
     /// HS2: a LabelWriter has its own page, a LabelManager the label page; choosing a roll gives
     /// the LabelWriter's page its raster from the port.
     #[tokio::test]

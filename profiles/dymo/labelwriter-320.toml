@@ -1,0 +1,12 @@
+brand = "DYMO"
+model = "LabelWriter 320"
+kind = "label"
+firmware = "dymo-lw"   # DYMO's LabelWriter raster protocol, over USB (printer class)
+dpi = 300              # `lw320.ppd:401-403`: Resolution 300dpi, the only choice
+head_dots = 672        # the driver's MaxPrintWidth_ 84 bytes (`LabelWriterDriver.cpp:38`); the 320 has no width branch in `ProcessPPDOptions`
+
+# The labels come from the port (Step 3f, `docs/plans/agent-engine.md`): every `PageSize` choice of
+# DYMO's PPD for the 320 (dymo-cups-drivers 1.4.0, `lw320.ppd`), one entry each, with its own name and
+# size (`maker_connect_engine::ports::geometry::labelwriter`). No DYMO Connect catalogue, no rolls.
+# The printer cannot tell which label is in: the owner chooses.
+media_from_port = "lw320"

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of a DYMO LabelWriter 320">
+  <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
+  <ellipse cx="80" cy="140" rx="46" ry="5" fill="#d3d0c8"/>
+  <!-- the silver body, seen from the front: rounded, narrow, tall -->
+  <path d="M42 136V46q0-26 38-26t38 26v90q0 4-4 4H46q-4 0-4-4z" fill="#a9adb3"/>
+  <path d="M46 132V48q0-22 34-22t34 22v84z" fill="#bcc0c5"/>
+  <!-- the smoked window over the roll, the roll seen through it -->
+  <path d="M52 92V50q0-16 28-16t28 16v42z" fill="#2f3135"/>
+  <rect x="62" y="52" width="36" height="26" rx="5" fill="#eceae4" opacity=".45"/>
+  <path d="M56 50q2-10 24-11" fill="none" stroke="#6b7078" stroke-width="2" stroke-linecap="round"/>
+  <!-- a label coming out of the slot -->
+  <path d="M64 70h30v34H64z" fill="#fff" stroke="#c9c6be" stroke-width="1"/>
+  <path d="M70 75v22M76 75v16" stroke="#26272a" stroke-width="2" stroke-linecap="round"/>
+  <!-- the slot and its tear bar -->
+  <rect x="50" y="103" width="60" height="4" rx="2" fill="#5a5e65"/>
+  <rect x="52" y="104" width="56" height="1.5" rx=".75" fill="#d9dbde"/>
+  <!-- the name plate -->
+  <rect x="54" y="111" width="52" height="15" rx="3" fill="#8f9399"/>
+  <path d="M60 116h26M60 121h18M92 121h8" stroke="#26272a" stroke-width="1.8" stroke-linecap="round"/>
+  <!-- the button -->
+  <circle cx="80" cy="132" r="3.2" fill="#6d7178" stroke="#55585e" stroke-width="1"/>
+</svg>

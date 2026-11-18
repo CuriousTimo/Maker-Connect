@@ -3,10 +3,52 @@
 
 //! The PPD calls `raster2dymolw` makes (`CupsFilter.h:218-247`): `ppdMarkDefaults`, `ppdMarkOption`,
 //! `cupsMarkOptions`, `ppdFindMarkedChoice`, on a [`PpdFile`] whose data is the plain 450's PPD
-//! ([`super::ppd_lw450`], generated from `lw450.ppd`). The calls the raster interpreter makes on it
+//! ([`super::ppd_lw450`], generated from `lw450.ppd`) or the 320's ([`super::ppd_lw320`], from `lw320.ppd`). The calls the raster interpreter makes on it
 //! (`ppdPageSize`, `ppdEmitString`) are here too.
 
 use super::options::{CupsOption, cups_get_option};
+
+/// Which LabelWriter's PPD a port or the hub's geometry reads (ours, Step 3f): the plain 450's
+/// (`ppd_lw450`) or the 320's (`ppd_lw320`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Model {
+    Lw450,
+    Lw320,
+}
+
+impl Model {
+    /// A new, unmarked PPD of the model, as `ppdOpenFile` gives it.
+    pub fn ppd(self) -> PpdFile {
+        match self {
+            Model::Lw450 => PpdFile::lw450(),
+            Model::Lw320 => PpdFile::lw320(),
+        }
+    }
+
+    /// The model's options, as its PPD gives them.
+    pub fn options(self) -> &'static [OptionData] {
+        match self {
+            Model::Lw450 => super::ppd_lw450::OPTIONS,
+            Model::Lw320 => super::ppd_lw320::OPTIONS,
+        }
+    }
+
+    /// The model's `PageSize` choices with their sizes.
+    pub fn sizes(self) -> &'static [SizeData] {
+        match self {
+            Model::Lw450 => super::ppd_lw450::SIZES,
+            Model::Lw320 => super::ppd_lw320::SIZES,
+        }
+    }
+
+    /// The model's `*cupsIPPReason` keywords with their English texts and lines.
+    pub fn reasons(self) -> &'static [(&'static str, &'static str, u32)] {
+        match self {
+            Model::Lw450 => super::ppd_lw450::REASONS,
+            Model::Lw320 => super::ppd_lw320::REASONS,
+        }
+    }
+}
 
 /// `ppd_choice_t`'s `choice`, `code` and the PPD line of its `*Option Choice` (ours: `line`).
 #[derive(Debug, Clone, Copy)]
@@ -75,6 +117,16 @@ impl PpdFile {
             super::ppd_lw450::MODEL_NAME,
             super::ppd_lw450::OPTIONS,
             super::ppd_lw450::SIZES,
+        )
+    }
+
+    /// The LabelWriter 320's PPD (`lw320.ppd`, DYMO's CUPS driver 1.4.0), as `ppdOpenFile` would give it: nothing
+    /// marked (Step 3f).
+    pub fn lw320() -> PpdFile {
+        PpdFile::new(
+            super::ppd_lw320::MODEL_NAME,
+            super::ppd_lw320::OPTIONS,
+            super::ppd_lw320::SIZES,
         )
     }
 
@@ -197,7 +249,7 @@ impl PpdFile {
             // custom option: `ppdFindChoice(o, "Custom")`; the PPD has no "Custom" choice
             match self.find_choice(o, "Custom") {
                 None => return,
-                Some(_) => unreachable!("the plain 450's PPD has no Custom choice"),
+                Some(_) => unreachable!("the PPD has no Custom choice"),
             }
         } else if option_name.eq_ignore_ascii_case("PageRegion")
             || option_name.eq_ignore_ascii_case("PageSize")
@@ -217,7 +269,7 @@ impl PpdFile {
             if self.find_choice(o, "Custom").is_none() {
                 return;
             }
-            unreachable!("the plain 450's PPD has no Custom choice");
+            unreachable!("the PPD has no Custom choice");
         } else {
             match self.options[o]
                 .choices
