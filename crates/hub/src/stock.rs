@@ -1472,6 +1472,10 @@ async fn load_item(
     Path(id): Path<String>,
     Json(p): Json<Place>,
 ) -> Response {
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
     let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
@@ -1481,9 +1485,13 @@ async fn load_item(
         return (StatusCode::BAD_REQUEST, "which machine?").into_response();
     };
     // Loading a spool or a tape is using the machine.
-    if let Err(refused) =
-        crate::access::check_machine(&store, &access, &machine, crate::access::Level::Use)
-    {
+    if let Err(refused) = crate::access::check_machine(
+        &store,
+        &access,
+        &machine,
+        crate::access::Level::Use,
+        &grants,
+    ) {
         return *refused;
     }
     match store.load_item(space, &id, &machine) {

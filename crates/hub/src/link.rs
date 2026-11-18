@@ -357,12 +357,12 @@ pub(crate) mod tests {
             let store = store.lock().unwrap();
             let space = store.default_space().unwrap().0;
             store.pair(space, &registered.pairing_code).unwrap();
-            crate::auth::tester_may_operate(&store, space, &registered.machine_id);
             store
                 .set_profile(space, &registered.machine_id, Some("ortur/lm2-pro-s2"))
                 .unwrap();
             space
         };
+        crate::auth::tester_may_operate(&store, &registered.machine_id).await;
         let report = |telemetry: Telemetry| {
             let app = agent.clone();
             let token = registered.token.clone();

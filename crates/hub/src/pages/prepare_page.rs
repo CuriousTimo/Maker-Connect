@@ -24,9 +24,13 @@ pub async fn page(access: crate::access::Access, State(store): State<Store>) -> 
         Ok(name) => name,
         Err(error) => return failed(error),
     };
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
     let laser = {
         let store = store.lock().unwrap();
-        match availability(&store, &access) {
+        match availability(&store, &access, &grants) {
             Ok(a) => a,
             Err(error) => return failed(error),
         }

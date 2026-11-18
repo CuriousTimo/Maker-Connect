@@ -91,6 +91,8 @@ jobs:
         image: timescale/timescaledb:2.32.0-pg17
         env:
           POSTGRES_PASSWORD: mc-ci
+          # As scripts/dev-db.sh: timescaledb-tune would allow 25, too few for the tests in parallel.
+          TS_TUNE_MAX_CONNS: "100"
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30

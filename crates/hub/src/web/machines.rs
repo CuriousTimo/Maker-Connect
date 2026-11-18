@@ -195,7 +195,12 @@ fn move_targets(
     spaces: &[access::SpaceOf],
 ) -> Vec<(String, String)> {
     let manages = store
-        .may(access, machine, access::Level::Manage)
+        .may(
+            access,
+            machine,
+            access::Level::Manage,
+            &access::Grants::none_needed(),
+        )
         .ok()
         .flatten()
         .unwrap_or(false);
@@ -253,6 +258,9 @@ pub(crate) async fn move_machine(
     };
     match moved {
         Ok(Ok(name)) => {
+            if let Err(error) = store.forget_machine_access(&id).await {
+                return failed(error);
+            }
             let (from_name, to_name) = (
                 store.space_name(access.space).await.unwrap_or_default(),
                 store.space_name(to).await.unwrap_or_default(),
@@ -285,12 +293,17 @@ pub(crate) async fn remove(
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    match store
-        .space_id_of(&access)
-        .and_then(|(space, _)| store.remove(space, &id))
-    {
-        Ok(true) => done(&headers, "/"),
+    let removed = {
+        let mut store = store.lock().unwrap();
+        store
+            .space_id_of(&access)
+            .and_then(|(space, _)| store.remove(space, &id))
+    };
+    match removed {
+        Ok(true) => match store.forget_machine_access(&id).await {
+            Ok(()) => done(&headers, "/"),
+            Err(error) => failed(error),
+        },
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
     }
@@ -619,6 +632,15 @@ pub(crate) async fn machine_page(
         Vec::new()
     };
     let ppe_checks = store.ppe_checks(access.space).await.unwrap_or_default();
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    let asked = store
+        .asked(access.space, access.user_id, &id)
+        .await
+        .ok()
+        .flatten();
     let store = store.lock().unwrap();
     let found = store
         .machine(access.space, &id)
@@ -627,7 +649,12 @@ pub(crate) async fn machine_page(
         Ok((space, Some(machine))) if machine.kind == protocol::MachineKind::Label => {
             let move_to = move_targets(&store, &access, &machine.id, &spaces);
             let manage = store
-                .may(&access, &machine.id, access::Level::Manage)
+                .may(
+                    &access,
+                    &machine.id,
+                    access::Level::Manage,
+                    &access::Grants::none_needed(),
+                )
                 .ok()
                 .flatten()
                 .unwrap_or(false);
@@ -646,17 +673,22 @@ pub(crate) async fn machine_page(
                 camera_tab: camera_tab(&store, &access, &machine.id),
                 me: access.user_id,
                 staff: access.role >= access::Role::Admin,
-                asked: store.asked(access.user_id, &machine.id).ok().flatten(),
+                asked,
                 ppe_until: store.ppe_until(access.user_id, &machine.id),
                 ppe_checks,
                 may_use: store
-                    .may(&access, &machine.id, access::Level::Use)
+                    .may(&access, &machine.id, access::Level::Use, &grants)
                     .ok()
                     .flatten()
                     .unwrap_or(false),
                 move_to: move_targets(&store, &access, &machine.id, &spaces),
                 manage: store
-                    .may(&access, &machine.id, access::Level::Manage)
+                    .may(
+                        &access,
+                        &machine.id,
+                        access::Level::Manage,
+                        &access::Grants::none_needed(),
+                    )
                     .ok()
                     .flatten()
                     .unwrap_or(false),
@@ -827,9 +859,9 @@ mod tests {
             let manager = store
                 .add_virtual(space, profiles::find("dymo/labelmanager-pnp").unwrap())
                 .unwrap();
-            crate::auth::tester_may_operate(&store, space, &writer);
             (writer, manager)
         };
+        crate::auth::tester_may_operate(&store, &writer).await;
         let get = |id: &str| {
             Request::get(format!("/machines/{id}"))
                 .body(Body::empty())

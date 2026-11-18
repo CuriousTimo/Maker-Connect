@@ -290,6 +290,10 @@ struct Listed {
 }
 
 async fn list(access: crate::access::Access, State(store): State<Store>) -> Response {
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
     let store = store.lock().unwrap();
     let found = store.space_id_of(&access).and_then(|(space, _)| {
         Ok((
@@ -306,7 +310,7 @@ async fn list(access: crate::access::Access, State(store): State<Store>) -> Resp
     // so here, before the button, rather than refusing after it. Granted only in Space.
     let mut may_use = std::collections::HashSet::new();
     for machine in &machines {
-        match store.may(&access, &machine.id, crate::access::Level::Use) {
+        match store.may(&access, &machine.id, crate::access::Level::Use, &grants) {
             Ok(Some(true)) => {
                 may_use.insert(machine.id.clone());
             }
@@ -787,11 +791,19 @@ async fn print(
         Err(response) => return *response,
     };
     let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
     let mut store = store.lock().unwrap();
     // Running a job, or framing one, is using the machine.
-    if let Err(refused) =
-        crate::access::check_machine(&store, &access, &form.machine, crate::access::Level::Use)
-    {
+    if let Err(refused) = crate::access::check_machine(
+        &store,
+        &access,
+        &form.machine,
+        crate::access::Level::Use,
+        &grants,
+    ) {
         return *refused;
     }
     if let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &form.machine) {
@@ -939,11 +951,19 @@ async fn frame(
         return (StatusCode::CONFLICT, "the file has no moves to frame").into_response();
     };
     let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
     let mut store = store.lock().unwrap();
     // Running a job, or framing one, is using the machine.
-    if let Err(refused) =
-        crate::access::check_machine(&store, &access, &form.machine, crate::access::Level::Use)
-    {
+    if let Err(refused) = crate::access::check_machine(
+        &store,
+        &access,
+        &form.machine,
+        crate::access::Level::Use,
+        &grants,
+    ) {
         return *refused;
     }
     if let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &form.machine) {
@@ -1026,12 +1046,16 @@ async fn start_burn(
     Form(form): Form<StartBurnForm>,
 ) -> Response {
     let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
     let mut store = store.lock().unwrap();
     let Ok(Some((space, _))) = store.space_id_of(&access).map(Some) else {
         return (StatusCode::FORBIDDEN, "no space").into_response();
     };
     if let Err(refused) =
-        crate::access::check_machine(&store, &access, &id, crate::access::Level::Operate)
+        crate::access::check_machine(&store, &access, &id, crate::access::Level::Operate, &grants)
     {
         return *refused;
     }
@@ -1430,10 +1454,10 @@ mod tests {
             let laser = store
                 .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
                 .unwrap();
-            crate::auth::tester_may_operate(&store, space, &mini);
-            crate::auth::tester_may_operate(&store, space, &laser);
             (space, mini, laser)
         };
+        crate::auth::tester_may_operate(&store, &mini).await;
+        crate::auth::tester_may_operate(&store, &laser).await;
         let (_, list) = call(
             &app,
             Request::get("/api/files").body(Body::empty()).unwrap(),
@@ -1602,7 +1626,6 @@ mod tests {
             let space = store.default_space().unwrap().0;
             let profile = crate::profiles::find("dymo/labelmanager-pnp").unwrap();
             let dymo = store.add_virtual(space, profile).unwrap();
-            crate::auth::tester_may_operate(&store, space, &dymo);
             let token = store.virtual_machines().unwrap()[0].1.clone();
             let telemetry = maker_connect_protocol::Telemetry {
                 state: maker_connect_protocol::MachineState::Idle,
@@ -1612,6 +1635,7 @@ mod tests {
             store.report(&token, &telemetry).unwrap();
             (space, dymo, token)
         };
+        crate::auth::tester_may_operate(&store, &dymo).await;
         let print = || {
             Request::post(format!("/files/{file}/print"))
                 .header("content-type", "application/x-www-form-urlencoded")
@@ -1698,7 +1722,6 @@ mod tests {
             let space = store.default_space().unwrap().0;
             let profile = crate::profiles::find("dymo/labelwriter-450").unwrap();
             let writer = store.add_virtual(space, profile).unwrap();
-            crate::auth::tester_may_operate(&store, space, &writer);
             let token = store.virtual_machines().unwrap()[0].1.clone();
             let idle = maker_connect_protocol::Telemetry {
                 state: maker_connect_protocol::MachineState::Idle,
@@ -1708,6 +1731,7 @@ mod tests {
             store.set_media(space, &writer, Some("S0722400")).unwrap();
             (writer, token)
         };
+        crate::auth::tester_may_operate(&store, &writer).await;
         let print = |file: &str| {
             Request::post(format!("/files/{file}/print"))
                 .header("content-type", "application/x-www-form-urlencoded")

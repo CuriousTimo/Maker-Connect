@@ -1004,19 +1004,9 @@ async fn join(
         .get(h::USER_AGENT)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    let made: sqlx::Result<Option<String>> = async {
-        let user = store
-            .create_user(&name, &display_name, &hash, false)
-            .await?;
-        if !store.use_invite(&invite, user).await? {
-            return Ok(None);
-        }
-        store
-            .create_session(user, Some(invite.space), user_agent, &client)
-            .await
-            .map(Some)
-    }
-    .await;
+    let made = store
+        .join_by_invite(&invite, &name, &display_name, &hash, user_agent, &client)
+        .await;
     match made {
         Ok(Some(token)) => {
             println!("{name} joined by invite ({client})");
@@ -1175,10 +1165,9 @@ async fn password(
         .to_owned();
     // A new password ends every session; this one is made again.
     let done: sqlx::Result<String> = async {
-        store.set_password(signed.user_id, &new_hash).await?;
         let space = store.spaces_of(signed.user_id).await?.first().map(|s| s.id);
         store
-            .create_session(signed.user_id, space, &user_agent, &client)
+            .change_password(signed.user_id, &new_hash, space, &user_agent, &client)
             .await
     }
     .await;

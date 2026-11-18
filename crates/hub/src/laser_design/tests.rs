@@ -48,7 +48,8 @@ mod prepare_tests {
         // The access first, from Postgres; then the machines, from the store.
         let of = async |name: &str, built: bool| {
             let access = w.access_of(name).await;
-            availability_of(&store.lock().unwrap(), &access, built).unwrap()
+            let grants = store.grants_of(&access).await.unwrap();
+            availability_of(&store.lock().unwrap(), &access, &grants, built).unwrap()
         };
         assert_eq!(of("ann", false).await, Availability::NotBuilt);
         assert_eq!(of("ann", true).await, Availability::NoLaser);
@@ -103,7 +104,7 @@ mod serving_tests {
         let store = w.store.clone();
         for asset in FAKE {
             let access = w.access_of("ann").await;
-            let response = serve(&access, &store, FAKE, asset.path);
+            let response = serve(&access, &store, FAKE, asset.path).await;
             assert_eq!(response.status(), StatusCode::OK, "{}", asset.path);
             let h = response.headers();
             assert_eq!(h[header::CONTENT_ENCODING], "gzip");
@@ -124,11 +125,14 @@ mod serving_tests {
                 FAKE,
                 "pkg/../../etc/passwd"
             )
+            .await
             .status(),
             StatusCode::NOT_FOUND
         );
         assert_eq!(
-            serve(&w.access_of("ann").await, &store, FAKE, "nothing").status(),
+            serve(&w.access_of("ann").await, &store, FAKE, "nothing")
+                .await
+                .status(),
             StatusCode::NOT_FOUND
         );
     }
@@ -180,9 +184,8 @@ mod serving_tests {
         assert_eq!(w.get(&ann, "/laser-design/").await.0, StatusCode::FORBIDDEN);
         let (user, _) = (w.user("ann").await, ());
         w.store
-            .lock()
-            .unwrap()
             .set_grant(w.space, &laser, user, Level::Use, user, None)
+            .await
             .unwrap();
         assert_eq!(w.get(&ann, "/laser-design/").await.0, ok);
     }
@@ -270,9 +273,8 @@ mod lasers_tests {
         assert_eq!(list[0]["may"], "operate");
         assert!(list[0]["work_area_mm"].is_array() && list[0]["laser"].is_object());
         w.store
-            .lock()
-            .unwrap()
             .set_grant(w.space, &closed, user, Level::Use, user, None)
+            .await
             .unwrap();
         let (_, body) = w.get(&ann, "/api/laser-design/lasers").await;
         assert_eq!(

@@ -1051,7 +1051,7 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
                     "farm": store.takes_work(&m.id).unwrap_or(false),
                     "sheet": m.sheet,
                     "compatible": store.compatible(access.space, m).ok(),
-                    "manage": store.may(&access, &m.id, Level::Manage).ok().flatten().unwrap_or(false),
+                    "manage": store.may(&access, &m.id, Level::Manage, &crate::access::Grants::none_needed()).ok().flatten().unwrap_or(false),
                 })
             })
             .collect(),
@@ -1654,13 +1654,13 @@ mod flow {
             let a = s.add_virtual(space, mk3s).unwrap();
             let b = s.add_virtual(space, mk3s).unwrap();
             let c = s.add_virtual(space, mk3s).unwrap();
-            for m in [&a, &b, &c] {
-                crate::auth::tester_may_operate(&s, space, m);
-            }
             s.set_takes_work(space, &a, true).unwrap();
             s.set_takes_work(space, &b, true).unwrap();
             (space, a, b, c)
         };
+        for m in [&a, &b, &c] {
+            crate::auth::tester_may_operate(&store, m).await;
+        }
         let idle = |machine: &str| {
             let mut s = store.lock().unwrap();
             let token: String =

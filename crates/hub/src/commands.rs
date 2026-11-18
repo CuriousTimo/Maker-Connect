@@ -711,8 +711,8 @@ mod tests {
             let store = store.lock().unwrap();
             let space = store.default_space().unwrap().0;
             store.pair(space, &registered.pairing_code).unwrap();
-            crate::auth::tester_may_operate(&store, space, &id);
         }
+        crate::auth::tester_may_operate(&store, &id).await;
         let press = |body: &str| {
             Request::post(format!("/machines/{id}/command"))
                 .header("content-type", "application/x-www-form-urlencoded")
@@ -833,8 +833,8 @@ mod tests {
             let store = store.lock().unwrap();
             let space = store.default_space().unwrap().0;
             store.pair(space, &registered.pairing_code).unwrap();
-            crate::auth::tester_may_operate(&store, space, &id);
         }
+        crate::auth::tester_may_operate(&store, &id).await;
         let press = |body: &str| {
             Request::post(format!("/machines/{id}/command"))
                 .header("content-type", "application/x-www-form-urlencoded")
@@ -961,21 +961,22 @@ mod tests {
         .await;
         let registered: Registered = serde_json::from_str(&body).unwrap();
         let user = store.user_id("tester").await.unwrap().unwrap();
+        let space = store.lock().unwrap().default_space().unwrap().0;
+        // 'use' only, not 'operate': whoever may use the machine may press the emergency stop
+        store
+            .set_grant(
+                space,
+                &registered.machine_id,
+                user,
+                crate::access::Level::Use,
+                user,
+                None,
+            )
+            .await
+            .unwrap();
         {
             let store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
             store.pair(space, &registered.pairing_code).unwrap();
-            // 'use' only, not 'operate': whoever may use the machine may press the emergency stop
-            store
-                .set_grant(
-                    space,
-                    &registered.machine_id,
-                    user,
-                    crate::access::Level::Use,
-                    user,
-                    None,
-                )
-                .unwrap();
             if profile.is_some() {
                 store
                     .set_profile(space, &registered.machine_id, profile)

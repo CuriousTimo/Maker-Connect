@@ -151,10 +151,17 @@ impl Legacy {
             return Ok(false);
         }
         match &camera.machine_id {
-            Some(machine) => Ok(match self.may(access, machine, Level::View)? {
-                Some(may) => may,
-                None => access.role >= Role::Admin,
-            }),
+            Some(machine) => Ok(
+                match self.may(
+                    access,
+                    machine,
+                    Level::View,
+                    &crate::access::Grants::none_needed(),
+                )? {
+                    Some(may) => may,
+                    None => access.role >= Role::Admin,
+                },
+            ),
             None => Ok(access.role >= camera.view_role),
         }
     }

@@ -1595,7 +1595,6 @@ mod flow {
             let mini = s
                 .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
                 .unwrap();
-            crate::auth::tester_may_operate(&s, space, &mini);
             let token: String =
                 s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| {
                     r.get(0)
@@ -1608,6 +1607,7 @@ mod flow {
             .unwrap();
             (space, mini, token)
         };
+        crate::auth::tester_may_operate(&store, &mini).await;
         let report = || {
             Request::post("/p/telemetry")
                 .header("Token", &token)
@@ -1773,7 +1773,6 @@ mod flow {
             let mini = s
                 .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
                 .unwrap();
-            crate::auth::tester_may_operate(&s, space, &mini);
             let token: String =
                 s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| {
                     r.get(0)
@@ -1786,6 +1785,7 @@ mod flow {
             .unwrap();
             (space, mini, token)
         };
+        crate::auth::tester_may_operate(&store, &mini).await;
         let report = |state: &str| {
             Request::post("/p/telemetry")
                 .header("Token", &token)
@@ -2170,7 +2170,6 @@ mod flow {
             let mini = s
                 .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
                 .unwrap();
-            crate::auth::tester_may_operate(&s, space, &mini);
             let token: String =
                 s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| {
                     r.get(0)
@@ -2183,6 +2182,7 @@ mod flow {
             .unwrap();
             (space, mini, token)
         };
+        crate::auth::tester_may_operate(&store, &mini).await;
         let report = |body: &str| {
             Request::post("/p/telemetry")
                 .header("Token", &token)
@@ -2282,7 +2282,6 @@ mod flow {
             let mini = s
                 .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
                 .unwrap();
-            crate::auth::tester_may_operate(&s, space, &mini);
             let token: String =
                 s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| {
                     r.get(0)
@@ -2295,6 +2294,7 @@ mod flow {
             .unwrap();
             (mini, token)
         };
+        crate::auth::tester_may_operate(&store, &mini).await;
         let report = |state: &str| {
             Request::post("/p/telemetry")
                 .header("Token", &token)

@@ -766,12 +766,13 @@ thread_local! {
     static TESTER: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
 }
 
-/// In a test: the signed-in tester may operate this machine (a new machine needs
+/// In a test: the signed-in tester may operate this machine of the first space (a new machine needs
 /// permission, owners included; a machine added through the website gives it to whoever
 /// added it).
 #[cfg(test)]
-pub fn tester_may_operate(store: &crate::store::Legacy, space: i64, machine: &str) {
+pub async fn tester_may_operate(store: &Store, machine: &str) {
     let user = TESTER.with(|t| t.get());
+    let space = store.default_space().await.unwrap().0;
     store
         .set_grant(
             space,
@@ -781,6 +782,7 @@ pub fn tester_may_operate(store: &crate::store::Legacy, space: i64, machine: &st
             user,
             None,
         )
+        .await
         .unwrap();
 }
 

@@ -385,7 +385,6 @@ impl Mini {
             let id = s
                 .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
                 .unwrap();
-            crate::auth::tester_may_operate(&s, space, &id);
             let token: String =
                 s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&id], |r| {
                     r.get(0)
@@ -398,6 +397,7 @@ impl Mini {
             .unwrap();
             (space, id, token)
         };
+        crate::auth::tester_may_operate(&store, &id).await;
         Mini {
             app,
             store,

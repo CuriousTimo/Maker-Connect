@@ -18,6 +18,9 @@ IMAGE="timescale/timescaledb:2.32.0-pg17"
 NAME="mc-dev-db"
 PORT=55432
 PASSWORD="mc-dev"
+# The image tunes itself to the container's memory (timescaledb-tune: 25 connections here); the hub's
+# tests run in parallel, each with its own pools, and need more.
+MAX_CONNS=100
 URL="postgres://postgres:${PASSWORD}@127.0.0.1:${PORT}/postgres"
 STATE="${TMPDIR:-/tmp}/maker-connect-dev-db"
 mkdir -p "$STATE"
@@ -33,7 +36,7 @@ up() {
     if [ -z "$(docker ps -q --filter "name=^${NAME}$")" ]; then
         docker rm -f "$NAME" >/dev/null 2>&1 || true
         docker run -d --name "$NAME" -p "127.0.0.1:${PORT}:5432" \
-            -e POSTGRES_PASSWORD="$PASSWORD" "$IMAGE" >/dev/null
+            -e POSTGRES_PASSWORD="$PASSWORD" -e TS_TUNE_MAX_CONNS="$MAX_CONNS" "$IMAGE" >/dev/null
         touch "$STATE/container-started"
     fi
     for _ in $(seq 1 60); do

@@ -71,20 +71,25 @@ pub fn routes() -> Router<Store> {
 fn usable_lasers(
     store: &crate::store::Legacy,
     access: &Access,
+    grants: &crate::access::Grants,
 ) -> rusqlite::Result<Vec<serde_json::Value>> {
     Ok(store
         .machines(access.space)?
         .iter()
         .filter(|m| m.kind == MachineKind::Laser)
         .filter_map(|m| {
-            let level = store.machine_level(access, &m.id).ok().flatten()?;
+            let level = store.machine_level(access, &m.id, grants).ok().flatten()?;
             (level >= Level::Use).then(|| crate::apps::machine_json(m, Some(level)))
         })
         .collect())
 }
 
 async fn lasers(access: Access, State(store): State<Store>) -> Response {
-    match usable_lasers(&store.lock().unwrap(), &access) {
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    match usable_lasers(&store.lock().unwrap(), &access, &grants) {
         Ok(list) => Json(list).into_response(),
         Err(error) => failed(error),
     }
@@ -108,13 +113,15 @@ pub(crate) enum Availability {
 pub(crate) fn availability(
     store: &crate::store::Legacy,
     access: &Access,
+    grants: &crate::access::Grants,
 ) -> rusqlite::Result<Availability> {
-    availability_of(store, access, !ASSETS.is_empty())
+    availability_of(store, access, grants, !ASSETS.is_empty())
 }
 
 fn availability_of(
     store: &crate::store::Legacy,
     access: &Access,
+    grants: &crate::access::Grants,
     built: bool,
 ) -> rusqlite::Result<Availability> {
     if !built {
@@ -130,7 +137,7 @@ fn availability_of(
     {
         return Ok(Availability::NoLaser);
     }
-    Ok(if usable_lasers(store, access)?.is_empty() {
+    Ok(if usable_lasers(store, access, grants)?.is_empty() {
         Availability::NotPermitted
     } else {
         Availability::Open
@@ -138,7 +145,11 @@ fn availability_of(
 }
 
 /// Whether this person may open the page: a member who may use a laser.
-fn may_open(store: &crate::store::Legacy, access: &Access) -> Result<(), Box<Response>> {
+fn may_open(
+    store: &crate::store::Legacy,
+    access: &Access,
+    grants: &crate::access::Grants,
+) -> Result<(), Box<Response>> {
     if access.role < Role::Member {
         return Err(Box::new(
             (
@@ -148,7 +159,7 @@ fn may_open(store: &crate::store::Legacy, access: &Access) -> Result<(), Box<Res
                 .into_response(),
         ));
     }
-    match usable_lasers(store, access) {
+    match usable_lasers(store, access, grants) {
         Ok(list) if !list.is_empty() => Ok(()),
         Ok(_) => Err(Box::new(
             (
@@ -162,17 +173,21 @@ fn may_open(store: &crate::store::Legacy, access: &Access) -> Result<(), Box<Res
 }
 
 async fn index(access: Access, State(store): State<Store>) -> Response {
-    serve(&access, &store, ASSETS, "index.html")
+    serve(&access, &store, ASSETS, "index.html").await
 }
 
 async fn file(access: Access, State(store): State<Store>, Path(file): Path<String>) -> Response {
-    serve(&access, &store, ASSETS, &file)
+    serve(&access, &store, ASSETS, &file).await
 }
 
 /// The packed file `name`, as the browser takes it: gzip, its type, never cached without asking, and the page's
 /// Permissions-Policy.
-fn serve(access: &Access, store: &Store, assets: &'static [Asset], name: &str) -> Response {
-    if let Err(refused) = may_open(&store.lock().unwrap(), access) {
+async fn serve(access: &Access, store: &Store, assets: &'static [Asset], name: &str) -> Response {
+    let grants = match store.grants_of(access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    if let Err(refused) = may_open(&store.lock().unwrap(), access, &grants) {
         return *refused;
     }
     if assets.is_empty() {

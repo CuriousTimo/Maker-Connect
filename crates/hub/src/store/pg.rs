@@ -19,7 +19,8 @@ use std::sync::LazyLock;
 fn modules() -> Vec<&'static Migrator> {
     static CORE: Migrator = sqlx::migrate!("src/store/migrations");
     static ACCOUNTS: Migrator = sqlx::migrate!("src/accounts/migrations");
-    vec![&CORE, &ACCOUNTS]
+    static ACCESS: Migrator = sqlx::migrate!("src/access/migrations");
+    vec![&CORE, &ACCOUNTS, &ACCESS]
 }
 
 /// All modules' migrations in one list, by version.

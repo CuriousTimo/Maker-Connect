@@ -141,7 +141,8 @@ impl Legacy {
     /// the machine itself (name, labels, plate, service interval) and its agent, which keeps
     /// its token. What stays: its jobs (their files are the old space's), the rights given
     /// on it (people of the old space), the spool said to be loaded (the old space's
-    /// Materials), and its place in the old space's queue.
+    /// Materials), and its place in the old space's queue. The caller then has its permissions and
+    /// group places go ([`crate::Store::forget_machine_access`], on Postgres: transitional, lanes 2-3).
     pub fn move_machine(
         &mut self,
         from: i64,
@@ -190,14 +191,6 @@ impl Legacy {
             params![machine, to],
         )?;
         tx.execute(
-            "DELETE FROM machine_grants WHERE machine_id = ?1",
-            [machine],
-        )?;
-        tx.execute(
-            "DELETE FROM machine_group_members WHERE machine_id = ?1",
-            [machine],
-        )?;
-        tx.execute(
             "UPDATE spool SET machine = NULL WHERE machine = ?1 AND space_id = ?2",
             params![machine, from],
         )?;
@@ -213,21 +206,13 @@ impl Legacy {
         Ok(Ok(()))
     }
 
+    /// Removes a machine of the space; the caller then has its permissions and group places go
+    /// ([`crate::Store::forget_machine_access`], on Postgres: transitional, lanes 2-3).
     pub fn remove(&mut self, space: i64, machine: &str) -> rusqlite::Result<bool> {
         let removed = self.db.execute(
             "DELETE FROM machines WHERE id = ?1 AND space_id = ?2",
             params![machine, space],
         )?;
-        if removed > 0 {
-            self.db.execute(
-                "DELETE FROM machine_grants WHERE machine_id = ?1",
-                [machine],
-            )?;
-            self.db.execute(
-                "DELETE FROM machine_group_members WHERE machine_id = ?1",
-                [machine],
-            )?;
-        }
         self.commands.remove(machine);
         self.history.remove(machine);
         self.changed();

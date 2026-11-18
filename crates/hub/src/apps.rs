@@ -110,6 +110,10 @@ async fn machines(
     State(store): State<Store>,
     Query(query): Query<MachinesQuery>,
 ) -> Response {
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
     let store = store.lock().unwrap();
     let all = match store.machines(access.space) {
         Ok(all) => all,
@@ -125,7 +129,12 @@ async fn machines(
                     == Some(k.to_owned())
             })
         })
-        .map(|m| machine_json(m, store.machine_level(&access, &m.id).ok().flatten()))
+        .map(|m| {
+            machine_json(
+                m,
+                store.machine_level(&access, &m.id, &grants).ok().flatten(),
+            )
+        })
         .collect();
     Json(list).into_response()
 }
@@ -144,11 +153,20 @@ async fn send(
     body: Body,
 ) -> Response {
     // The machine first: one the token may not use is refused before anything is stored.
-    if let Some(machine) = &query.machine
-        && let Err(refused) =
-            crate::access::check_machine(&store.lock().unwrap(), &access, machine, Level::Use)
-    {
-        return *refused;
+    if let Some(machine) = &query.machine {
+        let grants = match store.grants_of(&access).await {
+            Ok(grants) => grants,
+            Err(error) => return failed(error),
+        };
+        if let Err(refused) = crate::access::check_machine(
+            &store.lock().unwrap(),
+            &access,
+            machine,
+            Level::Use,
+            &grants,
+        ) {
+            return *refused;
+        }
     }
     let kept = crate::files::upload(
         access.clone(),

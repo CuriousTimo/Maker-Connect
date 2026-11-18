@@ -14,7 +14,6 @@
 use crate::store::{Store, now};
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use rand::RngCore;
-use rusqlite::Connection;
 use serde::Serialize;
 
 mod tenancy;
@@ -26,56 +25,6 @@ pub const SESSION_SECONDS: i64 = 30 * 24 * 3600;
 const SEEN_EVERY: i64 = 300;
 /// The shortest password taken.
 pub const MIN_PASSWORD: usize = 10;
-
-/// Transitional (lanes 1-4): the access tables still on SQLite (crate::access; lane 2 moves them). The
-/// accounts' own tables are on Postgres (`accounts/migrations/`).
-pub fn migrate(db: &Connection) -> rusqlite::Result<()> {
-    db.execute_batch(
-        "CREATE TABLE IF NOT EXISTS machine_grants (
-             space_id INTEGER NOT NULL,
-             machine_id TEXT NOT NULL,
-             user_id INTEGER NOT NULL,
-             level TEXT NOT NULL,
-             granted_by INTEGER,
-             granted_at INTEGER NOT NULL,
-             expires_at INTEGER,
-             PRIMARY KEY (machine_id, user_id)
-         );
-         -- Groups of machines (3D printers, say): permission on a group is permission on
-         -- every machine in it, also on those added later.
-         CREATE TABLE IF NOT EXISTS machine_groups (
-             id INTEGER PRIMARY KEY,
-             space_id INTEGER NOT NULL,
-             name TEXT NOT NULL,
-             created_at INTEGER NOT NULL
-         );
-         CREATE TABLE IF NOT EXISTS machine_group_members (
-             group_id INTEGER NOT NULL REFERENCES machine_groups(id),
-             machine_id TEXT NOT NULL,
-             PRIMARY KEY (group_id, machine_id)
-         );
-         -- Someone asks the staff for permission (or a training) on a machine.
-         CREATE TABLE IF NOT EXISTS access_requests (
-             id INTEGER PRIMARY KEY,
-             space_id INTEGER NOT NULL,
-             user_id INTEGER NOT NULL,
-             machine_id TEXT NOT NULL,
-             asked_at INTEGER NOT NULL,
-             state TEXT NOT NULL DEFAULT 'open',
-             handled_by INTEGER,
-             handled_at INTEGER
-         );
-         CREATE TABLE IF NOT EXISTS group_grants (
-             group_id INTEGER NOT NULL REFERENCES machine_groups(id),
-             user_id INTEGER NOT NULL,
-             level TEXT NOT NULL,
-             granted_by INTEGER,
-             granted_at INTEGER NOT NULL,
-             expires_at INTEGER,
-             PRIMARY KEY (group_id, user_id)
-         );",
-    )
-}
 
 /// An id under the hood, the same wherever the data goes and saying nothing about how many
 /// there are: a random UUID (version 4), as `0f9c2b6e-…`. People see names, not this.
@@ -200,6 +149,20 @@ impl Store {
         instance_admin: bool,
     ) -> sqlx::Result<i64> {
         let mut tx = self.pg().admin.begin().await?;
+        let id = Self::create_user_in(&mut tx, name, display_name, password_hash, instance_admin)
+            .await?;
+        tx.commit().await?;
+        Ok(id)
+    }
+
+    /// [`Store::create_user`] on the caller's connection (in their transaction).
+    pub(crate) async fn create_user_in(
+        c: &mut sqlx::PgConnection,
+        name: &str,
+        display_name: &str,
+        password_hash: &str,
+        instance_admin: bool,
+    ) -> sqlx::Result<i64> {
         let at = now();
         let id = sqlx::query_scalar!(
             "INSERT INTO users (name, display_name, instance_admin, created_at) VALUES ($1, $2, $3, at_unix($4))
@@ -209,7 +172,7 @@ impl Store {
             instance_admin,
             at
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut *c)
         .await?;
         sqlx::query!(
             "INSERT INTO identities (user_id, provider, subject, secret, created_at)
@@ -219,9 +182,8 @@ impl Store {
             password_hash,
             at
         )
-        .execute(&mut *tx)
+        .execute(&mut *c)
         .await?;
-        tx.commit().await?;
         Ok(id)
     }
 
@@ -252,12 +214,22 @@ impl Store {
     /// A new password for a user; their sessions end, wherever they were signed in.
     pub async fn set_password(&self, user_id: i64, password_hash: &str) -> sqlx::Result<()> {
         let mut tx = self.pg().admin.begin().await?;
+        Self::set_password_in(&mut tx, user_id, password_hash).await?;
+        tx.commit().await
+    }
+
+    /// [`Store::set_password`] on the caller's connection (in their transaction).
+    async fn set_password_in(
+        c: &mut sqlx::PgConnection,
+        user_id: i64,
+        password_hash: &str,
+    ) -> sqlx::Result<()> {
         let changed = sqlx::query!(
             "UPDATE identities SET secret = $2 WHERE user_id = $1 AND provider = 'password'",
             user_id,
             password_hash
         )
-        .execute(&mut *tx)
+        .execute(&mut *c)
         .await?
         .rows_affected();
         if changed == 0 {
@@ -269,13 +241,31 @@ impl Store {
                 password_hash,
                 now()
             )
-            .execute(&mut *tx)
+            .execute(&mut *c)
             .await?;
         }
         sqlx::query!("DELETE FROM sessions WHERE user_id = $1", user_id)
-            .execute(&mut *tx)
+            .execute(&mut *c)
             .await?;
-        tx.commit().await
+        Ok(())
+    }
+
+    /// A new password, and a new session for who set it (every other session ends): in one
+    /// transaction, so a failed session leaves the old password.
+    pub async fn change_password(
+        &self,
+        user_id: i64,
+        password_hash: &str,
+        space_id: Option<i64>,
+        user_agent: &str,
+        address: &str,
+    ) -> sqlx::Result<String> {
+        let mut tx = self.pg().admin.begin().await?;
+        Self::set_password_in(&mut tx, user_id, password_hash).await?;
+        let token =
+            Self::create_session_in(&mut tx, user_id, space_id, user_agent, address).await?;
+        tx.commit().await?;
+        Ok(token)
     }
 
     /// Puts a user in a space with a role (or changes their role there).
@@ -286,6 +276,17 @@ impl Store {
         role: &str,
     ) -> sqlx::Result<()> {
         let mut tx = self.pg().space(space_id).await?;
+        Self::set_membership_in(&mut tx, user_id, space_id, role).await?;
+        tx.commit().await
+    }
+
+    /// [`Store::set_membership`] on the caller's connection (in their transaction).
+    pub(crate) async fn set_membership_in(
+        c: &mut sqlx::PgConnection,
+        user_id: i64,
+        space_id: i64,
+        role: &str,
+    ) -> sqlx::Result<()> {
         sqlx::query!(
             "INSERT INTO memberships (user_id, space_id, role, created_at) VALUES ($1, $2, $3, at_unix($4))
              ON CONFLICT (user_id, space_id) DO UPDATE SET role = excluded.role",
@@ -294,9 +295,9 @@ impl Store {
             role,
             now()
         )
-        .execute(&mut *tx)
+        .execute(&mut *c)
         .await?;
-        tx.commit().await
+        Ok(())
     }
 
     /// The first space a user belongs to, if any.
@@ -314,12 +315,34 @@ impl Store {
         sqlx::query!("UPDATE spaces SET name = $2 WHERE id = $1", space_id, name)
             .execute(&mut *tx)
             .await?;
-        tx.commit().await
+        tx.commit().await?;
+        // Transitional (lanes 1-3): SQLite's copy of the spaces, for the machines' foreign key, in step.
+        self.lock()
+            .unwrap()
+            .db
+            .execute(
+                "UPDATE spaces SET name = ?2 WHERE id = ?1",
+                rusqlite::params![space_id, name],
+            )
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+        Ok(())
     }
 
     /// A new session for a user; the token for their cookie (only its hash is kept).
     pub async fn create_session(
         &self,
+        user_id: i64,
+        space_id: Option<i64>,
+        user_agent: &str,
+        address: &str,
+    ) -> sqlx::Result<String> {
+        let mut c = self.pg().admin.acquire().await?;
+        Self::create_session_in(&mut c, user_id, space_id, user_agent, address).await
+    }
+
+    /// [`Store::create_session`] on the caller's connection (in their transaction).
+    pub(crate) async fn create_session_in(
+        c: &mut sqlx::PgConnection,
         user_id: i64,
         space_id: Option<i64>,
         user_agent: &str,
@@ -339,7 +362,7 @@ impl Store {
             user_agent,
             address
         )
-        .execute(&self.pg().admin)
+        .execute(&mut *c)
         .await?;
         Ok(token)
     }
@@ -487,6 +510,85 @@ mod tests {
             .unwrap();
         assert!(store.session(&token).await.unwrap().is_none());
         assert_eq!(store.end_old_sessions().await.unwrap(), 1);
+    }
+
+    /// Joining by invite is one transaction: an invite taken meanwhile leaves no account behind.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn joining_by_a_used_invite_leaves_no_account(pool: sqlx::PgPool) {
+        let store = Store::for_test(&pool).await;
+        let owner = store.create_user("own", "Own", "x", true).await.unwrap();
+        let space = store.default_space().await.unwrap().0;
+        let link = store
+            .create_invite(space, crate::access::Role::Member, owner, false)
+            .await
+            .unwrap();
+        let invite = store.invite(&link).await.unwrap().unwrap();
+        let token = store
+            .join_by_invite(&invite, "ann", "Ann", "x", "", "")
+            .await
+            .unwrap()
+            .expect("an open invite lets her in");
+        let ann = store.user_id("ann").await.unwrap().expect("her account");
+        assert_eq!(store.session(&token).await.unwrap().unwrap().user_id, ann);
+        assert_eq!(
+            store.role_of(ann, space).await.unwrap(),
+            Some(crate::access::Role::Member)
+        );
+        // The same invite again (read while it was open): taken, so nobody new, and no account.
+        assert_eq!(
+            store
+                .join_by_invite(&invite, "bob", "Bob", "x", "", "")
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store.user_id("bob").await.unwrap(),
+            None,
+            "no account left behind"
+        );
+        let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(users, 2);
+    }
+
+    /// A new password and its new session are one transaction: a session that cannot be made leaves the
+    /// old password and the old sessions.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_password_changes_with_its_session_or_not_at_all(pool: sqlx::PgPool) {
+        let store = Store::for_test(&pool).await;
+        let old = hash_password("the old password");
+        let id = store.create_user("ann", "Ann", &old, false).await.unwrap();
+        let token = store.create_session(id, None, "", "").await.unwrap();
+        // A space that does not exist: the session's insert fails.
+        let failed = store
+            .change_password(id, &hash_password("a new password"), Some(999), "", "")
+            .await;
+        assert!(failed.is_err());
+        assert_eq!(store.credentials("ann").await.unwrap().unwrap().hash, old);
+        assert!(
+            store.session(&token).await.unwrap().is_some(),
+            "still signed in"
+        );
+        let new = store
+            .change_password(id, &hash_password("a new password"), None, "", "")
+            .await
+            .unwrap();
+        assert!(
+            store.session(&token).await.unwrap().is_none(),
+            "the old session ended"
+        );
+        assert_eq!(store.session(&new).await.unwrap().unwrap().user_id, id);
     }
 
     #[test]

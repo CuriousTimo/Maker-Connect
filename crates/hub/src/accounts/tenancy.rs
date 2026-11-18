@@ -3,8 +3,7 @@
 //! transaction ([`crate::store::pg::Pg::space`]); what crosses spaces by nature (who someone is and where
 //! they may be, sign-in by invite or token, instance admin, organisation-wide changes) runs as admin.
 //!
-//! Transitional (lanes 1-4): the access tables still on SQLite (grants, groups, requests) are reached
-//! through [`Store::lock`]; names of people come from here.
+//! Transitional (lanes 1-3): machines are still on SQLite; the audit log's machine names come from there.
 
 use crate::access::INVITE_SECONDS;
 use crate::access::{Access, AuditLine, Invite, Member, Role, SpaceOf, TOKEN_PREFIX, Token};
@@ -21,6 +20,15 @@ impl Store {
     /// Someone's role in a space: the higher of their role in its organisation (which
     /// counts in all its spaces) and in the space itself.
     pub async fn role_of(&self, user: i64, space: i64) -> sqlx::Result<Option<Role>> {
+        let mut c = self.pg().admin.acquire().await?;
+        Self::role_of_in(&mut c, user, space).await
+    }
+
+    async fn role_of_in(
+        c: &mut sqlx::PgConnection,
+        user: i64,
+        space: i64,
+    ) -> sqlx::Result<Option<Role>> {
         let roles = sqlx::query_scalar!(
             r#"SELECT role AS "role!" FROM memberships WHERE user_id = $1 AND space_id = $2
                UNION ALL
@@ -29,26 +37,40 @@ impl Store {
             user,
             space
         )
-        .fetch_all(&self.pg().admin)
+        .fetch_all(&mut *c)
         .await?;
         Ok(roles.iter().filter_map(|r| Role::parse(r)).max())
     }
 
     /// Someone's role in an organisation itself (not through one of its spaces).
     pub async fn org_role_of(&self, user: i64, organisation: i64) -> sqlx::Result<Option<Role>> {
+        let mut c = self.pg().admin.acquire().await?;
+        Self::org_role_of_in(&mut c, user, organisation).await
+    }
+
+    async fn org_role_of_in(
+        c: &mut sqlx::PgConnection,
+        user: i64,
+        organisation: i64,
+    ) -> sqlx::Result<Option<Role>> {
         Ok(sqlx::query_scalar!(
             "SELECT role FROM org_memberships WHERE user_id = $1 AND organisation_id = $2",
             user,
             organisation
         )
-        .fetch_optional(&self.pg().admin)
+        .fetch_optional(&mut *c)
         .await?
         .and_then(|r| Role::parse(&r)))
     }
 
     pub async fn organisation_of(&self, space: i64) -> sqlx::Result<i64> {
+        let mut c = self.pg().admin.acquire().await?;
+        Self::organisation_of_in(&mut c, space).await
+    }
+
+    async fn organisation_of_in(c: &mut sqlx::PgConnection, space: i64) -> sqlx::Result<i64> {
         sqlx::query_scalar!("SELECT organisation_id FROM spaces WHERE id = $1", space)
-            .fetch_one(&self.pg().admin)
+            .fetch_one(&mut *c)
             .await
     }
 
@@ -76,6 +98,16 @@ impl Store {
         organisation: i64,
         role: &str,
     ) -> sqlx::Result<()> {
+        let mut c = self.pg().admin.acquire().await?;
+        Self::set_org_membership_in(&mut c, user, organisation, role).await
+    }
+
+    async fn set_org_membership_in(
+        c: &mut sqlx::PgConnection,
+        user: i64,
+        organisation: i64,
+        role: &str,
+    ) -> sqlx::Result<()> {
         sqlx::query!(
             "INSERT INTO org_memberships (user_id, organisation_id, role, created_at) VALUES ($1, $2, $3, at_unix($4))
              ON CONFLICT (user_id, organisation_id) DO UPDATE SET role = excluded.role",
@@ -84,7 +116,7 @@ impl Store {
             role,
             now()
         )
-        .execute(&self.pg().admin)
+        .execute(&mut *c)
         .await?;
         Ok(())
     }
@@ -321,12 +353,8 @@ impl Store {
         )
         .execute(&mut *tx)
         .await?;
+        Self::remove_grants_of_in(&mut tx, user, &spaces).await?;
         tx.commit().await?;
-        // Transitional: their inductions, still on SQLite (crate::access).
-        self.lock()
-            .unwrap()
-            .remove_grants_of(user, &spaces)
-            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
         Ok(n > 0)
     }
 
@@ -464,6 +492,18 @@ impl Store {
     /// Uses an open invite: the user joins its space with its role (or keeps a higher one).
     /// False when it was taken meanwhile.
     pub async fn use_invite(&self, invite: &Invite, user: i64) -> sqlx::Result<bool> {
+        let mut tx = self.pg().admin.begin().await?;
+        let used = Self::use_invite_in(&mut tx, invite, user).await?;
+        tx.commit().await?;
+        Ok(used)
+    }
+
+    /// [`Store::use_invite`] on the caller's connection (in their transaction).
+    async fn use_invite_in(
+        c: &mut sqlx::PgConnection,
+        invite: &Invite,
+        user: i64,
+    ) -> sqlx::Result<bool> {
         let taken = sqlx::query!(
             "UPDATE invites SET used_by = $2, used_at = at_unix($3)
              WHERE id = $1 AND used_by IS NULL AND NOT revoked AND expires_at > at_unix($3)",
@@ -471,31 +511,50 @@ impl Store {
             user,
             now()
         )
-        .execute(&self.pg().admin)
+        .execute(&mut *c)
         .await?
         .rows_affected();
         if taken == 0 {
             return Ok(false);
         }
         if invite.whole_organisation {
-            let organisation = self.organisation_of(invite.space).await?;
-            if self
-                .org_role_of(user, organisation)
+            let organisation = Self::organisation_of_in(c, invite.space).await?;
+            if Self::org_role_of_in(c, user, organisation)
                 .await?
                 .is_none_or(|r| r < invite.role)
             {
-                self.set_org_membership(user, organisation, invite.role.as_str())
-                    .await?;
+                Self::set_org_membership_in(c, user, organisation, invite.role.as_str()).await?;
             }
-        } else if self
-            .role_of(user, invite.space)
+        } else if Self::role_of_in(c, user, invite.space)
             .await?
             .is_none_or(|r| r < invite.role)
         {
-            self.set_membership(user, invite.space, invite.role.as_str())
-                .await?;
+            Self::set_membership_in(c, user, invite.space, invite.role.as_str()).await?;
         }
         Ok(true)
+    }
+
+    /// Someone new joins by an open invite: their account, the invite used, and their first session, in
+    /// one transaction. None (and no account) when the invite was taken meanwhile.
+    pub async fn join_by_invite(
+        &self,
+        invite: &Invite,
+        name: &str,
+        display_name: &str,
+        password_hash: &str,
+        user_agent: &str,
+        address: &str,
+    ) -> sqlx::Result<Option<String>> {
+        let mut tx = self.pg().admin.begin().await?;
+        let user = Self::create_user_in(&mut tx, name, display_name, password_hash, false).await?;
+        if !Self::use_invite_in(&mut tx, invite, user).await? {
+            // Dropped: rolled back, the account with it.
+            return Ok(None);
+        }
+        let token =
+            Self::create_session_in(&mut tx, user, Some(invite.space), user_agent, address).await?;
+        tx.commit().await?;
+        Ok(Some(token))
     }
 
     /// A new API token of a space; the secret, to show once (only its hash is kept).
@@ -719,76 +778,5 @@ impl Store {
         .execute(&mut *tx)
         .await?;
         tx.commit().await
-    }
-}
-
-/// Transitional (lanes 1-4): the access lists whose rows are still on SQLite, with people's names
-/// from Postgres, in the order SQLite's `ORDER BY display_name COLLATE NOCASE` gave.
-impl Store {
-    fn name_grants(grants: &mut Vec<crate::access::Grant>, names: &HashMap<i64, String>) {
-        for g in grants.iter_mut() {
-            g.display_name = names.get(&g.user_id).cloned().unwrap_or_default();
-            g.by =
-                g.by.as_deref()
-                    .and_then(|b| b.parse::<i64>().ok())
-                    .and_then(|b| names.get(&b).cloned());
-        }
-        grants.retain(|g| names.contains_key(&g.user_id));
-        // SQLite's NOCASE folds ASCII letters only, as here; ties by id (the order SQLite gave them).
-        // Names with other letters may sort otherwise than NOCASE did (accepted, journal:V2-STORE-1:0008).
-        grants.sort_by_key(|g| (g.display_name.to_ascii_lowercase(), g.user_id));
-    }
-
-    fn grant_people(grants: &[crate::access::Grant]) -> Vec<i64> {
-        grants
-            .iter()
-            .flat_map(|g| {
-                std::iter::once(g.user_id).chain(g.by.as_deref().and_then(|b| b.parse().ok()))
-            })
-            .collect()
-    }
-
-    /// Who has an induction on a machine of the space.
-    pub async fn grants(
-        &self,
-        space: i64,
-        machine: &str,
-    ) -> Result<Vec<crate::access::Grant>, Box<dyn std::error::Error + Send + Sync>> {
-        let mut grants = self.lock().unwrap().grants_unnamed(space, machine)?;
-        let names = self.display_names(&Self::grant_people(&grants)).await?;
-        Self::name_grants(&mut grants, &names);
-        Ok(grants)
-    }
-
-    /// The machine groups of a space, with their machines and who has permission on them.
-    pub async fn groups(
-        &self,
-        space: i64,
-    ) -> Result<Vec<crate::access::Group>, Box<dyn std::error::Error + Send + Sync>> {
-        let mut groups = self.lock().unwrap().groups_unnamed(space)?;
-        let people: Vec<i64> = groups
-            .iter()
-            .flat_map(|g| Self::grant_people(&g.grants))
-            .collect();
-        let names = self.display_names(&people).await?;
-        for g in &mut groups {
-            Self::name_grants(&mut g.grants, &names);
-        }
-        Ok(groups)
-    }
-
-    /// A space's open requests, oldest first.
-    pub async fn requests(
-        &self,
-        space: i64,
-    ) -> Result<Vec<crate::access::AskedFor>, Box<dyn std::error::Error + Send + Sync>> {
-        let mut requests = self.lock().unwrap().requests_unnamed(space)?;
-        let people: Vec<i64> = requests.iter().map(|r| r.user_id).collect();
-        let names = self.display_names(&people).await?;
-        for r in &mut requests {
-            r.who = names.get(&r.user_id).cloned().unwrap_or_default();
-        }
-        requests.retain(|r| names.contains_key(&r.user_id));
-        Ok(requests)
     }
 }

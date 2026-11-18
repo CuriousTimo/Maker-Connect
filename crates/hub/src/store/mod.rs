@@ -549,7 +549,8 @@ impl Store {
     pub(crate) async fn fresh_for_test(pool: &sqlx::PgPool) -> Self {
         sqlx::raw_sql(
             "TRUNCATE meta, organisations, spaces, users, identities, memberships, org_memberships,
-                 sessions, invites, api_tokens, audit_log RESTART IDENTITY CASCADE;
+                 sessions, invites, api_tokens, audit_log, machine_grants, machine_groups,
+                 machine_group_members, access_requests, group_grants RESTART IDENTITY CASCADE;
              INSERT INTO organisations (uid, name, created_at)
                  VALUES (gen_random_uuid()::text, 'My space', now());
              INSERT INTO spaces (name, uid, organisation_id)

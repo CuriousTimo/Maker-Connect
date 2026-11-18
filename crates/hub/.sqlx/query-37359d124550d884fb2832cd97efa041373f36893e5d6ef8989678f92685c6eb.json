@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM machine_groups WHERE id = $1 AND space_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "37359d124550d884fb2832cd97efa041373f36893e5d6ef8989678f92685c6eb"
+}

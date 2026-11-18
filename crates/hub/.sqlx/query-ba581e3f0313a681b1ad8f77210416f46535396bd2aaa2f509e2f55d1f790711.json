@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO machine_grants (space_id, machine_id, user_id, level, granted_by, granted_at, expires_at)\n             VALUES ($1, $2, $3, $4, $5, at_unix($6), at_unix($7))\n             ON CONFLICT (machine_id, user_id) DO UPDATE SET level = excluded.level,\n                 granted_by = excluded.granted_by, granted_at = excluded.granted_at,\n                 expires_at = excluded.expires_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8",
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ba581e3f0313a681b1ad8f77210416f46535396bd2aaa2f509e2f55d1f790711"
+}
