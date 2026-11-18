@@ -103,7 +103,13 @@ const IDENTIFIER: &str = "maker_connect_top_edge";
 pub struct OctoPrintPort {
     port: Option<String>,
     baudrate: Option<i64>,
+    comm_state: Option<CommStateHook>,
 }
+
+/// Told comm's state (`MachineCom.STATE_*`, `comm.py:445-460`) at each `on_comm_state_change`: the
+/// device contract's adapter (`crate::device::marlin`) reports OctoPrint's own state from it. Ours,
+/// nothing on the wire: it only reads what comm already tells the port.
+pub type CommStateHook = Arc<dyn Fn(i64) + Send + Sync>;
 
 impl OctoPrintPort {
     /// `port` and `baudrate` as the agent's `--port` and `--baud`; `None` is OctoPrint's own choice
@@ -112,7 +118,14 @@ impl OctoPrintPort {
         OctoPrintPort {
             port,
             baudrate: baudrate.map(i64::from),
+            comm_state: None,
         }
+    }
+
+    /// The same port, telling `hook` each state comm changes to.
+    pub fn with_comm_state_hook(mut self, hook: CommStateHook) -> OctoPrintPort {
+        self.comm_state = Some(hook);
+        self
     }
 }
 
@@ -129,6 +142,7 @@ impl Port for OctoPrintPort {
         plugin.register();
 
         let edge = Edge::new(events);
+        *lock(&edge.comm_state) = self.comm_state.clone();
         edge.printer
             .set(Arc::downgrade(&printer))
             .expect("set once");
@@ -159,7 +173,7 @@ impl Port for OctoPrintPort {
 }
 
 /// K18: the reason of a command given up when comm closes or the port is told to close
-const CONNECTION_CLOSED: &str = "the printer connection closed";
+pub const CONNECTION_CLOSED: &str = "the printer connection closed";
 
 /// A command waiting for its lines to be sent and `ok`-ed (M4)
 struct Pending {
@@ -226,6 +240,8 @@ struct Edge {
     printer: OnceLock<Weak<Printer>>,
     inner: Mutex<Inner>,
     receiver: Mutex<Option<MessageReceiver>>,
+    /// The adapter's hook ([`CommStateHook`]), if any
+    comm_state: Mutex<Option<CommStateHook>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -299,6 +315,7 @@ impl Edge {
             printer: OnceLock::new(),
             inner: Mutex::new(Inner::default()),
             receiver: Mutex::new(None),
+            comm_state: Mutex::new(None),
         })
     }
 
@@ -1080,6 +1097,10 @@ impl MachineComPrintCallback for Edge {
 
     /// K4, M3, and a job that a connection that ended leaves behind
     fn on_comm_state_change(&self, state: i64) {
+        let hook = lock(&self.comm_state).clone();
+        if let Some(hook) = hook {
+            hook(state);
+        }
         let text = self
             .printer()
             .and_then(|p| p.comm())

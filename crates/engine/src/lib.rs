@@ -12,6 +12,8 @@
 //! Its words are the agent–hub protocol's ([`maker_connect_protocol`]): [`Telemetry`],
 //! [`Action`], [`JobOrder`], [`JobControl`], [`JobEnd`], [`CommandDone`].
 
+#[cfg(feature = "devices")]
+pub mod device;
 pub mod ports;
 
 use maker_connect_protocol::{Action, CommandDone, JobControl, JobEnd, JobOrder, Telemetry};

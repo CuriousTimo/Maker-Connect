@@ -77,13 +77,20 @@ enum Source {
 /// The port of a GRBL laser.
 pub struct LaserFoundryPort {
     source: Source,
+    machine_state: Option<MachineStateHook>,
 }
+
+/// Told, at each look at the link (G7), LaserFoundry's `MachineState` by name
+/// ([`maker_connect_grbl::Update::machine_state`]): the device contract's adapter reports it. Ours,
+/// nothing on the wire.
+pub type MachineStateHook = std::sync::Arc<dyn Fn(Option<&'static str>) + Send + Sync>;
 
 impl LaserFoundryPort {
     /// The port for `--port` and `--baud` as given (G14).
     pub fn new(port: Option<String>, baud: Option<u32>) -> Self {
         LaserFoundryPort {
             source: Source::Open { port, baud },
+            machine_state: None,
         }
     }
 
@@ -91,7 +98,14 @@ impl LaserFoundryPort {
     pub fn with_machine(machine: GrblMachine) -> Self {
         LaserFoundryPort {
             source: Source::Machine(Box::new(machine)),
+            machine_state: None,
         }
+    }
+
+    /// The same port, telling `hook` the machine's state at each look.
+    pub fn with_machine_state_hook(mut self, hook: MachineStateHook) -> Self {
+        self.machine_state = Some(hook);
+        self
     }
 }
 
@@ -160,7 +174,11 @@ fn failed_job(id: i64, reason: String) -> Event {
 
 impl Port for LaserFoundryPort {
     fn run(self: Box<Self>, orders: Receiver<Order>, events: Sender<Event>) {
-        let mut machine = match self.source {
+        let LaserFoundryPort {
+            source,
+            machine_state,
+        } = *self;
+        let mut machine = match source {
             Source::Machine(machine) => Some(*machine),
             Source::Open { port, baud } => match open(port, baud) {
                 Ok(machine) => Some(machine),
@@ -253,6 +271,9 @@ impl Port for LaserFoundryPort {
                 continue;
             };
             let update = machine.report();
+            if let Some(hook) = &machine_state {
+                hook(update.machine_state);
+            }
             let mut telemetry = update.telemetry;
             if telemetry.problem.is_none() {
                 telemetry.problem = note.clone();

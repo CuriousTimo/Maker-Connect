@@ -86,6 +86,10 @@ pub struct Update {
     pub gone: bool,
     /// The connection came back since the last call.
     pub back: bool,
+    /// LaserFoundry's `MachineState` of the last status report, by its variant's name
+    /// (`crates/device/src/status.rs:3-14`); `None` without a link or before a status came. Read by
+    /// the device contract's adapter; nothing goes to the machine for it.
+    pub machine_state: Option<&'static str>,
 }
 
 /// A command handed to the link whose answers are not all in.
@@ -559,6 +563,12 @@ impl GrblMachine {
             done,
             gone: std::mem::take(&mut self.gone),
             back: std::mem::take(&mut self.back),
+            machine_state: self
+                .link
+                .as_ref()
+                .and(self.snap.as_ref())
+                .and_then(|s| s.status.as_ref())
+                .map(|s| state_name(s.state)),
         }
     }
 
@@ -734,6 +744,22 @@ impl Running {
             }
             None => line as u64,
         }
+    }
+}
+
+/// The name of a LaserFoundry `MachineState` variant (`crates/device/src/status.rs:3-14`).
+pub fn state_name(state: Grbl) -> &'static str {
+    match state {
+        Grbl::Idle => "Idle",
+        Grbl::Run => "Run",
+        Grbl::Hold => "Hold",
+        Grbl::Jog => "Jog",
+        Grbl::Alarm => "Alarm",
+        Grbl::Door => "Door",
+        Grbl::Check => "Check",
+        Grbl::Home => "Home",
+        Grbl::Sleep => "Sleep",
+        Grbl::Unknown => "Unknown",
     }
 }
 
