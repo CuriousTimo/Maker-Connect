@@ -204,6 +204,33 @@ Head still 2e8c62b (#23), release only 0.1.0-beta.1; 33 issues/PRs in two days, 
 - #29: path prefix for Home Assistant Ingress being researched (`prusa3d/prusa-connect-homeassistant`).
 - #14: hardware floor not stated in the README; releases list the systems (32-bit ARM built).
 - Open PRs: #28 chamber temperature on dashboard + MQTT, #15 EasyPrint, #30 trust mark icon, #33 image tags.
+- #15 (draft, not to merge before Printables ships): **EasyPrint** (Printables' browser slicer) sends prints
+  to a person's own server from `https://slicer.printables.com`, with an app-pairing credential; the server
+  only allows that origin (CORS allowed origins, empty by default) and links to Printables' pairing page.
+  → Step 6: an API-compatible hub gets EasyPrint for free if it has their app pairing, a CORS allowed-origins
+  list (empty by default, one switch per origin) and HTTPS (Firefox blocks plain HTTP to a private address).
+
+- #26: a Buddy printer stores the Connect hostname in a fixed 20-byte slot (6.3.0:
+  `config_store/old_eeprom/constants.hpp:9` `CONNECT_HOST_SIZE { 20 }`); Prusa's own domains are compressed.
+  Open firmware PR prusa3d/Prusa-Firmware-Buddy#5631 raises it to 35. → Our add-machine dialog writes the
+  page's hostname into `prusa_printer_settings.ini` unchecked (`crates/hub/src/shell.js:89`): own issue.
+  In v2 the limit belongs to each dialect's baseline, by firmware.
+
+### 5c. Other prusa3d repos, 2026-11-18
+
+- `Prusa-Connect-SDK-Printer` branch `feat/ws-connect-local` (14 commits ahead of master `3d21ae5`, head
+  `04c5bd59`, 2026-11-17): telemetry and events over a WebSocket to the local server, file transfer inline
+  in it, reconnect. `Prusa-Link` branch `websockets` (71 ahead) installs that SDK branch. Masters unchanged,
+  not released. → Confirms #9: the MK3 comes over the WebSocket; the reference for that is these branches
+  once released. Read them for how a printer tells `/p/register` for the WebSocket apart (§2, not checked).
+- `Prusa-Firmware-Buddy`: releases v8.0.1 (11-03), **v8.0.2** (11-16), v8.0.3-beta. → Proposal: the
+  `buddy-ws` dialect (hub-core-v2 §2.2, step 5) takes the newest stable release as its reference instead
+  of 6.4.0; the MINI stays on 6.3.0.
+- New, **MIT**: `prusa-connect-extension-example` (Go process + UI bundle, v1.0.0),
+  `prusa-connect-marketplace-publish` (Action: check, sign, publish an extension),
+  `prusa-connect-homeassistant` (HA integration, a client of their REST API, v0.1.1). MIT allows use, unlike
+  the server (OCL). → The HA integration is a ready client for step 6's tracking test against our hub.
+- `Prusa-Firmware-ESP32-Cam` (GPL-3.0) updated: camera for Connect; read with the cameras plan.
 
 ## 6. Owner rulings (2026-11-18)
 
