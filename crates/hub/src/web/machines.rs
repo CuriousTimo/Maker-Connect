@@ -66,8 +66,8 @@ pub(crate) async fn machine_stream(
 }
 
 pub(crate) async fn page(access: crate::access::Access, State(store): State<Store>) -> Response {
-    match store.lock().unwrap().space_id_of(&access) {
-        Ok((_, name)) => Html(
+    match store.space_name(access.space).await {
+        Ok(name) => Html(
             PAGE.replace("{style}", STYLE)
                 .replace("{space}", &escape(&name))
                 .replace("{header}", &header(&name, "", "machines")),
@@ -188,7 +188,12 @@ pub(crate) struct MoveForm {
 
 /// The other spaces someone who manages a machine could move it to: where they are owner or
 /// admin too. (uid, "Organisation · Space"); none for a token.
-fn move_targets(store: &Legacy, access: &access::Access, machine: &str) -> Vec<(String, String)> {
+fn move_targets(
+    store: &Legacy,
+    access: &access::Access,
+    machine: &str,
+    spaces: &[access::SpaceOf],
+) -> Vec<(String, String)> {
     let manages = store
         .may(access, machine, access::Level::Manage)
         .ok()
@@ -197,12 +202,10 @@ fn move_targets(store: &Legacy, access: &access::Access, machine: &str) -> Vec<(
     if !manages || access.token_id.is_some() {
         return Vec::new();
     }
-    store
-        .spaces_of(access.user_id)
-        .unwrap_or_default()
-        .into_iter()
+    spaces
+        .iter()
         .filter(|s| s.id != access.space && s.role >= access::Role::Admin)
-        .map(|s| (s.uid, format!("{} · {}", s.organisation, s.name)))
+        .map(|s| (s.uid.clone(), format!("{} · {}", s.organisation, s.name)))
         .collect()
 }
 
@@ -220,48 +223,55 @@ pub(crate) async fn move_machine(
         )
             .into_response();
     }
-    let mut store = store.lock().unwrap();
-    let target = match store.space_by_uid(form.space.trim()) {
+    let target = match store.space_by_uid(form.space.trim()).await {
         Ok(found) => found,
         Err(error) => return failed(error),
     };
     // A space they are not owner or admin of is one they may not put machines in; whether it
     // exists is none of their business either.
-    let Some(to) = target.filter(|to| {
-        store
-            .role_of(access.user_id, *to)
-            .ok()
-            .flatten()
-            .is_some_and(|r| r >= access::Role::Admin)
-    }) else {
+    let role = match target {
+        Some(to) => store.role_of(access.user_id, to).await.ok().flatten(),
+        None => None,
+    };
+    let Some(to) = target.filter(|_| role.is_some_and(|r| r >= access::Role::Admin)) else {
         return (
             StatusCode::FORBIDDEN,
             "you are not owner or admin of that space",
         )
             .into_response();
     };
-    let name = match store.machine(access.space, &id) {
-        Ok(Some(m)) => m.name,
-        Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
-        Err(error) => return failed(error),
+    let moved = {
+        let mut store = store.lock().unwrap();
+        let name = match store.machine(access.space, &id) {
+            Ok(Some(m)) => m.name,
+            Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
+            Err(error) => return failed(error),
+        };
+        store
+            .move_machine(access.space, &id, to)
+            .map(|r| r.map(|()| name))
     };
-    match store.move_machine(access.space, &id, to) {
-        Ok(Ok(())) => {
+    match moved {
+        Ok(Ok(name)) => {
             let (from_name, to_name) = (
-                store.space_name(access.space).unwrap_or_default(),
-                store.space_name(to).unwrap_or_default(),
+                store.space_name(access.space).await.unwrap_or_default(),
+                store.space_name(to).await.unwrap_or_default(),
             );
-            let _ = store.audit(
-                &access,
-                "moved to another space",
-                &name,
-                &format!("to {to_name}"),
-            );
+            let _ = store
+                .audit(
+                    &access,
+                    "moved to another space",
+                    &name,
+                    &format!("to {to_name}"),
+                )
+                .await;
             let there = access::Access {
                 space: to,
                 ..access.clone()
             };
-            let _ = store.audit(&there, "moved here", &name, &format!("from {from_name}"));
+            let _ = store
+                .audit(&there, "moved here", &name, &format!("from {from_name}"))
+                .await;
             StatusCode::NO_CONTENT.into_response()
         }
         Ok(Err(why)) => (StatusCode::CONFLICT, why).into_response(),
@@ -599,13 +609,23 @@ pub(crate) async fn machine_page(
     State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Response {
+    let space = match store.space_name(access.space).await {
+        Ok(name) => name,
+        Err(error) => return failed(error),
+    };
+    let spaces = if access.token_id.is_none() {
+        store.spaces_of(access.user_id).await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let ppe_checks = store.ppe_checks(access.space).await.unwrap_or_default();
     let store = store.lock().unwrap();
     let found = store
-        .space_id_of(&access)
-        .and_then(|(space, name)| Ok((name, store.machine(space, &id)?)));
+        .machine(access.space, &id)
+        .map(|machine| (space, machine));
     match found {
         Ok((space, Some(machine))) if machine.kind == protocol::MachineKind::Label => {
-            let move_to = move_targets(&store, &access, &machine.id);
+            let move_to = move_targets(&store, &access, &machine.id, &spaces);
             let manage = store
                 .may(&access, &machine.id, access::Level::Manage)
                 .ok()
@@ -628,13 +648,13 @@ pub(crate) async fn machine_page(
                 staff: access.role >= access::Role::Admin,
                 asked: store.asked(access.user_id, &machine.id).ok().flatten(),
                 ppe_until: store.ppe_until(access.user_id, &machine.id),
-                ppe_checks: store.ppe_checks(access.space),
+                ppe_checks,
                 may_use: store
                     .may(&access, &machine.id, access::Level::Use)
                     .ok()
                     .flatten()
                     .unwrap_or(false),
-                move_to: move_targets(&store, &access, &machine.id),
+                move_to: move_targets(&store, &access, &machine.id, &spaces),
                 manage: store
                     .may(&access, &machine.id, access::Level::Manage)
                     .ok()
@@ -675,19 +695,23 @@ fn camera_tab(
 mod tests {
     use super::*;
     use crate::link::tests::{call, json};
-    use crate::store::Legacy;
+
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
     use maker_connect_protocol::{MachineKind, Register, Registered};
-    use std::sync::{Arc, Mutex};
+
     use tower::ServiceExt;
 
     /// The page's stream sends the list at once, and again when a machine changes.
-    #[tokio::test]
-    async fn the_list_streams_its_changes() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_list_streams_its_changes(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let response = app
             .oneshot(
                 Request::get("/api/machines/stream")
@@ -722,10 +746,13 @@ mod tests {
 
     /// A machine that says it is a MINI gets the MINI's profile; the owner can choose
     /// another (a Zaribo, which says it is an MK3S), and its page draws that bed.
-    #[tokio::test]
-    async fn a_machine_gets_its_profile() {
-        let app =
-            crate::auth::signed_in_app(Arc::new(Mutex::new(Legacy::open(":memory:").unwrap())));
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_machine_gets_its_profile(pool: sqlx::PgPool) {
+        let app = crate::auth::signed_in_app(crate::store::Store::for_test(&pool).await).await;
         let register =
             r#"{"protocol":1,"name":"Mini","kind":"fdm","agent_version":"0.1.0"}"#.to_owned();
         let (_, body) = call(&app, json(protocol::REGISTER, None, register)).await;
@@ -783,10 +810,14 @@ mod tests {
 
     /// HS2: a LabelWriter has its own page, a LabelManager the label page; choosing a roll gives
     /// the LabelWriter's page its raster from the port.
-    #[tokio::test]
-    async fn a_labelwriter_has_its_own_page() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_labelwriter_has_its_own_page(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let (writer, manager) = {
             let mut store = store.lock().unwrap();
             let space = store.default_space().unwrap().0;

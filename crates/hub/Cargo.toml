@@ -20,8 +20,8 @@ cameras = ["dep:retina", "dep:bytes", "dep:url"]
 # `scripts/laserfoundry-web.sh`; without the feature the hub builds and serves "not built in" there.
 laser-design = []
 
-# The store's tests on Postgres (`#[sqlx::test]`, DATABASE_URL from `scripts/dev-db.sh up`): on in the Linux CI
-# jobs, which have the database as a service container; macOS and Windows runners have none (hub-core-v2.md §2.7).
+# The store's tests on Postgres (`#[sqlx::test]`, DATABASE_URL from `scripts/dev-db.sh up`): without it they are
+# listed as ignored. On in scripts/check.sh and in CI's Linux job `store` (hub-core-v2.md §2.7).
 pg-tests = []
 
 [[example]]

@@ -53,16 +53,16 @@ async fn info() -> Json<Value> {
 }
 
 async fn me(access: Access, State(store): State<Store>) -> Response {
-    let store = store.lock().unwrap();
-    let found = (|| -> rusqlite::Result<Value> {
-        let organisation = store.organisation_of(access.space)?;
+    let found: sqlx::Result<Value> = async {
+        let organisation = store.organisation_of(access.space).await?;
         Ok(json!({
-            "space": { "id": store.space_uid(access.space)?, "name": store.space_name(access.space)? },
-            "organisation": { "name": store.organisation_name(organisation)? },
+            "space": { "id": store.space_uid(access.space).await?, "name": store.space_name(access.space).await? },
+            "organisation": { "name": store.organisation_name(organisation).await? },
             "role": access.role,
             "as": access.actor,
         }))
-    })();
+    }
+    .await;
     match found {
         Ok(me) => Json(me).into_response(),
         Err(error) => failed(error),
@@ -222,11 +222,11 @@ fn encode(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::access::Role;
-    use crate::store::Legacy;
+
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use http_body_util::BodyExt;
-    use std::sync::{Arc, Mutex};
+
     use tower::ServiceExt;
 
     async fn send(
@@ -245,25 +245,34 @@ mod tests {
 
     /// LaserFoundry's side of it: find the server, its lasers, send a file for one; it is
     /// in Files with the laser chosen, and nothing starts.
-    #[tokio::test]
-    async fn a_program_sends_a_laser_file() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_program_sends_a_laser_file(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
         let app = crate::app(store.clone());
         let (space, laser, member, guest) = {
-            let mut s = store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            let (_, space) = s
+            let owner = store.create_user("olga", "Olga", "x", false).await.unwrap();
+            let (_, space) = store
                 .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap();
+            let member = store
+                .create_token(space, owner, "LaserFoundry", Role::Member)
+                .await
+                .unwrap();
+            let guest = store
+                .create_token(space, owner, "Viewer", Role::Guest)
+                .await
+                .unwrap();
+            let mut s = store.lock().unwrap();
             let laser = s
                 .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
                 .unwrap();
             // Open to every member (a new machine needs permission).
             s.set_induction_required(space, &laser, false).unwrap();
-            let member = s
-                .create_token(space, owner, "LaserFoundry", Role::Member)
-                .unwrap();
-            let guest = s.create_token(space, owner, "Viewer", Role::Guest).unwrap();
             (space, laser, member, guest)
         };
         // Is this a Maker Connect? No token needed, any site may ask.
@@ -357,13 +366,14 @@ mod tests {
                 s.machine(space, &laser).unwrap().unwrap().job.is_none(),
                 "nothing starts by itself"
             );
-            let log = s.audit_log(space, 5).unwrap();
-            assert!(
-                log.iter().any(|l| l.actor == "token \"LaserFoundry\""
-                    && l.action == "sent a file from a program"),
-                "{log:?}"
-            );
         }
+        let log = store.audit_log(space, 5).await.unwrap();
+        assert!(
+            log.iter()
+                .any(|l| l.actor == "token \"LaserFoundry\""
+                    && l.action == "sent a file from a program"),
+            "{log:?}"
+        );
         // A guest's token sends nothing.
         assert_eq!(
             send(&app, file(&guest, &laser)).await.0,
@@ -371,15 +381,17 @@ mod tests {
         );
         // A laser that needs an induction the token's maker... has (an owner): but a member's
         // token of a member without one is refused, and nothing is stored.
-        let mia_token = {
-            let s = store.lock().unwrap();
-            let mia = s.create_user("mia", "Mia", "x", false).unwrap();
-            s.set_membership(mia, space, "member").unwrap();
-            let mut s = s;
-            s.set_induction_required(space, &laser, true).unwrap();
-            s.create_token(space, mia, "Mia's LaserFoundry", Role::Member)
-                .unwrap()
-        };
+        let mia = store.create_user("mia", "Mia", "x", false).await.unwrap();
+        store.set_membership(mia, space, "member").await.unwrap();
+        store
+            .lock()
+            .unwrap()
+            .set_induction_required(space, &laser, true)
+            .unwrap();
+        let mia_token = store
+            .create_token(space, mia, "Mia's LaserFoundry", Role::Member)
+            .await
+            .unwrap();
         let (status, _, _) = send(&app, file(&mia_token, &laser)).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(
@@ -388,14 +400,11 @@ mod tests {
             "not stored"
         );
         // A browser's cookie from another site does not count here.
-        let cookie = {
-            let s = store.lock().unwrap();
-            format!(
-                "{}={}",
-                crate::auth::COOKIE,
-                s.create_session(1, Some(space), "", "").unwrap()
-            )
-        };
+        let cookie = format!(
+            "{}={}",
+            crate::auth::COOKIE,
+            store.create_session(1, Some(space), "", "").await.unwrap()
+        );
         let (status, _, _) = send(
             &app,
             Request::get("/api/apps/v1/machines")

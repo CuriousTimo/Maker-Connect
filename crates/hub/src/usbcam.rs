@@ -210,7 +210,7 @@ events.onmessage = (e) => {
 </html>"##;
 
 async fn test_page(access: Access, State(store): State<Store>) -> Response {
-    let space = match store.lock().unwrap().space_name(access.space) {
+    let space = match store.space_name(access.space).await {
         Ok(space) => space,
         Err(error) => return failed(error),
     };
@@ -226,11 +226,11 @@ async fn test_page(access: Access, State(store): State<Store>) -> Response {
 mod tests {
     use super::*;
     use crate::access::Role;
-    use crate::store::Legacy;
+
     use axum::{body::Body, http::Request};
     use http_body_util::BodyExt;
     use maker_connect_protocol::{MachineKind, Register};
-    use std::sync::{Arc, Mutex};
+
     use tower::ServiceExt;
 
     const JPEG: [u8; 14] = [0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6, 7, 8, 0xff, 0xd9];
@@ -242,13 +242,12 @@ mod tests {
         admin: String,
         member: String,
     }
-
-    fn rig() -> Rig {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let (machine, token, admin, member) = {
+    async fn rig(pool: &sqlx::PgPool) -> Rig {
+        let store = crate::store::Store::for_test(pool).await;
+        let (space, _) = store.default_space().await.unwrap();
+        let org = store.organisation_of(space).await.unwrap();
+        let (machine, token) = {
             let s = store.lock().unwrap();
-            let (space, _) = s.default_space().unwrap();
-            let org = s.organisation_of(space).unwrap();
             let (machine, token, code) = s
                 .register(&Register {
                     protocol: protocol::VERSION,
@@ -258,22 +257,24 @@ mod tests {
                 })
                 .unwrap();
             s.pair(space, &code).unwrap().unwrap();
-            let cookie = |name: &str, role: Role| {
-                let user = s.create_user(name, name, "x", false).unwrap();
-                s.set_org_membership(user, org, role.as_str()).unwrap();
-                format!(
-                    "{}={}",
-                    crate::auth::COOKIE,
-                    s.create_session(user, None, "", "").unwrap()
-                )
-            };
-            (
-                machine,
-                token,
-                cookie("adam", Role::Admin),
-                cookie("mia", Role::Member),
+            (machine, token)
+        };
+        let cookie = async |name: &str, role: Role| {
+            let user = store.create_user(name, name, "x", false).await.unwrap();
+            store
+                .set_org_membership(user, org, role.as_str())
+                .await
+                .unwrap();
+            format!(
+                "{}={}",
+                crate::auth::COOKIE,
+                store.create_session(user, None, "", "").await.unwrap()
             )
         };
+        let (admin, member) = (
+            cookie("adam", Role::Admin).await,
+            cookie("mia", Role::Member).await,
+        );
         Rig {
             app: crate::app(store),
             machine,
@@ -314,9 +315,13 @@ mod tests {
         String::from_utf8_lossy(frame.data_ref().unwrap()).into_owned()
     }
 
-    #[tokio::test]
-    async fn a_frame_is_kept_latest_only_and_announced() {
-        let r = rig();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_frame_is_kept_latest_only_and_announced(pool: sqlx::PgPool) {
+        let r = rig(&pool).await;
         let (bad, not_jpeg) = (
             r.post_frame("nope", &JPEG).await,
             r.post_frame(&r.token, b"GIF89a-------").await,
@@ -381,9 +386,13 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn the_test_page_is_for_admins() {
-        let r = rig();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_test_page_is_for_admins(pool: sqlx::PgPool) {
+        let r = rig(&pool).await;
         let frame = format!("/usb-cameras/test/frame/{}/0", r.machine);
         for path in [
             "/usb-cameras/test",

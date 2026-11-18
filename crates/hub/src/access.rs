@@ -19,7 +19,6 @@
 //! from it, nowhere else.
 
 use crate::Store;
-use crate::accounts::{random_token, token_hash};
 use crate::store::{Legacy, now};
 use axum::{
     extract::{FromRequestParts, MatchedPath, RawPathParams, Request, State},
@@ -1014,7 +1013,7 @@ pub async fn permit(State(store): State<Store>, request: Request, next: Next) ->
             .iter()
             .find_map(|k| param(k))
             .unwrap_or_default();
-        let _ = store.lock().unwrap().audit(access, label, &target, "");
+        let _ = store.audit(access, label, &target, "").await;
     }
     response
 }
@@ -1466,7 +1465,11 @@ impl Legacy {
         give: bool,
         by: i64,
     ) -> rusqlite::Result<Option<AskedFor>> {
-        let Some(request) = self.requests_unnamed(space)?.into_iter().find(|r| r.id == id) else {
+        let Some(request) = self
+            .requests_unnamed(space)?
+            .into_iter()
+            .find(|r| r.id == id)
+        else {
             return Ok(None);
         };
         if give {
@@ -1573,7 +1576,6 @@ impl Legacy {
         )? > 0)
     }
 
-
     /// Transitional (lanes 1-4): the space a request acts in, for code under the SQLite lock; its name
     /// is on Postgres ([`Store::space_of`]).
     pub fn space_id_of(&self, access: &Access) -> rusqlite::Result<(i64, ())> {
@@ -1599,7 +1601,9 @@ impl Legacy {
     /// A machine's name, in whichever space (the audit log's names).
     pub(crate) fn machine_name_any_space(&self, machine: &str) -> Option<String> {
         self.db
-            .query_row("SELECT name FROM machines WHERE id = ?1", [machine], |r| r.get(0))
+            .query_row("SELECT name FROM machines WHERE id = ?1", [machine], |r| {
+                r.get(0)
+            })
             .ok()
     }
 
@@ -1641,12 +1645,12 @@ pub(crate) fn route_sources() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::Legacy;
+
     use axum::Router;
     use axum::body::Body;
     use axum::http::Request as HttpRequest;
     use http_body_util::BodyExt;
-    use std::sync::{Arc, Mutex};
+
     use tower::ServiceExt;
 
     /// Every route that changes something has a rule; none falls to "refused" by mistake
@@ -1695,28 +1699,34 @@ mod tests {
     }
 
     impl World {
-        fn new() -> Self {
-            let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
+        async fn new(pool: &sqlx::PgPool) -> Self {
+            let store = Store::for_test(pool).await;
             let app = crate::app(store.clone());
             World { store, app }
         }
 
         /// A user in an organisation (or in one space only) with a role; their cookie.
-        fn person(
+        async fn person(
             &self,
             name: &str,
             org: Option<(i64, Role)>,
             space: Option<(i64, Role)>,
         ) -> (i64, String) {
-            let store = self.store.lock().unwrap();
-            let user = store.create_user(name, name, "x", false).unwrap();
+            let store = &self.store;
+            let user = store.create_user(name, name, "x", false).await.unwrap();
             if let Some((org, role)) = org {
-                store.set_org_membership(user, org, role.as_str()).unwrap();
+                store
+                    .set_org_membership(user, org, role.as_str())
+                    .await
+                    .unwrap();
             }
             if let Some((space, role)) = space {
-                store.set_membership(user, space, role.as_str()).unwrap();
+                store
+                    .set_membership(user, space, role.as_str())
+                    .await
+                    .unwrap();
             }
-            let token = store.create_session(user, None, "", "").unwrap();
+            let token = store.create_session(user, None, "", "").await.unwrap();
             (user, format!("{}={token}", crate::auth::COOKIE))
         }
 
@@ -1752,17 +1762,26 @@ mod tests {
 
     /// Permission per group: a new machine is closed; a group of 3D printers opens them all
     /// at once for a member, also one put in later; per machine still counts, the most wins.
-    #[tokio::test]
-    async fn groups_give_permission_on_many_machines() {
-        let w = World::new();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn groups_give_permission_on_many_machines(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
         let (org, space) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            s.create_organisation("Fablab", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            w.store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap()
         };
-        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None);
-        let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None);
+        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
+        let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None).await;
         let (p1, p2, laser) = {
             let mut s = w.store.lock().unwrap();
             let mk3s = crate::profiles::find("prusa/mk3s").unwrap();
@@ -1802,14 +1821,14 @@ mod tests {
             .post(&adam, "/permissions/groups", "name=3D+printers&kind=fdm")
             .await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        let group = w.store.lock().unwrap().groups(space).unwrap()[0].clone();
+        let group = w.store.groups(space).await.unwrap()[0].clone();
         assert_eq!(group.machines.len(), 2, "both printers, not the laser");
         // With all machines: the printers and the laser.
         let all = {
             let s = w.store.lock().unwrap();
             let id = s.create_group(space, "Everything", Some("all")).unwrap();
             let n = s
-                .groups(space)
+                .groups_unnamed(space)
                 .unwrap()
                 .into_iter()
                 .find(|g| g.id == id)
@@ -1911,13 +1930,7 @@ mod tests {
             StatusCode::FORBIDDEN,
             "members give no permission"
         );
-        let adam_id: i64 = w
-            .store
-            .lock()
-            .unwrap()
-            .db
-            .query_row("SELECT id FROM users WHERE name = 'adam'", [], |r| r.get(0))
-            .unwrap();
+        let adam_id = w.store.user_id("adam").await.unwrap().unwrap();
         // Being an admin does not mean having had the course: Adam manages the laser (its
         // name, its permissions) but may not use it until he gives himself permission.
         let as_adam = Access {
@@ -2058,7 +2071,7 @@ mod tests {
         let ask = format!("/machines/{p4}/ask");
         assert_eq!(w.post(&mia, &ask, "").await.0, StatusCode::NO_CONTENT);
         assert_eq!(w.post(&mia, &ask, "").await.0, StatusCode::NO_CONTENT);
-        let asked = w.store.lock().unwrap().requests(space).unwrap();
+        let asked = w.store.requests(space).await.unwrap();
         assert_eq!(asked.len(), 1, "asked once");
         assert!(asked[0].training);
         let (_, page) = w.get(&adam, "/space").await;
@@ -2083,9 +2096,13 @@ mod tests {
         );
         // Someone else's space's group: not found.
         let other = {
+            let owner = w.store.create_user("zed", "Zed", "x", false).await.unwrap();
+            let (_, b) = w
+                .store
+                .create_organisation("Zuid", "Hal", owner)
+                .await
+                .unwrap();
             let s = w.store.lock().unwrap();
-            let owner = s.create_user("zed", "Zed", "x", false).unwrap();
-            let (_, b) = s.create_organisation("Zuid", "Hal", owner).unwrap();
             s.create_group(b, "Theirs", None).unwrap()
         };
         assert_eq!(
@@ -2102,18 +2119,27 @@ mod tests {
 
     /// A queue: everyone looks; members move and take out their own prints only, and only
     /// among themselves (the others keep their place); staff change anything.
-    #[tokio::test]
-    async fn a_queue_is_changed_by_whom_it_is_of() {
-        let w = World::new();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_queue_is_changed_by_whom_it_is_of(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
         let (org, space) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            s.create_organisation("Fablab", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            w.store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap()
         };
-        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None);
-        let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None);
-        let (zoe_id, _) = w.person("zoe", Some((org, Role::Member)), None);
+        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
+        let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None).await;
+        let (zoe_id, _) = w.person("zoe", Some((org, Role::Member)), None).await;
         let (m, a, b, c) = {
             let mut s = w.store.lock().unwrap();
             let m = s
@@ -2193,29 +2219,48 @@ mod tests {
     /// A machine moves to another space of the organisation, by someone who is admin in both;
     /// not while it has work, not into a space they do not manage. Permissions on it stay
     /// behind, and so does its place in the queue.
-    #[tokio::test]
-    async fn a_machine_moves_to_another_space() {
-        let w = World::new();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_machine_moves_to_another_space(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
         let (org, a1, a2, b1) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            let (org, a1) = s
-                .create_organisation("Fablab", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
                 .unwrap();
-            let a2 = s.create_space(org, "Lab").unwrap();
-            let (_, b1) = s.create_organisation("Makers Zuid", "Hal", owner).unwrap();
+            let (org, a1) = w
+                .store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
+                .unwrap();
+            let a2 = w.store.create_space(org, "Lab").await.unwrap();
+            let (_, b1) = w
+                .store
+                .create_organisation("Makers Zuid", "Hal", owner)
+                .await
+                .unwrap();
             (org, a1, a2, b1)
         };
         // Both signed in to the first space.
-        let in_first = |name: &str, role: Role| {
-            let s = w.store.lock().unwrap();
-            let user = s.create_user(name, name, "x", false).unwrap();
-            s.set_org_membership(user, org, role.as_str()).unwrap();
-            let token = s.create_session(user, Some(a1), "", "").unwrap();
+        let in_first = async |name: &str, role: Role| {
+            let user = w.store.create_user(name, name, "x", false).await.unwrap();
+            w.store
+                .set_org_membership(user, org, role.as_str())
+                .await
+                .unwrap();
+            let token = w
+                .store
+                .create_session(user, Some(a1), "", "")
+                .await
+                .unwrap();
             (user, format!("{}={token}", crate::auth::COOKIE))
         };
-        let (_, adam) = in_first("adam", Role::Admin);
-        let (mia_id, mia) = in_first("mia", Role::Member);
+        let (_, adam) = in_first("adam", Role::Admin).await;
+        let (mia_id, mia) = in_first("mia", Role::Member).await;
         let m = {
             let mut s = w.store.lock().unwrap();
             let m = s
@@ -2233,8 +2278,10 @@ mod tests {
         )
         .await;
         let (uid_a2, uid_b1) = {
-            let s = w.store.lock().unwrap();
-            (s.space_uid(a2).unwrap(), s.space_uid(b1).unwrap())
+            (
+                w.store.space_uid(a2).await.unwrap(),
+                w.store.space_uid(b1).await.unwrap(),
+            )
         };
         let to = |uid: &str| format!("space={uid}");
         let path = format!("/machines/{m}/move");
@@ -2268,49 +2315,65 @@ mod tests {
             .unwrap();
         let (status, body) = w.post(&adam, &path, &to(&uid_a2)).await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        let s = w.store.lock().unwrap();
-        assert!(
-            s.machine(a1, &m).unwrap().is_none(),
-            "gone from the first space"
-        );
-        assert!(s.machine(a2, &m).unwrap().is_some(), "in the second");
-        assert!(
-            !s.takes_work(&m).unwrap(),
-            "no work from the new space's queue until someone says"
-        );
-        let grants: i64 =
-            s.db.query_row(
-                "SELECT COUNT(*) FROM machine_grants WHERE machine_id = ?1",
-                [&m],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(grants, 0, "permissions stay behind");
-        for (space, action) in [(a1, "moved to another space"), (a2, "moved here")] {
-            let n: i64 =
+        {
+            let s = w.store.lock().unwrap();
+            assert!(
+                s.machine(a1, &m).unwrap().is_none(),
+                "gone from the first space"
+            );
+            assert!(s.machine(a2, &m).unwrap().is_some(), "in the second");
+            assert!(
+                !s.takes_work(&m).unwrap(),
+                "no work from the new space's queue until someone says"
+            );
+            let grants: i64 =
                 s.db.query_row(
-                    "SELECT COUNT(*) FROM audit_log WHERE space_id = ?1 AND action = ?2",
-                    params![space, action],
+                    "SELECT COUNT(*) FROM machine_grants WHERE machine_id = ?1",
+                    [&m],
                     |r| r.get(0),
                 )
                 .unwrap();
+            assert_eq!(grants, 0, "permissions stay behind");
+        }
+        for (space, action) in [(a1, "moved to another space"), (a2, "moved here")] {
+            let n = w
+                .store
+                .audit_log(space, 500)
+                .await
+                .unwrap()
+                .iter()
+                .filter(|l| l.action == action)
+                .count();
             assert_eq!(n, 1, "{action} in the audit log of space {space}");
         }
     }
 
     /// Two makerspaces on one server: neither sees, nor touches, the other's machines,
     /// files or spools; a member of an organisation is in all its spaces.
-    #[tokio::test]
-    async fn organisations_never_see_each_other() {
-        let w = World::new();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn organisations_never_see_each_other(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
         let (a_org, a1, a2, b_org, b1) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("root", "Root", "x", true).unwrap();
-            let (a_org, a1) = s
-                .create_organisation("Fablab Noord", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("root", "Root", "x", true)
+                .await
                 .unwrap();
-            let a2 = s.create_space(a_org, "Lab").unwrap();
-            let (b_org, b1) = s.create_organisation("Makers Zuid", "Hal", owner).unwrap();
+            let (a_org, a1) = w
+                .store
+                .create_organisation("Fablab Noord", "Werkplaats", owner)
+                .await
+                .unwrap();
+            let a2 = w.store.create_space(a_org, "Lab").await.unwrap();
+            let (b_org, b1) = w
+                .store
+                .create_organisation("Makers Zuid", "Hal", owner)
+                .await
+                .unwrap();
             (a_org, a1, a2, b_org, b1)
         };
         let profile = crate::profiles::find("prusa/mk3s").unwrap();
@@ -2321,8 +2384,8 @@ mod tests {
                 s.add_virtual(b1, profile).unwrap(),
             )
         };
-        let (_, ann) = w.person("ann", Some((a_org, Role::Member)), None);
-        let (_, bob) = w.person("bob", Some((b_org, Role::Admin)), None);
+        let (_, ann) = w.person("ann", Some((a_org, Role::Member)), None).await;
+        let (_, bob) = w.person("bob", Some((b_org, Role::Admin)), None).await;
         // Ann starts in the first of her spaces by name (the Lab): to the workshop.
         assert_eq!(
             w.post(&ann, "/spaces/switch", &format!("space={a1}"))
@@ -2374,9 +2437,8 @@ mod tests {
         // Ann is in both of her organisation's spaces, and can go to either; not to B's.
         let spaces: Vec<i64> = w
             .store
-            .lock()
-            .unwrap()
             .spaces_of(2)
+            .await
             .unwrap()
             .iter()
             .map(|s| s.id)
@@ -2394,26 +2456,34 @@ mod tests {
     /// Roles: a guest looks only; a member uploads and runs open machines; only admins add
     /// machines and members; nobody gives a role above their own; an organisation keeps an
     /// owner.
-    #[tokio::test]
-    async fn roles_say_who_may() {
-        let w = World::new();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn roles_say_who_may(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
         let (org, space) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            s.create_organisation("Fablab", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            w.store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap()
         };
         let olga = {
-            let s = w.store.lock().unwrap();
             format!(
                 "{}={}",
                 crate::auth::COOKIE,
-                s.create_session(1, None, "", "").unwrap()
+                w.store.create_session(1, None, "", "").await.unwrap()
             )
         };
-        let (_, gus) = w.person("gus", Some((org, Role::Guest)), None);
-        let (_, mia) = w.person("mia", Some((org, Role::Member)), None);
-        let (adam_id, adam) = w.person("adam", Some((org, Role::Admin)), None);
+        let (_, gus) = w.person("gus", Some((org, Role::Guest)), None).await;
+        let (_, mia) = w.person("mia", Some((org, Role::Member)), None).await;
+        let (adam_id, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
         let machine = {
             let mut s = w.store.lock().unwrap();
             let m = s
@@ -2531,17 +2601,26 @@ mod tests {
 
     /// A machine that needs an induction: a member without one may not use it; with "use"
     /// runs jobs but sends no G-code; with "operate" does both; an ended one counts no more.
-    #[tokio::test]
-    async fn inductions_open_a_machine() {
-        let w = World::new();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn inductions_open_a_machine(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
         let (org, space) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            s.create_organisation("Fablab", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            w.store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap()
         };
-        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None);
-        let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None);
+        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
+        let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None).await;
         let laser = w
             .store
             .lock()
@@ -2683,17 +2762,26 @@ mod tests {
     /// A laser job starts only when a person, in their session, presses Start: `print` and
     /// "Start again from there" do; an API token's print is refused; the copies after the
     /// first wait in the queue and nothing starts them.
-    #[tokio::test]
-    async fn a_laser_starts_only_by_a_person() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_laser_starts_only_by_a_person(pool: sqlx::PgPool) {
         use crate::store::{JobState, LASER_NEVER_ALONE};
-        let w = World::new();
+        let w = World::new(&pool).await;
         let (org, space) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            s.create_organisation("Fablab", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            w.store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap()
         };
-        let (adam_id, adam) = w.person("adam", Some((org, Role::Admin)), None);
+        let (adam_id, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
         let (laser, token) = {
             let mut s = w.store.lock().unwrap();
             let laser = s
@@ -2906,16 +2994,25 @@ mod tests {
     }
 
     /// An invite link: a newcomer makes an account and is in; the link works once.
-    #[tokio::test]
-    async fn an_invite_link_lets_one_person_in() {
-        let w = World::new();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn an_invite_link_lets_one_person_in(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
         let (org, space) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            s.create_organisation("Fablab", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            w.store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap()
         };
-        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None);
+        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
         let (status, body) = w
             .post(&adam, "/space/invites", "role=member&scope=organisation")
             .await;
@@ -2944,9 +3041,9 @@ mod tests {
             ))
             .await;
         assert_eq!(status, StatusCode::SEE_OTHER);
-        let nina = w.store.lock().unwrap().user_id("nina").unwrap().unwrap();
+        let nina = w.store.user_id("nina").await.unwrap().unwrap();
         assert_eq!(
-            w.store.lock().unwrap().role_of(nina, space).unwrap(),
+            w.store.role_of(nina, space).await.unwrap(),
             Some(Role::Member)
         );
         let (status, _) = w
@@ -2956,7 +3053,7 @@ mod tests {
             .await;
         assert_eq!(status, StatusCode::NOT_FOUND, "used");
         // An admin of one space only cannot invite into the whole organisation.
-        let (_, sam) = w.person("sam", None, Some((space, Role::Admin)));
+        let (_, sam) = w.person("sam", None, Some((space, Role::Admin))).await;
         assert_eq!(
             w.post(&sam, "/space/invites", "role=member&scope=organisation")
                 .await
@@ -2973,16 +3070,25 @@ mod tests {
 
     /// An API token: in the address (as Moonraker sends it) or a header; its role holds;
     /// revoked, it stops; what it did is in the audit log under its name.
-    #[tokio::test]
-    async fn tokens_and_the_audit_log() {
-        let w = World::new();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn tokens_and_the_audit_log(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
         let (org, space) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            s.create_organisation("Fablab", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            w.store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap()
         };
-        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None);
+        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
         let (status, body) = w
             .post(&adam, "/space/tokens", "name=Voron&role=member")
             .await;
@@ -3044,7 +3150,7 @@ mod tests {
             StatusCode::UNAUTHORIZED,
             "the header is the server's own, not the client's"
         );
-        let log = w.store.lock().unwrap().audit_log(space, 10).unwrap();
+        let log = w.store.audit_log(space, 10).await.unwrap();
         assert!(
             log.iter()
                 .any(|l| l.actor == "token \"Voron\"" && l.action == "added a vendor"),
@@ -3056,7 +3162,7 @@ mod tests {
             "{log:?}"
         );
         // Revoked: it stops.
-        let id = w.store.lock().unwrap().tokens(space).unwrap()[0].id;
+        let id = w.store.tokens(space).await.unwrap()[0].id;
         assert_eq!(
             w.post(&adam, &format!("/space/tokens/{id}/revoke"), "")
                 .await
@@ -3078,12 +3184,12 @@ mod tests {
     /// each role and for no session (the router called with made-up path parameters), and a
     /// hash of the page shell and of every embedded style and script. Moving code must not
     /// change it. `MAKER_CONNECT_REGENERATE_ROUTES=1` writes it anew.
-    #[tokio::test]
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
-        not(feature = "cameras"),
-        ignore = "the snapshot is of the build with all modules (docs/plans/hub-modules.md)"
+        not(all(feature = "cameras", feature = "pg-tests")),
+        ignore = "the snapshot is of the build with all modules (docs/plans/hub-modules.md), on Postgres"
     )]
-    async fn the_routes_are_as_checked_in() {
+    async fn the_routes_are_as_checked_in(pool: sqlx::PgPool) {
         use sha2::{Digest, Sha256};
         use std::fmt::Write as _;
         let hash = |bytes: &[u8]| -> String {
@@ -3147,17 +3253,26 @@ mod tests {
                 Method::PATCH,
                 Method::DELETE,
             ] {
-                let w = World::new();
-                let (org, _) = {
-                    let s = w.store.lock().unwrap();
-                    let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-                    s.create_organisation("Fablab", "Werkplaats", owner)
-                        .unwrap()
+                // A new hub for each call (the database emptied again).
+                let store = Store::fresh_for_test(&pool).await;
+                let w = World {
+                    app: crate::app(store.clone()),
+                    store,
                 };
+                let owner = w
+                    .store
+                    .create_user("olga", "Olga", "x", false)
+                    .await
+                    .unwrap();
+                let (org, _) = w
+                    .store
+                    .create_organisation("Fablab", "Werkplaats", owner)
+                    .await
+                    .unwrap();
                 let mut cookies: Vec<Option<String>> = vec![None];
                 for role in [Role::Guest, Role::Member, Role::Admin, Role::Owner] {
                     let name = role.as_str();
-                    cookies.push(Some(w.person(name, Some((org, role)), None).1));
+                    cookies.push(Some(w.person(name, Some((org, role)), None).await.1));
                 }
                 let needed = need(&method, path);
                 let mut line = format!("{method} {path} =>");

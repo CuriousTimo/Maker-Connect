@@ -130,10 +130,7 @@ async fn switch(
     State(store): State<Store>,
     Form(form): Form<SwitchForm>,
 ) -> Response {
-    match store
-        .set_ppe_checks(access.space, form.on.is_some())
-        .await
-    {
+    match store.set_ppe_checks(access.space, form.on.is_some()).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
     }

@@ -518,10 +518,10 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::Legacy;
+
     use axum::body::Body;
     use axum::http::Request;
-    use std::sync::{Arc, Mutex};
+
     use tower::ServiceExt;
 
     /// The MINI while printing (2026-11-08): a full report now and then (Z only, fans),
@@ -594,10 +594,14 @@ mod tests {
 
     /// A MINI pointed at this hub registers, shows its code, waits, is added with that
     /// code on the website, gets its token, and then shows with its telemetry and profile.
-    #[tokio::test]
-    async fn a_mini_registers_by_itself() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_mini_registers_by_itself(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let (status, headers) = call(
             &app,
             Request::post("/p/register")

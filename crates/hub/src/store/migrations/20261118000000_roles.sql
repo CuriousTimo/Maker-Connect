@@ -32,6 +32,14 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 CREATE FUNCTION app_space() RETURNS bigint LANGUAGE sql STABLE
     AS $$ SELECT NULLIF(current_setting('app.space_id', true), '')::bigint $$;
 
+-- Times are timestamptz (§2.7); the hub's Rust still counts Unix seconds (i64), as its pages and JSON
+-- show them. These two are the one place the two meet, so what the hub shows stays byte for byte:
+-- `at_unix($1)` where a time is written or compared, `unix_seconds(col)` where one is read.
+CREATE FUNCTION at_unix(bigint) RETURNS timestamptz LANGUAGE sql IMMUTABLE STRICT
+    AS $$ SELECT to_timestamp($1) $$;
+CREATE FUNCTION unix_seconds(timestamptz) RETURNS bigint LANGUAGE sql IMMUTABLE STRICT
+    AS $$ SELECT floor(extract(epoch FROM $1))::bigint $$;
+
 -- Instance-wide settings (`open_spaces`).
 CREATE TABLE meta (
     key text PRIMARY KEY,

@@ -592,13 +592,12 @@ pub(crate) async fn command(
 mod tests {
     use super::*;
     use crate::link::tests::{call, json};
-    use crate::store::Legacy;
+
     use axum::body::Body;
     use axum::http::Request;
     use maker_connect_protocol::{
         MachineKind, MachineState, Register, Registered, Telemetry, TelemetryReply,
     };
-    use std::sync::{Arc, Mutex};
 
     /// Typed temperatures: whole degrees, up to the profile's maximum, 0 is off.
     #[test]
@@ -682,10 +681,14 @@ mod tests {
     /// Typed G-code is tidied and kept short enough for every machine.
     /// A machine behind an agent gets typed commands (`Action`), one at a time as it answers
     /// each, never G-code made by the hub; its SD tab says it is not available yet.
-    #[tokio::test]
-    async fn an_agents_machine_gets_typed_commands() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn an_agents_machine_gets_typed_commands(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let agent = crate::app(store.clone());
         let register = Register {
             protocol: protocol::VERSION,
@@ -800,10 +803,14 @@ mod tests {
     /// B3: the hub does not hold or refuse commands for a machine behind an agent because of what it
     /// does (busy, running a job, waiting for someone): it queues them, one at a time, so typed G-code
     /// such as `M112` reaches the port at once (B7). B5: the two Home buttons of OctoPrint's panel.
-    #[tokio::test]
-    async fn b3_b5_an_agents_machine_gets_every_command_whatever_it_is_doing() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn b3_b5_an_agents_machine_gets_every_command_whatever_it_is_doing(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let agent = crate::app(store.clone());
         let register = Register {
             protocol: protocol::VERSION,
@@ -932,7 +939,7 @@ mod tests {
 
     /// HS6: an agent machine of each kind, registered, paired, with a first report (so it is online).
     async fn agent_of(
-        store: &Arc<Mutex<Legacy>>,
+        store: &crate::Store,
         kind: MachineKind,
         profile: Option<&str>,
     ) -> (String, String) {
@@ -953,17 +960,12 @@ mod tests {
         )
         .await;
         let registered: Registered = serde_json::from_str(&body).unwrap();
+        let user = store.user_id("tester").await.unwrap().unwrap();
         {
             let store = store.lock().unwrap();
             let space = store.default_space().unwrap().0;
             store.pair(space, &registered.pairing_code).unwrap();
             // 'use' only, not 'operate': whoever may use the machine may press the emergency stop
-            let user: i64 = store
-                .db
-                .query_row("SELECT id FROM users WHERE name = 'tester'", [], |r| {
-                    r.get(0)
-                })
-                .unwrap();
             store
                 .set_grant(
                     space,
@@ -997,7 +999,7 @@ mod tests {
     }
 
     /// HS6: the commands the agent is given on its next report.
-    async fn given(store: &Arc<Mutex<Legacy>>, token: &str) -> Vec<protocol::Action> {
+    async fn given(store: &crate::Store, token: &str) -> Vec<protocol::Action> {
         let agent = crate::app(store.clone());
         let telemetry = Telemetry {
             state: MachineState::Idle,
@@ -1024,10 +1026,14 @@ mod tests {
     /// `b3_b5_...` shows for the terminal), a laser is sent LaserFoundry's Stop (`JobControl::Stop`, the
     /// route of its Stop button); a label printer, a Prusa (Buddy) and a machine whose profile is not
     /// Marlin are refused and are sent nothing. The page shows the button for the first two only.
-    #[tokio::test]
-    async fn hs6_the_emergency_stop_is_each_kinds_own() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn hs6_the_emergency_stop_is_each_kinds_own(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let press = |id: &str| {
             Request::post(format!("/machines/{id}/emergency-stop"))
                 .body(Body::empty())

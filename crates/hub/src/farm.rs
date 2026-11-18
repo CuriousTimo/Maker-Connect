@@ -1611,7 +1611,7 @@ mod flow {
     use axum::http::Request;
     use http_body_util::BodyExt;
     use maker_connect_protocol::{MachineState, Telemetry};
-    use std::sync::{Arc, Mutex};
+
     use tower::ServiceExt;
 
     async fn call(app: &Router, request: Request<Body>) -> (StatusCode, String) {
@@ -1639,10 +1639,14 @@ mod flow {
     /// third that does not): whole plates go out, a finished plate holds its machine until
     /// someone confirms it, Set Ready counts once, a bad print counts nothing and the plate
     /// goes out again, and never more plates than needed.
-    #[tokio::test]
-    async fn a_project_over_many_printers() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_project_over_many_printers(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let mk3s = crate::profiles::find("prusa/mk3s").unwrap();
         let (space, a, b, c) = {
             let mut s = store.lock().unwrap();

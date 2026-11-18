@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE spaces SET samples_given = true WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "878dce1cd4f01dee1878eabc49e15f5bffbaaa3c15bc535cc8d4d1965cb50e8f"
+}

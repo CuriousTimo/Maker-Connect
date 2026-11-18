@@ -21,7 +21,7 @@
 //! so they go out as their names, and a new name makes a place.
 
 use crate::Store;
-use crate::store::{SpoolmanEvent, Legacy, now};
+use crate::store::{Legacy, SpoolmanEvent, now};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -2203,19 +2203,21 @@ async fn field_values(
 mod tests {
     use super::*;
 
-    use crate::store::Legacy;
     use futures_util::StreamExt;
-    use std::sync::{Arc, Mutex};
 
     /// What Moonraker, Mainsail and the OctoPrint plugin do with a Spoolman: make a vendor, a
     /// filament and a spool, list and filter them, count filament off by length and by
     /// weighing, and hear about it on the spool's WebSocket.
-    #[tokio::test]
-    async fn it_answers_as_spoolman_does() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn it_answers_as_spoolman_does(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let app = crate::auth::signed_in_app(store.clone());
+        let app = crate::auth::signed_in_app(store.clone()).await;
         tokio::spawn(async move {
             axum::serve(
                 listener,

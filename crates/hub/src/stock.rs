@@ -1565,7 +1565,7 @@ async fn movements(
 }
 
 async fn page(access: crate::access::Access, State(store): State<Store>) -> Response {
-    let space = match store.lock().unwrap().space_name(access.space) {
+    let space = match store.space_name(access.space).await {
         Ok(name) => name,
         Err(error) => return failed(error),
     };

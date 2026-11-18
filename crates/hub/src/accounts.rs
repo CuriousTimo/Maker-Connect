@@ -202,7 +202,7 @@ impl Store {
         let mut tx = self.pg().admin.begin().await?;
         let at = now();
         let id = sqlx::query_scalar!(
-            "INSERT INTO users (name, display_name, instance_admin, created_at) VALUES ($1, $2, $3, $4)
+            "INSERT INTO users (name, display_name, instance_admin, created_at) VALUES ($1, $2, $3, at_unix($4))
              RETURNING id",
             name,
             display_name,
@@ -213,7 +213,7 @@ impl Store {
         .await?;
         sqlx::query!(
             "INSERT INTO identities (user_id, provider, subject, secret, created_at)
-             VALUES ($1, 'password', $2, $3, $4)",
+             VALUES ($1, 'password', $2, $3, at_unix($4))",
             id,
             id.to_string(),
             password_hash,
@@ -263,7 +263,7 @@ impl Store {
         if changed == 0 {
             sqlx::query!(
                 "INSERT INTO identities (user_id, provider, subject, secret, created_at)
-                 VALUES ($1, 'password', $2, $3, $4)",
+                 VALUES ($1, 'password', $2, $3, at_unix($4))",
                 user_id,
                 user_id.to_string(),
                 password_hash,
@@ -279,10 +279,15 @@ impl Store {
     }
 
     /// Puts a user in a space with a role (or changes their role there).
-    pub async fn set_membership(&self, user_id: i64, space_id: i64, role: &str) -> sqlx::Result<()> {
+    pub async fn set_membership(
+        &self,
+        user_id: i64,
+        space_id: i64,
+        role: &str,
+    ) -> sqlx::Result<()> {
         let mut tx = self.pg().space(space_id).await?;
         sqlx::query!(
-            "INSERT INTO memberships (user_id, space_id, role, created_at) VALUES ($1, $2, $3, $4)
+            "INSERT INTO memberships (user_id, space_id, role, created_at) VALUES ($1, $2, $3, at_unix($4))
              ON CONFLICT (user_id, space_id) DO UPDATE SET role = excluded.role",
             user_id,
             space_id,
@@ -325,7 +330,7 @@ impl Store {
         let user_agent: String = user_agent.chars().take(200).collect();
         sqlx::query!(
             "INSERT INTO sessions (token_hash, user_id, space_id, created_at, last_seen, expires_at, user_agent, address)
-             VALUES ($1, $2, $3, $4, $4, $5, $6, $7)",
+             VALUES ($1, $2, $3, at_unix($4), at_unix($4), at_unix($5), $6, $7)",
             token_hash(&token),
             user_id,
             space_id,
@@ -344,9 +349,9 @@ impl Store {
     pub async fn session(&self, token: &str) -> sqlx::Result<Option<Signed>> {
         let at = now();
         let found = sqlx::query!(
-            "SELECT s.id, s.last_seen, u.id AS user_id, u.name, u.display_name, u.instance_admin, s.space_id
+            r#"SELECT s.id, unix_seconds(s.last_seen) AS "last_seen!", u.id AS user_id, u.name, u.display_name, u.instance_admin, s.space_id
              FROM sessions s JOIN users u ON u.id = s.user_id
-             WHERE s.token_hash = $1 AND s.expires_at > $2 AND NOT u.disabled",
+             WHERE s.token_hash = $1 AND s.expires_at > at_unix($2) AND NOT u.disabled"#,
             token_hash(token),
             at
         )
@@ -357,7 +362,7 @@ impl Store {
         };
         if at - r.last_seen >= SEEN_EVERY {
             sqlx::query!(
-                "UPDATE sessions SET last_seen = $2, expires_at = $3 WHERE id = $1",
+                "UPDATE sessions SET last_seen = at_unix($2), expires_at = at_unix($3) WHERE id = $1",
                 r.id,
                 at,
                 at + SESSION_SECONDS
@@ -384,10 +389,13 @@ impl Store {
 
     /// Forgets sessions that ran out.
     pub async fn end_old_sessions(&self) -> sqlx::Result<u64> {
-        Ok(sqlx::query!("DELETE FROM sessions WHERE expires_at <= $1", now())
-            .execute(&self.pg().admin)
-            .await?
-            .rows_affected())
+        Ok(sqlx::query!(
+            "DELETE FROM sessions WHERE expires_at <= at_unix($1)",
+            now()
+        )
+        .execute(&self.pg().admin)
+        .await?
+        .rows_affected())
     }
 }
 
@@ -416,8 +424,11 @@ mod tests {
         assert!(password_problem("long enough!").is_none());
     }
 
-    #[cfg(feature = "pg-tests")]
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
     async fn a_session_is_found_by_its_token_until_it_ends(pool: sqlx::PgPool) {
         let store = Store::for_test(&pool).await;
         assert!(!store.has_users().await.unwrap());
@@ -440,12 +451,11 @@ mod tests {
         assert_eq!((signed.user_id, signed.name.as_str()), (id, "Timo"));
         assert!(store.session("not the token").await.unwrap().is_none());
         // Only the hash is kept.
-        let kept: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE token_hash = $1")
-                .bind(&token)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let kept: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE token_hash = $1")
+            .bind(&token)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(kept, 0);
         // A new password ends every session.
         store
@@ -462,13 +472,16 @@ mod tests {
         assert!(store.session(&token).await.unwrap().is_none());
     }
 
-    #[cfg(feature = "pg-tests")]
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
     async fn an_expired_session_is_not_found(pool: sqlx::PgPool) {
         let store = Store::for_test(&pool).await;
         let id = store.create_user("ann", "Ann", "x", false).await.unwrap();
         let token = store.create_session(id, None, "", "").await.unwrap();
-        sqlx::query("UPDATE sessions SET expires_at = 1")
+        sqlx::query("UPDATE sessions SET expires_at = at_unix(1)")
             .execute(&pool)
             .await
             .unwrap();

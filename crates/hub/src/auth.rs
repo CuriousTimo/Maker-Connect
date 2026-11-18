@@ -659,7 +659,9 @@ async fn setup(
         let user = store.create_user(&name, &display_name, &hash, true).await?;
         // Owner of the first space's organisation (all its spaces); both get the name.
         let organisation = store.organisation_of(space).await?;
-        store.set_org_membership(user, organisation, "owner").await?;
+        store
+            .set_org_membership(user, organisation, "owner")
+            .await?;
         store.rename_space(space, &space_name).await?;
         store.rename_organisation(organisation, &space_name).await?;
         store
@@ -817,14 +819,13 @@ pub async fn signed_in_app(store: Store) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::Legacy;
+
     use axum::body::Body;
     use http_body_util::BodyExt;
-    use std::sync::{Arc, Mutex};
-    use tower::ServiceExt;
 
-    fn fresh() -> Store {
-        Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()))
+    use tower::ServiceExt;
+    async fn fresh(pool: &sqlx::PgPool) -> Store {
+        Store::for_test(pool).await
     }
 
     async fn send(
@@ -865,8 +866,12 @@ mod tests {
     /// Every route in the source, with made-up values for its parameters, needs a session,
     /// unless it is one machines use with their own tokens or a page to sign in. A route
     /// added later is checked without anyone remembering to.
-    #[tokio::test]
-    async fn every_route_needs_a_session_but_the_public_ones() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn every_route_needs_a_session_but_the_public_ones(pool: sqlx::PgPool) {
         // Every source file, read when the test runs: a new module cannot be forgotten.
         let sources = crate::access::route_sources();
         let mut paths: Vec<String> = Vec::new();
@@ -892,11 +897,10 @@ mod tests {
             "found only {} routes: is the parsing still right?",
             paths.len()
         );
-        let store = fresh();
+        let store = fresh(&pool).await;
         store
-            .lock()
-            .unwrap()
             .create_user("someone", "Someone", "x", true)
+            .await
             .unwrap();
         let app = crate::app(store);
         let mut checked = 0;
@@ -939,10 +943,14 @@ mod tests {
 
     /// A fresh install sends pages to setup; setup needs the code the hub printed, and
     /// then makes an owner who is signed in, and the space gets its name.
-    #[tokio::test]
-    async fn the_first_account_needs_the_setup_code() {
-        let store = fresh();
-        let code = store.lock().unwrap().setup_code.clone().unwrap();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_first_account_needs_the_setup_code(pool: sqlx::PgPool) {
+        let store = fresh(&pool).await;
+        let code = store.setup_code().unwrap();
         let app = crate::app(store.clone());
         let (status, headers, _) = send(&app, page("/")).await;
         assert_eq!(
@@ -957,17 +965,14 @@ mod tests {
         let (status, _, body) = send(&app, form("/setup", &fields("WRNG-CODE"))).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         assert!(body.contains("not the setup code"));
-        assert!(!store.lock().unwrap().has_users().unwrap());
+        assert!(!store.has_users().await.unwrap());
         // Typed in lower case, without the dash: still the code.
         let typed = code.to_lowercase().replace('-', "");
         let (status, headers, _) = send(&app, form("/setup", &fields(&typed))).await;
         assert_eq!(status, StatusCode::SEE_OTHER, "made");
         let cookie = session_from(&headers);
-        {
-            let store = store.lock().unwrap();
-            assert!(store.setup_code.is_none());
-            assert_eq!(store.default_space().unwrap().1, "Fablab Noord");
-        }
+        assert!(store.setup_code().is_none());
+        assert_eq!(store.default_space().await.unwrap().1, "Fablab Noord");
         let request = axum::http::Request::get("/api/me")
             .header("cookie", &cookie)
             .body(Body::empty())
@@ -990,21 +995,23 @@ mod tests {
 
     /// Signing in sets the cookie and goes where the person was going (only on this site);
     /// a wrong password does not; signing out ends the session.
-    #[tokio::test]
-    async fn signing_in_and_out() {
-        let store = fresh();
-        {
-            let store = store.lock().unwrap();
-            let user = store
-                .create_user(
-                    "ann",
-                    "Ann",
-                    &accounts::hash_password("ann's password"),
-                    false,
-                )
-                .unwrap();
-            store.set_membership(user, 1, "member").unwrap();
-        }
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn signing_in_and_out(pool: sqlx::PgPool) {
+        let store = fresh(&pool).await;
+        let user = store
+            .create_user(
+                "ann",
+                "Ann",
+                &accounts::hash_password("ann's password"),
+                false,
+            )
+            .await
+            .unwrap();
+        store.set_membership(user, 1, "member").await.unwrap();
         let app = crate::app(store.clone());
         let (status, _, body) = send(&app, form("/login", "name=ann&password=wrong")).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -1068,25 +1075,27 @@ mod tests {
     }
 
     /// Too many failures from one address: refused for a while, even with the right password.
-    #[tokio::test]
-    async fn guessing_is_stopped() {
-        let store = fresh();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn guessing_is_stopped(pool: sqlx::PgPool) {
+        let store = fresh(&pool).await;
         store
-            .lock()
-            .unwrap()
             .create_user(
                 "ann",
                 "Ann",
                 &accounts::hash_password("ann's password"),
                 false,
             )
+            .await
             .unwrap();
         // Failures as if they had happened (without the pauses).
         {
-            let mut store = store.lock().unwrap();
             let keys = ["ip:unknown".to_owned()];
             for _ in 0..PER_ADDRESS {
-                failed_once(&mut store.failures, &keys);
+                failed_once(&mut store.failures(), &keys);
             }
         }
         let app = crate::app(store.clone());
@@ -1095,7 +1104,7 @@ mod tests {
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
         assert!(body.contains("Too many"));
         // Older than the window: forgotten.
-        for times in store.lock().unwrap().failures.values_mut() {
+        for times in store.failures().values_mut() {
             for t in times.iter_mut() {
                 *t -= WINDOW + 1;
             }

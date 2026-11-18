@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO audit_log (space_id, at, user_id, token_id, actor, action, target, detail)\n             VALUES ($1, at_unix($2), $3, $4, $5, $6, $7, $8)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "921e5b2047a20bee1c46925c8cb939ad8aaefb1f36bec6bff57e050c247519f5"
+}

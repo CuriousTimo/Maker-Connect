@@ -2,12 +2,11 @@
 
 use super::*;
 use crate::access::{Access, Level};
-use crate::store::{JobState, Legacy};
+use crate::store::JobState;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
-use std::sync::{Arc, Mutex};
 use tower::ServiceExt;
 
 /// A packed file as the script would make: what is checked here is how the hub serves bytes, not what is in them.
@@ -34,36 +33,45 @@ const GCODE: &str = "; made by the page\nG21\nG90\nM4 S0\nG0 X10 Y10\nG1 X20 Y10
 
 mod prepare_tests {
     use super::*;
-
-    #[test]
-    fn the_tool_is_open_only_to_a_member_who_may_use_a_laser_of_the_space() {
-        let w = World::new();
-        w.person("ann", Role::Member);
-        w.person("gus", Role::Guest);
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_tool_is_open_only_to_a_member_who_may_use_a_laser_of_the_space(
+        pool: sqlx::PgPool,
+    ) {
+        let w = World::new(&pool).await;
+        w.person("ann", Role::Member).await;
+        w.person("gus", Role::Guest).await;
         let store = w.store.clone();
-        // The access first: `access_of` locks the store itself.
-        let of = |name: &str, built: bool| {
-            let access = w.access_of(name);
+        // The access first, from Postgres; then the machines, from the store.
+        let of = async |name: &str, built: bool| {
+            let access = w.access_of(name).await;
             availability_of(&store.lock().unwrap(), &access, built).unwrap()
         };
-        assert_eq!(of("ann", false), Availability::NotBuilt);
-        assert_eq!(of("ann", true), Availability::NoLaser);
+        assert_eq!(of("ann", false).await, Availability::NotBuilt);
+        assert_eq!(of("ann", true).await, Availability::NoLaser);
         w.laser("Ortur", true);
         assert_eq!(
-            of("ann", true),
+            of("ann", true).await,
             Availability::NotPermitted,
             "a laser that needs permission ann has not got"
         );
-        assert_eq!(of("gus", true), Availability::Guest);
+        assert_eq!(of("gus", true).await, Availability::Guest);
         w.laser("Open one", false);
-        assert_eq!(of("ann", true), Availability::Open);
+        assert_eq!(of("ann", true).await, Availability::Open);
     }
 
-    #[tokio::test]
-    async fn prepare_says_why_the_tool_is_not_there() {
-        let w = World::new();
-        let (_, ann) = w.person("ann", Role::Member);
-        let (_, gus) = w.person("gus", Role::Guest);
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn prepare_says_why_the_tool_is_not_there(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
+        let (_, ann) = w.person("ann", Role::Member).await;
+        let (_, gus) = w.person("gus", Role::Guest).await;
         let (status, body) = w.get(&ann, "/prepare").await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert!(body.contains("<h3>Laser design</h3>"), "{body}");
@@ -81,15 +89,20 @@ mod prepare_tests {
 
 mod serving_tests {
     use super::*;
-
-    #[tokio::test]
-    async fn the_files_are_gzip_with_their_type_and_the_policy_that_keeps_serial_out() {
-        let w = World::new();
-        w.person("ann", Role::Member);
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_files_are_gzip_with_their_type_and_the_policy_that_keeps_serial_out(
+        pool: sqlx::PgPool,
+    ) {
+        let w = World::new(&pool).await;
+        w.person("ann", Role::Member).await;
         w.laser("Ortur", false);
         let store = w.store.clone();
         for asset in FAKE {
-            let access = w.access_of("ann");
+            let access = w.access_of("ann").await;
             let response = serve(&access, &store, FAKE, asset.path);
             assert_eq!(response.status(), StatusCode::OK, "{}", asset.path);
             let h = response.headers();
@@ -105,20 +118,30 @@ mod serving_tests {
             );
         }
         assert_eq!(
-            serve(&w.access_of("ann"), &store, FAKE, "pkg/../../etc/passwd").status(),
+            serve(
+                &w.access_of("ann").await,
+                &store,
+                FAKE,
+                "pkg/../../etc/passwd"
+            )
+            .status(),
             StatusCode::NOT_FOUND
         );
         assert_eq!(
-            serve(&w.access_of("ann"), &store, FAKE, "nothing").status(),
+            serve(&w.access_of("ann").await, &store, FAKE, "nothing").status(),
             StatusCode::NOT_FOUND
         );
     }
 
-    #[tokio::test]
-    async fn only_a_member_who_may_use_a_laser_opens_it() {
-        let w = World::new();
-        let (_, ann) = w.person("ann", Role::Member);
-        let (_, gus) = w.person("gus", Role::Guest);
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn only_a_member_who_may_use_a_laser_opens_it(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
+        let (_, ann) = w.person("ann", Role::Member).await;
+        let (_, gus) = w.person("gus", Role::Guest).await;
         // no laser yet
         let (status, body) = w.get(&ann, "/laser-design/").await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
@@ -155,7 +178,7 @@ mod serving_tests {
             .set_access_mode(w.space, &laser, 1)
             .unwrap();
         assert_eq!(w.get(&ann, "/laser-design/").await.0, StatusCode::FORBIDDEN);
-        let (user, _) = (w.user("ann"), ());
+        let (user, _) = (w.user("ann").await, ());
         w.store
             .lock()
             .unwrap()
@@ -165,10 +188,14 @@ mod serving_tests {
     }
 
     /// Without the feature the hub says so (and still builds); with it the real bundle is served and holds no Web Serial.
-    #[tokio::test]
-    async fn the_built_in_bundle_is_served_gzip_and_holds_no_web_serial() {
-        let w = World::new();
-        let (_, ann) = w.person("ann", Role::Member);
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_built_in_bundle_is_served_gzip_and_holds_no_web_serial(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
+        let (_, ann) = w.person("ann", Role::Member).await;
         w.laser("Ortur", false);
         if ASSETS.is_empty() {
             let (status, body) = w.get(&ann, "/laser-design/").await;
@@ -209,11 +236,14 @@ mod serving_tests {
 
 mod lasers_tests {
     use super::*;
-
-    #[tokio::test]
-    async fn the_list_has_the_lasers_the_person_may_use_in_the_apps_shape() {
-        let w = World::new();
-        let (user, ann) = w.person("ann", Role::Member);
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_list_has_the_lasers_the_person_may_use_in_the_apps_shape(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
+        let (user, ann) = w.person("ann", Role::Member).await;
         let open = w.laser("Open one", false);
         let closed = w.laser("Closed one", true);
         w.store
@@ -261,10 +291,14 @@ mod send_tests {
 
     /// What the page does, against the hub's real routes with a person's session: upload the file, load it on the laser;
     /// a loaded job asks first and is replaced only when asked again with `replace`. Nothing starts.
-    #[tokio::test]
-    async fn the_page_loads_a_job_asks_before_replacing_and_starts_nothing() {
-        let w = World::new();
-        let (_, ann) = w.person("ann", Role::Member);
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_page_loads_a_job_asks_before_replacing_and_starts_nothing(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
+        let (_, ann) = w.person("ann", Role::Member).await;
         let laser = w.laser("Ortur", false);
         let upload = |name: &str| {
             Request::post(format!("/api/files?name={name}"))
@@ -377,14 +411,13 @@ struct World {
 }
 
 impl World {
-    fn new() -> Self {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let (org, space) = {
-            let s = store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            s.create_organisation("Fablab", "Werkplaats", owner)
-                .unwrap()
-        };
+    async fn new(pool: &sqlx::PgPool) -> Self {
+        let store = crate::Store::for_test(pool).await;
+        let owner = store.create_user("olga", "Olga", "x", false).await.unwrap();
+        let (org, space) = store
+            .create_organisation("Fablab", "Werkplaats", owner)
+            .await
+            .unwrap();
         let app = crate::app(store.clone());
         World {
             store,
@@ -395,41 +428,36 @@ impl World {
     }
 
     /// A user in the organisation with a role; their id and cookie.
-    fn person(&self, name: &str, role: Role) -> (i64, String) {
-        let s = self.store.lock().unwrap();
-        let user = s.create_user(name, name, "x", false).unwrap();
-        s.set_org_membership(user, self.org, role.as_str()).unwrap();
-        let token = s.create_session(user, Some(self.space), "", "").unwrap();
+    async fn person(&self, name: &str, role: Role) -> (i64, String) {
+        let s = &self.store;
+        let user = s.create_user(name, name, "x", false).await.unwrap();
+        s.set_org_membership(user, self.org, role.as_str())
+            .await
+            .unwrap();
+        let token = s
+            .create_session(user, Some(self.space), "", "")
+            .await
+            .unwrap();
         (user, format!("{}={token}", crate::auth::COOKIE))
     }
 
-    fn user(&self, name: &str) -> i64 {
-        self.store
-            .lock()
-            .unwrap()
-            .db
-            .query_row("SELECT id FROM users WHERE name = ?1", [name], |r| r.get(0))
-            .unwrap()
+    async fn user(&self, name: &str) -> i64 {
+        self.store.user_id(name).await.unwrap().unwrap()
     }
 
-    fn access_of(&self, name: &str) -> Access {
-        let user = self.user(name);
-        let role: String = self
+    async fn access_of(&self, name: &str) -> Access {
+        let user = self.user(name).await;
+        let role = self
             .store
-            .lock()
+            .org_role_of(user, self.org)
+            .await
             .unwrap()
-            .db
-            .query_row(
-                "SELECT role FROM org_memberships WHERE user_id = ?1",
-                [user],
-                |r| r.get(0),
-            )
             .unwrap();
         Access {
             user_id: user,
             actor: name.to_owned(),
             space: self.space,
-            role: Role::parse(&role).unwrap(),
+            role,
             token_id: None,
             session_id: None,
             instance_admin: false,

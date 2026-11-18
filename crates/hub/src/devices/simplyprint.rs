@@ -48,10 +48,7 @@ pub fn routes() -> Router<Store> {
         .route("/simplyprint/{token}/{*rest}", get(connect_more))
 }
 
-async fn job_file(
-    State(store): State<Store>,
-    Path((token, job)): Path<(String, i64)>,
-) -> Response {
+async fn job_file(State(store): State<Store>, Path((token, job)): Path<(String, i64)>) -> Response {
     crate::files::job_file(&store, &token, job).await
 }
 
@@ -372,16 +369,20 @@ fn report(store: &Store, token: &str, base: &str, printer: &mut Printer) -> Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::Legacy;
+
     use futures_util::{SinkExt, StreamExt};
-    use std::sync::{Arc, Mutex};
+
     use tokio_tungstenite::tungstenite::Message as WsMessage;
 
     /// A stand-in for Moonraker: connects as its SimplyPrint component does, says what it
     /// would, and does what it is asked.
-    #[tokio::test]
-    async fn a_klipper_printer_connects_takes_a_command_and_prints() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_klipper_printer_connects_takes_a_command_and_prints(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
         let (space, id, token) = {
             let mut s = store.lock().unwrap();
             let space = s.default_space().unwrap().0;

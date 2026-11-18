@@ -6,9 +6,9 @@
 //! Transitional (lanes 1-4): the access tables still on SQLite (grants, groups, requests) are reached
 //! through [`Store::lock`]; names of people come from here.
 
+use crate::access::INVITE_SECONDS;
 use crate::access::{Access, AuditLine, Invite, Member, Role, SpaceOf, TOKEN_PREFIX, Token};
 use crate::accounts::{random_token, token_hash};
-use crate::access::INVITE_SECONDS;
 use crate::store::{Store, now};
 use std::collections::HashMap;
 
@@ -77,7 +77,7 @@ impl Store {
         role: &str,
     ) -> sqlx::Result<()> {
         sqlx::query!(
-            "INSERT INTO org_memberships (user_id, organisation_id, role, created_at) VALUES ($1, $2, $3, $4)
+            "INSERT INTO org_memberships (user_id, organisation_id, role, created_at) VALUES ($1, $2, $3, at_unix($4))
              ON CONFLICT (user_id, organisation_id) DO UPDATE SET role = excluded.role",
             user,
             organisation,
@@ -90,7 +90,9 @@ impl Store {
     }
 
     /// The spaces a user can be in (through an organisation or of their own), by
-    /// organisation and name, with their role in each.
+    /// organisation and name, with their role in each. SQLite's `COLLATE NOCASE` folded ASCII letters
+    /// only, `lower()` folds all: names with other letters may sort otherwise (accepted,
+    /// journal:V2-STORE-1:0008); ties by id, as before.
     pub async fn spaces_of(&self, user: i64) -> sqlx::Result<Vec<SpaceOf>> {
         let rows = sqlx::query!(
             r#"SELECT s.id, s.uid, s.name, o.name AS organisation, r.role AS "role!" FROM (
@@ -162,14 +164,24 @@ impl Store {
 
     /// A new space in an organisation.
     pub async fn create_space(&self, organisation: i64, name: &str) -> sqlx::Result<i64> {
-        sqlx::query_scalar!(
+        let space = sqlx::query_scalar!(
             "INSERT INTO spaces (name, uid, organisation_id) VALUES ($1, $2, $3) RETURNING id",
             name,
             crate::accounts::new_uuid(),
             organisation
         )
         .fetch_one(&self.pg().admin)
-        .await
+        .await?;
+        // Transitional (lanes 1-4): the SQLite tables still point at their space by id.
+        self.lock()
+            .unwrap()
+            .db
+            .execute(
+                "INSERT OR IGNORE INTO spaces (id, name) VALUES (?1, ?2)",
+                rusqlite::params![space, name],
+            )
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+        Ok(space)
     }
 
     /// A new organisation with its first space, its maker the owner of both.
@@ -180,7 +192,7 @@ impl Store {
         owner: i64,
     ) -> sqlx::Result<(i64, i64)> {
         let organisation = sqlx::query_scalar!(
-            "INSERT INTO organisations (uid, name, created_at) VALUES ($1, $2, $3) RETURNING id",
+            "INSERT INTO organisations (uid, name, created_at) VALUES ($1, $2, at_unix($3)) RETURNING id",
             crate::accounts::new_uuid(),
             name,
             now()
@@ -211,12 +223,12 @@ impl Store {
         let mut tx = self.pg().space(space).await?;
         let rows = sqlx::query!(
             r#"SELECT u.id AS "id!", u.name AS "name!", u.display_name AS "display_name!",
-                   m.role AS "role!", m.created_at AS "created_at!", true AS "whole!"
+                   m.role AS "role!", unix_seconds(m.created_at) AS "created_at!", true AS "whole!"
                FROM org_memberships m
                JOIN users u ON u.id = m.user_id JOIN spaces s ON s.organisation_id = m.organisation_id
                WHERE s.id = $1
                UNION ALL
-               SELECT u.id, u.name, u.display_name, m.role, m.created_at, false FROM memberships m
+               SELECT u.id, u.name, u.display_name, m.role, unix_seconds(m.created_at), false FROM memberships m
                JOIN users u ON u.id = m.user_id WHERE m.space_id = $1"#,
             space
         )
@@ -249,7 +261,8 @@ impl Store {
                 }),
             }
         }
-        out.sort_by_key(|m| m.display_name.to_lowercase());
+        // Ties by id, as SQLite gave them (in the order they were made).
+        out.sort_by_key(|m| (m.display_name.to_lowercase(), m.user_id));
         Ok(out)
     }
 
@@ -302,9 +315,12 @@ impl Store {
             .rows_affected();
             (n, vec![space])
         };
-        sqlx::query!("UPDATE sessions SET space_id = NULL WHERE user_id = $1", user)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query!(
+            "UPDATE sessions SET space_id = NULL WHERE user_id = $1",
+            user
+        )
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         // Transitional: their inductions, still on SQLite (crate::access).
         self.lock()
@@ -316,17 +332,18 @@ impl Store {
 
     /// People's display names, by id (for lists whose rows are still on SQLite: transitional).
     pub async fn display_names(&self, ids: &[i64]) -> sqlx::Result<HashMap<i64, String>> {
-        let rows = sqlx::query!(
-            "SELECT id, display_name FROM users WHERE id = ANY($1)",
-            ids
-        )
-        .fetch_all(&self.pg().admin)
-        .await?;
+        let rows = sqlx::query!("SELECT id, display_name FROM users WHERE id = ANY($1)", ids)
+            .fetch_all(&self.pg().admin)
+            .await?;
         Ok(rows.into_iter().map(|r| (r.id, r.display_name)).collect())
     }
 
     /// What the audit log says of a person and a machine: their names.
-    pub async fn names_for_log(&self, user: Option<i64>, machine: Option<&str>) -> (String, String) {
+    pub async fn names_for_log(
+        &self,
+        user: Option<i64>,
+        machine: Option<&str>,
+    ) -> (String, String) {
         let user = match user {
             Some(u) => self
                 .display_names(&[u])
@@ -354,7 +371,7 @@ impl Store {
         let mut tx = self.pg().space(space).await?;
         sqlx::query!(
             "INSERT INTO invites (token_hash, space_id, role, created_by, created_at, expires_at, whole_organisation)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+             VALUES ($1, $2, $3, $4, at_unix($5), at_unix($6), $7)",
             token_hash(&token),
             space,
             role.as_str(),
@@ -373,10 +390,11 @@ impl Store {
     pub async fn invites(&self, space: i64) -> sqlx::Result<Vec<Invite>> {
         let mut tx = self.pg().space(space).await?;
         let rows = sqlx::query!(
-            "SELECT i.id, i.space_id, s.name AS space_name, i.role, b.display_name AS by_name,
-                 i.created_at, i.expires_at, u.display_name AS \"used_by?\", i.revoked, i.whole_organisation
+            r#"SELECT i.id, i.space_id, s.name AS space_name, i.role, b.display_name AS by_name,
+                 unix_seconds(i.created_at) AS "created_at!", unix_seconds(i.expires_at) AS "expires_at!",
+                 u.display_name AS "used_by?", i.revoked, i.whole_organisation
              FROM invites i JOIN spaces s ON s.id = i.space_id JOIN users b ON b.id = i.created_by
-             LEFT JOIN users u ON u.id = i.used_by WHERE i.space_id = $1 ORDER BY i.created_at DESC, i.id DESC",
+             LEFT JOIN users u ON u.id = i.used_by WHERE i.space_id = $1 ORDER BY i.created_at DESC, i.id DESC"#,
             space
         )
         .fetch_all(&mut *tx)
@@ -404,10 +422,11 @@ impl Store {
     /// The invite an address's token is for, open or not (sign-in by invite: admin).
     pub async fn invite(&self, token: &str) -> sqlx::Result<Option<Invite>> {
         let r = sqlx::query!(
-            "SELECT i.id, i.space_id, s.name AS space_name, i.role, b.display_name AS by_name,
-                 i.created_at, i.expires_at, u.display_name AS \"used_by?\", i.revoked, i.whole_organisation
+            r#"SELECT i.id, i.space_id, s.name AS space_name, i.role, b.display_name AS by_name,
+                 unix_seconds(i.created_at) AS "created_at!", unix_seconds(i.expires_at) AS "expires_at!",
+                 u.display_name AS "used_by?", i.revoked, i.whole_organisation
              FROM invites i JOIN spaces s ON s.id = i.space_id JOIN users b ON b.id = i.created_by
-             LEFT JOIN users u ON u.id = i.used_by WHERE i.token_hash = $1",
+             LEFT JOIN users u ON u.id = i.used_by WHERE i.token_hash = $1"#,
             token_hash(token)
         )
         .fetch_optional(&self.pg().admin)
@@ -446,8 +465,8 @@ impl Store {
     /// False when it was taken meanwhile.
     pub async fn use_invite(&self, invite: &Invite, user: i64) -> sqlx::Result<bool> {
         let taken = sqlx::query!(
-            "UPDATE invites SET used_by = $2, used_at = $3
-             WHERE id = $1 AND used_by IS NULL AND NOT revoked AND expires_at > $3",
+            "UPDATE invites SET used_by = $2, used_at = at_unix($3)
+             WHERE id = $1 AND used_by IS NULL AND NOT revoked AND expires_at > at_unix($3)",
             invite.id,
             user,
             now()
@@ -491,7 +510,7 @@ impl Store {
         let mut tx = self.pg().space(space).await?;
         sqlx::query!(
             "INSERT INTO api_tokens (token_hash, space_id, created_by, name, role, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6)",
+             VALUES ($1, $2, $3, $4, $5, at_unix($6))",
             token_hash(&token),
             space,
             by,
@@ -508,9 +527,10 @@ impl Store {
     pub async fn tokens(&self, space: i64) -> sqlx::Result<Vec<Token>> {
         let mut tx = self.pg().space(space).await?;
         let rows = sqlx::query!(
-            "SELECT t.id, t.name, t.role, u.display_name, t.created_at, t.last_used
+            r#"SELECT t.id, t.name, t.role, u.display_name, unix_seconds(t.created_at) AS "created_at!",
+                 unix_seconds(t.last_used) AS "last_used?"
              FROM api_tokens t JOIN users u ON u.id = t.created_by
-             WHERE t.space_id = $1 AND NOT t.revoked ORDER BY t.created_at DESC, t.id DESC",
+             WHERE t.space_id = $1 AND NOT t.revoked ORDER BY t.created_at DESC, t.id DESC"#,
             space
         )
         .fetch_all(&mut *tx)
@@ -549,10 +569,10 @@ impl Store {
     /// now; a maker who left the space takes the token's rights with them).
     pub async fn token_access(&self, token: &str) -> sqlx::Result<Option<Access>> {
         let found = sqlx::query!(
-            "SELECT t.id, t.space_id, t.role, t.name, t.created_by, t.last_used
+            r#"SELECT t.id, t.space_id, t.role, t.name, t.created_by, unix_seconds(t.last_used) AS "last_used?"
              FROM api_tokens t
              JOIN users u ON u.id = t.created_by AND NOT u.disabled
-             WHERE t.token_hash = $1 AND NOT t.revoked",
+             WHERE t.token_hash = $1 AND NOT t.revoked"#,
             token_hash(token)
         )
         .fetch_optional(&self.pg().admin)
@@ -569,7 +589,7 @@ impl Store {
         };
         if r.last_used.is_none_or(|t| now() - t >= 60) {
             sqlx::query!(
-                "UPDATE api_tokens SET last_used = $2 WHERE id = $1",
+                "UPDATE api_tokens SET last_used = at_unix($2) WHERE id = $1",
                 r.id,
                 now()
             )
@@ -599,7 +619,7 @@ impl Store {
         let mut tx = self.pg().space(access.space).await?;
         sqlx::query!(
             "INSERT INTO audit_log (space_id, at, user_id, token_id, actor, action, target, detail)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+             VALUES ($1, at_unix($2), $3, $4, $5, $6, $7, $8)",
             access.space,
             now(),
             access.user_id,
@@ -618,8 +638,8 @@ impl Store {
     pub async fn audit_log(&self, space: i64, limit: usize) -> sqlx::Result<Vec<AuditLine>> {
         let mut tx = self.pg().space(space).await?;
         let rows = sqlx::query!(
-            "SELECT at, actor, action, target, detail FROM audit_log
-             WHERE space_id = $1 ORDER BY at DESC, id DESC LIMIT $2",
+            r#"SELECT unix_seconds(at) AS "at!", actor, action, target, detail FROM audit_log
+             WHERE space_id = $1 ORDER BY at DESC, id DESC LIMIT $2"#,
             space,
             limit as i64
         )
@@ -675,13 +695,9 @@ impl Store {
 
     pub async fn set_ppe_checks(&self, space: i64, on: bool) -> sqlx::Result<()> {
         let mut tx = self.pg().space(space).await?;
-        sqlx::query!(
-            "UPDATE spaces SET ppe_checks = $2 WHERE id = $1",
-            space,
-            on
-        )
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query!("UPDATE spaces SET ppe_checks = $2 WHERE id = $1", space, on)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         self.changed();
         Ok(())
@@ -696,9 +712,12 @@ impl Store {
 
     pub async fn samples_given(&self, space: i64) -> sqlx::Result<()> {
         let mut tx = self.pg().space(space).await?;
-        sqlx::query!("UPDATE spaces SET samples_given = true WHERE id = $1", space)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query!(
+            "UPDATE spaces SET samples_given = true WHERE id = $1",
+            space
+        )
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await
     }
 }
@@ -709,14 +728,15 @@ impl Store {
     fn name_grants(grants: &mut Vec<crate::access::Grant>, names: &HashMap<i64, String>) {
         for g in grants.iter_mut() {
             g.display_name = names.get(&g.user_id).cloned().unwrap_or_default();
-            g.by = g
-                .by
-                .as_deref()
-                .and_then(|b| b.parse::<i64>().ok())
-                .and_then(|b| names.get(&b).cloned());
+            g.by =
+                g.by.as_deref()
+                    .and_then(|b| b.parse::<i64>().ok())
+                    .and_then(|b| names.get(&b).cloned());
         }
         grants.retain(|g| names.contains_key(&g.user_id));
-        grants.sort_by_key(|g| g.display_name.to_ascii_lowercase());
+        // SQLite's NOCASE folds ASCII letters only, as here; ties by id (the order SQLite gave them).
+        // Names with other letters may sort otherwise than NOCASE did (accepted, journal:V2-STORE-1:0008).
+        grants.sort_by_key(|g| (g.display_name.to_ascii_lowercase(), g.user_id));
     }
 
     fn grant_people(grants: &[crate::access::Grant]) -> Vec<i64> {

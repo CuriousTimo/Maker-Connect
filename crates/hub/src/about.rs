@@ -143,13 +143,17 @@ fn row(label: &str, value: Option<String>) -> String {
 }
 
 async fn page(access: Access, State(store): State<Store>) -> Response {
-    let (space, database) = {
-        let store = store.lock().unwrap();
-        match store.space_name(access.space) {
-            Ok(name) => (name, store.db.path().unwrap_or_default().to_owned()),
-            Err(error) => return failed(error),
-        }
+    let space = match store.space_name(access.space).await {
+        Ok(name) => name,
+        Err(error) => return failed(error),
     };
+    let database = store
+        .lock()
+        .unwrap()
+        .db
+        .path()
+        .unwrap_or_default()
+        .to_owned();
     let s = tokio::task::spawn_blocking(system)
         .await
         .unwrap_or_default();
@@ -346,15 +350,20 @@ mod tests {
         assert!(system().cores.is_some());
     }
 
-    #[tokio::test]
-    async fn the_about_page_says_what_runs() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_about_page_says_what_runs(pool: sqlx::PgPool) {
         use axum::body::Body;
         use axum::http::Request;
         use http_body_util::BodyExt;
-        use std::sync::{Arc, Mutex};
+
         use tower::ServiceExt;
         let store = crate::store::Legacy::open(":memory:").unwrap();
-        let app = crate::auth::signed_in_app(Arc::new(Mutex::new(store)));
+        let app =
+            crate::auth::signed_in_app(crate::store::Store::with_legacy(&pool, store).await).await;
         let response = app
             .oneshot(Request::get("/about").body(Body::empty()).unwrap())
             .await

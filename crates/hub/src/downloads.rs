@@ -146,12 +146,13 @@ async fn page(
     headers: HeaderMap,
 ) -> Response {
     let role = access.role;
-    let (space, dir, on_offer) = {
+    let space = match store.space_name(access.space).await {
+        Ok(space) => space,
+        Err(error) => return failed(error),
+    };
+    let (dir, on_offer) = {
         let store = store.lock().unwrap();
-        match store.space_id_of(&access) {
-            Ok((_, space)) => (space, store.downloads_dir.clone(), store.offered_build()),
-            Err(error) => return failed(error),
-        }
+        (store.downloads_dir.clone(), store.offered_build())
     };
     // This hub's address as the visitor reached it.
     let host = headers
@@ -396,7 +397,7 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use http_body_util::BodyExt;
-    use std::sync::{Arc, Mutex};
+
     use tower::ServiceExt;
 
     #[test]
@@ -428,10 +429,15 @@ mod tests {
     }
 
     /// Nothing of our own in the folder: the agent of the releases on GitHub, a card each.
-    #[tokio::test]
-    async fn without_builds_here_the_agent_comes_from_github() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn without_builds_here_the_agent_comes_from_github(pool: sqlx::PgPool) {
         let store = Legacy::open(":memory:").unwrap();
-        let app = crate::auth::signed_in_app(Arc::new(Mutex::new(store)));
+        let app =
+            crate::auth::signed_in_app(crate::store::Store::with_legacy(&pool, store).await).await;
         let response = app
             .oneshot(Request::get("/downloads").body(Body::empty()).unwrap())
             .await
@@ -443,14 +449,19 @@ mod tests {
         assert!(!page.contains("Nothing yet"));
     }
 
-    #[tokio::test]
-    async fn files_in_the_folder_are_offered_and_nothing_else() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn files_in_the_folder_are_offered_and_nothing_else(pool: sqlx::PgPool) {
         let store = Legacy::open(":memory:").unwrap();
         let exe = "maker-connect-agent-windows-x86_64.exe";
         std::fs::write(store.downloads_dir.join(exe), b"MZ").unwrap();
         std::fs::write(store.downloads_dir.join("notes.txt"), b"hi").unwrap();
         std::fs::write(store.downloads_dir.join(".hidden"), b"x").unwrap();
-        let app = crate::auth::signed_in_app(Arc::new(Mutex::new(store)));
+        let app =
+            crate::auth::signed_in_app(crate::store::Store::with_legacy(&pool, store).await).await;
         let get = |path: &str| {
             let app = app.clone();
             let request = Request::get(path)

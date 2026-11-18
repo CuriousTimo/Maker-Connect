@@ -49,105 +49,119 @@ pub(crate) async fn telemetry(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
-    let mut store = store.lock().unwrap();
-    // K18: an agent not seen for longer than ONLINE_SECONDS: its Sent/Accepted commands failed,
-    // before this report (and its Done, which then still wins) is taken in.
-    if let Err(error) = store.fail_commands_of_gone_agent(token) {
-        return failed(error);
-    }
-    for done in &report.done {
-        let state = if done.ok {
-            store::CommandState::Finished
-        } else {
-            store::CommandState::Rejected
-        };
-        if let Err(error) = store.command_went(
-            token,
-            done.id,
-            state,
-            done.reason.clone(),
-            done.output.clone(),
-        ) {
+    let (mut reply, space) = {
+        let mut store = store.lock().unwrap();
+        // K18: an agent not seen for longer than ONLINE_SECONDS: its Sent/Accepted commands failed,
+        // before this report (and its Done, which then still wins) is taken in.
+        if let Err(error) = store.fail_commands_of_gone_agent(token) {
             return failed(error);
         }
-    }
-    // Agents before 2026-11-04 reported a label printer without a cassette as an error, or
-    // as idle with the reason: it waits for someone (attention), it is not a fault.
-    let mut report = report;
-    if report.cassette == Some(false)
-        && matches!(
-            report.state,
-            protocol::MachineState::Error | protocol::MachineState::Idle
-        )
-        && report.problem.as_deref() == Some("no cassette")
-    {
-        report.state = protocol::MachineState::Attention;
-    }
-    if let Some(peer) = peer_address(&headers, &extensions)
-        && let Err(error) = store.set_peer(token, &peer)
-    {
-        return failed(error);
-    }
-    match store.report(token, &report) {
-        Ok(Some(space)) => {
-            // A print it runs itself: recorded as a job when it ends.
-            if let Err(error) = store.follow_own_print(token, &report, None) {
+        for done in &report.done {
+            let state = if done.ok {
+                store::CommandState::Finished
+            } else {
+                store::CommandState::Rejected
+            };
+            if let Err(error) = store.command_went(
+                token,
+                done.id,
+                state,
+                done.reason.clone(),
+                done.output.clone(),
+            ) {
                 return failed(error);
             }
-            // B3: the hub does not hold or refuse a command for a machine behind an agent, whatever it
-            // is doing (busy, waiting for someone): it queues them (one at a time, but for the Marlin port's machines, K18), and the machine's
-            // port refuses as its reference does (OctoPrint: `server/api/printer.py`).
-            // K18, HS4: a machine on a port that fails its pending commands on close (Marlin/OctoPrint,
-            // DYMO PnP, LabelWriter 450, laser) gets every Queued command at once (no gate, no
-            // 120 s); the other agent ports (Buddy, Klipper, the MK3 family) keep one at a time.
-            let next = match store.fails_pending_on_close(token) {
-                Ok(true) => store.next_commands_for_agent(token),
-                Ok(false) => store.next_command(token).map(|n| n.into_iter().collect()),
-                Err(error) => Err(error),
-            };
-            let commands = match next {
-                // Only typed commands go to an agent (the hub makes no G-code for it).
-                Ok(next) => next
-                    .into_iter()
-                    .filter_map(|(id, body)| {
-                        serde_json::from_str::<protocol::Action>(&body)
-                            .ok()
-                            .map(|action| protocol::MachineCommand { id, action })
-                    })
-                    .collect(),
-                Err(error) => return failed(error),
-            };
-            let (job, job_control) = match agent_job(&mut store, token, &report) {
-                Ok(job) => job,
-                Err(error) => return failed(error),
-            };
-            let update = match updates::order_for(&store, token, &report) {
-                Ok(update) => update,
-                Err(error) => return failed(error),
-            };
-            // Someone's answer to the question on its screen, once; and pause, resume or stop
-            // for a print it started itself (no job of the hub's).
-            let (answer, job_control) = match store.machine_id_by_token(token) {
-                Ok(Some(machine)) => (
-                    store.answers.remove(&machine),
-                    job_control.or_else(|| store.own_job_control.remove(&machine)),
-                ),
-                _ => (None, job_control),
-            };
-            Json(TelemetryReply {
-                paired: space.is_some(),
-                space,
-                commands,
-                job,
-                job_control,
-                update,
-                answer,
-            })
-            .into_response()
         }
-        Ok(None) => (StatusCode::UNAUTHORIZED, "unknown agent: register again").into_response(),
-        Err(error) => failed(error),
+        // Agents before 2026-11-04 reported a label printer without a cassette as an error, or
+        // as idle with the reason: it waits for someone (attention), it is not a fault.
+        let mut report = report;
+        if report.cassette == Some(false)
+            && matches!(
+                report.state,
+                protocol::MachineState::Error | protocol::MachineState::Idle
+            )
+            && report.problem.as_deref() == Some("no cassette")
+        {
+            report.state = protocol::MachineState::Attention;
+        }
+        if let Some(peer) = peer_address(&headers, &extensions)
+            && let Err(error) = store.set_peer(token, &peer)
+        {
+            return failed(error);
+        }
+        match store.report(token, &report) {
+            Ok(Some(space)) => {
+                // A print it runs itself: recorded as a job when it ends.
+                if let Err(error) = store.follow_own_print(token, &report, None) {
+                    return failed(error);
+                }
+                // B3: the hub does not hold or refuse a command for a machine behind an agent, whatever it
+                // is doing (busy, waiting for someone): it queues them (one at a time, but for the Marlin port's machines, K18), and the machine's
+                // port refuses as its reference does (OctoPrint: `server/api/printer.py`).
+                // K18, HS4: a machine on a port that fails its pending commands on close (Marlin/OctoPrint,
+                // DYMO PnP, LabelWriter 450, laser) gets every Queued command at once (no gate, no
+                // 120 s); the other agent ports (Buddy, Klipper, the MK3 family) keep one at a time.
+                let next = match store.fails_pending_on_close(token) {
+                    Ok(true) => store.next_commands_for_agent(token),
+                    Ok(false) => store.next_command(token).map(|n| n.into_iter().collect()),
+                    Err(error) => Err(error),
+                };
+                let commands = match next {
+                    // Only typed commands go to an agent (the hub makes no G-code for it).
+                    Ok(next) => next
+                        .into_iter()
+                        .filter_map(|(id, body)| {
+                            serde_json::from_str::<protocol::Action>(&body)
+                                .ok()
+                                .map(|action| protocol::MachineCommand { id, action })
+                        })
+                        .collect(),
+                    Err(error) => return failed(error),
+                };
+                let (job, job_control) = match agent_job(&mut store, token, &report) {
+                    Ok(job) => job,
+                    Err(error) => return failed(error),
+                };
+                let update = match updates::order_for(&store, token, &report) {
+                    Ok(update) => update,
+                    Err(error) => return failed(error),
+                };
+                // Someone's answer to the question on its screen, once; and pause, resume or stop
+                // for a print it started itself (no job of the hub's).
+                let (answer, job_control) = match store.machine_id_by_token(token) {
+                    Ok(Some(machine)) => (
+                        store.answers.remove(&machine),
+                        job_control.or_else(|| store.own_job_control.remove(&machine)),
+                    ),
+                    _ => (None, job_control),
+                };
+                (
+                    TelemetryReply {
+                        paired: space.is_some(),
+                        space: None,
+                        commands,
+                        job,
+                        job_control,
+                        update,
+                        answer,
+                    },
+                    space,
+                )
+            }
+            Ok(None) => {
+                return (StatusCode::UNAUTHORIZED, "unknown agent: register again").into_response();
+            }
+            Err(error) => return failed(error),
+        }
+    };
+    // The space's name, from Postgres, once the lock is let go.
+    if let Some(space) = space {
+        match store.space_name(space).await {
+            Ok(name) => reply.space = Some(name),
+            Err(error) => return failed(error),
+        }
     }
+    Json(reply).into_response()
 }
 
 /// Where a request came from: the address it reached the hub from, or, behind a reverse
@@ -304,20 +318,23 @@ pub(crate) async fn pair(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::store::{self, Legacy};
+    use crate::store::{self};
     use crate::{label_page, machine_page};
     use axum::Router;
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
     use maker_connect_protocol::{MachineKind, MachineState};
-    use std::sync::{Arc, Mutex};
-    use tower::ServiceExt;
 
-    #[tokio::test]
-    async fn an_agent_runs_a_job() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    use tower::ServiceExt;
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn an_agent_runs_a_job(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         // The agent's own requests carry its token, no session: as from a real agent.
         let agent = crate::app(store.clone());
         let laser = Register {
@@ -374,14 +391,7 @@ pub(crate) mod tests {
         let (_, body) = call(&app, upload).await;
         let file: serde_json::Value = serde_json::from_str(&body).unwrap();
         // A laser: the tester has and wears the glasses (crate::safety).
-        let user: i64 = store
-            .lock()
-            .unwrap()
-            .db
-            .query_row("SELECT id FROM users WHERE name = 'tester'", [], |r| {
-                r.get(0)
-            })
-            .unwrap();
+        let user = store.user_id("tester").await.unwrap().unwrap();
         store
             .lock()
             .unwrap()
@@ -598,10 +608,14 @@ pub(crate) mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn a_cassette_out_needs_attention_not_an_error() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_cassette_out_needs_attention_not_an_error(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let register = Register {
             protocol: protocol::VERSION,
             name: "Dymo".into(),
@@ -657,10 +671,13 @@ pub(crate) mod tests {
         assert!(page.contains(r#"class="state attention""#));
     }
 
-    #[tokio::test]
-    async fn an_agent_registers_is_paired_and_listed() {
-        let app =
-            crate::auth::signed_in_app(Arc::new(Mutex::new(Legacy::open(":memory:").unwrap())));
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn an_agent_registers_is_paired_and_listed(pool: sqlx::PgPool) {
+        let app = crate::auth::signed_in_app(crate::store::Store::for_test(&pool).await).await;
         let register = Register {
             protocol: protocol::VERSION,
             name: "MK3S Gonzo".into(),
@@ -735,10 +752,13 @@ pub(crate) mod tests {
     }
 
     /// An unknown token is refused, and an agent of another protocol version is told so.
-    #[tokio::test]
-    async fn unknown_agents_and_versions_are_refused() {
-        let app =
-            crate::auth::signed_in_app(Arc::new(Mutex::new(Legacy::open(":memory:").unwrap())));
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn unknown_agents_and_versions_are_refused(pool: sqlx::PgPool) {
+        let app = crate::auth::signed_in_app(crate::store::Store::for_test(&pool).await).await;
         let report = r#"{"state":"idle"}"#.to_owned();
         let (status, _) = call(&app, json(protocol::TELEMETRY, Some("nope"), report)).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -767,7 +787,7 @@ pub(crate) mod tests {
 
     /// An agent machine, registered and paired into the default space: (id, token, space).
     fn agent_machine(
-        store: &Arc<Mutex<Legacy>>,
+        store: &crate::Store,
         kind: MachineKind,
         profile: Option<&str>,
     ) -> (String, String, i64) {
@@ -788,7 +808,7 @@ pub(crate) mod tests {
         (id, token, space)
     }
 
-    fn queue_gcode(store: &Arc<Mutex<Legacy>>, space: i64, machine: &str, text: &str) -> u32 {
+    fn queue_gcode(store: &crate::Store, space: i64, machine: &str, text: &str) -> u32 {
         store
             .lock()
             .unwrap()
@@ -828,7 +848,7 @@ pub(crate) mod tests {
     }
 
     fn state_of(
-        store: &Arc<Mutex<Legacy>>,
+        store: &crate::Store,
         space: i64,
         machine: &str,
         id: u32,
@@ -854,10 +874,14 @@ pub(crate) mod tests {
 
     /// Two commands for a Marlin agent machine go out together, and a typed `M112` goes out while an
     /// `M109` is still Sent (B7).
-    #[tokio::test]
-    async fn k18_a_marlin_agent_machine_has_no_gate() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn k18_a_marlin_agent_machine_has_no_gate(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None);
         let a = queue_gcode(&store, space, &id, "G28");
         let b = queue_gcode(&store, space, &id, "M105");
@@ -899,15 +923,20 @@ pub(crate) mod tests {
 
     /// The agent ports that do not fail pending commands on close (a Prusa profile, Alfawise's U30) keep one
     /// at a time and 120 s.
-    #[tokio::test]
-    async fn k18_the_other_agent_machines_keep_their_gate() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn k18_the_other_agent_machines_keep_their_gate(pool: sqlx::PgPool) {
         for (kind, profile) in [
             (MachineKind::Fdm, Some("prusa/mini")),
             (MachineKind::Fdm, Some("prusa/mk4s")),
             (MachineKind::Fdm, Some("alfawise/u30")),
         ] {
-            let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-            let app = crate::auth::signed_in_app(store.clone());
+            // A new hub for each (the database emptied again).
+            let store = crate::store::Store::fresh_for_test(&pool).await;
+            let app = crate::auth::signed_in_app(store.clone()).await;
             let (id, token, space) = agent_machine(&store, kind, profile);
             let a = queue_gcode(&store, space, &id, "G28");
             let b = queue_gcode(&store, space, &id, "M105");
@@ -941,11 +970,16 @@ pub(crate) mod tests {
 
     /// HS4: the label printers (DYMO PnP, LabelWriter 450) and the laser have no gate either: every Queued
     /// command goes at once, none is given up after 120 s, and the agent-gone rule applies to them.
-    #[tokio::test]
-    async fn hs4_label_and_laser_agent_machines_have_no_gate() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn hs4_label_and_laser_agent_machines_have_no_gate(pool: sqlx::PgPool) {
         for kind in [MachineKind::Label, MachineKind::Laser] {
-            let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-            let app = crate::auth::signed_in_app(store.clone());
+            // A new hub for each (the database emptied again).
+            let store = crate::store::Store::fresh_for_test(&pool).await;
+            let app = crate::auth::signed_in_app(store.clone()).await;
             let (id, token, space) = agent_machine(&store, kind, None);
             let a = queue_gcode(&store, space, &id, "G28");
             let b = queue_gcode(&store, space, &id, "M105");
@@ -993,10 +1027,14 @@ pub(crate) mod tests {
     }
 
     /// K18's agent-gone rule: only the Sent and Accepted commands, not the Queued, only of that machine.
-    #[tokio::test]
-    async fn k18_agent_gone_fails_sent_and_accepted_of_that_machine_only() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn k18_agent_gone_fails_sent_and_accepted_of_that_machine_only(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None);
         let (other, other_token, _) = agent_machine(&store, MachineKind::Fdm, None);
         let (prusa, prusa_token, _) = agent_machine(&store, MachineKind::Fdm, Some("prusa/mk4s"));
@@ -1068,10 +1106,14 @@ pub(crate) mod tests {
     /// The late Done, one order (K18): a Done from the port that comes after "the agent was gone" wins,
     /// as `command_went` overwrites; it is the printer's own result. A Done in the same report as the
     /// first one after the gap wins too.
-    #[tokio::test]
-    async fn k18_a_late_done_wins_over_the_agent_was_gone() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn k18_a_late_done_wins_over_the_agent_was_gone(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None);
         let a = queue_gcode(&store, space, &id, "M109 S200");
         let b = queue_gcode(&store, space, &id, "G28");

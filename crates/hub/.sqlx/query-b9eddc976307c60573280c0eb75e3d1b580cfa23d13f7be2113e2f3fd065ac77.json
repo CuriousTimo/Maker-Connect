@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE identities SET secret = $2 WHERE user_id = $1 AND provider = 'password'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b9eddc976307c60573280c0eb75e3d1b580cfa23d13f7be2113e2f3fd065ac77"
+}

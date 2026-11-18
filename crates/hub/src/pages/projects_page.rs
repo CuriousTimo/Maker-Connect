@@ -16,7 +16,7 @@ pub fn routes() -> Router<Store> {
 }
 
 async fn page(access: Access, State(store): State<Store>) -> Response {
-    let name = match store.lock().unwrap().space_name(access.space) {
+    let name = match store.space_name(access.space).await {
         Ok(name) => name,
         Err(error) => return failed(error),
     };

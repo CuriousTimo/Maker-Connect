@@ -25,6 +25,9 @@ mod migrate;
 pub mod pg;
 use migrate::{back_up_before_upgrade, migrate};
 
+/// An error from either database while both are in use (transitional, lanes 1-4).
+pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
 /// Whether machines on this link take commands from the website (yet).
 pub fn takes_commands(link: &str) -> bool {
     matches!(link, "prusa-connect" | "virtual" | "agent" | "simplyprint")
@@ -534,17 +537,38 @@ impl Store {
     }
 
     /// For `#[sqlx::test]`: the test's database, and an in-memory SQLite (transitional).
-    #[cfg(all(test, feature = "pg-tests"))]
+    #[cfg(test)]
     pub(crate) async fn for_test(pool: &sqlx::PgPool) -> Self {
-        Self::new(Legacy::open(":memory:").unwrap(), pg::Pg::from_pool(pool))
-            .await
-            .unwrap()
+        Self::with_legacy(pool, Legacy::open(":memory:").unwrap()).await
+    }
+
+    /// For `#[sqlx::test]`: a new store on the test's database emptied again, as a new hub has it
+    /// (the seed of `accounts/migrations/20261118000100_accounts.sql`): for a test that needs
+    /// several fresh hubs in one run.
+    #[cfg(test)]
+    pub(crate) async fn fresh_for_test(pool: &sqlx::PgPool) -> Self {
+        sqlx::raw_sql(
+            "TRUNCATE meta, organisations, spaces, users, identities, memberships, org_memberships,
+                 sessions, invites, api_tokens, audit_log RESTART IDENTITY CASCADE;
+             INSERT INTO organisations (uid, name, created_at)
+                 VALUES (gen_random_uuid()::text, 'My space', now());
+             INSERT INTO spaces (name, uid, organisation_id)
+                 SELECT 'My space', gen_random_uuid()::text, id FROM organisations;",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        Self::for_test(pool).await
+    }
+
+    /// For `#[sqlx::test]`: the test's database over a SQLite store the test made (transitional).
+    #[cfg(test)]
+    pub(crate) async fn with_legacy(pool: &sqlx::PgPool, legacy: Legacy) -> Self {
+        Self::new(legacy, pg::Pg::from_pool(pool)).await.unwrap()
     }
 
     /// Transitional: the modules still on SQLite (lanes 1-4).
-    pub fn lock(
-        &self,
-    ) -> std::sync::LockResult<std::sync::MutexGuard<'_, Legacy>> {
+    pub fn lock(&self) -> std::sync::LockResult<std::sync::MutexGuard<'_, Legacy>> {
         self.inner.legacy.lock()
     }
 

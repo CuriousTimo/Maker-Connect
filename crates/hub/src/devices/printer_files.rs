@@ -563,7 +563,12 @@ fn listed_in(store: &Legacy, machine: &str, folder: &str) -> Option<Vec<String>>
 }
 
 /// An event from a printer about its files and transfers (called for every event).
-pub fn on_event(store: &mut Legacy, token: &str, name: &str, event: &Value) -> rusqlite::Result<()> {
+pub fn on_event(
+    store: &mut Legacy,
+    token: &str,
+    name: &str,
+    event: &Value,
+) -> rusqlite::Result<()> {
     let Some((machine, _)) = store.printer_of(token)? else {
         return Ok(());
     };
@@ -1556,7 +1561,7 @@ mod flow {
     use crate::store::{Legacy, now};
     use axum::http::Request;
     use http_body_util::BodyExt;
-    use std::sync::{Arc, Mutex};
+
     use tower::ServiceExt;
 
     async fn call(app: &Router, request: Request<Body>) -> (StatusCode, HeaderMap, Vec<u8>) {
@@ -1576,10 +1581,14 @@ mod flow {
     /// arriving, shown as being deleted until FILE_CHANGED (which settles the command, as
     /// Buddy sends no FINISHED for it), then gone from the listing; a folder is read once
     /// however often the page asks meanwhile.
-    #[tokio::test]
-    async fn deleting_on_the_stick() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn deleting_on_the_stick(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let (space, mini, token) = {
             let mut s = store.lock().unwrap();
             let space = s.default_space().unwrap().0;
@@ -1749,10 +1758,14 @@ mod flow {
     /// A MINI, as it talks: its stick looked through (with a file's picture), a file
     /// printed from it, and a file of the space sent to it (encrypted, fetched in two
     /// goes), printed, and its job followed to the end.
-    #[tokio::test]
-    async fn a_mini_and_its_usb_stick() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_mini_and_its_usb_stick(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         // A MINI registered and in the space.
         let (space, mini, token) = {
             let mut s = store.lock().unwrap();
@@ -2143,10 +2156,14 @@ mod flow {
     /// it ends, as it says; what is left on its bed then holds a queued job back until it is
     /// taken off. Seen missing on the MINI (2026-11-08): a stopped Benchy was not known to be
     /// on the bed, so a queued job could have started on top of it.
-    #[tokio::test]
-    async fn a_print_the_mini_runs_itself_holds_the_queue_when_it_ends() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_print_the_mini_runs_itself_holds_the_queue_when_it_ends(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let (space, mini, token) = {
             let mut s = store.lock().unwrap();
             let space = s.default_space().unwrap().0;
@@ -2251,10 +2268,14 @@ mod flow {
     /// preview on the printer's screen, which keeps it read-only. The hub closes it with
     /// M604 (tried on the MINI), so nobody has to go to the printer; but only answering a
     /// report that says IDLE with nothing before it: in a print M604 would stop it.
-    #[tokio::test]
-    async fn a_download_only_to_the_stick_closes_its_preview() {
-        let store = Arc::new(Mutex::new(Legacy::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_download_only_to_the_stick_closes_its_preview(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let (mini, token) = {
             let mut s = store.lock().unwrap();
             let space = s.default_space().unwrap().0;

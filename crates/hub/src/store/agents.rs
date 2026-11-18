@@ -1,6 +1,16 @@
 use super::*;
 
 impl Legacy {
+    /// For tests on SQLite alone (transitional, lanes 1-4): the first space, as SQLite's own
+    /// migration made it; its id is the Postgres default space's (both 1 on a new hub).
+    #[cfg(test)]
+    pub fn default_space(&self) -> rusqlite::Result<(i64, String)> {
+        self.db
+            .query_row("SELECT id, name FROM spaces ORDER BY id LIMIT 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+    }
+
     /// A new agent: its machine, not yet in a space, with a token and a pairing code.
     pub fn register(&self, agent: &Register) -> rusqlite::Result<(String, String, String)> {
         self.register_linked(agent, "agent")

@@ -109,7 +109,7 @@ impl Pg {
     }
 }
 
-#[cfg(all(test, feature = "pg-tests"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -124,13 +124,17 @@ mod tests {
     /// Row-level security, as the app role: without a space no tenant row shows; with one, only its
     /// own; and a fresh transaction after one with a space sees none again.
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
     async fn a_query_without_a_space_sees_no_tenant_rows(pool: PgPool) {
         // A second space beside the first, as the owner.
         sqlx::raw_sql(
-            "INSERT INTO organisations (uid, name, created_at) VALUES ('o2', 'Other', 0);
+            "INSERT INTO organisations (uid, name, created_at) VALUES ('o2', 'Other', at_unix(0));
              INSERT INTO spaces (name, uid, organisation_id)
                  SELECT 'Other', 's2', id FROM organisations WHERE uid = 'o2';
-             INSERT INTO audit_log (space_id, at, actor, action) SELECT id, 0, 'a', 'x' FROM spaces",
+             INSERT INTO audit_log (space_id, at, actor, action) SELECT id, at_unix(0), 'a', 'x' FROM spaces",
         )
         .execute(&pool)
         .await
@@ -181,7 +185,7 @@ mod tests {
         // Writing into another space is refused.
         let mut tx = pg.space(1).await.unwrap();
         let other = sqlx::query(
-            "INSERT INTO audit_log (space_id, at, actor, action) VALUES (2, 0, 'a', 'x')",
+            "INSERT INTO audit_log (space_id, at, actor, action) VALUES (2, at_unix(0), 'a', 'x')",
         )
         .execute(&mut *tx)
         .await;

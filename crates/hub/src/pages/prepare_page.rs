@@ -20,14 +20,14 @@ const PREPARE_STYLE: &str = "
 ";
 
 pub async fn page(access: crate::access::Access, State(store): State<Store>) -> Response {
-    let (space, laser) = {
+    let space = match store.space_name(access.space).await {
+        Ok(name) => name,
+        Err(error) => return failed(error),
+    };
+    let laser = {
         let store = store.lock().unwrap();
-        let space = match store.space_id_of(&access) {
-            Ok((_, name)) => name,
-            Err(error) => return failed(error),
-        };
         match availability(&store, &access) {
-            Ok(a) => (space, a),
+            Ok(a) => a,
             Err(error) => return failed(error),
         }
     };

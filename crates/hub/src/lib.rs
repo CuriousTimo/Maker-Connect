@@ -44,7 +44,6 @@ pub mod usbcam;
 pub mod web;
 
 pub use store::Store;
-use store::Legacy;
 
 pub(crate) use devices::legacy_gcode::{
     JOG_FEEDS, JOG_STEPS, action, grbl_action, jog_command, probe_gcode, prusa_mk3_machine,

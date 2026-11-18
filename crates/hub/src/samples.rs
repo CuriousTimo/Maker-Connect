@@ -148,20 +148,22 @@ async fn add(access: Access, State(store): State<Store>) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
 
     /// A space gets them once: not twice, and not again after they were removed.
-    #[test]
-    fn every_space_gets_them_once() {
-        let store: crate::Store =
-            Arc::new(Mutex::new(crate::store::Legacy::open(":memory:").unwrap()));
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn every_space_gets_them_once(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
         let space = store.lock().unwrap().default_space().unwrap().0;
-        super::give_once(&store).unwrap();
+        super::give_once(&store).await.unwrap();
         let n = store.lock().unwrap().files(space).unwrap().len();
         assert_eq!(n, super::unpack().unwrap().len());
         let first = store.lock().unwrap().files(space).unwrap()[0].clone();
         store.lock().unwrap().remove_file(space, &first.id).unwrap();
-        super::give_once(&store).unwrap();
+        super::give_once(&store).await.unwrap();
         assert_eq!(
             store.lock().unwrap().files(space).unwrap().len(),
             n - 1,

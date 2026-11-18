@@ -26,21 +26,10 @@ jobs:
   check:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # The store's tests run on Postgres (docs/plans/hub-core-v2.md §2.7): the Linux jobs get the database as a
-    # service container and turn on `pg-tests`; macOS and Windows runners have no service containers, so
-    # they skip the store tests (everything else runs there). Builds read the checked-in `.sqlx/` cache.
-    services:
-      postgres:
-        image: ${{ startsWith(matrix.os, 'ubuntu') && 'timescale/timescaledb:2.32.0-pg17' || '' }}
-        env:
-          POSTGRES_PASSWORD: mc-ci
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    # Builds read the checked-in `.sqlx/` cache. The store's tests need Postgres: here they are listed as
+    # ignored (no `pg-tests`); the job `store` below runs them.
     env:
       SQLX_OFFLINE: "true"
-      PG_TESTS: ${{ startsWith(matrix.os, 'ubuntu') && '--features maker-connect-hub/pg-tests' || '' }}
-      DATABASE_URL: postgres://postgres:mc-ci@127.0.0.1:5432/postgres
     strategy:
       fail-fast: false
       matrix:
@@ -70,22 +59,7 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Tests
-        shell: bash
-        run: cargo test --workspace --locked $PG_TESTS
-
-      # `.sqlx/` must match the queries: checked against a database with every migration applied.
-      - name: Query cache current (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          cargo install sqlx-cli --version 0.9.1 --locked --no-default-features --features rustls,postgres
-          sudo apt-get install -y postgresql-client
-          psql "$DATABASE_URL" -q -c "CREATE DATABASE mc_prepare"
-          for f in $(find crates/hub/src -path '*/migrations/*.sql' | awk -F/ '{print $NF "\t" $0}' | sort | cut -f2); do
-            psql "${DATABASE_URL%/postgres}/mc_prepare" -q -v ON_ERROR_STOP=1 -f "$f"
-          done
-          cd crates/hub && DATABASE_URL="${DATABASE_URL%/postgres}/mc_prepare" SQLX_OFFLINE=false \
-            cargo sqlx prepare --check -- --all-targets --features pg-tests
+        run: cargo test --workspace --locked
 
       - name: Documentation
         env:
@@ -106,3 +80,48 @@ jobs:
             target/release/maker-connect-agent.exe
           if-no-files-found: error
           retention-days: 30
+
+  # The store's tests on Postgres (docs/plans/hub-core-v2.md §2.7), in a job of their own on Linux, the one
+  # runner with service containers (journal:V2-STORE-1:0008); the matrix above leaves them ignored.
+  store:
+    name: store (Postgres)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: timescale/timescaledb:2.32.0-pg17
+        env:
+          POSTGRES_PASSWORD: mc-ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      SQLX_OFFLINE: "true"
+      DATABASE_URL: postgres://postgres:mc-ci@127.0.0.1:5432/postgres
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Serial port headers
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config postgresql-client
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Store tests
+        run: cargo test -p maker-connect-hub --locked --features pg-tests
+
+      # `.sqlx/` must match the queries: checked against a database with every migration applied.
+      - name: Query cache current
+        shell: bash
+        run: |
+          cargo install sqlx-cli --version 0.9.1 --locked --no-default-features --features rustls,postgres
+          psql "$DATABASE_URL" -q -c "CREATE DATABASE mc_prepare"
+          for f in $(find crates/hub/src -path '*/migrations/*.sql' | awk -F/ '{print $NF "\t" $0}' | sort | cut -f2); do
+            psql "${DATABASE_URL%/postgres}/mc_prepare" -q -v ON_ERROR_STOP=1 -f "$f"
+          done
+          cd crates/hub && DATABASE_URL="${DATABASE_URL%/postgres}/mc_prepare" SQLX_OFFLINE=false \
+            cargo sqlx prepare --check -- --all-targets --features pg-tests
+

@@ -12,8 +12,8 @@ const FILES_STYLE: &str = include_str!("../files.css");
 const FILES_SCRIPT: &str = include_str!("../files.js");
 
 pub async fn page(access: crate::access::Access, State(store): State<Store>) -> Response {
-    let space = match store.lock().unwrap().space_id_of(&access) {
-        Ok((_, name)) => name,
+    let space = match store.space_name(access.space).await {
+        Ok(name) => name,
         Err(error) => return failed(error),
     };
     Html(format!(

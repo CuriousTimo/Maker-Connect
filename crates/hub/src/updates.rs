@@ -264,12 +264,14 @@ async fn update_hub(access: Access, State(store): State<Store>) -> Response {
         tokio::task::spawn_blocking(move || prepare_hub(&shared, &program, &releases_url())).await;
     match prepared {
         Ok(Ok(tag)) => {
-            let _ = store.lock().unwrap().audit(
-                &access,
-                "updated the hub",
-                &tag,
-                &format!("from {}", crate::store::BUILD),
-            );
+            let _ = store
+                .audit(
+                    &access,
+                    "updated the hub",
+                    &tag,
+                    &format!("from {}", crate::store::BUILD),
+                )
+                .await;
             println!("updating to {tag}: trying it");
             // The answer first; then this hub stops serving, and tries the new build (main).
             tokio::spawn(async {
@@ -427,20 +429,22 @@ async fn update_agent(
         Ok(p) => p,
         Err(response) => return *response,
     };
-    let store = store.lock().unwrap();
-    match ask(
-        &store,
+    let asked = ask(
+        &store.lock().unwrap(),
         access.space,
         std::slice::from_ref(&id),
         &prepared.tag,
-    ) {
+    );
+    match asked {
         Ok(0) => (
             StatusCode::CONFLICT,
             "only a machine with Maker Connect's agent updates it",
         )
             .into_response(),
         Ok(_) => {
-            let _ = store.audit(&access, "asked an agent to update", &id, &prepared.tag);
+            let _ = store
+                .audit(&access, "asked an agent to update", &id, &prepared.tag)
+                .await;
             Json(serde_json::json!({ "to": prepared.tag })).into_response()
         }
         Err(error) => failed(error),
@@ -452,8 +456,8 @@ async fn update_agents(access: Access, State(store): State<Store>) -> Response {
         Ok(p) => p,
         Err(response) => return *response,
     };
-    let store = store.lock().unwrap();
-    let machines: Vec<String> = match store.machines(access.space) {
+    let machines = store.lock().unwrap().machines(access.space);
+    let machines: Vec<String> = match machines {
         Ok(machines) => machines
             .into_iter()
             .filter(|m| m.link == "agent")
@@ -461,14 +465,22 @@ async fn update_agents(access: Access, State(store): State<Store>) -> Response {
             .collect(),
         Err(error) => return failed(error),
     };
-    match ask(&store, access.space, &machines, &prepared.tag) {
+    let asked = ask(
+        &store.lock().unwrap(),
+        access.space,
+        &machines,
+        &prepared.tag,
+    );
+    match asked {
         Ok(asked) => {
-            let _ = store.audit(
-                &access,
-                "asked every agent to update",
-                &prepared.tag,
-                &format!("{asked} agents"),
-            );
+            let _ = store
+                .audit(
+                    &access,
+                    "asked every agent to update",
+                    &prepared.tag,
+                    &format!("{asked} agents"),
+                )
+                .await;
             Json(serde_json::json!({ "to": prepared.tag, "agents": asked })).into_response()
         }
         Err(error) => failed(error),
@@ -619,14 +631,20 @@ pub(crate) mod tests {
     /// new build on a copy before it takes the old one's place; a tampered archive or one
     /// that fails its trial changes nothing.
     #[cfg(unix)]
-    #[tokio::test(flavor = "multi_thread")]
-    async fn the_hub_updates_itself_only_to_a_signed_build_that_works() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_hub_updates_itself_only_to_a_signed_build_that_works(pool: sqlx::PgPool) {
         let dir = std::env::temp_dir().join(format!("mc-hub-update-{}", crate::store::random_id()));
         std::fs::create_dir_all(&dir).unwrap();
         let db = dir.join("maker-connect.db");
-        let store: Store = std::sync::Arc::new(std::sync::Mutex::new(
+        let store: Store = Store::with_legacy(
+            &pool,
             crate::store::Legacy::open(db.to_str().unwrap()).unwrap(),
-        ));
+        )
+        .await;
         let exe = dir.join("maker-connect-hub");
         std::fs::write(&exe, "#!/bin/sh\necho old\n").unwrap();
         let system = update::this_system().unwrap();
@@ -673,8 +691,12 @@ pub(crate) mod tests {
 
     /// An agent asked to update gets the order, fetches its build through the hub (checked),
     /// and is no longer asked once it says how it went.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn an_agent_is_told_and_fetches_its_build_through_the_hub() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn an_agent_is_told_and_fetches_its_build_through_the_hub(pool: sqlx::PgPool) {
         let build = b"a new agent".to_vec();
         let url = releases(vec![(
             "agent-v99.0.0",
@@ -734,7 +756,7 @@ pub(crate) mod tests {
         .unwrap();
 
         // Through the hub, with the agent's token only.
-        let shared: Store = std::sync::Arc::new(std::sync::Mutex::new(store));
+        let shared: Store = Store::with_legacy(&pool, store).await;
         let app = routes().with_state(shared.clone());
         let get = |token: &'static str| {
             let app = app.clone();

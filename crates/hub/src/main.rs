@@ -1,20 +1,21 @@
-use maker_connect_hub::store::{self, Legacy};
+use maker_connect_hub::store::{self, Legacy, Store};
 use maker_connect_hub::{
     accounts, app, farm, queue, samples, spoolmandb, updates, virtual_machines,
 };
-use std::sync::{Arc, Mutex};
 
 const USAGE: &str = "Maker Connect hub (proof of concept)
 
 Usage:
-  maker-connect-hub [--listen 0.0.0.0:8460] [--db maker-connect.db]
-  maker-connect-hub reset-password <name> [--db maker-connect.db]
+  maker-connect-hub [--listen 0.0.0.0:8460] [--db maker-connect.db] [--database-url postgres://…]
+  maker-connect-hub reset-password <name> [--db maker-connect.db] [--database-url postgres://…]
 
 Open http://localhost:8460. On a fresh install, make the first account with the setup code
 this prints at start; then add machines with the code their agent shows.
 
 reset-password gives an account a new password (printed once) and signs it out everywhere:
 for when its owner cannot sign in any more.
+
+The Postgres database comes from --database-url, else from the DATABASE_URL environment variable.
 ";
 
 /// What a release's archive brings beside the hub, into the folders beside its database.
@@ -68,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut listen = "0.0.0.0:8460".to_owned();
     let mut db = "maker-connect.db".to_owned();
     let mut reset: Option<String> = None;
+    let mut database_url = std::env::var("DATABASE_URL").ok();
     // A new build tried before it is put in place (crate::updates): it opens the database (a
     // copy), builds its pages, takes a port, and ends.
     let mut trial = false;
@@ -76,6 +78,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match flag.as_str() {
             "--listen" => listen = args.next().ok_or("expected an address after --listen")?,
             "--db" => db = args.next().ok_or("expected a file after --db")?,
+            "--database-url" => {
+                database_url = Some(
+                    args.next()
+                        .ok_or("expected a postgres:// address after --database-url")?,
+                )
+            }
             "--trial" => trial = true,
             "reset-password" => {
                 reset = Some(
@@ -89,9 +97,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+    let database_url = database_url.ok_or("expected --database-url or DATABASE_URL")?;
     if trial {
-        let opened = Legacy::open(&db)?;
-        let _app = app(Arc::new(Mutex::new(opened)));
+        let opened = Store::open(&db, &database_url)
+            .await
+            .map_err(|e| e.to_string())?;
+        let _app = app(opened);
         let _port = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         println!("trial: {} opens its database and starts", store::BUILD);
         return Ok(());
@@ -123,18 +134,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             None => return Err(error.into()),
         },
     };
+    let pg = match store::pg::Pg::connect(&database_url).await {
+        Ok(pg) => pg,
+        Err(error) => match &on_trial {
+            Some(t) => go_back(
+                &exe,
+                &again,
+                t,
+                &format!("it could not open the database: {error}"),
+            ),
+            None => return Err(error.into()),
+        },
+    };
     if let Some(name) = reset {
-        let Some(user) = opened.user_id(&name)? else {
-            return Err(format!("no account named {name:?} in {db}").into());
+        let store = Store::new(opened, pg).await?;
+        let Some(user) = store.user_id(&name).await? else {
+            return Err(format!("no account named {name:?}").into());
         };
         let password = accounts::random_token()[..20].to_owned();
-        opened.set_password(user, &accounts::hash_password(&password))?;
+        store
+            .set_password(user, &accounts::hash_password(&password))
+            .await?;
         println!(
             "{name}'s new password: {password}\n(signed out everywhere; change it after signing in)"
         );
         return Ok(());
     }
-    opened.end_old_sessions()?;
     let reread = opened.reread_files()?;
     if reread > 0 {
         println!("read {reread} kept files again");
@@ -142,7 +167,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     from_release(&opened);
     // SpoolmanDB, kept beside the uploaded files and fetched every hour.
     spoolmandb::start(opened.files_dir.join("spoolmandb"));
-    let store = Arc::new(Mutex::new(opened));
+    let store = Store::new(opened, pg).await?;
+    store.end_old_sessions().await?;
     tokio::spawn(virtual_machines::run(store.clone()));
     tokio::spawn(farm::run(store.clone()));
     tokio::spawn(samples::run(store.clone()));
@@ -172,7 +198,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{} works: the update is done", t.to);
         });
     }
-    if let Some(code) = store.lock().unwrap().setup_code.clone() {
+    if let Some(code) = store.setup_code() {
         println!("no accounts yet: open it in a browser and make the first with setup code {code}");
     }
     let serving = axum::serve(

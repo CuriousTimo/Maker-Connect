@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO invites (token_hash, space_id, role, created_by, created_at, expires_at, whole_organisation)\n             VALUES ($1, $2, $3, $4, at_unix($5), at_unix($6), $7)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6495b6280d8f94daf535be7c46f03e0b2b3947ce975c51c8f7ebc1921a4df5e9"
+}
