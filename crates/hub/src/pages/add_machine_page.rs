@@ -61,7 +61,11 @@ async fn page(access: Access, State(store): State<Store>, headers: HeaderMap) ->
     };
     let ini = format!(
         "[service::connect]\nhostname = {}\nport = {port}\ntls = false",
-        if local { "<this computer's address>" } else { &host }
+        if local {
+            "<this computer's address>"
+        } else {
+            &host
+        }
     );
     let pair = |id: &str| {
         format!(

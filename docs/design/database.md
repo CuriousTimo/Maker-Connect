@@ -648,10 +648,10 @@ erDiagram
 | Table | Columns (type) | Keys | RLS | Timescale |
 |---|---|---|---|---|
 | `event` | `time timestamptz`, `seq bigint` (global, from one sequence, taken under `pg_advisory_xact_lock` of one fixed key so that seq order is commit order, [decision](decisions/20261119-event-order.md)), `space_id uuid`, `type text` (registry), `source text` (device or resource id), `origin jsonb` (person, token, agent, queue or device, with its id), `data jsonb` | unique `(seq, time)` | space | hypertable on `time`; retention 1 year |
-| `sample` | `time timestamptz`, `space_id uuid`, `device_id uuid`, `metric smallint`, `value float8` | index `(device_id, metric, time desc)` | space ([decision](decisions/20261119-history-tenancy.md)); written by the history subscriber on the admin pool (allowlist #4) | hypertable on `time`; compression `segmentby device_id, metric` after 7 days (`space_id` compresses with the segment); raw retention 30 days |
-| `sample_1m`, `sample_1h` | continuous aggregates of `sample` per space, device, metric and bucket | — | space, through the `space_id` the aggregate groups by | retention 1 year and forever |
+| `sample` | `time timestamptz`, `space_id bigint`, `device_id text`, `metric smallint`, `value float8` | index `(device_id, metric, time desc)` | none: TimescaleDB refuses compression and continuous aggregates with RLS; the app role reads only the view `sample_in_space` (`WHERE space_id = app_space()`, [decision](decisions/20261120-history-views-not-rls.md)); written by the history writer on the admin pool (allowlist #4) | hypertable on `time`; compression `segmentby device_id, metric` after 7 days (`space_id` compresses with the segment); raw retention 30 days |
+| `sample_1m`, `sample_1h` | continuous aggregates of `sample` per space, device, metric and bucket: `avg`, `min`, `max` | — | the views `sample_1m_in_space`, `sample_1h_in_space`, through the `space_id` the aggregate groups by | retention 1 year and forever |
 | `metric` | `id smallint`, `name text`, `unit text` | PK `id`; unique `name` | none (registry, same for every space) | plain |
-| `gap` | `space_id uuid`, `device_id uuid`, `from_time`, `to_time timestamptz`, `why text` (hub restart, agent offline) | index `(device_id, from_time)` | space | plain |
+| `gap` | `space_id bigint`, `device_id text`, `from_time`, `to_time timestamptz`, `why text` (hub restart, agent offline) | index `(device_id, from_time)` | the view `gap_in_space`, as `sample` | plain |
 
 Retention defaults ([decision](decisions/20261118-retention-defaults.md)): raw samples 30 days, 1-minute
 aggregates 1 year, 1-hour aggregates forever, events 1 year, command records and the audit log

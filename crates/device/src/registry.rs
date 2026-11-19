@@ -839,7 +839,42 @@ pub static FAULT_CODES: &[&FaultCode] = &[
     &fault::PERSON_ONLY,
 ];
 
-pub static METRICS: &[MetricEntry] = &[];
+/// What the history keeps of a machine's telemetry (crate hub `store::history`). The names are the
+/// Prusa Connect SDK's telemetry keys (`reference/Prusa-Connect-SDK-Printer`, `Printer.telemetry`).
+/// The order is the `metric` table's ids, from 1 (hub migration `20261120000000_history.sql`):
+/// append only.
+pub static METRICS: &[MetricEntry] = &[
+    MetricEntry {
+        name: "temp_nozzle",
+        unit: Unit::Celsius,
+        doc: "The nozzle's temperature.",
+    },
+    MetricEntry {
+        name: "target_nozzle",
+        unit: Unit::Celsius,
+        doc: "The nozzle's target temperature.",
+    },
+    MetricEntry {
+        name: "temp_bed",
+        unit: Unit::Celsius,
+        doc: "The bed's temperature.",
+    },
+    MetricEntry {
+        name: "target_bed",
+        unit: Unit::Celsius,
+        doc: "The bed's target temperature.",
+    },
+    MetricEntry {
+        name: "fan_print",
+        unit: Unit::Rpm,
+        doc: "The print fan's speed.",
+    },
+    MetricEntry {
+        name: "fan_hotend",
+        unit: Unit::Rpm,
+        doc: "The hotend fan's speed.",
+    },
+];
 
 /// The test fixture rows, only under `cfg(test)`.
 #[cfg(test)]

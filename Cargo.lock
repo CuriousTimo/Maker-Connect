@@ -1772,6 +1772,7 @@ dependencies = [
  "include_dir",
  "jpeg-decoder",
  "jpeg-encoder",
+ "maker-connect-device",
  "maker-connect-engine",
  "maker-connect-grbl",
  "maker-connect-label",

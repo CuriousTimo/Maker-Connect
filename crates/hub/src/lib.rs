@@ -58,8 +58,8 @@ pub use devices::{
 };
 pub(crate) use link::{agent_job, agent_of, peer_address};
 pub use pages::{
-    access_page, add_machine_page, files_page, label_page, machine_page, now_page, permissions_page, projects_page,
-    space_page,
+    access_page, add_machine_page, files_page, label_page, machine_page, now_page,
+    permissions_page, projects_page, space_page,
 };
 pub use web::router::app;
 pub(crate) use web::router::{done, failed};

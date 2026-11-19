@@ -48,6 +48,8 @@ pub enum Unit {
     Second,
     #[serde(rename = "byte")]
     Byte,
+    #[serde(rename = "rpm")]
+    Rpm,
 }
 
 impl Unit {
@@ -59,6 +61,7 @@ impl Unit {
             Unit::MillimeterPerMinute => "mm/min",
             Unit::Second => "s",
             Unit::Byte => "byte",
+            Unit::Rpm => "rpm",
         }
     }
 }

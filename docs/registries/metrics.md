@@ -4,3 +4,9 @@
 
 | Metric | Unit | |
 |---|---|---|
+| `temp_nozzle` | celsius | The nozzle's temperature. |
+| `target_nozzle` | celsius | The nozzle's target temperature. |
+| `temp_bed` | celsius | The bed's temperature. |
+| `target_bed` | celsius | The bed's target temperature. |
+| `fan_print` | rpm | The print fan's speed. |
+| `fan_hotend` | rpm | The hotend fan's speed. |

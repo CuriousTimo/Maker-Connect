@@ -23,6 +23,25 @@ use std::path::{Path, PathBuf};
 /// (scripts/db-roles.sql, design storage-ops.md "the restore template"), owned by
 /// [`OWNER_ROLE`], with the TimescaleDB extension the dumps leave out.
 pub const RESTORE_TEMPLATE: &str = "maker_connect_template";
+
+/// The history's objects (crate::store::history): TimescaleDB's hypertables and continuous
+/// aggregates, which only a superuser restores (TimescaleDB's own catalog and
+/// `_timescaledb_internal`, decisions/20261120-history-not-in-dumps.md). The dumps leave them out;
+/// a restore makes them again, empty, from their migration ([`HISTORY_SQL`]).
+const HISTORY_OBJECTS: &[&str] = &[
+    "metric",
+    "sample",
+    "sample_1m",
+    "sample_1h",
+    "gap",
+    "sample_in_space",
+    "sample_1m_in_space",
+    "sample_1h_in_space",
+    "gap_in_space",
+];
+/// The history's objects as their one migration makes them: a later change to them is a change of
+/// this file too, never a new migration (test `a_dump_restores_into_a_copy_with_the_same_rows`).
+const HISTORY_SQL: &str = include_str!("store/migrations/20261120000000_history.sql");
 use std::process::{Command, Stdio};
 
 /// The hub's dumps, as its flags set them (main); none in tests and `reset-password`.
@@ -202,9 +221,15 @@ impl Dumps {
                 // TimescaleDB comes with the restore template (RESTORE_TEMPLATE): its own catalog is
                 // the superuser's, which a restore as the owner may not write.
                 "--exclude-extension=timescaledb",
-                "--dbname",
-                &self.url_of(&self.database()),
+                // So are the chunks and the aggregates' tables: the history stays out ([`HISTORY_OBJECTS`]).
+                "--exclude-schema=_timescaledb_internal",
             ])
+            .args(
+                HISTORY_OBJECTS
+                    .iter()
+                    .map(|o| format!("--exclude-table=public.{o}")),
+            )
+            .args(["--dbname", &self.url_of(&self.database())])
             .stdout(file)
             .stderr(Stdio::piped());
         let out = command.output().map_err(|e| format!("pg_dump: {e}"));
@@ -287,11 +312,31 @@ impl Dumps {
                 &self.url_of(database),
             ])
             .stdin(file);
-        let restored = Self::finish(command, "pg_restore");
+        let restored = Self::finish(command, "pg_restore").and_then(|()| self.history_in(database));
         if restored.is_err() {
             let _ = self.drop_database(database);
         }
         restored
+    }
+
+    /// The history's objects made again in a restored `database`, empty ([`HISTORY_OBJECTS`]), as
+    /// the tables' owner, in one transaction.
+    fn history_in(&self, database: &str) -> Result<(), String> {
+        let mut command = self.tool("psql");
+        command.args([
+            "-X",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--single-transaction",
+            "-d",
+            &self.url_of(database),
+            "-c",
+            &format!("SET ROLE {OWNER_ROLE}"),
+            "-c",
+            HISTORY_SQL,
+        ]);
+        Self::finish(command, "psql (the history)")
     }
 
     /// Drops `database` if it is there (its connections ended), never the one in use.
@@ -546,13 +591,36 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        // The history stays out of the dump (HISTORY_OBJECTS): its sample is not in the copy.
+        sqlx::query("INSERT INTO sample VALUES (now(), 1, 'm1', 1, 215)")
+            .execute(&pool)
+            .await
+            .unwrap();
         let dumps = for_test(&pool).await;
         let dump = dumps.dump(NIGHTLY, None).unwrap();
         assert!(dumps.restore_as(&dump, &dumps.database()).is_err());
         let copy = format!("mc_copy_{}", crate::store::random_id().to_lowercase());
         dumps.restore_as(&dump, &copy).unwrap();
         let restored = pool_of(&copy).await;
-        assert_eq!(counts(&restored).await, counts(&pool).await);
+        let without_history = |mut c: Vec<(String, i64)>| {
+            c.retain(|(t, _)| t != "sample");
+            c
+        };
+        assert_eq!(
+            without_history(counts(&restored).await),
+            without_history(counts(&pool).await)
+        );
+        // …and made again, empty, on TimescaleDB as its migration makes it.
+        let history: (i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM sample),
+                    (SELECT count(*) FROM timescaledb_information.hypertables WHERE hypertable_name = 'sample'),
+                    (SELECT count(*) FROM timescaledb_information.continuous_aggregates),
+                    (SELECT count(*) FROM metric)",
+        )
+        .fetch_one(&restored)
+        .await
+        .unwrap();
+        assert_eq!(history, (0, 1, 2, 6));
         restored.close().await;
         dumps.drop_database(&copy).unwrap();
         std::fs::remove_dir_all(&dumps.dir).unwrap();

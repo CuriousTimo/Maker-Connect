@@ -57,8 +57,7 @@ pub fn public(path: &str) -> bool {
     matches!(
         path,
         "/login" | "/setup" | "/logo.svg" | "/logo-large.svg" | "/logo-large-dark.svg"
-    )
-        || path.starts_with("/invite/")
+    ) || path.starts_with("/invite/")
         || path == "/api/apps/v1/info"
         || path.starts_with("/api/agent/v1/")
         || path.starts_with("/p/")

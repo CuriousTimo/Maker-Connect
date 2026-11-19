@@ -267,18 +267,28 @@ pub(crate) async fn remove(
     }
 }
 
+#[derive(serde::Deserialize)]
+pub(crate) struct HistoryQuery {
+    /// How far back, in seconds; the last half hour when not said.
+    seconds: Option<i64>,
+}
+
+/// A machine's history from the database (crate::store::history): `?seconds=` back from now.
 pub(crate) async fn history(
     access: crate::access::Access,
     State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
+    axum::extract::Query(query): axum::extract::Query<HistoryQuery>,
 ) -> Response {
-    let of_space = match store.link_of(access.space, &id).await {
-        Ok(link) => link.is_some(),
+    match store.link_of(access.space, &id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
-    };
-    match store.lock().unwrap().history(of_space, &id) {
-        Some(samples) => Json(samples).into_response(),
-        None => (StatusCode::NOT_FOUND, "no such machine").into_response(),
+    }
+    let seconds = query.seconds.unwrap_or(crate::store::HISTORY_SECONDS);
+    match store.history(access.space, &id, seconds).await {
+        Ok(samples) => Json(samples).into_response(),
+        Err(error) => failed(error),
     }
 }
 

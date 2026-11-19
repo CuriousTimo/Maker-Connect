@@ -94,5 +94,7 @@ Done once by the operator as the database superuser, never by the hub (the hub's
    fresh database without a superuser.
 4. Put the login's address in `DATABASE_URL`.
 
-Whether a TimescaleDB restore works end to end without a superuser this way is unproven:
-[R-4](risks-and-open.md#risks).
+This works for every table but the history's: TimescaleDB's hypertables and continuous aggregates
+need its catalog, the superuser's. The dumps leave the history out (`_timescaledb_internal` and the
+history's objects) and a restore makes it again, empty, from its migration
+([decision](decisions/20261120-history-not-in-dumps.md), [R-4](risks-and-open.md#risks)).

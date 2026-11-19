@@ -2,9 +2,8 @@ use super::*;
 use crate::store::pg::Bypass;
 
 impl Legacy {
-    /// A report kept ([`Store::report`]): its temperatures go into the machine's history.
-    pub(crate) fn reported(&mut self, machine: &str, telemetry: &Telemetry) {
-        self.sample(machine, telemetry);
+    /// A report kept ([`Store::report`]).
+    pub(crate) fn reported(&mut self) {
         self.changed();
     }
 }
@@ -230,7 +229,10 @@ impl Store {
             .await?;
         }
         tx.commit().await?;
-        self.lock().unwrap().reported(&row.id, telemetry);
+        if let Some(space) = row.space_id {
+            self.record_history(space, &row.id, telemetry).await?;
+        }
+        self.lock().unwrap().reported();
         Ok(Some(row.space_id))
     }
 }

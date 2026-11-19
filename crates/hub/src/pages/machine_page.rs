@@ -198,7 +198,8 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         telemetry = telemetry_tab(machine),
         settings = settings(machine, &extra.move_to, extra.ppe_checks),
         terminal = terminal(machine),
-        usb_tab = if machine.link == "prusa-connect" || (machine.link == "agent" && heats(machine)) {
+        usb_tab = if machine.link == "prusa-connect" || (machine.link == "agent" && heats(machine))
+        {
             r##"<a href="#files" role="tab">Files</a>
     "##
         } else {
@@ -1500,7 +1501,8 @@ fn next_card(machine: &Machine) -> String {
         Some(q) => format!(
             "<p>{}{}</p>",
             escape(&q.file_name),
-            q.by.as_deref().map_or(String::new(), |b| format!(" · {}", escape(b)))
+            q.by.as_deref()
+                .map_or(String::new(), |b| format!(" · {}", escape(b)))
         ),
         None => r#"<p class="muted">Nothing waits.</p>"#.to_owned(),
     };
@@ -1795,7 +1797,7 @@ fn fan_tiles(machine: &Machine) -> String {
             "reported while printing".to_owned()
         }
     };
-    let fans = tile(
+    tile(
         "Print fan",
         "print_fan_n",
         rpm(t.and_then(|t| t.print_fan_rpm)),
@@ -1809,8 +1811,7 @@ fn fan_tiles(machine: &Machine) -> String {
         "rpm",
         "none",
         fan_note(t.and_then(|t| t.hotend_fan_rpm)),
-    );
-    fans
+    )
 }
 
 fn telemetry_tab(machine: &Machine) -> String {
