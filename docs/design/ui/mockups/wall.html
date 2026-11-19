@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wall screen · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body data-view="user">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="signin.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Sign in</small></span></a>
+  <span class="spacer"></span>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="host">Host</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
+</header>
+<main id="main" tabindex="-1" class="bare" style="max-width:none" data-no-guest-note>
+
+<div class="wall">
+<p class="anno">Mockup: Now as a wall screen (UI-4). Read only: no buttons and no links that act; a passer-by at the TV cannot act as anyone. Which session the screen keeps is open (UI-4).</p>
+<div class="head"><h1>Workshop North</h1><span class="clock num">15:50</span></div>
+<div class="stats">
+<div class="stat"><b>1</b><span>printing</span></div>
+<div class="stat"><b>2</b><span>free</span></div>
+<div class="stat"><b>1</b><span>waiting for someone</span></div>
+<div class="stat"><b>6</b><span>jobs done today</span></div>
+</div>
+<div class="cols">
+<section class="card"><h2>Needs someone</h2>
+<ul class="list">
+<li class="edge-wait" style="padding-left:var(--s-3)"><div class="grow"><b>MINI-2</b> <span class="st wait">Needs someone</span><br><small>Print done: was it good? Confirm it at the machine or on your phone · waiting 12 min</small></div></li>
+<li class="edge-warn" style="padding-left:var(--s-3)"><div class="grow"><b>Labels-1</b> <span class="st warn">Attention</span><br><small>Out of labels: load a roll</small></div></li>
+<li style="padding-left:var(--s-3)"><div class="grow"><b>Printer-4</b> <span class="st off">Offline</span><br><small>No report since 13:12</small></div></li>
+</ul></section>
+<section class="card"><h2>Ends next</h2>
+<ul class="list">
+<li><div class="grow"><b>MINI-1</b> · bracket-v3<div class="bar" style="margin-top:6px" role="img" aria-label="62 percent"><i style="width:62%"></i></div></div><span class="num"><b>45 min left · done 16:35</b></span></li>
+<li><div class="grow"><b>Laser-A</b> · sign-oak<br><small>Waits for a person at the laser</small></div><span class="out">Job loaded</span></li>
+</ul></section>
+</div>
+<p style="margin-top:var(--s-4)"><small>Live, as Now.</small></p>
+</div>
+
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
+</body>
+</html>

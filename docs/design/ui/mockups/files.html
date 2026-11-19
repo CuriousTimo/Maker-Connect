@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Files · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body data-view="user">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
+  <span class="spacer"></span>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="host">Host</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
+</header>
+<aside class="side" aria-label="Navigation"><nav aria-label="Pages">
+<a href="now.html">Now</a>
+<div class="group">Work</div>
+<a href="machines.html">Machines</a>
+<a href="state-loading.html">Jobs</a>
+<a href="farm.html">Queue and farm</a>
+<div class="group">Stock</div>
+<a href="files.html" aria-current="page">Files</a>
+<a href="materials.html">Materials</a>
+<div class="group">Watch</div>
+<a href="state-error.html">Cameras</a>
+<div class="group">Machines</div><div class="machines">
+<a href="printer.html"><span>MINI-1</span><small class="num">62 %</small></a>
+<a href="now.html#needs"><span>MINI-2</span><small>needs someone</small></a>
+<a href="ask-permission.html"><span>Printer-3</span><small>free</small></a>
+<a href="state-unknown.html"><span>Printer-4</span><small>offline</small></a>
+<a href="laser.html"><span>Laser-A</span><small>job loaded</small></a>
+<a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
+<a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
+</div>
+<div class="group" data-only="host admin instance">Manage</div>
+<a data-only="admin instance" href="add-machine.html">Add machine</a>
+<a data-only="host admin instance" href="space-members.html">Space</a>
+<a data-only="instance" href="instance.html">Instance</a>
+<div class="user"><div class="group" data-only="guest">Eli · guest</div><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div><div class="group" data-only="instance">Ada · owner, instance admin</div>
+<a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a>
+<a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
+</nav></aside>
+<main id="main" tabindex="-1">
+
+<div class="head"><h1>Files</h1><div class="actions"><span class="fw"><button class="btn primary" type="button">Upload</button></span></div></div>
+<p class="note-role" data-only="user"><b>As a member (Sam):</b> you upload your own files and send them to machines you may use.</p>
+<p class="note-role" data-only="admin instance"><b>As an admin or owner:</b> the same, for everyone's files; you also delete anyone's.</p>
+<div class="row" style="margin-bottom:var(--s-4)"><label class="field" style="margin:0">Search<input type="search" placeholder="File name"></label><label class="field" style="margin:0;flex:0 1 200px">For<select><option>Any machine</option><option>3D printers</option><option>Lasers</option></select></label></div>
+<ul class="list card">
+<li><div class="grow"><b>badge-round.bgcode</b> <small>· Sam</small><br><small>3D print · PLA · 0.4 mm · 1 h 05 min · made for a MINI</small></div><span class="fw"><a class="btn small" href="print-start.html">Print on…</a></span></li>
+<li><div class="grow"><b>coaster-set.gcode</b> <small>· Sam</small><br><small>Laser job · 200 × 200 mm · from Prepare, 15:30</small></div><span class="fw"><button class="btn small" type="button" data-dialog="replace-laser">Send to Laser-A…</button></span></li>
+<li><div class="grow"><b>sign-oak.gcode</b> <small>· Sam</small><br><small>Laser job · 380 × 210 mm · <b>loaded on Laser-A</b> since 14:02</small></div><span class="fw"><a class="btn small" href="laser.html" data-guest>Go to the laser</a></span></li>
+<li data-only="admin instance"><div class="grow"><b>clip-set.bgcode</b> <small>· Noor</small><br><small>3D print · PETG · 0.4 mm · 40 min</small></div><span class="fw"><a class="btn small" href="print-start.html">Print on…</a></span><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-delfile">Delete…</button></span></li>
+</ul>
+<span class="anno">GET, POST /api/v1/files · files.view, files.manage; a laser job is sent with POST /api/v1/devices/{id}/jobs · job.start (loaded, not started)</span>
+
+<h2 style="margin-top:var(--s-5)">Sending to a laser that has a job loaded</h2>
+<p>One loaded job per laser, no laser queue: sending another job asks to replace the loaded one.</p>
+<div class="dialog-mock" role="group" aria-labelledby="rl-h-mock"><h3 id="rl-h-mock">Laser-A has sign-oak loaded: replace it?</h3><p>sign-oak.gcode was loaded by Sam at 14:02 and framed at 14:05. If you replace it, sign-oak goes off the laser (it stays in Files) and <b>coaster-set</b> is loaded; coaster-set must be placed and framed before Start burn.</p><div class="acts"><span class="fw"><button class="btn" type="button">Keep sign-oak</button></span><span class="fw"><button class="btn primary" type="button">Replace with coaster-set</button></span></div></div>
+<p style="margin-top:var(--s-3)"><span class="ctl"><span class="fw"><button class="btn" type="button" aria-disabled="true" aria-describedby="why-1">Send to Laser-A</button></span><span class="why" id="why-1">Laser-A is burning sign-oak: send coaster-set when that job has ended.</span></span></p>
+<span class="anno">decision UI-DESIGN:0009 #3 (UI-3); the path to take the loaded job off is open (OQ-1, UI-6)</span>
+
+<dialog id="replace-laser" aria-labelledby="rl-h"><h2 id="rl-h">Laser-A has sign-oak loaded: replace it?</h2><p>sign-oak.gcode was loaded by Sam at 14:02 and framed at 14:05. If you replace it, sign-oak goes off the laser (it stays in Files) and <b>coaster-set</b> is loaded; coaster-set must be placed and framed before Start burn.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep sign-oak</button></span><span class="fw"><button class="btn primary" value="yes">Replace with coaster-set</button></span></form></dialog>
+<dialog id="confirm-delfile" aria-labelledby="df-h"><h2 id="df-h">Delete clip-set.bgcode?</h2><p>It is Noor's file.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep it</button></span><span class="fw"><button class="btn danger" value="yes">Delete</button></span></form></dialog>
+
+</main>
+<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html" aria-current="page"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="host admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
+</body>
+</html>

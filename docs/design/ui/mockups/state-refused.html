@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Refused: Laser-A · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body data-view="user">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
+  <span class="spacer"></span>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="host">Host</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
+</header>
+<aside class="side" aria-label="Navigation"><nav aria-label="Pages">
+<a href="now.html">Now</a>
+<div class="group">Work</div>
+<a href="machines.html">Machines</a>
+<a href="state-loading.html">Jobs</a>
+<a href="farm.html">Queue and farm</a>
+<div class="group">Stock</div>
+<a href="files.html">Files</a>
+<a href="materials.html">Materials</a>
+<div class="group">Watch</div>
+<a href="state-error.html">Cameras</a>
+<div class="group">Machines</div><div class="machines">
+<a href="printer.html"><span>MINI-1</span><small class="num">62 %</small></a>
+<a href="now.html#needs"><span>MINI-2</span><small>needs someone</small></a>
+<a href="ask-permission.html"><span>Printer-3</span><small>free</small></a>
+<a href="state-unknown.html"><span>Printer-4</span><small>offline</small></a>
+<a href="laser.html" aria-current="page"><span>Laser-A</span><small>job loaded</small></a>
+<a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
+<a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
+</div>
+<div class="group" data-only="host admin instance">Manage</div>
+<a data-only="admin instance" href="add-machine.html">Add machine</a>
+<a data-only="host admin instance" href="space-members.html">Space</a>
+<a data-only="instance" href="instance.html">Instance</a>
+<div class="user"><div class="group" data-only="guest">Eli · guest</div><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div><div class="group" data-only="instance">Ada · owner, instance admin</div>
+<a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a>
+<a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
+</nav></aside>
+<main id="main" tabindex="-1">
+
+<div class="banner"><span><b>State: refused.</b> A damaging action the person was not granted stays visible, greyed out, with the reason and the way to ask. Every other action they lack is hidden, with one banner (see <a href="printer.html#control">MINI-1 → Control</a> as a member).</span><span class="fw"><a class="btn small ghost" href="index.html" data-guest>All screens</a></span></div>
+<p class="crumbs"><a href="machines.html">Machines</a> › Laser-A</p>
+<div class="head"><h1>Laser-A</h1><span class="out">Job loaded</span></div>
+<p class="muted" style="margin-top:-8px">Laser · agent (USB) · the laser reports <b>Idle</b></p>
+<div class="stopbar" role="region" aria-label="Stop Laser-A"><span class="ctl"><span class="fw"><button class="btn danger" type="button" data-cmd="ok" data-settled="Stopped 15:50:02: the laser is off.">Stop</button></span><span class="status" aria-live="polite"></span></span><span>Stop switches the laser off at once and ends a running job.</span></div>
+<p class="note-role" data-only="user"><b>As a member (here Ravi, who asked for it):</b> you may view, move and frame Laser-A, but Start burn was not granted to you.</p>
+<p class="note-role" data-only="admin instance"><b>As an admin or owner:</b> the same page: Start burn was not granted to you either. The way to it is Space → Permissions, your own included.</p>
+<ol class="steps">
+<li class="done"><h3>Loaded: sign-oak.gcode</h3><p><small>Sent from Files by Sam at 14:02</small></p></li>
+<li class="done"><h3>Place it</h3><p>Origin set at 14:04.</p></li>
+<li class="done"><h3>Frame it, laser off</h3><p>Framed at 14:05, after the last Set origin.</p></li>
+<li class="done"><h3>Protect yourself</h3><p>Confirmed at 15:48.</p></li>
+<li class="now"><h3>Start burn</h3>
+<div data-only="user"><span class="ctl"><span class="fw"><button class="btn danger" type="button" aria-disabled="true" aria-describedby="why-1">Start burn</button></span><span class="why" id="why-1"><b>Not granted to you.</b> Start burn on Laser-A is granted by name, after the laser course. You may load, place and frame.</span></span>
+<div class="banner info" style="margin-top:var(--s-3)"><span><b>You asked for it on 19 Nov at 13:50: pending.</b> The space's staff decide in Space; asking grants nothing.</span><span class="fw"><a class="btn small" href="space-members.html#mine">Your requests</a></span></div><span class="anno">GET /api/v1/access-requests/mine</span></div>
+<div data-only="admin instance"><span class="ctl"><span class="fw"><button class="btn danger" type="button" aria-disabled="true" aria-describedby="why-2">Start burn</button></span><span class="why" id="why-2"><b>Not granted to you.</b> Start burn is granted by name to a person who had the laser course; being admin or owner is not enough.</span></span>
+<p style="margin-top:var(--s-2)"><a href="space-permissions.html#grants">Grant it in Space → Permissions</a>, your own included.</p></div>
+<p data-only="guest"><small>A guest cannot start a laser.</small></p>
+<span class="anno">mc.laser.start · damaging · granted by name, never in a preset</span>
+</li>
+</ol>
+
+</main>
+<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="host admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body data-view="user">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="signin.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Sign in</small></span></a>
+  <span class="spacer"></span>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="host">Host</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
+</header>
+<main id="main" tabindex="-1" class="bare" data-no-guest-note>
+
+<div class="head"><h1>Sign in</h1></div>
+<p class="note-role" data-only="guest user admin instance">The same for every role: who you are, and so what you see, is known only after you sign in.</p>
+<div class="card">
+<form action="now.html" method="get" data-guest>
+<label class="field">Name<input name="name" autocomplete="username" value="sam"></label>
+<label class="field">Password<input name="password" type="password" autocomplete="current-password" value="example"></label>
+<span class="fw" style="width:100%"><button class="btn primary" data-guest>Sign in</button></span>
+</form>
+<p style="margin-top:var(--s-3)"><small>Have an invite link? It opens <a href="invite.html">a page to make your account</a>. A fresh hub starts at <a href="setup.html">first-run setup</a>.</small> <span class="anno">POST /api/v1/session</span></p>
+</div>
+<div class="card"><h2>The error state</h2>
+<div class="banner bad" role="alert"><span><b>The name or the password is wrong.</b> Try again. After several tries, wait a moment before the next.</span></div>
+<p><small>One message for both cases, so the page does not tell whether a name exists.</small> <span class="anno">the wait follows the hub's failure counter (flows.md §7); its numbers are not in the design</span></p>
+</div>
+
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
+</body>
+</html>

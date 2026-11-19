@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Machines · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body data-view="user">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
+  <span class="spacer"></span>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="host">Host</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
+</header>
+<aside class="side" aria-label="Navigation"><nav aria-label="Pages">
+<a href="now.html">Now</a>
+<div class="group">Work</div>
+<a href="machines.html" aria-current="page">Machines</a>
+<a href="state-loading.html">Jobs</a>
+<a href="farm.html">Queue and farm</a>
+<div class="group">Stock</div>
+<a href="files.html">Files</a>
+<a href="materials.html">Materials</a>
+<div class="group">Watch</div>
+<a href="state-error.html">Cameras</a>
+<div class="group">Machines</div><div class="machines">
+<a href="printer.html"><span>MINI-1</span><small class="num">62 %</small></a>
+<a href="now.html#needs"><span>MINI-2</span><small>needs someone</small></a>
+<a href="ask-permission.html"><span>Printer-3</span><small>free</small></a>
+<a href="state-unknown.html"><span>Printer-4</span><small>offline</small></a>
+<a href="laser.html"><span>Laser-A</span><small>job loaded</small></a>
+<a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
+<a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
+</div>
+<div class="group" data-only="host admin instance">Manage</div>
+<a data-only="admin instance" href="add-machine.html">Add machine</a>
+<a data-only="host admin instance" href="space-members.html">Space</a>
+<a data-only="instance" href="instance.html">Instance</a>
+<div class="user"><div class="group" data-only="guest">Eli · guest</div><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div><div class="group" data-only="instance">Ada · owner, instance admin</div>
+<a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a>
+<a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
+</nav></aside>
+<main id="main" tabindex="-1">
+
+<div class="head"><h1>Machines</h1><div class="actions"><span class="fw" data-only="admin instance"><a class="btn primary" href="add-machine.html">Add machine</a></span></div></div>
+<p class="note-role" data-only="user"><b>As a member (Sam):</b> you see the machines you may view. A machine you may not use says so and offers Ask for permission.</p>
+<p class="note-role" data-only="admin instance"><b>As an admin or owner:</b> you see every machine in the space and Add machine. Granting is in Space, not on this page.</p>
+<div class="banner warn" data-only="admin instance"><span><b>2 requests for permission wait.</b> Ravi asked for Laser-A; Sam asked for a training on Printer-3.</span><span class="fw"><a class="btn small" href="space-permissions.html#requests">Review in Space</a></span></div>
+<div class="chips" role="group" aria-label="Filter">
+<span class="fw"><button class="chip" aria-pressed="true" type="button">All <b>7</b></button></span><span class="fw"><button class="chip" aria-pressed="false" type="button">Printing <b>1</b></button></span><span class="fw"><button class="chip" aria-pressed="false" type="button">Free <b>2</b></button></span><span class="fw"><button class="chip" aria-pressed="false" type="button">Job loaded <b>1</b></button></span><span class="fw"><button class="chip" aria-pressed="false" type="button">Needs someone <b>1</b></button></span><span class="fw"><button class="chip" aria-pressed="false" type="button">Attention <b>1</b></button></span><span class="fw"><button class="chip" aria-pressed="false" type="button">Error <b>0</b></button></span><span class="fw"><button class="chip" aria-pressed="false" type="button">Offline <b>1</b></button></span>
+</div>
+<div class="row" style="margin-bottom:var(--s-4)"><label class="field" style="margin:0">Search<input type="search" placeholder="Name, model, group, label"></label><label class="field" style="margin:0;flex:0 1 200px">Group by<select><option>Kind</option><option>Group</option><option>Model</option></select></label></div>
+<h2>3D printers</h2>
+<div class="grid">
+<article class="card mcard"><div class="top-line"><a href="printer.html">MINI-1</a><span class="st busy">Printing</span></div><span class="kind">3D printer · built-in Connect</span><small>bracket-v3 · PLA Sage</small><div class="bar" role="img" aria-label="62 percent"><i style="width:62%"></i></div><b class="num">45 min left · done 16:35</b><div class="acts"><span class="ctl"><span class="fw"><button class="btn small" type="button" data-cmd="ok" data-settled="Paused at 15:50.">Pause</button></span><span class="status" aria-live="polite"></span></span><span class="fw"><a class="btn small ghost" href="printer.html" data-guest>More ⋯</a></span></div></article>
+<article class="card mcard edge-wait"><div class="top-line"><a href="now.html#needs">MINI-2</a><span class="st wait">Needs someone</span></div><span class="kind">3D printer · built-in Connect</span><small>Print done, waiting 12 min · <span class="num">Good: 4 / 4</span></small><div class="acts"><span class="ctl"><span class="fw"><button class="btn primary small" type="button" data-cmd="ok" data-settled="MINI-2 is ready for the next print.">Set Ready</button></span><span class="status" aria-live="polite"></span></span><span class="fw"><button class="btn small" type="button" data-dialog="confirm-bad">Bad print…</button></span></div></article>
+<article class="card mcard"><div class="top-line"><a href="ask-permission.html">Printer-3</a><span class="st idle">Free</span></div><span class="kind">3D printer · agent (USB)</span><small data-only="guest user">You don't have permission to use it.</small><small data-only="admin instance">Free. Needs a training before members use it.</small><div class="acts"><span class="fw" data-only="user"><a class="btn small" href="ask-permission.html">Ask for permission</a></span><span class="fw" data-only="admin instance"><a class="btn small" href="print-start.html">Print</a></span></div></article>
+<article class="card mcard is-off"><div class="top-line"><a href="state-unknown.html">Printer-4</a><span class="st off">Offline</span></div><span class="kind">3D printer · agent (USB)</span><small>No report since 13:12. Its last values are not shown as current.</small><div class="acts"><span class="fw"><a class="btn small ghost" href="state-unknown.html" data-guest>Look</a></span></div></article>
+</div>
+<h2 style="margin-top:var(--s-5)">Lasers</h2>
+<div class="grid"><article class="card mcard"><div class="top-line"><a href="laser.html">Laser-A</a><span class="out">Job loaded</span></div><span class="kind">Laser · agent (USB)</span><small>sign-oak loaded by Sam · framed 14:05</small><div class="acts"><span class="fw"><a class="btn small" href="laser.html" data-guest>Go to the laser</a></span></div></article></div>
+<h2 style="margin-top:var(--s-5)">Tape and label printers</h2>
+<div class="grid"><article class="card mcard"><div class="top-line"><a href="label-tape.html">Tape-1</a><span class="st idle">Free</span></div><span class="kind">Tape printer · agent (USB)</span><small>Tape 12 mm</small><div class="acts"><span class="fw"><a class="btn small" href="label-tape.html">Print a tape</a></span></div></article><article class="card mcard edge-warn"><div class="top-line"><a href="label-labels.html">Labels-1</a><span class="st warn">Attention</span></div><span class="kind">Label printer · agent (USB)</span><small>Out of labels: load a roll, then it prints again.</small><div class="acts"><span class="fw"><a class="btn small ghost" href="label-labels.html" data-guest>Open</a></span></div></article></div>
+<p style="margin-top:var(--s-4)"><small>One primary action per card, the rest under More ⋯. The connection and "last seen" show only when something is off.</small> <span class="anno">GET /api/v1/devices, /api/v1/events; Pause: core.command.pause_print · job.control</span></p>
+<dialog id="confirm-bad" aria-labelledby="cbp-h"><h2 id="cbp-h">Mark MINI-2's print as bad?</h2><p>It does not count as a good part. Clear the plate before the next print.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Back</button></span><span class="fw"><button class="btn primary" value="yes">Bad print</button></span></form></dialog>
+
+</main>
+<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html" aria-current="page"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="host admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
+</body>
+</html>

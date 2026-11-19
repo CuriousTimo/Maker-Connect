@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cameras (error) · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body data-view="user">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
+  <span class="spacer"></span>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="host">Host</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
+</header>
+<aside class="side" aria-label="Navigation"><nav aria-label="Pages">
+<a href="now.html">Now</a>
+<div class="group">Work</div>
+<a href="machines.html">Machines</a>
+<a href="state-loading.html">Jobs</a>
+<a href="farm.html">Queue and farm</a>
+<div class="group">Stock</div>
+<a href="files.html">Files</a>
+<a href="materials.html">Materials</a>
+<div class="group">Watch</div>
+<a href="state-error.html" aria-current="page">Cameras</a>
+<div class="group">Machines</div><div class="machines">
+<a href="printer.html"><span>MINI-1</span><small class="num">62 %</small></a>
+<a href="now.html#needs"><span>MINI-2</span><small>needs someone</small></a>
+<a href="ask-permission.html"><span>Printer-3</span><small>free</small></a>
+<a href="state-unknown.html"><span>Printer-4</span><small>offline</small></a>
+<a href="laser.html"><span>Laser-A</span><small>job loaded</small></a>
+<a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
+<a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
+</div>
+<div class="group" data-only="host admin instance">Manage</div>
+<a data-only="admin instance" href="add-machine.html">Add machine</a>
+<a data-only="host admin instance" href="space-members.html">Space</a>
+<a data-only="instance" href="instance.html">Instance</a>
+<div class="user"><div class="group" data-only="guest">Eli · guest</div><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div><div class="group" data-only="instance">Ada · owner, instance admin</div>
+<a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a>
+<a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
+</nav></aside>
+<main id="main" tabindex="-1">
+
+<div class="banner"><span><b>State: error.</b> Say what failed, what still holds, and what to do. Never a silent blank.</span><span class="fw"><a class="btn small ghost" href="index.html" data-guest>All screens</a></span></div>
+<div class="head"><h1>Cameras</h1><span class="st bad">Not live</span></div>
+<p class="note-role" data-only="user"><b>As a member (Sam):</b> you see the cameras of machines and rooms you may view.</p><p class="note-role" data-only="admin instance"><b>As an admin or owner:</b> the same; cameras are managed in Space → Cameras.</p>
+<div class="banner bad" role="alert"><span><b>The hub cannot be reached.</b> The page last heard from it at 15:42. What you see below is from then, not now. It tries again by itself.</span><span class="fw"><button class="btn small" type="button" data-guest>Try now</button></span></div>
+<div class="grid">
+<div class="card"><h2>Cam-MINI-1</h2><div class="preview cam"><span class="feed" aria-hidden="true">camera picture</span><div class="cam-bar"><b>Cam-MINI-1</b><span>Last picture, 15:42</span></div></div><p style="margin-top:var(--s-2)"><span class="st unk">Live state unknown</span></p></div>
+<div class="card"><h2>Cam-Door</h2><div class="preview cam"><span class="feed" aria-hidden="true">camera picture</span><div class="cam-bar"><b>Cam-Door</b><span>Last picture, 15:41</span></div></div><p style="margin-top:var(--s-2)"><span class="st unk">Live state unknown</span></p></div>
+</div>
+<p style="margin-top:var(--s-3)"><small>The same banner shows on every page when the hub cannot be reached; on a machine's page it also says that its buttons cannot reach the machine (see <a href="laser.html#j-offline">Laser-A</a>). A refused call is the <a href="state-refused.html">refused</a> state, not this one.</small> <span class="anno">SSE reconnects and resumes with Last-Event-ID; on stream.reset the page reloads (flows.md §6)</span></p>
+
+</main>
+<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="host admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
+</body>
+</html>

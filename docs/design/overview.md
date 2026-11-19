@@ -96,4 +96,7 @@ flowchart LR
    Buddy and Prusa Connect's `/p/ws` ([decision](decisions/20261119-agent-link-one-websocket.md)).
 7. **One subject per page or tab** in the UI.
 8. **No compatibility with old builds**: nobody uses the hub; old code is deleted, not wrapped (plan §1).
+   No v1 is kept anywhere: not the agent link v1 (`/api/agent/v1`), not the Apps API v1
+   (`/api/apps/v1`), not v1 machines or old pages; no fallback and no transition for old agents
+   (owner, 2026-11-19: "geen oude v1 meer. er is toch niets en niemand actief").
 9. **Firmware versions are labels**, never compared; behaviour follows declared capabilities.

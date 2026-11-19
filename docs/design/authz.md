@@ -27,7 +27,8 @@ follows them when the code is built.
 
 **Area actions**, held by role in the space or organisation (never granted per device): one area per
 module, `.view` for looking, `.use` for a member's day-to-day work where today's routes distinguish it,
-`.manage` for what today needs an admin. The organisation area is the exception: `organisation.manage`
+`.manage` for what today needs an admin. Which role holds each `.view` and `.use` is set per space
+([area rights](#area-rights-per-space)); the rest is fixed. The organisation area is the exception: `organisation.manage`
 comes only from an organisation role, never from a space role, however high
 ([decision](decisions/20261119-organisation-actions-by-organisation-role.md)).
 
@@ -62,7 +63,13 @@ The instance admin (`users.instance_admin`) is a flag, not an action: the `insta
 
 ## Presets, roles and grants
 
-- **Roles** in a space or organisation: owner, admin, member, guest. The higher of the organisation
+- **Roles** in a space, lowest first: guest < member < host < admin < owner
+  ([decision](decisions/20261119-host-role-and-area-rights.md)). **Host** is the space's daily staff
+  under an admin: a member's rights plus the daily work (below), never the space's settings, member
+  roles, tokens or damaging device actions. Each space names the role in its own words
+  (`spaces.host_label`, free text, empty reads "host", for example medewerker or staff); the role's
+  value stays `host`. Host is a space role only: organisation roles stay member, admin and owner
+  ([OQ-41](risks-and-open.md#oq-41-the-host-role-open-points), decided). The higher of the organisation
   role and the space role counts (the person's **effective role**) for the space's area actions and
   device presets: an organisation admin is admin in every space of the organisation. The other way
   round does not hold: `organisation.manage` is held by the organisation role alone
@@ -87,9 +94,13 @@ The instance admin (`users.instance_admin`) is a flag, not an action: the `insta
   |---|---|---|
   | guest | View | `files.view`, `queue.view`, `farm.view`, `stock.view` |
   | member | Operate on a device without induction; on a device with induction, View until a grant says more | guest's + `space.members.view`, `files.manage`, `queue.manage`, `farm.use`, `stock.use` |
+  | host | as member | member's, `queue.manage` on every item (a member's reaches their own items), `grants.view`, and `grants.manage` bounded as [below](#presets-roles-and-grants), for handling access requests and recording inductions; stock handling is the member's `stock.use`; never `stock.manage` or any other `.manage` beyond those, `space.manage`, `space.members.manage`, `tokens.manage`, `device.manage`, a damaging action |
   | admin | Manage | every area action but `organisation.manage`; `grants.manage` in Space only |
   | owner | Manage | as admin; the owner role is given only by an owner ([decision](decisions/20261119-no-self-elevation.md)) |
   | organisation admin, organisation owner | as admin in every space of the organisation | the admin's, plus `organisation.manage` |
+
+  These are the defaults of the space kind `makerspace`; a space moves the `.view` and `.use` rows
+  between roles in its [area rights](#area-rights-per-space).
 
   The per-role route snapshot (plan §4, risk R-5) checks this translation against today's `RULES`;
   every difference it shows is a decision, not a drift. Known differences: `device.gcode` and
@@ -99,6 +110,20 @@ The instance admin (`users.instance_admin`) is a flag, not an action: the `insta
   the laser course ([decision](decisions/20261118-damaging-actions-by-grant.md)).
 - **Induction** stays a rule of the preset: a device can need permission or training before its
   preset applies.
+- **A host's grants** ([decision](decisions/20261119-host-role-and-area-rights.md),
+  [OQ-41](risks-and-open.md#oq-41-the-host-role-open-points)). A host handles access requests
+  (`PATCH /api/v1/access-requests/{id}`) and records inductions, both as a grant in Space
+  (`POST /api/v1/grants`, session only, like every grant); an induction is a grant with a note
+  (`action_grants.note`), not a record of its own. A host's grant:
+  - never holds `device.manage` nor a damaging action (`device.gcode`, `mc.laser.start`,
+    `device.firmware`): those stay an admin's or owner's;
+  - is never made to the host's own row;
+  - a host may remove a grant they could have given (one without `device.manage` and without a
+    damaging action), whoever made it.
+
+  A host's grant outside these bounds is refused with a code of the no-self-elevation family
+  ([decision](decisions/20261119-no-self-elevation.md)), as `authz/ROLE_ABOVE_OWN`; a new code is
+  named only if none of that family fits.
 - A **grant** gives a set of device actions to a person, on a device or a device group, with an
   optional expiry, and records who granted it (`action_grants`). Subjects are persons; a group of
   people as subject waits until it is asked for ([decision](decisions/20261119-actions-and-presets.md)).
@@ -106,6 +131,46 @@ The instance admin (`users.instance_admin`) is a flag, not an action: the `insta
 - Grants are made **only in Space**, the owner's own included; no route outside the Space API grants an
   action. A request for permission (#11) grants nothing: it reaches the space's staff, who grant in
   Space (`access_requests`).
+
+## Area rights per space
+
+Which role holds an area's `.view` and `.use` actions is each space's own choice
+([decision](decisions/20261119-host-role-and-area-rights.md)): a makerspace lets every member add
+and archive spools, an office may keep `stock.use` to its hosts, a private space to its admin.
+
+- **What moves:** only the modules' area actions named `.view` or `.use`: `files.view`,
+  `queue.view`, `farm.view`, `farm.use`, `stock.view`, `stock.use`. Per action the space names the
+  **lowest role** that holds it: guest, member, host or admin; every role above holds it too, and
+  owner always holds what admin holds.
+- **Bounds** ([OQ-42](risks-and-open.md#oq-42-area-rights-open-points), decided): an area's `.use`
+  is never set below its `.view` (`.use` on a lower role than `.view` is refused), and a guest never
+  holds `.use` (a `.use` row offers member, host and admin only).
+- **What never moves:** every `.manage` action, `organisation.manage`, every device action, and the
+  fixed `.view` actions `space.members.view`, `grants.view` and `audit.view`. The device presets and
+  the damaging actions stay as above: never in a preset, granted by name only.
+- **Defaults from the space kind.** A space has a **kind**, chosen when it is made
+  (`spaces.kind`: `makerspace`, `office` or `private`); the kind fills the space's area rights with
+  its defaults when it is made, and only then:
+  - `makerspace`: the role table above (today's role table).
+  - `office`: members use devices and stock, guests nothing: every movable action at member, none
+    at guest.
+  - `private`: the owner and admins use, members view: every movable `.use` at admin, every movable
+    `.view` at member.
+
+  Device presets do not move with the kind (device actions never move).
+
+  A person with `space.manage` may change the kind later; that changes no existing right (no area
+  right, no grant, no role): the kind's defaults are a setup default only.
+- **Changing them** needs `space.manage` (`PUT /api/v1/spaces/{id}/area-rights`), from a person's
+  session only, never a token (`authz/SESSION_ONLY`). The change runs in
+  one space transaction that writes the rows (`area_rights`), an `audit_log` row per action changed
+  (who, the action, the old and the new role), and bumps the space's `authz_epoch`, so every SSE
+  subscriber drops its cached action set (the flow below).
+- **No self-elevation** ([decision](decisions/20261119-no-self-elevation.md)): only an admin or owner
+  holds `space.manage`, and they already hold every area action, so a change gives the changer
+  nothing; it can never reach a `.manage` action or a device action.
+- Area rights decide area actions only; `device_access` holds device actions, so a change of area
+  rights rebuilds no `device_access` rows.
 
 ## The materialised table
 
@@ -134,7 +199,7 @@ reach more than one space and each names its rebuilds:
 
 ```mermaid
 flowchart LR
-  change["Grant, membership, role or group change; device added, retired or moved"]
+  change["Grant, membership, role or group change; device added, retired or moved; area rights changed (epoch only, no rebuild)"]
   tx["One transaction"]
   rebuild["Rebuild device_access rows of the space"]
   epoch["authz_epoch of the space + 1"]
