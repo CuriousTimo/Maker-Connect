@@ -321,7 +321,7 @@ fn percent_decode(text: &str) -> String {
 }
 
 /// On the way back from an update that did not work (main): the database as the dump taken before
-/// it (named in the trial's `note`, [`crate::updates::prepare_hub`]) holds it. `Ok(None)`: the update
+/// it (named in the trial's `note`, `crate::updates::prepare_hub`) holds it. `Ok(None)`: the update
 /// took no dump.
 pub fn back_as_before(dumps: &Dumps, note: &serde_json::Value) -> Result<Option<PathBuf>, String> {
     let Some(dump) = note.get("dump").and_then(|d| d.as_str()) else {

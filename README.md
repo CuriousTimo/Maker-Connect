@@ -135,9 +135,10 @@ profiles and filaments are inside the hub. The data is a PostgreSQL 17 database 
 `maker-connect-files/`, `-downloads/` and `-dumps/` beside `--db /somewhere/maker-connect.db` (the
 folder it starts in unless said). The hub dumps the database (`pg_dump`) every night and before an
 update into `maker-connect-dumps/` (only for its own user), keeping the last 7 of each
-(`--keep-dumps`, our choice); `pg_dump`, `pg_restore` and `psql` must be of the server's version, and
-where the computer has none (a Raspberry Pi on Debian 11), `--pg-command "docker exec -i -e
-PGPASSWORD <container>"` runs those of the database's container. To upgrade, stop it, unpack the new
+(`--keep-dumps`, our choice); `pg_dump`, `pg_restore` and `psql` must be of the server's version, found on `PATH` (where the
+computer has none, as a Raspberry Pi on Debian 11: built from PostgreSQL's source, see
+[docs/pi-hub.md](docs/pi-hub.md); `--pg-command` can name a prefix that runs them elsewhere, such as
+`docker exec -i -e PGPASSWORD <container>`, which gives the hub the rights of Docker). To upgrade, stop it, unpack the new
 release over the old one, start it: the archive holds no data. Or update from **About → Updates**
 (Linux and macOS): it dumps the database, tries the new build on a copy restored from that dump, and
 goes back by itself, database and build together, if the new build does not work. A Pi set up this
