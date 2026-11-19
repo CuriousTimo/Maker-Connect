@@ -133,16 +133,18 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
   {no_use}<div class="notices" data-notices>{notices}</div><div class="notices" data-question></div>
   <nav class="tabs" role="tablist">
     <a href="#overview" role="tab">Overview</a>
-    {queue_tab}<a href="#telemetry" role="tab">Telemetry</a>
     <a href="#control" role="tab">Control</a>
-    <a href="#terminal" role="tab">Terminal</a>
-    {mesh_tab}{usb_tab}{camera_link}<a href="#settings" role="tab">Settings</a>
+    {usb_tab}<a href="#jobs" role="tab">Jobs <small class="tab-count" data-queue-count></small></a>
+    {camera_link}<a href="#settings" role="tab">Settings</a>
   </nav>
   <section class="tab" id="overview" role="tabpanel">
 {overview}
   </section>
   <section class="tab" id="queue" role="tabpanel" hidden>
 {queue}
+  </section>
+  <section class="tab" id="jobs" role="tabpanel" hidden>
+{jobs}
   </section>
   <section class="tab" id="control" role="tabpanel" hidden>
 {control}
@@ -173,15 +175,14 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         notices = notices(machine),
         me = extra.me,
         staff = extra.staff,
-        queue = queue_card(machine),
-        queue_tab = if machine.kind == maker_connect_protocol::MachineKind::Label {
-            ""
+        queue = if machine.kind == maker_connect_protocol::MachineKind::Label {
+            String::new()
         } else {
-            r##"<a href="#queue" role="tab">Queue <small class="tab-count" data-queue-count></small></a>
-    "##
+            queue_card(machine)
         },
         no_use = before_use(machine, extra),
-        overview = overview(machine, profile, &jobs_card(machine, extra)),
+        overview = overview(machine, profile, ""),
+        jobs = jobs_card(machine, extra),
         subtitle = escape(
             &if machine.name.to_lowercase().contains(&kind.to_lowercase()) {
                 link.to_owned()
@@ -197,11 +198,8 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         telemetry = telemetry_tab(machine),
         settings = settings(machine, &extra.move_to, extra.ppe_checks),
         terminal = terminal(machine),
-        usb_tab = if machine.link == "prusa-connect" {
-            r##"<a href="#usb" role="tab">USB</a>
-    "##
-        } else if machine.link == "agent" && heats(machine) {
-            r##"<a href="#sd" role="tab">SD card</a>
+        usb_tab = if machine.link == "prusa-connect" || (machine.link == "agent" && heats(machine)) {
+            r##"<a href="#files" role="tab">Files</a>
     "##
         } else {
             ""
@@ -228,12 +226,6 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
                 crate::cameras_style()
             ),
             None => String::new(),
-        },
-        mesh_tab = if heats(machine) {
-            r##"<a href="#bedmesh" role="tab">Bed mesh</a>
-    "##
-        } else {
-            ""
         },
         bed_level = if heats(machine) {
             format!(
@@ -1077,7 +1069,7 @@ fn queue_card(machine: &Machine) -> String {
         )
     };
     card(
-        "Queue",
+        &format!("Queue on {}", escape(&machine.name)),
         sub,
         &format!(
             r#"<p class="notice q-held" data-queue-held hidden><span>The last job <b data-held-why></b>: nothing starts until the bed is clear. Is it?</span><button type="button" data-bed-clear>Bed clear: go on</button></p><ol class="queue" data-queue></ol><p class="empty" data-queue-empty>{empty}</p>"#
@@ -1150,7 +1142,7 @@ fn jobs_card(machine: &Machine, extra: &Extra) -> String {
         })
         .collect();
     card(
-        "Jobs",
+        "History",
         "What ran on it, newest first",
         &format!(
             r#"{numbers}<ol class="job-history">{}</ol>"#,
@@ -1859,10 +1851,10 @@ fn telemetry_tab(machine: &Machine) -> String {
   </div>
 </div>"#;
     format!(
-        r#"<div class="tiles">{}{fans}</div>
+        // The heaters' tiles are above, in Overview's own row: only the fans here.
+        r#"<div class="tiles">{fans}</div>
 {chart}
 <div class="grid-2">{}{}</div>"#,
-        heater_tiles(machine),
         card("Motion", "", &format!("<dl>{motion}</dl>")),
         card("Printing", "", &format!("<dl>{printing}</dl>")),
     )

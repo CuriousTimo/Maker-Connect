@@ -2,8 +2,9 @@
   // its table), and every [data-live] value kept live from the server-sent events.
   const ID = document.querySelector("main").dataset.id;
   // Tabs by purpose; a tab may show more than one section. Old addresses still lead there.
-  const TABS = { overview: ["overview"], queue: ["queue"], telemetry: ["telemetry"], control: ["control"], terminal: ["terminal"], bedmesh: ["bedlevel"], usb: ["usb"], sd: ["sd"], camera: ["camera"], settings: ["settings"] };
-  const OLD = { data: "telemetry", bedlevel: "bedmesh" };
+  // The tabs of docs/design/ui/mockups/printer.html: Overview, Control, Files, Jobs, Camera, Settings.
+  const TABS = { overview: ["overview", "telemetry"], control: ["control", "bedlevel", "terminal"], files: ["usb", "sd"], jobs: ["queue", "jobs"], camera: ["camera"], settings: ["settings"] };
+  const OLD = { data: "overview", telemetry: "overview", terminal: "control", bedmesh: "control", bedlevel: "control", usb: "files", sd: "files", queue: "jobs" };
   // Set below for a Prusa on its own Connect: opens its USB stick when its tab is shown.
   let usbOpen = null;
   // Set below for a printer with its own SD card behind an agent.
@@ -14,10 +15,9 @@
     for (const tab of document.querySelectorAll(".tab")) tab.hidden = !TABS[id].includes(tab.id);
     for (const a of document.querySelectorAll(".tabs a")) a.setAttribute("aria-selected", a.hash === "#" + id);
     ticker();
-    if (id === "telemetry") draw();
-    if (id === "bedmesh") drawMesh();
-    if (id === "usb") usbOpen?.();
-    if (id === "sd") sdOpen?.();
+    if (id === "overview") draw();
+    if (id === "control") drawMesh();
+    if (id === "files") { usbOpen?.(); sdOpen?.(); }
     // A tab is a page of its own: from the top, not where the browser jumped to its id.
     scrollTo(0, 0);
   }
@@ -442,7 +442,7 @@
         toast(r.ok ? `Asked to print ${print.dataset.name}` : `Not printed: ${await r.text()}`, r.ok ? "ok" : "bad");
       });
       sdOpen = load;
-      if (location.hash === "#sd") load();
+      if (["#files", "#sd"].includes(location.hash)) load();
     }
   }
 
