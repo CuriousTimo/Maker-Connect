@@ -12,7 +12,7 @@
 <header class="top">
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
   <span class="spacer"></span>
-  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="host">Host</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
   <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <aside class="side" aria-label="Navigation"><nav aria-label="Pages">
@@ -35,31 +35,53 @@
 <a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
 <a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
 </div>
-<div class="group" data-only="admin instance">Manage</div>
+<div class="group" data-only="host admin instance">Manage</div>
 <a data-only="admin instance" href="add-machine.html">Add machine</a>
-<a data-only="admin instance" href="space-members.html" aria-current="page">Space</a>
+<a data-only="host admin instance" href="space-members.html" aria-current="page">Space</a>
 <a data-only="instance" href="instance.html">Instance</a>
 <div class="user"><div class="group" data-only="guest">Eli · guest</div><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div><div class="group" data-only="instance">Ada · owner, instance admin</div>
-<a data-only="guest user" href="space-members.html#mine">My permissions</a>
+<a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a>
 <a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
 </nav></aside>
 <main id="main" tabindex="-1">
 
 <div class="head"><h1>Space: Workshop North</h1></div>
 <p class="note-role" data-only="user"><b>As a member (Sam):</b> this is a staff page; you get the refused page below.</p>
+<p class="note-role" data-only="host"><b>As a host (Mira, &ldquo;Staff&rdquo; in this space):</b> the space's settings and its area rights need space.manage, which a host never holds; you get the refused page below.</p>
 <p class="note-role" data-only="admin"><b>As an admin (Noor):</b> the space's own settings, one subject per tab.</p>
 <p class="note-role" data-only="instance"><b>As Ada (owner of the space and of the organisation):</b> the same tabs; you may also rename the organisation.</p>
 <div data-only="guest user"><div class="empty"><div class="big" aria-hidden="true">⌀</div><h2>This page is for the space's staff</h2><p>Owners and admins manage the space's settings here.</p><p><span class="fw"><a class="btn" href="now.html" data-guest>Back to Now</a></span></p></div>
 <p style="margin-top:var(--s-3)"><small>The hub refuses the page's calls too; the navigation never offers it.</small></p></div>
 <div data-only="admin instance">
-<nav class="tabs" data-pagenav aria-label="Space"><a href="space-settings.html#general">General</a><a href="space-members.html">Members</a><a href="space-permissions.html">Permissions</a><a href="space-settings.html#tokens">API tokens</a><a href="space-settings.html#audit">Audit log</a><a href="space-settings.html#cameras">Cameras</a><a href="space-settings.html#access">Access (doors)</a></nav>
+<nav class="tabs" data-pagenav aria-label="Space"><a data-only="admin instance" href="space-settings.html#general">General</a><a data-only="admin instance" href="space-settings.html#rights">Area rights</a><a href="space-members.html">Members</a><a href="space-permissions.html">Permissions</a><a data-only="admin instance" href="space-settings.html#tokens">API tokens</a><a data-only="admin instance" href="space-settings.html#audit">Audit log</a><a data-only="admin instance" href="space-settings.html#cameras">Cameras</a><a data-only="admin instance" href="space-settings.html#access">Access (doors)</a></nav>
 
 <section id="general" data-section aria-label="General"><div class="card">
 <div class="row"><label class="field">Space name<input value="Workshop North"></label><span class="fw"><button class="btn" type="button">Save</button></span></div>
 <div class="row" data-only="instance"><label class="field">Organisation name<input value="Makers Guild"></label><span class="fw"><button class="btn" type="button">Save</button></span></div>
 <div class="row" data-only="admin"><label class="field">Organisation name<input value="Makers Guild" readonly aria-describedby="why-org"></label><span class="why" id="why-org" style="flex-basis:100%">Renaming the organisation needs an admin or owner role in the organisation; yours there is member.</span></div>
+<div class="row"><label class="field">Name for the host role<input value="Staff" aria-describedby="why-label"></label><span class="fw"><button class="btn" type="button">Save</button></span><span class="why" id="why-label" style="flex-basis:100%">Your space's word for the role between member and admin, for example host, medewerker or staff. The role stays the same; only its name here changes.</span></div>
 <label class="check"><input type="checkbox" checked> Ask for PPE before a machine with a PPE list is used</label>
-<span class="anno">PATCH /api/v1/spaces/{id} {name, ppe_checks} · space.manage; PATCH /api/v1/organisations/{id} · organisation.manage (an organisation role only)</span></div></section>
+<span class="anno">PATCH /api/v1/spaces/{id} {name, ppe_checks, host_label} · space.manage; free text or a list for the label: OQ-41; PATCH /api/v1/organisations/{id} · organisation.manage (an organisation role only)</span></div></section>
+
+<section id="rights" data-section aria-label="Area rights" hidden>
+<div class="card"><h2>Area rights</h2>
+<p>Who may look at and work with each part of the space. Each choice is the lowest role that may do it; every role above may too.</p>
+<p><b>Kind of space:</b> Makerspace <small>· chosen when the space was made; it gave these defaults</small></p>
+<ul class="list">
+<li><div class="grow"><b>Materials</b><br><small>spools, materials, locations</small></div><div class="row" style="flex:1 1 280px"><label class="field">See<select><option selected>Guest</option><option>Member</option><option>Staff (host)</option><option>Admin</option></select></label><label class="field">Use<select aria-describedby="chg-stock"><option>Guest</option><option>Member</option><option selected>Staff (host)</option><option>Admin</option></select></label></div><span class="why" id="chg-stock" style="flex-basis:100%">Changed, not saved: was Member.</span></li>
+<li><div class="grow"><b>Projects and parts</b></div><div class="row" style="flex:1 1 280px"><label class="field">See<select><option selected>Guest</option><option>Member</option><option>Staff (host)</option><option>Admin</option></select></label><label class="field">Use<select><option>Guest</option><option selected>Member</option><option>Staff (host)</option><option>Admin</option></select></label></div></li>
+<li><div class="grow"><b>Files</b></div><div class="row" style="flex:1 1 280px"><label class="field">See<select><option selected>Guest</option><option>Member</option><option>Staff (host)</option><option>Admin</option></select></label><p class="field"><small>Use: not set here</small></p></div></li>
+<li><div class="grow"><b>Queue</b></div><div class="row" style="flex:1 1 280px"><label class="field">See<select><option selected>Guest</option><option>Member</option><option>Staff (host)</option><option>Admin</option></select></label><p class="field"><small>Use: not set here</small></p></div></li>
+<li><div class="grow"><b>Members</b></div><div class="row" style="flex:1 1 280px"><label class="field">See<select><option>Guest</option><option selected>Member</option><option>Staff (host)</option><option>Admin</option></select></label><p class="field"><small>Use: not set here</small></p></div></li>
+<li><div class="grow"><b>Permissions</b><br><small>grants and requests</small></div><div class="row" style="flex:1 1 280px"><label class="field">See<select><option>Guest</option><option>Member</option><option selected>Staff (host)</option><option>Admin</option></select></label><p class="field"><small>Use: not set here</small></p></div></li>
+<li><div class="grow"><b>Audit log</b></div><div class="row" style="flex:1 1 280px"><label class="field">See<select><option>Guest</option><option>Member</option><option>Staff (host)</option><option selected>Admin</option></select></label><p class="field"><small>Use: not set here</small></p></div></li>
+</ul>
+<p style="margin-top:var(--s-3)"><small>Never moved here: managing an area (imports, extra fields, count corrections, settings, roles, tokens) stays with admins and owners, and machine permissions, damaging ones above all, are granted by name in Permissions. Every change is in the audit log.</small></p>
+<p><span class="fw"><button class="btn primary" type="button" data-dialog="confirm-rights">Save area rights…</button></span> <span class="anno">GET, PUT /api/v1/spaces/{id}/area-rights {rights: {action: role}} · space.manage; one transaction: rows, an audit row per change, authz_epoch + 1 (decision 20261119-host-role-and-area-rights)</span></p>
+<span class="anno">rows: the area actions named .view and .use; the kind's defaults for office and private, changing the kind, and which .view rows move: OQ-42</span>
+</div>
+<dialog id="confirm-rights" aria-labelledby="cr-h"><h2 id="cr-h">Save these area rights?</h2><ul><li>Materials, use: Member → Staff (host)</li></ul><p>Members can no longer add, weigh or archive spools; it takes effect at once and is written in the audit log.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Back</button></span><span class="fw"><button class="btn primary" value="yes">Save</button></span></form></dialog>
+</section>
 
 <section id="tokens" data-section aria-label="API tokens" hidden>
 <div class="card"><h2>Make a token</h2>
@@ -122,7 +144,7 @@
 </div>
 
 </main>
-<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="host admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <script src="mc.js"></script>
 </body>

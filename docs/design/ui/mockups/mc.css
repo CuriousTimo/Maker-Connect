@@ -126,10 +126,15 @@ main:focus { outline: none; }
 .anno::before { content: "spec: "; font-family: var(--font); font-weight: 600; }
 p.anno, div.anno { display: block; }
 
-/* Role views: the View-as switch sets body[data-view] (guest, user, admin, instance); data-only lists the
-   views a block shows in. A guest looks only: controls that change something are not shown to them. */
+/* Role views: the View-as switch sets body[data-view] (guest, user, host, admin, instance); data-only lists
+   the views a block shows in. A guest looks only: controls that change something are not shown to them.
+   A host sees what a member sees ("user") and what is marked "host"; data-not="host" hides a member's
+   block from a host, and the member's own notes and name are replaced by the host's (mc.js). */
 body[data-view="guest"] [data-only]:not([data-only~="guest"]),
 body[data-view="user"] [data-only]:not([data-only~="user"]),
+body[data-view="host"] [data-only]:not([data-only~="host"]):not([data-only~="user"]),
+body[data-view="host"] [data-not~="host"],
+body[data-view="host"] :is(.note-role, .user .group)[data-only~="user"]:not([data-only~="host"]),
 body[data-view="admin"] [data-only]:not([data-only~="admin"]),
 body[data-view="instance"] [data-only]:not([data-only~="instance"]) { display: none !important; }
 body[data-view="guest"] main :is(.btn:not([data-guest]), .ctl, [data-act], .fw:has(> .btn:not([data-guest]))) { display: none !important; }

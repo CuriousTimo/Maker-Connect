@@ -12,7 +12,7 @@
 <header class="top">
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
   <span class="spacer"></span>
-  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="host">Host</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
   <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <aside class="side" aria-label="Navigation"><nav aria-label="Pages">
@@ -35,12 +35,12 @@
 <a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
 <a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
 </div>
-<div class="group" data-only="admin instance">Manage</div>
+<div class="group" data-only="host admin instance">Manage</div>
 <a data-only="admin instance" href="add-machine.html">Add machine</a>
-<a data-only="admin instance" href="space-members.html">Space</a>
+<a data-only="host admin instance" href="space-members.html">Space</a>
 <a data-only="instance" href="instance.html">Instance</a>
 <div class="user"><div class="group" data-only="guest">Eli · guest</div><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div><div class="group" data-only="instance">Ada · owner, instance admin</div>
-<a data-only="guest user" href="space-members.html#mine">My permissions</a>
+<a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a>
 <a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
 </nav></aside>
 <main id="main" tabindex="-1">
@@ -85,7 +85,7 @@
 </div>
 
 </main>
-<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="host admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <script src="mc.js"></script>
 </body>

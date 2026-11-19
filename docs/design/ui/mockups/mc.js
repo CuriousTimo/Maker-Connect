@@ -1,20 +1,33 @@
 /* Maker Connect v2 mockups: the one shared script. Mockup behaviour only (View as, theme, tabs,
    dialogs, the pending state of a command); the product's pages are server-rendered (ui.md). */
 (function () {
-  var b = document.body, views = ["guest", "user", "admin", "instance"];
+  var b = document.body, views = ["guest", "user", "host", "admin", "instance"];
   function store(k, v) { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
   function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 
-  /* View as: Guest (Eli), Member (Sam), Admin (Noor), Instance admin (Ada, also the space's owner) */
+  /* View as: Guest (Eli), Member (Sam), Host (Mira; this space calls the role "Staff"), Admin (Noor),
+     Instance admin (Ada, also the space's owner) */
   var sel = document.querySelector("[data-view-select]");
   var q = new URLSearchParams(location.search).get("as");
   var v = views.indexOf(q) >= 0 ? q : load("mc-view");
   if (views.indexOf(v) < 0) v = "user";
-  var guestNote = null;
+  var guestNote = null, hostNote = null, hostName = null;
   function setView(x) {
     b.dataset.view = x; if (sel) sel.value = x; store("mc-view", x);
     var main = document.getElementById("main");
     if (guestNote) { guestNote.remove(); guestNote = null; }
+    if (hostNote) { hostNote.remove(); hostNote = null; }
+    if (hostName) { hostName.remove(); hostName = null; }
+    if (x === "host") {
+      /* The host's name in the user menu, and a note where the page has none of its own */
+      var u = document.querySelector(".side .user");
+      if (u && !u.querySelector('.group[data-only~="host"]')) { hostName = document.createElement("div"); hostName.className = "group"; hostName.textContent = "Mira · staff (host)"; u.insertBefore(hostName, u.firstChild); }
+      if (main && !main.querySelector('.note-role[data-only~="host"]') && !main.hasAttribute("data-no-guest-note")) {
+        hostNote = document.createElement("p"); hostNote.className = "note-role";
+        hostNote.innerHTML = "<b>As a host (Mira, \u201cStaff\u201d here):</b> you see what a member sees on this page; in Space you handle requests and grants without damaging actions.";
+        main.insertBefore(hostNote, main.firstChild);
+      }
+    }
     if (x === "guest" && main && !main.querySelector('[data-only~="guest"].note-role') && !main.hasAttribute("data-no-guest-note")) {
       guestNote = document.createElement("p"); guestNote.className = "note-role";
       guestNote.innerHTML = "<b>As a guest (Eli):</b> you look only. Buttons that change something are not shown to a guest; the space's staff can make you a member.";
