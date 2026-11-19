@@ -357,24 +357,31 @@ impl Store {
     }
 
     /// How many files are on their way to a machine (what holds it in its space,
-    /// [`Store::move_machine`]).
-    pub(crate) async fn files_on_their_way(&self, machine: &str) -> sqlx::Result<i64> {
+    /// [`Store::move_machine`], in its transaction on the admin pool).
+    pub(crate) async fn files_on_their_way(
+        admin: &mut sqlx::PgConnection,
+        machine: &str,
+    ) -> sqlx::Result<i64> {
         sqlx::query_scalar!(
             r#"SELECT COUNT(*) AS "n!" FROM printer_transfers WHERE machine_id = $1 AND state IN ('waiting', 'sent')"#,
             machine
         )
-        .fetch_one(&self.pg().admin)
+        .fetch_one(admin)
         .await
     }
 
-    /// A machine moved to another space: its transfers not through yet fail.
-    pub(crate) async fn transfers_moved_away(&self, machine: &str) -> sqlx::Result<()> {
+    /// A machine moved to another space: its transfers not through yet fail (in
+    /// [`Store::move_machine`]'s transaction on the admin pool).
+    pub(crate) async fn transfers_moved_away(
+        admin: &mut sqlx::PgConnection,
+        machine: &str,
+    ) -> sqlx::Result<()> {
         sqlx::query!(
             "UPDATE printer_transfers SET state = 'failed', reason = 'the machine moved to another space'
              WHERE machine_id = $1 AND state NOT IN ('finished', 'done', 'failed')",
             machine
         )
-        .execute(&self.pg().admin)
+        .execute(admin)
         .await?;
         Ok(())
     }

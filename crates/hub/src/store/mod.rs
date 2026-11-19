@@ -42,6 +42,9 @@ pub fn takes_commands(link: &str) -> bool {
 
 /// Why a laser job is refused when nobody at the laser started it (our UI text).
 pub const LASER_NEVER_ALONE: &str = "a laser starts only when someone at the laser starts it";
+/// Why a job is not put on a file that is gone ([`Store::add_job`]): what main says of a missing
+/// file (`files::find`).
+pub const NO_SUCH_FILE: &str = "no such file";
 
 /// Who starts a job. A laser job is started only by a person, in their own session.
 #[derive(Debug, Clone, Copy)]

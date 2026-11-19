@@ -161,13 +161,22 @@ impl JobFacts {
 impl Store {
     /// What the machines `ids` show of their jobs (see [`JobFacts`]).
     pub(crate) async fn job_facts(&self, ids: &[String]) -> sqlx::Result<JobFacts> {
-        let admin = &self.pg().admin;
+        let mut admin = self.pg().admin.acquire().await?;
+        Self::job_facts_on(&mut admin, ids).await
+    }
+
+    /// [`Store::job_facts`] on `admin` (a connection of the admin pool, or a transaction on it:
+    /// [`Store::move_machine`] reads them in the transaction that moves the machine).
+    pub(crate) async fn job_facts_on(
+        admin: &mut sqlx::PgConnection,
+        ids: &[String],
+    ) -> sqlx::Result<JobFacts> {
         let mut facts = JobFacts::default();
         let last: Vec<JobRow> = sqlx::query_as(job_select!(
             "WHERE id IN (SELECT MAX(id) FROM jobs WHERE machine_id = ANY($1) GROUP BY machine_id)"
         ))
         .bind(ids)
-        .fetch_all(admin)
+        .fetch_all(&mut *admin)
         .await?;
         for row in last {
             facts.last.insert(row.machine_id.clone(), row);
@@ -178,7 +187,7 @@ impl Store {
                  AND state IN ('loaded', 'queued', 'printing', 'paused', 'stopping') GROUP BY machine_id)"
         ))
         .bind(ids)
-        .fetch_all(admin)
+        .fetch_all(&mut *admin)
         .await?;
         for row in active {
             facts.active.insert(row.machine_id.clone(), row);
@@ -194,7 +203,7 @@ impl Store {
         )
         .bind(ids)
         .bind(now)
-        .fetch_all(admin)
+        .fetch_all(&mut *admin)
         .await?;
         for (id, every_h, seconds) in upkeep {
             facts.upkeep.insert(id, (every_h, seconds));
@@ -205,7 +214,7 @@ impl Store {
                  OR (state = 'finished' AND confirmed_at IS NULL))
              GROUP BY part_id",
         )
-        .fetch_all(admin)
+        .fetch_all(&mut *admin)
         .await?;
         for (part, plates, held) in under_way {
             facts.under_way.insert(part, (plates, held));
@@ -266,6 +275,16 @@ impl Store {
         .bind(space)
         .fetch_optional(&mut *tx)
         .await?;
+        // The file stays while the job is put on it ([`Store::remove_file`] locks its row to
+        // remove it): gone already, there is no job.
+        let file_there: Option<String> =
+            sqlx::query_scalar("SELECT id FROM files WHERE id = $1 FOR SHARE")
+                .bind(&file.id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if file_there.is_none() {
+            return Ok(Err(NO_SUCH_FILE));
+        }
         let laser = kind
             .and_then(|k| serde_json::from_str::<MachineKind>(&k).ok())
             .is_some_and(|k| k == MachineKind::Laser);
@@ -745,14 +764,148 @@ impl Store {
             .await
     }
 
-    /// Whether a machine runs a file (or has it queued).
-    pub(crate) async fn file_in_use(&self, id: &str) -> sqlx::Result<bool> {
+    /// Whether a machine runs a file (or has it queued), on `admin` (in [`Store::remove_file`]'s
+    /// transaction on the admin pool).
+    pub(crate) async fn file_in_use(
+        admin: &mut sqlx::PgConnection,
+        id: &str,
+    ) -> sqlx::Result<bool> {
         sqlx::query_scalar(concat!(
             "SELECT EXISTS (SELECT 1 FROM jobs WHERE file_id = $1 AND state IN ",
             "('loaded', 'queued', 'printing', 'paused', 'stopping'))"
         ))
         .bind(id)
-        .fetch_one(&self.pg().admin)
+        .fetch_one(admin)
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A file of the default space with a machine to print it on: the store, the space, the
+    /// machine and the file.
+    async fn a_printer_and_a_file(pool: &sqlx::PgPool) -> (Store, i64, String, StoredFile) {
+        let store = Store::for_test(pool).await;
+        let (space, machine, _) = store.add_test_machine("prusa/mk3s", None).await;
+        store
+            .add_file(
+                space,
+                "f1",
+                "cube.gcode",
+                10,
+                &crate::gcode::FileMeta::default(),
+            )
+            .await
+            .unwrap();
+        let file = store.file(space, "f1").await.unwrap().unwrap();
+        (store, space, machine, file)
+    }
+
+    /// A file removed before its job is put on: no job, and the answer main gives for a missing
+    /// file.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn no_job_on_a_file_removed_before(pool: sqlx::PgPool) {
+        let (store, space, machine, file) = a_printer_and_a_file(&pool).await;
+        assert!(store.remove_file(space, &file.id).await.unwrap());
+        let job = store
+            .add_job(space, &machine, &file, None, StartedBy::Auto { by: None })
+            .await
+            .unwrap();
+        assert_eq!(job, Err(NO_SUCH_FILE));
+        assert!(store.active_job(&machine).await.unwrap().is_none());
+    }
+
+    /// A file is not removed while a job is being put on it: removing waits for the job's
+    /// transaction (its row locked to share), then finds the file in use.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_file_stays_while_a_job_is_put_on_it(pool: sqlx::PgPool) {
+        let (store, space, machine, file) = a_printer_and_a_file(&pool).await;
+        // What add_job holds between its check and its INSERT.
+        let mut tx = store.pg().space(space).await.unwrap();
+        sqlx::query("SELECT id FROM files WHERE id = $1 FOR SHARE")
+            .bind(&file.id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let removing = tokio::spawn({
+            let store = store.clone();
+            let id = file.id.clone();
+            async move { store.remove_file(space, &id).await.unwrap() }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(!removing.is_finished(), "removing waits for the lock");
+        sqlx::query(
+            "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at)
+             VALUES ($1, $2, $3, 'cube.gcode', 'queued', at_unix(0))",
+        )
+        .bind(space)
+        .bind(&machine)
+        .bind(&file.id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        assert!(!removing.await.unwrap(), "in use: not removed");
+        assert!(store.file(space, &file.id).await.unwrap().is_some());
+    }
+
+    /// A machine does not move while a job is being put on it: the move waits for the job's
+    /// transaction (the machine's row locked), then finds the job.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_machine_stays_while_a_job_is_put_on_it(pool: sqlx::PgPool) {
+        let (store, space, machine, file) = a_printer_and_a_file(&pool).await;
+        let org: i64 = sqlx::query_scalar("SELECT organisation_id FROM spaces WHERE id = $1")
+            .bind(space)
+            .fetch_one(&store.pg().admin)
+            .await
+            .unwrap();
+        let to = store.create_space(org, "Lab").await.unwrap();
+        // What add_job holds between its check and its INSERT.
+        let mut tx = store.pg().space(space).await.unwrap();
+        sqlx::query("SELECT kind FROM machines WHERE id = $1 FOR UPDATE")
+            .bind(&machine)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let moving = tokio::spawn({
+            let store = store.clone();
+            let machine = machine.clone();
+            async move { store.move_machine(space, &machine, to).await.unwrap() }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(!moving.is_finished(), "the move waits for the lock");
+        sqlx::query(
+            "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at)
+             VALUES ($1, $2, $3, 'cube.gcode', 'queued', at_unix(0))",
+        )
+        .bind(space)
+        .bind(&machine)
+        .bind(&file.id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let moved = moving.await.unwrap();
+        assert!(moved.is_err(), "the job holds it: {moved:?}");
+        let here: i64 = sqlx::query_scalar("SELECT space_id FROM machines WHERE id = $1")
+            .bind(&machine)
+            .fetch_one(&store.pg().admin)
+            .await
+            .unwrap();
+        assert_eq!(here, space);
     }
 }

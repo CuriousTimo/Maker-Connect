@@ -851,6 +851,10 @@ async fn print(
                 Json(serde_json::json!({ "loaded": file.name })).into_response()
             }
             Ok(Ok(_)) => Redirect::to(&format!("/machines/{}#control", machine.id)).into_response(),
+            // removed meanwhile: what `find` answers
+            Ok(Err(why)) if why == crate::store::NO_SUCH_FILE => {
+                (StatusCode::NOT_FOUND, why).into_response()
+            }
             Ok(Err(why)) => (StatusCode::CONFLICT, why).into_response(),
             Err(error) => failed(error),
         };
@@ -905,6 +909,10 @@ async fn print(
             StatusCode::NO_CONTENT.into_response()
         }
         Ok(Ok(_)) => Redirect::to(&format!("/machines/{}#control", machine.id)).into_response(),
+        // removed meanwhile: what `find` answers
+        Ok(Err(why)) if why == crate::store::NO_SUCH_FILE => {
+            (StatusCode::NOT_FOUND, why).into_response()
+        }
         Ok(Err(why)) => (StatusCode::CONFLICT, why).into_response(),
         Err(error) => failed(error),
     }
@@ -1208,6 +1216,10 @@ async fn control_job(
             .await
         {
             Ok(Ok(_)) => StatusCode::NO_CONTENT.into_response(),
+            // removed meanwhile: what the lookup above answers
+            Ok(Err(crate::store::NO_SUCH_FILE)) => {
+                (StatusCode::CONFLICT, "its file is gone").into_response()
+            }
             Ok(Err(why)) => (StatusCode::CONFLICT, why).into_response(),
             Err(error) => failed(error),
         };

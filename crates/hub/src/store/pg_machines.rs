@@ -618,22 +618,26 @@ impl Store {
         machine: &str,
         to: i64,
     ) -> Result<Result<(), String>, BoxError> {
+        // The check and the move are one transaction, the machine's row locked: a job put on it
+        // meanwhile ([`Store::add_job`] locks the same row) waits until it has moved, or is there
+        // before the check sees it.
+        let mut tx = self.pg().admin.begin().await?;
         let here = sqlx::query_scalar!(
-            r#"SELECT COUNT(*) AS "n!" FROM machines WHERE id = $1 AND space_id = $2"#,
+            "SELECT id FROM machines WHERE id = $1 AND space_id = $2 FOR UPDATE",
             machine,
             from
         )
-        .fetch_one(&self.pg().admin)
+        .fetch_optional(&mut *tx)
         .await?
-            > 0;
+        .is_some();
         if !here {
             return Ok(Err("no such machine".to_owned()));
         }
         if from == to {
             return Ok(Err("it is in that space already".to_owned()));
         }
-        let jobs = self.job_facts_of(machine).await?;
-        let sending = self.files_on_their_way(machine).await?;
+        let jobs = Self::job_facts_on(&mut tx, &[machine.to_owned()]).await?;
+        let sending = Self::files_on_their_way(&mut tx, machine).await?;
         let stays = self.lock().unwrap().why_it_stays(&jobs, machine, sending)?;
         if let Some(why) = stays {
             return Ok(Err(why));
@@ -643,9 +647,10 @@ impl Store {
             machine,
             to
         )
-        .execute(&self.pg().admin)
+        .execute(&mut *tx)
         .await?;
-        self.transfers_moved_away(machine).await?;
+        Self::transfers_moved_away(&mut tx, machine).await?;
+        tx.commit().await?;
         self.lock().unwrap().moved_away(from, machine)?;
         Ok(Ok(()))
     }

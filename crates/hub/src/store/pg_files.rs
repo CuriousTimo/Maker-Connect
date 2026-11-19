@@ -106,11 +106,23 @@ impl Store {
 
     /// Removes a file, from the store and from disk. Returns whether it was there.
     pub async fn remove_file(&self, space: i64, id: &str) -> sqlx::Result<bool> {
+        // The check and the removal are one transaction, the file's row locked: a job put on it
+        // meanwhile ([`Store::add_job`] locks the same row to share) waits, and then finds it gone;
+        // or it is there before the check sees it. The check on the admin pool, as all jobs of a
+        // machine: a machine that moved away keeps its jobs in the old space.
+        let mut tx = self.pg().admin.begin().await?;
+        let there = sqlx::query_scalar!(
+            "SELECT id FROM files WHERE id = $1 AND space_id = $2 FOR UPDATE",
+            id,
+            space
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_some();
         // Not while a machine runs it (or has it queued).
-        if self.file_in_use(id).await? {
+        if !there || Self::file_in_use(&mut tx, id).await? {
             return Ok(false);
         }
-        let mut tx = self.pg().space(space).await?;
         let removed = sqlx::query!(
             "DELETE FROM files WHERE id = $1 AND space_id = $2",
             id,
