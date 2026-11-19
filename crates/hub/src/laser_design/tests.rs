@@ -54,14 +54,14 @@ mod prepare_tests {
         };
         assert_eq!(of("ann", false).await, Availability::NotBuilt);
         assert_eq!(of("ann", true).await, Availability::NoLaser);
-        w.laser("Ortur", true);
+        w.laser("Ortur", true).await;
         assert_eq!(
             of("ann", true).await,
             Availability::NotPermitted,
             "a laser that needs permission ann has not got"
         );
         assert_eq!(of("gus", true).await, Availability::Guest);
-        w.laser("Open one", false);
+        w.laser("Open one", false).await;
         assert_eq!(of("ann", true).await, Availability::Open);
     }
 
@@ -101,7 +101,7 @@ mod serving_tests {
     ) {
         let w = World::new(&pool).await;
         w.person("ann", Role::Member).await;
-        w.laser("Ortur", false);
+        w.laser("Ortur", false).await;
         let store = w.store.clone();
         for asset in FAKE {
             let access = w.access_of("ann").await;
@@ -151,7 +151,7 @@ mod serving_tests {
         let (status, body) = w.get(&ann, "/laser-design/").await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
         assert!(body.contains("no laser"), "{body}");
-        let laser = w.laser("Ortur", false);
+        let laser = w.laser("Ortur", false).await;
         // open to members: ann may use it; a guest may not
         let ok = if ASSETS.is_empty() {
             StatusCode::NOT_FOUND
@@ -200,7 +200,7 @@ mod serving_tests {
     async fn the_built_in_bundle_is_served_gzip_and_holds_no_web_serial(pool: sqlx::PgPool) {
         let w = World::new(&pool).await;
         let (_, ann) = w.person("ann", Role::Member).await;
-        w.laser("Ortur", false);
+        w.laser("Ortur", false).await;
         if ASSETS.is_empty() {
             let (status, body) = w.get(&ann, "/laser-design/").await;
             assert_eq!(status, StatusCode::NOT_FOUND);
@@ -248,12 +248,11 @@ mod lasers_tests {
     async fn the_list_has_the_lasers_the_person_may_use_in_the_apps_shape(pool: sqlx::PgPool) {
         let w = World::new(&pool).await;
         let (user, ann) = w.person("ann", Role::Member).await;
-        let open = w.laser("Open one", false);
-        let closed = w.laser("Closed one", true);
+        let open = w.laser("Open one", false).await;
+        let closed = w.laser("Closed one", true).await;
         w.store
-            .lock()
-            .unwrap()
             .add_virtual(w.space, crate::profiles::find("prusa/mk3s").unwrap())
+            .await
             .unwrap();
         let (status, body) = w.get(&ann, "/api/laser-design/lasers").await;
         assert_eq!(status, StatusCode::OK, "{body}");
@@ -302,7 +301,7 @@ mod send_tests {
     async fn the_page_loads_a_job_asks_before_replacing_and_starts_nothing(pool: sqlx::PgPool) {
         let w = World::new(&pool).await;
         let (_, ann) = w.person("ann", Role::Member).await;
-        let laser = w.laser("Ortur", false);
+        let laser = w.laser("Ortur", false).await;
         let upload = |name: &str| {
             Request::post(format!("/api/files?name={name}"))
                 .header("cookie", &ann)
@@ -468,27 +467,31 @@ impl World {
     }
 
     /// A laser (a virtual one), open to members or, when `needs_permission`, closed to them until given.
-    fn laser(&self, name: &str, needs_permission: bool) -> String {
-        let mut s = self.store.lock().unwrap();
+    async fn laser(&self, name: &str, needs_permission: bool) -> String {
+        let s = &self.store;
         let id = s
             .add_virtual(
                 self.space,
                 crate::profiles::find("ortur/lm2-pro-s2").unwrap(),
             )
+            .await
             .unwrap();
-        s.rename(self.space, &id, name).unwrap();
+        s.rename(self.space, &id, name).await.unwrap();
         // a new machine is closed until permission is given: open it to members, or keep it closed
-        s.set_access_mode(self.space, &id, u8::from(needs_permission))
+        s.lock()
+            .unwrap()
+            .set_access_mode(self.space, &id, u8::from(needs_permission))
             .unwrap();
         // online, as a laser whose agent reports
         let token = s
             .virtual_machines()
+            .await
             .unwrap()
             .into_iter()
             .find(|(m, ..)| *m == id)
             .unwrap()
             .1;
-        s.report(&token, &Default::default()).unwrap();
+        s.report(&token, &Default::default()).await.unwrap();
         id
     }
 

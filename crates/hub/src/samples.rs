@@ -159,15 +159,15 @@ mod tests {
     )]
     async fn every_space_gets_them_once(pool: sqlx::PgPool) {
         let store = crate::store::Store::for_test(&pool).await;
-        let space = store.lock().unwrap().default_space().unwrap().0;
+        let space = store.default_space().await.unwrap().0;
         super::give_once(&store).await.unwrap();
-        let n = store.lock().unwrap().files(space).unwrap().len();
+        let n = store.files(space).await.unwrap().len();
         assert_eq!(n, super::unpack().unwrap().len());
-        let first = store.lock().unwrap().files(space).unwrap()[0].clone();
-        store.lock().unwrap().remove_file(space, &first.id).unwrap();
+        let first = store.files(space).await.unwrap()[0].clone();
+        store.remove_file(space, &first.id).await.unwrap();
         super::give_once(&store).await.unwrap();
         assert_eq!(
-            store.lock().unwrap().files(space).unwrap().len(),
+            store.files(space).await.unwrap().len(),
             n - 1,
             "removed stays removed"
         );

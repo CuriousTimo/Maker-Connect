@@ -723,16 +723,15 @@ mod tests {
         };
         assert_eq!(next().await, "data: []\n\n");
         let (_, _, code) = store
-            .lock()
-            .unwrap()
             .register(&Register {
                 protocol: protocol::VERSION,
                 name: "Gonzo".into(),
                 kind: MachineKind::Fdm,
                 agent_version: "0.1.0".into(),
             })
+            .await
             .unwrap();
-        store.lock().unwrap().pair(1, &code).unwrap();
+        store.pair(1, &code).await.unwrap();
         let changed = tokio::time::timeout(std::time::Duration::from_secs(2), next())
             .await
             .expect("an event within the merge time, not the 5 s tick");
@@ -814,13 +813,14 @@ mod tests {
         let store = crate::store::Store::for_test(&pool).await;
         let app = crate::auth::signed_in_app(store.clone()).await;
         let (writer, manager) = {
-            let mut store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
+            let space = store.default_space().await.unwrap().0;
             let writer = store
                 .add_virtual(space, profiles::find("dymo/labelwriter-450").unwrap())
+                .await
                 .unwrap();
             let manager = store
                 .add_virtual(space, profiles::find("dymo/labelmanager-pnp").unwrap())
+                .await
                 .unwrap();
             (writer, manager)
         };
@@ -866,12 +866,12 @@ mod tests {
         );
         // A label printer without a profile: only the notice, on both tabs.
         let bare = {
-            let mut store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
+            let space = store.default_space().await.unwrap().0;
             let id = store
                 .add_virtual(space, profiles::find("dymo/labelwriter-450").unwrap())
+                .await
                 .unwrap();
-            store.set_profile(space, &id, None).unwrap();
+            store.set_profile(space, &id, None).await.unwrap();
             id
         };
         let (_, page) = call(&app, get(&bare)).await;

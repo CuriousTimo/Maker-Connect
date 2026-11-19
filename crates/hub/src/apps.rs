@@ -284,10 +284,11 @@ mod tests {
                 .create_token(space, owner, "Viewer", Role::Guest)
                 .await
                 .unwrap();
-            let mut s = store.lock().unwrap();
-            let laser = s
+            let laser = store
                 .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
+                .await
                 .unwrap();
+            let mut s = store.lock().unwrap();
             // Open to every member (a new machine needs permission).
             s.set_induction_required(space, &laser, false).unwrap();
             (space, laser, member, guest)
@@ -377,10 +378,15 @@ mod tests {
         );
         assert!(sent["check"]["fits"].is_boolean(), "{sent}");
         {
-            let s = store.lock().unwrap();
-            assert_eq!(s.files(space).unwrap().len(), 1);
+            assert_eq!(store.files(space).await.unwrap().len(), 1);
             assert!(
-                s.machine(space, &laser).unwrap().unwrap().job.is_none(),
+                store
+                    .machine(space, &laser)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .job
+                    .is_none(),
                 "nothing starts by itself"
             );
         }
@@ -411,11 +417,7 @@ mod tests {
             .unwrap();
         let (status, _, _) = send(&app, file(&mia_token, &laser)).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
-        assert_eq!(
-            store.lock().unwrap().files(space).unwrap().len(),
-            1,
-            "not stored"
-        );
+        assert_eq!(store.files(space).await.unwrap().len(), 1, "not stored");
         // A browser's cookie from another site does not count here.
         let cookie = format!(
             "{}={}",

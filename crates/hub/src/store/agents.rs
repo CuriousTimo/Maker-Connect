@@ -154,7 +154,7 @@ impl Store {
 
     /// A print the machine runs itself (no job of the hub's: from its USB stick or SD card, or
     /// started at its screen) is followed while it runs and recorded as a job when it ends:
-    /// [`Legacy::follow_own_print_of`].
+    /// `Legacy::follow_own_print_of`.
     pub async fn follow_own_print(
         &self,
         token: &str,

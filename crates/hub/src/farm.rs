@@ -1610,7 +1610,6 @@ mod flow {
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
-    use maker_connect_protocol::{MachineState, Telemetry};
 
     use tower::ServiceExt;
 
@@ -1649,11 +1648,11 @@ mod flow {
         let app = crate::auth::signed_in_app(store.clone()).await;
         let mk3s = crate::profiles::find("prusa/mk3s").unwrap();
         let (space, a, b, c) = {
+            let space = store.default_space().await.unwrap().0;
+            let a = store.add_virtual(space, mk3s).await.unwrap();
+            let b = store.add_virtual(space, mk3s).await.unwrap();
+            let c = store.add_virtual(space, mk3s).await.unwrap();
             let mut s = store.lock().unwrap();
-            let space = s.default_space().unwrap().0;
-            let a = s.add_virtual(space, mk3s).unwrap();
-            let b = s.add_virtual(space, mk3s).unwrap();
-            let c = s.add_virtual(space, mk3s).unwrap();
             s.set_takes_work(space, &a, true).unwrap();
             s.set_takes_work(space, &b, true).unwrap();
             (space, a, b, c)
@@ -1661,24 +1660,9 @@ mod flow {
         for m in [&a, &b, &c] {
             crate::auth::tester_may_operate(&store, m).await;
         }
-        let idle = |machine: &str| {
-            let mut s = store.lock().unwrap();
-            let token: String =
-                s.db.query_row("SELECT token FROM machines WHERE id = ?1", [machine], |r| {
-                    r.get(0)
-                })
-                .unwrap();
-            s.report(
-                &token,
-                &Telemetry {
-                    state: MachineState::Idle,
-                    ..Telemetry::default()
-                },
-            )
-            .unwrap();
-        };
+        let idle = async |machine: &str| store.idle_test_machine(machine).await;
         for m in [&a, &b, &c] {
-            idle(m);
+            idle(m).await;
         }
         // A file, a project, a part, the file for the MK3S (10 a plate, from its name).
         let (status, body) = call(
@@ -1740,6 +1724,13 @@ mod flow {
         // Ahead of dispatch, the schedule plans the same: 3 plates of 10 make 25, over a and
         // b (c takes no work), and nothing changes by looking.
         {
+            let ma = store
+                .machines(space)
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|m| m.id == a)
+                .unwrap();
             let s = store.lock().unwrap();
             let lanes = s.schedule(space).unwrap();
             assert_eq!(lanes.len(), 2, "only the machines that take work");
@@ -1752,12 +1743,6 @@ mod flow {
                 lanes.iter().all(|l| !l.blocks.is_empty()),
                 "both machines get one"
             );
-            let ma = s
-                .machines(space)
-                .unwrap()
-                .into_iter()
-                .find(|m| m.id == a)
-                .unwrap();
             assert_eq!(s.compatible(space, &ma).unwrap(), (1, 1));
             assert!(
                 s.active_job(&a).unwrap().is_none(),
@@ -1788,8 +1773,8 @@ mod flow {
             .unwrap()
             .set_job(jb, JobState::Failed, Some("spaghetti"))
             .unwrap();
-        idle(&a);
-        idle(&b);
+        idle(&a).await;
+        idle(&b).await;
         // One plate still needed (25 > 0 + 10 under way on a): it waits, both machines held.
         assert_eq!(
             store.lock().unwrap().dispatch().unwrap(),
@@ -1798,9 +1783,8 @@ mod flow {
         );
         assert!(
             store
-                .lock()
-                .unwrap()
                 .machine(space, &a)
+                .await
                 .unwrap()
                 .unwrap()
                 .confirm
@@ -1835,7 +1819,7 @@ mod flow {
                 .unwrap()
                 .set_job(j, JobState::Finished, None)
                 .unwrap();
-            idle(m);
+            idle(m).await;
         }
         call(
             &app,
@@ -1884,40 +1868,32 @@ mod flow {
 #[cfg(test)]
 mod upkeep {
     use super::*;
-    use maker_connect_protocol::{MachineState, Telemetry};
 
     /// A machine due for its service takes no plate; once serviced, it does again.
-    #[test]
-    fn a_part_that_wants_a_plate_waits_for_it() {
-        let mut s = Legacy::open(":memory:").unwrap();
-        let space = s.default_space().unwrap().0;
-        let m = s
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_part_that_wants_a_plate_waits_for_it(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let space = store.default_space().await.unwrap().0;
+        let m = store
             .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+            .await
             .unwrap();
+        store
+            .add_file(space, "f1", "4x_a.gcode", 10, &Default::default())
+            .await
+            .unwrap();
+        store.idle_test_machine(&m).await;
+        let mut s = store.lock().unwrap();
         s.set_takes_work(space, &m, true).unwrap();
-        s.db.execute(
-            "INSERT INTO files (id, space_id, name, size, uploaded_at, meta) VALUES ('f1', ?1, '4x_a.gcode', 10, 0, '{}')",
-            [space],
-        )
-        .unwrap();
         s.db.execute("INSERT INTO projects (space_id, name, state, created_at) VALUES (?1, 'P', 'active', 0)", [space]).unwrap();
         s.db.execute("INSERT INTO parts (project_id, space_id, name, target, created_at) VALUES (1, ?1, 'A', 4, 0)", [space]).unwrap();
         s.db.execute(
             "INSERT INTO part_files (part_id, space_id, profile, file_id, per_plate, created_at, sheet) VALUES (1, ?1, 'prusa/mk3s', 'f1', 4, 0, 'Textured PEI')",
             [space],
-        )
-        .unwrap();
-        let token: String =
-            s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&m], |r| {
-                r.get(0)
-            })
-            .unwrap();
-        s.report(
-            &token,
-            &Telemetry {
-                state: MachineState::Idle,
-                ..Telemetry::default()
-            },
         )
         .unwrap();
         assert_eq!(s.dispatch().unwrap(), 0, "no plate said: not sent");
@@ -1936,21 +1912,27 @@ mod upkeep {
         );
     }
 
-    #[test]
-    fn a_service_due_holds_the_queue() {
-        let mut s = Legacy::open(":memory:").unwrap();
-        let space = s.default_space().unwrap().0;
-        let m = s
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_service_due_holds_the_queue(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let space = store.default_space().await.unwrap().0;
+        let m = store
             .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+            .await
             .unwrap();
+        store
+            .add_file(space, "f1", "10x_a.gcode", 10, &Default::default())
+            .await
+            .unwrap();
+        store.idle_test_machine(&m).await;
+        let mut s = store.lock().unwrap();
         s.set_takes_work(space, &m, true).unwrap();
         s.set_upkeep(space, &m, Some(1.0)).unwrap();
         // Two hours printed: due.
-        s.db.execute(
-            "INSERT INTO files (id, space_id, name, size, uploaded_at, meta) VALUES ('f1', ?1, '10x_a.gcode', 10, 0, '{}')",
-            [space],
-        )
-        .unwrap();
         s.db.execute(
             "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at, started_at, ended_at, taken_at)
              VALUES (?1, ?2, 'f1', 'old.gcode', 'finished', ?3, ?3, ?4, ?4)",
@@ -1965,19 +1947,6 @@ mod upkeep {
         s.db.execute(
             "INSERT INTO part_files (part_id, space_id, profile, file_id, per_plate, created_at) VALUES (1, ?1, 'prusa/mk3s', 'f1', 10, 0)",
             [space],
-        )
-        .unwrap();
-        let token: String =
-            s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&m], |r| {
-                r.get(0)
-            })
-            .unwrap();
-        s.report(
-            &token,
-            &Telemetry {
-                state: MachineState::Idle,
-                ..Telemetry::default()
-            },
         )
         .unwrap();
         assert_eq!(s.dispatch().unwrap(), 0, "due: no plate");

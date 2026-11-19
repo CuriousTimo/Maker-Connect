@@ -397,71 +397,69 @@ async fn remove(
 
 #[cfg(test)]
 mod tests {
-    use crate::store::{JobState, Legacy};
+    use crate::store::JobState;
     use maker_connect_protocol::{MachineState, Telemetry};
 
     /// One after another: the next starts once the machine is free; after a failed job only
     /// when someone said the bed is clear.
-    #[test]
-    fn a_queue_waits_for_a_clear_bed() {
-        let mut s = Legacy::open(":memory:").unwrap();
-        let space = s.default_space().unwrap().0;
-        let m = s
-            .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_queue_waits_for_a_clear_bed(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let (space, m, token) = store.add_test_machine("prusa/mk3s", None).await;
+        store
+            .add_file(space, "f1", "a.gcode", 10, &Default::default())
+            .await
             .unwrap();
-        s.db.execute(
-            "INSERT INTO files (id, space_id, name, size, uploaded_at, meta) VALUES ('f1', ?1, 'a.gcode', 10, 0, '{}')",
-            [space],
-        )
-        .unwrap();
-        let token: String =
-            s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&m], |r| {
-                r.get(0)
-            })
-            .unwrap();
-        let idle = |s: &mut Legacy| {
-            s.report(
+        store.idle_test_machine(&m).await;
+        let file = store.file(space, "f1").await.unwrap().unwrap();
+        {
+            let mut s = store.lock().unwrap();
+            let job = s
+                .add_job(
+                    space,
+                    &m,
+                    &file,
+                    None,
+                    crate::store::StartedBy::Auto { by: Some("Timo") },
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap(), 1);
+            assert_eq!(s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap(), 2);
+            assert_eq!(s.start_queued().unwrap(), 0, "busy");
+            // It failed: what it left may be on the bed.
+            s.set_job(job, JobState::Failed, Some("spaghetti")).unwrap();
+        }
+        store.idle_test_machine(&m).await;
+        assert_eq!(
+            store.lock().unwrap().start_queued().unwrap(),
+            0,
+            "the bed first"
+        );
+        let machine = store.machine(space, &m).await.unwrap().unwrap();
+        assert_eq!(machine.queue_held.as_deref(), Some("failed"));
+        // "Set Ready" on the printer's own menu says the same as "Bed clear" on its page.
+        store
+            .report(
                 &token,
                 &Telemetry {
                     state: MachineState::Idle,
+                    bed_clear: true,
                     ..Telemetry::default()
                 },
             )
+            .await
             .unwrap();
-        };
-        idle(&mut s);
-        let file = s.file(space, "f1").unwrap().unwrap();
-        let job = s
-            .add_job(
-                space,
-                &m,
-                &file,
-                None,
-                crate::store::StartedBy::Auto { by: Some("Timo") },
-            )
-            .unwrap()
-            .unwrap();
-        assert_eq!(s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap(), 1);
-        assert_eq!(s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap(), 2);
-        assert_eq!(s.start_queued().unwrap(), 0, "busy");
-        // It failed: what it left may be on the bed.
-        s.set_job(job, JobState::Failed, Some("spaghetti")).unwrap();
-        idle(&mut s);
-        assert_eq!(s.start_queued().unwrap(), 0, "the bed first");
-        let machine = s.machine(space, &m).unwrap().unwrap();
-        assert_eq!(machine.queue_held.as_deref(), Some("failed"));
-        // "Set Ready" on the printer's own menu says the same as "Bed clear" on its page.
-        s.report(
-            &token,
-            &Telemetry {
-                state: MachineState::Idle,
-                bed_clear: true,
-                ..Telemetry::default()
-            },
-        )
-        .unwrap();
-        assert_eq!(s.start_queued().unwrap(), 1, "bed clear: the next");
-        let machine = s.machine(space, &m).unwrap().unwrap();
+        assert_eq!(
+            store.lock().unwrap().start_queued().unwrap(),
+            1,
+            "bed clear: the next"
+        );
+        let machine = store.machine(space, &m).await.unwrap().unwrap();
         assert_eq!(
             machine.job.unwrap().by.as_deref(),
             Some("Mia"),
@@ -470,61 +468,62 @@ mod tests {
         assert_eq!(machine.queue.len(), 1);
         // Reordering and taking out.
         let left = machine.queue[0].id;
-        assert!(s.queue_remove(space, &m, left).unwrap());
-        assert!(s.machine(space, &m).unwrap().unwrap().queue.is_empty());
+        assert!(store.lock().unwrap().queue_remove(space, &m, left).unwrap());
+        assert!(
+            store
+                .machine(space, &m)
+                .await
+                .unwrap()
+                .unwrap()
+                .queue
+                .is_empty()
+        );
     }
 
     /// A laser job is started only by a person in a session: not by the queue, a reprint, the
     /// farm, nor a person without a session (an API token). Its queue waits.
-    #[test]
-    fn a_laser_never_starts_alone() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_laser_never_starts_alone(pool: sqlx::PgPool) {
         use crate::store::{LASER_NEVER_ALONE, StartedBy};
-        let mut s = Legacy::open(":memory:").unwrap();
-        let space = s.default_space().unwrap().0;
-        let m = s
-            .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+        let store = crate::store::Store::for_test(&pool).await;
+        let (space, m, _) = store.add_test_machine("prusa/mk3s", None).await;
+        store
+            .add_file(space, "f1", "a.gcode", 10, &Default::default())
+            .await
             .unwrap();
-        s.db.execute(
-            "INSERT INTO files (id, space_id, name, size, uploaded_at, meta) VALUES ('f1', ?1, 'a.gcode', 10, 0, '{}')",
-            [space],
-        )
-        .unwrap();
-        let token: String =
-            s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&m], |r| {
-                r.get(0)
-            })
-            .unwrap();
-        s.report(
-            &token,
-            &Telemetry {
-                state: MachineState::Idle,
-                ..Telemetry::default()
-            },
-        )
-        .unwrap();
-        let file = s.file(space, "f1").unwrap().unwrap();
+        store.idle_test_machine(&m).await;
+        let file = store.file(space, "f1").await.unwrap().unwrap();
         // As an FDM printer: the guard lets everything through.
-        let job = s
-            .add_job(
-                space,
-                &m,
-                &file,
-                None,
-                StartedBy::Auto { by: Some("queue") },
-            )
-            .unwrap()
+        {
+            let mut s = store.lock().unwrap();
+            let job = s
+                .add_job(
+                    space,
+                    &m,
+                    &file,
+                    None,
+                    StartedBy::Auto { by: Some("queue") },
+                )
+                .unwrap()
+                .unwrap();
+            s.set_job(job, JobState::Finished, None).unwrap();
+        }
+        // The same machine, now a laser (its kind on Postgres, the farm's flag on SQLite).
+        sqlx::query("UPDATE machines SET kind = $2 WHERE id = $1")
+            .bind(&m)
+            .bind(serde_json::to_string(&maker_connect_protocol::MachineKind::Laser).unwrap())
+            .execute(&pool)
+            .await
             .unwrap();
-        s.set_job(job, JobState::Finished, None).unwrap();
-        // The same machine, now a laser.
-        s.db.execute(
-            "UPDATE machines SET kind = ?2, farm = 1 WHERE id = ?1",
-            rusqlite::params![
-                m,
-                serde_json::to_string(&maker_connect_protocol::MachineKind::Laser).unwrap()
-            ],
-        )
-        .unwrap();
-        assert!(s.is_laser(space, &m).unwrap());
+        store.mirror_machine(Some(&m), None).await.unwrap();
+        assert!(store.is_laser(space, &m).await.unwrap());
+        let mut s = store.lock().unwrap();
+        s.db.execute("UPDATE machines SET farm = 1 WHERE id = ?1", [&m])
+            .unwrap();
         s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap();
         s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap();
         assert_eq!(

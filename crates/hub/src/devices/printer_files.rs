@@ -1589,24 +1589,9 @@ mod flow {
     async fn deleting_on_the_stick(pool: sqlx::PgPool) {
         let store = crate::store::Store::for_test(&pool).await;
         let app = crate::auth::signed_in_app(store.clone()).await;
-        let (space, mini, token) = {
-            let mut s = store.lock().unwrap();
-            let space = s.default_space().unwrap().0;
-            let mini = s
-                .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
-                .unwrap();
-            let token: String =
-                s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| {
-                    r.get(0)
-                })
-                .unwrap();
-            s.db.execute(
-                "UPDATE machines SET link = 'prusa-connect' WHERE id = ?1",
-                [&mini],
-            )
-            .unwrap();
-            (space, mini, token)
-        };
+        let (space, mini, token) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
         crate::auth::tester_may_operate(&store, &mini).await;
         let report = || {
             Request::post("/p/telemetry")
@@ -1700,8 +1685,7 @@ mod flow {
         )
         .await;
         {
-            let s = store.lock().unwrap();
-            let m = s.machine(space, &mini).unwrap().unwrap();
+            let m = store.machine(space, &mini).await.unwrap().unwrap();
             let done = m.commands.iter().find(|c| c.id == id as u32).unwrap();
             assert_eq!(done.state, crate::store::CommandState::Finished);
         }
@@ -1749,8 +1733,7 @@ mod flow {
             )))
             .unwrap();
         assert_eq!(call(&app, running).await.0, StatusCode::NO_CONTENT);
-        let s = store.lock().unwrap();
-        let m = s.machine(space, &mini).unwrap().unwrap();
+        let m = store.machine(space, &mini).await.unwrap().unwrap();
         let c = m.commands.iter().find(|c| c.id == busy).unwrap();
         assert_eq!(c.state, crate::store::CommandState::Accepted);
     }
@@ -1767,24 +1750,9 @@ mod flow {
         let store = crate::store::Store::for_test(&pool).await;
         let app = crate::auth::signed_in_app(store.clone()).await;
         // A MINI registered and in the space.
-        let (space, mini, token) = {
-            let mut s = store.lock().unwrap();
-            let space = s.default_space().unwrap().0;
-            let mini = s
-                .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
-                .unwrap();
-            let token: String =
-                s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| {
-                    r.get(0)
-                })
-                .unwrap();
-            s.db.execute(
-                "UPDATE machines SET link = 'prusa-connect' WHERE id = ?1",
-                [&mini],
-            )
-            .unwrap();
-            (space, mini, token)
-        };
+        let (space, mini, token) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
         crate::auth::tester_may_operate(&store, &mini).await;
         let report = |state: &str| {
             Request::post("/p/telemetry")
@@ -1836,8 +1804,8 @@ mod flow {
         assert_eq!(call(&app, event(listing)).await.0, StatusCode::NO_CONTENT);
         // Its printable file is read ahead, in the background (not listed with someone's commands).
         {
+            let m = store.machine(space, &mini).await.unwrap().unwrap();
             let s = store.lock().unwrap();
-            let m = s.machine(space, &mini).unwrap().unwrap();
             assert!(
                 m.commands.iter().all(|c| !c.label.contains("BENCHY")),
                 "background: not listed"
@@ -2030,21 +1998,13 @@ mod flow {
             serde_json::from_slice::<Value>(&body).unwrap(),
             json!({"command": "START_PRINT", "kwargs": {"path": "/usb/Big_part.gcode"}})
         );
-        let job = || {
-            store
-                .lock()
-                .unwrap()
-                .machine(space, &mini)
-                .unwrap()
-                .unwrap()
-                .job
-        };
-        let job_id = job().unwrap().id;
-        assert_eq!(job().unwrap().state, JobState::Printing);
+        let job = || async { store.machine(space, &mini).await.unwrap().unwrap().job };
+        let job_id = job().await.unwrap().id;
+        assert_eq!(job().await.unwrap().state, JobState::Printing);
         call(&app, report("PRINTING")).await;
-        assert_eq!(job().unwrap().state, JobState::Printing);
+        assert_eq!(job().await.unwrap().state, JobState::Printing);
         call(&app, report("FINISHED")).await;
-        assert!(job().is_none(), "ended");
+        assert!(job().await.is_none(), "ended");
         let ended = store.lock().unwrap().job(job_id).unwrap().unwrap();
         assert_eq!(ended.state, JobState::Finished);
 
@@ -2097,7 +2057,11 @@ mod flow {
         let again: Value = serde_json::from_slice(&answer.2).unwrap();
         assert_eq!(again["command"], "START_ENCRYPTED_DOWNLOAD");
         assert_eq!(again["kwargs"]["path"], "/usb/Big_part-2.gcode");
-        assert_eq!(job().unwrap().state, JobState::Printing, "the job goes on");
+        assert_eq!(
+            job().await.unwrap().state,
+            JobState::Printing,
+            "the job goes on"
+        );
         // It asks something on its screen: shown as it says it, until it no longer asks.
         call(&app, event(json!({"event": "STATE_CHANGED", "state": "ATTENTION", "dialog_id": 7, "data": {
             "code": "17630", "title": "Sliced for another printer", "text": "The G-code was sliced for MINIIS.", "buttons": ["Continue", "Abort"]
@@ -2106,13 +2070,7 @@ mod flow {
         // (once the download before has its answer: one command at a time).
         let again_id: u64 = answer.1["command-id"].to_str().unwrap().parse().unwrap();
         call(&app, event(json!({"event": "TRANSFER_INFO", "command_id": again_id, "state": "ATTENTION", "data": {}}))).await;
-        let buttons = store
-            .lock()
-            .unwrap()
-            .machine(space, &mini)
-            .unwrap()
-            .unwrap()
-            .buttons;
+        let buttons = store.machine(space, &mini).await.unwrap().unwrap().buttons;
         assert_eq!(buttons, ["Continue", "Abort"]);
         let (status, _, _) = call(
             &app,
@@ -2131,24 +2089,16 @@ mod flow {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "no such button");
-        let asking = || {
-            store
-                .lock()
-                .unwrap()
-                .machine(space, &mini)
-                .unwrap()
-                .unwrap()
-                .asking
-        };
+        let asking = || async { store.machine(space, &mini).await.unwrap().unwrap().asking };
         assert_eq!(
-            asking(),
+            asking().await,
             Some((
                 "Sliced for another printer".to_owned(),
                 "The G-code was sliced for MINIIS. (#17630, prusa.io/17630)".to_owned()
             ))
         );
         call(&app, report("PRINTING")).await;
-        assert_eq!(asking(), None, "answered on the printer");
+        assert_eq!(asking().await, None, "answered on the printer");
         let _ = now();
     }
 
@@ -2164,24 +2114,9 @@ mod flow {
     async fn a_print_the_mini_runs_itself_holds_the_queue_when_it_ends(pool: sqlx::PgPool) {
         let store = crate::store::Store::for_test(&pool).await;
         let app = crate::auth::signed_in_app(store.clone()).await;
-        let (space, mini, token) = {
-            let mut s = store.lock().unwrap();
-            let space = s.default_space().unwrap().0;
-            let mini = s
-                .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
-                .unwrap();
-            let token: String =
-                s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| {
-                    r.get(0)
-                })
-                .unwrap();
-            s.db.execute(
-                "UPDATE machines SET link = 'prusa-connect' WHERE id = ?1",
-                [&mini],
-            )
-            .unwrap();
-            (space, mini, token)
-        };
+        let (space, mini, token) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
         crate::auth::tester_may_operate(&store, &mini).await;
         let report = |body: &str| {
             Request::post("/p/telemetry")
@@ -2209,8 +2144,8 @@ mod flow {
         };
         // What `files::fit` holds a job back by: a finished print on the bed, or the last job
         // stopped or failed and not said to be cleared.
-        let held = |s: &Legacy| {
-            let machine = s.machine(space, &mini).unwrap().unwrap();
+        let held = || async {
+            let machine = store.machine(space, &mini).await.unwrap().unwrap();
             (machine.on_bed.is_some(), machine.queue_held.clone())
         };
         call(&app, report(r#"{"state":"IDLE"}"#)).await;
@@ -2238,18 +2173,11 @@ mod flow {
             jobs(),
             (1, Some("stopped".into()), Some("Benchy.bgcode".into()))
         );
-        assert_eq!(
-            held(&store.lock().unwrap()),
-            (false, Some("stopped".into()))
-        );
+        assert_eq!(held().await, (false, Some("stopped".into())));
         call(&app, report(r#"{"state":"IDLE"}"#)).await;
         assert_eq!(jobs().0, 1, "recorded once");
         store.lock().unwrap().print_taken(space, &mini).unwrap();
-        assert_eq!(
-            held(&store.lock().unwrap()),
-            (false, None),
-            "taken off: free again"
-        );
+        assert_eq!(held().await, (false, None), "taken off: free again");
         // Finished on the printer: on its bed until taken.
         call(
             &app,
@@ -2258,10 +2186,7 @@ mod flow {
         .await;
         call(&app, report(r#"{"state":"FINISHED"}"#)).await;
         assert_eq!(jobs().0, 2);
-        assert!(
-            held(&store.lock().unwrap()).0,
-            "a finished print on its bed"
-        );
+        assert!(held().await.0, "a finished print on its bed");
     }
 
     /// Seen on the MINI (2026-11-08): a download only to the stick opens the file's print
@@ -2276,24 +2201,9 @@ mod flow {
     async fn a_download_only_to_the_stick_closes_its_preview(pool: sqlx::PgPool) {
         let store = crate::store::Store::for_test(&pool).await;
         let app = crate::auth::signed_in_app(store.clone()).await;
-        let (mini, token) = {
-            let mut s = store.lock().unwrap();
-            let space = s.default_space().unwrap().0;
-            let mini = s
-                .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
-                .unwrap();
-            let token: String =
-                s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| {
-                    r.get(0)
-                })
-                .unwrap();
-            s.db.execute(
-                "UPDATE machines SET link = 'prusa-connect' WHERE id = ?1",
-                [&mini],
-            )
-            .unwrap();
-            (mini, token)
-        };
+        let (_, mini, token) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
         crate::auth::tester_may_operate(&store, &mini).await;
         let report = |state: &str| {
             Request::post("/p/telemetry")
@@ -2414,9 +2324,8 @@ mod flow {
             String::from_utf8_lossy(&body)
         );
         {
-            let s = store.lock().unwrap();
-            let space = s.default_space().unwrap().0;
-            let m = s.machine(space, &mini).unwrap().unwrap();
+            let space = store.default_space().await.unwrap().0;
+            let m = store.machine(space, &mini).await.unwrap().unwrap();
             assert_eq!(m.telemetry.unwrap().job.unwrap().file, "Benchy.bgcode");
         }
         let (status, _, body) = call(
@@ -2439,13 +2348,15 @@ mod flow {
 
     /// Seen on the MINI (2026-11-08): a Benchy sent by us, then deleted (the printer names
     /// it by its short name, `3DBENC~1.BGC`); Send here kept saying it was there already.
-    #[test]
-    fn a_file_deleted_from_the_stick_goes_again() {
-        let mut store = Legacy::open(":memory:").unwrap();
-        let space = store.default_space().unwrap().0;
-        let mini = store
-            .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
-            .unwrap();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_file_deleted_from_the_stick_goes_again(pool: sqlx::PgPool) {
+        let pg = crate::store::Store::for_test(&pool).await;
+        let (space, mini, _) = pg.add_test_machine("prusa/mini", None).await;
+        let store = pg.lock().unwrap();
         let path = "/usb/3dbenchy.bgcode";
         let sent = store
             .create_transfer(space, &mini, "file-1", 1000, path, None)

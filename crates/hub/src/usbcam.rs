@@ -244,16 +244,16 @@ mod tests {
         let (space, _) = store.default_space().await.unwrap();
         let org = store.organisation_of(space).await.unwrap();
         let (machine, token) = {
-            let s = store.lock().unwrap();
-            let (machine, token, code) = s
+            let (machine, token, code) = store
                 .register(&Register {
                     protocol: protocol::VERSION,
                     name: "cam agent".into(),
                     kind: MachineKind::Other,
                     agent_version: "0.2.0".into(),
                 })
+                .await
                 .unwrap();
-            s.pair(space, &code).unwrap().unwrap();
+            store.pair(space, &code).await.unwrap().unwrap();
             (machine, token)
         };
         let cookie = async |name: &str, role: Role| {

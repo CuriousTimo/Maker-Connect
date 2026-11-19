@@ -122,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             maker_connect_update::Start::RollBack(t, why) => go_back(&exe, &again, &t, &why),
         }
     };
-    let mut opened = match Legacy::open(&db) {
+    let opened = match Legacy::open(&db) {
         Ok(store) => store,
         Err(error) => match &on_trial {
             Some(t) => go_back(
@@ -160,14 +160,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         return Ok(());
     }
-    let reread = opened.reread_files()?;
-    if reread > 0 {
-        println!("read {reread} kept files again");
-    }
     from_release(&opened);
     // SpoolmanDB, kept beside the uploaded files and fetched every hour.
     spoolmandb::start(opened.files_dir.join("spoolmandb"));
     let store = Store::new(opened, pg).await?;
+    let reread = store.reread_files().await?;
+    if reread > 0 {
+        println!("read {reread} kept files again");
+    }
     store.end_old_sessions().await?;
     tokio::spawn(virtual_machines::run(store.clone()));
     tokio::spawn(farm::run(store.clone()));

@@ -707,18 +707,19 @@ pub(crate) mod tests {
             build.clone(),
         )])
         .await;
-        let store = crate::store::Legacy::open(":memory:").unwrap();
-        let (machine_id, token, code) = store
+        let shared: Store = Store::for_test(&pool).await;
+        let (machine_id, token, code) = shared
             .register(&maker_connect_protocol::Register {
                 protocol: maker_connect_protocol::VERSION,
                 name: "Pi".into(),
                 kind: maker_connect_protocol::MachineKind::Label,
                 agent_version: "v0.2.0-beta.2".into(),
             })
+            .await
             .unwrap();
         let space = 1;
-        store.pair(space, &code).unwrap();
-        let downloads = store.downloads_dir.clone();
+        shared.pair(space, &code).await.unwrap();
+        let downloads = shared.lock().unwrap().downloads_dir.clone();
         let u = url.clone();
         let prepared = tokio::task::spawn_blocking(move || prepare_agent(&downloads, &u))
             .await
@@ -726,7 +727,7 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(
             ask(
-                &store,
+                &shared.lock().unwrap(),
                 space,
                 std::slice::from_ref(&machine_id),
                 &prepared.tag
@@ -745,7 +746,9 @@ pub(crate) mod tests {
             }),
             ..Default::default()
         };
-        let order = order_for(&store, &token, &report).unwrap().unwrap();
+        let order = order_for(&shared.lock().unwrap(), &token, &report)
+            .unwrap()
+            .unwrap();
         assert_eq!(order.version, "v99.0.0");
         assert_eq!(order.file, "maker-connect-agent-linux-armv6");
         update::check(
@@ -759,7 +762,6 @@ pub(crate) mod tests {
         .unwrap();
 
         // Through the hub, with the agent's token only.
-        let shared: Store = Store::with_legacy(&pool, store).await;
         let app = routes().with_state(shared.clone());
         let get = |token: &'static str| {
             let app = app.clone();

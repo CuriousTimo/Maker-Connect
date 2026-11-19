@@ -1505,12 +1505,13 @@ mod tests {
         let (_, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
         let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None).await;
         let (p1, p2, laser) = {
-            let mut s = w.store.lock().unwrap();
             let mk3s = crate::profiles::find("prusa/mk3s").unwrap();
             (
-                s.add_virtual(space, mk3s).unwrap(),
-                s.add_virtual(space, mk3s).unwrap(),
-                s.add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
+                w.store.add_virtual(space, mk3s).await.unwrap(),
+                w.store.add_virtual(space, mk3s).await.unwrap(),
+                w.store
+                    .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
+                    .await
                     .unwrap(),
             )
         };
@@ -1593,11 +1594,11 @@ mod tests {
             (Level::Operate, Level::Use)
         );
         // A printer put in later is opened too; one taken out is closed again.
-        let p3 = {
-            let mut s = w.store.lock().unwrap();
-            s.add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
-                .unwrap()
-        };
+        let p3 = w
+            .store
+            .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+            .await
+            .unwrap();
         assert_eq!(level(&p3).await, Level::View);
         w.post(
             &adam,
@@ -1804,9 +1805,8 @@ mod tests {
         // give it, and she may use it.
         let p4 = w
             .store
-            .lock()
-            .unwrap()
             .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+            .await
             .unwrap();
         assert_eq!(
             w.post(&adam, &format!("/machines/{p4}/access"), "induction=2")
@@ -1888,16 +1888,17 @@ mod tests {
         let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None).await;
         let (zoe_id, _) = w.person("zoe", Some((org, Role::Member)), None).await;
         let (m, a, b, c) = {
-            let mut s = w.store.lock().unwrap();
-            let m = s
+            let m = w
+                .store
                 .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+                .await
                 .unwrap();
-            s.db.execute(
-                "INSERT INTO files (id, space_id, name, size, uploaded_at, meta) VALUES ('f1', ?1, 'a.gcode', 10, 0, '{}')",
-                [space],
-            )
-            .unwrap();
-            let file = s.file(space, "f1").unwrap().unwrap();
+            w.store
+                .add_file(space, "f1", "a.gcode", 10, &Default::default())
+                .await
+                .unwrap();
+            let file = w.store.file(space, "f1").await.unwrap().unwrap();
+            let mut s = w.store.lock().unwrap();
             s.queue_add(space, &m, &file, Some((mia_id, "mia")))
                 .unwrap();
             s.queue_add(space, &m, &file, Some((zoe_id, "zoe")))
@@ -2009,10 +2010,12 @@ mod tests {
         let (_, adam) = in_first("adam", Role::Admin).await;
         let (mia_id, mia) = in_first("mia", Role::Member).await;
         let m = {
-            let mut s = w.store.lock().unwrap();
-            let m = s
+            let m = w
+                .store
                 .add_virtual(a1, crate::profiles::find("prusa/mk3s").unwrap())
+                .await
                 .unwrap();
+            let mut s = w.store.lock().unwrap();
             s.set_takes_work(a1, &m, true).unwrap();
             m
         };
@@ -2068,12 +2071,15 @@ mod tests {
         let (status, body) = w.post(&adam, &path, &to(&uid_a2)).await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
         {
-            let s = w.store.lock().unwrap();
             assert!(
-                s.machine(a1, &m).unwrap().is_none(),
+                w.store.machine(a1, &m).await.unwrap().is_none(),
                 "gone from the first space"
             );
-            assert!(s.machine(a2, &m).unwrap().is_some(), "in the second");
+            assert!(
+                w.store.machine(a2, &m).await.unwrap().is_some(),
+                "in the second"
+            );
+            let s = w.store.lock().unwrap();
             assert!(
                 !s.takes_work(&m).unwrap(),
                 "no work from the new space's queue until someone says"
@@ -2128,13 +2134,10 @@ mod tests {
             (a_org, a1, a2, b_org, b1)
         };
         let profile = crate::profiles::find("prusa/mk3s").unwrap();
-        let (a_machine, b_machine) = {
-            let mut s = w.store.lock().unwrap();
-            (
-                s.add_virtual(a1, profile).unwrap(),
-                s.add_virtual(b1, profile).unwrap(),
-            )
-        };
+        let (a_machine, b_machine) = (
+            w.store.add_virtual(a1, profile).await.unwrap(),
+            w.store.add_virtual(b1, profile).await.unwrap(),
+        );
         let (_, ann) = w.person("ann", Some((a_org, Role::Member)), None).await;
         let (_, bob) = w.person("bob", Some((b_org, Role::Admin)), None).await;
         // Ann starts in the first of her spaces by name (the Lab): to the workshop.
@@ -2236,10 +2239,12 @@ mod tests {
         let (_, mia) = w.person("mia", Some((org, Role::Member)), None).await;
         let (adam_id, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
         let machine = {
-            let mut s = w.store.lock().unwrap();
-            let m = s
+            let m = w
+                .store
                 .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+                .await
                 .unwrap();
+            let mut s = w.store.lock().unwrap();
             // Open to every member: this test is about roles, not permissions.
             s.set_induction_required(space, &m, false).unwrap();
             m
@@ -2374,9 +2379,8 @@ mod tests {
         let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None).await;
         let laser = w
             .store
-            .lock()
-            .unwrap()
             .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
+            .await
             .unwrap();
         assert_eq!(
             w.post(&adam, &format!("/machines/{laser}/access"), "induction=1")
@@ -2534,12 +2538,14 @@ mod tests {
         };
         let (adam_id, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
         let (laser, token) = {
-            let mut s = w.store.lock().unwrap();
+            let s = &w.store;
             let laser = s
                 .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
+                .await
                 .unwrap();
             let token = s
                 .virtual_machines()
+                .await
                 .unwrap()
                 .into_iter()
                 .find(|(m, ..)| *m == laser)
@@ -2555,8 +2561,9 @@ mod tests {
                     ..Default::default()
                 },
             )
+            .await
             .unwrap();
-            s.report(&token, &Default::default()).unwrap();
+            s.report(&token, &Default::default()).await.unwrap();
             (laser, token)
         };
         let jobs = |w: &World| {
@@ -2700,8 +2707,8 @@ mod tests {
             let mut s = w.store.lock().unwrap();
             let job = s.active_job(&laser).unwrap().unwrap();
             s.set_job(job.id, JobState::Finished, None).unwrap();
-            s.report(&token, &Default::default()).unwrap();
         }
+        w.store.report(&token, &Default::default()).await.unwrap();
         assert_eq!(jobs(&w), (2, 0));
         // "Start again from there": a person; interrupted jobs start again.
         {
@@ -2721,11 +2728,7 @@ mod tests {
             .unwrap()
             .set_job(3, JobState::Finished, None)
             .unwrap();
-        w.store
-            .lock()
-            .unwrap()
-            .report(&token, &Default::default())
-            .unwrap();
+        w.store.report(&token, &Default::default()).await.unwrap();
         let (status, body) = w
             .post(&adam, &format!("/machines/{laser}/job"), "action=stop")
             .await;

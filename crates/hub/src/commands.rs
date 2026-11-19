@@ -707,9 +707,8 @@ mod tests {
         let registered: Registered = serde_json::from_str(&body).unwrap();
         let id = registered.machine_id.clone();
         {
-            let store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
-            store.pair(space, &registered.pairing_code).unwrap();
+            let space = store.default_space().await.unwrap().0;
+            store.pair(space, &registered.pairing_code).await.unwrap();
         }
         crate::auth::tester_may_operate(&store, &id).await;
         let press = |body: &str| {
@@ -829,9 +828,8 @@ mod tests {
         let registered: Registered = serde_json::from_str(&body).unwrap();
         let id = registered.machine_id.clone();
         {
-            let store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
-            store.pair(space, &registered.pairing_code).unwrap();
+            let space = store.default_space().await.unwrap().0;
+            store.pair(space, &registered.pairing_code).await.unwrap();
         }
         crate::auth::tester_may_operate(&store, &id).await;
         let press = |body: &str| {
@@ -960,7 +958,7 @@ mod tests {
         .await;
         let registered: Registered = serde_json::from_str(&body).unwrap();
         let user = store.user_id("tester").await.unwrap().unwrap();
-        let space = store.lock().unwrap().default_space().unwrap().0;
+        let space = store.default_space().await.unwrap().0;
         // 'use' only, not 'operate': whoever may use the machine may press the emergency stop
         store
             .set_grant(
@@ -973,14 +971,12 @@ mod tests {
             )
             .await
             .unwrap();
-        {
-            let store = store.lock().unwrap();
-            store.pair(space, &registered.pairing_code).unwrap();
-            if profile.is_some() {
-                store
-                    .set_profile(space, &registered.machine_id, profile)
-                    .unwrap();
-            }
+        store.pair(space, &registered.pairing_code).await.unwrap();
+        if profile.is_some() {
+            store
+                .set_profile(space, &registered.machine_id, profile)
+                .await
+                .unwrap();
         }
         let telemetry = Telemetry {
             state: MachineState::Idle,

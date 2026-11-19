@@ -381,15 +381,12 @@ pub(crate) mod tests {
         )
         .await;
         let registered: Registered = serde_json::from_str(&body).unwrap();
-        let space = {
-            let store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
-            store.pair(space, &registered.pairing_code).unwrap();
-            store
-                .set_profile(space, &registered.machine_id, Some("ortur/lm2-pro-s2"))
-                .unwrap();
-            space
-        };
+        let space = store.default_space().await.unwrap().0;
+        store.pair(space, &registered.pairing_code).await.unwrap();
+        store
+            .set_profile(space, &registered.machine_id, Some("ortur/lm2-pro-s2"))
+            .await
+            .unwrap();
         crate::auth::tester_may_operate(&store, &registered.machine_id).await;
         let report = |telemetry: Telemetry| {
             let app = agent.clone();
@@ -626,9 +623,8 @@ pub(crate) mod tests {
         assert_eq!(job.state, store::JobState::Finished);
         assert!(
             store
-                .lock()
-                .unwrap()
                 .machine(space, &registered.machine_id)
+                .await
                 .unwrap()
                 .unwrap()
                 .job
@@ -660,12 +656,8 @@ pub(crate) mod tests {
         )
         .await;
         let registered: Registered = serde_json::from_str(&body).unwrap();
-        let space = store.lock().unwrap().default_space().unwrap().0;
-        store
-            .lock()
-            .unwrap()
-            .pair(space, &registered.pairing_code)
-            .unwrap();
+        let space = store.default_space().await.unwrap().0;
+        store.pair(space, &registered.pairing_code).await.unwrap();
         let old_agent = Telemetry {
             state: MachineState::Error,
             cassette: Some(false),
@@ -682,9 +674,8 @@ pub(crate) mod tests {
         )
         .await;
         let machine = store
-            .lock()
-            .unwrap()
             .machine(space, &registered.machine_id)
+            .await
             .unwrap()
             .unwrap();
         assert_eq!(
@@ -814,13 +805,12 @@ pub(crate) mod tests {
     // ---- K18: no gate for the Marlin port's machines; the agent-gone rule ----
 
     /// An agent machine, registered and paired into the default space: (id, token, space).
-    fn agent_machine(
+    async fn agent_machine(
         store: &crate::Store,
         kind: MachineKind,
         profile: Option<&str>,
     ) -> (String, String, i64) {
-        let store = store.lock().unwrap();
-        let (space, _) = store.default_space().unwrap();
+        let (space, _) = store.default_space().await.unwrap();
         let (id, token, code) = store
             .register(&Register {
                 protocol: protocol::VERSION,
@@ -828,10 +818,11 @@ pub(crate) mod tests {
                 kind,
                 agent_version: "0.1.0".into(),
             })
+            .await
             .unwrap();
-        store.pair(space, &code).unwrap().unwrap();
+        store.pair(space, &code).await.unwrap().unwrap();
         if profile.is_some() {
-            store.set_profile(space, &id, profile).unwrap();
+            store.set_profile(space, &id, profile).await.unwrap();
         }
         (id, token, space)
     }
@@ -875,18 +866,13 @@ pub(crate) mod tests {
             .collect()
     }
 
-    fn state_of(
+    async fn state_of(
         store: &crate::Store,
         space: i64,
         machine: &str,
         id: u32,
     ) -> (store::CommandState, Option<String>) {
-        let machine = store
-            .lock()
-            .unwrap()
-            .machine(space, machine)
-            .unwrap()
-            .unwrap();
+        let machine = store.machine(space, machine).await.unwrap().unwrap();
         let c = machine.commands.iter().find(|c| c.id == id).unwrap();
         (c.state, c.reason.clone())
     }
@@ -910,7 +896,7 @@ pub(crate) mod tests {
     async fn k18_a_marlin_agent_machine_has_no_gate(pool: sqlx::PgPool) {
         let store = crate::store::Store::for_test(&pool).await;
         let app = crate::auth::signed_in_app(store.clone()).await;
-        let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None);
+        let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None).await;
         let a = queue_gcode(&store, space, &id, "G28");
         let b = queue_gcode(&store, space, &id, "M105");
         assert_eq!(
@@ -918,7 +904,10 @@ pub(crate) mod tests {
             vec![a, b],
             "both at once"
         );
-        assert_eq!(state_of(&store, space, &id, a).0, store::CommandState::Sent);
+        assert_eq!(
+            state_of(&store, space, &id, a).await.0,
+            store::CommandState::Sent
+        );
         assert_eq!(
             report(&app, &token, vec![]).await,
             Vec::<u32>::new(),
@@ -934,7 +923,7 @@ pub(crate) mod tests {
             "the M112 goes while the M109 is Sent"
         );
         assert_eq!(
-            state_of(&store, space, &id, m109).0,
+            state_of(&store, space, &id, m109).await.0,
             store::CommandState::Sent
         );
         // no 120 s: the commands that were Sent long ago are not given up by the hub
@@ -944,7 +933,7 @@ pub(crate) mod tests {
         }
         report(&app, &token, vec![]).await;
         assert_eq!(
-            state_of(&store, space, &id, m109).0,
+            state_of(&store, space, &id, m109).await.0,
             store::CommandState::Sent
         );
     }
@@ -965,7 +954,7 @@ pub(crate) mod tests {
             // A new hub for each (the database emptied again).
             let store = crate::store::Store::fresh_for_test(&pool).await;
             let app = crate::auth::signed_in_app(store.clone()).await;
-            let (id, token, space) = agent_machine(&store, kind, profile);
+            let (id, token, space) = agent_machine(&store, kind, profile).await;
             let a = queue_gcode(&store, space, &id, "G28");
             let b = queue_gcode(&store, space, &id, "M105");
             assert_eq!(
@@ -982,7 +971,10 @@ pub(crate) mod tests {
             // and the 120 s
             let c = queue_gcode(&store, space, &id, "M104 S0");
             report(&app, &token, vec![finished(b)]).await;
-            assert_eq!(state_of(&store, space, &id, c).0, store::CommandState::Sent);
+            assert_eq!(
+                state_of(&store, space, &id, c).await.0,
+                store::CommandState::Sent
+            );
             {
                 store
                     .lock()
@@ -990,7 +982,7 @@ pub(crate) mod tests {
                     .set_commands_at(&id, store::now() - 121);
             }
             report(&app, &token, vec![]).await;
-            let (state, reason) = state_of(&store, space, &id, c);
+            let (state, reason) = state_of(&store, space, &id, c).await;
             assert_eq!(state, store::CommandState::Rejected);
             assert_eq!(reason.as_deref(), Some("no answer from the machine"));
         }
@@ -1008,7 +1000,7 @@ pub(crate) mod tests {
             // A new hub for each (the database emptied again).
             let store = crate::store::Store::fresh_for_test(&pool).await;
             let app = crate::auth::signed_in_app(store.clone()).await;
-            let (id, token, space) = agent_machine(&store, kind, None);
+            let (id, token, space) = agent_machine(&store, kind, None).await;
             let a = queue_gcode(&store, space, &id, "G28");
             let b = queue_gcode(&store, space, &id, "M105");
             assert_eq!(
@@ -1023,23 +1015,22 @@ pub(crate) mod tests {
                 .set_commands_at(&id, store::now() - 3600);
             report(&app, &token, vec![]).await;
             assert_eq!(
-                state_of(&store, space, &id, a).0,
+                state_of(&store, space, &id, a).await.0,
                 store::CommandState::Sent,
                 "{kind:?}"
             );
             // the agent-gone rule: Sent fails, Queued does not
             let c = queue_gcode(&store, space, &id, "M104 S0");
             store
-                .lock()
-                .unwrap()
-                .set_last_seen(&id, store::now() - store::ONLINE_SECONDS - 1);
+                .set_last_seen(&id, store::now() - store::ONLINE_SECONDS - 1)
+                .await;
             store
                 .lock()
                 .unwrap()
                 .fail_commands_of_gone_agent(&token)
                 .unwrap();
             assert_eq!(
-                state_of(&store, space, &id, a),
+                state_of(&store, space, &id, a).await,
                 (
                     store::CommandState::Rejected,
                     Some("the agent was gone".to_owned())
@@ -1047,7 +1038,7 @@ pub(crate) mod tests {
                 "{kind:?}"
             );
             assert_eq!(
-                state_of(&store, space, &id, c).0,
+                state_of(&store, space, &id, c).await.0,
                 store::CommandState::Queued,
                 "{kind:?}"
             );
@@ -1063,9 +1054,10 @@ pub(crate) mod tests {
     async fn k18_agent_gone_fails_sent_and_accepted_of_that_machine_only(pool: sqlx::PgPool) {
         let store = crate::store::Store::for_test(&pool).await;
         let app = crate::auth::signed_in_app(store.clone()).await;
-        let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None);
-        let (other, other_token, _) = agent_machine(&store, MachineKind::Fdm, None);
-        let (prusa, prusa_token, _) = agent_machine(&store, MachineKind::Fdm, Some("prusa/mk4s"));
+        let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None).await;
+        let (other, other_token, _) = agent_machine(&store, MachineKind::Fdm, None).await;
+        let (prusa, prusa_token, _) =
+            agent_machine(&store, MachineKind::Fdm, Some("prusa/mk4s")).await;
         let sent = queue_gcode(&store, space, &id, "M109 S200");
         let accepted = queue_gcode(&store, space, &id, "G28");
         let other_sent = queue_gcode(&store, space, &other, "M109 S200");
@@ -1086,13 +1078,13 @@ pub(crate) mod tests {
             .fail_commands_of_gone_agent(&token)
             .unwrap();
         assert_eq!(
-            state_of(&store, space, &id, sent).0,
+            state_of(&store, space, &id, sent).await.0,
             store::CommandState::Sent
         );
         // not seen for longer than ONLINE_SECONDS: checked on the next report
         let gone = store::now() - store::ONLINE_SECONDS - 1;
         for m in [&id, &prusa] {
-            store.lock().unwrap().set_last_seen(m, gone);
+            store.set_last_seen(m, gone).await;
         }
         store
             .lock()
@@ -1101,7 +1093,7 @@ pub(crate) mod tests {
             .unwrap();
         for c in [sent, accepted] {
             assert_eq!(
-                state_of(&store, space, &id, c),
+                state_of(&store, space, &id, c).await,
                 (
                     store::CommandState::Rejected,
                     Some("the agent was gone".to_owned())
@@ -1109,12 +1101,12 @@ pub(crate) mod tests {
             );
         }
         assert_eq!(
-            state_of(&store, space, &id, queued).0,
+            state_of(&store, space, &id, queued).await.0,
             store::CommandState::Queued,
             "not the Queued"
         );
         assert_eq!(
-            state_of(&store, space, &other, other_sent).0,
+            state_of(&store, space, &other, other_sent).await.0,
             store::CommandState::Sent
         );
         store
@@ -1123,7 +1115,7 @@ pub(crate) mod tests {
             .fail_commands_of_gone_agent(&prusa_token)
             .unwrap();
         assert_eq!(
-            state_of(&store, space, &prusa, prusa_sent).0,
+            state_of(&store, space, &prusa, prusa_sent).await.0,
             store::CommandState::Sent,
             "not a Marlin machine"
         );
@@ -1142,22 +1134,21 @@ pub(crate) mod tests {
     async fn k18_a_late_done_wins_over_the_agent_was_gone(pool: sqlx::PgPool) {
         let store = crate::store::Store::for_test(&pool).await;
         let app = crate::auth::signed_in_app(store.clone()).await;
-        let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None);
+        let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None).await;
         let a = queue_gcode(&store, space, &id, "M109 S200");
         let b = queue_gcode(&store, space, &id, "G28");
         report(&app, &token, vec![]).await;
         store
-            .lock()
-            .unwrap()
-            .set_last_seen(&id, store::now() - store::ONLINE_SECONDS - 1);
+            .set_last_seen(&id, store::now() - store::ONLINE_SECONDS - 1)
+            .await;
         // the agent is back and says a is done, in its first report
         report(&app, &token, vec![finished(a)]).await;
         assert_eq!(
-            state_of(&store, space, &id, a),
+            state_of(&store, space, &id, a).await,
             (store::CommandState::Finished, None)
         );
         assert_eq!(
-            state_of(&store, space, &id, b),
+            state_of(&store, space, &id, b).await,
             (
                 store::CommandState::Rejected,
                 Some("the agent was gone".to_owned())
@@ -1166,7 +1157,7 @@ pub(crate) mod tests {
         // b's Done comes in a later report
         report(&app, &token, vec![finished(b)]).await;
         assert_eq!(
-            state_of(&store, space, &id, b),
+            state_of(&store, space, &id, b).await,
             (store::CommandState::Finished, None)
         );
     }

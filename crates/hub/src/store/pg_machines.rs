@@ -223,7 +223,7 @@ impl Store {
 
     /// Removes a machine of the space (its permissions and group places follow it: foreign keys).
     /// Returns whether it was there. The caller drops what the hub keeps in memory
-    /// ([`Legacy::remove`]).
+    /// ([`Store::remove_machine`] does both).
     pub async fn remove_machine_row(&self, space: i64, machine: &str) -> sqlx::Result<bool> {
         let mut tx = self.pg().space(space).await?;
         let n = sqlx::query!(

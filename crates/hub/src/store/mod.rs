@@ -817,9 +817,18 @@ mod tests {
                 .unwrap_or_else(|_| Vec::<String>::new())
         };
         // A new database: nothing to back up.
+        // The SQLite file keeps its own machine rows (the copy of Postgres's, lane 3a).
         let id = {
-            let mut store = Legacy::open(path).unwrap();
-            device(&mut store, 1, "MINI")
+            let store = Legacy::open(path).unwrap();
+            store
+                .db
+                .execute(
+                    "INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at)
+                     VALUES ('m1', 1, 'MINI', 'printer', '0.1.0', 't1', 0)",
+                    [],
+                )
+                .unwrap();
+            "m1".to_owned()
         };
         assert!(backups().is_empty());
         // The same build again: no copy either.
@@ -848,81 +857,102 @@ mod tests {
             })
             .unwrap();
         assert_eq!(kept, 1);
-        assert!(store.machine(1, &id).unwrap().is_some());
+        assert!(store.machine_on_mirror(1, &id).unwrap().is_some());
         drop(store);
         drop(Legacy::open(path).unwrap());
         assert_eq!(backups().len(), 1);
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    fn device(store: &mut Legacy, space: i64, name: &str) -> String {
+    async fn device(store: &Store, space: i64, name: &str) -> String {
         let profile = crate::profiles::find("prusa/mini").unwrap();
-        let id = store.add_virtual(space, profile).unwrap();
-        store.rename(space, &id, name).unwrap();
+        let id = store.add_virtual(space, profile).await.unwrap();
+        store.rename(space, &id, name).await.unwrap();
         id
     }
 
     /// A finished print stays on the bed until taken; a machine out of use says why.
-    #[test]
-    fn a_print_on_the_bed_and_a_machine_out_of_use() {
-        let mut store = Legacy::open(":memory:").unwrap();
-        let (space, _) = store.default_space().unwrap();
-        let printer = device(&mut store, space, "MINI");
-        store
-            .add_file(
-                space,
-                "f1",
-                "cube.gcode",
-                10,
-                &crate::gcode::FileMeta::default(),
-            )
-            .unwrap();
-        let file = store.file(space, "f1").unwrap().unwrap();
-        let job = store
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_print_on_the_bed_and_a_machine_out_of_use(pool: sqlx::PgPool) {
+        let pg = Store::for_test(&pool).await;
+        let (space, _) = pg.default_space().await.unwrap();
+        let printer = device(&pg, space, "MINI").await;
+        pg.add_file(
+            space,
+            "f1",
+            "cube.gcode",
+            10,
+            &crate::gcode::FileMeta::default(),
+        )
+        .await
+        .unwrap();
+        let file = pg.file(space, "f1").await.unwrap().unwrap();
+        let job = pg
+            .lock()
+            .unwrap()
             .add_job(space, &printer, &file, None, StartedBy::Auto { by: None })
             .unwrap()
             .unwrap();
-        store.set_job(job, JobState::Printing, None).unwrap();
+        pg.lock()
+            .unwrap()
+            .set_job(job, JobState::Printing, None)
+            .unwrap();
         assert_eq!(
-            store.machine(space, &printer).unwrap().unwrap().on_bed,
+            pg.machine(space, &printer).await.unwrap().unwrap().on_bed,
             None
         );
-        store.set_job(job, JobState::Finished, None).unwrap();
-        let on_bed = store.machine(space, &printer).unwrap().unwrap().on_bed;
+        pg.lock()
+            .unwrap()
+            .set_job(job, JobState::Finished, None)
+            .unwrap();
+        let on_bed = pg.machine(space, &printer).await.unwrap().unwrap().on_bed;
         assert_eq!(on_bed.map(|b| b.file_name), Some("cube.gcode".to_owned()));
-        assert!(store.print_taken(space, &printer).unwrap());
+        assert!(pg.lock().unwrap().print_taken(space, &printer).unwrap());
         assert_eq!(
-            store.machine(space, &printer).unwrap().unwrap().on_bed,
+            pg.machine(space, &printer).await.unwrap().unwrap().on_bed,
             None
         );
-        assert!(!store.print_taken(space, &printer).unwrap());
+        assert!(!pg.lock().unwrap().print_taken(space, &printer).unwrap());
 
         assert!(
-            store
-                .set_out_of_use(space, &printer, Some("nozzle clogged"))
+            pg.set_out_of_use(space, &printer, Some("nozzle clogged"))
+                .await
                 .unwrap()
         );
-        let out = store
+        let out = pg
             .machine(space, &printer)
+            .await
             .unwrap()
             .unwrap()
             .out_of_use
             .unwrap();
         assert_eq!(out.reason, "nozzle clogged");
         assert!(out.since > 0);
-        assert!(store.set_out_of_use(space, &printer, None).unwrap());
+        assert!(pg.set_out_of_use(space, &printer, None).await.unwrap());
         assert_eq!(
-            store.machine(space, &printer).unwrap().unwrap().out_of_use,
+            pg.machine(space, &printer)
+                .await
+                .unwrap()
+                .unwrap()
+                .out_of_use,
             None
         );
     }
 
     /// A finished print counts its filament off the loaded spool; a stopped one its part.
-    #[test]
-    fn a_job_counts_its_filament_off_the_loaded_spool() {
-        let mut store = Legacy::open(":memory:").unwrap();
-        let (space, _) = store.default_space().unwrap();
-        let printer = device(&mut store, space, "MINI");
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_job_counts_its_filament_off_the_loaded_spool(pool: sqlx::PgPool) {
+        let pg = Store::for_test(&pool).await;
+        let (space, _) = pg.default_space().await.unwrap();
+        let printer = device(&pg, space, "MINI").await;
         let pla = crate::stock::Material {
             id: String::new(),
             kind: "filament".into(),
@@ -944,21 +974,32 @@ mod tests {
             bed_c: None,
             source: None,
         };
-        let material = store.add_material(space, pla).unwrap();
-        let spool = store
+        let material = pg.lock().unwrap().add_material(space, pla).unwrap();
+        let spool = pg
+            .lock()
+            .unwrap()
             .receive(space, &material, 1, None)
             .unwrap()
             .unwrap()
             .remove(0);
-        store.load_item(space, &spool, &printer).unwrap().unwrap();
+        let media = pg
+            .lock()
+            .unwrap()
+            .load_item(space, &spool, &printer)
+            .unwrap()
+            .unwrap();
+        if let Some(media) = media {
+            pg.set_media(space, &printer, Some(&media)).await.unwrap();
+        }
         let meta = crate::gcode::FileMeta {
             filament_g: Some(12.5),
             ..crate::gcode::FileMeta::default()
         };
-        store
-            .add_file(space, "f1", "cube.gcode", 10, &meta)
+        pg.add_file(space, "f1", "cube.gcode", 10, &meta)
+            .await
             .unwrap();
-        let file = store.file(space, "f1").unwrap().unwrap();
+        let file = pg.file(space, "f1").await.unwrap().unwrap();
+        let mut store = pg.lock().unwrap();
         let job = store
             .add_job(space, &printer, &file, None, StartedBy::Auto { by: None })
             .unwrap()
@@ -974,72 +1015,83 @@ mod tests {
         );
     }
 
-    #[test]
-    fn devices_hang_behind_a_plug_without_loops() {
-        let mut store = Legacy::open(":memory:").unwrap();
-        let (space, _) = store.default_space().unwrap();
-        let wall = device(&mut store, space, "Wall plug");
-        let strip = device(&mut store, space, "Power strip");
-        let dryer = device(&mut store, space, "Dryer");
-        let lamp = device(&mut store, space, "Lamp");
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn devices_hang_behind_a_plug_without_loops(pool: sqlx::PgPool) {
+        let pg = Store::for_test(&pool).await;
+        let (space, _) = pg.default_space().await.unwrap();
+        let wall = device(&pg, space, "Wall plug").await;
+        let strip = device(&pg, space, "Power strip").await;
+        let dryer = device(&pg, space, "Dryer").await;
+        let lamp = device(&pg, space, "Lamp").await;
         let link = |device: &str, channel| PowerLink {
             device: device.to_owned(),
             channel,
         };
         // Two devices on one channel of the strip, the strip on the wall plug.
         assert_eq!(
-            store
-                .set_powered_by(space, &dryer, Some(&link(&strip, 1)))
+            pg.set_powered_by(space, &dryer, Some(&link(&strip, 1)))
+                .await
                 .unwrap(),
             Ok(())
         );
         assert_eq!(
-            store
-                .set_powered_by(space, &lamp, Some(&link(&strip, 1)))
+            pg.set_powered_by(space, &lamp, Some(&link(&strip, 1)))
+                .await
                 .unwrap(),
             Ok(())
         );
         assert_eq!(
-            store
-                .set_powered_by(space, &strip, Some(&link(&wall, 0)))
+            pg.set_powered_by(space, &strip, Some(&link(&wall, 0)))
+                .await
                 .unwrap(),
             Ok(())
         );
-        let dryer_now = store.machine(space, &dryer).unwrap().unwrap();
+        let dryer_now = pg.machine(space, &dryer).await.unwrap().unwrap();
         assert_eq!(dryer_now.powered_by, Some(link(&strip, 1)));
         // The wall plug behind the dryer would be a loop; so would a device behind itself.
         assert!(
-            store
-                .set_powered_by(space, &wall, Some(&link(&dryer, 0)))
+            pg.set_powered_by(space, &wall, Some(&link(&dryer, 0)))
+                .await
                 .unwrap()
                 .is_err()
         );
         assert!(
-            store
-                .set_powered_by(space, &lamp, Some(&link(&lamp, 0)))
+            pg.set_powered_by(space, &lamp, Some(&link(&lamp, 0)))
+                .await
                 .unwrap()
                 .is_err()
         );
         assert!(
-            store
-                .set_powered_by(space, &lamp, Some(&link("nothing", 0)))
+            pg.set_powered_by(space, &lamp, Some(&link("nothing", 0)))
+                .await
                 .unwrap()
                 .is_err()
         );
         // Off the plug again.
-        assert_eq!(store.set_powered_by(space, &dryer, None).unwrap(), Ok(()));
         assert_eq!(
-            store.machine(space, &dryer).unwrap().unwrap().powered_by,
+            pg.set_powered_by(space, &dryer, None).await.unwrap(),
+            Ok(())
+        );
+        assert_eq!(
+            pg.machine(space, &dryer).await.unwrap().unwrap().powered_by,
             None
         );
     }
 
-    #[test]
-    fn an_agent_behind_the_downloads_is_told() {
-        let mut store = Legacy::open(":memory:").unwrap();
-        let (space, _) = store.default_space().unwrap();
-        let id = device(&mut store, space, "Dymo");
-        let token = store.virtual_machines().unwrap()[0].1.clone();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn an_agent_behind_the_downloads_is_told(pool: sqlx::PgPool) {
+        let pg = Store::for_test(&pool).await;
+        let (space, _) = pg.default_space().await.unwrap();
+        let id = device(&pg, space, "Dymo").await;
+        let token = pg.virtual_machines().await.unwrap()[0].1.clone();
         let report = |build: &str| Telemetry {
             agent: Some(maker_connect_protocol::AgentInfo {
                 version: "0.1.0".into(),
@@ -1048,28 +1100,28 @@ mod tests {
             }),
             ..Telemetry::default()
         };
-        store.report(&token, &report("1d5c84c")).unwrap();
+        pg.report(&token, &report("1d5c84c")).await.unwrap();
         assert_eq!(
-            store.machine(space, &id).unwrap().unwrap().agent_update,
+            pg.machine(space, &id).await.unwrap().unwrap().agent_update,
             None
         );
         std::fs::write(
-            store.downloads_dir.join(".build"),
+            pg.lock().unwrap().downloads_dir.join(".build"),
             "abc1234\n2026-11-04 15:00 UTC\n",
         )
         .unwrap();
         assert_eq!(
-            store
-                .machine(space, &id)
+            pg.machine(space, &id)
+                .await
                 .unwrap()
                 .unwrap()
                 .agent_update
                 .as_deref(),
             Some("abc1234 (2026-11-04 15:00 UTC)")
         );
-        store.report(&token, &report("abc1234")).unwrap();
+        pg.report(&token, &report("abc1234")).await.unwrap();
         assert_eq!(
-            store.machine(space, &id).unwrap().unwrap().agent_update,
+            pg.machine(space, &id).await.unwrap().unwrap().agent_update,
             None
         );
     }

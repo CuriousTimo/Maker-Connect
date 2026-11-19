@@ -214,17 +214,6 @@ impl Legacy {
         }))
     }
 
-    /// A test says when the machine's agent last reported.
-    #[cfg(test)]
-    pub fn set_last_seen(&self, machine: &str, at: i64) {
-        self.db
-            .execute(
-                "UPDATE machines SET last_seen = ?1 WHERE id = ?2",
-                params![at, machine],
-            )
-            .unwrap();
-    }
-
     /// A test says when the machine's commands last changed.
     #[cfg(test)]
     pub fn set_commands_at(&mut self, machine: &str, at: i64) {

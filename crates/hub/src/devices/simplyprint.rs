@@ -387,10 +387,9 @@ mod tests {
     async fn a_klipper_printer_connects_takes_a_command_and_prints(pool: sqlx::PgPool) {
         let store = crate::store::Store::for_test(&pool).await;
         let (space, id, token) = {
-            let mut s = store.lock().unwrap();
-            let space = s.default_space().unwrap().0;
-            let id = s.add_moonraker(space, "Voron").unwrap();
-            let token = s.moonraker_token(space, &id).unwrap().unwrap();
+            let space = store.default_space().await.unwrap().0;
+            let id = store.add_moonraker(space, "Voron").await.unwrap();
+            let token = store.moonraker_token(space, &id).await.unwrap().unwrap();
             (space, id, token)
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -465,7 +464,7 @@ mod tests {
         .unwrap();
         ws.send(say("ping", Value::Null)).await.unwrap();
         next(&mut ws, "pong").await;
-        let machine = store.lock().unwrap().machine(space, &id).unwrap().unwrap();
+        let machine = store.machine(space, &id).await.unwrap().unwrap();
         assert!(machine.online);
         let t = machine.telemetry.unwrap();
         assert_eq!(
@@ -493,23 +492,25 @@ mod tests {
         .await
         .unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
-        let machine = store.lock().unwrap().machine(space, &id).unwrap().unwrap();
+        let machine = store.machine(space, &id).await.unwrap().unwrap();
         let done = machine.commands.iter().find(|c| c.id == command).unwrap();
         assert_eq!(done.state, CommandState::Finished);
         assert_eq!(done.output, vec!["// homed".to_owned()]);
 
         // A job: the file's address to fetch, then started, finished, and on the bed.
         let job = {
+            store
+                .add_file(
+                    space,
+                    "f1",
+                    "cube.gcode",
+                    10,
+                    &crate::gcode::FileMeta::default(),
+                )
+                .await
+                .unwrap();
+            let file = store.file(space, "f1").await.unwrap().unwrap();
             let mut s = store.lock().unwrap();
-            s.add_file(
-                space,
-                "f1",
-                "cube.gcode",
-                10,
-                &crate::gcode::FileMeta::default(),
-            )
-            .unwrap();
-            let file = s.file(space, "f1").unwrap().unwrap();
             s.add_job(
                 space,
                 &id,
@@ -554,7 +555,7 @@ mod tests {
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
-        let machine = store.lock().unwrap().machine(space, &id).unwrap().unwrap();
+        let machine = store.machine(space, &id).await.unwrap().unwrap();
         assert_eq!(
             machine.job.as_ref().map(|j| j.state),
             Some(crate::store::JobState::Printing)
@@ -570,7 +571,7 @@ mod tests {
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
-        let machine = store.lock().unwrap().machine(space, &id).unwrap().unwrap();
+        let machine = store.machine(space, &id).await.unwrap().unwrap();
         assert!(machine.job.is_none());
         assert_eq!(machine.on_bed.map(|b| b.job), Some(job));
     }

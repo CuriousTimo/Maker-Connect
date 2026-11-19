@@ -253,3 +253,82 @@ impl Store {
         Ok(self.machines(space).await?.into_iter().find(|m| m.id == id))
     }
 }
+
+#[cfg(test)]
+impl Store {
+    /// For tests: a virtual machine of `profile` in the default space, reached by `link` when one is
+    /// given (as if it had registered that way): its space, id and token.
+    pub(crate) async fn add_test_machine(
+        &self,
+        profile: &str,
+        link: Option<&str>,
+    ) -> (i64, String, String) {
+        let space = self.default_space().await.unwrap().0;
+        let id = self
+            .add_virtual(space, crate::profiles::find(profile).unwrap())
+            .await
+            .unwrap();
+        if let Some(link) = link {
+            sqlx::query("UPDATE machines SET link = $1 WHERE id = $2")
+                .bind(link)
+                .bind(&id)
+                .execute(&self.pg().admin)
+                .await
+                .unwrap();
+            self.mirror_machine(Some(&id), None).await.unwrap();
+        }
+        let token = self.token_of(&id).await;
+        (space, id, token)
+    }
+
+    /// For tests: a machine registered as `name` of `kind` and paired into the default space: its
+    /// space, id and token.
+    pub(crate) async fn register_test_machine(
+        &self,
+        name: &str,
+        kind: maker_connect_protocol::MachineKind,
+    ) -> (i64, String, String) {
+        let space = self.default_space().await.unwrap().0;
+        let (id, token, code) = self
+            .register(&maker_connect_protocol::Register {
+                protocol: maker_connect_protocol::VERSION,
+                name: name.into(),
+                kind,
+                agent_version: "0.2.0".into(),
+            })
+            .await
+            .unwrap();
+        self.pair(space, &code).await.unwrap();
+        (space, id, token)
+    }
+
+    /// For tests: when the machine's agent last reported (on Postgres, and its copy).
+    pub(crate) async fn set_last_seen(&self, machine: &str, at: i64) {
+        sqlx::query("UPDATE machines SET last_seen = at_unix($1) WHERE id = $2")
+            .bind(at)
+            .bind(machine)
+            .execute(&self.pg().admin)
+            .await
+            .unwrap();
+        self.mirror_machine(Some(machine), None).await.unwrap();
+    }
+
+    /// For tests: a machine's token.
+    pub(crate) async fn token_of(&self, id: &str) -> String {
+        sqlx::query_scalar("SELECT token FROM machines WHERE id = $1")
+            .bind(id)
+            .fetch_one(&self.pg().admin)
+            .await
+            .unwrap()
+    }
+
+    /// For tests: a machine reports it is idle.
+    pub(crate) async fn idle_test_machine(&self, id: &str) {
+        let token = self.token_of(id).await;
+        let idle = maker_connect_protocol::Telemetry {
+            state: maker_connect_protocol::MachineState::Idle,
+            ..Default::default()
+        };
+        self.report(&token, &idle).await.unwrap();
+    }
+}

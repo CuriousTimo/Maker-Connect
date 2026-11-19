@@ -379,24 +379,9 @@ impl Mini {
     async fn new(pool: &sqlx::PgPool) -> Mini {
         let store = crate::Store::for_test(pool).await;
         let app = crate::auth::signed_in_app(store.clone()).await;
-        let (space, id, token) = {
-            let mut s = store.lock().unwrap();
-            let space = s.default_space().unwrap().0;
-            let id = s
-                .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
-                .unwrap();
-            let token: String =
-                s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&id], |r| {
-                    r.get(0)
-                })
-                .unwrap();
-            s.db.execute(
-                "UPDATE machines SET link = 'prusa-connect' WHERE id = ?1",
-                [&id],
-            )
-            .unwrap();
-            (space, id, token)
-        };
+        let (space, id, token) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
         crate::auth::tester_may_operate(&store, &id).await;
         Mini {
             app,
@@ -480,9 +465,13 @@ impl Mini {
         );
     }
 
-    fn command_state(&self, id: u32) -> CommandState {
-        let s = self.store.lock().unwrap();
-        let m = s.machine(self.space, &self.id).unwrap().unwrap();
+    async fn command_state(&self, id: u32) -> CommandState {
+        let m = self
+            .store
+            .machine(self.space, &self.id)
+            .await
+            .unwrap()
+            .unwrap();
         m.commands.iter().find(|c| c.id == id).unwrap().state
     }
 }
@@ -813,9 +802,8 @@ async fn a_dialog_answer_without_a_dialog_is_refused_by_the_hub(pool: sqlx::PgPo
     .await;
     let buttons = mini
         .store
-        .lock()
-        .unwrap()
         .machine(mini.space, &mini.id)
+        .await
         .unwrap()
         .unwrap()
         .buttons;
@@ -938,7 +926,7 @@ async fn the_events_buddy_sends_settle_commands(pool: sqlx::PgPool) {
             StatusCode::NO_CONTENT,
             "{name}"
         );
-        assert_eq!(mini.command_state(id), *settled, "{name}");
+        assert_eq!(mini.command_state(id).await, *settled, "{name}");
         // free the line for the next
         mini.finished(id).await;
     }
@@ -992,7 +980,7 @@ async fn transfer_events_name_their_command_in_data(pool: sqlx::PgPool) {
             .await,
         StatusCode::NO_CONTENT
     );
-    assert_eq!(mini.command_state(cid), CommandState::Finished);
+    assert_eq!(mini.command_state(cid).await, CommandState::Finished);
     let transfer_state: String = mini
         .store
         .lock()
@@ -1091,8 +1079,8 @@ async fn registration_is_what_registrator_cpp_does(pool: sqlx::PgPool) {
             .unwrap()
     };
     assert_eq!(send(ask()).await.0, StatusCode::ACCEPTED);
-    let space = store.lock().unwrap().default_space().unwrap().0;
-    assert!(store.lock().unwrap().pair(space, &code).unwrap().is_some());
+    let space = store.default_space().await.unwrap().0;
+    assert!(store.pair(space, &code).await.unwrap().is_some());
     let (status, headers) = send(ask()).await;
     assert_eq!(status, StatusCode::OK);
     let token = headers["token"].to_str().unwrap().to_owned();
@@ -1248,8 +1236,12 @@ async fn every_state_buddy_sends_is_read(pool: sqlx::PgPool) {
     ] {
         let (status, _, _) = mini.report(&format!(r#"{{"state":"{name}"}}"#)).await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{name}");
-        let s = mini.store.lock().unwrap();
-        let m = s.machine(mini.space, &mini.id).unwrap().unwrap();
+        let m = mini
+            .store
+            .machine(mini.space, &mini.id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(m.telemetry.unwrap().state, shown, "{name}");
     }
 }
@@ -1269,8 +1261,12 @@ async fn state_changed_and_job_info_reach_the_hub(pool: sqlx::PgPool) {
         "dialog_id": 7, "state": "ATTENTION", "event": "STATE_CHANGED"}))
         .await;
     {
-        let s = mini.store.lock().unwrap();
-        let m = s.machine(mini.space, &mini.id).unwrap().unwrap();
+        let m = mini
+            .store
+            .machine(mini.space, &mini.id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(
             m.asking,
             Some((
@@ -1284,8 +1280,12 @@ async fn state_changed_and_job_info_reach_the_hub(pool: sqlx::PgPool) {
     mini.event(json!({"state": "PRINTING", "event": "STATE_CHANGED"}))
         .await;
     {
-        let s = mini.store.lock().unwrap();
-        let m = s.machine(mini.space, &mini.id).unwrap().unwrap();
+        let m = mini
+            .store
+            .machine(mini.space, &mini.id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!((m.asking, m.buttons.len()), (None, 0));
     }
     // JOB_INFO: job_id at the top (:323), the file in data (:454).
@@ -1396,26 +1396,32 @@ async fn a_command_stays_pending_until_buddy_answers_it(pool: sqlx::PgPool) {
             .0,
         StatusCode::NO_CONTENT
     );
-    assert_eq!(mini.command_state(first), CommandState::Accepted);
-    assert_eq!(mini.command_state(second), CommandState::Queued);
+    assert_eq!(mini.command_state(first).await, CommandState::Accepted);
+    assert_eq!(mini.command_state(second).await, CommandState::Queued);
     // Buddy's answer settles it, and the next one goes.
     mini.finished(first).await;
-    assert_eq!(mini.command_state(first), CommandState::Finished);
+    assert_eq!(mini.command_state(first).await, CommandState::Finished);
     let (status, headers, _) = mini.report(r#"{"state":"IDLE"}"#).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers["command-id"].to_str().unwrap(), second.to_string());
     // The printer was gone (not seen for longer than ONLINE_SECONDS): what it had not answered
     // fails, named as ours; a later report goes on.
     let third = queue();
-    mini.store.lock().unwrap().set_last_seen(
-        &mini.id,
-        crate::store::now() - crate::store::ONLINE_SECONDS - 1,
-    );
+    mini.store
+        .set_last_seen(
+            &mini.id,
+            crate::store::now() - crate::store::ONLINE_SECONDS - 1,
+        )
+        .await;
     let (status, headers, _) = mini.report(r#"{"state":"IDLE"}"#).await;
-    assert_eq!(mini.command_state(second), CommandState::Rejected);
+    assert_eq!(mini.command_state(second).await, CommandState::Rejected);
     let reason = {
-        let s = mini.store.lock().unwrap();
-        let m = s.machine(mini.space, &mini.id).unwrap().unwrap();
+        let m = mini
+            .store
+            .machine(mini.space, &mini.id)
+            .await
+            .unwrap()
+            .unwrap();
         m.commands
             .iter()
             .find(|c| c.id == second)

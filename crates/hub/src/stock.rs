@@ -1728,72 +1728,85 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[test]
-    fn an_item_goes_through_its_life() {
-        let mut store = Legacy::open(":memory:").unwrap();
-        let (space, _) = store.default_space().unwrap();
-        let dymo = store
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn an_item_goes_through_its_life(pool: sqlx::PgPool) {
+        let pg = crate::store::Store::for_test(&pool).await;
+        let (space, _) = pg.default_space().await.unwrap();
+        let dymo = pg
             .add_virtual(space, profiles::find("dymo/labelmanager-pnp").unwrap())
+            .await
             .unwrap();
-        let tape = catalogue()
-            .into_iter()
-            .find(|m| m.media.as_deref() == Some("dymo/labelmanager-pnp:45018"))
-            .unwrap();
-        let material = store.add_material(space, tape.clone()).unwrap();
-        let named = Material {
-            color_name: Some("Black on Yellow".into()),
-            ..tape
-        };
-        assert!(store.update_material(space, &material, named).unwrap());
-        assert_eq!(
-            store.materials(space).unwrap()[0].color_name.as_deref(),
-            Some("Black on Yellow")
-        );
-        let shelf = store.add_location(space, "Shelf B2", None).unwrap();
-        assert_eq!(shelf, "L-0001");
-        let items = store
-            .receive(space, &material, 2, Some(&shelf))
-            .unwrap()
-            .unwrap();
-        assert_eq!(items, ["S-0001", "S-0002"]);
-        assert_eq!(store.items(space).unwrap()[0].amount, 7.0);
-
-        // Not into a LabelWriter: a LabelManager's cassette.
-        let writer = store
+        let writer = pg
             .add_virtual(space, profiles::find("dymo/labelwriter-450").unwrap())
+            .await
             .unwrap();
-        assert_eq!(
-            store.load_item(space, "S-0001", &writer).unwrap(),
-            Err("this tape or roll is made for another label printer")
-        );
-        store.load_item(space, "S-0001", &dymo).unwrap().unwrap();
-        // From a shelf it is on the printer now; from a box (a place with slots) it stays.
-        let loaded = store
-            .items(space)
-            .unwrap()
-            .into_iter()
-            .find(|i| i.id == "S-0001")
-            .unwrap();
-        assert_eq!(
-            (loaded.state.as_str(), loaded.location.as_deref()),
-            ("loaded", None)
-        );
-        let dry = store
-            .add_place(space, "RepBox", None, Some(6), Some("repkord-repbox-2.5"))
-            .unwrap();
-        store.move_item(space, "S-0001", Some(&dry)).unwrap();
-        store.load_item(space, "S-0001", &dymo).unwrap().unwrap();
-        let fed = store
-            .items(space)
-            .unwrap()
-            .into_iter()
-            .find(|i| i.id == "S-0001")
-            .unwrap();
-        assert_eq!(
-            (fed.state.as_str(), fed.location.as_deref()),
-            ("loaded", Some(dry.as_str()))
-        );
-        let printer = store.machine(space, &dymo).unwrap().unwrap();
+        let media = {
+            let store = pg.lock().unwrap();
+            let tape = catalogue()
+                .into_iter()
+                .find(|m| m.media.as_deref() == Some("dymo/labelmanager-pnp:45018"))
+                .unwrap();
+            let material = store.add_material(space, tape.clone()).unwrap();
+            let named = Material {
+                color_name: Some("Black on Yellow".into()),
+                ..tape
+            };
+            assert!(store.update_material(space, &material, named).unwrap());
+            assert_eq!(
+                store.materials(space).unwrap()[0].color_name.as_deref(),
+                Some("Black on Yellow")
+            );
+            let shelf = store.add_location(space, "Shelf B2", None).unwrap();
+            assert_eq!(shelf, "L-0001");
+            let items = store
+                .receive(space, &material, 2, Some(&shelf))
+                .unwrap()
+                .unwrap();
+            assert_eq!(items, ["S-0001", "S-0002"]);
+            assert_eq!(store.items(space).unwrap()[0].amount, 7.0);
+
+            // Not into a LabelWriter: a LabelManager's cassette.
+            assert_eq!(
+                store.load_item(space, "S-0001", &writer).unwrap(),
+                Err("this tape or roll is made for another label printer")
+            );
+            store.load_item(space, "S-0001", &dymo).unwrap().unwrap();
+            // From a shelf it is on the printer now; from a box (a place with slots) it stays.
+            let loaded = store
+                .items(space)
+                .unwrap()
+                .into_iter()
+                .find(|i| i.id == "S-0001")
+                .unwrap();
+            assert_eq!(
+                (loaded.state.as_str(), loaded.location.as_deref()),
+                ("loaded", None)
+            );
+            let dry = store
+                .add_place(space, "RepBox", None, Some(6), Some("repkord-repbox-2.5"))
+                .unwrap();
+            store.move_item(space, "S-0001", Some(&dry)).unwrap();
+            let media = store.load_item(space, "S-0001", &dymo).unwrap().unwrap();
+            let fed = store
+                .items(space)
+                .unwrap()
+                .into_iter()
+                .find(|i| i.id == "S-0001")
+                .unwrap();
+            assert_eq!(
+                (fed.state.as_str(), fed.location.as_deref()),
+                ("loaded", Some(dry.as_str()))
+            );
+            media
+        };
+        // What the website's load does next (crate::stock::load_item): the tape on Postgres.
+        pg.set_media(space, &dymo, media.as_deref()).await.unwrap();
+        let printer = pg.machine(space, &dymo).await.unwrap().unwrap();
+        let store = pg.lock().unwrap();
         assert_eq!(
             printer.media.as_deref(),
             Some("45018"),

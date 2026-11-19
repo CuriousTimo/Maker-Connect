@@ -1264,7 +1264,6 @@ async fn control_job(
 
 #[cfg(test)]
 mod tests {
-    use crate::store::Legacy;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use http_body_util::BodyExt;
@@ -1293,13 +1292,17 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_laser_checks_its_settings() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_laser_checks_its_settings(pool: sqlx::PgPool) {
         use maker_connect_protocol::{
             GrblSettings, MachineKind, MachineState, Register, Telemetry,
         };
-        let mut store = Legacy::open(":memory:").unwrap();
-        let space = store.default_space().unwrap().0;
+        let store = crate::store::Store::for_test(&pool).await;
+        let space = store.default_space().await.unwrap().0;
         let (id, token, code) = store
             .register(&Register {
                 protocol: maker_connect_protocol::VERSION,
@@ -1307,10 +1310,12 @@ mod tests {
                 kind: MachineKind::Laser,
                 agent_version: "0.1.0".into(),
             })
+            .await
             .unwrap();
-        store.pair(space, &code).unwrap();
+        store.pair(space, &code).await.unwrap();
         store
             .set_profile(space, &id, Some("ortur/lm2-pro-s2"))
+            .await
             .unwrap();
         let file = |bounds: [f64; 4], power: f64| crate::store::StoredFile {
             id: "f".into(),
@@ -1324,21 +1329,24 @@ mod tests {
                 ..Default::default()
             },
         };
-        let mut report = |settings: GrblSettings| {
-            let telemetry = Telemetry {
-                state: MachineState::Idle,
-                grbl: Some(settings),
-                ..Default::default()
-            };
-            store.report(&token, &telemetry).unwrap();
-            store.machine(space, &id).unwrap().unwrap()
+        let report = |settings: GrblSettings| {
+            let (store, token, id) = (&store, &token, &id);
+            async move {
+                let telemetry = Telemetry {
+                    state: MachineState::Idle,
+                    grbl: Some(settings),
+                    ..Default::default()
+                };
+                store.report(token, &telemetry).await.unwrap();
+                store.machine(space, id).await.unwrap().unwrap()
+            }
         };
         let good = GrblSettings {
             laser_mode: Some(true),
             max_power: Some(1000.0),
             travel_mm: Some([400.0, 430.0, 0.0]),
         };
-        let laser = report(good.clone());
+        let laser = report(good.clone()).await;
         assert_eq!(
             super::fit(&file([10.0, 10.0, 58.0, 58.0], 500.0), &laser),
             Ok(None)
@@ -1357,7 +1365,8 @@ mod tests {
         let off = report(GrblSettings {
             laser_mode: Some(false),
             ..good
-        });
+        })
+        .await;
         assert!(
             super::fit(&file([10.0, 10.0, 58.0, 58.0], 500.0), &off)
                 .unwrap_err()
@@ -1392,7 +1401,7 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
-        let path = store.lock().unwrap().file_path(&id);
+        let path = store.file_path(&id);
         assert_eq!(std::fs::metadata(path).unwrap().len(), size as u64);
     }
 
@@ -1425,13 +1434,14 @@ mod tests {
         assert_eq!(call(&app, refused).await.0, StatusCode::BAD_REQUEST);
 
         let (space, mini, laser) = {
-            let mut store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
+            let space = store.default_space().await.unwrap().0;
             let mini = store
                 .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
+                .await
                 .unwrap();
             let laser = store
                 .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
+                .await
                 .unwrap();
             (space, mini, laser)
         };
@@ -1479,20 +1489,21 @@ mod tests {
             "not for a laser, not even its queue"
         );
         {
-            let mut store = store.lock().unwrap();
             let token = store
                 .virtual_machines()
+                .await
                 .unwrap()
                 .into_iter()
                 .find(|(m, ..)| *m == mini)
                 .unwrap()
                 .1;
-            store.report(&token, &Default::default()).unwrap();
+            store.report(&token, &Default::default()).await.unwrap();
             // Online and free: the queue starts it by itself.
-            assert_eq!(store.start_queued().unwrap(), 1);
+            assert_eq!(store.lock().unwrap().start_queued().unwrap(), 1);
             assert!(
                 store
                     .machine(space, &mini)
+                    .await
                     .unwrap()
                     .unwrap()
                     .queue
@@ -1512,9 +1523,8 @@ mod tests {
         );
         assert_eq!(
             store
-                .lock()
-                .unwrap()
                 .machine(space, &mini)
+                .await
                 .unwrap()
                 .unwrap()
                 .queue
@@ -1535,9 +1545,8 @@ mod tests {
         );
         assert_eq!(
             store
-                .lock()
-                .unwrap()
                 .machine(space, &mini)
+                .await
                 .unwrap()
                 .unwrap()
                 .queue
@@ -1545,9 +1554,8 @@ mod tests {
             3
         );
         let job = store
-            .lock()
-            .unwrap()
             .machine(space, &mini)
+            .await
             .unwrap()
             .unwrap()
             .job
@@ -1601,17 +1609,16 @@ mod tests {
             .unwrap()
             .to_owned();
         let (space, dymo, token) = {
-            let mut store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
+            let space = store.default_space().await.unwrap().0;
             let profile = crate::profiles::find("dymo/labelmanager-pnp").unwrap();
-            let dymo = store.add_virtual(space, profile).unwrap();
-            let token = store.virtual_machines().unwrap()[0].1.clone();
+            let dymo = store.add_virtual(space, profile).await.unwrap();
+            let token = store.virtual_machines().await.unwrap()[0].1.clone();
             let telemetry = maker_connect_protocol::Telemetry {
                 state: maker_connect_protocol::MachineState::Idle,
                 cassette: Some(true),
                 ..Default::default()
             };
-            store.report(&token, &telemetry).unwrap();
+            store.report(&token, &telemetry).await.unwrap();
             (space, dymo, token)
         };
         crate::auth::tester_may_operate(&store, &dymo).await;
@@ -1626,30 +1633,22 @@ mod tests {
         assert_eq!(status, StatusCode::CONFLICT);
         assert!(why.contains("which tape"), "{why}");
         // 6 mm tape takes 32 dots: too low for a label of 40.
-        store
-            .lock()
-            .unwrap()
-            .set_media(space, &dymo, Some("43613"))
-            .unwrap();
+        store.set_media(space, &dymo, Some("43613")).await.unwrap();
         let (status, why) = call(&app, print()).await;
         assert_eq!(status, StatusCode::CONFLICT);
         assert!(why.contains("32"), "{why}");
-        store
-            .lock()
-            .unwrap()
-            .set_media(space, &dymo, Some("45013"))
-            .unwrap();
+        store.set_media(space, &dymo, Some("45013")).await.unwrap();
         assert_eq!(call(&app, print()).await.0, StatusCode::NO_CONTENT);
-        let mut store = store.lock().unwrap();
         let report = maker_connect_protocol::Telemetry {
             state: maker_connect_protocol::MachineState::Idle,
             ..Default::default()
         };
-        let (order, _) = crate::agent_job(&mut store, &token, &report).unwrap();
+        let of = crate::agent_of(&store, &token).await.unwrap();
+        let (order, _) = crate::agent_job(&mut store.lock().unwrap(), &of, &report).unwrap();
         let order = order.unwrap();
         assert_eq!(order.tape_mm, Some(12));
         assert_eq!(order.name, "label-test.png");
-        let listed = store.file(space, &file).unwrap().unwrap();
+        let listed = store.file(space, &file).await.unwrap().unwrap();
         assert_eq!(listed.meta.label_dots, Some([120, 40]));
         assert!(listed.meta.thumbnail);
     }
@@ -1697,17 +1696,19 @@ mod tests {
             upload(pw, ph + 1).await,
         );
         let (writer, token) = {
-            let mut store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
+            let space = store.default_space().await.unwrap().0;
             let profile = crate::profiles::find("dymo/labelwriter-450").unwrap();
-            let writer = store.add_virtual(space, profile).unwrap();
-            let token = store.virtual_machines().unwrap()[0].1.clone();
+            let writer = store.add_virtual(space, profile).await.unwrap();
+            let token = store.virtual_machines().await.unwrap()[0].1.clone();
             let idle = maker_connect_protocol::Telemetry {
                 state: maker_connect_protocol::MachineState::Idle,
                 ..Default::default()
             };
-            store.report(&token, &idle).unwrap();
-            store.set_media(space, &writer, Some("S0722400")).unwrap();
+            store.report(&token, &idle).await.unwrap();
+            store
+                .set_media(space, &writer, Some("S0722400"))
+                .await
+                .unwrap();
             (writer, token)
         };
         crate::auth::tester_may_operate(&store, &writer).await;
@@ -1724,12 +1725,12 @@ mod tests {
             assert!(why.contains(&format!("takes {pw} × {ph}")), "{why}");
         }
         assert_eq!(call(&app, print(&fits)).await.0, StatusCode::NO_CONTENT);
-        let mut store = store.lock().unwrap();
         let report = maker_connect_protocol::Telemetry {
             state: maker_connect_protocol::MachineState::Idle,
             ..Default::default()
         };
-        let order = crate::agent_job(&mut store, &token, &report)
+        let of = crate::agent_of(&store, &token).await.unwrap();
+        let order = crate::agent_job(&mut store.lock().unwrap(), &of, &report)
             .unwrap()
             .0
             .unwrap();

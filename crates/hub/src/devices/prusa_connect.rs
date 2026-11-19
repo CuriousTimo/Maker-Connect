@@ -627,8 +627,8 @@ mod tests {
         };
         assert_eq!(call(&app, ask()).await.0, StatusCode::ACCEPTED);
 
-        let space = store.lock().unwrap().default_space().unwrap().0;
-        assert!(store.lock().unwrap().pair(space, &code).unwrap().is_some());
+        let space = store.default_space().await.unwrap().0;
+        assert!(store.pair(space, &code).await.unwrap().is_some());
         let (status, headers) = call(&app, ask()).await;
         assert_eq!(status, StatusCode::OK);
         let token = headers["token"].to_str().unwrap().to_owned();
@@ -658,7 +658,7 @@ mod tests {
             StatusCode::NOT_FOUND,
             "its first report spends the code"
         );
-        let machines = store.lock().unwrap().machines(space).unwrap();
+        let machines = store.machines(space).await.unwrap();
         let mini = &machines[0];
         assert_eq!(mini.name, "Original Prusa MINI/+ 2345");
         assert_eq!(mini.link, "prusa-connect");
@@ -707,7 +707,7 @@ mod tests {
             )))
             .unwrap();
         assert_eq!(call(&app, finished).await.0, StatusCode::NO_CONTENT);
-        let machines = store.lock().unwrap().machines(space).unwrap();
+        let machines = store.machines(space).await.unwrap();
         assert_eq!(machines[0].commands[0].state, CommandState::Finished);
 
         let unknown = Request::post("/p/telemetry")
