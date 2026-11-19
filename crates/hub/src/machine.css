@@ -395,3 +395,9 @@
   .tab > .control-below { margin-top: var(--s-4); }
   .control-below > .card + .card { margin-top: 0; }
   .ctl-cols .bed-row { max-width: 380px; }
+  /* A printer's arrow pad: the step, then X/Y in a cross and Z beside it. */
+  .printer-pad { display: grid; gap: var(--s-3); justify-content: start; margin: var(--s-3) 0; }
+  .printer-pad .pad-row { display: flex; gap: var(--s-5); align-items: start; }
+  .printer-pad .jog-z { grid-template-columns: 48px; }
+  .printer-pad .pad-xy { display: grid; place-items: center; color: var(--muted); font-size: var(--fs-1); }
+  .printer-pad .jog-steps small:first-child { margin: 0 6px 0 0; color: var(--muted); }

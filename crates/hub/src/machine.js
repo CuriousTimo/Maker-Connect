@@ -80,7 +80,7 @@
   // The arrow keys move the pad's head once it has focus: a move at a time (a key held down
   // does not pile them up), Home on the Home key.
   for (const pad of document.querySelectorAll("[data-jogpad]")) {
-    const keys = { ArrowUp: "jog:0:1", ArrowDown: "jog:0:-1", ArrowLeft: "jog:-1:0", ArrowRight: "jog:1:0", Home: "home" };
+    const keys = { ArrowUp: "jog:0:1", ArrowDown: "jog:0:-1", ArrowLeft: "jog:-1:0", ArrowRight: "jog:1:0", PageUp: "jog:0:0:1", PageDown: "jog:0:0:-1", Home: "home" };
     pad.addEventListener("keydown", (event) => {
       const action = keys[event.key];
       if (!action || event.target.matches("select")) return;

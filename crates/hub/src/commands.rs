@@ -155,15 +155,18 @@ fn agent_actions(
                 "1" => Some(1.0),
                 _ => None,
             };
-            let (x, y) = jog_pad["jog:".len()..]
-                .split_once(':')
-                .ok_or("Move: no such direction")?;
-            let (x, y) = (
-                dir(x).ok_or("Move: no such direction")?,
-                dir(y).ok_or("Move: no such direction")?,
-            );
+            // `jog:<x>:<y>`, or `jog:0:0:<z>` (a printer's pad: Z on its own).
+            let parts: Vec<&str> = jog_pad["jog:".len()..].split(':').collect();
+            let (x, y, z) = match parts[..] {
+                [x, y] => (dir(x), dir(y), Some(0.0)),
+                ["0", "0", z] => (Some(0.0), Some(0.0), dir(z)),
+                _ => (None, None, None),
+            };
+            let (Some(x), Some(y), Some(z)) = (x, y, z) else {
+                return Err("Move: no such direction".to_owned());
+            };
             let some = |d: f64| (d != 0.0).then_some(d * step);
-            jog(format!("Move {step} mm"), some(x), some(y), None)
+            jog(format!("Move {step} mm"), some(x), some(y), some(z))
         }
         "extrude" => one("Extrude 10 mm", Action::Extrude { mm: 10.0 }),
         "retract" => one("Retract 10 mm", Action::Extrude { mm: -10.0 }),

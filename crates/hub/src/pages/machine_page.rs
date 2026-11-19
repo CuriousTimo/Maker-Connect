@@ -1048,7 +1048,8 @@ fn profile_name(machine: &Machine, p: &Profile) -> String {
 
 /// Everything known of what the machine is: its profile's facts, and what it told about
 /// itself (over Prusa Connect, or through its agent). For Settings.
-fn machine_facts(machine: &Machine, profile: Option<&Profile>) -> String {
+/// What it is (from its profile) and what it told about itself: the Machine tab's Details.
+fn machine_facts(machine: &Machine, profile: Option<&Profile>) -> (String, String) {
     let t = machine.telemetry.as_ref();
     let details = machine.details.clone().unwrap_or_default();
     let identity = t.and_then(|t| t.identity.as_ref());
@@ -1128,7 +1129,7 @@ fn machine_facts(machine: &Machine, profile: Option<&Profile>) -> String {
         ),
     ]
     .concat();
-    from_profile + &told
+    (from_profile, told)
 }
 
 /// A row the script keeps live; `–` while unknown.
@@ -1768,14 +1769,6 @@ fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str) -> String
     let button = |action: &str, text: &str| {
         format!(r#"<button name="action" value="{action}">{text}</button>"#)
     };
-    let axis = |name: &str| {
-        let lower = name.to_lowercase();
-        format!(
-            "<span>{name}</span>{}{}",
-            button(&format!("{lower}-"), "−10"),
-            button(&format!("{lower}+"), "+10")
-        )
-    };
     let fdm = heats(machine);
     // B5: OctoPrint's control panel has two Home buttons, X/Y and Z (`control.jinja2:71,85`).
     let home = if plain_marlin(machine) {
@@ -1788,77 +1781,32 @@ fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str) -> String
         button("home", "Home all")
     };
     if fdm {
-        return printer_controls(machine, profile, t, loaded, &xyz, &gauge, &home, &button, &axis);
+        return printer_controls(machine, profile, t, loaded, &xyz, &gauge, &home, &button);
     }
-    let mut controls = if fdm {
-        format!(
-            r#"<h4>Move</h4><div class="jog">{}{}{}{}</div><p class="hint">10 mm from where the head is. Home first.</p>"#,
-            home,
-            axis("X"),
-            axis("Y"),
-            axis("Z")
-        )
-    } else {
-        jog_pad()
-    };
-    if fdm {
-        controls += &format!(
-            r#"<h4>Heat</h4><div class="buttons">{}{}{}</div>{}<h4>Fan and motors</h4><div class="buttons">{}{}{}</div>"#,
-            button("preheat-pla", "Preheat PLA"),
-            button("preheat-petg", "Preheat PETG"),
-            button("cooldown", "Cool down"),
-            heat_inputs(t, profile) + &factor_inputs(t),
-            // Prusa's MK3 family: no fan control, as PrusaLink has none.
-            if crate::prusa_mk3_machine(machine) {
-                String::new()
-            } else {
-                button("fan-on", "Print fan on")
-            },
-            if crate::prusa_mk3_machine(machine) {
-                String::new()
-            } else {
-                button("fan-off", "Print fan off")
-            },
-            button("motors-off", "Motors off"),
-        );
-        controls += &format!(
-            r#"<h4>Extruder</h4><div class="buttons">{}{}</div><p class="hint">10 mm at a time; the nozzle must be hot (the printer refuses a cold extrusion).</p>"#,
-            button("extrude", "Extrude 10 mm"),
-            button("retract", "Retract 10 mm"),
-        );
-    } else {
-        controls += &format!(
-            r#"<h4>Origin</h4><div class="buttons">{}{}</div><p class="hint">A job starts from its origin. Move the head to the corner of what you work on, then set it; the machine forgets it when it restarts.</p><h4>Machine</h4><div class="buttons">{}</div><p class="hint">Unlock after an alarm ($X).</p>"#,
-            button("set-origin", "Set origin here"),
-            button("go-origin", "Go to origin"),
-            button("unlock", "Unlock")
-        );
-    }
+    let mut controls = jog_pad();
+    controls += &format!(
+        r#"<h4>Origin</h4><div class="buttons">{}{}</div><p class="hint">A job starts from its origin. Move the head to the corner of what you work on, then set it; the machine forgets it when it restarts.</p><h4>Machine</h4><div class="buttons">{}</div><p class="hint">Unlock after an alarm ($X).</p>"#,
+        button("set-origin", "Set origin here"),
+        button("go-origin", "Go to origin"),
+        button("unlock", "Unlock")
+    );
     let form = format!(
         r#"<form class="command" method="post" action="{}/command">{controls}</form><p class="note" data-command-status role="status"></p>"#,
         escape(&machine.id)
     );
     format!(
-        r#"<div class="grid-control">{bed}<div class="stack">{loaded}{}{}</div></div>"#,
+        r#"<div class="grid-control">{bed}<div class="stack">{loaded}{}</div></div>"#,
         card(
             "Control",
-            "Sent one at a time; each shows below how it went",
+            "Sent one at a time; History lists how each went",
             &form
         ),
-        card(
-            "Commands",
-            "",
-            &format!(
-                r#"<ol class="commands" data-commands>{}</ol>"#,
-                commands(machine)
-            )
-        )
     )
 }
 
 /// A printer's Controls (Prusa Connect's layout, our own build): one card, moving, the
 /// extruder and the fan on the left; temperatures, speed and flow on the right. One form, so
-/// each button sends its own action as before. Below it the spool and what was sent.
+/// each button sends its own action as before. Below it the spool; what was sent is under History.
 #[allow(clippy::too_many_arguments)]
 fn printer_controls(
     machine: &Machine,
@@ -1869,7 +1817,6 @@ fn printer_controls(
     gauge: &str,
     home: &str,
     button: &dyn Fn(&str, &str) -> String,
-    axis: &dyn Fn(&str) -> String,
 ) -> String {
     let bed = profile.map_or(
         r#"<p class="empty">Choose a profile under Machine to see the bed.</p>"#.to_owned(),
@@ -1890,11 +1837,9 @@ fn printer_controls(
             button("fan-off", "Off")
         )
     };
+    let pad = printer_pad();
     let left = format!(
-        r#"<h4>Coordinates</h4><div class="xyz">{xyz}</div>{bed}<div class="jog">{home}{}{}{}</div><p class="hint">10 mm from where the head is. Home first.</p><div class="buttons">{}</div><h4>Extruder</h4><div class="buttons">{}{}</div><p class="hint">10 mm at a time; the nozzle must be hot (the printer refuses a cold extrusion).</p>{fan}"#,
-        axis("X"),
-        axis("Y"),
-        axis("Z"),
+        r#"<h4>Coordinates</h4><div class="xyz">{xyz}</div>{bed}{pad}<div class="buttons">{home}{}</div><h4>Extruder</h4><div class="buttons">{}{}</div><p class="hint">10 mm at a time; the nozzle must be hot (the printer refuses a cold extrusion).</p>{fan}"#,
         button("motors-off", "Motors off"),
         button("extrude", "Extrude 10 mm"),
         button("retract", "Retract 10 mm"),
@@ -1908,23 +1853,48 @@ fn printer_controls(
         factor_inputs(t),
     );
     format!(
-        r#"{}<div class="grid-2 control-below">{loaded}{}</div>"#,
+        r#"{}<div class="grid-2 control-below">{loaded}</div>"#,
         card(
             "Controls",
-            "Sent one at a time; each shows below how it went",
+            "Sent one at a time; History lists how each went",
             &format!(
                 r#"<form class="command" method="post" action="{}/command"><div class="ctl-cols"><div>{left}</div><div>{right}</div></div></form><p class="note" data-command-status role="status"></p>"#,
                 escape(&machine.id)
             )
         ),
-        card(
-            "Commands",
-            "",
-            &format!(
-                r#"<ol class="commands" data-commands>{}</ol>"#,
-                commands(machine)
-            )
+    )
+}
+
+/// A printer's arrow pad (Prusa Connect's Controls, our own build): X and Y in a cross, Z up
+/// and down beside it, by the step chosen (0.1, 1 or 10 mm); the arrow keys move X and Y, Page
+/// Up and Page Down Z (machine.js). Sent as `jog:<x>:<y>` and `jog:0:0:<z>` (crate::commands).
+fn printer_pad() -> String {
+    let arrow = |action: &str, text: &str, what: &str| {
+        format!(
+            r#"<button name="action" value="{action}" title="Move {what}" aria-label="Move {what}">{text}</button>"#
         )
+    };
+    let steps: String = [(0.1, "0.1"), (1.0, "1"), (10.0, "10")]
+        .iter()
+        .map(|(v, t)| {
+            format!(
+                r#"<label><input type="radio" name="step" value="{v}"{}><span>{t}</span></label>"#,
+                if *v == 1.0 { " checked" } else { "" }
+            )
+        })
+        .collect();
+    format!(
+        r#"<div class="jogpad printer-pad" tabindex="0" data-jogpad aria-label="Move the head: the arrow keys move X and Y, Page Up and Page Down Z, by the step">
+  <div class="jog-steps" role="radiogroup" aria-label="Step in mm"><small>Step</small>{steps}<small>mm</small></div>
+  <div class="pad-row"><div class="jog-grid"><span></span>{}<span></span>{}<span class="pad-xy">X/Y</span>{}<span></span>{}<span></span></div>
+  <div class="jog-grid jog-z">{}<span class="pad-xy">Z</span>{}</div></div>
+</div>"#,
+        arrow("jog:0:1", "↑", "back (Y+)"),
+        arrow("jog:-1:0", "←", "left (X−)"),
+        arrow("jog:1:0", "→", "right (X+)"),
+        arrow("jog:0:-1", "↓", "to the front (Y−)"),
+        arrow("jog:0:0:1", "↑", "up (Z+)"),
+        arrow("jog:0:0:-1", "↓", "down (Z−)"),
     )
 }
 
@@ -2049,6 +2019,19 @@ fn fan_tiles(machine: &Machine) -> String {
 
 fn telemetry_tab(machine: &Machine) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
+    // What was sent from the hub, and how it went (Prusa Connect's History tab).
+    let sent = if store::takes_commands(&machine.link) {
+        card(
+            "Commands",
+            "Sent from here, newest last; each with how it went",
+            &format!(
+                r#"<ol class="commands" data-commands>{}</ol>"#,
+                commands(machine)
+            ),
+        )
+    } else {
+        String::new()
+    };
     let percent = |v: Option<f32>| v.map(|v| format!("{v} %"));
     let motion = [
         live_row(
@@ -2062,7 +2045,7 @@ fn telemetry_tab(machine: &Machine) -> String {
     .concat();
     if !heats(machine) {
         return format!(
-            r#"<div class="tiles">{}</div><div class="grid-2">{}</div>"#,
+            r#"<div class="tiles">{}</div><div class="grid-2">{}</div>{sent}"#,
             position_tiles(machine),
             card("Motion", "", &format!("<dl>{motion}</dl>"))
         );
@@ -2112,7 +2095,7 @@ fn telemetry_tab(machine: &Machine) -> String {
     format!(
         // The heaters' and fans' tiles are in Overview's Live card.
         r#"{chart}
-<div class="grid-2">{}{}</div>"#,
+<div class="grid-2">{}{}</div>{sent}"#,
         card("Motion", "", &format!("<dl>{motion}</dl>")),
         card("Printing", "", &format!("<dl>{printing}</dl>")),
     )
@@ -2488,21 +2471,35 @@ pub(crate) fn settings(
     .concat();
     let mut info = connection(machine);
     info += &controller(machine);
-    if !about.is_empty() {
-        info += &card(
-            "Machine",
-            "Its profile, and what it told about itself",
-            &format!("<dl>{about}</dl>"),
-        );
-    }
     if !storage.is_empty() {
         info += &card("Storage", "", &format!("<dl>{storage}</dl>"));
     }
     if !network.is_empty() {
         info += &card("Network", "", &format!("<dl>{network}</dl>"));
     }
+    // Details first (Prusa Connect's Printer tab, our own build): what it is beside what it told.
+    let (spec, told) = about;
+    let column = |title: &str, rows: &str| {
+        format!(
+            r#"<div><h4>{title}</h4>{}</div>"#,
+            if rows.is_empty() {
+                r#"<p class="empty">Not known yet.</p>"#.to_owned()
+            } else {
+                format!(r#"<dl class="kv">{rows}</dl>"#)
+            }
+        )
+    };
+    let details = card(
+        "Details",
+        "Its profile, and what it told about itself",
+        &format!(
+            r#"<div class="ctl-cols">{}{}</div>"#,
+            column("Specification", &spec),
+            column("This machine", &told)
+        ),
+    );
     format!(
-        r#"<div class="grid-settings">{}<div class="stack">{info}</div></div>"#,
+        r#"{details}<div class="grid-settings">{}<div class="stack">{info}</div></div>"#,
         card("Settings", "", &forms)
     )
 }
