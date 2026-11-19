@@ -2047,7 +2047,7 @@ fn telemetry_tab(machine: &Machine) -> String {
         return format!(
             r#"<div class="tiles">{}</div><div class="grid-2">{}</div>{sent}"#,
             position_tiles(machine),
-            card("Motion", "", &format!("<dl>{motion}</dl>"))
+            card("Motion", "", &format!(r#"<dl class="kv">{motion}</dl>"#))
         );
     }
     let printing = [
@@ -2096,8 +2096,8 @@ fn telemetry_tab(machine: &Machine) -> String {
         // The heaters' and fans' tiles are in Overview's Live card.
         r#"{chart}
 <div class="grid-2">{}{}</div>{sent}"#,
-        card("Motion", "", &format!("<dl>{motion}</dl>")),
-        card("Printing", "", &format!("<dl>{printing}</dl>")),
+        card("Motion", "", &format!(r#"<dl class="kv">{motion}</dl>"#)),
+        card("Printing", "", &format!(r#"<dl class="kv">{printing}</dl>"#)),
     )
 }
 
