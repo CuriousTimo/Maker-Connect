@@ -84,11 +84,13 @@
 <div class="card"><h2>Controls</h2>
 <div class="ctl-cols">
 <div data-only="admin instance"><h3>Coordinates</h3>
-<div class="jog" role="group" aria-label="Jog">
+<div class="row" role="radiogroup" aria-label="Step in mm"><small>Step</small><span class="chip" aria-pressed="false">0.1</span><span class="chip" aria-pressed="true">1</span><span class="chip" aria-pressed="false">10</span><small>mm</small></div>
+<div class="row" style="align-items:flex-start"><div class="jog" role="group" aria-label="Move X and Y">
 <span></span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="Y plus" aria-describedby="why-move">▲</button></span><span></span>
-<span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="X minus" aria-describedby="why-move">◀</button></span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="Home X and Y" aria-describedby="why-move">⌂</button></span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="X plus" aria-describedby="why-move">▶</button></span>
+<span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="X minus" aria-describedby="why-move">◀</button></span><span class="muted">X/Y</span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="X plus" aria-describedby="why-move">▶</button></span>
 <span></span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="Y minus" aria-describedby="why-move">▼</button></span><span></span>
-</div>
+</div><div class="jog" role="group" aria-label="Move Z" style="grid-template-columns:auto"><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="Z plus" aria-describedby="why-move">▲</button></span><span class="muted">Z</span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="Z minus" aria-describedby="why-move">▼</button></span></div></div>
+<p><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-describedby="why-move">Home</button></span></p>
 <span class="why" id="why-move">Not while printing: moving works when MINI-1 is ready or paused.</span>
 <p style="margin-top:var(--s-3)"><span class="ctl"><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-describedby="why-2">Motors off</button></span><span class="why" id="why-2">Not while printing.</span></span></p>
 <span class="anno">core.command.move, home, disable_steppers · device.move · accepted in OPERATIONAL, PAUSED</span>
@@ -139,7 +141,7 @@
 </section>
 
 <section id="machine" role="tabpanel" aria-labelledby="t-machine" hidden>
-<div class="card"><h2>The machine</h2><dl class="kv"><dt>Name</dt><dd>MINI-1</dd><dt>Model</dt><dd>MINI (from the printer)</dd><dt>Firmware</dt><dd>6.3.0 (as the printer reports it)</dd><dt>Serial</dt><dd>SN-0000-1234</dd><dt>Connection</dt><dd>Built-in Connect, online</dd></dl></div>
+<div class="card"><h2>Details</h2><div class="ctl-cols"><div><h3>Specification</h3><dl class="kv"><dt>Model</dt><dd>Original Prusa MINI</dd><dt>Build volume</dt><dd>180 × 180 × 180 mm</dd><dt>Nozzle size</dt><dd>0.4 mm</dd></dl></div><div><h3>This machine</h3><dl class="kv"><dt>Name</dt><dd>MINI-1</dd><dt>Firmware</dt><dd>6.3.0 (as the printer reports it)</dd><dt>Serial</dt><dd>SN-0000-1234</dd><dt>Connection</dt><dd>Built-in Connect, online</dd></dl></div></div></div>
 <div class="card" data-only="guest user"><p>A machine's settings are changed by the space's staff.</p></div>
 <div data-only="admin instance">
 <div class="card"><h2>Name and labels</h2><div class="row"><label class="field">Name<input value="MINI-1"></label><label class="field">Labels<input value="Room 2"></label><span class="fw"><button class="btn" type="button">Save</button></span></div><span class="anno">PATCH /api/v1/devices/{id} · device.manage</span></div>
@@ -154,6 +156,7 @@
 
 <section id="history" role="tabpanel" aria-labelledby="t-history" hidden>
 <div class="card"><h2>Temperatures, last 2 hours</h2><div class="empty">nozzle, bed and fans over time</div><span class="anno">GET /api/v1/devices/{id}/history · device.view</span></div>
+<div class="card"><h2>Commands</h2><ul class="list"><li><div class="grow"><b>Nozzle to 215 °C</b><br><small>Noor · 15:31</small></div><span class="out">done</span></li></ul><span class="anno">what was sent from the hub, and how it went</span></div>
 </section>
 
 <section id="advanced" role="tabpanel" aria-labelledby="t-advanced" hidden>

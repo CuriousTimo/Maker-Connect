@@ -188,8 +188,8 @@ only with a linked camera the person may view). Old addresses (`#overview`, `#co
 | Controls | the declared verbs they hold, enabled when the state accepts them, one card: moving and tools left, temperatures, speed, flow and nozzles right | the same, with their own actions |
 | Files | files on the device; Print… | plus Delete (`core.command.delete_file`, `job.control`) |
 | Cameras | the linked camera (`device.view`) | the same; managing is in Space → Cameras |
-| Machine | read only: name, model, firmware label, serial, connection; "changed by the space's staff" | name and labels, induction, PPE list (`PATCH /api/v1/devices/{id}`, `device.manage`); Retire with a reason (`DELETE`, history stays) |
-| History | temperatures and fans over the last 2 hours (Prusa Connect's span) | the same |
+| Machine | first **Details** in two columns, Specification (from its profile) and This machine (what it told); then read only: name, model, firmware label, serial, connection; "changed by the space's staff" | name and labels, induction, PPE list (`PATCH /api/v1/devices/{id}`, `device.manage`); Retire with a reason (`DELETE`, history stays) |
+| History | temperatures and fans over the last 2 hours (Prusa Connect's span); the commands sent from the hub and how each went | the same |
 | Advanced | the terminal (holder only, UT-03), the bed level and its mesh | the same |
 
 Control tab, a 3D printer (verbs of the `marlin` registry; the `prusa` kind uses the same
