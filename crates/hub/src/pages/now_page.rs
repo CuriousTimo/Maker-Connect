@@ -55,7 +55,7 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 </head>
 <body>
 {header}
-<main class="now" data-now>
+<main id="main" tabindex="-1" class="now" data-now>
   <div class="now-head">
     <div><h2>Now</h2><p class="now-space">{title}</p></div>
     <div class="now-clock"><b data-clock>–</b><small data-date></small></div>

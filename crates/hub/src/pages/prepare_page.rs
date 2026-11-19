@@ -58,7 +58,7 @@ pub async fn page(access: crate::access::Access, State(store): State<Store>) -> 
 </head>
 <body>
 {header}
-<main class="wide">
+<main id="main" tabindex="-1" class="wide">
   <div class="page-head">
     <div><h2>Prepare</h2><p class="subtitle">Make the work for a machine. What you make goes to Files, and from there to a machine.</p></div>
   </div>

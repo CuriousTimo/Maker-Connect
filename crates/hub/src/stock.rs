@@ -1554,7 +1554,7 @@ async fn page(access: crate::access::Access, State(store): State<Store>) -> Resp
 </head>
 <body>
 {header}
-<main class="library-page">
+<main id="main" tabindex="-1" class="library-page">
   <div class="page-head">
     <div><h2>Materials</h2><p class="subtitle">Every spool and cassette: what is left, where it is, what is loaded. Spoolman's API speaks here too, for Moonraker, OctoPrint and scales.</p></div>
     <div class="page-actions">

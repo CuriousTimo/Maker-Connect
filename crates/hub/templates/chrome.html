@@ -1,0 +1,25 @@
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="{{ home }}"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small data-me-space>{{ space }}</small></span></a>
+  <span class="spacer"></span>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
+</header>
+<aside class="side" aria-label="Navigation" data-root="{{ home }}"><nav aria-label="Pages">
+{%- for item in nav %}
+{%- if !item.group.is_empty() %}
+<div class="group"{% if !item.gate.is_empty() %} data-gate="{{ item.gate }}" hidden{% endif %}>{{ item.group }}</div>
+{%- endif %}
+<a href="{{ home }}{{ item.path }}"{% if item.place == here %} aria-current="page"{% endif %}{% if !item.gate.is_empty() %} data-gate="{{ item.gate }}" hidden{% endif %}>{{ item.name }}</a>
+{%- if item.place == live_after %}
+<div class="group">Machines</div><div class="machines" data-side-machines><small class="muted">Loading …</small></div>
+{%- endif %}
+{%- endfor %}
+<div class="user"><div class="group" data-me-who>Signed in</div><div data-me-spaces></div>
+<form method="post" action="/logout"><button type="submit" class="side-link">Sign out</button></form></div>
+</nav></aside>
+<nav class="bottom" aria-label="Pages (phone)">
+{%- for item in bottom %}<a href="{{ home }}{{ item.path }}"{% if item.place == here %} aria-current="page"{% endif %}><span class="ic" aria-hidden="true">{{ item.icon }}</span>{{ item.name }}</a>{% endfor -%}
+<details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more">
+{%- for item in more %}<a href="{{ home }}{{ item.path }}"{% if item.place == here %} aria-current="page"{% endif %}{% if !item.gate.is_empty() %} data-gate="{{ item.gate }}" hidden{% endif %}>{{ item.name }}</a>{% endfor -%}
+<form method="post" action="/logout"><button type="submit" class="side-link">Sign out</button></form></div></details></nav>
+<div class="toast" data-toast role="status" aria-live="polite" hidden></div>

@@ -34,7 +34,7 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 </head>
 <body>
 {header}
-<main>
+<main id="main" tabindex="-1">
   <div class="p-head">
     <div><h2>Projects</h2><p class="intro">Parts to make, many machines making them: a free machine that suits a part takes its next plate; someone confirms what came off the bed.</p></div>
     <form class="p-new" data-new-project><input name="name" required maxlength="80" placeholder="Brackets for the hall" aria-label="Name of a new project"><button>New project</button></form>

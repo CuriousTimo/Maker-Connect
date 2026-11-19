@@ -15,7 +15,7 @@
 
 use crate::accounts::{self, Signed};
 use crate::store::now;
-use crate::{STYLE, Store, escape, failed};
+use crate::{Store, escape, failed};
 use axum::{
     Extension, Form, Json, Router,
     extract::{ConnectInfo, Query, Request, State},
@@ -685,37 +685,19 @@ fn same(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-const AUTH_STYLE: &str = r#"
-  body { display: grid; place-items: center; min-height: 100vh; margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
-  .auth form { display: block; margin: 0; }
-  .auth { width: min(380px, calc(100vw - 32px)); background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 28px; box-sizing: border-box; }
-  .auth .mark { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
-  .auth h1 { font-size: 1.25rem; margin: 0; }
-  .auth p { color: var(--muted); margin: 0 0 16px; line-height: 1.45; }
-  .auth label { display: block; font-size: .85rem; font-weight: 600; margin: 12px 0 4px; }
-  .auth input { width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
-  .auth input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .auth button { width: 100%; margin-top: 20px; padding: 10px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
-  .auth .problem { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); padding: 8px 11px; border-radius: 8px; margin-bottom: 4px; }
-  .auth small { color: var(--muted); font-size: .8rem; }
-"#;
-
+/// A page of its own without the navigation: sign in, setup, an invite.
 pub(crate) fn auth_page(title: &str, body: &str) -> String {
-    format!(
-        r#"<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} · Maker Connect</title><link rel="icon" href="/logo.svg">
-<style>{STYLE}{AUTH_STYLE}</style></head>
-<body><main class="auth"><div class="mark"><img src="/logo.svg" alt="" width="32" height="32"><h1>{title}</h1></div>
-{body}</main></body></html>"#
-    )
+    crate::web::shell::bare_page(title, body)
 }
 
 fn problem_html(problem: &str) -> String {
     if problem.is_empty() {
         String::new()
     } else {
-        format!(r#"<p class="problem" role="alert">{}</p>"#, escape(problem))
+        format!(
+            r#"<div class="banner bad" role="alert"><span>{}</span></div>"#,
+            escape(problem)
+        )
     }
 }
 
@@ -726,10 +708,11 @@ fn login_html(name: &str, problem: &str, next: Option<&str>) -> String {
     auth_page(
         "Sign in",
         &format!(
-            r#"{problem}<form method="post" action="/login">{next}
-<label for="name">Name</label><input id="name" name="name" value="{name}" autocomplete="username" autocapitalize="none" required autofocus>
-<label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required>
-<button>Sign in</button></form>"#,
+            r#"{problem}<div class="card"><form method="post" action="/login">{next}
+<label class="field">Name<input name="name" value="{name}" autocomplete="username" autocapitalize="none" required autofocus></label>
+<label class="field">Password<input name="password" type="password" autocomplete="current-password" required></label>
+<span class="fw" style="width:100%"><button class="btn primary">Sign in</button></span></form>
+<p style="margin-top:var(--s-3)"><small>Have an invite link? It opens a page to make your account.</small></p></div>"#,
             problem = problem_html(problem),
             name = escape(name),
         ),
@@ -740,16 +723,15 @@ fn setup_html(space: &str, display_name: &str, name: &str, problem: &str) -> Str
     auth_page(
         "Set up Maker Connect",
         &format!(
-            r#"<p>Make the first account. It runs this server and owns the first space. The setup code is in the hub's log, printed when it started.</p>
-{problem}<form method="post" action="/setup">
-<label for="code">Setup code</label><input id="code" name="code" autocomplete="off" autocapitalize="characters" placeholder="ABCD-EFGH" required autofocus>
-<label for="space">Name of the space</label><input id="space" name="space" value="{space}" maxlength="60" placeholder="Fablab Noord" required>
-<label for="display_name">Your name</label><input id="display_name" name="display_name" value="{display_name}" maxlength="60" autocomplete="name" required>
-<label for="name">Sign-in name</label><input id="name" name="name" value="{name}" maxlength="40" autocomplete="username" autocapitalize="none" required>
-<small>Letters, digits, dots, dashes or underscores.</small>
-<label for="password">Password</label><input id="password" name="password" type="password" minlength="{min}" autocomplete="new-password" required>
-<label for="again">Password again</label><input id="again" name="again" type="password" minlength="{min}" autocomplete="new-password" required>
-<button>Make the account</button></form>"#,
+            r#"<p class="lede">Make the first account. It runs this server and owns the first space. The setup code is in the hub's log, printed when it started.</p>
+{problem}<div class="card"><form method="post" action="/setup">
+<label class="field">Setup code<input name="code" autocomplete="off" autocapitalize="characters" placeholder="ABCD-EFGH" required autofocus></label>
+<label class="field">Name of the space<input name="space" value="{space}" maxlength="60" placeholder="Fablab Noord" required></label>
+<label class="field">Your name<input name="display_name" value="{display_name}" maxlength="60" autocomplete="name" required></label>
+<label class="field">Sign-in name<input name="name" value="{name}" maxlength="40" autocomplete="username" autocapitalize="none" required aria-describedby="name-why"><small id="name-why">Letters, digits, dots, dashes or underscores.</small></label>
+<label class="field">Password<input name="password" type="password" minlength="{min}" autocomplete="new-password" required></label>
+<label class="field">Password again<input name="again" type="password" minlength="{min}" autocomplete="new-password" required></label>
+<span class="fw" style="width:100%"><button class="btn primary">Make the account</button></span></form></div>"#,
             problem = problem_html(problem),
             space = escape(space),
             display_name = escape(display_name),

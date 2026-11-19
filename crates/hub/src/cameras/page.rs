@@ -155,7 +155,7 @@ async fn camera_page(access: Access, State(store): State<Store>, Path(id): Path<
 </head>
 <body>
 {header}
-<main>
+<main id="main" tabindex="-1">
   <h2>{name}</h2>
   <p class="cam-intro">{watches} · <a href="../cameras">All cameras</a></p>
   <iframe class="cam-player" src="{id}/live" title="{name}" allow="picture-in-picture"></iframe>
@@ -219,7 +219,7 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
 </head>
 <body>
 {header}
-<main>
+<main id="main" tabindex="-1">
   <h2>Cameras</h2>
   <p class="cam-intro">A camera on a machine is seen by whoever may see the machine; a room camera from the role it is set to{manage}.</p>
   <ul class="cams">{rows}</ul>

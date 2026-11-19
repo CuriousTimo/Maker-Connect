@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} · Maker Connect</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+{{ crate::web::shell::THEME_SCRIPT|safe }}
+<style>
+{{ crate::web::shell::STYLE|safe }}</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="/"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>{{ title }}</small></span></a>
+  <span class="spacer"></span>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
+</header>
+<main id="main" tabindex="-1" class="bare">
+<div class="head"><h1>{{ title }}</h1></div>
+{{ body|safe }}
+</main>
+<script>
+{{ crate::web::shell::THEME_SWITCH|safe }}</script>
+</body>
+</html>

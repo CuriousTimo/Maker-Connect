@@ -223,7 +223,7 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 </head>
 <body>
 {header}
-<main class="about">
+<main id="main" tabindex="-1" class="about">
   <h2>About Maker Connect</h2>
   <p class="lead">One self-hosted place for a maker's machines: 3D printers, lasers and label printers, with their materials.</p>
   <section>

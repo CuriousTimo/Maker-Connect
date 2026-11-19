@@ -451,7 +451,7 @@ async fn page(
 </head>
 <body>
 {header}
-<main>
+<main id="main" tabindex="-1">
   <div class="space-head"><h2>{name}</h2><span class="chip {role}">you: {role}</span></div>
   <nav class="tabs" role="tablist"><a href="#members" role="tab">Members</a><a href="#permissions" role="tab">Permissions</a><a href="#access" role="tab">Access</a>{cameras_tab}{tokens_tab}{audit_tab}<a href="#general" role="tab">General</a></nav>
   <div role="tabpanel" data-panel="members">{members_html}{invites_html}</div>
@@ -870,7 +870,7 @@ async fn invite_page(
     let Some(invite) = invite.filter(|i| i.open()) else {
         return (
             StatusCode::NOT_FOUND,
-            plain_page("Invite link", r#"<p>This link is not (or no longer) valid: used, revoked, or more than a week old. Ask for a new one.</p>"#),
+            plain_page("Invite link", r#"<div class="banner warn" role="alert"><span>This link is not (or no longer) valid: used, revoked, or more than a week old. Ask for a new one.</span></div>"#),
         )
             .into_response();
     };
@@ -882,26 +882,25 @@ async fn invite_page(
         false => invite.space_name.clone(),
     };
     let what = format!(
-        "<p><b>{by}</b> invites you into <b>{into}</b> as <b>{role}</b>.</p>",
+        "<p class=\"lede\"><b>{by}</b> invites you into <b>{into}</b> as <b>{role}</b>.</p>",
         by = escape(&invite.by),
         into = escape(&into),
         role = invite.role.as_str()
     );
     let body = match session_of(&store, &headers).await {
         Some(signed) => format!(
-            r#"{what}<form method="post"><button>Join as {name}</button></form><p style="margin-top:14px"><small>Not you? <a href="/login?next=/invite/{token}">Sign in as someone else</a>.</small></p>"#,
+            r#"{what}<div class="card"><form method="post"><span class="fw" style="width:100%"><button class="btn primary">Join as {name}</button></span></form><p style="margin-top:var(--s-3)"><small>Not you? <a href="/login?next=/invite/{token}">Sign in as someone else</a>.</small></p></div>"#,
             name = escape(&signed.display_name),
             token = escape(&token),
         ),
         None => format!(
-            r#"{what}<form method="post">
-<label for="display_name">Your name</label><input id="display_name" name="display_name" maxlength="60" autocomplete="name" required autofocus>
-<label for="name">Sign-in name</label><input id="name" name="name" maxlength="40" autocomplete="username" autocapitalize="none" required>
-<small>Letters, digits, dots, dashes or underscores.</small>
-<label for="password">Password</label><input id="password" name="password" type="password" minlength="{min}" autocomplete="new-password" required>
-<label for="again">Password again</label><input id="again" name="again" type="password" minlength="{min}" autocomplete="new-password" required>
-<button>Make my account and join</button></form>
-<p style="margin-top:14px"><small>Have an account here? <a href="/login?next=/invite/{token}">Sign in</a> first.</small></p>"#,
+            r#"{what}<div class="card"><form method="post">
+<label class="field">Your name<input name="display_name" maxlength="60" autocomplete="name" required autofocus></label>
+<label class="field">Sign-in name<input name="name" maxlength="40" autocomplete="username" autocapitalize="none" required aria-describedby="name-why"><small id="name-why">Letters, digits, dots, dashes or underscores.</small></label>
+<label class="field">Password<input name="password" type="password" minlength="{min}" autocomplete="new-password" required></label>
+<label class="field">Password again<input name="again" type="password" minlength="{min}" autocomplete="new-password" required></label>
+<span class="fw" style="width:100%"><button class="btn primary">Make my account and join</button></span></form>
+<p style="margin-top:var(--s-3)"><small>Have an account here? <a href="/login?next=/invite/{token}">Sign in</a> first.</small></p></div>"#,
             min = accounts::MIN_PASSWORD,
             token = escape(&token),
         ),
@@ -981,7 +980,7 @@ async fn join(
             plain_page(
                 "Join",
                 &format!(
-                    r#"<p class="problem" role="alert">{}</p><p><a href="/invite/{}">Back</a></p>"#,
+                    r#"<div class="banner bad" role="alert"><span>{}</span></div><p><a href="/invite/{}">Back</a></p>"#,
                     escape(&problem),
                     escape(&token)
                 ),
@@ -1019,14 +1018,14 @@ async fn welcome(State(store): State<Store>, Extension(signed): Extension<Signed
         return Redirect::to("/").into_response();
     }
     let make = if signed.instance_admin || store.open_spaces().await {
-        r#"<p>Or start your own:</p><form method="post" action="/spaces"><label for="name">Name of your organisation</label><input id="name" name="name" maxlength="60" required placeholder="Fablab Zuid"><button>Make it</button></form>"#
+        r#"<div class="card"><h2>Or start your own</h2><form method="post" action="/spaces"><label class="field">Name of your organisation<input name="name" maxlength="60" required placeholder="Fablab Zuid"></label><span class="fw"><button class="btn primary">Make it</button></span></form></div>"#
     } else {
         ""
     };
     plain_page(
         "Welcome",
         &format!(
-            r#"<p>Hello {name}. You are not in a space yet: ask someone in one for an invite link.</p>{make}<form method="post" action="/logout" style="margin-top:18px"><button class="ghost" style="background:transparent;color:var(--ink);border:1px solid var(--line)">Sign out</button></form>"#,
+            r#"<p class="lede">Hello {name}. You are not in a space yet: ask someone in one for an invite link.</p>{make}<form method="post" action="/logout" style="margin-top:var(--s-4)"><span class="fw"><button class="btn">Sign out</button></span></form>"#,
             name = escape(&signed.display_name)
         ),
     )

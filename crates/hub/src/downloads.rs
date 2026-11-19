@@ -297,7 +297,7 @@ async fn page(
 </head>
 <body>
 {header}
-<main>
+<main id="main" tabindex="-1">
   <h2>Downloads</h2>
   <p class="intro">The agent, for the computer next to a machine: it drives the machine and reports to this hub. It shows a code; enter it with the ＋ next to "Machines" in the sidebar. With <code>--save</code> it keeps its options in <code>maker-connect-agent.toml</code>, so the next time a plain <code>run</code> (or a double-click on Windows) is enough.</p>
   {local_note}

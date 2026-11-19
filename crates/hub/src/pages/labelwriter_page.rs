@@ -118,7 +118,7 @@ pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> S
 </head>
 <body>
 {header}
-<main class="wide" data-id="{id}">
+<main id="main" tabindex="-1" class="wide" data-id="{id}">
   <div class="title">
     <h2>{name}</h2>
     <span class="state {state_class}" data-live="state">{state}</span>

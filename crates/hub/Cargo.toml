@@ -33,6 +33,8 @@ maker-connect-grbl = { path = "../grbl" }
 maker-connect-label = { path = "../label" }
 # HS1: the ports' geometry only (`ports::geometry`); no device code (`default-features = false`).
 maker-connect-engine = { path = "../engine", default-features = false }
+# The web UI's pages: server-rendered, compile-time checked (docs/design/decisions/20261118-ui-server-rendered.md).
+askama = { version = "0.15", default-features = false, features = ["derive", "std"] }
 axum = { version = "0.8.9", features = ["ws"] }
 barcoders = { version = "2", default-features = false, features = ["std"] }
 base64 = "0.22"
