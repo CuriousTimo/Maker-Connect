@@ -362,7 +362,27 @@ PrusaLink speaks to Connect over `/p/ws` through its SDK (`prusa/connect/printer
 `/p/ws`", and [mk3-port-plan.md](../plans/mk3-port-plan.md) §3.4 says the SDK's Connect side is not
 ported and the agent link is the only link. Options: (a) the agent's `prusa` port also ports the SDK's
 WebSocket side and talks `/p/ws` to the hub, as PrusaLink does; (b) the port stops at the SDK's `Printer`
-seam, and its events go over the agent link like every other device. **Decided by:** the architect,
+seam, and its events go over the agent link like every other device.
+
+What the reference's Connect side holds, all of which (b) would leave out (SDK `websockets` @ `c0d7d233`):
+
+- **Onboarding:** `register` posts `/p/register` over HTTP (`prusa/connect/printer/__init__.py:726-739`,
+  `models.py:91`). PrusaLink's own settings and wizard pages start it (`prusa/link/web/settings.py`).
+- **Token:** `/p/register` answers with a temporary `Code` (`__init__.py:756`); a later answer `200` carries
+  the `Token` (`:844-850`). Every request and the socket upgrade send `Fingerprint`, `Timestamp`, the
+  User-Agent headers and `Token` (`make_headers`, `:273-284`). The socket is opened again when the token
+  changes (`ensure_ws_connected`, `:632-639`). PrusaLink keeps the token in its settings
+  (`[service::connect] token`, `prusa/link/config.py:299-307`, written by `web/lib/wizard.py:200`), or
+  takes one typed into the wizard (`web/wizard.py:130-132`).
+- **Telemetry and events** over `/p/ws`. Register and `/p/camera` stay HTTP (`__init__.py:781-783`).
+- **Commands** read from the socket (`handle_ws_message`).
+- **Files:** the lazy file protocol (`fileinfo.py`, SEND_FILE_INFO) and the download of
+  `/p/teams/{team_id}/files/{hash}/raw` (`__init__.py:468`).
+- **The socket:** `ws.py`, with `ping_interval` 30 and `ping_timeout` 10 (`ws.py:62-63`). These are the
+  SDK's own timings, not Buddy's 15 s, so under (a) the hub's `/p/ws` (#18) meets both clients as each
+  of them is.
+
+**Decided by:** the architect,
 before section G1 of the MK3 port, from the references and the device contract.
 
 ## Issues the design cannot place yet
