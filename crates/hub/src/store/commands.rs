@@ -25,7 +25,7 @@ impl Legacy {
         gcode: &str,
     ) -> rusqlite::Result<Option<u32>> {
         if self
-            .machine(space, machine)?
+            .machine_on_mirror(space, machine)?
             .is_none_or(|m| !takes_commands(&m.link))
         {
             return Ok(None);
@@ -92,7 +92,7 @@ impl Legacy {
         background: bool,
     ) -> rusqlite::Result<Option<u32>> {
         if self
-            .machine(space, machine)?
+            .machine_on_mirror(space, machine)?
             .is_none_or(|m| m.link != "prusa-connect")
         {
             return Ok(None);
@@ -205,7 +205,7 @@ impl Legacy {
         let Some(id) = self.machine_id(token)? else {
             return Ok(false);
         };
-        Ok(self.machine(space, &id)?.is_some_and(|m| {
+        Ok(self.machine_on_mirror(space, &id)?.is_some_and(|m| {
             // `plain_marlin` alone would take a Buddy or Klipper profile too (it leaves out only the
             // MK3 family and GRBL): the Marlin port's machines are the ones whose profile says Marlin
             // or says nothing

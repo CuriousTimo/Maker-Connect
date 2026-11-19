@@ -29,7 +29,7 @@ impl Legacy {
 
     /// A machine's temperatures over the last half hour, oldest first.
     pub fn history(&self, space: i64, machine: &str) -> rusqlite::Result<Option<Vec<Sample>>> {
-        Ok(self.machine(space, machine)?.map(|_| {
+        Ok(self.machine_on_mirror(space, machine)?.map(|_| {
             self.history
                 .get(machine)
                 .map(|h| h.iter().copied().collect())

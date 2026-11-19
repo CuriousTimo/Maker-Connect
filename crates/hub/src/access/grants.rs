@@ -283,11 +283,10 @@ impl Store {
         .fetch_all(&mut *tx)
         .await?;
         tx.commit().await?;
-        // The machines' names, of the space (transitional: on SQLite).
+        // The machines' names, of the space.
         let names: HashMap<String, String> = self
-            .lock()
-            .unwrap()
-            .machines(space)?
+            .machines(space)
+            .await?
             .into_iter()
             .map(|m| (m.id, m.name))
             .collect();

@@ -456,7 +456,7 @@ async fn update_agents(access: Access, State(store): State<Store>) -> Response {
         Ok(p) => p,
         Err(response) => return *response,
     };
-    let machines = store.lock().unwrap().machines(access.space);
+    let machines = store.machines(access.space).await;
     let machines: Vec<String> = match machines {
         Ok(machines) => machines
             .into_iter()
@@ -499,11 +499,14 @@ async fn agent_build(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
-    let (downloads, known) = {
-        let store = store.lock().unwrap();
-        let known = !token.is_empty() && store.machine_id_by_token(token).ok().flatten().is_some();
-        (store.downloads_dir.clone(), known)
-    };
+    let known = !token.is_empty()
+        && store
+            .machine_id_by_token(token)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+    let downloads = store.lock().unwrap().downloads_dir.clone();
     let not_found = || (StatusCode::NOT_FOUND, "no such build").into_response();
     if !known || !file.starts_with("maker-connect-agent-") || file.contains(['/', '\\']) {
         return not_found();

@@ -1,7 +1,8 @@
 //! Files on Postgres (`migrations/20261118000300_machines.sql`): `files.rs`'s queries as async [`Store`]
 //! methods (hub core v2 step 2, lane 3). The G-code and thumbnails stay on disk, beside the database.
 //!
-//! Transitional: the same-named `Legacy` methods stay until their callers move; then they go.
+//! Transitional (lane 3a): each write is copied onto SQLite's rows (pg_mirror.rs) for the modules still
+//! there.
 
 use super::*;
 
@@ -10,6 +11,11 @@ impl Store {
     /// PNG), so stores from then keep working.
     pub fn file_path(&self, id: &str) -> std::path::PathBuf {
         self.inner.files_dir.join(format!("{id}.gcode"))
+    }
+
+    /// Where uploaded files are kept.
+    pub fn files_dir(&self) -> &std::path::Path {
+        &self.inner.files_dir
     }
 
     pub fn thumbnail_path(&self, id: &str) -> std::path::PathBuf {
@@ -37,7 +43,8 @@ impl Store {
         )
         .execute(&mut *tx)
         .await?;
-        tx.commit().await
+        tx.commit().await?;
+        self.mirror_file(id).await
     }
 
     /// A space's files, newest first.
@@ -95,6 +102,7 @@ impl Store {
                 )
                 .execute(&self.pg().admin)
                 .await?;
+                self.mirror_file(id).await?;
             }
         }
         Ok(stale.len())
@@ -102,23 +110,26 @@ impl Store {
 
     /// Removes a file, from the store and from disk. Returns whether it was there.
     pub async fn remove_file(&self, space: i64, id: &str) -> sqlx::Result<bool> {
-        let mut tx = self.pg().space(space).await?;
         // Not while a machine runs it (or has it queued).
-        let in_use = sqlx::query_scalar!(
-            r#"SELECT COUNT(*) AS "n!" FROM jobs WHERE file_id = $1
-               AND state IN ('loaded', 'queued', 'printing', 'paused', 'stopping')"#,
-            id
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        if in_use > 0 {
+        if self
+            .lock()
+            .unwrap()
+            .file_in_use(id)
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?
+        {
             return Ok(false);
         }
-        let removed = sqlx::query!("DELETE FROM files WHERE id = $1 AND space_id = $2", id, space)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
+        let mut tx = self.pg().space(space).await?;
+        let removed = sqlx::query!(
+            "DELETE FROM files WHERE id = $1 AND space_id = $2",
+            id,
+            space
+        )
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
         tx.commit().await?;
+        self.mirror_file(id).await?;
         if removed > 0 {
             let _ = std::fs::remove_file(self.file_path(id));
             let _ = std::fs::remove_file(self.thumbnail_path(id));

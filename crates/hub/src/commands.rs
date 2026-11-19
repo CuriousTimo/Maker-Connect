@@ -367,17 +367,11 @@ pub(crate) async fn emergency_stop(
     State(shared): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Response {
-    let (space, machine) = {
-        let store = shared.lock().unwrap();
-        let space = match store.space_id_of(&access) {
-            Ok((space, _)) => space,
-            Err(error) => return failed(error),
-        };
-        match store.machine(space, &id) {
-            Ok(Some(machine)) => (space, machine),
-            Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
-            Err(error) => return failed(error),
-        }
+    let space = access.space;
+    let machine = match shared.machine(space, &id).await {
+        Ok(Some(machine)) => machine,
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
+        Err(error) => return failed(error),
     };
     // Stopping never waits for PPE (`safety.rs`), and needs 'use' on the machine, as Stop does.
     match emergency_stop_of(&machine) {
@@ -416,6 +410,12 @@ pub(crate) async fn command(
     Form(form): Form<CommandForm>,
 ) -> Response {
     let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
+    // The machine as it is now, read once (the website's commands go into memory below).
+    let found_machine = store
+        .machine(access.space, &id)
+        .await
+        .map_err(|e| e.to_string());
+    let machine_now = || found_machine.clone();
     let mut store = store.lock().unwrap();
     let space = match store.space_id_of(&access) {
         Ok((space, _)) => space,
@@ -432,7 +432,7 @@ pub(crate) async fn command(
     // PPE (above) are about people, and stay.
     // A machine behind an agent: typed commands, the bytes made by its port (the hub makes no
     // G-code for it, owner 2026-11-12).
-    if let Ok(Some(machine)) = store.machine(space, &id)
+    if let Ok(Some(machine)) = machine_now()
         && machine.link == "agent"
     {
         let actions = if form.gcode.trim().is_empty() {
@@ -482,8 +482,7 @@ pub(crate) async fn command(
     }
     // A GRBL machine homes with $H, not G28.
     let grbl = || {
-        store
-            .machine(space, &id)
+        machine_now()
             .ok()
             .flatten()
             .and_then(|m| m.profile)
@@ -510,7 +509,7 @@ pub(crate) async fn command(
             Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
         }
     } else if matches!(form.action.as_str(), "set-nozzle" | "set-bed") {
-        let machine = match store.machine(space, &id) {
+        let machine = match machine_now() {
             Ok(Some(machine)) => machine,
             Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
             Err(error) => return failed(error),
@@ -524,7 +523,7 @@ pub(crate) async fn command(
     } else if matches!(form.action.as_str(), "load-filament" | "unload-filament") {
         // Hot first, to the loaded spool's temperature (215 °C when it is not known), then the
         // firmware's own load or unload (Marlin's and Prusa's M701, M702).
-        let machine = match store.machine(space, &id) {
+        let machine = match machine_now() {
             Ok(Some(machine)) => machine,
             Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
             Err(error) => return failed(error),
@@ -549,7 +548,7 @@ pub(crate) async fn command(
             format!("M109 S{hot:.0}\n{}", if load { "M701" } else { "M702" }),
         ))
     } else if form.action == "probe-bed" {
-        match store.machine(space, &id) {
+        match machine_now() {
             Ok(Some(machine)) => match probe_gcode(&machine) {
                 Ok(gcode) => Some(owned(("Probe the bed", gcode))),
                 Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
@@ -567,7 +566,7 @@ pub(crate) async fn command(
     // (a print it runs itself, from its card or its menu) no homing, no Z move and no
     // extruding, which would spoil the print; X and Y may move. Extruding wants a hot
     // nozzle (170 °C, PrusaLink's `min_temp_nozzle_e`).
-    if let Ok(Some(machine)) = store.machine(space, &id)
+    if let Ok(Some(machine)) = machine_now()
         && let Some(why) = refused_now(&form.action, &gcode, &machine, false)
     {
         return (StatusCode::CONFLICT, why).into_response();

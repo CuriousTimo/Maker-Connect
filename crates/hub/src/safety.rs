@@ -94,7 +94,7 @@ pub fn check_ppe(
     if !ppe_checks {
         return Ok(());
     }
-    let Ok(Some(m)) = store.machine(access.space, machine) else {
+    let Ok(Some(m)) = store.machine_on_mirror(access.space, machine) else {
         return Ok(());
     };
     if m.ppe.is_empty() || store.ppe_until(access.user_id, machine).is_some() {
@@ -144,7 +144,7 @@ async fn confirm(
     Form(form): Form<Vec<(String, String)>>,
 ) -> Response {
     let mut store = store.lock().unwrap();
-    let needed = match store.machine(access.space, &machine) {
+    let needed = match store.machine_on_mirror(access.space, &machine) {
         Ok(Some(m)) => m.ppe,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),

@@ -88,7 +88,7 @@ impl Legacy {
     /// "Cannot re-print" on its screen, as PrusaLink does. Returns whether it started.
     pub fn reprint(&mut self, space: i64, machine_id: &str) -> rusqlite::Result<bool> {
         use rusqlite::OptionalExtension;
-        let Some(machine) = self.machine(space, machine_id)? else {
+        let Some(machine) = self.machine_on_mirror(space, machine_id)? else {
             return Ok(false);
         };
         let last: Option<String> = self
@@ -100,7 +100,7 @@ impl Legacy {
             )
             .optional()?;
         let file = match last {
-            Some(id) => self.file(space, &id)?,
+            Some(id) => self.file_on_mirror(space, &id)?,
             None => None,
         };
         // Idle by its own report too: a print it runs itself is no job of the hub's.
@@ -235,7 +235,7 @@ impl Legacy {
         };
         let mut started = 0;
         for (space, machine_id) in waiting {
-            let Some(machine) = self.machine(space, &machine_id)? else {
+            let Some(machine) = self.machine_on_mirror(space, &machine_id)? else {
                 // Gone, or moved to another space: its queue goes too.
                 self.db.execute(
                     "DELETE FROM machine_queue WHERE machine_id = ?1 AND space_id = ?2",
@@ -253,7 +253,7 @@ impl Legacy {
             let Some(first) = self.queue_of(&machine_id)?.into_iter().next() else {
                 continue;
             };
-            let Some(file) = self.file(space, &first.file_id)? else {
+            let Some(file) = self.file_on_mirror(space, &first.file_id)? else {
                 self.queue_remove(space, &machine_id, first.id)?;
                 continue;
             };

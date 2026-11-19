@@ -17,22 +17,17 @@ pub(crate) async fn machines(
     access: crate::access::Access,
     State(store): State<Store>,
 ) -> Response {
-    let store = store.lock().unwrap();
-    match store
-        .space_id_of(&access)
-        .and_then(|(space, _)| store.machines(space))
-    {
+    match store.machines(access.space).await {
         Ok(machines) => Json(machines).into_response(),
         Err(error) => failed(error),
     }
 }
 
 /// A space's machines as JSON.
-fn machines_json(store: &Store, access: &access::Access) -> String {
-    let store = store.lock().unwrap();
+async fn machines_json(store: &Store, access: &access::Access) -> String {
     store
-        .space_id_of(access)
-        .and_then(|(space, _)| store.machines(space))
+        .machines(access.space)
+        .await
         .map(|machines| serde_json::to_string(&machines).unwrap_or_default())
         .unwrap_or_else(|_| "[]".to_owned())
 }
@@ -58,7 +53,7 @@ pub(crate) async fn machine_stream(
                     _ = tokio::time::sleep(Duration::from_secs(5)) => {}
                 }
             }
-            let event = Event::default().data(machines_json(&store, &access));
+            let event = Event::default().data(machines_json(&store, &access).await);
             Some((Ok(event), (store, changes, false, access)))
         },
     );
@@ -133,11 +128,7 @@ pub(crate) async fn add_virtual(
     let Some(profile) = profiles::find(&form.profile) else {
         return (StatusCode::BAD_REQUEST, "no such profile").into_response();
     };
-    let mut store = store.lock().unwrap();
-    match store.space_id_of(&access).and_then(|(space, _)| {
-        let id = store.add_virtual(space, profile)?;
-        Ok(id)
-    }) {
+    match store.add_virtual(access.space, profile).await {
         Ok(id) => Redirect::to(&format!("/machines/{id}")).into_response(),
         Err(error) => failed(error),
     }
@@ -159,11 +150,12 @@ pub(crate) async fn add_klipper(
     if name.is_empty() || name.chars().count() > 60 {
         return (StatusCode::BAD_REQUEST, "a name of 1 to 60 characters").into_response();
     }
-    let mut store = store.lock().unwrap();
-    let added = store.space_id_of(&access).and_then(|(space, _)| {
-        let id = store.add_moonraker(space, name)?;
-        Ok((id.clone(), store.moonraker_token(space, &id)?))
-    });
+    let added: Result<_, sqlx::Error> = async {
+        let id = store.add_moonraker(access.space, name).await?;
+        let token = store.moonraker_token(access.space, &id).await?;
+        Ok((id, token))
+    }
+    .await;
     match added {
         // The wizard shows its lines and waits for it.
         Ok((id, token)) if headers.contains_key("x-requested-with") => {
@@ -245,17 +237,15 @@ pub(crate) async fn move_machine(
         )
             .into_response();
     };
-    let moved = {
-        let mut store = store.lock().unwrap();
-        let name = match store.machine(access.space, &id) {
-            Ok(Some(m)) => m.name,
-            Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
-            Err(error) => return failed(error),
-        };
-        store
-            .move_machine(access.space, &id, to)
-            .map(|r| r.map(|()| name))
+    let name = match store.machine(access.space, &id).await {
+        Ok(Some(m)) => m.name,
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
+        Err(error) => return failed(error),
     };
+    let moved = store
+        .move_machine(access.space, &id, to)
+        .await
+        .map(|r| r.map(|()| name));
     match moved {
         Ok(Ok(name)) => {
             if let Err(error) = store.forget_machine_access(&id).await {
@@ -293,12 +283,7 @@ pub(crate) async fn remove(
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    let removed = {
-        let mut store = store.lock().unwrap();
-        store
-            .space_id_of(&access)
-            .and_then(|(space, _)| store.remove(space, &id))
-    };
+    let removed = store.remove_machine(access.space, &id).await;
     match removed {
         Ok(true) => match store.forget_machine_access(&id).await {
             Ok(()) => done(&headers, "/"),
@@ -344,7 +329,7 @@ pub(crate) async fn set_labels(
     Form(form): Form<LabelsForm>,
 ) -> Response {
     let labels: Vec<String> = form.labels.split(',').map(str::to_owned).collect();
-    match store.lock().unwrap().set_labels(access.space, &id, &labels) {
+    match store.set_labels(access.space, &id, &labels).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
@@ -362,11 +347,7 @@ pub(crate) async fn rename(
     if name.is_empty() || name.chars().count() > 60 {
         return (StatusCode::BAD_REQUEST, "a name of 1 to 60 characters").into_response();
     }
-    let store = store.lock().unwrap();
-    match store
-        .space_id_of(&access)
-        .and_then(|(space, _)| store.rename(space, &id, name))
-    {
+    match store.rename(access.space, &id, name).await {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
@@ -403,11 +384,7 @@ pub(crate) async fn out_of_use(
         "back" => None,
         _ => return (StatusCode::BAD_REQUEST, "out or back").into_response(),
     };
-    let store = store.lock().unwrap();
-    match store
-        .space_id_of(&access)
-        .and_then(|(space, _)| store.set_out_of_use(space, &id, reason))
-    {
+    match store.set_out_of_use(access.space, &id, reason).await {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
@@ -436,11 +413,7 @@ pub(crate) async fn laser_power(
             _ => return (StatusCode::BAD_REQUEST, "watts: 0.1 to 200").into_response(),
         },
     };
-    let store = store.lock().unwrap();
-    match store
-        .space_id_of(&access)
-        .and_then(|(space, _)| store.set_laser_w(space, &id, watts))
-    {
+    match store.set_laser_w(access.space, &id, watts).await {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
@@ -500,16 +473,13 @@ pub(crate) async fn answer(
     axum::extract::Path(id): axum::extract::Path<String>,
     Form(form): Form<AnswerForm>,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    let space = match store.space_id_of(&access) {
-        Ok((space, _)) => space,
-        Err(error) => return failed(error),
-    };
-    let machine = match store.machine(space, &id) {
+    let space = access.space;
+    let machine = match store.machine(space, &id).await {
         Ok(Some(m)) => m,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
     };
+    let mut store = store.lock().unwrap();
     if let Some((buttons, dialog)) = store.dialogs.get(&id).cloned() {
         // Buddy refuses a DIALOG_ACTION without `dialog_id` (`command.cpp:86`, `:420`).
         let Some(dialog) = dialog else {
@@ -554,11 +524,7 @@ pub(crate) async fn choose_profile(
     if profile.is_some_and(|p| profiles::find(p).is_none()) {
         return (StatusCode::BAD_REQUEST, "no such profile").into_response();
     }
-    let store = store.lock().unwrap();
-    match store
-        .space_id_of(&access)
-        .and_then(|(space, _)| store.set_profile(space, &id, profile))
-    {
+    match store.set_profile(access.space, &id, profile).await {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
@@ -579,12 +545,8 @@ pub(crate) async fn choose_media(
     headers: HeaderMap,
     Form(form): Form<MediaForm>,
 ) -> Response {
-    let store = store.lock().unwrap();
-    let space = match store.space_id_of(&access) {
-        Ok((space, _)) => space,
-        Err(error) => return failed(error),
-    };
-    let machine = match store.machine(space, &id) {
+    let space = access.space;
+    let machine = match store.machine(space, &id).await {
         Ok(Some(machine)) => machine,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
@@ -596,10 +558,10 @@ pub(crate) async fn choose_media(
     {
         return (StatusCode::BAD_REQUEST, "not a tape of this printer").into_response();
     }
-    match store.set_media(space, &id, media) {
+    match store.set_media(space, &id, media).await {
         // Saved in the background: the page gets the tape back, to draw the label for it.
         Ok(_) if headers.contains_key("x-requested-with") => {
-            let machine = match store.machine(space, &id) {
+            let machine = match store.machine(space, &id).await {
                 Ok(Some(machine)) => machine,
                 _ => return StatusCode::NO_CONTENT.into_response(),
             };
@@ -641,10 +603,11 @@ pub(crate) async fn machine_page(
         .await
         .ok()
         .flatten();
-    let store = store.lock().unwrap();
     let found = store
         .machine(access.space, &id)
+        .await
         .map(|machine| (space, machine));
+    let store = store.lock().unwrap();
     match found {
         Ok((space, Some(machine))) if machine.kind == protocol::MachineKind::Label => {
             let move_to = move_targets(&store, &access, &machine.id, &spaces);

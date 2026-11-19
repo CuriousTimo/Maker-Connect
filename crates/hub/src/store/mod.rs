@@ -14,6 +14,8 @@ mod pg_machines;
 
 mod pg_files;
 
+mod pg_mirror;
+
 mod commands;
 pub use commands::on_marlin_port;
 

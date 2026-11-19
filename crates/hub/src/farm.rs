@@ -290,7 +290,7 @@ impl Legacy {
         if part.files.is_empty() {
             return Ok(Some("no file for any machine yet".to_owned()));
         }
-        let machines = self.machines(space)?;
+        let machines = self.machines_on_mirror(space)?;
         let farm: Vec<_> = machines
             .iter()
             .filter(|m| self.takes_work(&m.id).unwrap_or(false))
@@ -591,7 +591,7 @@ impl Legacy {
         };
         let mut sent = 0;
         for space in spaces {
-            for machine in self.machines(space)? {
+            for machine in self.machines_on_mirror(space)? {
                 // A laser starts only when someone at the laser starts it.
                 if machine.kind == maker_connect_protocol::MachineKind::Laser {
                     continue;
@@ -619,7 +619,7 @@ impl Legacy {
                 let Some(c) = self.candidate_with(space, &machine, &Default::default())? else {
                     continue;
                 };
-                let Some(file) = self.file(space, &c.file_id)? else {
+                let Some(file) = self.file_on_mirror(space, &c.file_id)? else {
                     continue;
                 };
                 if crate::files::fit(&file, &machine).is_err() {
@@ -811,7 +811,7 @@ impl Legacy {
         let mut lanes = Vec::new();
         // Per lane: when it is free, and whether it can be planned.
         let mut free: Vec<(usize, i64, crate::store::Machine)> = Vec::new();
-        for machine in self.machines(space)? {
+        for machine in self.machines_on_mirror(space)? {
             if !self.takes_work(&machine.id)? {
                 continue;
             }
@@ -830,7 +830,7 @@ impl Legacy {
                     .and_then(|j| j.remaining_s)
                     .map(|s| s as i64)
                     .or_else(|| {
-                        let file = self.file(space, &job.file_id).ok().flatten()?;
+                        let file = self.file_on_mirror(space, &job.file_id).ok().flatten()?;
                         let whole = file.meta.estimated_s? as i64;
                         Some((whole - (at - job.started_at.unwrap_or(at))).max(60))
                     })
@@ -895,13 +895,13 @@ impl Legacy {
                 continue;
             };
             let length = self
-                .file(space, &c.file_id)?
+                .file_on_mirror(space, &c.file_id)?
                 .and_then(|f| f.meta.estimated_s)
                 .map_or(UNKNOWN_PLATE_SECONDS, |s| s as i64)
                 .max(60);
             let (part, project) = self.part_names(c.part);
             let label = self
-                .file(space, &c.file_id)?
+                .file_on_mirror(space, &c.file_id)?
                 .map(|f| f.name)
                 .unwrap_or_default();
             lanes[*lane].blocks.push(Block {
@@ -1042,7 +1042,7 @@ async fn schedule(access: Access, State(store): State<Store>) -> Response {
 
 async fn list(access: Access, State(store): State<Store>) -> Response {
     let store = store.lock().unwrap();
-    let machines: Vec<Value> = match store.machines(access.space) {
+    let machines: Vec<Value> = match store.machines_on_mirror(access.space) {
         Ok(ms) => ms
             .iter()
             .map(|m| {
@@ -1308,7 +1308,7 @@ async fn add_file(
         return bad_request("no such machine model");
     }
     let store = store.lock().unwrap();
-    let file = match store.file(access.space, &body.file) {
+    let file = match store.file_on_mirror(access.space, &body.file) {
         Ok(Some(f)) => f,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such file").into_response(),
         Err(error) => return failed(error),
@@ -1552,7 +1552,7 @@ fn confirm(access: Access, store: Store, machine: String, form: ReadyForm, bad: 
     match done {
         Ok(Ok(count)) => {
             // A Prusa on its own Connect: ready on its screen too.
-            if let Ok(Some(m)) = store.machine(access.space, &machine)
+            if let Ok(Some(m)) = store.machine_on_mirror(access.space, &machine)
                 && m.link == "prusa-connect"
             {
                 let _ = store.queue_connect_command(

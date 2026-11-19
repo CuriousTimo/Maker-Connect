@@ -75,7 +75,7 @@ async fn frame_in(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
-    let machine = match store.lock().unwrap().machine_id_by_token(token) {
+    let machine = match store.machine_id_by_token(token).await {
         Ok(Some(machine)) => machine,
         Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
         Err(error) => return failed(error),
@@ -93,7 +93,7 @@ async fn frame_out(
     State(store): State<Store>,
     Path((machine, index)): Path<(String, u32)>,
 ) -> Response {
-    match store.lock().unwrap().machine(access.space, &machine) {
+    match store.machine(access.space, &machine).await {
         Ok(Some(_)) => {}
         Ok(None) => return (StatusCode::NOT_FOUND, "no such camera").into_response(),
         Err(error) => return failed(error),
@@ -150,10 +150,7 @@ async fn stream(
                     .ok()
                     .and_then(|v| v["machine"].as_str().map(str::to_owned))
                     .unwrap_or_default();
-                let mine = matches!(
-                    store.lock().unwrap().machine(access.space, &machine),
-                    Ok(Some(_))
-                );
+                let mine = matches!(store.machine(access.space, &machine).await, Ok(Some(_)));
                 if mine {
                     return Some((Ok(Event::default().data(data)), (rx, now)));
                 }

@@ -52,30 +52,32 @@ pub fn routes() -> Router<Store> {
 
 /// Keeps one example file in a space's Files, as an upload would: its thumbnail, what it
 /// says of itself.
-fn keep(store: &Store, space: i64, name: &str, bytes: &[u8]) -> std::io::Result<()> {
+async fn keep(store: &Store, space: i64, name: &str, bytes: &[u8]) -> std::io::Result<()> {
     let id = crate::store::random_id();
-    let (path, thumbnail) = {
-        let store = store.lock().unwrap();
-        (store.file_path(&id), store.thumbnail_path(&id))
-    };
-    std::fs::write(&path, bytes)?;
-    let (meta, png) = crate::gcode::read(&path).unwrap_or_default();
-    if let Some(png) = png {
-        let _ = std::fs::write(&thumbnail, png);
-    }
+    let (path, thumbnail) = (store.file_path(&id), store.thumbnail_path(&id));
+    let size = bytes.len() as u64;
+    let bytes = bytes.to_vec();
+    let meta = tokio::task::spawn_blocking(move || -> std::io::Result<_> {
+        std::fs::write(&path, &bytes)?;
+        let (meta, png) = crate::gcode::read(&path).unwrap_or_default();
+        if let Some(png) = png {
+            let _ = std::fs::write(&thumbnail, png);
+        }
+        Ok(meta)
+    })
+    .await
+    .map_err(std::io::Error::other)??;
     store
-        .lock()
-        .unwrap()
-        .add_file(space, &id, name, bytes.len() as u64, &meta)
+        .add_file(space, &id, name, size, &meta)
+        .await
         .map_err(std::io::Error::other)
 }
 
 /// Puts the example files a space does not have by name in its Files: how many.
-fn add_to(store: &Store, space: i64, files: &[(String, Vec<u8>)]) -> std::io::Result<usize> {
+async fn add_to(store: &Store, space: i64, files: &[(String, Vec<u8>)]) -> std::io::Result<usize> {
     let have: Vec<String> = store
-        .lock()
-        .unwrap()
         .files(space)
+        .await
         .map_err(std::io::Error::other)?
         .into_iter()
         .map(|f| f.name)
@@ -83,7 +85,7 @@ fn add_to(store: &Store, space: i64, files: &[(String, Vec<u8>)]) -> std::io::Re
     let mut added = 0;
     for (name, bytes) in files {
         if !have.contains(name) {
-            keep(store, space, name, bytes)?;
+            keep(store, space, name, bytes).await?;
             added += 1;
         }
     }
@@ -105,11 +107,7 @@ pub async fn give_once(store: &Store) -> std::io::Result<()> {
         .await
         .map_err(std::io::Error::other)??;
     for space in pending {
-        let s = store.clone();
-        let f = files.clone();
-        let added = tokio::task::spawn_blocking(move || add_to(&s, space, &f))
-            .await
-            .map_err(std::io::Error::other)??;
+        let added = add_to(store, space, &files).await?;
         store
             .samples_given(space)
             .await
@@ -134,7 +132,11 @@ pub async fn run(store: Store) {
 /// The Files page's button: the example files not there by name, again.
 async fn add(access: Access, State(store): State<Store>) -> Response {
     let space = access.space;
-    let added = tokio::task::spawn_blocking(move || add_to(&store, space, &unpack()?)).await;
+    let added = match tokio::task::spawn_blocking(unpack).await {
+        Ok(Ok(files)) => Ok(add_to(&store, space, &files).await),
+        Ok(Err(error)) => Ok(Err(error)),
+        Err(error) => Err(error),
+    };
     match added {
         Ok(Ok(added)) => Json(serde_json::json!({ "added": added })).into_response(),
         Ok(Err(error)) => (

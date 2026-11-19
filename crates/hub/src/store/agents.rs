@@ -11,96 +11,6 @@ impl Legacy {
             })
     }
 
-    /// A new agent: its machine, not yet in a space, with a token and a pairing code.
-    pub fn register(&self, agent: &Register) -> rusqlite::Result<(String, String, String)> {
-        self.register_linked(agent, "agent")
-    }
-
-    /// A new machine that reaches the hub by `link` (see [`Machine::link`]).
-    pub fn register_linked(
-        &self,
-        agent: &Register,
-        link: &str,
-    ) -> rusqlite::Result<(String, String, String)> {
-        let mut rng = rand::thread_rng();
-        let token: String = if link == "prusa-connect" {
-            // Buddy keeps at most 20 characters of a token (CONNECT_TOKEN_LEN, printer.hpp:190); 19 of 62 is 113 bits, which fits.
-            const ALPHANUMERIC: &[u8] =
-                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-            (0..19)
-                .map(|_| ALPHANUMERIC[rng.gen_range(0..ALPHANUMERIC.len())] as char)
-                .collect()
-        } else {
-            (0..32)
-                .map(|_| format!("{:02x}", rng.r#gen::<u8>()))
-                .collect()
-        };
-        let id: String = (0..8)
-            .map(|_| format!("{:02x}", rng.r#gen::<u8>()))
-            .collect();
-        let code: String = (0..6)
-            .map(|_| CODE_CHARS[rng.gen_range(0..CODE_CHARS.len())] as char)
-            .collect();
-        self.db.execute(
-            // A new machine needs permission: members get it per machine or per group.
-            "INSERT INTO machines (id, name, kind, agent_version, token, pairing_code, registered_at, link, induction_required)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)",
-            params![
-                id,
-                agent.name,
-                serde_json::to_string(&agent.kind).unwrap_or_default(),
-                agent.agent_version,
-                token,
-                code,
-                now(),
-                link
-            ],
-        )?;
-        self.changed();
-        Ok((id, token, code))
-    }
-
-    /// A Prusa Connect printer asking with its code whether it has been added: None for an
-    /// unknown code, `Some(None)` while it waits, `Some(Some(token))` once it is in a space.
-    /// The code keeps getting its token until the printer's first report with that token
-    /// (`code_spent`): `registrator.cpp:233` takes the token only from the answer it reads.
-    pub fn token_for_code(&self, code: &str) -> rusqlite::Result<Option<Option<String>>> {
-        let found: Option<(String, Option<i64>)> = self
-            .db
-            .query_row(
-                "SELECT token, space_id FROM machines WHERE pairing_code = ?1 AND link = 'prusa-connect'",
-                [code],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?;
-        Ok(match found {
-            None => None,
-            Some((_, None)) => Some(None),
-            Some((token, Some(_))) => Some(Some(token)),
-        })
-    }
-
-    /// The printer reported with its token (telemetry or event): it has read it, so its
-    /// code is spent.
-    pub fn code_spent(&self, token: &str) -> rusqlite::Result<()> {
-        self.db.execute(
-            "UPDATE machines SET pairing_code = NULL
-             WHERE token = ?1 AND link = 'prusa-connect' AND space_id IS NOT NULL AND pairing_code IS NOT NULL",
-            [token],
-        )?;
-        Ok(())
-    }
-
-    /// The profile recognised for a machine from what it said when it registered, unless
-    /// its owner chose one.
-    pub fn recognise(&self, token: &str, profile: &str) -> rusqlite::Result<()> {
-        self.db.execute(
-            "UPDATE machines SET profile = ?1 WHERE token = ?2 AND profile_chosen = 0",
-            params![profile, token],
-        )?;
-        Ok(())
-    }
-
     /// A print the machine runs itself (no job of the hub's: from its USB stick or SD card,
     /// or started at its screen) is followed while it runs and recorded as a job when it
     /// ends: finished, stopped or failed, not yet taken off. So it shows among the machine's
@@ -111,24 +21,14 @@ impl Legacy {
     /// only says it is idle again, so 99 % or more counts as finished, less as stopped (then
     /// "is the bed clear?" is asked, the careful side). A question on its screen (ATTENTION)
     /// or going offline is no end.
-    pub fn follow_own_print(
+    pub(crate) fn follow_own_print_of(
         &mut self,
-        token: &str,
+        machine: String,
+        space: i64,
         telemetry: &Telemetry,
         raw: Option<&str>,
     ) -> rusqlite::Result<()> {
         use maker_connect_protocol::MachineState as S;
-        let Some((machine, space)) = self
-            .db
-            .query_row(
-                "SELECT id, space_id FROM machines WHERE token = ?1 AND space_id IS NOT NULL",
-                [token],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-            )
-            .optional()?
-        else {
-            return Ok(());
-        };
         if self.active_job(&machine)?.is_some() {
             self.own_prints.remove(&machine);
             return Ok(());
@@ -202,13 +102,81 @@ impl Legacy {
         Ok(())
     }
 
-    /// An agent's report: kept as the machine's last. Returns the machine's space name if
-    /// it is paired, or None when the token is unknown.
-    pub fn report(
+    pub(super) fn machine_id(&self, token: &str) -> rusqlite::Result<Option<String>> {
+        self.db
+            .query_row("SELECT id FROM machines WHERE token = ?1", [token], |r| {
+                r.get(0)
+            })
+            .optional()
+    }
+
+    /// What an agent's report asks of the bed, from the printer's own menu ([`Store::report`]).
+    pub(crate) fn bed_from_menu(
         &mut self,
+        space: i64,
+        machine: &str,
+        telemetry: &Telemetry,
+    ) -> rusqlite::Result<()> {
+        // "Set Ready" on the printer's own menu: the bed is clear, as on its page.
+        if telemetry.bed_clear {
+            self.print_taken(space, machine)?;
+        }
+        // "Not ready" on the printer's own menu: the next job waits again (PrusaLink's
+        // `fw_cancel_ready`: `CancelReady`, M72 S0).
+        if telemetry.not_ready {
+            self.not_ready(space, machine)?;
+        }
+        // "Reprint" on the printer's own menu: its last job again, where it may start.
+        if telemetry.reprint {
+            self.reprint(space, machine)?;
+        }
+        Ok(())
+    }
+
+    /// A report kept ([`Store::report`]): its temperatures go into the machine's history.
+    pub(crate) fn reported(&mut self, machine: &str, telemetry: &Telemetry) {
+        self.sample(machine, telemetry);
+        self.changed();
+    }
+}
+
+impl Store {
+    /// A machine in a space, by its token: (id, space).
+    pub(crate) async fn placed(&self, token: &str) -> sqlx::Result<Option<(String, i64)>> {
+        Ok(sqlx::query!(
+            r#"SELECT id, space_id AS "space_id!" FROM machines WHERE token = $1 AND space_id IS NOT NULL"#,
+            token
+        )
+        .fetch_optional(&self.pg().admin)
+        .await?
+        .map(|r| (r.id, r.space_id)))
+    }
+
+    /// A print the machine runs itself (no job of the hub's: from its USB stick or SD card, or
+    /// started at its screen) is followed while it runs and recorded as a job when it ends:
+    /// [`Legacy::follow_own_print_of`].
+    pub async fn follow_own_print(
+        &self,
         token: &str,
         telemetry: &Telemetry,
-    ) -> rusqlite::Result<Option<Option<i64>>> {
+        raw: Option<&str>,
+    ) -> Result<(), BoxError> {
+        let Some((machine, space)) = self.placed(token).await? else {
+            return Ok(());
+        };
+        self.lock()
+            .unwrap()
+            .follow_own_print_of(machine, space, telemetry, raw)?;
+        Ok(())
+    }
+
+    /// An agent's report: kept as the machine's last. Returns the machine's space id if it is
+    /// paired (`Some(None)` while it is not), or None when the token is unknown.
+    pub async fn report(
+        &self,
+        token: &str,
+        telemetry: &Telemetry,
+    ) -> Result<Option<Option<i64>>, BoxError> {
         // A mesh and command results are news once, not part of the machine's state.
         let kept = Telemetry {
             done: Vec::new(),
@@ -219,121 +187,65 @@ impl Legacy {
             reprint: false,
             ..telemetry.clone()
         };
-        // "Set Ready" on the printer's own menu: the bed is clear, as on its page.
-        if telemetry.bed_clear
-            && let Some((machine, space)) = self
-                .db
-                .query_row(
-                    "SELECT id, space_id FROM machines WHERE token = ?1 AND space_id IS NOT NULL",
-                    [token],
-                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-                )
-                .optional()?
+        if (telemetry.bed_clear || telemetry.not_ready || telemetry.reprint)
+            && let Some((machine, space)) = self.placed(token).await?
         {
-            self.print_taken(space, &machine)?;
+            self.lock()
+                .unwrap()
+                .bed_from_menu(space, &machine, telemetry)?;
         }
-        // "Not ready" on the printer's own menu: the next job waits again (PrusaLink's
-        // `fw_cancel_ready`: `CancelReady`, M72 S0).
-        if telemetry.not_ready
-            && let Some((machine, space)) = self
-                .db
-                .query_row(
-                    "SELECT id, space_id FROM machines WHERE token = ?1 AND space_id IS NOT NULL",
-                    [token],
-                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-                )
-                .optional()?
-        {
-            self.not_ready(space, &machine)?;
-        }
-        // "Reprint" on the printer's own menu: its last job again, where it may start.
-        if telemetry.reprint
-            && let Some((machine, space)) = self
-                .db
-                .query_row(
-                    "SELECT id, space_id FROM machines WHERE token = ?1 AND space_id IS NOT NULL",
-                    [token],
-                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-                )
-                .optional()?
-        {
-            self.reprint(space, &machine)?;
-        }
-        let updated = self.db.execute(
-            "UPDATE machines SET last_seen = ?1, telemetry = ?2 WHERE token = ?3",
-            params![
-                now(),
-                serde_json::to_string(&kept).unwrap_or_default(),
-                token
-            ],
-        )?;
+        let mut tx = self.pg().admin.begin().await?;
+        let updated = sqlx::query!(
+            "UPDATE machines SET last_seen = at_unix($1), telemetry = $2 WHERE token = $3 RETURNING id, space_id",
+            now(),
+            serde_json::to_string(&kept).unwrap_or_default(),
+            token
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
         if let Some(agent) = &telemetry.agent {
-            self.db.execute(
-                "UPDATE machines SET agent = ?1 WHERE token = ?2",
-                params![serde_json::to_string(agent).unwrap_or_default(), token],
-            )?;
+            sqlx::query!(
+                "UPDATE machines SET agent = $1 WHERE token = $2",
+                serde_json::to_string(agent).unwrap_or_default(),
+                token
+            )
+            .execute(&mut *tx)
+            .await?;
         }
         if let Some(mesh) = &telemetry.mesh {
             let stored = StoredMesh {
                 rows: mesh.rows.clone(),
                 taken_at: now(),
             };
-            self.db.execute(
-                "UPDATE machines SET mesh = ?1 WHERE token = ?2",
-                params![serde_json::to_string(&stored).unwrap_or_default(), token],
-            )?;
+            sqlx::query!(
+                "UPDATE machines SET mesh = $1 WHERE token = $2",
+                serde_json::to_string(&stored).unwrap_or_default(),
+                token
+            )
+            .execute(&mut *tx)
+            .await?;
         }
-        if updated == 0 {
+        let Some(row) = updated else {
+            tx.commit().await?;
             return Ok(None);
-        }
-        if let Some(id) = self.machine_id(token)? {
-            self.sample(&id, telemetry);
-        }
+        };
         // What the machine says it is: its profile, unless the owner chose one.
         if let Some(profile) = telemetry
             .identity
             .as_ref()
             .and_then(crate::profiles::detect)
         {
-            self.db.execute(
-                "UPDATE machines SET profile = ?1 WHERE token = ?2 AND profile_chosen = 0",
-                params![profile.id, token],
-            )?;
-        }
-        // Its space's id (the name is on Postgres: transitional, the caller looks it up).
-        let space: Option<i64> = self
-            .db
-            .query_row(
-                "SELECT space_id FROM machines WHERE token = ?1",
-                [token],
-                |r| r.get(0),
+            sqlx::query!(
+                "UPDATE machines SET profile = $1 WHERE token = $2 AND NOT profile_chosen",
+                profile.id,
+                token
             )
-            .optional()?
-            .flatten();
-        self.changed();
-        Ok(Some(space))
-    }
-
-    /// Where a machine's reports come from, as the hub sees it (its address, or its
-    /// router's when it is elsewhere).
-    pub fn set_peer(&self, token: &str, peer: &str) -> rusqlite::Result<()> {
-        self.db.execute(
-            "UPDATE machines SET peer = ?1 WHERE token = ?2",
-            params![peer, token],
-        )?;
-        Ok(())
-    }
-
-    /// A machine's id by its token, if the token is known.
-    pub fn machine_id_by_token(&self, token: &str) -> rusqlite::Result<Option<String>> {
-        self.machine_id(token)
-    }
-
-    pub(super) fn machine_id(&self, token: &str) -> rusqlite::Result<Option<String>> {
-        self.db
-            .query_row("SELECT id FROM machines WHERE token = ?1", [token], |r| {
-                r.get(0)
-            })
-            .optional()
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        self.mirror_machine(Some(&row.id), None).await?;
+        self.lock().unwrap().reported(&row.id, telemetry);
+        Ok(Some(row.space_id))
     }
 }

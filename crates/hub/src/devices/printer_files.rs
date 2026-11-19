@@ -356,7 +356,7 @@ impl Legacy {
         if self.transfers_of_job(job)? >= 3 {
             return Ok(false);
         }
-        let Some(file) = self.file(old.space, &old.file)? else {
+        let Some(file) = self.file_on_mirror(old.space, &old.file)? else {
             return Ok(false);
         };
         let mut taken = names_in(self, machine, "/usb");
@@ -904,7 +904,7 @@ pub fn on_report(
     let transfer = store.transfer_of_job(job.id)?;
     match (job.state, transfer) {
         (JobState::Queued, None) if matches!(state, "IDLE" | "READY" | "FINISHED" | "STOPPED") => {
-            let Some(file) = store.file(space, &job.file_id)? else {
+            let Some(file) = store.file_on_mirror(space, &job.file_id)? else {
                 return store.set_job(job.id, JobState::Failed, Some("its file is gone"));
             };
             // Sent here before and still the same file: print that copy, no download.
@@ -1010,7 +1010,7 @@ fn connect_printer(
     access: &Access,
     machine: &str,
 ) -> Result<crate::store::Machine, Box<Response>> {
-    match store.machine(access.space, machine) {
+    match store.machine_on_mirror(access.space, machine) {
         Ok(Some(m)) if m.link == "prusa-connect" => Ok(m),
         Ok(Some(_)) => Err(Box::new(
             (
@@ -1218,7 +1218,7 @@ async fn print(
         if let Err(refused) = crate::safety::check_ppe(&s, ppe_checks, &access, &machine) {
             return *refused;
         }
-        if let Ok(Some(m)) = s.machine(access.space, &machine) {
+        if let Ok(Some(m)) = s.machine_on_mirror(access.space, &machine) {
             let state = m.telemetry.as_ref().map(|t| t.state);
             if m.job.is_some() || matches!(state, Some(maker_connect_protocol::MachineState::Busy))
             {
@@ -1344,7 +1344,7 @@ async fn send(
     let Some(folder) = usb_path(form.folder.as_deref().unwrap_or("/usb")) else {
         return (StatusCode::BAD_REQUEST, "a folder on the stick").into_response();
     };
-    let file = match store.file(access.space, &form.file) {
+    let file = match store.file_on_mirror(access.space, &form.file) {
         Ok(Some(f)) => f,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such file").into_response(),
         Err(error) => return failed(error),

@@ -163,16 +163,14 @@ async fn register(State(store): State<Store>, body: String) -> Response {
         kind: MachineKind::Fdm,
         agent_version: format!("Prusa firmware {firmware} (built-in Connect)").replace("  ", " "),
     };
-    let store = store.lock().unwrap();
-    let registered =
-        store
-            .register_linked(&machine, "prusa-connect")
-            .and_then(|(id, token, code)| {
-                if let Some(profile) = profile {
-                    store.recognise(&token, &profile.id)?;
-                }
-                Ok((id, code))
-            });
+    let registered: sqlx::Result<_> = async {
+        let (id, token, code) = store.register_linked(&machine, "prusa-connect").await?;
+        if let Some(profile) = profile {
+            store.recognise(&token, &profile.id).await?;
+        }
+        Ok((id, code))
+    }
+    .await;
     match registered {
         Ok((_, code)) => {
             println!("Prusa Connect printer registered: {name}, code {code}");
@@ -184,11 +182,7 @@ async fn register(State(store): State<Store>, body: String) -> Response {
 
 /// The printer asks with its code whether it has been added yet.
 async fn registered(State(store): State<Store>, headers: HeaderMap) -> Response {
-    match store
-        .lock()
-        .unwrap()
-        .token_for_code(header(&headers, "code"))
-    {
+    match store.token_for_code(header(&headers, "code")).await {
         Ok(Some(Some(token))) => (StatusCode::OK, [("Token", token)]).into_response(),
         Ok(Some(None)) => StatusCode::ACCEPTED.into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, "unknown code: register again").into_response(),
@@ -386,48 +380,53 @@ async fn telemetry(
         Err(refused) => return refused.into_response(),
     };
     let token = header(&headers, "token");
-    let mut store = store.lock().unwrap();
     // Its first report with the token: the code is spent (`registrator.cpp:233`).
-    if let Err(error) = store.code_spent(token) {
+    if let Err(error) = store.code_spent(token).await {
         return failed(error);
     }
     // A printer not seen for longer than ONLINE_SECONDS: what it was given and had not
     // answered failed, before this report is taken in (K18 (b), `docs/plans/agent-engine.md`).
-    if let Err(error) = store.fail_commands_of_gone_printer(token) {
+    if let Err(error) = store.lock().unwrap().fail_commands_of_gone_printer(token) {
         return failed(error);
     }
     let mut telemetry = to_telemetry(&report);
     // Every request says the firmware's version.
     let version = header(&headers, "user-agent-version");
     telemetry.firmware = (!version.is_empty()).then(|| format!("Prusa firmware {version}"));
-    if let Ok(Some(last)) = store.last_telemetry(token) {
+    if let Ok(Some(last)) = store.last_telemetry(token).await {
         fill_in(&mut telemetry, last);
     }
     // The file it prints, as its JOB_INFO said for this print (not the last report's, which
     // may be the print before).
     let job_id = report["job_id"].as_u64();
     if let Some(job) = telemetry.job.as_mut() {
-        match store.printing_file.get(token) {
+        match store.lock().unwrap().printing_file.get(token) {
             Some((known, name)) if known.is_none() || *known == job_id => job.file = name.clone(),
             _ if job_id.is_some() => job.file.clear(),
             _ => {}
         }
     }
     if let Some(peer) = crate::peer_address(&headers, &extensions) {
-        let _ = store.set_peer(token, &peer);
+        let _ = store.set_peer(token, &peer).await;
     }
     // G-code still running in the background: its command is not given up on.
     if let Some(id) = report["command_id"].as_u64() {
-        let _ = store.command_still_running(token, id as u32);
+        let _ = store
+            .lock()
+            .unwrap()
+            .command_still_running(token, id as u32);
     }
-    let reported = store.report(token, &telemetry);
+    let reported = store.report(token, &telemetry).await;
     // A print it runs itself (from its stick, or started at its screen): recorded as a job
     // when it ends, as it says (FINISHED, STOPPED, ERROR).
     if let Ok(Some(_)) = reported
-        && let Err(error) = store.follow_own_print(token, &telemetry, report["state"].as_str())
+        && let Err(error) = store
+            .follow_own_print(token, &telemetry, report["state"].as_str())
+            .await
     {
         return failed(error);
     }
+    let mut store = store.lock().unwrap();
     // A job for it goes to its stick when it is free; one printing follows its state.
     if let Ok(Some(_)) = reported
         && let Some(state) = report["state"].as_str()
@@ -472,41 +471,47 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
         Err(refused) => return refused.into_response(),
     };
     let token = header(&headers, "token");
-    let mut store = store.lock().unwrap();
-    if let Err(error) = store.code_spent(token) {
+    if let Err(error) = store.code_spent(token).await {
         return failed(error);
     }
+    let shared = store;
     let name = text(&event, "event");
-    if let Some(id) = event["command_id"].as_u64() {
-        let state = match name.as_str() {
-            "ACCEPTED" => Some(CommandState::Accepted),
-            // A command that asked for something is done when the answer comes. Deleting a
-            // file or folder and making a folder answer with FILE_CHANGED, not FINISHED
-            // (Buddy 6.3's connect/planner.cpp: "the result is generated through the
-            // FILE_CHANGED event indirectly").
-            // SET_PRINTER_READY answers with FINISHED or REJECTED (`planner.cpp:750`), SEND_STATE_INFO with STATE_CHANGED,
-            // CANCEL_OBJECT and UNCANCEL_OBJECT with CANCELABLE_CHANGED.
-            "FINISHED" | "FILE_INFO" | "FILE_CHANGED" | "JOB_INFO" | "INFO" | "TRANSFER_INFO"
-            | "STATE_CHANGED" | "CANCELABLE_CHANGED" => Some(CommandState::Finished),
-            // Refused at once, or taken on and then failed (Buddy's FAILED): either way not done.
-            "REJECTED" | "FAILED" => Some(CommandState::Rejected),
-            _ => None,
-        };
-        if let Some(state) = state {
-            let reason = event["reason"].as_str().map(str::to_owned);
-            println!("command {id}: {name} {}", reason.as_deref().unwrap_or(""));
-            if let Err(error) = store.command_went(token, id as u32, state, reason, Vec::new()) {
-                return failed(error);
+    {
+        let mut store = shared.lock().unwrap();
+        if let Some(id) = event["command_id"].as_u64() {
+            let state = match name.as_str() {
+                "ACCEPTED" => Some(CommandState::Accepted),
+                // A command that asked for something is done when the answer comes. Deleting a
+                // file or folder and making a folder answer with FILE_CHANGED, not FINISHED
+                // (Buddy 6.3's connect/planner.cpp: "the result is generated through the
+                // FILE_CHANGED event indirectly").
+                // SET_PRINTER_READY answers with FINISHED or REJECTED (`planner.cpp:750`), SEND_STATE_INFO with STATE_CHANGED,
+                // CANCEL_OBJECT and UNCANCEL_OBJECT with CANCELABLE_CHANGED.
+                "FINISHED" | "FILE_INFO" | "FILE_CHANGED" | "JOB_INFO" | "INFO"
+                | "TRANSFER_INFO" | "STATE_CHANGED" | "CANCELABLE_CHANGED" => {
+                    Some(CommandState::Finished)
+                }
+                // Refused at once, or taken on and then failed (Buddy's FAILED): either way not done.
+                "REJECTED" | "FAILED" => Some(CommandState::Rejected),
+                _ => None,
+            };
+            if let Some(state) = state {
+                let reason = event["reason"].as_str().map(str::to_owned);
+                println!("command {id}: {name} {}", reason.as_deref().unwrap_or(""));
+                if let Err(error) = store.command_went(token, id as u32, state, reason, Vec::new())
+                {
+                    return failed(error);
+                }
             }
         }
-    }
-    // Files on its stick, and transfers to it.
-    if let Err(error) = crate::printer_files::on_event(&mut store, token, &name, &event) {
-        return failed(error);
+        // Files on its stick, and transfers to it.
+        if let Err(error) = crate::printer_files::on_event(&mut store, token, &name, &event) {
+            return failed(error);
+        }
     }
     let known = match name.as_str() {
-        "INFO" => store.set_details(token, &to_details(&event["data"])),
-        _ => store.knows(token),
+        "INFO" => shared.set_details(token, &to_details(&event["data"])).await,
+        _ => shared.knows(token).await,
     };
     match known {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),

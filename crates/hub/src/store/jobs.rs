@@ -42,7 +42,17 @@ impl Legacy {
         from_line: Option<u64>,
         started: StartedBy,
     ) -> rusqlite::Result<Result<i64, &'static str>> {
-        let laser = self.is_laser(space, machine)?;
+        // The machine's kind, from the SQLite copy (transitional, lane 3a: jobs move with lane 3b).
+        let laser = self
+            .db
+            .query_row(
+                "SELECT kind FROM machines WHERE id = ?1 AND space_id = ?2",
+                params![machine, space],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?
+            .and_then(|k| serde_json::from_str::<MachineKind>(&k).ok())
+            .is_some_and(|k| k == MachineKind::Laser);
         if laser && !started.is_person_at_a_session() {
             return Ok(Err(LASER_NEVER_ALONE));
         }
@@ -94,21 +104,6 @@ impl Legacy {
         )?;
         self.changed();
         Ok(n > 0)
-    }
-
-    /// Whether a machine is a laser (by its kind, without loading the whole machine).
-    pub fn is_laser(&self, space: i64, machine: &str) -> rusqlite::Result<bool> {
-        let kind: Option<String> = self
-            .db
-            .query_row(
-                "SELECT kind FROM machines WHERE id = ?1 AND space_id = ?2",
-                params![machine, space],
-                |r| r.get(0),
-            )
-            .optional()?;
-        Ok(kind
-            .and_then(|k| serde_json::from_str::<MachineKind>(&k).ok())
-            .is_some_and(|k| k == MachineKind::Laser))
     }
 
     fn job_from(r: &rusqlite::Row) -> rusqlite::Result<Job> {
@@ -237,7 +232,7 @@ impl Legacy {
     /// again, and the next job waits. Prusa's MK3 through an agent is told so (M72 S0, as
     /// PrusaLink does, whether it was ready or not). Returns whether it was ready.
     pub fn not_ready(&mut self, space: i64, machine: &str) -> rusqlite::Result<bool> {
-        let Some(_) = self.machine(space, machine)? else {
+        let Some(_) = self.machine_on_mirror(space, machine)? else {
             return Ok(false);
         };
         let Some(ready) = self.ready_after(machine)? else {
@@ -252,45 +247,12 @@ impl Legacy {
     /// Someone took the print off the machine's bed (a finished one, or what a failed or
     /// stopped job left): the bed is clear. Returns whether there was one.
     pub fn print_taken(&mut self, space: i64, machine: &str) -> rusqlite::Result<bool> {
-        if self.machine(space, machine)?.is_none() {
+        if self.machine_on_mirror(space, machine)?.is_none() {
             return Ok(false);
         }
         let n = self.db.execute(
             "UPDATE jobs SET taken_at = ?1 WHERE machine_id = ?2 AND state IN ('finished', 'stopped', 'failed') AND taken_at IS NULL",
             params![now(), machine],
-        )?;
-        self.changed();
-        Ok(n > 0)
-    }
-
-    /// A laser's optical power as its owner says (None: the profile's). Returns whether the
-    /// machine is in the space.
-    pub fn set_laser_w(
-        &self,
-        space: i64,
-        machine: &str,
-        watts: Option<f64>,
-    ) -> rusqlite::Result<bool> {
-        let n = self.db.execute(
-            "UPDATE machines SET laser_w = ?1 WHERE id = ?2 AND space_id = ?3",
-            params![watts, machine, space],
-        )?;
-        self.changed();
-        Ok(n > 0)
-    }
-
-    /// Takes a machine out of use (with why), or back into use (None). Returns whether the
-    /// machine is in the space.
-    pub fn set_out_of_use(
-        &self,
-        space: i64,
-        machine: &str,
-        reason: Option<&str>,
-    ) -> rusqlite::Result<bool> {
-        let n = self.db.execute(
-            "UPDATE machines SET out_of_use = ?1, out_of_use_at = CASE WHEN ?1 IS NULL THEN NULL ELSE ?2 END
-             WHERE id = ?3 AND space_id = ?4",
-            params![reason, now(), machine, space],
         )?;
         self.changed();
         Ok(n > 0)
@@ -399,7 +361,7 @@ impl Legacy {
         if counted_already {
             return Ok(());
         }
-        let Some(file) = self.file(space, &job.file_id)? else {
+        let Some(file) = self.file_on_mirror(space, &job.file_id)? else {
             return Ok(());
         };
         let unit = unit.unwrap_or_else(|| "g".to_owned());
@@ -409,7 +371,7 @@ impl Legacy {
             file.meta.label_dots.map(|_| 1.0)
         } else if unit == "m" {
             let dpi = self
-                .machine(space, &job.machine_id)?
+                .machine_on_mirror(space, &job.machine_id)?
                 .and_then(|m| m.profile)
                 .and_then(|p| crate::profiles::find(&p))
                 .and_then(|p| p.dpi)
@@ -433,7 +395,7 @@ impl Legacy {
             JobState::Finished => 1.0,
             // As far as it got: its last progress.
             _ => self
-                .machine(space, &job.machine_id)?
+                .machine_on_mirror(space, &job.machine_id)?
                 .and_then(|m| m.telemetry)
                 .and_then(|t| t.job)
                 .filter(|j| j.total > 0)

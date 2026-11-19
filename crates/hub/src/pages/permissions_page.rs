@@ -80,7 +80,7 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
     let space = access.space;
     let admin = access.role >= Role::Admin;
     let members = store.members(space).await?;
-    let machines = store.lock().unwrap().machines(space)?;
+    let machines = store.machines(space).await?;
     let groups = store.groups(space).await?;
     let mut closed_of = Vec::new();
     let mut machine_grants: Vec<(String, i64, crate::access::Grant)> = Vec::new();
@@ -740,17 +740,21 @@ async fn set_permissions(
         Err(error) => return failed(error),
     };
     // The machines that need permission (transitional: on SQLite, read before Postgres is written).
+    let machines = match store.machines(access.space).await {
+        Ok(machines) => machines,
+        Err(error) => return failed(error),
+    };
     let closed: rusqlite::Result<Vec<(String, String)>> = {
         let legacy = store.lock().unwrap();
-        legacy.machines(access.space).and_then(|machines| {
-            let mut closed = Vec::new();
-            for machine in machines {
-                if legacy.induction_required(access.space, &machine.id)? {
-                    closed.push((machine.id, machine.name));
-                }
+        let mut closed = Vec::new();
+        for machine in machines {
+            match legacy.induction_required(access.space, &machine.id) {
+                Ok(true) => closed.push((machine.id, machine.name)),
+                Ok(false) => {}
+                Err(error) => return failed(error),
             }
-            Ok(closed)
-        })
+        }
+        Ok(closed)
     };
     let closed = match closed {
         Ok(closed) => closed,
@@ -881,7 +885,7 @@ async fn give_permission(
             .await
             .map(|()| ("gave permission on the group", name))
     } else if let Some(machine) = form.on.strip_prefix("m:") {
-        let found = store.lock().unwrap().machine(access.space, machine);
+        let found = store.machine(access.space, machine).await;
         let Ok(Some(m)) = found else {
             return (StatusCode::NOT_FOUND, "no such machine").into_response();
         };

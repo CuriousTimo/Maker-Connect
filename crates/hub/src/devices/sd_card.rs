@@ -24,8 +24,7 @@ pub fn routes() -> Router<Store> {
 
 /// What is on its card: not available yet.
 async fn look(access: Access, State(store): State<Store>, Path(id): Path<String>) -> Response {
-    let store = store.lock().unwrap();
-    match store.machine(access.space, &id) {
+    match store.machine(access.space, &id).await {
         Ok(Some(machine)) => Json(serde_json::json!({
             "files": [],
             "online": machine.online,

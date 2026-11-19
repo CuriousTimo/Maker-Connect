@@ -68,13 +68,14 @@ pub fn routes() -> Router<Store> {
 }
 
 /// The lasers of the space the person may use (use or more), as the apps API's `machines` lists them.
+/// `machines`: the space's ([`crate::Store::machines`]).
 fn usable_lasers(
     store: &crate::store::Legacy,
+    machines: &[crate::store::Machine],
     access: &Access,
     grants: &crate::access::Grants,
 ) -> rusqlite::Result<Vec<serde_json::Value>> {
-    Ok(store
-        .machines(access.space)?
+    Ok(machines
         .iter()
         .filter(|m| m.kind == MachineKind::Laser)
         .filter_map(|m| {
@@ -89,7 +90,11 @@ async fn lasers(access: Access, State(store): State<Store>) -> Response {
         Ok(grants) => grants,
         Err(error) => return failed(error),
     };
-    match usable_lasers(&store.lock().unwrap(), &access, &grants) {
+    let machines = match store.machines(access.space).await {
+        Ok(machines) => machines,
+        Err(error) => return failed(error),
+    };
+    match usable_lasers(&store.lock().unwrap(), &machines, &access, &grants) {
         Ok(list) => Json(list).into_response(),
         Err(error) => failed(error),
     }
@@ -112,14 +117,16 @@ pub(crate) enum Availability {
 
 pub(crate) fn availability(
     store: &crate::store::Legacy,
+    machines: &[crate::store::Machine],
     access: &Access,
     grants: &crate::access::Grants,
 ) -> rusqlite::Result<Availability> {
-    availability_of(store, access, grants, !ASSETS.is_empty())
+    availability_of(store, machines, access, grants, !ASSETS.is_empty())
 }
 
 fn availability_of(
     store: &crate::store::Legacy,
+    machines: &[crate::store::Machine],
     access: &Access,
     grants: &crate::access::Grants,
     built: bool,
@@ -130,23 +137,22 @@ fn availability_of(
     if access.role < Role::Member {
         return Ok(Availability::Guest);
     }
-    if !store
-        .machines(access.space)?
-        .iter()
-        .any(|m| m.kind == MachineKind::Laser)
-    {
+    if !machines.iter().any(|m| m.kind == MachineKind::Laser) {
         return Ok(Availability::NoLaser);
     }
-    Ok(if usable_lasers(store, access, grants)?.is_empty() {
-        Availability::NotPermitted
-    } else {
-        Availability::Open
-    })
+    Ok(
+        if usable_lasers(store, machines, access, grants)?.is_empty() {
+            Availability::NotPermitted
+        } else {
+            Availability::Open
+        },
+    )
 }
 
 /// Whether this person may open the page: a member who may use a laser.
 fn may_open(
     store: &crate::store::Legacy,
+    machines: &[crate::store::Machine],
     access: &Access,
     grants: &crate::access::Grants,
 ) -> Result<(), Box<Response>> {
@@ -159,7 +165,7 @@ fn may_open(
                 .into_response(),
         ));
     }
-    match usable_lasers(store, access, grants) {
+    match usable_lasers(store, machines, access, grants) {
         Ok(list) if !list.is_empty() => Ok(()),
         Ok(_) => Err(Box::new(
             (
@@ -187,7 +193,11 @@ async fn serve(access: &Access, store: &Store, assets: &'static [Asset], name: &
         Ok(grants) => grants,
         Err(error) => return failed(error),
     };
-    if let Err(refused) = may_open(&store.lock().unwrap(), access, &grants) {
+    let machines = match store.machines(access.space).await {
+        Ok(machines) => machines,
+        Err(error) => return failed(error),
+    };
+    if let Err(refused) = may_open(&store.lock().unwrap(), &machines, access, &grants) {
         return *refused;
     }
     if assets.is_empty() {

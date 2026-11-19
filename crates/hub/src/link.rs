@@ -20,7 +20,7 @@ pub(crate) async fn register(State(store): State<Store>, Json(agent): Json<Regis
         )
             .into_response();
     }
-    match store.lock().unwrap().register(&agent) {
+    match store.register(&agent).await {
         Ok((machine_id, token, pairing_code)) => {
             println!(
                 "agent registered: {} ({}), code {pairing_code}",
@@ -49,7 +49,7 @@ pub(crate) async fn telemetry(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
-    let (mut reply, space) = {
+    {
         let mut store = store.lock().unwrap();
         // K18: an agent not seen for longer than ONLINE_SECONDS: its Sent/Accepted commands failed,
         // before this report (and its Done, which then still wins) is taken in.
@@ -72,6 +72,8 @@ pub(crate) async fn telemetry(
                 return failed(error);
             }
         }
+    }
+    let (mut reply, space) = {
         // Agents before 2026-11-04 reported a label printer without a cassette as an error, or
         // as idle with the reason: it waits for someone (attention), it is not a fault.
         let mut report = report;
@@ -85,16 +87,24 @@ pub(crate) async fn telemetry(
             report.state = protocol::MachineState::Attention;
         }
         if let Some(peer) = peer_address(&headers, &extensions)
-            && let Err(error) = store.set_peer(token, &peer)
+            && let Err(error) = store.set_peer(token, &peer).await
         {
             return failed(error);
         }
-        match store.report(token, &report) {
+        let reported = store.report(token, &report).await;
+        if matches!(reported, Ok(Some(_)))
+            // A print it runs itself: recorded as a job when it ends.
+            && let Err(error) = store.follow_own_print(token, &report, None).await
+        {
+            return failed(error);
+        }
+        let of = match agent_of(&store, token).await {
+            Ok(of) => of,
+            Err(error) => return failed(error),
+        };
+        let mut store = store.lock().unwrap();
+        match reported {
             Ok(Some(space)) => {
-                // A print it runs itself: recorded as a job when it ends.
-                if let Err(error) = store.follow_own_print(token, &report, None) {
-                    return failed(error);
-                }
                 // B3: the hub does not hold or refuse a command for a machine behind an agent, whatever it
                 // is doing (busy, waiting for someone): it queues them (one at a time, but for the Marlin port's machines, K18), and the machine's
                 // port refuses as its reference does (OctoPrint: `server/api/printer.py`).
@@ -118,7 +128,7 @@ pub(crate) async fn telemetry(
                         .collect(),
                     Err(error) => return failed(error),
                 };
-                let (job, job_control) = match agent_job(&mut store, token, &report) {
+                let (job, job_control) = match agent_job(&mut store, &of, &report) {
                     Ok(job) => job,
                     Err(error) => return failed(error),
                 };
@@ -128,12 +138,12 @@ pub(crate) async fn telemetry(
                 };
                 // Someone's answer to the question on its screen, once; and pause, resume or stop
                 // for a print it started itself (no job of the hub's).
-                let (answer, job_control) = match store.machine_id_by_token(token) {
-                    Ok(Some(machine)) => (
-                        store.answers.remove(&machine),
-                        job_control.or_else(|| store.own_job_control.remove(&machine)),
+                let (answer, job_control) = match &of.machine {
+                    Some(machine) => (
+                        store.answers.remove(machine),
+                        job_control.or_else(|| store.own_job_control.remove(machine)),
                     ),
-                    _ => (None, job_control),
+                    None => (None, job_control),
                 };
                 (
                     TelemetryReply {
@@ -188,9 +198,31 @@ pub(crate) fn peer_address(
 /// Why a job is paused that a power cut stopped and its agent kept.
 const POWER_CUT: &str = "a power cut stopped it: resume it here or on the printer";
 
+/// What [`agent_job`] needs of the machine from Postgres, read before the lock is taken.
+#[derive(Debug, Default)]
+pub(crate) struct AgentOf {
+    /// The machine, by the token.
+    pub machine: Option<String>,
+    /// [`Store::loaded_media_mm`].
+    pub media: Option<(u32, Option<u32>)>,
+    /// [`Store::loaded_page_size`].
+    pub page_size: Option<String>,
+}
+
+pub(crate) async fn agent_of(store: &Store, token: &str) -> sqlx::Result<AgentOf> {
+    let Some(machine) = store.machine_id_by_token(token).await? else {
+        return Ok(AgentOf::default());
+    };
+    Ok(AgentOf {
+        media: store.loaded_media_mm(&machine).await?,
+        page_size: store.loaded_page_size(&machine).await?,
+        machine: Some(machine),
+    })
+}
+
 pub(crate) fn agent_job(
     store: &mut Legacy,
-    token: &str,
+    of: &AgentOf,
     report: &Telemetry,
 ) -> rusqlite::Result<(Option<protocol::JobOrder>, Option<protocol::JobControl>)> {
     use protocol::{JobControl, MachineState};
@@ -206,7 +238,7 @@ pub(crate) fn agent_job(
             store.set_restart_line(end.id, line)?;
         }
     }
-    let Some(machine) = store.machine_id_by_token(token)? else {
+    let Some(machine) = of.machine.clone() else {
         return Ok((None, None));
     };
     // A job a power cut stopped (Prusa's MK3; the agent kept it): it failed here when the
@@ -250,7 +282,7 @@ pub(crate) fn agent_job(
         JobState::Queued if report.job_id.is_none() && report.state == MachineState::Idle => {
             let size = std::fs::metadata(store.file_path(&job.file_id)).map_or(0, |m| m.len());
             store.set_job(job.id, JobState::Printing, None)?;
-            let media = store.loaded_media_mm(&machine)?;
+            let media = of.media;
             let order = protocol::JobOrder {
                 id: job.id,
                 name: job.file_name.clone(),
@@ -259,7 +291,7 @@ pub(crate) fn agent_job(
                 from_line: job.from_line,
                 tape_mm: media.map(|(width, _)| width),
                 label_length_mm: media.and_then(|(_, length)| length),
-                page_size: store.loaded_page_size(&machine)?,
+                page_size: of.page_size.clone(),
             };
             (Some(order), None)
         }
@@ -298,11 +330,7 @@ pub(crate) async fn pair(
     headers: HeaderMap,
     Form(form): Form<PairForm>,
 ) -> Response {
-    let store = store.lock().unwrap();
-    let paired = store.space_id_of(&access).and_then(|(space, _)| {
-        let paired = store.pair(space, &form.code)?;
-        Ok(paired)
-    });
+    let paired = store.pair(access.space, &form.code).await;
     let fetched = headers.contains_key("x-requested-with");
     match paired {
         Ok(Some(_)) if fetched => StatusCode::NO_CONTENT.into_response(),

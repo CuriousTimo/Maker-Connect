@@ -4,19 +4,21 @@
 //! token or a pairing code (an agent, a printer, not yet in a space) use the admin pool, as
 //! sign-in does.
 //!
-//! Transitional: the same-named `Legacy` methods stay until their callers move; then they go.
+//! Transitional (lane 3a): each write is copied onto SQLite's row (pg_mirror.rs) for the modules still
+//! there.
 
 use super::*;
 
 impl Store {
     /// Whether a token belongs to a machine.
     pub async fn knows(&self, token: &str) -> sqlx::Result<bool> {
-        Ok(
-            sqlx::query_scalar!(r#"SELECT COUNT(*) AS "n!" FROM machines WHERE token = $1"#, token)
-                .fetch_one(&self.pg().admin)
-                .await?
-                > 0,
+        Ok(sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "n!" FROM machines WHERE token = $1"#,
+            token
         )
+        .fetch_one(&self.pg().admin)
+        .await?
+            > 0)
     }
 
     /// A machine's last report, by its token.
@@ -38,6 +40,7 @@ impl Store {
         .execute(&self.pg().admin)
         .await?
         .rows_affected();
+        self.mirror_machine(None, Some(token)).await?;
         self.changed();
         Ok(n > 0)
     }
@@ -66,7 +69,8 @@ impl Store {
             .await?;
         }
         tx.commit().await?;
-        if found.is_some() {
+        if let Some(r) = &found {
+            self.mirror_machine(Some(&r.id), None).await?;
             self.changed();
         }
         Ok(found.map(|r| (r.id, r.name)))
@@ -120,6 +124,7 @@ impl Store {
         )
         .execute(&self.pg().admin)
         .await?;
+        self.mirror_machine(Some(&id), None).await?;
         self.changed();
         Ok((id, token, code))
     }
@@ -150,6 +155,7 @@ impl Store {
         )
         .execute(&self.pg().admin)
         .await?;
+        self.mirror_machine(Some(&id), None).await?;
         self.changed();
         Ok(id)
     }
@@ -175,6 +181,7 @@ impl Store {
         )
         .execute(&self.pg().admin)
         .await?;
+        self.mirror_machine(Some(&id), None).await?;
         self.changed();
         Ok(id)
     }
@@ -208,7 +215,10 @@ impl Store {
         let rows = sqlx::query!("SELECT id, token, profile FROM machines WHERE link = 'virtual'")
             .fetch_all(&self.pg().admin)
             .await?;
-        Ok(rows.into_iter().map(|r| (r.id, r.token, r.profile)).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| (r.id, r.token, r.profile))
+            .collect())
     }
 
     /// Removes a machine of the space (its permissions and group places follow it: foreign keys).
@@ -225,6 +235,7 @@ impl Store {
         .await?
         .rows_affected();
         tx.commit().await?;
+        self.mirror_machine(Some(machine), None).await?;
         Ok(n > 0)
     }
 
@@ -247,6 +258,7 @@ impl Store {
         .await?
         .rows_affected();
         tx.commit().await?;
+        self.mirror_machine(Some(machine), None).await?;
         self.changed();
         Ok(n > 0)
     }
@@ -265,10 +277,7 @@ impl Store {
 
     /// The tape or labels loaded in a label printer, as the owner said: (width across, a die-cut
     /// label's length) in mm.
-    pub async fn loaded_media_mm(
-        &self,
-        machine: &str,
-    ) -> sqlx::Result<Option<(u32, Option<u32>)>> {
+    pub async fn loaded_media_mm(&self, machine: &str) -> sqlx::Result<Option<(u32, Option<u32>)>> {
         Ok(self
             .profile_and_media(machine)
             .await?
@@ -288,8 +297,7 @@ impl Store {
             .and_then(|(profile, media)| {
                 let profile = crate::profiles::find(&profile?)?;
                 let media = media?;
-                crate::profiles::labelwriter_page(Some(profile), &media)
-                    .map(|g| g.name.to_owned())
+                crate::profiles::labelwriter_page(Some(profile), &media).map(|g| g.name.to_owned())
             }))
     }
 
@@ -350,6 +358,7 @@ impl Store {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
+        self.mirror_machine(Some(machine), None).await?;
         self.changed();
         Ok(Ok(()))
     }
@@ -367,6 +376,7 @@ impl Store {
         .await?
         .rows_affected();
         tx.commit().await?;
+        self.mirror_machine(Some(machine), None).await?;
         self.changed();
         Ok(n > 0)
     }
@@ -391,6 +401,7 @@ impl Store {
         .await?
         .rows_affected();
         tx.commit().await?;
+        self.mirror_machine(Some(machine), None).await?;
         self.changed();
         Ok(n > 0)
     }
@@ -423,6 +434,7 @@ impl Store {
         .await?
         .rows_affected();
         tx.commit().await?;
+        self.mirror_machine(Some(machine), None).await?;
         self.changed();
         Ok(n > 0)
     }
@@ -454,6 +466,7 @@ impl Store {
         )
         .execute(&self.pg().admin)
         .await?;
+        self.mirror_machine(None, Some(token)).await?;
         Ok(())
     }
 
@@ -467,6 +480,7 @@ impl Store {
         )
         .execute(&self.pg().admin)
         .await?;
+        self.mirror_machine(None, Some(token)).await?;
         Ok(())
     }
 
@@ -480,6 +494,7 @@ impl Store {
         )
         .execute(&self.pg().admin)
         .await?;
+        self.mirror_machine(None, Some(token)).await?;
         Ok(())
     }
 
@@ -488,5 +503,124 @@ impl Store {
         sqlx::query_scalar!("SELECT id FROM machines WHERE token = $1", token)
             .fetch_optional(&self.pg().admin)
             .await
+    }
+
+    /// Moves a machine to another space: what someone may do with it there is that space's
+    /// business. Refused (with the reason) while it has work under way. What goes along is the
+    /// machine itself (name, labels, plate, service interval) and its agent, which keeps its token.
+    /// What stays: its jobs (their files are the old space's), the rights given on it (people of the
+    /// old space), the spool said to be loaded (the old space's Materials), and its place in the old
+    /// space's queue. The caller then has its permissions and group places go
+    /// ([`Store::forget_machine_access`]).
+    pub async fn move_machine(
+        &self,
+        from: i64,
+        machine: &str,
+        to: i64,
+    ) -> Result<Result<(), String>, BoxError> {
+        let here = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "n!" FROM machines WHERE id = $1 AND space_id = $2"#,
+            machine,
+            from
+        )
+        .fetch_one(&self.pg().admin)
+        .await?
+            > 0;
+        if !here {
+            return Ok(Err("no such machine".to_owned()));
+        }
+        if from == to {
+            return Ok(Err("it is in that space already".to_owned()));
+        }
+        let stays = self.lock().unwrap().why_it_stays(machine)?;
+        if let Some(why) = stays {
+            return Ok(Err(why));
+        }
+        sqlx::query!(
+            "UPDATE machines SET space_id = $2, farm = false WHERE id = $1",
+            machine,
+            to
+        )
+        .execute(&self.pg().admin)
+        .await?;
+        self.mirror_machine(Some(machine), None).await?;
+        self.lock().unwrap().moved_away(from, machine)?;
+        Ok(Ok(()))
+    }
+
+    /// Removes a machine of the space, with what the hub keeps of it in memory; the caller then has
+    /// its permissions and group places go ([`Store::forget_machine_access`]). Returns whether it
+    /// was there.
+    pub async fn remove_machine(&self, space: i64, machine: &str) -> sqlx::Result<bool> {
+        let removed = self.remove_machine_row(space, machine).await?;
+        self.lock().unwrap().forget_machine(machine);
+        Ok(removed)
+    }
+
+    /// Whether a machine is a laser (by its kind, without loading the whole machine).
+    pub async fn is_laser(&self, space: i64, machine: &str) -> sqlx::Result<bool> {
+        let mut tx = self.pg().space(space).await?;
+        let kind = sqlx::query_scalar!(
+            "SELECT kind FROM machines WHERE id = $1 AND space_id = $2",
+            machine,
+            space
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(kind
+            .and_then(|k| serde_json::from_str::<MachineKind>(&k).ok())
+            .is_some_and(|k| k == MachineKind::Laser))
+    }
+
+    /// A laser's optical power as its owner says (None: the profile's). Returns whether the machine
+    /// is in the space.
+    pub async fn set_laser_w(
+        &self,
+        space: i64,
+        machine: &str,
+        watts: Option<f64>,
+    ) -> sqlx::Result<bool> {
+        let mut tx = self.pg().space(space).await?;
+        let n = sqlx::query!(
+            "UPDATE machines SET laser_w = $1 WHERE id = $2 AND space_id = $3",
+            watts,
+            machine,
+            space
+        )
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        tx.commit().await?;
+        self.mirror_machine(Some(machine), None).await?;
+        self.changed();
+        Ok(n > 0)
+    }
+
+    /// Takes a machine out of use (with why), or back into use (None). Returns whether the machine
+    /// is in the space.
+    pub async fn set_out_of_use(
+        &self,
+        space: i64,
+        machine: &str,
+        reason: Option<&str>,
+    ) -> sqlx::Result<bool> {
+        let mut tx = self.pg().space(space).await?;
+        let n = sqlx::query!(
+            "UPDATE machines SET out_of_use = $1,
+                 out_of_use_at = CASE WHEN $1::text IS NULL THEN NULL ELSE at_unix($2) END
+             WHERE id = $3 AND space_id = $4",
+            reason,
+            now(),
+            machine,
+            space
+        )
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        tx.commit().await?;
+        self.mirror_machine(Some(machine), None).await?;
+        self.changed();
+        Ok(n > 0)
     }
 }

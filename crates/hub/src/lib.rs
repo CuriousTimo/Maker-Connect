@@ -51,7 +51,7 @@ pub(crate) use devices::legacy_gcode::{
 pub use devices::{
     printer_files, prusa_connect, sd_card, simplyprint, virtual_grbl, virtual_machines,
 };
-pub(crate) use link::{agent_job, peer_address};
+pub(crate) use link::{agent_job, agent_of, peer_address};
 pub use pages::{
     access_page, files_page, label_page, machine_page, now_page, permissions_page, projects_page,
     space_page,

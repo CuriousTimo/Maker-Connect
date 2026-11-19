@@ -68,8 +68,7 @@ async fn connect(
     headers: HeaderMap,
 ) -> Response {
     let name = {
-        let store = store.lock().unwrap();
-        match store.moonraker_name(&token) {
+        match store.moonraker_name(&token).await {
             Ok(Some(name)) => name,
             Ok(None) => return (StatusCode::UNAUTHORIZED, "unknown printer").into_response(),
             Err(error) => return crate::failed(error),
@@ -134,7 +133,7 @@ async fn session(mut socket: WebSocket, store: Store, token: String, name: Strin
             _ = tick.tick() => {}
         }
         // Report, and what the hub has for it: a command, a job, pause or stop.
-        let out = report(&store, &token, &base, &mut printer);
+        let out = report(&store, &token, &base, &mut printer).await;
         for message in out {
             if socket.send(text(&message)).await.is_err() {
                 break;
@@ -306,30 +305,34 @@ fn state(new: &str) -> MachineState {
 
 /// Reports the printer, and gives back what to send it: the next command, a job's file,
 /// pause, resume or cancel.
-fn report(store: &Store, token: &str, base: &str, printer: &mut Printer) -> Vec<Value> {
+async fn report(shared: &Store, token: &str, base: &str, printer: &mut Printer) -> Vec<Value> {
     let mut report = printer.telemetry.clone();
     report.job_id = printer.job;
     report.done = std::mem::take(&mut printer.done);
     report.mesh = printer.mesh.take();
     report.job_end = printer.job_end.take();
-    let mut store = store.lock().unwrap();
-    for done in &report.done {
-        let state = if done.ok {
-            CommandState::Finished
-        } else {
-            CommandState::Rejected
-        };
-        let _ = store.command_went(
-            token,
-            done.id,
-            state,
-            done.reason.clone(),
-            done.output.clone(),
-        );
+    {
+        let mut store = shared.lock().unwrap();
+        for done in &report.done {
+            let state = if done.ok {
+                CommandState::Finished
+            } else {
+                CommandState::Rejected
+            };
+            let _ = store.command_went(
+                token,
+                done.id,
+                state,
+                done.reason.clone(),
+                done.output.clone(),
+            );
+        }
     }
-    if !matches!(store.report(token, &report), Ok(Some(Some(_)))) {
+    if !matches!(shared.report(token, &report).await, Ok(Some(Some(_)))) {
         return Vec::new();
     }
+    let of = crate::agent_of(shared, token).await.unwrap_or_default();
+    let mut store = shared.lock().unwrap();
     let mut out = Vec::new();
     // One command at a time, and none while it prints.
     if printer.command.is_none()
@@ -345,7 +348,7 @@ fn report(store: &Store, token: &str, base: &str, printer: &mut Printer) -> Vec<
             json!({"list": lines, "identifier": id.to_string()}),
         ));
     }
-    match crate::agent_job(&mut store, token, &report) {
+    match crate::agent_job(&mut store, &of, &report) {
         Ok((Some(order), _)) => {
             printer.job = Some(order.id);
             out.push(demand(

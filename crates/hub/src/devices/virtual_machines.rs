@@ -31,9 +31,7 @@ pub async fn run(store: Store) {
     let mut tick = tokio::time::interval(Duration::from_secs_f32(TICK));
     loop {
         tick.tick().await;
-        let shared = store.clone();
-        let mut store = store.lock().unwrap();
-        let Ok(list) = store.virtual_machines() else {
+        let Ok(list) = store.virtual_machines().await else {
             continue;
         };
         machines.retain(|id, _| list.iter().any(|(other, ..)| other == id));
@@ -41,93 +39,105 @@ pub async fn run(store: Store) {
             // A GRBL profile: LaserFoundry's simulated GRBL, on a thread of its own.
             let found = profile.as_deref().and_then(profiles::find);
             if found.is_some_and(|p| p.kind == MachineKind::Label) {
-                virtual_label(&mut store, &id, &token, found.unwrap(), &mut labels);
+                let telemetry =
+                    virtual_label(&mut store.lock().unwrap(), &id, found.unwrap(), &mut labels);
+                let _ = store.report(&token, &telemetry).await;
                 continue;
             }
             if let Some(p) = found.filter(|p| p.firmware.as_deref() == Some("grbl")) {
                 let travel = [p.build_volume_mm[0], p.build_volume_mm[1]];
-                crate::virtual_grbl::ensure(&shared, &id, &token, Some(travel));
+                crate::virtual_grbl::ensure(&store, &id, &token, Some(travel));
                 continue;
             }
-            let sim = machines
-                .entry(id.clone())
-                .or_insert_with(|| Sim::new(profile.as_deref().and_then(profiles::find)));
-            // A job: taken when queued, followed when paused, resumed or stopped.
-            if let Ok(Some(job)) = store.active_job(&id) {
-                match job.state {
-                    JobState::Queued if sim.playing.is_none() && sim.running.is_none() => {
-                        match std::fs::File::open(store.file_path(&job.file_id)) {
-                            Ok(file) => {
-                                let size = file.metadata().map_or(0, |m| m.len());
-                                if job.file_name.to_ascii_lowercase().ends_with(".bgcode") {
-                                    let meta = crate::gcode::read(&store.file_path(&job.file_id))
-                                        .map(|(m, _)| m)
-                                        .unwrap_or_default();
-                                    sim.play_timed(job.id, &job.file_name, file, size, &meta);
-                                } else {
-                                    sim.play(job.id, &job.file_name, file, size);
+            let telemetry = {
+                let mut store = store.lock().unwrap();
+                let sim = machines
+                    .entry(id.clone())
+                    .or_insert_with(|| Sim::new(profile.as_deref().and_then(profiles::find)));
+                // A job: taken when queued, followed when paused, resumed or stopped.
+                if let Ok(Some(job)) = store.active_job(&id) {
+                    match job.state {
+                        JobState::Queued if sim.playing.is_none() && sim.running.is_none() => {
+                            match std::fs::File::open(store.file_path(&job.file_id)) {
+                                Ok(file) => {
+                                    let size = file.metadata().map_or(0, |m| m.len());
+                                    if job.file_name.to_ascii_lowercase().ends_with(".bgcode") {
+                                        let meta =
+                                            crate::gcode::read(&store.file_path(&job.file_id))
+                                                .map(|(m, _)| m)
+                                                .unwrap_or_default();
+                                        sim.play_timed(job.id, &job.file_name, file, size, &meta);
+                                    } else {
+                                        sim.play(job.id, &job.file_name, file, size);
+                                    }
+                                    let _ = store.set_job(job.id, JobState::Printing, None);
                                 }
-                                let _ = store.set_job(job.id, JobState::Printing, None);
-                            }
-                            Err(error) => {
-                                let reason = format!("file not found: {error}");
-                                let _ = store.set_job(job.id, JobState::Failed, Some(&reason));
+                                Err(error) => {
+                                    let reason = format!("file not found: {error}");
+                                    let _ = store.set_job(job.id, JobState::Failed, Some(&reason));
+                                }
                             }
                         }
+                        // A job this run of the hub did not start: it restarted mid-print.
+                        JobState::Printing | JobState::Paused if sim.playing.is_none() => {
+                            let reason = "the hub restarted during the print";
+                            let _ = store.set_job(job.id, JobState::Failed, Some(reason));
+                        }
+                        JobState::Paused => sim.pause(true),
+                        JobState::Printing => sim.pause(false),
+                        JobState::Stopping => {
+                            sim.stop();
+                            let _ = store.set_job(job.id, JobState::Stopped, None);
+                        }
+                        _ => {}
                     }
-                    // A job this run of the hub did not start: it restarted mid-print.
-                    JobState::Printing | JobState::Paused if sim.playing.is_none() => {
-                        let reason = "the hub restarted during the print";
-                        let _ = store.set_job(job.id, JobState::Failed, Some(reason));
-                    }
-                    JobState::Paused => sim.pause(true),
-                    JobState::Printing => sim.pause(false),
-                    JobState::Stopping => {
-                        sim.stop();
-                        let _ = store.set_job(job.id, JobState::Stopped, None);
-                    }
-                    _ => {}
                 }
-            }
-            if sim.running.is_none()
-                && sim.playing.is_none()
-                && let Ok(Some((command, gcode))) = store.next_command(&token)
-            {
-                let _ =
-                    store.command_went(&token, command, CommandState::Accepted, None, Vec::new());
-                sim.start(command, &gcode);
-            }
-            let seconds = if sim.playing.is_some() {
-                TICK * JOB_SPEED
-            } else {
-                TICK
+                if sim.running.is_none()
+                    && sim.playing.is_none()
+                    && let Ok(Some((command, gcode))) = store.next_command(&token)
+                {
+                    let _ = store.command_went(
+                        &token,
+                        command,
+                        CommandState::Accepted,
+                        None,
+                        Vec::new(),
+                    );
+                    sim.start(command, &gcode);
+                }
+                let seconds = if sim.playing.is_some() {
+                    TICK * JOB_SPEED
+                } else {
+                    TICK
+                };
+                if let Some(done) = sim.step(seconds) {
+                    let said = std::mem::take(&mut sim.said);
+                    let _ = store.command_went(&token, done, CommandState::Finished, None, said);
+                }
+                if let Some(job) = sim.played(TICK) {
+                    let _ = store.set_job(job, JobState::Finished, None);
+                }
+                let mut telemetry = sim.telemetry();
+                if sim.running.is_none() {
+                    telemetry.mesh = sim.mesh.take();
+                }
+                telemetry
             };
-            if let Some(done) = sim.step(seconds) {
-                let said = std::mem::take(&mut sim.said);
-                let _ = store.command_went(&token, done, CommandState::Finished, None, said);
-            }
-            if let Some(job) = sim.played(TICK) {
-                let _ = store.set_job(job, JobState::Finished, None);
-            }
-            let mut telemetry = sim.telemetry();
-            if sim.running.is_none() {
-                telemetry.mesh = sim.mesh.take();
-            }
-            let _ = store.report(&token, &telemetry);
+            let _ = store.report(&token, &telemetry).await;
         }
     }
 }
 
 /// A virtual label printer: tape or labels in, and a label "printed" at about 12 mm a
 /// second (the PnP's pace), the job then done. What it printed is the file's picture. A
-/// battery only when its model has one; a cassette only for tape.
+/// battery only when its model has one; a cassette only for tape. Its report, for the caller to
+/// keep ([`Store::report`]).
 fn virtual_label(
     store: &mut crate::store::Legacy,
     id: &str,
-    token: &str,
     profile: &profiles::Profile,
     labels: &mut HashMap<String, (i64, u32)>,
-) {
+) -> Telemetry {
     let mut telemetry = Telemetry {
         state: MachineState::Idle,
         cassette: (profile.firmware.as_deref() == Some("dymo-d1")).then_some(true),
@@ -173,7 +183,7 @@ fn virtual_label(
             }
         }
     }
-    let _ = store.report(token, &telemetry);
+    telemetry
 }
 
 /// A line of G-code as the machine reads it: no comment, upper case, trimmed.

@@ -294,16 +294,20 @@ async fn list(access: crate::access::Access, State(store): State<Store>) -> Resp
         Ok(grants) => grants,
         Err(error) => return failed(error),
     };
-    let store = store.lock().unwrap();
-    let found = store.space_id_of(&access).and_then(|(space, _)| {
+    let found: Result<_, crate::store::BoxError> = async {
         Ok((
-            store.files(space)?,
-            store.machines(space)?,
-            store.prints(space, 5)?,
+            store.files(access.space).await?,
+            store.machines(access.space).await?,
         ))
-    });
-    let (files, machines, mut prints) = match found {
+    }
+    .await;
+    let (files, machines) = match found {
         Ok(found) => found,
+        Err(error) => return failed(error),
+    };
+    let store = store.lock().unwrap();
+    let mut prints = match store.prints(access.space, 5) {
+        Ok(prints) => prints,
         Err(error) => return failed(error),
     };
     // Which machines this person may use (by permission, whatever their role): the others say
@@ -489,11 +493,7 @@ pub(crate) async fn upload(
     if let Some(png) = png {
         let _ = tokio::fs::write(&thumbnail_path, png).await;
     }
-    match store
-        .lock()
-        .unwrap()
-        .add_file(space, &id, &name, size, &meta)
-    {
+    match store.add_file(space, &id, &name, size, &meta).await {
         Ok(()) => {
             println!("file kept: {name} ({size} bytes)");
             (StatusCode::CREATED, Json(serde_json::json!({ "id": id }))).into_response()
@@ -503,18 +503,14 @@ pub(crate) async fn upload(
 }
 
 /// A file of the space, or the answer to give when there is none.
-fn find(
+async fn find(
     access: &crate::access::Access,
     store: &Store,
     id: &str,
 ) -> Result<(i64, StoredFile, std::path::PathBuf), Box<Response>> {
-    let store = store.lock().unwrap();
-    let space = store
-        .space_id_of(access)
-        .map_err(|e| Box::new(failed(e)))?
-        .0;
-    match store.file(space, id) {
-        Ok(Some(file)) => Ok((space, file, store.files_dir.clone())),
+    let space = access.space;
+    match store.file(space, id).await {
+        Ok(Some(file)) => Ok((space, file, store.files_dir().to_owned())),
         Ok(None) => Err(Box::new(
             (StatusCode::NOT_FOUND, "no such file").into_response(),
         )),
@@ -527,7 +523,7 @@ async fn thumbnail(
     State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
-    let (_, file, dir) = match find(&access, &store, &id) {
+    let (_, file, dir) = match find(&access, &store, &id).await {
         Ok(found) => found,
         Err(response) => return *response,
     };
@@ -549,7 +545,7 @@ async fn download(
     State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
-    let (_, file, dir) = match find(&access, &store, &id) {
+    let (_, file, dir) = match find(&access, &store, &id).await {
         Ok(found) => found,
         Err(response) => return *response,
     };
@@ -584,26 +580,19 @@ async fn agent_space_file(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
-    let found = {
-        let store = store.lock().unwrap();
-        (|| -> rusqlite::Result<Option<(StoredFile, std::path::PathBuf)>> {
-            if token.is_empty() {
-                return Ok(None);
-            }
-            let Some(machine) = store.machine_id_by_token(token)? else {
-                return Ok(None);
-            };
-            let space: Option<i64> = store.db.query_row(
-                "SELECT space_id FROM machines WHERE id = ?1",
-                [&machine],
-                |r| r.get(0),
-            )?;
-            let Some(space) = space else { return Ok(None) };
-            Ok(store
-                .file(space, &id)?
-                .map(|f| (f, store.files_dir.clone())))
-        })()
-    };
+    let found: Result<Option<(StoredFile, std::path::PathBuf)>, crate::store::BoxError> = async {
+        if token.is_empty() {
+            return Ok(None);
+        }
+        let Some((_, space)) = store.placed(token).await? else {
+            return Ok(None);
+        };
+        Ok(store
+            .file(space, &id)
+            .await?
+            .map(|f| (f, store.files_dir().to_owned())))
+    }
+    .await;
     match found {
         Ok(Some((file, dir))) => serve(&file, &dir).await,
         Ok(None) => (StatusCode::NOT_FOUND, "no such file for this machine").into_response(),
@@ -614,29 +603,23 @@ async fn agent_space_file(
 /// The file of job `job`, for the machine whose token is `token` (an agent's, or a Klipper
 /// printer's): only that machine's jobs, only files of its space; else 404.
 pub(crate) async fn job_file(store: &Store, token: &str, job: i64) -> Response {
-    let found = {
-        let store = store.lock().unwrap();
-        (|| -> rusqlite::Result<Option<(StoredFile, std::path::PathBuf)>> {
-            if token.is_empty() {
-                return Ok(None);
-            }
-            let Some(machine) = store.machine_id_by_token(token)? else {
-                return Ok(None);
-            };
-            let Some(job) = store.job(job)?.filter(|j| j.machine_id == machine) else {
-                return Ok(None);
-            };
-            let space: Option<i64> = store.db.query_row(
-                "SELECT space_id FROM machines WHERE id = ?1",
-                [&machine],
-                |r| r.get(0),
-            )?;
-            let Some(space) = space else { return Ok(None) };
-            Ok(store
-                .file(space, &job.file_id)?
-                .map(|f| (f, store.files_dir.clone())))
-        })()
-    };
+    let found: Result<Option<(StoredFile, std::path::PathBuf)>, crate::store::BoxError> = async {
+        if token.is_empty() {
+            return Ok(None);
+        }
+        let Some((machine, space)) = store.placed(token).await? else {
+            return Ok(None);
+        };
+        let job = store.lock().unwrap().job(job)?;
+        let Some(job) = job.filter(|j| j.machine_id == machine) else {
+            return Ok(None);
+        };
+        Ok(store
+            .file(space, &job.file_id)
+            .await?
+            .map(|f| (f, store.files_dir().to_owned())))
+    }
+    .await;
     match found {
         Ok(Some((file, dir))) => serve(&file, &dir).await,
         Ok(None) => (StatusCode::NOT_FOUND, "no such job for this machine").into_response(),
@@ -701,10 +684,7 @@ async fn remove(
     State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    let removed = store
-        .space_id_of(&access)
-        .and_then(|(space, _)| store.remove_file(space, &id));
+    let removed = store.remove_file(access.space, &id).await;
     match removed {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (
@@ -719,13 +699,9 @@ async fn remove(
 /// `GET /api/storage`: what the files take, and what the disk under them has left.
 async fn storage(access: crate::access::Access, State(store): State<Store>) -> Response {
     let (dir, used, count) = {
-        let store = store.lock().unwrap();
-        let files = store
-            .space_id_of(&access)
-            .and_then(|(space, _)| store.files(space))
-            .unwrap_or_default();
+        let files = store.files(access.space).await.unwrap_or_default();
         let used: u64 = files.iter().map(|f| f.size).sum();
-        (store.files_dir.clone(), used, files.len())
+        (store.files_dir().to_owned(), used, files.len())
     };
     Json(serde_json::json!({
         "files": count,
@@ -748,15 +724,11 @@ async fn remove_many(
     State(store): State<Store>,
     Json(many): Json<Many>,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    let space = match store.space_id_of(&access) {
-        Ok((space, _)) => space,
-        Err(error) => return failed(error),
-    };
+    let space = access.space;
     let mut removed = 0;
     let mut kept = Vec::new();
     for id in many.ids.iter().take(10_000) {
-        match store.remove_file(space, id) {
+        match store.remove_file(space, id).await {
             Ok(true) => removed += 1,
             Ok(false) => kept.push(id.clone()),
             Err(error) => return failed(error),
@@ -786,7 +758,7 @@ async fn print(
     headers: HeaderMap,
     Form(form): Form<PrintForm>,
 ) -> Response {
-    let (space, file, _) = match find(&access, &store, &id) {
+    let (space, file, _) = match find(&access, &store, &id).await {
         Ok(found) => found,
         Err(response) => return *response,
     };
@@ -795,6 +767,7 @@ async fn print(
         Ok(grants) => grants,
         Err(error) => return failed(error),
     };
+    let found_machine = store.machine(access.space, &form.machine).await;
     let mut store = store.lock().unwrap();
     // Running a job, or framing one, is using the machine.
     if let Err(refused) = crate::access::check_machine(
@@ -809,7 +782,7 @@ async fn print(
     if let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &form.machine) {
         return *refused;
     }
-    let machine = match store.machine(space, &form.machine) {
+    let machine = match found_machine {
         Ok(Some(machine)) => machine,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
@@ -937,7 +910,7 @@ async fn frame(
     Path(id): Path<String>,
     Form(form): Form<PrintForm>,
 ) -> Response {
-    let (space, file, dir) = match find(&access, &store, &id) {
+    let (space, file, dir) = match find(&access, &store, &id).await {
         Ok(found) => found,
         Err(response) => return *response,
     };
@@ -955,6 +928,7 @@ async fn frame(
         Ok(grants) => grants,
         Err(error) => return failed(error),
     };
+    let found_machine = store.machine(access.space, &form.machine).await;
     let mut store = store.lock().unwrap();
     // Running a job, or framing one, is using the machine.
     if let Err(refused) = crate::access::check_machine(
@@ -969,7 +943,7 @@ async fn frame(
     if let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &form.machine) {
         return *refused;
     }
-    let machine = match store.machine(space, &form.machine) {
+    let machine = match found_machine {
         Ok(Some(machine)) => machine,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
@@ -1050,8 +1024,9 @@ async fn start_burn(
         Ok(grants) => grants,
         Err(error) => return failed(error),
     };
+    let found_machine = store.machine(access.space, &id).await;
     let mut store = store.lock().unwrap();
-    let Ok(Some((space, _))) = store.space_id_of(&access).map(Some) else {
+    let Ok(Some((_space, _))) = store.space_id_of(&access).map(Some) else {
         return (StatusCode::FORBIDDEN, "no space").into_response();
     };
     if let Err(refused) =
@@ -1065,7 +1040,7 @@ async fn start_burn(
     if !crate::store::StartedBy::person(&access).is_person_at_a_session() {
         return (StatusCode::FORBIDDEN, crate::store::LASER_NEVER_ALONE).into_response();
     }
-    let machine = match store.machine(space, &id) {
+    let machine = match found_machine {
         Ok(Some(machine)) => machine,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
@@ -1160,6 +1135,10 @@ async fn control_job(
     Form(form): Form<JobForm>,
 ) -> Response {
     let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
+    let found_machine = store
+        .machine(access.space, &id)
+        .await
+        .map_err(|e| e.to_string());
     let mut store = store.lock().unwrap();
     // Starting and resuming wait for PPE; pausing and stopping never do.
     if matches!(form.action.as_str(), "restart" | "resume")
@@ -1180,7 +1159,7 @@ async fn control_job(
             }
             Err(error) => return failed(error),
         };
-        let file = match store.file(space, &last.file_id) {
+        let file = match store.file_on_mirror(space, &last.file_id) {
             Ok(Some(file)) => file,
             Ok(None) => return (StatusCode::CONFLICT, "its file is gone").into_response(),
             Err(error) => return failed(error),
@@ -1202,7 +1181,7 @@ async fn control_job(
         Ok(None) => {
             // A print it started itself (from its SD card, or a Prusa's USB stick at its
             // screen): no job of the hub's, so the printer is told directly.
-            let own = match store.machine(access.space, &id) {
+            let own = match found_machine.clone() {
                 Ok(Some(m))
                     if m.online && m.telemetry.as_ref().is_some_and(|t| t.job.is_some()) =>
                 {
@@ -1270,7 +1249,7 @@ async fn control_job(
         _ => return (StatusCode::CONFLICT, "not now").into_response(),
     };
     // A Prusa on its built-in Connect is told so itself.
-    if let Ok(Some(machine)) = store.machine(access.space, &id)
+    if let Ok(Some(machine)) = &found_machine
         && machine.link == "prusa-connect"
         && let Err(error) =
             crate::printer_files::job_control(&mut store, access.space, &id, &form.action)

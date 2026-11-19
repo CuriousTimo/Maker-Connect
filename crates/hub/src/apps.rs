@@ -114,11 +114,11 @@ async fn machines(
         Ok(grants) => grants,
         Err(error) => return failed(error),
     };
-    let store = store.lock().unwrap();
-    let all = match store.machines(access.space) {
+    let all = match store.machines(access.space).await {
         Ok(all) => all,
         Err(error) => return failed(error),
     };
+    let store = store.lock().unwrap();
     let list: Vec<Value> = all
         .iter()
         .filter(|m| {
@@ -189,8 +189,7 @@ async fn send(
     else {
         return failed("the file was kept, but its id did not come back");
     };
-    let store = store.lock().unwrap();
-    let file = match store.file(access.space, &id) {
+    let file = match store.file(access.space, &id).await {
         Ok(Some(file)) => file,
         Ok(None) => return failed("the file was kept, but is not there"),
         Err(error) => return failed(error),
@@ -198,7 +197,7 @@ async fn send(
     // Whether it fits the machine now: the same check as Print on the Files page.
     let check = match &query.machine {
         None => json!(null),
-        Some(machine) => match store.machine(access.space, machine) {
+        Some(machine) => match store.machine(access.space, machine).await {
             Ok(Some(machine)) => match crate::files::fit(&file, &machine) {
                 Ok(None) => json!({ "fits": true }),
                 Ok(Some(warning)) => json!({ "fits": true, "warning": warning }),

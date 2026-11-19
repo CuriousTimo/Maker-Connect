@@ -28,9 +28,13 @@ pub async fn page(access: crate::access::Access, State(store): State<Store>) -> 
         Ok(grants) => grants,
         Err(error) => return failed(error),
     };
+    let machines = match store.machines(access.space).await {
+        Ok(machines) => machines,
+        Err(error) => return failed(error),
+    };
     let laser = {
         let store = store.lock().unwrap();
-        match availability(&store, &access, &grants) {
+        match availability(&store, &machines, &access, &grants) {
             Ok(a) => a,
             Err(error) => return failed(error),
         }

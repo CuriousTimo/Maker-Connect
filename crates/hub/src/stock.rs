@@ -905,17 +905,18 @@ impl Legacy {
 
     /// Loads an item into a machine, where it is (a spool feeds a printer from its dry box):
     /// what was loaded there is no longer (one spool, one cassette at a time). A tape of the
-    /// machine's profile tells the machine its tape.
+    /// machine's profile tells the machine its tape: the media id returned, for the caller to
+    /// set on Postgres ([`Store::set_media`]; transitional, lane 3a).
     pub fn load_item(
         &self,
         space: i64,
         id: &str,
         machine: &str,
-    ) -> rusqlite::Result<Result<(), &'static str>> {
+    ) -> rusqlite::Result<Result<Option<String>, &'static str>> {
         let Some(item) = self.item(space, id)? else {
             return Ok(Err("no such item"));
         };
-        let Some(target) = self.machine(space, machine)? else {
+        let Some(target) = self.machine_on_mirror(space, machine)? else {
             return Ok(Err("no such machine"));
         };
         // A tape into a label printer, filament into a 3D printer; a tape or roll of labels
@@ -982,10 +983,11 @@ impl Legacy {
             && let Some((profile, media_id)) = media.split_once(':')
             && target.profile.as_deref() == Some(profile)
         {
-            self.set_media(space, machine, Some(media_id))?;
+            self.changed();
+            return Ok(Ok(Some(media_id.to_owned())));
         }
         self.changed();
-        Ok(Ok(()))
+        Ok(Ok(None))
     }
 
     /// Takes an item out of its machine, leaving it where it is.
@@ -1476,7 +1478,6 @@ async fn load_item(
         Ok(grants) => grants,
         Err(error) => return failed(error),
     };
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
@@ -1484,18 +1485,26 @@ async fn load_item(
     let Some(machine) = p.machine else {
         return (StatusCode::BAD_REQUEST, "which machine?").into_response();
     };
-    // Loading a spool or a tape is using the machine.
-    if let Err(refused) = crate::access::check_machine(
-        &store,
-        &access,
-        &machine,
-        crate::access::Level::Use,
-        &grants,
-    ) {
-        return *refused;
-    }
-    match store.load_item(space, &id, &machine) {
-        Ok(Ok(())) => StatusCode::NO_CONTENT.into_response(),
+    let loaded = {
+        let legacy = store.lock().unwrap();
+        // Loading a spool or a tape is using the machine.
+        if let Err(refused) = crate::access::check_machine(
+            &legacy,
+            &access,
+            &machine,
+            crate::access::Level::Use,
+            &grants,
+        ) {
+            return *refused;
+        }
+        legacy.load_item(space, &id, &machine)
+    };
+    match loaded {
+        Ok(Ok(None)) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Ok(Some(media))) => match store.set_media(space, &machine, Some(&media)).await {
+            Ok(_) => StatusCode::NO_CONTENT.into_response(),
+            Err(e) => failed(e),
+        },
         Ok(Err(why)) => (StatusCode::BAD_REQUEST, why).into_response(),
         Err(e) => failed(e),
     }
