@@ -15,7 +15,7 @@ follows them when the code is built.
 
 | Action | Damaging | What it allows | Source |
 |---|---|---|---|
-| `device.view` | no | See a device and read from it; view its camera | registry |
+| `device.view` | no | See a device and read from it; view the camera that watches it. A room camera (watching no device) is seen by the role its `room_view_role` names, admin by default: today's rule (`cameras/page.rs:200`), kept | registry |
 | `device.move` | no | Move axes, home, motors off; laser jog, origin, frame at power 0 | registry |
 | `device.heat` | no | Set heaters and fans | registry |
 | `device.gcode` | yes | Send raw G-code; 3D printers only ([decision](decisions/20261119-no-raw-gcode-on-a-laser.md)) | registry; [decision](decisions/20261118-damaging-actions-by-grant.md) |
@@ -112,7 +112,18 @@ The instance admin (`users.instance_admin`) is a flag, not an action: the `insta
 `device_access(space_id, user_id, device_id, actions bigint)` holds each person's effective action
 set per device. It is rebuilt **in the same transaction** as any grant, membership, role or device
 group change, and that transaction bumps the space's `authz_epoch`. Lists, counts and the SSE filter
-join `device_access`; nothing filters after fetching.
+join `device_access`; nothing filters after fetching. Three changes reach more than one space
+transaction and each names its rebuilds:
+
+- An **organisation role** change (org membership added, changed or removed) runs one space
+  transaction per space of the organisation, rebuilding each: a demoted organisation admin loses the
+  rights in every space at once.
+- **Accepting an invite** (admin pool #2) is followed, in the same handler, by a space transaction per
+  space joined (one, or every space of the organisation for a whole-organisation invite) that
+  rebuilds the newcomer's rows.
+- A **grant's expiry** is honoured by the rebuild (an expired grant counts as absent) and by the
+  expiry sweep (admin pool #4), which lists the spaces with a grant just expired and rebuilds each in
+  its own space transaction, so `device_access` never keeps an expired right.
 
 ```mermaid
 flowchart LR
@@ -133,7 +144,7 @@ flowchart TB
   route{"Route known and names an action or a gate?"}
   who{"Caller: session cookie, API token, agent token, printer token?"}
   tenant["Transaction with SET LOCAL app.space_id"]
-  act{"Action in device_access for this person and device, or in the token's scopes?"}
+  act{"Gate passes, or the person holds the action (device_access or effective role) and, for a token, its scopes hold it too?"}
   person{"Person-only verb: from the person's own session?"}
   ok["Handler runs; SQL filters plus RLS"]
   no["Refused with a fault code"]
@@ -154,7 +165,13 @@ flowchart TB
 - **API tokens:** stored hashed, with scopes (an action set), expiry, last use, and the person's
   **generation**: one bump ends every token the person minted. A token's effective rights are its
   scopes intersected with its person's `device_access` and role at the time of the request: a token
-  never outgrows its person ([decision](decisions/20261119-token-effective-rights.md)).
+  never outgrows its person ([decision](decisions/20261119-token-effective-rights.md)). A token
+  reaches only routes that name an **action**, in the token's own space (`api_tokens.space_id`);
+  every gate but `public` is a person's session (`session`, `space.member`, `instance.admin`: a
+  token is refused with `authz/SESSION_ONLY`), and so are the routes that make or change a grant
+  (`grants.manage`), whoever holds the action: a grant is made by a person in Space, never by a
+  token. Minting a token (`POST /api/v1/tokens`) gives it at most the minter's own effective rights
+  at that moment (`authz/SCOPE_ABOVE_OWN`), as a role is given at most one's own.
 - **Agent tokens** may only report and fetch for their own devices; they never carry a person's
   actions. **Printer tokens** (Prusa) likewise.
 - **Person-only verbs** (`mc.laser.start`, a frame with power above 0) are accepted only from a

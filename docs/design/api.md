@@ -31,6 +31,13 @@ every route names one or the other.
 - **Idempotency:** a command or transfer carries an idempotency key (plan §2.4); what a repeat returns is [OQ-29](risks-and-open.md#oq-29-repeated-commands-and-the-error-body).
 - **Times** RFC 3339 UTC; **ids** uuid strings (Spoolman's: integers).
 - A page uses exactly these endpoints; nothing a page can do is missing from the API (plan §2.9).
+- **The space of a request** is the session's chosen space (`sessions.space_id`, set by
+  `PUT /api/v1/session/space`) or the token's space (`api_tokens.space_id`); every tenant row it reads
+  or writes is in that space's transaction. A path that names a space (`/spaces/{id}/…`) must name
+  that space; another id gets `404 space/NOT_FOUND`, whatever the caller's role there. Only the
+  `instance.admin` routes and the `session` routes run outside a space.
+- **Tokens** reach action routes in their own space only; the gates `session`, `space.member` and
+  `instance.admin` and the `grants.manage` routes are a person's session ([authz.md](authz.md#the-decision-on-a-request)).
 
 ## `/api/v1`: ours
 
@@ -52,19 +59,19 @@ every route names one or the other.
 | GET, POST | `/api/v1/spaces/{id}/invites` | `space.members.manage`; the role at most the caller's own, `whole_organisation` only with an organisation role | `{role, whole_organisation, expires_at}` | invites; on POST the link once |
 | POST | `/api/v1/invites/accept` | `public`; the handler checks the invite token | `{token, name, display_name, password}` for a new account, `{token}` when signed in | 201 the membership, `Set-Cookie` for a new account; already a member: `authz/ALREADY_MEMBER` ([decision](decisions/20261119-invite-accept.md)) |
 | DELETE | `/api/v1/spaces/{id}/invites/{invite}` | `space.members.manage` | — | 204 (revoked) |
-| GET, POST | `/api/v1/tokens` | `tokens.manage` | `{name, scopes, expires_at}` | tokens; on POST the secret once |
+| GET, POST | `/api/v1/tokens` | `tokens.manage`; POST from a session only, scopes at most the minter's own effective rights (`authz/SCOPE_ABOVE_OWN`) | `{name, scopes, expires_at}` | tokens; on POST the secret once |
 | DELETE | `/api/v1/tokens/{id}` | `tokens.manage` | — | 204 (revoked) |
 | GET | `/api/v1/spaces/{id}/audit` | `audit.view` | cursor | audit rows |
 | GET | `/api/v1/grants` | `grants.view` | `?user=&device=&group=` | grants |
-| POST | `/api/v1/grants` | `grants.manage`, in Space only | `{user, device or device_group, actions, expires_at}` | 201 grant |
-| DELETE | `/api/v1/grants/{id}` | `grants.manage` | — | 204 |
-| GET, POST | `/api/v1/device-groups` | `grants.view`; POST `grants.manage` | `{name}` | groups |
-| PATCH, DELETE | `/api/v1/device-groups/{id}` | `grants.manage` | `{name?, devices?}` | group |
+| POST | `/api/v1/grants` | `grants.manage`, in Space only, a person's session only (never a token) | `{user, device or device_group, actions, expires_at}` | 201 grant |
+| DELETE | `/api/v1/grants/{id}` | `grants.manage`, session only | — | 204 |
+| GET, POST | `/api/v1/device-groups` | `grants.view`; POST `grants.manage`, session only | `{name}` | groups |
+| PATCH, DELETE | `/api/v1/device-groups/{id}` | `grants.manage`, session only | `{name?, devices?}` | group |
 | POST | `/api/v1/access-requests` | `space.member` | `{device_id}` | 201; grants nothing (#11) |
 | GET | `/api/v1/access-requests/mine` | `space.member` | `?state=` | the caller's own requests in the space, with when they were asked and handled (UI study, journal:UI-DESIGN:0009 Q5: a member reads their own requests) |
 | DELETE | `/api/v1/access-requests/{id}` | `space.member`, the request's own person, while `state` is `open` | — | 204; the row stays with `state` `withdrawn`, so staff see it was taken back (UI-DESIGN:0009 Q5: withdraw) |
 | GET | `/api/v1/access-requests` | `grants.view` | `?state=` | requests |
-| PATCH | `/api/v1/access-requests/{id}` | `grants.manage` | `{state: granted or refused}` | request; a grant is made only through `/grants` |
+| PATCH | `/api/v1/access-requests/{id}` | `grants.manage`, session only | `{state: granted or refused}` | request; a grant is made only through `/grants` |
 | GET | `/api/v1/devices` | `device.view` per row | `?kind=&group=` | devices with state name, capability epoch, current job |
 | GET | `/api/v1/devices/{id}` | `device.view` | — | device with its state tree, capabilities, state set, settings |
 | PATCH | `/api/v1/devices/{id}` | `device.manage` | `{name?, settings?}` (laser: origin, dialect, rotary, M4: #24) | device |
@@ -86,7 +93,7 @@ every route names one or the other.
 | GET | `/api/v1/jobs` | `device.view` per row | `?device=&person=&file=&from=&to=` cursor (#11) | jobs |
 | GET | `/api/v1/jobs/{id}` | `device.view` | — | job with its command records |
 | POST | `/api/v1/jobs/{id}/confirm` | `job.control` | `{good}` (farm: Set Ready, Bad print) | job |
-| GET, POST | `/api/v1/queue` | `queue.view`; POST `queue.manage` | `{device_id, file_id}` | queue items |
+| GET, POST | `/api/v1/queue` | `queue.view`; POST `queue.manage` and `job.start` on that device: the item is started on its person's behalf, and the dispatcher checks `job.start` of that person again before each start ([flows.md](flows.md#4-a-job-with-the-laser-rule)) | `{device_id, file_id}` | queue items |
 | PATCH, DELETE | `/api/v1/queue/{id}` | `queue.manage`; own items for their person | `{pos}` | item |
 | GET, POST | `/api/v1/projects` | `farm.view`; POST `farm.use` | `{name, description, priority}` | projects |
 | PATCH, DELETE | `/api/v1/projects/{id}` | `farm.use` | fields | project |
@@ -98,9 +105,9 @@ every route names one or the other.
 | PATCH, DELETE | `/api/v1/locations/{id}` | `stock.use` | fields | location |
 | GET, POST | `/api/v1/materials`, `/api/v1/items` | `stock.view`; POST `stock.use` | not designed (#10, [OQ-14](risks-and-open.md#oq-14-tables-of-materials-items-and-labels)) | — |
 | GET | `/api/v1/items/{id}/movements` | `stock.view` | cursor | movements |
-| GET, POST | `/api/v1/cameras` | `device.view` per row; POST `cameras.manage` | `{name, url, username, password, watches_device_id, room_view_role}` | cameras; the password never comes back |
+| GET, POST | `/api/v1/cameras` | per row: `device.view` on the device the camera watches, or for a room camera the role `room_view_role` names (today's rule, [authz.md](authz.md#actions)); POST `cameras.manage` | `{name, url, username, password, watches_device_id, room_view_role}` | cameras; the password never comes back |
 | PATCH, DELETE | `/api/v1/cameras/{id}` | `cameras.manage` | fields; an empty password keeps it | camera |
-| GET | `/api/v1/cameras/{id}/ws` | `device.view` on the camera, checked before the upgrade | WebSocket, go2rtc's MSE messages | binary init and fragments |
+| GET | `/api/v1/cameras/{id}/ws` | the same rule as the row, checked before the upgrade | WebSocket, go2rtc's MSE messages | binary init and fragments |
 | GET | `/api/v1/events` | `space.member` of the session's space; filtered per event by `device_access` | `?types=`, `Last-Event-ID` | SSE, below |
 | GET | `/api/v1/instance/spaces` | `instance.admin` | — | every organisation and space |
 | GET | `/api/v1/instance/agents` | `instance.admin` | — | every agent: version, last seen, stream state, its devices with their spaces |
@@ -166,7 +173,11 @@ data: {"seq":1201,"type":"command.settled","time":"2026-11-19T17:40:00Z","space_
 | `origin` | object | `kind` (person, token, agent, queue, device) and its id |
 | `data` | object | The type's own schema (registry) |
 
-- `?types=` narrows the stream; the subscriber sees only events its `device_access` allows.
+- `?types=` narrows the stream; the subscriber sees only events of the session's space, and of those
+  only the device events its `device_access` allows (the registry says per type whether it is about a
+  device or about the space; a space event needs the area's `.view` action). When the space's
+  `authz_epoch` changes the filter is rebuilt; a subscriber who no longer has a membership there is
+  sent `stream.reset` and the stream is closed.
 - **Facts** (device online or offline, job started or ended, command settled, grant changed, material
   moved) are stored and replayable. **State patches** go out live, not stored; on resume the client
   gets a snapshot of each visible device's state tree instead.

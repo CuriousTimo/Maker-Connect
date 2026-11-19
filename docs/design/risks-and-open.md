@@ -258,6 +258,16 @@ admin change or remove a member whose role is above theirs; may anyone lower the
 happens when the last owner would leave or be lowered. **Recommendation:** no, no, and the last owner is
 kept (`authz/LAST_OWNER`); the owner decides.
 
+### OQ-40: The pairing code's strength, expiry and attempt limit
+
+`claim_registration(code)` is reachable from every space of the hub, so the code must not be
+guessable within its life. Not stated: the code's alphabet and length, how long a registration stays
+open (`device_registrations.expires_at`), and whether claims of unknown codes are counted and slowed.
+**Recommendation:** for a Prusa printer exactly what Buddy expects and Prusa Connect issues (read in
+#18, as OQ-12); for an agent today's code as the agent registers it (agent-engine.md O7), an expiry
+of minutes, and the sign-in failure counter applied to unknown codes per caller; decided in the
+device step.
+
 ## Issues the design cannot place yet
 
 | Issue | Why |

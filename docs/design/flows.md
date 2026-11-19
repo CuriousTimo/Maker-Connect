@@ -87,9 +87,9 @@ sequenceDiagram
   H->>H: route guard: the verb's action on the device, person-only from the person's own session
   H->>D: space tx: insert commands, state requested
   H->>H: host-side checks: set, args, state (order decided, OQ-34)
-  alt refused
+  alt refused by a host-side check
     H->>D: settle refused with fault code, event command.settled
-    H-->>B: 409 or 400 or 403 with code domain/REASON
+    H-->>B: 409 or 400 with code domain/REASON
   else authorized
     H->>D: state authorized by grant, then sent
     H-->>B: 202 the command record
@@ -115,7 +115,13 @@ as a late result and never acted on ([wire.md](wire.md#shape)).
 
 A job's start, pause and stop are command records (plan §2.5). The queue may start a job on a 3D
 printer or a label printer; it never starts a laser. The job's state follows from those records and
-the device's job end ([database.md](database.md#files-jobs-queue-and-farm)).
+the device's job end ([database.md](database.md#files-jobs-queue-and-farm)). A dispatcher never
+starts what its person may not: a queue item is started on behalf of the person who queued it
+(`machine_queue.by_user`), and the dispatcher checks that person's `job.start` on the device in the
+space transaction before each start; without it the item keeps a `problem` and waits. The farm
+dispatcher starts on behalf of the person who switched the farm on for that device
+(`devices.settings.farm_on_by`, set with `device.manage`), with the same check; when they lose
+`job.start` the device's farm switch goes off and the Now page says so.
 
 ```mermaid
 sequenceDiagram
@@ -123,10 +129,11 @@ sequenceDiagram
   participant Q as Queue dispatcher
   participant H as Hub
   participant A as Agent
-  B->>H: POST /api/v1/queue, device and file
+  B->>H: POST /api/v1/queue, device and file: queue.manage and job.start on the device
   Q->>H: next item for a free device
   alt the device is a 3D printer or label printer
-    H->>H: command job.start, origin queue
+    H->>H: space tx: the item's person still holds job.start on the device, else the item gets a problem and waits
+    H->>H: command job.start, origin queue, on the item's person's behalf
     H->>A: SSE down: job with record id
     A->>H: GET /api/agent/v2/files/{id}, the whole file
     A->>A: hand the job to the port
@@ -193,7 +200,7 @@ sequenceDiagram
     H-->>B: buffered facts with seq above the last sent
     H-->>B: live facts and patches from the bus, a patch carries rev
   end
-  Note over H,B: a grant change bumps authz_epoch, the filter refreshes
+  Note over H,B: a grant or role change bumps authz_epoch, the filter refreshes; no membership left: stream.reset and the stream closes
 ```
 
 ## 7. Sign-in and invite

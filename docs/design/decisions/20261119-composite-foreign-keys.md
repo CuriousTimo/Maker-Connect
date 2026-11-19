@@ -21,9 +21,13 @@ itself referenced: `commands.job_id`, `transfers.job_id`, `part_ledger.job_id` a
 composite keys with `ON DELETE SET NULL`, so a job survives its project and its spool. A table whose
 ids people choose (`locations`) is keyed `(space_id, id)`, with its `parent` a composite key, so one
 space's names never block or reveal another's. References to `users` (not a tenant table) are checked
-through a membership in the same transaction. Moving a device ([decision](20261119-device-move.md))
-deletes the old space's dependent rows first and refuses while the device has a job not ended, so no
-`ON UPDATE` rule is needed.
+through a membership in the same transaction. `commands` and `transfers` keep no foreign key to
+`devices` either: a record outlives a retired or moved device and is kept forever. Moving a device
+([decision](20261119-device-move.md)) refuses while the device has a job not ended; the rows that
+belong to the device itself (`device_credentials`, `device_capabilities`, the camera's own `cameras`
+row) carry `ON UPDATE CASCADE` on their key to `devices` and follow it; every other row that points at
+the device is deleted or unlinked in the move's transaction. No other composite key has an
+`ON UPDATE` rule.
 
 ## Where it shows
 

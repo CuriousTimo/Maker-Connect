@@ -12,8 +12,13 @@ The target design had no way to move a device from one space to another; the bui
 ## Decision
 
 - History belongs to the space where it happened. A move hands over the device, not the old space's data.
-- Old jobs, files sent and samples stay in the old space.
-- The old space's grants, group memberships and access requests for the device are deleted in the move's transaction.
+- Old jobs, files sent, command and transfer records and samples stay in the old space: `commands`
+  and `transfers` keep no foreign key to `devices` (as `jobs` do not), so the move leaves them whole
+  and nothing kept forever is deleted (design review of PR #35, defect 4).
+- The old space's grants, group memberships, `device_access` rows, access requests and queue items for
+  the device are deleted in the move's transaction; a loaded spool and a camera watching the device
+  are unlinked (`spool.device_id`, `cameras.watches_device_id` set null). The device's own
+  `device_credentials`, `device_capabilities` and `cameras` rows follow it by `ON UPDATE CASCADE`.
 - A device with a job not ended (`current_job_id` set) is not moved: `409 device/JOB_OPEN`. The
   job and its records stay in the old space; `devices.current_job_id` is a composite key into that
   space's `jobs` ([decision](20261119-composite-foreign-keys.md)).
