@@ -11,8 +11,9 @@ The agent registers once for its link and then each device it hosts; a person ad
 Space with the code the agent shows (registering as today, agent-engine.md O7; tables `agents`,
 `device_registrations`, plan §2.7; [decision](decisions/20261119-agent-link-identity-and-delivery.md)).
 The first registration carries no token and yields the agent token with the first device; every
-further one carries the agent token and yields only the device. Re-pairing a device that already has
-a row is [OQ-37](risks-and-open.md#oq-37-re-pairing-a-device-that-has-a-row).
+further one carries the agent token and yields only the device. A device that already has a row is
+paired again by the person, who picks "this is MINI-1 again": the row gets the new `agent_id` and keeps
+its history and grants, never automatically ([decision](decisions/20261119-re-pairing-by-the-person.md)).
 
 ```mermaid
 sequenceDiagram
@@ -35,18 +36,21 @@ sequenceDiagram
   H->>D: admin pool: registration by id and secret hash, its space
   H->>D: space tx: collect_registration(id, token hash) locks it, first registration inserts agents and sets devices.agent_id, collected
   H-->>A: 200 the agent token (first time only, shown once) and the device id
-  A->>H: GET /api/agent/v2/down?stream=… with the token
-  A->>H: POST /api/agent/v2/up, stream, hello with identity, capabilities, epoch, state set
+  A->>H: GET /api/agent/v2/ws?stream=…, WebSocket upgrade with the token
+  H-->>A: 101, subprotocol maker-connect-agent.v2
+  A->>H: up: hello with identity, capabilities, epoch, state set
   H->>D: admin pool: agent by token hash, registration spent at the token's first use
   Note over A,H: a further device: register with the agent token, a new code, pair, collect the device id
 ```
 
 ## 2. A Prusa printer registers (Buddy 6.3.0)
 
+**Shelved:** v2 builds only the websocket dialect (Buddy 6.4+: `/p/register`, `/p/auth`, `/p/ws`;
+[decision](decisions/20261119-buddy-websocket-dialect-only.md)); this flow and flow 5 are kept as the
+record of the 6.3.0 dialect until the Buddy driver (V2-DEVICES step 3) draws the websocket one.
 As Buddy 6.3.0's registrator does it (`reference/buddy-6.3.0` `src/connect`, audit
-`docs/audits/buddy.md`). The 6.4+ dialect adds `/p/auth` and `/p/ws`; how a request is told apart is
-[OQ-3](risks-and-open.md#oq-3-telling-the-two-buddy-dialects-apart). How the token is kept while the
-printer may still ask for it again is [OQ-12](risks-and-open.md#oq-12-the-prusa-token-until-the-code-is-spent).
+`docs/audits/buddy.md`). The token is kept in the registration until its first use, so a printer that
+asks again gets the same token ([decision](decisions/20261119-prusa-token-until-spent.md)).
 
 ```mermaid
 sequenceDiagram
@@ -93,12 +97,12 @@ sequenceDiagram
   else authorized
     H->>D: state authorized by grant, then sent
     H-->>B: 202 the command record
-    H->>A: SSE down: command with record id
+    H->>A: WebSocket: command with record id
     A->>X: the verb, in order
     X-->>A: result: ok, refused, failed, with the device's reason
-    A->>H: POST up: result, seq n
+    A->>H: WebSocket up: result, seq n
     H->>D: space tx: settle the record, event command.settled
-    H-->>A: ack up to seq n
+    H-->>A: WebSocket: ack up to seq n
     H-->>B: SSE: command.settled
   end
 ```
@@ -108,7 +112,7 @@ agent that is offline keeps results in its outbox and sends them when it is back
 each seq once, per agent and stream, and applies each item by its own key, so a repeated batch
 changes nothing. The agent keeps the ids of the commands it took, with their results, until the hub
 acknowledged them, and never runs one twice; on a reconnect on the same stream the hub re-sends the
-open records of that stream. A result that arrives after the record was settled `unknown` is kept
+open records of that stream on the new WebSocket. A result that arrives after the record was settled `unknown` is kept
 as a late result and never acted on ([wire.md](wire.md#shape)).
 
 ## 4. A job, with the laser rule
@@ -134,25 +138,25 @@ sequenceDiagram
   alt the device is a 3D printer or label printer
     H->>H: space tx: the item's person still holds job.start on the device, else the item gets a problem and waits
     H->>H: command job.start, origin queue, on the item's person's behalf
-    H->>A: SSE down: job with record id
+    H->>A: WebSocket: job with record id
     A->>H: GET /api/agent/v2/files/{id}, the whole file
     A->>A: hand the job to the port
-    A->>H: POST up: patches, then job end
+    A->>H: WebSocket up: patches, then job end
     H-->>B: SSE: job.started, job.ended
   else the device is a laser
     H->>H: no start: the queue skips lasers
   end
   Note over B,A: Laser: the job is sent and loaded at the laser
   B->>H: POST /api/v1/devices/{id}/jobs, load the file
-  H->>A: SSE down: job loaded
+  H->>A: WebSocket: job, loaded
   B->>H: command mc.laser.frame
   B->>H: command mc.laser.set_origin
   B->>H: command mc.laser.frame
   B->>H: PPE confirmed in this session
   B->>H: command mc.laser.start from the person's own session
   H->>H: person-only, frame after last origin, PPE, grant mc.laser.start
-  H->>A: SSE down: command mc.laser.start with record id
-  A->>H: POST up: job end
+  H->>A: WebSocket: command mc.laser.start with record id
+  A->>H: WebSocket up: job end
 ```
 
 ## 5. A file to a printer
@@ -179,7 +183,7 @@ sequenceDiagram
   H-->>B: SSE: transfer.settled
 ```
 
-## 6. SSE resume
+## 6. SSE resume (browser)
 
 ```mermaid
 sequenceDiagram

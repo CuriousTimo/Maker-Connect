@@ -47,9 +47,9 @@ released rather than PrusaLink's; our queue stays ours until theirs exists.
 
 ### OQ-3: Telling the two Buddy dialects apart
 
-Both use `/p/register`; how a request shows its dialect is not checked (plan §2.2). **Recommendation:**
-settle it from Buddy's own sources in the #2 audit (the 6.3.0 User-Agent with two parts is one lead,
-issue #2), never by comparing firmware versions.
+Both use `/p/register`; how a request shows its dialect is not checked (plan §2.2).
+**Decided:** only the websocket dialect (`buddy-ws`, Buddy 6.4.0) is built; `buddy-http` (6.3.0) is
+shelved, so nothing tells two dialects apart ([decision](decisions/20261119-buddy-websocket-dialect-only.md)).
 
 ### OQ-4: Action names and preset contents
 
@@ -108,6 +108,10 @@ The printer may ask `GET /p/register` again until its first report spends the co
 must give the same token again, but tokens are stored hashed. Options: (a) the token kept in
 `device_registrations` until spent, then only its hash; (b) a new token each time. **Recommendation:**
 whatever Buddy's registrator and Prusa's server do (read in #18); until read, (a).
+**Decided:** (a) ([decision](decisions/20261119-prusa-token-until-spent.md)). Checked against
+prusa-connect at `2e8c62b`: it keeps the plaintext token only in the minting process's memory and
+mints a fresh one when a printer collects after a restart (`internal/connector/xbuddy/registration.go:114-118`,
+`:624-638`), which differs from (a); put to the owner.
 
 ### OQ-13: The event types
 
@@ -145,8 +149,10 @@ setting, checked beside `device.view`; (b) `device.view` granted on the camera l
 ### OQ-18: Agent link details
 
 The JSON names of [wire.md](wire.md), the batch size, how often the agent retries and how the SSE
-stream is resumed are ours and not in the plan. **Recommendation:** wire.md as the start; the agent's
-values as today's approved ones (agent-engine.md O4-O7), fixed by the generated schema in step 4.
+stream is resumed are ours and not in the plan. **Decided:** superseded: the link is one WebSocket per
+agent ([decision](decisions/20261119-agent-link-one-websocket.md)), so there is no SSE stream to resume;
+wire.md's names are the start of the generated schema (`schemars` from `crates/protocol`); the agent's
+retry pace stays O5. What the WebSocket leaves open is [OQ-43](#oq-43-the-agent-websocket-open-points).
 
 ### OQ-19: The flag that names the folders
 
@@ -158,6 +164,9 @@ no longer has. **Recommendation:** one `--data <dir>` flag holding the three fol
 One agent for several devices (#12) with a small web page: who may open it (the host only, or a
 password or pairing with the hub), the config file or the page as the source, a thread or a process per
 device. **Recommendation:** decide with #12; the hub side of this design does not change.
+**Decided:** (a): a settings page on the agent, LAN only, behind a password made at install, in the
+house style ([decision](decisions/20261119-agent-settings-page.md)). What it leaves open is
+[OQ-44](#oq-44-the-agent-settings-page-open-points).
 
 ### OQ-21: A printer's storage listing
 
@@ -165,7 +174,7 @@ What a printer's USB stick or SD card holds is a table today; the plan does not 
 (a) part of the device's state tree (`/storage/...`), as reported; (b) its own table. Prusa's SDK 0.9
 moves to a lazy file protocol (INFO lists storages only, listings on request; prusa3d/Prusa-Link#1059,
 #1060), which shapes what a Prusa reports. **Recommendation:** (a), following what the driver's
-reference reports at its pinned commit.
+reference reports at its pinned commit. **Decided:** (a) ([decision](decisions/20261119-printer-storage-in-state-tree.md)).
 
 ### OQ-22: Tenancy of history samples
 
@@ -204,7 +213,7 @@ Actions are bits of one `bigint` (plan §2.6); the plan states no limit. Options
 
 ### OQ-29: Repeated commands and the error body
 
-The plan has an idempotency key; it does not say what a repeat returns or what an error body holds besides the code. Options: (a) a repeat returns the first record, the error body is `code` plus `text`; (b) a repeat is refused, the body is `code` only. **Recommendation:** (a).
+The plan has an idempotency key; it does not say what a repeat returns or what an error body holds besides the code. Options: (a) a repeat returns the first record, the error body is `code` plus `text`; (b) a repeat is refused, the body is `code` only. **Recommendation:** (a). **Decided:** (a) ([decision](decisions/20261119-repeated-commands-and-error-body.md)).
 
 ### OQ-30: Origin check on state-changing requests
 
@@ -242,7 +251,8 @@ A reinstalled agent, or a device moved to another agent, registers a device that
 `devices` row (same identity, [OQ-15](#oq-15-device-identity-across-replugs-and-agents)). Options:
 (a) the pairing page offers "this is MINI-1 again" and the row gets the new `agent_id`, keeping its
 history and grants; (b) always a new row, the old one retired by hand. **Recommendation:** (a), by the
-person who pairs, never automatically.
+person who pairs, never automatically. **Decided:** (a), by the person who pairs, never automatically
+([decision](decisions/20261119-re-pairing-by-the-person.md)).
 
 ### OQ-38: A person-only laser console
 
@@ -268,13 +278,40 @@ open (`device_registrations.expires_at`), and whether claims of unknown codes ar
 read from today's code in the device step), and the sign-in failure counter applied to unknown codes
 per caller; decided in the device step.
 
+### OQ-43: The agent WebSocket, open points
+
+The link is one WebSocket per agent ([decision](decisions/20261119-agent-link-one-websocket.md)). Not
+stated:
+
+1. **What the hub re-sends after a reconnect** besides the open command records: a pending `answer`
+   or `update`, which the SSE stream's `Last-Event-ID` used to replay.
+2. **Hellos on a new connection:** whether the agent sends each session's `hello` and a full state
+   again on every new connection, as Buddy starts again with INFO after 10 s without success and sends
+   fresh telemetry after a reconnect (`reference/buddy-6.4.0` `src/connect/planner.cpp:109`, `:586-597`;
+   `src/connect/connect.cpp:832-837`), or only when a session opens or its set changes, as wire.md has it.
+3. **An unreadable message:** how either side answers a message it cannot read (Buddy settles a
+   down frame it cannot parse as a broken command, `connect.cpp:448-461`, `:518-521`).
+4. **Sizes:** the largest message either side takes (prusa-connect bounds a printer frame at 1 MiB,
+   `internal/connector/xbuddy/session.go:63-64`, `link.go:70`), and how many items one `up` carries.
+5. **Close codes:** whether the hub closes with a WebSocket close code and reason (a new stream taken,
+   a revoked token) or only drops the connection.
+
+**Recommendation:** none here; decided with V2-DEVICES step 1.
+
+### OQ-44: The agent settings page, open points
+
+The page is decided ([decision](decisions/20261119-agent-settings-page.md)). Not stated: the config
+file or the page as the source of the settings; what "a password made at install" is (made by the
+installer and shown once, or chosen by the person installing); how the agent keeps it; what "LAN only"
+checks (the address the page listens on, or the caller's address). **Recommendation:** none here;
+decided with V2-DEVICES step 2.
+
 ## Issues the design cannot place yet
 
 | Issue | Why |
 |---|---|
 | #9 Klipper | The SimplyPrint/Moonraker route is parked (plan §3); no link, device kind or table in v2 until a Moonraker mapping after their example |
 | #4 MK3 family | Parked: the MK3 joins over `/p/ws` once PrusaLink gets WebSocket support (prusa3d/prusa-connect#9); it would then be the `prusa` kind |
-| #12 multi-device agent page | The agent side is placed (one session per device); the page is [OQ-20](#oq-20-the-agents-management-page) |
 | #10, #6 (tables) | Placed as pages and endpoints; their tables are [OQ-14](#oq-14-tables-of-materials-items-and-labels) |
 
 ## Upstream changes that move a reference or inform the design

@@ -76,7 +76,9 @@ result; `engine::Port` (`engine/src/lib.rs:83`) gains a contract adapter; `proto
 
 ### 2.2 The Prusa driver, both Buddy protocols
 
-**Decision.** One driver `prusa-buddy`, inbound, hosted in the hub process, with two dialects:
+**Decision.** One driver `prusa-buddy`, inbound, hosted in the hub process. v2 builds only the websocket
+dialect `buddy-ws`; `buddy-http` (6.3.0) is shelved (owner, journal:V2-DEVICES:0005;
+[decision](../design/decisions/20261119-buddy-websocket-dialect-only.md)). The two dialects as first planned:
 
 | Dialect | Wire | Reference (normative) | Server-side reference | Today |
 |---|---|---|---|---|
@@ -84,8 +86,7 @@ result; `engine::Port` (`engine/src/lib.rs:83`) gains a contract adapter; `proto
 | `buddy-ws` | 6.4+: `/p/register`, `/p/auth`, `/p/ws` | Buddy 6.4+ | their `internal/connector/xbuddy` (R1) | not built (#2) |
 
 Both map onto the same 3D-printer capability set; what differs is declared by the dialect's baseline,
-not by comparing firmware. Both dialects use `/p/register`: how a request is told apart is **not checked**
-(settled from Buddy's own sources in the #2 audit, not guessed). The hub's own G-code for Prusa
+not by comparing firmware. With `buddy-http` shelved nothing has to tell the two apart on `/p/register`. The hub's own G-code for Prusa
 (`devices/legacy_gcode.rs`, HS10) is not carried into the driver; the button rows wait for HS10.
 
 **Replaces.** hub-side.md H1/HS9 ("engine inside the hub"): the hub hosts this driver directly through
@@ -97,10 +98,17 @@ the contract; no sync engine bridge is needed for inbound printers.
 §Later). It sends upstream: identity, capability set + epoch, state set, state patches, command results,
 job ends; it takes downstream: commands (contract form, with the hub's record id), jobs, answers.
 Agent link v2 replaces `/api/agent/v1/*` (`protocol/src/lib.rs:25-29`) and the 2 s report loop
-(`agent/src/link.rs:24`): **upstream POST** batches with a sequence the hub acknowledges (unacknowledged
-items kept on disk, which absorbs HS5b), **downstream SSE** per agent so a command arrives at once (same
-house rule as the browser). Agent tokens: report and fetch only, stored hashed (today the machine token
-is plain text, `store/migrate.rs:85`).
+(`agent/src/link.rs:24`) outright: no v1 fallback, no transition period, no old agents served (owner,
+journal:DESIGN-HOST:0006). It is **one WebSocket per agent**, modelled on Buddy 6.4.0 and Prusa Connect's
+`/p/ws` (upgrade with a subprotocol, both ways on one socket, ping and pong, dial again on a break;
+`reference/buddy-6.4.0` `src/connect/connect.cpp:151-189`, `:559-680`; `reference/prusa-connect`
+`internal/connector/xbuddy/link.go`). Path (`/api/agent/v2/ws`), subprotocol (`maker-connect-agent.v2`)
+and message JSON are ours. Upstream items keep a sequence the hub acknowledges (unacknowledged items kept
+on disk across reconnects, which absorbs HS5b); commands, jobs, answers and updates arrive on the same
+socket at once. Registration and file and update downloads stay HTTP. Browser live updates stay SSE
+(§2.4). Agent tokens: report and fetch only, stored hashed (today the machine token is plain text,
+`store/migrate.rs:85`). ([Decision](../design/decisions/20261119-agent-link-one-websocket.md),
+journal:DESIGN-WS:0001; the wire: [wire.md](../design/wire.md).)
 
 Ports and their references are untouched; only the edge between engine and link changes. Their
 out-of-process wire (`D/plugin-wire-protocol.md`) is **not** built: the hub keeps a `Host` boundary
@@ -276,8 +284,8 @@ Each step ends green (fmt, clippy `-D warnings`, tests, audit checkers) and is r
 | 1 | **Contract + registries**: `crates/device` (identity, capabilities, state sets, patches, command/result, host validation), conformance kit, the six registries with generated docs | Conformance kit passes on a fake device and on each agent port behind an adapter (Marlin, labelle, 450, 320, LaserFoundry, usbscale); registry drift test in `check.sh` |
 | 2 | **Store on Postgres**: sqlx, per-module migrations, the schema of §2.7 except history, RLS, `Store` handle; every module's queries moved; `rusqlite` removed | All hub tests on Postgres locally and in Linux CI; `cargo tree -p maker-connect-hub` has no `rusqlite`; hub runs on .67 against the container; an RLS test shows a query without `app.space_id` sees nothing |
 | 3 | **Authz + events + history**: actions and presets, `device_access`, route guard from actions; event table and bus, `/api/v1/events` with resume; history subscriber into `sample` with aggregates; narrow trial repeated on .67 | Route walk: every route has an action; list/count/SSE filtering tests per role; resume test (disconnect, events, reconnect with id) ; .67 numbers recorded in this doc |
-| 4 | **Commands + agent link v2**: command records, transfers, agent hosts sessions, POST up / SSE down, on-disk outbox | Restart test: open command → outcome unknown, not re-sent; agent on .67 drives the MINI-less bench (Marlin + DYMO + laser framing only, laser never fires: safety rule) through v2 |
-| 5 | **Prusa driver, 6.3.0 dialect** in the hub on the contract; then **#2 `buddy-ws`** | `docs/audits/buddy.md` rows still identical for 6.3.0 on the owner's MINI; #2 its own audit, tested on a 6.4+ build (MINI404 if the bench is built) |
+| 4 | **Commands + agent link v2**: command records, transfers, agent hosts sessions, one WebSocket per agent, on-disk outbox | Restart test: open command → outcome unknown, not re-sent; agent on .67 drives the MINI-less bench (Marlin + DYMO + laser framing only, laser never fires: safety rule) through v2 |
+| 5 | **Prusa driver, websocket dialect only** (#2 `buddy-ws`) in the hub on the contract; `buddy-http` (6.3.0) shelved | #2 its own audit, tested on the owner's MINI with websocket firmware |
 | 6 | **API**: utoipa spec, their 3D-printer REST, ours, Spoolman at `/spoolman/api/v1`, oasdiff in CI | Spec checked in and in sync; tracking test against their server for the 3D-printer paths both serve; Spoolman audit green with base path |
 | 7 | **Web UI on the API**, page by page (Now, machines, machine, files, queue, labels, Space tabs) | No page route changes data; each page's HTML in a template; UI-study states on each page |
 
@@ -287,6 +295,13 @@ step come in that step: `action_grants`, `device_groups`, `device_access`, `auth
 (step 3); `commands`, `transfers`, `device_capabilities`, `devices.state` (steps 4-5); token scopes and
 generation (step 3). Today's id types stay (integer ids become `bigint`, text ids `text`); uuid v7 comes
 with the API (step 6). Pages and JSON stay byte for byte as they are; timestamps serialise as today.
+
+**V2-DEVICES** (2026-11-19, journal:DESIGN-WS:0001, journal:V2-DEVICES:0005) takes steps 4 and 5 in this
+order: (1) the hub's device contract and agent link v2 (one WebSocket per agent); (2) agent v2 with
+several devices per agent and its settings page
+([decision](../design/decisions/20261119-agent-settings-page.md)); (3) the Buddy driver, websocket dialect
+only. The first agent v2 devices (owner): the DYMO LabelManager PnP (labelle stack, tape) and the DYMO
+LabelWriter 450 (DYMO CUPS stack, labels), kept as two separate stacks with no shared code.
 
 **Parked:** HS10 (MINI button G-code: owner's choice, lands in the driver after step 5); #2 waits for
 step 5 (the device model first); #4 MK3 PrusaLink HTTP port parked (MK3 to come over `/p/ws`, study §5b);
@@ -313,7 +328,7 @@ out-of-process drivers (not built until Prusa publishes the driver methods); mod
 | 1 GB armhf Pi: hub + Postgres + Docker without proper AppArmor | Limits from the trial; AppArmor fixed in step 2; arm64 hosts may use apt |
 | Narrow history heavier than the wide trial | Repeat trial in step 3 before it is called done; fall back to wide-per-kind only if numbers say so |
 | sqlx offline cache and armv7 cross builds | `SQLX_OFFLINE=true` in builds; `prepare --check` in CI |
-| Two Buddy dialects on `/p/register` | Told apart only from Buddy's sources (not checked yet); test per dialect |
+| Two Buddy dialects on `/p/register` | Gone: only the websocket dialect is built (§2.2) |
 | RLS: a pooled connection keeps a setting | Only `SET LOCAL` inside a transaction; a test that a fresh transaction sees no space |
 | SSE fan-out filter cost on the Pi | Per-subscriber action cache keyed by `authz_epoch`; measure with 20 subscribers |
 | macOS/Windows CI lack Postgres | Store tests on Linux CI only, said so in `ci.yml` |
