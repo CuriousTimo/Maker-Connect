@@ -54,10 +54,9 @@ async fn info() -> Json<Value> {
 
 async fn me(access: Access, State(store): State<Store>) -> Response {
     let found: sqlx::Result<Value> = async {
-        let organisation = store.organisation_of(access.space).await?;
         Ok(json!({
             "space": { "id": store.space_uid(access.space).await?, "name": store.space_name(access.space).await? },
-            "organisation": { "name": store.organisation_name(organisation).await? },
+            "organisation": { "name": store.organisation_name(access.space).await? },
             "role": access.role,
             "as": access.actor,
         }))

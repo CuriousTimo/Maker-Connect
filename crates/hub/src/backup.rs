@@ -16,7 +16,13 @@
 //! - A restore never writes over the database in use: it fills a new database, and only once that
 //!   worked does it take the old one's place ([`Dumps::restore_live`]).
 
+use crate::store::pg::OWNER_ROLE;
 use std::path::{Path, PathBuf};
+
+/// What a restore fills a fresh database from: made once per server by the operator
+/// (scripts/db-roles.sql, design storage-ops.md "the restore template"), owned by
+/// [`OWNER_ROLE`], with the TimescaleDB extension the dumps leave out.
+pub const RESTORE_TEMPLATE: &str = "maker_connect_template";
 use std::process::{Command, Stdio};
 
 /// The hub's dumps, as its flags set them (main); none in tests and `reset-password`.
@@ -148,7 +154,7 @@ impl Dumps {
     }
 
     /// SQL on the server's `postgres` database, one statement per `-c` (CREATE/DROP DATABASE run
-    /// outside a transaction).
+    /// outside a transaction), as the tables' owner (the hub's login may only `SET ROLE` to it).
     fn psql(&self, statements: &[String]) -> Result<(), String> {
         let mut command = self.tool("psql");
         command.args([
@@ -158,6 +164,8 @@ impl Dumps {
             "ON_ERROR_STOP=1",
             "-d",
             &self.url_of("postgres"),
+            "-c",
+            &format!("SET ROLE {OWNER_ROLE}"),
         ]);
         for s in statements {
             command.args(["-c", s]);
@@ -187,7 +195,16 @@ impl Dumps {
             .map_err(|e| format!("{}: {e}", part.display()))?;
         let mut command = self.tool("pg_dump");
         command
-            .args(["-Fc", "--dbname", &self.url_of(&self.database())])
+            .args([
+                "-Fc",
+                "--role",
+                OWNER_ROLE,
+                // TimescaleDB comes with the restore template (RESTORE_TEMPLATE): its own catalog is
+                // the superuser's, which a restore as the owner may not write.
+                "--exclude-extension=timescaledb",
+                "--dbname",
+                &self.url_of(&self.database()),
+            ])
             .stdout(file)
             .stderr(Stdio::piped());
         let out = command.output().map_err(|e| format!("pg_dump: {e}"));
@@ -255,7 +272,7 @@ impl Dumps {
         }
         self.drop_database(database)?;
         self.psql(&[format!(
-            "CREATE DATABASE {} TEMPLATE template0",
+            "CREATE DATABASE {} TEMPLATE {RESTORE_TEMPLATE}",
             ident(database)
         )])?;
         let file = std::fs::File::open(dump).map_err(|e| format!("{}: {e}", dump.display()))?;
@@ -264,6 +281,8 @@ impl Dumps {
             .args([
                 "--exit-on-error",
                 "--single-transaction",
+                "--role",
+                OWNER_ROLE,
                 "--dbname",
                 &self.url_of(database),
             ])
@@ -389,6 +408,15 @@ pub fn back_as_before(dumps: &Dumps, note: &serde_json::Value) -> Result<Option<
     Ok(Some(dump))
 }
 
+/// For the tests: `database` on the tests' server as the hub's login (the password the tests' own).
+#[cfg(test)]
+pub(crate) fn hub_url_for_test(database: &str) -> String {
+    let base = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+    let mut url = url::Url::parse(&with_database(&base, database).unwrap()).unwrap();
+    url.set_username(crate::store::pg::HUB_LOGIN).unwrap();
+    url.to_string()
+}
+
 /// `database_url` with its database name replaced by `database`.
 pub fn with_database(database_url: &str, database: &str) -> Result<String, String> {
     let mut url = url::Url::parse(database_url).map_err(|e| e.to_string())?;
@@ -420,15 +448,14 @@ pub async fn nightly(dumps: &'static Dumps) {
 }
 
 /// For the tests: the dumps of the test's database, the tools as `MC_PG_COMMAND` says (check.sh:
-/// the dev database's container), into a folder of the test's own.
+/// the dev database's container), into a folder of the test's own; logged in as the hub is.
 #[cfg(test)]
 pub(crate) async fn for_test(pool: &sqlx::PgPool) -> Dumps {
     let database: String = sqlx::query_scalar("SELECT current_database()")
         .fetch_one(pool)
         .await
         .unwrap();
-    let base = std::env::var("DATABASE_URL").expect("DATABASE_URL");
-    let url = with_database(&base, &database).unwrap();
+    let url = hub_url_for_test(&database);
     let dir = std::env::temp_dir().join(format!("mc-dumps-{}", crate::store::random_id()));
     Dumps::new(
         dir,
@@ -563,12 +590,11 @@ mod tests {
         tools
             .restore_as(&tools.dump(NIGHTLY, None).unwrap(), &live)
             .unwrap();
-        let base = std::env::var("DATABASE_URL").unwrap();
         let dumps = Dumps::new(
             tools.dir.join("live"),
             KEEP,
             &std::env::var("MC_PG_COMMAND").unwrap_or_default(),
-            &with_database(&base, &live).unwrap(),
+            &hub_url_for_test(&live),
         )
         .unwrap();
         let holding = pool_of(&live).await;

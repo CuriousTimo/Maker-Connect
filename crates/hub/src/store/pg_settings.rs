@@ -4,6 +4,7 @@
 //! Space-keyed ones run in their space's transaction ([`pg::Pg::space`]).
 
 use super::*;
+use crate::store::pg::Bypass;
 
 impl Store {
     /// One space-keyed column update; whether the machine is in the space.
@@ -131,15 +132,17 @@ impl Store {
 
     /// A print from the stick is over once the printer is idle again (a minute on: it may still be
     /// starting).
-    pub async fn usb_print_over(&self, machine: &str) -> sqlx::Result<()> {
+    pub async fn usb_print_over(&self, space: i64, machine: &str) -> sqlx::Result<()> {
+        let mut tx = self.pg().space(space).await?;
         sqlx::query!(
             "UPDATE machines SET usb_print_by = NULL, usb_print_at = NULL
              WHERE id = $1 AND usb_print_by IS NOT NULL AND usb_print_at < at_unix($2)",
             machine,
             now() - 60
         )
-        .execute(&self.pg().admin)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -154,18 +157,19 @@ impl Store {
                FROM machines WHERE token = $1"#,
             token
         )
-        .fetch_optional(&self.pg().admin)
+        .fetch_optional(self.pg().admin(Bypass::Secret))
         .await?;
         Ok(row.map(|r| (r.id, r.agent_update_to, r.at)))
     }
 
     /// The agent is on the release asked for, or said how its update went: asked no more.
-    pub async fn agent_update_done(&self, machine: &str) -> sqlx::Result<()> {
-        sqlx::query!(
-            "UPDATE machines SET agent_update_to = NULL, agent_update_at = NULL WHERE id = $1",
-            machine
+    pub async fn agent_update_done(&self, token: &str) -> sqlx::Result<()> {
+        // By the agent's token: its own row, maybe in no space yet.
+        sqlx::query(
+            "UPDATE machines SET agent_update_to = NULL, agent_update_at = NULL WHERE token = $1",
         )
-        .execute(&self.pg().admin)
+        .bind(token)
+        .execute(self.pg().admin(Bypass::Secret))
         .await?;
         Ok(())
     }

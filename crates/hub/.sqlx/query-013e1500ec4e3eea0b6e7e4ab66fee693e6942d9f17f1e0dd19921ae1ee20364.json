@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT i.id, i.space_id, s.name AS space_name, i.role, b.display_name AS by_name,\n                 unix_seconds(i.created_at) AS \"created_at!\", unix_seconds(i.expires_at) AS \"expires_at!\",\n                 u.display_name AS \"used_by?\", i.revoked, i.whole_organisation\n             FROM invites i JOIN spaces s ON s.id = i.space_id JOIN users b ON b.id = i.created_by\n             LEFT JOIN users u ON u.id = i.used_by WHERE i.space_id = $1 ORDER BY i.created_at DESC, i.id DESC",
+  "query": "SELECT i.id, i.space_id, s.name AS space_name, i.role, COALESCE(b.display_name, '') AS \"by_name!\",\n                 unix_seconds(i.created_at) AS \"created_at!\", unix_seconds(i.expires_at) AS \"expires_at!\",\n                 u.display_name AS \"used_by?\", i.revoked, i.whole_organisation\n             FROM invites i JOIN spaces s ON s.id = i.space_id LEFT JOIN users b ON b.id = i.created_by\n             LEFT JOIN users u ON u.id = i.used_by WHERE i.space_id = $1 ORDER BY i.created_at DESC, i.id DESC",
   "describe": {
     "columns": [
       {
@@ -49,14 +49,9 @@
       },
       {
         "ordinal": 4,
-        "name": "by_name",
+        "name": "by_name!",
         "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "users",
-            "name": "display_name"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 5,
@@ -114,7 +109,7 @@
       false,
       false,
       false,
-      false,
+      null,
       null,
       null,
       false,
@@ -122,5 +117,5 @@
       false
     ]
   },
-  "hash": "feb8d053b2b9a93b8f282219bef13946ef1f1a8a44d99d9dba2ccbcfb40fa20e"
+  "hash": "013e1500ec4e3eea0b6e7e4ab66fee693e6942d9f17f1e0dd19921ae1ee20364"
 }

@@ -212,7 +212,9 @@ async fn session_access(
         let Some(first) = store.spaces_of(signed.user_id).await?.into_iter().next() else {
             return Ok(None);
         };
-        store.set_session_space(signed.session_id, first.id).await?;
+        store
+            .set_session_space(signed.user_id, signed.session_id, first.id)
+            .await?;
         space = Some(first.id);
         role = Some(first.role);
     }
@@ -658,12 +660,9 @@ async fn setup(
         let (space, _) = store.default_space().await?;
         let user = store.create_user(&name, &display_name, &hash, true).await?;
         // Owner of the first space's organisation (all its spaces); both get the name.
-        let organisation = store.organisation_of(space).await?;
-        store
-            .set_org_membership(user, organisation, "owner")
-            .await?;
+        store.set_org_membership(user, space, "owner").await?;
         store.rename_space(space, &space_name).await?;
-        store.rename_organisation(organisation, &space_name).await?;
+        store.rename_organisation(space, &space_name).await?;
         store
             .create_session(user, Some(space), user_agent, &client)
             .await
@@ -796,9 +795,8 @@ pub async fn signed_in_app(store: Store) -> Router {
             .unwrap();
         TESTER.with(|t| t.set(user));
         let space = store.default_space().await.unwrap().0;
-        let organisation = store.organisation_of(space).await.unwrap();
         store
-            .set_org_membership(user, organisation, "owner")
+            .set_org_membership(user, space, "owner")
             .await
             .unwrap();
         store

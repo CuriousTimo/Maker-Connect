@@ -147,9 +147,9 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
         Ok(name) => name,
         Err(error) => return failed(error),
     };
-    // The database's size as Postgres counts it.
+    // The database's size as Postgres counts it (no table read: the app pool).
     let database_size = sqlx::query_scalar::<_, i64>("SELECT pg_database_size(current_database())")
-        .fetch_one(&store.pg().admin)
+        .fetch_one(&store.pg().app)
         .await
         .ok()
         .map(|n| bytes(n as u64));

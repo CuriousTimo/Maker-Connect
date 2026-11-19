@@ -74,16 +74,23 @@ impl Store {
     /// Reads again what the hub keeps about every file it kept before it read as much as it does now
     /// (where the moves go, the highest power; temperatures, colour, objects and QOI and JPG
     /// thumbnails, as Prusa's gcode-metadata reads them), and what its name tells; a thumbnail it did
-    /// not have is kept now. Across spaces: the admin pool.
+    /// not have is kept now. Each space's in its transaction (the spaces as instance admin,
+    /// [`Store::space_ids`]).
     pub async fn reread_files(&self) -> sqlx::Result<usize> {
-        let stale: Vec<(String, String)> = sqlx::query!("SELECT id, name, meta FROM files")
-            .fetch_all(&self.pg().admin)
-            .await?
-            .into_iter()
-            .filter(|r| !r.meta.contains("bounds_mm") || !r.meta.contains("\"objects\""))
-            .map(|r| (r.id, r.name))
-            .collect();
-        for (id, name) in &stale {
+        let mut stale: Vec<(i64, String, String)> = Vec::new();
+        for space in self.space_ids().await? {
+            let mut tx = self.pg().space(space).await?;
+            stale.extend(
+                sqlx::query!("SELECT id, name, meta FROM files")
+                    .fetch_all(&mut *tx)
+                    .await?
+                    .into_iter()
+                    .filter(|r| !r.meta.contains("bounds_mm") || !r.meta.contains("\"objects\""))
+                    .map(|r| (space, r.id, r.name)),
+            );
+            tx.commit().await?;
+        }
+        for (space, id, name) in &stale {
             if let Ok((mut meta, png)) = crate::gcode::read(&self.file_path(id)) {
                 crate::gcode::from_name(&mut meta, name);
                 let thumbnail = self.thumbnail_path(id);
@@ -92,13 +99,15 @@ impl Store {
                 {
                     let _ = std::fs::write(&thumbnail, png);
                 }
+                let mut tx = self.pg().space(*space).await?;
                 sqlx::query!(
                     "UPDATE files SET meta = $1 WHERE id = $2",
                     serde_json::to_string(&meta).unwrap_or_default(),
                     id
                 )
-                .execute(&self.pg().admin)
+                .execute(&mut *tx)
                 .await?;
+                tx.commit().await?;
             }
         }
         Ok(stale.len())
@@ -108,9 +117,9 @@ impl Store {
     pub async fn remove_file(&self, space: i64, id: &str) -> sqlx::Result<bool> {
         // The check and the removal are one transaction, the file's row locked: a job put on it
         // meanwhile ([`Store::add_job`] locks the same row to share) waits, and then finds it gone;
-        // or it is there before the check sees it. The check on the admin pool, as all jobs of a
-        // machine: a machine that moved away keeps its jobs in the old space.
-        let mut tx = self.pg().admin.begin().await?;
+        // or it is there before the check sees it. A machine that moved away keeps its jobs in this
+        // space: the check sees them.
+        let mut tx = self.pg().space(space).await?;
         let there = sqlx::query_scalar!(
             "SELECT id FROM files WHERE id = $1 AND space_id = $2 FOR UPDATE",
             id,

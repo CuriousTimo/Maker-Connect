@@ -5,6 +5,7 @@
 
 use crate::Store;
 use crate::access::{Access, Level, Role};
+use crate::store::pg::Bypass;
 use crate::store::{Legacy, Work, now};
 
 /// A camera as stored. `machine_id` empty: a room camera, seen from `view_role` up.
@@ -144,12 +145,13 @@ impl Store {
         crate::stock::in_space!(self, space, |w| w.cameras()).await
     }
 
-    /// Every camera of every space (their sessions start with the hub): across spaces, the admin pool.
+    /// Every camera of every space (their sessions start with the hub): a background task listing its
+    /// work (`Bypass::TaskList`).
     pub async fn all_cameras(&self) -> sqlx::Result<Vec<Camera>> {
         let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {COLUMNS} FROM cameras ORDER BY id"
         )))
-        .fetch_all(&self.pg().admin)
+        .fetch_all(self.pg().admin(Bypass::TaskList))
         .await?;
         Ok(rows.into_iter().map(camera).collect())
     }

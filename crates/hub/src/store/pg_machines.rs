@@ -1,10 +1,12 @@
 //! Machines on Postgres (`migrations/20261118000300_machines.sql`): the queries of `machines.rs` and
 //! `agents.rs` that touch only the `machines` table, as async [`Store`] methods (hub core v2 step 2,
 //! lane 3). Space-keyed ones run in their space's transaction ([`pg::Pg::space`]); those keyed by a
-//! token or a pairing code (an agent, a printer, not yet in a space) use the admin pool, as
-//! sign-in does.
+//! token or a pairing code (an agent, a printer, maybe in no space yet) use the admin pool
+//! (`Bypass::Secret`), and so does moving a machine to another space
+//! (`Bypass::InstanceAdmin`).
 
 use super::*;
+use crate::store::pg::Bypass;
 
 /// The columns of a machine, as [`MachineRow`] reads them.
 macro_rules! machine_select {
@@ -130,7 +132,7 @@ impl Store {
             r#"SELECT COUNT(*) AS "n!" FROM machines WHERE token = $1"#,
             token
         )
-        .fetch_one(&self.pg().admin)
+        .fetch_one(self.pg().admin(Bypass::Secret))
         .await?
             > 0)
     }
@@ -138,7 +140,7 @@ impl Store {
     /// A machine's last report, by its token.
     pub async fn last_telemetry(&self, token: &str) -> sqlx::Result<Option<Telemetry>> {
         let text = sqlx::query_scalar!("SELECT telemetry FROM machines WHERE token = $1", token)
-            .fetch_optional(&self.pg().admin)
+            .fetch_optional(self.pg().admin(Bypass::Secret))
             .await?
             .flatten();
         Ok(text.and_then(|t| serde_json::from_str(&t).ok()))
@@ -151,7 +153,7 @@ impl Store {
             serde_json::to_string(details).unwrap_or_default(),
             token
         )
-        .execute(&self.pg().admin)
+        .execute(self.pg().admin(Bypass::Secret))
         .await?
         .rows_affected();
         self.changed();
@@ -162,7 +164,7 @@ impl Store {
     /// unknown code. A code is used once.
     pub async fn pair(&self, space: i64, code: &str) -> sqlx::Result<Option<(String, String)>> {
         let code = code.trim().to_ascii_uppercase();
-        let mut tx = self.pg().admin.begin().await?;
+        let mut tx = self.pg().admin(Bypass::Secret).begin().await?;
         let found = sqlx::query!(
             "SELECT id, name FROM machines WHERE pairing_code = $1 AND space_id IS NULL",
             code
@@ -199,28 +201,7 @@ impl Store {
         agent: &Register,
         link: &str,
     ) -> sqlx::Result<(String, String, String)> {
-        let (id, token, code) = {
-            let mut rng = rand::thread_rng();
-            let token: String = if link == "prusa-connect" {
-                // Buddy keeps at most 20 characters of a token (CONNECT_TOKEN_LEN, printer.hpp:190); 19 of 62 is 113 bits, which fits.
-                const ALPHANUMERIC: &[u8] =
-                    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-                (0..19)
-                    .map(|_| ALPHANUMERIC[rng.gen_range(0..ALPHANUMERIC.len())] as char)
-                    .collect()
-            } else {
-                (0..32)
-                    .map(|_| format!("{:02x}", rng.r#gen::<u8>()))
-                    .collect()
-            };
-            let id: String = (0..8)
-                .map(|_| format!("{:02x}", rng.r#gen::<u8>()))
-                .collect();
-            let code: String = (0..6)
-                .map(|_| CODE_CHARS[rng.gen_range(0..CODE_CHARS.len())] as char)
-                .collect();
-            (id, token, code)
-        };
+        let (id, token, code) = new_identity(link);
         // A new machine needs permission: members get it per machine or per group.
         sqlx::query!(
             "INSERT INTO machines (id, name, kind, agent_version, token, pairing_code, registered_at, link, induction_required)
@@ -234,65 +215,109 @@ impl Store {
             now(),
             link
         )
-        .execute(&self.pg().admin)
+        .execute(self.pg().admin(Bypass::Secret))
         .await?;
         self.changed();
         Ok((id, token, code))
     }
 
+    /// A new machine made by someone of the space (a virtual machine, a Moonraker printer): straight
+    /// into it, in its transaction, without a pairing code; its id. As [`Store::register_linked`]
+    /// and then paired.
+    async fn add_in_space(
+        &self,
+        space: i64,
+        agent: &Register,
+        link: &str,
+        profile: Option<&str>,
+    ) -> sqlx::Result<String> {
+        let (id, token, _) = new_identity(link);
+        let mut tx = self.pg().space(space).await?;
+        sqlx::query(
+            "INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at, link,
+                 induction_required, profile, profile_chosen)
+             VALUES ($1, $2, $3, $4, $5, $6, at_unix($7), $8, 1, $9, $10)",
+        )
+        .bind(&id)
+        .bind(space)
+        .bind(&agent.name)
+        .bind(serde_json::to_string(&agent.kind).unwrap_or_default())
+        .bind(&agent.agent_version)
+        .bind(&token)
+        .bind(now())
+        .bind(link)
+        .bind(profile)
+        .bind(profile.is_some())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        self.changed();
+        Ok(id)
+    }
+}
+
+/// A new machine's id, token and pairing code, random (a Prusa Connect printer's token as Buddy keeps it).
+fn new_identity(link: &str) -> (String, String, String) {
+    {
+        let mut rng = rand::thread_rng();
+        let token: String = if link == "prusa-connect" {
+            // Buddy keeps at most 20 characters of a token (CONNECT_TOKEN_LEN, printer.hpp:190); 19 of 62 is 113 bits, which fits.
+            const ALPHANUMERIC: &[u8] =
+                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+            (0..19)
+                .map(|_| ALPHANUMERIC[rng.gen_range(0..ALPHANUMERIC.len())] as char)
+                .collect()
+        } else {
+            (0..32)
+                .map(|_| format!("{:02x}", rng.r#gen::<u8>()))
+                .collect()
+        };
+        let id: String = (0..8)
+            .map(|_| format!("{:02x}", rng.r#gen::<u8>()))
+            .collect();
+        let code: String = (0..6)
+            .map(|_| CODE_CHARS[rng.gen_range(0..CODE_CHARS.len())] as char)
+            .collect();
+        (id, token, code)
+    }
+}
+
+impl Store {
     /// A virtual machine of a profile, straight into the space: its id.
     pub async fn add_virtual(
         &self,
         space: i64,
         profile: &crate::profiles::Profile,
     ) -> sqlx::Result<String> {
-        let (id, _, _) = self
-            .register_linked(
-                &Register {
-                    protocol: maker_connect_protocol::VERSION,
-                    name: format!("Virtual {}", profile.model),
-                    kind: profile.kind,
-                    agent_version: "simulated in the hub".to_owned(),
-                },
-                "virtual",
-            )
-            .await?;
-        sqlx::query!(
-            "UPDATE machines SET space_id = $1, pairing_code = NULL, profile = $2, profile_chosen = true
-             WHERE id = $3",
+        self.add_in_space(
             space,
-            profile.id,
-            id
+            &Register {
+                protocol: maker_connect_protocol::VERSION,
+                name: format!("Virtual {}", profile.model),
+                kind: profile.kind,
+                agent_version: "simulated in the hub".to_owned(),
+            },
+            "virtual",
+            Some(&profile.id),
         )
-        .execute(&self.pg().admin)
-        .await?;
-        self.changed();
-        Ok(id)
+        .await
     }
 
     /// A printer on Klipper, reached through Moonraker (its SimplyPrint component pointed here),
     /// straight into the space: its id.
     pub async fn add_moonraker(&self, space: i64, name: &str) -> sqlx::Result<String> {
-        let (id, _, _) = self
-            .register_linked(
-                &Register {
-                    protocol: maker_connect_protocol::VERSION,
-                    name: name.to_owned(),
-                    kind: MachineKind::Fdm,
-                    agent_version: "Moonraker".to_owned(),
-                },
-                "simplyprint",
-            )
-            .await?;
-        sqlx::query!(
-            "UPDATE machines SET space_id = $1, pairing_code = NULL WHERE id = $2",
+        self.add_in_space(
             space,
-            id
+            &Register {
+                protocol: maker_connect_protocol::VERSION,
+                name: name.to_owned(),
+                kind: MachineKind::Fdm,
+                agent_version: "Moonraker".to_owned(),
+            },
+            "simplyprint",
+            None,
         )
-        .execute(&self.pg().admin)
-        .await?;
-        self.changed();
-        Ok(id)
+        .await
     }
 
     /// The name of the Moonraker printer with this token, if it is one in a space.
@@ -301,7 +326,7 @@ impl Store {
             "SELECT name FROM machines WHERE token = $1 AND link = 'simplyprint' AND space_id IS NOT NULL",
             token
         )
-        .fetch_optional(&self.pg().admin)
+        .fetch_optional(self.pg().admin(Bypass::Secret))
         .await
     }
 
@@ -319,15 +344,22 @@ impl Store {
         Ok(token)
     }
 
-    /// Every virtual machine: its id, token and profile.
-    pub async fn virtual_machines(&self) -> sqlx::Result<Vec<(String, String, Option<String>)>> {
-        let rows = sqlx::query!("SELECT id, token, profile FROM machines WHERE link = 'virtual'")
-            .fetch_all(&self.pg().admin)
-            .await?;
-        Ok(rows
-            .into_iter()
-            .map(|r| (r.id, r.token, r.profile))
-            .collect())
+    /// Every virtual machine of every space: its id, token, profile and space (each space's in its
+    /// transaction; the spaces as a background task's list, [`Store::space_ids`]).
+    pub async fn virtual_machines(
+        &self,
+    ) -> sqlx::Result<Vec<(String, String, Option<String>, i64)>> {
+        let mut all = Vec::new();
+        for space in self.space_ids().await? {
+            let mut tx = self.pg().space(space).await?;
+            let rows =
+                sqlx::query!("SELECT id, token, profile FROM machines WHERE link = 'virtual'")
+                    .fetch_all(&mut *tx)
+                    .await?;
+            tx.commit().await?;
+            all.extend(rows.into_iter().map(|r| (r.id, r.token, r.profile, space)));
+        }
+        Ok(all)
     }
 
     /// Removes a machine of the space (its permissions and group places follow it: foreign keys).
@@ -372,21 +404,27 @@ impl Store {
 
     async fn profile_and_media(
         &self,
+        space: i64,
         machine: &str,
     ) -> sqlx::Result<Option<(Option<String>, Option<String>)>> {
-        Ok(
-            sqlx::query!("SELECT profile, media FROM machines WHERE id = $1", machine)
-                .fetch_optional(&self.pg().admin)
-                .await?
-                .map(|r| (r.profile, r.media)),
-        )
+        let mut tx = self.pg().space(space).await?;
+        let found = sqlx::query!("SELECT profile, media FROM machines WHERE id = $1", machine)
+            .fetch_optional(&mut *tx)
+            .await?
+            .map(|r| (r.profile, r.media));
+        tx.commit().await?;
+        Ok(found)
     }
 
     /// The tape or labels loaded in a label printer, as the owner said: (width across, a die-cut
     /// label's length) in mm.
-    pub async fn loaded_media_mm(&self, machine: &str) -> sqlx::Result<Option<(u32, Option<u32>)>> {
+    pub async fn loaded_media_mm(
+        &self,
+        space: i64,
+        machine: &str,
+    ) -> sqlx::Result<Option<(u32, Option<u32>)>> {
         Ok(self
-            .profile_and_media(machine)
+            .profile_and_media(space, machine)
             .await?
             .and_then(|(profile, media)| {
                 let profile = crate::profiles::find(&profile?)?;
@@ -397,9 +435,13 @@ impl Store {
 
     /// HS2b (W2b): a LabelWriter's loaded roll as the PPD's `PageSize` choice (its medium id when the
     /// profile takes its media from the port), for the job to name its page.
-    pub async fn loaded_page_size(&self, machine: &str) -> sqlx::Result<Option<String>> {
+    pub async fn loaded_page_size(
+        &self,
+        space: i64,
+        machine: &str,
+    ) -> sqlx::Result<Option<String>> {
         Ok(self
-            .profile_and_media(machine)
+            .profile_and_media(space, machine)
             .await?
             .and_then(|(profile, media)| {
                 let profile = crate::profiles::find(&profile?)?;
@@ -551,7 +593,7 @@ impl Store {
             "SELECT token, space_id FROM machines WHERE pairing_code = $1 AND link = 'prusa-connect'",
             code
         )
-        .fetch_optional(&self.pg().admin)
+        .fetch_optional(self.pg().admin(Bypass::Secret))
         .await?;
         Ok(match found {
             None => None,
@@ -567,7 +609,7 @@ impl Store {
              WHERE token = $1 AND link = 'prusa-connect' AND space_id IS NOT NULL AND pairing_code IS NOT NULL",
             token
         )
-        .execute(&self.pg().admin)
+        .execute(self.pg().admin(Bypass::Secret))
         .await?;
         Ok(())
     }
@@ -580,7 +622,7 @@ impl Store {
             profile,
             token
         )
-        .execute(&self.pg().admin)
+        .execute(self.pg().admin(Bypass::Secret))
         .await?;
         Ok(())
     }
@@ -593,7 +635,7 @@ impl Store {
             peer,
             token
         )
-        .execute(&self.pg().admin)
+        .execute(self.pg().admin(Bypass::Secret))
         .await?;
         Ok(())
     }
@@ -601,7 +643,7 @@ impl Store {
     /// A machine's id by its token, if the token is known.
     pub async fn machine_id_by_token(&self, token: &str) -> sqlx::Result<Option<String>> {
         sqlx::query_scalar!("SELECT id FROM machines WHERE token = $1", token)
-            .fetch_optional(&self.pg().admin)
+            .fetch_optional(self.pg().admin(Bypass::Secret))
             .await
     }
 
@@ -610,8 +652,8 @@ impl Store {
     /// machine itself (name, labels, plate, service interval) and its agent, which keeps its token.
     /// What stays: its jobs (their files are the old space's), the rights given on it (people of the
     /// old space), the spool said to be loaded (the old space's Materials), and its place in the old
-    /// space's queue. The caller then has its permissions and group places go
-    /// ([`Store::forget_machine_access`]).
+    /// space's queue. Its permissions, group places and requests for permission go, in this
+    /// transaction.
     pub async fn move_machine(
         &self,
         from: i64,
@@ -621,7 +663,7 @@ impl Store {
         // The check and the move are one transaction, the machine's row locked: a job put on it
         // meanwhile ([`Store::add_job`] locks the same row) waits until it has moved, or is there
         // before the check sees it.
-        let mut tx = self.pg().admin.begin().await?;
+        let mut tx = self.pg().admin(Bypass::InstanceAdmin).begin().await?;
         let here = sqlx::query_scalar!(
             "SELECT id FROM machines WHERE id = $1 AND space_id = $2 FOR UPDATE",
             machine,
@@ -641,6 +683,17 @@ impl Store {
         let stays = self.lock().unwrap().why_it_stays(&jobs, machine, sending);
         if let Some(why) = stays {
             return Ok(Err(why));
+        }
+        // Its permissions, group places and requests for permission stay behind: gone (their keys
+        // name the machine with its space). What its stick holds goes with it (ON UPDATE CASCADE).
+        for table in ["machine_grants", "machine_group_members", "access_requests"] {
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "DELETE FROM {table} WHERE machine_id = $1 AND space_id = $2"
+            )))
+            .bind(machine)
+            .bind(from)
+            .execute(&mut *tx)
+            .await?;
         }
         sqlx::query!(
             "UPDATE machines SET space_id = $2, farm = false WHERE id = $1",
@@ -756,7 +809,7 @@ impl Store {
         .await?;
         tx.commit().await?;
         let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
-        let jobs = self.job_facts(&ids).await?;
+        let jobs = self.job_facts(space, &ids).await?;
         let completion = crate::stock::in_space!(self, space, |w| async {
             Ok::<_, sqlx::Error>(super::machines::Completion {
                 loaded: w.loaded().await?,
@@ -775,13 +828,15 @@ impl Store {
             .flat_map(|m| m.queue.iter().map(|q| q.file_id.clone()))
             .collect();
         if !queued.is_empty() {
+            let mut tx = self.pg().space(space).await?;
             let metas: std::collections::HashMap<String, String> =
                 sqlx::query_as("SELECT id, meta FROM files WHERE id = ANY($1)")
                     .bind(&queued)
-                    .fetch_all(&self.pg().admin)
+                    .fetch_all(&mut *tx)
                     .await?
                     .into_iter()
                     .collect();
+            tx.commit().await?;
             for q in machines.iter_mut().flat_map(|m| m.queue.iter_mut()) {
                 if let Some(meta) = metas
                     .get(&q.file_id)
@@ -800,14 +855,14 @@ impl Store {
         Ok(self.machines(space).await?.into_iter().find(|m| m.id == id))
     }
     /// A machine by its token as its own row tells (not completed: no jobs, stock or commands), and
-    /// its space, if it is in one. Across spaces: the admin pool.
+    /// its space, if it is in one (`Bypass::Secret`).
     pub(crate) async fn machine_by_token(
         &self,
         token: &str,
     ) -> sqlx::Result<Option<(Machine, Option<i64>)>> {
         let found: Option<MachineRow> = sqlx::query_as(machine_select!("WHERE token = $1"))
             .bind(token)
-            .fetch_optional(&self.pg().admin)
+            .fetch_optional(self.pg().admin(Bypass::Secret))
             .await?;
         Ok(found.map(|r| {
             let space = r.space_id;
@@ -834,7 +889,7 @@ impl Store {
             sqlx::query("UPDATE machines SET link = $1 WHERE id = $2")
                 .bind(link)
                 .bind(&id)
-                .execute(&self.pg().admin)
+                .execute(self.pg().admin_in_tests())
                 .await
                 .unwrap();
         }
@@ -868,7 +923,7 @@ impl Store {
         sqlx::query("UPDATE machines SET last_seen = at_unix($1) WHERE id = $2")
             .bind(at)
             .bind(machine)
-            .execute(&self.pg().admin)
+            .execute(self.pg().admin_in_tests())
             .await
             .unwrap();
     }
@@ -877,7 +932,7 @@ impl Store {
     pub(crate) async fn token_of(&self, id: &str) -> String {
         sqlx::query_scalar("SELECT token FROM machines WHERE id = $1")
             .bind(id)
-            .fetch_one(&self.pg().admin)
+            .fetch_one(self.pg().admin_in_tests())
             .await
             .unwrap()
     }

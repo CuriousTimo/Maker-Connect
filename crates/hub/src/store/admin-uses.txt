@@ -1,0 +1,54 @@
+# Every use of the admin pool (BYPASSRLS), one line per call: `path fn number reason`. The numbers are
+# the allowlist of design database.md#roles-and-pools (crate::store::pg::Bypass):
+#   1 before the space is known: a registration inserted, a presented secret looked up
+#   2 sign-in and setup, accepting an invite          3 instance admin (users with instance_admin)
+#   4 writers that span spaces                        5 background tasks listing their work
+#   6 the signed-in person's own memberships and the spaces they name (WHERE user_id = theirs)
+# Test: crate::store::pg::tests::every_admin_use_is_listed_with_its_reason (both ways).
+accounts.rs has_users 2 setup: whether the fresh database has its first account yet
+accounts.rs create_user 2 setup and sign-up: a new user and their password identity
+accounts.rs user_id 2 sign-in: a user by name
+accounts.rs credentials 2 sign-in: a user's password identity
+accounts.rs set_password 2 sign-in: a user's own password identity
+accounts.rs change_password 2 sign-in: a new password ends the user's sessions, one new session
+accounts.rs first_space_of 6 sign-in: the first space of the person signing in
+accounts.rs create_session 2 sign-in: a new session
+accounts.rs session 1 session token hash: who and which space
+accounts.rs session 1 session token hash: last seen
+accounts.rs end_session 1 session token hash: sign out
+accounts.rs end_old_sessions 2 sign-in: expired sessions removed
+accounts/tenancy.rs spaces_of 6 the spaces and organisations the signed-in person may choose from
+accounts/tenancy.rs space_by_uid 2 a space a user chose by its uid, before its transaction
+accounts/tenancy.rs default_space 2 setup: a self-hosted hub's first space
+accounts/tenancy.rs space_ids 5 the hub's tasks over every space
+accounts/tenancy.rs create_organisation 2 setup: a new organisation with its first space and its maker as owner (instance admin, or anyone where spaces are open)
+accounts/tenancy.rs set_session_space 6 the space the signed-in person's session is in
+accounts/tenancy.rs invite 1 invite token hash
+accounts/tenancy.rs use_invite 2 accepting an invite: its use and the membership in one transaction
+accounts/tenancy.rs join_by_invite 2 accepting an invite: account, identity, membership, use and session in one transaction
+accounts/tenancy.rs token_access 1 API token hash: its space and role
+accounts/tenancy.rs token_access 1 API token hash: last used
+accounts/tenancy.rs open_spaces 2 setup: whether anyone signed in may make an organisation (meta)
+accounts/tenancy.rs set_open_spaces 3 the instance's own setting (meta)
+accounts/tenancy.rs spaces_without_samples 5 the samples task: spaces without the example files
+cameras/store.rs all_cameras 5 the camera task: every space's cameras
+devices/printer_files.rs transfer 1 transfer address (iv): its machine and space
+farm.rs dispatch 5 the farm dispatcher: which spaces have work
+store/agents.rs placed 1 agent token: its machine and space
+store/agents.rs report 1 agent token: its machine's last report
+store/pg_jobs.rs printing_anywhere 3 the About page and self-update: whether anything prints anywhere
+store/pg_machines.rs knows 1 device token: known or not
+store/pg_machines.rs last_telemetry 1 device token: its machine's last report
+store/pg_machines.rs set_details 1 device token: what the device tells about itself
+store/pg_machines.rs pair 1 pairing code: the waiting machine put in the space
+store/pg_machines.rs register_linked 1 a device not in a space yet: its own machines row
+store/pg_machines.rs moonraker_name 1 device token: the Moonraker printer's name
+store/pg_machines.rs token_for_code 1 Prusa Connect registration code: its token
+store/pg_machines.rs code_spent 1 printer token: its registration code spent
+store/pg_machines.rs recognise 1 device token: the profile recognised at registration
+store/pg_machines.rs set_peer 1 device token: where its reports come from
+store/pg_machines.rs machine_id_by_token 1 device token: its machine id
+store/pg_machines.rs move_machine 3 a device moved to another space (decisions/20261119-device-move.md)
+store/pg_machines.rs machine_by_token 1 device token: its own row and space
+store/pg_settings.rs agent_update_asked 1 agent token: the update asked for it
+store/pg_settings.rs agent_update_done 1 agent token: its update done

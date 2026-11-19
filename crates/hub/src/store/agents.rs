@@ -1,4 +1,5 @@
 use super::*;
+use crate::store::pg::Bypass;
 
 impl Legacy {
     /// A report kept ([`Store::report`]): its temperatures go into the machine's history.
@@ -27,16 +28,18 @@ impl Store {
         raw: Option<&str>,
     ) -> Result<(), BoxError> {
         use maker_connect_protocol::MachineState as S;
-        if self.active_job(&machine).await?.is_some() {
+        if self.active_job(space, &machine).await?.is_some() {
             self.lock().unwrap().own_prints.remove(&machine);
             return Ok(());
         }
+        let mut tx = self.pg().space(space).await?;
         let by: Option<String> =
             sqlx::query_scalar("SELECT usb_print_by FROM machines WHERE id = $1")
                 .bind(&machine)
-                .fetch_optional(&self.pg().admin)
+                .fetch_optional(&mut *tx)
                 .await?
                 .flatten();
+        tx.commit().await?;
         let ended = {
             let mut legacy = self.lock().unwrap();
             match (telemetry.state, telemetry.job.as_ref()) {
@@ -80,6 +83,7 @@ impl Store {
                 Some("ended at the printer before it was done"),
             ),
         };
+        let mut tx = self.pg().space(space).await?;
         let file = if own.file.is_empty() {
             "a print started on the printer".to_owned()
         } else {
@@ -97,8 +101,9 @@ impl Store {
         .bind(now())
         .bind(reason)
         .bind(own.by.as_deref().unwrap_or("on the printer"))
-        .execute(&self.pg().admin)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         self.changed();
         Ok(())
     }
@@ -132,7 +137,7 @@ impl Store {
             r#"SELECT id, space_id AS "space_id!" FROM machines WHERE token = $1 AND space_id IS NOT NULL"#,
             token
         )
-        .fetch_optional(&self.pg().admin)
+        .fetch_optional(self.pg().admin(Bypass::Secret))
         .await?
         .map(|r| (r.id, r.space_id)))
     }
@@ -175,7 +180,7 @@ impl Store {
         {
             self.bed_from_menu(space, &machine, telemetry).await?;
         }
-        let mut tx = self.pg().admin.begin().await?;
+        let mut tx = self.pg().admin(Bypass::Secret).begin().await?;
         let updated = sqlx::query!(
             "UPDATE machines SET last_seen = at_unix($1), telemetry = $2 WHERE token = $3 RETURNING id, space_id",
             now(),

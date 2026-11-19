@@ -196,7 +196,7 @@ impl Store {
         let Some(machine) = self.machine(space, machine_id).await? else {
             return Ok(false);
         };
-        let file = match self.last_job(machine_id).await? {
+        let file = match self.last_job(space, machine_id).await? {
             Some(last) => self.file(space, &last.job().file_id).await?,
             None => None,
         };
@@ -232,11 +232,17 @@ impl Store {
     /// Starts what may start: per machine with a queue, its first file once the machine is
     /// free, its bed clear and its service not due. How many started.
     pub async fn start_queued(&self) -> Result<usize, BoxError> {
-        // Across spaces: the admin pool; each queue's work in its own space.
-        let waiting: Vec<(i64, String)> =
-            sqlx::query_as("SELECT DISTINCT space_id, machine_id FROM machine_queue")
-                .fetch_all(&self.pg().admin)
-                .await?;
+        // Each space's queues in its transaction (the spaces as instance admin, Store::space_ids).
+        let mut waiting: Vec<(i64, String)> = Vec::new();
+        for space in self.space_ids().await? {
+            let mut tx = self.pg().space(space).await?;
+            let machines: Vec<String> =
+                sqlx::query_scalar("SELECT DISTINCT machine_id FROM machine_queue")
+                    .fetch_all(&mut *tx)
+                    .await?;
+            tx.commit().await?;
+            waiting.extend(machines.into_iter().map(|m| (space, m)));
+        }
         let mut started = 0;
         for (space, machine_id) in waiting {
             let Some(machine) = self.machine(space, &machine_id).await? else {
@@ -475,7 +481,7 @@ mod tests {
             assert_eq!(store.start_queued().await.unwrap(), 0, "busy");
             // It failed: what it left may be on the bed.
             store
-                .set_job(job, JobState::Failed, Some("spaghetti"))
+                .set_job(space, job, JobState::Failed, Some("spaghetti"))
                 .await
                 .unwrap();
         }
@@ -551,7 +557,10 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap();
-            store.set_job(job, JobState::Finished, None).await.unwrap();
+            store
+                .set_job(space, job, JobState::Finished, None)
+                .await
+                .unwrap();
         }
         // The same machine, now a laser, taking work.
         sqlx::query("UPDATE machines SET kind = $2 WHERE id = $1")
@@ -579,7 +588,7 @@ mod tests {
             !s.reprint(space, &m).await.unwrap(),
             "nor a reprint on the machine"
         );
-        assert!(s.active_job(&m).await.unwrap().is_none());
+        assert!(s.active_job(space, &m).await.unwrap().is_none());
         assert_eq!(
             s.queue_of(space, &m).await.unwrap().len(),
             2,
@@ -623,7 +632,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(s.active_job(&m).await.unwrap().unwrap().id, job);
+        assert_eq!(s.active_job(space, &m).await.unwrap().unwrap().id, job);
         assert_eq!(
             s.queue_of(space, &m).await.unwrap().len(),
             2,

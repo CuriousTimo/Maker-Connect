@@ -1,12 +1,13 @@
 //! Jobs on Postgres (`migrations/20261118000300_machines.sql`): `jobs.rs`'s queries as async [`Store`]
-//! methods (hub core v2 step 2, lane 3b). A job is found by its machine or its id across spaces, as
-//! before (the admin pool: a machine's jobs from an earlier space stay its own); a space's lists go
-//! through the space's transaction.
+//! methods (hub core v2 step 2, lane 3b). Every query runs in its space's transaction (the caller says
+//! the space: a machine's jobs from an earlier space stay that space's); only the About page's count
+//! across spaces is instance admin (`Bypass::InstanceAdmin`).
 //!
 //! What a job counts off its spool is the stock's (still on SQLite, lane 4): read from Postgres first,
 //! then booked under the lock, never across an `.await`.
 
 use super::*;
+use crate::store::pg::Bypass;
 use std::collections::HashMap;
 
 /// The columns of a job, as [`JobRow`] reads them.
@@ -159,14 +160,16 @@ impl JobFacts {
 }
 
 impl Store {
-    /// What the machines `ids` show of their jobs (see [`JobFacts`]).
-    pub(crate) async fn job_facts(&self, ids: &[String]) -> sqlx::Result<JobFacts> {
-        let mut admin = self.pg().admin.acquire().await?;
-        Self::job_facts_on(&mut admin, ids).await
+    /// What the space's machines `ids` show of their jobs (see [`JobFacts`]).
+    pub(crate) async fn job_facts(&self, space: i64, ids: &[String]) -> sqlx::Result<JobFacts> {
+        let mut tx = self.pg().space(space).await?;
+        let facts = Self::job_facts_on(&mut tx, ids).await?;
+        tx.commit().await?;
+        Ok(facts)
     }
 
-    /// [`Store::job_facts`] on `admin` (a connection of the admin pool, or a transaction on it:
-    /// [`Store::move_machine`] reads them in the transaction that moves the machine).
+    /// [`Store::job_facts`] on `admin` (a transaction in the machines' space: [`Store::move_machine`]
+    /// reads them in the transaction that moves the machine).
     pub(crate) async fn job_facts_on(
         admin: &mut sqlx::PgConnection,
         ids: &[String],
@@ -223,8 +226,8 @@ impl Store {
     }
 
     /// [`Store::job_facts`] of one machine.
-    pub(crate) async fn job_facts_of(&self, machine: &str) -> sqlx::Result<JobFacts> {
-        self.job_facts(&[machine.to_owned()]).await
+    pub(crate) async fn job_facts_of(&self, space: i64, machine: &str) -> sqlx::Result<JobFacts> {
+        self.job_facts(space, &[machine.to_owned()]).await
     }
 
     /// Where each file of a space was printed, newest first, at most `per_file` times each.
@@ -297,7 +300,7 @@ impl Store {
             "('loaded', 'queued', 'printing', 'paused', 'stopping'))"
         ))
         .bind(machine)
-        .fetch_one(&self.pg().admin)
+        .fetch_one(&mut *tx)
         .await?;
         if busy {
             return Ok(Err("the machine has a job already"));
@@ -330,7 +333,8 @@ impl Store {
 
     /// HS7b (ours, owner 2026-11-17: one loaded job per laser): takes a laser's loaded job off it, so
     /// another can be loaded (the person confirmed). It never ran: it ends stopped, with why.
-    pub async fn unload_laser_job(&self, machine: &str) -> sqlx::Result<bool> {
+    pub async fn unload_laser_job(&self, space: i64, machine: &str) -> sqlx::Result<bool> {
+        let mut tx = self.pg().space(space).await?;
         let n = sqlx::query(
             "UPDATE jobs SET state = 'stopped', ended_at = at_unix($2),
                  reason = 'replaced by another job before it was started'
@@ -338,9 +342,10 @@ impl Store {
         )
         .bind(machine)
         .bind(now())
-        .execute(&self.pg().admin)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
+        tx.commit().await?;
         self.lock().unwrap().laser_framed.remove(machine);
         self.changed();
         Ok(n > 0)
@@ -350,10 +355,12 @@ impl Store {
     /// the caller's checks decide whether it may; this only moves a loaded job on.
     pub async fn start_burn(
         &self,
+        space: i64,
         machine: &str,
         job: i64,
         by: Option<&str>,
     ) -> sqlx::Result<bool> {
+        let mut tx = self.pg().space(space).await?;
         let n = sqlx::query(
             "UPDATE jobs SET state = 'queued', by_name = COALESCE($3, by_name)
              WHERE id = $1 AND machine_id = $2 AND state = 'loaded'",
@@ -361,59 +368,73 @@ impl Store {
         .bind(job)
         .bind(machine)
         .bind(by)
-        .execute(&self.pg().admin)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
+        tx.commit().await?;
         self.changed();
         Ok(n > 0)
     }
 
     /// A machine's job that is not over yet.
-    pub async fn active_job(&self, machine: &str) -> sqlx::Result<Option<Job>> {
+    pub async fn active_job(&self, space: i64, machine: &str) -> sqlx::Result<Option<Job>> {
+        let mut tx = self.pg().space(space).await?;
         let row: Option<JobRow> = sqlx::query_as(job_select!(
             "WHERE machine_id = $1 AND state IN ('loaded', 'queued', 'printing', 'paused', 'stopping')
              ORDER BY id LIMIT 1"
         ))
         .bind(machine)
-        .fetch_optional(&self.pg().admin)
+        .fetch_optional(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(row.as_ref().map(JobRow::job))
     }
 
-    pub async fn job(&self, id: i64) -> sqlx::Result<Option<Job>> {
-        Ok(self.job_row(id).await?.as_ref().map(JobRow::job))
+    pub async fn job(&self, space: i64, id: i64) -> sqlx::Result<Option<Job>> {
+        Ok(self.job_row(space, id).await?.as_ref().map(JobRow::job))
     }
 
-    pub(crate) async fn job_row(&self, id: i64) -> sqlx::Result<Option<JobRow>> {
-        sqlx::query_as(job_select!("WHERE id = $1"))
+    pub(crate) async fn job_row(&self, space: i64, id: i64) -> sqlx::Result<Option<JobRow>> {
+        let mut tx = self.pg().space(space).await?;
+        let row = sqlx::query_as(job_select!("WHERE id = $1"))
             .bind(id)
-            .fetch_optional(&self.pg().admin)
-            .await
+            .fetch_optional(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(row)
     }
 
     /// A machine's last job.
-    pub(crate) async fn last_job(&self, machine: &str) -> sqlx::Result<Option<JobRow>> {
-        sqlx::query_as(job_select!(
+    pub(crate) async fn last_job(&self, space: i64, machine: &str) -> sqlx::Result<Option<JobRow>> {
+        let mut tx = self.pg().space(space).await?;
+        let row = sqlx::query_as(job_select!(
             "WHERE machine_id = $1 ORDER BY id DESC LIMIT 1"
         ))
         .bind(machine)
-        .fetch_optional(&self.pg().admin)
-        .await
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(row)
     }
 
     /// Where a job that did not run to the end could start again.
-    pub async fn set_restart_line(&self, id: i64, line: u64) -> sqlx::Result<()> {
+    pub async fn set_restart_line(&self, space: i64, id: i64, line: u64) -> sqlx::Result<()> {
+        let mut tx = self.pg().space(space).await?;
         sqlx::query("UPDATE jobs SET restart_line = $1 WHERE id = $2")
             .bind(line as i64)
             .bind(id)
-            .execute(&self.pg().admin)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(())
     }
 
     /// A machine's last job, when it was interrupted and says where to start again.
-    pub async fn resumable_job(&self, machine: &str) -> sqlx::Result<Option<Job>> {
-        Ok(self.job_facts_of(machine).await?.resumable_job(machine))
+    pub async fn resumable_job(&self, space: i64, machine: &str) -> sqlx::Result<Option<Job>> {
+        Ok(self
+            .job_facts_of(space, machine)
+            .await?
+            .resumable_job(machine))
     }
 
     /// Whether `machine` is one of the space's.
@@ -437,13 +458,19 @@ impl Store {
         if !self.in_space(space, machine).await? {
             return Ok(false);
         }
-        let Some(ready) = self.job_facts_of(machine).await?.ready_after(machine) else {
+        let Some(ready) = self
+            .job_facts_of(space, machine)
+            .await?
+            .ready_after(machine)
+        else {
             return Ok(false);
         };
+        let mut tx = self.pg().space(space).await?;
         sqlx::query("UPDATE jobs SET taken_at = NULL WHERE id = $1")
             .bind(ready.job)
-            .execute(&self.pg().admin)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         self.changed();
         Ok(true)
     }
@@ -454,15 +481,17 @@ impl Store {
         if !self.in_space(space, machine).await? {
             return Ok(false);
         }
+        let mut tx = self.pg().space(space).await?;
         let n = sqlx::query(
             "UPDATE jobs SET taken_at = at_unix($1)
              WHERE machine_id = $2 AND state IN ('finished', 'stopped', 'failed') AND taken_at IS NULL",
         )
         .bind(now())
         .bind(machine)
-        .execute(&self.pg().admin)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
+        tx.commit().await?;
         self.changed();
         Ok(n > 0)
     }
@@ -470,10 +499,12 @@ impl Store {
     /// A job moves on: started, paused, asked to stop, over.
     pub async fn set_job(
         &self,
+        space: i64,
         id: i64,
         state: JobState,
         reason: Option<&str>,
     ) -> Result<(), BoxError> {
+        let mut tx = self.pg().space(space).await?;
         sqlx::query(
             "UPDATE jobs SET state = $1, reason = COALESCE($2, reason),
                  started_at = CASE WHEN $1 = 'printing' AND started_at IS NULL THEN at_unix($3) ELSE started_at END,
@@ -484,13 +515,14 @@ impl Store {
         .bind(reason)
         .bind(now())
         .bind(id)
-        .execute(&self.pg().admin)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         if matches!(
             state,
             JobState::Finished | JobState::Stopped | JobState::Failed
         ) {
-            self.count_off(id, state).await?;
+            self.count_off(space, id, state).await?;
         }
         self.changed();
         Ok(())
@@ -501,24 +533,30 @@ impl Store {
     /// failed goes back on, booked as such, so its end counts it whole.
     pub async fn revive_job(
         &self,
+        space: i64,
         id: i64,
         state: JobState,
         reason: Option<&str>,
     ) -> Result<(), BoxError> {
+        let mut tx = self.pg().space(space).await?;
         let counted: Option<(Option<f64>, Option<i64>, String, String)> =
             sqlx::query_as("SELECT used, spool_id, machine_id, file_name FROM jobs WHERE id = $1")
                 .bind(id)
-                .fetch_optional(&self.pg().admin)
+                .fetch_optional(&mut *tx)
                 .await?;
+        tx.commit().await?;
         if let Some((Some(used), Some(spool), machine, file_name)) = counted
             && used > 0.0
         {
-            // The spool's space (a machine moved away keeps its spool loaded): across spaces.
-            let space: Option<i64> = sqlx::query_scalar("SELECT space_id FROM spool WHERE id = $1")
+            // The spool, in the job's space (a machine moved away leaves its spools unloaded:
+            // Store::move_machine).
+            let mut tx = self.pg().space(space).await?;
+            let found: Option<i64> = sqlx::query_scalar("SELECT space_id FROM spool WHERE id = $1")
                 .bind(spool)
-                .fetch_optional(&self.pg().admin)
+                .fetch_optional(&mut *tx)
                 .await?;
-            if let Some(space) = space {
+            tx.commit().await?;
+            if found.is_some() {
                 let mut w = self.work(space).await?;
                 sqlx::query(
                     "UPDATE spool SET used_weight = GREATEST(used_weight - $1, 0) WHERE id = $2",
@@ -538,6 +576,7 @@ impl Store {
                 w.commit(self).await?;
             }
         }
+        let mut tx = self.pg().space(space).await?;
         sqlx::query(
             "UPDATE jobs SET state = $1, reason = $2, ended_at = NULL, used = NULL, spool_id = NULL
              WHERE id = $3",
@@ -545,8 +584,9 @@ impl Store {
         .bind(state.name())
         .bind(reason)
         .bind(id)
-        .execute(&self.pg().admin)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         self.changed();
         Ok(())
     }
@@ -554,12 +594,13 @@ impl Store {
     /// A job that ended counts what it used off the spool loaded in its machine: all of what its file
     /// says when it finished, the part it got through when it stopped. Not when something else counted
     /// while it ran (Moonraker's `[spoolman]` does, as it prints).
-    async fn count_off(&self, id: i64, state: JobState) -> Result<(), BoxError> {
-        let Some(job) = self.job(id).await? else {
+    async fn count_off(&self, space: i64, id: i64, state: JobState) -> Result<(), BoxError> {
+        let Some(job) = self.job(space, id).await? else {
             return Ok(());
         };
-        // The spool loaded in its machine (in whichever space it is), and whether something counted
-        // already: across spaces.
+        // The spool loaded in its machine (in the job's space: a machine moved away leaves its spools
+        // unloaded, Store::move_machine), and whether something counted already.
+        let mut tx = self.pg().space(space).await?;
         let found: Option<(i64, i64, f64, f64, Option<String>)> = sqlx::query_as(
             "SELECT s.id, s.space_id, f.density, f.diameter, f.unit FROM spool s
              JOIN filament f ON f.id = s.filament_id
@@ -567,7 +608,7 @@ impl Store {
              ORDER BY s.id LIMIT 1",
         )
         .bind(&job.machine_id)
-        .fetch_optional(&self.pg().admin)
+        .fetch_optional(&mut *tx)
         .await?;
         let found = match found {
             Some((spool, ..)) => {
@@ -577,13 +618,13 @@ impl Store {
                 )
                 .bind(crate::stock::spool_code(spool))
                 .bind(job.started_at.unwrap_or(job.created_at))
-                .fetch_one(&self.pg().admin)
+                .fetch_one(&mut *tx)
                 .await?;
                 found.filter(|_| !counted_already)
             }
             None => None,
         };
-        let Some((spool, space, density, diameter, unit)) = found else {
+        let Some((spool, _, density, diameter, unit)) = found else {
             return Ok(());
         };
         // The file, and the machine as its space has it: Postgres.
@@ -591,7 +632,7 @@ impl Store {
             sqlx::query_scalar("SELECT meta FROM files WHERE space_id = $1 AND id = $2")
                 .bind(space)
                 .bind(&job.file_id)
-                .fetch_optional(&self.pg().admin)
+                .fetch_optional(&mut *tx)
                 .await?;
         let Some(meta) = file else {
             return Ok(());
@@ -602,8 +643,9 @@ impl Store {
         )
         .bind(&job.machine_id)
         .bind(space)
-        .fetch_optional(&self.pg().admin)
+        .fetch_optional(&mut *tx)
         .await?;
+        tx.commit().await?;
         let (profile, telemetry) = match machine {
             Some((profile, last_seen, telemetry)) => {
                 // As the machine shows: its report only while it is online.
@@ -677,12 +719,14 @@ impl Store {
             w.spoolman_event("spool", "updated", spool);
             w.commit(self).await?;
         }
+        let mut tx = self.pg().space(space).await?;
         sqlx::query("UPDATE jobs SET used = $1, spool_id = $2 WHERE id = $3")
             .bind(used)
             .bind(spool)
             .bind(id)
-            .execute(&self.pg().admin)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -702,19 +746,22 @@ impl Store {
     }
 
     /// Parts that people confirmed good from a machine's plates.
-    pub async fn parts_made(&self, machine: &str) -> sqlx::Result<i64> {
-        sqlx::query_scalar(
+    pub async fn parts_made(&self, space: i64, machine: &str) -> sqlx::Result<i64> {
+        let mut tx = self.pg().space(space).await?;
+        let n = sqlx::query_scalar(
             "SELECT COALESCE(SUM(confirmed_good), 0)::bigint FROM jobs WHERE machine_id = $1",
         )
         .bind(machine)
-        .fetch_one(&self.pg().admin)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(n)
     }
 
     /// A machine's ended jobs in numbers.
     pub async fn job_stats(&self, space: i64, machine: &str) -> sqlx::Result<JobStats> {
         let mut stats = JobStats {
-            parts: self.parts_made(machine).await?,
+            parts: self.parts_made(space, machine).await?,
             ..Default::default()
         };
         let mut tx = self.pg().space(space).await?;
@@ -768,7 +815,7 @@ impl Store {
     /// Jobs printing or paused, in every space (the About page: whether the hub may update now).
     pub async fn printing_anywhere(&self) -> sqlx::Result<i64> {
         sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE state IN ('printing', 'paused')")
-            .fetch_one(&self.pg().admin)
+            .fetch_one(self.pg().admin(Bypass::InstanceAdmin))
             .await
     }
 
@@ -826,7 +873,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(job, Err(NO_SUCH_FILE));
-        assert!(store.active_job(&machine).await.unwrap().is_none());
+        assert!(store.active_job(space, &machine).await.unwrap().is_none());
     }
 
     /// A file is not removed while a job is being put on it: removing waits for the job's
@@ -876,12 +923,7 @@ mod tests {
     )]
     async fn a_machine_stays_while_a_job_is_put_on_it(pool: sqlx::PgPool) {
         let (store, space, machine, file) = a_printer_and_a_file(&pool).await;
-        let org: i64 = sqlx::query_scalar("SELECT organisation_id FROM spaces WHERE id = $1")
-            .bind(space)
-            .fetch_one(&store.pg().admin)
-            .await
-            .unwrap();
-        let to = store.create_space(org, "Lab").await.unwrap();
+        let to = store.create_space(space, "Lab").await.unwrap();
         // What add_job holds between its check and its INSERT.
         let mut tx = store.pg().space(space).await.unwrap();
         sqlx::query("SELECT kind FROM machines WHERE id = $1 FOR UPDATE")
@@ -911,9 +953,125 @@ mod tests {
         assert!(moved.is_err(), "the job holds it: {moved:?}");
         let here: i64 = sqlx::query_scalar("SELECT space_id FROM machines WHERE id = $1")
             .bind(&machine)
-            .fetch_one(&store.pg().admin)
+            .fetch_one(store.pg().admin_in_tests())
             .await
             .unwrap();
         assert_eq!(here, space);
+    }
+
+    /// A job, its file and its machine in one space are none of another space's: not read, not changed.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn another_space_sees_and_changes_none_of_its_jobs(pool: sqlx::PgPool) {
+        let (store, space, machine, file) = a_printer_and_a_file(&pool).await;
+        let job = store
+            .add_job(space, &machine, &file, None, StartedBy::Auto { by: None })
+            .await
+            .unwrap()
+            .unwrap();
+        // Another organisation's space.
+        let owner = store.create_user("olga", "Olga", "x", false).await.unwrap();
+        let (_, other) = store
+            .create_organisation("Zuid", "Hal", owner)
+            .await
+            .unwrap();
+        assert!(store.job(other, job).await.unwrap().is_none());
+        assert!(store.active_job(other, &machine).await.unwrap().is_none());
+        assert!(store.file(other, &file.id).await.unwrap().is_none());
+        store
+            .set_job(other, job, JobState::Failed, Some("from elsewhere"))
+            .await
+            .unwrap();
+        let still = store.job(space, job).await.unwrap().unwrap();
+        assert_eq!(still.state, JobState::Queued);
+        assert!(store.active_job(space, &machine).await.unwrap().is_some());
+    }
+
+    /// Q4: a machine moved to another space (instance admin) leaves its jobs and files in the old
+    /// space; its permissions, group places and requests for permission there are gone with the move.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_moved_machine_leaves_its_history_and_its_permissions(pool: sqlx::PgPool) {
+        let (store, space, machine, file) = a_printer_and_a_file(&pool).await;
+        let job = store
+            .add_job(space, &machine, &file, None, StartedBy::Auto { by: None })
+            .await
+            .unwrap()
+            .unwrap();
+        store
+            .set_job(space, job, JobState::Finished, None)
+            .await
+            .unwrap();
+        assert!(store.print_taken(space, &machine).await.unwrap());
+        let to = store.create_space(space, "Lab").await.unwrap();
+        sqlx::query(
+            "INSERT INTO machine_grants (space_id, machine_id, user_id, level, granted_at)
+                 VALUES ($1, $2, 1, 'use', at_unix(0))",
+        )
+        .bind(space)
+        .bind(&machine)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let group: i64 = sqlx::query_scalar(
+            "INSERT INTO machine_groups (space_id, name, created_at) VALUES ($1, 'G', at_unix(0)) RETURNING id",
+        )
+        .bind(space)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO machine_group_members (space_id, group_id, machine_id) VALUES ($1, $2, $3)")
+            .bind(space)
+            .bind(group)
+            .bind(&machine)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO access_requests (space_id, user_id, machine_id, asked_at) VALUES ($1, 1, $2, at_unix(0))",
+        )
+        .bind(space)
+        .bind(&machine)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            store.move_machine(space, &machine, to).await.unwrap(),
+            Ok(())
+        );
+
+        let here: i64 = sqlx::query_scalar("SELECT space_id FROM machines WHERE id = $1")
+            .bind(&machine)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(here, to);
+        assert!(
+            store.job(space, job).await.unwrap().is_some(),
+            "the job stays"
+        );
+        assert!(store.job(to, job).await.unwrap().is_none());
+        assert!(
+            store.file(space, &file.id).await.unwrap().is_some(),
+            "the file stays"
+        );
+        assert!(store.file(to, &file.id).await.unwrap().is_none());
+        for table in ["machine_grants", "machine_group_members", "access_requests"] {
+            let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                "SELECT COUNT(*) FROM {table} WHERE machine_id = $1"
+            )))
+            .bind(&machine)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(n, 0, "{table}");
+        }
     }
 }

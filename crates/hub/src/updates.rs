@@ -324,7 +324,7 @@ pub(crate) async fn order_for(
     report: &maker_connect_protocol::Telemetry,
 ) -> sqlx::Result<Option<maker_connect_protocol::AgentUpdate>> {
     let asked = store.agent_update_asked(token).await?;
-    let Some((machine, Some(tag), at)) = asked else {
+    let Some((_, Some(tag), at)) = asked else {
         return Ok(None);
     };
     let Some(agent) = &report.agent else {
@@ -339,7 +339,7 @@ pub(crate) async fn order_for(
     if !update::newer(version, &agent.version) && update::Version::parse(&agent.version).is_some()
         || answered
     {
-        store.agent_update_done(&machine).await?;
+        store.agent_update_done(token).await?;
         return Ok(None);
     }
     if !agent.can_update {
@@ -656,7 +656,7 @@ pub(crate) mod tests {
             tools.dir.join("live"),
             backup::KEEP,
             &std::env::var("MC_PG_COMMAND").unwrap_or_default(),
-            &live_url,
+            &backup::hub_url_for_test(&name),
         )
         .unwrap();
 

@@ -98,7 +98,11 @@ jobs:
           --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
     env:
       SQLX_OFFLINE: "true"
-      DATABASE_URL: postgres://postgres:mc-ci@127.0.0.1:5432/postgres
+      # The tests' own login, maker_connect_owner (a login in dev and CI only: sqlx::test makes a
+      # database per test); their pools log in as maker_connect_hub (crate::store::pg::Pg::from_pool).
+      DATABASE_URL: postgres://maker_connect_owner:mc-ci@127.0.0.1:5432/mc_test
+      # The operator: the roles, the tests' database and the query cache's database only.
+      SUPERUSER_URL: postgres://postgres:mc-ci@127.0.0.1:5432
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -117,6 +121,14 @@ jobs:
           echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
           /usr/lib/postgresql/17/bin/pg_dump --version | grep -q ' 17\.'
 
+      # As an operator provisions a hub's server (design storage-ops.md): the roles and the restore
+      # template (scripts/db-roles.sql), the database owned by maker_connect_owner.
+      - name: Roles and the tests' database
+        run: |
+          psql "$SUPERUSER_URL/postgres" -q -v ON_ERROR_STOP=1 -v hub_password=mc-ci -v owner_password=mc-ci \
+            -f scripts/db-roles.sql
+          psql "$SUPERUSER_URL/postgres" -q -c "CREATE DATABASE mc_test OWNER maker_connect_owner"
+
       - name: Cache
         uses: Swatinem/rust-cache@v2
 
@@ -128,10 +140,10 @@ jobs:
         shell: bash
         run: |
           cargo install sqlx-cli --version 0.9.1 --locked --no-default-features --features rustls,postgres
-          psql "$DATABASE_URL" -q -c "CREATE DATABASE mc_prepare"
+          psql "$SUPERUSER_URL/postgres" -q -c "CREATE DATABASE mc_prepare"
           for f in $(find crates/hub/src -path '*/migrations/*.sql' | awk -F/ '{print $NF "\t" $0}' | sort | cut -f2); do
-            psql "${DATABASE_URL%/postgres}/mc_prepare" -q -v ON_ERROR_STOP=1 -f "$f"
+            psql "$SUPERUSER_URL/mc_prepare" -q -v ON_ERROR_STOP=1 -f "$f"
           done
-          cd crates/hub && DATABASE_URL="${DATABASE_URL%/postgres}/mc_prepare" SQLX_OFFLINE=false \
+          cd crates/hub && DATABASE_URL="$SUPERUSER_URL/mc_prepare" SQLX_OFFLINE=false \
             cargo sqlx prepare --check -- --all-targets --features pg-tests
 

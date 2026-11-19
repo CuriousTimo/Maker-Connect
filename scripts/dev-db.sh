@@ -2,7 +2,10 @@
 # The hub's development database, on demand (never a background service on the Mac): Postgres with
 # TimescaleDB in a container, the image the plan names (docs/plans/hub-core-v2.md §2.7).
 #
-#   scripts/dev-db.sh up        start Colima (if it is not running) and the container; prints DATABASE_URL
+#   scripts/dev-db.sh up        start Colima (if it is not running) and the container, the hub's roles
+#                               (scripts/db-roles.sql) and the tests' database; prints DATABASE_URL: the
+#                               tests' login, maker_connect_owner (it makes and migrates their databases;
+#                               their pools log in as maker_connect_hub, crate::store::pg::Pg::from_pool)
 #   scripts/dev-db.sh down      remove the container; stop Colima if `up` started it
 #   scripts/dev-db.sh prepare   refresh the queries' offline cache (crates/hub/.sqlx/) against a fresh
 #                               database with every migration applied (needs `up` first and sqlx-cli)
@@ -23,7 +26,8 @@ PASSWORD="mc-dev"
 # The image tunes itself to the container's memory (timescaledb-tune: 25 connections here); the hub's
 # tests run in parallel, each with its own pools, and need more.
 MAX_CONNS=100
-URL="postgres://postgres:${PASSWORD}@127.0.0.1:${PORT}/postgres"
+# The roles share the one password here (Pg::from_pool keeps the tests' password for the hub's login).
+URL="postgres://maker_connect_owner:${PASSWORD}@127.0.0.1:${PORT}/mc_test"
 STATE="${TMPDIR:-/tmp}/maker-connect-dev-db"
 mkdir -p "$STATE"
 
@@ -46,6 +50,7 @@ up() {
     fi
     for _ in $(seq 1 60); do
         if docker exec "$NAME" pg_isready -U postgres -h 127.0.0.1 >/dev/null 2>&1; then
+            roles >&2
             echo "DATABASE_URL=$URL"
             return 0
         fi
@@ -53,6 +58,16 @@ up() {
     done
     echo "dev-db: the database did not come up" >&2
     return 1
+}
+
+# The hub's roles, and the tests' database owned by maker_connect_owner (sqlx's tests keep their
+# bookkeeping in it).
+roles() {
+    docker exec -i -e PGOPTIONS=--client-min-messages=warning "$NAME" psql -q -U postgres \
+        -v hub_password="$PASSWORD" -v owner_password="$PASSWORD" <scripts/db-roles.sql >/dev/null
+    if ! docker exec "$NAME" psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'mc_test'" | grep -q 1; then
+        docker exec "$NAME" psql -q -U postgres -c "CREATE DATABASE mc_test OWNER maker_connect_owner" >/dev/null
+    fi
 }
 
 down() {

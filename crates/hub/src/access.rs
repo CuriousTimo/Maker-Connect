@@ -311,8 +311,9 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Machine(Level::Manage),
         Some("labelled"),
     ),
-    // Also needs owner or admin in the space it goes to; the handler checks that, and writes
-    // the audit log of both spaces.
+    // Also needs an instance admin (design decisions/20261119-device-move.md) who is owner or
+    // admin in the space it goes to; the handler checks that, and writes the audit log of both
+    // spaces.
     (
         "POST",
         "/machines/{id}/move",
@@ -1313,7 +1314,7 @@ mod tests {
             let user = store.create_user(name, name, "x", false).await.unwrap();
             if let Some((org, role)) = org {
                 store
-                    .set_org_membership(user, org, role.as_str())
+                    .set_org_membership(user, store.a_space_of(org).await, role.as_str())
                     .await
                     .unwrap();
             }
@@ -1849,7 +1850,7 @@ mod tests {
     )]
     async fn a_machine_moves_to_another_space(pool: sqlx::PgPool) {
         let w = World::new(&pool).await;
-        let (org, a1, a2, b1) = {
+        let (_, a1, a2, b1) = {
             let owner = w
                 .store
                 .create_user("olga", "Olga", "x", false)
@@ -1860,7 +1861,7 @@ mod tests {
                 .create_organisation("Fablab", "Werkplaats", owner)
                 .await
                 .unwrap();
-            let a2 = w.store.create_space(org, "Lab").await.unwrap();
+            let a2 = w.store.create_space(a1, "Lab").await.unwrap();
             let (_, b1) = w
                 .store
                 .create_organisation("Makers Zuid", "Hal", owner)
@@ -1868,11 +1869,15 @@ mod tests {
                 .unwrap();
             (org, a1, a2, b1)
         };
-        // Both signed in to the first space.
-        let in_first = async |name: &str, role: Role| {
-            let user = w.store.create_user(name, name, "x", false).await.unwrap();
+        // All signed in to the first space.
+        let in_first = async |name: &str, role: Role, instance_admin: bool| {
+            let user = w
+                .store
+                .create_user(name, name, "x", instance_admin)
+                .await
+                .unwrap();
             w.store
-                .set_org_membership(user, org, role.as_str())
+                .set_org_membership(user, a1, role.as_str())
                 .await
                 .unwrap();
             let token = w
@@ -1882,8 +1887,10 @@ mod tests {
                 .unwrap();
             (user, format!("{}={token}", crate::auth::COOKIE))
         };
-        let (_, adam) = in_first("adam", Role::Admin).await;
-        let (mia_id, mia) = in_first("mia", Role::Member).await;
+        let (_, adam) = in_first("adam", Role::Admin, false).await;
+        let (mia_id, mia) = in_first("mia", Role::Member, false).await;
+        // Who runs the server, an admin here too.
+        let (_, ian) = in_first("ian", Role::Admin, true).await;
         let m = {
             let m = w
                 .store
@@ -1920,7 +1927,12 @@ mod tests {
             "a member does not manage it"
         );
         assert_eq!(
-            w.post(&adam, &path, &to(&uid_b1)).await.0,
+            w.post(&adam, &path, &to(&uid_a2)).await.0,
+            StatusCode::FORBIDDEN,
+            "an admin of the organisation does not move machines between spaces"
+        );
+        assert_eq!(
+            w.post(&ian, &path, &to(&uid_b1)).await.0,
             StatusCode::FORBIDDEN,
             "not admin there"
         );
@@ -1930,16 +1942,16 @@ mod tests {
         )
         .bind(a1)
         .bind(&m)
-        .execute(&w.store.pg().admin)
+        .execute(w.store.pg().admin_in_tests())
         .await
         .unwrap();
-        let (status, why) = w.post(&adam, &path, &to(&uid_a2)).await;
+        let (status, why) = w.post(&ian, &path, &to(&uid_a2)).await;
         assert_eq!(status, StatusCode::CONFLICT, "{why}");
         sqlx::query("UPDATE jobs SET state = 'stopped', taken_at = at_unix(1)")
-            .execute(&w.store.pg().admin)
+            .execute(w.store.pg().admin_in_tests())
             .await
             .unwrap();
-        let (status, body) = w.post(&adam, &path, &to(&uid_a2)).await;
+        let (status, body) = w.post(&ian, &path, &to(&uid_a2)).await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
         {
             assert!(
@@ -1956,7 +1968,7 @@ mod tests {
         let grants: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM machine_grants WHERE machine_id = $1")
                 .bind(&m)
-                .fetch_one(&w.store.pg().admin)
+                .fetch_one(w.store.pg().admin_in_tests())
                 .await
                 .unwrap();
         assert_eq!(grants, 0, "permissions stay behind");
@@ -1993,7 +2005,7 @@ mod tests {
                 .create_organisation("Fablab Noord", "Werkplaats", owner)
                 .await
                 .unwrap();
-            let a2 = w.store.create_space(a_org, "Lab").await.unwrap();
+            let a2 = w.store.create_space(a1, "Lab").await.unwrap();
             let (b_org, b1) = w
                 .store
                 .create_organisation("Makers Zuid", "Hal", owner)
@@ -2439,12 +2451,12 @@ mod tests {
         async fn jobs(w: &World, laser: &str) -> (i64, usize) {
             let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE machine_id = $1")
                 .bind(laser)
-                .fetch_one(&w.store.pg().admin)
+                .fetch_one(w.store.pg().admin_in_tests())
                 .await
                 .unwrap();
             let space: i64 = sqlx::query_scalar("SELECT space_id FROM machines WHERE id = $1")
                 .bind(laser)
-                .fetch_one(&w.store.pg().admin)
+                .fetch_one(w.store.pg().admin_in_tests())
                 .await
                 .unwrap();
             (n, w.store.queue_of(space, laser).await.unwrap().len())
@@ -2504,7 +2516,7 @@ mod tests {
         assert_eq!(jobs(&w, &laser).await, (1, 0));
         {
             let s = &w.store;
-            let job = s.active_job(&laser).await.unwrap().unwrap();
+            let job = s.active_job(space, &laser).await.unwrap().unwrap();
             assert_eq!(job.state, JobState::Loaded);
             assert_eq!(job.by.as_deref(), Some("adam"));
             assert_eq!(s.start_queued().await.unwrap(), 0, "a loaded job waits");
@@ -2525,7 +2537,12 @@ mod tests {
             (StatusCode::CONFLICT, LASER_NEVER_ALONE)
         );
         assert_eq!(
-            w.store.active_job(&laser).await.unwrap().unwrap().state,
+            w.store
+                .active_job(space, &laser)
+                .await
+                .unwrap()
+                .unwrap()
+                .state,
             JobState::Loaded
         );
         // Stop on a loaded job is the laser's own Stop (a soft reset): the job stays loaded.
@@ -2538,7 +2555,12 @@ mod tests {
             Some(maker_connect_protocol::JobControl::Stop)
         ));
         assert_eq!(
-            w.store.active_job(&laser).await.unwrap().unwrap().state,
+            w.store
+                .active_job(space, &laser)
+                .await
+                .unwrap()
+                .unwrap()
+                .state,
             JobState::Loaded
         );
         let (status, _) = w
@@ -2550,7 +2572,7 @@ mod tests {
             .post(&adam, &format!("/machines/{laser}/job"), "action=unload")
             .await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        assert!(w.store.active_job(&laser).await.unwrap().is_none());
+        assert!(w.store.active_job(space, &laser).await.unwrap().is_none());
         let (status, body) = w
             .post(&adam, "/files/f1/print", &format!("machine={laser}"))
             .await;
@@ -2558,17 +2580,21 @@ mod tests {
         assert_eq!(jobs(&w, &laser).await, (2, 0));
         {
             let s = &w.store;
-            let job = s.active_job(&laser).await.unwrap().unwrap();
-            s.set_job(job.id, JobState::Finished, None).await.unwrap();
+            let job = s.active_job(space, &laser).await.unwrap().unwrap();
+            s.set_job(space, job.id, JobState::Finished, None)
+                .await
+                .unwrap();
         }
         w.store.report(&token, &Default::default()).await.unwrap();
         assert_eq!(jobs(&w, &laser).await, (2, 0));
         // "Start again from there": a person; interrupted jobs start again.
         {
             let s = &w.store;
-            let job = s.job(2).await.unwrap().unwrap();
-            s.set_job(job.id, JobState::Stopped, None).await.unwrap();
-            s.set_restart_line(job.id, 5).await.unwrap();
+            let job = s.job(space, 2).await.unwrap().unwrap();
+            s.set_job(space, job.id, JobState::Stopped, None)
+                .await
+                .unwrap();
+            s.set_restart_line(space, job.id, 5).await.unwrap();
         }
         let (status, body) = w
             .post(&adam, &format!("/machines/{laser}/job"), "action=restart")
@@ -2576,7 +2602,10 @@ mod tests {
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
         assert_eq!(jobs(&w, &laser).await.0, 3);
         // Stop with no job: a laser's (a soft reset) goes to the agent; a printer's is "no job".
-        w.store.set_job(3, JobState::Finished, None).await.unwrap();
+        w.store
+            .set_job(space, 3, JobState::Finished, None)
+            .await
+            .unwrap();
         w.store.report(&token, &Default::default()).await.unwrap();
         let (status, body) = w
             .post(&adam, &format!("/machines/{laser}/job"), "action=stop")

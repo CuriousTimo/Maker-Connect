@@ -158,9 +158,8 @@ async fn page(
     let built: Result<String, crate::store::BoxError> = async {
         let space = access.space;
         let name = store.space_name(space).await?;
-        let organisation = store.organisation_of(space).await?;
-        let org_name = store.organisation_name(organisation).await?;
-        let org_role = store.org_role_of(access.user_id, organisation).await?;
+        let org_name = store.organisation_name(space).await?;
+        let org_role = store.org_role_of(access.user_id, access.space).await?;
         let admin = access.role >= Role::Admin;
         let org_admin = org_role.is_some_and(|r| r >= Role::Admin);
         let siblings: Vec<_> = store
@@ -592,15 +591,14 @@ async fn rename_organisation(
         Err(r) => return *r,
     };
     let done: sqlx::Result<bool> = async {
-        let organisation = store.organisation_of(access.space).await?;
         if store
-            .org_role_of(access.user_id, organisation)
+            .org_role_of(access.user_id, access.space)
             .await?
             .is_none_or(|r| r < Role::Admin)
         {
             return Ok(false);
         }
-        store.rename_organisation(organisation, &name).await?;
+        store.rename_organisation(access.space, &name).await?;
         Ok(true)
     }
     .await;
@@ -644,20 +642,15 @@ async fn new_invite(
         return refused("not a role above your own");
     }
     let whole = form.scope.as_deref() != Some("space");
-    if whole {
-        let organisation = match store.organisation_of(access.space).await {
-            Ok(o) => o,
-            Err(e) => return failed(e),
-        };
-        if store
-            .org_role_of(access.user_id, organisation)
+    if whole
+        && store
+            .org_role_of(access.user_id, access.space)
             .await
             .ok()
             .flatten()
             .is_none_or(|r| r < Role::Admin || r < role)
-        {
-            return refused("only an admin of the organisation invites into all of it");
-        }
+    {
+        return refused("only an admin of the organisation invites into all of it");
     }
     match store
         .create_invite(access.space, role, access.user_id, whole)
@@ -710,14 +703,13 @@ async fn set_role(
     }
     let done: sqlx::Result<Result<(), &'static str>> = async {
         let space = access.space;
-        let organisation = store.organisation_of(space).await?;
         let theirs = store.role_of(user, space).await?;
         if theirs.is_some_and(|r| r > access.role) {
             return Ok(Err("not someone above you"));
         }
         if form.scope == "organisation" {
             if store
-                .org_role_of(access.user_id, organisation)
+                .org_role_of(access.user_id, access.space)
                 .await?
                 .is_none_or(|r| r < Role::Admin)
             {
@@ -725,7 +717,7 @@ async fn set_role(
                     "only an admin of the organisation changes roles in all of it",
                 ));
             }
-            let was = store.org_role_of(user, organisation).await?;
+            let was = store.org_role_of(user, access.space).await?;
             if was == Some(Role::Owner)
                 && role != Some(Role::Owner)
                 && store.owners(space).await? <= 1
@@ -737,7 +729,7 @@ async fn set_role(
             match role {
                 Some(role) => {
                     store
-                        .set_org_membership(user, organisation, role.as_str())
+                        .set_org_membership(user, access.space, role.as_str())
                         .await?
                 }
                 None => {
@@ -776,7 +768,6 @@ async fn remove_member(
     let whole = form.scope.as_deref() == Some("organisation");
     let done: sqlx::Result<Result<bool, &'static str>> = async {
         let space = access.space;
-        let organisation = store.organisation_of(space).await?;
         if user == access.user_id {
             return Ok(Err("not yourself"));
         }
@@ -789,7 +780,7 @@ async fn remove_member(
         }
         if whole {
             if store
-                .org_role_of(access.user_id, organisation)
+                .org_role_of(access.user_id, access.space)
                 .await?
                 .is_none_or(|r| r < Role::Admin)
             {
@@ -797,7 +788,7 @@ async fn remove_member(
                     "only an admin of the organisation takes someone out of all of it",
                 ));
             }
-            if store.org_role_of(user, organisation).await? == Some(Role::Owner)
+            if store.org_role_of(user, access.space).await? == Some(Role::Owner)
                 && store.owners(space).await? <= 1
             {
                 return Ok(Err("the organisation needs an owner"));
@@ -884,10 +875,10 @@ async fn invite_page(
             .into_response();
     };
     let into = match invite.whole_organisation {
-        true => match store.organisation_of(invite.space).await {
-            Ok(o) => store.organisation_name(o).await.unwrap_or_default(),
-            Err(_) => String::new(),
-        },
+        true => store
+            .organisation_name(invite.space)
+            .await
+            .unwrap_or_default(),
         false => invite.space_name.clone(),
     };
     let what = format!(
@@ -957,7 +948,7 @@ async fn join(
         return match store.use_invite(&invite, signed.user_id).await {
             Ok(true) => {
                 let _ = store
-                    .set_session_space(signed.session_id, invite.space)
+                    .set_session_space(signed.user_id, signed.session_id, invite.space)
                     .await;
                 Redirect::to("/").into_response()
             }
@@ -1053,7 +1044,10 @@ async fn switch(
     Form(form): Form<SwitchForm>,
 ) -> Response {
     match store.role_of(signed.user_id, form.space).await {
-        Ok(Some(_)) => match store.set_session_space(signed.session_id, form.space).await {
+        Ok(Some(_)) => match store
+            .set_session_space(signed.user_id, signed.session_id, form.space)
+            .await
+        {
             Ok(()) => StatusCode::NO_CONTENT.into_response(),
             Err(error) => failed(error),
         },
@@ -1086,15 +1080,14 @@ async fn new_space(
             let Some(Extension(access)) = &access else {
                 return Ok(Err("not in a space"));
             };
-            let organisation = store.organisation_of(access.space).await?;
             if store
-                .org_role_of(signed.user_id, organisation)
+                .org_role_of(signed.user_id, access.space)
                 .await?
                 .is_none_or(|r| r < Role::Admin)
             {
                 return Ok(Err("only an admin of the organisation makes spaces in it"));
             }
-            let space = store.create_space(organisation, &name).await?;
+            let space = store.create_space(access.space, &name).await?;
             let _ = store.audit(access, "made a space", &name, "").await;
             Ok(Ok(space))
         } else {
@@ -1110,7 +1103,9 @@ async fn new_space(
     .await;
     match made {
         Ok(Ok(space)) => {
-            let _ = store.set_session_space(signed.session_id, space).await;
+            let _ = store
+                .set_session_space(signed.user_id, signed.session_id, space)
+                .await;
             if headers.contains_key("x-requested-with") {
                 StatusCode::NO_CONTENT.into_response()
             } else {

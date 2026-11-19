@@ -178,8 +178,9 @@ pub(crate) struct MoveForm {
     space: String,
 }
 
-/// The other spaces someone who manages a machine could move it to: where they are owner or
-/// admin too. (uid, "Organisation · Space"); none for a token.
+/// The other spaces an instance admin who manages a machine could move it to: where they are owner
+/// or admin too. (uid, "Organisation · Space"); none for a token. Moving is an instance admin's
+/// (design decisions/20261119-device-move.md; admin-pool allowlist #3).
 fn move_targets(
     store: &Legacy,
     access: &access::Access,
@@ -190,7 +191,7 @@ fn move_targets(
     let manages = store
         .may(access, machine, access::Level::Manage, grants)
         .unwrap_or(false);
-    if !manages || access.token_id.is_some() {
+    if !manages || !access.instance_admin || access.token_id.is_some() {
         return Vec::new();
     }
     spaces
@@ -200,7 +201,7 @@ fn move_targets(
         .collect()
 }
 
-/// Moves a machine to another space of someone who manages both.
+/// Moves a machine to another space: an instance admin's (who manages both).
 pub(crate) async fn move_machine(
     access: crate::access::Access,
     State(store): State<Store>,
@@ -211,6 +212,13 @@ pub(crate) async fn move_machine(
         return (
             StatusCode::FORBIDDEN,
             "a token belongs to one space: move machines signed in",
+        )
+            .into_response();
+    }
+    if !access.instance_admin {
+        return (
+            StatusCode::FORBIDDEN,
+            "only who runs the server moves machines between spaces",
         )
             .into_response();
     }
@@ -242,9 +250,6 @@ pub(crate) async fn move_machine(
         .map(|r| r.map(|()| name));
     match moved {
         Ok(Ok(name)) => {
-            if let Err(error) = store.forget_machine_access(&id).await {
-                return failed(error);
-            }
             let (from_name, to_name) = (
                 store.space_name(access.space).await.unwrap_or_default(),
                 store.space_name(to).await.unwrap_or_default(),

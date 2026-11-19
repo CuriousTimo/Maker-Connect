@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id FROM spaces WHERE organisation_id = $1",
+  "query": "SELECT s.id FROM spaces s JOIN spaces t ON t.organisation_id = s.organisation_id\n                 WHERE t.id = $1 ORDER BY s.id",
   "describe": {
     "columns": [
       {
@@ -24,5 +24,5 @@
       false
     ]
   },
-  "hash": "a5c142d45f7923287aec0491b8216e93880aaac728ceac2cc8fa7197792225a4"
+  "hash": "b7d92c4377f3e200d21cf5eb36f2340705884cd394c4d66075b7090c84e5a267"
 }

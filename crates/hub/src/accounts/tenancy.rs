@@ -1,13 +1,16 @@
 //! Organisations, spaces, memberships, invites, API tokens and the audit log, on Postgres (moved from
 //! crate::access's SQLite queries, hub core v2 step 2). Request work for one space runs in that space's
-//! transaction ([`crate::store::pg::Pg::space`]); what crosses spaces by nature (who someone is and where
-//! they may be, sign-in by invite or token, instance admin, organisation-wide changes) runs as admin.
+//! transaction ([`crate::store::pg::Pg::space`]), and so does organisation-wide work: in a space of the
+//! organisation, whose rows (organisations, org_memberships, its spaces) row-level security shows there.
+//! What crosses spaces by nature (who someone is and where they may be, sign-in by invite or token,
+//! making an organisation) runs as admin, each use with its reason (`Bypass`).
 //!
 //! Transitional (lanes 1-3): machines are still on SQLite; the audit log's machine names come from there.
 
 use crate::access::INVITE_SECONDS;
 use crate::access::{Access, AuditLine, Invite, Member, Role, SpaceOf, TOKEN_PREFIX, Token};
 use crate::accounts::{random_token, token_hash};
+use crate::store::pg::Bypass;
 use crate::store::{Store, now};
 use std::collections::HashMap;
 
@@ -20,8 +23,10 @@ impl Store {
     /// Someone's role in a space: the higher of their role in its organisation (which
     /// counts in all its spaces) and in the space itself.
     pub async fn role_of(&self, user: i64, space: i64) -> sqlx::Result<Option<Role>> {
-        let mut c = self.pg().admin.acquire().await?;
-        Self::role_of_in(&mut c, user, space).await
+        let mut tx = self.pg().space(space).await?;
+        let role = Self::role_of_in(&mut tx, user, space).await?;
+        tx.commit().await?;
+        Ok(role)
     }
 
     async fn role_of_in(
@@ -42,10 +47,14 @@ impl Store {
         Ok(roles.iter().filter_map(|r| Role::parse(r)).max())
     }
 
-    /// Someone's role in an organisation itself (not through one of its spaces).
-    pub async fn org_role_of(&self, user: i64, organisation: i64) -> sqlx::Result<Option<Role>> {
-        let mut c = self.pg().admin.acquire().await?;
-        Self::org_role_of_in(&mut c, user, organisation).await
+    /// Someone's role in the organisation of `space` itself (not through one of its spaces), in the
+    /// space's transaction.
+    pub async fn org_role_of(&self, user: i64, space: i64) -> sqlx::Result<Option<Role>> {
+        let mut tx = self.pg().space(space).await?;
+        let organisation = Self::organisation_of_in(&mut tx, space).await?;
+        let role = Self::org_role_of_in(&mut tx, user, organisation).await?;
+        tx.commit().await?;
+        Ok(role)
     }
 
     async fn org_role_of_in(
@@ -64,8 +73,10 @@ impl Store {
     }
 
     pub async fn organisation_of(&self, space: i64) -> sqlx::Result<i64> {
-        let mut c = self.pg().admin.acquire().await?;
-        Self::organisation_of_in(&mut c, space).await
+        let mut tx = self.pg().space(space).await?;
+        let organisation = Self::organisation_of_in(&mut tx, space).await?;
+        tx.commit().await?;
+        Ok(organisation)
     }
 
     async fn organisation_of_in(c: &mut sqlx::PgConnection, space: i64) -> sqlx::Result<i64> {
@@ -74,32 +85,40 @@ impl Store {
             .await
     }
 
-    pub async fn organisation_name(&self, organisation: i64) -> sqlx::Result<String> {
-        sqlx::query_scalar!("SELECT name FROM organisations WHERE id = $1", organisation)
-            .fetch_one(&self.pg().admin)
-            .await
+    /// The name of the organisation of `space`. Organisation-wide work runs in a space of the
+    /// organisation (row-level security shows that organisation only; design database.md).
+    pub async fn organisation_name(&self, space: i64) -> sqlx::Result<String> {
+        let mut tx = self.pg().space(space).await?;
+        let name = sqlx::query_scalar!(
+            "SELECT o.name FROM organisations o JOIN spaces s ON s.organisation_id = o.id WHERE s.id = $1",
+            space
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(name)
     }
 
-    pub async fn rename_organisation(&self, organisation: i64, name: &str) -> sqlx::Result<()> {
+    /// Renames the organisation of `space`.
+    pub async fn rename_organisation(&self, space: i64, name: &str) -> sqlx::Result<()> {
+        let mut tx = self.pg().space(space).await?;
         sqlx::query!(
-            "UPDATE organisations SET name = $2 WHERE id = $1",
-            organisation,
+            "UPDATE organisations SET name = $2
+             WHERE id = (SELECT organisation_id FROM spaces WHERE id = $1)",
+            space,
             name
         )
-        .execute(&self.pg().admin)
+        .execute(&mut *tx)
         .await?;
-        Ok(())
+        tx.commit().await
     }
 
-    /// Puts a user in an organisation (all its spaces) with a role, or changes it.
-    pub async fn set_org_membership(
-        &self,
-        user: i64,
-        organisation: i64,
-        role: &str,
-    ) -> sqlx::Result<()> {
-        let mut c = self.pg().admin.acquire().await?;
-        Self::set_org_membership_in(&mut c, user, organisation, role).await
+    /// Puts a user in the organisation of `space` (all its spaces) with a role, or changes it.
+    pub async fn set_org_membership(&self, user: i64, space: i64, role: &str) -> sqlx::Result<()> {
+        let mut tx = self.pg().space(space).await?;
+        let organisation = Self::organisation_of_in(&mut tx, space).await?;
+        Self::set_org_membership_in(&mut tx, user, organisation, role).await?;
+        tx.commit().await
     }
 
     async fn set_org_membership_in(
@@ -136,7 +155,7 @@ impl Store {
                ORDER BY lower(o.name), lower(s.name), s.id"#,
             user
         )
-        .fetch_all(&self.pg().admin)
+        .fetch_all(self.pg().admin(Bypass::Me))
         .await?;
         let mut out: Vec<SpaceOf> = Vec::new();
         for r in rows {
@@ -166,23 +185,26 @@ impl Store {
         Ok(name)
     }
 
-    /// A space by its id under the hood.
+    /// A space by its id under the hood: the one someone chose, before its transaction.
     pub async fn space_by_uid(&self, uid: &str) -> sqlx::Result<Option<i64>> {
         sqlx::query_scalar!("SELECT id FROM spaces WHERE uid = $1", uid)
-            .fetch_optional(&self.pg().admin)
+            .fetch_optional(self.pg().admin(Bypass::SignIn))
             .await
     }
 
     pub async fn space_uid(&self, space: i64) -> sqlx::Result<String> {
-        sqlx::query_scalar!("SELECT uid FROM spaces WHERE id = $1", space)
-            .fetch_one(&self.pg().admin)
-            .await
+        let mut tx = self.pg().space(space).await?;
+        let uid = sqlx::query_scalar!("SELECT uid FROM spaces WHERE id = $1", space)
+            .fetch_one(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(uid)
     }
 
     /// The space a self-hosted hub shows: its first.
     pub async fn default_space(&self) -> sqlx::Result<(i64, String)> {
         let r = sqlx::query!("SELECT id, name FROM spaces ORDER BY id LIMIT 1")
-            .fetch_one(&self.pg().admin)
+            .fetch_one(self.pg().admin(Bypass::SignIn))
             .await?;
         Ok((r.id, r.name))
     }
@@ -190,52 +212,75 @@ impl Store {
     /// Every space's id (the hub's own tasks that go over all spaces).
     pub async fn space_ids(&self) -> sqlx::Result<Vec<i64>> {
         sqlx::query_scalar!("SELECT id FROM spaces ORDER BY id")
-            .fetch_all(&self.pg().admin)
+            .fetch_all(self.pg().admin(Bypass::TaskList))
             .await
     }
 
-    /// A new space in an organisation.
-    pub async fn create_space(&self, organisation: i64, name: &str) -> sqlx::Result<i64> {
-        let space = sqlx::query_scalar!(
-            "INSERT INTO spaces (name, uid, organisation_id) VALUES ($1, $2, $3) RETURNING id",
+    /// A new space in the organisation of `space` (in that space's transaction).
+    pub async fn create_space(&self, space: i64, name: &str) -> sqlx::Result<i64> {
+        let mut tx = self.pg().space(space).await?;
+        let made = sqlx::query_scalar!(
+            "INSERT INTO spaces (name, uid, organisation_id)
+             SELECT $1, $2, organisation_id FROM spaces WHERE id = $3 RETURNING id",
             name,
             crate::accounts::new_uuid(),
-            organisation
+            space
         )
-        .fetch_one(&self.pg().admin)
+        .fetch_one(&mut *tx)
         .await?;
-        Ok(space)
+        tx.commit().await?;
+        Ok(made)
     }
 
-    /// A new organisation with its first space, its maker the owner of both.
+    /// A new organisation with its first space, its maker the owner of both, in one transaction.
+    /// Setup: an instance admin's, or anyone's where spaces are open (the callers check which).
     pub async fn create_organisation(
         &self,
         name: &str,
         space_name: &str,
         owner: i64,
     ) -> sqlx::Result<(i64, i64)> {
+        let mut tx = self.pg().admin(Bypass::SignIn).begin().await?;
         let organisation = sqlx::query_scalar!(
             "INSERT INTO organisations (uid, name, created_at) VALUES ($1, $2, at_unix($3)) RETURNING id",
             crate::accounts::new_uuid(),
             name,
             now()
         )
-        .fetch_one(&self.pg().admin)
+        .fetch_one(&mut *tx)
         .await?;
-        self.set_org_membership(owner, organisation, Role::Owner.as_str())
-            .await?;
-        let space = self.create_space(organisation, space_name).await?;
+        Self::set_org_membership_in(&mut tx, owner, organisation, Role::Owner.as_str()).await?;
+        let space = sqlx::query_scalar!(
+            "INSERT INTO spaces (name, uid, organisation_id) VALUES ($1, $2, $3) RETURNING id",
+            space_name,
+            crate::accounts::new_uuid(),
+            organisation
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
         Ok((organisation, space))
     }
 
-    /// The session goes on in another space.
-    pub async fn set_session_space(&self, session: i64, space: i64) -> sqlx::Result<()> {
+    /// The first space of an organisation (tests: organisation-wide calls take a space of it).
+    #[cfg(test)]
+    pub(crate) async fn a_space_of(&self, organisation: i64) -> i64 {
+        sqlx::query_scalar("SELECT min(id) FROM spaces WHERE organisation_id = $1")
+            .bind(organisation)
+            .fetch_one(self.pg().admin_in_tests())
+            .await
+            .unwrap()
+    }
+
+    /// The signed-in person's session goes on in another space.
+    pub async fn set_session_space(&self, user: i64, session: i64, space: i64) -> sqlx::Result<()> {
         sqlx::query!(
-            "UPDATE sessions SET space_id = $2 WHERE id = $1",
+            "UPDATE sessions SET space_id = $3 WHERE id = $1 AND user_id = $2",
             session,
+            user,
             space
         )
-        .execute(&self.pg().admin)
+        .execute(self.pg().admin(Bypass::Me))
         .await?;
         Ok(())
     }
@@ -303,69 +348,81 @@ impl Store {
         Ok(n)
     }
 
-    /// Takes someone out of a space (`whole`: out of its organisation, so of all its
-    /// spaces), with their inductions there; their sessions find another space.
+    /// Takes someone out of a space (`whole`: out of its organisation, so of all its spaces), with
+    /// their inductions there; their sessions find another space (crate::auth: a session's space
+    /// without a role moves to the first they have). Each space's grants go in that space's
+    /// transaction, the membership last (in `space`'s): when one fails, they are still in and it can
+    /// be done again.
     pub async fn remove_member(&self, space: i64, user: i64, whole: bool) -> sqlx::Result<bool> {
-        let mut tx = self.pg().admin.begin().await?;
-        let (n, spaces) = if whole {
-            let organisation =
-                sqlx::query_scalar!("SELECT organisation_id FROM spaces WHERE id = $1", space)
-                    .fetch_one(&mut *tx)
-                    .await?;
-            let n = sqlx::query!(
-                "DELETE FROM org_memberships WHERE organisation_id = $1 AND user_id = $2",
-                organisation,
+        let spaces = if whole {
+            let mut tx = self.pg().space(space).await?;
+            let spaces = sqlx::query_scalar!(
+                "SELECT s.id FROM spaces s JOIN spaces t ON t.organisation_id = s.organisation_id
+                 WHERE t.id = $1 ORDER BY s.id",
+                space
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            spaces
+        } else {
+            vec![space]
+        };
+        for &other in spaces.iter().filter(|&&s| s != space) {
+            let mut tx = self.pg().space(other).await?;
+            Self::remove_grants_of_in(&mut tx, user, &[other]).await?;
+            tx.commit().await?;
+        }
+        let mut tx = self.pg().space(space).await?;
+        Self::remove_grants_of_in(&mut tx, user, &[space]).await?;
+        let n = if whole {
+            sqlx::query!(
+                "DELETE FROM org_memberships WHERE user_id = $2
+                 AND organisation_id = (SELECT organisation_id FROM spaces WHERE id = $1)",
+                space,
                 user
             )
             .execute(&mut *tx)
             .await?
-            .rows_affected();
-            let spaces = sqlx::query_scalar!(
-                "SELECT id FROM spaces WHERE organisation_id = $1",
-                organisation
-            )
-            .fetch_all(&mut *tx)
-            .await?;
-            (n, spaces)
+            .rows_affected()
         } else {
-            let n = sqlx::query!(
+            sqlx::query!(
                 "DELETE FROM memberships WHERE space_id = $1 AND user_id = $2",
                 space,
                 user
             )
             .execute(&mut *tx)
             .await?
-            .rows_affected();
-            (n, vec![space])
+            .rows_affected()
         };
-        sqlx::query!(
-            "UPDATE sessions SET space_id = NULL WHERE user_id = $1",
-            user
-        )
-        .execute(&mut *tx)
-        .await?;
-        Self::remove_grants_of_in(&mut tx, user, &spaces).await?;
         tx.commit().await?;
         Ok(n > 0)
     }
 
-    /// People's display names, by id (for lists whose rows are still on SQLite: transitional).
-    pub async fn display_names(&self, ids: &[i64]) -> sqlx::Result<HashMap<i64, String>> {
+    /// People's display names, by id, in the space's transaction.
+    pub async fn display_names(
+        &self,
+        space: i64,
+        ids: &[i64],
+    ) -> sqlx::Result<HashMap<i64, String>> {
+        let mut tx = self.pg().space(space).await?;
         let rows = sqlx::query!("SELECT id, display_name FROM users WHERE id = ANY($1)", ids)
-            .fetch_all(&self.pg().admin)
+            .fetch_all(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(rows.into_iter().map(|r| (r.id, r.display_name)).collect())
     }
 
-    /// What the audit log says of a person and a machine: their names.
+    /// What the space's audit log says of a person and a machine: their names.
     pub async fn names_for_log(
         &self,
+        space: i64,
         user: Option<i64>,
         machine: Option<&str>,
     ) -> (String, String) {
         let user = match user {
             Some(u) => self
-                .display_names(&[u])
+                .display_names(space, &[u])
                 .await
                 .ok()
                 .and_then(|mut n| n.remove(&u))
@@ -373,7 +430,7 @@ impl Store {
             None => String::new(),
         };
         let machine = match machine {
-            Some(m) => self.machine_name_any_space(m).await.ok().flatten(),
+            Some(m) => self.machine_name(space, m).await.ok().flatten(),
             None => None,
         }
         .unwrap_or_default();
@@ -411,10 +468,10 @@ impl Store {
     pub async fn invites(&self, space: i64) -> sqlx::Result<Vec<Invite>> {
         let mut tx = self.pg().space(space).await?;
         let rows = sqlx::query!(
-            r#"SELECT i.id, i.space_id, s.name AS space_name, i.role, b.display_name AS by_name,
+            r#"SELECT i.id, i.space_id, s.name AS space_name, i.role, COALESCE(b.display_name, '') AS "by_name!",
                  unix_seconds(i.created_at) AS "created_at!", unix_seconds(i.expires_at) AS "expires_at!",
                  u.display_name AS "used_by?", i.revoked, i.whole_organisation
-             FROM invites i JOIN spaces s ON s.id = i.space_id JOIN users b ON b.id = i.created_by
+             FROM invites i JOIN spaces s ON s.id = i.space_id LEFT JOIN users b ON b.id = i.created_by
              LEFT JOIN users u ON u.id = i.used_by WHERE i.space_id = $1 ORDER BY i.created_at DESC, i.id DESC"#,
             space
         )
@@ -443,14 +500,14 @@ impl Store {
     /// The invite an address's token is for, open or not (sign-in by invite: admin).
     pub async fn invite(&self, token: &str) -> sqlx::Result<Option<Invite>> {
         let r = sqlx::query!(
-            r#"SELECT i.id, i.space_id, s.name AS space_name, i.role, b.display_name AS by_name,
+            r#"SELECT i.id, i.space_id, s.name AS space_name, i.role, COALESCE(b.display_name, '') AS "by_name!",
                  unix_seconds(i.created_at) AS "created_at!", unix_seconds(i.expires_at) AS "expires_at!",
                  u.display_name AS "used_by?", i.revoked, i.whole_organisation
-             FROM invites i JOIN spaces s ON s.id = i.space_id JOIN users b ON b.id = i.created_by
+             FROM invites i JOIN spaces s ON s.id = i.space_id LEFT JOIN users b ON b.id = i.created_by
              LEFT JOIN users u ON u.id = i.used_by WHERE i.token_hash = $1"#,
             token_hash(token)
         )
-        .fetch_optional(&self.pg().admin)
+        .fetch_optional(self.pg().admin(Bypass::Secret))
         .await?;
         Ok(r.and_then(|r| {
             Some(Invite {
@@ -485,7 +542,7 @@ impl Store {
     /// Uses an open invite: the user joins its space with its role (or keeps a higher one).
     /// False when it was taken meanwhile.
     pub async fn use_invite(&self, invite: &Invite, user: i64) -> sqlx::Result<bool> {
-        let mut tx = self.pg().admin.begin().await?;
+        let mut tx = self.pg().admin(Bypass::SignIn).begin().await?;
         let used = Self::use_invite_in(&mut tx, invite, user).await?;
         tx.commit().await?;
         Ok(used)
@@ -538,7 +595,7 @@ impl Store {
         user_agent: &str,
         address: &str,
     ) -> sqlx::Result<Option<String>> {
-        let mut tx = self.pg().admin.begin().await?;
+        let mut tx = self.pg().admin(Bypass::SignIn).begin().await?;
         let user = Self::create_user_in(&mut tx, name, display_name, password_hash, false).await?;
         if !Self::use_invite_in(&mut tx, invite, user).await? {
             // Dropped: rolled back, the account with it.
@@ -579,9 +636,10 @@ impl Store {
     pub async fn tokens(&self, space: i64) -> sqlx::Result<Vec<Token>> {
         let mut tx = self.pg().space(space).await?;
         let rows = sqlx::query!(
-            r#"SELECT t.id, t.name, t.role, u.display_name, unix_seconds(t.created_at) AS "created_at!",
+            r#"SELECT t.id, t.name, t.role, COALESCE(u.display_name, '') AS "display_name!",
+                 unix_seconds(t.created_at) AS "created_at!",
                  unix_seconds(t.last_used) AS "last_used?"
-             FROM api_tokens t JOIN users u ON u.id = t.created_by
+             FROM api_tokens t LEFT JOIN users u ON u.id = t.created_by
              WHERE t.space_id = $1 AND NOT t.revoked ORDER BY t.created_at DESC, t.id DESC"#,
             space
         )
@@ -627,7 +685,7 @@ impl Store {
              WHERE t.token_hash = $1 AND NOT t.revoked"#,
             token_hash(token)
         )
-        .fetch_optional(&self.pg().admin)
+        .fetch_optional(self.pg().admin(Bypass::Secret))
         .await?;
         let Some(r) = found else {
             return Ok(None);
@@ -645,7 +703,7 @@ impl Store {
                 r.id,
                 now()
             )
-            .execute(&self.pg().admin)
+            .execute(self.pg().admin(Bypass::Secret))
             .await?;
         }
         Ok(Some(Access {
@@ -718,7 +776,7 @@ impl Store {
     /// server (the default).
     pub async fn open_spaces(&self) -> bool {
         sqlx::query_scalar!("SELECT value FROM meta WHERE key = 'open_spaces'")
-            .fetch_optional(&self.pg().admin)
+            .fetch_optional(self.pg().admin(Bypass::SignIn))
             .await
             .ok()
             .flatten()
@@ -731,7 +789,7 @@ impl Store {
              ON CONFLICT (key) DO UPDATE SET value = excluded.value",
             if on { "1" } else { "0" }
         )
-        .execute(&self.pg().admin)
+        .execute(self.pg().admin(Bypass::InstanceAdmin))
         .await?;
         Ok(())
     }
@@ -760,7 +818,7 @@ impl Store {
     /// Spaces that did not get the example files yet (crate::samples).
     pub async fn spaces_without_samples(&self) -> sqlx::Result<Vec<i64>> {
         sqlx::query_scalar!("SELECT id FROM spaces WHERE NOT samples_given ORDER BY id")
-            .fetch_all(&self.pg().admin)
+            .fetch_all(self.pg().admin(Bypass::TaskList))
             .await
     }
 

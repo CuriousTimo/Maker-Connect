@@ -1,15 +1,16 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM org_memberships WHERE organisation_id = $1 AND user_id = $2",
+  "query": "UPDATE sessions SET space_id = $3 WHERE id = $1 AND user_id = $2",
   "describe": {
     "columns": [],
     "parameters": {
       "Left": [
+        "Int8",
         "Int8",
         "Int8"
       ]
     },
     "nullable": []
   },
-  "hash": "7952c4f30e6ee00a8f30e1fb4b0f339eb076c2fdd17ab83ebb13eab50274f909"
+  "hash": "a58e45603aa4472ba70224668a311b7ec421e297de49f7a1d1cef4ae18cfa4d9"
 }

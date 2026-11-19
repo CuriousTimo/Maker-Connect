@@ -645,7 +645,7 @@ async fn tick(
         )
             .into_response();
     }
-    let (who, _) = store.names_for_log(Some(user), None).await;
+    let (who, _) = store.names_for_log(access.space, Some(user), None).await;
     let had = store
         .groups(access.space)
         .await
@@ -796,7 +796,7 @@ async fn set_permissions(
     };
     match result {
         Ok(Ok(given)) => {
-            let (who, _) = store.names_for_log(Some(user), None).await;
+            let (who, _) = store.names_for_log(access.space, Some(user), None).await;
             let _ = store
                 .audit(
                     &access,
@@ -848,7 +848,7 @@ async fn give_permission(
         )
             .into_response();
     }
-    let (who, _) = store.names_for_log(Some(user), None).await;
+    let (who, _) = store.names_for_log(access.space, Some(user), None).await;
     let until_text = until
         .map(|t| format!(" until {}", day(t)))
         .unwrap_or_default();
@@ -983,7 +983,9 @@ async fn group_machine(
     };
     match set {
         Ok(Some(name)) => {
-            let (_, machine) = store.names_for_log(None, Some(&form.machine)).await;
+            let (_, machine) = store
+                .names_for_log(access.space, None, Some(&form.machine))
+                .await;
             let _ = store
                 .audit(&access, "put a machine in the group", &name, &machine)
                 .await;
@@ -1016,7 +1018,9 @@ async fn group_machine_out(
     };
     match set {
         Ok(Some(name)) => {
-            let (_, machine) = store.names_for_log(None, Some(&machine)).await;
+            let (_, machine) = store
+                .names_for_log(access.space, None, Some(&machine))
+                .await;
             let _ = store
                 .audit(&access, "took a machine out of the group", &name, &machine)
                 .await;
@@ -1063,7 +1067,9 @@ async fn group_grant(
     };
     match set {
         Ok(name) => {
-            let (who, _) = store.names_for_log(Some(form.user), None).await;
+            let (who, _) = store
+                .names_for_log(access.space, Some(form.user), None)
+                .await;
             let until = until
                 .map(|t| format!(" until {}", day(t)))
                 .unwrap_or_default();
@@ -1103,7 +1109,7 @@ async fn group_ungrant(
     };
     match removed {
         Ok(Some(name)) => {
-            let (who, _) = store.names_for_log(Some(user), None).await;
+            let (who, _) = store.names_for_log(access.space, Some(user), None).await;
             let _ = store
                 .audit(&access, "took permission away on the group", &name, &who)
                 .await;

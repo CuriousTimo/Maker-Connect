@@ -11,6 +11,7 @@
 //!   can share it later. Secrets are kept only as hashes: passwords with Argon2id, session
 //!   tokens with SHA-256 (they are long and random, so a fast hash is enough).
 
+use crate::store::pg::Bypass;
 use crate::store::{Store, now};
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use rand::RngCore;
@@ -136,7 +137,7 @@ pub fn setup_code() -> String {
 impl Store {
     pub async fn has_users(&self) -> sqlx::Result<bool> {
         sqlx::query_scalar!(r#"SELECT EXISTS (SELECT 1 FROM users) AS "e!""#)
-            .fetch_one(&self.pg().admin)
+            .fetch_one(self.pg().admin(Bypass::SignIn))
             .await
     }
 
@@ -148,7 +149,7 @@ impl Store {
         password_hash: &str,
         instance_admin: bool,
     ) -> sqlx::Result<i64> {
-        let mut tx = self.pg().admin.begin().await?;
+        let mut tx = self.pg().admin(Bypass::SignIn).begin().await?;
         let id = Self::create_user_in(&mut tx, name, display_name, password_hash, instance_admin)
             .await?;
         tx.commit().await?;
@@ -190,7 +191,7 @@ impl Store {
     /// Whether a user by this name exists (names are the same whatever their case).
     pub async fn user_id(&self, name: &str) -> sqlx::Result<Option<i64>> {
         sqlx::query_scalar!("SELECT id FROM users WHERE lower(name) = lower($1)", name)
-            .fetch_optional(&self.pg().admin)
+            .fetch_optional(self.pg().admin(Bypass::SignIn))
             .await
     }
 
@@ -202,7 +203,7 @@ impl Store {
              WHERE lower(u.name) = lower($1)",
             name
         )
-        .fetch_optional(&self.pg().admin)
+        .fetch_optional(self.pg().admin(Bypass::SignIn))
         .await?;
         Ok(row.map(|r| Credentials {
             user_id: r.id,
@@ -213,7 +214,7 @@ impl Store {
 
     /// A new password for a user; their sessions end, wherever they were signed in.
     pub async fn set_password(&self, user_id: i64, password_hash: &str) -> sqlx::Result<()> {
-        let mut tx = self.pg().admin.begin().await?;
+        let mut tx = self.pg().admin(Bypass::SignIn).begin().await?;
         Self::set_password_in(&mut tx, user_id, password_hash).await?;
         tx.commit().await
     }
@@ -260,7 +261,7 @@ impl Store {
         user_agent: &str,
         address: &str,
     ) -> sqlx::Result<String> {
-        let mut tx = self.pg().admin.begin().await?;
+        let mut tx = self.pg().admin(Bypass::SignIn).begin().await?;
         Self::set_password_in(&mut tx, user_id, password_hash).await?;
         let token =
             Self::create_session_in(&mut tx, user_id, space_id, user_agent, address).await?;
@@ -306,7 +307,7 @@ impl Store {
             "SELECT space_id FROM memberships WHERE user_id = $1 ORDER BY created_at, space_id LIMIT 1",
             user_id
         )
-        .fetch_optional(&self.pg().admin)
+        .fetch_optional(self.pg().admin(Bypass::Me))
         .await
     }
 
@@ -327,7 +328,7 @@ impl Store {
         user_agent: &str,
         address: &str,
     ) -> sqlx::Result<String> {
-        let mut c = self.pg().admin.acquire().await?;
+        let mut c = self.pg().admin(Bypass::SignIn).acquire().await?;
         Self::create_session_in(&mut c, user_id, space_id, user_agent, address).await
     }
 
@@ -369,7 +370,7 @@ impl Store {
             token_hash(token),
             at
         )
-        .fetch_optional(&self.pg().admin)
+        .fetch_optional(self.pg().admin(Bypass::Secret))
         .await?;
         let Some(r) = found else {
             return Ok(None);
@@ -381,7 +382,7 @@ impl Store {
                 at,
                 at + SESSION_SECONDS
             )
-            .execute(&self.pg().admin)
+            .execute(self.pg().admin(Bypass::Secret))
             .await?;
         }
         Ok(Some(Signed {
@@ -396,7 +397,7 @@ impl Store {
 
     pub async fn end_session(&self, session_id: i64) -> sqlx::Result<()> {
         sqlx::query!("DELETE FROM sessions WHERE id = $1", session_id)
-            .execute(&self.pg().admin)
+            .execute(self.pg().admin(Bypass::Secret))
             .await?;
         Ok(())
     }
@@ -407,7 +408,7 @@ impl Store {
             "DELETE FROM sessions WHERE expires_at <= at_unix($1)",
             now()
         )
-        .execute(&self.pg().admin)
+        .execute(self.pg().admin(Bypass::SignIn))
         .await?
         .rows_affected())
     }

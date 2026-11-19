@@ -242,7 +242,6 @@ mod tests {
     async fn rig(pool: &sqlx::PgPool) -> Rig {
         let store = crate::store::Store::for_test(pool).await;
         let (space, _) = store.default_space().await.unwrap();
-        let org = store.organisation_of(space).await.unwrap();
         let (machine, token) = {
             let (machine, token, code) = store
                 .register(&Register {
@@ -259,7 +258,7 @@ mod tests {
         let cookie = async |name: &str, role: Role| {
             let user = store.create_user(name, name, "x", false).await.unwrap();
             store
-                .set_org_membership(user, org, role.as_str())
+                .set_org_membership(user, space, role.as_str())
                 .await
                 .unwrap();
             format!(

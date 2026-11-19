@@ -126,14 +126,18 @@ impl Store {
             .collect())
     }
 
-    /// A machine's name, in whichever space (the audit log's names). Across spaces: the admin pool.
-    pub(crate) async fn machine_name_any_space(
+    /// A machine's name in the space (the audit log's names).
+    pub(crate) async fn machine_name(
         &self,
+        space: i64,
         machine: &str,
     ) -> sqlx::Result<Option<String>> {
-        sqlx::query_scalar!("SELECT name FROM machines WHERE id = $1", machine)
-            .fetch_optional(&self.pg().admin)
-            .await
+        let mut tx = self.pg().space(space).await?;
+        let name = sqlx::query_scalar!("SELECT name FROM machines WHERE id = $1", machine)
+            .fetch_optional(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(name)
     }
 
     /// Who has permission on a machine of the space, by name.
@@ -269,23 +273,6 @@ impl Store {
                 }
             }
         }
-        tx.commit().await
-    }
-
-    /// A machine moves to another space: its permissions and group places go (removed, they go with its row:
-    /// ON DELETE CASCADE), in
-    /// whichever space they were (as admin: a move spans two spaces).
-    pub async fn forget_machine_access(&self, machine: &str) -> sqlx::Result<()> {
-        let mut tx = self.pg().admin.begin().await?;
-        sqlx::query!("DELETE FROM machine_grants WHERE machine_id = $1", machine)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query!(
-            "DELETE FROM machine_group_members WHERE machine_id = $1",
-            machine
-        )
-        .execute(&mut *tx)
-        .await?;
         tx.commit().await
     }
 
@@ -731,7 +718,7 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let pg = Pg::with_options(&pool.connect_options(), 1);
+        let pg = Pg::with_options(&Pg::hub_login(&pool.connect_options()), 1);
         let role: String = sqlx::query_scalar("SELECT current_user::text")
             .fetch_one(&pg.app)
             .await
@@ -747,7 +734,7 @@ mod tests {
             assert_eq!(seen, vec![1], "{table} in space 1");
             tx.commit().await.unwrap();
             let admin: Vec<i64> = sqlx::query_scalar(all())
-                .fetch_all(&pg.admin)
+                .fetch_all(pg.admin_in_tests())
                 .await
                 .unwrap();
             assert_eq!(admin, vec![1, 2], "{table} as admin");

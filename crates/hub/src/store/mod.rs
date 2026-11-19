@@ -600,8 +600,7 @@ impl Store {
     /// connection) gets an error from now on instead of a connection. For a hub handing over to a new
     /// build (main), which must not write meanwhile.
     pub async fn close(&self) {
-        self.inner.pg.app.close().await;
-        self.inner.pg.admin.close().await;
+        self.inner.pg.close().await;
     }
 
     /// Signals each change to a machine from now on (some may be merged into one).
@@ -930,12 +929,16 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        pg.set_job(job, JobState::Printing, None).await.unwrap();
+        pg.set_job(space, job, JobState::Printing, None)
+            .await
+            .unwrap();
         assert_eq!(
             pg.machine(space, &printer).await.unwrap().unwrap().on_bed,
             None
         );
-        pg.set_job(job, JobState::Finished, None).await.unwrap();
+        pg.set_job(space, job, JobState::Finished, None)
+            .await
+            .unwrap();
         let on_bed = pg.machine(space, &printer).await.unwrap().unwrap().on_bed;
         assert_eq!(on_bed.map(|b| b.file_name), Some("cube.gcode".to_owned()));
         assert!(pg.print_taken(space, &printer).await.unwrap());
@@ -1028,8 +1031,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        pg.set_job(job, JobState::Printing, None).await.unwrap();
-        pg.set_job(job, JobState::Finished, None).await.unwrap();
+        pg.set_job(space, job, JobState::Printing, None)
+            .await
+            .unwrap();
+        pg.set_job(space, job, JobState::Finished, None)
+            .await
+            .unwrap();
         let left = pg.items(space).await.unwrap()[0].amount;
         assert_eq!(left, 987.5);
         let last = &pg.movements(space, &spool).await.unwrap()[0];

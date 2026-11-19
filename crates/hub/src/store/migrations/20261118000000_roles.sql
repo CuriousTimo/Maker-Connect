@@ -1,25 +1,9 @@
--- The store's two roles (docs/plans/hub-core-v2.md §2.6, tenancy): the hub connects as the tables' owner and
--- runs each pool's work under one of these (`SET ROLE` on every new connection, crate::store::pg).
+-- The store's roles (docs/plans/hub-core-v2.md §2.6, tenancy) belong to the cluster, not to a database: made
+-- once by scripts/db-roles.sql (a superuser runs it), never here. The migrations run as their owner
+-- (maker_connect_owner, crate::store::pg); the hub logs in as maker_connect_hub and gives each pooled
+-- connection one of these with `SET ROLE` as it opens:
 --   maker_connect_app    request work: no BYPASSRLS, not the owner, so row-level security holds;
---   maker_connect_admin  sign-in, session/token lookup, agent token lookup, instance admin: BYPASSRLS.
--- Roles belong to the cluster, not to a database: made once, kept (and tests make databases in parallel).
-DO $$
-BEGIN
-    CREATE ROLE maker_connect_app NOLOGIN NOBYPASSRLS;
-EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
-END $$;
-DO $$
-BEGIN
-    CREATE ROLE maker_connect_admin NOLOGIN BYPASSRLS;
-EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
-END $$;
-
--- The owner may take either role (a superuser may anyway). Tests migrate many databases at once.
-DO $$
-BEGIN
-    GRANT maker_connect_app, maker_connect_admin TO CURRENT_USER;
-EXCEPTION WHEN OTHERS THEN NULL;
-END $$;
+--   maker_connect_admin  sign-in, session/token lookup, device token lookup, instance admin: BYPASSRLS.
 GRANT USAGE ON SCHEMA public TO maker_connect_app, maker_connect_admin;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO maker_connect_app, maker_connect_admin;
@@ -45,3 +29,5 @@ CREATE TABLE meta (
     key text PRIMARY KEY,
     value text NOT NULL
 );
+-- The admin role's alone (design database.md#roles-and-pools).
+REVOKE ALL ON meta FROM maker_connect_app;

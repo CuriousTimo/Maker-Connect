@@ -958,7 +958,9 @@ mod tests {
         let registered: Registered = serde_json::from_str(&body).unwrap();
         let user = store.user_id("tester").await.unwrap().unwrap();
         let space = store.default_space().await.unwrap().0;
-        // 'use' only, not 'operate': whoever may use the machine may press the emergency stop
+        store.pair(space, &registered.pairing_code).await.unwrap();
+        // 'use' only, not 'operate': whoever may use the machine may press the emergency stop (a
+        // grant names the machine in its space: after pairing).
         store
             .set_grant(
                 space,
@@ -970,7 +972,6 @@ mod tests {
             )
             .await
             .unwrap();
-        store.pair(space, &registered.pairing_code).await.unwrap();
         if profile.is_some() {
             store
                 .set_profile(space, &registered.machine_id, profile)

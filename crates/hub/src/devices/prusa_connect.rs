@@ -438,8 +438,8 @@ async fn telemetry(
             report["state"].as_str(),
             Some("IDLE" | "READY" | "FINISHED" | "STOPPED")
         )
-        && let Ok(Some(machine)) = store.machine_id_by_token(token).await
-        && let Err(error) = store.usb_print_over(&machine).await
+        && let Ok(Some((machine, space))) = store.placed(token).await
+        && let Err(error) = store.usb_print_over(space, &machine).await
     {
         return failed(error);
     }
@@ -447,8 +447,8 @@ async fn telemetry(
     if let Ok(Some(_)) = reported
         && let Some(state) = report["state"].as_str()
     {
-        let active = match store.machine_id_by_token(token).await {
-            Ok(Some(machine)) => store.active_job(&machine).await,
+        let active = match store.placed(token).await {
+            Ok(Some((machine, space))) => store.active_job(space, &machine).await,
             Ok(None) => Ok(None),
             Err(error) => Err(error),
         };

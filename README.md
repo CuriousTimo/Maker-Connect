@@ -131,7 +131,7 @@ unpack it and start it in its folder:
 The agent has releases of its own (`agent-v…`); the hub's Downloads page offers the newest.
 The archive brings SpoolmanDB; printer
 profiles and filaments are inside the hub. The data is a PostgreSQL 17 database (TimescaleDB's image
-`timescale/timescaledb:2.32.0-pg17`), given as `DATABASE_URL` (in the environment: never on the command line, where anyone on the computer can read it), and the folders
+`timescale/timescaledb:2.32.0-pg17`), given as `DATABASE_URL` (in the environment: never on the command line, where anyone on the computer can read it) with the hub's own login `maker_connect_hub` (the roles and the restore template come from [scripts/db-roles.sql](scripts/db-roles.sql), run once per server by its superuser; the database is owned by `maker_connect_owner`; the hub refuses a login that is a superuser or owns tables), and the folders
 `maker-connect-files/`, `-downloads/` and `-dumps/` beside `--db /somewhere/maker-connect.db` (the
 folder it starts in unless said). The hub dumps the database (`pg_dump`) every night and before an
 update into `maker-connect-dumps/` (only for its own user), keeping the last 7 of each

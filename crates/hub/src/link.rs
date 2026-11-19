@@ -216,6 +216,8 @@ const POWER_CUT: &str = "a power cut stopped it: resume it here or on the printe
 pub(crate) struct AgentOf {
     /// The machine, by the token.
     pub machine: Option<String>,
+    /// Its space, when it is in one: its jobs' (and every query of them runs in it).
+    pub space: Option<i64>,
     /// [`Store::loaded_media_mm`].
     pub media: Option<(u32, Option<u32>)>,
     /// [`Store::loaded_page_size`].
@@ -226,10 +228,17 @@ pub(crate) async fn agent_of(store: &Store, token: &str) -> sqlx::Result<AgentOf
     let Some(machine) = store.machine_id_by_token(token).await? else {
         return Ok(AgentOf::default());
     };
+    let Some((_, space)) = store.placed(token).await? else {
+        return Ok(AgentOf {
+            machine: Some(machine),
+            ..Default::default()
+        });
+    };
     Ok(AgentOf {
-        media: store.loaded_media_mm(&machine).await?,
-        page_size: store.loaded_page_size(&machine).await?,
+        media: store.loaded_media_mm(space, &machine).await?,
+        page_size: store.loaded_page_size(space, &machine).await?,
         machine: Some(machine),
+        space: Some(space),
     })
 }
 
@@ -240,15 +249,21 @@ pub(crate) async fn agent_job(
 ) -> Result<(Option<protocol::JobOrder>, Option<protocol::JobControl>), store::BoxError> {
     use protocol::{JobControl, MachineState};
     use store::JobState;
+    // A machine in no space has no jobs.
+    let Some(space) = of.space else {
+        return Ok((None, None));
+    };
     if let Some(end) = &report.job_end {
         let state = match (end.ok, end.stopped) {
             (true, _) => JobState::Finished,
             (false, true) => JobState::Stopped,
             (false, false) => JobState::Failed,
         };
-        store.set_job(end.id, state, end.reason.as_deref()).await?;
+        store
+            .set_job(space, end.id, state, end.reason.as_deref())
+            .await?;
         if let Some(line) = end.restart_line {
-            store.set_restart_line(end.id, line).await?;
+            store.set_restart_line(space, end.id, line).await?;
         }
     }
     let Some(machine) = of.machine.clone() else {
@@ -259,8 +274,8 @@ pub(crate) async fn agent_job(
     // someone resumes it.
     if let Some(id) = report.job_id
         && matches!(report.state, MachineState::Paused | MachineState::Busy)
-        && store.active_job(&machine).await?.is_none()
-        && let Some(lost) = store.job(id).await?
+        && store.active_job(space, &machine).await?.is_none()
+        && let Some(lost) = store.job(space, id).await?
         && lost.machine_id == machine
         && lost.state == JobState::Failed
     {
@@ -269,15 +284,17 @@ pub(crate) async fn agent_job(
         } else {
             JobState::Printing
         };
-        store.revive_job(id, state, Some(POWER_CUT)).await?;
+        store.revive_job(space, id, state, Some(POWER_CUT)).await?;
     }
-    let Some(job) = store.active_job(&machine).await? else {
+    let Some(job) = store.active_job(space, &machine).await? else {
         return Ok((None, None));
     };
     // Resumed from here after the power cut: its reason goes (a later pause is an ordinary
     // one); the agent is told to resume below as for any job.
     if job.state == JobState::Printing && job.reason.as_deref() == Some(POWER_CUT) {
-        store.revive_job(job.id, JobState::Printing, None).await?;
+        store
+            .revive_job(space, job.id, JobState::Printing, None)
+            .await?;
     }
     // Taken up on the printer's own screen after the power cut: printing again, not to be
     // paused from here.
@@ -287,14 +304,18 @@ pub(crate) async fn agent_job(
         && report.state == MachineState::Busy
     {
         // Its reason cleared too: a later pause from here is an ordinary one.
-        store.revive_job(job.id, JobState::Printing, None).await?;
+        store
+            .revive_job(space, job.id, JobState::Printing, None)
+            .await?;
         return Ok((None, None));
     }
     let runs = report.job_id == Some(job.id);
     Ok(match job.state {
         JobState::Queued if report.job_id.is_none() && report.state == MachineState::Idle => {
             let size = std::fs::metadata(store.file_path(&job.file_id)).map_or(0, |m| m.len());
-            store.set_job(job.id, JobState::Printing, None).await?;
+            store
+                .set_job(space, job.id, JobState::Printing, None)
+                .await?;
             let media = of.media;
             let order = protocol::JobOrder {
                 id: job.id,
@@ -321,13 +342,15 @@ pub(crate) async fn agent_job(
         {
             let reason = "the machine does not run it (the agent restarted?)";
             store
-                .set_job(job.id, JobState::Failed, Some(reason))
+                .set_job(space, job.id, JobState::Failed, Some(reason))
                 .await?;
             (None, None)
         }
         // Asked to stop before the agent took it up, or it no longer runs it.
         JobState::Stopping => {
-            store.set_job(job.id, JobState::Stopped, None).await?;
+            store
+                .set_job(space, job.id, JobState::Stopped, None)
+                .await?;
             (None, None)
         }
         _ => (None, None),
@@ -467,7 +490,7 @@ pub(crate) mod tests {
         let stopped: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM jobs WHERE state = 'stopped' AND reason LIKE 'replaced%'",
         )
-        .fetch_one(&store.pg().admin)
+        .fetch_one(store.pg().admin_in_tests())
         .await
         .unwrap();
         assert_eq!(stopped, 1, "the replaced job ends stopped, never started");
@@ -610,7 +633,7 @@ pub(crate) mod tests {
         };
         assert_eq!(report(running()).await.job, None, "given out once");
         store
-            .set_job(order.id, store::JobState::Paused, None)
+            .set_job(space, order.id, store::JobState::Paused, None)
             .await
             .unwrap();
         assert_eq!(
@@ -629,7 +652,7 @@ pub(crate) mod tests {
             ..idle()
         };
         report(ended).await;
-        let job = store.job(order.id).await.unwrap().unwrap();
+        let job = store.job(space, order.id).await.unwrap().unwrap();
         assert_eq!(job.state, store::JobState::Finished);
         assert!(
             store

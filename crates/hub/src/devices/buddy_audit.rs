@@ -982,7 +982,7 @@ async fn transfer_events_name_their_command_in_data(pool: sqlx::PgPool) {
     );
     assert_eq!(mini.command_state(cid).await, CommandState::Finished);
     let transfer_state: String = sqlx::query_scalar("SELECT state FROM printer_transfers")
-        .fetch_one(&mini.store.pg().admin)
+        .fetch_one(mini.store.pg().admin_in_tests())
         .await
         .unwrap();
     assert_eq!(transfer_state, "finished");

@@ -35,16 +35,16 @@ pub async fn run(store: Store) {
             continue;
         };
         machines.retain(|id, _| list.iter().any(|(other, ..)| other == id));
-        for (id, token, profile) in list {
+        for (id, token, profile, space) in list {
             // A GRBL profile: LaserFoundry's simulated GRBL, on a thread of its own.
             let found = profile.as_deref().and_then(profiles::find);
             if found.is_some_and(|p| p.kind == MachineKind::Label) {
-                let active = store.active_job(&id).await.ok().flatten();
+                let active = store.active_job(space, &id).await.ok().flatten();
                 let mut moves = Vec::new();
                 let telemetry =
                     virtual_label(&store, active, &mut moves, &id, found.unwrap(), &mut labels);
                 for (job, state, reason) in moves {
-                    let _ = store.set_job(job, state, reason.as_deref()).await;
+                    let _ = store.set_job(space, job, state, reason.as_deref()).await;
                 }
                 let _ = store.report(&token, &telemetry).await;
                 continue;
@@ -54,7 +54,7 @@ pub async fn run(store: Store) {
                 crate::virtual_grbl::ensure(&store, &id, &token, Some(travel));
                 continue;
             }
-            let active = store.active_job(&id).await;
+            let active = store.active_job(space, &id).await;
             let caller = store.caller(&token).await.ok().flatten();
             // How its jobs move on, said to the store once the lock is let go.
             let mut moves: Vec<(i64, JobState, Option<String>)> = Vec::new();
@@ -133,7 +133,7 @@ pub async fn run(store: Store) {
                 telemetry
             };
             for (job, state, reason) in moves {
-                let _ = store.set_job(job, state, reason.as_deref()).await;
+                let _ = store.set_job(space, job, state, reason.as_deref()).await;
             }
             let _ = store.report(&token, &telemetry).await;
         }

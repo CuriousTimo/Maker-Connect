@@ -154,7 +154,8 @@ HS5a; feeds #11 (job history). Jobs keep their own table; a job's start/pause/st
 - **Tenancy:** `space_id` on every tenant row; **Postgres row-level security** on all tenant tables,
   keyed on `SET LOCAL app.space_id` inside each request's transaction. Cross-space work (instance admin,
   agent token lookup, the history writer) runs as a separate database role with `BYPASSRLS`. RLS is the
-  second wall; the SQL filters stay the first.
+  second wall; the SQL filters stay the first. The roles, the login that owns nothing and the
+  admin pool's allowlist (checked by a test): the design's database.md, "Roles and pools".
 - Door access (doors, badges) is its own module with its own tables and actions; it never grants
   machine actions and machine grants never open doors.
 

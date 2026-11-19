@@ -460,8 +460,8 @@ impl Work {
 pub type MachineNames = HashMap<String, String>;
 
 impl Store {
-    /// The names of the machines the space's spools are loaded in (in whichever space the machine is
-    /// now: a machine moved away keeps the spool loaded), for [`Work::one`], [`Work::all`],
+    /// The names of the machines the space's spools are loaded in (the space's own: a machine moved
+    /// away leaves its spools unloaded, Store::move_machine), for [`Work::one`], [`Work::all`],
     /// [`Work::sm_spool`].
     pub async fn spool_machine_names(
         &self,
@@ -471,11 +471,13 @@ impl Store {
         if ids.is_empty() {
             return Ok(MachineNames::new());
         }
+        let mut tx = self.pg().space(space).await?;
         let rows: Vec<(String, String)> =
             sqlx::query_as("SELECT id, name FROM machines WHERE id = ANY($1)")
                 .bind(&ids)
-                .fetch_all(&self.pg().admin)
+                .fetch_all(&mut *tx)
                 .await?;
+        tx.commit().await?;
         Ok(rows.into_iter().collect())
     }
 }

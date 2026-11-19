@@ -328,7 +328,7 @@ mod send_tests {
         let state = async |w: &World| {
             let s = &w.store;
             let job = s
-                .active_job(&laser)
+                .active_job(w.space, &laser)
                 .await
                 .unwrap()
                 .map(|j| (j.file_name, j.state));
@@ -410,31 +410,25 @@ struct World {
     store: Store,
     app: Router,
     space: i64,
-    org: i64,
 }
 
 impl World {
     async fn new(pool: &sqlx::PgPool) -> Self {
         let store = crate::Store::for_test(pool).await;
         let owner = store.create_user("olga", "Olga", "x", false).await.unwrap();
-        let (org, space) = store
+        let (_, space) = store
             .create_organisation("Fablab", "Werkplaats", owner)
             .await
             .unwrap();
         let app = crate::app(store.clone());
-        World {
-            store,
-            app,
-            space,
-            org,
-        }
+        World { store, app, space }
     }
 
     /// A user in the organisation with a role; their id and cookie.
     async fn person(&self, name: &str, role: Role) -> (i64, String) {
         let s = &self.store;
         let user = s.create_user(name, name, "x", false).await.unwrap();
-        s.set_org_membership(user, self.org, role.as_str())
+        s.set_org_membership(user, self.space, role.as_str())
             .await
             .unwrap();
         let token = s
@@ -452,7 +446,7 @@ impl World {
         let user = self.user(name).await;
         let role = self
             .store
-            .org_role_of(user, self.org)
+            .org_role_of(user, self.space)
             .await
             .unwrap()
             .unwrap();

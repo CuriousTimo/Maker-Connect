@@ -600,7 +600,7 @@ pub(crate) async fn job_file(store: &Store, token: &str, job: i64) -> Response {
         let Some((machine, space)) = store.placed(token).await? else {
             return Ok(None);
         };
-        let job = store.job(job).await?;
+        let job = store.job(space, job).await?;
         let Some(job) = job.filter(|j| j.machine_id == machine) else {
             return Ok(None);
         };
@@ -802,7 +802,7 @@ async fn print(
         if let Err(why) = fit(&file, &free) {
             return (StatusCode::CONFLICT, why).into_response();
         }
-        match store.active_job(&machine.id).await {
+        match store.active_job(space, &machine.id).await {
             Ok(Some(job)) if job.state == crate::store::JobState::Loaded => {
                 // Only who may load one replaces it (a person at a session,
                 // crate::store::LASER_NEVER_ALONE): refused before it is asked, nothing removed.
@@ -819,7 +819,7 @@ async fn print(
                     )
                         .into_response();
                 }
-                if let Err(error) = store.unload_laser_job(&machine.id).await {
+                if let Err(error) = store.unload_laser_job(space, &machine.id).await {
                     return failed(error);
                 }
             }
@@ -1037,7 +1037,7 @@ async fn start_burn(
         Err(error) => return failed(error),
     };
     let found_machine = store.machine(access.space, &id).await;
-    let active = store.active_job(&id).await;
+    let active = store.active_job(access.space, &id).await;
     // The checks, with the store held only this long (a refusal is the response itself).
     #[allow(clippy::result_large_err)]
     let checked = (|| -> Result<(crate::store::Machine, crate::store::Job), Response> {
@@ -1126,7 +1126,12 @@ async fn start_burn(
         Err(refused) => return refused,
     };
     match store
-        .start_burn(&machine.id, job.id, Some(access.actor.as_str()))
+        .start_burn(
+            access.space,
+            &machine.id,
+            job.id,
+            Some(access.actor.as_str()),
+        )
         .await
     {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
@@ -1179,7 +1184,7 @@ async fn control_job(
     // Start an interrupted job again, a little before where it stopped.
     if form.action == "restart" {
         let space = access.space;
-        let last = match store.resumable_job(&id).await {
+        let last = match store.resumable_job(space, &id).await {
             Ok(Some(job)) => job,
             Ok(_) => {
                 return (StatusCode::CONFLICT, "no interrupted job to start again").into_response();
@@ -1210,7 +1215,7 @@ async fn control_job(
             Err(error) => failed(error),
         };
     }
-    let job = match store.active_job(&id).await {
+    let job = match store.active_job(access.space, &id).await {
         Ok(Some(job)) => job,
         Ok(None) => {
             // A print it started itself (from its SD card, or a Prusa's USB stick at its
@@ -1256,7 +1261,7 @@ async fn control_job(
     // laser's own Stop (a soft reset), as with no job, so a moving head (a frame) is stopped.
     if job.state == JobState::Loaded {
         return match form.action.as_str() {
-            "unload" => match store.unload_laser_job(&id).await {
+            "unload" => match store.unload_laser_job(access.space, &id).await {
                 Ok(_) => StatusCode::NO_CONTENT.into_response(),
                 Err(error) => failed(error),
             },
@@ -1293,7 +1298,7 @@ async fn control_job(
             &form.action,
         );
     }
-    match store.set_job(job.id, next, None).await {
+    match store.set_job(access.space, job.id, next, None).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
     }

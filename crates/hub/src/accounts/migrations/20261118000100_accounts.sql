@@ -113,15 +113,29 @@ CREATE TABLE audit_log (
 );
 CREATE INDEX audit_by_space ON audit_log (space_id, at);
 
--- Row-level security: a request's transaction sees only its space's rows (and its organisation's).
+-- Row-level security: a request's transaction sees only its space's rows, and its organisation's
+-- (design database.md#roles-and-pools, V2-STORE-6 Q2/Q3).
+--
+-- The organisation of the transaction's space: read as the tables' owner (SECURITY DEFINER), so the
+-- policy on `spaces` can name it without reading `spaces` under its own policy.
+CREATE FUNCTION app_organisation() RETURNS bigint LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path = public, pg_temp
+    AS $$ SELECT organisation_id FROM spaces WHERE id = app_space() $$;
+REVOKE ALL ON FUNCTION app_organisation() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app_organisation() TO maker_connect_app, maker_connect_admin;
+
+-- The organisation's spaces show and a new one may be made in it (org-wide work runs in a space of
+-- the organisation); only the transaction's own space is changed or removed.
 ALTER TABLE spaces ENABLE ROW LEVEL SECURITY;
-CREATE POLICY in_space ON spaces USING (id = app_space());
+CREATE POLICY in_organisation ON spaces FOR SELECT USING (organisation_id = app_organisation());
+CREATE POLICY made_in_organisation ON spaces FOR INSERT
+    WITH CHECK (organisation_id = app_organisation());
+CREATE POLICY changed_in_space ON spaces FOR UPDATE USING (id = app_space());
+CREATE POLICY removed_in_space ON spaces FOR DELETE USING (id = app_space());
 ALTER TABLE organisations ENABLE ROW LEVEL SECURITY;
-CREATE POLICY in_space ON organisations
-    USING (id = (SELECT s.organisation_id FROM spaces s WHERE s.id = app_space()));
+CREATE POLICY in_space ON organisations USING (id = app_organisation());
 ALTER TABLE org_memberships ENABLE ROW LEVEL SECURITY;
-CREATE POLICY in_space ON org_memberships
-    USING (organisation_id = (SELECT s.organisation_id FROM spaces s WHERE s.id = app_space()));
+CREATE POLICY in_space ON org_memberships USING (organisation_id = app_organisation());
 ALTER TABLE memberships ENABLE ROW LEVEL SECURITY;
 CREATE POLICY in_space ON memberships USING (space_id = app_space());
 ALTER TABLE invites ENABLE ROW LEVEL SECURITY;
@@ -130,6 +144,17 @@ ALTER TABLE api_tokens ENABLE ROW LEVEL SECURITY;
 CREATE POLICY in_space ON api_tokens USING (space_id = app_space());
 ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 CREATE POLICY in_space ON audit_log USING (space_id = app_space());
+
+-- People: the app role reads (only) those of its space and of its space's organisation, for names;
+-- their identities and sessions are the admin role's alone (sign-in, crate::accounts).
+REVOKE ALL ON users, identities, sessions FROM maker_connect_app;
+REVOKE ALL ON SEQUENCE users_id_seq, identities_id_seq, sessions_id_seq FROM maker_connect_app;
+GRANT SELECT ON users TO maker_connect_app;
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+CREATE POLICY in_space ON users FOR SELECT USING (
+    EXISTS (SELECT FROM memberships m WHERE m.user_id = users.id AND m.space_id = app_space())
+    OR EXISTS (SELECT FROM org_memberships o
+               WHERE o.user_id = users.id AND o.organisation_id = app_organisation()));
 
 -- A new hub has one space, in an organisation of the same name (as crate::store's migration made it).
 INSERT INTO organisations (uid, name, created_at)

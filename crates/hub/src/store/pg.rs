@@ -3,11 +3,16 @@
 //!
 //! - **app** (`maker_connect_app`, no BYPASSRLS, not the tables' owner): request work, in a transaction
 //!   that says its space ([`Pg::space`]); row-level security lets only that space's rows through.
-//! - **admin** (`maker_connect_admin`, BYPASSRLS): sign-in, session and token lookup, agent token lookup
-//!   and instance admin, which cross spaces by nature.
+//! - **admin** (`maker_connect_admin`, BYPASSRLS): only for what crosses spaces by nature, each use naming
+//!   its reason (`Bypass`, `Pg::admin`); the uses are listed in `admin-uses.txt` beside this file, and
+//!   a test fails when the code and the list differ.
 //!
-//! The hub connects as the owner (it runs the migrations) and gives each pooled connection its role with
-//! `SET ROLE` as it opens.
+//! Roles (`scripts/db-roles.sql`, docs/design ADR 20261119-database-roles): the hub logs in as
+//! `maker_connect_hub`: no superuser, owner of nothing, no table privilege of its own (NOINHERIT member
+//! of the three roles below, which it may only `SET ROLE` to). The tables belong to
+//! `maker_connect_owner` (NOLOGIN on a hub's server): the migrations run under it, and so do the backup
+//! tools ([`crate::backup`]). Each pooled connection takes its role with `SET ROLE` as it opens; a
+//! `RESET ROLE` (or `DISCARD ALL`) on one leaves the bare login, which reads no table at all.
 
 use sqlx::migrate::{Migration, MigrationSource, Migrator};
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
@@ -59,11 +64,42 @@ pub static MIGRATOR: LazyLock<Migrator> = LazyLock::new(|| {
 #[derive(Clone, Debug)]
 pub struct Pg {
     pub(crate) app: PgPool,
-    pub(crate) admin: PgPool,
+    /// Only through [`Pg::admin`], which names why.
+    admin: PgPool,
 }
 
 pub const APP_ROLE: &str = "maker_connect_app";
 pub const ADMIN_ROLE: &str = "maker_connect_admin";
+/// Owns the tables; the migrations and the backup tools run under it.
+pub const OWNER_ROLE: &str = "maker_connect_owner";
+/// The hub's login (scripts/db-roles.sql); the tests' pools log in as it too ([`Pg::from_pool`]).
+pub const HUB_LOGIN: &str = "maker_connect_hub";
+
+/// Why a query crosses spaces: the admin-pool allowlist of design database.md (plan §2.6, completed
+/// there; ADR 20261119-database-roles), by its numbers. Everything else runs in its space's transaction
+/// ([`Pg::space`]). The fourth, writers that span spaces (the history subscriber, the command sweep),
+/// comes with them (step 3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Bypass {
+    /// 1. Before the space is known: a device's registration is inserted (code, secret), and a
+    ///    presented secret is looked up: session token, API token, agent or printer token,
+    ///    registration code, invite token, the `iv` of `/f/{iv}/raw`. The answer is what is needed to
+    ///    open a space transaction (and, for a device not in a space yet, its own `machines` row).
+    Secret,
+    /// 2. Sign-in and setup: a user by name and their identity's secret, their sessions; the first
+    ///    account on a fresh database; accepting an invite (user, identity, membership and the
+    ///    invite's use in one transaction).
+    SignIn,
+    /// 3. Instance admin: only for a user with `instance_admin`: the instance's own settings and
+    ///    views, what spans tenants, moving a device to another space.
+    InstanceAdmin,
+    /// 5. Background tasks listing their work: which spaces and devices have work; each unit of work
+    ///    then runs on the app pool in its space.
+    TaskList,
+    /// 6. The signed-in person's own memberships and organisation memberships and the spaces they
+    ///    name, before a space is chosen: always `WHERE user_id` is the session's user.
+    Me,
+}
 
 fn pool(options: &PgConnectOptions, role: &'static str, max: u32) -> PgPool {
     PgPoolOptions::new()
@@ -78,22 +114,85 @@ fn pool(options: &PgConnectOptions, role: &'static str, max: u32) -> PgPool {
         .connect_lazy_with(options.clone())
 }
 
+/// Refused as the hub's login (§2.6, R2): a superuser, a role with BYPASSRLS, or one that owns a table or
+/// has a privilege on one of its own (an owner, or a member that inherits): a `RESET ROLE` on a pooled
+/// connection would read every space's rows.
+async fn refuse_a_login_that_reads_tables(pool: &PgPool) -> Result<(), sqlx::Error> {
+    let (login, superuser, bypass, tables): (String, bool, bool, i64) = sqlx::query_as(
+        "SELECT r.rolname::text, r.rolsuper, r.rolbypassrls,
+                (SELECT COUNT(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                  WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm')
+                    AND (c.relowner = r.oid
+                         OR has_table_privilege(r.oid, c.oid, 'SELECT, INSERT, UPDATE, DELETE')))
+           FROM pg_roles r WHERE r.rolname = session_user",
+    )
+    .fetch_one(pool)
+    .await?;
+    let why = if superuser {
+        "is a superuser"
+    } else if bypass {
+        "has BYPASSRLS"
+    } else if tables > 0 {
+        "owns tables or may read them itself"
+    } else {
+        return Ok(());
+    };
+    Err(sqlx::Error::Configuration(
+        format!(
+            "the database login {login} {why}: the hub logs in as {HUB_LOGIN}, which may only SET ROLE \
+             (scripts/db-roles.sql, docs/pi-hub.md)"
+        )
+        .into(),
+    ))
+}
+
 impl Pg {
-    /// Connects to `url` as the owner, runs the migrations, and opens the two pools.
+    /// Connects to `url` as the hub's login, runs the migrations as the tables' owner
+    /// ([`OWNER_ROLE`]), checks the login reads no table itself, and opens the two pools.
     pub async fn connect(url: &str) -> Result<Self, sqlx::Error> {
         let options: PgConnectOptions = url.parse()?;
-        let owner = PgPoolOptions::new()
+        let owner = pool(&options, OWNER_ROLE, 1);
+        let migrated = MIGRATOR.run(&owner).await;
+        owner.close().await;
+        migrated?;
+        let login = PgPoolOptions::new()
             .max_connections(1)
             .connect_with(options.clone())
             .await?;
-        MIGRATOR.run(&owner).await?;
-        owner.close().await;
+        let refused = refuse_a_login_that_reads_tables(&login).await;
+        login.close().await;
+        refused?;
         Ok(Self::with_options(&options, 8))
     }
 
-    /// The pools over the database `pool` reaches (migrated already): for `#[sqlx::test]`.
+    /// The pools over the database `pool` reaches (migrated already), logged in as the hub's login
+    /// with `pool`'s password: for `#[sqlx::test]` (scripts/dev-db.sh, CI: one password for both).
     pub fn from_pool(pool: &PgPool) -> Self {
-        Self::with_options(&pool.connect_options(), 3)
+        Self::with_options(&Self::hub_login(&pool.connect_options()), 3)
+    }
+
+    /// `options` as the hub's login (the tests' own login owns the tables).
+    pub(crate) fn hub_login(options: &PgConnectOptions) -> PgConnectOptions {
+        options.clone().username(HUB_LOGIN)
+    }
+
+    /// The admin pool (BYPASSRLS), for `why` only: one of the reasons §2.6 allows. Each use is listed
+    /// in `admin-uses.txt` (test `every_admin_use_is_listed_with_its_reason`).
+    pub(crate) fn admin(&self, why: Bypass) -> &PgPool {
+        let _ = why;
+        &self.admin
+    }
+
+    /// The admin pool in tests (`#[cfg(test)]` only: to look across spaces at what a test did).
+    #[cfg(test)]
+    pub(crate) fn admin_in_tests(&self) -> &PgPool {
+        &self.admin
+    }
+
+    /// Both pools closed ([`crate::store::Store::close`]).
+    pub(crate) async fn close(&self) {
+        self.app.close().await;
+        self.admin.close().await;
     }
 
     pub(crate) fn with_options(options: &PgConnectOptions, max: u32) -> Self {
@@ -118,6 +217,440 @@ impl Pg {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The admin pool's uses (design database.md#roles-and-pools, "A test extracts every admin-pool
+    /// call"): every `.admin(…)` in the hub's source, as (file, function, allowlist number), is a line
+    /// of `admin-uses.txt` with its reason, once per call; and every line there is such a call.
+    #[test]
+    fn every_admin_use_is_listed_with_its_reason() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let found = admin_uses_in(&src);
+        assert!(
+            !found.is_empty(),
+            "no admin use found under {}",
+            src.display()
+        );
+        let listed = admin_uses_listed(include_str!("admin-uses.txt"));
+        let missing: Vec<_> = found.iter().filter(|u| !listed.contains(u)).collect();
+        let extra: Vec<_> = listed.iter().filter(|u| !found.contains(u)).collect();
+        assert!(
+            missing.is_empty() && extra.is_empty(),
+            "admin uses not in admin-uses.txt (path fn number, with a reason): {missing:?}; \
+             listed but not in the code: {extra:?}"
+        );
+    }
+
+    /// An unlisted use fails, and so does an admin use without a reason of the allowlist.
+    #[test]
+    fn an_unlisted_admin_use_fails_the_check() {
+        let dir = std::env::temp_dir().join(format!("mc-admin-uses-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("x.rs"),
+            "fn listed() { pg.admin(Bypass::Secret); }\nfn sneaky() {\n    pg.admin(Bypass::TaskList);\n}\n",
+        )
+        .unwrap();
+        let found = admin_uses_in(&dir);
+        let listed = admin_uses_listed("x.rs listed 1 a token\n");
+        assert_eq!(
+            found,
+            vec![
+                ("x.rs".to_owned(), "listed".to_owned(), "1".to_owned()),
+                ("x.rs".to_owned(), "sneaky".to_owned(), "5".to_owned()),
+            ]
+        );
+        assert!(found.iter().any(|u| !listed.contains(u)));
+        std::fs::write(dir.join("x.rs"), "fn why() { pg.admin(reason); }\n").unwrap();
+        assert_eq!(
+            admin_uses_in(&dir),
+            vec![("x.rs".to_owned(), "why".to_owned(), "no Bypass".to_owned())]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    type Use = (String, String, String);
+
+    /// `.admin(Bypass::X)` calls under `dir` outside test code: (path from `dir`, enclosing fn,
+    /// allowlist number); a call that names no `Bypass` gives "no Bypass", which no line lists.
+    fn admin_uses_in(dir: &std::path::Path) -> Vec<Use> {
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    out.push(p);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(dir, &mut files);
+        files.sort();
+        let mut out = Vec::new();
+        for file in files {
+            let path = file
+                .strip_prefix(dir)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            // Test code is not the hub's: a file of tests, and a file's `#[cfg(test)] mod … { }`.
+            if file.file_name().is_some_and(|n| n == "tests.rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&file).unwrap();
+            let mut function = String::new();
+            let mut after_cfg_test = false;
+            // Inside a `#[cfg(test)] mod … {`: its depth in braces.
+            let mut in_test: Option<i64> = None;
+            for line in text.lines() {
+                let code = line.split("//").next().unwrap_or("");
+                let opens = code.matches('{').count() as i64 - code.matches('}').count() as i64;
+                if after_cfg_test && code.trim_start().starts_with("mod ") && code.contains('{') {
+                    in_test = Some(0);
+                }
+                after_cfg_test = code.trim() == "#[cfg(test)]";
+                if let Some(depth) = in_test.as_mut() {
+                    *depth += opens;
+                    if *depth <= 0 {
+                        in_test = None;
+                    }
+                    continue;
+                }
+                if let Some(at) = code.find("fn ") {
+                    let before = &code[..at];
+                    if before.is_empty() || before.ends_with([' ', '(']) {
+                        let name: String = code[at + 3..]
+                            .chars()
+                            .take_while(|c| c.is_alphanumeric() || *c == '_')
+                            .collect();
+                        if !name.is_empty() {
+                            function = name;
+                        }
+                    }
+                }
+                let mut rest = code;
+                while let Some(at) = rest.find(".admin(") {
+                    rest = &rest[at + ".admin(".len()..];
+                    let arg: String = rest.chars().take_while(|c| *c != ')').collect();
+                    let number = match arg.trim() {
+                        "Bypass::Secret" => "1",
+                        "Bypass::SignIn" => "2",
+                        "Bypass::InstanceAdmin" => "3",
+                        "Bypass::TaskList" => "5",
+                        "Bypass::Me" => "6",
+                        _ => "no Bypass",
+                    };
+                    out.push((path.clone(), function.clone(), number.to_owned()));
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// The lines of `admin-uses.txt` as uses; each must give a reason after its number.
+    fn admin_uses_listed(text: &str) -> Vec<Use> {
+        let mut out: Vec<Use> = text
+            .lines()
+            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+            .map(|l| {
+                let mut parts = l.splitn(4, ' ');
+                let (path, function, number, reason) = (
+                    parts.next().unwrap_or(""),
+                    parts.next().unwrap_or(""),
+                    parts.next().unwrap_or(""),
+                    parts.next().unwrap_or("").trim(),
+                );
+                assert!(
+                    ["1", "2", "3", "4", "5", "6"].contains(&number) && !reason.is_empty(),
+                    "admin-uses.txt: {l:?} needs `path fn number reason`, number 1-6"
+                );
+                (path.to_owned(), function.to_owned(), number.to_owned())
+            })
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// The SQLSTATE of a refused query (42501: insufficient_privilege; 23503: foreign_key_violation).
+    fn code_of<T: std::fmt::Debug>(r: Result<T, sqlx::Error>) -> String {
+        match r {
+            Err(sqlx::Error::Database(e)) => e.code().map(|c| c.into_owned()).unwrap_or_default(),
+            other => panic!("not refused by the database: {other:?}"),
+        }
+    }
+
+    /// R2 (design database.md#roles-and-pools): the hub logs in as maker_connect_hub, which owns
+    /// nothing and reads no table of its own; a pooled connection put back to the login (`RESET ROLE`,
+    /// `SET ROLE NONE`, `DISCARD ALL`) is refused every table (42501); and the hub refuses to start
+    /// with a login that owns tables.
+    #[sqlx::test(migrations = false)]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_login_reads_nothing_after_reset_role(pool: PgPool) {
+        let db: String = sqlx::query_scalar("SELECT current_database()::text")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let pg = Pg::connect(&crate::backup::hub_url_for_test(&db))
+            .await
+            .unwrap();
+        let not_owner: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public' AND tableowner <> $1",
+        )
+        .bind(OWNER_ROLE)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(not_owner, 0, "every table is the owner's");
+        let tables: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(tables > 10, "{tables}");
+        let (superuser, bypass, inherit, owns, may): (bool, bool, bool, i64, i64) = sqlx::query_as(
+            "SELECT r.rolsuper, r.rolbypassrls, r.rolinherit,
+                    (SELECT COUNT(*) FROM pg_class c WHERE c.relowner = r.oid),
+                    (SELECT COUNT(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                      WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm')
+                        AND has_table_privilege(r.oid, c.oid, 'SELECT, INSERT, UPDATE, DELETE'))
+               FROM pg_roles r WHERE r.rolname = $1",
+        )
+        .bind(HUB_LOGIN)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            (superuser, bypass, inherit, owns, may),
+            (false, false, false, 0, 0)
+        );
+        for (pool, role) in [(&pg.app, APP_ROLE), (&pg.admin, ADMIN_ROLE)] {
+            for reset in ["RESET ROLE", "SET ROLE NONE", "DISCARD ALL"] {
+                // Off the pool: this connection is not given back.
+                let mut c = pool.acquire().await.unwrap().detach();
+                let now: String = sqlx::query_scalar("SELECT current_user::text")
+                    .fetch_one(&mut c)
+                    .await
+                    .unwrap();
+                assert_eq!(now, role);
+                c.execute(reset).await.unwrap();
+                let who: String = sqlx::query_scalar("SELECT current_user::text")
+                    .fetch_one(&mut c)
+                    .await
+                    .unwrap();
+                assert_eq!(who, HUB_LOGIN, "{reset}");
+                for table in ["spaces", "users", "machines", "jobs"] {
+                    let read = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!(
+                        "SELECT COUNT(*) FROM {table}"
+                    )))
+                    .fetch_one(&mut c)
+                    .await;
+                    assert_eq!(code_of(read), "42501", "{role} after {reset}: {table}");
+                }
+            }
+        }
+        pg.close().await;
+        // The tests' own login owns the tables: refused as the hub's.
+        let owner_url =
+            crate::backup::with_database(&std::env::var("DATABASE_URL").unwrap(), &db).unwrap();
+        let refused = Pg::connect(&owner_url).await.unwrap_err();
+        assert!(refused.to_string().contains("owns tables"), "{refused}");
+    }
+
+    /// Two organisations with a space each and a second space in the first, people in each, and a
+    /// secret of each kind, as the owner: org 1 (spaces 1, 3), org 2 (space 2).
+    async fn two_organisations(pool: &PgPool) {
+        sqlx::raw_sql(
+            "INSERT INTO organisations (uid, name, created_at) VALUES ('o2', 'Other', at_unix(0));
+             INSERT INTO spaces (id, name, uid, organisation_id)
+                 SELECT 2, 'Other', 's2', id FROM organisations WHERE uid = 'o2';
+             INSERT INTO spaces (id, name, uid, organisation_id) VALUES (3, 'Lab', 's3', 1);
+             INSERT INTO users (id, name, display_name, created_at) VALUES
+                 (1, 'ann', 'Ann', at_unix(0)), (2, 'bob', 'Bob', at_unix(0)),
+                 (3, 'cas', 'Cas', at_unix(0)), (4, 'dee', 'Dee', at_unix(0));
+             INSERT INTO memberships (user_id, space_id, role, created_at) VALUES (1, 1, 'member', at_unix(0));
+             INSERT INTO org_memberships (user_id, organisation_id, role, created_at) VALUES
+                 (2, 1, 'admin', at_unix(0)),
+                 (3, (SELECT id FROM organisations WHERE uid = 'o2'), 'owner', at_unix(0));
+             INSERT INTO identities (user_id, provider, subject, secret, created_at)
+                 SELECT id, 'password', name, 'hash', at_unix(0) FROM users;
+             INSERT INTO sessions (token_hash, user_id, space_id, created_at, last_seen, expires_at)
+                 VALUES ('h', 1, 1, at_unix(0), at_unix(0), at_unix(9999999999));
+             INSERT INTO meta (key, value) VALUES ('open_spaces', '1');
+             SELECT setval('spaces_id_seq', 10), setval('users_id_seq', 10);",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    /// Q2: the app role has no privilege on identities, sessions and meta (42501, in a space too), may
+    /// not write users, and reads only the people of its space and of its space's organisation.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_app_role_reads_no_secrets_and_only_its_own_people(pool: PgPool) {
+        two_organisations(&pool).await;
+        let pg = Pg::from_pool(&pool);
+        for table in ["identities", "sessions", "meta"] {
+            let mut tx = pg.space(1).await.unwrap();
+            let read = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!(
+                "SELECT COUNT(*) FROM {table}"
+            )))
+            .fetch_one(&mut *tx)
+            .await;
+            assert_eq!(code_of(read), "42501", "{table}");
+        }
+        let mut tx = pg.space(1).await.unwrap();
+        let wrote = sqlx::query("UPDATE users SET instance_admin = true")
+            .execute(&mut *tx)
+            .await;
+        assert_eq!(code_of(wrote), "42501");
+        drop(tx);
+        let names = async |space: i64| {
+            let mut tx = pg.space(space).await.unwrap();
+            let names: Vec<String> = sqlx::query_scalar("SELECT name FROM users ORDER BY id")
+                .fetch_all(&mut *tx)
+                .await
+                .unwrap();
+            tx.commit().await.unwrap();
+            names
+        };
+        assert_eq!(names(1).await, ["ann", "bob"]);
+        assert_eq!(names(3).await, ["bob"]);
+        assert_eq!(names(2).await, ["cas"]);
+        let none: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+            .fetch_one(&pg.app)
+            .await
+            .unwrap();
+        assert_eq!(none, 0, "without a space");
+    }
+
+    /// Q3: organisation-wide work in a space of the organisation. In space 1 (org 1), org 2's
+    /// organisation, memberships and space do not show; org 1's spaces do, a space is made in org 1
+    /// only, and only space 1 itself is changed. Renaming org 1 from space 1 works, and through the
+    /// store from space 2 renames org 2 only.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn org_wide_work_sees_its_own_organisation_only(pool: PgPool) {
+        two_organisations(&pool).await;
+        let pg = Pg::from_pool(&pool);
+        let mut tx = pg.space(1).await.unwrap();
+        let organisations: Vec<String> = sqlx::query_scalar("SELECT name FROM organisations")
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
+        assert_eq!(organisations, ["My space"]);
+        let members: Vec<i64> =
+            sqlx::query_scalar("SELECT user_id FROM org_memberships ORDER BY user_id")
+                .fetch_all(&mut *tx)
+                .await
+                .unwrap();
+        assert_eq!(members, [2]);
+        let spaces: Vec<i64> = sqlx::query_scalar("SELECT id FROM spaces ORDER BY id")
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
+        assert_eq!(spaces, [1, 3]);
+        let sibling = sqlx::query("UPDATE spaces SET name = 'x' WHERE id = 3")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        assert_eq!(sibling.rows_affected(), 0, "only its own space is changed");
+        let renamed = sqlx::query("UPDATE organisations SET name = 'Fablab'")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        assert_eq!(renamed.rows_affected(), 1);
+        tx.commit().await.unwrap();
+        let mut tx = pg.space(1).await.unwrap();
+        let elsewhere = sqlx::query(
+            "INSERT INTO spaces (name, uid, organisation_id)
+             SELECT 'x', 'x', id FROM organisations WHERE uid = 'o2'",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(elsewhere.rows_affected(), 0, "org 2 does not even show");
+        let by_id =
+            sqlx::query("INSERT INTO spaces (name, uid, organisation_id) VALUES ('x', 'y', 2)")
+                .execute(&mut *tx)
+                .await;
+        assert_eq!(code_of(by_id), "42501");
+        drop(tx);
+
+        let store = crate::Store::for_test(&pool).await;
+        store.rename_organisation(2, "Zuid").await.unwrap();
+        assert_eq!(store.organisation_name(1).await.unwrap(), "Fablab");
+        assert_eq!(store.organisation_name(3).await.unwrap(), "Fablab");
+        assert_eq!(store.organisation_name(2).await.unwrap(), "Zuid");
+        let made = store.create_space(3, "Hal").await.unwrap();
+        assert_eq!(store.organisation_of(made).await.unwrap(), 1);
+        assert_eq!(
+            store.org_role_of(2, 3).await.unwrap(),
+            Some(crate::access::Role::Admin)
+        );
+        assert_eq!(store.org_role_of(2, 2).await.unwrap(), None);
+    }
+
+    /// FK (R1, the second wall): a row of space 1 never names space 2's machine, whoever writes it: the
+    /// keys are (machine, space), and a key's check sees past row-level security.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_row_never_names_another_spaces_machine(pool: PgPool) {
+        sqlx::raw_sql(
+            "INSERT INTO organisations (uid, name, created_at) VALUES ('o2', 'Other', at_unix(0));
+             INSERT INTO spaces (id, name, uid, organisation_id)
+                 SELECT 2, 'Other', 's2', id FROM organisations WHERE uid = 'o2';
+             INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at)
+                 VALUES ('m1', 1, 'M', '\"fdm\"', '0.1.0', 't1', at_unix(0)),
+                        ('m2', 2, 'M', '\"fdm\"', '0.1.0', 't2', at_unix(0));
+             INSERT INTO machine_groups (id, space_id, name, created_at) VALUES (1, 1, 'G', at_unix(0));",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let rows = [
+            "INSERT INTO machine_grants (space_id, machine_id, user_id, level, granted_at)
+                 VALUES (1, '{m}', 1, 'use', at_unix(0))",
+            "INSERT INTO machine_group_members (space_id, group_id, machine_id) VALUES (1, 1, '{m}')",
+            "INSERT INTO access_requests (space_id, user_id, machine_id, asked_at)
+                 VALUES (1, 1, '{m}', at_unix(0))",
+            "INSERT INTO printer_files (machine_id, space_id, path) VALUES ('{m}', 1, '/usb/a')",
+        ];
+        let pg = Pg::from_pool(&pool);
+        for row in rows {
+            let other = row.replace("{m}", "m2");
+            let mut tx = pg.space(1).await.unwrap();
+            let refused = sqlx::query(sqlx::AssertSqlSafe(other.clone()))
+                .execute(&mut *tx)
+                .await;
+            assert_eq!(code_of(refused), "23503", "as the app role: {other}");
+            drop(tx);
+            let refused = sqlx::query(sqlx::AssertSqlSafe(other.clone()))
+                .execute(&pool)
+                .await;
+            assert_eq!(code_of(refused), "23503", "as the owner: {other}");
+            // Its own space's machine: taken.
+            let mut tx = pg.space(1).await.unwrap();
+            sqlx::query(sqlx::AssertSqlSafe(row.replace("{m}", "m1")))
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            tx.commit().await.unwrap();
+        }
+    }
 
     /// The spike of step 2: one migrator from several modules' folders, in version order.
     #[test]
@@ -146,7 +679,7 @@ mod tests {
         .await
         .unwrap();
         // One connection per pool, so the fresh transaction below is on the same connection.
-        let pg = Pg::with_options(&pool.connect_options(), 1);
+        let pg = Pg::with_options(&Pg::hub_login(&pool.connect_options()), 1);
         let role: String = sqlx::query_scalar("SELECT current_user::text")
             .fetch_one(&pg.app)
             .await
@@ -242,7 +775,7 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let pg = Pg::with_options(&pool.connect_options(), 1);
+        let pg = Pg::with_options(&Pg::hub_login(&pool.connect_options()), 1);
         let tables = [
             "machines",
             "files",
@@ -326,7 +859,7 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let pg = Pg::with_options(&pool.connect_options(), 1);
+        let pg = Pg::with_options(&Pg::hub_login(&pool.connect_options()), 1);
         let tables = [
             (
                 "locations",

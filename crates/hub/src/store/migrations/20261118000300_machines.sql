@@ -44,7 +44,9 @@ CREATE TABLE machines (
     farm boolean NOT NULL DEFAULT false,
     sheet text,
     service_every_h double precision,
-    serviced_at timestamptz
+    serviced_at timestamptz,
+    -- What other tables' keys point at: a machine with its space (20261118000310_machine_keys.sql).
+    UNIQUE (id, space_id)
 );
 CREATE INDEX machines_by_space ON machines (space_id, name);
 CREATE INDEX machines_by_pairing_code ON machines (pairing_code) WHERE pairing_code IS NOT NULL;
@@ -87,14 +89,17 @@ CREATE INDEX jobs_by_machine ON jobs (machine_id, id DESC);
 CREATE INDEX jobs_by_space ON jobs (space_id, ended_at);
 
 -- What a printer's USB stick holds, as last read.
+-- Its machine's, in the machine's space (a key on the id alone would let one space's row point at another
+-- space's machine: a foreign key's check sees past row-level security); it moves with the machine.
 CREATE TABLE printer_files (
-    machine_id text NOT NULL REFERENCES machines (id) ON DELETE CASCADE,
+    machine_id text NOT NULL,
     space_id bigint NOT NULL REFERENCES spaces (id),
     path text NOT NULL,
     data text,
     at timestamptz,
     asked_at timestamptz,
-    PRIMARY KEY (machine_id, path)
+    PRIMARY KEY (machine_id, path),
+    FOREIGN KEY (machine_id, space_id) REFERENCES machines (id, space_id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- A file on its way to a printer.

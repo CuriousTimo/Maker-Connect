@@ -17,7 +17,10 @@ reset-password gives an account a new password (printed once) and signs it out e
 for when its owner cannot sign in any more.
 
 The Postgres database comes from the DATABASE_URL environment variable (postgres://…; never a
-flag: a command line is there for anyone on the computer to read, password and all).
+flag: a command line is there for anyone on the computer to read, password and all), with the
+login maker_connect_hub: scripts/db-roles.sql makes the roles once per server (as its superuser),
+and the database is owned by maker_connect_owner. A login that is a superuser or owns tables is
+refused.
 
 The database is dumped (pg_dump) every night and before an update, into maker-connect-dumps/ beside
 maker-connect-files/; the last --keep-dumps of each are kept (7 unless said). pg_dump, pg_restore and

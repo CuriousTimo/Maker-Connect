@@ -21,6 +21,7 @@
 //!   time; a test reads the source and fails if anything else writes it.
 
 use crate::access::{Access, Level, Role};
+use crate::store::pg::Bypass;
 use crate::store::{BoxError, JobFacts, JobState, StoredFile, Work, now};
 use crate::{Store, failed};
 use axum::{
@@ -509,7 +510,7 @@ fn under_way(jobs: &JobFacts, part: i64) -> (i64, i64) {
 impl Store {
     /// The space's projects, newest first within their priority, with their parts.
     pub async fn projects(&self, space: i64) -> Result<Vec<Project>, BoxError> {
-        let jobs = self.job_facts(&[]).await?;
+        let jobs = self.job_facts(space, &[]).await?;
         let machines = self.machines(space).await?;
         let files = self.files(space).await?;
         Ok(crate::stock::in_space!(self, space, |w| w.projects(&jobs, &machines, &files)).await?)
@@ -538,7 +539,7 @@ impl Store {
         good: i64,
         note: &str,
     ) -> Result<Result<i64, &'static str>, BoxError> {
-        let jobs = self.job_facts_of(machine).await?;
+        let jobs = self.job_facts_of(access.space, machine).await?;
         let Some(waiting) = jobs.waiting_plate(machine) else {
             return Ok(Err("nothing waits to be confirmed on this machine"));
         };
@@ -548,6 +549,7 @@ impl Store {
         let part = waiting.part_id.unwrap_or_default();
         let good = good.clamp(0, 10_000);
         // Confirmed first, in the same breath as the count: a second click finds it done.
+        let mut tx = self.pg().space(access.space).await?;
         let n = sqlx::query(
             "UPDATE jobs SET confirmed_at = at_unix($2), confirmed_good = $3, confirmed_by = $4,
                  taken_at = COALESCE(taken_at, at_unix($2))
@@ -557,9 +559,10 @@ impl Store {
         .bind(now())
         .bind(good)
         .bind(&access.actor)
-        .execute(&self.pg().admin)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
+        tx.commit().await?;
         if n == 0 {
             return Ok(Err("it was confirmed meanwhile"));
         }
@@ -586,7 +589,7 @@ impl Store {
         let spaces: Vec<i64> = sqlx::query_scalar(
             "SELECT DISTINCT space_id FROM machines WHERE farm AND space_id IS NOT NULL ORDER BY space_id",
         )
-        .fetch_all(&self.pg().admin)
+        .fetch_all(self.pg().admin(Bypass::TaskList))
         .await?;
         let mut sent = 0;
         for space in spaces {
@@ -648,12 +651,14 @@ impl Store {
                     )
                     .await?
                 {
+                    let mut tx = self.pg().space(space).await?;
                     sqlx::query("UPDATE jobs SET part_id = $2, per_plate = $3 WHERE id = $1")
                         .bind(job)
                         .bind(c.part)
                         .bind(c.per_plate)
-                        .execute(&self.pg().admin)
+                        .execute(&mut *tx)
                         .await?;
+                    tx.commit().await?;
                     jobs.sent(c.part, c.per_plate);
                     let _ = c.part_file;
                     println!(
@@ -970,7 +975,7 @@ async fn schedule(access: Access, State(store): State<Store>) -> Response {
 }
 
 async fn list(access: Access, State(store): State<Store>) -> Response {
-    let jobs = match store.job_facts(&[]).await {
+    let jobs = match store.job_facts(access.space, &[]).await {
         Ok(jobs) => jobs,
         Err(error) => return failed(error),
     };
@@ -1118,12 +1123,15 @@ async fn remove_project(
     })
     .await
     .unwrap_or_default();
-    let busy: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM jobs WHERE part_id = ANY($1)
-           AND (state IN ('loaded', 'queued', 'printing', 'paused', 'stopping') OR (state IN ('finished', 'stopped', 'failed') AND confirmed_at IS NULL))",
-    )
-    .bind(&parts)
-    .fetch_one(&store.pg().admin)
+    let busy: i64 = crate::stock::in_space!(&store, access.space, |w| async {
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM jobs WHERE part_id = ANY($1)
+               AND (state IN ('loaded', 'queued', 'printing', 'paused', 'stopping') OR (state IN ('finished', 'stopped', 'failed') AND confirmed_at IS NULL))",
+        )
+        .bind(&parts)
+        .fetch_one(w.c())
+        .await
+    })
     .await
     .unwrap_or(0);
     if busy > 0 {
@@ -1255,7 +1263,11 @@ async fn change_part(
 }
 
 async fn remove_part(access: Access, State(store): State<Store>, Path(id): Path<i64>) -> Response {
-    match store.job_facts(&[]).await.map(|jobs| under_way(&jobs, id)) {
+    match store
+        .job_facts(access.space, &[])
+        .await
+        .map(|jobs| under_way(&jobs, id))
+    {
         Ok((plates, _)) if plates > 0 => {
             return (
                 StatusCode::CONFLICT,
@@ -1549,7 +1561,7 @@ async fn confirm(
     form: ReadyForm,
     bad: bool,
 ) -> Response {
-    let per_plate = match store.job_facts_of(&machine).await {
+    let per_plate = match store.job_facts_of(access.space, &machine).await {
         Ok(jobs) => match jobs.waiting_plate(&machine) {
             Some(w) => w.per_plate.unwrap_or(1),
             None => {
@@ -1772,7 +1784,7 @@ mod flow {
                 .find(|m| m.id == a)
                 .unwrap();
             let lanes = store.schedule(space).await.unwrap();
-            let active = store.active_job(&a).await.unwrap();
+            let active = store.active_job(space, &a).await.unwrap();
             let files = store.files(space).await.unwrap();
             let compatible = crate::stock::in_space!(&store, space, |w| w.compatible(&ma, &files))
                 .await
@@ -1791,7 +1803,7 @@ mod flow {
             assert!(active.is_none(), "looking ahead starts nothing");
         }
         assert_eq!(store.dispatch().await.unwrap(), 2);
-        let job_on = async |m: &str| store.active_job(m).await.unwrap();
+        let job_on = async |m: &str| store.active_job(space, m).await.unwrap();
         assert!(
             job_on(&a).await.is_some() && job_on(&b).await.is_some() && job_on(&c).await.is_none(),
             "not to a machine that takes no work"
@@ -1804,9 +1816,12 @@ mod flow {
         );
         // A finished, b failed: both hold their machine.
         let (ja, jb) = (job_on(&a).await.unwrap().id, job_on(&b).await.unwrap().id);
-        store.set_job(ja, JobState::Finished, None).await.unwrap();
         store
-            .set_job(jb, JobState::Failed, Some("spaghetti"))
+            .set_job(space, ja, JobState::Finished, None)
+            .await
+            .unwrap();
+        store
+            .set_job(space, jb, JobState::Failed, Some("spaghetti"))
             .await
             .unwrap();
         idle(&a).await;
@@ -1850,7 +1865,10 @@ mod flow {
         assert_eq!(store.dispatch().await.unwrap(), 2);
         let (ja, jb) = (job_on(&a).await.unwrap().id, job_on(&b).await.unwrap().id);
         for (m, j) in [(&a, ja), (&b, jb)] {
-            store.set_job(j, JobState::Finished, None).await.unwrap();
+            store
+                .set_job(space, j, JobState::Finished, None)
+                .await
+                .unwrap();
             idle(m).await;
         }
         call(
@@ -1987,7 +2005,7 @@ mod upkeep {
         let part = async || store.projects(space).await.unwrap()[0].parts[0].clone();
         assert_eq!(store.dispatch().await.unwrap(), 1, "one plate goes out");
         assert!(
-            store.active_job(&m).await.unwrap().is_some(),
+            store.active_job(space, &m).await.unwrap().is_some(),
             "the machine has its job"
         );
         let now = part().await;
@@ -2039,7 +2057,12 @@ mod upkeep {
         .execute(&pool)
         .await
         .unwrap();
-        let u = store.job_facts_of(&m).await.unwrap().upkeep(&m).unwrap();
+        let u = store
+            .job_facts_of(space, &m)
+            .await
+            .unwrap()
+            .upkeep(&m)
+            .unwrap();
         assert!(u.due && u.since_h >= 2.0, "{u:?}");
         // Work waiting for it.
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
@@ -2054,7 +2077,7 @@ mod upkeep {
         store.serviced(space, &m).await.unwrap();
         assert!(
             !store
-                .job_facts_of(&m)
+                .job_facts_of(space, &m)
                 .await
                 .unwrap()
                 .upkeep(&m)
