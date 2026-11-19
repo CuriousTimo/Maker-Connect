@@ -7,8 +7,8 @@ study behind it, with today's findings and the comparable apps, is
 `docs/design/ui/mockups/index.html` (static HTML, one stylesheet, opens from disk).
 
 Choices of the UI designer that no ruling or reference made are marked **proposal**. Roles and
-actions are those of [authz.md](authz.md) (the action and preset names decided on the `design-doc`
-branch, `decisions/20261119-actions-and-presets.md`); verbs those of the
+actions are those of [authz.md](authz.md) (the action and preset names decided in
+[decisions/20261119-actions-and-presets.md](decisions/20261119-actions-and-presets.md)); verbs those of the
 [capability verbs registry](../registries/capability-verbs.md). Where an action has no name yet, it
 is written as api.md writes it: `(OQ-4) <area>`. The UX test of the mockups (journal:UI-TEST:0004,
 46 findings) is worked into this page and the mockups; its ids (UT-nn) are named where a rule comes
@@ -268,7 +268,7 @@ running).
 - **Admin:** the same rule. An admin without the grant sees the refused state with "Grant it in Space →
   Permissions, your own included" (being owner is not having had the laser course).
 - **No console:** a laser offers no raw G-code (`mc.laser.gcode` is not declared, device contract;
-  `decisions/20261119-no-raw-gcode-on-a-laser.md` on the `design-doc` branch): nothing but Start burn
+  [decision](decisions/20261119-no-raw-gcode-on-a-laser.md)): nothing but Start burn
   switches the laser on (UT-03).
 
 ### Tape printer and label printer
@@ -366,7 +366,7 @@ API tokens (UT-06): a name, an end date and **what it may do**, an action set pi
 (see machines, start jobs, files, queue, stock …). Not offered, because a token can never use them:
 Start burn and a frame with the laser on (person-only), and granting (`grants.manage`, a person's
 session only). The page says that a token never does more than its person may at the time of each
-call (`decisions/20261119-token-effective-rights.md` on `design-doc`). After Make token the secret
+call ([decision](decisions/20261119-token-effective-rights.md)). After Make token the secret
 (`mct_…`) is shown once, in full, with Copy and "If it is lost, revoke it and make a new one".
 
 Audit log (UT-45): filters (who, what, from, to) and **Older** for the next page (keyset paging,
@@ -389,7 +389,8 @@ offline), Edit, Show live (the test after saving) and Remove…; Add a network c
 
 ### Instance (instance admin)
 
-Organisations and their spaces (`GET /api/v1/instance/spaces`, `instance.admin`); the hub's update
+Organisations and their spaces (`GET /api/v1/instance/spaces`, `instance.admin`); every agent with its
+version, last seen and devices, and its update ([decision](decisions/20261119-agent-update-by-instance-admin.md)); the hub's update
 (`GET`, `POST /api/v1/update`) with a confirm that says a dump comes first and what the way back
 loses, and its outcomes on About: in progress, done, rolled back, refused (UT-29, flows.md §8);
 moving a device to another space ([decision](decisions/20261119-device-move.md)): a confirm that
@@ -586,7 +587,7 @@ tags without the dot, never a state's chip or colour. The kind of a machine is a
 
 | # | Point | State |
 |---|---|---|
-| UI-1 | A member reading their own requests and withdrawing one | decided (journal:UI-DESIGN:0009 #5): `GET /api/v1/access-requests/mine`, `DELETE /api/v1/access-requests/{id}` in api.md on `design-doc` |
+| UI-1 | A member reading their own requests and withdrawing one | decided (journal:UI-DESIGN:0009 #5): `GET /api/v1/access-requests/mine`, `DELETE /api/v1/access-requests/{id}` in [api.md](api.md) |
 | UI-2 | The machine's tabs: six against the wiki's five with **Data** | decided (0009 #1): the six, plus Data only for a device with history |
 | UI-3 | The laser hand-off when a job is loaded | decided (0009 #3): sending asks to replace the loaded job |
 | UI-4 | The wall screen | decided (0009 #4): read only, no buttons. Open: which session the screen keeps |
