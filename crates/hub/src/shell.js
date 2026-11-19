@@ -355,3 +355,39 @@
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountAll);
     else mountAll();
   }
+  // Tabs: the design's pattern (docs/design/ui/mockups/mc.js): role=tab, aria-controls, arrow
+  // keys, roving tabindex; the hash picks the tab. Only a tablist with data-tabs.
+  {
+    const tabsOf = (list) => [...list.querySelectorAll('[role="tab"]')].filter((t) => t.getClientRects().length > 0);
+    const select = (list, tab, focus) => {
+      for (const t of list.querySelectorAll('[role="tab"]')) {
+        const on = t === tab, p = document.getElementById(t.getAttribute("aria-controls"));
+        t.setAttribute("aria-selected", String(on)); t.tabIndex = on ? 0 : -1; if (p) p.hidden = !on;
+      }
+      if (focus) tab.focus();
+    };
+    const tabsAll = () => {
+      const h = location.hash.slice(1);
+      for (const list of document.querySelectorAll('[role="tablist"][data-tabs]')) {
+        const ts = tabsOf(list); if (!ts.length) continue;
+        let pick = ts.find((t) => t.getAttribute("aria-controls") === h);
+        if (!pick) { const p = h && document.getElementById(h); if (p) pick = ts.find((t) => document.getElementById(t.getAttribute("aria-controls"))?.contains(p)); }
+        select(list, pick || ts.find((t) => t.getAttribute("aria-selected") === "true") || ts[0], false);
+      }
+    };
+    document.addEventListener("click", (e) => {
+      const t = e.target.closest('[data-tabs] [role="tab"]');
+      if (!t) return;
+      e.preventDefault(); select(t.closest('[role="tablist"]'), t, true); history.replaceState(null, "", "#" + t.getAttribute("aria-controls"));
+    });
+    document.addEventListener("keydown", (e) => {
+      const t = e.target.closest && e.target.closest('[data-tabs] [role="tab"]');
+      if (!t) return;
+      const list = t.closest('[role="tablist"]'), ts = tabsOf(list), i = ts.indexOf(t);
+      const n = { ArrowRight: ts[(i + 1) % ts.length], ArrowLeft: ts[(i - 1 + ts.length) % ts.length], Home: ts[0], End: ts[ts.length - 1] }[e.key];
+      if (n) { e.preventDefault(); select(list, n, true); history.replaceState(null, "", "#" + n.getAttribute("aria-controls")); }
+    });
+    window.addEventListener("hashchange", tabsAll);
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", tabsAll);
+    else tabsAll();
+  }

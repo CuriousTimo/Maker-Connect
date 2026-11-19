@@ -48,6 +48,7 @@ pub fn app(store: Store) -> Router {
         .route("/api/profiles", get(profile_list))
         .route("/profiles/{brand}/{file}", get(profile_image))
         .route("/virtual", post(add_virtual))
+        .merge(crate::add_machine_page::routes())
         .merge(prusa_connect::routes())
         .merge(simplyprint::routes())
         .merge(spoolman::routes())

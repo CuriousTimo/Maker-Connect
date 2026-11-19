@@ -88,7 +88,8 @@ impl<'a> Chrome<'a> {
                 "member",
                 "",
             ),
-            item("Manage", "space", "Space", "space", "staff", ""),
+            item("Manage", "machines/add", "Add machine", "machines/add", "staff", ""),
+            item("", "space", "Space", "space", "staff", ""),
             item("", "downloads", "Downloads", "downloads", "staff", ""),
             item("", "about", "About", "about", "instance", ""),
         ];
@@ -167,150 +168,89 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
 <body>
 {header}
 <main id="main" tabindex="-1">
-  <div class="list-tools" data-tools hidden>
-    <div class="chips" data-chips role="toolbar" aria-label="Show"></div>
-    <div class="list-controls">
-      <input type="search" data-search placeholder="Name, model, label, file…" aria-label="Find a machine">
-      <select data-group aria-label="Group by"><option value="kind">By kind</option><option value="model">By model</option><option value="label">By label</option><option value="none">Not grouped</option></select>
-      <div class="view-switch" role="group" aria-label="View"><button type="button" data-view="cards" title="Cards" aria-label="Cards"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="5" rx="1.5"/><rect x="3" y="11" width="14" height="5" rx="1.5"/></svg></button><button type="button" data-view="table" title="Table" aria-label="Table"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14"/></svg></button></div>
-    </div>
-  </div>
+  <div class="head"><h1>Machines</h1><div class="actions"><span class="fw" data-gate="staff" hidden><a class="btn primary" href="machines/add">Add machine</a></span></div></div>
   <div class="banners" data-banners></div>
+  <div data-tools hidden>
+    <div class="chips" data-chips role="group" aria-label="Filter"></div>
+    <div class="row" style="margin-bottom:var(--s-4)"><label class="field" style="margin:0">Search<input type="search" data-search placeholder="Name, model, label, file"></label><label class="field" style="margin:0;flex:0 1 200px">Group by<select data-group><option value="kind">Kind</option><option value="model">Model</option><option value="label">Label</option><option value="none">Not grouped</option></select></label></div>
+  </div>
   <div id="machines"><p class="empty">Loading…</p></div>
 </main>
 <script>
-  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  // The cards of docs/design/ui/mockups/machines.html, live over server-sent events.
+  const esc = escapeHtml;
   const KIND = { fdm: "3D printer", laser: "Laser", cnc: "CNC", cutter: "Cutting plotter", label: "Label printer", paper: "Paper printer", scale: "Scale", other: "Machine" };
-  let profiles = null;
-  // A column of a machine's row: a value, and what it is under it.
-  const col = (cls, value, caption) => `<div class="m-col ${cls}"><b>${esc(value ?? "–")}</b><small>${esc(caption ?? "")}</small></div>`;
-  const LINK = { virtual: "Virtual", "prusa-connect": "Prusa Connect", agent: "Agent", simplyprint: "Moonraker" };
-  // What it does now: its job, else what matters for its kind.
-  function now(m, t) {
-    if (t.job) {
-      const percent = Math.round((t.job.done * 100) / Math.max(1, t.job.total));
-      return [`${percent} % · ${t.job.file}`, timeLeft(t.job.remaining_s) || "printing"];
-    }
-    if (t.nozzle_c != null) return [`${t.nozzle_c.toFixed(0)} °C · ${t.bed_c != null ? `${t.bed_c.toFixed(0)} °C` : "–"}`, "nozzle · bed"];
-    if (m.kind === "label") {
-      const tape = t.cassette === false ? "no cassette" : m.media ? `tape ${m.media}` : "tape not set";
-      const pct = t.battery_percent ?? null;
-      return [`${tape}${pct != null ? ` · ${pct} %` : ""}`, pct != null ? "tape · battery" : "tape"];
-    }
-    if (t.position_mm) return [`X ${t.position_mm[0].toFixed(1)} · Y ${t.position_mm[1].toFixed(1)}`, "head, mm"];
-    return [null, "nothing reported"];
-  }
-  // Said only when something is off: offline (since when), or late to report.
-  function trouble(m) {
-    if (m.out_of_use) return `<div class="m-col m-conn"></div>`;
-    if (!m.online) return col("m-conn", "Offline", m.seen_seconds_ago == null ? "never reported" : `last seen ${seen(m.seen_seconds_ago)}`);
-    if (m.seen_seconds_ago != null && m.seen_seconds_ago > 30) return col("m-conn", "Late", `last report ${seen(m.seen_seconds_ago)}`);
-    return `<div class="m-col m-conn"></div>`;
-  }
+  const LINK = { virtual: "virtual", "prusa-connect": "built-in Connect", agent: "agent (USB)", simplyprint: "Moonraker" };
+  let profiles = {};
   function seen(seconds) {
     if (seconds == null) return "never";
     if (seconds < 60) return `${seconds} s ago`;
     if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
     return `${Math.round(seconds / 3600)} h ago`;
   }
-  // What someone chose here (filter, search, grouping, view), kept in this browser only.
-  const ui = (() => { try { return { filter: "all", q: "", group: "kind", view: "cards", ...JSON.parse(localStorage.getItem("machine-list") || "{}") }; } catch { return { filter: "all", q: "", group: "kind", view: "cards" }; } })();
-  const keep = () => { try { localStorage.setItem("machine-list", JSON.stringify({ filter: ui.filter, group: ui.group, view: ui.view })); } catch { /* not kept */ } };
-  // Each machine in one bucket, for the chips: what someone would look for.
-  const BUCKETS = [["all", "All"], ["busy", "Busy"], ["free", "Free"], ["needs", "Needs someone"], ["error", "Error"], ["offline", "Offline"], ["out", "Out of use"]];
+  // What someone chose here (filter, search, grouping), kept in this browser only.
+  const ui = (() => { try { return { filter: "all", q: "", group: "kind", ...JSON.parse(localStorage.getItem("machine-list") || "{}") }; } catch { return { filter: "all", q: "", group: "kind" }; } })();
+  const keep = () => { try { localStorage.setItem("machine-list", JSON.stringify({ filter: ui.filter, group: ui.group })); } catch { /* not kept */ } };
+  const BUCKETS = [["all", "All"], ["busy", "Printing"], ["free", "Free"], ["loaded", "Job loaded"], ["needs", "Needs someone"], ["error", "Error"], ["offline", "Offline"], ["out", "Out of use"]];
   function bucket(m) {
     const cls = shownState(m).cls;
-    return { busy: "busy", cooling: "busy", idle: "free", paused: "needs", attention: "needs", error: "error", offline: "offline", disconnected: "offline", out: "out" }[cls] || "free";
+    return { busy: "busy", cooling: "busy", idle: "free", loaded: "loaded", paused: "needs", attention: "needs", error: "error", offline: "offline", disconnected: "offline", out: "out" }[cls] || "free";
   }
   const modelOf = (m) => {
     const p = profiles[m.profile];
     return p ? (p.model.includes(p.brand) ? p.model : `${p.brand} ${p.model}`) : KIND[m.kind] || m.kind;
   };
+  // What the card says under the kind: the job, else what matters for its kind; offline: since when.
+  function says(m) {
+    const t = m.telemetry || {};
+    if (!m.online) return m.seen_seconds_ago == null ? "Never reported." : `No report since ${seen(m.seen_seconds_ago)}. Its last values are not shown as current.`;
+    if (t.job) return [t.job.file, m.loaded?.material].filter(Boolean).join(" · ");
+    const parts = [];
+    if (t.nozzle_c != null) parts.push(`Nozzle ${t.nozzle_c.toFixed(1)} °C`);
+    if (t.bed_c != null) parts.push(`bed ${t.bed_c.toFixed(1)} °C`);
+    if (m.kind === "label") parts.push(t.cassette === false ? "no cassette" : m.media ? `Tape ${m.media}` : "tape not set");
+    if (t.position_mm) parts.push(`X ${t.position_mm[0].toFixed(1)} · Y ${t.position_mm[1].toFixed(1)}`);
+    if (m.loaded) parts.push(loadedText(m.loaded));
+    return parts.join(" · ");
+  }
+  const EDGE = { needs: "edge-wait", error: "edge-bad" };
+  function card(m) {
+    const t = m.telemetry || {};
+    const st = shownState(m), b = bucket(m);
+    const go = `machines/${encodeURIComponent(m.id)}`;
+    const percent = t.job && m.online ? Math.round((t.job.done * 100) / Math.max(1, t.job.total)) : null;
+    const bar = percent != null ? `<div class="bar" role="img" aria-label="${percent} percent"><i style="width:${percent}%"></i></div><b class="num">${esc(timeLeft(t.job.remaining_s) || `${percent} %`)}</b>` : "";
+    const cls = ["card", "mcard", EDGE[b] || "", m.online ? "" : "is-off"].filter(Boolean).join(" ");
+    return `<article class="${cls}"><div class="top-line"><a href="${go}">${esc(m.name)}</a>${stateBadge(m, "span")}</div>
+      <span class="kind">${esc([modelOf(m), LINK[m.link] || m.link].filter(Boolean).join(" · "))}</span>
+      <small data-says>${esc(says(m))}</small>${bar}
+      <div class="acts"><span class="fw"><a class="btn small${m.online ? "" : " ghost"}" href="${go}">${m.online ? "Open" : "Look"}</a></span></div></article>${confirmHtml(m, "machines/")}`;
+  }
   let all = [];
   function render(machines) {
-      all = machines;
-      const list = document.getElementById("machines");
-      document.querySelector("[data-tools]").hidden = !machines.length;
-      if (!machines.length) { document.querySelector("[data-banners]").innerHTML = ""; list.innerHTML = '<p class="empty">No machines yet.</p>'; return; }
-      // The chips, with their counts; one with nothing in it does not show (All always does).
-      const counts = Object.fromEntries(BUCKETS.map(([k]) => [k, 0]));
-      for (const m of machines) { counts.all++; counts[bucket(m)]++; }
-      if (ui.filter !== "all" && !counts[ui.filter]) ui.filter = "all";
-      document.querySelector("[data-chips]").innerHTML = BUCKETS.filter(([k]) => k === "all" || counts[k])
-        .map(([k, name]) => `<button type="button" class="chip ${k}" data-filter="${k}" aria-pressed="${ui.filter === k}">${name} <b>${counts[k]}</b></button>`).join("");
-      // One banner per kind of trouble, its machines named; nothing when all is well.
-      const named = (ms) => ms.map((m) => `<a href="machines/${encodeURIComponent(m.id)}">${esc(m.name)}</a>${shownState(m).text && bucket(m) === "needs" ? ` <small>(${esc(shownState(m).text.toLowerCase())})</small>` : ""}`).join(", ");
-      const by = (b) => machines.filter((m) => bucket(m) === b);
-      const banners = [];
-      const needs = by("needs"), errors = by("error"), gone = by("offline");
-      if (needs.length) banners.push(`<div class="banner needs"><b>${needs.length === 1 ? "1 machine needs" : `${needs.length} machines need`} someone</b> ${named(needs)}</div>`);
-      if (errors.length) banners.push(`<div class="banner error"><b>${errors.length === 1 ? "1 machine reports" : `${errors.length} machines report`} an error</b> ${errors.map((m) => `<a href="machines/${encodeURIComponent(m.id)}">${esc(m.name)}</a>${m.telemetry?.problem ? ` <small>(${esc(m.telemetry.problem)})</small>` : ""}`).join(", ")}</div>`);
-      if (gone.length) banners.push(`<div class="banner offline"><b>${gone.length} offline</b> ${gone.map((m) => `<a href="machines/${encodeURIComponent(m.id)}">${esc(m.name)}</a> <small>(${m.seen_seconds_ago == null ? "never reported" : `seen ${seen(m.seen_seconds_ago)}`})</small>`).join(", ")}</div>`);
-      document.querySelector("[data-banners]").innerHTML = banners.join("");
-      // What is shown: the chip, then the search (name, model, labels, the file it runs).
-      const q = ui.q.trim().toLowerCase();
-      const shown = machines.filter((m) => (ui.filter === "all" || bucket(m) === ui.filter)
-        && (!q || [m.name, modelOf(m), ...(m.labels || []), m.telemetry?.job?.file || ""].some((t) => t.toLowerCase().includes(q))));
-      if (!shown.length) { list.innerHTML = '<p class="empty">No machine like that.</p>'; return; }
-      const chips = (m) => [...(m.labels || []).map((l) => `<span class="tag">${esc(l)}</span>`), m.queue?.length ? `<span class="tag" title="Waiting to print here, one after another">${m.queue.length} in queue</span>` : "", m.induction_required ? (m.training ? '<span class="tag induction" title="Only who had the training may use it">training</span>' : '<span class="tag induction" title="Only who has permission may use it">permission</span>') : ""].join("");
-      const card = (m) => {
-        const t = m.telemetry || {};
-        const shownS = shownState(m);
-        const percent = t.job ? Math.round((t.job.done * 100) / Math.max(1, t.job.total)) : null;
-        const bar = t.job ? `<div class="card-progress"><i style="width: ${percent}%"></i></div>` : "";
-        const [doing, what] = now(m, t);
-        const profile = profiles[m.profile];
-        const thumb = profile && profile.image ? `<img class="thumb" src="profiles/${esc(m.profile)}.svg" alt="">`
-          : ["fdm", "laser", "cnc"].includes(m.kind) ? `<img class="thumb" src="profiles/_generic/${esc(m.kind)}.svg" alt="">` : `<span class="thumb"></span>`;
-        // The model under the name, unless the name says it already; how it connects with it.
-        const model = modelOf(m);
-        const under = [m.name.toLowerCase().includes(model.toLowerCase()) ? null : model, LINK[m.link] || m.link].filter(Boolean).join(" · ");
-        const tags = chips(m);
-        return `<a class="machine" href="machines/${encodeURIComponent(m.id)}">
-          ${thumb}
-          <div class="m-col"><b class="name">${esc(m.name)}</b><small>${esc(under)}</small>${m.loaded ? `<small class="m-spool"><i class="m-swatch" style="background:${esc(m.loaded.color || "transparent")}"></i>${esc(loadedText(m.loaded))}</small>` : ""}${tags ? `<span class="tags">${tags}</span>` : ""}</div>
-          ${col("m-now", doing, what)}
-          ${trouble(m)}
-          ${stateBadge(m)}
-          ${bar}
-        </a>`;
-      };
-      // The table, for many machines: one line each, the same columns for every kind.
-      const row = (m) => {
-        const t = m.telemetry || {};
-        const st = shownState(m);
-        const percent = t.job ? Math.round((t.job.done * 100) / Math.max(1, t.job.total)) : null;
-        const go = `machines/${encodeURIComponent(m.id)}`;
-        return `<tr data-go="${esc(go)}"><td><a href="${esc(go)}"><b>${esc(m.name)}</b></a></td><td>${stateBadge(m, "span")}</td><td>${esc(modelOf(m))}</td>
-          <td>${m.loaded ? `<span class="m-spool"><i class="m-swatch" style="background:${esc(m.loaded.color || "transparent")}"></i>${esc(m.loaded.material || m.loaded.name)}</span>` : '<span class="muted">–</span>'}</td>
-          <td>${t.job ? `<div class="t-progress"><i style="width:${percent}%"></i></div><small>${percent} % · ${esc(t.job.file)}</small>` : '<span class="muted">–</span>'}</td>
-          <td>${t.job && t.job.remaining_s != null ? esc(timeLeft(t.job.remaining_s).split(" · ")[1] || "") : '<span class="muted">–</span>'}</td>
-          <td>${chips(m) || '<span class="muted">–</span>'}</td></tr>`;
-      };
-      // Grouped: by kind (as it was), model or label (a machine with two labels is in both).
-      const GROUPS = [["fdm", "3D printers"], ["laser", "Lasers"], ["cnc", "CNC machines"], ["cutter", "Cutting plotters"], ["label", "Label printers"], ["paper", "Paper printers"], ["scale", "Scales"], ["other", "Other machines"]];
-      let groups;
-      if (ui.group === "model") {
-        const models = [...new Set(shown.map(modelOf))].sort();
-        groups = models.map((g) => [g, shown.filter((m) => modelOf(m) === g)]);
-      } else if (ui.group === "label") {
-        const labels = [...new Set(shown.flatMap((m) => m.labels || []))].sort((a, b) => a.localeCompare(b));
-        groups = [...labels.map((l) => [l, shown.filter((m) => (m.labels || []).includes(l))]), ["No label", shown.filter((m) => !(m.labels || []).length)]];
-      } else if (ui.group === "none") {
-        groups = [["", shown]];
-      } else {
-        groups = GROUPS.map(([kind, title]) => [title, shown.filter((m) => (GROUPS.some(([k]) => k === m.kind) ? m.kind : "other") === kind)]);
-      }
-      groups = groups.filter(([, ms]) => ms.length);
-      for (const b of document.querySelectorAll("[data-view]")) b.setAttribute("aria-pressed", String(b.dataset.view === ui.view));
-      list.innerHTML = groups.map(([title, ms]) => {
-        const head = title ? `<h2 class="group">${esc(title)} <span>${ms.length}</span></h2>` : "";
-        return ui.view === "table"
-          ? `${head}<div class="table-wrap"><table class="machine-table"><thead><tr><th>Machine</th><th>State</th><th>Model</th><th>Material</th><th>Progress</th><th>Done at</th><th>Labels</th></tr></thead><tbody>${ms.map(row).join("")}</tbody></table></div>`
-          : `${head}${ms.map((m) => card(m) + confirmHtml(m, "machines/")).join("")}`;
-      }).join("");
+    all = machines;
+    const list = document.getElementById("machines");
+    document.querySelector("[data-tools]").hidden = !machines.length;
+    if (!machines.length) { document.querySelector("[data-banners]").innerHTML = ""; list.innerHTML = '<div class="empty"><h2>No machines yet</h2><p>Add one with the code it shows.</p><p data-gate="staff"><span class="fw"><a class="btn primary" href="machines/add">Add machine</a></span></p></div>'; return; }
+    const counts = Object.fromEntries(BUCKETS.map(([k]) => [k, 0]));
+    for (const m of machines) { counts.all++; counts[bucket(m)]++; }
+    if (ui.filter !== "all" && !counts[ui.filter]) ui.filter = "all";
+    document.querySelector("[data-chips]").innerHTML = BUCKETS.filter(([k]) => k === "all" || counts[k])
+      .map(([k, name]) => `<span class="fw"><button type="button" class="chip" data-filter="${k}" aria-pressed="${ui.filter === k}">${name} <b>${counts[k]}</b></button></span>`).join("");
+    const shown = machines.filter((m) => (ui.filter === "all" || bucket(m) === ui.filter)
+      && (!ui.q.trim() || [m.name, modelOf(m), ...(m.labels || []), m.telemetry?.job?.file || ""].some((t) => t.toLowerCase().includes(ui.q.trim().toLowerCase()))));
+    if (!shown.length) { list.innerHTML = '<p class="empty">No machine like that.</p>'; return; }
+    const GROUPS = [["fdm", "3D printers"], ["laser", "Lasers"], ["cnc", "CNC machines"], ["cutter", "Cutting plotters"], ["label", "Tape and label printers"], ["paper", "Paper printers"], ["scale", "Scales"], ["other", "Other machines"]];
+    let groups;
+    if (ui.group === "model") groups = [...new Set(shown.map(modelOf))].sort().map((g) => [g, shown.filter((m) => modelOf(m) === g)]);
+    else if (ui.group === "label") {
+      const labels = [...new Set(shown.flatMap((m) => m.labels || []))].sort((a, b) => a.localeCompare(b));
+      groups = [...labels.map((l) => [l, shown.filter((m) => (m.labels || []).includes(l))]), ["No label", shown.filter((m) => !(m.labels || []).length)]];
+    } else if (ui.group === "none") groups = [["", shown]];
+    else groups = GROUPS.map(([kind, title]) => [title, shown.filter((m) => (GROUPS.some(([k]) => k === m.kind) ? m.kind : "other") === kind)]);
+    list.innerHTML = groups.filter(([, ms]) => ms.length).map(([title, ms], i) =>
+      `${title ? `<h2${i ? ' style="margin-top:var(--s-5)"' : ""}>${esc(title)}</h2>` : ""}<div class="grid">${ms.map(card).join("")}</div>`).join("");
   }
-  // The tools: a chip, the search, the grouping, the view.
   document.querySelector("[data-chips]").addEventListener("click", (e) => {
     const chip = e.target.closest("[data-filter]");
     if (chip) { ui.filter = chip.dataset.filter; keep(); render(all); }
@@ -321,19 +261,10 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
   const group = document.querySelector("[data-group]");
   group.value = ui.group;
   group.addEventListener("change", () => { ui.group = group.value; keep(); render(all); });
-  document.querySelector(".view-switch").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-view]");
-    if (b) { ui.view = b.dataset.view; keep(); render(all); }
-  });
-  // A row of the table opens its machine, as a card does.
-  document.getElementById("machines").addEventListener("click", (e) => {
-    const tr = e.target.closest("tr[data-go]");
-    if (tr && !e.target.closest("a")) location.href = tr.dataset.go;
-  });
   // The list comes again on every change (server-sent events); the browser reconnects
   // by itself when the connection drops.
   (async () => {
-    try { profiles = Object.fromEntries((await (await fetch("api/profiles")).json()).map((p) => [p.id, p])); } catch (error) { profiles = {}; }
+    try { profiles = Object.fromEntries((await (await fetch("api/profiles")).json()).map((p) => [p.id, p])); } catch { /* the kind instead */ }
     const stream = new EventSource("api/machines/stream");
     stream.onmessage = (event) => {
       const machines = JSON.parse(event.data);
