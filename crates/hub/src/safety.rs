@@ -6,8 +6,8 @@
 //! (Space → General): a makerspace wants it, a workshop at home does not.
 
 use crate::access::Access;
-use crate::store::{Store, now};
-use crate::{Shared, failed};
+use crate::store::{Legacy, now};
+use crate::{Store, failed};
 use axum::{
     Form, Router,
     extract::{Path, State},
@@ -49,44 +49,7 @@ pub fn ppe_of(kind: &str, stored: Option<&str>) -> Vec<String> {
     }
 }
 
-impl Store {
-    /// Whether a space asks for PPE before use.
-    pub fn ppe_checks(&self, space: i64) -> bool {
-        self.db
-            .query_row(
-                "SELECT ppe_checks FROM spaces WHERE id = ?1",
-                [space],
-                |r| r.get(0),
-            )
-            .unwrap_or(false)
-    }
-
-    pub fn set_ppe_checks(&mut self, space: i64, on: bool) -> rusqlite::Result<()> {
-        self.db.execute(
-            "UPDATE spaces SET ppe_checks = ?2 WHERE id = ?1",
-            rusqlite::params![space, on],
-        )?;
-        self.changed();
-        Ok(())
-    }
-
-    /// Sets a machine's PPE (an empty list: nothing needed). Returns whether it is in the space.
-    pub fn set_ppe(
-        &mut self,
-        space: i64,
-        machine: &str,
-        list: &[String],
-    ) -> rusqlite::Result<bool> {
-        let n = self.db.execute(
-            "UPDATE machines SET ppe = ?3 WHERE id = ?1 AND space_id = ?2",
-            rusqlite::params![machine, space, list.join(", ")],
-        )?;
-        // What was confirmed was for the old list.
-        self.ppe_ok.retain(|(_, m), _| m != machine);
-        self.changed();
-        Ok(n > 0)
-    }
-
+impl Legacy {
     /// Someone has and wears the machine's PPE: until when that holds.
     pub fn confirm_ppe(&mut self, user: i64, machine: &str) -> i64 {
         let until = now() + CONFIRM_FOR;
@@ -103,15 +66,60 @@ impl Store {
     }
 }
 
+/// What the PPE rule needs of a machine, read on Postgres before the lock ([`Store::ppe_rule`]):
+/// whether its space asks for PPE, and what the machine needs (None: not a machine of the space).
+#[derive(Debug, Clone, Default)]
+pub struct PpeRule {
+    pub checks: bool,
+    pub needed: Option<Vec<String>>,
+}
+
+impl Store {
+    /// The PPE rule for a machine of a space (see [`PpeRule`]).
+    pub async fn ppe_rule(&self, space: i64, machine: &str) -> PpeRule {
+        let checks = self.ppe_checks(space).await.unwrap_or(false);
+        if !checks {
+            return PpeRule::default();
+        }
+        let needed = self.machine_ppe(space, machine).await.ok().flatten();
+        PpeRule { checks, needed }
+    }
+
+    /// What a machine of the space needs (its own list, or what its kind needs); None when it is
+    /// not of the space.
+    pub async fn machine_ppe(
+        &self,
+        space: i64,
+        machine: &str,
+    ) -> sqlx::Result<Option<Vec<String>>> {
+        let mut tx = self.pg().space(space).await?;
+        let row = sqlx::query!(
+            "SELECT kind, ppe FROM machines WHERE id = $1 AND space_id = $2",
+            machine,
+            space
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(row.map(|r| ppe_of(&r.kind, r.ppe.as_deref())))
+    }
+}
+
 /// Before using a machine: has this person confirmed its PPE? The refusal otherwise.
-pub fn check_ppe(store: &Store, access: &Access, machine: &str) -> Result<(), Box<Response>> {
-    if !store.ppe_checks(access.space) {
+/// `rule`: whether the space asks for it and what the machine needs ([`Store::ppe_rule`]).
+pub fn check_ppe(
+    store: &Legacy,
+    rule: &PpeRule,
+    access: &Access,
+    machine: &str,
+) -> Result<(), Box<Response>> {
+    if !rule.checks {
         return Ok(());
     }
-    let Ok(Some(m)) = store.machine(access.space, machine) else {
+    let Some(ppe) = &rule.needed else {
         return Ok(());
     };
-    if m.ppe.is_empty() || store.ppe_until(access.user_id, machine).is_some() {
+    if ppe.is_empty() || store.ppe_until(access.user_id, machine).is_some() {
         return Ok(());
     }
     Err(Box::new(
@@ -119,14 +127,14 @@ pub fn check_ppe(store: &Store, access: &Access, machine: &str) -> Result<(), Bo
             StatusCode::PRECONDITION_REQUIRED,
             format!(
                 "first confirm on its page that you have and wear: {}",
-                m.ppe.join(", ").to_lowercase()
+                ppe.join(", ").to_lowercase()
             ),
         )
             .into_response(),
     ))
 }
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/machines/{id}/ppe", post(confirm))
         .route("/machines/{id}/safety", post(set))
@@ -141,14 +149,10 @@ struct SwitchForm {
 /// The space asks for PPE before use, or not.
 async fn switch(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Form(form): Form<SwitchForm>,
 ) -> Response {
-    match store
-        .lock()
-        .unwrap()
-        .set_ppe_checks(access.space, form.on.is_some())
-    {
+    match store.set_ppe_checks(access.space, form.on.is_some()).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
     }
@@ -157,13 +161,12 @@ async fn switch(
 /// "I have and wear …": every item ticked (`have=<item>` for each), or nothing.
 async fn confirm(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<Vec<(String, String)>>,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    let needed = match store.machine(access.space, &machine) {
-        Ok(Some(m)) => m.ppe,
+    let needed = match store.machine_ppe(access.space, &machine).await {
+        Ok(Some(ppe)) => ppe,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
     };
@@ -190,7 +193,7 @@ async fn confirm(
         )
             .into_response();
     }
-    let until = store.confirm_ppe(access.user_id, &machine);
+    let until = store.lock().unwrap().confirm_ppe(access.user_id, &machine);
     until.to_string().into_response()
 }
 
@@ -198,7 +201,7 @@ async fn confirm(
 /// own (`other=`, comma separated).
 async fn set(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<Vec<(String, String)>>,
 ) -> Response {
@@ -216,7 +219,7 @@ async fn set(
             }
         }
     }
-    match store.lock().unwrap().set_ppe(access.space, &machine, &list) {
+    match store.set_ppe(access.space, &machine, &list).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),

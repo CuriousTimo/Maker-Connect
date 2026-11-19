@@ -16,7 +16,6 @@
 #   Its Downloads page offers the newest agent release from GitHub.
 #   The archive holds no data: the database, its files, downloads and backups are made beside
 #   the database when the hub starts, so unpacking a new release over an old one keeps them.
-#   A hub that opens a database another build had backs it up first (store/migrate.rs).
 #
 # agent: maker-connect-agent-<os>-<arch>[.exe] for every platform.
 #
@@ -57,6 +56,9 @@ export MAKER_CONNECT_RELEASE="$version"
 # The hub carries the laser design page (HS13): our LaserFoundry fork's browser version, built at
 # the commit in scripts/laserfoundry-web.pin and packed gzip into the binary (feature `laser-design`).
 features=""
+# The hub's queries are checked against the `.sqlx/` cache, not a database (hub-core-v2.md §2.7).
+export SQLX_OFFLINE=true
+
 if [ "$part" = hub ]; then
     scripts/laserfoundry-web.sh
     features="--features laser-design"

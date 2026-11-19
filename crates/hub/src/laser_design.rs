@@ -14,7 +14,7 @@
 //! only LOADED (HS7b); nothing here starts a burn.
 
 use crate::access::{Access, Level, Role};
-use crate::{Shared, failed};
+use crate::{Store, failed};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -56,7 +56,7 @@ pub const ASSETS: &[Asset] = &[
 #[cfg(not(feature = "laser-design"))]
 pub const ASSETS: &[Asset] = &[];
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route(
             "/laser-design",
@@ -68,26 +68,39 @@ pub fn routes() -> Router<Shared> {
 }
 
 /// The lasers of the space the person may use (use or more), as the apps API's `machines` lists them.
+/// `machines`: the space's ([`crate::Store::machines`]).
 fn usable_lasers(
-    store: &crate::store::Store,
+    store: &crate::store::Legacy,
+    machines: &[crate::store::Machine],
     access: &Access,
-) -> rusqlite::Result<Vec<serde_json::Value>> {
-    Ok(store
-        .machines(access.space)?
+    grants: &crate::access::Grants,
+) -> Vec<serde_json::Value> {
+    machines
         .iter()
         .filter(|m| m.kind == MachineKind::Laser)
         .filter_map(|m| {
-            let level = store.machine_level(access, &m.id).ok().flatten()?;
+            let level = store.machine_level(access, &m.id, grants)?;
             (level >= Level::Use).then(|| crate::apps::machine_json(m, Some(level)))
         })
-        .collect())
+        .collect()
 }
 
-async fn lasers(access: Access, State(store): State<Shared>) -> Response {
-    match usable_lasers(&store.lock().unwrap(), &access) {
-        Ok(list) => Json(list).into_response(),
-        Err(error) => failed(error),
-    }
+async fn lasers(access: Access, State(store): State<Store>) -> Response {
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    let machines = match store.machines(access.space).await {
+        Ok(machines) => machines,
+        Err(error) => return failed(error),
+    };
+    Json(usable_lasers(
+        &store.lock().unwrap(),
+        &machines,
+        &access,
+        &grants,
+    ))
+    .into_response()
 }
 
 /// Whether the laser design tool is there for this person (Prepare, a laser's page): derived from
@@ -106,39 +119,44 @@ pub(crate) enum Availability {
 }
 
 pub(crate) fn availability(
-    store: &crate::store::Store,
+    store: &crate::store::Legacy,
+    machines: &[crate::store::Machine],
     access: &Access,
-) -> rusqlite::Result<Availability> {
-    availability_of(store, access, !ASSETS.is_empty())
+    grants: &crate::access::Grants,
+) -> Availability {
+    availability_of(store, machines, access, grants, !ASSETS.is_empty())
 }
 
 fn availability_of(
-    store: &crate::store::Store,
+    store: &crate::store::Legacy,
+    machines: &[crate::store::Machine],
     access: &Access,
+    grants: &crate::access::Grants,
     built: bool,
-) -> rusqlite::Result<Availability> {
+) -> Availability {
     if !built {
-        return Ok(Availability::NotBuilt);
+        return Availability::NotBuilt;
     }
     if access.role < Role::Member {
-        return Ok(Availability::Guest);
+        return Availability::Guest;
     }
-    if !store
-        .machines(access.space)?
-        .iter()
-        .any(|m| m.kind == MachineKind::Laser)
-    {
-        return Ok(Availability::NoLaser);
+    if !machines.iter().any(|m| m.kind == MachineKind::Laser) {
+        return Availability::NoLaser;
     }
-    Ok(if usable_lasers(store, access)?.is_empty() {
+    if usable_lasers(store, machines, access, grants).is_empty() {
         Availability::NotPermitted
     } else {
         Availability::Open
-    })
+    }
 }
 
 /// Whether this person may open the page: a member who may use a laser.
-fn may_open(store: &crate::store::Store, access: &Access) -> Result<(), Box<Response>> {
+fn may_open(
+    store: &crate::store::Legacy,
+    machines: &[crate::store::Machine],
+    access: &Access,
+    grants: &crate::access::Grants,
+) -> Result<(), Box<Response>> {
     if access.role < Role::Member {
         return Err(Box::new(
             (
@@ -148,31 +166,38 @@ fn may_open(store: &crate::store::Store, access: &Access) -> Result<(), Box<Resp
                 .into_response(),
         ));
     }
-    match usable_lasers(store, access) {
-        Ok(list) if !list.is_empty() => Ok(()),
-        Ok(_) => Err(Box::new(
+    if usable_lasers(store, machines, access, grants).is_empty() {
+        return Err(Box::new(
             (
                 StatusCode::FORBIDDEN,
                 "there is no laser in this space that you may use",
             )
                 .into_response(),
-        )),
-        Err(error) => Err(Box::new(failed(error))),
+        ));
     }
+    Ok(())
 }
 
-async fn index(access: Access, State(store): State<Shared>) -> Response {
-    serve(&access, &store, ASSETS, "index.html")
+async fn index(access: Access, State(store): State<Store>) -> Response {
+    serve(&access, &store, ASSETS, "index.html").await
 }
 
-async fn file(access: Access, State(store): State<Shared>, Path(file): Path<String>) -> Response {
-    serve(&access, &store, ASSETS, &file)
+async fn file(access: Access, State(store): State<Store>, Path(file): Path<String>) -> Response {
+    serve(&access, &store, ASSETS, &file).await
 }
 
 /// The packed file `name`, as the browser takes it: gzip, its type, never cached without asking, and the page's
 /// Permissions-Policy.
-fn serve(access: &Access, store: &Shared, assets: &'static [Asset], name: &str) -> Response {
-    if let Err(refused) = may_open(&store.lock().unwrap(), access) {
+async fn serve(access: &Access, store: &Store, assets: &'static [Asset], name: &str) -> Response {
+    let grants = match store.grants_of(access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    let machines = match store.machines(access.space).await {
+        Ok(machines) => machines,
+        Err(error) => return failed(error),
+    };
+    if let Err(refused) = may_open(&store.lock().unwrap(), &machines, access, &grants) {
         return *refused;
     }
     if assets.is_empty() {

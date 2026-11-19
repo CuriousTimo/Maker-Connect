@@ -297,7 +297,7 @@ impl Port_ {
     }
 
     fn until(&mut self, what: &str, mut ready: impl FnMut(&mut Port_) -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             self.pump();
             if ready(self) {

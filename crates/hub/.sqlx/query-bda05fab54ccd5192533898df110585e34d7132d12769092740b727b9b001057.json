@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE machines SET usb_print_by = NULL, usb_print_at = NULL\n             WHERE id = $1 AND usb_print_by IS NOT NULL AND usb_print_at < at_unix($2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bda05fab54ccd5192533898df110585e34d7132d12769092740b727b9b001057"
+}

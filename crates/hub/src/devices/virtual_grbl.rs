@@ -3,7 +3,7 @@
 //! does: report, take jobs and commands, say how they went. So a virtual laser homes, jogs,
 //! frames, streams a job by character counting, stops and starts again as a real one would.
 
-use crate::Shared;
+use crate::Store;
 use crate::store::CommandState;
 use maker_connect_grbl::{GrblMachine, SimulatedGrbl, commands_of};
 use maker_connect_protocol::JobEnd;
@@ -24,18 +24,26 @@ fn running() -> &'static Mutex<HashSet<String>> {
 
 /// Starts a virtual laser's thread, unless it has one. `travel` sets its controller's travel
 /// to the profile's work area.
-pub fn ensure(store: &Shared, id: &str, token: &str, travel: Option<[f64; 2]>) {
+pub fn ensure(store: &Store, id: &str, token: &str, travel: Option<[f64; 2]>) {
     if !running().lock().unwrap().insert(id.to_owned()) {
         return;
     }
     let (store, id, token) = (store.clone(), id.to_owned(), token.to_owned());
+    // The thread waits for the store's Postgres side on the hub's runtime.
+    let runtime = tokio::runtime::Handle::current();
     std::thread::spawn(move || {
-        run(&store, &id, &token, travel);
+        run(&runtime, &store, &id, &token, travel);
         running().lock().unwrap().remove(&id);
     });
 }
 
-fn run(store: &Shared, id: &str, token: &str, travel: Option<[f64; 2]>) {
+fn run(
+    runtime: &tokio::runtime::Handle,
+    store: &Store,
+    id: &str,
+    token: &str,
+    travel: Option<[f64; 2]>,
+) {
     let mut sim = SimulatedGrbl::new();
     sim.set_latency(LINE_TIME);
     let mut laser = GrblMachine::new(Box::new(sim));
@@ -54,25 +62,35 @@ fn run(store: &Shared, id: &str, token: &str, travel: Option<[f64; 2]>) {
         telemetry.firmware = Some("Grbl 1.1 (LaserFoundry's simulator)".to_owned());
         telemetry.job_end = ended.or(job_end.take());
         // What the hub has for it, with the store held only this long.
+        let Ok(list) = runtime.block_on(store.virtual_machines()) else {
+            continue;
+        };
+        if !list.iter().any(|(machine, ..)| machine == id) {
+            return; // removed
+        }
+        let _ = runtime.block_on(store.report(token, &telemetry));
+        let of = runtime
+            .block_on(crate::agent_of(store, token))
+            .unwrap_or_default();
+        let (order, control) = runtime
+            .block_on(crate::agent_job(store, &of, &telemetry))
+            .unwrap_or_default();
+        let caller = runtime.block_on(store.caller(token)).ok().flatten();
         let (order, control, command, file) = {
             let mut store = store.lock().unwrap();
-            let Ok(list) = store.virtual_machines() else {
-                continue;
-            };
-            if !list.iter().any(|(machine, ..)| machine == id) {
-                return; // removed
-            }
-            let _ = store.report(token, &telemetry);
-            let (order, control) =
-                crate::agent_job(&mut store, token, &telemetry).unwrap_or_default();
             let command = if telemetry.job_id.is_none() && order.is_none() {
-                store.next_command(token).ok().flatten()
+                store.next_command(caller.as_ref())
             } else {
                 None
             };
             if let Some((command, _)) = &command {
-                let _ =
-                    store.command_went(token, *command, CommandState::Accepted, None, Vec::new());
+                store.command_went(
+                    caller.as_ref(),
+                    *command,
+                    CommandState::Accepted,
+                    None,
+                    Vec::new(),
+                );
             }
             let file = order.as_ref().and_then(|o| {
                 let file = o
@@ -106,10 +124,10 @@ fn run(store: &Shared, id: &str, token: &str, travel: Option<[f64; 2]>) {
                 Ok(said) => (CommandState::Finished, None, said),
                 Err(why) => (CommandState::Rejected, Some(why), Vec::new()),
             };
-            let _ = store
+            store
                 .lock()
                 .unwrap()
-                .command_went(token, command, state, reason, output);
+                .command_went(caller.as_ref(), command, state, reason, output);
         }
     }
 }

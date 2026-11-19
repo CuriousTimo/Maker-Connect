@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE invites SET used_by = $2, used_at = at_unix($3)\n             WHERE id = $1 AND used_by IS NULL AND NOT revoked AND expires_at > at_unix($3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6d991ce2e91320f437619837f8115edaaba3893ab6e721483e8973044c350e05"
+}

@@ -1,27 +1,12 @@
-//! The cameras of a space (docs/plans/cameras.md, "Step 2, the module `cameras`"): one table, every
-//! query by space. The password is kept as the machines' tokens are (plain, owner 2026-11-16);
-//! it is never sent back in a page and never logged.
+//! The cameras of a space (docs/plans/cameras.md, "Step 2, the module `cameras`"): one table on
+//! Postgres (`migrations/`), every query in the space's transaction ([`Work`]). The password is kept
+//! as the machines' tokens are (plain, owner 2026-11-16); it is never sent back in a page and never
+//! logged.
 
+use crate::Store;
 use crate::access::{Access, Level, Role};
-use crate::store::{Store, now};
-use rusqlite::{Connection, OptionalExtension, params};
-
-pub fn migrate(db: &Connection) -> rusqlite::Result<()> {
-    db.execute_batch(
-        "CREATE TABLE IF NOT EXISTS cameras (
-             id INTEGER PRIMARY KEY,
-             space_id INTEGER NOT NULL,
-             name TEXT NOT NULL,
-             source TEXT NOT NULL DEFAULT 'rtsp',
-             url TEXT NOT NULL,
-             username TEXT,
-             password TEXT,
-             machine_id TEXT,
-             view_role TEXT NOT NULL DEFAULT 'admin',
-             created_at INTEGER NOT NULL
-         );",
-    )
-}
+use crate::store::pg::Bypass;
+use crate::store::{Legacy, Work, now};
 
 /// A camera as stored. `machine_id` empty: a room camera, seen from `view_role` up.
 #[derive(Debug, Clone)]
@@ -48,124 +33,169 @@ pub struct CameraForm {
     pub view_role: Role,
 }
 
-const COLUMNS: &str =
-    "id, space_id, name, source, url, username, password, machine_id, view_role, created_at";
+const COLUMNS: &str = "id, space_id, name, source, url, username, password, machine_id, view_role,
+     unix_seconds(created_at)";
 
-fn row(r: &rusqlite::Row) -> rusqlite::Result<Camera> {
-    let role: String = r.get(8)?;
-    Ok(Camera {
-        id: r.get(0)?,
-        space_id: r.get(1)?,
-        name: r.get(2)?,
-        source: r.get(3)?,
-        url: r.get(4)?,
-        username: r.get(5)?,
-        password: r.get(6)?,
-        machine_id: r.get(7)?,
+type Row = (
+    i64,
+    i64,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    String,
+    i64,
+);
+
+fn camera(
+    (id, space_id, name, source, url, username, password, machine_id, role, created_at): Row,
+) -> Camera {
+    Camera {
+        id,
+        space_id,
+        name,
+        source,
+        url,
+        username,
+        password,
+        machine_id,
         view_role: Role::parse(&role).unwrap_or(Role::Admin),
-        created_at: r.get(9)?,
-    })
+        created_at,
+    }
 }
 
-impl Store {
-    /// A space's cameras, by name.
-    pub fn cameras(&self, space: i64) -> rusqlite::Result<Vec<Camera>> {
-        let mut q = self.db.prepare(&format!(
-            "SELECT {COLUMNS} FROM cameras WHERE space_id = ?1 ORDER BY name, id"
-        ))?;
-        let rows = q.query_map([space], row)?;
-        rows.collect()
+impl Work {
+    /// The space's cameras, by name.
+    pub async fn cameras(&mut self) -> sqlx::Result<Vec<Camera>> {
+        let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {COLUMNS} FROM cameras WHERE space_id = $1 ORDER BY name COLLATE \"C\", id"
+        )))
+        .bind(self.space)
+        .fetch_all(self.c())
+        .await?;
+        Ok(rows.into_iter().map(camera).collect())
     }
 
-    /// Every camera of every space (their sessions start with the hub).
-    pub fn all_cameras(&self) -> rusqlite::Result<Vec<Camera>> {
-        let mut q = self
-            .db
-            .prepare(&format!("SELECT {COLUMNS} FROM cameras ORDER BY id"))?;
-        let rows = q.query_map([], row)?;
-        rows.collect()
+    pub async fn camera(&mut self, id: i64) -> sqlx::Result<Option<Camera>> {
+        let row: Option<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {COLUMNS} FROM cameras WHERE space_id = $1 AND id = $2"
+        )))
+        .bind(self.space)
+        .bind(id)
+        .fetch_optional(self.c())
+        .await?;
+        Ok(row.map(camera))
     }
 
-    pub fn camera(&self, space: i64, id: i64) -> rusqlite::Result<Option<Camera>> {
-        self.db
-            .query_row(
-                &format!("SELECT {COLUMNS} FROM cameras WHERE space_id = ?1 AND id = ?2"),
-                params![space, id],
-                row,
-            )
-            .optional()
-    }
-
-    pub fn add_camera(&self, space: i64, form: &CameraForm) -> rusqlite::Result<i64> {
-        self.db.execute(
+    pub async fn add_camera(&mut self, form: &CameraForm) -> sqlx::Result<i64> {
+        sqlx::query_scalar(
             "INSERT INTO cameras (space_id, name, url, username, password, machine_id, view_role, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                space,
-                form.name,
-                form.url,
-                form.username,
-                form.password,
-                form.machine_id,
-                form.view_role.as_str(),
-                now()
-            ],
-        )?;
-        Ok(self.db.last_insert_rowid())
+             VALUES ($1, $2, $3, $4, $5, $6, $7, at_unix($8)) RETURNING id",
+        )
+        .bind(self.space)
+        .bind(&form.name)
+        .bind(&form.url)
+        .bind(&form.username)
+        .bind(&form.password)
+        .bind(&form.machine_id)
+        .bind(form.view_role.as_str())
+        .bind(now())
+        .fetch_one(self.c())
+        .await
     }
 
     /// Changes a camera; `false` when it is not in the space.
-    pub fn change_camera(&self, space: i64, id: i64, form: &CameraForm) -> rusqlite::Result<bool> {
-        let changed = self.db.execute(
-            "UPDATE cameras SET name = ?3, url = ?4, username = ?5,
-                 password = COALESCE(?6, password), machine_id = ?7, view_role = ?8
-             WHERE space_id = ?1 AND id = ?2",
-            params![
-                space,
-                id,
-                form.name,
-                form.url,
-                form.username,
-                form.password,
-                form.machine_id,
-                form.view_role.as_str()
-            ],
-        )?;
+    pub async fn change_camera(&mut self, id: i64, form: &CameraForm) -> sqlx::Result<bool> {
+        let changed = sqlx::query(
+            "UPDATE cameras SET name = $3, url = $4, username = $5,
+                 password = COALESCE($6, password), machine_id = $7, view_role = $8
+             WHERE space_id = $1 AND id = $2",
+        )
+        .bind(self.space)
+        .bind(id)
+        .bind(&form.name)
+        .bind(&form.url)
+        .bind(&form.username)
+        .bind(&form.password)
+        .bind(&form.machine_id)
+        .bind(form.view_role.as_str())
+        .execute(self.c())
+        .await?
+        .rows_affected();
         Ok(changed > 0)
     }
 
     /// Removes a camera; `false` when it is not in the space.
-    pub fn remove_camera(&self, space: i64, id: i64) -> rusqlite::Result<bool> {
-        let removed = self.db.execute(
-            "DELETE FROM cameras WHERE space_id = ?1 AND id = ?2",
-            params![space, id],
-        )?;
+    pub async fn remove_camera(&mut self, id: i64) -> sqlx::Result<bool> {
+        let removed = sqlx::query("DELETE FROM cameras WHERE space_id = $1 AND id = $2")
+            .bind(self.space)
+            .bind(id)
+            .execute(self.c())
+            .await?
+            .rows_affected();
         Ok(removed > 0)
     }
+}
 
+impl Store {
+    /// A space's cameras, by name ([`Work::cameras`]).
+    pub async fn cameras(&self, space: i64) -> sqlx::Result<Vec<Camera>> {
+        crate::stock::in_space!(self, space, |w| w.cameras()).await
+    }
+
+    /// Every camera of every space (their sessions start with the hub): a background task lists its
+    /// work, which camera in which space (`Bypass::TaskList`), and reads each camera in its space.
+    pub async fn all_cameras(&self) -> sqlx::Result<Vec<Camera>> {
+        let ids: Vec<(i64, i64)> = sqlx::query_as("SELECT space_id, id FROM cameras ORDER BY id")
+            .fetch_all(self.pg().admin(Bypass::TaskList))
+            .await?;
+        let mut all = Vec::with_capacity(ids.len());
+        for (space, id) in ids {
+            if let Some(camera) = crate::stock::in_space!(self, space, |w| w.camera(id)).await? {
+                all.push(camera);
+            }
+        }
+        Ok(all)
+    }
+}
+
+impl Legacy {
     /// Whether `access` may watch this camera (owner, 2026-11-16): a machine camera whoever
     /// may see the machine; a room camera from its `view_role` up; a camera whose machine is
-    /// gone, admins only.
-    pub fn may_view_camera(&self, access: &Access, camera: &Camera) -> rusqlite::Result<bool> {
+    /// gone, admins only. `grants`: the space's machines ([`crate::Store::grants_for`], View).
+    pub fn may_view_camera(
+        &self,
+        access: &Access,
+        camera: &Camera,
+        grants: &crate::access::Grants,
+    ) -> bool {
         if camera.space_id != access.space {
-            return Ok(false);
+            return false;
         }
         match &camera.machine_id {
-            Some(machine) => Ok(match self.may(access, machine, Level::View)? {
+            Some(machine) => match self.may(access, machine, Level::View, grants) {
                 Some(may) => may,
                 None => access.role >= Role::Admin,
-            }),
-            None => Ok(access.role >= camera.view_role),
+            },
+            None => access.role >= camera.view_role,
         }
     }
 
-    /// The cameras on a machine that `access` may watch: for its page's Camera tab.
-    pub fn machine_cameras(&self, access: &Access, machine: &str) -> Vec<Camera> {
-        self.cameras(access.space)
-            .unwrap_or_default()
+    /// The cameras on a machine that `access` may watch, of the space's `cameras`: for its page's
+    /// Camera tab.
+    pub fn machine_cameras(
+        &self,
+        access: &Access,
+        machine: &str,
+        grants: &crate::access::Grants,
+        cameras: Vec<Camera>,
+    ) -> Vec<Camera> {
+        cameras
             .into_iter()
             .filter(|c| c.machine_id.as_deref() == Some(machine))
-            .filter(|c| self.may_view_camera(access, c).unwrap_or(false))
+            .filter(|c| self.may_view_camera(access, c, grants))
             .collect()
     }
 }
@@ -197,102 +227,159 @@ mod tests {
         }
     }
 
-    /// A new store has the table; one opened before it was there gets it.
-    #[test]
-    fn the_table_is_made_new_and_on_an_older_store() {
-        let s = Store::open(":memory:").unwrap();
-        let n: i64 =
-            s.db.query_row("SELECT COUNT(*) FROM cameras", [], |r| r.get(0))
-                .unwrap();
-        assert_eq!(n, 0);
-        let file = std::env::temp_dir().join(format!("cameras-{}.db", std::process::id()));
-        let _ = std::fs::remove_file(&file);
-        {
-            let s = Store::open(file.to_str().unwrap()).unwrap();
-            s.db.execute_batch("DROP TABLE cameras").unwrap();
-        }
-        let s = Store::open(file.to_str().unwrap()).unwrap();
-        assert!(s.cameras(1).unwrap().is_empty());
-        let _ = std::fs::remove_file(&file);
-    }
-
     /// Stored, changed (an empty password keeps the old one), removed; another space sees nothing.
-    #[test]
-    fn a_camera_is_of_its_space() {
-        let s = Store::open(":memory:").unwrap();
-        let space = s.default_space().unwrap().0;
-        let id = s
-            .add_camera(space, &form("Hall", None, Role::Member))
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_camera_is_of_its_space(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let space = store.default_space().await.unwrap().0;
+        let other = {
+            let owner = store.create_user("olga", "Olga", "x", false).await.unwrap();
+            store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
+                .unwrap()
+                .1
+        };
+        let mut w = store.work(space).await.unwrap();
+        let id = w
+            .add_camera(&form("Hall", None, Role::Member))
+            .await
             .unwrap();
-        assert_eq!(s.cameras(space).unwrap().len(), 1);
-        assert!(s.cameras(space + 1).unwrap().is_empty());
-        assert!(s.camera(space + 1, id).unwrap().is_none());
+        w.commit(&store).await.unwrap();
+        assert_eq!(store.cameras(space).await.unwrap().len(), 1);
+        let mut o = store.work(other).await.unwrap();
+        assert!(o.cameras().await.unwrap().is_empty());
+        assert!(o.camera(id).await.unwrap().is_none());
         assert!(
-            !s.change_camera(space + 1, id, &form("x", None, Role::Guest))
+            !o.change_camera(id, &form("x", None, Role::Guest))
+                .await
                 .unwrap()
         );
+        assert!(!o.remove_camera(id).await.unwrap());
+        o.commit(&store).await.unwrap();
+        let mut w = store.work(space).await.unwrap();
         let mut f = form("Hall 2", None, Role::Guest);
         f.password = None;
-        assert!(s.change_camera(space, id, &f).unwrap());
-        let c = s.camera(space, id).unwrap().unwrap();
+        assert!(w.change_camera(id, &f).await.unwrap());
+        let c = w.camera(id).await.unwrap().unwrap();
         assert_eq!(c.name, "Hall 2");
         assert_eq!(c.password.as_deref(), Some("secret"));
         assert_eq!(c.view_role, Role::Guest);
         assert_eq!(c.source, "rtsp");
-        assert!(!s.remove_camera(space + 1, id).unwrap());
-        assert!(s.remove_camera(space, id).unwrap());
-        assert!(s.cameras(space).unwrap().is_empty());
+        assert!(w.remove_camera(id).await.unwrap());
+        assert!(w.cameras().await.unwrap().is_empty());
+        w.commit(&store).await.unwrap();
+        assert!(store.all_cameras().await.unwrap().is_empty());
+    }
+
+    /// The camera task's list (allowlist #5): every space's cameras, each read in its own space.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_camera_task_reads_each_camera_in_its_space(pool: sqlx::PgPool) {
+        let store = crate::Store::for_test(&pool).await;
+        let (first, _) = store.default_space().await.unwrap();
+        let second = store.create_space(first, "Lab").await.unwrap();
+        for (space, name) in [(first, "Hall"), (second, "Lab")] {
+            let mut w = store.work(space).await.unwrap();
+            w.add_camera(&form(name, None, Role::Admin)).await.unwrap();
+            w.commit(&store).await.unwrap();
+        }
+        let all: Vec<_> = store
+            .all_cameras()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|c| (c.space_id, c.name, c.password))
+            .collect();
+        let secret = Some("secret".to_owned());
+        assert_eq!(
+            all,
+            [
+                (first, "Hall".to_owned(), secret.clone()),
+                (second, "Lab".to_owned(), secret)
+            ]
+        );
     }
 
     /// Who may watch (owner, 2026-11-16), per role and kind of camera.
-    #[test]
-    fn who_may_watch() {
-        let mut s = Store::open(":memory:").unwrap();
-        let space = s.default_space().unwrap().0;
-        let open = s
-            .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn who_may_watch(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let space = store.default_space().await.unwrap().0;
+        let mk3s = crate::profiles::find("prusa/mk3s").unwrap();
+        let open = store.add_virtual(space, mk3s).await.unwrap();
+        let inducted = store.add_virtual(space, mk3s).await.unwrap();
+        let removed = store.add_virtual(space, mk3s).await.unwrap();
+        store
+            .set_induction_required(space, &inducted, true)
+            .await
             .unwrap();
-        let inducted = s
-            .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+        let grants = store
+            .grants_for(&access(space, Role::Owner), Level::View)
+            .await
             .unwrap();
-        s.db.execute(
-            "UPDATE machines SET induction_required = 1 WHERE id = ?1",
-            [&inducted],
-        )
-        .unwrap();
-        let on_open = s
-            .add_camera(space, &form("a", Some(&open), Role::Admin))
+        let elsewhere = store
+            .grants_for(&access(space + 1, Role::Owner), Level::View)
+            .await
             .unwrap();
-        let on_inducted = s
-            .add_camera(space, &form("b", Some(&inducted), Role::Admin))
-            .unwrap();
-        let gone = s
-            .add_camera(space, &form("c", Some("no-such-machine"), Role::Guest))
-            .unwrap();
-        let room_admin = s.add_camera(space, &form("d", None, Role::Admin)).unwrap();
-        let room_member = s.add_camera(space, &form("e", None, Role::Member)).unwrap();
-        let may = |role: Role, id: i64| {
-            let c = s.camera(space, id).unwrap().unwrap();
-            s.may_view_camera(&access(space, role), &c).unwrap()
+        let mut w = store.work(space).await.unwrap();
+        let mut ids = Vec::new();
+        for (name, machine, role) in [
+            ("a", Some(open.as_str()), Role::Admin),
+            ("b", Some(inducted.as_str()), Role::Admin),
+            ("c", Some(removed.as_str()), Role::Admin),
+            ("d", None, Role::Admin),
+            ("e", None, Role::Member),
+        ] {
+            ids.push(w.add_camera(&form(name, machine, role)).await.unwrap());
+        }
+        let [on_open, on_inducted, gone, room_admin, room_member] = ids[..] else {
+            unreachable!()
         };
+        let mut cameras = std::collections::HashMap::new();
+        w.commit(&store).await.unwrap();
+        // Its machine removed: the camera stays, watching nothing (its key clears).
+        assert!(store.remove_machine(space, &removed).await.unwrap());
+        let mut w = store.work(space).await.unwrap();
+        for id in &ids {
+            cameras.insert(*id, w.camera(*id).await.unwrap().unwrap());
+        }
+        w.commit(&store).await.unwrap();
+        assert_eq!(cameras[&gone].machine_id, None);
+        let all = store.cameras(space).await.unwrap();
+        let s = store.lock().unwrap();
+        let may =
+            |role: Role, id: i64| s.may_view_camera(&access(space, role), &cameras[&id], &grants);
         for role in Role::ALL {
             // Whoever may see the machine (a guest has View), with or without induction.
             assert!(may(role, on_open), "{role:?}");
             assert!(may(role, on_inducted), "{role:?}");
-            // A camera whose machine is gone: admins only.
+            // A camera whose machine is gone: a room camera, from its role up (admin here).
             assert_eq!(may(role, gone), role >= Role::Admin, "{role:?}");
             // A room camera: from its role up.
             assert_eq!(may(role, room_admin), role >= Role::Admin, "{role:?}");
             assert_eq!(may(role, room_member), role >= Role::Member, "{role:?}");
         }
         // Another space sees none of them.
-        let c = s.camera(space, on_open).unwrap().unwrap();
-        assert!(
-            !s.may_view_camera(&access(space + 1, Role::Owner), &c)
-                .unwrap()
-        );
+        assert!(!s.may_view_camera(
+            &access(space + 1, Role::Owner),
+            &cameras[&on_open],
+            &elsewhere
+        ));
         assert_eq!(
-            s.machine_cameras(&access(space, Role::Guest), &open).len(),
+            s.machine_cameras(&access(space, Role::Guest), &open, &grants, all)
+                .len(),
             1
         );
     }

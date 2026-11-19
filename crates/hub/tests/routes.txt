@@ -18,6 +18,7 @@
 /api/files/examples
 /api/files/remove
 /api/jobs/summary
+/api/laser-design/lasers
 /api/machines
 /api/machines/stream
 /api/machines/{id}/history
@@ -104,6 +105,9 @@
 /instance/open-spaces
 /invite/{token}
 /klipper
+/laser-design
+/laser-design/
+/laser-design/{*file}
 /login
 /logo.svg
 /logout
@@ -162,6 +166,7 @@
 /permissions/people/{user}
 /permissions/people/{user}/permission
 /permissions/requests/{id}/{answer}
+/prepare
 /profiles/{brand}/{file}
 /projects
 /setup
@@ -205,6 +210,11 @@
 ("*", "/invite/{token}", Public, None)
 ("GET", "/api/apps/v1/info", Public, None)
 ("POST", "/api/apps/v1/files", Role(Member), Some("sent a file from a program"))
+("GET", "/prepare", Role(Guest), None)
+("GET", "/laser-design", Role(Member), None)
+("GET", "/laser-design/", Role(Member), None)
+("GET", "/laser-design/{*file}", Role(Member), None)
+("GET", "/api/laser-design/lasers", Role(Member), None)
 ("POST", "/logout", Signed, None)
 ("GET", "/api/me", Signed, None)
 ("GET", "/welcome", Signed, None)
@@ -434,6 +444,11 @@ POST /api/jobs/summary => 401 403 403 403 403
 PUT /api/jobs/summary => 401 403 403 403 403
 PATCH /api/jobs/summary => 401 403 403 403 403
 DELETE /api/jobs/summary => 401 403 403 403 403
+GET /api/laser-design/lasers => 401 403 200 200 200
+POST /api/laser-design/lasers => 401 403 403 403 403
+PUT /api/laser-design/lasers => 401 403 403 403 403
+PATCH /api/laser-design/lasers => 401 403 403 403 403
+DELETE /api/laser-design/lasers => 401 403 403 403 403
 GET /api/machines => 401 200 200 200 200
 POST /api/machines => 401 403 403 403 403
 PUT /api/machines => 401 403 403 403 403
@@ -864,6 +879,21 @@ POST /klipper => 401 403 403 415 415
 PUT /klipper => 401 403 403 403 403
 PATCH /klipper => 401 403 403 403 403
 DELETE /klipper => 401 403 403 403 403
+GET /laser-design => 401 403 303 303 303
+POST /laser-design => 401 403 403 403 403
+PUT /laser-design => 401 403 403 403 403
+PATCH /laser-design => 401 403 403 403 403
+DELETE /laser-design => 401 403 403 403 403
+GET /laser-design/ => 401 403 403 403 403
+POST /laser-design/ => 401 403 403 403 403
+PUT /laser-design/ => 401 403 403 403 403
+PATCH /laser-design/ => 401 403 403 403 403
+DELETE /laser-design/ => 401 403 403 403 403
+GET /laser-design/{*file} => 401 403 403 403 403
+POST /laser-design/{*file} => 401 403 403 403 403
+PUT /laser-design/{*file} => 401 403 403 403 403
+PATCH /laser-design/{*file} => 401 403 403 403 403
+DELETE /laser-design/{*file} => 401 403 403 403 403
 GET /login => 200 200 200 200 200
 POST /login => 415 415 415 415 415
 PUT /login => 405 405 405 405 405
@@ -1154,6 +1184,11 @@ POST /permissions/requests/{id}/{answer} => 401 403 403 404 404
 PUT /permissions/requests/{id}/{answer} => 401 403 403 403 403
 PATCH /permissions/requests/{id}/{answer} => 401 403 403 403 403
 DELETE /permissions/requests/{id}/{answer} => 401 403 403 403 403
+GET /prepare => 401 200 200 200 200
+POST /prepare => 401 403 403 403 403
+PUT /prepare => 401 403 403 403 403
+PATCH /prepare => 401 403 403 403 403
+DELETE /prepare => 401 403 403 403 403
 GET /profiles/{brand}/{file} => 401 404 404 404 404
 POST /profiles/{brand}/{file} => 401 403 403 403 403
 PUT /profiles/{brand}/{file} => 401 403 403 403 403
@@ -1275,7 +1310,7 @@ PUT /welcome => 401 403 403 403 403
 PATCH /welcome => 401 403 403 403 403
 DELETE /welcome => 401 403 403 403 403
 # embedded
-header 8711173a05fc4ba17ed9c2e143960aa9ac2805bdb9d64d33cacb10450a84aa23
+header 1b28d8a9145b01bf6e985471a6fa67a94d1d42e3400a609ce0d4436969ef4cf6
 files.css 17d5527d43531fdfc90dc3e03d113a5511e1db013d0ee59af235a3f6c8c25763
 files.js dc5a452f14d09b597c27ddaa74e677a9e3ee57abf768f36297cce5fe1c2f13ad
 label.css e32ee3ebd76835d9948b905134a5884689b283aaa6b463c00f4eaa396a055190
@@ -1286,5 +1321,5 @@ library.css d93f42def74db14b4c32803e9221d5f4cc8b9ea0680bdbee1d8e9b50d74b53b0
 library.js b253c00a5c0343614ff3c0a67c9266099f361b15a4ae44c65ab08cff83486c07
 machine.css 58de8ce8bceaa04127d4aacbaea9ae51bd06914ffa1cd52a0aa6385074e83987
 machine.js 2e236c56e2720ecffecfe2bd9bea5a61735b21653b7e0b4422fe7a2279082a80
-shell.js ff7594099a3aa5050cfcb97d6cf52d845234a93ebf163f07b4200d9865561c48
+shell.js 1439aea21d512bf80d5892eecbf218ae322036f2a7cd7fbf9945e2b5e34e78fe
 video-rtc.js d48ce627baf7c341a92c0f5844a3c546431f9db873ff21489671aba2ecfe64fb

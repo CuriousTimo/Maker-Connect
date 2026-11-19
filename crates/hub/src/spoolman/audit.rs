@@ -14,10 +14,8 @@
 //! not as differences.
 
 use super::parse_iso;
-use crate::store::Store;
 use serde_json::Value;
 use std::collections::BTreeSet;
-use std::sync::{Arc, Mutex};
 
 const FIXTURE: &str = include_str!("audit-fixture.json");
 const DIFFERENCES: &str = include_str!("audit-differences.txt");
@@ -435,18 +433,14 @@ fn stray_id(req: &Value, ours: &Answer) -> Option<(&'static str, i64)> {
 }
 
 /// Every request of the fixture, in order, against the hub: the lines of what differs.
-fn measure() -> (usize, usize, String, Vec<String>) {
+async fn measure(pool: &sqlx::PgPool) -> (usize, usize, String, Vec<String>) {
     let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
     let requests = fixture["requests"].as_array().unwrap().clone();
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(async move {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+    {
+        let store = crate::Store::for_test(pool).await;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let app = crate::auth::signed_in_app(store);
+        let app = crate::auth::signed_in_app(store).await;
         tokio::spawn(async move {
             axum::serve(
                 listener,
@@ -513,12 +507,16 @@ fn measure() -> (usize, usize, String, Vec<String>) {
         })
         .await
         .unwrap()
-    })
+    }
 }
 
-#[test]
-fn the_hub_differs_from_spoolman_exactly_as_listed() {
-    let (total, identical, lines, answered) = measure();
+#[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+#[cfg_attr(
+    not(feature = "pg-tests"),
+    ignore = "needs Postgres: the pg-tests feature"
+)]
+async fn the_hub_differs_from_spoolman_exactly_as_listed(pool: sqlx::PgPool) {
+    let (total, identical, lines, answered) = measure(&pool).await;
     let summary = format!("{identical} of {total} identical\n");
     let report = format!("{summary}{lines}");
     if std::env::var("SPOOLMAN_AUDIT_WRITE").is_ok() {

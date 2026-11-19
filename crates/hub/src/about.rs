@@ -4,7 +4,7 @@
 //! also updates it here (crate::updates).
 
 use crate::access::Access;
-use crate::{STYLE, Shared, escape, failed, header};
+use crate::{STYLE, Store, escape, failed, header};
 use axum::{
     Router,
     extract::State,
@@ -18,7 +18,7 @@ const REPO: &str = "https://github.com/CuriousTimo/Maker-Connect";
 /// When this server started (Unix seconds).
 static STARTED: OnceLock<i64> = OnceLock::new();
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     STARTED.get_or_init(crate::store::now);
     Router::new().route("/about", get(page))
 }
@@ -142,18 +142,20 @@ fn row(label: &str, value: Option<String>) -> String {
     })
 }
 
-async fn page(access: Access, State(store): State<Shared>) -> Response {
-    let (space, database) = {
-        let store = store.lock().unwrap();
-        match store.space_name(access.space) {
-            Ok(name) => (name, store.db.path().unwrap_or_default().to_owned()),
-            Err(error) => return failed(error),
-        }
+async fn page(access: Access, State(store): State<Store>) -> Response {
+    let space = match store.space_name(access.space).await {
+        Ok(name) => name,
+        Err(error) => return failed(error),
     };
+    // The database's size as Postgres counts it (no table read: the app pool).
+    let database_size = sqlx::query_scalar::<_, i64>("SELECT pg_database_size(current_database())")
+        .fetch_one(&store.pg().app)
+        .await
+        .ok()
+        .map(|n| bytes(n as u64));
     let s = tokio::task::spawn_blocking(system)
         .await
         .unwrap_or_default();
-    let database_size = std::fs::metadata(&database).ok().map(|m| bytes(m.len()));
     let commit = env!("MC_COMMIT");
     let commit_link = if commit.ends_with("-dirty") || commit == "unknown" {
         escape(commit)
@@ -346,15 +348,20 @@ mod tests {
         assert!(system().cores.is_some());
     }
 
-    #[tokio::test]
-    async fn the_about_page_says_what_runs() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_about_page_says_what_runs(pool: sqlx::PgPool) {
         use axum::body::Body;
         use axum::http::Request;
         use http_body_util::BodyExt;
-        use std::sync::{Arc, Mutex};
+
         use tower::ServiceExt;
-        let store = crate::store::Store::open(":memory:").unwrap();
-        let app = crate::auth::signed_in_app(Arc::new(Mutex::new(store)));
+        let store = crate::store::Legacy::open(":memory:").unwrap();
+        let app =
+            crate::auth::signed_in_app(crate::store::Store::with_legacy(&pool, store).await).await;
         let response = app
             .oneshot(Request::get("/about").body(Body::empty()).unwrap())
             .await

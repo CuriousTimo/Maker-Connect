@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE printer_files SET at = at_unix(0), asked_at = NULL WHERE machine_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "de7191abcdbcbb40d9dc83c98e7ab2301f4d676ee1525aa32bd5230276ad2b77"
+}

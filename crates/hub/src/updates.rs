@@ -2,16 +2,15 @@
 //! key (crate `maker-connect-update`):
 //!
 //! - **The hub itself** (About → Update; who runs the server only). The newest `hub-v…`
-//!   release for this system is fetched and checked, the database backed up, and the new
-//!   build tried on a copy of the database. Then it takes the old one's place and starts; if
-//!   it does not stay up, the old build and the backup come back (`main`).
+//!   release for this system is fetched and checked, and the new build tried. Then it takes
+//!   the old one's place and starts; if it does not stay up, the old build comes back (`main`).
 //! - **Agents** (a machine's Connection card, or every agent of a space; its admins). The
 //!   newest `agent-v…` release's signed list is fetched and kept; agents are told in their
 //!   reports, fetch their build through the hub (agents need no internet), check it
 //!   themselves, and update once their machine is idle, with their own way back.
 
 use crate::access::Access;
-use crate::{Shared, failed};
+use crate::{Store, failed};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -22,7 +21,7 @@ use axum::{
 use maker_connect_update as update;
 use serde::Deserialize;
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/api/update", get(hub_status))
         .route("/about/update", post(update_hub))
@@ -134,17 +133,8 @@ fn unpack(archive: &[u8], program: &str) -> Result<Vec<u8>, String> {
 }
 
 /// What the About page says of updating the hub.
-async fn hub_status(State(store): State<Shared>) -> Response {
-    let printing: i64 = store
-        .lock()
-        .unwrap()
-        .db
-        .query_row(
-            "SELECT COUNT(*) FROM jobs WHERE state IN ('printing', 'paused')",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
+async fn hub_status(State(store): State<Store>) -> Response {
+    let printing: i64 = store.printing_anywhere().await.unwrap_or(0);
     let found = tokio::task::spawn_blocking(|| newest(&releases_url(), "hub")).await;
     let last = std::env::current_exe()
         .ok()
@@ -172,11 +162,14 @@ async fn hub_status(State(store): State<Shared>) -> Response {
 }
 
 /// Fetches, checks and tries the newest hub release, and puts it in place of the program at
-/// `exe`; the database backed up first. Returns the release it put in place.
+/// `exe`. Returns the release it put in place.
+///
+/// With `dumps`, the database is dumped first (kept as the way back, in the trial's note), and the
+/// new build is tried on a copy of it, restored from that dump (crate::backup).
 pub(crate) fn prepare_hub(
-    store: &Shared,
     exe: &std::path::Path,
     url: &str,
+    dumps: Option<&crate::backup::Dumps>,
 ) -> Result<String, String> {
     let release = newest(url, "hub")?;
     let tag = release.tag_name.clone();
@@ -197,60 +190,44 @@ pub(crate) fn prepare_hub(
     let archive = fetch(&release.asset(&name)?.browser_download_url)?;
     update::check(&archive, &name, &tag, &sums, &signature, &key())?;
     let build = unpack(&archive, "maker-connect-hub")?;
-    // The database as it is now: kept, for the way back; and a copy to try the new build on.
-    let (db, backup, trial_dir) = {
-        let store = store.lock().unwrap();
-        let file = store
-            .db
-            .path()
-            .filter(|p| !p.is_empty())
-            .ok_or("the database is not a file")?;
-        let db = std::fs::canonicalize(file).map_err(|e| format!("{file}: {e}"))?;
-        let backups = db.with_file_name("maker-connect-backups");
-        std::fs::create_dir_all(&backups).map_err(|e| e.to_string())?;
-        let backup = backups.join(format!("maker-connect-{}-before-{tag}.db", update::now()));
-        let trial_dir = std::env::temp_dir().join(format!("maker-connect-trial-{}", update::now()));
-        std::fs::create_dir_all(&trial_dir).map_err(|e| e.to_string())?;
-        for to in [&backup, &trial_dir.join("maker-connect.db")] {
-            store
-                .db
-                .execute("VACUUM INTO ?1", [to.to_string_lossy()])
-                .map_err(|e| format!("could not copy the database: {e}"))?;
-        }
-        (db, backup, trial_dir)
-    };
+    // The new build tried with folders of its own.
+    let trial_dir = std::env::temp_dir().join(format!("maker-connect-trial-{}", update::now()));
+    std::fs::create_dir_all(&trial_dir).map_err(|e| e.to_string())?;
     let trial_db = trial_dir.join("maker-connect.db");
+    let mut args: Vec<std::ffi::OsString> =
+        vec!["--trial".into(), "--db".into(), trial_db.into_os_string()];
+    let mut note = serde_json::json!({});
+    if let Some(dumps) = dumps {
+        let dump = dumps
+            .dump(crate::backup::BEFORE_UPDATE, Some(&tag))
+            .map_err(|why| format!("the database could not be backed up: {why}"))?;
+        let copy = dumps.trial_database();
+        dumps
+            .restore_as(&dump, &copy)
+            .map_err(|why| format!("the copy to try the new build on failed: {why}"))?;
+        args.extend(["--trial-database".into(), copy.into()]);
+        note = serde_json::json!({ "dump": dump });
+    }
     let installed = update::install(
         exe,
         &build,
-        &["--trial".into(), "--db".into(), trial_db.into_os_string()],
+        &args,
         crate::store::BUILD,
         version_of(&tag),
         120,
-        serde_json::json!({ "db": db, "backup": backup }),
+        note,
     );
     let _ = std::fs::remove_dir_all(&trial_dir);
+    if let Some(dumps) = dumps {
+        let _ = dumps.drop_database(&dumps.trial_database());
+    }
     installed.map(|()| tag)
 }
 
 /// Told when a new build is in place: the hub stops serving and tries it (main).
 pub static UPDATE: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
-/// The database back as it was before an update, for the build before.
-pub fn restore_database(trial: &update::Trial) {
-    let (Some(db), Some(backup)) = (trial.note["db"].as_str(), trial.note["backup"].as_str())
-    else {
-        return;
-    };
-    if std::fs::copy(backup, db).is_ok() {
-        for suffix in ["-wal", "-shm"] {
-            let _ = std::fs::remove_file(format!("{db}{suffix}"));
-        }
-        println!("database back as it was before the update ({backup})");
-    }
-}
-
-async fn update_hub(access: Access, State(store): State<Shared>) -> Response {
+async fn update_hub(access: Access, State(store): State<Store>) -> Response {
     let Ok(exe) = std::env::current_exe() else {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -258,18 +235,21 @@ async fn update_hub(access: Access, State(store): State<Shared>) -> Response {
         )
             .into_response();
     };
-    let shared = store.clone();
     let program = exe.clone();
-    let prepared =
-        tokio::task::spawn_blocking(move || prepare_hub(&shared, &program, &releases_url())).await;
+    let prepared = tokio::task::spawn_blocking(move || {
+        prepare_hub(&program, &releases_url(), crate::backup::DUMPS.get())
+    })
+    .await;
     match prepared {
         Ok(Ok(tag)) => {
-            let _ = store.lock().unwrap().audit(
-                &access,
-                "updated the hub",
-                &tag,
-                &format!("from {}", crate::store::BUILD),
-            );
+            let _ = store
+                .audit(
+                    &access,
+                    "updated the hub",
+                    &tag,
+                    &format!("from {}", crate::store::BUILD),
+                )
+                .await;
             println!("updating to {tag}: trying it");
             // The answer first; then this hub stops serving, and tries the new build (main).
             tokio::spawn(async {
@@ -338,20 +318,13 @@ fn agent_file(os: &str, arch: &str) -> Option<String> {
 
 /// What to tell an agent in its report's answer: the update asked for it, until it is on
 /// that release or says how its update went.
-pub(crate) fn order_for(
+pub(crate) async fn order_for(
     store: &crate::store::Store,
     token: &str,
     report: &maker_connect_protocol::Telemetry,
-) -> rusqlite::Result<Option<maker_connect_protocol::AgentUpdate>> {
-    let asked: Option<(String, Option<String>, i64)> = store
-        .db
-        .query_row(
-            "SELECT id, agent_update_to, COALESCE(agent_update_at, 0) FROM machines WHERE token = ?1",
-            [token],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .ok();
-    let Some((machine, Some(tag), at)) = asked else {
+) -> sqlx::Result<Option<maker_connect_protocol::AgentUpdate>> {
+    let asked = store.agent_update_asked(token).await?;
+    let Some((_, Some(tag), at)) = asked else {
         return Ok(None);
     };
     let Some(agent) = &report.agent else {
@@ -366,17 +339,14 @@ pub(crate) fn order_for(
     if !update::newer(version, &agent.version) && update::Version::parse(&agent.version).is_some()
         || answered
     {
-        store.db.execute(
-            "UPDATE machines SET agent_update_to = NULL, agent_update_at = NULL WHERE id = ?1",
-            [&machine],
-        )?;
+        store.agent_update_done(token).await?;
         return Ok(None);
     }
     if !agent.can_update {
         return Ok(None);
     }
     let (Some(prepared), Some(file)) = (
-        kept(&store.downloads_dir, &tag),
+        kept(&store.lock().unwrap().downloads_dir.clone(), &tag),
         agent_file(&agent.os, &agent.arch),
     ) else {
         return Ok(None);
@@ -391,25 +361,7 @@ pub(crate) fn order_for(
     }))
 }
 
-/// Asks the agents of `machines` (in space `space`) to update to `tag`.
-fn ask(
-    store: &crate::store::Store,
-    space: i64,
-    machines: &[String],
-    tag: &str,
-) -> rusqlite::Result<usize> {
-    let mut asked = 0;
-    for machine in machines {
-        asked += store.db.execute(
-            "UPDATE machines SET agent_update_to = ?1, agent_update_at = ?2
-             WHERE id = ?3 AND space_id = ?4 AND link = 'agent'",
-            rusqlite::params![tag, update::now(), machine, space],
-        )?;
-    }
-    Ok(asked)
-}
-
-async fn prepared(store: &Shared) -> Result<Prepared, Box<Response>> {
+async fn prepared(store: &Store) -> Result<Prepared, Box<Response>> {
     let downloads = store.lock().unwrap().downloads_dir.clone();
     match tokio::task::spawn_blocking(move || prepare_agent(&downloads, &releases_url())).await {
         Ok(Ok(p)) => Ok(p),
@@ -420,40 +372,44 @@ async fn prepared(store: &Shared) -> Result<Prepared, Box<Response>> {
 
 async fn update_agent(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
     let prepared = match prepared(&store).await {
         Ok(p) => p,
         Err(response) => return *response,
     };
-    let store = store.lock().unwrap();
-    match ask(
-        &store,
-        access.space,
-        std::slice::from_ref(&id),
-        &prepared.tag,
-    ) {
+    let asked = store
+        .ask_agent_update(
+            access.space,
+            std::slice::from_ref(&id),
+            &prepared.tag,
+            update::now(),
+        )
+        .await;
+    match asked {
         Ok(0) => (
             StatusCode::CONFLICT,
             "only a machine with Maker Connect's agent updates it",
         )
             .into_response(),
         Ok(_) => {
-            let _ = store.audit(&access, "asked an agent to update", &id, &prepared.tag);
+            let _ = store
+                .audit(&access, "asked an agent to update", &id, &prepared.tag)
+                .await;
             Json(serde_json::json!({ "to": prepared.tag })).into_response()
         }
         Err(error) => failed(error),
     }
 }
 
-async fn update_agents(access: Access, State(store): State<Shared>) -> Response {
+async fn update_agents(access: Access, State(store): State<Store>) -> Response {
     let prepared = match prepared(&store).await {
         Ok(p) => p,
         Err(response) => return *response,
     };
-    let store = store.lock().unwrap();
-    let machines: Vec<String> = match store.machines(access.space) {
+    let machines = store.machines(access.space).await;
+    let machines: Vec<String> = match machines {
         Ok(machines) => machines
             .into_iter()
             .filter(|m| m.link == "agent")
@@ -461,14 +417,19 @@ async fn update_agents(access: Access, State(store): State<Shared>) -> Response 
             .collect(),
         Err(error) => return failed(error),
     };
-    match ask(&store, access.space, &machines, &prepared.tag) {
+    let asked = store
+        .ask_agent_update(access.space, &machines, &prepared.tag, update::now())
+        .await;
+    match asked {
         Ok(asked) => {
-            let _ = store.audit(
-                &access,
-                "asked every agent to update",
-                &prepared.tag,
-                &format!("{asked} agents"),
-            );
+            let _ = store
+                .audit(
+                    &access,
+                    "asked every agent to update",
+                    &prepared.tag,
+                    &format!("{asked} agents"),
+                )
+                .await;
             Json(serde_json::json!({ "to": prepared.tag, "agents": asked })).into_response()
         }
         Err(error) => failed(error),
@@ -478,7 +439,7 @@ async fn update_agents(access: Access, State(store): State<Shared>) -> Response 
 /// An agent's build, for an agent asked to update (its token): kept here once fetched, and
 /// checked against the release's signed list before it is kept or handed out.
 async fn agent_build(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     headers: HeaderMap,
     Path((tag, file)): Path<(String, String)>,
 ) -> Response {
@@ -487,11 +448,14 @@ async fn agent_build(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
-    let (downloads, known) = {
-        let store = store.lock().unwrap();
-        let known = !token.is_empty() && store.machine_id_by_token(token).ok().flatten().is_some();
-        (store.downloads_dir.clone(), known)
-    };
+    let known = !token.is_empty()
+        && store
+            .machine_id_by_token(token)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+    let downloads = store.lock().unwrap().downloads_dir.clone();
     let not_found = || (StatusCode::NOT_FOUND, "no such build").into_response();
     if !known || !file.starts_with("maker-connect-agent-") || file.contains(['/', '\\']) {
         return not_found();
@@ -615,28 +579,24 @@ pub(crate) mod tests {
         gz.finish().unwrap()
     }
 
-    /// The hub fetches its newest release, checks it, backs its database up and tries the
-    /// new build on a copy before it takes the old one's place; a tampered archive or one
-    /// that fails its trial changes nothing.
+    /// The hub fetches its newest release, checks it and tries the new build before it
+    /// takes the old one's place; a tampered archive or one that fails its trial changes
+    /// nothing.
     #[cfg(unix)]
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn the_hub_updates_itself_only_to_a_signed_build_that_works() {
         let dir = std::env::temp_dir().join(format!("mc-hub-update-{}", crate::store::random_id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let db = dir.join("maker-connect.db");
-        let store: Shared = std::sync::Arc::new(std::sync::Mutex::new(
-            crate::store::Store::open(db.to_str().unwrap()).unwrap(),
-        ));
         let exe = dir.join("maker-connect-hub");
         std::fs::write(&exe, "#!/bin/sh\necho old\n").unwrap();
         let system = update::this_system().unwrap();
         let name: &'static str =
             Box::leak(format!("maker-connect-hub-{system}.tar.gz").into_boxed_str());
-        // The trial is given a copy of the database: the new build must find it.
-        let works = b"#!/bin/sh\n[ \"$1\" = --trial ] && [ -f \"$3\" ]\n".to_vec();
+        // The trial is given folders of its own.
+        let works = b"#!/bin/sh\n[ \"$1\" = --trial ] && [ \"$2\" = --db ]\n".to_vec();
         let url = releases(vec![("hub-v99.0.0", name, archive(&works))]).await;
-        let (s, e, u) = (store.clone(), exe.clone(), url.clone());
-        let tag = tokio::task::spawn_blocking(move || prepare_hub(&s, &e, &u))
+        let (e, u) = (exe.clone(), url.clone());
+        let tag = tokio::task::spawn_blocking(move || prepare_hub(&e, &u, None))
             .await
             .unwrap();
         assert_eq!(tag, Ok("hub-v99.0.0".to_owned()));
@@ -645,19 +605,14 @@ pub(crate) mod tests {
         let Start::OnTrial(trial) = update::on_start(&exe) else {
             panic!("on trial")
         };
-        let backup = trial.note["backup"].as_str().unwrap().to_owned();
-        assert!(
-            std::path::Path::new(&backup).is_file(),
-            "the database backed up"
-        );
         update::confirm(&exe, &trial);
 
         // A build that fails its trial is not put in place.
         std::fs::write(&exe, "#!/bin/sh\necho old\n").unwrap();
         let fails = b"#!/bin/sh\nexit 1\n".to_vec();
         let url = releases(vec![("hub-v99.0.1", name, archive(&fails))]).await;
-        let (s, e) = (store.clone(), exe.clone());
-        let error = tokio::task::spawn_blocking(move || prepare_hub(&s, &e, &url))
+        let e = exe.clone();
+        let error = tokio::task::spawn_blocking(move || prepare_hub(&e, &url, None))
             .await
             .unwrap();
         assert!(error.unwrap_err().contains("trial"));
@@ -671,10 +626,113 @@ pub(crate) mod tests {
     #[cfg(unix)]
     use maker_connect_update::Start;
 
+    /// Before a self-update the database is dumped and the new build tried on a copy restored from
+    /// that dump; when the new build then does not stay up, the way back brings the database back as
+    /// the dump holds it (main's `go_back`), together with the build before.
+    #[cfg(unix)]
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn an_update_is_backed_up_tried_on_a_copy_and_goes_back_with_its_database(
+        pool: sqlx::PgPool,
+    ) {
+        use crate::backup;
+        // A database of its own with a short name (the test's own is too long for `_back`).
+        let tools = backup::for_test(&pool).await;
+        let name = format!("mc_live_{}", crate::store::random_id());
+        tools
+            .restore_as(&tools.dump(backup::NIGHTLY, None).unwrap(), &name)
+            .unwrap();
+        let base = std::env::var("DATABASE_URL").unwrap();
+        let live_url = backup::with_database(&base, &name).unwrap();
+        let live = sqlx::PgPool::connect(&live_url).await.unwrap();
+        sqlx::query("INSERT INTO meta (key, value) VALUES ('before', 'update')")
+            .execute(&live)
+            .await
+            .unwrap();
+        let dumps = backup::Dumps::new(
+            tools.dir.join("live"),
+            backup::KEEP,
+            &std::env::var("MC_PG_COMMAND").unwrap_or_default(),
+            &backup::hub_url_for_test(&name),
+        )
+        .unwrap();
+
+        let dir = std::env::temp_dir().join(format!("mc-hub-update-{}", crate::store::random_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("maker-connect-hub");
+        std::fs::write(&exe, "#!/bin/sh\necho old\n").unwrap();
+        let system = update::this_system().unwrap();
+        let file: &'static str =
+            Box::leak(format!("maker-connect-hub-{system}.tar.gz").into_boxed_str());
+        // The trial is told the copy to run on.
+        let works = format!(
+            "#!/bin/sh\n[ \"$1\" = --trial ] && [ \"$4\" = --trial-database ] && [ \"$5\" = {name}_trial ]\n"
+        )
+        .into_bytes();
+        let url = releases(vec![("hub-v99.0.0", file, archive(&works))]).await;
+        let (e, d) = (exe.clone(), dumps.clone());
+        let tag = tokio::task::spawn_blocking(move || prepare_hub(&e, &url, Some(&d)))
+            .await
+            .unwrap();
+        assert_eq!(tag, Ok("hub-v99.0.0".to_owned()));
+        assert_eq!(std::fs::read(&exe).unwrap(), works);
+        // Backed up; the copy is gone again.
+        let backed_up = dumps.of_kind(backup::BEFORE_UPDATE);
+        assert_eq!(backed_up.len(), 1);
+        let copies: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_database WHERE datname = $1")
+            .bind(format!("{name}_trial"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(copies, 0);
+
+        // The new build changes the database, then does not stay up: the way back.
+        sqlx::query("CREATE TABLE only_in_the_new_build (x int)")
+            .execute(&live)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE meta SET value = 'changed' WHERE key = 'before'")
+            .execute(&live)
+            .await
+            .unwrap();
+        live.close().await;
+        let Start::OnTrial(trial) = update::on_start(&exe) else {
+            panic!("on trial")
+        };
+        let d = dumps.clone();
+        let back = tokio::task::spawn_blocking(move || backup::back_as_before(&d, &trial.note))
+            .await
+            .unwrap();
+        assert_eq!(back, Ok(Some(backed_up[0].clone())));
+        let live = sqlx::PgPool::connect(&live_url).await.unwrap();
+        let value: String = sqlx::query_scalar("SELECT value FROM meta WHERE key = 'before'")
+            .fetch_one(&live)
+            .await
+            .unwrap();
+        assert_eq!(value, "update");
+        let new_table: Option<String> =
+            sqlx::query_scalar("SELECT to_regclass('only_in_the_new_build')::text")
+                .fetch_one(&live)
+                .await
+                .unwrap();
+        assert_eq!(new_table, None);
+        live.close().await;
+        tools.drop_database(&name).unwrap();
+        std::fs::remove_dir_all(&tools.dir).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// An agent asked to update gets the order, fetches its build through the hub (checked),
     /// and is no longer asked once it says how it went.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn an_agent_is_told_and_fetches_its_build_through_the_hub() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn an_agent_is_told_and_fetches_its_build_through_the_hub(pool: sqlx::PgPool) {
         let build = b"a new agent".to_vec();
         let url = releases(vec![(
             "agent-v99.0.0",
@@ -682,31 +740,34 @@ pub(crate) mod tests {
             build.clone(),
         )])
         .await;
-        let store = crate::store::Store::open(":memory:").unwrap();
-        let (machine_id, token, code) = store
+        let shared: Store = Store::for_test(&pool).await;
+        let (machine_id, token, code) = shared
             .register(&maker_connect_protocol::Register {
                 protocol: maker_connect_protocol::VERSION,
                 name: "Pi".into(),
                 kind: maker_connect_protocol::MachineKind::Label,
                 agent_version: "v0.2.0-beta.2".into(),
             })
+            .await
             .unwrap();
         let space = 1;
-        store.pair(space, &code).unwrap();
-        let downloads = store.downloads_dir.clone();
+        shared.pair(space, &code).await.unwrap();
+        let downloads = shared.lock().unwrap().downloads_dir.clone();
         let u = url.clone();
         let prepared = tokio::task::spawn_blocking(move || prepare_agent(&downloads, &u))
             .await
             .unwrap()
             .unwrap();
         assert_eq!(
-            ask(
-                &store,
-                space,
-                std::slice::from_ref(&machine_id),
-                &prepared.tag
-            )
-            .unwrap(),
+            shared
+                .ask_agent_update(
+                    space,
+                    std::slice::from_ref(&machine_id),
+                    &prepared.tag,
+                    update::now()
+                )
+                .await
+                .unwrap(),
             1
         );
 
@@ -720,7 +781,7 @@ pub(crate) mod tests {
             }),
             ..Default::default()
         };
-        let order = order_for(&store, &token, &report).unwrap().unwrap();
+        let order = order_for(&shared, &token, &report).await.unwrap().unwrap();
         assert_eq!(order.version, "v99.0.0");
         assert_eq!(order.file, "maker-connect-agent-linux-armv6");
         update::check(
@@ -734,7 +795,6 @@ pub(crate) mod tests {
         .unwrap();
 
         // Through the hub, with the agent's token only.
-        let shared: Shared = std::sync::Arc::new(std::sync::Mutex::new(store));
         let app = routes().with_state(shared.clone());
         let get = |token: &'static str| {
             let app = app.clone();
@@ -772,7 +832,6 @@ pub(crate) mod tests {
             ok: false,
             note: "it did not reach the hub in time".into(),
         });
-        let store = shared.lock().unwrap();
-        assert_eq!(order_for(&store, token, &report).unwrap(), None);
+        assert_eq!(order_for(&shared, token, &report).await.unwrap(), None);
     }
 }

@@ -16,7 +16,7 @@
 //! Every test cites the reference line it stands for. A row of the audit is "identical" only
 //! for what these tests show.
 
-use crate::store::{CommandState, Store};
+use crate::store::CommandState;
 use axum::{
     Router,
     body::Body,
@@ -25,7 +25,6 @@ use axum::{
 use http_body_util::BodyExt;
 use serde::de::{MapAccess, Visitor};
 use serde_json::{Value, json};
-use std::sync::{Arc, Mutex};
 use tower::ServiceExt;
 
 // ---- the port of Buddy's command parser (command.cpp) ------------------------------------
@@ -370,35 +369,20 @@ pub fn buddy_takes(body: &str) -> Taken {
 
 struct Mini {
     app: Router,
-    store: Arc<Mutex<Store>>,
+    store: crate::Store,
     token: String,
     id: String,
     space: i64,
 }
 
 impl Mini {
-    fn new() -> Mini {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
-        let (space, id, token) = {
-            let mut s = store.lock().unwrap();
-            let space = s.default_space().unwrap().0;
-            let id = s
-                .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
-                .unwrap();
-            crate::auth::tester_may_operate(&s, space, &id);
-            let token: String =
-                s.db.query_row("SELECT token FROM machines WHERE id = ?1", [&id], |r| {
-                    r.get(0)
-                })
-                .unwrap();
-            s.db.execute(
-                "UPDATE machines SET link = 'prusa-connect' WHERE id = ?1",
-                [&id],
-            )
-            .unwrap();
-            (space, id, token)
-        };
+    async fn new(pool: &sqlx::PgPool) -> Mini {
+        let store = crate::Store::for_test(pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (space, id, token) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
+        crate::auth::tester_may_operate(&store, &id).await;
         Mini {
             app,
             store,
@@ -481,9 +465,13 @@ impl Mini {
         );
     }
 
-    fn command_state(&self, id: u32) -> CommandState {
-        let s = self.store.lock().unwrap();
-        let m = s.machine(self.space, &self.id).unwrap().unwrap();
+    async fn command_state(&self, id: u32) -> CommandState {
+        let m = self
+            .store
+            .machine(self.space, &self.id)
+            .await
+            .unwrap()
+            .unwrap();
         m.commands.iter().find(|c| c.id == id).unwrap().state
     }
 }
@@ -562,9 +550,13 @@ fn the_port_refuses_what_command_cpp_refuses() {
 /// `DELETE_FILE` (:165), `DELETE_FOLDER` (:166), `CREATE_FOLDER` (:167), `PAUSE_PRINT` (:158),
 /// `RESUME_PRINT` (:160), `STOP_PRINT` (:159), `SEND_JOB_INFO` (:155), `DIALOG_ACTION` (:180),
 /// `START_ENCRYPTED_DOWNLOAD` (:192).
-#[tokio::test]
-async fn buddy_takes_every_command_the_hub_sends() {
-    let mini = Mini::new();
+#[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+#[cfg_attr(
+    not(feature = "pg-tests"),
+    ignore = "needs Postgres: the pg-tests feature"
+)]
+async fn buddy_takes_every_command_the_hub_sends(pool: sqlx::PgPool) {
+    let mini = Mini::new(&pool).await;
     mini.report(r#"{"state":"IDLE"}"#).await;
     let get = |p: String| Request::get(p).body(Body::empty()).unwrap();
     let id = &mini.id;
@@ -659,13 +651,13 @@ async fn buddy_takes_every_command_the_hub_sends() {
         ("resume", "ResumePrint"),
         ("stop", "StopPrint"),
     ] {
+        let link = mini.store.link_of(mini.space, id).await.unwrap();
         crate::devices::printer_files::job_control(
             &mut mini.store.lock().unwrap(),
-            mini.space,
+            link.as_deref(),
             id,
             action,
-        )
-        .unwrap();
+        );
         let (cid, command, _) = mini.takes("IDLE").await;
         assert_eq!(command, taken(kind));
         mini.finished(cid).await;
@@ -759,9 +751,13 @@ fn buddy_takes_set_printer_ready() {
 /// Every name Buddy 6.3.0 lists for a dialog's answer (general_response.cpp:7-62), as its
 /// STATE_CHANGED lists them (render.cpp:654-667: `to_str`), goes back unchanged in a
 /// `DIALOG_ACTION` and is taken by Buddy (command.cpp:323-330).
-#[tokio::test]
-async fn every_dialog_answer_of_6_3_0_goes_back_unchanged() {
-    let mini = Mini::new();
+#[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+#[cfg_attr(
+    not(feature = "pg-tests"),
+    ignore = "needs Postgres: the pg-tests feature"
+)]
+async fn every_dialog_answer_of_6_3_0_goes_back_unchanged(pool: sqlx::PgPool) {
+    let mini = Mini::new(&pool).await;
     mini.report(r#"{"state":"IDLE"}"#).await;
     // render.cpp:654: MAX_RESPONSES per dialog; the names are sent in as many dialogs as needed.
     for (n, name) in RESPONSES.iter().enumerate() {
@@ -791,9 +787,13 @@ async fn every_dialog_answer_of_6_3_0_goes_back_unchanged() {
 /// A STATE_CHANGED that names no `dialog_id` (render.cpp:673 writes it only when the state has
 /// a dialog): Buddy refuses a DIALOG_ACTION without one (command.cpp:86, :420), so the hub
 /// offers no buttons and refuses a press, sending nothing.
-#[tokio::test]
-async fn a_dialog_answer_without_a_dialog_is_refused_by_the_hub() {
-    let mini = Mini::new();
+#[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+#[cfg_attr(
+    not(feature = "pg-tests"),
+    ignore = "needs Postgres: the pg-tests feature"
+)]
+async fn a_dialog_answer_without_a_dialog_is_refused_by_the_hub(pool: sqlx::PgPool) {
+    let mini = Mini::new(&pool).await;
     mini.report(r#"{"state":"IDLE"}"#).await;
     mini.event(
         json!({"data": {"title": "t", "text": "x", "buttons": ["Continue"]},
@@ -802,9 +802,8 @@ async fn a_dialog_answer_without_a_dialog_is_refused_by_the_hub() {
     .await;
     let buttons = mini
         .store
-        .lock()
-        .unwrap()
         .machine(mini.space, &mini.id)
+        .await
         .unwrap()
         .unwrap()
         .buttons;
@@ -832,9 +831,13 @@ async fn a_dialog_answer_without_a_dialog_is_refused_by_the_hub() {
 
 /// The events Buddy 6.3.0 sends, as `render.cpp` writes each, and what the hub does with a
 /// command's state: planner.cpp:253-280 names the 14 types.
-#[tokio::test]
-async fn the_events_buddy_sends_settle_commands() {
-    let mini = Mini::new();
+#[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+#[cfg_attr(
+    not(feature = "pg-tests"),
+    ignore = "needs Postgres: the pg-tests feature"
+)]
+async fn the_events_buddy_sends_settle_commands(pool: sqlx::PgPool) {
+    let mini = Mini::new(&pool).await;
     mini.report(r#"{"state":"IDLE"}"#).await;
     // What each event settles for a command with its id at the top (render.cpp:677).
     let cases: &[(&str, CommandState, Value)] = &[
@@ -897,18 +900,18 @@ async fn the_events_buddy_sends_settle_commands() {
     ];
     for (name, settled, extra) in cases {
         // a command to settle
+        let link = mini.store.link_of(mini.space, &mini.id).await.unwrap();
         let id = mini
             .store
             .lock()
             .unwrap()
             .queue_connect_command(
-                mini.space,
+                link.as_deref(),
                 &mini.id,
                 "x",
                 &json!({"command": "SEND_INFO"}),
                 false,
             )
-            .unwrap()
             .unwrap();
         let (status, headers, _) = mini.report(r#"{"state":"IDLE"}"#).await;
         assert_eq!(status, StatusCode::OK);
@@ -923,7 +926,7 @@ async fn the_events_buddy_sends_settle_commands() {
             StatusCode::NO_CONTENT,
             "{name}"
         );
-        assert_eq!(mini.command_state(id), *settled, "{name}");
+        assert_eq!(mini.command_state(id).await, *settled, "{name}");
         // free the line for the next
         mini.finished(id).await;
     }
@@ -933,9 +936,13 @@ async fn the_events_buddy_sends_settle_commands() {
 /// (planner.cpp:466-472 builds them with a transfer id and `start_cmd_id`, render.cpp:537-542
 /// puts it in `data`, :680 `transfer_id`): the hub settles the download command by
 /// `data.start_cmd_id`, and takes the others (no transfer of its own) without a change.
-#[tokio::test]
-async fn transfer_events_name_their_command_in_data() {
-    let mini = Mini::new();
+#[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+#[cfg_attr(
+    not(feature = "pg-tests"),
+    ignore = "needs Postgres: the pg-tests feature"
+)]
+async fn transfer_events_name_their_command_in_data(pool: sqlx::PgPool) {
+    let mini = Mini::new(&pool).await;
     mini.report(r#"{"state":"IDLE"}"#).await;
     let gcode = b"G1 X1\n".repeat(100);
     let (_, _, body) = mini
@@ -973,13 +980,10 @@ async fn transfer_events_name_their_command_in_data() {
             .await,
         StatusCode::NO_CONTENT
     );
-    assert_eq!(mini.command_state(cid), CommandState::Finished);
-    let transfer_state: String = mini
-        .store
-        .lock()
-        .unwrap()
-        .db
-        .query_row("SELECT state FROM printer_transfers", [], |r| r.get(0))
+    assert_eq!(mini.command_state(cid).await, CommandState::Finished);
+    let transfer_state: String = sqlx::query_scalar("SELECT state FROM printer_transfers")
+        .fetch_one(mini.store.pg().admin_in_tests())
+        .await
         .unwrap();
     assert_eq!(transfer_state, "finished");
 }
@@ -988,19 +992,23 @@ async fn transfer_events_name_their_command_in_data() {
 /// `resp_parser.cpp` read it: 204 for nothing, 200 with a `Command-Id` and `application/json`
 /// or `text/x.gcode` for a command; an unknown printer gets 401 (the printer's "Auth" error,
 /// :782-783).
-#[tokio::test]
-async fn the_answer_to_a_report_is_what_buddy_reads() {
-    let mini = Mini::new();
+#[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+#[cfg_attr(
+    not(feature = "pg-tests"),
+    ignore = "needs Postgres: the pg-tests feature"
+)]
+async fn the_answer_to_a_report_is_what_buddy_reads(pool: sqlx::PgPool) {
+    let mini = Mini::new(&pool).await;
     let (status, headers, body) = mini.report(r#"{"state":"IDLE"}"#).await;
     assert_eq!(status, StatusCode::NO_CONTENT); // :726
     assert!(body.is_empty() && headers.get("command-id").is_none());
     // G-code: one command for the background (planner.cpp:673 Gcode), text/x.gcode (resp_parser :45).
+    let link = mini.store.link_of(mini.space, &mini.id).await.unwrap();
     let id = mini
         .store
         .lock()
         .unwrap()
-        .queue_command(mini.space, &mini.id, "Home", "G28")
-        .unwrap()
+        .queue_command(link.as_deref(), &mini.id, "Home", "G28")
         .unwrap();
     let (cid, content_type, body) = mini.gets("IDLE").await;
     assert_eq!(
@@ -1030,10 +1038,14 @@ async fn the_answer_to_a_report_is_what_buddy_reads() {
 /// `fingerprint`, `printer_type`, `firmware`, in that order), `200` with a `Code` of at most
 /// 25 characters (:131, registrator.hpp:14); the poll (:80-110) with `Code`, `202` until the
 /// owner adds it, then `200` with a `Token` of at most 20 characters (printer.hpp:190).
-#[tokio::test]
-async fn registration_is_what_registrator_cpp_does() {
-    let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-    let app = crate::auth::signed_in_app(store.clone());
+#[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+#[cfg_attr(
+    not(feature = "pg-tests"),
+    ignore = "needs Postgres: the pg-tests feature"
+)]
+async fn registration_is_what_registrator_cpp_does(pool: sqlx::PgPool) {
+    let store = crate::store::Store::for_test(&pool).await;
+    let app = crate::auth::signed_in_app(store.clone()).await;
     let send = |request: Request<Body>| {
         let app = app.clone();
         async move {
@@ -1064,8 +1076,8 @@ async fn registration_is_what_registrator_cpp_does() {
             .unwrap()
     };
     assert_eq!(send(ask()).await.0, StatusCode::ACCEPTED);
-    let space = store.lock().unwrap().default_space().unwrap().0;
-    assert!(store.lock().unwrap().pair(space, &code).unwrap().is_some());
+    let space = store.default_space().await.unwrap().0;
+    assert!(store.pair(space, &code).await.unwrap().is_some());
     let (status, headers) = send(ask()).await;
     assert_eq!(status, StatusCode::OK);
     let token = headers["token"].to_str().unwrap().to_owned();
@@ -1122,9 +1134,13 @@ fn printer_type_is_read_as_buddys_string_only() {
 /// D3: Buddy 6.3.0 never sends MEDIUM_INSERTED or MEDIUM_EJECTED (the 14 events of
 /// planner.cpp:253-280); a stick change comes as FILE_CHANGED with `rescan` (render.cpp:555),
 /// which makes the hub read the stick again. The two events do nothing.
-#[tokio::test]
-async fn a_stick_change_comes_as_file_changed_with_rescan() {
-    let mini = Mini::new();
+#[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+#[cfg_attr(
+    not(feature = "pg-tests"),
+    ignore = "needs Postgres: the pg-tests feature"
+)]
+async fn a_stick_change_comes_as_file_changed_with_rescan(pool: sqlx::PgPool) {
+    let mini = Mini::new(&pool).await;
     mini.report(r#"{"state":"IDLE"}"#).await;
     let look = || async {
         mini.call(
@@ -1195,10 +1211,14 @@ fn a_free_name_is_decided_by_machine_reason() {
 /// The states `to_str(DeviceState)` writes (state/printer_state.cpp:442-466), as the telemetry's
 /// last field (render.cpp:260): each is read, and none is refused. How the hub shows them
 /// (`PRINTING` and `BUSY` as busy, the rest as the hub's own states) is the hub's UI.
-#[tokio::test]
-async fn every_state_buddy_sends_is_read() {
+#[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+#[cfg_attr(
+    not(feature = "pg-tests"),
+    ignore = "needs Postgres: the pg-tests feature"
+)]
+async fn every_state_buddy_sends_is_read(pool: sqlx::PgPool) {
     use maker_connect_protocol::MachineState;
-    let mini = Mini::new();
+    let mini = Mini::new(&pool).await;
     for (name, shown) in [
         ("IDLE", MachineState::Idle),
         ("PRINTING", MachineState::Busy),
@@ -1213,8 +1233,12 @@ async fn every_state_buddy_sends_is_read() {
     ] {
         let (status, _, _) = mini.report(&format!(r#"{{"state":"{name}"}}"#)).await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{name}");
-        let s = mini.store.lock().unwrap();
-        let m = s.machine(mini.space, &mini.id).unwrap().unwrap();
+        let m = mini
+            .store
+            .machine(mini.space, &mini.id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(m.telemetry.unwrap().state, shown, "{name}");
     }
 }
@@ -1222,16 +1246,24 @@ async fn every_state_buddy_sends_is_read() {
 /// STATE_CHANGED (render.cpp:597-683) and JOB_INFO (:437-464), as written there: what the
 /// screen says (`code`, `title`, `text`, `buttons`, the top-level `dialog_id`), and which file
 /// a print is (`job_id` at the top, `display_name` in `data`).
-#[tokio::test]
-async fn state_changed_and_job_info_reach_the_hub() {
-    let mini = Mini::new();
+#[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+#[cfg_attr(
+    not(feature = "pg-tests"),
+    ignore = "needs Postgres: the pg-tests feature"
+)]
+async fn state_changed_and_job_info_reach_the_hub(pool: sqlx::PgPool) {
+    let mini = Mini::new(&pool).await;
     mini.report(r#"{"state":"IDLE"}"#).await;
     mini.event(json!({"data": {"code": "13501", "title": "Filament runout", "text": "Load filament.", "buttons": ["Continue", "Stop"]},
         "dialog_id": 7, "state": "ATTENTION", "event": "STATE_CHANGED"}))
         .await;
     {
-        let s = mini.store.lock().unwrap();
-        let m = s.machine(mini.space, &mini.id).unwrap().unwrap();
+        let m = mini
+            .store
+            .machine(mini.space, &mini.id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(
             m.asking,
             Some((
@@ -1245,8 +1277,12 @@ async fn state_changed_and_job_info_reach_the_hub() {
     mini.event(json!({"state": "PRINTING", "event": "STATE_CHANGED"}))
         .await;
     {
-        let s = mini.store.lock().unwrap();
-        let m = s.machine(mini.space, &mini.id).unwrap().unwrap();
+        let m = mini
+            .store
+            .machine(mini.space, &mini.id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!((m.asking, m.buttons.len()), (None, 0));
     }
     // JOB_INFO: job_id at the top (:323), the file in data (:454).
@@ -1268,9 +1304,13 @@ async fn state_changed_and_job_info_reach_the_hub() {
 
 /// FILE_INFO of a folder (render.cpp:465-497, :1023-1072) fills the hub's listing of the stick;
 /// FILE_CHANGED (:543-567) with `old_path` takes a file out of it.
-#[tokio::test]
-async fn the_listing_follows_file_info_and_file_changed() {
-    let mini = Mini::new();
+#[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+#[cfg_attr(
+    not(feature = "pg-tests"),
+    ignore = "needs Postgres: the pg-tests feature"
+)]
+async fn the_listing_follows_file_info_and_file_changed(pool: sqlx::PgPool) {
+    let mini = Mini::new(&pool).await;
     mini.report(r#"{"state":"IDLE"}"#).await;
     let look = || async {
         let (_, _, body) = mini
@@ -1316,22 +1356,26 @@ async fn the_listing_follows_file_info_and_file_changed() {
 /// stays pending while Buddy carries it out (its `command_id` in telemetry, render.cpp:251), is
 /// settled by its FINISHED, and fails only when the printer itself was gone (not seen for longer
 /// than ONLINE_SECONDS, K18 (b)): "the printer was gone" (ours).
-#[tokio::test]
-async fn a_command_stays_pending_until_buddy_answers_it() {
-    let mini = Mini::new();
+#[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+#[cfg_attr(
+    not(feature = "pg-tests"),
+    ignore = "needs Postgres: the pg-tests feature"
+)]
+async fn a_command_stays_pending_until_buddy_answers_it(pool: sqlx::PgPool) {
+    let mini = Mini::new(&pool).await;
     mini.report(r#"{"state":"IDLE"}"#).await;
+    let link = mini.store.link_of(mini.space, &mini.id).await.unwrap();
     let queue = || {
         mini.store
             .lock()
             .unwrap()
             .queue_connect_command(
-                mini.space,
+                link.as_deref(),
                 &mini.id,
                 "x",
                 &json!({"command": "SEND_INFO"}),
                 false,
             )
-            .unwrap()
             .unwrap()
     };
     let (first, second) = (queue(), queue());
@@ -1349,26 +1393,32 @@ async fn a_command_stays_pending_until_buddy_answers_it() {
             .0,
         StatusCode::NO_CONTENT
     );
-    assert_eq!(mini.command_state(first), CommandState::Accepted);
-    assert_eq!(mini.command_state(second), CommandState::Queued);
+    assert_eq!(mini.command_state(first).await, CommandState::Accepted);
+    assert_eq!(mini.command_state(second).await, CommandState::Queued);
     // Buddy's answer settles it, and the next one goes.
     mini.finished(first).await;
-    assert_eq!(mini.command_state(first), CommandState::Finished);
+    assert_eq!(mini.command_state(first).await, CommandState::Finished);
     let (status, headers, _) = mini.report(r#"{"state":"IDLE"}"#).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers["command-id"].to_str().unwrap(), second.to_string());
     // The printer was gone (not seen for longer than ONLINE_SECONDS): what it had not answered
     // fails, named as ours; a later report goes on.
     let third = queue();
-    mini.store.lock().unwrap().set_last_seen(
-        &mini.id,
-        crate::store::now() - crate::store::ONLINE_SECONDS - 1,
-    );
+    mini.store
+        .set_last_seen(
+            &mini.id,
+            crate::store::now() - crate::store::ONLINE_SECONDS - 1,
+        )
+        .await;
     let (status, headers, _) = mini.report(r#"{"state":"IDLE"}"#).await;
-    assert_eq!(mini.command_state(second), CommandState::Rejected);
+    assert_eq!(mini.command_state(second).await, CommandState::Rejected);
     let reason = {
-        let s = mini.store.lock().unwrap();
-        let m = s.machine(mini.space, &mini.id).unwrap().unwrap();
+        let m = mini
+            .store
+            .machine(mini.space, &mini.id)
+            .await
+            .unwrap()
+            .unwrap();
         m.commands
             .iter()
             .find(|c| c.id == second)

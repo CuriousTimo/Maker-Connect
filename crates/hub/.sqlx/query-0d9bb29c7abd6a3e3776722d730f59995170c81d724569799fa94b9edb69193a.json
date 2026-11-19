@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE machines SET service_every_h = $3 WHERE id = $1 AND space_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0d9bb29c7abd6a3e3776722d730f59995170c81d724569799fa94b9edb69193a"
+}

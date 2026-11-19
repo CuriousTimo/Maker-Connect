@@ -4,7 +4,7 @@
 //! derived from the space's machines and the permissions set in Space, nothing of its own.
 
 use crate::laser_design::{Availability, availability};
-use crate::{STYLE, Shared, failed, header};
+use crate::{STYLE, Store, failed, header};
 use axum::{
     extract::State,
     response::{Html, IntoResponse, Response},
@@ -19,18 +19,20 @@ const PREPARE_STYLE: &str = "
   .tool a.button { display: inline-block; font-weight: 600; padding: 8px 14px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; }
 ";
 
-pub async fn page(access: crate::access::Access, State(store): State<Shared>) -> Response {
-    let (space, laser) = {
-        let store = store.lock().unwrap();
-        let space = match store.space_of(&access) {
-            Ok((_, name)) => name,
-            Err(error) => return failed(error),
-        };
-        match availability(&store, &access) {
-            Ok(a) => (space, a),
-            Err(error) => return failed(error),
-        }
+pub async fn page(access: crate::access::Access, State(store): State<Store>) -> Response {
+    let space = match store.space_name(access.space).await {
+        Ok(name) => name,
+        Err(error) => return failed(error),
     };
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    let machines = match store.machines(access.space).await {
+        Ok(machines) => machines,
+        Err(error) => return failed(error),
+    };
+    let laser = availability(&store.lock().unwrap(), &machines, &access, &grants);
     // Ours (UI only): the card's line for each state.
     let action = match laser {
         Availability::Open => {

@@ -4,7 +4,7 @@
 //! G-code: the same boat for two printers shares most of its lines). Every space gets them
 //! once, so a new user sees at once how it works ([`run`]); the Files page adds them again.
 
-use crate::Shared;
+use crate::Store;
 use crate::access::Access;
 use axum::{
     Json, Router,
@@ -46,36 +46,38 @@ pub fn unpack() -> std::io::Result<Vec<(String, Vec<u8>)>> {
     Ok(files)
 }
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new().route("/api/files/examples", post(add))
 }
 
 /// Keeps one example file in a space's Files, as an upload would: its thumbnail, what it
 /// says of itself.
-fn keep(store: &Shared, space: i64, name: &str, bytes: &[u8]) -> std::io::Result<()> {
+async fn keep(store: &Store, space: i64, name: &str, bytes: &[u8]) -> std::io::Result<()> {
     let id = crate::store::random_id();
-    let (path, thumbnail) = {
-        let store = store.lock().unwrap();
-        (store.file_path(&id), store.thumbnail_path(&id))
-    };
-    std::fs::write(&path, bytes)?;
-    let (meta, png) = crate::gcode::read(&path).unwrap_or_default();
-    if let Some(png) = png {
-        let _ = std::fs::write(&thumbnail, png);
-    }
+    let (path, thumbnail) = (store.file_path(&id), store.thumbnail_path(&id));
+    let size = bytes.len() as u64;
+    let bytes = bytes.to_vec();
+    let meta = tokio::task::spawn_blocking(move || -> std::io::Result<_> {
+        std::fs::write(&path, &bytes)?;
+        let (meta, png) = crate::gcode::read(&path).unwrap_or_default();
+        if let Some(png) = png {
+            let _ = std::fs::write(&thumbnail, png);
+        }
+        Ok(meta)
+    })
+    .await
+    .map_err(std::io::Error::other)??;
     store
-        .lock()
-        .unwrap()
-        .add_file(space, &id, name, bytes.len() as u64, &meta)
+        .add_file(space, &id, name, size, &meta)
+        .await
         .map_err(std::io::Error::other)
 }
 
 /// Puts the example files a space does not have by name in its Files: how many.
-fn add_to(store: &Shared, space: i64, files: &[(String, Vec<u8>)]) -> std::io::Result<usize> {
+async fn add_to(store: &Store, space: i64, files: &[(String, Vec<u8>)]) -> std::io::Result<usize> {
     let have: Vec<String> = store
-        .lock()
-        .unwrap()
         .files(space)
+        .await
         .map_err(std::io::Error::other)?
         .into_iter()
         .map(|f| f.name)
@@ -83,7 +85,7 @@ fn add_to(store: &Shared, space: i64, files: &[(String, Vec<u8>)]) -> std::io::R
     let mut added = 0;
     for (name, bytes) in files {
         if !have.contains(name) {
-            keep(store, space, name, bytes)?;
+            keep(store, space, name, bytes).await?;
             added += 1;
         }
     }
@@ -93,29 +95,22 @@ fn add_to(store: &Shared, space: i64, files: &[(String, Vec<u8>)]) -> std::io::R
 /// Every space gets the example files once, so whoever starts sees how it works: a new
 /// space within moments, the ones there already at the next start. Removed, they stay
 /// removed (the Files page can add them again).
-pub fn give_once(store: &Shared) -> std::io::Result<()> {
-    let pending: Vec<i64> = {
-        let store = store.lock().unwrap();
-        let mut q = store
-            .db
-            .prepare("SELECT id FROM spaces WHERE samples_given = 0")
-            .map_err(std::io::Error::other)?;
-        q.query_map([], |r| r.get(0))
-            .map_err(std::io::Error::other)?
-            .collect::<rusqlite::Result<_>>()
-            .map_err(std::io::Error::other)?
-    };
+pub async fn give_once(store: &Store) -> std::io::Result<()> {
+    let pending = store
+        .spaces_without_samples()
+        .await
+        .map_err(std::io::Error::other)?;
     if pending.is_empty() {
         return Ok(());
     }
-    let files = unpack()?;
+    let files = tokio::task::spawn_blocking(unpack)
+        .await
+        .map_err(std::io::Error::other)??;
     for space in pending {
-        let added = add_to(store, space, &files)?;
+        let added = add_to(store, space, &files).await?;
         store
-            .lock()
-            .unwrap()
-            .db
-            .execute("UPDATE spaces SET samples_given = 1 WHERE id = ?1", [space])
+            .samples_given(space)
+            .await
             .map_err(std::io::Error::other)?;
         if added > 0 {
             println!("example files: {added} into space {space}");
@@ -125,10 +120,9 @@ pub fn give_once(store: &Shared) -> std::io::Result<()> {
 }
 
 /// Now and then: spaces that have not had the example files yet get them.
-pub async fn run(store: Shared) {
+pub async fn run(store: Store) {
     loop {
-        let s = store.clone();
-        if let Ok(Err(error)) = tokio::task::spawn_blocking(move || give_once(&s)).await {
+        if let Err(error) = give_once(&store).await {
             eprintln!("example files: {error}");
         }
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
@@ -136,9 +130,13 @@ pub async fn run(store: Shared) {
 }
 
 /// The Files page's button: the example files not there by name, again.
-async fn add(access: Access, State(store): State<Shared>) -> Response {
+async fn add(access: Access, State(store): State<Store>) -> Response {
     let space = access.space;
-    let added = tokio::task::spawn_blocking(move || add_to(&store, space, &unpack()?)).await;
+    let added = match tokio::task::spawn_blocking(unpack).await {
+        Ok(Ok(files)) => Ok(add_to(&store, space, &files).await),
+        Ok(Err(error)) => Ok(Err(error)),
+        Err(error) => Err(error),
+    };
     match added {
         Ok(Ok(added)) => Json(serde_json::json!({ "added": added })).into_response(),
         Ok(Err(error)) => (
@@ -152,22 +150,24 @@ async fn add(access: Access, State(store): State<Shared>) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
 
     /// A space gets them once: not twice, and not again after they were removed.
-    #[test]
-    fn every_space_gets_them_once() {
-        let store: crate::Shared =
-            Arc::new(Mutex::new(crate::store::Store::open(":memory:").unwrap()));
-        let space = store.lock().unwrap().default_space().unwrap().0;
-        super::give_once(&store).unwrap();
-        let n = store.lock().unwrap().files(space).unwrap().len();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn every_space_gets_them_once(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let space = store.default_space().await.unwrap().0;
+        super::give_once(&store).await.unwrap();
+        let n = store.files(space).await.unwrap().len();
         assert_eq!(n, super::unpack().unwrap().len());
-        let first = store.lock().unwrap().files(space).unwrap()[0].clone();
-        store.lock().unwrap().remove_file(space, &first.id).unwrap();
-        super::give_once(&store).unwrap();
+        let first = store.files(space).await.unwrap()[0].clone();
+        store.remove_file(space, &first.id).await.unwrap();
+        super::give_once(&store).await.unwrap();
         assert_eq!(
-            store.lock().unwrap().files(space).unwrap().len(),
+            store.files(space).await.unwrap().len(),
             n - 1,
             "removed stays removed"
         );

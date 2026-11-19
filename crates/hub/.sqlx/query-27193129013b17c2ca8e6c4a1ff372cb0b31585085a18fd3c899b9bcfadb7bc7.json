@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.id, s.uid, s.name, o.name AS organisation, r.role AS \"role!\" FROM (\n                   SELECT space_id AS id, role FROM memberships WHERE user_id = $1\n                   UNION ALL\n                   SELECT s.id, m.role FROM org_memberships m JOIN spaces s ON s.organisation_id = m.organisation_id\n                   WHERE m.user_id = $1\n               ) r JOIN spaces s ON s.id = r.id JOIN organisations o ON o.id = s.organisation_id\n               ORDER BY lower(o.name), lower(s.name), s.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "spaces",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "uid",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "spaces",
+            "name": "uid"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "spaces",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "organisation",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "organisations",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "role!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "27193129013b17c2ca8e6c4a1ff372cb0b31585085a18fd3c899b9bcfadb7bc7"
+}

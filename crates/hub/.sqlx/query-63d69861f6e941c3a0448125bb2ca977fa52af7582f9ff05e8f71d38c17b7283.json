@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE invites SET revoked = true WHERE id = $1 AND space_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "63d69861f6e941c3a0448125bb2ca977fa52af7582f9ff05e8f71d38c17b7283"
+}

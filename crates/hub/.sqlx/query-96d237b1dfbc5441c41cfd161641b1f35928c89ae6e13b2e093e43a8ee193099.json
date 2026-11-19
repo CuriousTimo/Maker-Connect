@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT machine_id AS \"machine_id!\", level AS \"level!\" FROM machine_grants\n               WHERE space_id = $1 AND user_id = $2 AND (expires_at IS NULL OR expires_at > at_unix($3))\n               UNION ALL\n               SELECT m.machine_id, g.level FROM group_grants g\n               JOIN machine_group_members m ON m.group_id = g.group_id\n               WHERE g.space_id = $1 AND g.user_id = $2 AND (g.expires_at IS NULL OR g.expires_at > at_unix($3))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "machine_id!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "level!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "96d237b1dfbc5441c41cfd161641b1f35928c89ae6e13b2e093e43a8ee193099"
+}

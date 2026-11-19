@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE printer_files SET at = at_unix(0), asked_at = NULL\n             WHERE machine_id = $1 AND (path = $2 OR path = $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ded68b9f8d0b1463e2c8be6687c60051db695e8030691e44e9667ed5c3a04c24"
+}

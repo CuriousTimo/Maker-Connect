@@ -1,5 +1,5 @@
 use crate::{
-    JOG_FEEDS, JOG_STEPS, Shared, action, failed, grbl_action, jog_command, probe_gcode, profiles,
+    JOG_FEEDS, JOG_STEPS, Store, action, failed, grbl_action, jog_command, probe_gcode, profiles,
     store,
 };
 use axum::{
@@ -364,27 +364,21 @@ pub fn emergency_stop_of(machine: &store::Machine) -> Option<EmergencyStop> {
 /// The machine page's emergency-stop button.
 pub(crate) async fn emergency_stop(
     access: crate::access::Access,
-    State(shared): State<Shared>,
+    State(shared): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Response {
-    let (space, machine) = {
-        let store = shared.lock().unwrap();
-        let space = match store.space_of(&access) {
-            Ok((space, _)) => space,
-            Err(error) => return failed(error),
-        };
-        match store.machine(space, &id) {
-            Ok(Some(machine)) => (space, machine),
-            Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
-            Err(error) => return failed(error),
-        }
+    let space = access.space;
+    let machine = match shared.machine(space, &id).await {
+        Ok(Some(machine)) => machine,
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
+        Err(error) => return failed(error),
     };
     // Stopping never waits for PPE (`safety.rs`), and needs 'use' on the machine, as Stop does.
     match emergency_stop_of(&machine) {
         None => (StatusCode::CONFLICT, "this machine has no emergency stop").into_response(),
         Some(EmergencyStop::TypedM112) => {
             let queued = shared.lock().unwrap().queue_action(
-                space,
+                Some(machine.link.as_str()),
                 &id,
                 "Emergency stop",
                 &protocol::Action::Gcode {
@@ -392,13 +386,12 @@ pub(crate) async fn emergency_stop(
                 },
             );
             match queued {
-                Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
-                Ok(None) => (
+                Some(_) => StatusCode::NO_CONTENT.into_response(),
+                None => (
                     StatusCode::NOT_FOUND,
                     "no such machine, or it takes no commands",
                 )
                     .into_response(),
-                Err(error) => failed(error),
             }
         }
         // The laser's Stop, the same route as its Stop button.
@@ -410,20 +403,30 @@ pub(crate) async fn emergency_stop(
 
 pub(crate) async fn command(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
     Form(form): Form<CommandForm>,
 ) -> Response {
+    let ppe_checks = store.ppe_rule(access.space, &id).await;
+    // The machine as it is now, read once (the website's commands go into memory below).
+    let found_machine = store
+        .machine(access.space, &id)
+        .await
+        .map_err(|e| e.to_string());
+    let machine_now = || found_machine.clone();
+    // How it is reached, for queueing (None: not in the space).
+    let link = found_machine
+        .as_ref()
+        .ok()
+        .and_then(|m| m.as_ref())
+        .map(|m| m.link.clone());
+    let link = link.as_deref();
     let mut store = store.lock().unwrap();
-    let space = match store.space_of(&access) {
-        Ok((space, _)) => space,
-        Err(error) => return failed(error),
-    };
     // Switching things off never waits for PPE; everything else does.
     let off = form.gcode.trim().is_empty()
         && matches!(form.action.as_str(), "cooldown" | "fan-off" | "motors-off");
-    if !off && let Err(refused) = crate::safety::check_ppe(&store, &access, &id) {
+    if !off && let Err(refused) = crate::safety::check_ppe(&store, &ppe_checks, &access, &id) {
         return *refused;
     }
     // B3: nothing here refuses a command for a machine behind an agent because of what it is doing
@@ -431,7 +434,7 @@ pub(crate) async fn command(
     // PPE (above) are about people, and stay.
     // A machine behind an agent: typed commands, the bytes made by its port (the hub makes no
     // G-code for it, owner 2026-11-12).
-    if let Ok(Some(machine)) = store.machine(space, &id)
+    if let Ok(Some(machine)) = machine_now()
         && machine.link == "agent"
     {
         let actions = if form.gcode.trim().is_empty() {
@@ -446,16 +449,15 @@ pub(crate) async fn command(
             Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
         };
         for (label, action) in &actions {
-            match store.queue_action(space, &id, label, action) {
-                Ok(Some(_)) => {}
-                Ok(None) => {
+            match store.queue_action(link, &id, label, action) {
+                Some(_) => {}
+                None => {
                     return (
                         StatusCode::NOT_FOUND,
                         "no such machine, or it takes no commands",
                     )
                         .into_response();
                 }
-                Err(error) => return failed(error),
             }
         }
         return if headers.contains_key("x-requested-with") {
@@ -469,20 +471,18 @@ pub(crate) async fn command(
             Ok(typed) => typed,
             Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
         };
-        return match store.queue_command(space, &id, &label, &gcode) {
-            Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
-            Ok(None) => (
+        return match store.queue_command(link, &id, &label, &gcode) {
+            Some(_) => StatusCode::NO_CONTENT.into_response(),
+            None => (
                 StatusCode::NOT_FOUND,
                 "no such machine, or it takes no commands",
             )
                 .into_response(),
-            Err(error) => failed(error),
         };
     }
     // A GRBL machine homes with $H, not G28.
     let grbl = || {
-        store
-            .machine(space, &id)
+        machine_now()
             .ok()
             .flatten()
             .and_then(|m| m.profile)
@@ -509,7 +509,7 @@ pub(crate) async fn command(
             Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
         }
     } else if matches!(form.action.as_str(), "set-nozzle" | "set-bed") {
-        let machine = match store.machine(space, &id) {
+        let machine = match machine_now() {
             Ok(Some(machine)) => machine,
             Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
             Err(error) => return failed(error),
@@ -523,7 +523,7 @@ pub(crate) async fn command(
     } else if matches!(form.action.as_str(), "load-filament" | "unload-filament") {
         // Hot first, to the loaded spool's temperature (215 °C when it is not known), then the
         // firmware's own load or unload (Marlin's and Prusa's M701, M702).
-        let machine = match store.machine(space, &id) {
+        let machine = match machine_now() {
             Ok(Some(machine)) => machine,
             Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
             Err(error) => return failed(error),
@@ -548,7 +548,7 @@ pub(crate) async fn command(
             format!("M109 S{hot:.0}\n{}", if load { "M701" } else { "M702" }),
         ))
     } else if form.action == "probe-bed" {
-        match store.machine(space, &id) {
+        match machine_now() {
             Ok(Some(machine)) => match probe_gcode(&machine) {
                 Ok(gcode) => Some(owned(("Probe the bed", gcode))),
                 Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
@@ -566,24 +566,23 @@ pub(crate) async fn command(
     // (a print it runs itself, from its card or its menu) no homing, no Z move and no
     // extruding, which would spoil the print; X and Y may move. Extruding wants a hot
     // nozzle (170 °C, PrusaLink's `min_temp_nozzle_e`).
-    if let Ok(Some(machine)) = store.machine(space, &id)
+    if let Ok(Some(machine)) = machine_now()
         && let Some(why) = refused_now(&form.action, &gcode, &machine, false)
     {
         return (StatusCode::CONFLICT, why).into_response();
     }
-    let queued = store.queue_command(space, &id, &label, &gcode);
+    let queued = store.queue_command(link, &id, &label, &gcode);
     match queued {
         // The page sends it without leaving; a plain form comes back to the page.
-        Ok(Some(_)) if headers.contains_key("x-requested-with") => {
+        Some(_) if headers.contains_key("x-requested-with") => {
             StatusCode::NO_CONTENT.into_response()
         }
-        Ok(Some(_)) => Redirect::to(&format!("/machines/{id}#control")).into_response(),
-        Ok(None) => (
+        Some(_) => Redirect::to(&format!("/machines/{id}#control")).into_response(),
+        None => (
             StatusCode::NOT_FOUND,
             "no such machine, or it takes no commands",
         )
             .into_response(),
-        Err(error) => failed(error),
     }
 }
 
@@ -591,13 +590,12 @@ pub(crate) async fn command(
 mod tests {
     use super::*;
     use crate::link::tests::{call, json};
-    use crate::store::Store;
+
     use axum::body::Body;
     use axum::http::Request;
     use maker_connect_protocol::{
         MachineKind, MachineState, Register, Registered, Telemetry, TelemetryReply,
     };
-    use std::sync::{Arc, Mutex};
 
     /// Typed temperatures: whole degrees, up to the profile's maximum, 0 is off.
     #[test]
@@ -681,10 +679,14 @@ mod tests {
     /// Typed G-code is tidied and kept short enough for every machine.
     /// A machine behind an agent gets typed commands (`Action`), one at a time as it answers
     /// each, never G-code made by the hub; its SD tab says it is not available yet.
-    #[tokio::test]
-    async fn an_agents_machine_gets_typed_commands() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn an_agents_machine_gets_typed_commands(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let agent = crate::app(store.clone());
         let register = Register {
             protocol: protocol::VERSION,
@@ -704,11 +706,10 @@ mod tests {
         let registered: Registered = serde_json::from_str(&body).unwrap();
         let id = registered.machine_id.clone();
         {
-            let store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
-            store.pair(space, &registered.pairing_code).unwrap();
-            crate::auth::tester_may_operate(&store, space, &id);
+            let space = store.default_space().await.unwrap().0;
+            store.pair(space, &registered.pairing_code).await.unwrap();
         }
+        crate::auth::tester_may_operate(&store, &id).await;
         let press = |body: &str| {
             Request::post(format!("/machines/{id}/command"))
                 .header("content-type", "application/x-www-form-urlencoded")
@@ -799,10 +800,14 @@ mod tests {
     /// B3: the hub does not hold or refuse commands for a machine behind an agent because of what it
     /// does (busy, running a job, waiting for someone): it queues them, one at a time, so typed G-code
     /// such as `M112` reaches the port at once (B7). B5: the two Home buttons of OctoPrint's panel.
-    #[tokio::test]
-    async fn b3_b5_an_agents_machine_gets_every_command_whatever_it_is_doing() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn b3_b5_an_agents_machine_gets_every_command_whatever_it_is_doing(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let agent = crate::app(store.clone());
         let register = Register {
             protocol: protocol::VERSION,
@@ -822,11 +827,10 @@ mod tests {
         let registered: Registered = serde_json::from_str(&body).unwrap();
         let id = registered.machine_id.clone();
         {
-            let store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
-            store.pair(space, &registered.pairing_code).unwrap();
-            crate::auth::tester_may_operate(&store, space, &id);
+            let space = store.default_space().await.unwrap().0;
+            store.pair(space, &registered.pairing_code).await.unwrap();
         }
+        crate::auth::tester_may_operate(&store, &id).await;
         let press = |body: &str| {
             Request::post(format!("/machines/{id}/command"))
                 .header("content-type", "application/x-www-form-urlencoded")
@@ -931,7 +935,7 @@ mod tests {
 
     /// HS6: an agent machine of each kind, registered, paired, with a first report (so it is online).
     async fn agent_of(
-        store: &Arc<Mutex<Store>>,
+        store: &crate::Store,
         kind: MachineKind,
         profile: Option<&str>,
     ) -> (String, String) {
@@ -952,32 +956,27 @@ mod tests {
         )
         .await;
         let registered: Registered = serde_json::from_str(&body).unwrap();
-        {
-            let store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
-            store.pair(space, &registered.pairing_code).unwrap();
-            // 'use' only, not 'operate': whoever may use the machine may press the emergency stop
-            let user: i64 = store
-                .db
-                .query_row("SELECT id FROM users WHERE name = 'tester'", [], |r| {
-                    r.get(0)
-                })
-                .unwrap();
+        let user = store.user_id("tester").await.unwrap().unwrap();
+        let space = store.default_space().await.unwrap().0;
+        store.pair(space, &registered.pairing_code).await.unwrap();
+        // 'use' only, not 'operate': whoever may use the machine may press the emergency stop (a
+        // grant names the machine in its space: after pairing).
+        store
+            .set_grant(
+                space,
+                &registered.machine_id,
+                user,
+                crate::access::Level::Use,
+                user,
+                None,
+            )
+            .await
+            .unwrap();
+        if profile.is_some() {
             store
-                .set_grant(
-                    space,
-                    &registered.machine_id,
-                    user,
-                    crate::access::Level::Use,
-                    user,
-                    None,
-                )
+                .set_profile(space, &registered.machine_id, profile)
+                .await
                 .unwrap();
-            if profile.is_some() {
-                store
-                    .set_profile(space, &registered.machine_id, profile)
-                    .unwrap();
-            }
         }
         let telemetry = Telemetry {
             state: MachineState::Idle,
@@ -996,7 +995,7 @@ mod tests {
     }
 
     /// HS6: the commands the agent is given on its next report.
-    async fn given(store: &Arc<Mutex<Store>>, token: &str) -> Vec<protocol::Action> {
+    async fn given(store: &crate::Store, token: &str) -> Vec<protocol::Action> {
         let agent = crate::app(store.clone());
         let telemetry = Telemetry {
             state: MachineState::Idle,
@@ -1023,10 +1022,14 @@ mod tests {
     /// `b3_b5_...` shows for the terminal), a laser is sent LaserFoundry's Stop (`JobControl::Stop`, the
     /// route of its Stop button); a label printer, a Prusa (Buddy) and a machine whose profile is not
     /// Marlin are refused and are sent nothing. The page shows the button for the first two only.
-    #[tokio::test]
-    async fn hs6_the_emergency_stop_is_each_kinds_own() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn hs6_the_emergency_stop_is_each_kinds_own(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let press = |id: &str| {
             Request::post(format!("/machines/{id}/emergency-stop"))
                 .body(Body::empty())

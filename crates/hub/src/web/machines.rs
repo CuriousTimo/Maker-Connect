@@ -1,6 +1,6 @@
-use crate::store::Store;
+use crate::store::MoveRefused;
 use crate::{
-    PAGE, STYLE, Shared, access, done, escape, failed, header, label_page, machine_page, profiles,
+    PAGE, STYLE, Store, access, done, escape, failed, header, label_page, machine_page, profiles,
 };
 use axum::{
     Form, Json,
@@ -15,24 +15,19 @@ use maker_connect_protocol as protocol;
 
 pub(crate) async fn machines(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
 ) -> Response {
-    let store = store.lock().unwrap();
-    match store
-        .space_of(&access)
-        .and_then(|(space, _)| store.machines(space))
-    {
+    match store.machines(access.space).await {
         Ok(machines) => Json(machines).into_response(),
         Err(error) => failed(error),
     }
 }
 
 /// A space's machines as JSON.
-fn machines_json(store: &Shared, access: &access::Access) -> String {
-    let store = store.lock().unwrap();
+async fn machines_json(store: &Store, access: &access::Access) -> String {
     store
-        .space_of(access)
-        .and_then(|(space, _)| store.machines(space))
+        .machines(access.space)
+        .await
         .map(|machines| serde_json::to_string(&machines).unwrap_or_default())
         .unwrap_or_else(|_| "[]".to_owned())
 }
@@ -41,7 +36,7 @@ fn machines_json(store: &Shared, access: &access::Access) -> String {
 /// few seconds anyway, as "seen" and "online" change with time alone.
 pub(crate) async fn machine_stream(
     access: access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
 ) -> Sse<impl futures_util::Stream<Item = Result<Event, std::convert::Infallible>>> {
     use std::time::Duration;
     use tokio::sync::broadcast::error::TryRecvError;
@@ -58,16 +53,16 @@ pub(crate) async fn machine_stream(
                     _ = tokio::time::sleep(Duration::from_secs(5)) => {}
                 }
             }
-            let event = Event::default().data(machines_json(&store, &access));
+            let event = Event::default().data(machines_json(&store, &access).await);
             Some((Ok(event), (store, changes, false, access)))
         },
     );
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
-pub(crate) async fn page(access: crate::access::Access, State(store): State<Shared>) -> Response {
-    match store.lock().unwrap().space_of(&access) {
-        Ok((_, name)) => Html(
+pub(crate) async fn page(access: crate::access::Access, State(store): State<Store>) -> Response {
+    match store.space_name(access.space).await {
+        Ok(name) => Html(
             PAGE.replace("{style}", STYLE)
                 .replace("{space}", &escape(&name))
                 .replace("{header}", &header(&name, "", "machines")),
@@ -127,17 +122,13 @@ pub(crate) struct VirtualForm {
 
 pub(crate) async fn add_virtual(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Form(form): Form<VirtualForm>,
 ) -> Response {
     let Some(profile) = profiles::find(&form.profile) else {
         return (StatusCode::BAD_REQUEST, "no such profile").into_response();
     };
-    let mut store = store.lock().unwrap();
-    match store.space_of(&access).and_then(|(space, _)| {
-        let id = store.add_virtual(space, profile)?;
-        Ok(id)
-    }) {
+    match store.add_virtual(access.space, profile).await {
         Ok(id) => Redirect::to(&format!("/machines/{id}")).into_response(),
         Err(error) => failed(error),
     }
@@ -151,7 +142,7 @@ pub(crate) struct KlipperForm {
 /// A printer on Klipper: made here, its Settings then give the lines for its moonraker.conf.
 pub(crate) async fn add_klipper(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     headers: HeaderMap,
     Form(form): Form<KlipperForm>,
 ) -> Response {
@@ -159,11 +150,12 @@ pub(crate) async fn add_klipper(
     if name.is_empty() || name.chars().count() > 60 {
         return (StatusCode::BAD_REQUEST, "a name of 1 to 60 characters").into_response();
     }
-    let mut store = store.lock().unwrap();
-    let added = store.space_of(&access).and_then(|(space, _)| {
-        let id = store.add_moonraker(space, name)?;
-        Ok((id.clone(), store.moonraker_token(space, &id)?))
-    });
+    let added: Result<_, sqlx::Error> = async {
+        let id = store.add_moonraker(access.space, name).await?;
+        let token = store.moonraker_token(access.space, &id).await?;
+        Ok((id, token))
+    }
+    .await;
     match added {
         // The wizard shows its lines and waits for it.
         Ok((id, token)) if headers.contains_key("x-requested-with") => {
@@ -186,100 +178,89 @@ pub(crate) struct MoveForm {
     space: String,
 }
 
-/// The other spaces someone who manages a machine could move it to: where they are owner or
-/// admin too. (uid, "Organisation · Space"); none for a token.
-fn move_targets(store: &Store, access: &access::Access, machine: &str) -> Vec<(String, String)> {
-    let manages = store
-        .may(access, machine, access::Level::Manage)
-        .ok()
-        .flatten()
-        .unwrap_or(false);
-    if !manages || access.token_id.is_some() {
+/// The other spaces of theirs an instance admin could move a machine to. (uid, "Organisation ·
+/// Space"); none for a token. Moving is an instance admin's, and only theirs (design
+/// decisions/20261119-device-move.md; admin-pool allowlist #3).
+fn move_targets(access: &access::Access, spaces: &[access::SpaceOf]) -> Vec<(String, String)> {
+    if !access.instance_admin || access.token_id.is_some() {
         return Vec::new();
     }
-    store
-        .spaces_of(access.user_id)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|s| s.id != access.space && s.role >= access::Role::Admin)
-        .map(|s| (s.uid, format!("{} · {}", s.organisation, s.name)))
+    spaces
+        .iter()
+        .filter(|s| s.id != access.space)
+        .map(|s| (s.uid.clone(), format!("{} · {}", s.organisation, s.name)))
         .collect()
 }
 
-/// Moves a machine to another space of someone who manages both.
+/// Moves a machine to another space: an instance admin's (the route's gate), any space of the
+/// instance (design decisions/20261119-device-move.md).
 pub(crate) async fn move_machine(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     Form(form): Form<MoveForm>,
 ) -> Response {
-    if access.token_id.is_some() {
-        return (
-            StatusCode::FORBIDDEN,
-            "a token belongs to one space: move machines signed in",
-        )
-            .into_response();
-    }
-    let mut store = store.lock().unwrap();
-    let target = match store.space_by_uid(form.space.trim()) {
-        Ok(found) => found,
+    let to = match store.space_by_uid(form.space.trim()).await {
+        Ok(Some(to)) => to,
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such space").into_response(),
         Err(error) => return failed(error),
     };
-    // A space they are not owner or admin of is one they may not put machines in; whether it
-    // exists is none of their business either.
-    let Some(to) = target.filter(|to| {
-        store
-            .role_of(access.user_id, *to)
-            .ok()
-            .flatten()
-            .is_some_and(|r| r >= access::Role::Admin)
-    }) else {
-        return (
-            StatusCode::FORBIDDEN,
-            "you are not owner or admin of that space",
-        )
-            .into_response();
-    };
-    let name = match store.machine(access.space, &id) {
+    let name = match store.machine(access.space, &id).await {
         Ok(Some(m)) => m.name,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
     };
-    match store.move_machine(access.space, &id, to) {
-        Ok(Ok(())) => {
+    let moved = store
+        .move_machine(access.space, &id, to)
+        .await
+        .map(|r| r.map(|()| name));
+    match moved {
+        Ok(Ok(name)) => {
             let (from_name, to_name) = (
-                store.space_name(access.space).unwrap_or_default(),
-                store.space_name(to).unwrap_or_default(),
+                store.space_name(access.space).await.unwrap_or_default(),
+                store.space_name(to).await.unwrap_or_default(),
             );
-            let _ = store.audit(
-                &access,
-                "moved to another space",
-                &name,
-                &format!("to {to_name}"),
-            );
+            let _ = store
+                .audit(
+                    &access,
+                    "moved to another space",
+                    &name,
+                    &format!("to {to_name}"),
+                )
+                .await;
             let there = access::Access {
                 space: to,
                 ..access.clone()
             };
-            let _ = store.audit(&there, "moved here", &name, &format!("from {from_name}"));
+            let _ = store
+                .audit(&there, "moved here", &name, &format!("from {from_name}"))
+                .await;
             StatusCode::NO_CONTENT.into_response()
         }
-        Ok(Err(why)) => (StatusCode::CONFLICT, why).into_response(),
+        Ok(Err(MoveRefused::NoSuchMachine)) => {
+            (StatusCode::NOT_FOUND, "no such machine").into_response()
+        }
+        Ok(Err(MoveRefused::InThatSpace)) => {
+            (StatusCode::CONFLICT, "it is in that space already").into_response()
+        }
+        Ok(Err(MoveRefused::JobOpen(_))) => (
+            StatusCode::CONFLICT,
+            axum::Json(serde_json::json!({ "code": "device/JOB_OPEN" })),
+        )
+            .into_response(),
         Err(error) => failed(error),
     }
 }
 
 pub(crate) async fn remove(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    match store
-        .space_of(&access)
-        .and_then(|(space, _)| store.remove(space, &id))
-    {
+    let removed = store.remove_machine(access.space, &id).await;
+    match removed {
+        // Its permissions, group places and requests go with it (ON DELETE CASCADE).
         Ok(true) => done(&headers, "/"),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
@@ -288,17 +269,16 @@ pub(crate) async fn remove(
 
 pub(crate) async fn history(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Response {
-    let store = store.lock().unwrap();
-    match store
-        .space_of(&access)
-        .and_then(|(space, _)| store.history(space, &id))
-    {
-        Ok(Some(samples)) => Json(samples).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
-        Err(error) => failed(error),
+    let of_space = match store.link_of(access.space, &id).await {
+        Ok(link) => link.is_some(),
+        Err(error) => return failed(error),
+    };
+    match store.lock().unwrap().history(of_space, &id) {
+        Some(samples) => Json(samples).into_response(),
+        None => (StatusCode::NOT_FOUND, "no such machine").into_response(),
     }
 }
 
@@ -316,12 +296,12 @@ pub(crate) struct LabelsForm {
 /// A machine's labels, as typed: to find it, filter on and group by.
 pub(crate) async fn set_labels(
     access: access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     Form(form): Form<LabelsForm>,
 ) -> Response {
     let labels: Vec<String> = form.labels.split(',').map(str::to_owned).collect();
-    match store.lock().unwrap().set_labels(access.space, &id, &labels) {
+    match store.set_labels(access.space, &id, &labels).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
@@ -330,7 +310,7 @@ pub(crate) async fn set_labels(
 
 pub(crate) async fn rename(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
     Form(form): Form<NameForm>,
@@ -339,11 +319,7 @@ pub(crate) async fn rename(
     if name.is_empty() || name.chars().count() > 60 {
         return (StatusCode::BAD_REQUEST, "a name of 1 to 60 characters").into_response();
     }
-    let store = store.lock().unwrap();
-    match store
-        .space_of(&access)
-        .and_then(|(space, _)| store.rename(space, &id, name))
-    {
+    match store.rename(access.space, &id, name).await {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
@@ -362,7 +338,7 @@ pub(crate) struct OutOfUseForm {
 /// The owner takes a machine out of use, with why, or brings it back.
 pub(crate) async fn out_of_use(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
     Form(form): Form<OutOfUseForm>,
@@ -380,11 +356,7 @@ pub(crate) async fn out_of_use(
         "back" => None,
         _ => return (StatusCode::BAD_REQUEST, "out or back").into_response(),
     };
-    let store = store.lock().unwrap();
-    match store
-        .space_of(&access)
-        .and_then(|(space, _)| store.set_out_of_use(space, &id, reason))
-    {
+    match store.set_out_of_use(access.space, &id, reason).await {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
@@ -401,7 +373,7 @@ pub(crate) struct LaserForm {
 /// A laser's module: its optical power, as the owner says.
 pub(crate) async fn laser_power(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
     Form(form): Form<LaserForm>,
@@ -413,11 +385,7 @@ pub(crate) async fn laser_power(
             _ => return (StatusCode::BAD_REQUEST, "watts: 0.1 to 200").into_response(),
         },
     };
-    let store = store.lock().unwrap();
-    match store
-        .space_of(&access)
-        .and_then(|(space, _)| store.set_laser_w(space, &id, watts))
-    {
+    match store.set_laser_w(access.space, &id, watts).await {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
@@ -427,16 +395,12 @@ pub(crate) async fn laser_power(
 /// Someone took the finished print off the bed: the machine can take the next job.
 pub(crate) async fn taken(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    let space = match store.space_of(&access) {
-        Ok((space, _)) => space,
-        Err(error) => return failed(error),
-    };
-    match store.print_taken(space, &id) {
+    let space = access.space;
+    match store.print_taken(space, &id).await {
         Ok(true) => done(&headers, &format!("/machines/{id}")),
         Ok(false) => (StatusCode::NOT_FOUND, "no print on its bed").into_response(),
         Err(error) => failed(error),
@@ -446,16 +410,12 @@ pub(crate) async fn taken(
 /// Not ready for the next job after all (PrusaLink's `cancel_ready`).
 pub(crate) async fn not_ready(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    let space = match store.space_of(&access) {
-        Ok((space, _)) => space,
-        Err(error) => return failed(error),
-    };
-    match store.not_ready(space, &id) {
+    let space = access.space;
+    match store.not_ready(space, &id).await {
         Ok(true) => done(&headers, &format!("/machines/{id}")),
         Ok(false) => (StatusCode::CONFLICT, "it is not ready").into_response(),
         Err(error) => failed(error),
@@ -473,20 +433,17 @@ pub(crate) struct AnswerForm {
 /// `M876 S<index>` (with its next report).
 pub(crate) async fn answer(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     Form(form): Form<AnswerForm>,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    let space = match store.space_of(&access) {
-        Ok((space, _)) => space,
-        Err(error) => return failed(error),
-    };
-    let machine = match store.machine(space, &id) {
+    let space = access.space;
+    let machine = match store.machine(space, &id).await {
         Ok(Some(m)) => m,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
     };
+    let mut store = store.lock().unwrap();
     if let Some((buttons, dialog)) = store.dialogs.get(&id).cloned() {
         // Buddy refuses a DIALOG_ACTION without `dialog_id` (`command.cpp:86`, `:420`).
         let Some(dialog) = dialog else {
@@ -498,15 +455,14 @@ pub(crate) async fn answer(
         let kwargs = serde_json::json!({ "dialog_id": dialog, "button": name });
         let command = serde_json::json!({ "command": "DIALOG_ACTION", "kwargs": kwargs });
         return match store.queue_connect_command(
-            space,
+            Some(machine.link.as_str()),
             &id,
             &format!("Answer: {name}"),
             &command,
             false,
         ) {
-            Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
-            Ok(None) => (StatusCode::CONFLICT, "the printer takes no commands").into_response(),
-            Err(error) => failed(error),
+            Some(_) => StatusCode::NO_CONTENT.into_response(),
+            None => (StatusCode::CONFLICT, "the printer takes no commands").into_response(),
         };
     }
     let buttons = machine.buttons.len();
@@ -522,7 +478,7 @@ pub(crate) async fn answer(
 
 pub(crate) async fn choose_profile(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
     Form(form): Form<ProfileForm>,
@@ -531,11 +487,7 @@ pub(crate) async fn choose_profile(
     if profile.is_some_and(|p| profiles::find(p).is_none()) {
         return (StatusCode::BAD_REQUEST, "no such profile").into_response();
     }
-    let store = store.lock().unwrap();
-    match store
-        .space_of(&access)
-        .and_then(|(space, _)| store.set_profile(space, &id, profile))
-    {
+    match store.set_profile(access.space, &id, profile).await {
         Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
@@ -551,17 +503,13 @@ pub(crate) struct MediaForm {
 /// The owner says which tape (or roll) is loaded.
 pub(crate) async fn choose_media(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
     Form(form): Form<MediaForm>,
 ) -> Response {
-    let store = store.lock().unwrap();
-    let space = match store.space_of(&access) {
-        Ok((space, _)) => space,
-        Err(error) => return failed(error),
-    };
-    let machine = match store.machine(space, &id) {
+    let space = access.space;
+    let machine = match store.machine(space, &id).await {
         Ok(Some(machine)) => machine,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
@@ -573,10 +521,10 @@ pub(crate) async fn choose_media(
     {
         return (StatusCode::BAD_REQUEST, "not a tape of this printer").into_response();
     }
-    match store.set_media(space, &id, media) {
+    match store.set_media(space, &id, media).await {
         // Saved in the background: the page gets the tape back, to draw the label for it.
         Ok(_) if headers.contains_key("x-requested-with") => {
-            let machine = match store.machine(space, &id) {
+            let machine = match store.machine(space, &id).await {
                 Ok(Some(machine)) => machine,
                 _ => return StatusCode::NO_CONTENT.into_response(),
             };
@@ -596,56 +544,73 @@ pub(crate) async fn choose_media(
 /// A machine: its profile to choose (by brand), what the profile knows, and its bed.
 pub(crate) async fn machine_page(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Response {
-    let store = store.lock().unwrap();
+    let space = match store.space_name(access.space).await {
+        Ok(name) => name,
+        Err(error) => return failed(error),
+    };
+    let spaces = if access.token_id.is_none() {
+        store.spaces_of(access.user_id).await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let ppe_checks = store.ppe_checks(access.space).await.unwrap_or_default();
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    let asked = store
+        .asked(access.space, access.user_id, &id)
+        .await
+        .ok()
+        .flatten();
     let found = store
-        .space_of(&access)
-        .and_then(|(space, name)| Ok((name, store.machine(space, &id)?)));
+        .machine(access.space, &id)
+        .await
+        .map(|machine| (space, machine));
+    let jobs = store
+        .jobs_of(access.space, &id, 10)
+        .await
+        .unwrap_or_default();
+    let stats = store.job_stats(access.space, &id).await.unwrap_or_default();
+    // The machine's Camera tab, read before the lock.
+    let camera_tab = match &found {
+        Ok((_, Some(machine))) => camera_tab(&store, &access, &machine.id, &grants).await,
+        _ => None,
+    };
+    let store = store.lock().unwrap();
     match found {
         Ok((space, Some(machine))) if machine.kind == protocol::MachineKind::Label => {
-            let move_to = move_targets(&store, &access, &machine.id);
-            let manage = store
-                .may(&access, &machine.id, access::Level::Manage)
-                .ok()
-                .flatten()
-                .unwrap_or(false);
+            let move_to = move_targets(&access, &spaces);
             // HS2: a LabelWriter has its own page; a LabelManager the label page.
             let profile = machine.profile.as_deref().and_then(profiles::find);
             if profile.is_some_and(|p| p.firmware.as_deref() == Some("dymo-lw")) {
                 return Html(crate::pages::labelwriter_page::render(
-                    &space, &machine, &move_to, manage,
+                    &space, &machine, &move_to,
                 ))
                 .into_response();
             }
-            Html(label_page::render(&space, &machine, &move_to, manage)).into_response()
+            Html(label_page::render(&space, &machine, &move_to)).into_response()
         }
         Ok((space, Some(machine))) => {
             let extra = machine_page::Extra {
-                camera_tab: camera_tab(&store, &access, &machine.id),
+                camera_tab,
                 me: access.user_id,
                 staff: access.role >= access::Role::Admin,
-                asked: store.asked(access.user_id, &machine.id).ok().flatten(),
+                asked,
                 ppe_until: store.ppe_until(access.user_id, &machine.id),
-                ppe_checks: store.ppe_checks(access.space),
+                ppe_checks,
                 may_use: store
-                    .may(&access, &machine.id, access::Level::Use)
-                    .ok()
-                    .flatten()
+                    .may(&access, &machine.id, access::Level::Use, &grants)
                     .unwrap_or(false),
-                move_to: move_targets(&store, &access, &machine.id),
+                move_to: move_targets(&access, &spaces),
                 manage: store
-                    .may(&access, &machine.id, access::Level::Manage)
-                    .ok()
-                    .flatten()
+                    .may(&access, &machine.id, access::Level::Manage, &grants)
                     .unwrap_or(false),
-                jobs: store
-                    .jobs_of(access.space, &machine.id, 10)
-                    .unwrap_or_default(),
-                stats: store
-                    .job_stats(access.space, &machine.id)
-                    .unwrap_or_default(),
+                jobs,
+                stats,
                 laser_framed: machine.laser_framed,
                 laser_origin_set: machine.laser_origin_set,
             };
@@ -657,16 +622,17 @@ pub(crate) async fn machine_page(
 }
 
 /// A machine's Camera tab, when the hub has cameras and one on it may be watched.
-fn camera_tab(
-    store: &crate::store::Store,
+async fn camera_tab(
+    store: &Store,
     access: &crate::access::Access,
     machine: &str,
+    grants: &access::Grants,
 ) -> Option<String> {
     #[cfg(feature = "cameras")]
-    return crate::cameras::page::machine_tab(store, access, machine);
+    return crate::cameras::page::machine_tab(store, access, machine, grants).await;
     #[cfg(not(feature = "cameras"))]
     {
-        let _ = (store, access, machine);
+        let _ = (store, access, machine, grants);
         None
     }
 }
@@ -675,19 +641,23 @@ fn camera_tab(
 mod tests {
     use super::*;
     use crate::link::tests::{call, json};
-    use crate::store::Store;
+
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
     use maker_connect_protocol::{MachineKind, Register, Registered};
-    use std::sync::{Arc, Mutex};
+
     use tower::ServiceExt;
 
     /// The page's stream sends the list at once, and again when a machine changes.
-    #[tokio::test]
-    async fn the_list_streams_its_changes() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_list_streams_its_changes(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let response = app
             .oneshot(
                 Request::get("/api/machines/stream")
@@ -704,16 +674,15 @@ mod tests {
         };
         assert_eq!(next().await, "data: []\n\n");
         let (_, _, code) = store
-            .lock()
-            .unwrap()
             .register(&Register {
                 protocol: protocol::VERSION,
                 name: "Gonzo".into(),
                 kind: MachineKind::Fdm,
                 agent_version: "0.1.0".into(),
             })
+            .await
             .unwrap();
-        store.lock().unwrap().pair(1, &code).unwrap();
+        store.pair(1, &code).await.unwrap();
         let changed = tokio::time::timeout(std::time::Duration::from_secs(2), next())
             .await
             .expect("an event within the merge time, not the 5 s tick");
@@ -722,10 +691,13 @@ mod tests {
 
     /// A machine that says it is a MINI gets the MINI's profile; the owner can choose
     /// another (a Zaribo, which says it is an MK3S), and its page draws that bed.
-    #[tokio::test]
-    async fn a_machine_gets_its_profile() {
-        let app =
-            crate::auth::signed_in_app(Arc::new(Mutex::new(Store::open(":memory:").unwrap())));
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_machine_gets_its_profile(pool: sqlx::PgPool) {
+        let app = crate::auth::signed_in_app(crate::store::Store::for_test(&pool).await).await;
         let register =
             r#"{"protocol":1,"name":"Mini","kind":"fdm","agent_version":"0.1.0"}"#.to_owned();
         let (_, body) = call(&app, json(protocol::REGISTER, None, register)).await;
@@ -783,22 +755,27 @@ mod tests {
 
     /// HS2: a LabelWriter has its own page, a LabelManager the label page; choosing a roll gives
     /// the LabelWriter's page its raster from the port.
-    #[tokio::test]
-    async fn a_labelwriter_has_its_own_page() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_labelwriter_has_its_own_page(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let (writer, manager) = {
-            let mut store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
+            let space = store.default_space().await.unwrap().0;
             let writer = store
                 .add_virtual(space, profiles::find("dymo/labelwriter-450").unwrap())
+                .await
                 .unwrap();
             let manager = store
                 .add_virtual(space, profiles::find("dymo/labelmanager-pnp").unwrap())
+                .await
                 .unwrap();
-            crate::auth::tester_may_operate(&store, space, &writer);
             (writer, manager)
         };
+        crate::auth::tester_may_operate(&store, &writer).await;
         let get = |id: &str| {
             Request::get(format!("/machines/{id}"))
                 .body(Body::empty())
@@ -840,12 +817,12 @@ mod tests {
         );
         // A label printer without a profile: only the notice, on both tabs.
         let bare = {
-            let mut store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
+            let space = store.default_space().await.unwrap().0;
             let id = store
                 .add_virtual(space, profiles::find("dymo/labelwriter-450").unwrap())
+                .await
                 .unwrap();
-            store.set_profile(space, &id, None).unwrap();
+            store.set_profile(space, &id, None).await.unwrap();
             id
         };
         let (_, page) = call(&app, get(&bare)).await;

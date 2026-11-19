@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM machine_grants WHERE space_id = ANY($1) AND user_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0f5171d59156000af2b67fb04fd6a05077a8aefda38c0b26e5d416d24df6a4e7"
+}

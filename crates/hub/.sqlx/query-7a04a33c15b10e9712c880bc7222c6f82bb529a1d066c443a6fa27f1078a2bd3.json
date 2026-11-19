@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM group_grants WHERE group_id = $1 AND space_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7a04a33c15b10e9712c880bc7222c6f82bb529a1d066c443a6fa27f1078a2bd3"
+}

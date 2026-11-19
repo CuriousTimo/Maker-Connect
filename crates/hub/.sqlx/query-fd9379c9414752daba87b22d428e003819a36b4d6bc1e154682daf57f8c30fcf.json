@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.id AS \"id!\", u.name AS \"name!\", u.display_name AS \"display_name!\",\n                   m.role AS \"role!\", unix_seconds(m.created_at) AS \"created_at!\", true AS \"whole!\"\n               FROM org_memberships m\n               JOIN users u ON u.id = m.user_id JOIN spaces s ON s.organisation_id = m.organisation_id\n               WHERE s.id = $1\n               UNION ALL\n               SELECT u.id, u.name, u.display_name, m.role, unix_seconds(m.created_at), false FROM memberships m\n               JOIN users u ON u.id = m.user_id WHERE m.space_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "name!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "role!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "whole!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "fd9379c9414752daba87b22d428e003819a36b4d6bc1e154682daf57f8c30fcf"
+}

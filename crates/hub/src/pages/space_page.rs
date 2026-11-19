@@ -6,7 +6,7 @@
 use crate::access::{Access, Role};
 use crate::accounts::{self, Signed};
 use crate::auth::{Client, from_this_site};
-use crate::{STYLE, Shared, escape, failed, header};
+use crate::{STYLE, Store, escape, failed, header};
 use axum::{
     Extension, Form, Json, Router,
     extract::{Path, State},
@@ -16,7 +16,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/space", get(page))
         .route("/api/space/audit", get(audit))
@@ -150,22 +150,21 @@ pub(crate) const SPACE_STYLE: &str = r#"
 
 async fn page(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     signed: Option<Extension<Signed>>,
 ) -> Response {
     // With an API token (no session) the page shows all but one's own account.
     let signed = signed.map(|Extension(s)| s);
-    let store = store.lock().unwrap();
-    let built = (|| -> rusqlite::Result<String> {
+    let built: Result<String, crate::store::BoxError> = async {
         let space = access.space;
-        let name = store.space_name(space)?;
-        let organisation = store.organisation_of(space)?;
-        let org_name = store.organisation_name(organisation)?;
-        let org_role = store.org_role_of(access.user_id, organisation)?;
+        let name = store.space_name(space).await?;
+        let org_name = store.organisation_name(space).await?;
+        let org_role = store.org_role_of(access.user_id, access.space).await?;
         let admin = access.role >= Role::Admin;
         let org_admin = org_role.is_some_and(|r| r >= Role::Admin);
         let siblings: Vec<_> = store
-            .spaces_of(access.user_id)?
+            .spaces_of(access.user_id)
+            .await?
             .into_iter()
             .filter(|s| s.organisation == org_name)
             .collect();
@@ -189,8 +188,8 @@ async fn page(
         };
 
         // Members, with what each may use (crate::permissions_page).
-        let members = store.members(space)?;
-        let access_parts = crate::permissions_page::parts(&store, &access)?;
+        let members = store.members(space).await?;
+        let access_parts = crate::permissions_page::parts(&store, &access).await?;
         let mut rows = String::new();
         for m in &members {
             let you = m.user_id == access.user_id;
@@ -246,7 +245,7 @@ async fn page(
         // Invite links.
         let invites_html = if admin {
             let mut list = String::new();
-            for i in store.invites(space)?.iter().filter(|i| i.open()).take(20) {
+            for i in store.invites(space).await?.iter().filter(|i| i.open()).take(20) {
                 list += &format!(
                     r#"<tr><td><span class="chip {r}">{r}</span></td><td>{scope}</td><td><small>{by}, until {until}</small></td><td><form method="post" action="space/invites/{id}/revoke" data-async data-then="reload" data-done="Revoked"><button class="small ghost">Revoke</button></form></td></tr>"#,
                     r = i.role.as_str(),
@@ -289,10 +288,11 @@ async fn page(
 
         // API tokens.
         // The cameras to manage (crate::cameras), for an admin, when the hub has them.
-        let cameras_html = crate::cameras_space_tab(&store, &access);
+        let space_machines = store.machines(space).await?;
+        let cameras_html = crate::cameras_space_tab(&store, &access, &space_machines).await;
         let tokens_html = if admin {
             let mut list = String::new();
-            for t in store.tokens(space)? {
+            for t in store.tokens(space).await? {
                 list += &format!(
                     r#"<tr><td><b>{name}</b></td><td><span class="chip {r}">{r}</span></td><td><small>{by}, {made}</small></td><td><small>{used}</small></td><td><form method="post" action="space/tokens/{id}/revoke" data-async data-then="reload" data-done="Revoked" data-confirm="Revoke {name}? What uses it stops working."><button class="small danger">Revoke</button></form></td></tr>"#,
                     name = escape(&t.name),
@@ -326,7 +326,7 @@ async fn page(
         // The audit log.
         let audit_html = if admin {
             let mut lines = String::new();
-            for line in store.audit_log(space, 150)? {
+            for line in store.audit_log(space, 150).await? {
                 lines += &format!(
                     r#"<li><time>{at}</time><b>{actor}</b> {action} {target}{detail}</li>"#,
                     at = escape(
@@ -404,7 +404,7 @@ async fn page(
         );
 
         // Safety: asking for PPE before use (crate::safety).
-        let ppe_on = store.ppe_checks(space);
+        let ppe_on = store.ppe_checks(space).await?;
         let safety_html = format!(
             r#"<section class="section"><h3>Safety</h3><p class="sub">For a makerspace: before someone uses a machine that needs it, they tick off its PPE (laser safety glasses at a laser, safety glasses and hearing protection at a CNC). Each machine's list is in its Settings. At home you may leave it off.</p>{}</section>"#,
             if admin {
@@ -421,10 +421,11 @@ async fn page(
 
         // One's own account, and the server.
         let instance_html = if signed.as_ref().is_some_and(|s| s.instance_admin) {
+            let open_spaces = store.open_spaces().await;
             format!(
                 r#"<section class="section"><h3>This server</h3><p class="sub">You run it. Usually only you make organisations; on a hosted service anyone signed in may make their own.</p><form method="post" action="instance/open-spaces" data-async data-done="Saved"><label><input type="checkbox" name="open" value="1"{checked} onchange="this.form.requestSubmit()"> Anyone signed in may make an organisation</label></form>
 <form method="post" action="spaces" data-async data-then="./" data-done="Organisation made" class="switch" style="margin-top:12px"><input name="name" required maxlength="60" placeholder="Fablab Zuid" aria-label="Name of the new organisation"><button class="small ghost">New organisation</button></form></section>"#,
-                checked = if store.open_spaces() { " checked" } else { "" }
+                checked = if open_spaces { " checked" } else { "" }
             )
         } else {
             String::new()
@@ -549,15 +550,16 @@ async fn page(
             },
             name = escape(&name),
         ))
-    })();
+    }
+    .await;
     match built {
         Ok(html) => Html(html).into_response(),
         Err(error) => failed(error),
     }
 }
 
-async fn audit(access: Access, State(store): State<Shared>) -> Response {
-    match store.lock().unwrap().audit_log(access.space, 500) {
+async fn audit(access: Access, State(store): State<Store>) -> Response {
+    match store.audit_log(access.space, 500).await {
         Ok(lines) => Json(lines).into_response(),
         Err(error) => failed(error),
     }
@@ -581,25 +583,25 @@ fn clean_name(name: &str) -> Result<String, Box<Response>> {
 /// The organisation's name: for an admin of the organisation (not of one space).
 async fn rename_organisation(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Form(form): Form<NameForm>,
 ) -> Response {
     let name = match clean_name(&form.name) {
         Ok(name) => name,
         Err(r) => return *r,
     };
-    let store = store.lock().unwrap();
-    let done = (|| -> rusqlite::Result<bool> {
-        let organisation = store.organisation_of(access.space)?;
+    let done: sqlx::Result<bool> = async {
         if store
-            .org_role_of(access.user_id, organisation)?
+            .org_role_of(access.user_id, access.space)
+            .await?
             .is_none_or(|r| r < Role::Admin)
         {
             return Ok(false);
         }
-        store.rename_organisation(organisation, &name)?;
+        store.rename_organisation(access.space, &name).await?;
         Ok(true)
-    })();
+    }
+    .await;
     match done {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => refused("only an admin of the organisation renames it"),
@@ -609,14 +611,14 @@ async fn rename_organisation(
 
 async fn rename(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Form(form): Form<NameForm>,
 ) -> Response {
     let name = match clean_name(&form.name) {
         Ok(name) => name,
         Err(r) => return *r,
     };
-    match store.lock().unwrap().rename_space(access.space, &name) {
+    match store.rename_space(access.space, &name).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
     }
@@ -630,7 +632,7 @@ struct InviteForm {
 
 async fn new_invite(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Form(form): Form<InviteForm>,
 ) -> Response {
     let Some(role) = Role::parse(&form.role) else {
@@ -639,23 +641,21 @@ async fn new_invite(
     if role > access.role {
         return refused("not a role above your own");
     }
-    let store = store.lock().unwrap();
     let whole = form.scope.as_deref() != Some("space");
-    if whole {
-        let organisation = match store.organisation_of(access.space) {
-            Ok(o) => o,
-            Err(e) => return failed(e),
-        };
-        if store
-            .org_role_of(access.user_id, organisation)
+    if whole
+        && store
+            .org_role_of(access.user_id, access.space)
+            .await
             .ok()
             .flatten()
             .is_none_or(|r| r < Role::Admin || r < role)
-        {
-            return refused("only an admin of the organisation invites into all of it");
-        }
+    {
+        return refused("only an admin of the organisation invites into all of it");
     }
-    match store.create_invite(access.space, role, access.user_id, whole) {
+    match store
+        .create_invite(access.space, role, access.user_id, whole)
+        .await
+    {
         Ok(token) => {
             Json(serde_json::json!({ "path": format!("/invite/{token}") })).into_response()
         }
@@ -665,10 +665,10 @@ async fn new_invite(
 
 async fn revoke_invite(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
-    match store.lock().unwrap().revoke_invite(access.space, id) {
+    match store.revoke_invite(access.space, id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such link").into_response(),
         Err(error) => failed(error),
@@ -687,7 +687,7 @@ struct RoleForm {
 /// owner.
 async fn set_role(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(user): Path<i64>,
     Form(form): Form<RoleForm>,
 ) -> Response {
@@ -701,45 +701,52 @@ async fn set_role(
     if role.is_some_and(|r| r > access.role) {
         return refused("not a role above your own");
     }
-    let store = store.lock().unwrap();
-    let done = (|| -> rusqlite::Result<Result<(), &'static str>> {
+    let done: sqlx::Result<Result<(), &'static str>> = async {
         let space = access.space;
-        let organisation = store.organisation_of(space)?;
-        let theirs = store.role_of(user, space)?;
+        let theirs = store.role_of(user, space).await?;
         if theirs.is_some_and(|r| r > access.role) {
             return Ok(Err("not someone above you"));
         }
         if form.scope == "organisation" {
             if store
-                .org_role_of(access.user_id, organisation)?
+                .org_role_of(access.user_id, access.space)
+                .await?
                 .is_none_or(|r| r < Role::Admin)
             {
                 return Ok(Err(
                     "only an admin of the organisation changes roles in all of it",
                 ));
             }
-            let was = store.org_role_of(user, organisation)?;
-            if was == Some(Role::Owner) && role != Some(Role::Owner) && store.owners(space)? <= 1 {
+            let was = store.org_role_of(user, access.space).await?;
+            if was == Some(Role::Owner)
+                && role != Some(Role::Owner)
+                && store.owners(space).await? <= 1
+            {
                 return Ok(Err(
                     "the organisation needs an owner: make another one first",
                 ));
             }
             match role {
-                Some(role) => store.set_org_membership(user, organisation, role.as_str())?,
+                Some(role) => {
+                    store
+                        .set_org_membership(user, access.space, role.as_str())
+                        .await?
+                }
                 None => {
-                    store.remove_member(space, user, true)?;
+                    store.remove_member(space, user, true).await?;
                 }
             }
         } else {
             match role {
-                Some(role) => store.set_membership(user, space, role.as_str())?,
+                Some(role) => store.set_membership(user, space, role.as_str()).await?,
                 None => {
-                    store.remove_member(space, user, false)?;
+                    store.remove_member(space, user, false).await?;
                 }
             }
         }
         Ok(Ok(()))
-    })();
+    }
+    .await;
     match done {
         Ok(Ok(())) => StatusCode::NO_CONTENT.into_response(),
         Ok(Err(why)) => refused(why),
@@ -754,38 +761,42 @@ struct RemoveForm {
 
 async fn remove_member(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(user): Path<i64>,
     Form(form): Form<RemoveForm>,
 ) -> Response {
     let whole = form.scope.as_deref() == Some("organisation");
-    let store = store.lock().unwrap();
-    let done = (|| -> rusqlite::Result<Result<bool, &'static str>> {
+    let done: sqlx::Result<Result<bool, &'static str>> = async {
         let space = access.space;
-        let organisation = store.organisation_of(space)?;
         if user == access.user_id {
             return Ok(Err("not yourself"));
         }
-        if store.role_of(user, space)?.is_some_and(|r| r > access.role) {
+        if store
+            .role_of(user, space)
+            .await?
+            .is_some_and(|r| r > access.role)
+        {
             return Ok(Err("not someone above you"));
         }
         if whole {
             if store
-                .org_role_of(access.user_id, organisation)?
+                .org_role_of(access.user_id, access.space)
+                .await?
                 .is_none_or(|r| r < Role::Admin)
             {
                 return Ok(Err(
                     "only an admin of the organisation takes someone out of all of it",
                 ));
             }
-            if store.org_role_of(user, organisation)? == Some(Role::Owner)
-                && store.owners(space)? <= 1
+            if store.org_role_of(user, access.space).await? == Some(Role::Owner)
+                && store.owners(space).await? <= 1
             {
                 return Ok(Err("the organisation needs an owner"));
             }
         }
-        Ok(Ok(store.remove_member(space, user, whole)?))
-    })();
+        Ok(Ok(store.remove_member(space, user, whole).await?))
+    }
+    .await;
     match done {
         Ok(Ok(true)) => StatusCode::NO_CONTENT.into_response(),
         Ok(Ok(false)) => (StatusCode::NOT_FOUND, "not a member").into_response(),
@@ -802,7 +813,7 @@ struct TokenForm {
 
 async fn new_token(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Form(form): Form<TokenForm>,
 ) -> Response {
     if access.token_id.is_some() {
@@ -819,21 +830,16 @@ async fn new_token(
         return refused("not a role above your own");
     }
     match store
-        .lock()
-        .unwrap()
         .create_token(access.space, access.user_id, &name, role)
+        .await
     {
         Ok(token) => Json(serde_json::json!({ "token": token })).into_response(),
         Err(error) => failed(error),
     }
 }
 
-async fn revoke_token(
-    access: Access,
-    State(store): State<Shared>,
-    Path(id): Path<i64>,
-) -> Response {
-    match store.lock().unwrap().revoke_token(access.space, id) {
+async fn revoke_token(access: Access, State(store): State<Store>, Path(id): Path<i64>) -> Response {
+    match store.revoke_token(access.space, id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such token").into_response(),
         Err(error) => failed(error),
@@ -843,9 +849,9 @@ async fn revoke_token(
 // ---- joining, choosing a space, one's own account ---------------------------------------
 
 /// The session behind a request on a route the guard lets through unsigned (`/invite/…`).
-fn session_of(store: &crate::store::Store, headers: &HeaderMap) -> Option<Signed> {
+async fn session_of(store: &Store, headers: &HeaderMap) -> Option<Signed> {
     let token = crate::auth::cookie(headers, crate::auth::COOKIE)?;
-    store.session(&token).ok().flatten()
+    store.session(&token).await.ok().flatten()
 }
 
 fn plain_page(title: &str, body: &str) -> Html<String> {
@@ -853,12 +859,11 @@ fn plain_page(title: &str, body: &str) -> Html<String> {
 }
 
 async fn invite_page(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(token): Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    let store = store.lock().unwrap();
-    let invite = match store.invite(&token) {
+    let invite = match store.invite(&token).await {
         Ok(invite) => invite,
         Err(error) => return failed(error),
     };
@@ -871,8 +876,8 @@ async fn invite_page(
     };
     let into = match invite.whole_organisation {
         true => store
-            .organisation_of(invite.space)
-            .and_then(|o| store.organisation_name(o))
+            .organisation_name(invite.space)
+            .await
             .unwrap_or_default(),
         false => invite.space_name.clone(),
     };
@@ -882,7 +887,7 @@ async fn invite_page(
         into = escape(&into),
         role = invite.role.as_str()
     );
-    let body = match session_of(&store, &headers) {
+    let body = match session_of(&store, &headers).await {
         Some(signed) => format!(
             r#"{what}<form method="post"><button>Join as {name}</button></form><p style="margin-top:14px"><small>Not you? <a href="/login?next=/invite/{token}">Sign in as someone else</a>.</small></p>"#,
             name = escape(&signed.display_name),
@@ -913,7 +918,7 @@ struct JoinForm {
 }
 
 async fn join(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(token): Path<String>,
     Extension(Client(client)): Extension<Client>,
     headers: HeaderMap,
@@ -922,13 +927,15 @@ async fn join(
     if !from_this_site(&Method::POST, &headers) {
         return refused("refused: this came from another site");
     }
-    let (invite, signed) = {
-        let store = store.lock().unwrap();
-        (
-            store.invite(&token).ok().flatten().filter(|i| i.open()),
-            session_of(&store, &headers),
-        )
-    };
+    let (invite, signed) = (
+        store
+            .invite(&token)
+            .await
+            .ok()
+            .flatten()
+            .filter(|i| i.open()),
+        session_of(&store, &headers).await,
+    );
     let Some(invite) = invite else {
         return (
             StatusCode::NOT_FOUND,
@@ -938,10 +945,11 @@ async fn join(
     };
     // Signed in already: in, and the session goes to the space.
     if let Some(signed) = signed {
-        let store = store.lock().unwrap();
-        return match store.use_invite(&invite, signed.user_id) {
+        return match store.use_invite(&invite, signed.user_id).await {
             Ok(true) => {
-                let _ = store.set_session_space(signed.session_id, invite.space);
+                let _ = store
+                    .set_session_space(signed.user_id, signed.session_id, invite.space)
+                    .await;
                 Redirect::to("/").into_response()
             }
             Ok(false) => (StatusCode::CONFLICT, "the link was used meanwhile").into_response(),
@@ -959,14 +967,7 @@ async fn join(
         Some(format!("Not that password: {p}."))
     } else if Some(&password) != form.again.as_ref() {
         Some("The two passwords differ.".to_owned())
-    } else if store
-        .lock()
-        .unwrap()
-        .user_id(&name)
-        .ok()
-        .flatten()
-        .is_some()
-    {
+    } else if store.user_id(&name).await.ok().flatten().is_some() {
         Some(
             "That sign-in name is taken: choose another, or sign in first if it is yours."
                 .to_owned(),
@@ -995,16 +996,9 @@ async fn join(
         .get(h::USER_AGENT)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    let store = store.lock().unwrap();
-    let made = (|| -> rusqlite::Result<Option<String>> {
-        let user = store.create_user(&name, &display_name, &hash, false)?;
-        if !store.use_invite(&invite, user)? {
-            return Ok(None);
-        }
-        store
-            .create_session(user, Some(invite.space), user_agent, &client)
-            .map(Some)
-    })();
+    let made = store
+        .join_by_invite(&invite, &name, &display_name, &hash, user_agent, &client)
+        .await;
     match made {
         Ok(Some(token)) => {
             println!("{name} joined by invite ({client})");
@@ -1016,12 +1010,15 @@ async fn join(
 }
 
 /// Signed in, in no space: how to get into one.
-async fn welcome(State(store): State<Shared>, Extension(signed): Extension<Signed>) -> Response {
-    let store = store.lock().unwrap();
-    if store.spaces_of(signed.user_id).is_ok_and(|s| !s.is_empty()) {
+async fn welcome(State(store): State<Store>, Extension(signed): Extension<Signed>) -> Response {
+    if store
+        .spaces_of(signed.user_id)
+        .await
+        .is_ok_and(|s| !s.is_empty())
+    {
         return Redirect::to("/").into_response();
     }
-    let make = if signed.instance_admin || store.open_spaces() {
+    let make = if signed.instance_admin || store.open_spaces().await {
         r#"<p>Or start your own:</p><form method="post" action="/spaces"><label for="name">Name of your organisation</label><input id="name" name="name" maxlength="60" required placeholder="Fablab Zuid"><button>Make it</button></form>"#
     } else {
         ""
@@ -1042,13 +1039,15 @@ struct SwitchForm {
 }
 
 async fn switch(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Extension(signed): Extension<Signed>,
     Form(form): Form<SwitchForm>,
 ) -> Response {
-    let store = store.lock().unwrap();
-    match store.role_of(signed.user_id, form.space) {
-        Ok(Some(_)) => match store.set_session_space(signed.session_id, form.space) {
+    match store.role_of(signed.user_id, form.space).await {
+        Ok(Some(_)) => match store
+            .set_session_space(signed.user_id, signed.session_id, form.space)
+            .await
+        {
             Ok(()) => StatusCode::NO_CONTENT.into_response(),
             Err(error) => failed(error),
         },
@@ -1066,7 +1065,7 @@ struct NewSpaceForm {
 }
 
 async fn new_space(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Extension(signed): Extension<Signed>,
     access: Option<Extension<Access>>,
     headers: HeaderMap,
@@ -1076,34 +1075,37 @@ async fn new_space(
         Ok(name) => name,
         Err(r) => return *r,
     };
-    let store = store.lock().unwrap();
-    let made = (|| -> rusqlite::Result<Result<i64, &'static str>> {
+    let made: sqlx::Result<Result<i64, &'static str>> = async {
         if form.organisation.as_deref() == Some("this") {
             let Some(Extension(access)) = &access else {
                 return Ok(Err("not in a space"));
             };
-            let organisation = store.organisation_of(access.space)?;
             if store
-                .org_role_of(signed.user_id, organisation)?
+                .org_role_of(signed.user_id, access.space)
+                .await?
                 .is_none_or(|r| r < Role::Admin)
             {
                 return Ok(Err("only an admin of the organisation makes spaces in it"));
             }
-            let space = store.create_space(organisation, &name)?;
-            let _ = store.audit(access, "made a space", &name, "");
+            let space = store.create_space(access.space, &name).await?;
+            let _ = store.audit(access, "made a space", &name, "").await;
             Ok(Ok(space))
         } else {
-            if !(signed.instance_admin || store.open_spaces()) {
+            if !(signed.instance_admin || store.open_spaces().await) {
                 return Ok(Err("only who runs the server makes organisations here"));
             }
             Ok(Ok(store
-                .create_organisation(&name, &name, signed.user_id)?
+                .create_organisation(&name, &name, signed.user_id)
+                .await?
                 .1))
         }
-    })();
+    }
+    .await;
     match made {
         Ok(Ok(space)) => {
-            let _ = store.set_session_space(signed.session_id, space);
+            let _ = store
+                .set_session_space(signed.user_id, signed.session_id, space)
+                .await;
             if headers.contains_key("x-requested-with") {
                 StatusCode::NO_CONTENT.into_response()
             } else {
@@ -1124,7 +1126,7 @@ struct PasswordForm {
 
 /// A new password: the current one first; every other session ends, this one goes on.
 async fn password(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Extension(signed): Extension<Signed>,
     headers: HeaderMap,
     Extension(Client(client)): Extension<Client>,
@@ -1136,7 +1138,7 @@ async fn password(
     if form.new != form.again {
         return (StatusCode::BAD_REQUEST, "the two new passwords differ").into_response();
     }
-    let hash = match store.lock().unwrap().credentials(&signed.name) {
+    let hash = match store.credentials(&signed.name).await {
         Ok(Some(c)) => c.hash,
         Ok(None) => String::new(),
         Err(error) => return failed(error),
@@ -1157,14 +1159,14 @@ async fn password(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_owned();
-    let store = store.lock().unwrap();
     // A new password ends every session; this one is made again.
-    let done = store
-        .set_password(signed.user_id, &new_hash)
-        .and_then(|()| {
-            let space = store.spaces_of(signed.user_id)?.first().map(|s| s.id);
-            store.create_session(signed.user_id, space, &user_agent, &client)
-        });
+    let done: sqlx::Result<String> = async {
+        let space = store.spaces_of(signed.user_id).await?.first().map(|s| s.id);
+        store
+            .change_password(signed.user_id, &new_hash, space, &user_agent, &client)
+            .await
+    }
+    .await;
     match done {
         Ok(token) => {
             let mut response = StatusCode::NO_CONTENT.into_response();
@@ -1183,8 +1185,8 @@ struct OpenForm {
     open: Option<String>,
 }
 
-async fn open_spaces(State(store): State<Shared>, Form(form): Form<OpenForm>) -> Response {
-    match store.lock().unwrap().set_open_spaces(form.open.is_some()) {
+async fn open_spaces(State(store): State<Store>, Form(form): Form<OpenForm>) -> Response {
+    match store.set_open_spaces(form.open.is_some()).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
     }

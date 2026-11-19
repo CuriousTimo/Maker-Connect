@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE machines SET laser_w = $1 WHERE id = $2 AND space_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Float8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d2afeed7ec9aec5824cbffb45f4f59e0d305d94f584f7859662c4fc56b0cd744"
+}

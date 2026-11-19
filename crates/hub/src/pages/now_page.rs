@@ -3,17 +3,16 @@
 //! print-farm-manager's dashboard (MIT), made calmer: colour only where someone should look.
 
 use crate::access::Access;
-use crate::{STYLE, Shared, escape, failed, header};
+use crate::{STYLE, Store, escape, failed, header};
 use axum::{
     Json, Router,
     extract::{Query, State},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
-use rusqlite::params;
 use serde::Deserialize;
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/", get(page))
         .route("/api/jobs/summary", get(summary))
@@ -26,15 +25,8 @@ struct Since {
 }
 
 /// How the space's jobs ended since a moment: for "done today".
-async fn summary(access: Access, State(store): State<Shared>, Query(q): Query<Since>) -> Response {
-    let store = store.lock().unwrap();
-    let counted = store.db.query_row(
-        "SELECT COUNT(*) FILTER (WHERE state = 'finished'), COUNT(*) FILTER (WHERE state = 'failed'),
-                COUNT(*) FILTER (WHERE state = 'stopped')
-         FROM jobs WHERE space_id = ?1 AND ended_at >= ?2",
-        params![access.space, q.since],
-        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)),
-    );
+async fn summary(access: Access, State(store): State<Store>, Query(q): Query<Since>) -> Response {
+    let counted = store.ended_since(access.space, q.since).await;
     match counted {
         Ok((finished, failed, stopped)) => {
             Json(serde_json::json!({ "finished": finished, "failed": failed, "stopped": stopped }))
@@ -44,8 +36,8 @@ async fn summary(access: Access, State(store): State<Shared>, Query(q): Query<Si
     }
 }
 
-async fn page(access: Access, State(store): State<Shared>) -> Response {
-    let name = match store.lock().unwrap().space_name(access.space) {
+async fn page(access: Access, State(store): State<Store>) -> Response {
+    let name = match store.space_name(access.space).await {
         Ok(name) => name,
         Err(error) => return failed(error),
     };

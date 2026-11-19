@@ -184,7 +184,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         upkeep = upkeep_card(machine, extra.manage),
         control = control(machine, profile, &loaded_card(machine, extra)),
         telemetry = telemetry_tab(machine),
-        settings = settings(machine, &extra.move_to, extra.ppe_checks, extra.manage),
+        settings = settings(machine, &extra.move_to, extra.ppe_checks),
         terminal = terminal(machine),
         usb_tab = if machine.link == "prusa-connect" {
             r##"<a href="#usb" role="tab">USB</a>
@@ -1919,7 +1919,7 @@ fn controller(machine: &Machine) -> String {
 /// How a device reaches the hub, the same card for every kind: the way (an agent, its own
 /// firmware, simulated), the agent's computer as it tells, the address its reports come
 /// from, and when the last came.
-fn connection(machine: &Machine, manage: bool) -> String {
+fn connection(machine: &Machine) -> String {
     let way = match machine.link.as_str() {
         "prusa-connect" => "Its own firmware (Prusa Connect)",
         "virtual" => "Virtual: simulated in the hub",
@@ -1982,16 +1982,14 @@ url: ws://…/simplyprint/{token}</pre><p class="hint" data-moonraker-local hidd
     card(
         "Connection",
         "How it reaches the hub",
-        &format!(
-            "<dl>{rows}</dl>{}{moonraker}",
-            agent_update(machine, manage)
-        ),
+        &format!("<dl>{rows}</dl>{}{moonraker}", agent_update(machine)),
     )
 }
 
-/// Updating a machine's agent (crate::updates): how the last went, one asked for, and the
-/// button for who manages the machine.
-fn agent_update(machine: &Machine, manage: bool) -> String {
+/// Updating a machine's agent (crate::updates): how the last went, and one asked for. No button: an
+/// agent hosts machines of several spaces, its update is the instance admin's (design
+/// decisions/20261119-agent-update-by-instance-admin.md).
+fn agent_update(machine: &Machine) -> String {
     let Some(agent) = machine.agent.as_ref().filter(|_| machine.link == "agent") else {
         return String::new();
     };
@@ -2014,16 +2012,11 @@ fn agent_update(machine: &Machine, manage: bool) -> String {
         };
     }
     if !agent.can_update {
-        html += r#"<p class="hint">This agent is from before 0.2.0-beta.2 and cannot update itself. Install the new agent by hand once (Downloads); from then on it updates from here.</p>"#;
+        html += r#"<p class="hint">This agent is from before 0.2.0-beta.2 and cannot update itself. Install the new agent by hand once (Downloads); from then on whoever runs the server updates it from there.</p>"#;
     } else if let Some(to) = &machine.agent_update_to {
         html += &format!(
             r#"<p class="hint">Asked to update to {}: it does so once nothing runs on the machine, and goes back by itself if the new one does not reach the hub.</p>"#,
             escape(to.trim_start_matches("agent-"))
-        );
-    } else if manage {
-        html += &format!(
-            r#"<form method="post" action="{}/agent/update" data-async data-done="Asked: it updates once nothing runs on the machine" data-then="reload"><button class="ghost">Update the agent to the newest release</button></form><p class="hint">The release is checked against Maker Connect's signature, here and by the agent. It updates once nothing runs on the machine, and goes back by itself if the new one does not reach the hub.</p>"#,
-            escape(&machine.id)
         );
     }
     html
@@ -2033,7 +2026,6 @@ pub(crate) fn settings(
     machine: &Machine,
     move_to: &[(String, String)],
     ppe_checks: bool,
-    manage: bool,
 ) -> String {
     let details = machine.details.clone().unwrap_or_default();
     // The profile: chosen from all the machines known, by searching (the shell's picker).
@@ -2233,7 +2225,7 @@ pub(crate) fn settings(
         row("Wi-Fi network", network.wifi_ssid),
     ]
     .concat();
-    let mut info = connection(machine, manage);
+    let mut info = connection(machine);
     info += &controller(machine);
     if !about.is_empty() {
         info += &card(
@@ -2323,19 +2315,16 @@ mod tests {
     }
 
     /// Step 3e, E11: a scale's page has one live line, status then weight and unit, as the scale says them.
-    #[test]
-    fn a_scale_shows_one_live_line() {
-        let mut store = store::Store::open(":memory:").unwrap();
-        let space = store.default_space().unwrap().0;
-        let (id, token, code) = store
-            .register(&maker_connect_protocol::Register {
-                protocol: maker_connect_protocol::VERSION,
-                name: "Postal".into(),
-                kind: maker_connect_protocol::MachineKind::Scale,
-                agent_version: "0.2.0".into(),
-            })
-            .unwrap();
-        store.pair(space, &code).unwrap();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_scale_shows_one_live_line(pool: sqlx::PgPool) {
+        let store = store::Store::for_test(&pool).await;
+        let (space, id, token) = store
+            .register_test_machine("Postal", maker_connect_protocol::MachineKind::Scale)
+            .await;
         let reading = |status: u8, text: &str| maker_connect_protocol::ScaleReading {
             status,
             status_text: text.into(),
@@ -2350,8 +2339,8 @@ mod tests {
             scale: Some(r),
             ..Default::default()
         };
-        store.report(&token, &report(reading(4, ""))).unwrap();
-        let machine = store.machine(space, &id).unwrap().unwrap();
+        store.report(&token, &report(reading(4, ""))).await.unwrap();
+        let machine = store.machine(space, &id).await.unwrap().unwrap();
         let page = overview(&machine, None, "");
         assert!(
             page.contains(r#"<span data-live="scale">123.4 g</span>"#),
@@ -2359,8 +2348,9 @@ mod tests {
         );
         store
             .report(&token, &report(reading(3, "Weighing...")))
+            .await
             .unwrap();
-        let machine = store.machine(space, &id).unwrap().unwrap();
+        let machine = store.machine(space, &id).await.unwrap().unwrap();
         assert!(
             overview(&machine, None, "")
                 .contains(r#"<span data-live="scale">Weighing... · 123.4 g</span>"#)
@@ -2369,23 +2359,16 @@ mod tests {
 
     /// B5: a plain Marlin machine behind an agent (OctoPrint's ways) has OctoPrint's two Home buttons,
     /// X/Y and Z (`control.jinja2:71,85`); a printer on Prusa's MK3 ways keeps its one.
-    #[test]
-    fn b5_a_plain_marlin_machine_has_two_home_buttons() {
-        let store = store::Store::open(":memory:").unwrap();
-        let space = store.default_space().unwrap().0;
-        let register = |name: &str| {
-            let (id, _token, code) = store
-                .register(&maker_connect_protocol::Register {
-                    protocol: maker_connect_protocol::VERSION,
-                    name: name.into(),
-                    kind: maker_connect_protocol::MachineKind::Fdm,
-                    agent_version: "0.2.0".into(),
-                })
-                .unwrap();
-            store.pair(space, &code).unwrap();
-            id
-        };
-        let marlin = store.machine(space, &register("Ender")).unwrap().unwrap();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn b5_a_plain_marlin_machine_has_two_home_buttons(pool: sqlx::PgPool) {
+        let store = store::Store::for_test(&pool).await;
+        let fdm = maker_connect_protocol::MachineKind::Fdm;
+        let (space, ender, _) = store.register_test_machine("Ender", fdm).await;
+        let marlin = store.machine(space, &ender).await.unwrap().unwrap();
         let page = control(&marlin, None, "");
         assert!(
             page.contains(r#"value="home-xy""#) && page.contains(r#"value="home-z""#),
@@ -2393,7 +2376,8 @@ mod tests {
         );
         assert!(!page.contains(r#"value="home""#), "{page}");
         // a Prusa MK3 (its firmware says so) keeps one button
-        let mut mk3 = store.machine(space, &register("MK3")).unwrap().unwrap();
+        let (_, mk3, _) = store.register_test_machine("MK3", fdm).await;
+        let mut mk3 = store.machine(space, &mk3).await.unwrap().unwrap();
         mk3.profile = Some("prusa/mk3s".to_owned());
         let page = control(&mk3, profiles::find("prusa/mk3s"), "");
         assert!(
@@ -2404,21 +2388,16 @@ mod tests {
 
     /// Seen on the MINI (2026-11-08): a print started from its USB stick had no Stop
     /// anywhere. Whatever prints, the hub's job or the printer's own, has Stop.
-    #[test]
-    fn every_print_has_stop() {
-        let mut store = store::Store::open(":memory:").unwrap();
-        let space = store.default_space().unwrap().0;
-        let mini = store
-            .add_virtual(space, profiles::find("prusa/mini").unwrap())
-            .unwrap();
-        let token: String = store
-            .db
-            .query_row("SELECT token FROM machines WHERE id = ?1", [&mini], |r| {
-                r.get(0)
-            })
-            .unwrap();
-        let actions = |store: &store::Store| {
-            let machine = store.machine(space, &mini).unwrap().unwrap();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn every_print_has_stop(pool: sqlx::PgPool) {
+        let store = store::Store::for_test(&pool).await;
+        let (space, mini, token) = store.add_test_machine("prusa/mini", None).await;
+        let actions = async |store: &store::Store| {
+            let machine = store.machine(space, &mini).await.unwrap().unwrap();
             let card = job_card(&machine);
             let form = card
                 .split("<form class=\"job-actions\"")
@@ -2435,8 +2414,8 @@ mod tests {
             state: maker_connect_protocol::MachineState::Idle,
             ..Default::default()
         };
-        store.report(&token, &idle).unwrap();
-        assert!(actions(&store).0.contains("hidden"));
+        store.report(&token, &idle).await.unwrap();
+        assert!(actions(&store).await.0.contains("hidden"));
         // Printing what the printer runs itself (no job of the hub's): Stop shown.
         for state in [
             maker_connect_protocol::MachineState::Busy,
@@ -2454,8 +2433,8 @@ mod tests {
                 }),
                 ..Default::default()
             };
-            store.report(&token, &printing).unwrap();
-            let (form, card) = actions(&store);
+            store.report(&token, &printing).await.unwrap();
+            let (form, card) = actions(&store).await;
             assert!(!form.contains("hidden"), "{state:?}: {form}");
             assert!(card.contains(r#"value="stop""#));
             assert!(card.contains("a print the printer runs itself"));

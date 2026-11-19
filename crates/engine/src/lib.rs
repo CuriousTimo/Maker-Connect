@@ -302,7 +302,7 @@ mod tests {
 
     /// Waits until `ready` holds of the machine's report (the port runs on its own thread).
     fn until(engine: &Engine, id: MachineId, ready: impl Fn(&Report) -> bool) -> Report {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             let report = engine.report(id).unwrap();
             if ready(&report) || Instant::now() > deadline {

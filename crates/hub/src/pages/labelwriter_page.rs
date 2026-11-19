@@ -94,12 +94,7 @@ fn roll_list(profile: Option<&Profile>, chosen: Option<&str>) -> String {
     out
 }
 
-pub fn render(
-    space: &str,
-    machine: &Machine,
-    move_to: &[(String, String)],
-    manage: bool,
-) -> String {
+pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> String {
     let profile = machine.profile.as_deref().and_then(profiles::find);
     let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
     let (state, state_class) = machine_page::shown_state(machine);
@@ -221,7 +216,7 @@ pub fn render(
             .map_or("–".to_owned(), |j| escape(&j.file_name)),
         rolls = roll_list(profile, machine.media.as_deref()),
         roll = roll_json(profile, machine),
-        settings = machine_page::settings(machine, move_to, false, manage),
+        settings = machine_page::settings(machine, move_to, false),
         overview = machine_page::overview(machine, profile, ""),
     )
 }

@@ -154,7 +154,8 @@ HS5a; feeds #11 (job history). Jobs keep their own table; a job's start/pause/st
 - **Tenancy:** `space_id` on every tenant row; **Postgres row-level security** on all tenant tables,
   keyed on `SET LOCAL app.space_id` inside each request's transaction. Cross-space work (instance admin,
   agent token lookup, the history writer) runs as a separate database role with `BYPASSRLS`. RLS is the
-  second wall; the SQL filters stay the first.
+  second wall; the SQL filters stay the first. The roles, the login that owns nothing and the
+  admin pool's allowlist (checked by a test): the design's database.md, "Roles and pools".
 - Door access (doors, badges) is its own module with its own tables and actions; it never grants
   machine actions and machine grants never open doors.
 
@@ -198,16 +199,23 @@ before history is called done. Text values (state names, dialog texts) are event
 
 **Tests on Postgres.** All store tests use `#[sqlx::test]` (fresh database per test, migrations applied).
 Locally: `scripts/dev-db.sh` starts `timescale/timescaledb:2.32.0-pg17` in Docker and sets
-`DATABASE_URL`; `scripts/check.sh` runs it. CI: the Linux jobs (`ci.yml`, matrix `ubuntu-24.04`,
-`ubuntu-24.04-arm`) get the same image as a service container; macOS and Windows jobs run everything
-except store tests (these sit behind a `pg-tests` feature, on in the Linux jobs), since GitHub has no
-service containers there. `cargo sqlx prepare --check` in CI keeps `.sqlx/` current.
+`DATABASE_URL`; `scripts/check.sh` runs it. CI: a job of its own, `store` on `ubuntu-24.04`, gets the
+same image as a service container and runs the store tests (behind a `pg-tests` feature, on there); the
+platform matrix (`ubuntu-24.04`, `ubuntu-24.04-arm`, macOS, Windows) runs everything else and lists the
+store tests as ignored (journal:V2-STORE-1:0008). `cargo sqlx prepare --check` in CI keeps `.sqlx/` current.
 
 **Pi deployment (.67, armhf, 1 GB).** Docker `timescale/timescaledb:2.32.0-pg17` (arm/v7), limits as
 tried (384 MiB, `shared_buffers=64MB`, `work_mem=4MB`, `max_connections=20`), listening on a Unix
 socket or `127.0.0.1` only; AppArmor set up properly instead of `apparmor=unconfined` (study §6);
 volume on disk; nightly `pg_dump` to beside the files dir; the hub binary stays native. Timescale apt
-packages exist for arm64/amd64 only (study §6), so those hosts can skip Docker.
+packages exist for arm64/amd64 only (study §6), so those hosts can skip Docker. Nightly means once a
+day: the hub checks hourly and dumps when the last nightly dump is a day old; there is no fixed time of
+day. Before each self-update the hub takes a dump; going back to the old version restores the database
+from that dump along with the old binary, so changes made after the update started are lost. The hub
+keeps the last 7 dumps of each kind (nightly and pre-update) and deletes older ones; `--keep-dumps`
+changes the number (proxy, journal:V2-STORE-5:0021). The hub's client tools (`pg_dump`, `pg_restore`,
+`psql`) are of the server's version, on `PATH`: on Debian 11 armhf built from PostgreSQL's source; the
+hub gets no Docker rights (journal:V2-STORE-5:0014). How: [docs/pi-hub.md](../pi-hub.md).
 
 ### 2.8 API
 
@@ -272,6 +280,13 @@ Each step ends green (fmt, clippy `-D warnings`, tests, audit checkers) and is r
 | 5 | **Prusa driver, 6.3.0 dialect** in the hub on the contract; then **#2 `buddy-ws`** | `docs/audits/buddy.md` rows still identical for 6.3.0 on the owner's MINI; #2 its own audit, tested on a 6.4+ build (MINI404 if the bench is built) |
 | 6 | **API**: utoipa spec, their 3D-printer REST, ours, Spoolman at `/spoolman/api/v1`, oasdiff in CI | Spec checked in and in sync; tracking test against their server for the 3D-printer paths both serve; Spoolman audit green with base path |
 | 7 | **Web UI on the API**, page by page (Now, machines, machine, files, queue, labels, Space tabs) | No page route changes data; each page's HTML in a template; UI-study states on each page |
+
+**Step 2's tables** (2026-11-18, orchestrator, on-track ON TRACK): step 2 moves today's tables and behaviour
+onto Postgres, with `space_id` and RLS on every tenant table. The tables of §2.7 that only exist for a later
+step come in that step: `action_grants`, `device_groups`, `device_access`, `authz_epoch` and `event`, `sample`
+(step 3); `commands`, `transfers`, `device_capabilities`, `devices.state` (steps 4-5); token scopes and
+generation (step 3). Today's id types stay (integer ids become `bigint`, text ids `text`); uuid v7 comes
+with the API (step 6). Pages and JSON stay byte for byte as they are; timestamps serialise as today.
 
 **Parked:** HS10 (MINI button G-code: owner's choice, lands in the driver after step 5); #2 waits for
 step 5 (the device model first); #4 MK3 PrusaLink HTTP port parked (MK3 to come over `/p/ws`, study §5b);

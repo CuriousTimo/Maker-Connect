@@ -1,14 +1,23 @@
-//! What the hub keeps: spaces and their machines, in one SQLite file. Everything belongs
+//! What the hub keeps: spaces and their machines, on Postgres. Everything belongs
 //! to a space from the start, so the same software can serve one makerspace on a Pi or
 //! many on a hosted service.
 
 use maker_connect_protocol::{MachineKind, Register, Telemetry};
 use rand::Rng;
-use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod machines;
+
+mod pg_machines;
+pub use pg_machines::MoveRefused;
+
+mod pg_files;
+// Jobs on Postgres (lane 3b).
+mod pg_jobs;
+pub(crate) use pg_jobs::JobFacts;
+
+mod pg_settings;
 
 mod commands;
 pub use commands::on_marlin_port;
@@ -17,12 +26,12 @@ mod history;
 
 mod agents;
 
-mod jobs;
-
 mod files;
 
-mod migrate;
-use migrate::{back_up_before_upgrade, migrate};
+pub mod pg;
+
+/// An error from either database while both are in use (transitional, lanes 1-4).
+pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Whether machines on this link take commands from the website (yet).
 pub fn takes_commands(link: &str) -> bool {
@@ -31,6 +40,9 @@ pub fn takes_commands(link: &str) -> bool {
 
 /// Why a laser job is refused when nobody at the laser started it (our UI text).
 pub const LASER_NEVER_ALONE: &str = "a laser starts only when someone at the laser starts it";
+/// Why a job is not put on a file that is gone ([`Store::add_job`]): what main says of a missing
+/// file (`files::find`).
+pub const NO_SUCH_FILE: &str = "no such file";
 
 /// Who starts a job. A laser job is started only by a person, in their own session.
 #[derive(Debug, Clone, Copy)]
@@ -196,6 +208,10 @@ pub struct Machine {
     pub upkeep: Option<crate::farm::Upkeep>,
     /// The build plate on it (`Textured PEI`), as someone said (crate::farm).
     pub sheet: Option<String>,
+    /// Its farm flag as kept, whatever its kind (`farm` shows it for a 3D printer only): the
+    /// project queue's ([`crate::farm`]). Not sent.
+    #[serde(skip)]
+    pub takes_work: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -483,8 +499,164 @@ impl JobState {
     }
 }
 
+/// The store: a cloneable handle on the database (docs/plans/hub-core-v2.md §2.7), the change bus,
+/// and what is kept in memory on purpose (each behind its own small lock).
+///
+/// The folders and what is kept in memory are in [`Legacy`], reached with [`Store::lock`].
+#[derive(Clone)]
 pub struct Store {
-    pub(crate) db: Connection,
+    inner: std::sync::Arc<Inner>,
+}
+
+struct Inner {
+    pg: pg::Pg,
+    /// Where uploaded files are kept (the same folder as [`Legacy::files_dir`]; transitional).
+    files_dir: std::path::PathBuf,
+    legacy: std::sync::Mutex<Legacy>,
+    changes: tokio::sync::broadcast::Sender<()>,
+    /// A vendor, filament or spool added, changed or removed: for Spoolman's WebSockets.
+    spoolman: tokio::sync::broadcast::Sender<SpoolmanEvent>,
+    /// Spoolman's tag readers and scans of this hub (in memory, as Spoolman keeps them).
+    spoolman_scans: std::sync::Arc<crate::spoolman::Scans>,
+    /// While nobody has an account: the code (printed at start) that makes the first one.
+    setup_code: std::sync::Mutex<Option<String>>,
+    /// Failed sign-ins per key (`ip:…`, `name:…`), Unix seconds, for slowing guessing down.
+    failures: std::sync::Mutex<std::collections::HashMap<String, Vec<i64>>>,
+}
+
+impl Store {
+    /// The store over `legacy` (transitional) and Postgres; a setup code while nobody has an account.
+    pub async fn new(legacy: Legacy, pg: pg::Pg) -> Result<Self, sqlx::Error> {
+        let changes = legacy.changes.clone();
+        let store = Self {
+            inner: std::sync::Arc::new(Inner {
+                pg,
+                files_dir: legacy.files_dir.clone(),
+                legacy: std::sync::Mutex::new(legacy),
+                changes,
+                spoolman: tokio::sync::broadcast::channel(256).0,
+                spoolman_scans: Default::default(),
+                setup_code: Default::default(),
+                failures: Default::default(),
+            }),
+        };
+        if !store.has_users().await? {
+            *store.inner.setup_code.lock().unwrap() = Some(crate::accounts::setup_code());
+        }
+        Ok(store)
+    }
+
+    /// The folders beside `path` and the database at `database_url`, migrated.
+    pub async fn open(
+        path: &str,
+        database_url: &str,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let legacy = Legacy::open(path)?;
+        let pg = pg::Pg::connect(database_url).await?;
+        Ok(Self::new(legacy, pg).await?)
+    }
+
+    /// For `#[sqlx::test]`: the test's database, and folders of its own.
+    #[cfg(test)]
+    pub(crate) async fn for_test(pool: &sqlx::PgPool) -> Self {
+        Self::with_legacy(pool, Legacy::open(":memory:").unwrap()).await
+    }
+
+    /// For `#[sqlx::test]`: a new store on the test's database emptied again, as a new hub has it
+    /// (the seed of `accounts/migrations/20261118000100_accounts.sql`): for a test that needs
+    /// several fresh hubs in one run.
+    #[cfg(test)]
+    pub(crate) async fn fresh_for_test(pool: &sqlx::PgPool) -> Self {
+        sqlx::raw_sql(
+            "TRUNCATE meta, organisations, spaces, users, identities, memberships, org_memberships,
+                 sessions, invites, api_tokens, audit_log, machine_grants, machine_groups,
+                 machine_group_members, access_requests, group_grants RESTART IDENTITY CASCADE;
+             INSERT INTO organisations (uid, name, created_at)
+                 VALUES (gen_random_uuid()::text, 'My space', now());
+             INSERT INTO spaces (name, uid, organisation_id)
+                 SELECT 'My space', gen_random_uuid()::text, id FROM organisations;",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        Self::for_test(pool).await
+    }
+
+    /// For `#[sqlx::test]`: the test's database with folders the test made.
+    #[cfg(test)]
+    pub(crate) async fn with_legacy(pool: &sqlx::PgPool, legacy: Legacy) -> Self {
+        Self::new(legacy, pg::Pg::from_pool(pool)).await.unwrap()
+    }
+
+    /// The folders and what is kept in memory.
+    pub fn lock(&self) -> std::sync::LockResult<std::sync::MutexGuard<'_, Legacy>> {
+        self.inner.legacy.lock()
+    }
+
+    pub(crate) fn pg(&self) -> &pg::Pg {
+        &self.inner.pg
+    }
+
+    /// The database closed for this process: whatever of it still runs (a task, an agent's open
+    /// connection) gets an error from now on instead of a connection. For a hub handing over to a new
+    /// build (main), which must not write meanwhile.
+    pub async fn close(&self) {
+        self.inner.pg.close().await;
+    }
+
+    /// Signals each change to a machine from now on (some may be merged into one).
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<()> {
+        self.inner.changes.subscribe()
+    }
+
+    pub(crate) fn changed(&self) {
+        let _ = self.inner.changes.send(());
+    }
+
+    /// Spoolman's changes from now on (crate::spoolman's WebSockets).
+    pub fn subscribe_spoolman(&self) -> tokio::sync::broadcast::Receiver<SpoolmanEvent> {
+        self.inner.spoolman.subscribe()
+    }
+
+    /// Spoolman's tag readers and scans (in memory).
+    pub(crate) fn spoolman_scans(&self) -> std::sync::Arc<crate::spoolman::Scans> {
+        self.inner.spoolman_scans.clone()
+    }
+
+    /// A transaction in `space` that tells what changed once it is committed ([`Work`]).
+    pub async fn work(&self, space: i64) -> sqlx::Result<Work> {
+        Ok(Work {
+            tx: self.pg().space(space).await?,
+            space,
+            events: Vec::new(),
+            changed: false,
+        })
+    }
+
+    /// While nobody has an account: the code that makes the first one.
+    pub fn setup_code(&self) -> Option<String> {
+        self.inner.setup_code.lock().unwrap().clone()
+    }
+
+    /// The setup code, taken: whoever takes it makes the first account.
+    pub(crate) fn take_setup_code(&self) -> Option<String> {
+        self.inner.setup_code.lock().unwrap().take()
+    }
+
+    pub(crate) fn set_setup_code(&self, code: Option<String>) {
+        *self.inner.setup_code.lock().unwrap() = code;
+    }
+
+    /// Failed sign-ins per key, Unix seconds (crate::auth).
+    pub(crate) fn failures(
+        &self,
+    ) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, Vec<i64>>> {
+        self.inner.failures.lock().unwrap()
+    }
+}
+
+/// What the hub keeps beside the database: its folders, and what is kept in memory on purpose.
+pub struct Legacy {
     /// Where uploaded files are kept: `<id>.gcode`, and `<id>.png` for a thumbnail.
     pub files_dir: std::path::PathBuf,
     /// What `/downloads` offers (the agent for each platform): `maker-connect-downloads/`
@@ -524,19 +696,11 @@ pub struct Store {
     pub(crate) laser_framed: std::collections::HashMap<String, String>,
     /// HS7b: lasers on which a Set origin was done since the hub started.
     pub(crate) laser_origin_set: std::collections::HashSet<String>,
-    /// Spoolman's tag readers and scans of this hub (in memory, as Spoolman keeps them).
-    pub(crate) spoolman_scans: std::sync::Arc<crate::spoolman::Scans>,
     next_command: u32,
     /// Temperature history per machine id, oldest first.
     history: std::collections::HashMap<String, std::collections::VecDeque<Sample>>,
     /// A signal whenever a machine changes, for the pages that show them live.
     changes: tokio::sync::broadcast::Sender<()>,
-    /// A vendor, filament or spool added, changed or removed: for Spoolman's WebSockets.
-    spoolman: tokio::sync::broadcast::Sender<SpoolmanEvent>,
-    /// While nobody has an account: the code (printed at start) that makes the first one.
-    pub setup_code: Option<String>,
-    /// Failed sign-ins per key (`ip:…`, `name:…`), Unix seconds, for slowing guessing down.
-    pub(crate) failures: std::collections::HashMap<String, Vec<i64>>,
 }
 
 /// A change to Spoolman's data: `spool` 7 `updated`. A removed one carries what it was.
@@ -550,32 +714,110 @@ pub struct SpoolmanEvent {
     pub was: Option<serde_json::Value>,
 }
 
-impl Store {
-    /// Opens (or creates) the store; a new one gets one space.
-    pub fn open(path: &str) -> rusqlite::Result<Self> {
-        let existed = path != ":memory:" && std::fs::metadata(path).is_ok_and(|m| m.len() > 0);
-        let mut db = Connection::open(path)?;
-        db.execute_batch("PRAGMA journal_mode = WAL;")?;
-        if existed {
-            back_up_before_upgrade(&db, path)?;
+/// A space's transaction on Postgres ([`Store::work`]), with what it changed: the live pages and
+/// Spoolman's WebSockets hear of it once it is committed, so what they read then is there.
+pub struct Work {
+    pub(crate) tx: sqlx::Transaction<'static, sqlx::Postgres>,
+    pub(crate) space: i64,
+    events: Vec<SpoolmanEvent>,
+    changed: bool,
+}
+
+impl Work {
+    /// The transaction's connection, for a query.
+    pub(crate) fn c(&mut self) -> &mut sqlx::PgConnection {
+        &mut self.tx
+    }
+
+    /// `f` in a savepoint: when it fails, what it did is undone and the transaction goes on
+    /// (`None`), as a failed SQLite statement left the others be.
+    pub(crate) async fn or_none<T>(
+        &mut self,
+        f: impl AsyncFnOnce(&mut Self) -> sqlx::Result<T>,
+    ) -> sqlx::Result<Option<T>> {
+        sqlx::query("SAVEPOINT or_none").execute(self.c()).await?;
+        match f(self).await {
+            Ok(value) => {
+                sqlx::query("RELEASE SAVEPOINT or_none")
+                    .execute(self.c())
+                    .await?;
+                Ok(Some(value))
+            }
+            Err(_) => {
+                sqlx::query("ROLLBACK TO SAVEPOINT or_none")
+                    .execute(self.c())
+                    .await?;
+                Ok(None)
+            }
         }
-        let tx = db.transaction()?;
-        migrate(&tx)?;
-        tx.commit()?;
-        // Files beside the database (`maker-connect.db` keeps them in `maker-connect-files/`);
-        // an in-memory store (tests) in a folder of its own.
+    }
+
+    /// Something a live page shows changed.
+    pub(crate) fn changed(&mut self) {
+        self.changed = true;
+    }
+
+    /// Spoolman's data changed: `spool` 7 `updated`, in this space.
+    pub(crate) fn spoolman_event(&mut self, resource: &'static str, kind: &'static str, id: i64) {
+        let space = matches!(resource, "spool" | "filament" | "vendor").then_some(self.space);
+        self.events.push(SpoolmanEvent {
+            space,
+            resource,
+            kind,
+            id,
+            was: None,
+        });
+    }
+
+    /// One of Spoolman's things removed, with what it was.
+    pub(crate) fn spoolman_removed(
+        &mut self,
+        resource: &'static str,
+        id: i64,
+        was: serde_json::Value,
+    ) {
+        self.events.push(SpoolmanEvent {
+            space: Some(self.space),
+            resource,
+            kind: "deleted",
+            id,
+            was: Some(was),
+        });
+    }
+
+    /// Commits, then tells.
+    pub(crate) async fn commit(self, store: &Store) -> sqlx::Result<()> {
+        self.tx.commit().await?;
+        for event in self.events {
+            let _ = store.inner.spoolman.send(event);
+        }
+        if self.changed {
+            store.changed();
+        }
+        Ok(())
+    }
+}
+
+impl Legacy {
+    /// The files folder beside `path` (`maker-connect.db` → `maker-connect-files/`).
+    pub fn files_dir_of(path: &str) -> std::path::PathBuf {
+        let db = std::path::Path::new(path);
+        let stem = db
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("maker-connect");
+        db.with_file_name(format!("{stem}-files"))
+    }
+
+    /// The folders beside `path` (`maker-connect.db` keeps its files in `maker-connect-files/`),
+    /// made when missing; `:memory:` (tests) a folder of its own.
+    pub fn open(path: &str) -> std::io::Result<Self> {
         let files_dir = if path == ":memory:" {
             std::env::temp_dir().join(format!("maker-connect-test-{}", random_id()))
         } else {
-            let db = std::path::Path::new(path);
-            let stem = db
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("maker-connect");
-            db.with_file_name(format!("{stem}-files"))
+            Self::files_dir_of(path)
         };
-        std::fs::create_dir_all(&files_dir)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        std::fs::create_dir_all(&files_dir)?;
         let downloads_dir =
             files_dir.with_file_name(files_dir.file_name().and_then(|n| n.to_str()).map_or(
                 "maker-connect-downloads".to_owned(),
@@ -584,10 +826,8 @@ impl Store {
                         .replace("-test-", "-test-downloads-")
                 },
             ));
-        std::fs::create_dir_all(&downloads_dir)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-        let mut store = Self {
-            db,
+        std::fs::create_dir_all(&downloads_dir)?;
+        let store = Self {
             files_dir,
             downloads_dir,
             commands: Default::default(),
@@ -600,69 +840,19 @@ impl Store {
             own_prints: Default::default(),
             answers: Default::default(),
             own_job_control: Default::default(),
-            spoolman_scans: Default::default(),
             laser_framed: Default::default(),
             laser_origin_set: Default::default(),
             // Ids that do not repeat soon after a restart, as a printer may remember the last.
             next_command: (now() % 1_000_000_000) as u32,
             history: Default::default(),
             changes: tokio::sync::broadcast::channel(16).0,
-            spoolman: tokio::sync::broadcast::channel(256).0,
-            setup_code: None,
-            failures: Default::default(),
         };
-        if !store.has_users()? {
-            store.setup_code = Some(crate::accounts::setup_code());
-        }
         Ok(store)
     }
 
     /// Signals each change to a machine from now on (some may be merged into one).
     pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<()> {
         self.changes.subscribe()
-    }
-
-    /// Spoolman's data changed: `spool` 7 `updated`.
-    pub(crate) fn spoolman_event(&self, resource: &'static str, kind: &'static str, id: i64) {
-        let space = match resource {
-            "spool" | "filament" | "vendor" => self
-                .db
-                .query_row(
-                    &format!("SELECT space_id FROM {resource} WHERE id = ?1"),
-                    [id],
-                    |r| r.get(0),
-                )
-                .ok(),
-            _ => None,
-        };
-        let _ = self.spoolman.send(SpoolmanEvent {
-            space,
-            resource,
-            kind,
-            id,
-            was: None,
-        });
-    }
-
-    /// One of Spoolman's things removed, with what it was.
-    pub(crate) fn spoolman_removed(
-        &self,
-        space: i64,
-        resource: &'static str,
-        id: i64,
-        was: serde_json::Value,
-    ) {
-        let _ = self.spoolman.send(SpoolmanEvent {
-            space: Some(space),
-            resource,
-            kind: "deleted",
-            id,
-            was: Some(was),
-        });
-    }
-
-    pub fn subscribe_spoolman(&self) -> tokio::sync::broadcast::Receiver<SpoolmanEvent> {
-        self.spoolman.subscribe()
     }
 
     pub(crate) fn changed(&self) {
@@ -675,128 +865,125 @@ impl Store {
 mod tests {
     use super::*;
 
-    #[test]
-    fn an_upgrade_backs_up_the_database_first() {
-        let dir = std::env::temp_dir().join(format!("maker-connect-upgrade-{}", random_id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("maker-connect.db");
-        let path = path.to_str().unwrap();
-        let backups = || {
-            std::fs::read_dir(dir.join("maker-connect-backups"))
-                .map(|d| {
-                    d.flatten()
-                        .map(|e| e.file_name().into_string().unwrap())
-                        .collect()
+    /// What fails in a savepoint is `None` and the transaction goes on: so the projects list
+    /// leaves one machine's count of compatible parts empty when it fails, as it did on SQLite.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_failure_in_a_savepoint_leaves_the_rest_going(pool: sqlx::PgPool) {
+        let store = Store::for_test(&pool).await;
+        let (space, _) = store.default_space().await.unwrap();
+        let got = crate::stock::in_space!(&store, space, |w| async {
+            let failed = w
+                .or_none(async |w| {
+                    sqlx::query_scalar::<_, i32>("SELECT 1 / 0")
+                        .fetch_one(w.c())
+                        .await
                 })
-                .unwrap_or_else(|_| Vec::<String>::new())
-        };
-        // A new database: nothing to back up.
-        let id = {
-            let mut store = Store::open(path).unwrap();
-            device(&mut store, 1, "MINI")
-        };
-        assert!(backups().is_empty());
-        // The same build again: no copy either.
-        drop(Store::open(path).unwrap());
-        assert!(backups().is_empty());
-        // As if an older build had it last.
-        Connection::open(path)
-            .unwrap()
-            .execute(
-                "UPDATE meta SET value = '0.0.9' WHERE key = 'opened_by'",
-                [],
-            )
-            .unwrap();
-        let store = Store::open(path).unwrap();
-        let made = backups();
-        assert_eq!(made.len(), 1, "{made:?}");
-        assert!(
-            made[0].ends_with(&format!("-0.0.9-to-{BUILD}.db")),
-            "{made:?}"
-        );
-        // The copy holds the machine, and so does the database itself.
-        let copy = Connection::open(dir.join("maker-connect-backups").join(&made[0])).unwrap();
-        let kept: i64 = copy
-            .query_row("SELECT COUNT(*) FROM machines WHERE id = ?1", [&id], |r| {
-                r.get(0)
-            })
-            .unwrap();
-        assert_eq!(kept, 1);
-        assert!(store.machine(1, &id).unwrap().is_some());
-        drop(store);
-        drop(Store::open(path).unwrap());
-        assert_eq!(backups().len(), 1);
-        std::fs::remove_dir_all(&dir).ok();
+                .await?;
+            let kept = w
+                .or_none(async |w| {
+                    sqlx::query_scalar::<_, i32>("SELECT 2")
+                        .fetch_one(w.c())
+                        .await
+                })
+                .await?;
+            let after: i32 = sqlx::query_scalar("SELECT 3").fetch_one(w.c()).await?;
+            Ok::<_, sqlx::Error>((failed, kept, after))
+        })
+        .await
+        .unwrap();
+        assert_eq!(got, (None, Some(2), 3));
     }
 
-    fn device(store: &mut Store, space: i64, name: &str) -> String {
+    async fn device(store: &Store, space: i64, name: &str) -> String {
         let profile = crate::profiles::find("prusa/mini").unwrap();
-        let id = store.add_virtual(space, profile).unwrap();
-        store.rename(space, &id, name).unwrap();
+        let id = store.add_virtual(space, profile).await.unwrap();
+        store.rename(space, &id, name).await.unwrap();
         id
     }
 
     /// A finished print stays on the bed until taken; a machine out of use says why.
-    #[test]
-    fn a_print_on_the_bed_and_a_machine_out_of_use() {
-        let mut store = Store::open(":memory:").unwrap();
-        let (space, _) = store.default_space().unwrap();
-        let printer = device(&mut store, space, "MINI");
-        store
-            .add_file(
-                space,
-                "f1",
-                "cube.gcode",
-                10,
-                &crate::gcode::FileMeta::default(),
-            )
-            .unwrap();
-        let file = store.file(space, "f1").unwrap().unwrap();
-        let job = store
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_print_on_the_bed_and_a_machine_out_of_use(pool: sqlx::PgPool) {
+        let pg = Store::for_test(&pool).await;
+        let (space, _) = pg.default_space().await.unwrap();
+        let printer = device(&pg, space, "MINI").await;
+        pg.add_file(
+            space,
+            "f1",
+            "cube.gcode",
+            10,
+            &crate::gcode::FileMeta::default(),
+        )
+        .await
+        .unwrap();
+        let file = pg.file(space, "f1").await.unwrap().unwrap();
+        let job = pg
             .add_job(space, &printer, &file, None, StartedBy::Auto { by: None })
+            .await
             .unwrap()
             .unwrap();
-        store.set_job(job, JobState::Printing, None).unwrap();
+        pg.set_job(space, job, JobState::Printing, None)
+            .await
+            .unwrap();
         assert_eq!(
-            store.machine(space, &printer).unwrap().unwrap().on_bed,
+            pg.machine(space, &printer).await.unwrap().unwrap().on_bed,
             None
         );
-        store.set_job(job, JobState::Finished, None).unwrap();
-        let on_bed = store.machine(space, &printer).unwrap().unwrap().on_bed;
+        pg.set_job(space, job, JobState::Finished, None)
+            .await
+            .unwrap();
+        let on_bed = pg.machine(space, &printer).await.unwrap().unwrap().on_bed;
         assert_eq!(on_bed.map(|b| b.file_name), Some("cube.gcode".to_owned()));
-        assert!(store.print_taken(space, &printer).unwrap());
+        assert!(pg.print_taken(space, &printer).await.unwrap());
         assert_eq!(
-            store.machine(space, &printer).unwrap().unwrap().on_bed,
+            pg.machine(space, &printer).await.unwrap().unwrap().on_bed,
             None
         );
-        assert!(!store.print_taken(space, &printer).unwrap());
+        assert!(!pg.print_taken(space, &printer).await.unwrap());
 
         assert!(
-            store
-                .set_out_of_use(space, &printer, Some("nozzle clogged"))
+            pg.set_out_of_use(space, &printer, Some("nozzle clogged"))
+                .await
                 .unwrap()
         );
-        let out = store
+        let out = pg
             .machine(space, &printer)
+            .await
             .unwrap()
             .unwrap()
             .out_of_use
             .unwrap();
         assert_eq!(out.reason, "nozzle clogged");
         assert!(out.since > 0);
-        assert!(store.set_out_of_use(space, &printer, None).unwrap());
+        assert!(pg.set_out_of_use(space, &printer, None).await.unwrap());
         assert_eq!(
-            store.machine(space, &printer).unwrap().unwrap().out_of_use,
+            pg.machine(space, &printer)
+                .await
+                .unwrap()
+                .unwrap()
+                .out_of_use,
             None
         );
     }
 
     /// A finished print counts its filament off the loaded spool; a stopped one its part.
-    #[test]
-    fn a_job_counts_its_filament_off_the_loaded_spool() {
-        let mut store = Store::open(":memory:").unwrap();
-        let (space, _) = store.default_space().unwrap();
-        let printer = device(&mut store, space, "MINI");
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_job_counts_its_filament_off_the_loaded_spool(pool: sqlx::PgPool) {
+        let pg = Store::for_test(&pool).await;
+        let (space, _) = pg.default_space().await.unwrap();
+        let printer = device(&pg, space, "MINI").await;
         let pla = crate::stock::Material {
             id: String::new(),
             kind: "filament".into(),
@@ -818,102 +1005,125 @@ mod tests {
             bed_c: None,
             source: None,
         };
-        let material = store.add_material(space, pla).unwrap();
-        let spool = store
-            .receive(space, &material, 1, None)
+        let material = pg.add_material(space, pla).await.unwrap();
+        let target = pg.machine(space, &printer).await.unwrap();
+        let mut w = pg.work(space).await.unwrap();
+        let spool = w
+            .receive(&material, 1, None)
+            .await
             .unwrap()
             .unwrap()
             .remove(0);
-        store.load_item(space, &spool, &printer).unwrap().unwrap();
+        let media = w.load_item(&spool, target.as_ref()).await.unwrap().unwrap();
+        w.commit(&pg).await.unwrap();
+        if let Some(media) = media {
+            pg.set_media(space, &printer, Some(&media)).await.unwrap();
+        }
         let meta = crate::gcode::FileMeta {
             filament_g: Some(12.5),
             ..crate::gcode::FileMeta::default()
         };
-        store
-            .add_file(space, "f1", "cube.gcode", 10, &meta)
+        pg.add_file(space, "f1", "cube.gcode", 10, &meta)
+            .await
             .unwrap();
-        let file = store.file(space, "f1").unwrap().unwrap();
-        let job = store
+        let file = pg.file(space, "f1").await.unwrap().unwrap();
+        let job = pg
             .add_job(space, &printer, &file, None, StartedBy::Auto { by: None })
+            .await
             .unwrap()
             .unwrap();
-        store.set_job(job, JobState::Printing, None).unwrap();
-        store.set_job(job, JobState::Finished, None).unwrap();
-        let left = store.items(space).unwrap()[0].amount;
+        pg.set_job(space, job, JobState::Printing, None)
+            .await
+            .unwrap();
+        pg.set_job(space, job, JobState::Finished, None)
+            .await
+            .unwrap();
+        let left = pg.items(space).await.unwrap()[0].amount;
         assert_eq!(left, 987.5);
-        let last = &store.movements(space, &spool).unwrap()[0];
+        let last = &pg.movements(space, &spool).await.unwrap()[0];
         assert_eq!(
             (last.kind.as_str(), last.note.as_deref()),
             ("used", Some("job cube.gcode"))
         );
     }
 
-    #[test]
-    fn devices_hang_behind_a_plug_without_loops() {
-        let mut store = Store::open(":memory:").unwrap();
-        let (space, _) = store.default_space().unwrap();
-        let wall = device(&mut store, space, "Wall plug");
-        let strip = device(&mut store, space, "Power strip");
-        let dryer = device(&mut store, space, "Dryer");
-        let lamp = device(&mut store, space, "Lamp");
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn devices_hang_behind_a_plug_without_loops(pool: sqlx::PgPool) {
+        let pg = Store::for_test(&pool).await;
+        let (space, _) = pg.default_space().await.unwrap();
+        let wall = device(&pg, space, "Wall plug").await;
+        let strip = device(&pg, space, "Power strip").await;
+        let dryer = device(&pg, space, "Dryer").await;
+        let lamp = device(&pg, space, "Lamp").await;
         let link = |device: &str, channel| PowerLink {
             device: device.to_owned(),
             channel,
         };
         // Two devices on one channel of the strip, the strip on the wall plug.
         assert_eq!(
-            store
-                .set_powered_by(space, &dryer, Some(&link(&strip, 1)))
+            pg.set_powered_by(space, &dryer, Some(&link(&strip, 1)))
+                .await
                 .unwrap(),
             Ok(())
         );
         assert_eq!(
-            store
-                .set_powered_by(space, &lamp, Some(&link(&strip, 1)))
+            pg.set_powered_by(space, &lamp, Some(&link(&strip, 1)))
+                .await
                 .unwrap(),
             Ok(())
         );
         assert_eq!(
-            store
-                .set_powered_by(space, &strip, Some(&link(&wall, 0)))
+            pg.set_powered_by(space, &strip, Some(&link(&wall, 0)))
+                .await
                 .unwrap(),
             Ok(())
         );
-        let dryer_now = store.machine(space, &dryer).unwrap().unwrap();
+        let dryer_now = pg.machine(space, &dryer).await.unwrap().unwrap();
         assert_eq!(dryer_now.powered_by, Some(link(&strip, 1)));
         // The wall plug behind the dryer would be a loop; so would a device behind itself.
         assert!(
-            store
-                .set_powered_by(space, &wall, Some(&link(&dryer, 0)))
+            pg.set_powered_by(space, &wall, Some(&link(&dryer, 0)))
+                .await
                 .unwrap()
                 .is_err()
         );
         assert!(
-            store
-                .set_powered_by(space, &lamp, Some(&link(&lamp, 0)))
+            pg.set_powered_by(space, &lamp, Some(&link(&lamp, 0)))
+                .await
                 .unwrap()
                 .is_err()
         );
         assert!(
-            store
-                .set_powered_by(space, &lamp, Some(&link("nothing", 0)))
+            pg.set_powered_by(space, &lamp, Some(&link("nothing", 0)))
+                .await
                 .unwrap()
                 .is_err()
         );
         // Off the plug again.
-        assert_eq!(store.set_powered_by(space, &dryer, None).unwrap(), Ok(()));
         assert_eq!(
-            store.machine(space, &dryer).unwrap().unwrap().powered_by,
+            pg.set_powered_by(space, &dryer, None).await.unwrap(),
+            Ok(())
+        );
+        assert_eq!(
+            pg.machine(space, &dryer).await.unwrap().unwrap().powered_by,
             None
         );
     }
 
-    #[test]
-    fn an_agent_behind_the_downloads_is_told() {
-        let mut store = Store::open(":memory:").unwrap();
-        let (space, _) = store.default_space().unwrap();
-        let id = device(&mut store, space, "Dymo");
-        let token = store.virtual_machines().unwrap()[0].1.clone();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn an_agent_behind_the_downloads_is_told(pool: sqlx::PgPool) {
+        let pg = Store::for_test(&pool).await;
+        let (space, _) = pg.default_space().await.unwrap();
+        let id = device(&pg, space, "Dymo").await;
+        let token = pg.virtual_machines().await.unwrap()[0].1.clone();
         let report = |build: &str| Telemetry {
             agent: Some(maker_connect_protocol::AgentInfo {
                 version: "0.1.0".into(),
@@ -922,28 +1132,28 @@ mod tests {
             }),
             ..Telemetry::default()
         };
-        store.report(&token, &report("1d5c84c")).unwrap();
+        pg.report(&token, &report("1d5c84c")).await.unwrap();
         assert_eq!(
-            store.machine(space, &id).unwrap().unwrap().agent_update,
+            pg.machine(space, &id).await.unwrap().unwrap().agent_update,
             None
         );
         std::fs::write(
-            store.downloads_dir.join(".build"),
+            pg.lock().unwrap().downloads_dir.join(".build"),
             "abc1234\n2026-11-04 15:00 UTC\n",
         )
         .unwrap();
         assert_eq!(
-            store
-                .machine(space, &id)
+            pg.machine(space, &id)
+                .await
                 .unwrap()
                 .unwrap()
                 .agent_update
                 .as_deref(),
             Some("abc1234 (2026-11-04 15:00 UTC)")
         );
-        store.report(&token, &report("abc1234")).unwrap();
+        pg.report(&token, &report("abc1234")).await.unwrap();
         assert_eq!(
-            store.machine(space, &id).unwrap().unwrap().agent_update,
+            pg.machine(space, &id).await.unwrap().unwrap().agent_update,
             None
         );
     }

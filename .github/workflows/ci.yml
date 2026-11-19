@@ -26,6 +26,10 @@ jobs:
   check:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # Builds read the checked-in `.sqlx/` cache. The store's tests need Postgres: here they are listed as
+    # ignored (no `pg-tests`); the job `store` below runs them.
+    env:
+      SQLX_OFFLINE: "true"
     strategy:
       fail-fast: false
       matrix:
@@ -76,3 +80,70 @@ jobs:
             target/release/maker-connect-agent.exe
           if-no-files-found: error
           retention-days: 30
+
+  # The store's tests on Postgres (docs/plans/hub-core-v2.md §2.7), in a job of their own on Linux, the one
+  # runner with service containers (journal:V2-STORE-1:0008); the matrix above leaves them ignored.
+  store:
+    name: store (Postgres)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: timescale/timescaledb:2.32.0-pg17
+        env:
+          POSTGRES_PASSWORD: mc-ci
+          # As scripts/dev-db.sh: timescaledb-tune would allow 25, too few for the tests in parallel.
+          TS_TUNE_MAX_CONNS: "100"
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      SQLX_OFFLINE: "true"
+      # The tests' own login, maker_connect_owner (a login in dev and CI only: sqlx::test makes a
+      # database per test); their pools log in as maker_connect_hub (crate::store::pg::Pg::from_pool).
+      DATABASE_URL: postgres://maker_connect_owner:mc-ci@127.0.0.1:5432/mc_test
+      # The operator: the roles, the tests' database and the query cache's database only.
+      SUPERUSER_URL: postgres://postgres:mc-ci@127.0.0.1:5432
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # pg_dump/pg_restore/psql of the server's version (17) for the backup tests (crate::backup): from
+      # PostgreSQL's own apt repository (Ubuntu 24.04 has 16).
+      - name: Serial port headers, PostgreSQL 17 client
+        run: |
+          sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          # The runner's own PostgreSQL 16 comes first on PATH otherwise.
+          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/pg_dump --version | grep -q ' 17\.'
+
+      # As an operator provisions a hub's server (design storage-ops.md): the roles and the restore
+      # template (scripts/db-roles.sql), the database owned by maker_connect_owner.
+      - name: Roles and the tests' database
+        run: |
+          psql "$SUPERUSER_URL/postgres" -q -v ON_ERROR_STOP=1 -v hub_password=mc-ci -v owner_password=mc-ci \
+            -f scripts/db-roles.sql
+          psql "$SUPERUSER_URL/postgres" -q -c "CREATE DATABASE mc_test OWNER maker_connect_owner"
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Store tests
+        run: cargo test -p maker-connect-hub --locked --features pg-tests
+
+      # `.sqlx/` must match the queries: checked against a database with every migration applied.
+      - name: Query cache current
+        shell: bash
+        run: |
+          cargo install sqlx-cli --version 0.9.1 --locked --no-default-features --features rustls,postgres
+          psql "$SUPERUSER_URL/postgres" -q -c "CREATE DATABASE mc_prepare"
+          for f in $(find crates/hub/src -path '*/migrations/*.sql' | awk -F/ '{print $NF "\t" $0}' | sort | cut -f2); do
+            psql "$SUPERUSER_URL/mc_prepare" -q -v ON_ERROR_STOP=1 -f "$f"
+          done
+          cd crates/hub && DATABASE_URL="$SUPERUSER_URL/mc_prepare" SQLX_OFFLINE=false \
+            cargo sqlx prepare --check -- --all-targets --features pg-tests
+

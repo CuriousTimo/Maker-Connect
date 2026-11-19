@@ -1,6 +1,6 @@
 use super::*;
 
-impl Store {
+impl Legacy {
     pub(super) fn sample(&mut self, machine: &str, telemetry: &Telemetry) {
         let t = now();
         let history = self.history.entry(machine.to_owned()).or_default();
@@ -27,13 +27,14 @@ impl Store {
         }
     }
 
-    /// A machine's temperatures over the last half hour, oldest first.
-    pub fn history(&self, space: i64, machine: &str) -> rusqlite::Result<Option<Vec<Sample>>> {
-        Ok(self.machine(space, machine)?.map(|_| {
+    /// A machine's temperatures over the last half hour, oldest first; None when it is not of the
+    /// space (`of_space`, read on Postgres before the lock).
+    pub fn history(&self, of_space: bool, machine: &str) -> Option<Vec<Sample>> {
+        of_space.then(|| {
             self.history
                 .get(machine)
                 .map(|h| h.iter().copied().collect())
                 .unwrap_or_default()
-        }))
+        })
     }
 }

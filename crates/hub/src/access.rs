@@ -18,16 +18,17 @@
 //! The space is the boundary: a request carries one [`Access`], and handlers take the space
 //! from it, nowhere else.
 
-use crate::Shared;
-use crate::accounts::{random_token, token_hash};
-use crate::store::{Store, now};
+use crate::Store;
+use crate::store::{Legacy, now};
+
+mod grants;
 use axum::{
     extract::{FromRequestParts, MatchedPath, RawPathParams, Request, State},
     http::{Method, StatusCode, request::Parts},
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use rusqlite::{OptionalExtension, params};
+pub use grants::Grants;
 use serde::Serialize;
 
 /// A role in a space, from least to most.
@@ -209,13 +210,15 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     // Updating the hub, and asking agents to update (crate::updates).
     ("GET", "/api/update", Need::InstanceAdmin, None),
     ("POST", "/about/update", Need::InstanceAdmin, None),
+    // An agent hosts machines of several spaces: its update is the instance admin's (design
+    // decisions/20261119-agent-update-by-instance-admin.md).
     (
         "POST",
         "/machines/{id}/agent/update",
-        Need::Machine(Level::Manage),
+        Need::InstanceAdmin,
         None,
     ),
-    ("POST", "/agents/update", Need::Role(Role::Admin), None),
+    ("POST", "/agents/update", Need::InstanceAdmin, None),
     // An agent fetching its new build: its token, checked by the route.
     (
         "GET",
@@ -310,14 +313,9 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Machine(Level::Manage),
         Some("labelled"),
     ),
-    // Also needs owner or admin in the space it goes to; the handler checks that, and writes
-    // the audit log of both spaces.
-    (
-        "POST",
-        "/machines/{id}/move",
-        Need::Machine(Level::Manage),
-        None,
-    ),
+    // An instance admin's, and only theirs (design decisions/20261119-device-move.md); the handler
+    // writes the audit log of both spaces.
+    ("POST", "/machines/{id}/move", Need::InstanceAdmin, None),
     (
         "POST",
         "/machines/{id}/remove",
@@ -904,7 +902,7 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         None,
     ),
     // Cameras (crate::cameras, owner 2026-11-16): watching is checked per camera by its
-    // handler (`Store::may_view_camera`); adding, changing and removing take an admin.
+    // handler (`Legacy::may_view_camera`); adding, changing and removing take an admin.
     ("GET", "/cameras", Need::Role(Role::Guest), None),
     ("GET", "/cameras/{id}", Need::Role(Role::Guest), None),
     ("GET", "/cameras/{id}/live", Need::Role(Role::Guest), None),
@@ -945,7 +943,7 @@ pub fn need(method: &Method, route: &str) -> Option<(Need, Option<&'static str>)
 
 /// After the route is matched: what it needs, against who asks; then, for what changed
 /// something, a line in the audit log.
-pub async fn permit(State(store): State<Shared>, request: Request, next: Next) -> Response {
+pub async fn permit(State(store): State<Store>, request: Request, next: Next) -> Response {
     let (mut parts, body) = request.into_parts();
     let params = RawPathParams::from_request_parts(&mut parts, &())
         .await
@@ -993,7 +991,12 @@ pub async fn permit(State(store): State<Shared>, request: Request, next: Next) -
             None => Err((StatusCode::FORBIDDEN, "not in a space")),
         },
         Need::Machine(level) => match (&access, param("id")) {
-            (Some(a), Some(machine)) => match store.lock().unwrap().may(a, &machine, level) {
+            (Some(a), Some(machine)) => match store
+                .grants_for(a, level)
+                .await
+                .map_err(crate::store::BoxError::from)
+                .map(|grants| store.lock().unwrap().may(a, &machine, level, &grants))
+            {
                 Ok(Some(true)) => Ok(()),
                 Ok(Some(false)) => Err((StatusCode::FORBIDDEN, level_refusal(level))),
                 Ok(None) => Err((StatusCode::NOT_FOUND, "no such machine")),
@@ -1014,7 +1017,7 @@ pub async fn permit(State(store): State<Shared>, request: Request, next: Next) -
             .iter()
             .find_map(|k| param(k))
             .unwrap_or_default();
-        let _ = store.lock().unwrap().audit(access, label, &target, "");
+        let _ = store.audit(access, label, &target, "").await;
     }
     response
 }
@@ -1042,20 +1045,20 @@ fn level_refusal(level: Level) -> &'static str {
 /// For a handler whose machine is in the form or the body (printing a file, framing it,
 /// loading a spool): whether this access has `level` on it; the refusal otherwise.
 pub fn check_machine(
-    store: &Store,
+    store: &Legacy,
     access: &Access,
     machine: &str,
     level: Level,
+    grants: &Grants,
 ) -> Result<(), Box<Response>> {
-    match store.may(access, machine, level) {
-        Ok(Some(true)) => Ok(()),
-        Ok(Some(false)) => Err(Box::new(
+    match store.may(access, machine, level, grants) {
+        Some(true) => Ok(()),
+        Some(false) => Err(Box::new(
             (StatusCode::FORBIDDEN, level_refusal(level)).into_response(),
         )),
-        Ok(None) => Err(Box::new(
+        None => Err(Box::new(
             (StatusCode::NOT_FOUND, "no such machine").into_response(),
         )),
-        Err(error) => Err(Box::new(crate::failed(error))),
     }
 }
 
@@ -1167,997 +1170,46 @@ pub const INVITE_SECONDS: i64 = 7 * 24 * 3600;
 /// Prefix of API tokens, so one is recognised when pasted somewhere it should not be.
 pub const TOKEN_PREFIX: &str = "mct_";
 
-impl Store {
-    /// The space a request acts in, with its name: from who asks.
-    pub fn space_of(&self, access: &Access) -> rusqlite::Result<(i64, String)> {
-        Ok((access.space, self.space_name(access.space)?))
-    }
-
-    /// Someone's role in a space: the higher of their role in its organisation (which
-    /// counts in all its spaces) and in the space itself.
-    pub fn role_of(&self, user: i64, space: i64) -> rusqlite::Result<Option<Role>> {
-        let roles: Vec<String> = {
-            let mut q = self.db.prepare(
-                "SELECT role FROM memberships WHERE user_id = ?1 AND space_id = ?2
-                 UNION ALL
-                 SELECT o.role FROM org_memberships o JOIN spaces s ON s.organisation_id = o.organisation_id
-                 WHERE o.user_id = ?1 AND s.id = ?2",
-            )?;
-            q.query_map(params![user, space], |r| r.get(0))?
-                .collect::<rusqlite::Result<_>>()?
-        };
-        Ok(roles.iter().filter_map(|r| Role::parse(r)).max())
-    }
-
-    /// Someone's role in an organisation itself (not through one of its spaces).
-    pub fn org_role_of(&self, user: i64, organisation: i64) -> rusqlite::Result<Option<Role>> {
-        Ok(self
-            .db
-            .query_row(
-                "SELECT role FROM org_memberships WHERE user_id = ?1 AND organisation_id = ?2",
-                params![user, organisation],
-                |r| r.get::<_, String>(0),
-            )
-            .optional()?
-            .and_then(|r| Role::parse(&r)))
-    }
-
-    pub fn organisation_of(&self, space: i64) -> rusqlite::Result<i64> {
-        self.db.query_row(
-            "SELECT organisation_id FROM spaces WHERE id = ?1",
-            [space],
-            |r| r.get(0),
-        )
-    }
-
-    pub fn organisation_name(&self, organisation: i64) -> rusqlite::Result<String> {
-        self.db.query_row(
-            "SELECT name FROM organisations WHERE id = ?1",
-            [organisation],
-            |r| r.get(0),
-        )
-    }
-
-    pub fn rename_organisation(&self, organisation: i64, name: &str) -> rusqlite::Result<()> {
-        self.db.execute(
-            "UPDATE organisations SET name = ?2 WHERE id = ?1",
-            params![organisation, name],
-        )?;
-        Ok(())
-    }
-
-    /// Puts a user in an organisation (all its spaces) with a role, or changes it.
-    pub fn set_org_membership(
-        &self,
-        user: i64,
-        organisation: i64,
-        role: &str,
-    ) -> rusqlite::Result<()> {
-        self.db.execute(
-            "INSERT INTO org_memberships (user_id, organisation_id, role, created_at) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT (user_id, organisation_id) DO UPDATE SET role = excluded.role",
-            params![user, organisation, role, now()],
-        )?;
-        Ok(())
-    }
-
-    /// The spaces a user can be in (through an organisation or of their own), by
-    /// organisation and name, with their role in each.
-    pub fn spaces_of(&self, user: i64) -> rusqlite::Result<Vec<SpaceOf>> {
-        let rows: Vec<(i64, String, String, String, String)> = {
-            let mut q = self.db.prepare(
-                "SELECT s.id, s.uid, s.name, o.name, r.role FROM (
-                     SELECT space_id AS id, role FROM memberships WHERE user_id = ?1
-                     UNION ALL
-                     SELECT s.id, m.role FROM org_memberships m JOIN spaces s ON s.organisation_id = m.organisation_id
-                     WHERE m.user_id = ?1
-                 ) r JOIN spaces s ON s.id = r.id JOIN organisations o ON o.id = s.organisation_id
-                 ORDER BY o.name COLLATE NOCASE, s.name COLLATE NOCASE, s.id",
-            )?;
-            q.query_map([user], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
-            })?
-            .collect::<rusqlite::Result<_>>()?
-        };
-        let mut out: Vec<SpaceOf> = Vec::new();
-        for (id, uid, name, organisation, role) in rows {
-            let Some(role) = Role::parse(&role) else {
-                continue;
-            };
-            match out.iter_mut().find(|s| s.id == id) {
-                Some(seen) => seen.role = seen.role.max(role),
-                None => out.push(SpaceOf {
-                    id,
-                    uid,
-                    name,
-                    organisation,
-                    role,
-                }),
-            }
-        }
-        Ok(out)
-    }
-
-    pub fn space_name(&self, space: i64) -> rusqlite::Result<String> {
-        self.db
-            .query_row("SELECT name FROM spaces WHERE id = ?1", [space], |r| {
-                r.get(0)
-            })
-    }
-
-    /// A space by its id under the hood.
-    pub fn space_by_uid(&self, uid: &str) -> rusqlite::Result<Option<i64>> {
-        self.db
-            .query_row("SELECT id FROM spaces WHERE uid = ?1", [uid], |r| r.get(0))
-            .optional()
-    }
-
-    pub fn space_uid(&self, space: i64) -> rusqlite::Result<String> {
-        self.db
-            .query_row("SELECT uid FROM spaces WHERE id = ?1", [space], |r| {
-                r.get(0)
-            })
-    }
-
-    /// A new space in an organisation.
-    pub fn create_space(&self, organisation: i64, name: &str) -> rusqlite::Result<i64> {
-        self.db.execute(
-            "INSERT INTO spaces (name, uid, organisation_id) VALUES (?1, ?2, ?3)",
-            params![name, crate::accounts::new_uuid(), organisation],
-        )?;
-        Ok(self.db.last_insert_rowid())
-    }
-
-    /// A new organisation with its first space, its maker the owner of both.
-    pub fn create_organisation(
-        &self,
-        name: &str,
-        space_name: &str,
-        owner: i64,
-    ) -> rusqlite::Result<(i64, i64)> {
-        self.db.execute(
-            "INSERT INTO organisations (uid, name, created_at) VALUES (?1, ?2, ?3)",
-            params![crate::accounts::new_uuid(), name, now()],
-        )?;
-        let organisation = self.db.last_insert_rowid();
-        self.set_org_membership(owner, organisation, Role::Owner.as_str())?;
-        let space = self.create_space(organisation, space_name)?;
-        Ok((organisation, space))
-    }
-
-    /// The session goes on in another space.
-    pub fn set_session_space(&self, session: i64, space: i64) -> rusqlite::Result<()> {
-        self.db.execute(
-            "UPDATE sessions SET space_id = ?2 WHERE id = ?1",
-            params![session, space],
-        )?;
-        Ok(())
-    }
-
-    /// Everyone who can be in a space: the organisation's members (in all its spaces), and
-    /// those of this space only; each with the role that counts here.
-    pub fn members(&self, space: i64) -> rusqlite::Result<Vec<Member>> {
-        let rows: Vec<(i64, String, String, String, i64, bool)> = {
-            let mut q = self.db.prepare(
-                "SELECT u.id, u.name, u.display_name, m.role, m.created_at, 1 FROM org_memberships m
-                 JOIN users u ON u.id = m.user_id JOIN spaces s ON s.organisation_id = m.organisation_id
-                 WHERE s.id = ?1
-                 UNION ALL
-                 SELECT u.id, u.name, u.display_name, m.role, m.created_at, 0 FROM memberships m
-                 JOIN users u ON u.id = m.user_id WHERE m.space_id = ?1",
-            )?;
-            q.query_map([space], |r| {
-                Ok((
-                    r.get(0)?,
-                    r.get(1)?,
-                    r.get(2)?,
-                    r.get(3)?,
-                    r.get(4)?,
-                    r.get(5)?,
-                ))
-            })?
-            .collect::<rusqlite::Result<_>>()?
-        };
-        let mut out: Vec<Member> = Vec::new();
-        for (user_id, name, display_name, role, since, whole) in rows {
-            let Some(role) = Role::parse(&role) else {
-                continue;
-            };
-            match out.iter_mut().find(|m| m.user_id == user_id) {
-                Some(seen) => {
-                    if whole {
-                        seen.org_role = Some(role);
-                    } else {
-                        seen.space_role = Some(role);
-                    }
-                    seen.role = seen.role.max(role);
-                }
-                None => out.push(Member {
-                    user_id,
-                    name,
-                    display_name,
-                    role,
-                    org_role: whole.then_some(role),
-                    space_role: (!whole).then_some(role),
-                    since,
-                }),
-            }
-        }
-        out.sort_by_key(|m| m.display_name.to_lowercase());
-        Ok(out)
-    }
-
-    /// Owners of the organisation a space is in.
-    pub fn owners(&self, space: i64) -> rusqlite::Result<i64> {
-        self.db.query_row(
-            "SELECT COUNT(*) FROM org_memberships m JOIN spaces s ON s.organisation_id = m.organisation_id
-             WHERE s.id = ?1 AND m.role = 'owner'",
-            [space],
-            |r| r.get(0),
-        )
-    }
-
-    /// Takes someone out of a space (`whole`: out of its organisation, so of all its
-    /// spaces), with their inductions there; their sessions find another space.
-    pub fn remove_member(&self, space: i64, user: i64, whole: bool) -> rusqlite::Result<bool> {
-        let n = if whole {
-            let organisation = self.organisation_of(space)?;
-            let n = self.db.execute(
-                "DELETE FROM org_memberships WHERE organisation_id = ?1 AND user_id = ?2",
-                params![organisation, user],
-            )?;
-            self.db.execute(
-                "DELETE FROM machine_grants WHERE user_id = ?2
-                     AND space_id IN (SELECT id FROM spaces WHERE organisation_id = ?1)",
-                params![organisation, user],
-            )?;
-            self.db.execute(
-                "DELETE FROM group_grants WHERE user_id = ?2 AND group_id IN (SELECT g.id FROM machine_groups g
-                     JOIN spaces s ON s.id = g.space_id WHERE s.organisation_id = ?1)",
-                params![organisation, user],
-            )?;
-            n
-        } else {
-            let n = self.db.execute(
-                "DELETE FROM memberships WHERE space_id = ?1 AND user_id = ?2",
-                params![space, user],
-            )?;
-            self.db.execute(
-                "DELETE FROM machine_grants WHERE space_id = ?1 AND user_id = ?2",
-                params![space, user],
-            )?;
-            self.db.execute(
-                "DELETE FROM group_grants WHERE user_id = ?2
-                     AND group_id IN (SELECT id FROM machine_groups WHERE space_id = ?1)",
-                params![space, user],
-            )?;
-            n
-        };
-        self.db.execute(
-            "UPDATE sessions SET space_id = NULL WHERE user_id = ?1",
-            [user],
-        )?;
-        Ok(n > 0)
-    }
-
+impl Legacy {
     /// Whether `access` may do `need` with a machine of its space; `None` when the machine is
     /// not in it. Managing it (settings, permissions, removing) is for owners and admins;
     /// using it (jobs, moving, heating) is by permission for everyone, whatever their role:
-    /// being owner does not mean having had the laser course.
+    /// being owner does not mean having had the laser course. `grants`: the person's
+    /// ([`Store::grants_of`], read before the lock); [`Store::grants_for`] for view and manage.
     pub fn may(
         &self,
         access: &Access,
         machine: &str,
         need: Level,
-    ) -> rusqlite::Result<Option<bool>> {
-        let Some(level) = self.machine_level(access, machine)? else {
-            return Ok(None);
-        };
-        Ok(Some(match need {
+        grants: &Grants,
+    ) -> Option<bool> {
+        debug_assert!(
+            grants.read() || matches!(need, Level::View | Level::Manage),
+            "use and operate depend on grants: read them first"
+        );
+        let level = self.level_with(access, machine, grants)?;
+        Some(match need {
             Level::Manage => access.role >= Role::Admin,
             _ => level >= need,
-        }))
+        })
     }
 
     /// What `access` may do with a machine of its space as a user of it: view, use, operate
-    /// (managing is [`Store::may`]'s, by role); `None` when the machine is not in it.
-    pub fn machine_level(&self, access: &Access, machine: &str) -> rusqlite::Result<Option<Level>> {
-        let found: Option<bool> = self
-            .db
-            .query_row(
-                "SELECT induction_required FROM machines WHERE id = ?1 AND space_id = ?2",
-                params![machine, access.space],
-                |r| r.get(0),
-            )
-            .optional()?;
-        let Some(induction) = found else {
-            return Ok(None);
-        };
-        Ok(Some(match access.role {
+    /// (managing is [`Legacy::may`]'s, by role); `None` when the machine is not in it.
+    pub fn machine_level(&self, access: &Access, machine: &str, grants: &Grants) -> Option<Level> {
+        debug_assert!(grants.read(), "a level depends on grants: read them first");
+        self.level_with(access, machine, grants)
+    }
+
+    fn level_with(&self, access: &Access, machine: &str, grants: &Grants) -> Option<Level> {
+        let induction = grants.machine(machine).map(|m| m.induction_required != 0)?;
+        Some(match access.role {
             Role::Guest => Level::View,
             _ if !induction => Level::Operate,
-            _ => self
-                .grant_of(machine, access.user_id)?
-                .unwrap_or(Level::View),
-        }))
-    }
-
-    /// A member's permission on a machine, while it lasts: given on the machine, or on a
-    /// group it is in; the highest counts.
-    fn grant_of(&self, machine: &str, user: i64) -> rusqlite::Result<Option<Level>> {
-        let mut q = self.db.prepare(
-            "SELECT level FROM machine_grants WHERE machine_id = ?1 AND user_id = ?2
-                 AND (expires_at IS NULL OR expires_at > ?3)
-             UNION ALL
-             SELECT g.level FROM group_grants g JOIN machine_group_members m ON m.group_id = g.group_id
-             WHERE m.machine_id = ?1 AND g.user_id = ?2 AND (g.expires_at IS NULL OR g.expires_at > ?3)",
-        )?;
-        let levels = q.query_map(params![machine, user, now()], |r| r.get::<_, String>(0))?;
-        Ok(levels.flatten().filter_map(|l| Level::parse(&l)).max())
-    }
-
-    /// The machine groups of a space, with their machines and who has permission on them.
-    pub fn groups(&self, space: i64) -> rusqlite::Result<Vec<Group>> {
-        let heads: Vec<(i64, String)> = {
-            let mut q = self.db.prepare(
-                "SELECT id, name FROM machine_groups WHERE space_id = ?1 ORDER BY name COLLATE NOCASE",
-            )?;
-            q.query_map([space], |r| Ok((r.get(0)?, r.get(1)?)))?
-                .collect::<rusqlite::Result<_>>()?
-        };
-        let mut groups = Vec::new();
-        for (id, name) in heads {
-            let machines = {
-                let mut q = self.db.prepare(
-                    "SELECT m.id, m.name FROM machine_group_members gm JOIN machines m ON m.id = gm.machine_id
-                     WHERE gm.group_id = ?1 AND m.space_id = ?2 ORDER BY m.name COLLATE NOCASE",
-                )?;
-                q.query_map(params![id, space], |r| Ok((r.get(0)?, r.get(1)?)))?
-                    .collect::<rusqlite::Result<_>>()?
-            };
-            let grants = {
-                let mut q = self.db.prepare(
-                    "SELECT g.user_id, u.display_name, g.level, b.display_name, g.granted_at, g.expires_at
-                     FROM group_grants g JOIN users u ON u.id = g.user_id
-                     LEFT JOIN users b ON b.id = g.granted_by
-                     WHERE g.group_id = ?1 ORDER BY u.display_name COLLATE NOCASE",
-                )?;
-                q.query_map([id], |r| {
-                    Ok(Grant {
-                        user_id: r.get(0)?,
-                        display_name: r.get(1)?,
-                        level: Level::parse(&r.get::<_, String>(2)?).unwrap_or(Level::View),
-                        by: r.get(3)?,
-                        granted_at: r.get(4)?,
-                        expires_at: r.get(5)?,
-                    })
-                })?
-                .collect::<rusqlite::Result<_>>()?
-            };
-            groups.push(Group {
-                id,
-                name,
-                machines,
-                grants,
-            });
-        }
-        Ok(groups)
-    }
-
-    /// A new group of machines; `kind` fills it with the space's machines of that kind (fdm,
-    /// laser, label), or with all of them (`all`).
-    pub fn create_group(
-        &self,
-        space: i64,
-        name: &str,
-        kind: Option<&str>,
-    ) -> rusqlite::Result<i64> {
-        self.db.execute(
-            "INSERT INTO machine_groups (space_id, name, created_at) VALUES (?1, ?2, ?3)",
-            params![space, name, now()],
-        )?;
-        let id = self.db.last_insert_rowid();
-        if kind == Some("all") {
-            self.db.execute(
-                "INSERT OR IGNORE INTO machine_group_members (group_id, machine_id)
-                 SELECT ?1, id FROM machines WHERE space_id = ?2",
-                params![id, space],
-            )?;
-        } else if let Some(kind) = kind {
-            // The kind is kept as JSON: "fdm", with its quotes.
-            self.db.execute(
-                "INSERT OR IGNORE INTO machine_group_members (group_id, machine_id)
-                 SELECT ?1, id FROM machines WHERE space_id = ?2 AND kind = ?3",
-                params![id, space, format!("\"{kind}\"")],
-            )?;
-        }
-        Ok(id)
-    }
-
-    /// What the audit log says of a person and a machine: their names.
-    pub fn names_for_log(&self, user: Option<i64>, machine: Option<&str>) -> (String, String) {
-        let user = user
-            .and_then(|u| {
-                self.db
-                    .query_row("SELECT display_name FROM users WHERE id = ?1", [u], |r| {
-                        r.get(0)
-                    })
-                    .ok()
-            })
-            .unwrap_or_default();
-        let machine = machine
-            .and_then(|m| {
-                self.db
-                    .query_row("SELECT name FROM machines WHERE id = ?1", [m], |r| r.get(0))
-                    .ok()
-            })
-            .unwrap_or_default();
-        (user, machine)
-    }
-
-    /// A group's name, when it is of the space.
-    pub fn group_name(&self, space: i64, group: i64) -> rusqlite::Result<Option<String>> {
-        self.db
-            .query_row(
-                "SELECT name FROM machine_groups WHERE id = ?1 AND space_id = ?2",
-                params![group, space],
-                |r| r.get(0),
-            )
-            .optional()
-    }
-
-    pub fn remove_group(&self, space: i64, group: i64) -> rusqlite::Result<bool> {
-        if self.group_name(space, group)?.is_none() {
-            return Ok(false);
-        }
-        self.db
-            .execute("DELETE FROM group_grants WHERE group_id = ?1", [group])?;
-        self.db.execute(
-            "DELETE FROM machine_group_members WHERE group_id = ?1",
-            [group],
-        )?;
-        self.db
-            .execute("DELETE FROM machine_groups WHERE id = ?1", [group])?;
-        Ok(true)
-    }
-
-    /// Puts a machine of the space in a group of it, or takes it out.
-    pub fn set_group_machine(
-        &self,
-        space: i64,
-        group: i64,
-        machine: &str,
-        member: bool,
-    ) -> rusqlite::Result<bool> {
-        let machine_here: bool = self.db.query_row(
-            "SELECT COUNT(*) FROM machines WHERE id = ?1 AND space_id = ?2",
-            params![machine, space],
-            |r| r.get(0),
-        )?;
-        if self.group_name(space, group)?.is_none() || !machine_here {
-            return Ok(false);
-        }
-        if member {
-            self.db.execute(
-                "INSERT OR IGNORE INTO machine_group_members (group_id, machine_id) VALUES (?1, ?2)",
-                params![group, machine],
-            )?;
-        } else {
-            self.db.execute(
-                "DELETE FROM machine_group_members WHERE group_id = ?1 AND machine_id = ?2",
-                params![group, machine],
-            )?;
-        }
-        Ok(true)
-    }
-
-    /// Gives a member permission on every machine of a group (or changes it).
-    pub fn set_group_grant(
-        &self,
-        group: i64,
-        user: i64,
-        level: Level,
-        by: i64,
-        expires_at: Option<i64>,
-    ) -> rusqlite::Result<()> {
-        self.db.execute(
-            "INSERT INTO group_grants (group_id, user_id, level, granted_by, granted_at, expires_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT (group_id, user_id) DO UPDATE SET level = excluded.level,
-                 granted_by = excluded.granted_by, granted_at = excluded.granted_at,
-                 expires_at = excluded.expires_at",
-            params![group, user, level.as_str(), by, now(), expires_at],
-        )?;
-        Ok(())
-    }
-
-    pub fn remove_group_grant(&self, group: i64, user: i64) -> rusqlite::Result<bool> {
-        Ok(self.db.execute(
-            "DELETE FROM group_grants WHERE group_id = ?1 AND user_id = ?2",
-            params![group, user],
-        )? > 0)
-    }
-
-    /// Whether a machine's permission is a training (it needs training, not only permission).
-    pub fn needs_training(&self, space: i64, machine: &str) -> rusqlite::Result<bool> {
-        Ok(self
-            .db
-            .query_row(
-                "SELECT induction_required = 2 FROM machines WHERE id = ?1 AND space_id = ?2",
-                params![machine, space],
-                |r| r.get(0),
-            )
-            .optional()?
-            .unwrap_or(false))
-    }
-
-    /// Open to every member (0), needs permission (1), or needs training (2).
-    pub fn set_access_mode(
-        &mut self,
-        space: i64,
-        machine: &str,
-        mode: u8,
-    ) -> rusqlite::Result<bool> {
-        let n = self.db.execute(
-            "UPDATE machines SET induction_required = ?3 WHERE id = ?1 AND space_id = ?2",
-            params![machine, space, mode.min(2)],
-        )?;
-        self.changed();
-        Ok(n > 0)
-    }
-
-    /// Someone asks the staff for permission on a machine: false when they asked already
-    /// and nobody answered yet.
-    pub fn ask_permission(&self, space: i64, user: i64, machine: &str) -> rusqlite::Result<bool> {
-        if self.asked(user, machine)?.is_some() {
-            return Ok(false);
-        }
-        self.db.execute(
-            "INSERT INTO access_requests (space_id, user_id, machine_id, asked_at) VALUES (?1, ?2, ?3, ?4)",
-            params![space, user, machine, now()],
-        )?;
-        Ok(true)
-    }
-
-    /// When someone asked for a machine, while nobody answered.
-    pub fn asked(&self, user: i64, machine: &str) -> rusqlite::Result<Option<i64>> {
-        self.db
-            .query_row(
-                "SELECT asked_at FROM access_requests WHERE user_id = ?1 AND machine_id = ?2 AND state = 'open'",
-                params![user, machine],
-                |r| r.get(0),
-            )
-            .optional()
-    }
-
-    /// A space's open requests, oldest first.
-    pub fn requests(&self, space: i64) -> rusqlite::Result<Vec<AskedFor>> {
-        let mut q = self.db.prepare(
-            "SELECT r.id, r.user_id, u.display_name, r.machine_id, m.name, m.induction_required = 2, r.asked_at
-             FROM access_requests r JOIN users u ON u.id = r.user_id JOIN machines m ON m.id = r.machine_id
-             WHERE r.space_id = ?1 AND m.space_id = ?1 AND r.state = 'open' ORDER BY r.asked_at",
-        )?;
-        q.query_map([space], |r| {
-            Ok(AskedFor {
-                id: r.get(0)?,
-                user_id: r.get(1)?,
-                who: r.get(2)?,
-                machine_id: r.get(3)?,
-                machine: r.get(4)?,
-                training: r.get(5)?,
-                asked_at: r.get(6)?,
-            })
-        })?
-        .collect()
-    }
-
-    /// Answers a request: given (`use` on the machine) or declined. The request, if it was
-    /// open and of the space.
-    pub fn answer_request(
-        &self,
-        space: i64,
-        id: i64,
-        give: bool,
-        by: i64,
-    ) -> rusqlite::Result<Option<AskedFor>> {
-        let Some(request) = self.requests(space)?.into_iter().find(|r| r.id == id) else {
-            return Ok(None);
-        };
-        if give {
-            self.set_grant(
-                space,
-                &request.machine_id,
-                request.user_id,
-                Level::Use,
-                by,
-                None,
-            )?;
-        }
-        self.db.execute(
-            "UPDATE access_requests SET state = ?2, handled_by = ?3, handled_at = ?4 WHERE id = ?1",
-            params![id, if give { "given" } else { "declined" }, by, now()],
-        )?;
-        Ok(Some(request))
-    }
-
-    pub fn induction_required(&self, space: i64, machine: &str) -> rusqlite::Result<bool> {
-        Ok(self
-            .db
-            .query_row(
-                "SELECT induction_required FROM machines WHERE id = ?1 AND space_id = ?2",
-                params![machine, space],
-                |r| r.get(0),
-            )
-            .optional()?
-            .unwrap_or(false))
-    }
-
-    pub fn set_induction_required(
-        &mut self,
-        space: i64,
-        machine: &str,
-        on: bool,
-    ) -> rusqlite::Result<bool> {
-        let n = self.db.execute(
-            "UPDATE machines SET induction_required = ?3 WHERE id = ?1 AND space_id = ?2",
-            params![machine, space, on],
-        )?;
-        self.changed();
-        Ok(n > 0)
-    }
-
-    pub fn grants(&self, space: i64, machine: &str) -> rusqlite::Result<Vec<Grant>> {
-        let mut q = self.db.prepare(
-            "SELECT g.user_id, u.display_name, g.level, b.display_name, g.granted_at, g.expires_at
-             FROM machine_grants g JOIN users u ON u.id = g.user_id
-             LEFT JOIN users b ON b.id = g.granted_by
-             WHERE g.space_id = ?1 AND g.machine_id = ?2 ORDER BY u.display_name COLLATE NOCASE",
-        )?;
-        let rows = q.query_map(params![space, machine], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, Option<String>>(3)?,
-                r.get::<_, i64>(4)?,
-                r.get::<_, Option<i64>>(5)?,
-            ))
-        })?;
-        Ok(rows
-            .flatten()
-            .filter_map(
-                |(user_id, display_name, level, by, granted_at, expires_at)| {
-                    Some(Grant {
-                        user_id,
-                        display_name,
-                        level: Level::parse(&level)?,
-                        by,
-                        granted_at,
-                        expires_at,
-                    })
-                },
-            )
-            .collect())
-    }
-
-    /// Gives a member of the space an induction on a machine of it (or changes it).
-    pub fn set_grant(
-        &self,
-        space: i64,
-        machine: &str,
-        user: i64,
-        level: Level,
-        by: i64,
-        expires_at: Option<i64>,
-    ) -> rusqlite::Result<()> {
-        self.db.execute(
-            "INSERT INTO machine_grants (space_id, machine_id, user_id, level, granted_by, granted_at, expires_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT (machine_id, user_id) DO UPDATE SET level = excluded.level,
-                 granted_by = excluded.granted_by, granted_at = excluded.granted_at,
-                 expires_at = excluded.expires_at",
-            params![space, machine, user, level.as_str(), by, now(), expires_at],
-        )?;
-        Ok(())
-    }
-
-    pub fn remove_grant(&self, space: i64, machine: &str, user: i64) -> rusqlite::Result<bool> {
-        Ok(self.db.execute(
-            "DELETE FROM machine_grants WHERE space_id = ?1 AND machine_id = ?2 AND user_id = ?3",
-            params![space, machine, user],
-        )? > 0)
-    }
-
-    /// A new invite link into a space; the token for its address (only its hash is kept).
-    pub fn create_invite(
-        &self,
-        space: i64,
-        role: Role,
-        by: i64,
-        whole_organisation: bool,
-    ) -> rusqlite::Result<String> {
-        let token = random_token();
-        self.db.execute(
-            "INSERT INTO invites (token_hash, space_id, role, created_by, created_at, expires_at, whole_organisation)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![token_hash(&token), space, role.as_str(), by, now(), now() + INVITE_SECONDS, whole_organisation],
-        )?;
-        Ok(token)
-    }
-
-    fn invites_where(
-        &self,
-        filter: &str,
-        value: &dyn rusqlite::ToSql,
-    ) -> rusqlite::Result<Vec<Invite>> {
-        let mut q = self.db.prepare(&format!(
-            "SELECT i.id, i.space_id, s.name, i.role, b.display_name, i.created_at, i.expires_at,
-                 u.display_name, i.revoked, i.whole_organisation
-             FROM invites i JOIN spaces s ON s.id = i.space_id JOIN users b ON b.id = i.created_by
-             LEFT JOIN users u ON u.id = i.used_by WHERE {filter} ORDER BY i.created_at DESC"
-        ))?;
-        let rows = q.query_map([value], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, String>(4)?,
-                r.get::<_, i64>(5)?,
-                r.get::<_, i64>(6)?,
-                r.get::<_, Option<String>>(7)?,
-                r.get::<_, bool>(8)?,
-                r.get::<_, bool>(9)?,
-            ))
-        })?;
-        Ok(rows
-            .flatten()
-            .filter_map(
-                |(
-                    id,
-                    space,
-                    space_name,
-                    role,
-                    by,
-                    created_at,
-                    expires_at,
-                    used_by,
-                    revoked,
-                    whole_organisation,
-                )| {
-                    Some(Invite {
-                        id,
-                        space,
-                        space_name,
-                        role: Role::parse(&role)?,
-                        by,
-                        created_at,
-                        expires_at,
-                        used_by,
-                        revoked,
-                        whole_organisation,
-                    })
-                },
-            )
-            .collect())
-    }
-
-    /// A space's invite links, newest first.
-    pub fn invites(&self, space: i64) -> rusqlite::Result<Vec<Invite>> {
-        self.invites_where("i.space_id = ?1", &space)
-    }
-
-    /// The invite an address's token is for, open or not.
-    pub fn invite(&self, token: &str) -> rusqlite::Result<Option<Invite>> {
-        Ok(self
-            .invites_where("i.token_hash = ?1", &token_hash(token))?
-            .into_iter()
-            .next())
-    }
-
-    pub fn revoke_invite(&self, space: i64, id: i64) -> rusqlite::Result<bool> {
-        Ok(self.db.execute(
-            "UPDATE invites SET revoked = 1 WHERE id = ?1 AND space_id = ?2",
-            params![id, space],
-        )? > 0)
-    }
-
-    /// Uses an open invite: the user joins its space with its role (or keeps a higher one).
-    /// False when it was taken meanwhile.
-    pub fn use_invite(&self, invite: &Invite, user: i64) -> rusqlite::Result<bool> {
-        let taken = self.db.execute(
-            "UPDATE invites SET used_by = ?2, used_at = ?3
-             WHERE id = ?1 AND used_by IS NULL AND revoked = 0 AND expires_at > ?3",
-            params![invite.id, user, now()],
-        )?;
-        if taken == 0 {
-            return Ok(false);
-        }
-        if invite.whole_organisation {
-            let organisation = self.organisation_of(invite.space)?;
-            if self
-                .org_role_of(user, organisation)?
-                .is_none_or(|r| r < invite.role)
-            {
-                self.set_org_membership(user, organisation, invite.role.as_str())?;
-            }
-        } else if self
-            .role_of(user, invite.space)?
-            .is_none_or(|r| r < invite.role)
-        {
-            self.set_membership(user, invite.space, invite.role.as_str())?;
-        }
-        Ok(true)
-    }
-
-    /// A new API token of a space; the secret, to show once (only its hash is kept).
-    pub fn create_token(
-        &self,
-        space: i64,
-        by: i64,
-        name: &str,
-        role: Role,
-    ) -> rusqlite::Result<String> {
-        let token = format!("{TOKEN_PREFIX}{}", random_token());
-        self.db.execute(
-            "INSERT INTO api_tokens (token_hash, space_id, created_by, name, role, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![token_hash(&token), space, by, name, role.as_str(), now()],
-        )?;
-        Ok(token)
-    }
-
-    pub fn tokens(&self, space: i64) -> rusqlite::Result<Vec<Token>> {
-        let mut q = self.db.prepare(
-            "SELECT t.id, t.name, t.role, u.display_name, t.created_at, t.last_used
-             FROM api_tokens t JOIN users u ON u.id = t.created_by
-             WHERE t.space_id = ?1 AND t.revoked = 0 ORDER BY t.created_at DESC",
-        )?;
-        let rows = q.query_map([space], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, i64>(4)?,
-                r.get::<_, Option<i64>>(5)?,
-            ))
-        })?;
-        Ok(rows
-            .flatten()
-            .filter_map(|(id, name, role, by, created_at, last_used)| {
-                Some(Token {
-                    id,
-                    name,
-                    role: Role::parse(&role)?,
-                    by,
-                    created_at,
-                    last_used,
-                })
-            })
-            .collect())
-    }
-
-    pub fn revoke_token(&self, space: i64, id: i64) -> rusqlite::Result<bool> {
-        Ok(self.db.execute(
-            "UPDATE api_tokens SET revoked = 1 WHERE id = ?1 AND space_id = ?2",
-            params![id, space],
-        )? > 0)
-    }
-
-    /// Who an API token acts for: its space, its role (never more than its maker has there
-    /// now; a maker who left the space takes the token's rights with them).
-    pub fn token_access(&self, token: &str) -> rusqlite::Result<Option<Access>> {
-        let found = self
-            .db
-            .query_row(
-                "SELECT t.id, t.space_id, t.role, t.name, t.created_by, t.last_used
-                 FROM api_tokens t
-                 JOIN users u ON u.id = t.created_by AND u.disabled = 0
-                 WHERE t.token_hash = ?1 AND t.revoked = 0",
-                [token_hash(token)],
-                |r| {
-                    Ok((
-                        r.get::<_, i64>(0)?,
-                        r.get::<_, i64>(1)?,
-                        r.get::<_, String>(2)?,
-                        r.get::<_, String>(3)?,
-                        r.get::<_, i64>(4)?,
-                        r.get::<_, Option<i64>>(5)?,
-                    ))
-                },
-            )
-            .optional()?;
-        let Some((id, space, role, name, user, last_used)) = found else {
-            return Ok(None);
-        };
-        // The maker's role there now, through the organisation or the space.
-        let (Some(role), Some(maker_role)) = (Role::parse(&role), self.role_of(user, space)?)
-        else {
-            return Ok(None);
-        };
-        if last_used.is_none_or(|t| now() - t >= 60) {
-            self.db.execute(
-                "UPDATE api_tokens SET last_used = ?2 WHERE id = ?1",
-                params![id, now()],
-            )?;
-        }
-        Ok(Some(Access {
-            user_id: user,
-            actor: format!("token \"{name}\""),
-            space,
-            role: role.min(maker_role),
-            token_id: Some(id),
-            session_id: None,
-            instance_admin: false,
-        }))
-    }
-
-    /// A line in a space's audit log.
-    pub fn audit(
-        &self,
-        access: &Access,
-        action: &str,
-        target: &str,
-        detail: &str,
-    ) -> rusqlite::Result<()> {
-        let detail: String = detail.chars().take(500).collect();
-        self.db.execute(
-            "INSERT INTO audit_log (space_id, at, user_id, token_id, actor, action, target, detail)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                access.space,
-                now(),
-                access.user_id,
-                access.token_id,
-                access.actor,
-                action,
-                target,
-                detail
-            ],
-        )?;
-        Ok(())
-    }
-
-    /// A space's audit log, newest first; a machine's id as its name where it still has one.
-    pub fn audit_log(&self, space: i64, limit: usize) -> rusqlite::Result<Vec<AuditLine>> {
-        let mut q = self.db.prepare(
-            "SELECT a.at, a.actor, a.action,
-                 COALESCE(m.name, a.target), a.detail
-             FROM audit_log a LEFT JOIN machines m ON m.id = a.target AND m.space_id = a.space_id
-             WHERE a.space_id = ?1 ORDER BY a.at DESC, a.id DESC LIMIT ?2",
-        )?;
-        let rows = q.query_map(params![space, limit as i64], |r| {
-            Ok(AuditLine {
-                at: r.get(0)?,
-                actor: r.get(1)?,
-                action: r.get(2)?,
-                target: r.get(3)?,
-                detail: r.get(4)?,
-            })
-        })?;
-        rows.collect()
-    }
-
-    /// Whether anyone signed in may make a space (a hosted service), or only who runs the
-    /// server (the default).
-    pub fn open_spaces(&self) -> bool {
-        self.db
-            .query_row(
-                "SELECT value FROM meta WHERE key = 'open_spaces'",
-                [],
-                |r| r.get::<_, String>(0),
-            )
-            .is_ok_and(|v| v == "1")
-    }
-
-    pub fn set_open_spaces(&self, on: bool) -> rusqlite::Result<()> {
-        self.db.execute(
-            "INSERT INTO meta (key, value) VALUES ('open_spaces', ?1)
-             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-            [if on { "1" } else { "0" }],
-        )?;
-        Ok(())
+            // A member's permission on a machine, while it lasts: given on the machine, or on a
+            // group it is in; the highest counts.
+            _ => grants.of(machine).unwrap_or(Level::View),
+        })
     }
 }
 
@@ -2187,12 +1239,12 @@ pub(crate) fn route_sources() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::Store;
+
     use axum::Router;
     use axum::body::Body;
     use axum::http::Request as HttpRequest;
     use http_body_util::BodyExt;
-    use std::sync::{Arc, Mutex};
+
     use tower::ServiceExt;
 
     /// Every route that changes something has a rule; none falls to "refused" by mistake
@@ -2236,33 +1288,39 @@ mod tests {
     }
 
     struct World {
-        store: Shared,
+        store: Store,
         app: Router,
     }
 
     impl World {
-        fn new() -> Self {
-            let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+        async fn new(pool: &sqlx::PgPool) -> Self {
+            let store = Store::for_test(pool).await;
             let app = crate::app(store.clone());
             World { store, app }
         }
 
         /// A user in an organisation (or in one space only) with a role; their cookie.
-        fn person(
+        async fn person(
             &self,
             name: &str,
             org: Option<(i64, Role)>,
             space: Option<(i64, Role)>,
         ) -> (i64, String) {
-            let store = self.store.lock().unwrap();
-            let user = store.create_user(name, name, "x", false).unwrap();
+            let store = &self.store;
+            let user = store.create_user(name, name, "x", false).await.unwrap();
             if let Some((org, role)) = org {
-                store.set_org_membership(user, org, role.as_str()).unwrap();
+                store
+                    .set_org_membership(user, store.a_space_of(org).await, role.as_str())
+                    .await
+                    .unwrap();
             }
             if let Some((space, role)) = space {
-                store.set_membership(user, space, role.as_str()).unwrap();
+                store
+                    .set_membership(user, space, role.as_str())
+                    .await
+                    .unwrap();
             }
-            let token = store.create_session(user, None, "", "").unwrap();
+            let token = store.create_session(user, None, "", "").await.unwrap();
             (user, format!("{}={token}", crate::auth::COOKIE))
         }
 
@@ -2298,24 +1356,34 @@ mod tests {
 
     /// Permission per group: a new machine is closed; a group of 3D printers opens them all
     /// at once for a member, also one put in later; per machine still counts, the most wins.
-    #[tokio::test]
-    async fn groups_give_permission_on_many_machines() {
-        let w = World::new();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn groups_give_permission_on_many_machines(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
         let (org, space) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            s.create_organisation("Fablab", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            w.store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap()
         };
-        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None);
-        let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None);
+        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
+        let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None).await;
         let (p1, p2, laser) = {
-            let mut s = w.store.lock().unwrap();
             let mk3s = crate::profiles::find("prusa/mk3s").unwrap();
             (
-                s.add_virtual(space, mk3s).unwrap(),
-                s.add_virtual(space, mk3s).unwrap(),
-                s.add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
+                w.store.add_virtual(space, mk3s).await.unwrap(),
+                w.store.add_virtual(space, mk3s).await.unwrap(),
+                w.store
+                    .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
+                    .await
                     .unwrap(),
             )
         };
@@ -2328,15 +1396,19 @@ mod tests {
             instance_admin: false,
             session_id: None,
         };
-        let level = |m: &str| {
+        let level = async |m: &str| {
+            let grants = w.store.grants_of(&as_mia).await.unwrap();
             w.store
                 .lock()
                 .unwrap()
-                .machine_level(&as_mia, m)
-                .unwrap()
+                .machine_level(&as_mia, m, &grants)
                 .unwrap()
         };
-        assert_eq!(level(&p1), Level::View, "a new machine needs permission");
+        assert_eq!(
+            level(&p1).await,
+            Level::View,
+            "a new machine needs permission"
+        );
         // Members make no groups.
         assert_eq!(
             w.post(&mia, "/permissions/groups", "name=Mine&kind=fdm")
@@ -2348,21 +1420,25 @@ mod tests {
             .post(&adam, "/permissions/groups", "name=3D+printers&kind=fdm")
             .await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        let group = w.store.lock().unwrap().groups(space).unwrap()[0].clone();
+        let group = w.store.groups(space).await.unwrap()[0].clone();
         assert_eq!(group.machines.len(), 2, "both printers, not the laser");
         // With all machines: the printers and the laser.
         let all = {
-            let s = w.store.lock().unwrap();
-            let id = s.create_group(space, "Everything", Some("all")).unwrap();
+            let s = &w.store;
+            let id = s
+                .create_group(space, "Everything", Some("all"))
+                .await
+                .unwrap();
             let n = s
                 .groups(space)
+                .await
                 .unwrap()
                 .into_iter()
                 .find(|g| g.id == id)
                 .unwrap()
                 .machines
                 .len();
-            s.remove_group(space, id).unwrap();
+            s.remove_group(space, id).await.unwrap();
             n
         };
         assert_eq!(all, 3);
@@ -2374,7 +1450,7 @@ mod tests {
             StatusCode::NO_CONTENT
         );
         assert_eq!(
-            (level(&p1), level(&p2), level(&laser)),
+            (level(&p1).await, level(&p2).await, level(&laser).await),
             (Level::Use, Level::Use, Level::View)
         );
         // Per machine as well: the most counts.
@@ -2384,28 +1460,31 @@ mod tests {
             &format!("user={mia_id}&level=operate"),
         )
         .await;
-        assert_eq!((level(&p1), level(&p2)), (Level::Operate, Level::Use));
+        assert_eq!(
+            (level(&p1).await, level(&p2).await),
+            (Level::Operate, Level::Use)
+        );
         // A printer put in later is opened too; one taken out is closed again.
-        let p3 = {
-            let mut s = w.store.lock().unwrap();
-            s.add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
-                .unwrap()
-        };
-        assert_eq!(level(&p3), Level::View);
+        let p3 = w
+            .store
+            .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+            .await
+            .unwrap();
+        assert_eq!(level(&p3).await, Level::View);
         w.post(
             &adam,
             &format!("/permissions/groups/{}/machines", group.id),
             &format!("machine={p3}"),
         )
         .await;
-        assert_eq!(level(&p3), Level::Use);
+        assert_eq!(level(&p3).await, Level::Use);
         w.post(
             &adam,
             &format!("/permissions/groups/{}/machines/{p2}/remove", group.id),
             "",
         )
         .await;
-        assert_eq!(level(&p2), Level::View);
+        assert_eq!(level(&p2).await, Level::View);
         // Ended: only what the machine itself gives is left.
         w.post(
             &adam,
@@ -2413,7 +1492,10 @@ mod tests {
             &format!("user={mia_id}&level=use&until=2020-01-01"),
         )
         .await;
-        assert_eq!((level(&p1), level(&p3)), (Level::Operate, Level::View));
+        assert_eq!(
+            (level(&p1).await, level(&p3).await),
+            (Level::Operate, Level::View)
+        );
         // Removing the group takes its permissions; those per machine stay.
         w.post(&adam, &grants, &format!("user={mia_id}&level=use"))
             .await;
@@ -2427,13 +1509,15 @@ mod tests {
             .0,
             StatusCode::NO_CONTENT
         );
-        assert_eq!((level(&p1), level(&p3)), (Level::Operate, Level::View));
+        assert_eq!(
+            (level(&p1).await, level(&p3).await),
+            (Level::Operate, Level::View)
+        );
         // From the Members list: on a group, or on a machine; only to members.
         let g2 = w
             .store
-            .lock()
-            .unwrap()
             .create_group(space, "Printers", Some("fdm"))
+            .await
             .unwrap();
         let give = format!("/permissions/people/{mia_id}/permission");
         assert_eq!(
@@ -2442,14 +1526,14 @@ mod tests {
                 .0,
             StatusCode::NO_CONTENT
         );
-        assert_eq!(level(&p3), Level::Use);
+        assert_eq!(level(&p3).await, Level::Use);
         assert_eq!(
             w.post(&adam, &give, &format!("on=m:{laser}&level=operate"))
                 .await
                 .0,
             StatusCode::NO_CONTENT
         );
-        assert_eq!(level(&laser), Level::Operate);
+        assert_eq!(level(&laser).await, Level::Operate);
         assert_eq!(
             w.post(&mia, &give, &format!("on=m:{laser}&level=operate"))
                 .await
@@ -2457,13 +1541,7 @@ mod tests {
             StatusCode::FORBIDDEN,
             "members give no permission"
         );
-        let adam_id: i64 = w
-            .store
-            .lock()
-            .unwrap()
-            .db
-            .query_row("SELECT id FROM users WHERE name = 'adam'", [], |r| r.get(0))
-            .unwrap();
+        let adam_id = w.store.user_id("adam").await.unwrap().unwrap();
         // Being an admin does not mean having had the course: Adam manages the laser (its
         // name, its permissions) but may not use it until he gives himself permission.
         let as_adam = Access {
@@ -2475,15 +1553,15 @@ mod tests {
             instance_admin: false,
             session_id: None,
         };
-        let adam_may = |need: Level| {
+        let adam_may = async |need: Level| {
+            let grants = w.store.grants_for(&as_adam, need).await.unwrap();
             w.store
                 .lock()
                 .unwrap()
-                .may(&as_adam, &laser, need)
-                .unwrap()
+                .may(&as_adam, &laser, need, &grants)
                 .unwrap()
         };
-        assert!(adam_may(Level::Manage) && !adam_may(Level::Use));
+        assert!(adam_may(Level::Manage).await && !adam_may(Level::Use).await);
         assert_eq!(
             w.post(&adam, &format!("/machines/{laser}/name"), "name=Laser")
                 .await
@@ -2510,15 +1588,19 @@ mod tests {
             StatusCode::NO_CONTENT,
             "in Space, his own too"
         );
-        assert!(adam_may(Level::Operate));
+        assert!(adam_may(Level::Operate).await);
         // Open to every member, and closed again: the two choices.
         w.post(&adam, &format!("/machines/{p2}/access"), "induction=0")
             .await;
-        assert_eq!(level(&p2), Level::Operate, "open: every member operates it");
+        assert_eq!(
+            level(&p2).await,
+            Level::Operate,
+            "open: every member operates it"
+        );
         w.post(&adam, &format!("/machines/{p2}/access"), "induction=1")
             .await;
         assert_eq!(
-            level(&p2),
+            level(&p2).await,
             Level::Use,
             "closed again: through the group Printers"
         );
@@ -2554,13 +1636,13 @@ mod tests {
         let tick = format!("/permissions/groups/{g2}/people/{mia_id}");
         assert_eq!(w.post(&mia, &tick, "on=0").await.0, StatusCode::FORBIDDEN);
         assert_eq!(w.post(&adam, &tick, "on=0").await.0, StatusCode::OK);
-        assert_eq!(level(&p3), Level::View);
+        assert_eq!(level(&p3).await, Level::View);
         let (status, now) = w.post(&adam, &tick, "on=1").await;
         assert_eq!((status, now.as_str()), (StatusCode::OK, "operate"));
-        assert_eq!(level(&p3), Level::Operate);
+        assert_eq!(level(&p3).await, Level::Operate);
         let (status, now) = w.post(&adam, &tick, "on=1&level=use").await;
         assert_eq!((status, now.as_str()), (StatusCode::OK, "use"));
-        assert_eq!(level(&p3), Level::Use);
+        assert_eq!(level(&p3).await, Level::Use);
         assert!(
             !page.contains(r#"data-open-perm=""#),
             "a member changes nothing"
@@ -2573,15 +1655,19 @@ mod tests {
         let (status, body) = w.post(&adam, &save, &form).await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
         assert_eq!(
-            (level(&p3), level(&laser)),
+            (level(&p3).await, level(&laser).await),
             (Level::Operate, Level::View),
             "the laser's own permission: unticked, gone"
         );
-        assert_eq!(level(&p1), Level::Operate, "the most of group and machine");
+        assert_eq!(
+            level(&p1).await,
+            Level::Operate,
+            "the most of group and machine"
+        );
         assert_eq!(w.post(&mia, &save, "").await.0, StatusCode::FORBIDDEN);
         assert_eq!(w.post(&adam, &save, "").await.0, StatusCode::NO_CONTENT);
         assert_eq!(
-            (level(&p1), level(&p3)),
+            (level(&p1).await, level(&p3).await),
             (Level::View, Level::View),
             "nothing ticked: nothing left"
         );
@@ -2589,9 +1675,8 @@ mod tests {
         // give it, and she may use it.
         let p4 = w
             .store
-            .lock()
-            .unwrap()
             .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+            .await
             .unwrap();
         assert_eq!(
             w.post(&adam, &format!("/machines/{p4}/access"), "induction=2")
@@ -2599,12 +1684,12 @@ mod tests {
                 .0,
             StatusCode::NO_CONTENT
         );
-        assert!(w.store.lock().unwrap().needs_training(space, &p4).unwrap());
-        assert_eq!(level(&p4), Level::View);
+        assert!(w.store.machine(space, &p4).await.unwrap().unwrap().training);
+        assert_eq!(level(&p4).await, Level::View);
         let ask = format!("/machines/{p4}/ask");
         assert_eq!(w.post(&mia, &ask, "").await.0, StatusCode::NO_CONTENT);
         assert_eq!(w.post(&mia, &ask, "").await.0, StatusCode::NO_CONTENT);
-        let asked = w.store.lock().unwrap().requests(space).unwrap();
+        let asked = w.store.requests(space).await.unwrap();
         assert_eq!(asked.len(), 1, "asked once");
         assert!(asked[0].training);
         let (_, page) = w.get(&adam, "/space").await;
@@ -2616,7 +1701,7 @@ mod tests {
             "not hers to give"
         );
         assert_eq!(w.post(&adam, &give, "").await.0, StatusCode::NO_CONTENT);
-        assert_eq!(level(&p4), Level::Use);
+        assert_eq!(level(&p4).await, Level::Use);
         assert_eq!(
             w.post(&adam, &give, "").await.0,
             StatusCode::NOT_FOUND,
@@ -2629,10 +1714,13 @@ mod tests {
         );
         // Someone else's space's group: not found.
         let other = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("zed", "Zed", "x", false).unwrap();
-            let (_, b) = s.create_organisation("Zuid", "Hal", owner).unwrap();
-            s.create_group(b, "Theirs", None).unwrap()
+            let owner = w.store.create_user("zed", "Zed", "x", false).await.unwrap();
+            let (_, b) = w
+                .store
+                .create_organisation("Zuid", "Hal", owner)
+                .await
+                .unwrap();
+            w.store.create_group(b, "Theirs", None).await.unwrap()
         };
         assert_eq!(
             w.post(
@@ -2648,45 +1736,57 @@ mod tests {
 
     /// A queue: everyone looks; members move and take out their own prints only, and only
     /// among themselves (the others keep their place); staff change anything.
-    #[tokio::test]
-    async fn a_queue_is_changed_by_whom_it_is_of() {
-        let w = World::new();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_queue_is_changed_by_whom_it_is_of(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
         let (org, space) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            s.create_organisation("Fablab", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            w.store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap()
         };
-        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None);
-        let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None);
-        let (zoe_id, _) = w.person("zoe", Some((org, Role::Member)), None);
+        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
+        let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None).await;
+        let (zoe_id, _) = w.person("zoe", Some((org, Role::Member)), None).await;
         let (m, a, b, c) = {
-            let mut s = w.store.lock().unwrap();
-            let m = s
+            let m = w
+                .store
                 .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+                .await
                 .unwrap();
-            s.db.execute(
-                "INSERT INTO files (id, space_id, name, size, uploaded_at, meta) VALUES ('f1', ?1, 'a.gcode', 10, 0, '{}')",
-                [space],
-            )
-            .unwrap();
-            let file = s.file(space, "f1").unwrap().unwrap();
-            s.queue_add(space, &m, &file, Some((mia_id, "mia")))
+            w.store
+                .add_file(space, "f1", "a.gcode", 10, &Default::default())
+                .await
                 .unwrap();
-            s.queue_add(space, &m, &file, Some((zoe_id, "zoe")))
-                .unwrap();
-            s.queue_add(space, &m, &file, Some((mia_id, "mia")))
-                .unwrap();
-            let q: Vec<i64> = s.queue_of(&m).unwrap().iter().map(|q| q.id).collect();
+            let file = w.store.file(space, "f1").await.unwrap().unwrap();
+            for by in [(mia_id, "mia"), (zoe_id, "zoe"), (mia_id, "mia")] {
+                w.store.queue_add(space, &m, &file, Some(by)).await.unwrap();
+            }
+            let q: Vec<i64> = w
+                .store
+                .queue_of(space, &m)
+                .await
+                .unwrap()
+                .iter()
+                .map(|q| q.id)
+                .collect();
             (m, q[0], q[1], q[2])
         };
         let order = format!("/machines/{m}/queue/order");
         let ids = |v: [i64; 3]| format!("ids={},{},{}", v[0], v[1], v[2]);
-        let now = || -> Vec<i64> {
+        let now = async || -> Vec<i64> {
             w.store
-                .lock()
-                .unwrap()
-                .queue_of(&m)
+                .queue_of(space, &m)
+                .await
                 .unwrap()
                 .iter()
                 .map(|q| q.id)
@@ -2697,7 +1797,7 @@ mod tests {
             w.post(&mia, &order, &ids([c, b, a])).await.0,
             StatusCode::NO_CONTENT
         );
-        assert_eq!(now(), [c, b, a]);
+        assert_eq!(now().await, [c, b, a]);
         // Moving Zoe's, or getting ahead of it: no.
         assert_eq!(
             w.post(&mia, &order, &ids([b, c, a])).await.0,
@@ -2707,7 +1807,7 @@ mod tests {
             w.post(&mia, &order, &ids([c, a, b])).await.0,
             StatusCode::FORBIDDEN
         );
-        assert_eq!(now(), [c, b, a], "unchanged");
+        assert_eq!(now().await, [c, b, a], "unchanged");
         // Taking out: her own, not Zoe's.
         assert_eq!(
             w.post(&mia, &format!("/machines/{m}/queue/{b}/remove"), "")
@@ -2720,7 +1820,7 @@ mod tests {
             w.post(&adam, &order, &ids([b, a, c])).await.0,
             StatusCode::NO_CONTENT
         );
-        assert_eq!(now(), [b, a, c]);
+        assert_eq!(now().await, [b, a, c]);
         assert_eq!(
             w.post(&adam, &format!("/machines/{m}/queue/{b}/remove"), "")
                 .await
@@ -2733,41 +1833,62 @@ mod tests {
                 .0,
             StatusCode::NO_CONTENT
         );
-        assert_eq!(now(), [c]);
+        assert_eq!(now().await, [c]);
     }
 
-    /// A machine moves to another space of the organisation, by someone who is admin in both;
-    /// not while it has work, not into a space they do not manage. Permissions on it stay
-    /// behind, and so does its place in the queue.
-    #[tokio::test]
-    async fn a_machine_moves_to_another_space() {
-        let w = World::new();
-        let (org, a1, a2, b1) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            let (org, a1) = s
-                .create_organisation("Fablab", "Werkplaats", owner)
+    /// A machine moves to another space, by an instance admin only (design
+    /// decisions/20261119-device-move.md): not by an admin of the organisation, not while it has
+    /// work (`409 device/JOB_OPEN`). Permissions on it stay behind.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_machine_moves_to_another_space(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
+        let (_, a1, a2) = {
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
                 .unwrap();
-            let a2 = s.create_space(org, "Lab").unwrap();
-            let (_, b1) = s.create_organisation("Makers Zuid", "Hal", owner).unwrap();
-            (org, a1, a2, b1)
+            let (org, a1) = w
+                .store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
+                .unwrap();
+            let a2 = w.store.create_space(a1, "Lab").await.unwrap();
+            (org, a1, a2)
         };
-        // Both signed in to the first space.
-        let in_first = |name: &str, role: Role| {
-            let s = w.store.lock().unwrap();
-            let user = s.create_user(name, name, "x", false).unwrap();
-            s.set_org_membership(user, org, role.as_str()).unwrap();
-            let token = s.create_session(user, Some(a1), "", "").unwrap();
+        // All signed in to the first space.
+        let in_first = async |name: &str, role: Role, instance_admin: bool| {
+            let user = w
+                .store
+                .create_user(name, name, "x", instance_admin)
+                .await
+                .unwrap();
+            w.store
+                .set_org_membership(user, a1, role.as_str())
+                .await
+                .unwrap();
+            let token = w
+                .store
+                .create_session(user, Some(a1), "", "")
+                .await
+                .unwrap();
             (user, format!("{}={token}", crate::auth::COOKIE))
         };
-        let (_, adam) = in_first("adam", Role::Admin);
-        let (mia_id, mia) = in_first("mia", Role::Member);
+        let (_, adam) = in_first("adam", Role::Admin, false).await;
+        let (mia_id, mia) = in_first("mia", Role::Member, false).await;
+        // Who runs the server, an admin here too.
+        let (_, ian) = in_first("ian", Role::Admin, true).await;
         let m = {
-            let mut s = w.store.lock().unwrap();
-            let m = s
+            let m = w
+                .store
                 .add_virtual(a1, crate::profiles::find("prusa/mk3s").unwrap())
+                .await
                 .unwrap();
-            s.set_takes_work(a1, &m, true).unwrap();
+            w.store.set_takes_work(a1, &m, true).await.unwrap();
             m
         };
         w.post(&adam, &format!("/machines/{m}/access"), "induction=1")
@@ -2778,10 +1899,12 @@ mod tests {
             &format!("user={mia_id}&level=use"),
         )
         .await;
-        let (uid_a2, uid_b1) = {
-            let s = w.store.lock().unwrap();
-            (s.space_uid(a2).unwrap(), s.space_uid(b1).unwrap())
-        };
+        assert_eq!(
+            w.store.grants(a1, &m).await.unwrap().len(),
+            1,
+            "mia's permission before the move"
+        );
+        let uid_a2 = w.store.space_uid(a2).await.unwrap();
         let to = |uid: &str| format!("space={uid}");
         let path = format!("/machines/{m}/move");
         assert_eq!(
@@ -2790,85 +1913,113 @@ mod tests {
             "a member does not manage it"
         );
         assert_eq!(
-            w.post(&adam, &path, &to(&uid_b1)).await.0,
+            w.post(&adam, &path, &to(&uid_a2)).await.0,
             StatusCode::FORBIDDEN,
-            "not admin there"
+            "an admin of the organisation does not move machines between spaces"
+        );
+        // An agent hosts machines of several spaces: its update is the instance admin's (design
+        // decisions/20261119-agent-update-by-instance-admin.md), not a space admin's (the instance
+        // admin's own call would fetch the release: tests/routes.txt has the gate).
+        for update in [
+            format!("/machines/{m}/agent/update"),
+            "/agents/update".to_owned(),
+        ] {
+            assert_eq!(
+                w.post(&adam, &update, "").await.0,
+                StatusCode::FORBIDDEN,
+                "a space admin: {update}"
+            );
+        }
+        assert_eq!(
+            w.post(&ian, &path, "space=nowhere").await.0,
+            StatusCode::NOT_FOUND,
+            "no such space"
         );
         // Work under way: not now.
-        w.store
-            .lock()
-            .unwrap()
-            .db
-            .execute(
-                "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at) VALUES (?1, ?2, 'f', 'a.gcode', 'printing', 0)",
-                params![a1, m],
-            )
-            .unwrap();
-        let (status, why) = w.post(&adam, &path, &to(&uid_a2)).await;
+        sqlx::query(
+            "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at) VALUES ($1, $2, 'f', 'a.gcode', 'printing', at_unix(0))",
+        )
+        .bind(a1)
+        .bind(&m)
+        .execute(w.store.pg().admin_in_tests())
+        .await
+        .unwrap();
+        let (status, why) = w.post(&ian, &path, &to(&uid_a2)).await;
         assert_eq!(status, StatusCode::CONFLICT, "{why}");
-        w.store
-            .lock()
-            .unwrap()
-            .db
-            .execute("UPDATE jobs SET state = 'stopped', taken_at = 1", [])
+        assert_eq!(why, r#"{"code":"device/JOB_OPEN"}"#);
+        sqlx::query("UPDATE jobs SET state = 'stopped', taken_at = at_unix(1)")
+            .execute(w.store.pg().admin_in_tests())
+            .await
             .unwrap();
-        let (status, body) = w.post(&adam, &path, &to(&uid_a2)).await;
+        let (status, body) = w.post(&ian, &path, &to(&uid_a2)).await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        let s = w.store.lock().unwrap();
-        assert!(
-            s.machine(a1, &m).unwrap().is_none(),
-            "gone from the first space"
-        );
-        assert!(s.machine(a2, &m).unwrap().is_some(), "in the second");
-        assert!(
-            !s.takes_work(&m).unwrap(),
-            "no work from the new space's queue until someone says"
-        );
+        {
+            assert!(
+                w.store.machine(a1, &m).await.unwrap().is_none(),
+                "gone from the first space"
+            );
+            let moved = w.store.machine(a2, &m).await.unwrap();
+            assert!(moved.is_some(), "in the second");
+            assert!(
+                !moved.unwrap().takes_work,
+                "no work from the new space's queue until someone says"
+            );
+        }
         let grants: i64 =
-            s.db.query_row(
-                "SELECT COUNT(*) FROM machine_grants WHERE machine_id = ?1",
-                [&m],
-                |r| r.get(0),
-            )
-            .unwrap();
+            sqlx::query_scalar("SELECT COUNT(*) FROM machine_grants WHERE machine_id = $1")
+                .bind(&m)
+                .fetch_one(w.store.pg().admin_in_tests())
+                .await
+                .unwrap();
         assert_eq!(grants, 0, "permissions stay behind");
         for (space, action) in [(a1, "moved to another space"), (a2, "moved here")] {
-            let n: i64 =
-                s.db.query_row(
-                    "SELECT COUNT(*) FROM audit_log WHERE space_id = ?1 AND action = ?2",
-                    params![space, action],
-                    |r| r.get(0),
-                )
-                .unwrap();
+            let n = w
+                .store
+                .audit_log(space, 500)
+                .await
+                .unwrap()
+                .iter()
+                .filter(|l| l.action == action)
+                .count();
             assert_eq!(n, 1, "{action} in the audit log of space {space}");
         }
     }
 
     /// Two makerspaces on one server: neither sees, nor touches, the other's machines,
     /// files or spools; a member of an organisation is in all its spaces.
-    #[tokio::test]
-    async fn organisations_never_see_each_other() {
-        let w = World::new();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn organisations_never_see_each_other(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
         let (a_org, a1, a2, b_org, b1) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("root", "Root", "x", true).unwrap();
-            let (a_org, a1) = s
-                .create_organisation("Fablab Noord", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("root", "Root", "x", true)
+                .await
                 .unwrap();
-            let a2 = s.create_space(a_org, "Lab").unwrap();
-            let (b_org, b1) = s.create_organisation("Makers Zuid", "Hal", owner).unwrap();
+            let (a_org, a1) = w
+                .store
+                .create_organisation("Fablab Noord", "Werkplaats", owner)
+                .await
+                .unwrap();
+            let a2 = w.store.create_space(a1, "Lab").await.unwrap();
+            let (b_org, b1) = w
+                .store
+                .create_organisation("Makers Zuid", "Hal", owner)
+                .await
+                .unwrap();
             (a_org, a1, a2, b_org, b1)
         };
         let profile = crate::profiles::find("prusa/mk3s").unwrap();
-        let (a_machine, b_machine) = {
-            let mut s = w.store.lock().unwrap();
-            (
-                s.add_virtual(a1, profile).unwrap(),
-                s.add_virtual(b1, profile).unwrap(),
-            )
-        };
-        let (_, ann) = w.person("ann", Some((a_org, Role::Member)), None);
-        let (_, bob) = w.person("bob", Some((b_org, Role::Admin)), None);
+        let (a_machine, b_machine) = (
+            w.store.add_virtual(a1, profile).await.unwrap(),
+            w.store.add_virtual(b1, profile).await.unwrap(),
+        );
+        let (_, ann) = w.person("ann", Some((a_org, Role::Member)), None).await;
+        let (_, bob) = w.person("bob", Some((b_org, Role::Admin)), None).await;
         // Ann starts in the first of her spaces by name (the Lab): to the workshop.
         assert_eq!(
             w.post(&ann, "/spaces/switch", &format!("space={a1}"))
@@ -2920,9 +2071,8 @@ mod tests {
         // Ann is in both of her organisation's spaces, and can go to either; not to B's.
         let spaces: Vec<i64> = w
             .store
-            .lock()
-            .unwrap()
             .spaces_of(2)
+            .await
             .unwrap()
             .iter()
             .map(|s| s.id)
@@ -2940,33 +2090,45 @@ mod tests {
     /// Roles: a guest looks only; a member uploads and runs open machines; only admins add
     /// machines and members; nobody gives a role above their own; an organisation keeps an
     /// owner.
-    #[tokio::test]
-    async fn roles_say_who_may() {
-        let w = World::new();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn roles_say_who_may(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
         let (org, space) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            s.create_organisation("Fablab", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            w.store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap()
         };
         let olga = {
-            let s = w.store.lock().unwrap();
             format!(
                 "{}={}",
                 crate::auth::COOKIE,
-                s.create_session(1, None, "", "").unwrap()
+                w.store.create_session(1, None, "", "").await.unwrap()
             )
         };
-        let (_, gus) = w.person("gus", Some((org, Role::Guest)), None);
-        let (_, mia) = w.person("mia", Some((org, Role::Member)), None);
-        let (adam_id, adam) = w.person("adam", Some((org, Role::Admin)), None);
+        let (_, gus) = w.person("gus", Some((org, Role::Guest)), None).await;
+        let (_, mia) = w.person("mia", Some((org, Role::Member)), None).await;
+        let (adam_id, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
         let machine = {
-            let mut s = w.store.lock().unwrap();
-            let m = s
+            let m = w
+                .store
                 .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+                .await
                 .unwrap();
             // Open to every member: this test is about roles, not permissions.
-            s.set_induction_required(space, &m, false).unwrap();
+            w.store
+                .set_induction_required(space, &m, false)
+                .await
+                .unwrap();
             m
         };
         let upload = |cookie: &str| {
@@ -3077,22 +2239,30 @@ mod tests {
 
     /// A machine that needs an induction: a member without one may not use it; with "use"
     /// runs jobs but sends no G-code; with "operate" does both; an ended one counts no more.
-    #[tokio::test]
-    async fn inductions_open_a_machine() {
-        let w = World::new();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn inductions_open_a_machine(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
         let (org, space) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            s.create_organisation("Fablab", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            w.store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap()
         };
-        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None);
-        let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None);
+        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
+        let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None).await;
         let laser = w
             .store
-            .lock()
-            .unwrap()
             .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
+            .await
             .unwrap();
         assert_eq!(
             w.post(&adam, &format!("/machines/{laser}/access"), "induction=1")
@@ -3229,24 +2399,35 @@ mod tests {
     /// A laser job starts only when a person, in their session, presses Start: `print` and
     /// "Start again from there" do; an API token's print is refused; the copies after the
     /// first wait in the queue and nothing starts them.
-    #[tokio::test]
-    async fn a_laser_starts_only_by_a_person() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_laser_starts_only_by_a_person(pool: sqlx::PgPool) {
         use crate::store::{JobState, LASER_NEVER_ALONE};
-        let w = World::new();
+        let w = World::new(&pool).await;
         let (org, space) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            s.create_organisation("Fablab", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            w.store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap()
         };
-        let (adam_id, adam) = w.person("adam", Some((org, Role::Admin)), None);
+        let (adam_id, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
         let (laser, token) = {
-            let mut s = w.store.lock().unwrap();
+            let s = &w.store;
             let laser = s
                 .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
+                .await
                 .unwrap();
             let token = s
                 .virtual_machines()
+                .await
                 .unwrap()
                 .into_iter()
                 .find(|(m, ..)| *m == laser)
@@ -3262,21 +2443,24 @@ mod tests {
                     ..Default::default()
                 },
             )
+            .await
             .unwrap();
-            s.report(&token, &Default::default()).unwrap();
+            s.report(&token, &Default::default()).await.unwrap();
             (laser, token)
         };
-        let jobs = |w: &World| {
-            let s = w.store.lock().unwrap();
-            let n: i64 =
-                s.db.query_row(
-                    "SELECT COUNT(*) FROM jobs WHERE machine_id = ?1",
-                    [&laser],
-                    |r| r.get(0),
-                )
+        async fn jobs(w: &World, laser: &str) -> (i64, usize) {
+            let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE machine_id = $1")
+                .bind(laser)
+                .fetch_one(w.store.pg().admin_in_tests())
+                .await
                 .unwrap();
-            (n, s.queue_of(&laser).unwrap().len())
-        };
+            let space: i64 = sqlx::query_scalar("SELECT space_id FROM machines WHERE id = $1")
+                .bind(laser)
+                .fetch_one(w.store.pg().admin_in_tests())
+                .await
+                .unwrap();
+            (n, w.store.queue_of(space, laser).await.unwrap().len())
+        }
         // An API token (no session) may not start a laser, even with permission to use it.
         assert_eq!(
             w.post(
@@ -3308,7 +2492,7 @@ mod tests {
             (StatusCode::CONFLICT, LASER_NEVER_ALONE),
             "a token never starts a laser"
         );
-        assert_eq!(jobs(&w), (0, 0));
+        assert_eq!(jobs(&w, &laser).await, (0, 0));
         // HS7b: a laser takes one loaded job: no copies, no queue.
         let (status, body) = w
             .post(
@@ -3329,14 +2513,14 @@ mod tests {
             .post(&adam, "/files/f1/print", &format!("machine={laser}"))
             .await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(jobs(&w), (1, 0));
+        assert_eq!(jobs(&w, &laser).await, (1, 0));
         {
-            let mut s = w.store.lock().unwrap();
-            let job = s.active_job(&laser).unwrap().unwrap();
+            let s = &w.store;
+            let job = s.active_job(space, &laser).await.unwrap().unwrap();
             assert_eq!(job.state, JobState::Loaded);
             assert_eq!(job.by.as_deref(), Some("adam"));
-            assert_eq!(s.start_queued().unwrap(), 0, "a loaded job waits");
-            assert_eq!(s.dispatch().unwrap(), 0);
+            assert_eq!(s.start_queued().await.unwrap(), 0, "a loaded job waits");
+            assert_eq!(s.dispatch().await.unwrap(), 0);
         }
         // A token's replace takes nothing off: the loaded job stays (it is refused first).
         let (status, body) = w
@@ -3354,9 +2538,8 @@ mod tests {
         );
         assert_eq!(
             w.store
-                .lock()
-                .unwrap()
-                .active_job(&laser)
+                .active_job(space, &laser)
+                .await
                 .unwrap()
                 .unwrap()
                 .state,
@@ -3373,9 +2556,8 @@ mod tests {
         ));
         assert_eq!(
             w.store
-                .lock()
-                .unwrap()
-                .active_job(&laser)
+                .active_job(space, &laser)
+                .await
                 .unwrap()
                 .unwrap()
                 .state,
@@ -3390,49 +2572,41 @@ mod tests {
             .post(&adam, &format!("/machines/{laser}/job"), "action=unload")
             .await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        assert!(
-            w.store
-                .lock()
-                .unwrap()
-                .active_job(&laser)
-                .unwrap()
-                .is_none()
-        );
+        assert!(w.store.active_job(space, &laser).await.unwrap().is_none());
         let (status, body) = w
             .post(&adam, "/files/f1/print", &format!("machine={laser}"))
             .await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(jobs(&w), (2, 0));
+        assert_eq!(jobs(&w, &laser).await, (2, 0));
         {
-            let mut s = w.store.lock().unwrap();
-            let job = s.active_job(&laser).unwrap().unwrap();
-            s.set_job(job.id, JobState::Finished, None).unwrap();
-            s.report(&token, &Default::default()).unwrap();
+            let s = &w.store;
+            let job = s.active_job(space, &laser).await.unwrap().unwrap();
+            s.set_job(space, job.id, JobState::Finished, None)
+                .await
+                .unwrap();
         }
-        assert_eq!(jobs(&w), (2, 0));
+        w.store.report(&token, &Default::default()).await.unwrap();
+        assert_eq!(jobs(&w, &laser).await, (2, 0));
         // "Start again from there": a person; interrupted jobs start again.
         {
-            let mut s = w.store.lock().unwrap();
-            let job = s.job(2).unwrap().unwrap();
-            s.set_job(job.id, JobState::Stopped, None).unwrap();
-            s.set_restart_line(job.id, 5).unwrap();
+            let s = &w.store;
+            let job = s.job(space, 2).await.unwrap().unwrap();
+            s.set_job(space, job.id, JobState::Stopped, None)
+                .await
+                .unwrap();
+            s.set_restart_line(space, job.id, 5).await.unwrap();
         }
         let (status, body) = w
             .post(&adam, &format!("/machines/{laser}/job"), "action=restart")
             .await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        assert_eq!(jobs(&w).0, 3);
+        assert_eq!(jobs(&w, &laser).await.0, 3);
         // Stop with no job: a laser's (a soft reset) goes to the agent; a printer's is "no job".
         w.store
-            .lock()
-            .unwrap()
-            .set_job(3, JobState::Finished, None)
+            .set_job(space, 3, JobState::Finished, None)
+            .await
             .unwrap();
-        w.store
-            .lock()
-            .unwrap()
-            .report(&token, &Default::default())
-            .unwrap();
+        w.store.report(&token, &Default::default()).await.unwrap();
         let (status, body) = w
             .post(&adam, &format!("/machines/{laser}/job"), "action=stop")
             .await;
@@ -3452,16 +2626,25 @@ mod tests {
     }
 
     /// An invite link: a newcomer makes an account and is in; the link works once.
-    #[tokio::test]
-    async fn an_invite_link_lets_one_person_in() {
-        let w = World::new();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn an_invite_link_lets_one_person_in(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
         let (org, space) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            s.create_organisation("Fablab", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            w.store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap()
         };
-        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None);
+        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
         let (status, body) = w
             .post(&adam, "/space/invites", "role=member&scope=organisation")
             .await;
@@ -3490,9 +2673,9 @@ mod tests {
             ))
             .await;
         assert_eq!(status, StatusCode::SEE_OTHER);
-        let nina = w.store.lock().unwrap().user_id("nina").unwrap().unwrap();
+        let nina = w.store.user_id("nina").await.unwrap().unwrap();
         assert_eq!(
-            w.store.lock().unwrap().role_of(nina, space).unwrap(),
+            w.store.role_of(nina, space).await.unwrap(),
             Some(Role::Member)
         );
         let (status, _) = w
@@ -3502,7 +2685,7 @@ mod tests {
             .await;
         assert_eq!(status, StatusCode::NOT_FOUND, "used");
         // An admin of one space only cannot invite into the whole organisation.
-        let (_, sam) = w.person("sam", None, Some((space, Role::Admin)));
+        let (_, sam) = w.person("sam", None, Some((space, Role::Admin))).await;
         assert_eq!(
             w.post(&sam, "/space/invites", "role=member&scope=organisation")
                 .await
@@ -3519,16 +2702,25 @@ mod tests {
 
     /// An API token: in the address (as Moonraker sends it) or a header; its role holds;
     /// revoked, it stops; what it did is in the audit log under its name.
-    #[tokio::test]
-    async fn tokens_and_the_audit_log() {
-        let w = World::new();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn tokens_and_the_audit_log(pool: sqlx::PgPool) {
+        let w = World::new(&pool).await;
         let (org, space) = {
-            let s = w.store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            s.create_organisation("Fablab", "Werkplaats", owner)
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            w.store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap()
         };
-        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None);
+        let (_, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
         let (status, body) = w
             .post(&adam, "/space/tokens", "name=Voron&role=member")
             .await;
@@ -3590,7 +2782,7 @@ mod tests {
             StatusCode::UNAUTHORIZED,
             "the header is the server's own, not the client's"
         );
-        let log = w.store.lock().unwrap().audit_log(space, 10).unwrap();
+        let log = w.store.audit_log(space, 10).await.unwrap();
         assert!(
             log.iter()
                 .any(|l| l.actor == "token \"Voron\"" && l.action == "added a vendor"),
@@ -3602,7 +2794,7 @@ mod tests {
             "{log:?}"
         );
         // Revoked: it stops.
-        let id = w.store.lock().unwrap().tokens(space).unwrap()[0].id;
+        let id = w.store.tokens(space).await.unwrap()[0].id;
         assert_eq!(
             w.post(&adam, &format!("/space/tokens/{id}/revoke"), "")
                 .await
@@ -3624,12 +2816,12 @@ mod tests {
     /// each role and for no session (the router called with made-up path parameters), and a
     /// hash of the page shell and of every embedded style and script. Moving code must not
     /// change it. `MAKER_CONNECT_REGENERATE_ROUTES=1` writes it anew.
-    #[tokio::test]
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
-        not(feature = "cameras"),
-        ignore = "the snapshot is of the build with all modules (docs/plans/hub-modules.md)"
+        not(all(feature = "cameras", feature = "pg-tests")),
+        ignore = "the snapshot is of the build with all modules (docs/plans/hub-modules.md), on Postgres"
     )]
-    async fn the_routes_are_as_checked_in() {
+    async fn the_routes_are_as_checked_in(pool: sqlx::PgPool) {
         use sha2::{Digest, Sha256};
         use std::fmt::Write as _;
         let hash = |bytes: &[u8]| -> String {
@@ -3693,17 +2885,26 @@ mod tests {
                 Method::PATCH,
                 Method::DELETE,
             ] {
-                let w = World::new();
-                let (org, _) = {
-                    let s = w.store.lock().unwrap();
-                    let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-                    s.create_organisation("Fablab", "Werkplaats", owner)
-                        .unwrap()
+                // A new hub for each call (the database emptied again).
+                let store = Store::fresh_for_test(&pool).await;
+                let w = World {
+                    app: crate::app(store.clone()),
+                    store,
                 };
+                let owner = w
+                    .store
+                    .create_user("olga", "Olga", "x", false)
+                    .await
+                    .unwrap();
+                let (org, _) = w
+                    .store
+                    .create_organisation("Fablab", "Werkplaats", owner)
+                    .await
+                    .unwrap();
                 let mut cookies: Vec<Option<String>> = vec![None];
                 for role in [Role::Guest, Role::Member, Role::Admin, Role::Owner] {
                     let name = role.as_str();
-                    cookies.push(Some(w.person(name, Some((org, role)), None).1));
+                    cookies.push(Some(w.person(name, Some((org, role)), None).await.1));
                 }
                 let needed = need(&method, path);
                 let mut line = format!("{method} {path} =>");

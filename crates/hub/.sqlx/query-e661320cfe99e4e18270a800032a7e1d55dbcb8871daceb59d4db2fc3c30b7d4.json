@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path, unix_seconds(created_at) AS \"created_at!\" FROM printer_transfers\n               WHERE machine_id = $1 AND file_id = $2 AND size = $3\n                 AND state IN ('finished', 'starting', 'printing', 'done')\n               ORDER BY created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "printer_transfers",
+            "name": "path"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "e661320cfe99e4e18270a800032a7e1d55dbcb8871daceb59d4db2fc3c30b7d4"
+}

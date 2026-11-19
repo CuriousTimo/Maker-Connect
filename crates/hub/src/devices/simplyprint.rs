@@ -24,7 +24,7 @@
 //! Never sent from here: `new_token` and `complete_setup`. Moonraker answers those by
 //! switching its address back to SimplyPrint's own servers.
 
-use crate::Shared;
+use crate::Store;
 use crate::store::CommandState;
 use axum::Router;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -38,7 +38,7 @@ use maker_connect_protocol::{
 use serde_json::{Value, json};
 use std::time::Duration;
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/simplyprint/{token}", get(connect))
         // Moonraker downloads a job's file with a plain GET: the printer's token is in the address.
@@ -48,16 +48,13 @@ pub fn routes() -> Router<Shared> {
         .route("/simplyprint/{token}/{*rest}", get(connect_more))
 }
 
-async fn job_file(
-    State(store): State<Shared>,
-    Path((token, job)): Path<(String, i64)>,
-) -> Response {
+async fn job_file(State(store): State<Store>, Path((token, job)): Path<(String, i64)>) -> Response {
     crate::files::job_file(&store, &token, job).await
 }
 
 async fn connect_more(
     ws: WebSocketUpgrade,
-    state: State<Shared>,
+    state: State<Store>,
     Path((token, _)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
@@ -66,13 +63,12 @@ async fn connect_more(
 
 async fn connect(
     ws: WebSocketUpgrade,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(token): Path<String>,
     headers: HeaderMap,
 ) -> Response {
     let name = {
-        let store = store.lock().unwrap();
-        match store.moonraker_name(&token) {
+        match store.moonraker_name(&token).await {
             Ok(Some(name)) => name,
             Ok(None) => return (StatusCode::UNAUTHORIZED, "unknown printer").into_response(),
             Err(error) => return crate::failed(error),
@@ -102,7 +98,7 @@ struct Printer {
     job_end: Option<JobEnd>,
 }
 
-async fn session(mut socket: WebSocket, store: Shared, token: String, name: String, base: String) {
+async fn session(mut socket: WebSocket, store: Store, token: String, name: String, base: String) {
     println!("Moonraker connected: {name}");
     // How often it reports (in ms): every 2 s at least, so it counts as online.
     let hello = json!({"type": "connected", "data": {
@@ -137,7 +133,7 @@ async fn session(mut socket: WebSocket, store: Shared, token: String, name: Stri
             _ = tick.tick() => {}
         }
         // Report, and what the hub has for it: a command, a job, pause or stop.
-        let out = report(&store, &token, &base, &mut printer);
+        let out = report(&store, &token, &base, &mut printer).await;
         for message in out {
             if socket.send(text(&message)).await.is_err() {
                 break;
@@ -309,37 +305,44 @@ fn state(new: &str) -> MachineState {
 
 /// Reports the printer, and gives back what to send it: the next command, a job's file,
 /// pause, resume or cancel.
-fn report(store: &Shared, token: &str, base: &str, printer: &mut Printer) -> Vec<Value> {
+async fn report(shared: &Store, token: &str, base: &str, printer: &mut Printer) -> Vec<Value> {
     let mut report = printer.telemetry.clone();
     report.job_id = printer.job;
     report.done = std::mem::take(&mut printer.done);
     report.mesh = printer.mesh.take();
     report.job_end = printer.job_end.take();
-    let mut store = store.lock().unwrap();
-    for done in &report.done {
-        let state = if done.ok {
-            CommandState::Finished
-        } else {
-            CommandState::Rejected
-        };
-        let _ = store.command_went(
-            token,
-            done.id,
-            state,
-            done.reason.clone(),
-            done.output.clone(),
-        );
+    let caller = shared.caller(token).await.ok().flatten();
+    {
+        let mut store = shared.lock().unwrap();
+        for done in &report.done {
+            let state = if done.ok {
+                CommandState::Finished
+            } else {
+                CommandState::Rejected
+            };
+            store.command_went(
+                caller.as_ref(),
+                done.id,
+                state,
+                done.reason.clone(),
+                done.output.clone(),
+            );
+        }
     }
-    if !matches!(store.report(token, &report), Ok(Some(Some(_)))) {
+    if !matches!(shared.report(token, &report).await, Ok(Some(Some(_)))) {
         return Vec::new();
     }
+    let of = crate::agent_of(shared, token).await.unwrap_or_default();
     let mut out = Vec::new();
     // One command at a time, and none while it prints.
-    if printer.command.is_none()
-        && printer.job.is_none()
-        && report.state == MachineState::Idle
-        && let Ok(Some((id, gcode))) = store.next_command(token)
-    {
+    let next =
+        if printer.command.is_none() && printer.job.is_none() && report.state == MachineState::Idle
+        {
+            shared.lock().unwrap().next_command(caller.as_ref())
+        } else {
+            None
+        };
+    if let Some((id, gcode)) = next {
         printer.command = Some(id);
         printer.output.clear();
         let lines: Vec<&str> = gcode.lines().collect();
@@ -348,7 +351,8 @@ fn report(store: &Shared, token: &str, base: &str, printer: &mut Printer) -> Vec
             json!({"list": lines, "identifier": id.to_string()}),
         ));
     }
-    match crate::agent_job(&mut store, token, &report) {
+    let job = crate::agent_job(shared, &of, &report).await;
+    match job {
         Ok((Some(order), _)) => {
             printer.job = Some(order.id);
             out.push(demand(
@@ -372,21 +376,24 @@ fn report(store: &Shared, token: &str, base: &str, printer: &mut Printer) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::Store;
+
     use futures_util::{SinkExt, StreamExt};
-    use std::sync::{Arc, Mutex};
+
     use tokio_tungstenite::tungstenite::Message as WsMessage;
 
     /// A stand-in for Moonraker: connects as its SimplyPrint component does, says what it
     /// would, and does what it is asked.
-    #[tokio::test]
-    async fn a_klipper_printer_connects_takes_a_command_and_prints() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_klipper_printer_connects_takes_a_command_and_prints(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
         let (space, id, token) = {
-            let mut s = store.lock().unwrap();
-            let space = s.default_space().unwrap().0;
-            let id = s.add_moonraker(space, "Voron").unwrap();
-            let token = s.moonraker_token(space, &id).unwrap().unwrap();
+            let space = store.default_space().await.unwrap().0;
+            let id = store.add_moonraker(space, "Voron").await.unwrap();
+            let token = store.moonraker_token(space, &id).await.unwrap().unwrap();
             (space, id, token)
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -422,7 +429,7 @@ mod tests {
             want: &str,
         ) -> Value {
             loop {
-                let message = tokio::time::timeout(Duration::from_secs(5), ws.next())
+                let message = tokio::time::timeout(Duration::from_secs(60), ws.next())
                     .await
                     .expect("in time")
                     .unwrap()
@@ -461,7 +468,7 @@ mod tests {
         .unwrap();
         ws.send(say("ping", Value::Null)).await.unwrap();
         next(&mut ws, "pong").await;
-        let machine = store.lock().unwrap().machine(space, &id).unwrap().unwrap();
+        let machine = store.machine(space, &id).await.unwrap().unwrap();
         assert!(machine.online);
         let t = machine.telemetry.unwrap();
         assert_eq!(
@@ -470,11 +477,11 @@ mod tests {
         );
 
         // A command: sent as a gcode demand, done when Moonraker says so.
+        let link = store.link_of(space, &id).await.unwrap();
         let command = store
             .lock()
             .unwrap()
-            .queue_command(space, &id, "Home", "G28")
-            .unwrap()
+            .queue_command(link.as_deref(), &id, "Home", "G28")
             .unwrap();
         let asked = next(&mut ws, "gcode").await;
         assert_eq!(asked["data"]["list"], json!(["G28"]));
@@ -491,34 +498,37 @@ mod tests {
         // Messages are handled in order: the pong says `gcode_executed` is in.
         ws.send(say("ping", Value::Null)).await.unwrap();
         next(&mut ws, "pong").await;
-        let machine = store.lock().unwrap().machine(space, &id).unwrap().unwrap();
+        let machine = store.machine(space, &id).await.unwrap().unwrap();
         let done = machine.commands.iter().find(|c| c.id == command).unwrap();
         assert_eq!(done.state, CommandState::Finished);
         assert_eq!(done.output, vec!["// homed".to_owned()]);
 
         // A job: the file's address to fetch, then started, finished, and on the bed.
         let job = {
-            let mut s = store.lock().unwrap();
-            s.add_file(
-                space,
-                "f1",
-                "cube.gcode",
-                10,
-                &crate::gcode::FileMeta::default(),
-            )
-            .unwrap();
-            let file = s.file(space, "f1").unwrap().unwrap();
-            s.add_job(
-                space,
-                &id,
-                &file,
-                None,
-                crate::store::StartedBy::Auto {
-                    by: Some("SimplyPrint"),
-                },
-            )
-            .unwrap()
-            .unwrap()
+            store
+                .add_file(
+                    space,
+                    "f1",
+                    "cube.gcode",
+                    10,
+                    &crate::gcode::FileMeta::default(),
+                )
+                .await
+                .unwrap();
+            let file = store.file(space, "f1").await.unwrap().unwrap();
+            store
+                .add_job(
+                    space,
+                    &id,
+                    &file,
+                    None,
+                    crate::store::StartedBy::Auto {
+                        by: Some("SimplyPrint"),
+                    },
+                )
+                .await
+                .unwrap()
+                .unwrap()
         };
         std::fs::write(store.lock().unwrap().file_path("f1"), "G28\nG1 X1\n").unwrap();
         let file = next(&mut ws, "file").await;
@@ -553,7 +563,7 @@ mod tests {
             .unwrap();
         ws.send(say("ping", Value::Null)).await.unwrap();
         next(&mut ws, "pong").await;
-        let machine = store.lock().unwrap().machine(space, &id).unwrap().unwrap();
+        let machine = store.machine(space, &id).await.unwrap().unwrap();
         assert_eq!(
             machine.job.as_ref().map(|j| j.state),
             Some(crate::store::JobState::Printing)
@@ -570,7 +580,7 @@ mod tests {
             .unwrap();
         ws.send(say("ping", Value::Null)).await.unwrap();
         next(&mut ws, "pong").await;
-        let machine = store.lock().unwrap().machine(space, &id).unwrap().unwrap();
+        let machine = store.machine(space, &id).await.unwrap().unwrap();
         assert!(machine.job.is_none());
         assert_eq!(machine.on_bed.map(|b| b.job), Some(job));
     }

@@ -6,8 +6,7 @@
 
 use crate::access::{Access, Level, Role};
 use crate::space_page::day;
-use crate::store::Store;
-use crate::{Shared, escape, failed};
+use crate::{Store, escape, failed};
 use axum::{
     Form, Router,
     extract::{Path, State},
@@ -17,7 +16,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/permissions/people/{user}", post(set_permissions))
         .route("/machines/{id}/ask", post(ask))
@@ -77,18 +76,18 @@ fn x_form(action: &str, title: &str) -> String {
     )
 }
 
-pub(crate) fn parts(store: &Store, access: &Access) -> rusqlite::Result<Parts> {
+pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate::store::BoxError> {
     let space = access.space;
     let admin = access.role >= Role::Admin;
-    let members = store.members(space)?;
-    let machines = store.machines(space)?;
-    let groups = store.groups(space)?;
+    let members = store.members(space).await?;
+    let machines = store.machines(space).await?;
+    let groups = store.groups(space).await?;
     let mut closed_of = Vec::new();
     let mut machine_grants: Vec<(String, i64, crate::access::Grant)> = Vec::new();
     for machine in &machines {
-        let closed = store.induction_required(space, &machine.id)?;
+        let closed = machine.induction_required;
         if closed {
-            for g in store.grants(space, &machine.id)? {
+            for g in store.grants(space, &machine.id).await? {
                 machine_grants.push((machine.id.clone(), g.user_id, g));
             }
         }
@@ -209,7 +208,7 @@ pub(crate) fn parts(store: &Store, access: &Access) -> rusqlite::Result<Parts> {
         .collect();
     // What people asked the staff for: give (use, on that machine) or decline.
     let asked = if admin {
-        store.requests(space)?
+        store.requests(space).await?
     } else {
         Vec::new()
     };
@@ -429,7 +428,7 @@ struct AccessForm {
 
 async fn machine_access(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<AccessForm>,
 ) -> Response {
@@ -439,11 +438,7 @@ async fn machine_access(
         Some("2") => 2,
         _ => 0,
     };
-    match store
-        .lock()
-        .unwrap()
-        .set_access_mode(access.space, &machine, mode)
-    {
+    match store.set_access_mode(access.space, &machine, mode).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
@@ -460,7 +455,7 @@ struct GrantForm {
 
 async fn grant(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(machine): Path<String>,
     Form(form): Form<GrantForm>,
 ) -> Response {
@@ -468,23 +463,26 @@ async fn grant(
         Ok(terms) => terms,
         Err(response) => return *response,
     };
-    let store = store.lock().unwrap();
     if store
         .role_of(form.user, access.space)
+        .await
         .ok()
         .flatten()
         .is_none()
     {
         return (StatusCode::BAD_REQUEST, "not a member of this space").into_response();
     }
-    match store.set_grant(
-        access.space,
-        &machine,
-        form.user,
-        level,
-        access.user_id,
-        until,
-    ) {
+    match store
+        .set_grant(
+            access.space,
+            &machine,
+            form.user,
+            level,
+            access.user_id,
+            until,
+        )
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
     }
@@ -539,14 +537,10 @@ pub(crate) fn end_of_day(date: &str) -> Option<i64> {
 
 async fn ungrant(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((machine, user)): Path<(String, i64)>,
 ) -> Response {
-    match store
-        .lock()
-        .unwrap()
-        .remove_grant(access.space, &machine, user)
-    {
+    match store.remove_grant(access.space, &machine, user).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such permission").into_response(),
         Err(error) => failed(error),
@@ -556,15 +550,24 @@ async fn ungrant(
 // ---- machine groups ------------------------------------------------------------------------
 
 /// Someone asks the staff for permission (or a training) on a machine they may not use.
-async fn ask(access: Access, State(store): State<Shared>, Path(machine): Path<String>) -> Response {
-    let store = store.lock().unwrap();
-    match store.may(&access, &machine, Level::Use) {
-        Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
-        Ok(Some(true)) => return (StatusCode::CONFLICT, "you may use it already").into_response(),
+async fn ask(access: Access, State(store): State<Store>, Path(machine): Path<String>) -> Response {
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
         Err(error) => return failed(error),
-        Ok(Some(false)) => {}
+    };
+    let may = store
+        .lock()
+        .unwrap()
+        .may(&access, &machine, Level::Use, &grants);
+    match may {
+        None => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
+        Some(true) => return (StatusCode::CONFLICT, "you may use it already").into_response(),
+        Some(false) => {}
     }
-    match store.ask_permission(access.space, access.user_id, &machine) {
+    match store
+        .ask_permission(access.space, access.user_id, &machine)
+        .await
+    {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
     }
@@ -573,7 +576,7 @@ async fn ask(access: Access, State(store): State<Shared>, Path(machine): Path<St
 /// The staff answer a request: `give` (use, on that machine) or `decline`.
 async fn answer(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((id, answer)): Path<(i64, String)>,
 ) -> Response {
     let give = match answer.as_str() {
@@ -581,24 +584,28 @@ async fn answer(
         "decline" => false,
         _ => return (StatusCode::NOT_FOUND, "give or decline").into_response(),
     };
-    let store = store.lock().unwrap();
-    match store.answer_request(access.space, id, give, access.user_id) {
+    let answered = store
+        .answer_request(access.space, id, give, access.user_id)
+        .await;
+    match answered {
         Ok(Some(r)) => {
             let what = if r.training {
                 "a training"
             } else {
                 "permission"
             };
-            let _ = store.audit(
-                &access,
-                if give {
-                    "gave what was asked for on"
-                } else {
-                    "declined what was asked for on"
-                },
-                &r.machine,
-                &format!("{}: {what}", r.who),
-            );
+            let _ = store
+                .audit(
+                    &access,
+                    if give {
+                        "gave what was asked for on"
+                    } else {
+                        "declined what was asked for on"
+                    },
+                    &r.machine,
+                    &format!("{}: {what}", r.who),
+                )
+                .await;
             StatusCode::NO_CONTENT.into_response()
         }
         Ok(None) => (StatusCode::NOT_FOUND, "no such request").into_response(),
@@ -618,16 +625,16 @@ struct TickForm {
 /// Answers the level they have now.
 async fn tick(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((group, user)): Path<(i64, i64)>,
     Form(form): Form<TickForm>,
 ) -> Response {
-    let store = store.lock().unwrap();
-    let Ok(Some(name)) = store.group_name(access.space, group) else {
+    let Ok(Some(name)) = store.group_name(access.space, group).await else {
         return (StatusCode::NOT_FOUND, "no such group").into_response();
     };
     if store
         .role_of(user, access.space)
+        .await
         .ok()
         .flatten()
         .is_none_or(|r| r == Role::Guest)
@@ -638,9 +645,10 @@ async fn tick(
         )
             .into_response();
     }
-    let (who, _) = store.names_for_log(Some(user), None);
+    let (who, _) = store.names_for_log(access.space, Some(user), None).await;
     let had = store
         .groups(access.space)
+        .await
         .ok()
         .and_then(|gs| gs.into_iter().find(|g| g.id == group))
         .and_then(|g| g.grants.into_iter().find(|gr| gr.user_id == user));
@@ -652,29 +660,39 @@ async fn tick(
         .filter(|l| matches!(l, Level::Use | Level::Operate));
     let done = if form.on == "1" {
         match (had, asked) {
-            (Some(gr), None) => Ok(gr.level),
+            (Some(gr), None) => Ok(Some(gr.level)),
             (had, asked) => {
                 let level = asked.unwrap_or(Level::Operate);
                 let until = had.and_then(|g| g.expires_at);
-                store
-                    .set_group_grant(group, user, level, access.user_id, until)
-                    .map(|()| level)
+                let set = store
+                    .set_group_grant(access.space, group, user, level, access.user_id, until)
+                    .await;
+                set.map(|()| Some(level))
             }
         }
-        .map(|level| {
-            let _ = store.audit(
-                &access,
-                "gave permission on the group",
-                &name,
-                &format!("{who} · {}", level.as_str()),
-            );
-            level.as_str().to_owned()
-        })
     } else {
-        store.remove_group_grant(group, user).map(|_| {
-            let _ = store.audit(&access, "took permission away on the group", &name, &who);
-            String::new()
-        })
+        let removed = store.remove_group_grant(access.space, group, user).await;
+        removed.map(|_| None)
+    };
+    let done = match done {
+        Ok(None) => {
+            let _ = store
+                .audit(&access, "took permission away on the group", &name, &who)
+                .await;
+            Ok(String::new())
+        }
+        Ok(Some(level)) => {
+            let _ = store
+                .audit(
+                    &access,
+                    "gave permission on the group",
+                    &name,
+                    &format!("{who} · {}", level.as_str()),
+                )
+                .await;
+            Ok(level.as_str().to_owned())
+        }
+        Err(error) => Err(error),
     };
     match done {
         Ok(level) => level.into_response(),
@@ -686,7 +704,7 @@ async fn tick(
 /// that needs permission; ticked (`on`) is given with its level and end, unticked taken away.
 async fn set_permissions(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(user): Path<i64>,
     Form(form): Form<Vec<(String, String)>>,
 ) -> Response {
@@ -696,9 +714,9 @@ async fn set_permissions(
         .filter(|(k, _)| k == "on")
         .map(|(_, v)| v.as_str())
         .collect();
-    let store = store.lock().unwrap();
     if store
         .role_of(user, access.space)
+        .await
         .ok()
         .flatten()
         .is_none_or(|r| r == Role::Guest)
@@ -709,9 +727,27 @@ async fn set_permissions(
         )
             .into_response();
     }
-    let result = (|| -> rusqlite::Result<Result<Vec<String>, Box<Response>>> {
-        let mut given = Vec::new();
-        for g in store.groups(access.space)? {
+    let groups = match store.groups(access.space).await {
+        Ok(groups) => groups,
+        Err(error) => return failed(error),
+    };
+    // The machines that need permission.
+    let closed: Vec<(String, String)> = match store.machines(access.space).await {
+        Ok(machines) => machines
+            .into_iter()
+            .filter(|m| m.induction_required)
+            .map(|m| (m.id, m.name))
+            .collect(),
+        Err(error) => return failed(error),
+    };
+    // What is given and taken, in order; a refused date stops there, and what came before it is
+    // saved still (as each change was saved by itself before).
+    let mut given = Vec::new();
+    let mut on_groups = Vec::new();
+    let mut on_machines = Vec::new();
+    let mut refused = None;
+    'form: {
+        for g in groups {
             let on = format!("g:{}", g.id);
             if ticked.contains(&on.as_str()) {
                 let (level, until) = match grant_terms(
@@ -719,55 +755,60 @@ async fn set_permissions(
                     get(&format!("until:{on}")),
                 ) {
                     Ok(t) => t,
-                    Err(r) => return Ok(Err(r)),
+                    Err(r) => {
+                        refused = Some(r);
+                        break 'form;
+                    }
                 };
-                store.set_group_grant(g.id, user, level, access.user_id, until)?;
+                on_groups.push((g.id, Some((level, until))));
                 given.push(format!("{} · {}", g.name, level.as_str()));
             } else {
-                store.remove_group_grant(g.id, user)?;
+                on_groups.push((g.id, None));
             }
         }
-        for machine in store.machines(access.space)? {
-            if !store.induction_required(access.space, &machine.id)? {
-                continue;
-            }
-            let on = format!("m:{}", machine.id);
+        for (machine, name) in closed {
+            let on = format!("m:{machine}");
             if ticked.contains(&on.as_str()) {
                 let (level, until) = match grant_terms(
                     get(&format!("level:{on}")).unwrap_or("use"),
                     get(&format!("until:{on}")),
                 ) {
                     Ok(t) => t,
-                    Err(r) => return Ok(Err(r)),
+                    Err(r) => {
+                        refused = Some(r);
+                        break 'form;
+                    }
                 };
-                store.set_grant(
-                    access.space,
-                    &machine.id,
-                    user,
-                    level,
-                    access.user_id,
-                    until,
-                )?;
-                given.push(format!("{} · {}", machine.name, level.as_str()));
+                on_machines.push((machine, Some((level, until))));
+                given.push(format!("{name} · {}", level.as_str()));
             } else {
-                store.remove_grant(access.space, &machine.id, user)?;
+                on_machines.push((machine, None));
             }
         }
-        Ok(Ok(given))
-    })();
+    }
+    let saved = store
+        .set_permissions(access.space, user, access.user_id, &on_groups, &on_machines)
+        .await;
+    let result = match (saved, refused) {
+        (Err(error), _) => Err(error),
+        (Ok(()), Some(refused)) => Ok(Err(refused)),
+        (Ok(()), None) => Ok(Ok(given)),
+    };
     match result {
         Ok(Ok(given)) => {
-            let (who, _) = store.names_for_log(Some(user), None);
-            let _ = store.audit(
-                &access,
-                "set the permissions of",
-                &who,
-                &if given.is_empty() {
-                    "only the open machines".to_owned()
-                } else {
-                    given.join(", ")
-                },
-            );
+            let (who, _) = store.names_for_log(access.space, Some(user), None).await;
+            let _ = store
+                .audit(
+                    &access,
+                    "set the permissions of",
+                    &who,
+                    &if given.is_empty() {
+                        "only the open machines".to_owned()
+                    } else {
+                        given.join(", ")
+                    },
+                )
+                .await;
             StatusCode::NO_CONTENT.into_response()
         }
         Ok(Err(response)) => *response,
@@ -786,7 +827,7 @@ struct PermissionForm {
 /// Gives a member permission on a group or a machine, or changes it: from the Members tab.
 async fn give_permission(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(user): Path<i64>,
     Form(form): Form<PermissionForm>,
 ) -> Response {
@@ -794,9 +835,9 @@ async fn give_permission(
         Ok(terms) => terms,
         Err(response) => return *response,
     };
-    let store = store.lock().unwrap();
     if store
         .role_of(user, access.space)
+        .await
         .ok()
         .flatten()
         .is_none_or(|r| r == Role::Guest)
@@ -807,7 +848,7 @@ async fn give_permission(
         )
             .into_response();
     }
-    let (who, _) = store.names_for_log(Some(user), None);
+    let (who, _) = store.names_for_log(access.space, Some(user), None).await;
     let until_text = until
         .map(|t| format!(" until {}", day(t)))
         .unwrap_or_default();
@@ -816,30 +857,35 @@ async fn give_permission(
         .strip_prefix("g:")
         .and_then(|g| g.parse::<i64>().ok())
     {
-        let Ok(Some(name)) = store.group_name(access.space, group) else {
+        let Ok(Some(name)) = store.group_name(access.space, group).await else {
             return (StatusCode::NOT_FOUND, "no such group").into_response();
         };
         store
-            .set_group_grant(group, user, level, access.user_id, until)
+            .set_group_grant(access.space, group, user, level, access.user_id, until)
+            .await
             .map(|()| ("gave permission on the group", name))
     } else if let Some(machine) = form.on.strip_prefix("m:") {
-        let Ok(Some(m)) = store.machine(access.space, machine) else {
+        let found = store.machine(access.space, machine).await;
+        let Ok(Some(m)) = found else {
             return (StatusCode::NOT_FOUND, "no such machine").into_response();
         };
         store
             .set_grant(access.space, machine, user, level, access.user_id, until)
+            .await
             .map(|()| ("gave permission on", m.name))
     } else {
         return (StatusCode::BAD_REQUEST, "a group or a machine").into_response();
     };
     match done {
         Ok((action, target)) => {
-            let _ = store.audit(
-                &access,
-                action,
-                &target,
-                &format!("{who} · {}{until_text}", level.as_str()),
-            );
+            let _ = store
+                .audit(
+                    &access,
+                    action,
+                    &target,
+                    &format!("{who} · {}{until_text}", level.as_str()),
+                )
+                .await;
             StatusCode::NO_CONTENT.into_response()
         }
         Err(error) => failed(error),
@@ -855,7 +901,7 @@ struct GroupForm {
 
 async fn new_group(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Form(form): Form<GroupForm>,
 ) -> Response {
     let name: String = form.name.trim().chars().take(60).collect();
@@ -866,8 +912,8 @@ async fn new_group(
         .kind
         .as_deref()
         .filter(|k| matches!(*k, "all" | "fdm" | "laser" | "label"));
-    let store = store.lock().unwrap();
-    match store.create_group(access.space, &name, kind) {
+    let made = store.create_group(access.space, &name, kind).await;
+    match made {
         Ok(_) => {
             let filled = match kind {
                 Some("all") => "with all machines",
@@ -876,7 +922,9 @@ async fn new_group(
                 Some("label") => "with all label printers",
                 _ => "",
             };
-            let _ = store.audit(&access, "made the machine group", &name, filled);
+            let _ = store
+                .audit(&access, "made the machine group", &name, filled)
+                .await;
             StatusCode::NO_CONTENT.into_response()
         }
         Err(error) => failed(error),
@@ -885,18 +933,21 @@ async fn new_group(
 
 async fn remove_group(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(group): Path<i64>,
 ) -> Response {
-    let store = store.lock().unwrap();
     let name = store
         .group_name(access.space, group)
+        .await
         .ok()
         .flatten()
         .unwrap_or_default();
-    match store.remove_group(access.space, group) {
+    let removed = store.remove_group(access.space, group).await;
+    match removed {
         Ok(true) => {
-            let _ = store.audit(&access, "removed the machine group", &name, "");
+            let _ = store
+                .audit(&access, "removed the machine group", &name, "")
+                .await;
             StatusCode::NO_CONTENT.into_response()
         }
         Ok(false) => (StatusCode::NOT_FOUND, "no such group").into_response(),
@@ -911,52 +962,78 @@ struct GroupMachineForm {
 
 async fn group_machine(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(group): Path<i64>,
     Form(form): Form<GroupMachineForm>,
 ) -> Response {
-    let store = store.lock().unwrap();
-    match store.set_group_machine(access.space, group, &form.machine, true) {
-        Ok(true) => {
-            let name = store
+    let set = match store
+        .set_group_machine(access.space, group, &form.machine, true)
+        .await
+    {
+        Ok(true) => Ok(Some(
+            store
                 .group_name(access.space, group)
+                .await
                 .ok()
                 .flatten()
-                .unwrap_or_default();
-            let (_, machine) = store.names_for_log(None, Some(&form.machine));
-            let _ = store.audit(&access, "put a machine in the group", &name, &machine);
+                .unwrap_or_default(),
+        )),
+        Ok(false) => Ok(None),
+        Err(error) => Err(error),
+    };
+    match set {
+        Ok(Some(name)) => {
+            let (_, machine) = store
+                .names_for_log(access.space, None, Some(&form.machine))
+                .await;
+            let _ = store
+                .audit(&access, "put a machine in the group", &name, &machine)
+                .await;
             StatusCode::NO_CONTENT.into_response()
         }
-        Ok(false) => (StatusCode::NOT_FOUND, "no such group or machine").into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "no such group or machine").into_response(),
         Err(error) => failed(error),
     }
 }
 
 async fn group_machine_out(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((group, machine)): Path<(i64, String)>,
 ) -> Response {
-    let store = store.lock().unwrap();
-    match store.set_group_machine(access.space, group, &machine, false) {
-        Ok(true) => {
-            let name = store
+    let set = match store
+        .set_group_machine(access.space, group, &machine, false)
+        .await
+    {
+        Ok(true) => Ok(Some(
+            store
                 .group_name(access.space, group)
+                .await
                 .ok()
                 .flatten()
-                .unwrap_or_default();
-            let (_, machine) = store.names_for_log(None, Some(&machine));
-            let _ = store.audit(&access, "took a machine out of the group", &name, &machine);
+                .unwrap_or_default(),
+        )),
+        Ok(false) => Ok(None),
+        Err(error) => Err(error),
+    };
+    match set {
+        Ok(Some(name)) => {
+            let (_, machine) = store
+                .names_for_log(access.space, None, Some(&machine))
+                .await;
+            let _ = store
+                .audit(&access, "took a machine out of the group", &name, &machine)
+                .await;
             StatusCode::NO_CONTENT.into_response()
         }
-        Ok(false) => (StatusCode::NOT_FOUND, "no such group or machine").into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "no such group or machine").into_response(),
         Err(error) => failed(error),
     }
 }
 
 async fn group_grant(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(group): Path<i64>,
     Form(form): Form<GrantForm>,
 ) -> Response {
@@ -964,35 +1041,46 @@ async fn group_grant(
         Ok(terms) => terms,
         Err(response) => return *response,
     };
-    let store = store.lock().unwrap();
-    if !matches!(store.group_name(access.space, group), Ok(Some(_))) {
+    if !matches!(store.group_name(access.space, group).await, Ok(Some(_))) {
         return (StatusCode::NOT_FOUND, "no such group").into_response();
     }
     if store
         .role_of(form.user, access.space)
+        .await
         .ok()
         .flatten()
         .is_none()
     {
         return (StatusCode::BAD_REQUEST, "not a member of this space").into_response();
     }
-    match store.set_group_grant(group, form.user, level, access.user_id, until) {
-        Ok(()) => {
-            let name = store
-                .group_name(access.space, group)
-                .ok()
-                .flatten()
-                .unwrap_or_default();
-            let (who, _) = store.names_for_log(Some(form.user), None);
+    let set = match store
+        .set_group_grant(access.space, group, form.user, level, access.user_id, until)
+        .await
+    {
+        Ok(()) => Ok(store
+            .group_name(access.space, group)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default()),
+        Err(error) => Err(error),
+    };
+    match set {
+        Ok(name) => {
+            let (who, _) = store
+                .names_for_log(access.space, Some(form.user), None)
+                .await;
             let until = until
                 .map(|t| format!(" until {}", day(t)))
                 .unwrap_or_default();
-            let _ = store.audit(
-                &access,
-                "gave permission on the group",
-                &name,
-                &format!("{who} · {}{until}", level.as_str()),
-            );
+            let _ = store
+                .audit(
+                    &access,
+                    "gave permission on the group",
+                    &name,
+                    &format!("{who} · {}{until}", level.as_str()),
+                )
+                .await;
             StatusCode::NO_CONTENT.into_response()
         }
         Err(error) => failed(error),
@@ -1001,25 +1089,33 @@ async fn group_grant(
 
 async fn group_ungrant(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((group, user)): Path<(i64, i64)>,
 ) -> Response {
-    let store = store.lock().unwrap();
-    if !matches!(store.group_name(access.space, group), Ok(Some(_))) {
+    if !matches!(store.group_name(access.space, group).await, Ok(Some(_))) {
         return (StatusCode::NOT_FOUND, "no such group").into_response();
     }
-    match store.remove_group_grant(group, user) {
-        Ok(true) => {
-            let name = store
+    let removed = match store.remove_group_grant(access.space, group, user).await {
+        Ok(true) => Ok(Some(
+            store
                 .group_name(access.space, group)
+                .await
                 .ok()
                 .flatten()
-                .unwrap_or_default();
-            let (who, _) = store.names_for_log(Some(user), None);
-            let _ = store.audit(&access, "took permission away on the group", &name, &who);
+                .unwrap_or_default(),
+        )),
+        Ok(false) => Ok(None),
+        Err(error) => Err(error),
+    };
+    match removed {
+        Ok(Some(name)) => {
+            let (who, _) = store.names_for_log(access.space, Some(user), None).await;
+            let _ = store
+                .audit(&access, "took permission away on the group", &name, &who)
+                .await;
             StatusCode::NO_CONTENT.into_response()
         }
-        Ok(false) => (StatusCode::NOT_FOUND, "no such permission").into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "no such permission").into_response(),
         Err(error) => failed(error),
     }
 }

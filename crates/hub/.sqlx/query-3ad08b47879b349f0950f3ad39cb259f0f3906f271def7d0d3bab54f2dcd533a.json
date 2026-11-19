@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM org_memberships WHERE user_id = $2\n                 AND organisation_id = (SELECT organisation_id FROM spaces WHERE id = $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3ad08b47879b349f0950f3ad39cb259f0f3906f271def7d0d3bab54f2dcd533a"
+}

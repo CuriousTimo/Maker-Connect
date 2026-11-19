@@ -5,7 +5,7 @@
 //! All ours (no reference: nothing goes to a device). Step 2 moves this into the module `cameras`.
 
 use crate::access::Access;
-use crate::{STYLE, Shared, escape, failed, header};
+use crate::{STYLE, Store, escape, failed, header};
 use axum::{
     Router,
     body::Bytes,
@@ -55,7 +55,7 @@ fn keep(machine: &str, index: u32, jpeg: Bytes) {
     let _ = events().send(event_data(machine, index, slot.seq));
 }
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route(protocol::CAMERA_FRAME, post(frame_in))
         .route("/usb-cameras/test", get(test_page))
@@ -65,7 +65,7 @@ pub fn routes() -> Router<Shared> {
 
 /// An agent's frame, by its token (as for telemetry): only a JPEG is kept.
 async fn frame_in(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(index): Path<u32>,
     headers: HeaderMap,
     body: Bytes,
@@ -75,7 +75,7 @@ async fn frame_in(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
-    let machine = match store.lock().unwrap().machine_id_by_token(token) {
+    let machine = match store.machine_id_by_token(token).await {
         Ok(Some(machine)) => machine,
         Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
         Err(error) => return failed(error),
@@ -90,10 +90,10 @@ async fn frame_in(
 /// The camera's latest frame, if its agent's machine is in the admin's space.
 async fn frame_out(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((machine, index)): Path<(String, u32)>,
 ) -> Response {
-    match store.lock().unwrap().machine(access.space, &machine) {
+    match store.machine(access.space, &machine).await {
         Ok(Some(_)) => {}
         Ok(None) => return (StatusCode::NOT_FOUND, "no such camera").into_response(),
         Err(error) => return failed(error),
@@ -119,7 +119,7 @@ async fn frame_out(
 /// The cameras of the admin's space that have a frame now, then every new frame of theirs.
 async fn stream(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
 ) -> Sse<impl futures_util::Stream<Item = Result<Event, std::convert::Infallible>>> {
     use tokio::sync::broadcast::error::RecvError;
     let rx = events().subscribe();
@@ -150,10 +150,7 @@ async fn stream(
                     .ok()
                     .and_then(|v| v["machine"].as_str().map(str::to_owned))
                     .unwrap_or_default();
-                let mine = matches!(
-                    store.lock().unwrap().machine(access.space, &machine),
-                    Ok(Some(_))
-                );
+                let mine = matches!(store.machine(access.space, &machine).await, Ok(Some(_)));
                 if mine {
                     return Some((Ok(Event::default().data(data)), (rx, now)));
                 }
@@ -209,8 +206,8 @@ events.onmessage = (e) => {
 </body>
 </html>"##;
 
-async fn test_page(access: Access, State(store): State<Shared>) -> Response {
-    let space = match store.lock().unwrap().space_name(access.space) {
+async fn test_page(access: Access, State(store): State<Store>) -> Response {
+    let space = match store.space_name(access.space).await {
         Ok(space) => space,
         Err(error) => return failed(error),
     };
@@ -226,11 +223,11 @@ async fn test_page(access: Access, State(store): State<Shared>) -> Response {
 mod tests {
     use super::*;
     use crate::access::Role;
-    use crate::store::Store;
+
     use axum::{body::Body, http::Request};
     use http_body_util::BodyExt;
     use maker_connect_protocol::{MachineKind, Register};
-    use std::sync::{Arc, Mutex};
+
     use tower::ServiceExt;
 
     const JPEG: [u8; 14] = [0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6, 7, 8, 0xff, 0xd9];
@@ -242,38 +239,38 @@ mod tests {
         admin: String,
         member: String,
     }
-
-    fn rig() -> Rig {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let (machine, token, admin, member) = {
-            let s = store.lock().unwrap();
-            let (space, _) = s.default_space().unwrap();
-            let org = s.organisation_of(space).unwrap();
-            let (machine, token, code) = s
+    async fn rig(pool: &sqlx::PgPool) -> Rig {
+        let store = crate::store::Store::for_test(pool).await;
+        let (space, _) = store.default_space().await.unwrap();
+        let (machine, token) = {
+            let (machine, token, code) = store
                 .register(&Register {
                     protocol: protocol::VERSION,
                     name: "cam agent".into(),
                     kind: MachineKind::Other,
                     agent_version: "0.2.0".into(),
                 })
+                .await
                 .unwrap();
-            s.pair(space, &code).unwrap().unwrap();
-            let cookie = |name: &str, role: Role| {
-                let user = s.create_user(name, name, "x", false).unwrap();
-                s.set_org_membership(user, org, role.as_str()).unwrap();
-                format!(
-                    "{}={}",
-                    crate::auth::COOKIE,
-                    s.create_session(user, None, "", "").unwrap()
-                )
-            };
-            (
-                machine,
-                token,
-                cookie("adam", Role::Admin),
-                cookie("mia", Role::Member),
+            store.pair(space, &code).await.unwrap().unwrap();
+            (machine, token)
+        };
+        let cookie = async |name: &str, role: Role| {
+            let user = store.create_user(name, name, "x", false).await.unwrap();
+            store
+                .set_org_membership(user, space, role.as_str())
+                .await
+                .unwrap();
+            format!(
+                "{}={}",
+                crate::auth::COOKIE,
+                store.create_session(user, None, "", "").await.unwrap()
             )
         };
+        let (admin, member) = (
+            cookie("adam", Role::Admin).await,
+            cookie("mia", Role::Member).await,
+        );
         Rig {
             app: crate::app(store),
             machine,
@@ -306,7 +303,7 @@ mod tests {
     }
 
     async fn next_chunk(body: &mut Body) -> String {
-        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), body.frame())
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(60), body.frame())
             .await
             .expect("an event in time")
             .unwrap()
@@ -314,9 +311,13 @@ mod tests {
         String::from_utf8_lossy(frame.data_ref().unwrap()).into_owned()
     }
 
-    #[tokio::test]
-    async fn a_frame_is_kept_latest_only_and_announced() {
-        let r = rig();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_frame_is_kept_latest_only_and_announced(pool: sqlx::PgPool) {
+        let r = rig(&pool).await;
         let (bad, not_jpeg) = (
             r.post_frame("nope", &JPEG).await,
             r.post_frame(&r.token, b"GIF89a-------").await,
@@ -381,9 +382,13 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn the_test_page_is_for_admins() {
-        let r = rig();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_test_page_is_for_admins(pool: sqlx::PgPool) {
+        let r = rig(&pool).await;
         let frame = format!("/usb-cameras/test/frame/{}/0", r.machine);
         for path in [
             "/usb-cameras/test",

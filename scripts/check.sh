@@ -29,10 +29,26 @@ quiet() { "$@" >/tmp/maker-connect-check.$$ 2>&1; local e=$?; [ $e -ne 0 ] && ta
 fmt_check() { local n; n=$(cargo fmt --all -- --check 2>/dev/null | grep -c '^Diff in'); [ "$n" -eq 0 ] || { echo "   $n places differ from cargo fmt (run: cargo fmt --all)"; return 1; }; }
 step "fmt" fmt_check
 step "clippy" quiet cargo clippy --workspace --all-targets --locked -- -D warnings
+# The .67 build has the network cameras (feature `cameras`): it builds and passes clippy too.
+step "clippy (cameras)" quiet cargo clippy -p maker-connect-hub --all-targets --locked --features cameras -- -D warnings
 # Windows (CI runs it there): clippy for x86_64-pc-windows-gnu, with zig as the C compiler.
 step "clippy (Windows)" quiet env CC_x86_64_pc_windows_gnu="$PWD/scripts/zigcc-windows.sh" AR_x86_64_pc_windows_gnu="$PWD/scripts/zig-ar.sh" \
     cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings
-step "tests" quiet cargo test --workspace --locked
+# The store's tests need Postgres (scripts/dev-db.sh, on demand): started here when it is not running, and
+# stopped afterwards only if this run started it. Builds use the checked-in `.sqlx/` cache (SQLX_OFFLINE).
+export SQLX_OFFLINE=true
+DEV_DB_WAS_UP=$(docker ps -q --filter "name=^mc-dev-db$" 2>/dev/null)
+if DEV_DB=$(scripts/dev-db.sh up | grep '^DATABASE_URL='); then
+    export "${DEV_DB?}"
+    export "$(scripts/dev-db.sh command)"
+    step "tests" quiet cargo test --workspace --locked --features maker-connect-hub/pg-tests
+    # With the cameras too (the .67 build), which also checks the routes' snapshot (tests/routes.txt).
+    step "hub tests (cameras)" quiet cargo test -p maker-connect-hub --lib --locked --features pg-tests,cameras
+    step ".sqlx cache = queries" quiet scripts/dev-db.sh prepare --check
+else
+    step "tests (no dev database)" false
+fi
+[ -z "$DEV_DB_WAS_UP" ] && scripts/dev-db.sh down
 step "docs (rustdoc -D warnings)" quiet env RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --document-private-items --locked
 step "docs links" python3 -I scripts/docs-links-check.py
 # docs/registries/*.md are generated from crates/device/src/registry.rs (hub-core-v2.md §2.10).

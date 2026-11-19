@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE machines SET out_of_use = $1,\n                 out_of_use_at = CASE WHEN $1::text IS NULL THEN NULL ELSE at_unix($2) END\n             WHERE id = $3 AND space_id = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ef5a24176834cd0485859a0a7fa9a8ea818f0dc6be0f99ab153cc373084398bf"
+}

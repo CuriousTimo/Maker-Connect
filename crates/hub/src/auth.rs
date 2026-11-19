@@ -15,7 +15,7 @@
 
 use crate::accounts::{self, Signed};
 use crate::store::now;
-use crate::{STYLE, Shared, escape, failed};
+use crate::{STYLE, Store, escape, failed};
 use axum::{
     Extension, Form, Json, Router,
     extract::{ConnectInfo, Query, Request, State},
@@ -44,7 +44,7 @@ const PAUSE: std::time::Duration = std::time::Duration::from_millis(600);
 #[derive(Clone, Debug)]
 pub struct Client(pub String);
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/login", get(login_page).post(login))
         .route("/setup", get(setup_page).post(setup))
@@ -64,7 +64,7 @@ pub fn public(path: &str) -> bool {
 }
 
 /// The guard, in front of every route.
-pub async fn guard(State(store): State<Shared>, mut request: Request, next: Next) -> Response {
+pub async fn guard(State(store): State<Store>, mut request: Request, next: Next) -> Response {
     let client = request
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
@@ -96,7 +96,7 @@ pub async fn guard(State(store): State<Shared>, mut request: Request, next: Next
         .map(|v| v.strip_prefix("Bearer ").unwrap_or(v).trim().to_owned())
         .filter(|t| t.starts_with(crate::access::TOKEN_PREFIX));
     if let Some(token) = api_token {
-        let access = match store.lock().unwrap().token_access(&token) {
+        let access = match store.token_access(&token).await {
             Ok(access) => access,
             Err(error) => return failed(error),
         };
@@ -113,18 +113,21 @@ pub async fn guard(State(store): State<Shared>, mut request: Request, next: Next
     }
     let token = cookie(request.headers(), COOKIE);
     let (signed, access, has_users) = {
-        let store = store.lock().unwrap();
-        let signed = match token.as_deref().map(|t| store.session(t)) {
-            Some(Ok(signed)) => signed,
-            Some(Err(error)) => return failed(error),
+        let signed = match token.as_deref() {
+            Some(t) => match store.session(t).await {
+                Ok(signed) => signed,
+                Err(error) => return failed(error),
+            },
             None => None,
         };
-        let access = match signed.as_ref().map(|s| session_access(&store, s)) {
-            Some(Ok(access)) => access,
-            Some(Err(error)) => return failed(error),
+        let access = match signed.as_ref() {
+            Some(s) => match session_access(&store, s).await {
+                Ok(access) => access,
+                Err(error) => return failed(error),
+            },
             None => None,
         };
-        (signed, access, store.has_users().unwrap_or(true))
+        (signed, access, store.has_users().await.unwrap_or(true))
     };
     let Some(signed) = signed else {
         return refuse(&request, has_users);
@@ -149,7 +152,7 @@ pub async fn guard(State(store): State<Shared>, mut request: Request, next: Next
 }
 
 /// The rest of the guard, for the apps API.
-async fn apps_guard(store: Shared, request: Request, next: Next) -> Response {
+async fn apps_guard(store: Store, request: Request, next: Next) -> Response {
     if public(request.uri().path()) {
         return next.run(request).await;
     }
@@ -159,9 +162,11 @@ async fn apps_guard(store: Shared, request: Request, next: Next) -> Response {
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .map(|t| t.trim().to_owned());
-    let access = match token.map(|t| store.lock().unwrap().token_access(&t)) {
-        Some(Ok(access)) => access,
-        Some(Err(error)) => return failed(error),
+    let access = match token {
+        Some(t) => match store.token_access(&t).await {
+            Ok(access) => access,
+            Err(error) => return failed(error),
+        },
         None => None,
     };
     let Some(access) = access else {
@@ -194,20 +199,22 @@ fn cors(mut response: Response) -> Response {
 
 /// The space a session is in, with the role there: the one it was in, else the first the
 /// user belongs to (and the session moves there); `None` when they belong to none.
-fn session_access(
-    store: &crate::store::Store,
+async fn session_access(
+    store: &Store,
     signed: &Signed,
-) -> rusqlite::Result<Option<crate::access::Access>> {
+) -> sqlx::Result<Option<crate::access::Access>> {
     let mut space = signed.space_id;
     let mut role = match space {
-        Some(space) => store.role_of(signed.user_id, space)?,
+        Some(space) => store.role_of(signed.user_id, space).await?,
         None => None,
     };
     if role.is_none() {
-        let Some(first) = store.spaces_of(signed.user_id)?.into_iter().next() else {
+        let Some(first) = store.spaces_of(signed.user_id).await?.into_iter().next() else {
             return Ok(None);
         };
-        store.set_session_space(signed.session_id, first.id)?;
+        store
+            .set_session_space(signed.user_id, signed.session_id, first.id)
+            .await?;
         space = Some(first.id);
         role = Some(first.role);
     }
@@ -402,15 +409,15 @@ struct LoginForm {
     next: Option<String>,
 }
 
-async fn login_page(State(store): State<Shared>, Query(query): Query<NextQuery>) -> Response {
-    if !store.lock().unwrap().has_users().unwrap_or(true) {
+async fn login_page(State(store): State<Store>, Query(query): Query<NextQuery>) -> Response {
+    if !store.has_users().await.unwrap_or(true) {
         return Redirect::to("/setup").into_response();
     }
     Html(login_html("", "", query.next.as_deref())).into_response()
 }
 
 async fn login(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Extension(Client(client)): Extension<Client>,
     headers: HeaderMap,
     Form(form): Form<LoginForm>,
@@ -428,10 +435,12 @@ async fn login(
         format!("name:{}", name.to_lowercase()),
     ];
     let credentials = {
-        let mut store = store.lock().unwrap();
-        if blocked(&mut store.failures, &keys[0], PER_ADDRESS)
-            || blocked(&mut store.failures, &keys[1], PER_NAME)
-        {
+        let refused = {
+            let mut failures = store.failures();
+            blocked(&mut failures, &keys[0], PER_ADDRESS)
+                || blocked(&mut failures, &keys[1], PER_NAME)
+        };
+        if refused {
             println!("sign-in refused for a while: too many failures ({client}, {name:?})");
             return (
                 StatusCode::TOO_MANY_REQUESTS,
@@ -443,7 +452,7 @@ async fn login(
             )
                 .into_response();
         }
-        match store.credentials(&name) {
+        match store.credentials(&name).await {
             Ok(credentials) => credentials,
             Err(error) => return failed(error),
         }
@@ -459,7 +468,7 @@ async fn login(
         .unwrap_or(false);
     let user = credentials.filter(|c| right && !c.disabled);
     let Some(user) = user else {
-        failed_once(&mut store.lock().unwrap().failures, &keys);
+        failed_once(&mut store.failures(), &keys);
         println!("sign-in failed from {client} for {name:?}");
         tokio::time::sleep(PAUSE).await;
         return (
@@ -477,10 +486,12 @@ async fn login(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     let token = {
-        let mut store = store.lock().unwrap();
-        store.failures.remove(&keys[1]);
-        let space = store.first_space_of(user.user_id).ok().flatten();
-        match store.create_session(user.user_id, space, user_agent, &client) {
+        store.failures().remove(&keys[1]);
+        let space = store.first_space_of(user.user_id).await.ok().flatten();
+        match store
+            .create_session(user.user_id, space, user_agent, &client)
+            .await
+        {
             Ok(token) => token,
             Err(error) => return failed(error),
         }
@@ -495,11 +506,11 @@ fn stand_in_hash() -> &'static str {
 }
 
 async fn logout(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Extension(signed): Extension<Signed>,
     headers: HeaderMap,
 ) -> Response {
-    if let Err(error) = store.lock().unwrap().end_session(signed.session_id) {
+    if let Err(error) = store.end_session(signed.session_id).await {
         return failed(error);
     }
     let mut response = Redirect::to("/login").into_response();
@@ -512,29 +523,29 @@ async fn logout(
 /// Who is signed in, the space they are in with their role, and the spaces they could
 /// go to: for the sidebar.
 async fn me(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Extension(signed): Extension<Signed>,
     access: Option<Extension<crate::access::Access>>,
 ) -> Response {
-    let store = store.lock().unwrap();
-    let spaces = match store.spaces_of(signed.user_id) {
+    let spaces = match store.spaces_of(signed.user_id).await {
         Ok(spaces) => spaces,
         Err(error) => return failed(error),
     };
-    let space = access.as_ref().map(|Extension(a)| {
-        serde_json::json!({
+    let space = match access.as_ref() {
+        Some(Extension(a)) => Some(serde_json::json!({
             "id": a.space,
-            "name": store.space_name(a.space).unwrap_or_default(),
+            "name": store.space_name(a.space).await.unwrap_or_default(),
             "role": a.role,
-        })
-    });
+        })),
+        None => None,
+    };
     Json(serde_json::json!({
         "name": signed.name,
         "display_name": signed.display_name,
         "instance_admin": signed.instance_admin,
         "space": space,
         "spaces": spaces,
-        "may_make_spaces": signed.instance_admin || store.open_spaces(),
+        "may_make_spaces": signed.instance_admin || store.open_spaces().await,
     }))
     .into_response()
 }
@@ -549,18 +560,21 @@ struct SetupForm {
     again: String,
 }
 
-async fn setup_page(State(store): State<Shared>) -> Response {
-    let store = store.lock().unwrap();
-    if store.setup_code.is_none() {
+async fn setup_page(State(store): State<Store>) -> Response {
+    if store.setup_code().is_none() {
         return Redirect::to("/login").into_response();
     }
-    let space = store.default_space().map(|(_, n)| n).unwrap_or_default();
+    let space = store
+        .default_space()
+        .await
+        .map(|(_, n)| n)
+        .unwrap_or_default();
     Html(setup_html(&space, "", "", "")).into_response()
 }
 
 /// The first account: an instance admin who owns the first space (and names it).
 async fn setup(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Extension(Client(client)): Extension<Client>,
     headers: HeaderMap,
     Form(form): Form<SetupForm>,
@@ -582,11 +596,11 @@ async fn setup(
         Html(setup_html(&space_name, &display_name, &name, problem)).into_response()
     };
     let wrong_code = {
-        let mut store = store.lock().unwrap();
-        let Some(code) = store.setup_code.clone() else {
+        let Some(code) = store.setup_code() else {
             return Redirect::to("/login").into_response();
         };
-        if blocked(&mut store.failures, &key, PER_ADDRESS) {
+        let mut failures = store.failures();
+        if blocked(&mut failures, &key, PER_ADDRESS) {
             return (
                 StatusCode::TOO_MANY_REQUESTS,
                 again("Too many wrong codes. Try again in a quarter of an hour."),
@@ -601,7 +615,7 @@ async fn setup(
         };
         let wrong = !same(typed.as_bytes(), code.as_bytes());
         if wrong {
-            failed_once(&mut store.failures, std::slice::from_ref(&key));
+            failed_once(&mut failures, std::slice::from_ref(&key));
             println!("setup code wrong from {client}");
         }
         wrong
@@ -638,24 +652,27 @@ async fn setup(
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    let mut store = store.lock().unwrap();
-    // Two at once: only the first gets it.
-    if store.setup_code.is_none() {
+    // Two at once: only the first gets it (the code is taken; given back if making fails).
+    let Some(code) = store.take_setup_code() else {
         return Redirect::to("/login").into_response();
-    }
-    let made = (|| {
-        let (space, _) = store.default_space()?;
-        let user = store.create_user(&name, &display_name, &hash, true)?;
+    };
+    let made = async {
+        let (space, _) = store.default_space().await?;
+        let user = store.create_user(&name, &display_name, &hash, true).await?;
         // Owner of the first space's organisation (all its spaces); both get the name.
-        let organisation = store.organisation_of(space)?;
-        store.set_org_membership(user, organisation, "owner")?;
-        store.rename_space(space, &space_name)?;
-        store.rename_organisation(organisation, &space_name)?;
-        store.create_session(user, Some(space), user_agent, &client)
-    })();
+        store.set_org_membership(user, space, "owner").await?;
+        store.rename_space(space, &space_name).await?;
+        store.rename_organisation(space, &space_name).await?;
+        store
+            .create_session(user, Some(space), user_agent, &client)
+            .await
+    }
+    .await;
+    if made.is_err() {
+        store.set_setup_code(Some(code));
+    }
     match made {
         Ok(token) => {
-            store.setup_code = None;
             println!("first account made: {name} (instance admin, owner of {space_name:?})");
             signed_in(&token, &headers, "/")
         }
@@ -742,17 +759,19 @@ fn setup_html(space: &str, display_name: &str, name: &str, problem: &str) -> Str
     )
 }
 
-/// In a test: the signed-in tester may operate this machine (a new machine needs
+// The tester of `signed_in_app`, per test (each runs on a thread of its own runtime).
+#[cfg(test)]
+thread_local! {
+    static TESTER: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+}
+
+/// In a test: the signed-in tester may operate this machine of the first space (a new machine needs
 /// permission, owners included; a machine added through the website gives it to whoever
 /// added it).
 #[cfg(test)]
-pub fn tester_may_operate(store: &crate::store::Store, space: i64, machine: &str) {
-    let user: i64 = store
-        .db
-        .query_row("SELECT id FROM users WHERE name = 'tester'", [], |r| {
-            r.get(0)
-        })
-        .unwrap();
+pub async fn tester_may_operate(store: &Store, machine: &str) {
+    let user = TESTER.with(|t| t.get());
+    let space = store.default_space().await.unwrap().0;
     store
         .set_grant(
             space,
@@ -762,22 +781,27 @@ pub fn tester_may_operate(store: &crate::store::Store, space: i64, machine: &str
             user,
             None,
         )
+        .await
         .unwrap();
 }
 
 /// For tests: the app with someone signed in on every request (an owner of the first space).
 #[cfg(test)]
-pub fn signed_in_app(store: Shared) -> Router {
+pub async fn signed_in_app(store: Store) -> Router {
     let token = {
-        let store = store.lock().unwrap();
-        let user = store.create_user("tester", "Tester", "x", true).unwrap();
-        let space = store.default_space().unwrap().0;
-        let organisation = store.organisation_of(space).unwrap();
+        let user = store
+            .create_user("tester", "Tester", "x", true)
+            .await
+            .unwrap();
+        TESTER.with(|t| t.set(user));
+        let space = store.default_space().await.unwrap().0;
         store
-            .set_org_membership(user, organisation, "owner")
+            .set_org_membership(user, space, "owner")
+            .await
             .unwrap();
         store
             .create_session(user, Some(space), "test", "127.0.0.1")
+            .await
             .unwrap()
     };
     let cookie = HeaderValue::from_str(&format!("{COOKIE}={token}")).unwrap();
@@ -795,14 +819,13 @@ pub fn signed_in_app(store: Shared) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::Store;
+
     use axum::body::Body;
     use http_body_util::BodyExt;
-    use std::sync::{Arc, Mutex};
-    use tower::ServiceExt;
 
-    fn fresh() -> Shared {
-        Arc::new(Mutex::new(Store::open(":memory:").unwrap()))
+    use tower::ServiceExt;
+    async fn fresh(pool: &sqlx::PgPool) -> Store {
+        Store::for_test(pool).await
     }
 
     async fn send(
@@ -843,8 +866,12 @@ mod tests {
     /// Every route in the source, with made-up values for its parameters, needs a session,
     /// unless it is one machines use with their own tokens or a page to sign in. A route
     /// added later is checked without anyone remembering to.
-    #[tokio::test]
-    async fn every_route_needs_a_session_but_the_public_ones() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn every_route_needs_a_session_but_the_public_ones(pool: sqlx::PgPool) {
         // Every source file, read when the test runs: a new module cannot be forgotten.
         let sources = crate::access::route_sources();
         let mut paths: Vec<String> = Vec::new();
@@ -870,11 +897,10 @@ mod tests {
             "found only {} routes: is the parsing still right?",
             paths.len()
         );
-        let store = fresh();
+        let store = fresh(&pool).await;
         store
-            .lock()
-            .unwrap()
             .create_user("someone", "Someone", "x", true)
+            .await
             .unwrap();
         let app = crate::app(store);
         let mut checked = 0;
@@ -917,10 +943,14 @@ mod tests {
 
     /// A fresh install sends pages to setup; setup needs the code the hub printed, and
     /// then makes an owner who is signed in, and the space gets its name.
-    #[tokio::test]
-    async fn the_first_account_needs_the_setup_code() {
-        let store = fresh();
-        let code = store.lock().unwrap().setup_code.clone().unwrap();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_first_account_needs_the_setup_code(pool: sqlx::PgPool) {
+        let store = fresh(&pool).await;
+        let code = store.setup_code().unwrap();
         let app = crate::app(store.clone());
         let (status, headers, _) = send(&app, page("/")).await;
         assert_eq!(
@@ -935,17 +965,14 @@ mod tests {
         let (status, _, body) = send(&app, form("/setup", &fields("WRNG-CODE"))).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         assert!(body.contains("not the setup code"));
-        assert!(!store.lock().unwrap().has_users().unwrap());
+        assert!(!store.has_users().await.unwrap());
         // Typed in lower case, without the dash: still the code.
         let typed = code.to_lowercase().replace('-', "");
         let (status, headers, _) = send(&app, form("/setup", &fields(&typed))).await;
         assert_eq!(status, StatusCode::SEE_OTHER, "made");
         let cookie = session_from(&headers);
-        {
-            let store = store.lock().unwrap();
-            assert!(store.setup_code.is_none());
-            assert_eq!(store.default_space().unwrap().1, "Fablab Noord");
-        }
+        assert!(store.setup_code().is_none());
+        assert_eq!(store.default_space().await.unwrap().1, "Fablab Noord");
         let request = axum::http::Request::get("/api/me")
             .header("cookie", &cookie)
             .body(Body::empty())
@@ -968,21 +995,23 @@ mod tests {
 
     /// Signing in sets the cookie and goes where the person was going (only on this site);
     /// a wrong password does not; signing out ends the session.
-    #[tokio::test]
-    async fn signing_in_and_out() {
-        let store = fresh();
-        {
-            let store = store.lock().unwrap();
-            let user = store
-                .create_user(
-                    "ann",
-                    "Ann",
-                    &accounts::hash_password("ann's password"),
-                    false,
-                )
-                .unwrap();
-            store.set_membership(user, 1, "member").unwrap();
-        }
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn signing_in_and_out(pool: sqlx::PgPool) {
+        let store = fresh(&pool).await;
+        let user = store
+            .create_user(
+                "ann",
+                "Ann",
+                &accounts::hash_password("ann's password"),
+                false,
+            )
+            .await
+            .unwrap();
+        store.set_membership(user, 1, "member").await.unwrap();
         let app = crate::app(store.clone());
         let (status, _, body) = send(&app, form("/login", "name=ann&password=wrong")).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -1046,25 +1075,27 @@ mod tests {
     }
 
     /// Too many failures from one address: refused for a while, even with the right password.
-    #[tokio::test]
-    async fn guessing_is_stopped() {
-        let store = fresh();
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn guessing_is_stopped(pool: sqlx::PgPool) {
+        let store = fresh(&pool).await;
         store
-            .lock()
-            .unwrap()
             .create_user(
                 "ann",
                 "Ann",
                 &accounts::hash_password("ann's password"),
                 false,
             )
+            .await
             .unwrap();
         // Failures as if they had happened (without the pauses).
         {
-            let mut store = store.lock().unwrap();
             let keys = ["ip:unknown".to_owned()];
             for _ in 0..PER_ADDRESS {
-                failed_once(&mut store.failures, &keys);
+                failed_once(&mut store.failures(), &keys);
             }
         }
         let app = crate::app(store.clone());
@@ -1073,7 +1104,7 @@ mod tests {
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
         assert!(body.contains("Too many"));
         // Older than the window: forgotten.
-        for times in store.lock().unwrap().failures.values_mut() {
+        for times in store.failures().values_mut() {
             for t in times.iter_mut() {
                 *t -= WINDOW + 1;
             }

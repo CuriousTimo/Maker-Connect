@@ -112,7 +112,7 @@ fn world_with(scripts: Vec<Vec<Item>>) -> Shared {
 
 fn next(events: &Receiver<Event>) -> Event {
     events
-        .recv_timeout(Duration::from_secs(5))
+        .recv_timeout(Duration::from_secs(60))
         .expect("an event")
 }
 

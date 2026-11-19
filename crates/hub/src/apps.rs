@@ -15,7 +15,7 @@
 //! any origin, and need the token, never a cookie.
 
 use crate::access::{Access, Level};
-use crate::{Shared, failed, profiles};
+use crate::{Store, failed, profiles};
 use axum::{
     Json, Router,
     body::Body,
@@ -32,7 +32,7 @@ use serde_json::{Value, json};
 pub const API: u32 = 1;
 pub const PREFIX: &str = "/api/apps/v1/";
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/api/apps/v1/info", get(info))
         .route("/api/apps/v1/me", get(me))
@@ -52,17 +52,16 @@ async fn info() -> Json<Value> {
     }))
 }
 
-async fn me(access: Access, State(store): State<Shared>) -> Response {
-    let store = store.lock().unwrap();
-    let found = (|| -> rusqlite::Result<Value> {
-        let organisation = store.organisation_of(access.space)?;
+async fn me(access: Access, State(store): State<Store>) -> Response {
+    let found: sqlx::Result<Value> = async {
         Ok(json!({
-            "space": { "id": store.space_uid(access.space)?, "name": store.space_name(access.space)? },
-            "organisation": { "name": store.organisation_name(organisation)? },
+            "space": { "id": store.space_uid(access.space).await?, "name": store.space_name(access.space).await? },
+            "organisation": { "name": store.organisation_name(access.space).await? },
             "role": access.role,
             "as": access.actor,
         }))
-    })();
+    }
+    .await;
     match found {
         Ok(me) => Json(me).into_response(),
         Err(error) => failed(error),
@@ -107,14 +106,18 @@ pub(crate) fn machine_json(machine: &crate::store::Machine, may: Option<Level>) 
 
 async fn machines(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Query(query): Query<MachinesQuery>,
 ) -> Response {
-    let store = store.lock().unwrap();
-    let all = match store.machines(access.space) {
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    let all = match store.machines(access.space).await {
         Ok(all) => all,
         Err(error) => return failed(error),
     };
+    let store = store.lock().unwrap();
     let list: Vec<Value> = all
         .iter()
         .filter(|m| {
@@ -125,7 +128,7 @@ async fn machines(
                     == Some(k.to_owned())
             })
         })
-        .map(|m| machine_json(m, store.machine_level(&access, &m.id).ok().flatten()))
+        .map(|m| machine_json(m, store.machine_level(&access, &m.id, &grants)))
         .collect();
     Json(list).into_response()
 }
@@ -139,16 +142,25 @@ struct SendQuery {
 /// A file from a program: kept in Files, checked against its machine, and the page to open.
 async fn send(
     access: Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Query(query): Query<SendQuery>,
     body: Body,
 ) -> Response {
     // The machine first: one the token may not use is refused before anything is stored.
-    if let Some(machine) = &query.machine
-        && let Err(refused) =
-            crate::access::check_machine(&store.lock().unwrap(), &access, machine, Level::Use)
-    {
-        return *refused;
+    if let Some(machine) = &query.machine {
+        let grants = match store.grants_of(&access).await {
+            Ok(grants) => grants,
+            Err(error) => return failed(error),
+        };
+        if let Err(refused) = crate::access::check_machine(
+            &store.lock().unwrap(),
+            &access,
+            machine,
+            Level::Use,
+            &grants,
+        ) {
+            return *refused;
+        }
     }
     let kept = crate::files::upload(
         access.clone(),
@@ -171,8 +183,7 @@ async fn send(
     else {
         return failed("the file was kept, but its id did not come back");
     };
-    let store = store.lock().unwrap();
-    let file = match store.file(access.space, &id) {
+    let file = match store.file(access.space, &id).await {
         Ok(Some(file)) => file,
         Ok(None) => return failed("the file was kept, but is not there"),
         Err(error) => return failed(error),
@@ -180,7 +191,7 @@ async fn send(
     // Whether it fits the machine now: the same check as Print on the Files page.
     let check = match &query.machine {
         None => json!(null),
-        Some(machine) => match store.machine(access.space, machine) {
+        Some(machine) => match store.machine(access.space, machine).await {
             Ok(Some(machine)) => match crate::files::fit(&file, &machine) {
                 Ok(None) => json!({ "fits": true }),
                 Ok(Some(warning)) => json!({ "fits": true, "warning": warning }),
@@ -222,11 +233,11 @@ fn encode(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::access::Role;
-    use crate::store::Store;
+
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use http_body_util::BodyExt;
-    use std::sync::{Arc, Mutex};
+
     use tower::ServiceExt;
 
     async fn send(
@@ -245,25 +256,37 @@ mod tests {
 
     /// LaserFoundry's side of it: find the server, its lasers, send a file for one; it is
     /// in Files with the laser chosen, and nothing starts.
-    #[tokio::test]
-    async fn a_program_sends_a_laser_file() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_program_sends_a_laser_file(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
         let app = crate::app(store.clone());
         let (space, laser, member, guest) = {
-            let mut s = store.lock().unwrap();
-            let owner = s.create_user("olga", "Olga", "x", false).unwrap();
-            let (_, space) = s
+            let owner = store.create_user("olga", "Olga", "x", false).await.unwrap();
+            let (_, space) = store
                 .create_organisation("Fablab", "Werkplaats", owner)
+                .await
                 .unwrap();
-            let laser = s
+            let member = store
+                .create_token(space, owner, "LaserFoundry", Role::Member)
+                .await
+                .unwrap();
+            let guest = store
+                .create_token(space, owner, "Viewer", Role::Guest)
+                .await
+                .unwrap();
+            let laser = store
                 .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
+                .await
                 .unwrap();
             // Open to every member (a new machine needs permission).
-            s.set_induction_required(space, &laser, false).unwrap();
-            let member = s
-                .create_token(space, owner, "LaserFoundry", Role::Member)
+            store
+                .set_induction_required(space, &laser, false)
+                .await
                 .unwrap();
-            let guest = s.create_token(space, owner, "Viewer", Role::Guest).unwrap();
             (space, laser, member, guest)
         };
         // Is this a Maker Connect? No token needed, any site may ask.
@@ -351,19 +374,25 @@ mod tests {
         );
         assert!(sent["check"]["fits"].is_boolean(), "{sent}");
         {
-            let s = store.lock().unwrap();
-            assert_eq!(s.files(space).unwrap().len(), 1);
+            assert_eq!(store.files(space).await.unwrap().len(), 1);
             assert!(
-                s.machine(space, &laser).unwrap().unwrap().job.is_none(),
+                store
+                    .machine(space, &laser)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .job
+                    .is_none(),
                 "nothing starts by itself"
             );
-            let log = s.audit_log(space, 5).unwrap();
-            assert!(
-                log.iter().any(|l| l.actor == "token \"LaserFoundry\""
-                    && l.action == "sent a file from a program"),
-                "{log:?}"
-            );
         }
+        let log = store.audit_log(space, 5).await.unwrap();
+        assert!(
+            log.iter()
+                .any(|l| l.actor == "token \"LaserFoundry\""
+                    && l.action == "sent a file from a program"),
+            "{log:?}"
+        );
         // A guest's token sends nothing.
         assert_eq!(
             send(&app, file(&guest, &laser)).await.0,
@@ -371,31 +400,25 @@ mod tests {
         );
         // A laser that needs an induction the token's maker... has (an owner): but a member's
         // token of a member without one is refused, and nothing is stored.
-        let mia_token = {
-            let s = store.lock().unwrap();
-            let mia = s.create_user("mia", "Mia", "x", false).unwrap();
-            s.set_membership(mia, space, "member").unwrap();
-            let mut s = s;
-            s.set_induction_required(space, &laser, true).unwrap();
-            s.create_token(space, mia, "Mia's LaserFoundry", Role::Member)
-                .unwrap()
-        };
+        let mia = store.create_user("mia", "Mia", "x", false).await.unwrap();
+        store.set_membership(mia, space, "member").await.unwrap();
+        store
+            .set_induction_required(space, &laser, true)
+            .await
+            .unwrap();
+        let mia_token = store
+            .create_token(space, mia, "Mia's LaserFoundry", Role::Member)
+            .await
+            .unwrap();
         let (status, _, _) = send(&app, file(&mia_token, &laser)).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
-        assert_eq!(
-            store.lock().unwrap().files(space).unwrap().len(),
-            1,
-            "not stored"
-        );
+        assert_eq!(store.files(space).await.unwrap().len(), 1, "not stored");
         // A browser's cookie from another site does not count here.
-        let cookie = {
-            let s = store.lock().unwrap();
-            format!(
-                "{}={}",
-                crate::auth::COOKIE,
-                s.create_session(1, Some(space), "", "").unwrap()
-            )
-        };
+        let cookie = format!(
+            "{}={}",
+            crate::auth::COOKIE,
+            store.create_session(1, Some(space), "", "").await.unwrap()
+        );
         let (status, _, _) = send(
             &app,
             Request::get("/api/apps/v1/machines")

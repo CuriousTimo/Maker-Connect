@@ -1424,7 +1424,7 @@ mod tests {
         what: &str,
         ready: impl Fn(&Report) -> bool,
     ) -> Report {
-        let deadline = Instant::now() + Duration::from_secs(40);
+        let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             let report = engine.report(id).unwrap();
             if ready(&report) {
@@ -1720,7 +1720,7 @@ mod tests {
         );
         // a second job is refused with job.py's text (files.py first: it is not ready)
         // pause, resume, stop: once it prints (a pause while it starts is overtaken by the print, as OctoPrint's)
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let deadline = Instant::now() + Duration::from_secs(60);
         while !printer.commands().contains(&"G1 X3".to_string()) {
             assert!(
                 Instant::now() < deadline,

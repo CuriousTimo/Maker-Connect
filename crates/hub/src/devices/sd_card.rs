@@ -4,7 +4,7 @@
 //! says it is not available yet (owner's answer to the step 2 review).
 
 use crate::access::Access;
-use crate::{Shared, failed};
+use crate::{Store, failed};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -16,16 +16,15 @@ use axum::{
 /// What the SD tab says until a port lists the card.
 pub const NOT_YET: &str = "Not available yet: the SD card comes with this printer's port.";
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/api/machines/{id}/sd", get(look))
         .route("/machines/{id}/sd/print", post(print))
 }
 
 /// What is on its card: not available yet.
-async fn look(access: Access, State(store): State<Shared>, Path(id): Path<String>) -> Response {
-    let store = store.lock().unwrap();
-    match store.machine(access.space, &id) {
+async fn look(access: Access, State(store): State<Store>, Path(id): Path<String>) -> Response {
+    match store.machine(access.space, &id).await {
         Ok(Some(machine)) => Json(serde_json::json!({
             "files": [],
             "online": machine.online,

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE printer_transfers SET state = 'gone'\n             WHERE machine_id = $1 AND path = $2 AND state IN ('finished', 'done')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8230d343fb4de1934f3eb738ff8aba40e323fcf9e658f863201358efa1b7c05d"
+}

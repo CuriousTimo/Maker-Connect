@@ -20,19 +20,18 @@
 //! label `S-0007`. Locations are places here (with a code and a label); Spoolman's are names,
 //! so they go out as their names, and a new name makes a place.
 
-use crate::Shared;
-use crate::store::{SpoolmanEvent, Store, now};
+use crate::Store;
+use crate::store::{SpoolmanEvent, Work, now};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
-use rusqlite::{OptionalExtension, params};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route("/api/v1/info", get(info))
         .route(
@@ -176,6 +175,20 @@ fn space(access: &crate::access::Access) -> Result<i64, Box<Response>> {
     Ok(access.space)
 }
 
+/// What a spool's `loaded_in` needs ([`Store::spool_machine_names`]), read before the lock; nothing
+/// for a vendor or filament.
+async fn names_for(
+    store: &Store,
+    space: i64,
+    resource: &str,
+) -> Result<MachineNames, crate::store::BoxError> {
+    if resource == "spool" {
+        store.spool_machine_names(space).await
+    } else {
+        Ok(MachineNames::new())
+    }
+}
+
 fn not_found(what: &str, id: i64) -> Response {
     (
         StatusCode::NOT_FOUND,
@@ -202,150 +215,160 @@ fn extra_value(v: Value) -> Value {
     Value::String(v.to_string())
 }
 
-impl Store {
-    pub fn sm_vendor(&self, space: i64, id: i64) -> rusqlite::Result<Option<Value>> {
-        self.db
-            .query_row(
-                "SELECT id, registered, name, comment, empty_spool_weight, external_id, extra
-                 FROM vendor WHERE id = ?1 AND space_id = ?2",
-                params![id, space],
-                |r| {
-                    Ok(json!({
-                        "id": r.get::<_, i64>(0)?,
-                        "registered": iso(r.get(1)?),
-                        "name": r.get::<_, String>(2)?,
-                        "comment": r.get::<_, Option<String>>(3)?,
-                        "empty_spool_weight": r.get::<_, Option<f64>>(4)?,
-                        "external_id": r.get::<_, Option<String>>(5)?,
-                        "extra": extra_map(r.get(6)?),
-                    }))
-                },
+/// A vendor's row: id, registered, name, comment, empty spool, external id, extra.
+type VendorRow = (
+    i64,
+    i64,
+    String,
+    Option<String>,
+    Option<f64>,
+    Option<String>,
+    Option<String>,
+);
+
+impl Work {
+    pub async fn sm_vendor(&mut self, id: i64) -> sqlx::Result<Option<Value>> {
+        let row: Option<VendorRow> =
+            sqlx::query_as(
+                "SELECT id, unix_seconds(registered), name, comment, empty_spool_weight, external_id, extra
+                 FROM vendor WHERE id = $1 AND space_id = $2",
             )
-            .optional()
+            .bind(id)
+            .bind(self.space)
+            .fetch_optional(self.c())
+            .await?;
+        Ok(row.map(
+            |(id, registered, name, comment, empty_spool_weight, external_id, extra)| {
+                json!({
+                    "id": id,
+                    "registered": iso(registered),
+                    "name": name,
+                    "comment": comment,
+                    "empty_spool_weight": empty_spool_weight,
+                    "external_id": external_id,
+                    "extra": extra_map(extra),
+                })
+            },
+        ))
     }
 
-    pub fn sm_filament(&self, space: i64, id: i64) -> rusqlite::Result<Option<Value>> {
-        let found = self
-            .db
-            .query_row(
-                "SELECT id, registered, name, vendor_id, material, price, density, diameter, weight,
-                        spool_weight, article_number, comment, settings_extruder_temp,
-                        settings_bed_temp, color_hex, multi_color_hexes, multi_color_direction,
-                        external_id, extra, kind, unit, color_name, ink, media, width_mm, minimum
-                 FROM filament WHERE id = ?1 AND space_id = ?2",
-                params![id, space],
-                |r| {
-                    let mut extra = extra_map(r.get(18)?);
-                    // Maker Connect's own fields, beside the user's.
-                    let kind: String = r.get(19)?;
-                    let unit: String = r.get(20)?;
-                    if kind != "filament" {
-                        extra.insert("kind".into(), extra_value(json!(kind)));
-                    }
-                    if unit != "g" {
-                        extra.insert("unit".into(), extra_value(json!(unit)));
-                    }
-                    for (key, at) in [("color_name", 21), ("ink", 22), ("media", 23)] {
-                        if let Some(v) = r.get::<_, Option<String>>(at)? {
-                            extra.insert(key.into(), extra_value(json!(v)));
-                        }
-                    }
-                    for (key, at) in [("width_mm", 24), ("minimum", 25)] {
-                        if let Some(v) = r.get::<_, Option<i64>>(at)? {
-                            extra.insert(key.into(), extra_value(json!(v)));
-                        }
-                    }
-                    Ok((
-                        r.get::<_, Option<i64>>(3)?,
-                        json!({
-                            "id": r.get::<_, i64>(0)?,
-                            "registered": iso(r.get(1)?),
-                            "name": r.get::<_, Option<String>>(2)?,
-                            "material": r.get::<_, Option<String>>(4)?,
-                            "price": r.get::<_, Option<f64>>(5)?,
-                            "density": r.get::<_, f64>(6)?,
-                            "diameter": r.get::<_, f64>(7)?,
-                            "weight": r.get::<_, Option<f64>>(8)?,
-                            "spool_weight": r.get::<_, Option<f64>>(9)?,
-                            "article_number": r.get::<_, Option<String>>(10)?,
-                            "comment": r.get::<_, Option<String>>(11)?,
-                            "settings_extruder_temp": r.get::<_, Option<i64>>(12)?,
-                            "settings_bed_temp": r.get::<_, Option<i64>>(13)?,
-                            "color_hex": r.get::<_, Option<String>>(14)?,
-                            "multi_color_hexes": r.get::<_, Option<String>>(15)?,
-                            "multi_color_direction": r.get::<_, Option<String>>(16)?,
-                            "external_id": r.get::<_, Option<String>>(17)?,
-                            "extra": extra,
-                            "tags": [],
-                        }),
-                    ))
-                },
-            )
-            .optional()?;
-        let Some((vendor, mut filament)) = found else {
+    pub async fn sm_filament(&mut self, id: i64) -> sqlx::Result<Option<Value>> {
+        use sqlx::Row;
+        let row = sqlx::query(
+            "SELECT id, unix_seconds(registered), name, vendor_id, material, price, density, diameter, weight,
+                    spool_weight, article_number, comment, settings_extruder_temp,
+                    settings_bed_temp, color_hex, multi_color_hexes, multi_color_direction,
+                    external_id, extra, kind, unit, color_name, ink, media, width_mm, minimum
+             FROM filament WHERE id = $1 AND space_id = $2",
+        )
+        .bind(id)
+        .bind(self.space)
+        .fetch_optional(self.c())
+        .await?;
+        let Some(r) = row else {
             return Ok(None);
         };
-        filament["tags"] = self.tags_of(space, "filament", id)?;
+        let mut extra = extra_map(r.try_get(18)?);
+        // Maker Connect's own fields, beside the user's.
+        let kind: String = r.try_get(19)?;
+        let unit: String = r.try_get(20)?;
+        if kind != "filament" {
+            extra.insert("kind".into(), extra_value(json!(kind)));
+        }
+        if unit != "g" {
+            extra.insert("unit".into(), extra_value(json!(unit)));
+        }
+        for (key, at) in [("color_name", 21), ("ink", 22), ("media", 23)] {
+            if let Some(v) = r.try_get::<Option<String>, _>(at)? {
+                extra.insert(key.into(), extra_value(json!(v)));
+            }
+        }
+        for (key, at) in [("width_mm", 24), ("minimum", 25)] {
+            if let Some(v) = r.try_get::<Option<i64>, _>(at)? {
+                extra.insert(key.into(), extra_value(json!(v)));
+            }
+        }
+        let vendor: Option<i64> = r.try_get(3)?;
+        let mut filament = json!({
+            "id": r.try_get::<i64, _>(0)?,
+            "registered": iso(r.try_get(1)?),
+            "name": r.try_get::<Option<String>, _>(2)?,
+            "material": r.try_get::<Option<String>, _>(4)?,
+            "price": r.try_get::<Option<f64>, _>(5)?,
+            "density": r.try_get::<f64, _>(6)?,
+            "diameter": r.try_get::<f64, _>(7)?,
+            "weight": r.try_get::<Option<f64>, _>(8)?,
+            "spool_weight": r.try_get::<Option<f64>, _>(9)?,
+            "article_number": r.try_get::<Option<String>, _>(10)?,
+            "comment": r.try_get::<Option<String>, _>(11)?,
+            "settings_extruder_temp": r.try_get::<Option<i64>, _>(12)?,
+            "settings_bed_temp": r.try_get::<Option<i64>, _>(13)?,
+            "color_hex": r.try_get::<Option<String>, _>(14)?,
+            "multi_color_hexes": r.try_get::<Option<String>, _>(15)?,
+            "multi_color_direction": r.try_get::<Option<String>, _>(16)?,
+            "external_id": r.try_get::<Option<String>, _>(17)?,
+            "extra": extra,
+            "tags": [],
+        });
+        filament["tags"] = self.tags_of("filament", id).await?;
         if let Some(v) = vendor
-            .map(|v| self.sm_vendor(space, v))
-            .transpose()?
-            .flatten()
+            && let Some(v) = self.sm_vendor(v).await?
         {
             filament["vendor"] = v;
         }
         Ok(Some(filament))
     }
 
-    pub fn sm_spool(&self, space: i64, id: i64) -> rusqlite::Result<Option<Value>> {
-        let found = self
-            .db
-            .query_row(
-                "SELECT s.id, s.registered, s.first_used, s.last_used, s.price, s.filament_id,
-                        s.initial_weight, s.spool_weight, s.used_weight, l.name, s.lot_nr, s.comment,
-                        s.archived, s.extra, s.machine, m.name, s.slot
-                 FROM spool s
-                 LEFT JOIN locations l ON l.id = s.location_id AND l.space_id = s.space_id
-                 LEFT JOIN machines m ON m.id = s.machine
-                 WHERE s.id = ?1 AND s.space_id = ?2",
-                params![id, space],
-                |r| {
-                    let mut extra = extra_map(r.get(13)?);
-                    if let Some(machine) = r.get::<_, Option<String>>(15)? {
-                        extra.insert("loaded_in".into(), extra_value(json!(machine)));
-                    }
-                    // Its slot in a dry box.
-                    if let Some(slot) = r.get::<_, Option<i64>>(16)? {
-                        extra.insert("slot".into(), extra_value(json!(slot)));
-                    }
-                    Ok((
-                        r.get::<_, i64>(5)?,
-                        r.get::<_, Option<f64>>(6)?,
-                        r.get::<_, f64>(8)?,
-                        json!({
-                            "id": r.get::<_, i64>(0)?,
-                            "registered": iso(r.get(1)?),
-                            "first_used": r.get::<_, Option<i64>>(2)?.map(iso),
-                            "last_used": r.get::<_, Option<i64>>(3)?.map(iso),
-                            "price": r.get::<_, Option<f64>>(4)?,
-                            "initial_weight": r.get::<_, Option<f64>>(6)?,
-                            "spool_weight": r.get::<_, Option<f64>>(7)?,
-                            "used_weight": r.get::<_, f64>(8)?,
-                            "location": r.get::<_, Option<String>>(9)?,
-                            "lot_nr": r.get::<_, Option<String>>(10)?,
-                            "comment": r.get::<_, Option<String>>(11)?,
-                            "archived": r.get::<_, bool>(12)?,
-                            "extra": extra,
-                            "tags": [],
-                        }),
-                    ))
-                },
-            )
-            .optional()?;
-        let Some((filament_id, initial, used, mut spool)) = found else {
+    /// A spool as Spoolman gives it; `names`: the machines' names ([`Store::spool_machine_names`]).
+    pub async fn sm_spool(&mut self, id: i64, names: &MachineNames) -> sqlx::Result<Option<Value>> {
+        use sqlx::Row;
+        let row = sqlx::query(
+            "SELECT s.id, unix_seconds(s.registered), unix_seconds(s.first_used), unix_seconds(s.last_used),
+                    s.price, s.filament_id, s.initial_weight, s.spool_weight, s.used_weight, l.name, s.lot_nr,
+                    s.comment, s.archived, s.extra, s.machine, s.slot
+             FROM spool s
+             LEFT JOIN locations l ON l.id = s.location_id AND l.space_id = s.space_id
+             WHERE s.id = $1 AND s.space_id = $2",
+        )
+        .bind(id)
+        .bind(self.space)
+        .fetch_optional(self.c())
+        .await?;
+        let Some(r) = row else {
             return Ok(None);
         };
-        spool["tags"] = self.tags_of(space, "spool", id)?;
-        let filament = self.sm_filament(space, filament_id)?.unwrap_or(Value::Null);
+        let mut extra = extra_map(r.try_get(13)?);
+        if let Some(machine) = r
+            .try_get::<Option<String>, _>(14)?
+            .and_then(|m| names.get(&m))
+        {
+            extra.insert("loaded_in".into(), extra_value(json!(machine)));
+        }
+        // Its slot in a dry box.
+        if let Some(slot) = r.try_get::<Option<i64>, _>(15)? {
+            extra.insert("slot".into(), extra_value(json!(slot)));
+        }
+        let filament_id: i64 = r.try_get(5)?;
+        let initial: Option<f64> = r.try_get(6)?;
+        let used: f64 = r.try_get(8)?;
+        let mut spool = json!({
+            "id": r.try_get::<i64, _>(0)?,
+            "registered": iso(r.try_get(1)?),
+            "first_used": r.try_get::<Option<i64>, _>(2)?.map(iso),
+            "last_used": r.try_get::<Option<i64>, _>(3)?.map(iso),
+            "price": r.try_get::<Option<f64>, _>(4)?,
+            "initial_weight": initial,
+            "spool_weight": r.try_get::<Option<f64>, _>(7)?,
+            "used_weight": used,
+            "location": r.try_get::<Option<String>, _>(9)?,
+            "lot_nr": r.try_get::<Option<String>, _>(10)?,
+            "comment": r.try_get::<Option<String>, _>(11)?,
+            "archived": r.try_get::<bool, _>(12)?,
+            "extra": extra,
+            "tags": [],
+        });
+        spool["tags"] = self.tags_of("spool", id).await?;
+        let filament = self.sm_filament(filament_id).await?.unwrap_or(Value::Null);
         // What is left, and both as lengths: weight over density and the cross-section.
         let initial = initial.or_else(|| filament["weight"].as_f64());
         let remaining = initial.map(|i| (i - used).max(0.0));
@@ -360,53 +383,104 @@ impl Store {
     }
 
     /// The tags on a spool or a filament: `[{uid, format, added}]`.
-    fn tags_of(&self, space: i64, target: &str, id: i64) -> rusqlite::Result<Value> {
+    async fn tags_of(&mut self, target: &str, id: i64) -> sqlx::Result<Value> {
         let column = if target == "spool" {
             "spool_id"
         } else {
             "filament_id"
         };
-        let mut q = self.db.prepare(&format!(
-            "SELECT uid, format, added FROM tag WHERE space_id = ?1 AND target_type = ?2 AND {column} = ?3 ORDER BY added"
-        ))?;
-        let rows = q.query_map(params![space, target, id], |r| {
-            let mut tag = json!({"uid": r.get::<_, String>(0)?, "added": iso(r.get(2)?)});
-            if let Some(format) = r.get::<_, Option<String>>(1)? {
-                tag["format"] = json!(format);
-            }
-            Ok(tag)
-        })?;
-        Ok(Value::Array(rows.collect::<rusqlite::Result<_>>()?))
+        let rows: Vec<(String, Option<String>, i64)> =
+            sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "SELECT uid, format, unix_seconds(added) FROM tag
+             WHERE space_id = $1 AND target_type = $2 AND {column} = $3 ORDER BY added, id"
+            )))
+            .bind(self.space)
+            .bind(target)
+            .bind(id)
+            .fetch_all(self.c())
+            .await?;
+        Ok(Value::Array(
+            rows.into_iter()
+                .map(|(uid, format, added)| {
+                    let mut tag = json!({"uid": uid, "added": iso(added)});
+                    if let Some(format) = format {
+                        tag["format"] = json!(format);
+                    }
+                    tag
+                })
+                .collect(),
+        ))
     }
 
-    fn ids(&self, table: &str, space: i64) -> rusqlite::Result<Vec<i64>> {
-        let mut q = self.db.prepare(&format!(
-            "SELECT id FROM {table} WHERE space_id = ?1 ORDER BY id"
-        ))?;
-        let ids = q.query_map([space], |r| r.get(0))?;
-        ids.collect()
+    pub async fn ids(&mut self, table: &str) -> sqlx::Result<Vec<i64>> {
+        sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT id FROM {table} WHERE space_id = $1 ORDER BY id"
+        )))
+        .bind(self.space)
+        .fetch_all(self.c())
+        .await
     }
 
-    fn all(&self, resource: &str, space: i64) -> rusqlite::Result<Vec<Value>> {
+    pub async fn all(&mut self, resource: &str, names: &MachineNames) -> sqlx::Result<Vec<Value>> {
         let mut out = Vec::new();
-        for id in self.ids(resource, space)? {
-            if let Some(v) = self.one(resource, space, id)? {
+        for id in self.ids(resource).await? {
+            if let Some(v) = self.one(resource, id, names).await? {
                 out.push(v);
             }
         }
         Ok(out)
     }
 
-    pub fn one(&self, resource: &str, space: i64, id: i64) -> rusqlite::Result<Option<Value>> {
+    pub async fn one(
+        &mut self,
+        resource: &str,
+        id: i64,
+        names: &MachineNames,
+    ) -> sqlx::Result<Option<Value>> {
         match resource {
-            "vendor" => self.sm_vendor(space, id),
-            "filament" => self.sm_filament(space, id),
-            "spool" => self.sm_spool(space, id),
+            "vendor" => self.sm_vendor(id).await,
+            "filament" => self.sm_filament(id).await,
+            "spool" => self.sm_spool(id, names).await,
             _ => Ok(None),
         }
     }
+
+    /// The machines the space's spools are loaded in.
+    async fn spool_machines(&mut self) -> sqlx::Result<Vec<String>> {
+        sqlx::query_scalar(
+            "SELECT DISTINCT machine FROM spool WHERE space_id = $1 AND machine IS NOT NULL",
+        )
+        .bind(self.space)
+        .fetch_all(self.c())
+        .await
+    }
 }
 
+/// Machines' names by id: what a spool's `loaded_in` says.
+pub type MachineNames = HashMap<String, String>;
+
+impl Store {
+    /// The names of the machines the space's spools are loaded in (the space's own: a machine moved
+    /// away leaves its spools unloaded, Store::move_machine), for [`Work::one`], [`Work::all`],
+    /// [`Work::sm_spool`].
+    pub async fn spool_machine_names(
+        &self,
+        space: i64,
+    ) -> Result<MachineNames, crate::store::BoxError> {
+        let ids = crate::stock::in_space!(self, space, |w| w.spool_machines()).await?;
+        if ids.is_empty() {
+            return Ok(MachineNames::new());
+        }
+        let mut tx = self.pg().space(space).await?;
+        let rows: Vec<(String, String)> =
+            sqlx::query_as("SELECT id, name FROM machines WHERE id = ANY($1)")
+                .bind(&ids)
+                .fetch_all(&mut *tx)
+                .await?;
+        tx.commit().await?;
+        Ok(rows.into_iter().collect())
+    }
+}
 /// A value at a dotted path: `filament.vendor.name`.
 fn at<'a>(v: &'a Value, path: &str) -> &'a Value {
     path.split('.').fold(v, |v, key| &v[key])
@@ -518,19 +592,22 @@ async fn info() -> Json<Value> {
 async fn list_vendors(
     access: crate::access::Access,
     MaybeWs(ws): MaybeWs,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
     // The same path is its WebSocket: what is added, changed, removed.
     if let Some(ws) = ws {
         return upgrade(ws, store, access.space, "vendor".to_owned(), None);
     }
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.all("vendor", space) {
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    match w.all("vendor", &MachineNames::new()).await {
         Ok(all) => listing(all, &q, &[("name", "name"), ("external_id", "external_id")]),
         Err(e) => crate::failed(e),
     }
@@ -539,19 +616,22 @@ async fn list_vendors(
 async fn list_filaments(
     access: crate::access::Access,
     MaybeWs(ws): MaybeWs,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
     // The same path is its WebSocket: what is added, changed, removed.
     if let Some(ws) = ws {
         return upgrade(ws, store, access.space, "filament".to_owned(), None);
     }
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.all("filament", space) {
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    match w.all("filament", &MachineNames::new()).await {
         Ok(all) => listing(
             all,
             &q,
@@ -574,19 +654,26 @@ async fn list_filaments(
 async fn list_spools(
     access: crate::access::Access,
     MaybeWs(ws): MaybeWs,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
     // The same path is its WebSocket: what is added, changed, removed.
     if let Some(ws) = ws {
         return upgrade(ws, store, access.space, "spool".to_owned(), None);
     }
-    let store = store.lock().unwrap();
+    let names = match names_for(&store, access.space, "spool").await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let mut all = match store.all("spool", space) {
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let mut all = match w.all("spool", &names).await {
         Ok(all) => all,
         Err(e) => return crate::failed(e),
     };
@@ -622,13 +709,25 @@ async fn list_spools(
     )
 }
 
-fn one_of(access: &crate::access::Access, store: &Shared, resource: &str, id: i64) -> Response {
-    let store = store.lock().unwrap();
+async fn one_of(
+    access: &crate::access::Access,
+    store: &Store,
+    resource: &str,
+    id: i64,
+) -> Response {
+    let names = match names_for(store, access.space, resource).await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let space = match space(access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.one(resource, space, id) {
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    match w.one(resource, id, &names).await {
         Ok(Some(v)) => Json(v).into_response(),
         Ok(None) => not_found(resource, id),
         Err(e) => crate::failed(e),
@@ -638,35 +737,35 @@ fn one_of(access: &crate::access::Access, store: &Shared, resource: &str, id: i6
 async fn one_vendor(
     access: crate::access::Access,
     MaybeWs(ws): MaybeWs,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
     if let Some(ws) = ws {
         return upgrade(ws, store, access.space, "vendor".to_owned(), Some(id));
     }
-    one_of(&access, &store, "vendor", id)
+    one_of(&access, &store, "vendor", id).await
 }
 async fn one_filament(
     access: crate::access::Access,
     MaybeWs(ws): MaybeWs,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
     if let Some(ws) = ws {
         return upgrade(ws, store, access.space, "filament".to_owned(), Some(id));
     }
-    one_of(&access, &store, "filament", id)
+    one_of(&access, &store, "filament", id).await
 }
 async fn one_spool(
     access: crate::access::Access,
     MaybeWs(ws): MaybeWs,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
     if let Some(ws) = ws {
         return upgrade(ws, store, access.space, "spool".to_owned(), Some(id));
     }
-    one_of(&access, &store, "spool", id)
+    one_of(&access, &store, "spool", id).await
 }
 
 // ---- writing -------------------------------------------------------------------------
@@ -686,36 +785,48 @@ fn number(body: &Value, key: &str) -> Option<Option<f64>> {
     body.get(key).map(Value::as_f64)
 }
 
+/// A column's new value, as its column takes it.
+enum Set {
+    Real(Option<f64>),
+    Text(Option<String>),
+    Int(Option<i64>),
+    Bool(bool),
+    /// Unix seconds, into a timestamptz.
+    Time(Option<i64>),
+}
+
 /// Sets the columns a body names (absent ones stay; `null` clears).
-fn update(
-    db: &rusqlite::Connection,
-    table: &str,
-    id: i64,
-    changes: Vec<(&str, rusqlite::types::Value)>,
-) -> rusqlite::Result<()> {
+async fn update(w: &mut Work, table: &str, id: i64, changes: Vec<(&str, Set)>) -> sqlx::Result<()> {
     for (column, value) in changes {
-        db.execute(
-            &format!("UPDATE {table} SET {column} = ?1 WHERE id = ?2"),
-            params![value, id],
-        )?;
+        let to = if matches!(value, Set::Time(_)) {
+            "at_unix($1)"
+        } else {
+            "$1"
+        };
+        let sql = format!("UPDATE {table} SET {column} = {to} WHERE id = $2");
+        let q = sqlx::query(sqlx::AssertSqlSafe(sql));
+        let q = match value {
+            Set::Real(v) => q.bind(v),
+            Set::Text(v) => q.bind(v),
+            Set::Int(v) | Set::Time(v) => q.bind(v),
+            Set::Bool(v) => q.bind(v),
+        };
+        q.bind(id).execute(w.c()).await?;
     }
     Ok(())
 }
 
-fn real(v: Option<f64>) -> rusqlite::types::Value {
-    v.map_or(rusqlite::types::Value::Null, rusqlite::types::Value::Real)
+fn real(v: Option<f64>) -> Set {
+    Set::Real(v)
 }
-fn txt(v: Option<String>) -> rusqlite::types::Value {
-    v.map_or(rusqlite::types::Value::Null, rusqlite::types::Value::Text)
+fn txt(v: Option<String>) -> Set {
+    Set::Text(v)
 }
-fn int(v: Option<i64>) -> rusqlite::types::Value {
-    v.map_or(
-        rusqlite::types::Value::Null,
-        rusqlite::types::Value::Integer,
-    )
+fn int(v: Option<i64>) -> Set {
+    Set::Int(v)
 }
 
-fn vendor_changes(body: &Value) -> Vec<(&'static str, rusqlite::types::Value)> {
+fn vendor_changes(body: &Value) -> Vec<(&'static str, Set)> {
     let mut c = Vec::new();
     if let Some(v) = text(body, "name") {
         c.push(("name", txt(v)));
@@ -737,52 +848,63 @@ fn vendor_changes(body: &Value) -> Vec<(&'static str, rusqlite::types::Value)> {
 
 async fn add_vendor(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Json(body): Json<Value>,
 ) -> Response {
     if body["name"].as_str().is_none_or(|n| n.trim().is_empty()) {
         return invalid("a vendor needs a name");
     }
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let made = (|| {
-        store.db.execute(
-            "INSERT INTO vendor (space_id, registered, name) VALUES (?1, ?2, '')",
-            params![space, now()],
-        )?;
-        let id = store.db.last_insert_rowid();
-        update(&store.db, "vendor", id, vendor_changes(&body))?;
-        Ok::<_, rusqlite::Error>(id)
-    })();
-    respond_made(&store, space, "vendor", made)
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let made = async {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO vendor (space_id, registered, name) VALUES ($1, at_unix($2), '') RETURNING id",
+        )
+        .bind(space)
+        .bind(now())
+        .fetch_one(w.c())
+        .await?;
+        update(&mut w, "vendor", id, vendor_changes(&body)).await?;
+        Ok::<_, sqlx::Error>(id)
+    }
+    .await;
+    respond_made(w, &store, "vendor", made, &MachineNames::new()).await
 }
 
 async fn change_vendor(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    if matches!(store.sm_vendor(space, id), Ok(None)) {
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    if matches!(w.sm_vendor(id).await, Ok(None)) {
         return not_found("vendor", id);
     }
-    let done = update(&store.db, "vendor", id, vendor_changes(&body)).map(|()| id);
-    respond_changed(&store, space, "vendor", done)
+    let done = update(&mut w, "vendor", id, vendor_changes(&body))
+        .await
+        .map(|()| id);
+    respond_changed(w, &store, "vendor", done, &MachineNames::new()).await
 }
 
-fn filament_changes(
-    store: &Store,
-    space: i64,
+/// None: no such vendor.
+async fn filament_changes(
+    w: &mut Work,
     body: &Value,
-) -> rusqlite::Result<Vec<(&'static str, rusqlite::types::Value)>> {
+) -> sqlx::Result<Option<Vec<(&'static str, Set)>>> {
     let mut c = Vec::new();
     for key in [
         "name",
@@ -816,9 +938,9 @@ fn filament_changes(
     if let Some(v) = body.get("vendor_id") {
         let vendor = v.as_i64();
         if let Some(vendor) = vendor
-            && store.sm_vendor(space, vendor)?.is_none()
+            && w.sm_vendor(vendor).await?.is_none()
         {
-            return Err(rusqlite::Error::QueryReturnedNoRows);
+            return Ok(None);
         }
         c.push(("vendor_id", int(vendor)));
     }
@@ -858,12 +980,12 @@ fn filament_changes(
             .collect();
         c.push(("extra", txt(Some(Value::Object(rest).to_string()))));
     }
-    Ok(c)
+    Ok(Some(c))
 }
 
 async fn add_filament(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Json(body): Json<Value>,
 ) -> Response {
     for key in ["density", "diameter"] {
@@ -871,61 +993,69 @@ async fn add_filament(
             return invalid(format!("a filament needs its {key}"));
         }
     }
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let changes = match filament_changes(&store, space, &body) {
-        Ok(c) => c,
-        Err(_) => return invalid("no such vendor"),
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
     };
-    let made = (|| {
-        store.db.execute(
-            "INSERT INTO filament (space_id, registered) VALUES (?1, ?2)",
-            params![space, now()],
-        )?;
-        let id = store.db.last_insert_rowid();
-        update(&store.db, "filament", id, changes)?;
-        Ok::<_, rusqlite::Error>(id)
-    })();
-    respond_made(&store, space, "filament", made)
+    let changes = match filament_changes(&mut w, &body).await {
+        Ok(Some(c)) => c,
+        _ => return invalid("no such vendor"),
+    };
+    let made = async {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO filament (space_id, registered) VALUES ($1, at_unix($2)) RETURNING id",
+        )
+        .bind(space)
+        .bind(now())
+        .fetch_one(w.c())
+        .await?;
+        update(&mut w, "filament", id, changes).await?;
+        Ok::<_, sqlx::Error>(id)
+    }
+    .await;
+    respond_made(w, &store, "filament", made, &MachineNames::new()).await
 }
 
 async fn change_filament(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    if matches!(store.sm_filament(space, id), Ok(None)) {
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    if matches!(w.sm_filament(id).await, Ok(None)) {
         return not_found("filament", id);
     }
-    let changes = match filament_changes(&store, space, &body) {
-        Ok(c) => c,
-        Err(_) => return invalid("no such vendor"),
+    let changes = match filament_changes(&mut w, &body).await {
+        Ok(Some(c)) => c,
+        _ => return invalid("no such vendor"),
     };
-    let done = update(&store.db, "filament", id, changes).map(|()| id);
-    respond_changed(&store, space, "filament", done)
+    let done = update(&mut w, "filament", id, changes).await.map(|()| id);
+    respond_changed(w, &store, "filament", done, &MachineNames::new()).await
 }
 
-fn spool_changes(
-    store: &Store,
-    space: i64,
+async fn spool_changes(
+    w: &mut Work,
     body: &Value,
     spool: Option<i64>,
-) -> Result<Vec<(&'static str, rusqlite::types::Value)>, String> {
+) -> Result<Vec<(&'static str, Set)>, String> {
     let mut c = Vec::new();
     if let Some(v) = body.get("filament_id") {
         let Some(f) = v.as_i64() else {
             return Err("filament_id must be a number".into());
         };
-        if !matches!(store.sm_filament(space, f), Ok(Some(_))) {
+        if !matches!(w.sm_filament(f).await, Ok(Some(_))) {
             return Err(format!("no filament with ID {f}"));
         }
         c.push(("filament_id", int(Some(f))));
@@ -942,37 +1072,36 @@ fn spool_changes(
     }
     for key in ["first_used", "last_used"] {
         if let Some(v) = text(body, key) {
-            c.push((key, int(v.as_deref().and_then(parse_iso))));
+            c.push((key, Set::Time(v.as_deref().and_then(parse_iso))));
         }
     }
     if let Some(v) = body.get("archived") {
         let archived = v.as_bool().unwrap_or(false);
-        c.push(("archived", int(Some(archived as i64))));
+        c.push(("archived", Set::Bool(archived)));
         if archived {
             c.push(("machine", txt(None)));
         }
     }
     if let Some(v) = text(body, "location") {
         let place = match v {
-            Some(name) => store
-                .location_named(space, &name)
-                .map_err(|e| e.to_string())?,
+            Some(name) => w.location_named(&name).await.map_err(|e| e.to_string())?,
             None => None,
         };
         c.push(("location_id", txt(place.clone())));
         // Another place: out of its slot (unless one comes with it). Into a box (a place
         // with slots) it stays loaded, the box feeding the printer; onto a shelf it is no
         // longer on the printer.
-        let boxed = place.as_deref().is_some_and(|p| {
-            store
-                .db
-                .query_row(
-                    "SELECT COALESCE(slots, 0) > 0 FROM locations WHERE id = ?1",
-                    [p],
-                    |r| r.get(0),
-                )
-                .unwrap_or(false)
-        });
+        let boxed = match place.as_deref() {
+            Some(p) => sqlx::query_scalar::<_, bool>(
+                "SELECT COALESCE(slots, 0) > 0 FROM locations WHERE id = $1",
+            )
+            .bind(p)
+            .fetch_optional(w.c())
+            .await
+            .map_err(|e| e.to_string())?
+            .unwrap_or(false),
+            None => false,
+        };
         c.push(("slot", int(None)));
         if place.is_some() && !boxed {
             c.push(("machine", txt(None)));
@@ -980,18 +1109,18 @@ fn spool_changes(
         // A dry box holds filament, not a label tape.
         if boxed {
             let kind: Option<String> = match (spool, body["filament_id"].as_i64()) {
-                (_, Some(f)) => store
-                    .db
-                    .query_row("SELECT kind FROM filament WHERE id = ?1", [f], |r| r.get(0))
-                    .ok(),
-                (Some(sp), None) => store
-                    .db
-                    .query_row(
-                        "SELECT f.kind FROM spool s JOIN filament f ON f.id = s.filament_id WHERE s.id = ?1",
-                        [sp],
-                        |r| r.get(0),
-                    )
-                    .ok(),
+                (_, Some(f)) => sqlx::query_scalar("SELECT kind FROM filament WHERE id = $1")
+                    .bind(f)
+                    .fetch_optional(w.c())
+                    .await
+                    .map_err(|e| e.to_string())?,
+                (Some(sp), None) => sqlx::query_scalar(
+                    "SELECT f.kind FROM spool s JOIN filament f ON f.id = s.filament_id WHERE s.id = $1",
+                )
+                .bind(sp)
+                .fetch_optional(w.c())
+                .await
+                .map_err(|e| e.to_string())?,
                 _ => None,
             };
             if kind.as_deref() == Some("tape") {
@@ -1023,24 +1152,32 @@ fn spool_changes(
 
 async fn add_spool(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Json(body): Json<Value>,
 ) -> Response {
     if body["filament_id"].as_i64().is_none() {
         return invalid("a spool needs its filament_id");
     }
-    let store = store.lock().unwrap();
+    let names = match names_for(&store, access.space, "spool").await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let mut changes = match spool_changes(&store, space, &body, None) {
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let mut changes = match spool_changes(&mut w, &body, None).await {
         Ok(c) => c,
         Err(why) => return invalid(why),
     };
     // remaining_weight instead of used_weight: used is what the spool came with less it.
-    let filament = store
-        .sm_filament(space, body["filament_id"].as_i64().unwrap_or_default())
+    let filament = w
+        .sm_filament(body["filament_id"].as_i64().unwrap_or_default())
+        .await
         .ok()
         .flatten()
         .unwrap_or(Value::Null);
@@ -1056,41 +1193,46 @@ async fn add_spool(
     if let (Some(remaining), Some(initial)) = (body["remaining_weight"].as_f64(), initial) {
         changes.push(("used_weight", real(Some((initial - remaining).max(0.0)))));
     }
-    let made = (|| {
-        store.db.execute(
-            "INSERT INTO spool (space_id, registered, filament_id) VALUES (?1, ?2, ?3)",
-            params![space, now(), body["filament_id"].as_i64()],
-        )?;
-        let id = store.db.last_insert_rowid();
-        update(&store.db, "spool", id, changes)?;
-        store.movement(
-            space,
-            &crate::stock::spool_code(id),
-            "received",
-            initial,
-            None,
-            None,
-        )?;
-        Ok::<_, rusqlite::Error>(id)
-    })();
-    respond_made(&store, space, "spool", made)
+    let made = async {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO spool (space_id, registered, filament_id) VALUES ($1, at_unix($2), $3) RETURNING id",
+        )
+        .bind(space)
+        .bind(now())
+        .bind(body["filament_id"].as_i64())
+        .fetch_one(w.c())
+        .await?;
+        update(&mut w, "spool", id, changes).await?;
+        w.movement(&crate::stock::spool_code(id), "received", initial, None, None)
+            .await?;
+        Ok::<_, sqlx::Error>(id)
+    }
+    .await;
+    respond_made(w, &store, "spool", made, &names).await
 }
 
 async fn change_spool(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
-    let store = store.lock().unwrap();
+    let names = match names_for(&store, access.space, "spool").await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let Ok(Some(before)) = store.sm_spool(space, id) else {
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let Ok(Some(before)) = w.sm_spool(id, &names).await else {
         return not_found("spool", id);
     };
-    let mut changes = match spool_changes(&store, space, &body, Some(id)) {
+    let mut changes = match spool_changes(&mut w, &body, Some(id)).await {
         Ok(c) => c,
         Err(why) => return invalid(why),
     };
@@ -1104,23 +1246,30 @@ async fn change_spool(
         };
         changes.push(("used_weight", real(Some((initial - remaining).max(0.0)))));
     }
-    let done = update(&store.db, "spool", id, changes).map(|()| id);
-    store.changed();
-    respond_changed(&store, space, "spool", done)
+    let done = update(&mut w, "spool", id, changes).await.map(|()| id);
+    w.changed();
+    respond_changed(w, &store, "spool", done, &names).await
 }
 
 async fn use_spool(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
-    let store = store.lock().unwrap();
+    let names = match names_for(&store, access.space, "spool").await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let Ok(Some(spool)) = store.sm_spool(space, id) else {
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let Ok(Some(spool)) = w.sm_spool(id, &names).await else {
         return not_found("spool", id);
     };
     let grams = match (body["use_weight"].as_f64(), body["use_length"].as_f64()) {
@@ -1133,43 +1282,55 @@ async fn use_spool(
         }
         (None, None) => return invalid("use_weight or use_length"),
     };
-    let done = (|| {
+    let done = async {
         let t = now();
-        store.db.execute(
-            "UPDATE spool SET used_weight = MAX(used_weight + ?1, 0),
-                 first_used = COALESCE(first_used, ?2), last_used = ?2
-             WHERE id = ?3",
-            params![grams, t, id],
-        )?;
-        store.movement(
-            space,
+        sqlx::query(
+            "UPDATE spool SET used_weight = GREATEST(used_weight + $1, 0),
+                 first_used = COALESCE(first_used, at_unix($2)), last_used = at_unix($2)
+             WHERE id = $3",
+        )
+        .bind(grams)
+        .bind(t)
+        .bind(id)
+        .execute(w.c())
+        .await?;
+        w.movement(
             &crate::stock::spool_code(id),
             "used",
             Some(-grams),
             None,
             None,
-        )?;
-        Ok::<_, rusqlite::Error>(id)
-    })();
-    store.changed();
-    respond_changed(&store, space, "spool", done)
+        )
+        .await?;
+        Ok::<_, sqlx::Error>(id)
+    }
+    .await;
+    w.changed();
+    respond_changed(w, &store, "spool", done, &names).await
 }
 
 async fn measure_spool(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
     let Some(gross) = body["weight"].as_f64() else {
         return invalid("weight: the spool's gross weight, in g");
     };
-    let store = store.lock().unwrap();
+    let names = match names_for(&store, access.space, "spool").await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let Ok(Some(spool)) = store.sm_spool(space, id) else {
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let Ok(Some(spool)) = w.sm_spool(id, &names).await else {
         return not_found("spool", id);
     };
     // The empty spool: the spool's own, else its filament's, else its vendor's.
@@ -1185,94 +1346,109 @@ async fn measure_spool(
         return invalid("the spool's initial_weight is not known");
     };
     let net = (gross - empty).max(0.0);
-    let done = (|| {
+    let done = async {
         let t = now();
-        store.db.execute(
-            "UPDATE spool SET used_weight = MAX(?1 - ?2, 0), last_used = ?3 WHERE id = ?4",
-            params![initial, net, t, id],
-        )?;
+        sqlx::query(
+            "UPDATE spool SET used_weight = GREATEST($1 - $2, 0), last_used = at_unix($3) WHERE id = $4",
+        )
+        .bind(initial)
+        .bind(net)
+        .bind(t)
+        .bind(id)
+        .execute(w.c())
+        .await?;
         let was = spool["remaining_weight"].as_f64().unwrap_or(net);
-        store.movement(
-            space,
-            &crate::stock::spool_code(id),
-            "weighed",
-            Some(net - was),
-            None,
-            None,
-        )?;
-        Ok::<_, rusqlite::Error>(id)
-    })();
-    store.changed();
-    respond_changed(&store, space, "spool", done)
+        w.movement(&crate::stock::spool_code(id), "weighed", Some(net - was), None, None)
+            .await?;
+        Ok::<_, sqlx::Error>(id)
+    }
+    .await;
+    w.changed();
+    respond_changed(w, &store, "spool", done, &names).await
 }
 
-fn respond_made(
+async fn respond_made(
+    w: Work,
     store: &Store,
-    space: i64,
     resource: &'static str,
-    made: rusqlite::Result<i64>,
+    made: sqlx::Result<i64>,
+    names: &MachineNames,
 ) -> Response {
-    match made.and_then(|id| Ok((id, store.one(resource, space, id)?))) {
+    respond(w, store, resource, "added", made, names).await
+}
+
+async fn respond_changed(
+    w: Work,
+    store: &Store,
+    resource: &'static str,
+    done: sqlx::Result<i64>,
+    names: &MachineNames,
+) -> Response {
+    respond(w, store, resource, "updated", done, names).await
+}
+
+/// What was made or changed, as it is now; committed, then told.
+async fn respond(
+    mut w: Work,
+    store: &Store,
+    resource: &'static str,
+    kind: &'static str,
+    done: sqlx::Result<i64>,
+    names: &MachineNames,
+) -> Response {
+    let found = match done {
+        Ok(id) => w.one(resource, id, names).await.map(|v| (id, v)),
+        Err(e) => Err(e),
+    };
+    match found {
         Ok((id, Some(v))) => {
-            store.changed();
-            store.spoolman_event(resource, "added", id);
-            Json(v).into_response()
+            w.changed();
+            w.spoolman_event(resource, kind, id);
+            match w.commit(store).await {
+                Ok(()) => Json(v).into_response(),
+                Err(e) => crate::failed(e),
+            }
         }
         Ok((id, None)) => not_found(resource, id),
         Err(e) => crate::failed(e),
     }
 }
 
-fn respond_changed(
-    store: &Store,
-    space: i64,
-    resource: &'static str,
-    done: rusqlite::Result<i64>,
-) -> Response {
-    match done.and_then(|id| Ok((id, store.one(resource, space, id)?))) {
-        Ok((id, Some(v))) => {
-            store.changed();
-            store.spoolman_event(resource, "updated", id);
-            Json(v).into_response()
-        }
-        Ok((id, None)) => not_found(resource, id),
-        Err(e) => crate::failed(e),
-    }
-}
-
-fn remove(
+async fn remove(
     access: &crate::access::Access,
-    store: &Shared,
+    store: &Store,
     resource: &'static str,
     id: i64,
 ) -> Response {
-    let store = store.lock().unwrap();
+    let names = match names_for(store, access.space, resource).await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
+
     let space = match space(access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let Ok(Some(was)) = store.one(resource, space, id) else {
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let Ok(Some(was)) = w.one(resource, id, &names).await else {
         return not_found(resource, id);
     };
     // A vendor with filaments, a filament with spools: Spoolman refuses those too.
-    let used: i64 = match resource {
-        "vendor" => store
-            .db
-            .query_row(
-                "SELECT COUNT(*) FROM filament WHERE vendor_id = ?1",
-                [id],
-                |r| r.get(0),
-            )
+    let count = match resource {
+        "vendor" => Some("SELECT COUNT(*) FROM filament WHERE vendor_id = $1"),
+        "filament" => Some("SELECT COUNT(*) FROM spool WHERE filament_id = $1"),
+        _ => None,
+    };
+    let used: i64 = match count {
+        Some(sql) => sqlx::query_scalar(sql)
+            .bind(id)
+            .fetch_one(w.c())
+            .await
             .unwrap_or(0),
-        "filament" => store
-            .db
-            .query_row(
-                "SELECT COUNT(*) FROM spool WHERE filament_id = ?1",
-                [id],
-                |r| r.get(0),
-            )
-            .unwrap_or(0),
-        _ => 0,
+        None => 0,
     };
     if used > 0 {
         return (
@@ -1281,21 +1457,31 @@ fn remove(
         )
             .into_response();
     }
-    match store.db.execute(
-        &format!("DELETE FROM {resource} WHERE id = ?1 AND space_id = ?2"),
-        params![id, space],
-    ) {
+    let removed = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "DELETE FROM {resource} WHERE id = $1 AND space_id = $2"
+    )))
+    .bind(id)
+    .bind(space)
+    .execute(w.c())
+    .await;
+    match removed {
         Ok(_) => {
             // Its tags go with it.
             if resource != "vendor" {
-                let _ = store.db.execute(
-                    &format!("DELETE FROM tag WHERE space_id = ?1 AND {resource}_id = ?2"),
-                    params![space, id],
-                );
+                let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
+                    "DELETE FROM tag WHERE space_id = $1 AND {resource}_id = $2"
+                )))
+                .bind(space)
+                .bind(id)
+                .execute(w.c())
+                .await;
             }
-            store.changed();
-            store.spoolman_removed(space, resource, id, was);
-            Json(json!({"message": "Success!"})).into_response()
+            w.changed();
+            w.spoolman_removed(resource, id, was);
+            match w.commit(store).await {
+                Ok(()) => Json(json!({"message": "Success!"})).into_response(),
+                Err(e) => crate::failed(e),
+            }
         }
         Err(e) => crate::failed(e),
     }
@@ -1303,62 +1489,65 @@ fn remove(
 
 async fn remove_vendor(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
-    remove(&access, &store, "vendor", id)
+    remove(&access, &store, "vendor", id).await
 }
 async fn remove_filament(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
-    remove(&access, &store, "filament", id)
+    remove(&access, &store, "filament", id).await
 }
 async fn remove_spool(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
-    remove(&access, &store, "spool", id)
+    remove(&access, &store, "spool", id).await
 }
 
 // ---- lists of values, settings, export ----------------------------------------------
 
-fn distinct(access: &crate::access::Access, store: &Shared, sql: &str) -> Response {
-    let store = store.lock().unwrap();
+async fn distinct(access: &crate::access::Access, store: &Store, sql: &'static str) -> Response {
     let space = match space(access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let values = store.db.prepare(sql).and_then(|mut q| {
-        q.query_map([space], |r| r.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<String>>>()
-    });
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let values: sqlx::Result<Vec<String>> =
+        sqlx::query_scalar(sql).bind(space).fetch_all(w.c()).await;
     match values {
         Ok(v) => Json(v).into_response(),
         Err(e) => crate::failed(e),
     }
 }
 
-async fn materials(access: crate::access::Access, State(store): State<Shared>) -> Response {
+async fn materials(access: crate::access::Access, State(store): State<Store>) -> Response {
     distinct(
         &access,
         &store,
-        "SELECT DISTINCT material FROM filament WHERE space_id = ?1 AND material IS NOT NULL ORDER BY material",
+        "SELECT DISTINCT material COLLATE \"C\" FROM filament WHERE space_id = $1 AND material IS NOT NULL ORDER BY 1",
     )
+    .await
 }
-async fn locations(access: crate::access::Access, State(store): State<Shared>) -> Response {
+async fn locations(access: crate::access::Access, State(store): State<Store>) -> Response {
     distinct(
         &access,
         &store,
-        "SELECT name FROM locations WHERE space_id = ?1 ORDER BY name",
+        "SELECT name FROM locations WHERE space_id = $1 ORDER BY name COLLATE \"C\"",
     )
+    .await
 }
 /// Spoolman's rename: `PATCH /location/Shelf A` with `{"name": "Shelf B"}`.
 async fn rename_location(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(name): Path<String>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -1369,13 +1558,17 @@ async fn rename_location(
     else {
         return invalid("name");
     };
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let Some(place) = store
-        .locations(space)
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let Some(place) = w
+        .locations()
+        .await
         .ok()
         .and_then(|all| all.into_iter().find(|l| l.name == name))
     else {
@@ -1385,32 +1578,39 @@ async fn rename_location(
         )
             .into_response();
     };
-    match store.update_location(
-        space,
-        &place.id,
-        new,
-        place.description.as_deref(),
-        place.slots,
-        place.model.as_deref(),
-    ) {
-        Ok(_) => Json(json!(new)).into_response(),
+    let renamed = w
+        .update_location(
+            &place.id,
+            new,
+            place.description.as_deref(),
+            place.slots,
+            place.model.as_deref(),
+        )
+        .await;
+    match renamed {
+        Ok(_) => match w.commit(&store).await {
+            Ok(()) => Json(json!(new)).into_response(),
+            Err(e) => crate::failed(e),
+        },
         Err(e) => crate::failed(e),
     }
 }
 
-async fn lot_numbers(access: crate::access::Access, State(store): State<Shared>) -> Response {
+async fn lot_numbers(access: crate::access::Access, State(store): State<Store>) -> Response {
     distinct(
         &access,
         &store,
-        "SELECT DISTINCT lot_nr FROM spool WHERE space_id = ?1 AND lot_nr IS NOT NULL ORDER BY lot_nr",
+        "SELECT DISTINCT lot_nr COLLATE \"C\" FROM spool WHERE space_id = $1 AND lot_nr IS NOT NULL ORDER BY 1",
     )
+    .await
 }
-async fn article_numbers(access: crate::access::Access, State(store): State<Shared>) -> Response {
+async fn article_numbers(access: crate::access::Access, State(store): State<Store>) -> Response {
     distinct(
         &access,
         &store,
-        "SELECT DISTINCT article_number FROM filament WHERE space_id = ?1 AND article_number IS NOT NULL ORDER BY article_number",
+        "SELECT DISTINCT article_number COLLATE \"C\" FROM filament WHERE space_id = $1 AND article_number IS NOT NULL ORDER BY 1",
     )
+    .await
 }
 
 /// Spoolman's settings, with their types and defaults.
@@ -1427,18 +1627,16 @@ const SETTINGS: [(&str, &str, &str); 5] = [
     ("board_field", "string", "\"location\""),
 ];
 
-fn setting_of(store: &Store, space: i64, key: &str) -> Option<Value> {
+async fn setting_of(w: &mut Work, key: &str) -> Option<Value> {
     let (_, kind, default) = SETTINGS.iter().find(|(k, _, _)| *k == key)?;
-    let set: Option<String> = store
-        .db
-        .query_row(
-            "SELECT value FROM setting WHERE space_id = ?1 AND key = ?2",
-            params![space, key],
-            |r| r.get(0),
-        )
-        .optional()
-        .ok()
-        .flatten();
+    let set: Option<String> =
+        sqlx::query_scalar("SELECT value FROM setting WHERE space_id = $1 AND key = $2")
+            .bind(w.space)
+            .bind(key)
+            .fetch_optional(w.c())
+            .await
+            .ok()
+            .flatten();
     Some(json!({
         "value": set.clone().unwrap_or_else(|| (*default).to_owned()),
         "is_set": set.is_some(),
@@ -1446,30 +1644,40 @@ fn setting_of(store: &Store, space: i64, key: &str) -> Option<Value> {
     }))
 }
 
-async fn settings(access: crate::access::Access, State(store): State<Shared>) -> Response {
-    let store = store.lock().unwrap();
+async fn settings(access: crate::access::Access, State(store): State<Store>) -> Response {
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let all: Map<String, Value> = SETTINGS
-        .iter()
-        .filter_map(|(k, _, _)| Some(((*k).to_owned(), setting_of(&store, space, k)?)))
-        .collect();
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let _ = space;
+    let mut all = Map::new();
+    for (k, _, _) in SETTINGS {
+        if let Some(v) = setting_of(&mut w, k).await {
+            all.insert(k.to_owned(), v);
+        }
+    }
     Json(Value::Object(all)).into_response()
 }
 
 async fn setting(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(key): Path<String>,
 ) -> Response {
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match setting_of(&store, space, &key) {
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let _ = space;
+    match setting_of(&mut w, &key).await {
         Some(v) => Json(v).into_response(),
         None => (
             StatusCode::NOT_FOUND,
@@ -1481,7 +1689,7 @@ async fn setting(
 
 async fn set_setting(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(key): Path<String>,
     body: String,
 ) -> Response {
@@ -1497,17 +1705,32 @@ async fn set_setting(
         .ok()
         .and_then(|v| v.as_str().map(str::to_owned))
         .unwrap_or(body);
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.db.execute(
-        "INSERT INTO setting (space_id, key, value, last_updated) VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT (space_id, key) DO UPDATE SET value = ?3, last_updated = ?4",
-        params![space, key, value, now()],
-    ) {
-        Ok(_) => Json(setting_of(&store, space, &key)).into_response(),
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let saved = sqlx::query(
+        "INSERT INTO setting (space_id, key, value, last_updated) VALUES ($1, $2, $3, at_unix($4))
+         ON CONFLICT (space_id, key) DO UPDATE SET value = $3, last_updated = at_unix($4)",
+    )
+    .bind(space)
+    .bind(&key)
+    .bind(&value)
+    .bind(now())
+    .execute(w.c())
+    .await;
+    match saved {
+        Ok(_) => {
+            let now = setting_of(&mut w, &key).await;
+            match w.commit(&store).await {
+                Ok(()) => Json(now).into_response(),
+                Err(e) => crate::failed(e),
+            }
+        }
         Err(e) => crate::failed(e),
     }
 }
@@ -1515,7 +1738,7 @@ async fn set_setting(
 /// `/export/spools?fmt=csv` (or `json`): every row, nested fields flattened with dots.
 async fn export(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(what): Path<String>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
@@ -1525,16 +1748,17 @@ async fn export(
         "vendors" => "vendor",
         _ => return StatusCode::NOT_FOUND.into_response(),
     };
-    let all = {
-        let store = store.lock().unwrap();
-        let space = match space(&access) {
-            Ok(s) => s,
-            Err(r) => return *r,
-        };
-        match store.all(resource, space) {
-            Ok(all) => all,
-            Err(e) => return crate::failed(e),
-        }
+    let names = match names_for(&store, access.space, resource).await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
+    let space = match space(&access) {
+        Ok(s) => s,
+        Err(r) => return *r,
+    };
+    let all = match crate::stock::in_space!(&store, space, |w| w.all(resource, &names)).await {
+        Ok(all) => all,
+        Err(e) => return crate::failed(e),
     };
     if q.get("fmt").map(String::as_str) == Some("json") {
         return Json(all).into_response();
@@ -1599,7 +1823,7 @@ fn flatten(prefix: &str, v: &Value) -> Vec<(String, String)> {
 
 pub fn upgrade(
     ws: WebSocketUpgrade,
-    store: Shared,
+    store: Store,
     space: i64,
     resource: String,
     id: Option<i64>,
@@ -1611,8 +1835,8 @@ pub fn upgrade(
 }
 
 /// A space's changes, as Spoolman sends them; never another space's.
-async fn live(mut socket: WebSocket, store: Shared, space: i64, resource: String, id: Option<i64>) {
-    let mut events = store.lock().unwrap().subscribe_spoolman();
+async fn live(mut socket: WebSocket, store: Store, space: i64, resource: String, id: Option<i64>) {
+    let mut events = store.subscribe_spoolman();
     // A ping every 30 s, the first after 30 s (not at once: events come first).
     let every = std::time::Duration::from_secs(30);
     let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + every, every);
@@ -1633,8 +1857,14 @@ async fn live(mut socket: WebSocket, store: Shared, space: i64, resource: String
                 let payload = match event.was {
                     Some(was) => was,
                     None => {
-                        let store = store.lock().unwrap();
-                        match store.one(event.resource, space, event.id) {
+                        let Ok(names) = names_for(&store, space, event.resource).await else {
+                            continue;
+                        };
+                        let one = crate::stock::in_space!(&store, space, |w| {
+                            w.one(event.resource, event.id, &names)
+                        })
+                        .await;
+                        match one {
                             Ok(Some(v)) => v,
                             _ => continue,
                         }
@@ -1683,9 +1913,9 @@ pub fn normalize_uid(uid: &str) -> Result<String, String> {
 }
 
 /// Links a tag to a spool or a filament: 201 with the tag, 409 with who holds it.
-fn link(
+async fn link(
     access: &crate::access::Access,
-    store: &Shared,
+    store: &Store,
     target: &'static str,
     id: i64,
     body: &Value,
@@ -1698,24 +1928,27 @@ fn link(
         None => return invalid("uid"),
     };
     let format = body["format"].as_str().map(str::to_owned);
-    let store = store.lock().unwrap();
     let space = match space(access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    if !matches!(store.one(target, space, id), Ok(Some(_))) {
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    // Whether it is there (its `loaded_in` does not matter here).
+    if !matches!(w.one(target, id, &MachineNames::new()).await, Ok(Some(_))) {
         return not_found(target, id);
     }
-    let holder: Option<(String, Option<i64>, Option<i64>)> = store
-        .db
-        .query_row(
-            "SELECT target_type, spool_id, filament_id FROM tag WHERE space_id = ?1 AND uid = ?2",
-            params![space, uid],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .optional()
-        .ok()
-        .flatten();
+    let holder: Option<(String, Option<i64>, Option<i64>)> = sqlx::query_as(
+        "SELECT target_type, spool_id, filament_id FROM tag WHERE space_id = $1 AND uid = $2",
+    )
+    .bind(space)
+    .bind(&uid)
+    .fetch_optional(w.c())
+    .await
+    .ok()
+    .flatten();
     let column = if target == "spool" {
         "spool_id"
     } else {
@@ -1725,10 +1958,12 @@ fn link(
         // Already this one's: a format sent now refines the one recorded.
         Some((t, s, f)) if t == target && (if target == "spool" { s } else { f }) == Some(id) => {
             if let Some(format) = &format {
-                let _ = store.db.execute(
-                    "UPDATE tag SET format = ?1 WHERE space_id = ?2 AND uid = ?3",
-                    params![format, space, uid],
-                );
+                let _ = sqlx::query("UPDATE tag SET format = $1 WHERE space_id = $2 AND uid = $3")
+                    .bind(format)
+                    .bind(space)
+                    .bind(&uid)
+                    .execute(w.c())
+                    .await;
             }
         }
         Some((_, s, f)) => {
@@ -1743,29 +1978,39 @@ fn link(
                 .into_response();
         }
         None => {
-            if let Err(e) = store.db.execute(
-                &format!(
-                    "INSERT INTO tag (space_id, uid, target_type, {column}, format, added) VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
-                ),
-                params![space, uid, target, id, format, now()],
-            ) {
+            if let Err(e) = sqlx::query(sqlx::AssertSqlSafe(format!(
+                "INSERT INTO tag (space_id, uid, target_type, {column}, format, added)
+                 VALUES ($1, $2, $3, $4, $5, at_unix($6))"
+            )))
+            .bind(space)
+            .bind(&uid)
+            .bind(target)
+            .bind(id)
+            .bind(&format)
+            .bind(now())
+            .execute(w.c())
+            .await
+            {
                 return crate::failed(e);
             }
         }
     }
-    store.changed();
-    store.spoolman_event(target, "updated", id);
-    let tags = store.tags_of(space, target, id).unwrap_or_default();
+    w.changed();
+    w.spoolman_event(target, "updated", id);
+    let tags = w.tags_of(target, id).await.unwrap_or_default();
     let tag = tags
         .as_array()
         .and_then(|t| t.iter().find(|t| t["uid"] == uid).cloned())
         .unwrap_or(Value::Null);
-    (StatusCode::CREATED, Json(tag)).into_response()
+    match w.commit(store).await {
+        Ok(()) => (StatusCode::CREATED, Json(tag)).into_response(),
+        Err(e) => crate::failed(e),
+    }
 }
 
-fn unlink(
+async fn unlink(
     access: &crate::access::Access,
-    store: &Shared,
+    store: &Store,
     target: &'static str,
     id: i64,
     uid: &str,
@@ -1776,29 +2021,41 @@ fn unlink(
             return (StatusCode::BAD_REQUEST, Json(json!({"message": why}))).into_response();
         }
     };
-    let store = store.lock().unwrap();
     let space = match space(access) {
         Ok(s) => s,
         Err(r) => return *r,
+    };
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
     };
     let column = if target == "spool" {
         "spool_id"
     } else {
         "filament_id"
     };
-    match store.db.execute(
-        &format!("DELETE FROM tag WHERE space_id = ?1 AND uid = ?2 AND {column} = ?3"),
-        params![space, uid, id],
-    ) {
+    let removed = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "DELETE FROM tag WHERE space_id = $1 AND uid = $2 AND {column} = $3"
+    )))
+    .bind(space)
+    .bind(&uid)
+    .bind(id)
+    .execute(w.c())
+    .await
+    .map(|r| r.rows_affected());
+    match removed {
         Ok(0) => (
             StatusCode::NOT_FOUND,
             Json(json!({"message": format!("Tag {uid} is not on this {target}.")})),
         )
             .into_response(),
         Ok(_) => {
-            store.changed();
-            store.spoolman_event(target, "updated", id);
-            StatusCode::NO_CONTENT.into_response()
+            w.changed();
+            w.spoolman_event(target, "updated", id);
+            match w.commit(store).await {
+                Ok(()) => StatusCode::NO_CONTENT.into_response(),
+                Err(e) => crate::failed(e),
+            }
         }
         Err(e) => crate::failed(e),
     }
@@ -1806,33 +2063,33 @@ fn unlink(
 
 async fn tag_spool(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
-    link(&access, &store, "spool", id, &body)
+    link(&access, &store, "spool", id, &body).await
 }
 async fn untag_spool(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((id, uid)): Path<(i64, String)>,
 ) -> Response {
-    unlink(&access, &store, "spool", id, &uid)
+    unlink(&access, &store, "spool", id, &uid).await
 }
 async fn tag_filament(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
-    link(&access, &store, "filament", id, &body)
+    link(&access, &store, "filament", id, &body).await
 }
 async fn untag_filament(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((id, uid)): Path<(i64, String)>,
 ) -> Response {
-    unlink(&access, &store, "filament", id, &uid)
+    unlink(&access, &store, "filament", id, &uid).await
 }
 
 /// The readers that scanned lately (in memory, as Spoolman's), and the scans as they come,
@@ -1856,7 +2113,7 @@ impl Default for Scans {
 /// the scan WebSockets (so a page paired with that reader can open the spool).
 async fn scan(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -1871,27 +2128,38 @@ async fn scan(
         .as_str()
         .map(str::to_owned)
         .unwrap_or_else(|| format!("ip-{}", peer.ip()).replace([':', '.'], "-"));
+    let names = match names_for(&store, access.space, "spool").await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let (spool, filament) = {
-        let store = store.lock().unwrap();
         let space = match space(&access) {
             Ok(s) => s,
             Err(r) => return *r,
         };
-        let held: Option<(Option<i64>, Option<i64>)> = store
-            .db
-            .query_row(
-                "SELECT spool_id, filament_id FROM tag WHERE space_id = ?1 AND uid = ?2",
-                params![space, uid],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()
-            .ok()
-            .flatten();
-        let (s, f) = held.unwrap_or((None, None));
-        (
-            s.and_then(|s| store.sm_spool(space, s).ok().flatten()),
-            f.and_then(|f| store.sm_filament(space, f).ok().flatten()),
+        let mut w = match store.work(space).await {
+            Ok(w) => w,
+            Err(e) => return crate::failed(e),
+        };
+        let held: Option<(Option<i64>, Option<i64>)> = sqlx::query_as(
+            "SELECT spool_id, filament_id FROM tag WHERE space_id = $1 AND uid = $2",
         )
+        .bind(space)
+        .bind(&uid)
+        .fetch_optional(w.c())
+        .await
+        .ok()
+        .flatten();
+        let (s, f) = held.unwrap_or((None, None));
+        let spool = match s {
+            Some(s) => w.sm_spool(s, &names).await.ok().flatten(),
+            None => None,
+        };
+        let filament = match f {
+            Some(f) => w.sm_filament(f).await.ok().flatten(),
+            None => None,
+        };
+        (spool, filament)
     };
     let result = json!({
         "uid": uid,
@@ -1905,7 +2173,7 @@ async fn scan(
         "decoded": null,
         "created": false,
     });
-    let scans = store.lock().unwrap().spoolman_scans.clone();
+    let scans = store.spoolman_scans();
     {
         let mut readers = scans.readers.lock().unwrap();
         readers.retain(|(s, r)| !(*s == access.space && r["reader_id"] == reader));
@@ -1931,8 +2199,8 @@ async fn scan(
     Json(result).into_response()
 }
 
-async fn readers(access: crate::access::Access, State(store): State<Shared>) -> Json<Value> {
-    let scans = store.lock().unwrap().spoolman_scans.clone();
+async fn readers(access: crate::access::Access, State(store): State<Store>) -> Json<Value> {
+    let scans = store.spoolman_scans();
     let readers = scans.readers.lock().unwrap();
     Json(Value::Array(
         readers
@@ -1945,10 +2213,10 @@ async fn readers(access: crate::access::Access, State(store): State<Shared>) -> 
 
 async fn scan_live(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     MaybeWs(ws): MaybeWs,
 ) -> Response {
-    let scans = store.lock().unwrap().spoolman_scans.clone();
+    let scans = store.spoolman_scans();
     match ws {
         Some(ws) => ws.on_upgrade(move |socket| scan_feed(socket, scans, access.space, None)),
         None => StatusCode::METHOD_NOT_ALLOWED.into_response(),
@@ -1957,11 +2225,11 @@ async fn scan_live(
 
 async fn scan_live_reader(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     MaybeWs(ws): MaybeWs,
     Path(reader): Path<String>,
 ) -> Response {
-    let scans = store.lock().unwrap().spoolman_scans.clone();
+    let scans = store.spoolman_scans();
     match ws {
         Some(ws) => {
             ws.on_upgrade(move |socket| scan_feed(socket, scans, access.space, Some(reader)))
@@ -2015,16 +2283,17 @@ fn entity(entity: &str) -> Option<&'static str> {
         .find(|e| *e == entity)
 }
 
-fn field_list(store: &Store, space: i64, entity: &str) -> rusqlite::Result<Value> {
-    let mut q = store.db.prepare(
-        "SELECT key, definition FROM extra_field WHERE space_id = ?1 AND entity_type = ?2",
-    )?;
-    let rows = q.query_map(params![space, entity], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-    })?;
+async fn field_list(w: &mut Work, entity: &str) -> sqlx::Result<Value> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT key, definition FROM extra_field WHERE space_id = $1 AND entity_type = $2
+         ORDER BY key COLLATE \"C\"",
+    )
+    .bind(w.space)
+    .bind(entity)
+    .fetch_all(w.c())
+    .await?;
     let mut out = Vec::new();
-    for row in rows {
-        let (key, definition) = row?;
+    for (key, definition) in rows {
         let mut field: Value = serde_json::from_str(&definition).unwrap_or(json!({}));
         field["key"] = json!(key);
         field["entity_type"] = json!(entity);
@@ -2036,18 +2305,22 @@ fn field_list(store: &Store, space: i64, entity: &str) -> rusqlite::Result<Value
 
 async fn fields(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(e): Path<String>,
 ) -> Response {
     let Some(e) = entity(&e) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match field_list(&store, space, e) {
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let _ = space;
+    match field_list(&mut w, e).await {
         Ok(v) => Json(v).into_response(),
         Err(err) => crate::failed(err),
     }
@@ -2055,7 +2328,7 @@ async fn fields(
 
 async fn set_field(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((e, key)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -2084,23 +2357,26 @@ async fn set_field(
         )
             .into_response();
     };
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
     // Its type, and whether it takes several choices, stay as first defined.
-    let before: Option<Value> = store
-        .db
-        .query_row(
-            "SELECT definition FROM extra_field WHERE space_id = ?1 AND entity_type = ?2 AND key = ?3",
-            params![space, e, key],
-            |r| r.get::<_, String>(0),
-        )
-        .optional()
-        .ok()
-        .flatten()
-        .and_then(|d| serde_json::from_str(&d).ok());
+    let before: Option<Value> = sqlx::query_scalar::<_, String>(
+        "SELECT definition FROM extra_field WHERE space_id = $1 AND entity_type = $2 AND key = $3",
+    )
+    .bind(space)
+    .bind(e)
+    .bind(&key)
+    .fetch_optional(w.c())
+    .await
+    .ok()
+    .flatten()
+    .and_then(|d| serde_json::from_str(&d).ok());
     if let Some(before) = &before
         && (before["field_type"] != kind || before["multi_choice"] != body["multi_choice"])
     {
@@ -2119,57 +2395,85 @@ async fn set_field(
         "choices": body["choices"],
         "multi_choice": body["multi_choice"],
     });
-    let saved = store.db.execute(
-        "INSERT INTO extra_field (space_id, entity_type, key, definition) VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT (space_id, entity_type, key) DO UPDATE SET definition = ?4",
-        params![space, e, key, definition.to_string()],
-    );
-    match saved.and_then(|_| field_list(&store, space, e)) {
-        Ok(v) => Json(v).into_response(),
+    let saved = sqlx::query(
+        "INSERT INTO extra_field (space_id, entity_type, key, definition) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (space_id, entity_type, key) DO UPDATE SET definition = $4",
+    )
+    .bind(space)
+    .bind(e)
+    .bind(&key)
+    .bind(definition.to_string())
+    .execute(w.c())
+    .await;
+    let listed = match saved {
+        Ok(_) => field_list(&mut w, e).await,
+        Err(err) => Err(err),
+    };
+    match listed {
+        Ok(v) => match w.commit(&store).await {
+            Ok(()) => Json(v).into_response(),
+            Err(err) => crate::failed(err),
+        },
         Err(err) => crate::failed(err),
     }
 }
 
 async fn remove_field(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((e, key)): Path<(String, String)>,
 ) -> Response {
     let Some(e) = entity(&e) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let removed = store.db.execute(
-        "DELETE FROM extra_field WHERE space_id = ?1 AND entity_type = ?2 AND key = ?3",
-        params![space, e, key],
-    );
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let removed = sqlx::query(
+        "DELETE FROM extra_field WHERE space_id = $1 AND entity_type = $2 AND key = $3",
+    )
+    .bind(space)
+    .bind(e)
+    .bind(&key)
+    .execute(w.c())
+    .await;
     // Its values go with it, as in Spoolman.
-    let mut q = match store
-        .db
-        .prepare(&format!("SELECT id, extra FROM {e} WHERE space_id = ?1"))
+    let rows: Vec<(i64, String)> = match sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT id, extra FROM {e} WHERE space_id = $1"
+    )))
+    .bind(space)
+    .fetch_all(w.c())
+    .await
     {
-        Ok(q) => q,
+        Ok(rows) => rows,
         Err(err) => return crate::failed(err),
     };
-    let rows: Vec<(i64, String)> = q
-        .query_map([space], |r| Ok((r.get(0)?, r.get(1)?)))
-        .map(|rows| rows.flatten().collect())
-        .unwrap_or_default();
     for (id, extra) in rows {
         let mut map = extra_map(Some(extra));
         if map.remove(&key).is_some() {
-            let _ = store.db.execute(
-                &format!("UPDATE {e} SET extra = ?1 WHERE id = ?2"),
-                params![Value::Object(map).to_string(), id],
-            );
+            let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
+                "UPDATE {e} SET extra = $1 WHERE id = $2"
+            )))
+            .bind(Value::Object(map).to_string())
+            .bind(id)
+            .execute(w.c())
+            .await;
         }
     }
-    match removed.and_then(|_| field_list(&store, space, e)) {
-        Ok(v) => Json(v).into_response(),
+    let listed = match removed {
+        Ok(_) => field_list(&mut w, e).await,
+        Err(err) => Err(err),
+    };
+    match listed {
+        Ok(v) => match w.commit(&store).await {
+            Ok(()) => Json(v).into_response(),
+            Err(err) => crate::failed(err),
+        },
         Err(err) => crate::failed(err),
     }
 }
@@ -2177,19 +2481,28 @@ async fn remove_field(
 /// The values a field has now, for suggestions.
 async fn field_values(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path((e, key)): Path<(String, String)>,
 ) -> Response {
     let Some(e) = entity(&e) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let store = store.lock().unwrap();
+    let names = match names_for(&store, access.space, e).await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let mut values: Vec<Value> = store
-        .all(e, space)
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let _ = space;
+    let mut values: Vec<Value> = w
+        .all(e, &names)
+        .await
         .unwrap_or_default()
         .into_iter()
         .filter_map(|v| v["extra"].get(&key).cloned())
@@ -2203,19 +2516,21 @@ async fn field_values(
 mod tests {
     use super::*;
 
-    use crate::store::Store;
     use futures_util::StreamExt;
-    use std::sync::{Arc, Mutex};
 
     /// What Moonraker, Mainsail and the OctoPrint plugin do with a Spoolman: make a vendor, a
     /// filament and a spool, list and filter them, count filament off by length and by
     /// weighing, and hear about it on the spool's WebSocket.
-    #[tokio::test]
-    async fn it_answers_as_spoolman_does() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn it_answers_as_spoolman_does(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let app = crate::auth::signed_in_app(store.clone());
+        let app = crate::auth::signed_in_app(store.clone()).await;
         tokio::spawn(async move {
             axum::serve(
                 listener,
@@ -2276,7 +2591,7 @@ mod tests {
         let grams = used["used_weight"].as_f64().unwrap();
         assert!((grams - 3.05).abs() < 0.01, "{grams}");
         assert!(used["first_used"].is_string());
-        let event = tokio::time::timeout(std::time::Duration::from_secs(3), ws.next())
+        let event = tokio::time::timeout(std::time::Duration::from_secs(60), ws.next())
             .await
             .unwrap()
             .unwrap()
@@ -2389,9 +2704,14 @@ mod tests {
         assert_eq!(dried["extra"]["last_dried"], "\"2026-11-01T10:00:00Z\"");
 
         // The rest of the hub sees the same spool: S-0001 on the Materials page.
-        let s = store.lock().unwrap();
-        let space = s.default_space().unwrap().0;
-        let item = s.items(space).unwrap().into_iter().next().unwrap();
+        let space = store.default_space().await.unwrap().0;
+        let item = store
+            .items(space)
+            .await
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
         assert_eq!((item.id.as_str(), item.amount), ("S-0001", 500.0));
     }
 

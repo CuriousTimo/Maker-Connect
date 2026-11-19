@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO machine_group_members (space_id, group_id, machine_id)\n             SELECT $1, $2, unnest($3::text[]) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6a03a2c54cc91e6f8714591a0af983349470d68a14fea7a642ec7e20141fb579"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE machines SET space_id = $1,\n                     pairing_code = CASE link WHEN 'prusa-connect' THEN pairing_code ELSE NULL END\n                 WHERE pairing_code = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0b76652507a1c6ec30586c2167d73611248b01582e43ec2b87820b1a2669d64a"
+}

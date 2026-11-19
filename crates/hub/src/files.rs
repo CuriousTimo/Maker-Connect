@@ -5,7 +5,7 @@
 //! over USB); Prusas on built-in Connect follow.
 
 use crate::store::{JobState, Machine, StoredFile};
-use crate::{Shared, failed, profiles};
+use crate::{Store, failed, profiles};
 use axum::{
     Form, Json, Router,
     body::Body,
@@ -21,7 +21,7 @@ use tokio::io::AsyncWriteExt;
 /// The largest file taken.
 const MAX_BYTES: u64 = 1024 * 1024 * 1024;
 
-pub fn routes() -> Router<Shared> {
+pub fn routes() -> Router<Store> {
     Router::new()
         .route(
             "/api/files",
@@ -289,29 +289,30 @@ struct Listed {
     printed: Vec<crate::store::Printed>,
 }
 
-async fn list(access: crate::access::Access, State(store): State<Shared>) -> Response {
-    let store = store.lock().unwrap();
-    let found = store.space_of(&access).and_then(|(space, _)| {
+async fn list(access: crate::access::Access, State(store): State<Store>) -> Response {
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    let found: Result<_, crate::store::BoxError> = async {
         Ok((
-            store.files(space)?,
-            store.machines(space)?,
-            store.prints(space, 5)?,
+            store.files(access.space).await?,
+            store.machines(access.space).await?,
+            store.prints(access.space, 5).await?,
         ))
-    });
+    }
+    .await;
     let (files, machines, mut prints) = match found {
         Ok(found) => found,
         Err(error) => return failed(error),
     };
+    let store = store.lock().unwrap();
     // Which machines this person may use (by permission, whatever their role): the others say
     // so here, before the button, rather than refusing after it. Granted only in Space.
     let mut may_use = std::collections::HashSet::new();
     for machine in &machines {
-        match store.may(&access, &machine.id, crate::access::Level::Use) {
-            Ok(Some(true)) => {
-                may_use.insert(machine.id.clone());
-            }
-            Ok(_) => {}
-            Err(error) => return failed(error),
+        if let Some(true) = store.may(&access, &machine.id, crate::access::Level::Use, &grants) {
+            may_use.insert(machine.id.clone());
         }
     }
     let no_permission = if access.role >= crate::access::Role::Admin {
@@ -421,7 +422,7 @@ fn clean_name(name: &str) -> Option<String> {
 /// metadata and thumbnail, added to the space.
 pub(crate) async fn upload(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Query(query): Query<UploadQuery>,
     body: Body,
 ) -> Response {
@@ -434,10 +435,7 @@ pub(crate) async fn upload(
     };
     let (space, id, path, thumbnail_path) = {
         let store = store.lock().unwrap();
-        let space = match store.space_of(&access) {
-            Ok((space, _)) => space,
-            Err(error) => return failed(error),
-        };
+        let space = access.space;
         let id = crate::store::random_id();
         let path = store.file_path(&id);
         let thumbnail = store.thumbnail_path(&id);
@@ -485,11 +483,7 @@ pub(crate) async fn upload(
     if let Some(png) = png {
         let _ = tokio::fs::write(&thumbnail_path, png).await;
     }
-    match store
-        .lock()
-        .unwrap()
-        .add_file(space, &id, &name, size, &meta)
-    {
+    match store.add_file(space, &id, &name, size, &meta).await {
         Ok(()) => {
             println!("file kept: {name} ({size} bytes)");
             (StatusCode::CREATED, Json(serde_json::json!({ "id": id }))).into_response()
@@ -499,15 +493,14 @@ pub(crate) async fn upload(
 }
 
 /// A file of the space, or the answer to give when there is none.
-fn find(
+async fn find(
     access: &crate::access::Access,
-    store: &Shared,
+    store: &Store,
     id: &str,
 ) -> Result<(i64, StoredFile, std::path::PathBuf), Box<Response>> {
-    let store = store.lock().unwrap();
-    let space = store.space_of(access).map_err(|e| Box::new(failed(e)))?.0;
-    match store.file(space, id) {
-        Ok(Some(file)) => Ok((space, file, store.files_dir.clone())),
+    let space = access.space;
+    match store.file(space, id).await {
+        Ok(Some(file)) => Ok((space, file, store.files_dir().to_owned())),
         Ok(None) => Err(Box::new(
             (StatusCode::NOT_FOUND, "no such file").into_response(),
         )),
@@ -517,10 +510,10 @@ fn find(
 
 async fn thumbnail(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
-    let (_, file, dir) = match find(&access, &store, &id) {
+    let (_, file, dir) = match find(&access, &store, &id).await {
         Ok(found) => found,
         Err(response) => return *response,
     };
@@ -539,10 +532,10 @@ async fn thumbnail(
 
 async fn download(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
-    let (_, file, dir) = match find(&access, &store, &id) {
+    let (_, file, dir) = match find(&access, &store, &id).await {
         Ok(found) => found,
         Err(response) => return *response,
     };
@@ -553,7 +546,7 @@ async fn download(
 /// address is the one in its [`maker_connect_protocol::JobOrder`]). Only that machine's jobs,
 /// and only files of its space.
 async fn agent_file(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     headers: HeaderMap,
     Path(job): Path<i64>,
 ) -> Response {
@@ -568,7 +561,7 @@ async fn agent_file(
 /// An agent fetches a file of its machine's space that is not a job's (a laser's frame,
 /// `Action::Frame`), with the machine's token: only files of that space.
 async fn agent_space_file(
-    State(store): State<Shared>,
+    State(store): State<Store>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Response {
@@ -577,26 +570,19 @@ async fn agent_space_file(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
-    let found = {
-        let store = store.lock().unwrap();
-        (|| -> rusqlite::Result<Option<(StoredFile, std::path::PathBuf)>> {
-            if token.is_empty() {
-                return Ok(None);
-            }
-            let Some(machine) = store.machine_id_by_token(token)? else {
-                return Ok(None);
-            };
-            let space: Option<i64> = store.db.query_row(
-                "SELECT space_id FROM machines WHERE id = ?1",
-                [&machine],
-                |r| r.get(0),
-            )?;
-            let Some(space) = space else { return Ok(None) };
-            Ok(store
-                .file(space, &id)?
-                .map(|f| (f, store.files_dir.clone())))
-        })()
-    };
+    let found: Result<Option<(StoredFile, std::path::PathBuf)>, crate::store::BoxError> = async {
+        if token.is_empty() {
+            return Ok(None);
+        }
+        let Some((_, space)) = store.placed(token).await? else {
+            return Ok(None);
+        };
+        Ok(store
+            .file(space, &id)
+            .await?
+            .map(|f| (f, store.files_dir().to_owned())))
+    }
+    .await;
     match found {
         Ok(Some((file, dir))) => serve(&file, &dir).await,
         Ok(None) => (StatusCode::NOT_FOUND, "no such file for this machine").into_response(),
@@ -606,30 +592,24 @@ async fn agent_space_file(
 
 /// The file of job `job`, for the machine whose token is `token` (an agent's, or a Klipper
 /// printer's): only that machine's jobs, only files of its space; else 404.
-pub(crate) async fn job_file(store: &Shared, token: &str, job: i64) -> Response {
-    let found = {
-        let store = store.lock().unwrap();
-        (|| -> rusqlite::Result<Option<(StoredFile, std::path::PathBuf)>> {
-            if token.is_empty() {
-                return Ok(None);
-            }
-            let Some(machine) = store.machine_id_by_token(token)? else {
-                return Ok(None);
-            };
-            let Some(job) = store.job(job)?.filter(|j| j.machine_id == machine) else {
-                return Ok(None);
-            };
-            let space: Option<i64> = store.db.query_row(
-                "SELECT space_id FROM machines WHERE id = ?1",
-                [&machine],
-                |r| r.get(0),
-            )?;
-            let Some(space) = space else { return Ok(None) };
-            Ok(store
-                .file(space, &job.file_id)?
-                .map(|f| (f, store.files_dir.clone())))
-        })()
-    };
+pub(crate) async fn job_file(store: &Store, token: &str, job: i64) -> Response {
+    let found: Result<Option<(StoredFile, std::path::PathBuf)>, crate::store::BoxError> = async {
+        if token.is_empty() {
+            return Ok(None);
+        }
+        let Some((machine, space)) = store.placed(token).await? else {
+            return Ok(None);
+        };
+        let job = store.job(space, job).await?;
+        let Some(job) = job.filter(|j| j.machine_id == machine) else {
+            return Ok(None);
+        };
+        Ok(store
+            .file(space, &job.file_id)
+            .await?
+            .map(|f| (f, store.files_dir().to_owned())))
+    }
+    .await;
     match found {
         Ok(Some((file, dir))) => serve(&file, &dir).await,
         Ok(None) => (StatusCode::NOT_FOUND, "no such job for this machine").into_response(),
@@ -691,13 +671,10 @@ fn tokio_util_stream(
 
 async fn remove(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    let removed = store
-        .space_of(&access)
-        .and_then(|(space, _)| store.remove_file(space, &id));
+    let removed = store.remove_file(access.space, &id).await;
     match removed {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (
@@ -710,15 +687,11 @@ async fn remove(
 }
 
 /// `GET /api/storage`: what the files take, and what the disk under them has left.
-async fn storage(access: crate::access::Access, State(store): State<Shared>) -> Response {
+async fn storage(access: crate::access::Access, State(store): State<Store>) -> Response {
     let (dir, used, count) = {
-        let store = store.lock().unwrap();
-        let files = store
-            .space_of(&access)
-            .and_then(|(space, _)| store.files(space))
-            .unwrap_or_default();
+        let files = store.files(access.space).await.unwrap_or_default();
         let used: u64 = files.iter().map(|f| f.size).sum();
-        (store.files_dir.clone(), used, files.len())
+        (store.files_dir().to_owned(), used, files.len())
     };
     Json(serde_json::json!({
         "files": count,
@@ -738,18 +711,14 @@ struct Many {
 /// runs or has queued. Says how many went, and which stayed.
 async fn remove_many(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Json(many): Json<Many>,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    let space = match store.space_of(&access) {
-        Ok((space, _)) => space,
-        Err(error) => return failed(error),
-    };
+    let space = access.space;
     let mut removed = 0;
     let mut kept = Vec::new();
     for id in many.ids.iter().take(10_000) {
-        match store.remove_file(space, id) {
+        match store.remove_file(space, id).await {
             Ok(true) => removed += 1,
             Ok(false) => kept.push(id.clone()),
             Err(error) => return failed(error),
@@ -774,26 +743,39 @@ const MAX_COPIES: u32 = 50;
 /// Puts a file on a machine, when it fits ([`fit`]).
 async fn print(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
     headers: HeaderMap,
     Form(form): Form<PrintForm>,
 ) -> Response {
-    let (space, file, _) = match find(&access, &store, &id) {
+    let (space, file, _) = match find(&access, &store, &id).await {
         Ok(found) => found,
         Err(response) => return *response,
     };
-    let mut store = store.lock().unwrap();
-    // Running a job, or framing one, is using the machine.
-    if let Err(refused) =
-        crate::access::check_machine(&store, &access, &form.machine, crate::access::Level::Use)
+    let ppe_checks = store.ppe_rule(access.space, &form.machine).await;
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    let found_machine = store.machine(access.space, &form.machine).await;
     {
-        return *refused;
+        let store = store.lock().unwrap();
+        // Running a job, or framing one, is using the machine.
+        if let Err(refused) = crate::access::check_machine(
+            &store,
+            &access,
+            &form.machine,
+            crate::access::Level::Use,
+            &grants,
+        ) {
+            return *refused;
+        }
+        if let Err(refused) = crate::safety::check_ppe(&store, &ppe_checks, &access, &form.machine)
+        {
+            return *refused;
+        }
     }
-    if let Err(refused) = crate::safety::check_ppe(&store, &access, &form.machine) {
-        return *refused;
-    }
-    let machine = match store.machine(space, &form.machine) {
+    let machine = match found_machine {
         Ok(Some(machine)) => machine,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
@@ -820,7 +802,7 @@ async fn print(
         if let Err(why) = fit(&file, &free) {
             return (StatusCode::CONFLICT, why).into_response();
         }
-        match store.active_job(&machine.id) {
+        match store.active_job(space, &machine.id).await {
             Ok(Some(job)) if job.state == crate::store::JobState::Loaded => {
                 // Only who may load one replaces it (a person at a session,
                 // crate::store::LASER_NEVER_ALONE): refused before it is asked, nothing removed.
@@ -837,7 +819,7 @@ async fn print(
                     )
                         .into_response();
                 }
-                if let Err(error) = store.unload_laser_job(&machine.id) {
+                if let Err(error) = store.unload_laser_job(space, &machine.id).await {
                     return failed(error);
                 }
             }
@@ -848,17 +830,24 @@ async fn print(
             Ok(None) => {}
             Err(error) => return failed(error),
         }
-        return match store.add_job(
-            space,
-            &machine.id,
-            &file,
-            None,
-            crate::store::StartedBy::person(&access),
-        ) {
+        return match store
+            .add_job(
+                space,
+                &machine.id,
+                &file,
+                None,
+                crate::store::StartedBy::person(&access),
+            )
+            .await
+        {
             Ok(Ok(_)) if headers.contains_key("x-requested-with") => {
                 Json(serde_json::json!({ "loaded": file.name })).into_response()
             }
             Ok(Ok(_)) => Redirect::to(&format!("/machines/{}#control", machine.id)).into_response(),
+            // removed meanwhile: what `find` answers
+            Ok(Err(why)) if why == crate::store::NO_SUCH_FILE => {
+                (StatusCode::NOT_FOUND, why).into_response()
+            }
             Ok(Err(why)) => (StatusCode::CONFLICT, why).into_response(),
             Err(error) => failed(error),
         };
@@ -868,18 +857,20 @@ async fn print(
     let copies = form.copies.unwrap_or(1).clamp(1, MAX_COPIES);
     let by = Some((access.user_id, access.actor.as_str()));
     // Copies after the first wait in the queue, one after another.
-    let queue_rest = |store: &mut crate::store::Store, n: u32| -> rusqlite::Result<usize> {
+    let queue_rest = async |store: &Store, n: u32| -> sqlx::Result<usize> {
+        let mut w = store.work(space).await?;
         let mut place = 0;
         for _ in 0..n {
-            place = store.queue_add(space, &machine.id, &file, by)?;
+            place = w.queue_add(&machine.id, &file, by).await?;
         }
+        w.commit(store).await?;
         Ok(place)
     };
     if !machine.queue.is_empty() || fit(&file, &machine).is_err() {
         if let Err(why) = suits(&file, &machine) {
             return (StatusCode::CONFLICT, why).into_response();
         }
-        return match queue_rest(&mut store, copies) {
+        return match queue_rest(&store, copies).await {
             Ok(place) if headers.contains_key("x-requested-with") => (
                 StatusCode::ACCEPTED,
                 Json(serde_json::json!({ "queued": place, "copies": copies })),
@@ -889,14 +880,17 @@ async fn print(
             Err(error) => failed(error),
         };
     }
-    match store.add_job(
-        space,
-        &machine.id,
-        &file,
-        None,
-        crate::store::StartedBy::person(&access),
-    ) {
-        Ok(Ok(_)) if copies > 1 => match queue_rest(&mut store, copies - 1) {
+    match store
+        .add_job(
+            space,
+            &machine.id,
+            &file,
+            None,
+            crate::store::StartedBy::person(&access),
+        )
+        .await
+    {
+        Ok(Ok(_)) if copies > 1 => match queue_rest(&store, copies - 1).await {
             Ok(_) if headers.contains_key("x-requested-with") => Json(serde_json::json!({
                 "started": true,
                 "copies": copies,
@@ -909,6 +903,10 @@ async fn print(
             StatusCode::NO_CONTENT.into_response()
         }
         Ok(Ok(_)) => Redirect::to(&format!("/machines/{}#control", machine.id)).into_response(),
+        // removed meanwhile: what `find` answers
+        Ok(Err(why)) if why == crate::store::NO_SUCH_FILE => {
+            (StatusCode::NOT_FOUND, why).into_response()
+        }
         Ok(Err(why)) => (StatusCode::CONFLICT, why).into_response(),
         Err(error) => failed(error),
     }
@@ -917,11 +915,11 @@ async fn print(
 /// Runs a laser file's outline with the beam off (GRBL jogs), to see where it will go.
 async fn frame(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
     Form(form): Form<PrintForm>,
 ) -> Response {
-    let (space, file, dir) = match find(&access, &store, &id) {
+    let (_, file, dir) = match find(&access, &store, &id).await {
         Ok(found) => found,
         Err(response) => return *response,
     };
@@ -934,17 +932,27 @@ async fn frame(
     let Some([x0, y0, x1, y1]) = bounds else {
         return (StatusCode::CONFLICT, "the file has no moves to frame").into_response();
     };
+    let ppe_checks = store.ppe_rule(access.space, &form.machine).await;
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    let found_machine = store.machine(access.space, &form.machine).await;
     let mut store = store.lock().unwrap();
     // Running a job, or framing one, is using the machine.
-    if let Err(refused) =
-        crate::access::check_machine(&store, &access, &form.machine, crate::access::Level::Use)
-    {
+    if let Err(refused) = crate::access::check_machine(
+        &store,
+        &access,
+        &form.machine,
+        crate::access::Level::Use,
+        &grants,
+    ) {
         return *refused;
     }
-    if let Err(refused) = crate::safety::check_ppe(&store, &access, &form.machine) {
+    if let Err(refused) = crate::safety::check_ppe(&store, &ppe_checks, &access, &form.machine) {
         return *refused;
     }
-    let machine = match store.machine(space, &form.machine) {
+    let machine = match found_machine {
         Ok(Some(machine)) => machine,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
@@ -970,14 +978,13 @@ async fn frame(
             download: format!("/api/agent/v1/files/{}", file.id),
         };
         return match store.queue_action(
-            space,
+            Some(machine.link.as_str()),
             &machine.id,
             &format!("Frame {}", file.name),
             &action,
         ) {
-            Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
-            Ok(None) => (StatusCode::CONFLICT, "the machine takes no commands").into_response(),
-            Err(error) => failed(error),
+            Some(_) => StatusCode::NO_CONTENT.into_response(),
+            None => (StatusCode::CONFLICT, "the machine takes no commands").into_response(),
         };
     }
     let corner = |x: f64, y: f64| format!("$J=G90 G21 X{x:.3} Y{y:.3} F3000");
@@ -989,10 +996,14 @@ async fn frame(
         corner(x0, y0),
     ]
     .join("\n");
-    match store.queue_command(space, &machine.id, &format!("Frame {}", file.name), &gcode) {
-        Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
-        Ok(None) => (StatusCode::CONFLICT, "the machine takes no commands").into_response(),
-        Err(error) => failed(error),
+    match store.queue_command(
+        Some(machine.link.as_str()),
+        &machine.id,
+        &format!("Frame {}", file.name),
+        &gcode,
+    ) {
+        Some(_) => StatusCode::NO_CONTENT.into_response(),
+        None => (StatusCode::CONFLICT, "the machine takes no commands").into_response(),
     }
 }
 
@@ -1016,84 +1027,113 @@ pub(crate) const ORIGIN_CONFIRM: &str = "An origin was set on this laser: the jo
 /// as LaserFoundry refuses otherwise), and after a Set origin with the person's confirm.
 async fn start_burn(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
     Form(form): Form<StartBurnForm>,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    let Ok(Some((space, _))) = store.space_of(&access).map(Some) else {
-        return (StatusCode::FORBIDDEN, "no space").into_response();
-    };
-    if let Err(refused) =
-        crate::access::check_machine(&store, &access, &id, crate::access::Level::Operate)
-    {
-        return *refused;
-    }
-    if let Err(refused) = crate::safety::check_ppe(&store, &access, &id) {
-        return *refused;
-    }
-    if !crate::store::StartedBy::person(&access).is_person_at_a_session() {
-        return (StatusCode::FORBIDDEN, crate::store::LASER_NEVER_ALONE).into_response();
-    }
-    let machine = match store.machine(space, &id) {
-        Ok(Some(machine)) => machine,
-        Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
+    let ppe_checks = store.ppe_rule(access.space, &id).await;
+    let grants = match store.grants_of(&access).await {
+        Ok(grants) => grants,
         Err(error) => return failed(error),
     };
-    if machine.kind != maker_connect_protocol::MachineKind::Laser {
-        return (StatusCode::CONFLICT, "Start burn is for lasers").into_response();
-    }
-    let job = match store.active_job(&machine.id) {
-        Ok(Some(job)) if job.state == crate::store::JobState::Loaded => job,
-        Ok(Some(job)) => {
-            return (StatusCode::CONFLICT, format!("busy with {}", job.file_name)).into_response();
+    let found_machine = store.machine(access.space, &id).await;
+    let active = store.active_job(access.space, &id).await;
+    // The checks, with the store held only this long (a refusal is the response itself).
+    #[allow(clippy::result_large_err)]
+    let checked = (|| -> Result<(crate::store::Machine, crate::store::Job), Response> {
+        let store = store.lock().unwrap();
+        if let Err(refused) = crate::access::check_machine(
+            &store,
+            &access,
+            &id,
+            crate::access::Level::Operate,
+            &grants,
+        ) {
+            return Err(*refused);
         }
-        Ok(None) => {
-            return (StatusCode::CONFLICT, "no job is loaded on this laser").into_response();
+        if let Err(refused) = crate::safety::check_ppe(&store, &ppe_checks, &access, &id) {
+            return Err(*refused);
         }
-        Err(error) => return failed(error),
-    };
-    let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
-    let Some(t) = telemetry else {
-        return (StatusCode::CONFLICT, "offline").into_response();
-    };
-    if t.state != maker_connect_protocol::MachineState::Idle {
-        return (StatusCode::CONFLICT, "the laser is not idle").into_response();
-    }
-    if let Some(problem) = &t.problem {
-        return (StatusCode::CONFLICT, problem.clone()).into_response();
-    }
-    // LaserFoundry's own refusal and text (`ui-egui` `lib.rs:1240-1247`)
-    if t.grbl.as_ref().and_then(|g| g.laser_mode) != Some(true) {
-        return (
-            StatusCode::CONFLICT,
-            "Laser mode ($32) is off on this controller: turn it on in the machine settings before running a job",
-        )
-            .into_response();
-    }
-    if store.laser_framed_file(&machine.id) != Some(job.file_id.as_str()) {
-        return (
-            StatusCode::CONFLICT,
-            "frame the loaded job first (after a Set origin it is framed again)",
-        )
-            .into_response();
-    }
-    // The person confirms every Start burn (ours); after a Set origin the confirm says the hub does not
-    // check the job's place on the bed (LaserFoundry's own confirm, `ui-egui` `lib.rs:1250`). After a hub
-    // restart the hub no longer knows whether an origin was set: the confirm is asked all the same.
-    if form.confirm != Some(true) {
-        let text = if store.laser_origin_was_set(&machine.id) {
-            ORIGIN_CONFIRM.to_owned()
-        } else {
-            start_confirm(&job.file_name)
+        if !crate::store::StartedBy::person(&access).is_person_at_a_session() {
+            return Err((StatusCode::FORBIDDEN, crate::store::LASER_NEVER_ALONE).into_response());
+        }
+        let machine = match found_machine {
+            Ok(Some(machine)) => machine,
+            Ok(None) => return Err((StatusCode::NOT_FOUND, "no such machine").into_response()),
+            Err(error) => return Err(failed(error)),
         };
-        return (
-            StatusCode::CONFLICT,
-            Json(serde_json::json!({ "confirm": text })),
+        if machine.kind != maker_connect_protocol::MachineKind::Laser {
+            return Err((StatusCode::CONFLICT, "Start burn is for lasers").into_response());
+        }
+        let job = match active {
+            Ok(Some(job)) if job.state == crate::store::JobState::Loaded => job,
+            Ok(Some(job)) => {
+                return Err(
+                    (StatusCode::CONFLICT, format!("busy with {}", job.file_name)).into_response(),
+                );
+            }
+            Ok(None) => {
+                return Err(
+                    (StatusCode::CONFLICT, "no job is loaded on this laser").into_response()
+                );
+            }
+            Err(error) => return Err(failed(error)),
+        };
+        let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
+        let Some(t) = telemetry else {
+            return Err((StatusCode::CONFLICT, "offline").into_response());
+        };
+        if t.state != maker_connect_protocol::MachineState::Idle {
+            return Err((StatusCode::CONFLICT, "the laser is not idle").into_response());
+        }
+        if let Some(problem) = &t.problem {
+            return Err((StatusCode::CONFLICT, problem.clone()).into_response());
+        }
+        // LaserFoundry's own refusal and text (`ui-egui` `lib.rs:1240-1247`)
+        if t.grbl.as_ref().and_then(|g| g.laser_mode) != Some(true) {
+            return Err((
+                StatusCode::CONFLICT,
+                "Laser mode ($32) is off on this controller: turn it on in the machine settings before running a job",
+            )
+                .into_response());
+        }
+        if store.laser_framed_file(&machine.id) != Some(job.file_id.as_str()) {
+            return Err((
+                StatusCode::CONFLICT,
+                "frame the loaded job first (after a Set origin it is framed again)",
+            )
+                .into_response());
+        }
+        // The person confirms every Start burn (ours); after a Set origin the confirm says the hub does not
+        // check the job's place on the bed (LaserFoundry's own confirm, `ui-egui` `lib.rs:1250`). After a hub
+        // restart the hub no longer knows whether an origin was set: the confirm is asked all the same.
+        if form.confirm != Some(true) {
+            let text = if store.laser_origin_was_set(&machine.id) {
+                ORIGIN_CONFIRM.to_owned()
+            } else {
+                start_confirm(&job.file_name)
+            };
+            return Err((
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({ "confirm": text })),
+            )
+                .into_response());
+        }
+        Ok((machine, job))
+    })();
+    let (machine, job) = match checked {
+        Ok(checked) => checked,
+        Err(refused) => return refused,
+    };
+    match store
+        .start_burn(
+            access.space,
+            &machine.id,
+            job.id,
+            Some(access.actor.as_str()),
         )
-            .into_response();
-    }
-    match store.start_burn(&machine.id, job.id, Some(access.actor.as_str())) {
+        .await
+    {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::CONFLICT, "the loaded job changed: look again").into_response(),
         Err(error) => failed(error),
@@ -1108,7 +1148,7 @@ struct JobForm {
 /// HS6: the job route's Stop, for the emergency-stop button of a laser (LaserFoundry's Stop).
 pub(crate) async fn stop_job(
     access: crate::access::Access,
-    state: State<Shared>,
+    state: State<Store>,
     id: Path<String>,
 ) -> Response {
     control_job(
@@ -1125,53 +1165,62 @@ pub(crate) async fn stop_job(
 /// Pause, resume or stop a machine's job.
 async fn control_job(
     access: crate::access::Access,
-    State(store): State<Shared>,
+    State(store): State<Store>,
     Path(id): Path<String>,
     Form(form): Form<JobForm>,
 ) -> Response {
-    let mut store = store.lock().unwrap();
+    let ppe_checks = store.ppe_rule(access.space, &id).await;
+    let found_machine = store
+        .machine(access.space, &id)
+        .await
+        .map_err(|e| e.to_string());
     // Starting and resuming wait for PPE; pausing and stopping never do.
     if matches!(form.action.as_str(), "restart" | "resume")
-        && let Err(refused) = crate::safety::check_ppe(&store, &access, &id)
+        && let Err(refused) =
+            crate::safety::check_ppe(&store.lock().unwrap(), &ppe_checks, &access, &id)
     {
         return *refused;
     }
     // Start an interrupted job again, a little before where it stopped.
     if form.action == "restart" {
-        let space = match store.space_of(&access) {
-            Ok((space, _)) => space,
-            Err(error) => return failed(error),
-        };
-        let last = match store.resumable_job(&id) {
+        let space = access.space;
+        let last = match store.resumable_job(space, &id).await {
             Ok(Some(job)) => job,
             Ok(_) => {
                 return (StatusCode::CONFLICT, "no interrupted job to start again").into_response();
             }
             Err(error) => return failed(error),
         };
-        let file = match store.file(space, &last.file_id) {
+        let file = match store.file(space, &last.file_id).await {
             Ok(Some(file)) => file,
             Ok(None) => return (StatusCode::CONFLICT, "its file is gone").into_response(),
             Err(error) => return failed(error),
         };
-        return match store.add_job(
-            space,
-            &id,
-            &file,
-            last.restart_line,
-            crate::store::StartedBy::person(&access),
-        ) {
+        return match store
+            .add_job(
+                space,
+                &id,
+                &file,
+                last.restart_line,
+                crate::store::StartedBy::person(&access),
+            )
+            .await
+        {
             Ok(Ok(_)) => StatusCode::NO_CONTENT.into_response(),
+            // removed meanwhile: what the lookup above answers
+            Ok(Err(crate::store::NO_SUCH_FILE)) => {
+                (StatusCode::CONFLICT, "its file is gone").into_response()
+            }
             Ok(Err(why)) => (StatusCode::CONFLICT, why).into_response(),
             Err(error) => failed(error),
         };
     }
-    let job = match store.active_job(&id) {
+    let job = match store.active_job(access.space, &id).await {
         Ok(Some(job)) => job,
         Ok(None) => {
             // A print it started itself (from its SD card, or a Prusa's USB stick at its
             // screen): no job of the hub's, so the printer is told directly.
-            let own = match store.machine(access.space, &id) {
+            let own = match found_machine.clone() {
                 Ok(Some(m))
                     if m.online && m.telemetry.as_ref().is_some_and(|t| t.job.is_some()) =>
                 {
@@ -1189,15 +1238,13 @@ async fn control_job(
                 Err(error) => return failed(error),
             };
             if own.link == "prusa-connect" {
-                return match crate::printer_files::job_control(
-                    &mut store,
-                    access.space,
+                crate::printer_files::job_control(
+                    &mut store.lock().unwrap(),
+                    Some(own.link.as_str()),
                     &id,
                     &form.action,
-                ) {
-                    Ok(()) => StatusCode::NO_CONTENT.into_response(),
-                    Err(error) => failed(error),
-                };
+                );
+                return StatusCode::NO_CONTENT.into_response();
             }
             let control = match form.action.as_str() {
                 "pause" => maker_connect_protocol::JobControl::Pause,
@@ -1205,7 +1252,7 @@ async fn control_job(
                 "stop" => maker_connect_protocol::JobControl::Stop,
                 _ => return (StatusCode::CONFLICT, "not now").into_response(),
             };
-            store.own_job_control.insert(id, control);
+            store.lock().unwrap().own_job_control.insert(id, control);
             return StatusCode::NO_CONTENT.into_response();
         }
         Err(error) => return failed(error),
@@ -1214,12 +1261,14 @@ async fn control_job(
     // laser's own Stop (a soft reset), as with no job, so a moving head (a frame) is stopped.
     if job.state == JobState::Loaded {
         return match form.action.as_str() {
-            "unload" => match store.unload_laser_job(&id) {
+            "unload" => match store.unload_laser_job(access.space, &id).await {
                 Ok(_) => StatusCode::NO_CONTENT.into_response(),
                 Err(error) => failed(error),
             },
             "stop" => {
                 store
+                    .lock()
+                    .unwrap()
                     .own_job_control
                     .insert(id, maker_connect_protocol::JobControl::Stop);
                 StatusCode::NO_CONTENT.into_response()
@@ -1239,14 +1288,17 @@ async fn control_job(
         _ => return (StatusCode::CONFLICT, "not now").into_response(),
     };
     // A Prusa on its built-in Connect is told so itself.
-    if let Ok(Some(machine)) = store.machine(access.space, &id)
+    if let Ok(Some(machine)) = &found_machine
         && machine.link == "prusa-connect"
-        && let Err(error) =
-            crate::printer_files::job_control(&mut store, access.space, &id, &form.action)
     {
-        return failed(error);
+        crate::printer_files::job_control(
+            &mut store.lock().unwrap(),
+            Some(machine.link.as_str()),
+            &id,
+            &form.action,
+        );
     }
-    match store.set_job(job.id, next, None) {
+    match store.set_job(access.space, job.id, next, None).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
     }
@@ -1254,11 +1306,10 @@ async fn control_job(
 
 #[cfg(test)]
 mod tests {
-    use crate::store::Store;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use http_body_util::BodyExt;
-    use std::sync::{Arc, Mutex};
+
     use tower::ServiceExt;
 
     async fn call(app: &axum::Router, request: Request<Body>) -> (StatusCode, String) {
@@ -1283,13 +1334,17 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_laser_checks_its_settings() {
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_laser_checks_its_settings(pool: sqlx::PgPool) {
         use maker_connect_protocol::{
             GrblSettings, MachineKind, MachineState, Register, Telemetry,
         };
-        let mut store = Store::open(":memory:").unwrap();
-        let space = store.default_space().unwrap().0;
+        let store = crate::store::Store::for_test(&pool).await;
+        let space = store.default_space().await.unwrap().0;
         let (id, token, code) = store
             .register(&Register {
                 protocol: maker_connect_protocol::VERSION,
@@ -1297,10 +1352,12 @@ mod tests {
                 kind: MachineKind::Laser,
                 agent_version: "0.1.0".into(),
             })
+            .await
             .unwrap();
-        store.pair(space, &code).unwrap();
+        store.pair(space, &code).await.unwrap();
         store
             .set_profile(space, &id, Some("ortur/lm2-pro-s2"))
+            .await
             .unwrap();
         let file = |bounds: [f64; 4], power: f64| crate::store::StoredFile {
             id: "f".into(),
@@ -1314,21 +1371,24 @@ mod tests {
                 ..Default::default()
             },
         };
-        let mut report = |settings: GrblSettings| {
-            let telemetry = Telemetry {
-                state: MachineState::Idle,
-                grbl: Some(settings),
-                ..Default::default()
-            };
-            store.report(&token, &telemetry).unwrap();
-            store.machine(space, &id).unwrap().unwrap()
+        let report = |settings: GrblSettings| {
+            let (store, token, id) = (&store, &token, &id);
+            async move {
+                let telemetry = Telemetry {
+                    state: MachineState::Idle,
+                    grbl: Some(settings),
+                    ..Default::default()
+                };
+                store.report(token, &telemetry).await.unwrap();
+                store.machine(space, id).await.unwrap().unwrap()
+            }
         };
         let good = GrblSettings {
             laser_mode: Some(true),
             max_power: Some(1000.0),
             travel_mm: Some([400.0, 430.0, 0.0]),
         };
-        let laser = report(good.clone());
+        let laser = report(good.clone()).await;
         assert_eq!(
             super::fit(&file([10.0, 10.0, 58.0, 58.0], 500.0), &laser),
             Ok(None)
@@ -1347,7 +1407,8 @@ mod tests {
         let off = report(GrblSettings {
             laser_mode: Some(false),
             ..good
-        });
+        })
+        .await;
         assert!(
             super::fit(&file([10.0, 10.0, 58.0, 58.0], 500.0), &off)
                 .unwrap_err()
@@ -1357,10 +1418,14 @@ mod tests {
 
     /// A large file arrives whole, through every layer of the site (the request log once
     /// held bodies up to 1 MB and passed on an empty one past that).
-    #[tokio::test]
-    async fn a_large_file_is_uploaded_whole() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_large_file_is_uploaded_whole(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let mut gcode = String::from("; printer_model = MINI\n");
         while gcode.len() < 3_000_000 {
             gcode += "G1 X10.123 Y20.456 E0.0123 F1800\n";
@@ -1378,16 +1443,20 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
-        let path = store.lock().unwrap().file_path(&id);
+        let path = store.file_path(&id);
         assert_eq!(std::fs::metadata(path).unwrap().len(), size as u64);
     }
 
     /// A file is uploaded and read; it goes on a virtual MINI once that is online, not on a
     /// laser, and not twice.
-    #[tokio::test]
-    async fn a_file_is_uploaded_and_printed() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_file_is_uploaded_and_printed(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let gcode = "; generated by PrusaSlicer 2.8.1 on today\nM104 S215\nG28\n; estimated printing time (normal mode) = 2m 5s\n; printer_model = MINI\n";
         let (status, body) = call(
             &app,
@@ -1407,18 +1476,19 @@ mod tests {
         assert_eq!(call(&app, refused).await.0, StatusCode::BAD_REQUEST);
 
         let (space, mini, laser) = {
-            let mut store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
+            let space = store.default_space().await.unwrap().0;
             let mini = store
                 .add_virtual(space, crate::profiles::find("prusa/mini").unwrap())
+                .await
                 .unwrap();
             let laser = store
                 .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
+                .await
                 .unwrap();
-            crate::auth::tester_may_operate(&store, space, &mini);
-            crate::auth::tester_may_operate(&store, space, &laser);
             (space, mini, laser)
         };
+        crate::auth::tester_may_operate(&store, &mini).await;
+        crate::auth::tester_may_operate(&store, &laser).await;
         let (_, list) = call(
             &app,
             Request::get("/api/files").body(Body::empty()).unwrap(),
@@ -1461,20 +1531,21 @@ mod tests {
             "not for a laser, not even its queue"
         );
         {
-            let mut store = store.lock().unwrap();
             let token = store
                 .virtual_machines()
+                .await
                 .unwrap()
                 .into_iter()
                 .find(|(m, ..)| *m == mini)
                 .unwrap()
                 .1;
-            store.report(&token, &Default::default()).unwrap();
+            store.report(&token, &Default::default()).await.unwrap();
             // Online and free: the queue starts it by itself.
-            assert_eq!(store.start_queued().unwrap(), 1);
+            assert_eq!(store.start_queued().await.unwrap(), 1);
             assert!(
                 store
                     .machine(space, &mini)
+                    .await
                     .unwrap()
                     .unwrap()
                     .queue
@@ -1487,16 +1558,11 @@ mod tests {
             StatusCode::ACCEPTED,
             "busy: queued"
         );
-        assert_eq!(
-            store.lock().unwrap().start_queued().unwrap(),
-            0,
-            "waits while busy"
-        );
+        assert_eq!(store.start_queued().await.unwrap(), 0, "waits while busy");
         assert_eq!(
             store
-                .lock()
-                .unwrap()
                 .machine(space, &mini)
+                .await
                 .unwrap()
                 .unwrap()
                 .queue
@@ -1517,9 +1583,8 @@ mod tests {
         );
         assert_eq!(
             store
-                .lock()
-                .unwrap()
                 .machine(space, &mini)
+                .await
                 .unwrap()
                 .unwrap()
                 .queue
@@ -1527,9 +1592,8 @@ mod tests {
             3
         );
         let job = store
-            .lock()
-            .unwrap()
             .machine(space, &mini)
+            .await
             .unwrap()
             .unwrap()
             .job
@@ -1560,10 +1624,14 @@ mod tests {
 
     /// A label (a PNG) is read as one; it goes on a label printer only once the tape loaded
     /// is said and is high enough, and the job tells the agent the tape's width.
-    #[tokio::test]
-    async fn a_label_is_uploaded_and_printed() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_label_is_uploaded_and_printed(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         let mut label = maker_connect_label::Label::blank(120, 40);
         label.set(3, 3, true);
         let (status, body) = call(
@@ -1579,20 +1647,19 @@ mod tests {
             .unwrap()
             .to_owned();
         let (space, dymo, token) = {
-            let mut store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
+            let space = store.default_space().await.unwrap().0;
             let profile = crate::profiles::find("dymo/labelmanager-pnp").unwrap();
-            let dymo = store.add_virtual(space, profile).unwrap();
-            crate::auth::tester_may_operate(&store, space, &dymo);
-            let token = store.virtual_machines().unwrap()[0].1.clone();
+            let dymo = store.add_virtual(space, profile).await.unwrap();
+            let token = store.virtual_machines().await.unwrap()[0].1.clone();
             let telemetry = maker_connect_protocol::Telemetry {
                 state: maker_connect_protocol::MachineState::Idle,
                 cassette: Some(true),
                 ..Default::default()
             };
-            store.report(&token, &telemetry).unwrap();
+            store.report(&token, &telemetry).await.unwrap();
             (space, dymo, token)
         };
+        crate::auth::tester_may_operate(&store, &dymo).await;
         let print = || {
             Request::post(format!("/files/{file}/print"))
                 .header("content-type", "application/x-www-form-urlencoded")
@@ -1604,40 +1671,36 @@ mod tests {
         assert_eq!(status, StatusCode::CONFLICT);
         assert!(why.contains("which tape"), "{why}");
         // 6 mm tape takes 32 dots: too low for a label of 40.
-        store
-            .lock()
-            .unwrap()
-            .set_media(space, &dymo, Some("43613"))
-            .unwrap();
+        store.set_media(space, &dymo, Some("43613")).await.unwrap();
         let (status, why) = call(&app, print()).await;
         assert_eq!(status, StatusCode::CONFLICT);
         assert!(why.contains("32"), "{why}");
-        store
-            .lock()
-            .unwrap()
-            .set_media(space, &dymo, Some("45013"))
-            .unwrap();
+        store.set_media(space, &dymo, Some("45013")).await.unwrap();
         assert_eq!(call(&app, print()).await.0, StatusCode::NO_CONTENT);
-        let mut store = store.lock().unwrap();
         let report = maker_connect_protocol::Telemetry {
             state: maker_connect_protocol::MachineState::Idle,
             ..Default::default()
         };
-        let (order, _) = crate::agent_job(&mut store, &token, &report).unwrap();
+        let of = crate::agent_of(&store, &token).await.unwrap();
+        let (order, _) = crate::agent_job(&store, &of, &report).await.unwrap();
         let order = order.unwrap();
         assert_eq!(order.tape_mm, Some(12));
         assert_eq!(order.name, "label-test.png");
-        let listed = store.file(space, &file).unwrap().unwrap();
+        let listed = store.file(space, &file).await.unwrap().unwrap();
         assert_eq!(listed.meta.label_dots, Some([120, 40]));
         assert!(listed.meta.thumbnail);
     }
 
     /// HS2: a LabelWriter takes a page of exactly its loaded roll's raster (the port's), and
     /// the job tells the agent the roll's length, so the printer finds the next gap.
-    #[tokio::test]
-    async fn a_labelwriter_page_is_its_rolls_raster() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store.clone());
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_labelwriter_page_is_its_rolls_raster(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
         // S0722400, DYMO's European Large Address roll (DYMO Connect's catalogue): its page and raster from the port.
         let page = crate::profiles::labelwriter_page(
             crate::profiles::find("dymo/labelwriter-450"),
@@ -1671,20 +1734,22 @@ mod tests {
             upload(pw, ph + 1).await,
         );
         let (writer, token) = {
-            let mut store = store.lock().unwrap();
-            let space = store.default_space().unwrap().0;
+            let space = store.default_space().await.unwrap().0;
             let profile = crate::profiles::find("dymo/labelwriter-450").unwrap();
-            let writer = store.add_virtual(space, profile).unwrap();
-            crate::auth::tester_may_operate(&store, space, &writer);
-            let token = store.virtual_machines().unwrap()[0].1.clone();
+            let writer = store.add_virtual(space, profile).await.unwrap();
+            let token = store.virtual_machines().await.unwrap()[0].1.clone();
             let idle = maker_connect_protocol::Telemetry {
                 state: maker_connect_protocol::MachineState::Idle,
                 ..Default::default()
             };
-            store.report(&token, &idle).unwrap();
-            store.set_media(space, &writer, Some("S0722400")).unwrap();
+            store.report(&token, &idle).await.unwrap();
+            store
+                .set_media(space, &writer, Some("S0722400"))
+                .await
+                .unwrap();
             (writer, token)
         };
+        crate::auth::tester_may_operate(&store, &writer).await;
         let print = |file: &str| {
             Request::post(format!("/files/{file}/print"))
                 .header("content-type", "application/x-www-form-urlencoded")
@@ -1698,12 +1763,13 @@ mod tests {
             assert!(why.contains(&format!("takes {pw} × {ph}")), "{why}");
         }
         assert_eq!(call(&app, print(&fits)).await.0, StatusCode::NO_CONTENT);
-        let mut store = store.lock().unwrap();
         let report = maker_connect_protocol::Telemetry {
             state: maker_connect_protocol::MachineState::Idle,
             ..Default::default()
         };
-        let order = crate::agent_job(&mut store, &token, &report)
+        let of = crate::agent_of(&store, &token).await.unwrap();
+        let order = crate::agent_job(&store, &of, &report)
+            .await
             .unwrap()
             .0
             .unwrap();

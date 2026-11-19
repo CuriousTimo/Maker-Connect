@@ -1842,14 +1842,14 @@
 334 patch vendor name null PATCH /api/v1/vendor/5
     status: Spoolman 422, ours 500
     header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    body: Spoolman JSON, ours "NOT NULL constraint failed: vendor.name"
+    body: Spoolman JSON, ours "error returned from database: null value in column \"name\" of relati…
 335 patch vendor name too long PATCH /api/v1/vendor/5
     status: Spoolman 422, ours 200
     body: Spoolman {"detail":[{"type":"string_too_long","loc":["body","name"],"msg":"String should have at most 64 characters","input":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…, ours {"id":5,"registered":"<now>","name":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","comment":null,"empty_spool_weight":null,"exte…
 336 patch filament density null PATCH /api/v1/filament/5
     status: Spoolman 422, ours 500
     header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    body: Spoolman JSON, ours "NOT NULL constraint failed: filament.density"
+    body: Spoolman JSON, ours "error returned from database: null value in column \"density\" of rel…
 337 patch filament vendor 99 PATCH /api/v1/filament/5
     status: Spoolman 404, ours 422
     body: Spoolman {"message":"No vendor with ID 99 found."}, ours {"message":"no such vendor"}

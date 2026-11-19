@@ -7,7 +7,7 @@ use crate::web::machines::{
 };
 use crate::web::shell::logo;
 use crate::{
-    STYLE, Shared, about, access, apps, auth, codes, downloads, escape, farm, files, files_page,
+    STYLE, Store, about, access, apps, auth, codes, downloads, escape, farm, files, files_page,
     now_page, permissions_page, printer_files, projects_page, prusa_connect, queue, safety,
     samples, sd_card, simplyprint, space_page, spoolman, spoolmandb, stock, updates,
 };
@@ -19,7 +19,7 @@ use axum::{
 };
 use maker_connect_protocol as protocol;
 
-pub fn app(store: Shared) -> Router {
+pub fn app(store: Store) -> Router {
     let app = Router::new()
         .route(protocol::REGISTER, post(register))
         .route(protocol::TELEMETRY, post(telemetry))
@@ -92,7 +92,7 @@ pub fn app(store: Shared) -> Router {
 }
 
 /// The network cameras' routes, when the hub is built with them (feature `cameras`).
-fn cameras_routes() -> Router<Shared> {
+fn cameras_routes() -> Router<Store> {
     #[cfg(feature = "cameras")]
     return crate::cameras::page::routes();
     #[cfg(not(feature = "cameras"))]
@@ -204,16 +204,19 @@ pub(crate) fn failed(error: impl std::fmt::Display) -> Response {
 mod tests {
     use super::*;
     use crate::link::tests::call;
-    use crate::store::Store;
+
     use axum::body::Body;
     use axum::http::Request;
-    use std::sync::{Arc, Mutex};
 
     /// A person's browser gets the spaghetti page; machines and scripts keep the plain text.
-    #[tokio::test]
-    async fn nothing_here_is_spaghetti_for_people_only() {
-        let store = Arc::new(Mutex::new(Store::open(":memory:").unwrap()));
-        let app = crate::auth::signed_in_app(store);
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn nothing_here_is_spaghetti_for_people_only(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store).await;
         let page = Request::get("/no-such-page")
             .header("accept", "text/html,application/xhtml+xml")
             .body(Body::empty())

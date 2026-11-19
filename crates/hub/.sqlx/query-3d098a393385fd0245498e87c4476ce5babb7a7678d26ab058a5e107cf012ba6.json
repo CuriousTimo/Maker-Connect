@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE access_requests SET state = $2, handled_by = $3, handled_at = at_unix($4) WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3d098a393385fd0245498e87c4476ce5babb7a7678d26ab058a5e107cf012ba6"
+}
