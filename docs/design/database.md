@@ -69,15 +69,18 @@ reads no tenant row (a test shows it). The login is neither superuser nor owner 
 **The admin-pool allowlist** (plan §2.6: instance admin, agent token lookup, the history writer;
 completed here). Each use is one of:
 
-1. Before the space is known: a device's or agent's registration is inserted (code, secret hash), and a
+1. Before the space is known: a device's or agent's registration is inserted (code, secret hash), a
+   device an agent registers gets its own row while it is in no space yet (`register_linked`), and a
    presented secret is looked up: session token hash, API token hash, agent token hash, Prusa printer
    token, registration code or secret, invite token hash, the `iv` of `/f/{iv}/raw`. The answer is the
-   ids needed to open a space transaction, nothing more; the only writes are on the row the secret
+   ids needed to open a space transaction, and for an agent the update asked of it
+   (`agent_update_asked`), nothing more; the only writes are on the row the secret
    found: `last_seen` or `last_used`, an agent's `stream` and `info` on its hello or new stream,
    `spent_at` on a registration at its token's first use, and the device's own report about itself
    (its "info"): what the device tells about itself (`set_details`), the profile recognised at
    registration (`recognise`), where its reports come from (`set_peer`), a Moonraker printer's name
-   (`moonraker_name`), and its registration code spent (`code_spent`).
+   (`moonraker_name`), and its registration code spent (`code_spent`); and an agent's update asked
+   no more once it is done (`agent_update_done`).
 2. Getting in, and the signed-in person's own account rows: a user by name and their identity's
    secret at sign-in; the first account on a fresh database; creating an organisation with its first
    space and its maker as owner, by an instance admin or by anyone where spaces are open (account
@@ -237,11 +240,11 @@ erDiagram
 |---|---|---|---|
 | `meta` | `key text`, `value text` | PK `key` | admin only |
 | `organisations` | `id uuid`, `name text`, `created_at timestamptz` | PK `id` | via: the organisation of `app_space()` |
-| `spaces` | `id uuid`, `organisation_id uuid`, `name text`, `kind text` (`makerspace`, `office`, `private`: chosen when the space is made, it gives the space's first `area_rights`), `host_label text` null (the space's word for the host role; empty: "host"), `ppe_checks boolean`, `samples_given boolean` | PK `id`; FK `organisation_id` → `organisations`; `CHECK (kind IN ('makerspace', 'office', 'private'))` | via: `SELECT` where `organisation_id` = the organisation of `app_space()`; `INSERT WITH CHECK (organisation_id` = the organisation of `app_space()`); `UPDATE`, `DELETE` where `id = app_space()` |
+| `spaces` | `id uuid`, `organisation_id uuid`, `name text`, `kind text` (`makerspace`, `office`, `private`: chosen when the space is made, it gives the space's first `area_rights`; changed later with `space.manage`, which changes no right), `host_label text` null (the space's word for the host role, free text; empty: "host"), `ppe_checks boolean`, `samples_given boolean` | PK `id`; FK `organisation_id` → `organisations`; `CHECK (kind IN ('makerspace', 'office', 'private'))` | via: `SELECT` where `organisation_id` = the organisation of `app_space()`; `INSERT WITH CHECK (organisation_id` = the organisation of `app_space()`); `UPDATE`, `DELETE` where `id = app_space()` |
 | `users` | `id uuid`, `name text`, `display_name text`, `instance_admin boolean`, `disabled boolean`, `token_generation bigint`, `created_at timestamptz` | PK `id`; unique `lower(name)` | via, `SELECT` only: a membership in `app_space()` or an org membership in its organisation; every write is admin pool #2 (own row) or #3 (note 2) |
 | `identities` | `id bigint identity`, `user_id uuid`, `provider text`, `subject text`, `secret text` (Argon2id), `created_at timestamptz` | PK `id`; FK `user_id` → `users`; unique `(provider, subject)` | admin only |
 | `memberships` | `user_id uuid`, `space_id uuid`, `role text`, `created_at timestamptz` | PK `(user_id, space_id)`; FKs to `users`, `spaces`; `CHECK (role IN ('guest', 'member', 'host', 'admin', 'owner'))` | space |
-| `org_memberships` | `user_id uuid`, `organisation_id uuid`, `role text`, `created_at timestamptz` | PK `(user_id, organisation_id)`; FKs; a `CHECK` on `role` whose values wait on [OQ-41](risks-and-open.md#oq-41-the-host-role-open-points) (whether an organisation role can be host) | via: the organisation of `app_space()` |
+| `org_memberships` | `user_id uuid`, `organisation_id uuid`, `role text`, `created_at timestamptz` | PK `(user_id, organisation_id)`; FKs; `CHECK (role IN ('member', 'admin', 'owner'))`: no organisation host ([OQ-41](risks-and-open.md#oq-41-the-host-role-open-points)) | via: the organisation of `app_space()` |
 | `sessions` | `id bigint identity`, `token_hash text`, `user_id uuid`, `space_id uuid` null, `created_at`, `last_seen`, `expires_at timestamptz`, `user_agent text`, `address text` | PK `id`; unique `token_hash`; FKs | admin only |
 | `invites` | `id uuid`, `space_id uuid`, `token_hash text`, `role text`, `whole_organisation boolean`, `created_by uuid`, `created_at`, `expires_at timestamptz`, `used_by uuid` null, `used_at` null, `revoked_at` null | PK `id`; unique `token_hash`; FKs; `CHECK` on `role` as `memberships` has it | space |
 | `api_tokens` | `id uuid`, `space_id uuid`, `token_hash text`, `name text`, `created_by uuid`, `scopes bigint`, `generation bigint`, `expires_at` null, `last_used` null, `revoked_at` null, `created_at timestamptz` | PK `id`; unique `token_hash`; FKs | space |
@@ -270,6 +273,7 @@ erDiagram
     uuid device_group_id FK
     bigint actions
     timestamptz expires_at
+    text note
   }
   device_groups {
     uuid id PK
@@ -307,25 +311,25 @@ erDiagram
 
 | Table | Columns (type) | Keys and FKs | RLS |
 |---|---|---|---|
-| `action_grants` | `id uuid`, `space_id uuid`, `user_id uuid`, `device_id uuid` null, `device_group_id uuid` null, `actions bigint`, `expires_at timestamptz` null, `granted_by uuid`, `granted_at timestamptz` | PK `id`; FK `(space_id, device_id)` → `devices`, FK `(space_id, device_group_id)` → `device_groups`, both on delete cascade; `CHECK` exactly one of `device_id`, `device_group_id` | space |
+| `action_grants` | `id uuid`, `space_id uuid`, `user_id uuid`, `device_id uuid` null, `device_group_id uuid` null, `actions bigint`, `expires_at timestamptz` null, `note text` null (free text, for example an induction given: an induction is a grant with a note), `granted_by uuid`, `granted_at timestamptz` | PK `id`; FK `(space_id, device_id)` → `devices`, FK `(space_id, device_group_id)` → `device_groups`, both on delete cascade; `CHECK` exactly one of `device_id`, `device_group_id` | space |
 | `device_groups` | `id uuid`, `space_id uuid`, `name text`, `created_at timestamptz` | PK `id`; unique `(space_id, id)` | space |
 | `device_group_members` | `space_id uuid`, `group_id uuid`, `device_id uuid` | PK `(group_id, device_id)`; FK `(space_id, group_id)` → `device_groups`, FK `(space_id, device_id)` → `devices`, both on delete cascade | space |
 | `device_access` | `space_id uuid`, `user_id uuid`, `device_id uuid`, `actions bigint` | PK `(space_id, user_id, device_id)`; FK `(space_id, device_id)` → `devices` on delete cascade | space |
 | `authz_epoch` | `space_id uuid`, `epoch bigint` | PK `space_id`; FK `space_id` → `spaces` | space |
 | `access_requests` | `id uuid`, `space_id uuid`, `user_id uuid`, `device_id uuid`, `asked_at timestamptz`, `state text` (`open`, `granted`, `refused`, `withdrawn` by its person), `handled_by uuid` null, `handled_at` null | PK `id`; FK `(space_id, device_id)` → `devices` on delete cascade; index `(space_id, state)`; index `(space_id, user_id)` | space |
-
-| `area_rights` | `space_id uuid`, `action text` (an area action named `.view` or `.use`, by its registry name), `role text` (the lowest role that holds it), `changed_by uuid` null, `changed_at timestamptz` | PK `(space_id, action)`; FK `space_id` → `spaces` on delete cascade; `CHECK (role IN ('guest', 'member', 'host', 'admin'))`; `CHECK (action LIKE '%.view' OR action LIKE '%.use')` | space |
+| `area_rights` | `space_id uuid`, `action text` (an area action named `.view` or `.use`, by its registry name), `role text` (the lowest role that holds it), `changed_by uuid` null, `changed_at timestamptz` | PK `(space_id, action)`; FK `space_id` → `spaces` on delete cascade; `CHECK (role IN ('guest', 'member', 'host', 'admin'))`; `CHECK (action IN ('files.view', 'queue.view', 'farm.view', 'farm.use', 'stock.view', 'stock.use'))`; `CHECK (action NOT LIKE '%.use' OR role <> 'guest')`; a `.use` never below its area's `.view` (checked by the handler) | space |
 
 A grant's subject is a person; a group of people as subject waits until it is asked for
 ([decision](decisions/20261119-actions-and-presets.md)). `area_rights` holds a row per movable area
-action of the space, written from the space kind's defaults when the space is made and changed only
-with `space.manage`, each change in the audit log and with the space's `authz_epoch` bumped
+action of the space, written from the space kind's defaults when the space is made (a later change
+of `spaces.kind` rewrites none) and changed only with `space.manage`, each change in the audit log and with the space's `authz_epoch` bumped
 ([authz.md](authz.md#area-rights-per-space), [decision](decisions/20261119-host-role-and-area-rights.md)).
 
 **Migration** (host role and area rights): a new migration of the accounts module adds the `role`
 checks and the `spaces` columns `kind` (existing spaces: `makerspace`) and `host_label`; one of the
 authz module adds `area_rights` and fills each existing space with the `makerspace` defaults, which
-are today's role table, so no right changes. No data is carried beyond that: v2 has no users yet.
+are today's role table, so no right changes. No data is carried beyond that, and nothing of v1: v2
+has no users yet (a clean break, [overview.md](overview.md#rules-every-part-obeys)).
 
 ### Devices and commands
 

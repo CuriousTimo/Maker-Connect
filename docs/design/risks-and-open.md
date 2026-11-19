@@ -270,39 +270,48 @@ per caller; decided in the device step.
 
 ### OQ-41: The host role, open points
 
-The [decision](decisions/20261119-host-role-and-area-rights.md) gives the host a member's rights plus
-the daily work. Not stated:
+The [decision](decisions/20261119-host-role-and-area-rights.md) gave the host a member's rights plus
+the daily work and left open: stock handling, the bounds of a host's grant, recording an induction,
+the label, and an organisation role of host.
 
-1. **Stock handling:** does a host hold `stock.manage` (import, export, extra fields, the Spoolman
-   backup), or is "stock handling" the member's `stock.use`, kept to hosts where a space moves it there
-   (area rights)?
-2. **The bounds of a host's grant:** besides the damaging actions, may a host's grant hold
-   `device.manage` (rename, settings, retire)? May a host grant to their own row (an admin may)? May a
-   host remove a grant, or one an admin made? What fault code refuses a host's grant that holds a
-   damaging action?
-3. **Recording an induction** is read here as a grant in Space on a device with induction. Does an
-   induction become its own record (who gave it, when) instead?
-4. **The label:** free text per space, or picked from a list (host, medewerker, staff)?
-5. **An organisation role** of host: does it exist (a host in every space of the organisation)?
+**Decided** (owner, journal:DESIGN-HOST:0006, in the
+[decision](decisions/20261119-host-role-and-area-rights.md)):
 
-**Recommendation:** none here; the owner decides. For 2 the coordinator's proposal named only the
-damaging actions.
+1. **Stock handling** is the member's `stock.use`; a host never holds `stock.manage` (no `.manage`
+   action moves).
+2. **A host's grant** never holds `device.manage` nor a damaging action; a host never grants to their
+   own row; a host may remove a grant they could have given. A refusal uses a code of the
+   no-self-elevation family (as `authz/ROLE_ABOVE_OWN`); a new code only if none fits
+   ([authz.md](authz.md#presets-roles-and-grants)).
+3. **An induction** is a grant with a note (`action_grants.note`), not a record of its own.
+4. **The label** is free text per space, default "host" (`spaces.host_label`).
+5. **No organisation host:** organisation roles stay member, admin and owner.
+
+Readings confirmed: a host's `queue.manage` reaches every item; a host holds `grants.view` and a
+bounded `grants.manage`.
 
 ### OQ-42: Area rights, open points
 
 The [decision](decisions/20261119-host-role-and-area-rights.md) moves an area's `.view` and `.use`
-between roles, with defaults from the space kind. Not stated:
+between roles, with defaults from the space kind, and left open: the `office` and `private`
+defaults, changing the kind, which `.view` actions move, `.view` against `.use`, a guest with `.use`,
+and the route.
 
-1. **The defaults of `office` and `private`** (the `makerspace` defaults are today's role table).
-2. **Changing the kind** later: allowed, and does it reset the area rights to the new kind's defaults?
-3. **Which `.view` actions move:** every area `.view`, or only the modules' (files, queue, farm,
-   stock)? `space.members.view`, `grants.view` and `audit.view` are area `.view` actions too.
-4. **`.view` against `.use`:** may a space set an area's `.use` to a lower role than its `.view`?
-5. **A guest with `.use`:** may `.use` go down to guest, who today "looks only"?
-6. **The route:** whether `PUT /api/v1/spaces/{id}/area-rights` is a person's session only, as a
-   grant is, and the fault code that refuses an action that does not move.
+**Decided** (owner, journal:DESIGN-HOST:0006, in the
+[decision](decisions/20261119-host-role-and-area-rights.md); [authz.md](authz.md#area-rights-per-space)):
 
-**Recommendation:** none here; the owner decides.
+1. **Defaults:** `office`: members use devices and stock, guests nothing; `private`: owner and admin
+   use, members view; `makerspace`: today's role table. Existing spaces become `makerspace`.
+2. **The kind** may be changed later by `space.manage`; that changes no existing right: the kind's
+   defaults are a setup default only.
+3. **Fixed `.view` actions:** `space.members.view`, `grants.view` and `audit.view` do not move; only
+   the modules' `.view` and `.use` do.
+4. **`.use` never below `.view`.**
+5. **A guest never holds `.use`.**
+6. **The route** `PUT /api/v1/spaces/{id}/area-rights` is a person's session only (no tokens).
+
+Not named by the answer: the fault code that refuses an action that does not move, a `.use` at guest
+or below its `.view`.
 
 ## Issues the design cannot place yet
 

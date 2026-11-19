@@ -56,17 +56,18 @@
 <section id="grants" role="tabpanel" aria-labelledby="t-grants">
 <div class="row" style="margin-bottom:var(--s-3)"><label class="field">Person<select><option>Sam</option><option>Noor</option><option>Ravi</option><option>Ada</option><option>Eli</option></select></label><label class="field">Machine or group<select><option>3D printers (group)</option><option selected>Laser-A</option><option>Tape-1</option></select></label></div>
 <div class="card"><h2>Sam on Laser-A</h2>
-<label class="field">Preset<select><option>View: see it</option><option>Use: view, start and control jobs</option><option selected>Operate: use, move and heat</option><option>Manage: operate, settings and upkeep</option></select></label>
+<label class="field">Preset<select><option>View: see it</option><option>Use: view, start and control jobs</option><option selected>Operate: use, move and heat</option><option data-not="host">Manage: operate, settings and upkeep</option></select></label>
 <span class="anno">presets View, Use, Operate, Manage as in authz.md (device.view; + job.start, job.control; + device.move, device.heat; + device.manage)</span>
-<p data-only="host"><small><b>Damaging actions</b> (Start a laser job, firmware, raw G-code) are not offered: an admin grants these.</small> <span class="anno">a host's grant holds no damaging action (authz.md, a host's grants); device.manage in a host's grant: OQ-41</span></p>
+<p data-only="host"><small><b>Manage</b> and the <b>damaging actions</b> (Start a laser job, firmware, raw G-code) are not offered: an admin grants these. Your own row is not offered either.</small> <span class="anno">a host's grant holds neither device.manage nor a damaging action and is never to the host's own row; refused in the no-self-elevation family (authz.md, a host's grants; OQ-41, decided)</span></p>
 <div data-not="host"><h3 style="margin-top:var(--s-3)">Damaging: granted by name, never in a preset</h3>
 <label class="check"><input type="checkbox" checked> <span><b>Start a laser job</b> <small>· granted 12 Nov by Noor, after the laser course</small></span></label>
 <label class="check"><input type="checkbox"> <span><b>Update firmware</b></span></label>
 <p><small>Raw G-code is for 3D printers only; a laser has none.</small> <span class="anno">mc.laser.start, device.firmware; device.gcode not on a laser (decision 20261119-no-raw-gcode-on-a-laser)</span></p></div>
+<label class="field">Note <small>(optional)</small><input placeholder="for example: laser course given"></label>
 <div class="row"><label class="field">Ends<input type="date"></label><span class="ctl"><span class="fw"><button class="btn primary" type="button" data-cmd="ok" data-settled="Saved at 15:52. Sam's permissions on Laser-A changed at once.">Save grant</button></span><span class="status" aria-live="polite"></span></span></div>
-<span class="anno">POST /api/v1/grants {user, device or device_group, actions, expires_at} · grants.manage, a person's session only; records who granted it</span>
+<span class="anno">POST /api/v1/grants {user, device or device_group, actions, expires_at, note} · grants.manage, a person's session only; records who granted it; an induction is a grant with a note</span>
 </div>
-<div class="card"><h2>Noor on Laser-A</h2><p>Preset: Manage. <b>Start a laser job: not granted.</b></p><p><small>Your own grant is set here like anyone's. Being admin is not having had the laser course.</small></p><span class="fw"><button class="btn" type="button">Change…</button></span></div>
+<div class="card"><h2>Noor on Laser-A</h2><p>Preset: Manage. <b>Start a laser job: not granted.</b></p><p data-not="host"><small>Your own grant is set here like anyone's. Being admin is not having had the laser course.</small></p><span class="fw" data-not="host"><button class="btn" type="button">Change…</button></span><p data-only="host"><small>Holds Manage: only an admin changes or removes it. You may remove a grant you could have given.</small> <span class="anno">DELETE /api/v1/grants/{id} · a host only a grant without device.manage and without a damaging action</span></p></div>
 </section>
 <section id="requests" role="tabpanel" aria-labelledby="t-requests" hidden>
 <ul class="list card dense">

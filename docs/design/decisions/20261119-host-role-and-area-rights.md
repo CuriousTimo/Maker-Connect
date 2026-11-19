@@ -2,7 +2,7 @@
 
 Date: 2026-11-19  
 Status: accepted  
-Decided by: owner: "ja, akkoord met host-rol en rechten per space" (journal:DESIGN-DOC:0071), on the coordinator's proposals journal:DESIGN-DOC:0069 and :0070; owner may overrule
+Decided by: owner: "ja, akkoord met host-rol en rechten per space" (journal:DESIGN-DOC:0071), on the coordinator's proposals journal:DESIGN-DOC:0069 and :0070; the open points answered by the owner: "akkoord … beantwoord die vragen" (journal:DESIGN-HOST:0006); owner may overrule
 
 ## Context
 
@@ -35,9 +35,28 @@ of host onder een admin" (journal:DESIGN-DOC:0070).
 - A change needs `space.manage`, is logged, and bumps the space's `authz_epoch`. Nobody raises their
   own rights through it ([no self-elevation](20261119-no-self-elevation.md)).
 
-Not decided here, as questions for the owner:
-[OQ-41](../risks-and-open.md#oq-41-the-host-role-open-points) (the host's open points) and
-[OQ-42](../risks-and-open.md#oq-42-area-rights-open-points) (the area rights' open points).
+**The host's open points** ([OQ-41](../risks-and-open.md#oq-41-the-host-role-open-points), decided):
+
+- No `stock.manage`: no `.manage` action moves; stock handling is the member's `stock.use`.
+- A host's grant never holds `device.manage` nor a damaging action; a host never grants to their own
+  row; a host may remove a grant they could have given.
+- A refusal of a host's grant uses a code of the no-self-elevation family (as
+  `authz/ROLE_ABOVE_OWN`); a new code is named only if none fits.
+- Recording an induction is a grant with a note.
+- The label is free text per space, default "host".
+- Organisation roles stay member, admin and owner: no organisation host.
+- A host's `queue.manage` reaches every item; a host holds `grants.view` and a `grants.manage`
+  bounded as above.
+
+**The area rights' open points** ([OQ-42](../risks-and-open.md#oq-42-area-rights-open-points), decided):
+
+- `office`: members use devices and stock, guests nothing. `private`: owner and admin use, members
+  view. `makerspace`: today's role table; existing spaces become `makerspace`.
+- The kind may be changed later with `space.manage`; that changes no existing right (the kind's
+  defaults are a setup default only).
+- `space.members.view`, `grants.view` and `audit.view` are fixed: they do not move.
+- An area's `.use` is never below its `.view`; a guest never holds `.use`.
+- `PUT /api/v1/spaces/{id}/area-rights` is a person's session only, never a token.
 
 ## Where it shows
 

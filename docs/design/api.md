@@ -54,9 +54,9 @@ every route names one or the other.
 | POST | `/api/v1/me/tokens/end` | `session` | — | 204; bumps the generation, every token of the person ends |
 | GET | `/api/v1/spaces` | `session` | — | the person's spaces: their memberships and every space of the organisations they have a role in |
 | POST | `/api/v1/spaces` | `organisation.manage` (an organisation role only, [decision](decisions/20261119-organisation-actions-by-organisation-role.md)) | `{name, kind}`; `kind` `makerspace`, `office` or `private` gives the space's first area rights | 201 space |
-| PATCH | `/api/v1/spaces/{id}` | `space.manage` | `{name?, ppe_checks?, host_label?}` | space |
-| GET | `/api/v1/spaces/{id}/area-rights` | `space.manage` | — | the space's kind, and per movable area action (`.view`, `.use`) the lowest role that holds it ([authz.md](authz.md#area-rights-per-space)) |
-| PUT | `/api/v1/spaces/{id}/area-rights` | `space.manage` | `{rights: {<action>: <role>}}`, `<role>` one of `guest`, `member`, `host`, `admin` | area rights; refused for an action that does not move (a `.manage` action, `organisation.manage`, a device action) or a role outside that list (its fault code: [OQ-42](risks-and-open.md#oq-42-area-rights-open-points)); one transaction writes the rows and an audit row per change and bumps `authz_epoch` ([decision](decisions/20261119-host-role-and-area-rights.md)) |
+| PATCH | `/api/v1/spaces/{id}` | `space.manage` | `{name?, ppe_checks?, host_label?, kind?}`; `host_label` free text (empty: "host"); a new `kind` changes no existing right ([authz.md](authz.md#area-rights-per-space)) | space |
+| GET | `/api/v1/spaces/{id}/area-rights` | `space.manage` | — | the space's kind, and per movable area action (`files.view`, `queue.view`, `farm.view`, `farm.use`, `stock.view`, `stock.use`) the lowest role that holds it ([authz.md](authz.md#area-rights-per-space)) |
+| PUT | `/api/v1/spaces/{id}/area-rights` | `space.manage`, a person's session only (never a token, `authz/SESSION_ONLY`) | `{rights: {<action>: <role>}}`, `<role>` one of `guest`, `member`, `host`, `admin`; a `.use` never `guest` and never below its area's `.view` | area rights; refused for an action that does not move (a `.manage` action, `organisation.manage`, a device action, `space.members.view`, `grants.view`, `audit.view`), a role outside that list, a `.use` at guest or below its `.view` (the fault code: [OQ-42](risks-and-open.md#oq-42-area-rights-open-points)); one transaction writes the rows and an audit row per change and bumps `authz_epoch` ([decision](decisions/20261119-host-role-and-area-rights.md)) |
 | PATCH | `/api/v1/organisations/{id}` | `organisation.manage` (an organisation role only) | `{name}` | organisation |
 | GET | `/api/v1/spaces/{id}/members` | `space.members.view` | — | members with roles (`guest`, `member`, `host`, `admin`, `owner`) and the space's `host_label` |
 | PATCH | `/api/v1/spaces/{id}/members/{user}` | `space.members.manage`; the role at most the caller's own ([decision](decisions/20261119-no-self-elevation.md)) | `{role}`: `guest`, `member`, `host`, `admin` or `owner` | member |
@@ -68,8 +68,8 @@ every route names one or the other.
 | DELETE | `/api/v1/tokens/{id}` | `tokens.manage` | — | 204 (revoked) |
 | GET | `/api/v1/spaces/{id}/audit` | `audit.view` | cursor | audit rows |
 | GET | `/api/v1/grants` | `grants.view` | `?user=&device=&group=` | grants |
-| POST | `/api/v1/grants` | `grants.manage`, in Space only, a person's session only (never a token); a host's grant holds no damaging action ([authz.md](authz.md#presets-roles-and-grants)) | `{user, device or device_group, actions, expires_at}` | 201 grant |
-| DELETE | `/api/v1/grants/{id}` | `grants.manage`, session only | — | 204 |
+| POST | `/api/v1/grants` | `grants.manage`, in Space only, a person's session only (never a token); a host's grant holds neither `device.manage` nor a damaging action and is never to the host's own row, refused in the no-self-elevation family ([authz.md](authz.md#presets-roles-and-grants)) | `{user, device or device_group, actions, expires_at, note?}`; `note`: free text, for example an induction given | 201 grant |
+| DELETE | `/api/v1/grants/{id}` | `grants.manage`, session only; a host only a grant they could have given (no `device.manage`, no damaging action) | — | 204 |
 | GET, POST | `/api/v1/device-groups` | `grants.view`; POST `grants.manage`, session only | `{name}` | groups |
 | PATCH, DELETE | `/api/v1/device-groups/{id}` | `grants.manage`, session only | `{name?, devices?}` | group |
 | POST | `/api/v1/access-requests` | `space.member` | `{device_id}` | 201; grants nothing (#11) |

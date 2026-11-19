@@ -76,7 +76,7 @@ does not apply is left out, not dashed.
 | Jobs | yes | yes | yes | yes | — |
 | Queue and farm | the queue and projects, read only | the queue (move and take out their own items); projects and parts (`farm.use`) | every queue item (`queue.manage`); projects and parts | every item; a part's count correction (`farm.manage`) | — |
 | Files | view (`files.view`) | yes, their own | as member | yes, all | — |
-| Materials | view | add, use, weigh, label, edit, archive; locations (`stock.use`) | as member ([OQ-41](risks-and-open.md#oq-41-the-host-role-open-points)) | plus import, export, extra fields, the Spoolman backup (`stock.manage`) | — |
+| Materials | view | add, use, weigh, label, edit, archive; locations (`stock.use`) | as member (`stock.use`; never `stock.manage`, [OQ-41](risks-and-open.md#oq-41-the-host-role-open-points)) | plus import, export, extra fields, the Spoolman backup (`stock.manage`) | — |
 | Cameras | the ones they may view | the ones they may view | as member | plus manage in Space → Cameras | — |
 | Prepare | — | yes | yes | yes | — |
 | My permissions (user menu, read only, **proposal**) | yes | yes | — (they see Space → Permissions, `grants.view`) | — (they see Space) | — |
@@ -342,7 +342,7 @@ Permissions. Only kinds of the [device contract](device-contract.md#kinds) are o
 ### Space (admin)
 
 Tabs, one subject each: **General** (space name, organisation name, PPE checks, the host role's
-label: `PATCH /api/v1/spaces/{id}`, `PATCH /api/v1/organisations/{id}`), **Area rights** (below),
+label as free text, empty reads "host": `PATCH /api/v1/spaces/{id}`, `PATCH /api/v1/organisations/{id}`), **Area rights** (below),
 **Members** (roles, remove, invites:
 `space.members.manage`), **Permissions** (Grants, Requests, Machine groups), **API tokens**, **Audit
 log**, **Cameras** (manage), **Access** (doors: their own module,
@@ -351,18 +351,24 @@ log**, **Cameras** (manage), **Access** (doors: their own module,
 Permissions → Grants: pick a person and a device or device group; a **preset** (View, Use, Operate,
 Manage, with their contents as authz.md lists them, shown from the hub);
 **damaging actions as separate switches by name** (`mc.laser.start`, `device.gcode` on a 3D printer
-only, `device.firmware`), never in a preset; an optional expiry; who granted and when → `POST /api/v1/grants`. The admin's own
+only, `device.firmware`), never in a preset; an optional expiry; an optional note (an induction is
+recorded as a grant with a note, for example "laser course given"); who granted and when →
+`POST /api/v1/grants`. The admin's own
 row is set here like anyone's: no other route and no "give myself" button, and no extra rule that
 locks the admin out of their own row.
 
 Area rights ([authz.md](authz.md#area-rights-per-space),
-[decision](decisions/20261119-host-role-and-area-rights.md)): the space's kind (makerspace, office,
-private, as chosen when the space was made) and per area a row with its `.view` and `.use`, each a
-select of the lowest role that holds it (guest, member, the host label, admin) →
-`PUT /api/v1/spaces/{id}/area-rights` (`space.manage`). The page says what never moves: the
-`.manage` actions and every device action, and that a change is in the audit log. Save asks first,
-listing each change in words ("Materials, use: member → host"). Changing the kind is not offered
-([OQ-42](risks-and-open.md#oq-42-area-rights-open-points)).
+[decision](decisions/20261119-host-role-and-area-rights.md),
+[OQ-42](risks-and-open.md#oq-42-area-rights-open-points)): the space's kind (makerspace, office,
+private) and per module area (Files, Queue, Farm, Materials) a row with its `.view` and `.use`, each a
+select of the lowest role that holds it → `PUT /api/v1/spaces/{id}/area-rights` (`space.manage`, a
+person's session only). A `.view` select offers guest, member, the host label, admin; a `.use`
+select offers member, the host label, admin (a guest never uses) and none below that area's
+`.view`. The page says what never moves: the `.manage` actions, every device action, and the
+member list, grants and audit log views; and that a change is in the audit log. Save asks first,
+listing each change in words ("Materials, use: member → host"). The kind is a select of its own with
+Save kind (`PATCH /api/v1/spaces/{id}` `{kind}`); the page says that a new kind changes no right:
+its defaults apply only when a space is made.
 
 Permissions → Requests: each request with **Grant…** (opens the grant form for that person and
 device; after saving, `PATCH /api/v1/access-requests/{id}` `{state: granted}`) and **Refuse…**
@@ -389,8 +395,10 @@ Audit log (UT-45): filters (who, what, from, to) and **Older** for the next page
 offline), Edit, Show live (the test after saving) and Remove…; Add a network camera
 (`POST /api/v1/cameras`, `cameras.manage`).
 
-- **Host:** Members read only; Permissions → Requests and Grants, where the grant form shows no
-  damaging switches (a host's grant holds none, "an admin grants these"); the other tabs are the refused page.
+- **Host:** Members read only; Permissions → Requests and Grants, where the grant form offers no
+  Manage preset and no damaging switches (a host's grant holds neither `device.manage` nor a damaging
+  action, "an admin grants these"), not the host's own row, and Remove only on a grant the host
+  could have given; the other tabs are the refused page.
 - **User:** the refused page; their own permissions are in **My permissions** (read only, from
   `GET /api/v1/me` `actions`, **proposal**).
 
@@ -612,4 +620,4 @@ tags without the dot, never a state's chip or colour. The kind of a machine is a
 | UI-6 | The path to take a loaded laser job off ([OQ-1](risks-and-open.md#oq-1-exact-paths-and-fields-of-our-own-endpoints)) | open |
 | UI-7 | Making a new organisation: api.md has no route | open |
 | UI-8 | How long a page waits before it says an answer did not come (loading), and the sign-in wait's numbers (flows.md §7) | open: not in the design |
-| UI-9 | Host and area rights in Space: the host's exact tabs, the grant form's bounds, the kind's defaults ([OQ-41](risks-and-open.md#oq-41-the-host-role-open-points), [OQ-42](risks-and-open.md#oq-42-area-rights-open-points)) | open |
+| UI-9 | Host and area rights in Space: the host's exact tabs, the grant form's bounds, the kind's defaults ([OQ-41](risks-and-open.md#oq-41-the-host-role-open-points), [OQ-42](risks-and-open.md#oq-42-area-rights-open-points)) | decided (journal:DESIGN-HOST:0006): the bounds and defaults in [authz.md](authz.md#presets-roles-and-grants); the host's tabs follow its actions (Space (admin) above) |
