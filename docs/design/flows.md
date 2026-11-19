@@ -118,11 +118,10 @@ printer or a label printer; it never starts a laser. The job's state follows fro
 the device's job end ([database.md](database.md#files-jobs-queue-and-farm)). A dispatcher never
 starts what its person may not: a queue item is started on behalf of the person who queued it
 (`machine_queue.by_user`), and the dispatcher checks that person's `job.start` on the device in the
-space transaction before each start; without it the item keeps a `problem` and waits (an item with no
-`by_user`, from older data, waits the same way until someone re-adds it). The farm dispatcher starts
+space transaction before each start; without it the item keeps a `problem` and waits (`by_user` is
+not null: every item has the person who queued it). The farm dispatcher starts
 on behalf of the person who switched the farm on for that device (`devices.settings.farm_on_by`, set
-with `device.manage`; a device whose farm is on without a `farm_on_by` is treated as off until
-switched on again), with the same check and the same wait with a `problem` shown on the Now page.
+with `device.manage` in the same write that switches the farm on, and cleared when it is switched off), with the same check and the same wait with a `problem` shown on the Now page.
 
 ```mermaid
 sequenceDiagram

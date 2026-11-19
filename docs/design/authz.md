@@ -118,7 +118,9 @@ reach more than one space and each names its rebuilds:
 - An **organisation role** change (org membership added, changed or removed) rebuilds every space of
   the organisation in **one** transaction: the handler issues `SET LOCAL app.space_id` for each space
   in turn inside the same transaction, rebuilds, bumps that space's epoch, and moves on; a failure
-  rolls all of it back, so a demoted organisation admin never keeps rights in some spaces.
+  rolls all of it back, so a demoted organisation admin never keeps rights in some spaces. This is
+  `Pg::org_spaces(id)`, the one exception to one space per transaction
+  ([roles and pools](database.md#roles-and-pools)).
 - **Accepting an invite** (admin pool #2) is followed, in the same handler, by a space transaction per
   space joined (one, or every space of the organisation for a whole-organisation invite) that
   rebuilds the newcomer's rows.
@@ -132,7 +134,7 @@ reach more than one space and each names its rebuilds:
 
 ```mermaid
 flowchart LR
-  change["Grant, membership, role or group change"]
+  change["Grant, membership, role or group change; device added, retired or moved"]
   tx["One transaction"]
   rebuild["Rebuild device_access rows of the space"]
   epoch["authz_epoch of the space + 1"]
@@ -173,7 +175,8 @@ flowchart TB
   never outgrows its person ([decision](decisions/20261119-token-effective-rights.md)). A token
   reaches only routes that name an **action**, in the token's own space (`api_tokens.space_id`);
   every gate but `public` is a person's session (`session`, `space.member`, `instance.admin`: a
-  token is refused with `authz/SESSION_ONLY`), and so are the routes that make or change a grant
+  token is refused with `authz/SESSION_ONLY`), except the event stream (`/api/v1/events`, plan §2.8),
+  which a token reads in its own space with the same filter narrowed by its scopes; and so are the routes that make or change a grant
   (`grants.manage`), whoever holds the action: a grant is made by a person in Space, never by a
   token. Minting a token (`POST /api/v1/tokens`) is a session's act too; its scopes may name any
   action, because the intersection with the person's rights at each request already keeps the token

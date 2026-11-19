@@ -44,7 +44,7 @@ R2 ([decision](decisions/20261119-database-roles.md)).
 
 | Pool | Role after connect | Size | For |
 |---|---|---|---|
-| app | `SET ROLE maker_connect_app` | most of `max_connections` | every request and every unit of work in one space, always inside `Pg::space(id)`: a transaction with `SET LOCAL app.space_id` |
+| app | `SET ROLE maker_connect_app` | most of `max_connections` | every request and every unit of work in one space, always inside `Pg::space(id)`: a transaction with `SET LOCAL app.space_id`. One exception: `Pg::org_spaces(id)`, for an organisation role change only, is one transaction that lists the organisation's spaces under RLS from the request's space, then sets `SET LOCAL app.space_id` to each in ascending id order (the order a device move locks its two spaces in, so the two never deadlock) |
 | admin | `SET ROLE maker_connect_admin` | small | the allowlist below |
 | migrator | `SET ROLE maker_connect_owner` | one connection, at start, closed after | migrations |
 | dump tools | `pg_dump --role=maker_connect_owner` and `pg_restore --role=maker_connect_owner` | child processes | [storage-ops.md](storage-ops.md) |
@@ -314,7 +314,7 @@ erDiagram
   devices ||--o{ device_capabilities : declares
   devices ||--o| cameras : is
   files ||--o{ transfers : sent_as
-  jobs ||--o{ commands : controlled_by
+  jobs |o--o{ commands : controlled_by
   device_registrations }o--o| devices : becomes
   agents {
     uuid id PK
@@ -407,8 +407,9 @@ pool (#3) that changes `devices.space_id` and, for every table that points at th
 `device_group_members`, `device_access`, `access_requests` and `machine_queue` rows of the device are
 deleted (the new space grants afresh); `spool.device_id` and `cameras.watches_device_id` that point at
 it are set null (the spool stays in its space, unloaded); `commands`, `transfers`, `jobs`, `sample` and
-`gap` have no key to the device and stay where they happened. The same transaction rebuilds the
-device's `device_access` rows in the new space from its roles and bumps both spaces' `authz_epoch`
+`gap` have no key to the device and stay where they happened. The same transaction, after the `devices`
+update (the `device_access` FK has no `ON UPDATE CASCADE`), rebuilds the device's `device_access` rows
+in the new space from its roles, naming that space's id explicitly (the admin pool has no `app.space_id`), and bumps both spaces' `authz_epoch`
 ([authz.md](authz.md#the-materialised-table)). A device with a job not ended is not moved.
 
 ### Files, jobs, queue and farm
@@ -480,7 +481,7 @@ erDiagram
 |---|---|---|---|
 | `files` | `id uuid`, `space_id uuid`, `name text`, `size bigint`, `uploaded_at timestamptz`, `uploaded_by uuid` null, `meta jsonb` (what the file says about itself) | PK `id`; unique `(space_id, id)`; index `(space_id, uploaded_at desc)`; the bytes in the files folder under the id | space |
 | `jobs` | `id uuid`, `space_id uuid`, `device_id uuid`, `file_id uuid`, `file_name text`, `state text` (`queued`, `loaded`, `running`, `paused`, `ended`; derived from the command records and the device's job end, [decision](decisions/20261119-job-states.md)), `outcome text` null (`done`, `stopped`, `failed`), `created_at`, `started_at`, `ended_at timestamptz` null, `reason text` null, `from_line bigint` null, `used float8` null, `spool_id bigint` null, `by_user uuid` null, `part_id uuid` null, `per_plate bigint` null, `confirmed_at` null, `confirmed_good bigint` null, `confirmed_by uuid` null | PK `id`; unique `(space_id, id)` (referenced by `commands`, `transfers`, `part_ledger`, `devices.current_job_id`); no FK to `devices` or `files` (a job outlives both); FK `(space_id, part_id)` → `parts` `ON DELETE SET NULL (part_id)`; FK `(space_id, spool_id)` → `spool` `ON DELETE SET NULL (spool_id)`; partial index on jobs not ended | space |
-| `machine_queue` | `id uuid`, `space_id uuid`, `device_id uuid`, `file_id uuid`, `file_name text`, `pos float8`, `added_at timestamptz`, `by_user uuid` null, `problem text` null | PK `id`; index `(space_id, device_id, pos)` | space |
+| `machine_queue` | `id uuid`, `space_id uuid`, `device_id uuid`, `file_id uuid`, `file_name text`, `pos float8`, `added_at timestamptz`, `by_user uuid`, `problem text` null | PK `id`; index `(space_id, device_id, pos)` | space |
 | `projects` | `id uuid`, `space_id uuid`, `name text`, `description text`, `state text`, `priority bigint`, `created_at timestamptz` | PK `id`; unique `(space_id, id)` | space |
 | `parts` | `id uuid`, `project_id uuid`, `space_id uuid`, `name text`, `target bigint`, `done bigint`, `sort_order bigint`, `created_at` | PK `id`; unique `(space_id, id)`; FK `(space_id, project_id)` → `projects` on delete cascade | space |
 | `part_files` | `id uuid`, `part_id uuid`, `space_id uuid`, `profile text`, `file_id uuid`, `per_plate bigint`, `material text` null, `color text` null, `sheet text` null, `created_at` | PK `id`; unique `(part_id, profile)`; FK `(space_id, part_id)` → `parts` on delete cascade; FK `(space_id, file_id)` → `files` | space |

@@ -14,7 +14,7 @@ every route names one or the other.
 | Namespace | Who calls it | Auth | In the public spec |
 |---|---|---|---|
 | `/api/v1` | the hub's own pages, external apps | session cookie or `Bearer mct_…` | yes |
-| `/api/v1/events` | pages | session cookie (gate `space.member`; a token has no stream) | yes (SSE) |
+| `/api/v1/events` | pages, external apps | session cookie (gate `space.member`) or `Bearer mct_…` in its own space | yes (SSE) |
 | `/api/v1` 3D-printer REST | Prusa Connect clients, PrusaSlicer | as `/api/v1` | yes, mirroring Prusa Connect's ([OQ-2](risks-and-open.md#oq-2-the-3d-printer-rest-surface)) |
 | `/spoolman/api/v1` | Spoolman clients | [OQ-7](risks-and-open.md#oq-7-how-spoolman-clients-authenticate) | no: Spoolman's own API, to the letter |
 | `/api/agent/v2` | agents | registration secret, then agent token | no: ours, [wire.md](wire.md) |
@@ -34,7 +34,9 @@ every route names one or the other.
 - **The space of a request** is the session's chosen space (`sessions.space_id`, set by
   `PUT /api/v1/session/space`) or the token's space (`api_tokens.space_id`); every tenant row it reads
   or writes is in that space's transaction. A path that names a space (`/spaces/{id}/…`) must name
-  that space; another id gets `404 space/NOT_FOUND`, whatever the caller's role there. Only the
+  that space; another id gets `404 space/NOT_FOUND`, whatever the caller's role there. Likewise
+  `/organisations/{id}` must name the organisation of the request's space, else
+  `404 organisation/NOT_FOUND`. Only the
   `public` routes, the `session` routes (including `PUT /api/v1/session/space`, which chooses the
   space) and the `instance.admin` routes run outside a space.
 - **Tokens** reach action routes in their own space only; the gates `session`, `space.member` and
@@ -109,7 +111,7 @@ every route names one or the other.
 | GET, POST | `/api/v1/cameras` | per row: `device.view` on the device the camera watches, or for a room camera the role `room_view_role` names (today's rule, [authz.md](authz.md#actions)); POST `cameras.manage` | `{name, url, username, password, watches_device_id, room_view_role}` | cameras; the password never comes back |
 | PATCH, DELETE | `/api/v1/cameras/{id}` | `cameras.manage` | fields; an empty password keeps it | camera |
 | GET | `/api/v1/cameras/{id}/ws` | the same rule as the row, checked before the upgrade | WebSocket, go2rtc's MSE messages | binary init and fragments |
-| GET | `/api/v1/events` | `space.member` of the session's space; filtered per event by `device_access` | `?types=`, `Last-Event-ID` | SSE, below |
+| GET | `/api/v1/events` | `space.member` of the session's space, or a token in its own space; filtered per event by `device_access`, for a token also by its scopes (an event is sent only when the token could read the row it is about) | `?types=`, `Last-Event-ID` | SSE, below |
 | GET | `/api/v1/instance/spaces` | `instance.admin` | — | every organisation and space |
 | GET | `/api/v1/instance/agents` | `instance.admin` | — | every agent: version, last seen, stream state, its devices with their spaces |
 | POST | `/api/v1/instance/agents/{id}/update` | `instance.admin` ([decision](decisions/20261119-agent-update-by-instance-admin.md)) | `{tag}` | 202; the `update` event goes down the agent's stream ([wire.md](wire.md#downstream-events-get-apiagentv2downstreamuuid-sse)) |
