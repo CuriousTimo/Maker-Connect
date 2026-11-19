@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MINI-1 · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body data-view="user">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
+  <span class="spacer"></span>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="host">Host</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
+</header>
+<aside class="side" aria-label="Navigation"><nav aria-label="Pages">
+<a href="now.html">Now</a>
+<div class="group">Work</div>
+<a href="machines.html">Machines</a>
+<a href="state-loading.html">Jobs</a>
+<a href="farm.html">Queue and farm</a>
+<div class="group">Stock</div>
+<a href="files.html">Files</a>
+<a href="materials.html">Materials</a>
+<div class="group">Watch</div>
+<a href="state-error.html">Cameras</a>
+<div class="group">Machines</div><div class="machines">
+<a href="printer.html" aria-current="page"><span>MINI-1</span><small class="num">62 %</small></a>
+<a href="now.html#needs"><span>MINI-2</span><small>needs someone</small></a>
+<a href="ask-permission.html"><span>Printer-3</span><small>free</small></a>
+<a href="state-unknown.html"><span>Printer-4</span><small>offline</small></a>
+<a href="laser.html"><span>Laser-A</span><small>job loaded</small></a>
+<a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
+<a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
+</div>
+<div class="group" data-only="host admin instance">Manage</div>
+<a data-only="admin instance" href="add-machine.html">Add machine</a>
+<a data-only="host admin instance" href="space-members.html">Space</a>
+<a data-only="instance" href="instance.html">Instance</a>
+<div class="user"><div class="group" data-only="guest">Eli · guest</div><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div><div class="group" data-only="instance">Ada · owner, instance admin</div>
+<a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a>
+<a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
+</nav></aside>
+<main id="main" tabindex="-1">
+
+<p class="crumbs"><a href="machines.html">Machines</a> › MINI-1</p>
+<div class="head"><h1>MINI-1</h1><span class="st busy">Printing 62 %</span><div class="actions"><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Paused at 15:50.">Pause</button></span><span class="status" aria-live="polite"></span></span></div></div>
+<p class="muted" style="margin-top:-8px">3D printer · built-in Connect · labels: <span class="tag">Room 2</span></p>
+<p class="note-role" data-only="user"><b>As a member (Sam):</b> on MINI-1 you may start, pause and stop jobs, but not move or heat it (sample data). What you may not do is hidden, with one banner on Control.</p>
+<p class="note-role" data-only="admin instance"><b>As an admin or owner:</b> you hold every non-damaging action on MINI-1. You rename, label, set its PPE and retire it here; permissions are granted in Space.</p>
+<div class="tabs" role="tablist" aria-label="MINI-1">
+<a href="#overview" role="tab" id="t-overview" aria-controls="overview">Overview</a><a href="#control" role="tab" id="t-control" aria-controls="control">Control</a><a href="#files" role="tab" id="t-files" aria-controls="files">Files</a><a href="#jobs" role="tab" id="t-jobs" aria-controls="jobs">Jobs <small>&nbsp;2</small></a><a href="#camera" role="tab" id="t-camera" aria-controls="camera">Camera</a><a href="#settings" role="tab" id="t-settings" aria-controls="settings">Settings</a>
+</div>
+
+<section id="overview" role="tabpanel" aria-labelledby="t-overview">
+<div class="cols"><div>
+<div class="card"><h2>This print</h2>
+<p><b>bracket-v3.bgcode</b> · started by Sam at 14:25</p>
+<div class="bar" role="img" aria-label="62 percent"><i style="width:62%"></i></div>
+<p class="num" style="margin-top:var(--s-2)"><b>45 min left · done 16:35</b> · layer 88 / 142</p>
+<div class="row btns"><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Paused at 15:50.">Pause</button></span><span class="status" aria-live="polite"></span></span><span class="fw"><button class="btn danger" type="button" data-dialog="confirm-stop">Stop…</button></span></div>
+<span class="anno">core.command.pause_print, stop_print · job.control</span>
+</div>
+<div class="card"><h2>Live</h2><div class="tiles">
+<div class="tile"><span>Nozzle</span><b class="num">215 °C</b><small> / 215</small></div>
+<div class="tile"><span>Bed</span><b class="num">60 °C</b><small> / 60</small></div>
+<div class="tile"><span>Speed</span><b class="num">100 %</b></div>
+<div class="tile"><span>Z</span><b class="num">12.40 mm</b></div>
+<div class="tile"><span>Print fan</span><b><span class="unknown">unknown</span></b><small> not reported</small></div>
+</div></div>
+</div><div>
+<div class="card"><h2>Material</h2><p><span class="swatch" style="background:#93A682"></span> <a href="spool.html">Spool #12 · PLA Sage</a></p><dl class="kv"><dt>Left</dt><dd class="num">640 g (weighed 18 Nov)</dd><dt>Nozzle</dt><dd>205–225 °C</dd></dl></div>
+<div class="card"><h2>Next in its queue</h2><p>badge-round × 4 · Sam</p><p><a href="#jobs">All jobs on MINI-1</a></p></div>
+</div></div>
+<details class="card" style="margin-top:var(--s-4)"><summary><b>This page when the hub cannot be reached</b></summary>
+<div class="banner bad" style="margin-top:var(--s-3)"><span><b>The hub cannot be reached</b> (last answer 15:52). What you see is from then. Pause and Stop cannot reach MINI-1 from this page: use the printer's own screen. The page tries again by itself.</span></div>
+<p><span class="ctl"><span class="fw"><button class="btn" type="button" aria-disabled="true" aria-describedby="why-1">Pause</button></span><span class="why" id="why-1">Cannot reach MINI-1: use the printer's own screen.</span></span></p>
+<p><small>When the hub answers but MINI-1 does not, the page is the <a href="state-unknown.html">offline</a> one.</small></p>
+</details>
+</section>
+
+<section id="control" role="tabpanel" aria-labelledby="t-control" hidden>
+<div class="banner info" data-only="user"><span><b>You may not move or heat MINI-1.</b> The staff grant that in Space.</span><span class="fw"><a class="btn small" href="ask-permission.html">Ask for permission</a></span></div>
+<div class="grid">
+<div class="card" data-only="admin instance"><h2>Move</h2>
+<div class="jog" role="group" aria-label="Jog">
+<span></span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="Y plus" aria-describedby="why-move">▲</button></span><span></span>
+<span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="X minus" aria-describedby="why-move">◀</button></span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="Home X and Y" aria-describedby="why-move">⌂</button></span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="X plus" aria-describedby="why-move">▶</button></span>
+<span></span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="Y minus" aria-describedby="why-move">▼</button></span><span></span>
+</div>
+<span class="why" id="why-move">Not while printing: moving works when MINI-1 is ready or paused.</span>
+<p style="margin-top:var(--s-3)"><span class="ctl"><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-describedby="why-2">Motors off</button></span><span class="why" id="why-2">Not while printing.</span></span></p>
+<span class="anno">core.command.move, home, disable_steppers · device.move · accepted in OPERATIONAL, PAUSED</span>
+</div>
+<div class="card" data-only="admin instance"><h2>Heat</h2>
+<div class="row"><label class="field">Nozzle °C<input inputmode="numeric" value="215"></label><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Nozzle target 215 °C.">Set</button></span><span class="status" aria-live="polite"></span></span></div>
+<div class="row"><label class="field">Bed °C<input inputmode="numeric" value="60"></label><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Bed target 60 °C.">Set</button></span><span class="status" aria-live="polite"></span></span></div>
+<span class="anno">set_nozzle_temperature, set_bed_temperature · device.heat; bounds from the verb's declared arguments, none of the page's own</span>
+</div>
+<div class="card"><h2>Speed and flow</h2>
+<div class="row"><label class="field">Speed %<input inputmode="numeric" value="100"></label><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Speed 100 %.">Set</button></span><span class="status" aria-live="polite"></span></span></div>
+<div class="row"><label class="field">Flow %<input inputmode="numeric" value="100"></label><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="unknown" data-settled="Outcome unknown: the hub restarted before MINI-1 answered. It was not sent again; check the printer.">Set</button></span><span class="status" aria-live="polite"></span></span></div>
+<span class="anno">core.command.set_speed, set_flow · job.control</span>
+</div>
+</div>
+<p style="margin-top:var(--s-3)"><small>Each control shows because MINI-1 declared it; it works only when MINI-1's state accepts it and you hold the right. A terminal shows only on a printer that declares one, and only to a person granted raw G-code by name.</small></p>
+</section>
+
+<section id="files" role="tabpanel" aria-labelledby="t-files" hidden>
+<div class="card"><h2>On the printer (USB)</h2>
+<ul class="list">
+<li><div class="grow"><b>bracket-v3.bgcode</b><br><small>printing now · 2.1 MB</small></div><span class="ctl"><span class="fw"><button class="btn small" aria-disabled="true" type="button" aria-describedby="why-3">Print</button></span><span class="why" id="why-3">In use: printing</span></span></li>
+<li><div class="grow"><b>hook-small.bgcode</b><br><small>PLA · 38 min · 0.6 MB</small></div><span class="fw"><a class="btn small" href="print-start.html#usb">Print…</a></span><span data-only="admin instance"><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-delete">Delete…</button></span></span></li>
+</ul><span class="anno">core.command.start_print · job.start; core.command.delete_file · job.control</span></div>
+<div class="card"><h2>From the hub's files</h2><p><span class="fw"><a class="btn" href="print-start.html">Print a hub file on MINI-1</a></span></p><span class="anno">POST /api/v1/devices/{id}/transfers {print_after: true}</span></div>
+</section>
+
+<section id="jobs" role="tabpanel" aria-labelledby="t-jobs" hidden>
+<div class="card"><h2>Queue on MINI-1</h2>
+<ul class="list">
+<li><div class="grow"><b>1 · badge-round × 4</b><br><small>Sam · PLA · 1 h 05 min · starts when MINI-1 is free and its bed is clear</small></div><span class="fw"><button class="btn small" type="button">Move up</button></span><span class="fw"><button class="btn small ghost" type="button" data-undo="badge-round taken out of MINI-1's queue.">Take out</button></span></li>
+<li><div class="grow"><b>2 · clip-set</b><br><small>Noor · PETG · 40 min</small></div><span data-only="guest user"><small>Not yours: only staff move it</small></span><span data-only="admin instance"><span class="fw"><button class="btn small" type="button">Move up</button></span> <span class="fw"><button class="btn small ghost" type="button" data-undo="clip-set taken out of MINI-1's queue.">Take out</button></span></span></li>
+</ul>
+<span class="anno">PATCH, DELETE /api/v1/queue/{id} · queue.manage, own items for their person</span></div>
+<div class="card"><h2>History</h2>
+<div class="table-wrap"><table><thead><tr><th>File</th><th>By</th><th>Ended</th><th>Took</th><th>Outcome</th></tr></thead><tbody>
+<tr><td>bracket-v2</td><td>Sam</td><td>18 Nov 21:40</td><td class="num">2 h 10 min</td><td><span class="out">Done · good</span></td></tr>
+<tr><td>gear-test</td><td>Ravi</td><td>18 Nov 17:02</td><td class="num">55 min</td><td><span class="out">Stopped</span></td></tr>
+<tr><td>cable-tie</td><td>Noor</td><td>17 Nov 12:15</td><td class="num"><span class="unknown">unknown</span></td><td><span class="unknown">outcome unknown</span></td></tr>
+</tbody></table></div>
+<p><small>"Outcome unknown": the hub did not see the end, so it does not say good or failed. Outcomes are tags, not machine states.</small> <span class="anno">GET /api/v1/jobs?device= · jobs.outcome done, stopped, failed</span></p></div>
+</section>
+
+<section id="camera" role="tabpanel" aria-labelledby="t-camera" hidden>
+<div class="card"><h2>Cam-MINI-1</h2>
+<div class="preview cam"><span class="feed" aria-hidden="true">camera picture</span><div class="cam-bar"><b>Cam-MINI-1</b><span class="live">LIVE</span></div></div>
+<p style="margin-top:var(--s-2)"><small>Whoever may view MINI-1 may view its camera. Cameras are managed in Space → Cameras.</small> <span class="anno">/api/v1/cameras/{id}/ws · device.view, checked before the upgrade</span></p></div>
+</section>
+
+<section id="settings" role="tabpanel" aria-labelledby="t-settings" hidden>
+<div class="card"><h2>The machine</h2><dl class="kv"><dt>Name</dt><dd>MINI-1</dd><dt>Model</dt><dd>MINI (from the printer)</dd><dt>Firmware</dt><dd>6.3.0 (as the printer reports it)</dd><dt>Serial</dt><dd>SN-0000-1234</dd><dt>Connection</dt><dd>Built-in Connect, online</dd></dl></div>
+<div class="card" data-only="guest user"><p>A machine's settings are changed by the space's staff.</p></div>
+<div data-only="admin instance">
+<div class="card"><h2>Name and labels</h2><div class="row"><label class="field">Name<input value="MINI-1"></label><label class="field">Labels<input value="Room 2"></label><span class="fw"><button class="btn" type="button">Save</button></span></div><span class="anno">PATCH /api/v1/devices/{id} · device.manage</span></div>
+<div class="card"><h2>Before use</h2><label class="check"><input type="checkbox" checked> Needs a training before members may use it</label><label class="field">PPE to have and wear<input value="none"></label><p><small>The PPE check is switched on for the whole space in <a href="space-settings.html#general">Space → General</a>.</small></p></div>
+<div class="card"><h2>Out of use</h2><p><span class="fw"><button class="btn danger" type="button" data-dialog="confirm-retire">Retire MINI-1…</button></span></p><p><small>It asks for a reason; its history stays. Moving it to another space is for the instance admin.</small> <span class="anno">DELETE /api/v1/devices/{id} {reason} · device.manage</span></p></div>
+</div>
+</section>
+
+<dialog id="confirm-stop" aria-labelledby="cs-h"><h2 id="cs-h">Stop the print on MINI-1?</h2><p>bracket-v3 ends now as stopped. It cannot be resumed.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep printing</button></span><span class="fw"><button class="btn danger" value="yes">Stop the print</button></span></form></dialog>
+<dialog id="confirm-delete" aria-labelledby="cd-h"><h2 id="cd-h">Delete hook-small.bgcode from MINI-1?</h2><p>It is removed from the printer's USB stick.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep it</button></span><span class="fw"><button class="btn danger" value="yes">Delete</button></span></form></dialog>
+<dialog id="confirm-retire" aria-labelledby="cr-h"><h2 id="cr-h">Retire MINI-1?</h2><label class="field">Reason<input value="Sold"></label><p><small>It leaves the list; its jobs and history stay.</small></p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep it</button></span><span class="fw"><button class="btn danger" value="yes">Retire</button></span></form></dialog>
+
+</main>
+<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="host admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
+</body>
+</html>

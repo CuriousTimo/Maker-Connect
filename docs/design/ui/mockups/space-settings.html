@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Space: settings · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body data-view="user">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
+  <span class="spacer"></span>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="host">Host</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
+</header>
+<aside class="side" aria-label="Navigation"><nav aria-label="Pages">
+<a href="now.html">Now</a>
+<div class="group">Work</div>
+<a href="machines.html">Machines</a>
+<a href="state-loading.html">Jobs</a>
+<a href="farm.html">Queue and farm</a>
+<div class="group">Stock</div>
+<a href="files.html">Files</a>
+<a href="materials.html">Materials</a>
+<div class="group">Watch</div>
+<a href="state-error.html">Cameras</a>
+<div class="group">Machines</div><div class="machines">
+<a href="printer.html"><span>MINI-1</span><small class="num">62 %</small></a>
+<a href="now.html#needs"><span>MINI-2</span><small>needs someone</small></a>
+<a href="ask-permission.html"><span>Printer-3</span><small>free</small></a>
+<a href="state-unknown.html"><span>Printer-4</span><small>offline</small></a>
+<a href="laser.html"><span>Laser-A</span><small>job loaded</small></a>
+<a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
+<a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
+</div>
+<div class="group" data-only="host admin instance">Manage</div>
+<a data-only="admin instance" href="add-machine.html">Add machine</a>
+<a data-only="host admin instance" href="space-members.html" aria-current="page">Space</a>
+<a data-only="instance" href="instance.html">Instance</a>
+<div class="user"><div class="group" data-only="guest">Eli · guest</div><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div><div class="group" data-only="instance">Ada · owner, instance admin</div>
+<a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a>
+<a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
+</nav></aside>
+<main id="main" tabindex="-1">
+
+<div class="head"><h1>Space: Workshop North</h1></div>
+<p class="note-role" data-only="user"><b>As a member (Sam):</b> this is a staff page; you get the refused page below.</p>
+<p class="note-role" data-only="host"><b>As a host (Mira, &ldquo;Staff&rdquo; in this space):</b> the space's settings and its area rights need space.manage, which a host never holds; you get the refused page below.</p>
+<p class="note-role" data-only="admin"><b>As an admin (Noor):</b> the space's own settings, one subject per tab.</p>
+<p class="note-role" data-only="instance"><b>As Ada (owner of the space and of the organisation):</b> the same tabs; you may also rename the organisation.</p>
+<div data-only="guest user"><div class="empty"><div class="big" aria-hidden="true">⌀</div><h2>This page is for the space's staff</h2><p>Owners and admins manage the space's settings here.</p><p><span class="fw"><a class="btn" href="now.html" data-guest>Back to Now</a></span></p></div>
+<p style="margin-top:var(--s-3)"><small>The hub refuses the page's calls too; the navigation never offers it.</small></p></div>
+<div data-only="admin instance">
+<nav class="tabs" data-pagenav aria-label="Space"><a data-only="admin instance" href="space-settings.html#general">General</a><a data-only="admin instance" href="space-settings.html#rights">Area rights</a><a href="space-members.html">Members</a><a href="space-permissions.html">Permissions</a><a data-only="admin instance" href="space-settings.html#tokens">API tokens</a><a data-only="admin instance" href="space-settings.html#audit">Audit log</a><a data-only="admin instance" href="space-settings.html#cameras">Cameras</a><a data-only="admin instance" href="space-settings.html#access">Access (doors)</a></nav>
+
+<section id="general" data-section aria-label="General"><div class="card">
+<div class="row"><label class="field">Space name<input value="Workshop North"></label><span class="fw"><button class="btn" type="button">Save</button></span></div>
+<div class="row" data-only="instance"><label class="field">Organisation name<input value="Makers Guild"></label><span class="fw"><button class="btn" type="button">Save</button></span></div>
+<div class="row" data-only="admin"><label class="field">Organisation name<input value="Makers Guild" readonly aria-describedby="why-org"></label><span class="why" id="why-org" style="flex-basis:100%">Renaming the organisation needs an admin or owner role in the organisation; yours there is member.</span></div>
+<div class="row"><label class="field">Name for the host role<input value="Staff" aria-describedby="why-label"></label><span class="fw"><button class="btn" type="button">Save</button></span><span class="why" id="why-label" style="flex-basis:100%">Your space's word for the role between member and admin, for example host, medewerker or staff. The role stays the same; only its name here changes.</span></div>
+<label class="check"><input type="checkbox" checked> Ask for PPE before a machine with a PPE list is used</label>
+<span class="anno">PATCH /api/v1/spaces/{id} {name, ppe_checks, host_label} · space.manage; the label is free text, empty reads "host" (OQ-41, decided); PATCH /api/v1/organisations/{id} · organisation.manage (an organisation role only)</span></div></section>
+
+<section id="rights" data-section aria-label="Area rights" hidden>
+<div class="card"><h2>Area rights</h2>
+<p>Who may look at and work with each part of the space. Each choice is the lowest role that may do it; every role above may too.</p>
+<div class="row"><label class="field">Kind of space<select aria-describedby="why-kind"><option selected>Makerspace</option><option>Office</option><option>Private</option></select></label><span class="fw"><button class="btn" type="button">Save kind</button></span><span class="why" id="why-kind" style="flex-basis:100%">The kind gave this space its first rights when it was made. Changing it changes no right below: set those here yourself.</span></div>
+<ul class="list">
+<li><div class="grow"><b>Materials</b><br><small>spools, materials, locations</small></div><div class="row" style="flex:1 1 280px"><label class="field">See<select><option selected>Guest</option><option>Member</option><option>Staff (host)</option><option>Admin</option></select></label><label class="field">Use<select aria-describedby="chg-stock"><option>Member</option><option selected>Staff (host)</option><option>Admin</option></select></label></div><span class="why" id="chg-stock" style="flex-basis:100%">Changed, not saved: was Member.</span></li>
+<li><div class="grow"><b>Projects and parts</b></div><div class="row" style="flex:1 1 280px"><label class="field">See<select><option selected>Guest</option><option>Member</option><option>Staff (host)</option><option>Admin</option></select></label><label class="field">Use<select><option selected>Member</option><option>Staff (host)</option><option>Admin</option></select></label></div></li>
+<li><div class="grow"><b>Files</b></div><div class="row" style="flex:1 1 280px"><label class="field">See<select><option selected>Guest</option><option>Member</option><option>Staff (host)</option><option>Admin</option></select></label><p class="field"><small>Use: not set here</small></p></div></li>
+<li><div class="grow"><b>Queue</b></div><div class="row" style="flex:1 1 280px"><label class="field">See<select><option selected>Guest</option><option>Member</option><option>Staff (host)</option><option>Admin</option></select></label><p class="field"><small>Use: not set here</small></p></div></li>
+<li><div class="grow"><b>Members</b></div><div class="row" style="flex:1 1 280px"><p class="field"><small>See: Member · fixed, not set here</small></p></div></li>
+<li><div class="grow"><b>Permissions</b><br><small>grants and requests</small></div><div class="row" style="flex:1 1 280px"><p class="field"><small>See: Staff (host) · fixed, not set here</small></p></div></li>
+<li><div class="grow"><b>Audit log</b></div><div class="row" style="flex:1 1 280px"><p class="field"><small>See: Admin · fixed, not set here</small></p></div></li>
+</ul>
+<p style="margin-top:var(--s-3)"><small>Use is never offered to guests, and never below what may See: a Use choice offers only that role and the ones above. Never moved here: who sees the members, the permissions and the audit log; managing an area (imports, extra fields, count corrections, settings, roles, tokens) stays with admins and owners, and machine permissions, damaging ones above all, are granted by name in Permissions. Every change is in the audit log.</small></p>
+<p><span class="fw"><button class="btn primary" type="button" data-dialog="confirm-rights">Save area rights…</button></span> <span class="anno">GET, PUT /api/v1/spaces/{id}/area-rights {rights: {action: role}} · space.manage, a person's session only; Save kind: PATCH /api/v1/spaces/{id} {kind}, no right changes; one transaction: rows, an audit row per change, authz_epoch + 1 (decision 20261119-host-role-and-area-rights)</span></p>
+<span class="anno">rows: files.view, queue.view, farm.view, farm.use, stock.view, stock.use; space.members.view, grants.view, audit.view fixed; .use never guest, never below .view (OQ-42, decided)</span>
+</div>
+<dialog id="confirm-rights" aria-labelledby="cr-h"><h2 id="cr-h">Save these area rights?</h2><ul><li>Materials, use: Member → Staff (host)</li></ul><p>Members can no longer add, weigh or archive spools; it takes effect at once and is written in the audit log.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Back</button></span><span class="fw"><button class="btn primary" value="yes">Save</button></span></form></dialog>
+</section>
+
+<section id="tokens" data-section aria-label="API tokens" hidden>
+<div class="card"><h2>Make a token</h2>
+<div class="row"><label class="field">Name<input value="slicer on the bench PC"></label><label class="field">Ends<input type="date" value="2027-02-19"></label></div>
+<fieldset style="border:1px solid var(--line);padding:var(--s-3);margin:0 0 var(--s-3)"><legend style="font-weight:600;font-size:var(--fs-2)">What it may do</legend>
+<p><small>A token never does more than you may do yourself, at the time of each call. Tick only what it needs.</small></p>
+<div class="grid" style="gap:var(--s-2)">
+<div><b style="font-size:var(--fs-2)">Machines</b>
+<label class="check"><input type="checkbox" checked> See machines and read from them</label>
+<label class="check"><input type="checkbox" checked> Start jobs</label>
+<label class="check"><input type="checkbox"> Pause, resume, stop jobs; speed and flow</label>
+<label class="check"><input type="checkbox"> Move axes</label>
+<label class="check"><input type="checkbox"> Set heaters and fans</label></div>
+<div><b style="font-size:var(--fs-2)">Files and queue</b>
+<label class="check"><input type="checkbox" checked> See files</label>
+<label class="check"><input type="checkbox" checked> Upload and remove files</label>
+<label class="check"><input type="checkbox"> See the queue</label>
+<label class="check"><input type="checkbox"> Add to and change the queue</label></div>
+<div><b style="font-size:var(--fs-2)">Stock</b>
+<label class="check"><input type="checkbox"> See materials and spools</label>
+<label class="check"><input type="checkbox"> Use, weigh and change spools</label></div>
+</div>
+<p style="margin-top:var(--s-2)"><small>Not offered, because a token can never do them: Start burn on a laser and a frame with the laser on (only from a person's own sign-in), and granting permissions (only a person, in Space).</small></p>
+<span class="anno">scopes = an action set: device.view, job.start, job.control, device.move, device.heat, files.view, files.manage, queue.view, queue.manage, stock.view, stock.use · effective = scopes ∩ the person's rights at each request (decision 20261119-token-effective-rights)</span>
+</fieldset>
+<p><span class="fw"><button class="btn primary" type="button">Make token</button></span> <span class="anno">POST /api/v1/tokens {name, scopes, expires_at} · tokens.manage, from a session only</span></p>
+<div class="banner ok" role="status"><span><b>Token "slicer on the bench PC" made. Copy it now: it is shown only this once.</b><code class="secret" style="margin-top:var(--s-2)">mct_7Hq2vX9kLp3RtB8nWc4ZsYe6JmUa1DgF</code><small>If it is lost, revoke it and make a new one.</small></span><span class="fw"><button class="btn small" type="button">Copy</button></span><span class="fw"><button class="btn small ghost" type="button">Done</button></span></div>
+</div>
+<div class="table-wrap dense"><table><thead><tr><th>Name</th><th>May do</th><th>Ends</th><th>Last used</th><th></th></tr></thead><tbody>
+<tr><td>slicer</td><td>start jobs; see machines, files</td><td>1 Feb</td><td>today 13:02</td><td><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-revoke">Revoke…</button></span></td></tr>
+<tr><td>old script</td><td>see machines</td><td>no end</td><td><span class="unknown">never</span></td><td><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-revoke">Revoke…</button></span></td></tr>
+</tbody></table></div>
+<dialog id="confirm-revoke" aria-labelledby="rv-h"><h2 id="rv-h">Revoke this token?</h2><p>Every app that uses it stops working at once.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep it</button></span><span class="fw"><button class="btn danger" value="yes">Revoke</button></span></form></dialog>
+</section>
+
+<section id="audit" data-section aria-label="Audit log" hidden>
+<div class="row" style="margin-bottom:var(--s-3)"><label class="field">Who<select><option>Everyone</option><option>Noor</option><option>Sam</option><option>Ada</option></select></label><label class="field">What<select><option>Everything</option><option>Permissions</option><option>Members and invites</option><option>Machines</option><option>Tokens</option></select></label><label class="field">From<input type="date" value="2026-11-12"></label><label class="field">To<input type="date" value="2026-11-19"></label></div>
+<div class="table-wrap dense"><table><thead><tr><th>When</th><th>Who</th><th>What</th></tr></thead><tbody>
+<tr><td>19 Nov 14:02</td><td>Sam</td><td>loaded sign-oak on Laser-A</td></tr>
+<tr><td>18 Nov 20:10</td><td>Noor</td><td>made an invite link (member)</td></tr>
+<tr><td>12 Nov 18:05</td><td>Noor</td><td>granted Sam Start a laser job on Laser-A</td></tr></tbody></table></div>
+<p style="margin-top:var(--s-3)"><span class="fw"><button class="btn" type="button">Older</button></span> <small>Showing 3 of the newest; Older loads the next page.</small> <span class="anno">GET /api/v1/spaces/{id}/audit with a cursor · audit.view</span></p>
+</section>
+
+<section id="cameras" data-section aria-label="Cameras" hidden>
+<div class="card"><h2>Cameras</h2>
+<ul class="list">
+<li><div class="grow"><b>Cam-MINI-1</b> <span class="out">Online</span><br><small>Watches MINI-1 · rtsp://192.168.1.41/stream1</small></div><span class="fw"><button class="btn small" type="button">Edit</button></span><span class="fw"><a class="btn small" href="#cam-live">Show live</a></span><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-camdel">Remove…</button></span></li>
+<li><div class="grow"><b>Cam-Door</b> <span class="out">Online</span><br><small>The room · seen by admins · rtsp://192.168.1.40/stream1</small></div><span class="fw"><button class="btn small" type="button">Edit</button></span><span class="fw"><a class="btn small" href="#cam-live">Show live</a></span><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-camdel">Remove…</button></span></li>
+<li><div class="grow"><b>Cam-Laser-A</b> <span class="st off">Offline</span><br><small>Watches Laser-A · no picture since 11:20 · check the camera's power and network</small></div><span class="fw"><button class="btn small" type="button">Edit</button></span><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-camdel">Remove…</button></span></li>
+</ul>
+<span class="anno">GET /api/v1/cameras; PATCH, DELETE /api/v1/cameras/{id} · cameras.manage</span></div>
+<div class="card"><h2>Add a network camera</h2><div class="row"><label class="field">Name<input value="Cam-Bench"></label><label class="field">RTSP address<input value="rtsp://192.168.1.42/stream1"></label><label class="field">User name<input value="viewer"></label><label class="field">Password<input type="password" placeholder="not shown again once saved"></label><label class="field">Watches<select><option>the room</option><option>MINI-1</option><option>Laser-A</option></select></label><label class="field">The room's camera is seen by<select><option>admins</option><option>members</option><option>guests</option></select></label></div><p><span class="fw"><button class="btn primary" type="button">Add camera</button></span></p>
+<p><small>The password never comes back; editing with an empty password keeps it. To test a camera, Show live after saving. USB cameras come through the agent (Add machine).</small> <span class="anno">POST /api/v1/cameras {name, url, username, password, watches_device_id, room_view_role}</span></p></div>
+<div class="card" id="cam-live"><h2>Cam-MINI-1: live</h2><div class="preview cam"><span class="feed" aria-hidden="true">camera picture</span><div class="cam-bar"><b>Cam-MINI-1</b><span class="live">LIVE</span></div></div><span class="anno">/api/v1/cameras/{id}/ws</span></div>
+<dialog id="confirm-camdel" aria-labelledby="cm-h"><h2 id="cm-h">Remove this camera?</h2><p>Its live view goes from every page.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep it</button></span><span class="fw"><button class="btn danger" value="yes">Remove</button></span></form></dialog>
+</section>
+
+<section id="access" data-section aria-label="Access (doors)" hidden><div class="card"><h2>Doors</h2><p>Doors and badges are their own module: a door permission never grants a machine action, and a machine permission never opens a door. Not designed yet.</p><span class="anno">OQ-10</span></div></section>
+</div>
+
+</main>
+<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="host admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
+</body>
+</html>

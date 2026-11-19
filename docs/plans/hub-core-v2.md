@@ -227,7 +227,8 @@ hub gets no Docker rights (journal:V2-STORE-5:0014). How: [docs/pi-hub.md](../pi
     test runs our hub and their server on the same requests where both can serve them.
   - **Ours:** spaces, members, grants, devices of other kinds, lasers, labels, queue, farm, materials
     and stock, cameras, door access, the agent's pairing; same conventions.
-  - The Apps API (`/api/apps/v1`, `access.rs:177`) folds in.
+  - The Apps API (`/api/apps/v1`, `access.rs:177`) is removed: what it does is a call of `/api/v1`;
+    no `/api/apps/v1` path is kept, no fallback (owner, 2026-11-19: "geen oude v1 meer").
 - **Spoolman moves to `/spoolman/api/v1`.** Spoolman itself serves its API under a configurable base path
   (`reference/Spoolman/spoolman/main.py:57`), so a client pointed at `http://hub/spoolman` meets the same
   paths as a real Spoolman with that base path: to the letter of the reference, and the `/api/v1` clash

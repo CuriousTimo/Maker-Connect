@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Space: permissions · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body data-view="user">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
+  <span class="spacer"></span>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="host">Host</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
+</header>
+<aside class="side" aria-label="Navigation"><nav aria-label="Pages">
+<a href="now.html">Now</a>
+<div class="group">Work</div>
+<a href="machines.html">Machines</a>
+<a href="state-loading.html">Jobs</a>
+<a href="farm.html">Queue and farm</a>
+<div class="group">Stock</div>
+<a href="files.html">Files</a>
+<a href="materials.html">Materials</a>
+<div class="group">Watch</div>
+<a href="state-error.html">Cameras</a>
+<div class="group">Machines</div><div class="machines">
+<a href="printer.html"><span>MINI-1</span><small class="num">62 %</small></a>
+<a href="now.html#needs"><span>MINI-2</span><small>needs someone</small></a>
+<a href="ask-permission.html"><span>Printer-3</span><small>free</small></a>
+<a href="state-unknown.html"><span>Printer-4</span><small>offline</small></a>
+<a href="laser.html"><span>Laser-A</span><small>job loaded</small></a>
+<a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
+<a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
+</div>
+<div class="group" data-only="host admin instance">Manage</div>
+<a data-only="admin instance" href="add-machine.html">Add machine</a>
+<a data-only="host admin instance" href="space-members.html" aria-current="page">Space</a>
+<a data-only="instance" href="instance.html">Instance</a>
+<div class="user"><div class="group" data-only="guest">Eli · guest</div><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div><div class="group" data-only="instance">Ada · owner, instance admin</div>
+<a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a>
+<a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
+</nav></aside>
+<main id="main" tabindex="-1">
+
+<div class="head"><h1>Space: Workshop North</h1></div>
+<p class="note-role" data-only="user"><b>As a member (Sam):</b> this is a staff page; you get the refused page below.</p>
+<p class="note-role" data-only="host"><b>As a host (Mira, &ldquo;Staff&rdquo; in this space):</b> you handle requests and record inductions with a grant here, in Space. A host's grant holds no damaging action: an admin grants those.</p>
+<p class="note-role" data-only="admin instance"><b>As an admin or owner:</b> grants are made here and only here, your own included. Asking grants nothing; you grant.</p>
+<div data-only="guest user" data-not="host"><div class="empty"><div class="big" aria-hidden="true">⌀</div><h2>This page is for the space's staff</h2><p>Owners and admins manage permissions here. Your own are under <a href="space-members.html#mine">My permissions</a>.</p><p><span class="fw"><a class="btn" href="now.html" data-guest>Back to Now</a></span></p></div>
+<p style="margin-top:var(--s-3)"><small>The hub refuses the page's calls too; the navigation never offers it.</small></p></div>
+<div data-only="host admin instance"><nav class="tabs" aria-label="Space"><a data-only="admin instance" href="space-settings.html#general">General</a><a data-only="admin instance" href="space-settings.html#rights">Area rights</a><a href="space-members.html">Members</a><a href="space-permissions.html" aria-current="page">Permissions</a><a data-only="admin instance" href="space-settings.html#tokens">API tokens</a><a data-only="admin instance" href="space-settings.html#audit">Audit log</a><a data-only="admin instance" href="space-settings.html#cameras">Cameras</a><a data-only="admin instance" href="space-settings.html#access">Access (doors)</a></nav>
+<div class="tabs" role="tablist" aria-label="Permissions"><a href="#grants" role="tab" id="t-grants" aria-controls="grants">Grants</a><a href="#requests" role="tab" id="t-requests" aria-controls="requests">Requests <small>&nbsp;2</small></a><a href="#groups" role="tab" id="t-groups" aria-controls="groups">Machine groups</a></div>
+<section id="grants" role="tabpanel" aria-labelledby="t-grants">
+<div class="row" style="margin-bottom:var(--s-3)"><label class="field">Person<select><option>Sam</option><option>Noor</option><option>Ravi</option><option>Ada</option><option>Eli</option></select></label><label class="field">Machine or group<select><option>3D printers (group)</option><option selected>Laser-A</option><option>Tape-1</option></select></label></div>
+<div class="card"><h2>Sam on Laser-A</h2>
+<label class="field">Preset<select><option>View: see it</option><option>Use: view, start and control jobs</option><option selected>Operate: use, move and heat</option><option data-not="host">Manage: operate, settings and upkeep</option></select></label>
+<span class="anno">presets View, Use, Operate, Manage as in authz.md (device.view; + job.start, job.control; + device.move, device.heat; + device.manage)</span>
+<p data-only="host"><small><b>Manage</b> and the <b>damaging actions</b> (Start a laser job, firmware, raw G-code) are not offered: an admin grants these. Your own row is not offered either.</small> <span class="anno">a host's grant holds neither device.manage nor a damaging action and is never to the host's own row; refused in the no-self-elevation family (authz.md, a host's grants; OQ-41, decided)</span></p>
+<div data-not="host"><h3 style="margin-top:var(--s-3)">Damaging: granted by name, never in a preset</h3>
+<label class="check"><input type="checkbox" checked> <span><b>Start a laser job</b> <small>· granted 12 Nov by Noor, after the laser course</small></span></label>
+<label class="check"><input type="checkbox"> <span><b>Update firmware</b></span></label>
+<p><small>Raw G-code is for 3D printers only; a laser has none.</small> <span class="anno">mc.laser.start, device.firmware; device.gcode not on a laser (decision 20261119-no-raw-gcode-on-a-laser)</span></p></div>
+<label class="field">Note <small>(optional)</small><input placeholder="for example: laser course given"></label>
+<div class="row"><label class="field">Ends<input type="date"></label><span class="ctl"><span class="fw"><button class="btn primary" type="button" data-cmd="ok" data-settled="Saved at 15:52. Sam's permissions on Laser-A changed at once.">Save grant</button></span><span class="status" aria-live="polite"></span></span></div>
+<span class="anno">POST /api/v1/grants {user, device or device_group, actions, expires_at, note} · grants.manage, a person's session only; records who granted it; an induction is a grant with a note</span>
+</div>
+<div class="card"><h2>Noor on Laser-A</h2><p>Preset: Manage. <b>Start a laser job: not granted.</b></p><p data-not="host"><small>Your own grant is set here like anyone's. Being admin is not having had the laser course.</small></p><span class="fw" data-not="host"><button class="btn" type="button">Change…</button></span><p data-only="host"><small>Holds Manage: only an admin changes or removes it. You may remove a grant you could have given.</small> <span class="anno">DELETE /api/v1/grants/{id} · a host only a grant without device.manage and without a damaging action</span></p></div>
+</section>
+<section id="requests" role="tabpanel" aria-labelledby="t-requests" hidden>
+<ul class="list card dense">
+<li><div class="grow"><b>Ravi</b> asked for <b>Laser-A</b><br><small>19 Nov, 13:50 · Laser-A needs a training</small></div><span class="fw"><a class="btn small primary" href="#grants">Grant…</a></span><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-refuse">Refuse…</button></span></li>
+<li><div class="grow"><b>Sam</b> asked for a training on <b>Printer-3</b><br><small>19 Nov, 14:20</small></div><span class="fw"><a class="btn small primary" href="#grants">Grant…</a></span><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-refuse">Refuse…</button></span></li>
+</ul>
+<p><small>Grant… opens the grant form for that person and machine; the request is then marked granted. The request itself grants nothing.</small> <span class="anno">PATCH /api/v1/access-requests/{id} {state: granted or refused} · grants.manage</span></p>
+</section>
+<section id="groups" role="tabpanel" aria-labelledby="t-groups" hidden><div class="card"><ul class="list"><li><div class="grow"><b>3D printers</b><br><small>MINI-1, MINI-2, Printer-3, Printer-4 · a machine added later joins when it is put in the group</small></div><span class="fw"><button class="btn small" type="button">Edit</button></span></li></ul><span class="anno">/api/v1/device-groups · grants.view, grants.manage</span></div></section>
+</div>
+<dialog id="confirm-refuse" aria-labelledby="crf-h"><h2 id="crf-h">Refuse this request?</h2><p>The person sees that it was refused and may ask again.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Back</button></span><span class="fw"><button class="btn danger" value="yes">Refuse</button></span></form></dialog>
+
+</main>
+<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="host admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
+</body>
+</html>

@@ -457,6 +457,11 @@ pressing Enter per line would. The terminal page's upper-casing stays unported (
 al gebruik van maakt. dus geen moeilijk gedoe met versies die incompatible zijn." Hub and agent
 change together; old agents need not keep working.
 
+**Owner, 2026-11-19:** "geen oude v1 meer. er is toch niets en niemand actief": in v2 no v1 is
+kept anywhere, no fallback and no transition. The v1 routes this plan names (`/api/agent/v1/*`, the
+Apps API v1 and its extension) go with v2 ([wire.md](../design/wire.md) replaces the agent link;
+[overview.md](../design/overview.md#rules-every-part-obeys) rule 8).
+
 **D4 decided (owner, 2026-11-15):** the laser keeps LaserFoundry's GRBL (`laserfoundry-device`,
 `laserfoundry-gcode`, used by `crates/grbl`; the owner's choice of 2026-11-04): "we kunnen gewoon
 door blijven bouwen op basis van de GRBL in laserfoundry". At the laser's turn: `crates/grbl` becomes
@@ -558,7 +563,7 @@ the hub and a release check that no `requestPort`/`navigator.serial` is in the b
 (2) Served by the hub, same origin (works on an http LAN and offline; GitHub Pages fails on mixed
 content, its fixed CSP and local-network checks). (3) Built by our release script from a pinned
 fork commit at the same LaserFoundry tag as the agent's laser port, packed into the hub archive
-(covered by SHA256SUMS and the signature). (4) Apps API v1 stays: the file lands in Files with the
+(covered by SHA256SUMS and the signature). (4) Apps API v1 stays (v2: removed, no v1 kept, [overview.md](../design/overview.md#rules-every-part-obeys) rule 8): the file lands in Files with the
 laser chosen; a person frames and starts it ("Burn" to the queue would be a new safety decision and
 an API v2). (5) The fork sends LaserFoundry's own exporter output only, nothing of ours in the
 G-code. (6) The upstream merge request follows the MakerFoundry pattern (`crates/ai/src/maker_connect.rs`,
@@ -567,14 +572,14 @@ Addendum (architect): "Burn → the laser's queue" fits the 2026-11-06 rule only
 never starts a laser job by itself (`queue.rs` `start_queued` skips lasers); a person at the laser
 frames and presses Start on the machine page (operate + PPE, with a session; the app's token never
 starts anything); optionally the hub refuses Start unless that file was just framed on that
-machine. Apps API: a compatible v1 extension (`POST /api/apps/v1/machines/{id}/queue?file=<id>`,
+machine. Apps API: a compatible v1 extension (v2: removed, no v1 kept, [overview.md](../design/overview.md#rules-every-part-obeys) rule 8) (`POST /api/apps/v1/machines/{id}/queue?file=<id>`,
 `queue_length`/`queue_held` per machine, `info.features: ["queue"]`), `docs/api/apps-api.md` changed in
 the same change.
 
 **Owner, 2026-11-15 — a laser never starts unattended:** "Laser is een machine waar je vanalles
 moet doen om het materiaal en printer eerst klaar te maken. outer dimensions wil bekijken enz enz.
 persoonlijke bescherming (bril) enz. dus nooit onbeheerd starten." "Burn" puts the file in the
-laser's queue (the architect's v1 extension); the queue never starts a laser job by itself; a
+laser's queue (the architect's v1 extension, v2: removed, no v1 kept, [overview.md](../design/overview.md#rules-every-part-obeys) rule 8); the queue never starts a laser job by itself; a
 person at the laser prepares the material and machine, frames to check the outer dimensions, meets
 the PPE check (glasses), and presses Start on the machine page.
 
@@ -630,7 +635,7 @@ machine and presses Start there); `link.protocol() != link_protocol()` (:1227: t
 | G1 | An `Action` is the `Link` call LaserFoundry's app makes for the same control: Unlock `Link::unlock` (`control_box.rs:160`), SetOrigin `set_zero` (:163), GoOrigin `go_to_zero` (:166), Home `home` (:157), ReadSettings `request_settings` (`settings_ui.rs:60`), Jog `jog(dx, dy, feed)` (`panels.rs:813`; no feed: LaserFoundry's `jog_feed` 3000, `lib.rs:413`), typed G-code `send_line` (`panels.rs:865`, one call per line). Home's axes are not used: LaserFoundry has one homing cycle (`$H`) | to approve (proxy) |
 | G2 | FDM actions, and a jog with Z (LaserFoundry has no Z jog) fail "LaserFoundry has no such control" | to approve (proxy) |
 | G3 | `LaserOff` fails "LaserFoundry has no such control". LaserFoundry's app has no laser-off control: its Stop (`panels.rs:774`, `control_box.rs:148`: "Soft reset: stops motion and turns the laser off") is `Link::stop`, here a job control (G6). A bare `M5` is not sent (it would be ours). **For the owner:** whether the hub's laser-off button should send Stop (a soft reset) or stay absent | to approve (proxy); owner decides the button |
-| G4 | `Frame { download }`: the agent's hub link (`link.rs`, `Commands`) fetches the command's file with the B2 fetch (a thread of its own, streamed to `frame-<id>`, at most 512 MB) from `/api/agent/v1/files/{id}` only (the path must be exactly that, an id of letters, digits, `-`, `_`; anything else fails the command; the hub's agent route authorises it as B2, with the agent's token), and gives the port the local path in `download`; commands behind it wait (O2), and the file goes once the command is reported done. The port reads the file's extent (G16) and runs `GrblMachine::frame`: `gcode::frame` (`crates/gcode/src/lib.rs:92`) as a job through the same refusals as Start, as `panels.rs:734-740` does; the command is done when the frame has run. A path that is not a readable file, or a file with no moves, fails the command | to approve (proxy); decided (proxy) |
+| G4 | `Frame { download }`: the agent's hub link (`link.rs`, `Commands`) fetches the command's file with the B2 fetch (a thread of its own, streamed to `frame-<id>`, at most 512 MB) from `/api/agent/v1/files/{id}` (v2: `/api/agent/v2/files/{id}`, no v1 kept) only (the path must be exactly that, an id of letters, digits, `-`, `_`; anything else fails the command; the hub's agent route authorises it as B2, with the agent's token), and gives the port the local path in `download`; commands behind it wait (O2), and the file goes once the command is reported done. The port reads the file's extent (G16) and runs `GrblMachine::frame`: `gcode::frame` (`crates/gcode/src/lib.rs:92`) as a job through the same refusals as Start, as `panels.rs:734-740` does; the command is done when the frame has run. A path that is not a readable file, or a file with no moves, fails the command | to approve (proxy); decided (proxy) |
 | G5 | A job is `GrblMachine::start`: the refusals above, then `Link::start_job` (`lib.rs:1270-1273`); `from_line` is `start_from_line` (:1258-1266), `resume_from` for any line given (also 1: the app does); the line to start again from is `restart_line` over the acknowledged lines (`record_job_position` :1291-1328), in the design's numbering (`Restart::place_in_design` :105-115). The snapshot keeps the earlier job's end until the link's thread takes the new job up: this job's end is taken only once the snapshot changed or the link logged "job started" (no wait). A start while a job is held is refused with the link's `Busy` text | to approve (proxy) |
 | G6 | Pause, resume and stop are `Link::pause`, `resume`, `stop` (`panels.rs:766-776`); stop works with or without a job, as the app's button. A refusal, and a question's answer (LaserFoundry asks none), are the report's `problem` until the next order | to approve (proxy) |
 | G7 | The port looks at the link's snapshot every 100 ms (`TICK`), as LaserFoundry's app does for a threaded link (`ui-egui/src/lib.rs:1384`). No byte goes to the machine for it: the 200 ms `?` is the `Link`'s own and is counted apart in the proof. An order is acted on the moment it arrives (the port waits on its orders with the tick as the time limit), as the app calls `Link::stop` and `pause` when the button is pressed (`panels.rs:766-776`, `control_box.rs:141-149`) | decided (proxy) |
@@ -674,7 +679,7 @@ the proxy recommends absent, Stop exists); G10 approved (no retry of a failed op
 "not covered"); G7 FIX: the port reads LaserFoundry's snapshot every 100 ms as its app does for a
 non-inline link (`ui-egui/src/lib.rs:1309`), and the proof's reference side uses the same cadence;
 G8 the time-left estimate only in the UI; the hub link fetches a command's file (Frame) with the B2
-fetch over the existing `/api/agent/v1/files/{id}`, authorised as B2. Upstream contributions:
+fetch over the existing `/api/agent/v1/files/{id}`, authorised as B2 (v2: `GET /api/agent/v2/files/{id}`, [wire.md](../design/wire.md); no v1 kept). Upstream contributions:
 proposals only; sending them is the owner's.
 
 **Step 3c decided (proxy, 2026-11-15):** W6 approved (Stop = CUPS's cancel; write down that the

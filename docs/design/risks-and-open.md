@@ -268,6 +268,52 @@ open (`device_registrations.expires_at`), and whether claims of unknown codes ar
 read from today's code in the device step), and the sign-in failure counter applied to unknown codes
 per caller; decided in the device step.
 
+### OQ-41: The host role, open points
+
+The [decision](decisions/20261119-host-role-and-area-rights.md) gave the host a member's rights plus
+the daily work and left open: stock handling, the bounds of a host's grant, recording an induction,
+the label, and an organisation role of host.
+
+**Decided** (owner, journal:DESIGN-HOST:0006, in the
+[decision](decisions/20261119-host-role-and-area-rights.md)):
+
+1. **Stock handling** is the member's `stock.use`; a host never holds `stock.manage` (no `.manage`
+   action moves).
+2. **A host's grant** never holds `device.manage` nor a damaging action; a host never grants to their
+   own row; a host may remove a grant they could have given. A refusal uses a code of the
+   no-self-elevation family (as `authz/ROLE_ABOVE_OWN`); a new code only if none fits
+   ([authz.md](authz.md#presets-roles-and-grants)).
+3. **An induction** is a grant with a note (`action_grants.note`), not a record of its own.
+4. **The label** is free text per space, default "host" (`spaces.host_label`).
+5. **No organisation host:** organisation roles stay member, admin and owner.
+
+Readings confirmed: a host's `queue.manage` reaches every item; a host holds `grants.view` and a
+bounded `grants.manage`.
+
+### OQ-42: Area rights, open points
+
+The [decision](decisions/20261119-host-role-and-area-rights.md) moves an area's `.view` and `.use`
+between roles, with defaults from the space kind, and left open: the `office` and `private`
+defaults, changing the kind, which `.view` actions move, `.view` against `.use`, a guest with `.use`,
+and the route.
+
+**Decided** (owner, journal:DESIGN-HOST:0006, in the
+[decision](decisions/20261119-host-role-and-area-rights.md); [authz.md](authz.md#area-rights-per-space)):
+
+1. **Defaults:** `office`: members use devices and stock, guests nothing; `private`: owner and admin
+   use, members view; `makerspace`: today's role table. Existing spaces become `makerspace`.
+2. **The kind** may be changed later by `space.manage`; that changes no existing right: the kind's
+   defaults are a setup default only.
+3. **Fixed `.view` actions:** `space.members.view`, `grants.view` and `audit.view` do not move; only
+   the modules' `.view` and `.use` do.
+4. **`.use` never below `.view`.**
+5. **A guest never holds `.use`.**
+6. **The route** `PUT /api/v1/spaces/{id}/area-rights` is a person's session only (no tokens).
+
+The refusal of an action that does not move, a role outside the list, a `.use` at guest or below its
+`.view` uses the existing `validation/ARGUMENT_NOT_SUPPORTED` (400), with a `text` saying which rule
+(coordinator, journal:DESIGN-HOST:0009); no new code.
+
 ## Issues the design cannot place yet
 
 | Issue | Why |

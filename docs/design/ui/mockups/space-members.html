@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Space: members · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body data-view="user">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
+  <span class="spacer"></span>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="host">Host</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
+</header>
+<aside class="side" aria-label="Navigation"><nav aria-label="Pages">
+<a href="now.html">Now</a>
+<div class="group">Work</div>
+<a href="machines.html">Machines</a>
+<a href="state-loading.html">Jobs</a>
+<a href="farm.html">Queue and farm</a>
+<div class="group">Stock</div>
+<a href="files.html">Files</a>
+<a href="materials.html">Materials</a>
+<div class="group">Watch</div>
+<a href="state-error.html">Cameras</a>
+<div class="group">Machines</div><div class="machines">
+<a href="printer.html"><span>MINI-1</span><small class="num">62 %</small></a>
+<a href="now.html#needs"><span>MINI-2</span><small>needs someone</small></a>
+<a href="ask-permission.html"><span>Printer-3</span><small>free</small></a>
+<a href="state-unknown.html"><span>Printer-4</span><small>offline</small></a>
+<a href="laser.html"><span>Laser-A</span><small>job loaded</small></a>
+<a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
+<a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
+</div>
+<div class="group" data-only="host admin instance">Manage</div>
+<a data-only="admin instance" href="add-machine.html">Add machine</a>
+<a data-only="host admin instance" href="space-members.html" aria-current="page">Space</a>
+<a data-only="instance" href="instance.html">Instance</a>
+<div class="user"><div class="group" data-only="guest">Eli · guest</div><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div><div class="group" data-only="instance">Ada · owner, instance admin</div>
+<a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a>
+<a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
+</nav></aside>
+<main id="main" tabindex="-1">
+
+<div class="head"><h1 data-only="host admin instance">Space: Workshop North</h1><h1 data-only="guest user" data-not="host">My permissions</h1></div>
+<p class="note-role" data-only="user"><b>As a member (Sam):</b> Space is for the staff; you get your own permissions and requests, read only.</p>
+<p class="note-role" data-only="guest"><b>As a guest (Eli):</b> you look only; your permissions, read only.</p>
+<p class="note-role" data-only="host"><b>As a host (Mira, &ldquo;Staff&rdquo; in this space):</b> you see the members and their roles, read only. Roles and invites are the admins'; requests and grants without damaging actions are yours, under Permissions.</p>
+<p class="note-role" data-only="admin"><b>As an admin (Noor):</b> members, roles and invites. You give a role up to your own (admin), never above it; only an owner makes an owner.</p>
+<p class="note-role" data-only="instance"><b>As Ada (owner):</b> you may also make an owner. You are the only owner, so you cannot step down until there is another.</p>
+<div data-only="guest user" data-not="host" id="mine">
+<div class="card"><h2>Your permissions in Workshop North</h2><p>Read only. The space's staff change them, in Space.</p>
+<div class="table-wrap"><table><thead><tr><th>Machine</th><th>You may</th></tr></thead><tbody>
+<tr data-only="guest"><td>Every machine</td><td>view</td></tr>
+<tr data-only="user"><td>MINI-1, MINI-2</td><td>view; start, pause and stop jobs</td></tr>
+<tr data-only="user"><td>Laser-A</td><td>view; load, move and frame; <b>Start burn</b> (by name, 12 Nov, by Noor)</td></tr>
+<tr data-only="user"><td>Tape-1, Labels-1</td><td>view; print</td></tr>
+<tr data-only="user"><td>Printer-3</td><td>view · a request is pending (below)</td></tr>
+<tr data-only="user"><td>Printer-4</td><td>view · <b>move and heat ended on 15 Nov</b> (the grant had an end date)</td></tr>
+</tbody></table></div>
+<span class="anno">GET /api/v1/me (actions); words per action from the actions registry; this page from the user menu is a proposal</span></div>
+<div class="card" data-only="user"><h2>Your requests</h2>
+<ul class="list">
+<li><div class="grow"><b>A training on Printer-3</b><br><small>Asked 19 Nov, 14:20</small></div><span class="out">Pending</span><span class="fw"><button class="btn small" type="button" data-dialog="confirm-withdraw">Withdraw…</button></span></li>
+<li><div class="grow"><b>Heating on MINI-2</b><br><small>Asked 8 Nov · refused 10 Nov by the staff</small></div><span class="out">Refused</span></li>
+<li><div class="grow"><b>Start burn on Laser-A</b><br><small>Asked 5 Nov · granted 12 Nov</small></div><span class="out">Granted</span></li>
+</ul>
+<span class="anno">GET /api/v1/access-requests/mine; Withdraw: DELETE /api/v1/access-requests/{id} while open</span></div>
+</div>
+
+<div data-only="host"><nav class="tabs" aria-label="Space"><a href="space-members.html" aria-current="page">Members</a><a href="space-permissions.html">Permissions</a></nav>
+<div class="table-wrap dense"><table><thead><tr><th>Member</th><th>Role here</th><th>In the organisation</th></tr></thead><tbody>
+<tr><td><b>Ada</b></td><td>owner</td><td>owner</td></tr>
+<tr><td><b>Noor</b></td><td>admin</td><td>member</td></tr>
+<tr><td><b>Mira</b> <small>you</small></td><td>Staff <small>(host)</small></td><td>—</td></tr>
+<tr><td><b>Sam</b></td><td>member</td><td>—</td></tr>
+<tr><td><b>Ravi</b></td><td>member</td><td>—</td></tr>
+<tr><td><b>Eli</b></td><td>guest</td><td>—</td></tr>
+</tbody></table></div>
+<p style="margin-top:var(--s-2)"><small>Read only: an admin or owner changes roles and makes invites.</small> <span class="anno">GET /api/v1/spaces/{id}/members · space.members.view; PATCH needs space.members.manage, which a host never holds (decision 20261119-host-role-and-area-rights)</span></p>
+</div>
+
+<div data-only="admin instance"><nav class="tabs" aria-label="Space"><a data-only="admin instance" href="space-settings.html#general">General</a><a data-only="admin instance" href="space-settings.html#rights">Area rights</a><a href="space-members.html" aria-current="page">Members</a><a href="space-permissions.html">Permissions</a><a data-only="admin instance" href="space-settings.html#tokens">API tokens</a><a data-only="admin instance" href="space-settings.html#audit">Audit log</a><a data-only="admin instance" href="space-settings.html#cameras">Cameras</a><a data-only="admin instance" href="space-settings.html#access">Access (doors)</a></nav>
+
+<div class="table-wrap dense" data-only="admin"><table><thead><tr><th>Member</th><th>Role here</th><th>In the organisation</th><th></th></tr></thead><tbody>
+<tr><td><b>Noor</b> <small>you</small></td><td><select aria-label="Noor's role"><option disabled>owner (only an owner gives it)</option><option selected>admin</option><option>Staff (host)</option><option>member</option><option>guest</option></select><span class="anno">lowering one's own role: OQ-39, open</span></td><td>member</td><td><span class="fw"><a class="btn small" href="space-permissions.html#grants">Permissions</a></span></td></tr>
+<tr><td><b>Ada</b></td><td><select aria-label="Ada's role" disabled aria-describedby="why-ada"><option selected>owner</option></select><span class="why" id="why-ada">An owner: above your own role.</span><span class="anno">changing a member above oneself: OQ-39, open (recommended no); the last owner is kept (authz/LAST_OWNER)</span></td><td>owner</td><td><span class="fw"><a class="btn small" href="space-permissions.html#grants">Permissions</a></span></td></tr>
+<tr><td><b>Mira</b></td><td><select aria-label="Mira's role"><option disabled>owner (only an owner gives it)</option><option>admin</option><option selected>Staff (host)</option><option>member</option><option>guest</option></select><span class="why">Staff is this space's word for the host role (General).</span></td><td>—</td><td><span class="fw"><a class="btn small" href="space-permissions.html#grants">Permissions</a></span> <span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-remove">Remove…</button></span></td></tr>
+<tr><td><b>Sam</b></td><td><select aria-label="Sam's role"><option disabled>owner (only an owner gives it)</option><option>admin</option><option>Staff (host)</option><option selected>member</option><option>guest</option></select></td><td>—</td><td><span class="fw"><a class="btn small" href="space-permissions.html#grants">Permissions</a></span> <span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-remove">Remove…</button></span></td></tr>
+<tr><td><b>Ravi</b></td><td><select aria-label="Ravi's role"><option disabled>owner (only an owner gives it)</option><option>admin</option><option>Staff (host)</option><option selected>member</option><option>guest</option></select></td><td>—</td><td><span class="fw"><a class="btn small" href="space-permissions.html#grants">Permissions</a></span> <span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-remove">Remove…</button></span></td></tr>
+<tr><td><b>Eli</b></td><td><select aria-label="Eli's role"><option disabled>owner (only an owner gives it)</option><option>admin</option><option>Staff (host)</option><option>member</option><option selected>guest</option></select><span class="why">Guests look only.</span></td><td>—</td><td><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-remove">Remove…</button></span></td></tr>
+</tbody></table></div>
+
+<div class="table-wrap dense" data-only="instance"><table><thead><tr><th>Member</th><th>Role here</th><th>In the organisation</th><th></th></tr></thead><tbody>
+<tr><td><b>Ada</b> <small>you</small></td><td><select aria-label="Ada's role" disabled aria-describedby="why-last"><option selected>owner</option></select><span class="why" id="why-last">You are the only owner: make another member owner first.</span><span class="anno">authz/LAST_OWNER (OQ-39)</span></td><td>owner</td><td><span class="fw"><a class="btn small" href="space-permissions.html#grants">Permissions</a></span></td></tr>
+<tr><td><b>Noor</b></td><td><select aria-label="Noor's role"><option>owner</option><option selected>admin</option><option>Staff (host)</option><option>member</option><option>guest</option></select></td><td>member</td><td><span class="fw"><a class="btn small" href="space-permissions.html#grants">Permissions</a></span> <span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-remove">Remove…</button></span></td></tr>
+<tr><td><b>Sam</b></td><td><select aria-label="Sam's role"><option>owner</option><option>admin</option><option>Staff (host)</option><option selected>member</option><option>guest</option></select></td><td>—</td><td><span class="fw"><a class="btn small" href="space-permissions.html#grants">Permissions</a></span> <span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-remove">Remove…</button></span></td></tr>
+</tbody></table><p style="padding:var(--s-2) var(--s-3)"><small>Mira, Ravi and Eli as in the admin's view.</small></p></div>
+<p style="margin-top:var(--s-2)"><small>A role is at most your own; options above it cannot be picked.</small> <span class="anno">PATCH, DELETE /api/v1/spaces/{id}/members/{user} · space.members.manage · authz/ROLE_ABOVE_OWN · roles guest &lt; member &lt; host &lt; admin &lt; owner; the host's label from spaces.host_label</span></p>
+
+<div class="card" style="margin-top:var(--s-4)"><h2>Invites</h2>
+<div class="row"><label class="field">Role<select><option>member</option><option>guest</option><option>Staff (host)</option><option>admin</option><option data-only="instance">owner</option></select></label><label class="field">Ends<input type="date" value="2026-11-26"></label><label class="check" style="flex:0 1 auto"><input type="checkbox" aria-describedby="why-whole"> Whole organisation</label><span class="fw"><button class="btn primary" type="button">Make invite link</button></span></div>
+<p class="why" id="why-whole" data-only="admin">For the whole organisation: at most your role in the organisation (member).</p>
+<div class="banner ok" role="status"><span><b>Copy it now: it is shown only this once.</b><code class="secret" style="margin-top:var(--s-2)">https://hub.example/invite/Jx8Rk2mQv7Lw4Tz9Pb3Nc6Hd</code></span><span class="fw"><button class="btn small" type="button">Copy</button></span></div>
+<ul class="list dense"><li><div class="grow">member · ends 22 Nov · made by Noor</div><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-revinv">Revoke…</button></span></li></ul>
+<span class="anno">POST /api/v1/spaces/{id}/invites {role, whole_organisation, expires_at}: the link once · authz/ORG_ROLE_NEEDED</span>
+</div></div>
+<dialog id="confirm-remove" aria-labelledby="rm-h"><h2 id="rm-h">Remove this member from Workshop North?</h2><p>They lose every permission in this space at once. Their jobs and history stay.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep</button></span><span class="fw"><button class="btn danger" value="yes">Remove</button></span></form></dialog>
+<dialog id="confirm-revinv" aria-labelledby="ri-h"><h2 id="ri-h">Revoke this invite link?</h2><p>The link stops working; nobody can join with it.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep it</button></span><span class="fw"><button class="btn danger" value="yes">Revoke</button></span></form></dialog>
+<dialog id="confirm-withdraw" aria-labelledby="cw-h"><h2 id="cw-h">Withdraw your request for Printer-3?</h2><p>The staff see that you took it back. You may ask again later.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep it</button></span><span class="fw"><button class="btn primary" value="yes">Withdraw</button></span></form></dialog>
+
+</main>
+<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="host admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
+</body>
+</html>

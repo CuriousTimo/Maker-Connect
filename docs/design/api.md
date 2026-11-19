@@ -53,28 +53,30 @@ every route names one or the other.
 | PUT | `/api/v1/me/password` | `session` | `{old, new}` | 204 |
 | POST | `/api/v1/me/tokens/end` | `session` | — | 204; bumps the generation, every token of the person ends |
 | GET | `/api/v1/spaces` | `session` | — | the person's spaces: their memberships and every space of the organisations they have a role in |
-| POST | `/api/v1/spaces` | `organisation.manage` (an organisation role only, [decision](decisions/20261119-organisation-actions-by-organisation-role.md)) | `{name}` | 201 space |
-| PATCH | `/api/v1/spaces/{id}` | `space.manage` | `{name?, ppe_checks?}` | space |
+| POST | `/api/v1/spaces` | `organisation.manage` (an organisation role only, [decision](decisions/20261119-organisation-actions-by-organisation-role.md)) | `{name, kind}`; `kind` `makerspace`, `office` or `private` gives the space's first area rights | 201 space |
+| PATCH | `/api/v1/spaces/{id}` | `space.manage` | `{name?, ppe_checks?, host_label?, kind?}`; `host_label` free text (empty: "host"); a new `kind` changes no existing right ([authz.md](authz.md#area-rights-per-space)) | space |
+| GET | `/api/v1/spaces/{id}/area-rights` | `space.manage` | — | the space's kind, and per movable area action (`files.view`, `queue.view`, `farm.view`, `farm.use`, `stock.view`, `stock.use`) the lowest role that holds it ([authz.md](authz.md#area-rights-per-space)) |
+| PUT | `/api/v1/spaces/{id}/area-rights` | `space.manage`, a person's session only (never a token, `authz/SESSION_ONLY`) | `{rights: {<action>: <role>}}`, `<role>` one of `guest`, `member`, `host`, `admin`; a `.use` never `guest` and never below its area's `.view` | area rights; refused for an action that does not move (a `.manage` action, `organisation.manage`, a device action, `space.members.view`, `grants.view`, `audit.view`), a role outside that list, a `.use` at guest or below its `.view` (`validation/ARGUMENT_NOT_SUPPORTED`, [OQ-42](risks-and-open.md#oq-42-area-rights-open-points)); one transaction writes the rows and an audit row per change and bumps `authz_epoch` ([decision](decisions/20261119-host-role-and-area-rights.md)) |
 | PATCH | `/api/v1/organisations/{id}` | `organisation.manage` (an organisation role only) | `{name}` | organisation |
-| GET | `/api/v1/spaces/{id}/members` | `space.members.view` | — | members with roles |
-| PATCH | `/api/v1/spaces/{id}/members/{user}` | `space.members.manage`; the role at most the caller's own ([decision](decisions/20261119-no-self-elevation.md)) | `{role}` | member |
+| GET | `/api/v1/spaces/{id}/members` | `space.members.view` | — | members with roles (`guest`, `member`, `host`, `admin`, `owner`) and the space's `host_label` |
+| PATCH | `/api/v1/spaces/{id}/members/{user}` | `space.members.manage`; the role at most the caller's own ([decision](decisions/20261119-no-self-elevation.md)) | `{role}`: `guest`, `member`, `host`, `admin` or `owner` | member |
 | DELETE | `/api/v1/spaces/{id}/members/{user}` | `space.members.manage` | — | 204 |
-| GET, POST | `/api/v1/spaces/{id}/invites` | `space.members.manage`; the role at most the caller's own, `whole_organisation` only with an organisation role | `{role, whole_organisation, expires_at}` | invites; on POST the link once |
+| GET, POST | `/api/v1/spaces/{id}/invites` | `space.members.manage`; the role at most the caller's own, `whole_organisation` only with an organisation role | `{role, whole_organisation, expires_at}`, `role` as in members | invites; on POST the link once |
 | POST | `/api/v1/invites/accept` | `public`; the handler checks the invite token | `{token, name, display_name, password}` for a new account, `{token}` when signed in | 201 the membership, `Set-Cookie` for a new account; already a member: `authz/ALREADY_MEMBER` ([decision](decisions/20261119-invite-accept.md)) |
 | DELETE | `/api/v1/spaces/{id}/invites/{invite}` | `space.members.manage` | — | 204 (revoked) |
 | GET, POST | `/api/v1/tokens` | `tokens.manage`; POST from a session only | `{name, scopes, expires_at}` | tokens; on POST the secret once; a token's rights are its scopes intersected with its person's at each request |
 | DELETE | `/api/v1/tokens/{id}` | `tokens.manage` | — | 204 (revoked) |
 | GET | `/api/v1/spaces/{id}/audit` | `audit.view` | cursor | audit rows |
 | GET | `/api/v1/grants` | `grants.view` | `?user=&device=&group=` | grants |
-| POST | `/api/v1/grants` | `grants.manage`, in Space only, a person's session only (never a token) | `{user, device or device_group, actions, expires_at}` | 201 grant |
-| DELETE | `/api/v1/grants/{id}` | `grants.manage`, session only | — | 204 |
+| POST | `/api/v1/grants` | `grants.manage`, in Space only, a person's session only (never a token); a host's grant holds neither `device.manage` nor a damaging action and is never to the host's own row, refused in the no-self-elevation family ([authz.md](authz.md#presets-roles-and-grants)) | `{user, device or device_group, actions, expires_at, note?}`; `note`: free text, for example an induction given | 201 grant |
+| DELETE | `/api/v1/grants/{id}` | `grants.manage`, session only; a host only a grant they could have given (no `device.manage`, no damaging action) | — | 204 |
 | GET, POST | `/api/v1/device-groups` | `grants.view`; POST `grants.manage`, session only | `{name}` | groups |
 | PATCH, DELETE | `/api/v1/device-groups/{id}` | `grants.manage`, session only | `{name?, devices?}` | group |
 | POST | `/api/v1/access-requests` | `space.member` | `{device_id}` | 201; grants nothing (#11) |
 | GET | `/api/v1/access-requests/mine` | `space.member` | `?state=` | the caller's own requests in the space, with when they were asked and handled (UI study, journal:UI-DESIGN:0009 Q5: a member reads their own requests) |
 | DELETE | `/api/v1/access-requests/{id}` | `space.member`, the request's own person, while `state` is `open` | — | 204; the row stays with `state` `withdrawn`, so staff see it was taken back (UI-DESIGN:0009 Q5: withdraw) |
 | GET | `/api/v1/access-requests` | `grants.view` | `?state=` | requests |
-| PATCH | `/api/v1/access-requests/{id}` | `grants.manage`, session only | `{state: granted or refused}` | request; a grant is made only through `/grants` |
+| PATCH | `/api/v1/access-requests/{id}` | `grants.manage`, session only (a host's too: [authz.md](authz.md#presets-roles-and-grants)) | `{state: granted or refused}` | request; a grant is made only through `/grants` |
 | GET | `/api/v1/devices` | `device.view` per row | `?kind=&group=` | devices with state name, capability epoch, current job |
 | GET | `/api/v1/devices/{id}` | `device.view` | — | device with its state tree, capabilities, state set, settings |
 | PATCH | `/api/v1/devices/{id}` | `device.manage` | `{name?, settings?}` (laser: origin, dialect, rotary, M4: #24) | device |
@@ -117,7 +119,7 @@ every route names one or the other.
 | POST | `/api/v1/instance/agents/{id}/update` | `instance.admin` ([decision](decisions/20261119-agent-update-by-instance-admin.md)) | `{tag}` | 202; the `update` event goes down the agent's stream ([wire.md](wire.md#downstream-events-get-apiagentv2downstreamuuid-sse)) |
 | GET | `/api/v1/update` | `instance.admin` | — | running build, newer signed release, last update's outcome |
 | POST | `/api/v1/update` | `instance.admin` | `{tag}` | 202; [flows.md](flows.md#8-self-update-dump-and-the-way-back) |
-| POST | `/setup` | `public`; the handler checks the one-time setup code | `{code, name, password}` | the first account |
+| POST | `/setup` | `public`; the handler checks the one-time setup code | `{code, name, password, kind}`; `kind` is the first space's (`makerspace`, `office`, `private`), its area rights' defaults | the first account |
 
 Labels (render and print from Prepare, #6) are [OQ-14](risks-and-open.md#oq-14-tables-of-materials-items-and-labels);
 door access is [OQ-10](risks-and-open.md#oq-10-door-access-link).
