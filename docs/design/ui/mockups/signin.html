@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body data-view="user">
+<header class="top">
+  <a class="brand" href="signin.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Sign in</small></span></a>
+  <span class="spacer"></span>
+  <div class="viewas" role="group" aria-label="View as"><span class="lbl">View as</span><span class="seg"><button type="button" data-view-btn="user" aria-pressed="true">User</button><button type="button" data-view-btn="admin" aria-pressed="false">Admin</button></span></div>
+  <button type="button" class="theme" data-theme-btn>Auto</button>
+</header>
+
+<main style="margin-left:0;max-width:520px;margin-inline:auto">
+
+<div class="head"><h1>Sign in</h1></div>
+<p class="note-role">Same for both roles: who you are, and so what you see, is known only after you sign in.</p>
+<div class="card">
+<form action="now.html" method="get">
+<label class="field">Name<input name="name" autocomplete="username" value="sam"></label>
+<label class="field">Password<input name="password" type="password" autocomplete="current-password" value="example"></label>
+<button class="btn primary" style="width:100%">Sign in</button>
+</form>
+<p style="margin-top:var(--s-3)"><small><code>POST /api/v1/session</code>. Have an invite link? It opens a page to make your account (flows.md §7).</small></p>
+</div>
+<details class="card"><summary><b>The error state</b></summary>
+<div class="banner bad" role="alert" style="margin-top:var(--s-3)"><span><b>The name or the password is wrong.</b> Try again. After several tries, wait a minute.</span></div>
+<p><small>One message for both cases, so the page does not tell whether a name exists. The wait follows the hub's failure counter (flows.md §7); its numbers are not in the design yet.</small></p>
+</details>
+<details class="card"><summary><b>First run</b></summary>
+<p style="margin-top:var(--s-3)">On a fresh hub: "Enter the setup code from the hub's log to make the first account." <code>POST /setup</code> makes the first account, its organisation and space.</p>
+</details>
+
+</main>
+
+<script>
+(function(){
+  var b=document.body, q=new URLSearchParams(location.search).get("as"), v=null;
+  try{v=localStorage.getItem("mc-view");}catch(e){}
+  if(q==="user"||q==="admin")v=q;
+  function setView(x){b.dataset.view=x;document.querySelectorAll("[data-view-btn]").forEach(function(k){k.setAttribute("aria-pressed",String(k.dataset.viewBtn===x));});try{localStorage.setItem("mc-view",x);}catch(e){}}
+  setView(v==="admin"?"admin":"user");
+  document.querySelectorAll("[data-view-btn]").forEach(function(k){k.addEventListener("click",function(){setView(k.dataset.viewBtn);});});
+  var th=document.querySelector("[data-theme-btn]"), order=["system","light","dark"];
+  function cur(){try{return localStorage.getItem("mc-theme")||"system";}catch(e){return "system";}}
+  function show(){var c=cur();th.textContent=c==="system"?"Auto":c==="light"?"Light":"Dark";th.title="Theme: "+th.textContent+" (click to change)";}
+  if(th){show();th.addEventListener("click",function(){var n=order[(order.indexOf(cur())+1)%3];try{if(n==="system")localStorage.removeItem("mc-theme");else localStorage.setItem("mc-theme",n);}catch(e){}if(n==="system")delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=n;show();});}
+  var tabs=document.querySelectorAll("[data-tabs] a[href^='#']");
+  if(tabs.length){
+    function pick(){var h=location.hash.slice(1),ok=false;tabs.forEach(function(a){if(a.getAttribute("href")==="#"+h&&a.offsetParent!==null)ok=true;});
+      if(!ok){for(var i=0;i<tabs.length;i++){if(tabs[i].offsetParent!==null){h=tabs[i].getAttribute("href").slice(1);break;}}}
+      tabs.forEach(function(a){var id=a.getAttribute("href").slice(1),on=id===h;a.setAttribute("aria-selected",String(on));var p=document.getElementById(id);if(p)p.hidden=!on;});}
+    window.addEventListener("hashchange",pick);document.querySelectorAll("[data-view-btn]").forEach(function(k){k.addEventListener("click",pick);});pick();
+  }
+})();
+</script>
+
+</body>
+</html>

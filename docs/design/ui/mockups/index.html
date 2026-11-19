@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>All screens · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body data-view="user">
+<header class="top">
+  <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
+  <span class="spacer"></span>
+  <div class="viewas" role="group" aria-label="View as"><span class="lbl">View as</span><span class="seg"><button type="button" data-view-btn="user" aria-pressed="true">User</button><button type="button" data-view-btn="admin" aria-pressed="false">Admin</button></span></div>
+  <button type="button" class="theme" data-theme-btn>Auto</button>
+</header>
+<aside class="side" aria-label="Navigation"><nav aria-label="Pages">
+<a href="now.html">Now</a>
+<div class="group">Work</div>
+<a href="machines.html">Machines</a>
+<a href="state-loading.html">Jobs</a>
+<a href="farm.html">Queue and farm</a>
+<div class="group">Stock</div>
+<a href="state-empty.html">Files</a>
+<a href="materials.html">Materials</a>
+<div class="group">Watch</div>
+<a href="state-error.html">Cameras</a>
+<div class="group">Machines</div><div class="machines">
+<a href="printer.html"><span>MINI-1</span><small class="num">62 %</small></a>
+<a href="now.html#needs"><span>MINI-2</span><small>needs someone</small></a>
+<a href="ask-permission.html"><span>Printer-3</span><small>free</small></a>
+<a href="state-unknown.html"><span>Printer-4</span><small>offline</small></a>
+<a href="laser.html"><span>Laser-A</span><small>job loaded</small></a>
+<a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
+<a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
+</div>
+<div class="group" data-only="admin">Manage</div>
+<a data-only="admin" href="add-machine.html">Add machine</a>
+<a data-only="admin" href="space-members.html">Space</a>
+<a data-only="admin" href="instance.html">Instance <span class="tag">instance admin</span></a>
+<div class="user"><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div>
+<a data-only="user" href="space-members.html#mine">My permissions</a>
+<a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
+</nav></aside>
+<main>
+
+<div class="head"><h1>Maker Connect v2: mockups</h1></div>
+<p class="lede">Static, clickable mockups of the v2 web UI. The target design is <code>docs/design/ui.md</code>; the study behind it is <code>docs/plans/ui-ux-study.md</code>. Use <b>View as: User | Admin</b> at the top right on any screen; the theme button switches Auto, Light and Dark. All data is invented: the space <i>Workshop North</i>, members <i>Sam</i> (member) and <i>Noor</i> (admin), machines <i>MINI-1</i>, <i>Laser-A</i> and others.</p>
+<div class="screens">
+<section><h2>Shared</h2><ul>
+<li><a href="signin.html">Sign in</a></li>
+<li><a href="now.html">Now</a>: the space at a glance, and the wall screen</li>
+</ul></section>
+<section><h2>User and admin</h2><p><small>Each shows what changes with the role.</small></p><ul>
+<li><a href="machines.html">Machines</a></li>
+<li><a href="printer.html#overview">MINI-1: overview</a> · <a href="printer.html#control">control</a> · <a href="printer.html#files">files</a> · <a href="printer.html#jobs">jobs</a> · <a href="printer.html#camera">camera</a> · <a href="printer.html#settings">settings</a></li>
+<li><a href="print-start.html">Print on MINI-1</a> (start a print)</li>
+<li><a href="laser.html">Laser-A</a>: load, frame at power 0, PPE, Start burn by a person</li>
+<li><a href="label-tape.html">Tape-1</a>: tape printer (LabelManager PnP kind)</li>
+<li><a href="label-labels.html">Labels-1</a>: label printer (LabelWriter kind)</li>
+<li><a href="materials.html">Materials</a> and <a href="spool.html">spool #12</a></li>
+<li><a href="ask-permission.html">Printer-3: ask for permission</a>, and its pending state</li>
+<li><a href="farm.html">Queue and farm</a> (members see their own queue items)</li>
+</ul></section>
+<section><h2>Admin only</h2><p><small>As a member, each shows the refused page a member would get.</small></p><ul>
+<li><a href="add-machine.html">Add machine</a> (pairing by code)</li>
+<li><a href="space-members.html">Space: members, roles, invites</a></li>
+<li><a href="space-permissions.html">Space: permissions</a> (granting) and <a href="space-permissions.html#requests">requests</a></li>
+<li><a href="space-settings.html">Space: settings</a> (general, API tokens, audit log, cameras, access)</li>
+</ul></section>
+<section><h2>Instance admin</h2><ul><li><a href="instance.html">Instance: organisations and spaces</a></li></ul></section>
+<section><h2>States</h2><p><small>One screen each, on a real page.</small></p><ul>
+<li><a href="state-empty.html">Empty</a>: Files, nothing uploaded yet</li>
+<li><a href="state-loading.html">Loading</a>: Jobs</li>
+<li><a href="state-error.html">Error</a>: Cameras, the hub cannot be reached</li>
+<li><a href="state-refused.html">Refused</a>: Laser-A, Start burn not granted</li>
+<li><a href="state-unknown.html">Unknown</a>: Printer-4 offline, values unknown, not zero</li>
+</ul></section>
+<section><h2>The state list</h2><p><small>One word and one colour per state, everywhere.</small></p>
+<p><span class="st idle">Free</span> <span class="st busy">Printing</span> <span class="st wait">Needs someone</span> <span class="st warn">Attention</span> <span class="st bad">Error</span> <span class="st off">Offline</span> <span class="st unk">Unknown</span></p>
+<p><button class="btn primary" type="button">Primary</button> <button class="btn" type="button">Secondary</button> <button class="btn danger" type="button">Danger</button> <button class="btn" type="button" disabled>Disabled</button></p>
+<p><span class="unknown">unknown</span> is how a value without a basis is shown; a real zero is written <span class="num">0</span>.</p>
+</section>
+<section><h2>Not mocked</h2><ul>
+<li>Prepare (the LaserFoundry web fork, the label editor: #6, #24)</li>
+<li>Jobs, Files and Cameras as full pages: they appear here in a state</li>
+<li>About and self-update (on the instance screen only)</li>
+</ul></section>
+</div>
+
+</main>
+<nav class="bottom" aria-label="Pages"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="state-empty.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a data-only="user" href="space-members.html#mine">My permissions</a><a data-only="admin" href="add-machine.html">Add machine</a><a data-only="admin" href="space-members.html">Space</a><a data-only="admin" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<script>
+(function(){
+  var b=document.body, q=new URLSearchParams(location.search).get("as"), v=null;
+  try{v=localStorage.getItem("mc-view");}catch(e){}
+  if(q==="user"||q==="admin")v=q;
+  function setView(x){b.dataset.view=x;document.querySelectorAll("[data-view-btn]").forEach(function(k){k.setAttribute("aria-pressed",String(k.dataset.viewBtn===x));});try{localStorage.setItem("mc-view",x);}catch(e){}}
+  setView(v==="admin"?"admin":"user");
+  document.querySelectorAll("[data-view-btn]").forEach(function(k){k.addEventListener("click",function(){setView(k.dataset.viewBtn);});});
+  var th=document.querySelector("[data-theme-btn]"), order=["system","light","dark"];
+  function cur(){try{return localStorage.getItem("mc-theme")||"system";}catch(e){return "system";}}
+  function show(){var c=cur();th.textContent=c==="system"?"Auto":c==="light"?"Light":"Dark";th.title="Theme: "+th.textContent+" (click to change)";}
+  if(th){show();th.addEventListener("click",function(){var n=order[(order.indexOf(cur())+1)%3];try{if(n==="system")localStorage.removeItem("mc-theme");else localStorage.setItem("mc-theme",n);}catch(e){}if(n==="system")delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=n;show();});}
+  var tabs=document.querySelectorAll("[data-tabs] a[href^='#']");
+  if(tabs.length){
+    function pick(){var h=location.hash.slice(1),ok=false;tabs.forEach(function(a){if(a.getAttribute("href")==="#"+h&&a.offsetParent!==null)ok=true;});
+      if(!ok){for(var i=0;i<tabs.length;i++){if(tabs[i].offsetParent!==null){h=tabs[i].getAttribute("href").slice(1);break;}}}
+      tabs.forEach(function(a){var id=a.getAttribute("href").slice(1),on=id===h;a.setAttribute("aria-selected",String(on));var p=document.getElementById(id);if(p)p.hidden=!on;});}
+    window.addEventListener("hashchange",pick);document.querySelectorAll("[data-view-btn]").forEach(function(k){k.addEventListener("click",pick);});pick();
+  }
+})();
+</script>
+
+</body>
+</html>

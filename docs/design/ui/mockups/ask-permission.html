@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Printer-3 · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body data-view="user">
+<header class="top">
+  <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
+  <span class="spacer"></span>
+  <div class="viewas" role="group" aria-label="View as"><span class="lbl">View as</span><span class="seg"><button type="button" data-view-btn="user" aria-pressed="true">User</button><button type="button" data-view-btn="admin" aria-pressed="false">Admin</button></span></div>
+  <button type="button" class="theme" data-theme-btn>Auto</button>
+</header>
+<aside class="side" aria-label="Navigation"><nav aria-label="Pages">
+<a href="now.html">Now</a>
+<div class="group">Work</div>
+<a href="machines.html">Machines</a>
+<a href="state-loading.html">Jobs</a>
+<a href="farm.html">Queue and farm</a>
+<div class="group">Stock</div>
+<a href="state-empty.html">Files</a>
+<a href="materials.html">Materials</a>
+<div class="group">Watch</div>
+<a href="state-error.html">Cameras</a>
+<div class="group">Machines</div><div class="machines">
+<a href="printer.html"><span>MINI-1</span><small class="num">62 %</small></a>
+<a href="now.html#needs"><span>MINI-2</span><small>needs someone</small></a>
+<a href="ask-permission.html" aria-current="page"><span>Printer-3</span><small>free</small></a>
+<a href="state-unknown.html"><span>Printer-4</span><small>offline</small></a>
+<a href="laser.html"><span>Laser-A</span><small>job loaded</small></a>
+<a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
+<a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
+</div>
+<div class="group" data-only="admin">Manage</div>
+<a data-only="admin" href="add-machine.html">Add machine</a>
+<a data-only="admin" href="space-members.html">Space</a>
+<a data-only="admin" href="instance.html">Instance <span class="tag">instance admin</span></a>
+<div class="user"><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div>
+<a data-only="user" href="space-members.html#mine">My permissions</a>
+<a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
+</nav></aside>
+<main>
+
+<p class="crumbs"><a href="machines.html">Machines</a> › Printer-3</p>
+<div class="head"><h1>Printer-3</h1><span class="st idle">Free</span></div>
+<p class="muted" style="margin-top:-8px">3D printer · agent (USB) · needs a training before use</p>
+<p class="note-role" data-only="user"><b>As a member (Sam):</b> you may view Printer-3 but not use it. Asking reaches the staff and grants nothing; they decide in Space.</p><p class="note-role" data-only="admin"><b>As an admin (Noor):</b> you see that Ravi asked. There is no grant button on a machine's page: grants are made in Space only, your own included.</p>
+<div data-only="user">
+<div class="card"><h2>Before you ask</h2>
+<div class="banner warn"><span><b>Printer-3 needs a training.</b> You may look, but not print, move or heat.</span><button class="btn primary" type="button" data-ask>Ask for a training</button></div>
+<p><small><code>POST /api/v1/access-requests</code> <code>{device_id}</code>; on a machine without a training rule the button reads "Ask for permission".</small></p>
+</div>
+<div class="card"><h2>After you asked: pending</h2>
+<div class="banner info"><span><b>Asked on 19 Nov at 14:20.</b> The space's staff decide in Space. Asking grants nothing: until they do, Printer-3 stays view only for you.</span><button class="btn small ghost" type="button">Withdraw</button></div>
+<p><small>Withdraw and reading your own requests: not in api.md yet (see ui.md, open points).</small></p>
+</div>
+<div class="card" id="meanwhile"><h2>What you see meanwhile</h2>
+<nav class="tabs" aria-label="Printer-3 tabs a member sees"><a href="#meanwhile" aria-selected="true">Overview</a><a href="#meanwhile">Jobs</a><a href="#meanwhile">Camera</a></nav>
+<div class="tiles"><div class="tile"><span>Nozzle</span><b class="num">24 °C</b></div><div class="tile"><span>Bed</span><b class="num">23 °C</b></div></div>
+<p style="margin-top:var(--s-3)"><small>Control and Files are hidden: one banner above says why, instead of a page of grey buttons.</small></p></div>
+</div>
+<div data-only="admin">
+<div class="banner warn"><span><b>Ravi asked for a training on Printer-3</b> · 19 Nov, 14:20</span><a class="btn small" href="space-permissions.html#requests">Review in Space</a></div>
+<div class="card"><h2>Overview</h2><div class="tiles"><div class="tile"><span>Nozzle</span><b class="num">24 °C</b></div><div class="tile"><span>Bed</span><b class="num">23 °C</b></div></div></div>
+</div>
+
+</main>
+<nav class="bottom" aria-label="Pages"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="state-empty.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a data-only="user" href="space-members.html#mine">My permissions</a><a data-only="admin" href="add-machine.html">Add machine</a><a data-only="admin" href="space-members.html">Space</a><a data-only="admin" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<script>
+(function(){
+  var b=document.body, q=new URLSearchParams(location.search).get("as"), v=null;
+  try{v=localStorage.getItem("mc-view");}catch(e){}
+  if(q==="user"||q==="admin")v=q;
+  function setView(x){b.dataset.view=x;document.querySelectorAll("[data-view-btn]").forEach(function(k){k.setAttribute("aria-pressed",String(k.dataset.viewBtn===x));});try{localStorage.setItem("mc-view",x);}catch(e){}}
+  setView(v==="admin"?"admin":"user");
+  document.querySelectorAll("[data-view-btn]").forEach(function(k){k.addEventListener("click",function(){setView(k.dataset.viewBtn);});});
+  var th=document.querySelector("[data-theme-btn]"), order=["system","light","dark"];
+  function cur(){try{return localStorage.getItem("mc-theme")||"system";}catch(e){return "system";}}
+  function show(){var c=cur();th.textContent=c==="system"?"Auto":c==="light"?"Light":"Dark";th.title="Theme: "+th.textContent+" (click to change)";}
+  if(th){show();th.addEventListener("click",function(){var n=order[(order.indexOf(cur())+1)%3];try{if(n==="system")localStorage.removeItem("mc-theme");else localStorage.setItem("mc-theme",n);}catch(e){}if(n==="system")delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=n;show();});}
+  var tabs=document.querySelectorAll("[data-tabs] a[href^='#']");
+  if(tabs.length){
+    function pick(){var h=location.hash.slice(1),ok=false;tabs.forEach(function(a){if(a.getAttribute("href")==="#"+h&&a.offsetParent!==null)ok=true;});
+      if(!ok){for(var i=0;i<tabs.length;i++){if(tabs[i].offsetParent!==null){h=tabs[i].getAttribute("href").slice(1);break;}}}
+      tabs.forEach(function(a){var id=a.getAttribute("href").slice(1),on=id===h;a.setAttribute("aria-selected",String(on));var p=document.getElementById(id);if(p)p.hidden=!on;});}
+    window.addEventListener("hashchange",pick);document.querySelectorAll("[data-view-btn]").forEach(function(k){k.addEventListener("click",pick);});pick();
+  }
+})();
+</script>
+
+</body>
+</html>
