@@ -75,6 +75,10 @@ fn tokens(bytes: &[u8]) -> Wire {
 const HOLD: Duration = Duration::from_millis(400);
 const PAUSED: Duration = Duration::from_millis(300);
 
+/// A restart scenario presses Stop once this many lines are acknowledged (both sides alike): past
+/// LaserFoundry's 20 lines of restart margin, so the restart line is past line 1.
+const RESTART_STOP_AFTER: usize = 40;
+
 /// The reference's side looks at its link every 100 ms, as LaserFoundry's app does for a threaded
 /// link (`ui-egui/src/lib.rs:1384`), the cadence of the port (G7).
 const LOOK: Duration = Duration::from_millis(100);
@@ -217,7 +221,11 @@ fn direct(steps: &[Step], restart: Option<usize>) -> Outcome {
                 // `ui-egui/src/lib.rs:1258-1266` `start_from_line`, `:1291-1328` `record_job_position`
                 Step::Restart(program) => {
                     link.start_job(program.clone()).unwrap();
-                    std::thread::sleep(HOLD);
+                    // Stop past LaserFoundry's 20 lines of restart margin (`RESTART_BACKUP_LINES`),
+                    // on both sides by the same rule: a fixed hold is too short on a slow runner.
+                    wait("over the restart margin", || {
+                        link.snapshot().progress.map_or(0, |p| p.acknowledged) > RESTART_STOP_AFTER
+                    });
                     link.stop().unwrap();
                     wait("the stop", || finished(&link.snapshot()));
                     let acknowledged = link.snapshot().progress.map_or(0, |p| p.acknowledged);
@@ -404,7 +412,12 @@ fn ours(steps: &[Step], restart: Option<usize>) -> Outcome {
                 Step::Restart(program) => {
                     job_id += 1;
                     port.job(job_id, program, None);
-                    std::thread::sleep(HOLD);
+                    port.until("over the restart margin", |p| {
+                        p.telemetry
+                            .job
+                            .as_ref()
+                            .is_some_and(|j| j.done > RESTART_STOP_AFTER as u64)
+                    });
                     port.orders.send(Order::Control(JobControl::Stop)).unwrap();
                     let first = port.ended(job_id);
                     let line = restart.unwrap_or_else(|| first.restart_line.unwrap() as usize);

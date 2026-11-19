@@ -43,7 +43,7 @@ impl Run {
     }
 
     fn until(&mut self, what: &str, ready: impl Fn(&Run) -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(15);
+        let deadline = Instant::now() + Duration::from_secs(60);
         while !ready(self) {
             assert!(
                 Instant::now() < deadline,

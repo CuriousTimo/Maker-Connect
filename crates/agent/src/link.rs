@@ -1065,7 +1065,7 @@ mod tests {
                 },
             },
         ]);
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             commands.step(&hub, "secret", &dir, Some(id), &engine, &mut own_done);
             if seen.lock().unwrap().len() == 3 || Instant::now() > deadline {
