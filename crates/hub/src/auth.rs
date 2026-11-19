@@ -54,7 +54,10 @@ pub fn routes() -> Router<Store> {
 
 /// Routes that machines use with their own tokens, and the pages to sign in.
 pub fn public(path: &str) -> bool {
-    matches!(path, "/login" | "/setup" | "/logo.svg")
+    matches!(
+        path,
+        "/login" | "/setup" | "/logo.svg" | "/logo-large.svg" | "/logo-large-dark.svg"
+    )
         || path.starts_with("/invite/")
         || path == "/api/apps/v1/info"
         || path.starts_with("/api/agent/v1/")

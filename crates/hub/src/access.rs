@@ -150,6 +150,8 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ("*", "/login", Need::Public, None),
     ("*", "/setup", Need::Public, None),
     ("*", "/logo.svg", Need::Public, None),
+    ("*", "/logo-large.svg", Need::Public, None),
+    ("*", "/logo-large-dark.svg", Need::Public, None),
     ("*", maker_connect_protocol::REGISTER, Need::Public, None),
     ("*", maker_connect_protocol::TELEMETRY, Need::Public, None),
     // A USB camera's frame: the agent's token, checked by the route (crate::usbcam).

@@ -80,7 +80,7 @@
 
 /* The house motif (wiki Design: House Style): one 45° cut top right. 12 px on cards, panels, dialogs,
    camera tiles and the logo; 8 px on buttons; 6 px on chips. */
-.card, .stat, .tile, .steps > li, .banner, .table-wrap, dialog, .more, .stopbar, .empty, .toast, .cam, .brand .mark { --cut: var(--cut-l); clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); }
+.card, .stat, .tile, .steps > li, .banner, .table-wrap, dialog, .more, .stopbar, .empty, .toast, .cam { --cut: var(--cut-l); clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); }
 .btn, .theme { --cut: var(--cut-m); clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); }
 .chip, .st, .out, .tag, .unknown { --cut: var(--cut-s); clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); }
 /* A shape with an outline is two layers: the outer one (border-box) in the outline colour --bc, the inner
@@ -133,7 +133,17 @@ main:focus { outline: none; }
 @media (prefers-reduced-transparency: reduce) { .top, .preview .cam-bar { background: var(--glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 .brand { display: flex; align-items: center; gap: var(--s-2); color: var(--ink); text-decoration: none; font-weight: 700; min-width: 0; }
 /* The letters sit bottom left, clear of the 12 px cut (the cut's diagonal runs from x 16 to 28 over y 0 to 12) */
-.brand .mark { width: 28px; height: 28px; background: var(--accent); display: grid; place-items: end start; padding: 0 0 3px 3px; color: var(--on-accent); font-size: 12px; line-height: 1; flex: none; }
+.brand .mark { width: 28px; height: 28px; display: block; flex: none; }
+/* The large logo (assets/logo-v2*.svg): the light or the dark one, as the theme is. */
+.logo-large { margin: 0 0 var(--s-5); }
+.logo-large img { height: 48px; width: auto; }
+.logo-large .on-dark { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .logo-large .on-light { display: none; }
+  :root:not([data-theme="light"]) .logo-large .on-dark { display: inline; }
+}
+:root[data-theme="dark"] .logo-large .on-light { display: none; }
+:root[data-theme="dark"] .logo-large .on-dark { display: inline; }
 .brand .where { display: grid; line-height: 1.15; min-width: 0; }
 .brand .where small { font-weight: 400; font-size: var(--fs-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .top .spacer { flex: 1; }

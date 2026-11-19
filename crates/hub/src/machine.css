@@ -13,27 +13,20 @@
   .notice .notice-buttons { flex: 0 0 auto; display: flex; gap: 8px; flex-wrap: wrap; }
   .notice a.button { display: inline-block; font-weight: 600; padding: 8px 14px; border-radius: 0; background: var(--accent); color: var(--on-accent); text-decoration: none; }
   .notice.bed { border-color: var(--st-warn); background: color-mix(in srgb, var(--st-warn) 10%, var(--surface)); }
-  /* Scrolls sideways on a narrow screen, without a scrollbar of its own (the tabs' 1px over
-     the line would otherwise show one under them, on Windows). */
-  .tabs { display: flex; gap: 4px; margin: 18px 0 22px; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
-  .tabs::-webkit-scrollbar { display: none; }
-  .tabs a { padding: 10px 14px; text-decoration: none; color: var(--muted); font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
-  .tabs a[aria-selected=true] { color: var(--ink); border-color: var(--accent-text); }
 
-  /* Tiles: a label, a big number, a line under it. */
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; margin-bottom: 16px; }
-  .tile, .card { background: var(--surface); border: 1px solid var(--line); border-radius: 0; }
-  .tile { padding: 18px 22px 20px; }
-  .tile .label { color: var(--muted); font-size: 15px; }
+  /* Tiles (mc.css .tiles, .tile): a label, a number, a line under it; all one height in a row. */
+  .tiles { grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr)); }
+  .tile { display: grid; grid-template-rows: auto auto 1fr; align-content: start; }
+  .tile .label { color: var(--muted); font-size: var(--fs-1); }
   /* A tile's or card's title with a fact top right (a job's time left and ETA): that fact
      stays whole on its line, never scrolled with what is under the title. */
   .tile-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
   .card-title { min-width: 0; flex: 1; }
-  .corner { flex: none; color: var(--muted); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .corner { flex: none; color: var(--muted); font-size: var(--fs-1); white-space: nowrap; font-variant-numeric: tabular-nums; }
   .corner:empty { display: none; }
-  .tile .value { margin-top: 6px; font-size: 34px; line-height: 1.1; font-weight: 700; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
-  .tile .value small { margin-left: 6px; font-size: 16px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
-  .tile .sub { margin-top: 8px; color: var(--muted); font-size: 14px; }
+  .tile .value { margin-top: var(--s-1); font-size: var(--fs-4); line-height: 1.2; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tile .value small { margin-left: var(--s-1); font-size: var(--fs-1); font-weight: 600; color: var(--muted); }
+  .tile .sub { margin-top: var(--s-1); color: var(--muted); font-size: var(--fs-1); }
   /* Long names without spaces (a sliced file's name) break, not run out of the card. */
   .tile { min-width: 0; }
   .card-sub { overflow-wrap: anywhere; }
@@ -77,25 +70,28 @@
   .battery[data-level=mid] .charge { fill: var(--st-warn); }
   .battery[data-level=low] .charge { fill: var(--st-bad); }
 
-  /* Cards: a title, a line under it, what they hold. */
-  .card { padding: 20px 24px 22px; min-width: 0; }
-  .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-  .card h3 { margin: 0; font-size: 18px; }
-  .card-sub { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
-  .card h4 { margin: 18px 0 10px; font-size: 13px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
-  .card h4:first-child { margin-top: 14px; }
-  .card dl { margin: 14px 0 0; }
-  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; margin-top: 16px; }
-  .grid-control { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-  .grid-settings { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 16px; align-items: start; }
-  .stack { display: grid; gap: 16px; min-width: 0; }
+  /* Cards (mc.css .card): a title, a line under it, what they hold; one spacing scale. */
+  .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s-3); margin-bottom: var(--s-3); }
+  .card-head h3 { margin: 0; }
+  /* What follows a card's head starts right under it: the head keeps the one gap. */
+  .card > .card-head + * { margin-top: 0; }
+  .card-sub { margin: var(--s-1) 0 0; color: var(--muted); font-size: var(--fs-1); }
+  .card h4 { margin: var(--s-4) 0 var(--s-2); font-size: var(--fs-1); color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+  .card h4:first-child { margin-top: 0; }
+  .card dl { margin: 0; }
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--s-4); margin-top: var(--s-4); }
+  .grid-control { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--s-4); align-items: start; }
+  .grid-settings { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: var(--s-4); align-items: start; }
+  .stack { display: grid; gap: var(--s-4); min-width: 0; align-content: start; }
+  /* In a grid or a stack the gap spaces the cards, not their own margin. */
+  .stack > .card + .card, .grid-2 > .card + .card, .grid-control > .card + .card, .grid-settings > .card + .card, .cols > .card + .card { margin-top: 0; }
+  .tab > .card + .card, .tab > * + * { margin-top: var(--s-4); }
   @media (max-width: 860px) { .grid-control, .grid-settings, .grid-2 { grid-template-columns: 1fr; } }
 
-  .machine-card { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 24px; align-items: start; margin-top: 14px; }
+  .machine-card { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: var(--s-5); align-items: start; }
   .machine-card dl { margin: 0; }
   /* Overview (printer.html): two columns of cards, each from the top; the machine in the
      narrow one: its picture above its facts. */
-  .cols > .stack { align-content: start; }
   .cols .machine-card { grid-template-columns: 1fr; }
   .cols .machine-card .picture { max-width: 180px; }
   @media (max-width: 520px) { .machine-card { grid-template-columns: 1fr; } .picture { max-width: 180px; } }
@@ -347,3 +343,4 @@
   .queue li.mine { border-color: color-mix(in srgb, var(--accent-text) 45%, var(--line)); }
   .queue .q-mine { color: var(--accent-text); font-weight: 600; }
   .tab-count { color: var(--muted); font-weight: 600; margin-left: 2px; }
+  .tab + .tab { margin-top: var(--s-4); }

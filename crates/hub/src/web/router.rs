@@ -5,7 +5,7 @@ use crate::web::machines::{
     machine_page, machine_stream, machines, move_machine, not_ready, out_of_use, page,
     profile_image, profile_list, remove, rename, set_labels, taken,
 };
-use crate::web::shell::logo;
+use crate::web::shell::{logo, logo_large, logo_large_dark};
 use crate::{
     STYLE, Store, about, access, apps, auth, codes, downloads, escape, farm, files, files_page,
     now_page, permissions_page, printer_files, projects_page, prusa_connect, queue, safety,
@@ -30,6 +30,8 @@ pub fn app(store: Store) -> Router {
         .route("/machines", get(page))
         .route("/machines/", get(|| async { Redirect::to("/machines") }))
         .route("/logo.svg", get(logo))
+        .route("/logo-large.svg", get(logo_large))
+        .route("/logo-large-dark.svg", get(logo_large_dark))
         .route("/machines/{id}", get(machine_page))
         .route("/machines/{id}/profile", post(choose_profile))
         .route("/machines/{id}/media", post(choose_media))

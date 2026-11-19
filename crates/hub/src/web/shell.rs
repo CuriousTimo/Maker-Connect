@@ -133,7 +133,25 @@ pub(crate) const THEME_SCRIPT: &str = r#"<script>try{var t=localStorage.getItem(
 pub(crate) async fn logo() -> Response {
     (
         [("content-type", "image/svg+xml")],
-        include_str!("../../../../assets/logo-mark.svg"),
+        include_str!("../../../../assets/logo-v2-mark.svg"),
+    )
+        .into_response()
+}
+
+/// The large logo (mark and name), for a light page.
+pub(crate) async fn logo_large() -> Response {
+    (
+        [("content-type", "image/svg+xml")],
+        include_str!("../../../../assets/logo-v2.svg"),
+    )
+        .into_response()
+}
+
+/// The large logo, for a dark page.
+pub(crate) async fn logo_large_dark() -> Response {
+    (
+        [("content-type", "image/svg+xml")],
+        include_str!("../../../../assets/logo-v2-dark.svg"),
     )
         .into_response()
 }
