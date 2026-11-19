@@ -442,6 +442,9 @@ only a state's dot and a step's number stay round, as marks).
   outer layer, so the diagonal is dashed as well.
 - A shape without an outline (filter chips, label tags, the logo, the toast, the primary button) is set
   apart by its fill alone.
+- **The logo** (28 px square, 12 px cut): the letters *MC* (12 px, bold) sit bottom left with 3 px
+  inset, clear of the cut; measured in headless Chrome, the text box's top right corner is 4.2 px clear
+  of the cut's diagonal.
 - **Focus ring:** `clip-path` cuts off an outline, so every cut control (button, chip, theme switch)
   sits in a wrapper `<span class="fw">` that draws the ring on `:focus-within`. Controls without a cut
   (links, tabs, inputs, selects, checkboxes, summaries) keep their own ring. A list that is itself a
@@ -451,13 +454,17 @@ only a state's dot and a step's number stay round, as marks).
 
 Transparency is used only where it shows something of what is behind:
 
-- **Tints of the house colour at alpha** (`--tint-hover` 10 %, `--tint-sel` 18 %, `--tint-chip` 24 %):
-  one token for light and dark. They replace the solid tints: the navigation's hover and current page,
+- **Tints of the house colour at alpha** (`--tint-hover` 10 %, `--tint-sel` 18 %, `--tint-chip` 24 %,
+  the wiki's values, decided): one token for light and dark. They replace the solid tints: the navigation's hover and current page,
   the fill of filter chips and label tags. A selected row also keeps a bar on its left, so selection
   never rests on colour alone.
-- **The sticky header** is translucent (`--glass`, 88 %) with a 10 px backdrop blur; a **bar over a
-  camera image** uses the same token and blur. These are the only two blurred layers (cost on the Pi
-  and old phones). The mockups draw no bar over a camera image yet.
+- **The sticky header** is translucent (`--glass`, 88 %) with a 10 px backdrop blur. 88 % is decided:
+  the wiki reference's 72 % fails contrast (it leaves `--line-strong` and `--muted` too low over a
+  black picture).
+- **The camera bar**: every camera tile carries a bar along its bottom edge over the picture
+  (`.cam-bar`): the camera's name and **LIVE** (a `--st-bad` dot and the word), or for a stale picture
+  *Last picture, 15:42* in words. Same `--glass` token and blur as the header. The header and this bar
+  are the only two blurred layers (cost on the Pi and old phones).
 - **Behind a dialog** a scrim of 50 % (`--scrim`; 60 % in dark).
 - **The cut corner** shows the background behind it.
 
@@ -467,7 +474,7 @@ or any laser control: those stay opaque.
 
 Every translucent layer has an opaque version: where `backdrop-filter` is missing the header is
 `--glass-solid`; under `prefers-reduced-transparency: reduce` every layer is replaced by its colour
-over its usual background (the tints over `--surface`, the header `--glass-solid`, the scrim
+over its usual background (the tints over `--surface`, the header and the camera bar `--glass-solid`, the scrim
 `#848484` light, `#070708` dark) and the blur is off.
 
 ### Tokens
@@ -506,7 +513,7 @@ on a cut control it sits on the wrapper (see the motif).
 Pairs added by the house style. Text on a translucent layer is measured against the lightest and the
 darkest background that can be behind it: for a tint `--bg`, `--surface` and `--surface-2` (the table
 gives the worst, then the best); for `--glass` pure white and pure black, since any picture or page
-can scroll under the header.
+can scroll under the header or show in a camera picture.
 
 | Pair | Light | Dark | Use |
 |---|---|---|---|
@@ -516,8 +523,10 @@ can scroll under the header.
 | `--muted` on `--tint-sel` | 5.24 – 5.89 | 4.74 – 5.84 | the current machine's state word |
 | `--ink` on `--tint-chip` | 12.31 – 13.82 | 8.95 – 10.98 | a filter chip's word and count, a label tag |
 | `--ink` on `--glass` | 12.79 – 16.88 | 10.54 – 15.58 | the header's name |
-| `--muted` on `--glass` | 5.18 – 6.83 | 4.95 – 7.32 | the header's space name and *View as* |
-| `--line-strong` on `--glass` | 2.98 – 3.94 | 2.72 – 4.02 | not a boundary that counts: the header's select and theme switch are opaque (`--surface` fill), and their edge measures 3.94 / 3.89 against that fill |
+| `--ink` on `--glass` (camera bar) | 12.79 – 16.88 | 10.54 – 15.58 | the camera's name and LIVE; rendered in headless Chrome over the mockup's white and black picture parts: 12.79 – 16.88 light, 10.39 – 15.58 dark (blur and saturate move dark by 0.15) |
+| `--st-bad` on `--glass` | 4.95 – 6.54 | 4.77 – 7.05 | the LIVE dot |
+| `--muted` on `--glass` | 5.18 – 6.83 | 4.95 – 7.32 | the header's space name and *View as*; also the edge of the header's select and theme switch (≥ 3:1 in the worst case) |
+| `--line-strong` on `--glass` | 2.98 – 3.94 | 2.72 – 4.02 | too low in the worst case, so not used in the header: its select and theme switch take `--muted` as their edge |
 | `--ink`, `--muted` on the opaque tints (reduced transparency) | 13.82 / 5.59 (chip), 14.54 / 5.89 (selected) | 9.83 / 4.62, 11.04 / 5.19 | the same, without transparency |
 
 `--muted` on `--tint-chip` is not used: it falls to 4.21 on `--surface-2` in dark, so chips and tags

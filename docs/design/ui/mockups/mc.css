@@ -65,9 +65,9 @@
 @media (prefers-reduced-transparency: reduce) {
   :root { --tint-hover: #F4F6F2; --tint-sel: #ECEFE9; --tint-chip: #E5EAE1; --glass: var(--glass-solid); --scrim: #848484; }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --tint-hover: #272A29; --tint-sel: #313531; --tint-chip: #383D37; --scrim: #070708; }
+    :root:not([data-theme="light"]) { --glass: var(--glass-solid); --tint-hover: #272A29; --tint-sel: #313531; --tint-chip: #383D37; --scrim: #070708; }
   }
-  :root[data-theme="dark"] { --tint-hover: #272A29; --tint-sel: #313531; --tint-chip: #383D37; --scrim: #070708; }
+  :root[data-theme="dark"] { --glass: var(--glass-solid); --tint-hover: #272A29; --tint-sel: #313531; --tint-chip: #383D37; --scrim: #070708; }
 }
 
 /* The shape's own values are not inherited: a button inside a dashed card stays solid */
@@ -136,20 +136,22 @@ body[data-view="guest"] main :is(.btn:not([data-guest]), .ctl, [data-act], .fw:h
 
 /* The shell */
 .top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: var(--s-3); min-height: 60px; padding: var(--s-2) var(--s-4); background: var(--glass); border-bottom: 1px solid var(--line); }
-/* The sticky header is one of the two blurred layers (the other: a bar over a camera image) */
+/* The two blurred layers: the sticky header and the bar over a camera image (.cam-bar) */
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .top { -webkit-backdrop-filter: blur(10px) saturate(1.2); backdrop-filter: blur(10px) saturate(1.2); }
+  .top, .cam-bar { -webkit-backdrop-filter: blur(10px) saturate(1.2); backdrop-filter: blur(10px) saturate(1.2); }
 }
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .top { background: var(--glass-solid); } }
-@media (prefers-reduced-transparency: reduce) { .top { background: var(--glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .top, .preview .cam-bar { background: var(--glass-solid); } }
+@media (prefers-reduced-transparency: reduce) { .top, .preview .cam-bar { background: var(--glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 .brand { display: flex; align-items: center; gap: var(--s-2); color: var(--ink); text-decoration: none; font-weight: 700; min-width: 0; }
-.brand .mark { width: 28px; height: 28px; background: var(--accent); display: grid; place-items: center; color: var(--on-accent); font-size: 14px; flex: none; }
+/* The letters sit bottom left, clear of the 12 px cut (the cut's diagonal runs from x 16 to 28 over y 0 to 12) */
+.brand .mark { width: 28px; height: 28px; background: var(--accent); display: grid; place-items: end start; padding: 0 0 3px 3px; color: var(--on-accent); font-size: 12px; line-height: 1; flex: none; }
 .brand .where { display: grid; line-height: 1.15; min-width: 0; }
 .brand .where small { font-weight: 400; font-size: var(--fs-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .top .spacer { flex: 1; }
 .viewas { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-1); color: var(--muted); }
-.viewas select { width: auto; min-width: 0; font-size: var(--fs-2); padding: 0 var(--s-2); }
-.theme { min-height: var(--tap); min-width: var(--tap); padding: 0 var(--s-2); --bc: var(--line-strong); --fill: var(--surface); color: var(--ink); cursor: pointer; font: 600 var(--fs-1) var(--font); }
+/* The header's controls take --muted as their edge: --line-strong falls to 2.72 on --glass in the worst case */
+.viewas select { width: auto; min-width: 0; font-size: var(--fs-2); padding: 0 var(--s-2); border-color: var(--muted); }
+.theme { min-height: var(--tap); min-width: var(--tap); padding: 0 var(--s-2); --bc: var(--muted); --fill: var(--surface); color: var(--ink); cursor: pointer; font: 600 var(--fs-1) var(--font); }
 
 .side { position: fixed; top: 61px; bottom: 0; left: 0; width: var(--side); padding: var(--s-4) var(--s-3); border-right: 1px solid var(--line); background: var(--surface); overflow-y: auto; }
 .side nav { display: grid; gap: 2px; }
@@ -214,6 +216,8 @@ input[type="checkbox"], input[type="radio"] { width: 20px; min-height: 20px; hei
 .row { display: flex; flex-wrap: wrap; gap: var(--s-2); align-items: flex-end; }
 .row > * { flex: 1 1 160px; }
 .row > .fw, .row > .ctl { flex: 0 0 auto; }
+/* A row of buttons only: tops aligned, so a control's status line below it never lifts it */
+.row.btns { align-items: flex-start; }
 
 /* Cards, grids, lists */
 .card { --bc: var(--line); padding: var(--s-4); min-width: 0; }
@@ -366,6 +370,13 @@ dialog .acts, .dialog-mock .acts { display: flex; flex-wrap: wrap; gap: var(--s-
 .screens ul { margin: 0; padding-left: 1.1em; }
 .screens li { margin: 4px 0; }
 .tag { display: inline-block; padding: 0 6px; font-size: var(--fs-1); font-weight: 600; background: var(--tint-chip); color: var(--ink); }
-.preview.cam { --bc: var(--line); --fill: var(--surface-2); }
+.preview.cam { --bc: var(--line); --fill: var(--surface-2); position: relative; }
+/* Mockup stand-in for a camera picture: its lightest (white) and darkest (black) parts, plus detail for the blur */
+.cam .feed { position: absolute; inset: 0; display: grid; place-items: center; color: #7F7F7F; background: linear-gradient(90deg, #FFF 0 30%, transparent 30% 70%, #000 70%), repeating-linear-gradient(45deg, #FFF 0 6px, #000 6px 12px); }
+/* The bar over a camera image: camera name and LIVE on --glass with blur (fallbacks with .top above) */
+.cam-bar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: var(--s-3); padding: var(--s-2) var(--s-3); background: var(--glass); color: var(--ink); font-size: var(--fs-2); }
+.cam-bar b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cam-bar .live { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-1); font-weight: 700; letter-spacing: .06em; }
+.cam-bar .live::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--st-bad); }
 .preview { aspect-ratio: 16 / 10; background: var(--surface-2); border: 1px solid var(--line); display: grid; place-items: center; color: var(--muted); font-size: var(--fs-2); }
 .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--line-strong); vertical-align: -2px; }
