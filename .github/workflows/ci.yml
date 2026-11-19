@@ -132,7 +132,19 @@ jobs:
       - name: Cache
         uses: Swatinem/rust-cache@v2
 
+      # The printer of the /p/ws test: Prusa's own Connect SDK at the pinned commit.
+      - name: Prusa Connect SDK
+        run: |
+          git init -q "$RUNNER_TEMP/prusa-sdk"
+          git -C "$RUNNER_TEMP/prusa-sdk" fetch -q --depth 1 \
+            https://github.com/prusa3d/Prusa-Connect-SDK-Printer.git 04c5bd5956e5fa59047e508a144eb198834ea3b7
+          git -C "$RUNNER_TEMP/prusa-sdk" checkout -q FETCH_HEAD
+          python3 -m venv "$RUNNER_TEMP/sdk-venv"
+          "$RUNNER_TEMP/sdk-venv/bin/pip" install -q -e "$RUNNER_TEMP/prusa-sdk"
+
       - name: Store tests
+        env:
+          PRUSA_SDK_PYTHON: ${{ runner.temp }}/sdk-venv/bin/python
         run: cargo test -p maker-connect-hub --locked --features pg-tests
 
       # `.sqlx/` must match the queries: checked against a database with every migration applied.
