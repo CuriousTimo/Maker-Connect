@@ -8,11 +8,12 @@
 <script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
 </head>
 <body data-view="user">
+<a class="skip" href="#main">Skip to content</a>
 <header class="top">
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
   <span class="spacer"></span>
-  <div class="viewas" role="group" aria-label="View as"><span class="lbl">View as</span><span class="seg"><button type="button" data-view-btn="user" aria-pressed="true">User</button><button type="button" data-view-btn="admin" aria-pressed="false">Admin</button></span></div>
-  <button type="button" class="theme" data-theme-btn>Auto</button>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
 </header>
 <aside class="side" aria-label="Navigation"><nav aria-label="Pages">
 <a href="now.html">Now</a>
@@ -21,7 +22,7 @@
 <a href="state-loading.html">Jobs</a>
 <a href="farm.html">Queue and farm</a>
 <div class="group">Stock</div>
-<a href="state-empty.html">Files</a>
+<a href="files.html">Files</a>
 <a href="materials.html">Materials</a>
 <div class="group">Watch</div>
 <a href="state-error.html">Cameras</a>
@@ -34,87 +35,128 @@
 <a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
 <a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
 </div>
-<div class="group" data-only="admin">Manage</div>
-<a data-only="admin" href="add-machine.html">Add machine</a>
-<a data-only="admin" href="space-members.html">Space</a>
-<a data-only="admin" href="instance.html">Instance <span class="tag">instance admin</span></a>
-<div class="user"><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div>
-<a data-only="user" href="space-members.html#mine">My permissions</a>
+<div class="group" data-only="admin instance">Manage</div>
+<a data-only="admin instance" href="add-machine.html">Add machine</a>
+<a data-only="admin instance" href="space-members.html">Space</a>
+<a data-only="instance" href="instance.html">Instance</a>
+<div class="user"><div class="group" data-only="guest">Eli · guest</div><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div><div class="group" data-only="instance">Ada · owner, instance admin</div>
+<a data-only="guest user" href="space-members.html#mine">My permissions</a>
 <a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
 </nav></aside>
-<main>
+<main id="main" tabindex="-1">
 
 <p class="crumbs"><a href="machines.html">Machines</a> › Laser-A</p>
-<div class="head"><h1>Laser-A</h1><span class="st idle">Idle · job loaded</span><div class="actions"><span class="ctl"><button class="btn danger" type="button">Stop</button><span class="why">mc.laser.stop: soft reset, laser off</span></span></div></div>
-<p class="muted" style="margin-top:-8px">Laser · agent (USB) · GRBL state <code>IDLE</code></p>
-<p class="note-role" data-only="user"><b>As a member (Sam):</b> you hold mc.laser.start on Laser-A, granted to you by name after the laser course.</p><p class="note-role" data-only="admin"><b>As an admin (Noor):</b> you are an admin but were not granted mc.laser.start: being admin or owner is not having had the laser course. Grant it in Space, your own included.</p>
-<nav class="tabs" data-tabs role="tablist" aria-label="Laser-A"><a href="#job" role="tab">Job</a><a href="#lcontrol" role="tab">Control</a><a href="#lcamera" role="tab">Camera</a><a href="#lsettings" role="tab">Settings</a></nav>
-<section id="job" role="tabpanel">
-<div class="banner info"><span>A laser never starts by itself: not from the queue, not from a token. One loaded job per laser; a person at the laser frames it, wears PPE and presses Start burn.</span></div>
+<div class="head"><h1>Laser-A</h1><span class="out">Job loaded</span></div>
+<p class="muted" style="margin-top:-8px">Laser · agent (USB) · the laser reports <b>Idle</b></p>
+<div class="stopbar" role="region" aria-label="Stop Laser-A"><span class="ctl"><button class="btn danger" type="button" data-cmd="ok" data-pending="Sent 15:50:01. Waiting for Laser-A to answer." data-settled="Stopped 15:50:02: the laser is off; a running job ends as stopped.">Stop</button><span class="status" aria-live="polite"></span></span><span>Stop switches the laser off at once and ends a running job. It stays here on every tab. <span class="anno">mc.laser.stop · job.control · GRBL soft reset</span></span></div>
+<p class="note-role" data-only="user"><b>As a member (Sam):</b> you were granted Start burn on Laser-A by name, after the laser course.</p>
+<p class="note-role" data-only="admin"><b>As an admin (Noor):</b> you were not granted Start burn: being admin or owner is not having had the laser course. Grant it in Space, your own included.</p>
+<p class="note-role" data-only="instance"><b>As Ada (owner, instance admin):</b> not granted Start burn either; the same rule holds for an owner.</p>
+<p class="note-role" data-only="guest"><b>As a guest (Eli):</b> you see Laser-A and its job; you cannot stop, move or start it.</p>
+<div class="tabs" role="tablist" aria-label="Laser-A"><a href="#job" role="tab" id="t-job" aria-controls="job">Job</a><a href="#lcontrol" role="tab" id="t-lcontrol" aria-controls="lcontrol">Control</a><a href="#lcamera" role="tab" id="t-lcamera" aria-controls="lcamera">Camera</a><a href="#lsettings" role="tab" id="t-lsettings" aria-controls="lsettings">Settings</a></div>
+
+<section id="job" role="tabpanel" aria-labelledby="t-job">
+<div class="banner info"><span>A laser never starts by itself: not from the queue, not from a token. One loaded job per laser; a person at the laser places it, frames it, puts on PPE and presses Start burn.</span></div>
+<p class="anno">Mockup only: pick the state of the Job tab.</p>
+<div class="tabs" role="tablist" aria-label="State of the Job tab (mockup)"><a href="#j-ready" role="tab" id="t-j-ready" aria-controls="j-ready">Ready</a><a href="#j-burning" role="tab" id="t-j-burning" aria-controls="j-burning">Burning</a><a href="#j-door" role="tab" id="t-j-door" aria-controls="j-door">Lid open</a><a href="#j-alarm" role="tab" id="t-j-alarm" aria-controls="j-alarm">Alarm</a><a href="#j-ended" role="tab" id="t-j-ended" aria-controls="j-ended">Ended</a><a href="#j-stopped" role="tab" id="t-j-stopped" aria-controls="j-stopped">Stopped</a><a href="#j-offline" role="tab" id="t-j-offline" aria-controls="j-offline">Hub unreachable</a></div>
+
+<div id="j-ready" role="tabpanel" aria-labelledby="t-j-ready">
 <ol class="steps">
-<li class="done"><h3>Loaded: sign-oak.gcode</h3><p><small>Sent from Files by Sam at 14:02 · 380 × 210 mm · <code>POST /api/v1/devices/{id}/jobs</code></small></p><button class="btn small ghost" type="button">Take it off</button></li>
-<li class="done"><h3>Frame, laser off</h3><p>The head runs the outline with the laser off (power 0). <b>Framed 14:05, after the last Set origin.</b></p><span class="ctl"><button class="btn" type="button">Frame again</button><span class="why">mc.laser.frame, power 0 · device.move</span></span></li>
-<li class="done"><h3>Place it</h3><p>Set origin and jog until it sits right; after a Set origin, frame again. A jog does not undo the frame.</p><div class="row"><span class="ctl"><button class="btn small" type="button">Set origin here</button><span class="why">mc.laser.set_origin</span></span><span class="ctl"><a class="btn small" href="#lcontrol">Jog…</a><span class="why">mc.laser.jog</span></span></div></li>
+<li class="done"><h3>Loaded: sign-oak.gcode</h3><p><small>Sent from Files by Sam at 14:02 · 380 × 210 mm</small></p><button class="btn small" type="button" data-dialog="confirm-takeoff">Take it off…</button><span class="anno">POST /api/v1/devices/{id}/jobs loaded it; the path to take it off is open (OQ-1, UI-6)</span></li>
+<li class="done"><h3>Place it</h3><p>Put the material in, jog the head to where the job should start and set the origin there. Jogging does not undo a frame; a new origin does.</p><div class="row"><span class="ctl"><button class="btn" type="button" data-cmd="ok" data-settled="Origin set at 15:50. Frame it again: a new origin undoes the frame.">Set origin here</button><span class="status" aria-live="polite"></span></span><a class="btn" href="#lcontrol">Jog…</a></div><span class="anno">mc.laser.set_origin, mc.laser.jog · device.move</span></li>
+<li class="done"><h3>Frame it, laser off</h3><p>The head runs the job's outline with the laser off, so you see where it will burn. <b>Framed at 14:05, after the last Set origin (14:04).</b></p><span class="ctl"><button class="btn" type="button" data-cmd="ok" data-settled="Framed at 15:50, after the last Set origin.">Frame again</button><span class="status" aria-live="polite"></span></span><span class="anno">mc.laser.frame {power: 0} · device.move; no power field is offered</span></li>
 <li class="now"><h3>Protect yourself</h3>
-<form data-ppe><p>I have and wear:</p>
+<form data-ppe data-act><p>I have and wear:</p>
 <label class="check"><input type="checkbox" data-ppe-item> Laser safety glasses for this laser</label>
 <label class="check"><input type="checkbox" data-ppe-item> The lid is closed and the extraction runs</label>
-<button class="btn" type="button" data-ppe-ok>Confirm</button><span class="why">Kept for this session only: <code>POST /api/v1/devices/{id}/ppe</code>. The list is Laser-A's own (its settings).</span></form>
+<button class="btn" type="button" data-ppe-ok>Confirm</button><span class="why" data-ppe-msg aria-live="polite">Asked once for this sign-in. The list is Laser-A's own.</span><span class="anno">POST /api/v1/devices/{id}/ppe {items[]}, kept for the session</span></form>
+<p data-only="guest"><small>A guest does not confirm PPE.</small></p>
 </li>
 <li><h3>Start burn</h3>
-<p data-only="user"><button class="btn danger" type="button" disabled data-start>Start burn</button><span class="why" data-start-why>Confirm your PPE first (step 4).</span></p>
-<p data-only="admin"><button class="btn danger" type="button" disabled>Start burn</button><span class="why"><b>Not granted to you:</b> <code>mc.laser.start</code> is granted by name to a person who had the laser course; being admin is not enough. <a href="space-permissions.html">Grant it in Space → Permissions</a>, your own included.</span></p>
-<p><small>Person-only: accepted only from your own signed-in session at the laser; the hub checks the frame after the last Set origin and the PPE again.</small></p>
+<div data-only="user"><span class="ctl"><button class="btn danger" type="button" aria-disabled="true" aria-describedby="why-start" data-start>Start burn</button><span class="why" id="why-start" data-start-why aria-live="polite">Confirm your PPE first (step 4).</span></span></div>
+<div data-only="admin instance"><span class="ctl"><button class="btn danger" type="button" aria-disabled="true" aria-describedby="why-start-a">Start burn</button><span class="why" id="why-start-a"><b>Not granted to you.</b> Start burn is granted by name to a person who had the laser course; being admin or owner is not enough.</span></span><p style="margin-top:var(--s-2)"><a href="space-permissions.html#grants">Grant it in Space → Permissions</a>, your own included.</p></div>
+<p data-only="guest"><small>A guest cannot start a laser.</small></p>
+<p><small>Only from your own sign-in, at the laser. The hub checks the frame after the last Set origin and your PPE again.</small> <span class="anno">mc.laser.start · person-only · granted by name</span></p>
 </li>
 </ol>
+</div>
+
+<div id="j-burning" role="tabpanel" aria-labelledby="t-j-burning" hidden>
+<div class="banner warn"><span><b>Stay at the laser while it burns.</b> Stop is at the top of every tab.</span></div>
+<div class="card"><h2>Burning sign-oak.gcode <span class="st busy">Burning</span></h2>
+<p><small>Started at 15:49 by Sam</small></p>
+<div class="bar" role="img" aria-label="38 percent"><i style="width:38%"></i></div>
+<p class="num" style="margin-top:var(--s-2)"><b>38 % · about 15 min left · done 16:05</b></p>
+<div class="row"><span class="ctl"><button class="btn" type="button" data-cmd="ok" data-settled="Paused at 15:55: the laser is off and the head holds.">Pause</button><span class="status" aria-live="polite"></span></span></div><span class="anno">mc.laser.pause, mc.laser.resume · job.control</span>
+</div>
+<ol class="steps" style="margin-top:var(--s-4)">
+<li class="closed"><h3>Loaded, placed, framed, PPE</h3><p>Closed while it burns: the job cannot be taken off, placed again or framed until it ends.</p></li>
+</ol>
+<div class="card" style="margin-top:var(--s-4)"><h2>How a command answers</h2>
+<p>Every button that sends a command shows what happened to it, on the spot:</p>
+<ul class="list">
+<li><div class="grow"><span class="ctl"><button class="btn" type="button" aria-busy="true">Pause…</button><span class="status">Sent 15:56:02. Waiting for Laser-A to answer.</span></span></div><span class="out">Pending</span></li>
+<li><div class="grow"><span class="ctl"><button class="btn" type="button">Pause</button><span class="status ok">Done 15:56:03: paused.</span></span></div><span class="out">Done</span></li>
+<li><div class="grow"><span class="ctl"><button class="btn" type="button">Resume</button><span class="status bad">Laser-A refused it: it is not paused, so there is nothing to resume.</span></span><span class="anno">409 device/STATE_NOT_ACCEPTED</span></div><span class="out">Refused</span></li>
+<li><div class="grow"><span class="ctl"><button class="btn" type="button">Pause</button><span class="status unk">Outcome unknown: the hub restarted before Laser-A answered. It was not sent again. Look at the laser.</span></span><span class="anno">record settled outcome unknown (flows.md §3)</span></div><span class="out">Unknown</span></li>
+</ul></div>
+</div>
+
+<div id="j-door" role="tabpanel" aria-labelledby="t-j-door" hidden>
+<div class="banner warn" role="alert"><span><b>The lid is open.</b> Laser-A holds and the laser is off. Close the lid, then Resume to go on, or Stop to end the job.</span><span class="ctl"><button class="btn" type="button" data-cmd="ok" data-settled="Resumed at 15:58.">Resume</button><span class="status" aria-live="polite"></span></span></div>
+<p><span class="st warn">Attention</span> <small>The laser reports Door.</small> <span class="anno">GRBL DOOR · mc.laser.resume · job.control</span></p>
+</div>
+
+<div id="j-alarm" role="tabpanel" aria-labelledby="t-j-alarm" hidden>
+<div class="banner bad" role="alert"><span><b>Laser-A is in alarm.</b> It stopped moving and the laser is off. Check that the head can move freely, then Unlock, or Home to find its position again.</span></div>
+<p><span class="st bad">Error</span> <small>The laser reports Alarm.</small></p>
+<div class="row"><span class="ctl"><button class="btn" type="button" data-cmd="ok" data-settled="Unlocked at 15:58.">Unlock</button><span class="status" aria-live="polite"></span></span><span class="ctl"><button class="btn" type="button" data-cmd="ok" data-settled="Homed at 15:59.">Home</button><span class="status" aria-live="polite"></span></span></div>
+<p style="margin-top:var(--s-3)"><span class="ctl"><button class="btn danger" type="button" aria-disabled="true" aria-describedby="why-1">Start burn</button><span class="why" id="why-1">Not during an alarm: Start burn is accepted when the laser is idle.</span></span></p>
+<span class="anno">GRBL ALARM · mc.laser.unlock ($X), mc.laser.home ($H) · device.move; mc.laser.start accepted in IDLE</span>
+</div>
+
+<div id="j-ended" role="tabpanel" aria-labelledby="t-j-ended" hidden>
+<div class="banner ok"><span><b>sign-oak ended at 16:05: done.</b> It took 16 min. Take the work out; Laser-A has no job loaded now. To burn it again, send it again from Files.</span><a class="btn small" href="files.html" data-guest>Files</a></div>
+<p><span class="out">Done</span> <span class="anno">jobs.state ended, outcome done</span></p>
+</div>
+
+<div id="j-stopped" role="tabpanel" aria-labelledby="t-j-stopped" hidden>
+<div class="banner warn"><span><b>sign-oak was stopped at 15:56</b> by Sam, with Stop. The laser is off. The job is no longer loaded: to burn it again, send it again, place it and frame it.</span></div>
+<p><span class="out">Stopped</span> <small>Had the laser ended it with a fault, this reads <i>Failed</i>.</small> <span class="anno">outcome stopped or failed</span></p>
+</div>
+
+<div id="j-offline" role="tabpanel" aria-labelledby="t-j-offline" hidden>
+<div class="banner bad" role="alert"><span><b>The hub cannot be reached</b> (last answer 15:52). <b>Stop cannot reach Laser-A from this page: use the laser's own emergency stop, or switch it off at its power.</b> The page tries again by itself.</span></div>
+<p>The Stop bar then reads:</p>
+<div class="stopbar" style="position:static"><span class="ctl"><button class="btn danger" type="button" aria-disabled="true" aria-describedby="why-2">Stop</button><span class="why" id="why-2">Cannot reach the laser: use its own emergency stop or its power switch.</span></span><span>Every other control is greyed out the same way, and every live value reads <span class="unknown">unknown</span> with its last time.</span></div>
+<div class="banner warn" style="margin-top:var(--s-4)"><span><b>Or: the hub answers but Laser-A does not</b> (no report since 15:51; its agent on bench-pc is silent). Stop cannot reach it either: use its own emergency stop or its power switch.</span></div>
+</div>
 </section>
-<section id="lcontrol" role="tabpanel" hidden>
+
+<section id="lcontrol" role="tabpanel" aria-labelledby="t-lcontrol" hidden>
 <div class="grid">
 <div class="card"><h2>Jog</h2>
 <div class="jog"><span></span><button class="btn" type="button" aria-label="Y plus">▲</button><span></span><button class="btn" type="button" aria-label="X minus">◀</button><button class="btn" type="button" aria-label="Go to origin">◎</button><button class="btn" type="button" aria-label="X plus">▶</button><span></span><button class="btn" type="button" aria-label="Y minus">▼</button><span></span></div>
-<div class="row" style="margin-top:var(--s-3)"><label class="field">Step<select><option>0.1 mm</option><option selected>1 mm</option><option>10 mm</option><option>50 mm</option></select></label><label class="field">Speed mm/min<input inputmode="numeric" value="3000"></label></div>
-<p><small><code>mc.laser.jog</code> (x, y, feed), <code>mc.laser.go_origin</code> · device.move. Steps as LaserFoundry offers them.</small></p></div>
-<div class="card"><h2>Machine</h2><div class="row"><span class="ctl"><button class="btn" type="button">Home</button><span class="why">mc.laser.home ($H)</span></span><span class="ctl"><button class="btn" type="button">Unlock</button><span class="why">mc.laser.unlock ($X)</span></span><span class="ctl"><button class="btn" type="button">Read settings</button><span class="why">mc.laser.read_settings</span></span></div></div>
-<div class="card"><h2>Console</h2><p><small>Shown only to a person granted <code>device.gcode</code> on Laser-A by name. Refused while a job runs.</small></p><div data-only="admin"><label class="field">Line<input placeholder="$$" class="num"></label></div><p data-only="user" class="muted">Not granted to you.</p></div>
+<div class="row" style="margin-top:var(--s-3)" data-act><label class="field">Step<select><option>0.1 mm</option><option selected>1 mm</option><option>10 mm</option><option>50 mm</option></select></label><label class="field">Speed mm/min<input inputmode="numeric" value="3000"></label></div>
+<span class="anno">mc.laser.jog {x, y, feed}, mc.laser.go_origin · device.move; steps as LaserFoundry offers them</span></div>
+<div class="card"><h2>Machine</h2><div class="row"><span class="ctl"><button class="btn" type="button" data-cmd="ok" data-settled="Homed at 15:51.">Home</button><span class="status" aria-live="polite"></span></span><span class="ctl"><button class="btn" type="button" data-cmd="ok" data-settled="Unlocked at 15:51.">Unlock</button><span class="status" aria-live="polite"></span></span><span class="ctl"><button class="btn" type="button" data-cmd="ok" data-settled="Settings read at 15:51: see Settings.">Read settings</button><span class="status" aria-live="polite"></span></span></div>
+<span class="anno">mc.laser.home ($H), mc.laser.unlock ($X) · device.move; mc.laser.read_settings ($$) · device.view</span></div>
 </div>
-<p><small>No frame-power field: this UI frames at power 0 only (proposal; a frame above 0 is person-only in the contract and not offered).</small></p>
+<p><small>A laser has no console: nothing but Start burn switches the laser on. Framing is with the laser off only.</small> <span class="anno">decision 20261119-no-raw-gcode-on-a-laser; no frame-power field</span></p>
 </section>
-<section id="lcamera" role="tabpanel" hidden><div class="card"><div class="preview">Cam-Laser-A live view</div></div></section>
-<section id="lsettings" role="tabpanel" hidden>
-<div class="card"><dl class="kv"><dt>Work area</dt><dd class="num">400 × 400 mm (from the controller)</dd><dt>Origin</dt><dd>front left</dd><dt>PPE list</dt><dd>glasses; lid closed and extraction on</dd></dl></div>
-<div class="card" data-only="user"><p>Settings are changed by the space's staff.</p></div>
-<div class="card" data-only="admin"><h2>Change</h2><div class="row"><label class="field">Origin<select><option>front left</option><option>rear left</option></select></label><label class="field">PPE list<input value="glasses; lid closed and extraction on"></label><button class="btn" type="button">Save</button></div><p><small><code>PATCH /api/v1/devices/{id}</code> settings (laser: origin, dialect, rotary, M4: #24).</small></p></div>
+<section id="lcamera" role="tabpanel" aria-labelledby="t-lcamera" hidden><div class="card"><div class="preview">Cam-Laser-A live view</div></div></section>
+<section id="lsettings" role="tabpanel" aria-labelledby="t-lsettings" hidden>
+<div class="card"><dl class="kv"><dt>Work area</dt><dd class="num">400 × 400 mm (from the controller)</dd><dt>Origin</dt><dd>front left</dd><dt>PPE list</dt><dd>laser safety glasses; lid closed and extraction on</dd></dl></div>
+<div class="card" data-only="guest user"><p>Settings are changed by the space's staff.</p></div>
+<div class="card" data-only="admin instance"><h2>Change</h2><div class="row"><label class="field">Origin<select><option>front left</option><option>rear left</option></select></label><label class="field">PPE list<input value="laser safety glasses; lid closed and extraction on"></label><button class="btn" type="button">Save</button></div><span class="anno">PATCH /api/v1/devices/{id} settings · device.manage (laser: origin, dialect, rotary, M4: #24)</span></div>
 </section>
 
+<dialog id="confirm-takeoff" aria-labelledby="ct-h"><h2 id="ct-h">Take sign-oak off Laser-A?</h2><p>The file stays in Files. To burn it later, send it to the laser again, place it and frame it again.</p><form method="dialog" class="acts"><button class="btn" value="no">Keep it loaded</button><button class="btn primary" value="yes">Take it off</button></form></dialog>
+<dialog id="confirm-burn" aria-labelledby="cb-h"><h2 id="cb-h">Start burning sign-oak on Laser-A?</h2><p>The laser switches on and burns <b>sign-oak.gcode</b> (380 × 210 mm) from the origin set at 14:04, framed at 14:05.</p><p>Your PPE, confirmed at 15:48: laser safety glasses on; lid closed, extraction running.</p><p>Stay at the laser while it burns. Stop stays at the top of the page.</p><form method="dialog" class="acts"><button class="btn" value="no">Not now</button><button class="btn danger" value="go" data-goto="j-burning">Start burn on Laser-A</button></form></dialog>
+
 </main>
-<nav class="bottom" aria-label="Pages"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="state-empty.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a data-only="user" href="space-members.html#mine">My permissions</a><a data-only="admin" href="add-machine.html">Add machine</a><a data-only="admin" href="space-members.html">Space</a><a data-only="admin" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
-<script>
-(function(){
-  var b=document.body, q=new URLSearchParams(location.search).get("as"), v=null;
-  try{v=localStorage.getItem("mc-view");}catch(e){}
-  if(q==="user"||q==="admin")v=q;
-  function setView(x){b.dataset.view=x;document.querySelectorAll("[data-view-btn]").forEach(function(k){k.setAttribute("aria-pressed",String(k.dataset.viewBtn===x));});try{localStorage.setItem("mc-view",x);}catch(e){}}
-  setView(v==="admin"?"admin":"user");
-  document.querySelectorAll("[data-view-btn]").forEach(function(k){k.addEventListener("click",function(){setView(k.dataset.viewBtn);});});
-  var th=document.querySelector("[data-theme-btn]"), order=["system","light","dark"];
-  function cur(){try{return localStorage.getItem("mc-theme")||"system";}catch(e){return "system";}}
-  function show(){var c=cur();th.textContent=c==="system"?"Auto":c==="light"?"Light":"Dark";th.title="Theme: "+th.textContent+" (click to change)";}
-  if(th){show();th.addEventListener("click",function(){var n=order[(order.indexOf(cur())+1)%3];try{if(n==="system")localStorage.removeItem("mc-theme");else localStorage.setItem("mc-theme",n);}catch(e){}if(n==="system")delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=n;show();});}
-  var tabs=document.querySelectorAll("[data-tabs] a[href^='#']");
-  if(tabs.length){
-    function pick(){var h=location.hash.slice(1),ok=false;tabs.forEach(function(a){if(a.getAttribute("href")==="#"+h&&a.offsetParent!==null)ok=true;});
-      if(!ok){for(var i=0;i<tabs.length;i++){if(tabs[i].offsetParent!==null){h=tabs[i].getAttribute("href").slice(1);break;}}}
-      tabs.forEach(function(a){var id=a.getAttribute("href").slice(1),on=id===h;a.setAttribute("aria-selected",String(on));var p=document.getElementById(id);if(p)p.hidden=!on;});}
-    window.addEventListener("hashchange",pick);document.querySelectorAll("[data-view-btn]").forEach(function(k){k.addEventListener("click",pick);});pick();
-  }
-})();
-</script>
-<script>
-(function(){var f=document.querySelector("[data-ppe]");if(!f)return;var ok=f.querySelector("[data-ppe-ok]"),s=document.querySelector("[data-start]"),w=document.querySelector("[data-start-why]");
-ok.addEventListener("click",function(){var all=[].every.call(f.querySelectorAll("[data-ppe-item]"),function(c){return c.checked;});
-if(!all){ok.nextElementSibling.textContent="Tick every item you have and wear; then Confirm.";return;}
-f.closest("li").className="done";f.innerHTML="<p><b>Confirmed 15:48</b>: you have and wear glasses; the lid is closed and the extraction runs.</p>";
-if(s){s.disabled=false;w.textContent="Ready: framed after the last Set origin, PPE confirmed. It asks once more before it starts.";}});})();
-</script>
+<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
 </body>
 </html>

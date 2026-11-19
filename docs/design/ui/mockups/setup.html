@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>First-run setup · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body data-view="user">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="signin.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Sign in</small></span></a>
+  <span class="spacer"></span>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
+</header>
+<main id="main" tabindex="-1" class="bare" data-no-guest-note>
+
+<div class="head"><h1>Set up this hub</h1></div>
+<p class="lede">This hub has no accounts yet. Enter the setup code from the hub's log to make the first account; the hub makes its organisation and space with it.</p>
+<div class="card">
+<form action="now.html" method="get" data-guest>
+<label class="field">Setup code<input autocomplete="off" class="num" placeholder="from the hub's log"></label>
+<label class="field">Your name to sign in with<input autocomplete="username" value="ada"></label>
+<label class="field">Password<input type="password" autocomplete="new-password"></label>
+<button class="btn primary" style="width:100%" data-guest>Make the first account</button>
+</form>
+<span class="anno">POST /setup {code, name, password} · public; the handler checks the one-time code (flows.md §7)</span></div>
+<div class="banner bad" style="margin-top:var(--s-4)"><span><b>That setup code is not right.</b> Copy it again from the hub's log.</span></div>
+<p><small>Once the first account exists this page is gone; later people join by invite.</small></p>
+
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
+</body>
+</html>

@@ -7,9 +7,12 @@ study behind it, with today's findings and the comparable apps, is
 `docs/design/ui/mockups/index.html` (static HTML, one stylesheet, opens from disk).
 
 Choices of the UI designer that no ruling or reference made are marked **proposal**. Roles and
-actions are those of [authz.md](authz.md); verbs those of the
+actions are those of [authz.md](authz.md) (the action and preset names decided on the `design-doc`
+branch, `decisions/20261119-actions-and-presets.md`); verbs those of the
 [capability verbs registry](../registries/capability-verbs.md). Where an action has no name yet, it
-is written as api.md writes it: `(OQ-4) <area>`.
+is written as api.md writes it: `(OQ-4) <area>`. The UX test of the mockups (journal:UI-TEST:0004,
+46 findings) is worked into this page and the mockups; its ids (UT-nn) are named where a rule comes
+from it.
 
 ## On the public API
 
@@ -29,7 +32,24 @@ data. An SPA is reconsidered only for the multi-tenant cloud if page weight or o
   grants nothing.
 - **Our own limits** (what a person may press, bounds on our side) live here and in host-side
   validation, never on the wire.
-- **Laser:** Start burn only on the laser's own page, by a person, after framing and PPE.
+- **Laser:** Start burn only on the laser's own page, by a person, after placing, framing and PPE.
+- **Plain words** (UT-24): the page's text names no verb id, action id or raw state enum
+  (`CLOSED`, `OUT_OF_PAPER`); a reason says the state in words and when the control works again. The
+  mockups carry the verb, action and call in a separate annotation (`.anno`, "spec: …") that is not
+  the product's text.
+- **A command answers on the spot** (UT-04, flows.md §3): a pressed control turns *pending*
+  ("Sent 15:56:02. Waiting for Laser-A to answer.") and keeps the label, so a second press is not
+  sent; on `command.settled` its status line (`aria-live`) reads *done*, *refused* (the hub's or the
+  device's reason in words; the `domain/REASON` code stays in the record) or *outcome unknown* (the
+  hub restarted before the answer; never sent again: "look at the machine"). Stop gets this first.
+- **Unreachable** (UT-05): when the hub cannot be reached, every page shows one error banner with the
+  time of the last answer; on a machine's page its controls are disabled with "Cannot reach the
+  machine: use its own controls", and on a laser "use its own emergency stop or its power switch".
+  The same holds when the hub answers but the machine does not (offline).
+- **Ask first, or offer Undo** (UT-44): an action that cannot be taken back asks once, naming the
+  thing and the machine (Stop a print, Delete, Retire, Remove a member, Revoke, Refuse a request,
+  Withdraw a request, Bad print, take a laser job off, Start burn); one the API can take back acts at
+  once and offers Undo (take a queue item out, archive a spool).
 
 How a control decides what to show (**proposal**, from the study's U1, U2, U7):
 
@@ -40,9 +60,10 @@ How a control decides what to show (**proposal**, from the study's U1, U2, U7):
 | holds the action | declared the verb, the state accepts it | enabled |
 | any | did not declare the verb | absent: no "not supported" button |
 
-Exceptions, **proposal**: a damaging action the person lacks (`mc.laser.start`, `device.gcode`) stays
-visible and disabled with "granted by name" as its reason, so a person on a laser knows where Start
-burn is and why it is grey (the refused state). Values: a value without a basis reads *unknown*, with
+Exception, **proposal**: Start burn (`mc.laser.start`), when the person lacks it, stays visible and
+disabled with "granted by name" as its reason, so a person on a laser knows where Start burn is and
+why it is grey (the refused state). A printer's terminal (`device.gcode`) follows the first row: it
+is shown only to a person who holds it (UT-03; a laser has no console at all). Values: a value without a basis reads *unknown*, with
 the last known value and its time beside it when there is one; a real zero reads `0`; a value that
 does not apply is left out, not dashed.
 
@@ -53,9 +74,9 @@ does not apply is left out, not dashed.
 | Now | yes | yes | yes, plus requests and every machine's trouble | as in a space they belong to |
 | Machines, a machine's page | view only | yes; machines they may not use say so | yes, plus Add machine | — |
 | Jobs | yes | yes | yes | — |
-| Queue and farm | the queue, read only | the queue; move and take out their own items | every item; Projects | — |
-| Files | — | yes, their own | yes, all | — |
-| Materials | view | use, weigh, label | plus add, edit, locations, archive | — |
+| Queue and farm | the queue and projects, read only | the queue (move and take out their own items); projects and parts (`farm.use`) | every item; a part's count correction (`farm.manage`) | — |
+| Files | view (`files.view`) | yes, their own | yes, all | — |
+| Materials | view | add, use, weigh, label, edit, archive; locations (`stock.use`) | plus import, export, extra fields, the Spoolman backup (`stock.manage`) | — |
 | Cameras | the ones they may view | the ones they may view | plus manage in Space → Cameras | — |
 | Prepare | — | yes | yes | — |
 | My permissions (user menu, read only, **proposal**) | yes | yes | — (they see Space) | — |
@@ -72,21 +93,24 @@ does not apply is left out, not dashed.
   the rest; the machines list is the Machines page.
 - Admin-only entries are absent from a member's navigation; a member who opens such a URL gets the
   refused page ("This page is for the space's staff") and the hub refuses the calls too.
-- The **role switch** "View as: User | Admin" exists only in the mockups, to show both sides.
+- The **role switch** "View as: Guest | Member | Admin | Instance admin" exists only in the mockups
+  (UT-26). Guest (Eli) looks only: no control that changes something is shown. Instance admin (Ada)
+  is also the space's owner and the organisation's owner; the Instance entry shows for an instance
+  admin only, never for every admin.
 
 ## Pages
 
 | Page | Subject | Reads | Issue | Mockup |
 |---|---|---|---|---|
-| Sign in | name and password; the invite page; first-run setup | `POST /api/v1/session`, `/setup` | | `signin.html` |
-| Now | the space at a glance, wall screen | devices, jobs, queue, events | | `now.html` |
+| Sign in | name and password; the invite page; first-run setup | `POST /api/v1/session`, `/api/v1/invites/accept`, `/setup` | | `signin.html`, `invite.html`, `setup.html` |
+| Now | the space at a glance; the wall screen | devices, jobs, queue, events | | `now.html`, `wall.html` |
 | Machines | the device list | `GET /api/v1/devices`, events | | `machines.html` |
 | Machine | one device: tabs per subject (overview, control, files, jobs, camera, settings) | device, commands, history, transfers | | `printer.html` |
 | Start a print | the "print on this machine" sheet | files, `transfers`, `queue` | | `print-start.html` |
 | Laser | a laser's page: the loaded job, frame, place, PPE, Start burn | device, commands, `ppe`, `jobs` | HS7b | `laser.html` |
 | Tape printer, label printer | one page per kind, never shared | device, commands | #6 | `label-tape.html`, `label-labels.html` |
-| Add machine | pairing by code; the Buddy INI with the hub's address, warning when the address does not fit the dialect's hostname limit (20 bytes for Buddy 6.3.0) | `POST /api/v1/devices/pair` (proposed path, [OQ-1](risks-and-open.md#oq-1-exact-paths-and-fields-of-our-own-endpoints)) | #22 | `add-machine.html` |
-| Files | uploads, what a file says about itself, Print on | files, devices | | `state-empty.html` |
+| Add machine | pairing by code; per kind: the Buddy INI with the hub's address (warning when the address does not fit the dialect's hostname limit, 20 bytes for Buddy 6.3.0), or the agent's download and start command | `POST /api/v1/devices/pair` (proposed path, [OQ-1](risks-and-open.md#oq-1-exact-paths-and-fields-of-our-own-endpoints)) | #22 | `add-machine.html` |
+| Files | uploads, what a file says about itself, Print on, Send to a laser | files, devices | | `files.html`, `state-empty.html` |
 | Queue | per device, order, take out | queue | | `farm.html` |
 | Prepare | the tools that make the work: laser design (the LaserFoundry web fork; picks a hub laser, its settings from the hub), the label editor | `/api/v1/lasers`, devices | #6, #24 | not mocked |
 | Jobs | job history with filters | `GET /api/v1/jobs` | #11 | `state-loading.html` |
@@ -94,7 +118,7 @@ does not apply is left out, not dashed.
 | Materials and stock | Spoolman's data with our UI; tapes and filaments apart; laser materials | Spoolman tables, locations, items | #10 | `materials.html`, `spool.html` |
 | Cameras | watching: the space's cameras, the player | cameras, `/ws` | #5 | `state-error.html` |
 | Space | tabs: General, Members (with invites), Permissions (grants, requests, machine groups), API tokens, Audit log, Cameras (manage), Access (doors) | space endpoints | | `space-members.html`, `space-permissions.html`, `space-settings.html` |
-| Instance | organisations and spaces; the hub's update | `GET /api/v1/instance/spaces`, `/api/v1/update` | | `instance.html` |
+| Instance | organisations and spaces; moving a device; the hub's update | `GET /api/v1/instance/spaces`, `/api/v1/update` | | `instance.html` |
 | About | build, update, last update's outcome, dumps | `/api/v1/update` | | on `instance.html` |
 
 ## Per page: what the user sees, what the admin sees
@@ -104,31 +128,36 @@ registry; a state that does not accept the verb disables it with the reason.
 
 ### Now
 
-- **User:** four numbers (printing, free, waiting for someone, jobs done today); *Needs someone*
-  (waiting for a sign-off, error, stopped, paused, offline; most urgent first; "All clear" when
-  empty); *Ends next* by the clock ("45 min left · done 16:35"); the fleet as cells.
+- **User:** four numbers (printing, free, waiting for someone, jobs done today; a laser with a job
+  loaded is not free); *Needs someone* (waiting for a sign-off, attention such as out of labels,
+  error, stopped, paused, offline; most urgent first; "All clear" when empty; UT-15); *Ends next* by
+  the clock ("45 min left · done 16:35"); the fleet as cells, each with its state's letter and a
+  name for a screen reader, with a legend (UT-17).
 - **Admin:** the same, plus requests for permission as rows in *Needs someone* (linking to Space →
   Permissions → Requests, granting nothing here) and the projects' progress.
-- **Controls:** Set Ready, Bad print → `POST /api/v1/jobs/{id}/confirm` `{good}`, `job.control` on that
-  device; Look → the machine's page.
-- **Wall screen** (**proposal**): the same page full screen with a clock, **without buttons**, so a
-  passer-by at the TV does not act as the signed-in person (study N3).
+- **Controls:** Set Ready, Bad print (asks first) → `POST /api/v1/jobs/{id}/confirm` `{good}`,
+  `job.control` on that device; Look → the machine's page.
+- **Wall screen** (decided, journal:UI-DESIGN:0009 #4; UT-25): its own page with a large clock,
+  **read only: no buttons and no acting links**, so a passer-by at the TV cannot act as anyone (study
+  N3); person-only verbs need a person's own session, which a wall has not. Which session the screen
+  keeps is open (UI-4).
 - **States:** loading (frame at once, cells grey), empty ("No machines yet": staff get "Add machine",
   members get "Ask the space's staff"), error (banner with the time of the last answer), unknown
   (cells dashed).
 
 ### Machines
 
-- **User:** filter chips with counts (All, Printing, Free, Needs someone, Error, Offline), search,
-  group by; one card per machine with its state, one primary action and More ⋯. A machine the person
+- **User:** filter chips with counts (All, Printing, Free, Job loaded, Needs someone, Attention,
+  Error, Offline; the counts add up to All, UT-35), search, group by; one card per machine with its state, one primary action and More ⋯. A machine the person
   may not use reads "You don't have permission to use it" with **Ask for permission**.
-- **Admin:** the same, plus **Add machine**, and one banner per kind of trouble ("1 request for
-  permission waits: Review in Space").
+- **Admin:** the same, plus **Add machine**, and one banner per kind of trouble ("2 requests for
+  permission wait: Review in Space").
 - **Primary action per card** (**proposal**, after prusa-connect-ui-study.md): printing → Pause
-  (`core.command.pause_print`, `job.control`); waiting for a sign-off → Set Ready; free printer →
-  Print (opens Start a print); laser → Go to the laser (never a start); label printer → Print a label.
-- **States:** a card offline is edged red and shows its last report's time; values are unknown, not
-  the last ones shown as current.
+  (`core.command.pause_print`, `job.control`, a real command button, UT-13); waiting for a sign-off →
+  Set Ready; free printer → Print (opens Start a print); laser → Go to the laser (never a start);
+  tape or label printer → Print. A laser with a job loaded shows the tag *Job loaded*, not a state.
+- **States:** a card offline has a dashed outline (the state list's rule, UT-36) and shows its last
+  report's time; values are unknown, not the last ones shown as current.
 
 ### A machine's page (3D printer)
 
@@ -144,7 +173,7 @@ below.
 | Files | files on the device; Print… | plus Delete (`core.command.delete_file`, `job.control`) |
 | Jobs | the device's queue (move and take out own items), history | every queue item |
 | Camera | the linked camera (`device.view`) | the same; managing is in Space → Cameras |
-| Settings | read only: name, model, firmware label, serial, connection; "changed by the space's staff" | name and labels, induction, PPE list (`PATCH /api/v1/devices/{id}`, (OQ-4) devices); Retire with a reason (`DELETE`, history stays) |
+| Settings | read only: name, model, firmware label, serial, connection; "changed by the space's staff" | name and labels, induction, PPE list (`PATCH /api/v1/devices/{id}`, `device.manage`); Retire with a reason (`DELETE`, history stays) |
 
 Control tab, a 3D printer (verbs of the `marlin` registry; the `prusa` kind uses the same
 `core.command.*` names where its driver declares them):
@@ -164,9 +193,11 @@ Control tab, a 3D printer (verbs of the `marlin` registry; the `prusa` kind uses
 Bounds of a number come from the verb's declared argument (kind, unit, bounds); the page adds none
 of its own (for a Prusa printer the firmware's limits rule, owner 2026-11-09).
 
-**States:** printing disables movement with "Not while printing: moving is accepted when operational
-or paused"; offline shows every live value as unknown with its last time; a print whose end was not
-observed reads "Outcome unknown", never good or failed.
+**States:** printing disables movement with "Not while printing: moving works when it is ready or
+paused"; offline shows every live value as unknown with its last time; a print whose end was not
+observed reads "Outcome unknown", never good or failed. A member who lacks `device.move` and
+`device.heat` sees no Move and Heat cards, only one banner with Ask for permission (UT-12). History
+outcomes (done, stopped, failed) are tags, not state chips (UT-16).
 
 ### Start a print
 
@@ -179,8 +210,8 @@ material, time); a file for another model is listed but cannot be picked, with i
 | Print now on MINI-1 (hub file, Prusa) | `POST /api/v1/devices/{id}/transfers` `{file_id, path, print_after: true}` | `job.start` |
 | Print now (hub file, agent device) | `POST /api/v1/devices/{id}/jobs` `{file_id}` | `job.start` |
 | Print now (file on the printer) | `core.command.start_print` `{path, origin}` | `job.start` |
-| Add to MINI-1's queue | `POST /api/v1/queue` `{device_id, file_id}` | (OQ-4) queue |
-| Put it first (admin) | `PATCH /api/v1/queue/{id}` `{pos}` | (OQ-4) queue |
+| Add to MINI-1's queue | `POST /api/v1/queue` `{device_id, file_id}` | `queue.manage` and `job.start` |
+| Put it first (admin) | `PATCH /api/v1/queue/{id}` `{pos}` | `queue.manage` |
 
 The button always names the machine. While the machine is busy, Print now is disabled with the reason
 and *Add to the queue* becomes the primary button.
@@ -189,30 +220,56 @@ and *Add to the queue* becomes the primary button.
 
 One tab, **Job**, carries the laser flow as numbered steps; Control (jog, home, unlock, set origin, go
 to origin, read settings), Camera and Settings follow. The flow is the owner's HS7b and the device
-contract's laser rule:
+contract's laser rule; the order is the owner's "prepares, frames, PPE, presses Start" and flows.md §4
+(origin, then frame), decided in journal:UI-DESIGN:0011 Q2 (UT-08):
 
 1. **Loaded:** one job per laser, sent from Files or from Prepare's "Send to Laser-A"
-   (`POST /api/v1/devices/{id}/jobs`; a laser job is loaded, not started). Take it off: path open
-   ([OQ-1](risks-and-open.md#oq-1-exact-paths-and-fields-of-our-own-endpoints)).
-2. **Frame, laser off:** `mc.laser.frame` with `power: 0` (`device.move`). The page offers **no power
-   field** (**proposal**): a frame above 0 is person-only in the contract and is not offered here.
-3. **Place it:** `mc.laser.set_origin`, `mc.laser.jog` (`device.move`). After a Set origin the step
-   "framed" is undone and step 2 is open again; a jog does not undo it.
+   (`POST /api/v1/devices/{id}/jobs`; a laser job is loaded, not started). Take it off asks first;
+   its path is open ([OQ-1](risks-and-open.md#oq-1-exact-paths-and-fields-of-our-own-endpoints), UI-6).
+2. **Place it:** `mc.laser.jog`, `mc.laser.set_origin` (`device.move`). A Set origin undoes a frame
+   done before it; a jog does not.
+3. **Frame it, laser off:** `mc.laser.frame` with `power: 0` (`device.move`), so the frame shows the
+   placed job. The page offers **no power field** (**proposal**): a frame above 0 is person-only in
+   the contract and is not offered here.
 4. **Protect yourself:** the laser's PPE list as boxes; Confirm → `POST /api/v1/devices/{id}/ppe`
-   `{items[]}`, kept for the session. Shown when the space's `ppe_checks` is on.
+   `{items[]}`, kept for the session. Shown when the space's `ppe_checks` is on. A missing tick is
+   said in a live status line (UT-22).
 5. **Start burn:** `mc.laser.start` (person-only, damaging, granted by name), from the person's own
-   session, after a frame of the loaded job after the last Set origin and the PPE; it asks once more.
+   session, after a frame of the loaded job after the last Set origin and the PPE. It **asks once
+   more** (UT-09): the dialog names the job, the laser, the origin and frame times and the PPE
+   confirmed, and says to stay at the laser; its button reads "Start burn on Laser-A".
 
-**Stop** (`mc.laser.stop`, `job.control`: a soft reset, the laser off) is always at the top of the
-page. The queue never starts a laser; a token never does.
+**Stop** (`mc.laser.stop`, `job.control`: a soft reset, the laser off) sits in a bar that sticks under
+the top bar on every tab, so it never scrolls away (UT-01). The queue never starts a laser; a token
+never does.
+
+The Job tab's states (UT-02, from GRBL's states and the job flow; the device's state is said in
+words):
+
+| State | What the Job tab shows |
+|---|---|
+| Ready | the five steps, the current one marked |
+| Burning (GRBL `RUN`) | progress, time left and the clock, who started it; Pause; "stay at the laser"; steps 1-4 closed: the running job cannot be taken off, placed again or framed |
+| Lid open (`DOOR`) | Attention: the laser holds and is off; close the lid, then Resume or Stop |
+| Alarm (`ALARM`) | Error: it stopped, the laser is off; Unlock or Home; Start burn disabled ("accepted when idle") |
+| Ended | outcome *done*, how long it took; no job loaded any more: send it again to burn it again |
+| Stopped | outcome *stopped* (or *failed* when it ended with a fault), by whom; no job loaded |
+| Hub unreachable, laser offline | the error banner; Stop disabled with "use the laser's own emergency stop or its power switch" (UT-05) |
+
+**Sending to a laser with a job loaded** (decided, journal:UI-DESIGN:0009 #3, UI-3; UT-10): Files and
+Prepare ask "Laser-A has sign-oak loaded: replace it?", naming who loaded it and when; on Replace
+the old job goes off the laser (it stays in Files) and the new one must be placed and framed. While
+the laser burns, Send is disabled until the job has ended (the job flow has no replace from
+running).
 
 - **User:** with `mc.laser.start` granted, Start burn is enabled once steps 2-4 are done; until then it
   says which step is missing. Without the grant: the refused state (Start burn disabled, "granted by
-  name after the laser course", Ask for permission).
+  name after the laser course", the person's request for it and its state).
 - **Admin:** the same rule. An admin without the grant sees the refused state with "Grant it in Space →
   Permissions, your own included" (being owner is not having had the laser course).
-- **Console:** `mc.laser.gcode` (`device.gcode`, by name), refused while a job runs; shown only to a
-  person who holds it.
+- **No console:** a laser offers no raw G-code (`mc.laser.gcode` is not declared, device contract;
+  `decisions/20261119-no-raw-gcode-on-a-laser.md` on the `design-doc` branch): nothing but Start burn
+  switches the laser on (UT-03).
 
 ### Tape printer and label printer
 
@@ -222,34 +279,44 @@ Two kinds, two pages, nothing shared (the owner's ruling on the label stacks).
 |---|---|---|
 | Print | `mc.label.print` `{picture, tape_size_mm}`, `job.start` | `mc.label.print` `{picture, page_size}`, `job.start` |
 | Accepted in | `IDLE` | `IDLE` |
-| Disabled reasons | `DISCONNECTED`: "not connected: plug it in at the agent's computer"; `BUSY` | `OUT_OF_PAPER`: "load a roll"; `PRINTING`; `ERROR` |
+| Disabled reasons (in words) | not connected (`DISCONNECTED`): "plug it in at the agent's computer"; printing (`BUSY`) | out of labels (`OUT_OF_PAPER`, the state list's **Attention**, listed in Now's *Needs someone*, UT-15): "load a roll"; printing; error |
 | Sizes offered | the tape sizes the port declares | the rolls of the label catalogue (data) |
 
 The picture is made by the label editor in Prepare (#6;
-[OQ-14](risks-and-open.md#oq-14-tables-of-materials-items-and-labels)). Users and admins see the
+[OQ-14](risks-and-open.md#oq-14-tables-of-materials-items-and-labels)); the print page only picks a
+picture made there and prints it, with no text editor of its own (UT-39). Users and admins see the
 same print page; Settings is read only for a member.
 
 ### Materials and a spool
 
-Tabs: Spools, Filaments, Tapes and labels, Laser materials, Locations (admin). Data is Spoolman's
-(`/spoolman/api/v1`).
+Tabs: Spools, Filaments, Tapes, Label rolls, Laser materials, Locations. Tape cassettes and label
+rolls are two tabs, as the two stacks are apart (decided, journal:UI-DESIGN:0011 Q4; UT-38). Data is
+Spoolman's (`/spoolman/api/v1`).
 
 | Control | Call | User | Admin |
 |---|---|---|---|
-| Use (grams by hand) | `PUT /spool/{id}/use` | yes | yes |
+| Subtract used grams (by hand) | `PUT /spool/{id}/use` | yes | yes |
 | Use the scale's weight | `PUT /spool/{id}/measure`, enabled when the scale reports `STABLE` | yes | yes |
 | Print a label | `mc.label.print` on the chosen printer | yes | yes |
-| Add, edit, archive a spool; filaments; locations | Spoolman and `/api/v1/locations`, (OQ-4) stock | — | yes |
+| Add, edit, archive a spool; filaments; locations | Spoolman and `/api/v1/locations`, `stock.use` | yes | yes |
+| Import, export, extra fields, the Spoolman backup | Spoolman, `stock.manage` | — | yes |
 
-A spool never weighed reads *unknown*; an empty one reads `0 g`. A **Mine** filter for the member
-needs an owner on a spool: open ([OQ-14](risks-and-open.md#oq-14-tables-of-materials-items-and-labels)).
+Adding a spool is a member's day-to-day work (`stock.use`, authz.md; UT-14: the design's action list
+wins over this page's earlier "admin only"). A spool never weighed reads *unknown*; an empty one
+reads `0 g`. A **Mine** filter needs an owner on a spool and is not shown until that is decided
+(UI-5, [OQ-14](risks-and-open.md#oq-14-tables-of-materials-items-and-labels); UT-37).
 
 ### Ask for permission
 
 - **User:** on a machine they may view but not use: one banner ("You don't have permission to use
   Printer-3", or "Printer-3 needs a training") with **Ask for permission** / **Ask for a training** →
   `POST /api/v1/access-requests` `{device_id}`. Then the **pending** state: "Asked on 19 Nov at
-  14:20. The space's staff decide in Space. Asking grants nothing." Control and Files stay hidden.
+  14:20. The space's staff decide in Space. Asking grants nothing." with **Withdraw** (asks first;
+  `DELETE /api/v1/access-requests/{id}` while open). The outcomes (UT-28): **refused** ("Not
+  granted … you may ask again"), **granted** (the machine's controls appear), **withdrawn**. The
+  member's own requests and their states are listed under My permissions
+  (`GET /api/v1/access-requests/mine`, decided journal:UI-DESIGN:0009 #5). Control and Files stay
+  hidden while not granted.
 - **Admin:** the machine's page shows "Ravi asked … Review in Space"; there is **no grant button on a
   machine's page**.
 
@@ -257,12 +324,15 @@ needs an owner on a spool: open ([OQ-14](risks-and-open.md#oq-14-tables-of-mater
 
 Numbered steps (**proposal**, after prusa-connect-ui-study.md): 1 what are you adding (a printer
 with built-in Connect; a machine on USB through the agent; a network camera → Space → Cameras);
-2 point it here (the INI's lines, the hostname length warning; the agent's download and start
-command); 3 the code it shows, with the name here → `POST /api/v1/devices/pair` `{code, name}`
-((OQ-4) devices); 4 "who may use it": a link to Space → Permissions. Only kinds of the
-[device contract](device-contract.md#kinds) are offered.
+2, per kind (UT-07): for built-in Connect the INI's lines and the hostname length warning; for USB
+the agent's download for the computer beside the machine and its start command (today's, from the
+downloads page); 3 the code it shows, with the name here → `POST /api/v1/devices/pair`
+`{code, name}` (`devices.manage`); after Add: *pending* until the device collected its token
+(flows.md §1), then *paired* with a link to the machine; 4 "who may use it": a link to Space →
+Permissions. Only kinds of the [device contract](device-contract.md#kinds) are offered.
 
-- **Errors:** "That code is not waiting here. It may have expired: the device shows a new one."
+- **Errors** (shown only when they happen): "That code is not waiting here. It may have expired: the
+  device shows a new one."; "The machine did not collect its token" (added, not reported yet).
 - **User:** the refused page.
 
 ### Space (admin)
@@ -274,32 +344,59 @@ log**, **Cameras** (manage), **Access** (doors: their own module,
 [OQ-10](risks-and-open.md#oq-10-door-access-link)).
 
 Permissions → Grants: pick a person and a device or device group; a **preset** (View, Use, Operate,
-Manage; contents [OQ-4](risks-and-open.md#oq-4-action-names-and-preset-contents), shown from the hub);
-**damaging actions as separate switches by name** (`mc.laser.start`, `device.gcode`, firmware update),
-never in a preset; an optional expiry; who granted and when → `POST /api/v1/grants`. The admin's own
+Manage, with their contents as authz.md lists them, shown from the hub);
+**damaging actions as separate switches by name** (`mc.laser.start`, `device.gcode` on a 3D printer
+only, `device.firmware`), never in a preset; an optional expiry; who granted and when → `POST /api/v1/grants`. The admin's own
 row is set here like anyone's: no other route and no "give myself" button, and no extra rule that
 locks the admin out of their own row.
 
 Permissions → Requests: each request with **Grant…** (opens the grant form for that person and
-device; after saving, `PATCH /api/v1/access-requests/{id}` `{state: granted}`) and **Refuse**.
+device; after saving, `PATCH /api/v1/access-requests/{id}` `{state: granted}`) and **Refuse…**
+(asks first).
+
+Members (UT-27, decided journal:UI-DESIGN:0011 Q1): a role select offers only roles up to the caller's
+own effective role (`authz/ROLE_ABOVE_OWN`); "owner" is offered only by an owner; a member above the
+caller and the last owner are greyed out with their reason (`authz/LAST_OWNER`;
+[OQ-39](risks-and-open.md#oq-39-roles-above-ones-own-and-the-last-owner) is open). An invite for the
+whole organisation gives at most the caller's organisation role (`authz/ORG_ROLE_NEEDED`). The invite
+link is shown in full once, with Copy (UT-45); renaming the organisation needs an organisation role
+(`organisation.manage`).
+
+API tokens (UT-06): a name, an end date and **what it may do**, an action set picked in words
+(see machines, start jobs, files, queue, stock …). Not offered, because a token can never use them:
+Start burn and a frame with the laser on (person-only), and granting (`grants.manage`, a person's
+session only). The page says that a token never does more than its person may at the time of each
+call (`decisions/20261119-token-effective-rights.md` on `design-doc`). After Make token the secret
+(`mct_…`) is shown once, in full, with Copy and "If it is lost, revoke it and make a new one".
+
+Audit log (UT-45): filters (who, what, from, to) and **Older** for the next page (keyset paging,
+`GET /api/v1/spaces/{id}/audit`). Cameras (UT-30): the list with each camera's state (online,
+offline), Edit, Show live (the test after saving) and Remove…; Add a network camera
+(`POST /api/v1/cameras`, `cameras.manage`).
 
 - **User:** the refused page; their own permissions are in **My permissions** (read only, from
   `GET /api/v1/me` `actions`, **proposal**).
 
 ### Queue and farm
 
-- **User:** the timeline per machine and the queue in order; move and take out their own items;
-  why an item waits, in words ("nothing with PETG loaded"); a laser row reads "never from the queue".
-- **Admin:** every item; **Projects** (projects, parts, their counts, why a part waits).
-- Calls: `GET`, `PATCH /api/v1/queue/{id}` ((OQ-4) queue; own items for their person);
-  `/api/v1/projects`, `/parts` ((OQ-4) farm).
+- **User:** the timeline per machine and the queue in order; move and take out their own items (Take
+  out offers Undo); why an item waits, in words ("nothing with PETG loaded"); a laser row reads "never
+  from the queue"; **Projects** (projects, parts, their counts, why a part waits; `farm.use`).
+- **Admin:** every item; a part's count correction (`farm.manage`).
+- Calls: `GET`, `PATCH`, `DELETE /api/v1/queue/{id}` (`queue.manage`; own items for their person);
+  `/api/v1/projects`, `/parts` (`farm.view`, `farm.use`).
+- The timeline's rows shrink and wrap on a phone; the page never clips what overflows (UT-33).
 
 ### Instance (instance admin)
 
-Organisations and their spaces (`GET /api/v1/instance/spaces`, `instance_admin`); the hub's update
-(`GET`, `POST /api/v1/update`); moving a device to another space belongs here
-([decision](decisions/20261119-device-move.md)). A space admin who is not an instance admin gets the
-refused page.
+Organisations and their spaces (`GET /api/v1/instance/spaces`, `instance.admin`); the hub's update
+(`GET`, `POST /api/v1/update`) with a confirm that says a dump comes first and what the way back
+loses, and its outcomes on About: in progress, done, rolled back, refused (UT-29, flows.md §8);
+moving a device to another space ([decision](decisions/20261119-device-move.md)): a confirm that
+says what stays and what is removed, refused with "its print has not ended" (`device/JOB_OPEN`);
+its path is open (OQ-1). A new space is made here only by someone with an organisation role
+(`POST /api/v1/spaces`, `organisation.manage`); a new organisation has no route (UI-7). A space admin
+who is not an instance admin gets the refused page.
 
 ## The visual system
 
@@ -315,8 +412,8 @@ Measured contrast (WCAG 2.x relative luminance):
 | `#93A682` on dark background `#111214` | 7.16:1 | accent as text in dark mode |
 | `#93A682` on `#f6f7f5` (light page) | 2.44:1 | too low |
 
-The text shade on light backgrounds is [OQ-16](risks-and-open.md#oq-16-the-house-colours-text-shade).
-**Proposal:** `#5E6B52` (same hue, HSV value lowered from 0.65 to 0.42): 5.28:1 on the light page
+The text shade on light backgrounds ([OQ-16](risks-and-open.md#oq-16-the-house-colours-text-shade)) is
+decided as `#5E6B52` (journal:UI-DESIGN:0009 #2): (same hue, HSV value lowered from 0.65 to 0.42): 5.28:1 on the light page
 `#F6F7F5`, 5.67:1 on white. The lightest shade of that hue that passes 4.5:1 on the page is
 `#68765C` (4.51:1), which leaves no margin. The earlier candidate `#697C58` reaches only 4.23:1 on
 the page.
@@ -344,36 +441,67 @@ Every ratio below was computed with the WCAG 2.x formula (relative luminance, sR
 | `--on-strong` | `#FFFFFF` | 6.54 on bad, 5.31 on wait | `#1D1D1B` | 6.76 on bad, 8.03 on wait | text on a state fill |
 
 The focus ring is 2 px of `--accent-text` with a 2 px gap, so it is measured against the page
-(5.28:1 light, 7.16:1 dark).
+(5.28:1 light, 7.16:1 dark). No container clips it: tabs wrap instead of scrolling (UT-19, UT-46).
+
+Pairs added by the UX-test sweep (computed with the same formula; text needs 4.5:1, a boundary 3:1):
+
+| Pair | Light | Dark | Use |
+|---|---|---|---|
+| `--ink` on `--surface-2` | 14.72 | 13.73 | outcome and job tags (`.out`), the shown-once secret |
+| `--line-strong` on `--surface-2` | 3.43 | 3.54 | a tag's edge, a disabled button's edge |
+| `--muted` on `--surface-2` | 5.96 | 6.45 | a disabled button's label, a closed step |
+| `--on-strong` on `--st-warn` | 5.73 | 8.07 | the letter on an Attention cell |
+| `--line-strong` on `--surface` | 3.94 | 3.89 | a free cell's edge (was `--line`, 1.15) |
+| `--muted` on `--surface` | 6.83 | 7.09 | a free or offline cell's letter |
+| `--ink` on `--surface` (as an edge) | 16.88 | 15.09 | the pressed chip's edge, beside its check mark (UT-18) |
+| `--st-info` on `--surface`, `--bg` | 5.90, 5.49 | 8.04 | the mockups' spec annotation |
+| `--st-wait`, `--st-bad` on `--surface` | 5.31, 6.54 | 8.11, 6.82 | a command's done and refused line |
+| `--bg` on `--ink` | 15.71 | 16.59 | the Undo toast |
+| `--st-bad` on `--surface` (as an edge) | 6.54 | 6.82 | the laser's Stop bar |
 
 ### States and colour
 
 One list of states, one word and one colour each, everywhere (wiki *Design: The Website*, principles
-1 and 6): **Free** grey and quiet; **Printing** (busy) the accent fill; **Needs someone** green with
-its button; **Attention** amber; **Error** red; **Offline** a dashed outline; **Unknown** a dashed
-outline with "?". The state's word is always written, so colour is never the only sign. The kind of
-a machine is a word, not a colour (**proposal**, study A3).
+1 and 6): **Free** grey and quiet; **Printing** (busy) the accent fill, read *Burning* on a laser;
+**Needs someone** green with its button; **Attention** amber (a lid open, out of labels); **Error**
+red; **Offline** a dashed outline; **Unknown** a dashed outline with "?". The state's word is always
+written, so colour is never the only sign. The list is exclusive (UT-16): outcomes (done, stopped,
+failed), a job's place (*Job loaded*, *On MINI-1*) and stock words (*Low*, *Weighing*) are square
+tags without the dot, never a state's chip or colour. The kind of a machine is a word, not a colour
+(**proposal**, study A3).
 
 ### Type, space, components
 
-- **Type** (**proposal**): the system font; 12, 14, 16, 20, 26, 40 px; tabular numerals for every
-  number that changes; the clock 26 px (40 px in the wall screen's numbers).
+- **Type** (**proposal**): the system font; 12, 14, 16, 20, 26, 40 px, nothing smaller (the phone's
+  bottom labels are 12 px, UT-41); tabular numerals for every number that changes; the clock 26 px
+  (40 px on the wall screen).
 - **Space:** 4, 8, 12, 16, 24, 32 px; a 16 px gutter on a phone; no horizontal page scroll (tables
   scroll inside their own frame).
-- **Targets:** 44 px for every button and input; 32 px only for small buttons in dense admin lists.
-- **Components:** the state chip; the card; the primary, secondary, danger and ghost button; a
+- **Targets:** 44 px for every button, input, chip and tab; 32 px only for small buttons in dense
+  admin lists on a desktop; on a phone everything is 44 px (UT-23).
+- **Access** (UT-20, UT-21, UT-22, UT-40, UT-41): a "Skip to content" link comes first on every
+  page; a disabled button is `aria-disabled`, stays focusable and points at its reason with
+  `aria-describedby`; a status that changes (a command's answer, the PPE check, Start burn's reason)
+  is `aria-live="polite"`; in-page tabs have the full tab pattern (`aria-controls`, arrow keys,
+  Home, End); a navigation between pages (Space's tabs) is a list of links with `aria-current`; the
+  theme switch is named "Theme: Auto"; the phone's More menu closes on Escape and on a click outside.
+- **Components:** the state chip; the outcome tag; the card; the primary, secondary, danger and ghost button; a
   disabled button with its reason under it; the banner (info, attention, error, ok), one per kind of
   trouble; tabs; filter chips with counts; numbered steps; the value tile with *unknown*; the empty
-  state (one sentence and one next step); the loading skeleton (no zeros while loading).
+  state (one sentence and one next step); the loading skeleton (no zeros while loading, one
+  "Loading …" status for a screen reader, UT-42); the confirm dialog; the Undo toast; the
+  shown-once secret.
 - **Theme:** light and dark follow the system; a switch (Auto, Light, Dark) in the user menu.
 
 ## Open points of the UI
 
-| # | Point | Proposal |
+| # | Point | State |
 |---|---|---|
-| UI-1 | A member reading their own requests (pending, refused) and withdrawing one: api.md has `POST /api/v1/access-requests` for members and the list only for `(OQ-4) grants`. | a member's read of their own requests and a withdraw |
-| UI-2 | The machine's tabs: this page's six (Overview, Control, Files, Jobs, Camera, Settings) against the wiki's five (Overview, Control, Files, **Data**, Settings). | the six, plus Data as a seventh only for a device with history |
-| UI-3 | The laser hand-off: "one loaded job per laser, no laser queue" (HS7b) against files sent while a job is loaded. | sending to a laser that has a loaded job asks to replace it |
-| UI-4 | The wall screen's session: a TV signed in as whom, and with what buttons. | read only, no buttons |
-| UI-5 | "Mine" for spools needs an owner on a spool ([OQ-14](risks-and-open.md#oq-14-tables-of-materials-items-and-labels)). | an owner field |
-| UI-6 | The path to take a loaded laser job off ([OQ-1](risks-and-open.md#oq-1-exact-paths-and-fields-of-our-own-endpoints)). | — |
+| UI-1 | A member reading their own requests and withdrawing one | decided (journal:UI-DESIGN:0009 #5): `GET /api/v1/access-requests/mine`, `DELETE /api/v1/access-requests/{id}` in api.md on `design-doc` |
+| UI-2 | The machine's tabs: six against the wiki's five with **Data** | decided (0009 #1): the six, plus Data only for a device with history |
+| UI-3 | The laser hand-off when a job is loaded | decided (0009 #3): sending asks to replace the loaded job |
+| UI-4 | The wall screen | decided (0009 #4): read only, no buttons. Open: which session the screen keeps |
+| UI-5 | "Mine" for spools needs an owner on a spool ([OQ-14](risks-and-open.md#oq-14-tables-of-materials-items-and-labels)) | open; the filter is not shown meanwhile |
+| UI-6 | The path to take a loaded laser job off ([OQ-1](risks-and-open.md#oq-1-exact-paths-and-fields-of-our-own-endpoints)) | open |
+| UI-7 | Making a new organisation: api.md has no route | open |
+| UI-8 | How long a page waits before it says an answer did not come (loading), and the sign-in wait's numbers (flows.md §7) | open: not in the design |

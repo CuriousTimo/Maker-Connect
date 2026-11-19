@@ -8,11 +8,12 @@
 <script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
 </head>
 <body data-view="user">
+<a class="skip" href="#main">Skip to content</a>
 <header class="top">
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
   <span class="spacer"></span>
-  <div class="viewas" role="group" aria-label="View as"><span class="lbl">View as</span><span class="seg"><button type="button" data-view-btn="user" aria-pressed="true">User</button><button type="button" data-view-btn="admin" aria-pressed="false">Admin</button></span></div>
-  <button type="button" class="theme" data-theme-btn>Auto</button>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
 </header>
 <aside class="side" aria-label="Navigation"><nav aria-label="Pages">
 <a href="now.html">Now</a>
@@ -21,7 +22,7 @@
 <a href="state-loading.html">Jobs</a>
 <a href="farm.html" aria-current="page">Queue and farm</a>
 <div class="group">Stock</div>
-<a href="state-empty.html">Files</a>
+<a href="files.html">Files</a>
 <a href="materials.html">Materials</a>
 <div class="group">Watch</div>
 <a href="state-error.html">Cameras</a>
@@ -34,60 +35,41 @@
 <a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
 <a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
 </div>
-<div class="group" data-only="admin">Manage</div>
-<a data-only="admin" href="add-machine.html">Add machine</a>
-<a data-only="admin" href="space-members.html">Space</a>
-<a data-only="admin" href="instance.html">Instance <span class="tag">instance admin</span></a>
-<div class="user"><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div>
-<a data-only="user" href="space-members.html#mine">My permissions</a>
+<div class="group" data-only="admin instance">Manage</div>
+<a data-only="admin instance" href="add-machine.html">Add machine</a>
+<a data-only="admin instance" href="space-members.html">Space</a>
+<a data-only="instance" href="instance.html">Instance</a>
+<div class="user"><div class="group" data-only="guest">Eli · guest</div><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div><div class="group" data-only="instance">Ada · owner, instance admin</div>
+<a data-only="guest user" href="space-members.html#mine">My permissions</a>
 <a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
 </nav></aside>
-<main>
+<main id="main" tabindex="-1">
 
 <div class="head"><h1>Queue and farm</h1></div>
-<p class="note-role" data-only="user"><b>As a member (Sam):</b> you see the queue and move or take out your own items; projects are run by the staff.</p><p class="note-role" data-only="admin"><b>As an admin (Noor):</b> you order any item and run projects and parts.</p>
-<nav class="tabs" data-tabs role="tablist" aria-label="Queue and farm"><a href="#timeline" role="tab">Queue</a><a href="#projects" role="tab" data-only="admin">Projects</a></nav>
-<section id="timeline" role="tabpanel">
+<p class="note-role" data-only="user"><b>As a member (Sam):</b> you see the queue and move or take out your own items; you work on projects too.</p>
+<p class="note-role" data-only="admin instance"><b>As an admin or owner:</b> you order any item, and correct a part's count.</p>
+<div class="tabs" role="tablist" aria-label="Queue and farm"><a href="#timeline" role="tab" id="t-timeline" aria-controls="timeline">Queue</a><a href="#projects" role="tab" id="t-projects" aria-controls="projects">Projects</a></div>
+<section id="timeline" role="tabpanel" aria-labelledby="t-timeline">
 <div class="card"><h2>Timeline</h2>
-<div style="display:grid;grid-template-columns:90px 1fr;gap:6px;align-items:center;font-size:var(--fs-2)">
-<b>MINI-1</b><div style="display:flex;gap:3px"><span style="flex:3;background:var(--accent);color:var(--on-accent);border-radius:4px;padding:2px 6px">bracket-v3</span><span style="flex:4;border:1px solid var(--line-strong);border-radius:4px;padding:2px 6px">badge-round</span><span style="flex:2;border:1px solid var(--line-strong);border-radius:4px;padding:2px 6px">clip-set</span></div>
-<b>MINI-2</b><div><span class="st wait">Needs someone: Set Ready</span></div>
-<b>Laser-A</b><div><small>Never from the queue: loaded jobs wait for a person.</small></div>
+<div class="tl">
+<b>MINI-1</b><div class="lane"><span class="seg-job now" style="--w:3">bracket-v3</span><span class="seg-job" style="--w:4">badge-round</span><span class="seg-job" style="--w:2">clip-set</span></div>
+<b>MINI-2</b><div class="lane"><span class="st wait">Needs someone: Set Ready</span></div>
+<b>Laser-A</b><div class="lane"><small>Never from the queue: a loaded job waits for a person.</small></div>
 </div></div>
 <div class="card"><h2>In order</h2><ul class="list">
-<li><div class="grow"><b>badge-round × 4</b> · MINI-1 · Sam<br><small>PLA · 1 h 05 min · ends about 17:40</small></div><button class="btn small" type="button">Move up</button><button class="btn small ghost" type="button">Take out</button></li>
-<li><div class="grow"><b>clip-set</b> · MINI-1 · Noor<br><small>PETG · 40 min · <b>waits: nothing with PETG loaded</b></small></div><span data-only="user"><small>Not yours</small></span><span data-only="admin"><button class="btn small" type="button">Move up</button> <button class="btn small ghost" type="button">Take out</button></span></li>
-</ul><p><small><code>GET /api/v1/queue</code>, <code>PATCH /api/v1/queue/{id}</code> (OQ-4 queue; own items for their person). The dispatcher starts 3D and label printers, never a laser (flows.md §4).</small></p></div>
+<li><div class="grow"><b>badge-round × 4</b> · MINI-1 · Sam<br><small>PLA · 1 h 05 min · ends about 17:40</small></div><button class="btn small" type="button">Move up</button><button class="btn small ghost" type="button" data-undo="badge-round taken out of the queue.">Take out</button></li>
+<li><div class="grow"><b>clip-set</b> · MINI-1 · Noor<br><small>PETG · 40 min · <b>waits: nothing with PETG loaded</b></small></div><span data-only="guest user"><small>Not yours</small></span><span data-only="admin instance"><button class="btn small" type="button">Move up</button> <button class="btn small ghost" type="button" data-undo="clip-set taken out of the queue.">Take out</button></span></li>
+</ul><span class="anno">GET /api/v1/queue · queue.view; PATCH, DELETE /api/v1/queue/{id} · queue.manage, own items for their person; the dispatcher starts 3D and label printers, never a laser (flows.md §4)</span></div>
 </section>
-<section id="projects" role="tabpanel" hidden>
-<div class="card"><h2>Club badges</h2><p class="num"><b>134 +14 / 200</b> parts</p><div class="bar"><i style="width:67%"></i></div>
-<ul class="list" style="margin-top:var(--s-3)"><li><div class="grow"><b>badge-round</b> · 100 / 120</div><button class="btn small" type="button">Edit</button></li><li><div class="grow"><b>badge-square</b> · 34 / 80<br><small>waits: no free printer with a textured sheet</small></div><button class="btn small" type="button">Edit</button></li></ul>
-<p><small><code>/api/v1/projects</code>, <code>/parts</code> (OQ-4 farm).</small></p></div>
+<section id="projects" role="tabpanel" aria-labelledby="t-projects" hidden>
+<div class="card"><h2>Club badges</h2><p class="num"><b>134 +14 / 200</b> parts</p><div class="bar" role="img" aria-label="67 percent"><i style="width:67%"></i></div>
+<ul class="list" style="margin-top:var(--s-3)"><li><div class="grow"><b>badge-round</b> · 100 / 120</div><button class="btn small" type="button">Edit</button><button class="btn small ghost" type="button" data-only="admin instance">Correct the count…</button></li><li><div class="grow"><b>badge-square</b> · 34 / 80<br><small>waits: no free printer with a textured sheet</small></div><button class="btn small" type="button">Edit</button></li></ul>
+<span class="anno">/api/v1/projects, /parts · farm.view, farm.use; a count: farm.manage</span></div>
 </section>
 
 </main>
-<nav class="bottom" aria-label="Pages"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="state-empty.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a data-only="user" href="space-members.html#mine">My permissions</a><a data-only="admin" href="add-machine.html">Add machine</a><a data-only="admin" href="space-members.html">Space</a><a data-only="admin" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
-<script>
-(function(){
-  var b=document.body, q=new URLSearchParams(location.search).get("as"), v=null;
-  try{v=localStorage.getItem("mc-view");}catch(e){}
-  if(q==="user"||q==="admin")v=q;
-  function setView(x){b.dataset.view=x;document.querySelectorAll("[data-view-btn]").forEach(function(k){k.setAttribute("aria-pressed",String(k.dataset.viewBtn===x));});try{localStorage.setItem("mc-view",x);}catch(e){}}
-  setView(v==="admin"?"admin":"user");
-  document.querySelectorAll("[data-view-btn]").forEach(function(k){k.addEventListener("click",function(){setView(k.dataset.viewBtn);});});
-  var th=document.querySelector("[data-theme-btn]"), order=["system","light","dark"];
-  function cur(){try{return localStorage.getItem("mc-theme")||"system";}catch(e){return "system";}}
-  function show(){var c=cur();th.textContent=c==="system"?"Auto":c==="light"?"Light":"Dark";th.title="Theme: "+th.textContent+" (click to change)";}
-  if(th){show();th.addEventListener("click",function(){var n=order[(order.indexOf(cur())+1)%3];try{if(n==="system")localStorage.removeItem("mc-theme");else localStorage.setItem("mc-theme",n);}catch(e){}if(n==="system")delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=n;show();});}
-  var tabs=document.querySelectorAll("[data-tabs] a[href^='#']");
-  if(tabs.length){
-    function pick(){var h=location.hash.slice(1),ok=false;tabs.forEach(function(a){if(a.getAttribute("href")==="#"+h&&a.offsetParent!==null)ok=true;});
-      if(!ok){for(var i=0;i<tabs.length;i++){if(tabs[i].offsetParent!==null){h=tabs[i].getAttribute("href").slice(1);break;}}}
-      tabs.forEach(function(a){var id=a.getAttribute("href").slice(1),on=id===h;a.setAttribute("aria-selected",String(on));var p=document.getElementById(id);if(p)p.hidden=!on;});}
-    window.addEventListener("hashchange",pick);document.querySelectorAll("[data-view-btn]").forEach(function(k){k.addEventListener("click",pick);});pick();
-  }
-})();
-</script>
-
+<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
 </body>
 </html>

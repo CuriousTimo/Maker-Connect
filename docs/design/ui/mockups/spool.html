@@ -8,11 +8,12 @@
 <script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
 </head>
 <body data-view="user">
+<a class="skip" href="#main">Skip to content</a>
 <header class="top">
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
   <span class="spacer"></span>
-  <div class="viewas" role="group" aria-label="View as"><span class="lbl">View as</span><span class="seg"><button type="button" data-view-btn="user" aria-pressed="true">User</button><button type="button" data-view-btn="admin" aria-pressed="false">Admin</button></span></div>
-  <button type="button" class="theme" data-theme-btn>Auto</button>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
 </header>
 <aside class="side" aria-label="Navigation"><nav aria-label="Pages">
 <a href="now.html">Now</a>
@@ -21,7 +22,7 @@
 <a href="state-loading.html">Jobs</a>
 <a href="farm.html">Queue and farm</a>
 <div class="group">Stock</div>
-<a href="state-empty.html">Files</a>
+<a href="files.html">Files</a>
 <a href="materials.html" aria-current="page">Materials</a>
 <div class="group">Watch</div>
 <a href="state-error.html">Cameras</a>
@@ -34,56 +35,39 @@
 <a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
 <a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
 </div>
-<div class="group" data-only="admin">Manage</div>
-<a data-only="admin" href="add-machine.html">Add machine</a>
-<a data-only="admin" href="space-members.html">Space</a>
-<a data-only="admin" href="instance.html">Instance <span class="tag">instance admin</span></a>
-<div class="user"><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div>
-<a data-only="user" href="space-members.html#mine">My permissions</a>
+<div class="group" data-only="admin instance">Manage</div>
+<a data-only="admin instance" href="add-machine.html">Add machine</a>
+<a data-only="admin instance" href="space-members.html">Space</a>
+<a data-only="instance" href="instance.html">Instance</a>
+<div class="user"><div class="group" data-only="guest">Eli · guest</div><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div><div class="group" data-only="instance">Ada · owner, instance admin</div>
+<a data-only="guest user" href="space-members.html#mine">My permissions</a>
 <a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
 </nav></aside>
-<main>
+<main id="main" tabindex="-1">
 
 <p class="crumbs"><a href="materials.html">Materials</a> › Spool #12</p>
-<div class="head"><h1>Spool #12 · PLA Sage</h1><span class="st busy">Loaded on MINI-1</span></div>
-<p class="note-role" data-only="user"><b>As a member (Sam):</b> you use, weigh and label it.</p><p class="note-role" data-only="admin"><b>As an admin (Noor):</b> you also edit, move and archive it.</p>
+<div class="head"><h1>Spool #12 · PLA Sage</h1><span class="out">On MINI-1</span></div>
+<p class="note-role" data-only="user"><b>As a member (Sam):</b> you use, weigh, label, edit and archive it.</p>
+<p class="note-role" data-only="admin instance"><b>As an admin or owner:</b> the same; extra fields are set up in Materials.</p>
 <div class="cols"><div>
 <div class="card"><h2>How much is left</h2>
 <div class="tiles"><div class="tile"><span>Left</span><b class="num">640 g</b></div><div class="tile"><span>Used</span><b class="num">360 g</b></div><div class="tile"><span>Weighed</span><b class="num">18 Nov</b></div></div>
 <h3 style="margin-top:var(--s-4)">Weigh it on Scale-1</h3>
-<p><span class="st warn">Weighing</span> <span class="unknown">unknown</span> <small>not stable yet</small></p>
-<p><span class="ctl"><button class="btn" disabled type="button">Use this weight</button><span class="why">Wait for a stable weight (Scale-1 reports STABLE). PUT /spoolman/api/v1/spool/12/measure</span></span></p>
+<p><span class="out">Weighing</span> <span class="unknown">unknown</span> <small>not steady yet</small></p>
+<p><span class="ctl"><button class="btn" aria-disabled="true" type="button" aria-describedby="why-1">Use this weight</button><span class="why" id="why-1" aria-live="polite">Wait until the scale shows a steady weight.</span></span></p>
+<span class="anno">PUT /spoolman/api/v1/spool/12/measure, enabled when Scale-1 reports STABLE</span>
 <h3 style="margin-top:var(--s-4)">Used by hand</h3>
-<div class="row"><label class="field">Grams used<input inputmode="numeric" placeholder="e.g. 25"></label><span class="ctl"><button class="btn" type="button">Take off</button><span class="why">PUT /spool/12/use</span></span></div>
+<div class="row" data-act><label class="field">Grams used<input inputmode="numeric" placeholder="e.g. 25"></label><span class="ctl"><button class="btn" type="button" data-cmd="ok" data-settled="25 g subtracted: 615 g left.">Subtract used grams</button><span class="status" aria-live="polite"></span></span></div>
+<span class="anno">PUT /spool/12/use</span>
 </div></div><div>
-<div class="card"><h2>Facts</h2><dl class="kv"><dt>Filament</dt><dd>PLA Sage, Generic, 1.75 mm</dd><dt>Where</dt><dd>on MINI-1 (from Shelf A2)</dd><dt>Lot</dt><dd><span class="unknown">unknown</span></dd><dt>Price</dt><dd data-only="admin">18.00</dd><dd data-only="user" class="muted">for staff</dd></dl></div>
-<div class="card"><h2>Label</h2><p><a class="btn" href="label-labels.html">Print on Labels-1</a> <a class="btn" href="label-tape.html">Print on Tape-1</a></p><p><small>Each printer prints its own way; the choice names the printer.</small></p></div>
-<div class="card" data-only="admin"><h2>Staff</h2><p><button class="btn" type="button">Edit</button> <button class="btn ghost" type="button">Archive</button></p></div>
+<div class="card"><h2>Facts</h2><dl class="kv"><dt>Filament</dt><dd>PLA Sage, Generic, 1.75 mm</dd><dt>Where</dt><dd>on MINI-1 (from Shelf A2)</dd><dt>Lot</dt><dd><span class="unknown">unknown</span></dd><dt>Price</dt><dd>18.00</dd></dl></div>
+<div class="card"><h2>Label</h2><p><a class="btn" href="label-labels.html">Print on Labels-1</a> <a class="btn" href="label-tape.html">Print on Tape-1</a></p><p><small>Each printer prints its own way; the button names the printer.</small></p></div>
+<div class="card"><h2>Change</h2><p><button class="btn" type="button">Edit</button> <button class="btn ghost" type="button" data-undo="Spool #12 archived.">Archive</button></p></div>
 </div></div>
 
 </main>
-<nav class="bottom" aria-label="Pages"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="state-empty.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html" aria-current="page"><span class="ic" aria-hidden="true">◉</span>Materials</a><details><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a data-only="user" href="space-members.html#mine">My permissions</a><a data-only="admin" href="add-machine.html">Add machine</a><a data-only="admin" href="space-members.html">Space</a><a data-only="admin" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
-<script>
-(function(){
-  var b=document.body, q=new URLSearchParams(location.search).get("as"), v=null;
-  try{v=localStorage.getItem("mc-view");}catch(e){}
-  if(q==="user"||q==="admin")v=q;
-  function setView(x){b.dataset.view=x;document.querySelectorAll("[data-view-btn]").forEach(function(k){k.setAttribute("aria-pressed",String(k.dataset.viewBtn===x));});try{localStorage.setItem("mc-view",x);}catch(e){}}
-  setView(v==="admin"?"admin":"user");
-  document.querySelectorAll("[data-view-btn]").forEach(function(k){k.addEventListener("click",function(){setView(k.dataset.viewBtn);});});
-  var th=document.querySelector("[data-theme-btn]"), order=["system","light","dark"];
-  function cur(){try{return localStorage.getItem("mc-theme")||"system";}catch(e){return "system";}}
-  function show(){var c=cur();th.textContent=c==="system"?"Auto":c==="light"?"Light":"Dark";th.title="Theme: "+th.textContent+" (click to change)";}
-  if(th){show();th.addEventListener("click",function(){var n=order[(order.indexOf(cur())+1)%3];try{if(n==="system")localStorage.removeItem("mc-theme");else localStorage.setItem("mc-theme",n);}catch(e){}if(n==="system")delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=n;show();});}
-  var tabs=document.querySelectorAll("[data-tabs] a[href^='#']");
-  if(tabs.length){
-    function pick(){var h=location.hash.slice(1),ok=false;tabs.forEach(function(a){if(a.getAttribute("href")==="#"+h&&a.offsetParent!==null)ok=true;});
-      if(!ok){for(var i=0;i<tabs.length;i++){if(tabs[i].offsetParent!==null){h=tabs[i].getAttribute("href").slice(1);break;}}}
-      tabs.forEach(function(a){var id=a.getAttribute("href").slice(1),on=id===h;a.setAttribute("aria-selected",String(on));var p=document.getElementById(id);if(p)p.hidden=!on;});}
-    window.addEventListener("hashchange",pick);document.querySelectorAll("[data-view-btn]").forEach(function(k){k.addEventListener("click",pick);});pick();
-  }
-})();
-</script>
-
+<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html" aria-current="page"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
 </body>
 </html>
