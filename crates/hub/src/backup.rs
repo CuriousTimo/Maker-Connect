@@ -332,9 +332,11 @@ impl Dumps {
         Ok(())
     }
 
-    /// `from` renamed `to`, its sessions ended first. A session can still be on its way out when the
-    /// rename looks (PostgreSQL then refuses it: `object_in_use`), or come again: its sessions are ended
-    /// again and the rename tried again, for 30 s at most; then it fails as the rename does.
+    /// `from` renamed `to`, its client sessions ended first. Background workers on it (autovacuum,
+    /// TimescaleDB's scheduler) run as superuser, which the owner may not end; they are left to the rename.
+    /// A session can still be on its way out when the rename looks (PostgreSQL then refuses it:
+    /// `object_in_use`), or come again: its sessions are ended again and the rename tried again, for 30 s
+    /// at most; then it fails as the rename does.
     fn rename_free(&self, from: &str, to: &str) -> Result<(), String> {
         fits(from)?;
         fits(to)?;
@@ -345,7 +347,8 @@ impl Dumps {
              LOOP \
                  PERFORM pg_stat_clear_snapshot(); \
                  PERFORM pg_terminate_backend(pid) FROM pg_stat_activity \
-                     WHERE datname = {from} AND pid <> pg_backend_pid(); \
+                     WHERE datname = {from} AND pid <> pg_backend_pid() \
+                       AND backend_type = 'client backend'; \
                  BEGIN \
                      EXECUTE format('ALTER DATABASE %I RENAME TO %I', {from}, {to}); \
                      RETURN; \
