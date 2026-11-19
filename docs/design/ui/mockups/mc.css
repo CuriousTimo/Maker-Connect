@@ -385,3 +385,10 @@ dialog .acts, .dialog-mock .acts { display: flex; flex-wrap: wrap; gap: var(--s-
 .cam-bar .live::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--st-bad); }
 .preview { aspect-ratio: 16 / 10; background: var(--surface-2); border: 1px solid var(--line); display: grid; place-items: center; color: var(--muted); font-size: var(--fs-2); }
 .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--line-strong); vertical-align: -2px; }
+
+/* A machine's head (Prusa Connect's layout, owner 2026-11-20): picture, name and state, facts, live chips, Set ready. */
+.mhead { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: var(--s-4); align-items: start; }
+.mhead .row { gap: var(--s-2); }
+.cols-even { display: grid; gap: var(--s-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+.cols-even > .card + .card { margin-top: 0; }
+@media (max-width: 699px) { .mhead { grid-template-columns: 72px minmax(0, 1fr); } .mhead > :last-child { grid-column: 1 / -1; } }
