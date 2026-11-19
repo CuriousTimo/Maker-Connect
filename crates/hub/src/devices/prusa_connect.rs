@@ -10,8 +10,14 @@
 //!    machine's token in the `Token` header, for as long as the printer has not reported
 //!    with that token (its first report spends the code).
 //! 3. `POST /p/telemetry` and `POST /p/events` with `Token` (and `Fingerprint`).
-//!
-//! Not yet: the WebSocket (`/p/ws`) and the commands, and files.
+//! 4. `GET /p/ws` with `Fingerprint`, `Token` and `Sec-WebSocket-Protocol: prusa-connect`: one
+//!    WebSocket for everything after registration, as Prusa's own server serves it
+//!    (`reference/prusa-connect` `internal/connector/xbuddy`, read only: OCL, nothing copied) and
+//!    the Connect SDK dials it (`reference/Prusa-Connect-SDK-Printer` branch
+//!    `feat/ws-connect-local` @ `04c5bd59`, `prusa/connect/printer/ws.py`). Up: a text frame is one
+//!    JSON object, an event when it has an `event` key, else telemetry (`wire.go:237-270`); each is
+//!    taken in exactly as its HTTP twin above. Down: a command as `J` (JSON) or `G` (G-code), its
+//!    id as 8 hex digits, then the body (the SDK's `handle_ws_message`, "BuddyEncoder").
 
 use crate::store::{CommandState, Details, Network, Storage};
 use crate::{Store, failed};
@@ -102,6 +108,148 @@ pub fn routes() -> Router<Store> {
         .route("/p/register", post(register).get(registered))
         .route("/p/telemetry", post(telemetry))
         .route("/p/events", post(event))
+        .route("/p/ws", axum::routing::get(ws))
+}
+
+/// The one subprotocol the server offers (`xbuddy.go:61`, `:388`).
+const SUBPROTOCOL: &str = "prusa-connect";
+/// The server pings every 54 s and ends a link after 60 s without a frame
+/// (`internal/connector/xbuddy/inbound.go:25-36`, `link.go:70-85`).
+const PING_EVERY: std::time::Duration = std::time::Duration::from_secs(54);
+const READ_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The upgrade, refused as the reference server refuses it (`xbuddy.go:695-712`): `401` when the
+/// credentials are missing or unknown, `403` when the hub does not take the printer (not paired
+/// into a space).
+async fn ws(
+    State(store): State<Store>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    upgrade: axum::extract::ws::WebSocketUpgrade,
+) -> Response {
+    let fingerprint = header(&headers, "fingerprint");
+    let token = header(&headers, "token").to_owned();
+    let refused = || {
+        (
+            StatusCode::UNAUTHORIZED,
+            "the printer's credentials were refused\n",
+        )
+            .into_response()
+    };
+    if fingerprint.is_empty() || token.is_empty() {
+        return refused();
+    }
+    match store.knows(&token).await {
+        Ok(true) => {}
+        Ok(false) => return refused(),
+        Err(error) => return failed(error),
+    }
+    match store.placed(&token).await {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return (
+                StatusCode::FORBIDDEN,
+                "the host does not accept this printer\n",
+            )
+                .into_response();
+        }
+        Err(error) => return failed(error),
+    }
+    upgrade
+        .protocols([SUBPROTOCOL])
+        .on_upgrade(move |socket| link(store, headers, extensions, token, socket))
+}
+
+/// A command as the SDK reads it: type letter, 8 hex digits of its id, the body.
+fn frame(id: u32, body: &str, json: bool) -> String {
+    format!("{}{id:08x}{body}", if json { 'J' } else { 'G' })
+}
+
+/// The command a telemetry answer carries over HTTP, as a frame for the socket.
+async fn command_of(response: Response) -> Option<String> {
+    if response.status() != StatusCode::OK {
+        return None;
+    }
+    let id: u32 = response
+        .headers()
+        .get("Command-Id")?
+        .to_str()
+        .ok()?
+        .parse()
+        .ok()?;
+    let json = response
+        .headers()
+        .get("Content-Type")
+        .is_some_and(|v| v.as_bytes().starts_with(b"application/json"));
+    let body = axum::body::to_bytes(response.into_body(), 16 << 20)
+        .await
+        .ok()?;
+    Some(frame(id, &String::from_utf8_lossy(&body), json))
+}
+
+async fn link(
+    store: Store,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    token: String,
+    mut socket: axum::extract::ws::WebSocket,
+) {
+    use axum::extract::ws::Message;
+    let mut ping = tokio::time::interval(PING_EVERY);
+    ping.tick().await;
+    // A command goes out as soon as it is queued, as the reference server sends one when it
+    // arrives: the store's change signal wakes the link.
+    let mut changes = store.subscribe();
+    let mut last_frame = tokio::time::Instant::now();
+    loop {
+        tokio::select! {
+            incoming = socket.recv() => {
+                let Some(Ok(message)) = incoming else { break };
+                last_frame = tokio::time::Instant::now();
+                let Message::Text(text) = message else { continue };
+                let body = text.to_string();
+                let is_event = serde_json::from_str::<Value>(&body)
+                    .is_ok_and(|v| v.get("event").is_some());
+                let mut up = headers.clone();
+                up.insert("token", token.parse().expect("token came from a header"));
+                let answer = if is_event {
+                    event(State(store.clone()), up, body).await
+                } else {
+                    telemetry(State(store.clone()), up, extensions.clone(), body).await
+                };
+                if answer.status() == StatusCode::UNAUTHORIZED {
+                    break;
+                }
+                if let Some(command) = command_of(answer).await
+                    && socket.send(Message::Text(command.into())).await.is_err()
+                {
+                    break;
+                }
+            }
+            _ = tokio::time::sleep_until(last_frame + READ_DEADLINE) => break,
+            changed = changes.recv() => {
+                if matches!(changed, Err(tokio::sync::broadcast::error::RecvError::Closed)) {
+                    break;
+                }
+                let caller = match store.caller(&token).await {
+                    Ok(Some(caller)) => caller,
+                    _ => break,
+                };
+                let next = store.lock().unwrap().next_command_of_any_kind(Some(&caller));
+                if let Some((id, body, json)) = next {
+                    println!("command {id} to the printer over /p/ws: {}", crate::printer_files::for_the_log(&body));
+                    if socket.send(Message::Text(frame(id, &body, json).into())).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            _ = ping.tick() => {
+                if socket.send(Message::Ping(Vec::new().into())).await.is_err() {
+                    break;
+                }
+            }
+        }
+    }
 }
 
 fn header<'a>(headers: &'a HeaderMap, name: &str) -> &'a str {
@@ -880,6 +1028,72 @@ mod tests {
         assert_eq!(
             (d.nozzle_mm, d.material, d.printer_type),
             (None, None, None)
+        );
+    }
+
+    /// The Prusa Connect SDK itself (the reference client) registers, is paired, gets its token,
+    /// links over `/p/ws`, reports, and runs the G-code the hub gives it. Needs the SDK's Python:
+    /// `PRUSA_SDK_PYTHON` (a venv with `pip install -e reference/Prusa-Connect-SDK-Printer`).
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_prusa_sdk_links_over_p_ws(pool: sqlx::PgPool) {
+        use tokio::io::AsyncBufReadExt;
+        let Ok(python) = std::env::var("PRUSA_SDK_PYTHON") else {
+            eprintln!("PRUSA_SDK_PYTHON not set: the SDK run is skipped");
+            return;
+        };
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        });
+        let script = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/prusa-sdk/link.py"
+        );
+        let mut child = tokio::process::Command::new(python)
+            .args([script, "127.0.0.1", &port.to_string()])
+            .stdout(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut lines = tokio::io::BufReader::new(child.stdout.take().unwrap()).lines();
+        let mut next = async || {
+            tokio::time::timeout(std::time::Duration::from_secs(30), lines.next_line())
+                .await
+                .expect("the SDK went quiet")
+                .unwrap()
+                .expect("the SDK ended")
+        };
+        let code = next()
+            .await
+            .strip_prefix("CODE ")
+            .expect("a code first")
+            .to_owned();
+        let space = store.default_space().await.unwrap().0;
+        let (machine, _) = store.pair(space, &code).await.unwrap().expect("paired");
+        assert_eq!(next().await, "TOKEN");
+        assert_eq!(next().await, "LINKED");
+        let id =
+            store
+                .lock()
+                .unwrap()
+                .queue_command(Some("prusa-connect"), &machine, "test", "M115");
+        assert!(id.is_some(), "the hub takes a command for it");
+        assert_eq!(
+            next().await,
+            "GOT M115",
+            "the G-code reached the SDK over /p/ws"
         );
     }
 }
