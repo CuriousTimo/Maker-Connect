@@ -325,16 +325,21 @@ mod send_tests {
             (status, body.as_str()),
             (StatusCode::OK, r#"{"loaded":"design.gcode"}"#)
         );
-        let state = |w: &World| {
-            let mut s = w.store.lock().unwrap();
+        let state = async |w: &World| {
+            let s = &w.store;
             let job = s
                 .active_job(&laser)
+                .await
                 .unwrap()
                 .map(|j| (j.file_name, j.state));
-            (job, s.start_queued().unwrap(), s.dispatch().unwrap())
+            (
+                job,
+                s.start_queued().await.unwrap(),
+                s.dispatch().await.unwrap(),
+            )
         };
         assert_eq!(
-            state(&w),
+            state(&w).await,
             (Some(("design.gcode".to_owned(), JobState::Loaded)), 0, 0),
             "loaded, not started"
         );
@@ -356,7 +361,7 @@ mod send_tests {
             "{body}"
         );
         assert_eq!(
-            state(&w).0,
+            state(&w).await.0,
             Some(("design.gcode".to_owned(), JobState::Loaded)),
             "nothing was replaced by the question"
         );
@@ -367,7 +372,7 @@ mod send_tests {
             (StatusCode::OK, r#"{"loaded":"second.gcode"}"#)
         );
         assert_eq!(
-            state(&w),
+            state(&w).await,
             (Some(("second.gcode".to_owned(), JobState::Loaded)), 0, 0)
         );
     }

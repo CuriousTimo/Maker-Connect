@@ -13,6 +13,9 @@ mod machines;
 mod pg_machines;
 
 mod pg_files;
+// Jobs on Postgres (lane 3b).
+mod pg_jobs;
+pub(crate) use pg_jobs::{JobFacts, JobMove};
 
 mod pg_mirror;
 mod pg_settings;
@@ -23,8 +26,6 @@ pub use commands::on_marlin_port;
 mod history;
 
 mod agents;
-
-mod jobs;
 
 mod files;
 
@@ -893,31 +894,24 @@ mod tests {
         .unwrap();
         let file = pg.file(space, "f1").await.unwrap().unwrap();
         let job = pg
-            .lock()
-            .unwrap()
             .add_job(space, &printer, &file, None, StartedBy::Auto { by: None })
+            .await
             .unwrap()
             .unwrap();
-        pg.lock()
-            .unwrap()
-            .set_job(job, JobState::Printing, None)
-            .unwrap();
+        pg.set_job(job, JobState::Printing, None).await.unwrap();
         assert_eq!(
             pg.machine(space, &printer).await.unwrap().unwrap().on_bed,
             None
         );
-        pg.lock()
-            .unwrap()
-            .set_job(job, JobState::Finished, None)
-            .unwrap();
+        pg.set_job(job, JobState::Finished, None).await.unwrap();
         let on_bed = pg.machine(space, &printer).await.unwrap().unwrap().on_bed;
         assert_eq!(on_bed.map(|b| b.file_name), Some("cube.gcode".to_owned()));
-        assert!(pg.lock().unwrap().print_taken(space, &printer).unwrap());
+        assert!(pg.print_taken(space, &printer).await.unwrap());
         assert_eq!(
             pg.machine(space, &printer).await.unwrap().unwrap().on_bed,
             None
         );
-        assert!(!pg.lock().unwrap().print_taken(space, &printer).unwrap());
+        assert!(!pg.print_taken(space, &printer).await.unwrap());
 
         assert!(
             pg.set_out_of_use(space, &printer, Some("nozzle clogged"))
@@ -1000,13 +994,14 @@ mod tests {
             .await
             .unwrap();
         let file = pg.file(space, "f1").await.unwrap().unwrap();
-        let mut store = pg.lock().unwrap();
-        let job = store
+        let job = pg
             .add_job(space, &printer, &file, None, StartedBy::Auto { by: None })
+            .await
             .unwrap()
             .unwrap();
-        store.set_job(job, JobState::Printing, None).unwrap();
-        store.set_job(job, JobState::Finished, None).unwrap();
+        pg.set_job(job, JobState::Printing, None).await.unwrap();
+        pg.set_job(job, JobState::Finished, None).await.unwrap();
+        let store = pg.lock().unwrap();
         let left = store.items(space).unwrap()[0].amount;
         assert_eq!(left, 987.5);
         let last = &store.movements(space, &spool).unwrap()[0];

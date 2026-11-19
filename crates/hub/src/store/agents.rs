@@ -11,126 +11,12 @@ impl Legacy {
             })
     }
 
-    /// A print the machine runs itself (no job of the hub's: from its USB stick or SD card,
-    /// or started at its screen) is followed while it runs and recorded as a job when it
-    /// ends: finished, stopped or failed, not yet taken off. So it shows among the machine's
-    /// jobs, and what is left on the bed holds the queue, Files and Reprint back until
-    /// someone says it was taken, as for the hub's own jobs (`files::fit`).
-    ///
-    /// How it ended: a Prusa on Connect says it (`raw`: FINISHED, STOPPED, ERROR); an agent
-    /// only says it is idle again, so 99 % or more counts as finished, less as stopped (then
-    /// "is the bed clear?" is asked, the careful side). A question on its screen (ATTENTION)
-    /// or going offline is no end.
-    pub(crate) fn follow_own_print_of(
-        &mut self,
-        machine: String,
-        space: i64,
-        telemetry: &Telemetry,
-        raw: Option<&str>,
-    ) -> rusqlite::Result<()> {
-        use maker_connect_protocol::MachineState as S;
-        if self.active_job(&machine)?.is_some() {
-            self.own_prints.remove(&machine);
-            return Ok(());
-        }
-        let by: Option<String> = self
-            .db
-            .query_row(
-                "SELECT usb_print_by FROM machines WHERE id = ?1",
-                [&machine],
-                |r| r.get(0),
-            )
-            .optional()?
-            .flatten();
-        match (telemetry.state, telemetry.job.as_ref()) {
-            (S::Busy | S::Paused, Some(job)) => {
-                let percent = job.done * 100 / job.total.max(1);
-                let started = now() - job.elapsed_s.unwrap_or(0) as i64;
-                let own = self.own_prints.entry(machine).or_insert(OwnPrint {
-                    file: String::new(),
-                    by: None,
-                    started_at: started,
-                    percent: 0,
-                });
-                if !job.file.is_empty() {
-                    own.file = job.file.clone();
-                }
-                own.by = own.by.take().or(by);
-                own.percent = percent;
-            }
-            // Still the same print: a question on its screen, or out of touch.
-            (S::Attention | S::Disconnected, _) => {}
-            _ => {
-                let Some(own) = self.own_prints.remove(&machine) else {
-                    return Ok(());
-                };
-                let (state, reason) = match raw {
-                    Some("FINISHED") => (JobState::Finished, None),
-                    Some("STOPPED") => (JobState::Stopped, Some("stopped on the printer")),
-                    Some("ERROR") => (JobState::Failed, Some("the printer reports an error")),
-                    _ if telemetry.state == S::Error => {
-                        (JobState::Failed, Some("the printer reports an error"))
-                    }
-                    _ if own.percent >= 99 => (JobState::Finished, None),
-                    _ => (
-                        JobState::Stopped,
-                        Some("ended at the printer before it was done"),
-                    ),
-                };
-                let file = if own.file.is_empty() {
-                    "a print started on the printer".to_owned()
-                } else {
-                    own.file
-                };
-                self.db.execute(
-                    "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at, started_at, ended_at, reason, by_name)
-                     VALUES (?1, ?2, '', ?3, ?4, ?5, ?5, ?6, ?7, ?8)",
-                    params![
-                        space,
-                        machine,
-                        file,
-                        state.name(),
-                        own.started_at,
-                        now(),
-                        reason,
-                        own.by.as_deref().unwrap_or("on the printer")
-                    ],
-                )?;
-                self.changed();
-            }
-        }
-        Ok(())
-    }
-
     pub(super) fn machine_id(&self, token: &str) -> rusqlite::Result<Option<String>> {
         self.db
             .query_row("SELECT id FROM machines WHERE token = ?1", [token], |r| {
                 r.get(0)
             })
             .optional()
-    }
-
-    /// What an agent's report asks of the bed, from the printer's own menu ([`Store::report`]).
-    pub(crate) fn bed_from_menu(
-        &mut self,
-        space: i64,
-        machine: &str,
-        telemetry: &Telemetry,
-    ) -> rusqlite::Result<()> {
-        // "Set Ready" on the printer's own menu: the bed is clear, as on its page.
-        if telemetry.bed_clear {
-            self.print_taken(space, machine)?;
-        }
-        // "Not ready" on the printer's own menu: the next job waits again (PrusaLink's
-        // `fw_cancel_ready`: `CancelReady`, M72 S0).
-        if telemetry.not_ready {
-            self.not_ready(space, machine)?;
-        }
-        // "Reprint" on the printer's own menu: its last job again, where it may start.
-        if telemetry.reprint {
-            self.reprint(space, machine)?;
-        }
-        Ok(())
     }
 
     /// A report kept ([`Store::report`]): its temperatures go into the machine's history.
@@ -141,6 +27,123 @@ impl Legacy {
 }
 
 impl Store {
+    /// A print the machine runs itself (no job of the hub's: from its USB stick or SD card,
+    /// or started at its screen) is followed while it runs and recorded as a job when it
+    /// ends: finished, stopped or failed, not yet taken off. So it shows among the machine's
+    /// jobs, and what is left on the bed holds the queue, Files and Reprint back until
+    /// someone says it was taken, as for the hub's own jobs (`files::fit`).
+    ///
+    /// How it ended: a Prusa on Connect says it (`raw`: FINISHED, STOPPED, ERROR); an agent
+    /// only says it is idle again, so 99 % or more counts as finished, less as stopped (then
+    /// "is the bed clear?" is asked, the careful side). A question on its screen (ATTENTION)
+    /// or going offline is no end.
+    pub(crate) async fn follow_own_print_of(
+        &self,
+        machine: String,
+        space: i64,
+        telemetry: &Telemetry,
+        raw: Option<&str>,
+    ) -> Result<(), BoxError> {
+        use maker_connect_protocol::MachineState as S;
+        if self.active_job(&machine).await?.is_some() {
+            self.lock().unwrap().own_prints.remove(&machine);
+            return Ok(());
+        }
+        let by: Option<String> =
+            sqlx::query_scalar("SELECT usb_print_by FROM machines WHERE id = $1")
+                .bind(&machine)
+                .fetch_optional(&self.pg().admin)
+                .await?
+                .flatten();
+        let ended = {
+            let mut legacy = self.lock().unwrap();
+            match (telemetry.state, telemetry.job.as_ref()) {
+                (S::Busy | S::Paused, Some(job)) => {
+                    let percent = job.done * 100 / job.total.max(1);
+                    let started = now() - job.elapsed_s.unwrap_or(0) as i64;
+                    let own = legacy
+                        .own_prints
+                        .entry(machine.clone())
+                        .or_insert(OwnPrint {
+                            file: String::new(),
+                            by: None,
+                            started_at: started,
+                            percent: 0,
+                        });
+                    if !job.file.is_empty() {
+                        own.file = job.file.clone();
+                    }
+                    own.by = own.by.take().or(by);
+                    own.percent = percent;
+                    None
+                }
+                // Still the same print: a question on its screen, or out of touch.
+                (S::Attention | S::Disconnected, _) => None,
+                _ => legacy.own_prints.remove(&machine),
+            }
+        };
+        let Some(own) = ended else {
+            return Ok(());
+        };
+        let (state, reason) = match raw {
+            Some("FINISHED") => (JobState::Finished, None),
+            Some("STOPPED") => (JobState::Stopped, Some("stopped on the printer")),
+            Some("ERROR") => (JobState::Failed, Some("the printer reports an error")),
+            _ if telemetry.state == S::Error => {
+                (JobState::Failed, Some("the printer reports an error"))
+            }
+            _ if own.percent >= 99 => (JobState::Finished, None),
+            _ => (
+                JobState::Stopped,
+                Some("ended at the printer before it was done"),
+            ),
+        };
+        let file = if own.file.is_empty() {
+            "a print started on the printer".to_owned()
+        } else {
+            own.file
+        };
+        sqlx::query(
+            "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at, started_at, ended_at, reason, by_name)
+             VALUES ($1, $2, '', $3, $4, at_unix($5), at_unix($5), at_unix($6), $7, $8)",
+        )
+        .bind(space)
+        .bind(&machine)
+        .bind(file)
+        .bind(state.name())
+        .bind(own.started_at)
+        .bind(now())
+        .bind(reason)
+        .bind(own.by.as_deref().unwrap_or("on the printer"))
+        .execute(&self.pg().admin)
+        .await?;
+        self.changed();
+        Ok(())
+    }
+
+    /// What an agent's report asks of the bed, from the printer's own menu ([`Store::report`]).
+    pub(crate) async fn bed_from_menu(
+        &self,
+        space: i64,
+        machine: &str,
+        telemetry: &Telemetry,
+    ) -> Result<(), BoxError> {
+        // "Set Ready" on the printer's own menu: the bed is clear, as on its page.
+        if telemetry.bed_clear {
+            self.print_taken(space, machine).await?;
+        }
+        // "Not ready" on the printer's own menu: the next job waits again (PrusaLink's
+        // `fw_cancel_ready`: `CancelReady`, M72 S0).
+        if telemetry.not_ready {
+            self.not_ready(space, machine).await?;
+        }
+        // "Reprint" on the printer's own menu: its last job again, where it may start.
+        if telemetry.reprint {
+            self.reprint(space, machine).await?;
+        }
+        Ok(())
+    }
+
     /// A machine in a space, by its token: (id, space).
     pub(crate) async fn placed(&self, token: &str) -> sqlx::Result<Option<(String, i64)>> {
         Ok(sqlx::query!(
@@ -164,10 +167,8 @@ impl Store {
         let Some((machine, space)) = self.placed(token).await? else {
             return Ok(());
         };
-        self.lock()
-            .unwrap()
-            .follow_own_print_of(machine, space, telemetry, raw)?;
-        Ok(())
+        self.follow_own_print_of(machine, space, telemetry, raw)
+            .await
     }
 
     /// An agent's report: kept as the machine's last. Returns the machine's space id if it is
@@ -190,9 +191,7 @@ impl Store {
         if (telemetry.bed_clear || telemetry.not_ready || telemetry.reprint)
             && let Some((machine, space)) = self.placed(token).await?
         {
-            self.lock()
-                .unwrap()
-                .bed_from_menu(space, &machine, telemetry)?;
+            self.bed_from_menu(space, &machine, telemetry).await?;
         }
         let mut tx = self.pg().admin.begin().await?;
         let updated = sqlx::query!(

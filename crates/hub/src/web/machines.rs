@@ -425,12 +425,11 @@ pub(crate) async fn taken(
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    let space = match store.space_id_of(&access) {
+    let space = match store.lock().unwrap().space_id_of(&access) {
         Ok((space, _)) => space,
         Err(error) => return failed(error),
     };
-    match store.print_taken(space, &id) {
+    match store.print_taken(space, &id).await {
         Ok(true) => done(&headers, &format!("/machines/{id}")),
         Ok(false) => (StatusCode::NOT_FOUND, "no print on its bed").into_response(),
         Err(error) => failed(error),
@@ -444,12 +443,11 @@ pub(crate) async fn not_ready(
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    let space = match store.space_id_of(&access) {
+    let space = match store.lock().unwrap().space_id_of(&access) {
         Ok((space, _)) => space,
         Err(error) => return failed(error),
     };
-    match store.not_ready(space, &id) {
+    match store.not_ready(space, &id).await {
         Ok(true) => done(&headers, &format!("/machines/{id}")),
         Ok(false) => (StatusCode::CONFLICT, "it is not ready").into_response(),
         Err(error) => failed(error),
@@ -605,6 +603,11 @@ pub(crate) async fn machine_page(
         .machine(access.space, &id)
         .await
         .map(|machine| (space, machine));
+    let jobs = store
+        .jobs_of(access.space, &id, 10)
+        .await
+        .unwrap_or_default();
+    let stats = store.job_stats(access.space, &id).await.unwrap_or_default();
     let store = store.lock().unwrap();
     match found {
         Ok((space, Some(machine))) if machine.kind == protocol::MachineKind::Label => {
@@ -653,12 +656,8 @@ pub(crate) async fn machine_page(
                     .ok()
                     .flatten()
                     .unwrap_or(false),
-                jobs: store
-                    .jobs_of(access.space, &machine.id, 10)
-                    .unwrap_or_default(),
-                stats: store
-                    .job_stats(access.space, &machine.id)
-                    .unwrap_or_default(),
+                jobs,
+                stats,
                 laser_framed: machine.laser_framed,
                 laser_origin_set: machine.laser_origin_set,
             };

@@ -8,7 +8,7 @@
 //! queue of its own.
 
 use crate::access::Access;
-use crate::store::{Legacy, now};
+use crate::store::{BoxError, Legacy, now};
 use crate::{Store, failed};
 use axum::{
     Form, Router,
@@ -64,73 +64,6 @@ pub struct Queued {
 }
 
 impl Legacy {
-    /// How the machine's last job ended, when it failed or was stopped and nobody said yet
-    /// that the bed is clear: then its queue waits (what it left may still be there).
-    pub fn bed_unchecked(&self, machine: &str) -> rusqlite::Result<Option<String>> {
-        use rusqlite::OptionalExtension;
-        Ok(self
-            .db
-            .query_row(
-                "SELECT state, taken_at FROM jobs WHERE machine_id = ?1 ORDER BY id DESC LIMIT 1",
-                [machine],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?)),
-            )
-            .optional()?
-            .filter(|(state, taken)| {
-                taken.is_none() && matches!(state.as_str(), "failed" | "stopped")
-            })
-            .map(|(state, _)| state))
-    }
-
-    /// "Reprint" chosen on the printer itself (Prusa's MK3, after a host's print): its last
-    /// job again, as PrusaLink does, when it may start now (the same checks as a queued
-    /// file: free, its bed clear, the file still suits it). Else the printer beeps and says
-    /// "Cannot re-print" on its screen, as PrusaLink does. Returns whether it started.
-    pub fn reprint(&mut self, space: i64, machine_id: &str) -> rusqlite::Result<bool> {
-        use rusqlite::OptionalExtension;
-        let Some(machine) = self.machine_on_mirror(space, machine_id)? else {
-            return Ok(false);
-        };
-        let last: Option<String> = self
-            .db
-            .query_row(
-                "SELECT file_id FROM jobs WHERE machine_id = ?1 ORDER BY id DESC LIMIT 1",
-                [machine_id],
-                |r| r.get(0),
-            )
-            .optional()?;
-        let file = match last {
-            Some(id) => self.file_on_mirror(space, &id)?,
-            None => None,
-        };
-        // Idle by its own report too: a print it runs itself is no job of the hub's.
-        let idle = machine
-            .telemetry
-            .as_ref()
-            .is_some_and(|t| t.state == maker_connect_protocol::MachineState::Idle);
-        let started = match file {
-            Some(file)
-                if idle
-                    && machine.kind != maker_connect_protocol::MachineKind::Laser
-                    && crate::files::suits(&file, &machine).is_ok()
-                    && crate::files::fit(&file, &machine).is_ok() =>
-            {
-                self.add_job(
-                    space,
-                    machine_id,
-                    &file,
-                    None,
-                    crate::store::StartedBy::Auto {
-                        by: Some("Reprint on the printer"),
-                    },
-                )?
-                .is_ok()
-            }
-            _ => false,
-        };
-        Ok(started)
-    }
-
     /// A machine's queue, first first.
     pub fn queue_of(&self, machine: &str) -> rusqlite::Result<Vec<Queued>> {
         let rows: Vec<Queued> = {
@@ -222,12 +155,56 @@ impl Legacy {
         self.changed();
         Ok(())
     }
+}
+
+impl Store {
+    /// "Reprint" chosen on the printer itself (Prusa's MK3, after a host's print): its last
+    /// job again, as PrusaLink does, when it may start now (the same checks as a queued
+    /// file: free, its bed clear, the file still suits it). Else the printer beeps and says
+    /// "Cannot re-print" on its screen, as PrusaLink does. Returns whether it started.
+    pub async fn reprint(&self, space: i64, machine_id: &str) -> Result<bool, BoxError> {
+        let Some(machine) = self.machine(space, machine_id).await? else {
+            return Ok(false);
+        };
+        let file = match self.last_job(machine_id).await? {
+            Some(last) => self.file(space, &last.job().file_id).await?,
+            None => None,
+        };
+        // Idle by its own report too: a print it runs itself is no job of the hub's.
+        let idle = machine
+            .telemetry
+            .as_ref()
+            .is_some_and(|t| t.state == maker_connect_protocol::MachineState::Idle);
+        let started = match file {
+            Some(file)
+                if idle
+                    && machine.kind != maker_connect_protocol::MachineKind::Laser
+                    && crate::files::suits(&file, &machine).is_ok()
+                    && crate::files::fit(&file, &machine).is_ok() =>
+            {
+                self.add_job(
+                    space,
+                    machine_id,
+                    &file,
+                    None,
+                    crate::store::StartedBy::Auto {
+                        by: Some("Reprint on the printer"),
+                    },
+                )
+                .await?
+                .is_ok()
+            }
+            _ => false,
+        };
+        Ok(started)
+    }
 
     /// Starts what may start: per machine with a queue, its first file once the machine is
     /// free, its bed clear and its service not due. How many started.
-    pub fn start_queued(&mut self) -> rusqlite::Result<usize> {
+    pub async fn start_queued(&self) -> Result<usize, BoxError> {
         let waiting: Vec<(i64, String)> = {
-            let mut q = self
+            let legacy = self.lock().unwrap();
+            let mut q = legacy
                 .db
                 .prepare("SELECT DISTINCT space_id, machine_id FROM machine_queue")?;
             q.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -235,9 +212,9 @@ impl Legacy {
         };
         let mut started = 0;
         for (space, machine_id) in waiting {
-            let Some(machine) = self.machine_on_mirror(space, &machine_id)? else {
+            let Some(machine) = self.machine(space, &machine_id).await? else {
                 // Gone, or moved to another space: its queue goes too.
-                self.db.execute(
+                self.lock().unwrap().db.execute(
                     "DELETE FROM machine_queue WHERE machine_id = ?1 AND space_id = ?2",
                     params![machine_id, space],
                 )?;
@@ -250,16 +227,24 @@ impl Legacy {
             if machine.upkeep.as_ref().is_some_and(|u| u.due) || machine.queue_held.is_some() {
                 continue;
             }
-            let Some(first) = self.queue_of(&machine_id)?.into_iter().next() else {
+            let Some(first) = self
+                .lock()
+                .unwrap()
+                .queue_of(&machine_id)?
+                .into_iter()
+                .next()
+            else {
                 continue;
             };
-            let Some(file) = self.file_on_mirror(space, &first.file_id)? else {
-                self.queue_remove(space, &machine_id, first.id)?;
+            let Some(file) = self.file(space, &first.file_id).await? else {
+                self.lock()
+                    .unwrap()
+                    .queue_remove(space, &machine_id, first.id)?;
                 continue;
             };
             // It no longer suits the machine (its profile changed): it waits, with why.
             if let Err(why) = crate::files::suits(&file, &machine) {
-                self.db.execute(
+                self.lock().unwrap().db.execute(
                     "UPDATE machine_queue SET problem = ?2 WHERE id = ?1",
                     params![first.id, why],
                 )?;
@@ -268,16 +253,21 @@ impl Legacy {
             if crate::files::fit(&file, &machine).is_err() {
                 continue;
             }
-            if let Ok(_job) = self.add_job(
-                space,
-                &machine_id,
-                &file,
-                None,
-                crate::store::StartedBy::Auto {
-                    by: first.by.as_deref(),
-                },
-            )? {
-                self.db
+            if let Ok(_job) = self
+                .add_job(
+                    space,
+                    &machine_id,
+                    &file,
+                    None,
+                    crate::store::StartedBy::Auto {
+                        by: first.by.as_deref(),
+                    },
+                )
+                .await?
+            {
+                self.lock()
+                    .unwrap()
+                    .db
                     .execute("DELETE FROM machine_queue WHERE id = ?1", [first.id])?;
                 started += 1;
                 println!("from the queue: {} on {}", file.name, machine.name);
@@ -294,7 +284,7 @@ impl Legacy {
 pub async fn run(store: Store) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        if let Err(error) = store.lock().unwrap().start_queued() {
+        if let Err(error) = store.start_queued().await {
             eprintln!("queue: {error}");
         }
     }
@@ -417,8 +407,7 @@ mod tests {
         store.idle_test_machine(&m).await;
         let file = store.file(space, "f1").await.unwrap().unwrap();
         {
-            let mut s = store.lock().unwrap();
-            let job = s
+            let job = store
                 .add_job(
                     space,
                     &m,
@@ -426,20 +415,23 @@ mod tests {
                     None,
                     crate::store::StartedBy::Auto { by: Some("Timo") },
                 )
+                .await
                 .unwrap()
                 .unwrap();
-            assert_eq!(s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap(), 1);
-            assert_eq!(s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap(), 2);
-            assert_eq!(s.start_queued().unwrap(), 0, "busy");
+            {
+                let mut s = store.lock().unwrap();
+                assert_eq!(s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap(), 1);
+                assert_eq!(s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap(), 2);
+            }
+            assert_eq!(store.start_queued().await.unwrap(), 0, "busy");
             // It failed: what it left may be on the bed.
-            s.set_job(job, JobState::Failed, Some("spaghetti")).unwrap();
+            store
+                .set_job(job, JobState::Failed, Some("spaghetti"))
+                .await
+                .unwrap();
         }
         store.idle_test_machine(&m).await;
-        assert_eq!(
-            store.lock().unwrap().start_queued().unwrap(),
-            0,
-            "the bed first"
-        );
+        assert_eq!(store.start_queued().await.unwrap(), 0, "the bed first");
         let machine = store.machine(space, &m).await.unwrap().unwrap();
         assert_eq!(machine.queue_held.as_deref(), Some("failed"));
         // "Set Ready" on the printer's own menu says the same as "Bed clear" on its page.
@@ -455,7 +447,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            store.lock().unwrap().start_queued().unwrap(),
+            store.start_queued().await.unwrap(),
             1,
             "bed clear: the next"
         );
@@ -499,8 +491,7 @@ mod tests {
         let file = store.file(space, "f1").await.unwrap().unwrap();
         // As an FDM printer: the guard lets everything through.
         {
-            let mut s = store.lock().unwrap();
-            let job = s
+            let job = store
                 .add_job(
                     space,
                     &m,
@@ -508,9 +499,10 @@ mod tests {
                     None,
                     StartedBy::Auto { by: Some("queue") },
                 )
+                .await
                 .unwrap()
                 .unwrap();
-            s.set_job(job, JobState::Finished, None).unwrap();
+            store.set_job(job, JobState::Finished, None).await.unwrap();
         }
         // The same machine, now a laser (its kind on Postgres, the farm's flag on SQLite).
         sqlx::query("UPDATE machines SET kind = $2 WHERE id = $1")
@@ -521,26 +513,34 @@ mod tests {
             .unwrap();
         store.mirror_machine(Some(&m), None).await.unwrap();
         assert!(store.is_laser(space, &m).await.unwrap());
-        let mut s = store.lock().unwrap();
-        s.db.execute("UPDATE machines SET farm = 1 WHERE id = ?1", [&m])
-            .unwrap();
-        s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap();
-        s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap();
+        {
+            let mut s = store.lock().unwrap();
+            s.db.execute("UPDATE machines SET farm = 1 WHERE id = ?1", [&m])
+                .unwrap();
+            s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap();
+            s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap();
+        }
+        let s = &store;
         assert_eq!(
-            s.start_queued().unwrap(),
+            s.start_queued().await.unwrap(),
             0,
             "the queue never starts a laser"
         );
-        assert_eq!(s.dispatch().unwrap(), 0, "nor does the farm");
+        assert_eq!(s.dispatch().await.unwrap(), 0, "nor does the farm");
         assert!(
-            !s.reprint(space, &m).unwrap(),
+            !s.reprint(space, &m).await.unwrap(),
             "nor a reprint on the machine"
         );
-        assert!(s.active_job(&m).unwrap().is_none());
-        assert_eq!(s.queue_of(&m).unwrap().len(), 2, "the copies wait");
+        assert!(s.active_job(&m).await.unwrap().is_none());
+        assert_eq!(
+            s.lock().unwrap().queue_of(&m).unwrap().len(),
+            2,
+            "the copies wait"
+        );
         // The guard itself: Auto, and a person without a session, are refused.
         assert_eq!(
             s.add_job(space, &m, &file, None, StartedBy::Auto { by: None })
+                .await
                 .unwrap(),
             Err(LASER_NEVER_ALONE)
         );
@@ -555,6 +555,7 @@ mod tests {
                     session: None
                 }
             )
+            .await
             .unwrap(),
             Err(LASER_NEVER_ALONE),
             "an API token has no session"
@@ -571,11 +572,12 @@ mod tests {
                     session: Some(1),
                 },
             )
+            .await
             .unwrap()
             .unwrap();
-        assert_eq!(s.active_job(&m).unwrap().unwrap().id, job);
+        assert_eq!(s.active_job(&m).await.unwrap().unwrap().id, job);
         assert_eq!(
-            s.queue_of(&m).unwrap().len(),
+            s.lock().unwrap().queue_of(&m).unwrap().len(),
             2,
             "starting one leaves the copies waiting"
         );

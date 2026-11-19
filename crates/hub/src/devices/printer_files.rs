@@ -22,7 +22,7 @@
 //! sends no token with it): 96 random bits, a transfer of one file to one printer, for a day.
 
 use crate::access::Access;
-use crate::store::{JobState, Legacy, now};
+use crate::store::{JobMove, JobState, Legacy, now};
 use crate::{Store, failed};
 use aes::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
 use axum::{
@@ -563,11 +563,14 @@ fn listed_in(store: &Legacy, machine: &str, folder: &str) -> Option<Vec<String>>
 }
 
 /// An event from a printer about its files and transfers (called for every event).
+///
+/// How its jobs move on goes into `moves`, for `Store::move_jobs` once the lock is let go.
 pub fn on_event(
     store: &mut Legacy,
     token: &str,
     name: &str,
     event: &Value,
+    moves: &mut Vec<JobMove>,
 ) -> rusqlite::Result<()> {
     let Some((machine, _)) = store.printer_of(token)? else {
         return Ok(());
@@ -729,7 +732,7 @@ pub fn on_event(
                 };
                 store.set_transfer(&transfer.iv, "failed", None, Some(&why))?;
                 if let Some(job) = transfer.job {
-                    store.set_job(job, JobState::Failed, Some(&why))?;
+                    moves.push((job, JobState::Failed, Some(why.clone())));
                 }
             }
             store.changed();
@@ -751,7 +754,7 @@ pub fn on_event(
                 if let Some(job) = transfer.job
                     && !(again && store.send_again(&transfer, job, &machine)?)
                 {
-                    store.set_job(job, JobState::Failed, Some(&why))?;
+                    moves.push((job, JobState::Failed, Some(why.clone())));
                 }
             }
         }
@@ -845,11 +848,16 @@ fn summary(data: &Value, at: i64) -> Value {
 
 /// After each report of a printer: a job waiting for it goes to its stick (when it is free),
 /// and a job printing follows the printer's state to its end.
+///
+/// `active` is the machine's job that is not over ([`Store::active_job`]); how its jobs move on goes
+/// into `moves`, for `Store::move_jobs` once the lock is let go.
 pub fn on_report(
     store: &mut Legacy,
     token: &str,
     state: &str,
     job: Option<u64>,
+    active: Option<crate::store::Job>,
+    moves: &mut Vec<JobMove>,
 ) -> rusqlite::Result<()> {
     let Some((machine, space)) = store.printer_of(token)? else {
         return Ok(());
@@ -889,14 +897,19 @@ pub fn on_report(
         store.dialogs.remove(&machine);
         store.changed();
     }
-    let Some(job) = store.active_job(&machine)? else {
+    let Some(job) = active.filter(|j| j.machine_id == machine) else {
         return Ok(());
     };
     let transfer = store.transfer_of_job(job.id)?;
     match (job.state, transfer) {
         (JobState::Queued, None) if matches!(state, "IDLE" | "READY" | "FINISHED" | "STOPPED") => {
             let Some(file) = store.file_on_mirror(space, &job.file_id)? else {
-                return store.set_job(job.id, JobState::Failed, Some("its file is gone"));
+                moves.push((
+                    job.id,
+                    JobState::Failed,
+                    Some("its file is gone".to_owned()),
+                ));
+                return Ok(());
             };
             // Sent here before and still the same file: print that copy, no download.
             if let Some(path) = still_on_stick(store, &machine, &file.id, file.size)? {
@@ -910,7 +923,7 @@ pub fn on_report(
                 )?;
                 store.set_transfer(&transfer.iv, "finished", None, Some("on the stick already"))?;
                 store.print_from_stick(&transfer, &machine)?;
-                store.set_job(job.id, JobState::Printing, None)?;
+                moves.push((job.id, JobState::Printing, None));
                 return Ok(());
             }
             let taken = names_in(store, &machine, "/usb");
@@ -918,33 +931,33 @@ pub fn on_report(
             let transfer =
                 store.create_transfer(space, &machine, &file.id, file.size, &path, Some(job.id))?;
             if store.start_transfer(&transfer, &file.name)?.is_some() {
-                store.set_job(job.id, JobState::Printing, None)?;
+                moves.push((job.id, JobState::Printing, None));
             }
         }
         (JobState::Printing | JobState::Paused | JobState::Stopping, Some(t)) => {
             match (t.state.as_str(), state) {
                 ("starting", "PRINTING") => store.set_transfer(&t.iv, "printing", None, None)?,
                 ("printing", "PAUSED") if job.state == JobState::Printing => {
-                    store.set_job(job.id, JobState::Paused, None)?
+                    moves.push((job.id, JobState::Paused, None))
                 }
                 ("printing", "PRINTING") if job.state == JobState::Paused => {
-                    store.set_job(job.id, JobState::Printing, None)?
+                    moves.push((job.id, JobState::Printing, None))
                 }
                 ("printing", "FINISHED") => {
                     store.set_transfer(&t.iv, "done", None, None)?;
-                    store.set_job(job.id, JobState::Finished, None)?;
+                    moves.push((job.id, JobState::Finished, None));
                 }
                 ("printing", "STOPPED" | "IDLE" | "READY") => {
                     store.set_transfer(&t.iv, "done", None, None)?;
-                    store.set_job(job.id, JobState::Stopped, None)?;
+                    moves.push((job.id, JobState::Stopped, None));
                 }
                 ("printing" | "starting", "ERROR") => {
                     store.set_transfer(&t.iv, "done", None, None)?;
-                    store.set_job(
+                    moves.push((
                         job.id,
                         JobState::Failed,
-                        Some("the printer reports an error"),
-                    )?;
+                        Some("the printer reports an error".to_owned()),
+                    ));
                 }
                 _ => {}
             }
@@ -1205,13 +1218,17 @@ async fn print(
     };
     {
         let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
+        let active = match store.active_job(&machine).await {
+            Ok(active) => active,
+            Err(error) => return failed(error),
+        };
         let s = store.lock().unwrap();
         if let Err(refused) = crate::safety::check_ppe(&s, ppe_checks, &access, &machine) {
             return *refused;
         }
         if let Ok(Some(m)) = s.machine_on_mirror(access.space, &machine) {
             let state = m.telemetry.as_ref().map(|t| t.state);
-            if m.job.is_some() || matches!(state, Some(maker_connect_protocol::MachineState::Busy))
+            if active.is_some() || matches!(state, Some(maker_connect_protocol::MachineState::Busy))
             {
                 return (StatusCode::CONFLICT, "it is busy: one print at a time").into_response();
             }
@@ -1995,7 +2012,7 @@ mod flow {
         assert_eq!(job().await.unwrap().state, JobState::Printing);
         call(&app, report("FINISHED")).await;
         assert!(job().await.is_none(), "ended");
-        let ended = store.lock().unwrap().job(job_id).unwrap().unwrap();
+        let ended = store.job(job_id).await.unwrap().unwrap();
         assert_eq!(ended.state, JobState::Finished);
 
         // The printer said it started that print (as a real one does).
@@ -2114,23 +2131,14 @@ mod flow {
                 .body(Body::from(body.to_owned()))
                 .unwrap()
         };
-        let jobs = || {
-            store
-                .lock()
-                .unwrap()
-                .db
-                .query_row(
-                    "SELECT COUNT(*), MAX(state), MAX(file_name) FROM jobs WHERE machine_id = ?1",
-                    [&mini],
-                    |r| {
-                        Ok((
-                            r.get::<_, i64>(0)?,
-                            r.get::<_, Option<String>>(1)?,
-                            r.get::<_, Option<String>>(2)?,
-                        ))
-                    },
-                )
-                .unwrap()
+        let jobs = async || -> (i64, Option<String>, Option<String>) {
+            sqlx::query_as(
+                "SELECT COUNT(*), MAX(state), MAX(file_name) FROM jobs WHERE machine_id = $1",
+            )
+            .bind(&mini)
+            .fetch_one(&store.pg().admin)
+            .await
+            .unwrap()
         };
         // What `files::fit` holds a job back by: a finished print on the bed, or the last job
         // stopped or failed and not said to be cleared.
@@ -2151,7 +2159,7 @@ mod flow {
         )
         .await;
         call(&app, report(r#"{"state":"ATTENTION","job_id":29}"#)).await;
-        assert_eq!(jobs().0, 0, "a question on its screen is no end");
+        assert_eq!(jobs().await.0, 0, "a question on its screen is no end");
         call(
             &app,
             report(r#"{"state":"PRINTING","job_id":29,"progress":45,"time_printing":700}"#),
@@ -2160,13 +2168,13 @@ mod flow {
         // Stopped on the printer: a stopped job, and the queue waits until the bed is clear.
         call(&app, report(r#"{"state":"STOPPED"}"#)).await;
         assert_eq!(
-            jobs(),
+            jobs().await,
             (1, Some("stopped".into()), Some("Benchy.bgcode".into()))
         );
         assert_eq!(held().await, (false, Some("stopped".into())));
         call(&app, report(r#"{"state":"IDLE"}"#)).await;
-        assert_eq!(jobs().0, 1, "recorded once");
-        store.lock().unwrap().print_taken(space, &mini).unwrap();
+        assert_eq!(jobs().await.0, 1, "recorded once");
+        store.print_taken(space, &mini).await.unwrap();
         assert_eq!(held().await, (false, None), "taken off: free again");
         // Finished on the printer: on its bed until taken.
         call(
@@ -2175,7 +2183,7 @@ mod flow {
         )
         .await;
         call(&app, report(r#"{"state":"FINISHED"}"#)).await;
-        assert_eq!(jobs().0, 2);
+        assert_eq!(jobs().await.0, 2);
         assert!(held().await.0, "a finished print on its bed");
     }
 

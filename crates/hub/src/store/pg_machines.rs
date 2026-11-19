@@ -532,7 +532,8 @@ impl Store {
         if from == to {
             return Ok(Err("it is in that space already".to_owned()));
         }
-        let stays = self.lock().unwrap().why_it_stays(machine)?;
+        let jobs = self.job_facts_of(machine).await?;
+        let stays = self.lock().unwrap().why_it_stays(&jobs, machine)?;
         if let Some(why) = stays {
             return Ok(Err(why));
         }

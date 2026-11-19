@@ -135,16 +135,7 @@ fn unpack(archive: &[u8], program: &str) -> Result<Vec<u8>, String> {
 
 /// What the About page says of updating the hub.
 async fn hub_status(State(store): State<Store>) -> Response {
-    let printing: i64 = store
-        .lock()
-        .unwrap()
-        .db
-        .query_row(
-            "SELECT COUNT(*) FROM jobs WHERE state IN ('printing', 'paused')",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
+    let printing: i64 = store.printing_anywhere().await.unwrap_or(0);
     let found = tokio::task::spawn_blocking(|| newest(&releases_url(), "hub")).await;
     let last = std::env::current_exe()
         .ok()

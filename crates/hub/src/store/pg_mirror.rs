@@ -233,6 +233,14 @@ impl Store {
     /// A space's machines, by name: their rows on Postgres, completed with what the modules still on
     /// SQLite and the hub's memory know (stock, jobs, queue, farm, commands, questions).
     pub async fn machines(&self, space: i64) -> Result<Vec<Machine>, BoxError> {
+        Ok(self.machines_and_jobs(space).await?.0)
+    }
+
+    /// [`Store::machines`], and what their jobs tell ([`JobFacts`]), read once for both.
+    pub(crate) async fn machines_and_jobs(
+        &self,
+        space: i64,
+    ) -> Result<(Vec<Machine>, JobFacts), BoxError> {
         let mut tx = self.pg().space(space).await?;
         let rows = sqlx::query_as!(
             MachineRow,
@@ -247,7 +255,10 @@ impl Store {
         .fetch_all(&mut *tx)
         .await?;
         tx.commit().await?;
-        Ok(self.lock().unwrap().complete_machines(space, rows)?)
+        let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
+        let jobs = self.job_facts(&ids).await?;
+        let machines = self.lock().unwrap().complete_machines(space, rows, &jobs)?;
+        Ok((machines, jobs))
     }
 
     /// One machine of a space.

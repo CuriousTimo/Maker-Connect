@@ -298,18 +298,15 @@ async fn list(access: crate::access::Access, State(store): State<Store>) -> Resp
         Ok((
             store.files(access.space).await?,
             store.machines(access.space).await?,
+            store.prints(access.space, 5).await?,
         ))
     }
     .await;
-    let (files, machines) = match found {
+    let (files, machines, mut prints) = match found {
         Ok(found) => found,
         Err(error) => return failed(error),
     };
     let store = store.lock().unwrap();
-    let mut prints = match store.prints(access.space, 5) {
-        Ok(prints) => prints,
-        Err(error) => return failed(error),
-    };
     // Which machines this person may use (by permission, whatever their role): the others say
     // so here, before the button, rather than refusing after it. Granted only in Space.
     let mut may_use = std::collections::HashSet::new();
@@ -610,7 +607,7 @@ pub(crate) async fn job_file(store: &Store, token: &str, job: i64) -> Response {
         let Some((machine, space)) = store.placed(token).await? else {
             return Ok(None);
         };
-        let job = store.lock().unwrap().job(job)?;
+        let job = store.job(job).await?;
         let Some(job) = job.filter(|j| j.machine_id == machine) else {
             return Ok(None);
         };
@@ -768,19 +765,21 @@ async fn print(
         Err(error) => return failed(error),
     };
     let found_machine = store.machine(access.space, &form.machine).await;
-    let mut store = store.lock().unwrap();
-    // Running a job, or framing one, is using the machine.
-    if let Err(refused) = crate::access::check_machine(
-        &store,
-        &access,
-        &form.machine,
-        crate::access::Level::Use,
-        &grants,
-    ) {
-        return *refused;
-    }
-    if let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &form.machine) {
-        return *refused;
+    {
+        let store = store.lock().unwrap();
+        // Running a job, or framing one, is using the machine.
+        if let Err(refused) = crate::access::check_machine(
+            &store,
+            &access,
+            &form.machine,
+            crate::access::Level::Use,
+            &grants,
+        ) {
+            return *refused;
+        }
+        if let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &form.machine) {
+            return *refused;
+        }
     }
     let machine = match found_machine {
         Ok(Some(machine)) => machine,
@@ -809,7 +808,7 @@ async fn print(
         if let Err(why) = fit(&file, &free) {
             return (StatusCode::CONFLICT, why).into_response();
         }
-        match store.active_job(&machine.id) {
+        match store.active_job(&machine.id).await {
             Ok(Some(job)) if job.state == crate::store::JobState::Loaded => {
                 // Only who may load one replaces it (a person at a session,
                 // crate::store::LASER_NEVER_ALONE): refused before it is asked, nothing removed.
@@ -826,7 +825,7 @@ async fn print(
                     )
                         .into_response();
                 }
-                if let Err(error) = store.unload_laser_job(&machine.id) {
+                if let Err(error) = store.unload_laser_job(&machine.id).await {
                     return failed(error);
                 }
             }
@@ -837,13 +836,16 @@ async fn print(
             Ok(None) => {}
             Err(error) => return failed(error),
         }
-        return match store.add_job(
-            space,
-            &machine.id,
-            &file,
-            None,
-            crate::store::StartedBy::person(&access),
-        ) {
+        return match store
+            .add_job(
+                space,
+                &machine.id,
+                &file,
+                None,
+                crate::store::StartedBy::person(&access),
+            )
+            .await
+        {
             Ok(Ok(_)) if headers.contains_key("x-requested-with") => {
                 Json(serde_json::json!({ "loaded": file.name })).into_response()
             }
@@ -857,7 +859,8 @@ async fn print(
     let copies = form.copies.unwrap_or(1).clamp(1, MAX_COPIES);
     let by = Some((access.user_id, access.actor.as_str()));
     // Copies after the first wait in the queue, one after another.
-    let queue_rest = |store: &mut crate::store::Legacy, n: u32| -> rusqlite::Result<usize> {
+    let queue_rest = |store: &Store, n: u32| -> rusqlite::Result<usize> {
+        let mut store = store.lock().unwrap();
         let mut place = 0;
         for _ in 0..n {
             place = store.queue_add(space, &machine.id, &file, by)?;
@@ -868,7 +871,7 @@ async fn print(
         if let Err(why) = suits(&file, &machine) {
             return (StatusCode::CONFLICT, why).into_response();
         }
-        return match queue_rest(&mut store, copies) {
+        return match queue_rest(&store, copies) {
             Ok(place) if headers.contains_key("x-requested-with") => (
                 StatusCode::ACCEPTED,
                 Json(serde_json::json!({ "queued": place, "copies": copies })),
@@ -878,14 +881,17 @@ async fn print(
             Err(error) => failed(error),
         };
     }
-    match store.add_job(
-        space,
-        &machine.id,
-        &file,
-        None,
-        crate::store::StartedBy::person(&access),
-    ) {
-        Ok(Ok(_)) if copies > 1 => match queue_rest(&mut store, copies - 1) {
+    match store
+        .add_job(
+            space,
+            &machine.id,
+            &file,
+            None,
+            crate::store::StartedBy::person(&access),
+        )
+        .await
+    {
+        Ok(Ok(_)) if copies > 1 => match queue_rest(&store, copies - 1) {
             Ok(_) if headers.contains_key("x-requested-with") => Json(serde_json::json!({
                 "started": true,
                 "copies": copies,
@@ -1025,80 +1031,101 @@ async fn start_burn(
         Err(error) => return failed(error),
     };
     let found_machine = store.machine(access.space, &id).await;
-    let mut store = store.lock().unwrap();
-    let Ok(Some((_space, _))) = store.space_id_of(&access).map(Some) else {
-        return (StatusCode::FORBIDDEN, "no space").into_response();
-    };
-    if let Err(refused) =
-        crate::access::check_machine(&store, &access, &id, crate::access::Level::Operate, &grants)
-    {
-        return *refused;
-    }
-    if let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &id) {
-        return *refused;
-    }
-    if !crate::store::StartedBy::person(&access).is_person_at_a_session() {
-        return (StatusCode::FORBIDDEN, crate::store::LASER_NEVER_ALONE).into_response();
-    }
-    let machine = match found_machine {
-        Ok(Some(machine)) => machine,
-        Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
-        Err(error) => return failed(error),
-    };
-    if machine.kind != maker_connect_protocol::MachineKind::Laser {
-        return (StatusCode::CONFLICT, "Start burn is for lasers").into_response();
-    }
-    let job = match store.active_job(&machine.id) {
-        Ok(Some(job)) if job.state == crate::store::JobState::Loaded => job,
-        Ok(Some(job)) => {
-            return (StatusCode::CONFLICT, format!("busy with {}", job.file_name)).into_response();
-        }
-        Ok(None) => {
-            return (StatusCode::CONFLICT, "no job is loaded on this laser").into_response();
-        }
-        Err(error) => return failed(error),
-    };
-    let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
-    let Some(t) = telemetry else {
-        return (StatusCode::CONFLICT, "offline").into_response();
-    };
-    if t.state != maker_connect_protocol::MachineState::Idle {
-        return (StatusCode::CONFLICT, "the laser is not idle").into_response();
-    }
-    if let Some(problem) = &t.problem {
-        return (StatusCode::CONFLICT, problem.clone()).into_response();
-    }
-    // LaserFoundry's own refusal and text (`ui-egui` `lib.rs:1240-1247`)
-    if t.grbl.as_ref().and_then(|g| g.laser_mode) != Some(true) {
-        return (
-            StatusCode::CONFLICT,
-            "Laser mode ($32) is off on this controller: turn it on in the machine settings before running a job",
-        )
-            .into_response();
-    }
-    if store.laser_framed_file(&machine.id) != Some(job.file_id.as_str()) {
-        return (
-            StatusCode::CONFLICT,
-            "frame the loaded job first (after a Set origin it is framed again)",
-        )
-            .into_response();
-    }
-    // The person confirms every Start burn (ours); after a Set origin the confirm says the hub does not
-    // check the job's place on the bed (LaserFoundry's own confirm, `ui-egui` `lib.rs:1250`). After a hub
-    // restart the hub no longer knows whether an origin was set: the confirm is asked all the same.
-    if form.confirm != Some(true) {
-        let text = if store.laser_origin_was_set(&machine.id) {
-            ORIGIN_CONFIRM.to_owned()
-        } else {
-            start_confirm(&job.file_name)
+    let active = store.active_job(&id).await;
+    // The checks, with the store held only this long (a refusal is the response itself).
+    #[allow(clippy::result_large_err)]
+    let checked = (|| -> Result<(crate::store::Machine, crate::store::Job), Response> {
+        let store = store.lock().unwrap();
+        let Ok(Some((_space, _))) = store.space_id_of(&access).map(Some) else {
+            return Err((StatusCode::FORBIDDEN, "no space").into_response());
         };
-        return (
-            StatusCode::CONFLICT,
-            Json(serde_json::json!({ "confirm": text })),
-        )
-            .into_response();
-    }
-    match store.start_burn(&machine.id, job.id, Some(access.actor.as_str())) {
+        if let Err(refused) = crate::access::check_machine(
+            &store,
+            &access,
+            &id,
+            crate::access::Level::Operate,
+            &grants,
+        ) {
+            return Err(*refused);
+        }
+        if let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &id) {
+            return Err(*refused);
+        }
+        if !crate::store::StartedBy::person(&access).is_person_at_a_session() {
+            return Err((StatusCode::FORBIDDEN, crate::store::LASER_NEVER_ALONE).into_response());
+        }
+        let machine = match found_machine {
+            Ok(Some(machine)) => machine,
+            Ok(None) => return Err((StatusCode::NOT_FOUND, "no such machine").into_response()),
+            Err(error) => return Err(failed(error)),
+        };
+        if machine.kind != maker_connect_protocol::MachineKind::Laser {
+            return Err((StatusCode::CONFLICT, "Start burn is for lasers").into_response());
+        }
+        let job = match active {
+            Ok(Some(job)) if job.state == crate::store::JobState::Loaded => job,
+            Ok(Some(job)) => {
+                return Err(
+                    (StatusCode::CONFLICT, format!("busy with {}", job.file_name)).into_response(),
+                );
+            }
+            Ok(None) => {
+                return Err(
+                    (StatusCode::CONFLICT, "no job is loaded on this laser").into_response()
+                );
+            }
+            Err(error) => return Err(failed(error)),
+        };
+        let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
+        let Some(t) = telemetry else {
+            return Err((StatusCode::CONFLICT, "offline").into_response());
+        };
+        if t.state != maker_connect_protocol::MachineState::Idle {
+            return Err((StatusCode::CONFLICT, "the laser is not idle").into_response());
+        }
+        if let Some(problem) = &t.problem {
+            return Err((StatusCode::CONFLICT, problem.clone()).into_response());
+        }
+        // LaserFoundry's own refusal and text (`ui-egui` `lib.rs:1240-1247`)
+        if t.grbl.as_ref().and_then(|g| g.laser_mode) != Some(true) {
+            return Err((
+                StatusCode::CONFLICT,
+                "Laser mode ($32) is off on this controller: turn it on in the machine settings before running a job",
+            )
+                .into_response());
+        }
+        if store.laser_framed_file(&machine.id) != Some(job.file_id.as_str()) {
+            return Err((
+                StatusCode::CONFLICT,
+                "frame the loaded job first (after a Set origin it is framed again)",
+            )
+                .into_response());
+        }
+        // The person confirms every Start burn (ours); after a Set origin the confirm says the hub does not
+        // check the job's place on the bed (LaserFoundry's own confirm, `ui-egui` `lib.rs:1250`). After a hub
+        // restart the hub no longer knows whether an origin was set: the confirm is asked all the same.
+        if form.confirm != Some(true) {
+            let text = if store.laser_origin_was_set(&machine.id) {
+                ORIGIN_CONFIRM.to_owned()
+            } else {
+                start_confirm(&job.file_name)
+            };
+            return Err((
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({ "confirm": text })),
+            )
+                .into_response());
+        }
+        Ok((machine, job))
+    })();
+    let (machine, job) = match checked {
+        Ok(checked) => checked,
+        Err(refused) => return refused,
+    };
+    match store
+        .start_burn(&machine.id, job.id, Some(access.actor.as_str()))
+        .await
+    {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::CONFLICT, "the loaded job changed: look again").into_response(),
         Err(error) => failed(error),
@@ -1139,44 +1166,47 @@ async fn control_job(
         .machine(access.space, &id)
         .await
         .map_err(|e| e.to_string());
-    let mut store = store.lock().unwrap();
     // Starting and resuming wait for PPE; pausing and stopping never do.
     if matches!(form.action.as_str(), "restart" | "resume")
-        && let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &id)
+        && let Err(refused) =
+            crate::safety::check_ppe(&store.lock().unwrap(), ppe_checks, &access, &id)
     {
         return *refused;
     }
     // Start an interrupted job again, a little before where it stopped.
     if form.action == "restart" {
-        let space = match store.space_id_of(&access) {
+        let space = match store.lock().unwrap().space_id_of(&access) {
             Ok((space, _)) => space,
             Err(error) => return failed(error),
         };
-        let last = match store.resumable_job(&id) {
+        let last = match store.resumable_job(&id).await {
             Ok(Some(job)) => job,
             Ok(_) => {
                 return (StatusCode::CONFLICT, "no interrupted job to start again").into_response();
             }
             Err(error) => return failed(error),
         };
-        let file = match store.file_on_mirror(space, &last.file_id) {
+        let file = match store.file(space, &last.file_id).await {
             Ok(Some(file)) => file,
             Ok(None) => return (StatusCode::CONFLICT, "its file is gone").into_response(),
             Err(error) => return failed(error),
         };
-        return match store.add_job(
-            space,
-            &id,
-            &file,
-            last.restart_line,
-            crate::store::StartedBy::person(&access),
-        ) {
+        return match store
+            .add_job(
+                space,
+                &id,
+                &file,
+                last.restart_line,
+                crate::store::StartedBy::person(&access),
+            )
+            .await
+        {
             Ok(Ok(_)) => StatusCode::NO_CONTENT.into_response(),
             Ok(Err(why)) => (StatusCode::CONFLICT, why).into_response(),
             Err(error) => failed(error),
         };
     }
-    let job = match store.active_job(&id) {
+    let job = match store.active_job(&id).await {
         Ok(Some(job)) => job,
         Ok(None) => {
             // A print it started itself (from its SD card, or a Prusa's USB stick at its
@@ -1200,7 +1230,7 @@ async fn control_job(
             };
             if own.link == "prusa-connect" {
                 return match crate::printer_files::job_control(
-                    &mut store,
+                    &mut store.lock().unwrap(),
                     access.space,
                     &id,
                     &form.action,
@@ -1215,7 +1245,7 @@ async fn control_job(
                 "stop" => maker_connect_protocol::JobControl::Stop,
                 _ => return (StatusCode::CONFLICT, "not now").into_response(),
             };
-            store.own_job_control.insert(id, control);
+            store.lock().unwrap().own_job_control.insert(id, control);
             return StatusCode::NO_CONTENT.into_response();
         }
         Err(error) => return failed(error),
@@ -1224,12 +1254,14 @@ async fn control_job(
     // laser's own Stop (a soft reset), as with no job, so a moving head (a frame) is stopped.
     if job.state == JobState::Loaded {
         return match form.action.as_str() {
-            "unload" => match store.unload_laser_job(&id) {
+            "unload" => match store.unload_laser_job(&id).await {
                 Ok(_) => StatusCode::NO_CONTENT.into_response(),
                 Err(error) => failed(error),
             },
             "stop" => {
                 store
+                    .lock()
+                    .unwrap()
                     .own_job_control
                     .insert(id, maker_connect_protocol::JobControl::Stop);
                 StatusCode::NO_CONTENT.into_response()
@@ -1251,12 +1283,16 @@ async fn control_job(
     // A Prusa on its built-in Connect is told so itself.
     if let Ok(Some(machine)) = &found_machine
         && machine.link == "prusa-connect"
-        && let Err(error) =
-            crate::printer_files::job_control(&mut store, access.space, &id, &form.action)
+        && let Err(error) = crate::printer_files::job_control(
+            &mut store.lock().unwrap(),
+            access.space,
+            &id,
+            &form.action,
+        )
     {
         return failed(error);
     }
-    match store.set_job(job.id, next, None) {
+    match store.set_job(job.id, next, None).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
     }
@@ -1499,7 +1535,7 @@ mod tests {
                 .1;
             store.report(&token, &Default::default()).await.unwrap();
             // Online and free: the queue starts it by itself.
-            assert_eq!(store.lock().unwrap().start_queued().unwrap(), 1);
+            assert_eq!(store.start_queued().await.unwrap(), 1);
             assert!(
                 store
                     .machine(space, &mini)
@@ -1516,11 +1552,7 @@ mod tests {
             StatusCode::ACCEPTED,
             "busy: queued"
         );
-        assert_eq!(
-            store.lock().unwrap().start_queued().unwrap(),
-            0,
-            "waits while busy"
-        );
+        assert_eq!(store.start_queued().await.unwrap(), 0, "waits while busy");
         assert_eq!(
             store
                 .machine(space, &mini)
@@ -1644,7 +1676,7 @@ mod tests {
             ..Default::default()
         };
         let of = crate::agent_of(&store, &token).await.unwrap();
-        let (order, _) = crate::agent_job(&mut store.lock().unwrap(), &of, &report).unwrap();
+        let (order, _) = crate::agent_job(&store, &of, &report).await.unwrap();
         let order = order.unwrap();
         assert_eq!(order.tape_mm, Some(12));
         assert_eq!(order.name, "label-test.png");
@@ -1730,7 +1762,8 @@ mod tests {
             ..Default::default()
         };
         let of = crate::agent_of(&store, &token).await.unwrap();
-        let order = crate::agent_job(&mut store.lock().unwrap(), &of, &report)
+        let order = crate::agent_job(&store, &of, &report)
+            .await
             .unwrap()
             .0
             .unwrap();

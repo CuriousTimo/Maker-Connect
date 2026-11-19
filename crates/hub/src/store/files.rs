@@ -12,17 +12,6 @@ impl Legacy {
         self.files_dir.join(format!("{id}.png"))
     }
 
-    /// Whether a machine runs a file (or has it queued): then it is not removed. Jobs are on
-    /// SQLite until lane 3b ([`Store::remove_file`]).
-    pub(crate) fn file_in_use(&self, id: &str) -> rusqlite::Result<bool> {
-        self.db.query_row(
-            "SELECT COUNT(*) FROM jobs WHERE file_id = ?1
-             AND state IN ('loaded', 'queued', 'printing', 'paused', 'stopping')",
-            [id],
-            |r| r.get::<_, i64>(0).map(|n| n > 0),
-        )
-    }
-
     /// A file of a space, from the SQLite copy (transitional, lane 3a: for the modules still on
     /// SQLite; the website reads [`Store::file`]).
     pub(crate) fn file_on_mirror(

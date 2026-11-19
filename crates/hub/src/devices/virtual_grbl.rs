@@ -72,10 +72,11 @@ fn run(
         let of = runtime
             .block_on(crate::agent_of(store, token))
             .unwrap_or_default();
+        let (order, control) = runtime
+            .block_on(crate::agent_job(store, &of, &telemetry))
+            .unwrap_or_default();
         let (order, control, command, file) = {
             let mut store = store.lock().unwrap();
-            let (order, control) =
-                crate::agent_job(&mut store, &of, &telemetry).unwrap_or_default();
             let command = if telemetry.job_id.is_none() && order.is_none() {
                 store.next_command(token).ok().flatten()
             } else {

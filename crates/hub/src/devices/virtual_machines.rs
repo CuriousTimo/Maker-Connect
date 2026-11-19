@@ -39,8 +39,13 @@ pub async fn run(store: Store) {
             // A GRBL profile: LaserFoundry's simulated GRBL, on a thread of its own.
             let found = profile.as_deref().and_then(profiles::find);
             if found.is_some_and(|p| p.kind == MachineKind::Label) {
+                let active = store.active_job(&id).await.ok().flatten();
+                let mut moves = Vec::new();
                 let telemetry =
-                    virtual_label(&mut store.lock().unwrap(), &id, found.unwrap(), &mut labels);
+                    virtual_label(&store, active, &mut moves, &id, found.unwrap(), &mut labels);
+                for (job, state, reason) in moves {
+                    let _ = store.set_job(job, state, reason.as_deref()).await;
+                }
                 let _ = store.report(&token, &telemetry).await;
                 continue;
             }
@@ -49,45 +54,48 @@ pub async fn run(store: Store) {
                 crate::virtual_grbl::ensure(&store, &id, &token, Some(travel));
                 continue;
             }
+            let active = store.active_job(&id).await;
+            // How its jobs move on, said to the store once the lock is let go.
+            let mut moves: Vec<(i64, JobState, Option<String>)> = Vec::new();
             let telemetry = {
+                let file_path = |id: &str| store.file_path(id);
                 let mut store = store.lock().unwrap();
                 let sim = machines
                     .entry(id.clone())
                     .or_insert_with(|| Sim::new(profile.as_deref().and_then(profiles::find)));
                 // A job: taken when queued, followed when paused, resumed or stopped.
-                if let Ok(Some(job)) = store.active_job(&id) {
+                if let Ok(Some(job)) = active {
                     match job.state {
                         JobState::Queued if sim.playing.is_none() && sim.running.is_none() => {
-                            match std::fs::File::open(store.file_path(&job.file_id)) {
+                            match std::fs::File::open(file_path(&job.file_id)) {
                                 Ok(file) => {
                                     let size = file.metadata().map_or(0, |m| m.len());
                                     if job.file_name.to_ascii_lowercase().ends_with(".bgcode") {
-                                        let meta =
-                                            crate::gcode::read(&store.file_path(&job.file_id))
-                                                .map(|(m, _)| m)
-                                                .unwrap_or_default();
+                                        let meta = crate::gcode::read(&file_path(&job.file_id))
+                                            .map(|(m, _)| m)
+                                            .unwrap_or_default();
                                         sim.play_timed(job.id, &job.file_name, file, size, &meta);
                                     } else {
                                         sim.play(job.id, &job.file_name, file, size);
                                     }
-                                    let _ = store.set_job(job.id, JobState::Printing, None);
+                                    moves.push((job.id, JobState::Printing, None));
                                 }
                                 Err(error) => {
                                     let reason = format!("file not found: {error}");
-                                    let _ = store.set_job(job.id, JobState::Failed, Some(&reason));
+                                    moves.push((job.id, JobState::Failed, Some(reason.to_owned())));
                                 }
                             }
                         }
                         // A job this run of the hub did not start: it restarted mid-print.
                         JobState::Printing | JobState::Paused if sim.playing.is_none() => {
                             let reason = "the hub restarted during the print";
-                            let _ = store.set_job(job.id, JobState::Failed, Some(reason));
+                            moves.push((job.id, JobState::Failed, Some(reason.to_owned())));
                         }
                         JobState::Paused => sim.pause(true),
                         JobState::Printing => sim.pause(false),
                         JobState::Stopping => {
                             sim.stop();
-                            let _ = store.set_job(job.id, JobState::Stopped, None);
+                            moves.push((job.id, JobState::Stopped, None));
                         }
                         _ => {}
                     }
@@ -115,7 +123,7 @@ pub async fn run(store: Store) {
                     let _ = store.command_went(&token, done, CommandState::Finished, None, said);
                 }
                 if let Some(job) = sim.played(TICK) {
-                    let _ = store.set_job(job, JobState::Finished, None);
+                    moves.push((job, JobState::Finished, None));
                 }
                 let mut telemetry = sim.telemetry();
                 if sim.running.is_none() {
@@ -123,6 +131,9 @@ pub async fn run(store: Store) {
                 }
                 telemetry
             };
+            for (job, state, reason) in moves {
+                let _ = store.set_job(job, state, reason.as_deref()).await;
+            }
             let _ = store.report(&token, &telemetry).await;
         }
     }
@@ -133,7 +144,9 @@ pub async fn run(store: Store) {
 /// battery only when its model has one; a cassette only for tape. Its report, for the caller to
 /// keep ([`Store::report`]).
 fn virtual_label(
-    store: &mut crate::store::Legacy,
+    store: &Store,
+    active: Option<crate::store::Job>,
+    moves: &mut Vec<(i64, JobState, Option<String>)>,
     id: &str,
     profile: &profiles::Profile,
     labels: &mut HashMap<String, (i64, u32)>,
@@ -149,7 +162,7 @@ fn virtual_label(
     match labels.get_mut(id) {
         Some((job, ticks)) => {
             if *ticks == 0 {
-                let _ = store.set_job(*job, JobState::Finished, None);
+                moves.push((*job, JobState::Finished, None));
                 labels.remove(id);
             } else {
                 *ticks -= 1;
@@ -158,7 +171,7 @@ fn virtual_label(
             }
         }
         None => {
-            if let Ok(Some(job)) = store.active_job(id) {
+            if let Some(job) = active {
                 match job.state {
                     JobState::Queued => {
                         let length_mm = std::fs::read(store.file_path(&job.file_id))
@@ -166,17 +179,17 @@ fn virtual_label(
                             .and_then(|png| maker_connect_label::Label::from_png(&png).ok())
                             .map_or(30.0, |l| l.length as f32 / 180.0 * 25.4 + 16.0);
                         let ticks = (length_mm / 12.0 / TICK).ceil() as u32;
-                        let _ = store.set_job(job.id, JobState::Printing, None);
+                        moves.push((job.id, JobState::Printing, None));
                         labels.insert(id.to_owned(), (job.id, ticks));
                         telemetry.state = MachineState::Busy;
                         telemetry.job_id = Some(job.id);
                     }
                     JobState::Stopping => {
-                        let _ = store.set_job(job.id, JobState::Stopped, None);
+                        moves.push((job.id, JobState::Stopped, None));
                     }
                     JobState::Printing | JobState::Paused => {
                         let reason = "the hub restarted while it printed";
-                        let _ = store.set_job(job.id, JobState::Failed, Some(reason));
+                        moves.push((job.id, JobState::Failed, Some(reason.to_owned())));
                     }
                     _ => {}
                 }

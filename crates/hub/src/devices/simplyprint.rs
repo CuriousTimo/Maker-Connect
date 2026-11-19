@@ -332,14 +332,16 @@ async fn report(shared: &Store, token: &str, base: &str, printer: &mut Printer) 
         return Vec::new();
     }
     let of = crate::agent_of(shared, token).await.unwrap_or_default();
-    let mut store = shared.lock().unwrap();
     let mut out = Vec::new();
     // One command at a time, and none while it prints.
-    if printer.command.is_none()
-        && printer.job.is_none()
-        && report.state == MachineState::Idle
-        && let Ok(Some((id, gcode))) = store.next_command(token)
-    {
+    let next =
+        if printer.command.is_none() && printer.job.is_none() && report.state == MachineState::Idle
+        {
+            shared.lock().unwrap().next_command(token)
+        } else {
+            Ok(None)
+        };
+    if let Ok(Some((id, gcode))) = next {
         printer.command = Some(id);
         printer.output.clear();
         let lines: Vec<&str> = gcode.lines().collect();
@@ -348,7 +350,8 @@ async fn report(shared: &Store, token: &str, base: &str, printer: &mut Printer) 
             json!({"list": lines, "identifier": id.to_string()}),
         ));
     }
-    match crate::agent_job(&mut store, &of, &report) {
+    let job = crate::agent_job(shared, &of, &report).await;
+    match job {
         Ok((Some(order), _)) => {
             printer.job = Some(order.id);
             out.push(demand(
@@ -510,18 +513,19 @@ mod tests {
                 .await
                 .unwrap();
             let file = store.file(space, "f1").await.unwrap().unwrap();
-            let mut s = store.lock().unwrap();
-            s.add_job(
-                space,
-                &id,
-                &file,
-                None,
-                crate::store::StartedBy::Auto {
-                    by: Some("SimplyPrint"),
-                },
-            )
-            .unwrap()
-            .unwrap()
+            store
+                .add_job(
+                    space,
+                    &id,
+                    &file,
+                    None,
+                    crate::store::StartedBy::Auto {
+                        by: Some("SimplyPrint"),
+                    },
+                )
+                .await
+                .unwrap()
+                .unwrap()
         };
         std::fs::write(store.lock().unwrap().file_path("f1"), "G28\nG1 X1\n").unwrap();
         let file = next(&mut ws, "file").await;

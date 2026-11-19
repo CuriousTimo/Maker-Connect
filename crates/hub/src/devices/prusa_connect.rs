@@ -438,14 +438,36 @@ async fn telemetry(
     {
         return failed(error);
     }
-    let mut store = store.lock().unwrap();
     // A job for it goes to its stick when it is free; one printing follows its state.
     if let Ok(Some(_)) = reported
         && let Some(state) = report["state"].as_str()
-        && let Err(error) = crate::printer_files::on_report(&mut store, token, state, job_id)
     {
-        return failed(error);
+        let active = match store.machine_id_by_token(token).await {
+            Ok(Some(machine)) => store.active_job(&machine).await,
+            Ok(None) => Ok(None),
+            Err(error) => Err(error),
+        };
+        let active = match active {
+            Ok(active) => active,
+            Err(error) => return failed(error),
+        };
+        let mut moves = Vec::new();
+        let done = crate::printer_files::on_report(
+            &mut store.lock().unwrap(),
+            token,
+            state,
+            job_id,
+            active,
+            &mut moves,
+        );
+        if let Err(error) = done {
+            return failed(error);
+        }
+        if let Err(error) = store.move_jobs(moves).await {
+            return failed(error);
+        }
     }
+    let mut store = store.lock().unwrap();
     match reported {
         // A command goes back as the answer, G-code as text or JSON; none: an empty answer.
         Ok(Some(_)) => match store.next_command_of_any_kind(token) {
@@ -488,6 +510,7 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
     }
     let shared = store;
     let name = text(&event, "event");
+    let mut moves = Vec::new();
     {
         let mut store = shared.lock().unwrap();
         if let Some(id) = event["command_id"].as_u64() {
@@ -517,9 +540,14 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
             }
         }
         // Files on its stick, and transfers to it.
-        if let Err(error) = crate::printer_files::on_event(&mut store, token, &name, &event) {
+        if let Err(error) =
+            crate::printer_files::on_event(&mut store, token, &name, &event, &mut moves)
+        {
             return failed(error);
         }
+    }
+    if let Err(error) = shared.move_jobs(moves).await {
+        return failed(error);
     }
     let known = match name.as_str() {
         "INFO" => shared.set_details(token, &to_details(&event["data"])).await,

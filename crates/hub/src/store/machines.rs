@@ -3,18 +3,22 @@ use super::*;
 impl Legacy {
     /// What holds a machine in its space ([`Store::move_machine`]): work under way, a plate to
     /// confirm, a print on its bed, a file on its way.
-    pub(crate) fn why_it_stays(&self, machine: &str) -> rusqlite::Result<Option<String>> {
-        if self.active_job(machine)?.is_some() {
+    pub(crate) fn why_it_stays(
+        &self,
+        jobs: &JobFacts,
+        machine: &str,
+    ) -> rusqlite::Result<Option<String>> {
+        if jobs.active_job(machine).is_some() {
             return Ok(Some(
                 "it has a job that is not over: stop it, or let it finish".to_owned(),
             ));
         }
-        if self.waiting_confirm(machine)?.is_some() {
+        if self.waiting_confirm(jobs, machine).is_some() {
             return Ok(Some(
                 "a plate on it waits to be confirmed: Set ready or Bad print first".to_owned(),
             ));
         }
-        if self.on_bed(machine)?.is_some() {
+        if jobs.on_bed(machine).is_some() {
             return Ok(Some(
                 "a print is still on its bed: say it was taken first".to_owned(),
             ));
@@ -122,7 +126,8 @@ impl Legacy {
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        self.complete_machines(space, rows)
+        // Transitional (lane 3b): what jobs tell is on Postgres; these readers do not show it.
+        self.complete_machines(space, rows, &JobFacts::default())
     }
 
     /// Machines from their rows, with what the modules on SQLite and the hub's memory add.
@@ -130,6 +135,7 @@ impl Legacy {
         &self,
         space: i64,
         rows: Vec<super::pg_mirror::MachineRow>,
+        jobs: &JobFacts,
     ) -> rusqlite::Result<Vec<Machine>> {
         let now = now();
         let mut machines: Vec<Machine> = rows.into_iter().map(|r| r.into_machine(now)).collect();
@@ -205,8 +211,8 @@ impl Legacy {
                     }
                 });
             if machine.kind == MachineKind::Fdm {
-                machine.on_bed = self.on_bed(&machine.id)?;
-                machine.ready = self.ready_after(&machine.id)?;
+                machine.on_bed = jobs.on_bed(&machine.id);
+                machine.ready = jobs.ready_after(&machine.id);
                 machine.queue = self.queue_of(&machine.id)?;
                 machine.asking = self.asking.get(&machine.id).cloned();
                 // Only with a dialog the printer named: DIALOG_ACTION needs its `dialog_id`.
@@ -229,7 +235,7 @@ impl Legacy {
                 machine.queue_held = if machine.job.is_some() {
                     None
                 } else {
-                    self.bed_unchecked(&machine.id)?
+                    jobs.bed_unchecked(&machine.id)
                 };
                 machine.usb_print_by = self
                     .db
@@ -242,12 +248,12 @@ impl Legacy {
                     .flatten();
                 // A plate for a part waits for someone to confirm it (crate::farm): that, not
                 // "take the print".
-                machine.confirm = self.waiting_confirm(&machine.id)?;
+                machine.confirm = self.waiting_confirm(jobs, &machine.id);
                 if machine.confirm.is_some() {
                     machine.on_bed = None;
                 }
                 machine.farm = self.takes_work(&machine.id)?;
-                machine.upkeep = self.upkeep(&machine.id)?;
+                machine.upkeep = jobs.upkeep(&machine.id);
                 machine.sheet = self.sheet_of(&machine.id)?;
             }
             // An agent from before builds were named is behind any build on offer.
@@ -256,14 +262,14 @@ impl Legacy {
             {
                 machine.agent_update = Some(format!("{} ({})", offered.commit, offered.built));
             }
-            machine.job = self.active_job(&machine.id)?;
+            machine.job = jobs.active_job(&machine.id);
             machine.laser_framed = machine.job.as_ref().is_some_and(|j| {
                 j.state == JobState::Loaded
                     && self.laser_framed.get(&machine.id) == Some(&j.file_id)
             });
             machine.laser_origin_set = self.laser_origin_set.contains(&machine.id);
             if machine.job.is_none() {
-                machine.resumable = self.resumable_job(&machine.id)?;
+                machine.resumable = jobs.resumable_job(&machine.id);
             }
             if let Some(commands) = self.commands.get(&machine.id) {
                 machine.commands = commands

@@ -111,12 +111,7 @@ impl Store {
     /// Removes a file, from the store and from disk. Returns whether it was there.
     pub async fn remove_file(&self, space: i64, id: &str) -> sqlx::Result<bool> {
         // Not while a machine runs it (or has it queued).
-        if self
-            .lock()
-            .unwrap()
-            .file_in_use(id)
-            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?
-        {
+        if self.file_in_use(id).await? {
             return Ok(false);
         }
         let mut tx = self.pg().space(space).await?;

@@ -137,7 +137,7 @@ HUB_FILES = [
     "store/mod.rs",
     "store/migrate.rs",
     "store/files.rs",
-    "store/jobs.rs",
+    "store/pg_jobs.rs",
     "store/agents.rs",
     "store/history.rs",
     "store/commands.rs",

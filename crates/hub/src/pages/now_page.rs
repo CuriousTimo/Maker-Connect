@@ -10,7 +10,6 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::get,
 };
-use rusqlite::params;
 use serde::Deserialize;
 
 pub fn routes() -> Router<Store> {
@@ -27,14 +26,7 @@ struct Since {
 
 /// How the space's jobs ended since a moment: for "done today".
 async fn summary(access: Access, State(store): State<Store>, Query(q): Query<Since>) -> Response {
-    let store = store.lock().unwrap();
-    let counted = store.db.query_row(
-        "SELECT COUNT(*) FILTER (WHERE state = 'finished'), COUNT(*) FILTER (WHERE state = 'failed'),
-                COUNT(*) FILTER (WHERE state = 'stopped')
-         FROM jobs WHERE space_id = ?1 AND ended_at >= ?2",
-        params![access.space, q.since],
-        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)),
-    );
+    let counted = store.ended_since(access.space, q.since).await;
     match counted {
         Ok((finished, failed, stopped)) => {
             Json(serde_json::json!({ "finished": finished, "failed": failed, "stopped": stopped }))
