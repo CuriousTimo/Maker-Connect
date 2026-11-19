@@ -33,14 +33,14 @@ flowchart LR
   db[("PostgreSQL + TimescaleDB")]
   agent["Maker Connect agent"]
   usb["USB and serial devices: Marlin, GRBL laser, DYMO, scale, USB camera"]
-  prusa["Prusa printers: Buddy 6.3.0 HTTP, Buddy 6.4+ WebSocket"]
+  prusa["Prusa printers: Buddy 6.4+ WebSocket"]
   cam["Network cameras: RTSP"]
   rel["GitHub releases, signed"]
   person -->|"HTTP pages, API, SSE, camera WebSocket"| hub
   app -->|"API with a token"| hub
   spoolc -->|"Spoolman API and WebSocket"| hub
   hub --> db
-  agent -->|"link v2: POST up, SSE down"| hub
+  agent <-->|"link v2: one WebSocket"| hub
   agent --> usb
   prusa -->|"Prusa Connect"| hub
   hub -->|"RTSP over TCP"| cam
@@ -91,8 +91,9 @@ flowchart LR
    and actions; it never grants machine actions, and machine grants never open doors (plan §2.6).
 5. **Permissions only in Space.** No button or route outside the Space page grants an action, the
    owner's own included.
-6. **Server to browser is SSE**; browser to server is HTTP. Camera video is the one WebSocket, as the
-   browser-side reference (go2rtc) does it (cameras.md).
+6. **Server to browser is SSE**; browser to server is HTTP. Camera video is the browser's one WebSocket, as the
+   browser-side reference (go2rtc) does it (cameras.md). The agent link is one WebSocket per agent, as
+   Buddy and Prusa Connect's `/p/ws` ([decision](decisions/20261119-agent-link-one-websocket.md)).
 7. **One subject per page or tab** in the UI.
 8. **No compatibility with old builds**: nobody uses the hub; old code is deleted, not wrapped (plan §1).
    No v1 is kept anywhere: not the agent link v1 (`/api/agent/v1`), not the Apps API v1

@@ -18,7 +18,7 @@ The deployment view is in [architecture.md](architecture.md#deployment).
 | Agent | `maker-connect-agent` | next to the machines (Linux, macOS, Windows) | none (outbound only) | a service per agent host | One session per device; see below. |
 | Agent on trial | the new `maker-connect-agent` | agent host | none | the running agent, `--version` trial | Confirmed once the hub answered it (`crates/update`). |
 | Browser | any | anywhere on the LAN | none | a person | Pages, `/api/v1`, `/api/v1/events` (SSE), the camera player (MSE over WebSocket). |
-| Prusa printer | Buddy firmware | the printer | none | the printer's Connect settings pointing at the hub | 6.3.0 over HTTP, 6.4+ over `/p/ws` (plan §2.2). |
+| Prusa printer | Buddy firmware | the printer | none | the printer's Connect settings pointing at the hub | 6.4+ over `/p/ws` (plan §2.2). |
 | Network camera | the camera | LAN | RTSP | the camera | Reached by the hub over RTSP/TCP; hub's LAN only (cameras.md). |
 | Spoolman clients | Moonraker `[spoolman]`, OctoPrint's Spoolman plugin, Mainsail, Fluidd, KlipperScreen | their own hosts | none | their operators | Pointed at `http://hub/spoolman` (plan §2.8). |
 | External apps | LaserFoundry desktop, scripts | anywhere | none | a person | `/api/v1` with an API token. |
@@ -54,8 +54,8 @@ Everything else that must survive a restart is in the database.
 
 | Part | Kind | What it does | Block |
 |---|---|---|---|
-| Link v2 | thread | Upstream: POST batches with a sequence the hub acknowledges; downstream: one SSE stream (plan §2.3) | Link v2 with outbox |
-| Outbox | on disk | Unacknowledged upstream items, kept across restarts | Link v2 with outbox |
+| Link v2 | thread | One WebSocket to the hub: upstream items with a sequence the hub acknowledges; commands, jobs, answers and updates on the same socket; ping and pong (plan §2.3, [wire.md](wire.md)) | Link v2 with outbox |
+| Outbox | on disk | Unacknowledged upstream items, kept across reconnects and restarts | Link v2 with outbox |
 | Engine | library | One session per device, in order (agent-engine.md O1, O2) | Engine |
 | Ports | thread per device | Each the port of one reference (OctoPrint, labelle, DYMO CUPS, LaserFoundry, usbscale) | Ports |
 | Camera capture | thread per USB camera | nokhwa 0.10.11, MJPEG passed through (cameras.md) | Camera capture |
@@ -74,8 +74,7 @@ flowchart LR
   p4["Port: LaserFoundry, GRBL"]
   p5["Port: usbscale"]
   c1["Camera capture: nokhwa"]
-  link -->|"POST batches"| hub
-  hub -->|"SSE commands, jobs"| link
+  link <-->|"WebSocket: items and acks up, commands and jobs down"| hub
   link --> out
   link --> eng
   eng --> p1

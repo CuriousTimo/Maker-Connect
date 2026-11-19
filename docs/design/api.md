@@ -17,7 +17,7 @@ every route names one or the other.
 | `/api/v1/events` | pages, external apps | session cookie (gate `space.member`) or `Bearer mct_…` in its own space | yes (SSE) |
 | `/api/v1` 3D-printer REST | Prusa Connect clients, PrusaSlicer | as `/api/v1` | yes, mirroring Prusa Connect's ([OQ-2](risks-and-open.md#oq-2-the-3d-printer-rest-surface)) |
 | `/spoolman/api/v1` | Spoolman clients | [OQ-7](risks-and-open.md#oq-7-how-spoolman-clients-authenticate) | no: Spoolman's own API, to the letter |
-| `/api/agent/v2` | agents | registration secret, then agent token | no: ours, [wire.md](wire.md) |
+| `/api/agent/v2` | agents: registration and files over HTTP, the link over one WebSocket (`/api/agent/v2/ws`) | registration secret, then agent token | no: ours, [wire.md](wire.md) |
 | `/p/*`, `/f/{iv}/raw` | Prusa printers | Buddy's own | no: Buddy's protocol |
 | page routes | browsers | session cookie | no; GET only: no page route changes data (plan step 7) |
 
@@ -26,9 +26,9 @@ every route names one or the other.
 - Nouns; `GET` reads, `POST` creates or acts, `PATCH` changes, `DELETE` removes.
 - **Keyset paging** on every list: `?limit=` and a cursor; the answer carries the items and the
   next cursor.
-- **Errors:** a stable body `{"code": "domain/REASON"}` (further fields: [OQ-29](risks-and-open.md#oq-29-repeated-commands-and-the-error-body)) with the HTTP status of the
+- **Errors:** a stable body `{"code": "domain/REASON", "text": "…"}` ([decision](decisions/20261119-repeated-commands-and-error-body.md)) with the HTTP status of the
   [fault code](../registries/fault-codes.md); further fields per code in the spec.
-- **Idempotency:** a command or transfer carries an idempotency key (plan §2.4); what a repeat returns is [OQ-29](risks-and-open.md#oq-29-repeated-commands-and-the-error-body).
+- **Idempotency:** a command or transfer carries an idempotency key (plan §2.4); a repeat with the same key returns the first record ([decision](decisions/20261119-repeated-commands-and-error-body.md)).
 - **Times** RFC 3339 UTC; **ids** uuid strings (Spoolman's: integers).
 - A page uses exactly these endpoints; nothing a page can do is missing from the API (plan §2.9).
 - **The space of a request** is the session's chosen space (`sessions.space_id`, set by
@@ -98,7 +98,7 @@ every route names one or the other.
 | GET | `/api/v1/jobs` | `device.view` per row | `?device=&person=&file=&from=&to=` cursor (#11) | jobs |
 | GET | `/api/v1/jobs/{id}` | `device.view` | — | job with its command records |
 | POST | `/api/v1/jobs/{id}/confirm` | `job.control` | `{good}` (farm: Set Ready, Bad print) | job |
-| GET, POST | `/api/v1/queue` | `queue.view`; POST `queue.manage` and `job.start` on that device: the item is started on its person's behalf, and the dispatcher checks `job.start` of that person again before each start ([flows.md](flows.md#4-a-job-with-the-laser-rule)) | `{device_id, file_id}` | queue items |
+| GET, POST | `/api/v1/queue` | `queue.view`; POST `queue.manage` and `job.start` on that device: the item is started on its person's behalf, and the dispatcher checks `job.start` of that person again before each start ([flows.md](flows.md#3-a-job-with-the-laser-rule)) | `{device_id, file_id}` | queue items |
 | PATCH, DELETE | `/api/v1/queue/{id}` | `queue.manage`; own items for their person | `{pos}` | item |
 | GET, POST | `/api/v1/projects` | `farm.view`; POST `farm.use` | `{name, description, priority}` | projects |
 | PATCH, DELETE | `/api/v1/projects/{id}` | `farm.use` | fields | project |
@@ -116,9 +116,9 @@ every route names one or the other.
 | GET | `/api/v1/events` | `space.member` of the session's space, or a token in its own space; filtered per event by `device_access`, for a token also by its scopes (an event is sent only when the token could read the row it is about) | `?types=`, `Last-Event-ID` | SSE, below |
 | GET | `/api/v1/instance/spaces` | `instance.admin` | — | every organisation and space |
 | GET | `/api/v1/instance/agents` | `instance.admin` | — | every agent: version, last seen, stream state, its devices with their spaces |
-| POST | `/api/v1/instance/agents/{id}/update` | `instance.admin` ([decision](decisions/20261119-agent-update-by-instance-admin.md)) | `{tag}` | 202; the `update` event goes down the agent's stream ([wire.md](wire.md#downstream-events-get-apiagentv2downstreamuuid-sse)) |
+| POST | `/api/v1/instance/agents/{id}/update` | `instance.admin` ([decision](decisions/20261119-agent-update-by-instance-admin.md)) | `{tag}` | 202; the `update` message goes to the agent on its WebSocket ([wire.md](wire.md#hub-to-agent)) |
 | GET | `/api/v1/update` | `instance.admin` | — | running build, newer signed release, last update's outcome |
-| POST | `/api/v1/update` | `instance.admin` | `{tag}` | 202; [flows.md](flows.md#8-self-update-dump-and-the-way-back) |
+| POST | `/api/v1/update` | `instance.admin` | `{tag}` | 202; [flows.md](flows.md#6-self-update-dump-and-the-way-back) |
 | POST | `/setup` | `public`; the handler checks the one-time setup code | `{code, name, password, kind}`; `kind` is the first space's (`makerspace`, `office`, `private`), its area rights' defaults | the first account |
 
 Labels (render and print from Prepare, #6) are [OQ-14](risks-and-open.md#oq-14-tables-of-materials-items-and-labels);

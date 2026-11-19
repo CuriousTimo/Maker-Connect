@@ -13,7 +13,7 @@ devices and outside services), [containers](#level-2-containers) (hub, agent, da
 [components](#level-3-components) (the blocks inside the hub and the agent, with their tables below),
 then [accounts and tenancy](#accounts-and-tenancy-the-organisation-and-space-boundary),
 [the rules on who may depend on whom](#may-depend-on), the [deployment](#deployment) and
-[the agent](#the-agent-update-credentials-management-page).
+[the agent](#the-agent-update-credentials-settings-page).
 
 ## Level 1: context
 
@@ -30,7 +30,7 @@ flowchart LR
   people -->|"Browsers: L1-L3, L19"| mc
   operator -->|"roles, database, DATABASE_URL, units"| mc
   apps -->|"L4, L5: HTTP with a token"| mc
-  mc ---|"L10-L13: each device's own link"| devs
+  mc ---|"L11-L13: each device's own link"| devs
   mc -->|"L16 HTTPS GET"| rel
   mc -->|"L17 HTTPS GET"| sdb
   mc -.-|"link open: OQ-10"| doorhw
@@ -53,10 +53,9 @@ flowchart LR
   agent["Agent: maker-connect-agent, next to the machines"]
   devs["Devices on USB and serial"]
   browser -->|"L1 HTTP, L2 SSE, L3 WebSocket, L19"| hub
-  prusa -->|"L10 HTTP, L11 WebSocket"| hub
+  prusa -->|"L11 HTTP and WebSocket"| hub
   hub -->|"L12 RTSP over TCP"| rtsp
-  agent -->|"L6 POST up, L8 register, L9 files and updates"| hub
-  hub -->|"L7 SSE down"| agent
+  agent <-->|"L6 WebSocket, L8 register, L9 files and updates"| hub
   hub -->|"L14 PostgreSQL wire: DATABASE_URL"| db
   hub -->|"spawns"| tools
   tools -->|"L15"| db
@@ -76,7 +75,7 @@ flowchart LR
     slicer["PrusaSlicer"]
     apps["External apps: LaserFoundry desktop, scripts"]
     spoolc["Spoolman clients"]
-    prusa["Prusa printers: Buddy 6.3.0, Buddy 6.4+"]
+    prusa["Prusa printers: Buddy 6.4+"]
     rtsp["RTSP cameras"]
     rel["Release host: GitHub, signed"]
     sdb["SpoolmanDB"]
@@ -128,9 +127,8 @@ flowchart LR
   apps -->|"L4 HTTP: /api/v1, Bearer token"| api
   spoolc -->|"L5 HTTP and WebSocket: /spoolman/api/v1"| api
   bus -->|"L18 in-process, out on L5: Spoolman WebSocket"| spoolc
-  prusa -->|"L10 HTTP: /p/*, /f/iv/raw; L11 WebSocket: /p/ws"| host
-  link -->|"L6 HTTP POST: up; L8 register; L9 HTTP GET: files"| host
-  host -->|"L7 SSE: /api/agent/v2/down"| link
+  prusa -->|"L11 HTTP: /p/register, /p/auth; WebSocket: /p/ws"| host
+  link <-->|"L6 WebSocket: /api/agent/v2/ws; L8 register; L9 HTTP GET: files"| host
   link -->|"L9 HTTP GET: /api/agent/v2/update/tag/file"| ops
   camh -->|"L12 RTSP over TCP"| rtsp
   ops -->|"L16 HTTPS GET"| rel
@@ -279,7 +277,7 @@ block inside the device, authz and history steps, not as a step of their own
 | Door access module | Doors and badges: who may open which door when, with its own tables and actions (plan §2.6, hub-core-v2.md:158) | its own tables, not designed ([OQ-10](risks-and-open.md#oq-10-door-access-link)) | called by the API with an allowed door action, after the guard's decision; Event bus and SSE; Store; all in-process. Door hardware: open ([OQ-10](risks-and-open.md#oq-10-door-access-link)) | grant a machine action; open a door for a machine grant (plan §2.6, hub-core-v2.md:158-159) |
 | Event bus and SSE | Stored facts with a `seq` in commit order, published by one relay after commit; state patches live with a `rev`; one SSE stream per subscriber, filtered by `device_access`; resume by `Last-Event-ID` ([decision](decisions/20261119-event-order.md)) | the `event` hypertable | browsers (L2 SSE); Spoolman WebSocket (L18 in-process, out to the client on L5); History subscriber (L18); Store | send an event the subscriber's `device_access` hides; store state patches |
 | History subscriber | An event subscriber, not part of the core (plan §1): takes state patches off the bus, writes `sample` and `gap` rows (plan §2.7) | `sample`, `metric`, `gap` | Event bus and SSE (L18); Registries (metrics); Store (the history writer is cross-space, plan §2.6, hub-core-v2.md:156) | store a text value as a sample; text values are events (plan §2.7, hub-core-v2.md:197) |
-| Device host | Every live device session through one `Host` boundary: in-process drivers (Prusa `prusa-buddy`, both dialects) and agent sessions over link v2 | `agents`, `devices`, `device_registrations`, `device_credentials`, `device_capabilities` | Prusa printers (L10 HTTP, L11 WebSocket); agents (L6 POST, L7 SSE, L8 register, L9 file downloads); Command records; Event bus and SSE | send a device anything its driver's one reference does not send; make G-code for an agent device (the port does) |
+| Device host | Every live device session through one `Host` boundary: in-process drivers (Prusa `prusa-buddy`, websocket dialect only) and agent sessions over link v2 | `agents`, `devices`, `device_registrations`, `device_credentials`, `device_capabilities` | Prusa printers (L11 WebSocket); agents (L6 WebSocket, L8 register, L9 file downloads); Command records; Event bus and SSE | send a device anything its driver's one reference does not send; make G-code for an agent device (the port does) |
 | Camera sessions | RTSP cameras: retina session, frames to viewers, GOP since the last key frame | `cameras` | RTSP cameras (L12 RTSP over TCP); browsers (L3 WebSocket MSE); the API hands it the upgrade after the guard's camera rule (in-process); Store | show a camera to a person the camera rule refuses: `device.view` on the watched device, or the role `room_view_role` names for a room camera (checked before the upgrade, [authz.md](authz.md#actions)) |
 | Registries | The generated lists: capability verbs, state sets, actions, fault codes, event types, metrics (plan §2.10) | `docs/registries/*`, generated from the code | read by Route guard and authz, Command records, Event bus and SSE, History subscriber, and the API spec (`openapi.json` enums); in-process and at build time | be edited by hand |
 | Store | The only way to the database: the app pool (`SET LOCAL app.space_id`, RLS), the admin pool (allowlist), the migrator | the roles of [database.md](database.md#roles-and-pools), the migrations | PostgreSQL (L14 PostgreSQL wire) | connect as a superuser or as the owner of the tables; use the admin pool outside the allowlist |
@@ -289,7 +287,7 @@ block inside the device, authz and history steps, not as a step of their own
 
 | Block | Responsible for | Owns | Talks to, over | Must never |
 |---|---|---|---|---|
-| Link v2 with outbox | Upstream batches the hub acknowledges, one downstream SSE stream, registration and pairing, file and update downloads ([wire.md](wire.md)) | the outbox, the stream id and the set of taken command ids on disk | Hub's Device host (L6 POST, L7 SSE, L8 register, L9 files); hub's Dumps and self-update (L9 update); Engine (in-process) | drop an unacknowledged item; report for a device it does not host |
+| Link v2 with outbox | One WebSocket to the hub: upstream items the hub acknowledges, commands, jobs, answers and updates on the same socket, ping and pong; registration and pairing, file and update downloads over HTTP ([wire.md](wire.md), [decision](decisions/20261119-agent-link-one-websocket.md)) | the outbox, the stream id and the set of taken command ids on disk | Hub's Device host (L6 WebSocket, L8 register, L9 files); hub's Dumps and self-update (L9 update); Engine (in-process) | drop an unacknowledged item; report for a device it does not host |
 | Engine | One session per device, commands in order (agent-engine.md O1, O2) | the sessions | Link v2; Ports (in-process) | reorder a device's commands |
 | Ports | Each device kind's protocol, a port of one reference to the letter, one port per stack: OctoPrint (Marlin), LaserFoundry (GRBL), labelle (DYMO LabelManager PnP, tape), DYMO CUPS (DYMO LabelWriter, labels), usbscale (scales) | nothing persistent | devices (L13: serial over USB, USB HID, CUPS and USB printer class) | fuse references, or add timing, retries, limits or bytes the reference does not have; share code between the LabelManager and the LabelWriter stack (owner 2026-11-12, 2026-11-15) |
 | Camera capture | USB cameras through nokhwa; MJPEG passed on with the Huffman tables inserted as FFmpeg's mjpeg2jpeg does ([decision](decisions/20261119-usb-camera-dht-ffmpeg.md)) | nothing persistent | USB cameras (UVC, no L-number); Link v2 (how frames reach the hub is [OQ-9](risks-and-open.md#oq-9-how-usb-camera-video-reaches-the-hub)) | decode or re-encode the camera's image data; only the missing DHT is inserted (plans/cameras.md:15, :31) |
@@ -302,7 +300,7 @@ block inside the device, authz and history steps, not as a step of their own
 | Browsers | People using the pages | HTTP, SSE, camera WebSocket (L1-L3), the LaserFoundry web fork (L19) | |
 | PrusaSlicer, external apps | Uploads and scripts | HTTP `/api/v1` with a token (L4) | the 3D-printer REST surface is [OQ-2](risks-and-open.md#oq-2-the-3d-printer-rest-surface) |
 | Spoolman clients | Moonraker, OctoPrint's Spoolman plugin, Mainsail, Fluidd, KlipperScreen | HTTP and WebSocket `/spoolman/api/v1` (L5), fed by the event bus (L18) | authentication is [OQ-7](risks-and-open.md#oq-7-how-spoolman-clients-authenticate) |
-| Prusa printers | Buddy 6.3.0 over HTTP, Buddy 6.4+ over `/p/ws` | L10, L11 | |
+| Prusa printers | Buddy 6.4+ over `/p/ws` | L11 | [decision](decisions/20261119-buddy-websocket-dialect-only.md) |
 | RTSP cameras | Network cameras | pulled by the hub over RTSP (L12) | |
 | Release host, SpoolmanDB | Signed releases; the public filament catalogue | HTTPS GET (L16, L17) | |
 | Door hardware | Door locks, badge readers | open ([OQ-10](risks-and-open.md#oq-10-door-access-link)) | not machine permissions |
@@ -344,7 +342,7 @@ flowchart TB
   hubp --> home
   agentp --> cred
   agentp --> outbox
-  agentp -->|"L6-L9 over HTTP :8460"| hubp
+  agentp -->|"L6 WebSocket, L8, L9 over HTTP :8460"| hubp
   agentp -->|"L13"| devs
 ```
 
@@ -360,7 +358,7 @@ The system unit, the user and the paths are the V2-STORE-6 builder's design for 
 (handoff:V2-STORE-6:001 steps 8-9); [pi-hub.md](../pi-hub.md) holds the commands. A preferred
 makerspace host (arm64/amd64) uses TimescaleDB's apt packages instead of Docker.
 
-## The agent: update, credentials, management page
+## The agent: update, credentials, settings page
 
 - **Update path.** The hub fetches signed releases from the Release host (L16) and serves the agent's
   files on L9 `/api/agent/v2/update/{tag}/{file}`. The agent takes a file only when the signature over
@@ -372,8 +370,11 @@ makerspace host (arm64/amd64) uses TimescaleDB's apt packages instead of Docker.
   `--state` (`crates/agent/src/link.rs`, kept "as today", agent-engine.md O7). The hub keeps only the
   token's hash; the token may only report and fetch for the agent's own devices ([wire.md](wire.md)).
   The file's mode is not designed ([OQ-36](risks-and-open.md#oq-36-the-mode-of-the-agents-credentials-file)).
-- **One agent, several devices, and its page (#12).** Today one agent process per device; one agent
-  for several, each with its own registration and pairing code, and a small web page on the agent, are
-  [OQ-20](risks-and-open.md#oq-20-the-agents-management-page). The agent's identity is decided ([decision](decisions/20261119-agent-link-identity-and-delivery.md)). The
-  hub side of this design does not change.
+- **One agent, several devices, and its settings page (#12).** One agent hosts several devices, each
+  with its own registration and pairing code ([decision](decisions/20261119-agent-link-identity-and-delivery.md)).
+  It has a settings page of its own, LAN only, behind a password made at install, in the house style
+  ([decision](decisions/20261119-agent-settings-page.md)); its open points are
+  [OQ-44](risks-and-open.md#oq-44-the-agent-settings-page-open-points). The hub side of this design
+  does not change. The first devices on agent v2: the DYMO LabelManager PnP (labelle stack) and the
+  DYMO LabelWriter 450 (DYMO CUPS stack), two separate stacks (plan §3, V2-DEVICES).
 - **USB camera video** to the hub: [OQ-9](risks-and-open.md#oq-9-how-usb-camera-video-reaches-the-hub).

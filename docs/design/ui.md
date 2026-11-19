@@ -113,7 +113,7 @@ the navigation follows the person's actions from `GET /api/v1/me`, not the role'
 | Start a print | the "print on this machine" sheet | files, `transfers`, `queue` | | `print-start.html` |
 | Laser | a laser's page: the loaded job, frame, place, PPE, Start burn | device, commands, `ppe`, `jobs` | HS7b | `laser.html` |
 | Tape printer, label printer | one page per kind, never shared | device, commands | #6 | `label-tape.html`, `label-labels.html` |
-| Add machine | pairing by code; per kind: the Buddy INI with the hub's address (warning when the address does not fit the dialect's hostname limit, 20 bytes for Buddy 6.3.0), or the agent's download and start command | `POST /api/v1/devices/pair` (proposed path, [OQ-1](risks-and-open.md#oq-1-exact-paths-and-fields-of-our-own-endpoints)) | #22 | `add-machine.html` |
+| Add machine | pairing by code; per kind: the Buddy INI with the hub's address (warning when the address does not fit the dialect's hostname limit, 35 bytes for Buddy 6.4.0, `reference/buddy-6.4.0` `src/connect/hostname.hpp:16`), or the agent's download and start command | `POST /api/v1/devices/pair` (proposed path, [OQ-1](risks-and-open.md#oq-1-exact-paths-and-fields-of-our-own-endpoints)) | #22 | `add-machine.html` |
 | Files | uploads, what a file says about itself, Print on, Send to a laser | files, devices | | `files.html`, `state-empty.html` |
 | Queue | per device, order, take out | queue | | `farm.html` |
 | Prepare | the tools that make the work: laser design (the LaserFoundry web fork; picks a hub laser, its settings from the hub), the label editor | `/api/v1/lasers`, devices | #6, #24 | not mocked |

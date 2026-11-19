@@ -25,10 +25,11 @@ table. Neither takes a space: both read `app_space()`.
   `app_space()` and not yet spent; for an agent's first registration inserts the `agents` row with
   the hash and sets `devices.agent_id`, for a hub-hosted device inserts the `device_credentials` row;
   marks it collected. The hub mints the token and passes only its hash.
-- **Spent** is set at the token's first use (a printer's first report, an agent's first `up`), on the
+- **Spent** is set at the token's first use (a printer's first report, an agent's first `up` message), on the
   admin pool with the lookup by token hash (allowlist #1). An agent's token is shown once: a second
-  collect gets `410`. Whether a Prusa printer may collect again until its code is spent is
-  [OQ-12](../risks-and-open.md#oq-12-the-prusa-token-until-the-code-is-spent), open. The row locks make
+  collect gets `410`. A Prusa printer may collect again until its code is spent: the minting process answers from
+  memory, and after a hub restart a fresh token replaces the hash; the plaintext is never stored
+  ([decision](20261119-prusa-token-never-stored.md), OQ-12). The row locks make
   two claims of one code, or two collects of one registration, end with one winner.
 
 The lookups that find the registration before the space is known (by code for a printer, by id and

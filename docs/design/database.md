@@ -118,9 +118,12 @@ and not yet spent, inserts the `agents` row for an agent's first registration or
 Both lock the registration row (`SELECT … FOR UPDATE`), so two claims of one code, or two collects of
 one registration, end with one winner and one `410`. Neither takes a space as an argument: both read
 `app_space()`. The registration is **spent** at the token's first use (a Prusa printer's first
-report, an agent's first `up`), on the admin pool (#1). An agent's token is shown once: a second
-collect of an agent's registration gets `410`. Whether a Prusa printer may collect again until its
-code is spent, and how the hub then answers, is [OQ-12](risks-and-open.md#oq-12-the-prusa-token-until-the-code-is-spent).
+report, an agent's first `up` message), on the admin pool (#1). An agent's token is shown once: a second
+collect of an agent's registration gets `410`. A Prusa printer may collect again until its code is
+spent. The token's plaintext is never stored: the hub process that minted it answers from memory, and
+after a hub restart a fresh token is minted whose hash replaces the old one in `device_credentials`,
+as prusa-connect does (`internal/connector/xbuddy/registration.go:114-118`, `:624-638`;
+[decision](decisions/20261119-prusa-token-never-stored.md)).
 A first agent registration has no `agents` row when the device is claimed: the device is inserted
 with `agent_id` null and `collect_registration` fills it. The code's strength, the registration's
 life and a limit on claims of unknown codes are [OQ-40](risks-and-open.md#oq-40-the-pairing-codes-strength-expiry-and-attempt-limit).
@@ -416,7 +419,7 @@ erDiagram
 | `agents` | `id uuid`, `token_hash text`, `generation bigint`, `fingerprint text`, `info jsonb` (AgentInfo), `stream uuid` null (the stream the agent is on), `up_seq bigint` (the highest `seq` applied on that stream), `created_at`, `last_seen timestamptz` null | PK `id`; unique `token_hash` | admin only: looked up by hash (allowlist #1), cursor advanced by #4. An agent is a host, not a tenant row: it has no space; each device under it belongs to its own space and every item is applied in that device's space transaction; the agent is sent only its own devices' commands ([decision](decisions/20261119-agent-link-identity-and-delivery.md)) |
 | `devices` | `id uuid`, `space_id uuid`, `agent_id uuid` null (`link = agent`; null between the claim and the collect of an agent's first registration), `state_rev bigint` (one up per applied patch batch; carried by snapshot and patch events), `kind text`, `name text`, identity `vendor text`, `model text`, `firmware_label text`, `serial text`, `unit_uid text`; `dialect text` null, `link text` (`hub` or `agent`), `state jsonb` with `CHECK (jsonb_typeof(state) = 'object')`, `state_name text`, `last_seen timestamptz` null, `current_job_id uuid` null, `retired_at timestamptz` null, `retired_reason text` null, `settings jsonb` | PK `id`; unique `(space_id, id)`; FK `space_id` → `spaces`; FK `agent_id` → `agents`; FK `(space_id, current_job_id)` → `jobs` `ON DELETE SET NULL (current_job_id)` (a device with a job not ended is not moved, [decision](decisions/20261119-device-move.md)); index `(space_id, name)` | space |
 | `device_credentials` | `device_id uuid`, `space_id uuid`, `token_hash text`, `generation bigint`, `created_at`, `last_used timestamptz` | PK `device_id`; unique `token_hash`; FK `(space_id, device_id)` → `devices` on delete cascade, `ON UPDATE CASCADE` (the row moves with its device) | space (looked up by hash on the admin pool). Hub-hosted devices only (Prusa printers); an agent's devices authenticate through their agent ([decision](decisions/20261119-agent-link-identity-and-delivery.md)) |
-| `device_registrations` | `id uuid`, `code text`, `fingerprint text`, `secret_hash text`, `agent_id uuid` null (a further device of a known agent), `kind text`, `dialect text` null, `identity jsonb`, `created_at`, `expires_at timestamptz`, `space_id uuid` null, `device_id uuid` null, `approved_by uuid` null, `approved_at` null, `collected_at` null, `spent_at` null | PK `id`; unique `code` while open | admin only (no space before approval); a space transaction reaches it only through `claim_registration` and `collect_registration` ([roles and pools](#roles-and-pools)) |
+| `device_registrations` | `id uuid`, `code text`, `fingerprint text`, `secret_hash text`, `agent_id uuid` null (a further device of a known agent), `kind text`, `dialect text` null, `identity jsonb`, `created_at`, `expires_at timestamptz`, `space_id uuid` null, `device_id uuid` null, `approved_by uuid` null, `approved_at` null, `collected_at` null, `spent_at` null; no token column: a Prusa printer's token is never stored ([decision](decisions/20261119-prusa-token-never-stored.md)) | PK `id`; unique `code` while open | admin only (no space before approval); a space transaction reaches it only through `claim_registration` and `collect_registration` ([roles and pools](#roles-and-pools)) |
 | `device_capabilities` | `device_id uuid`, `space_id uuid`, `epoch bigint`, `set jsonb`, `state_set jsonb`, `at timestamptz` | PK `(device_id, epoch)`; FK `(space_id, device_id)` → `devices` on delete cascade, `ON UPDATE CASCADE` (moves with its device) | space |
 | `commands` | `id uuid`, `space_id uuid`, `device_id uuid`, `verb text`, `args jsonb`, `idempotency_key text`, `origin text` (person, token, agent, queue, device), `requested_by uuid` null, `token_id uuid` null, `job_id uuid` null, `requested_at`, `authorized_at`, `sent_at`, `settled_at timestamptz` null, `grant_id uuid` null, `outcome text` null (ok, refused, failed, unknown), `fault_code text` null, `reason text` null, `late_outcome text` null, `late_reason text` null, `late_at timestamptz` null (a result that arrives after `unknown`: shown, never acted on) | PK `id`; unique `(space_id, id)`; no FK to `devices` (a record outlives a retired or moved device, like a job; the device is looked up in the space transaction before writing); FK `(space_id, job_id)` → `jobs`; unique `(space_id, device_id, idempotency_key)`; partial index `(device_id) WHERE settled_at IS NULL` | space |
 | `transfers` | `id uuid`, `space_id uuid`, `device_id uuid`, `file_id uuid`, `path text`, `iv text`, `key text`, `size bigint`, `bytes_done bigint`, `state text`, `reason text` null, `command_id uuid` null, `job_id uuid` null, `print_after boolean`, `created_at`, `settled_at timestamptz` null | PK `id`; no FK to `devices` (as `commands`); FK `(space_id, file_id)` → `files`; FK `(space_id, command_id)` → `commands`; FK `(space_id, job_id)` → `jobs`; unique `iv`; partial index `WHERE settled_at IS NULL` | space (`/f/{iv}/raw` looks up by `iv` on the admin pool) |
@@ -424,7 +427,7 @@ erDiagram
 
 `devices.settings` holds the device's own settings: its machine profile, PPE list, induction rule,
 labels, farm on/off with `farm_on_by` (set in the same write that switches the farm on, cleared when it is switched off; the person on whose behalf the farm dispatcher starts jobs,
-[flows.md](flows.md#4-a-job-with-the-laser-rule)), sheet, service interval and last service,
+[flows.md](flows.md#3-a-job-with-the-laser-rule)), sheet, service interval and last service,
 out-of-use note, and per laser the origin, G-code dialect, rotary and M4 (#24). Each key is defined
 by the module that owns it.
 
@@ -517,7 +520,7 @@ erDiagram
 A job's state is never set by a page: `queued` by the queue, `loaded` when the file is at the device
 (a laser waits here), `running`, `paused` and back from the settled command records (`job.start`,
 pause, resume), `ended` with its `outcome` from the device's job end ([decision](decisions/20261119-job-states.md)).
-Where a printer's own storage listing lives is [OQ-21](risks-and-open.md#oq-21-a-printers-storage-listing).
+A printer's own storage listing is part of its state tree (`/storage/...`), as its driver's reference reports it, not a table ([decision](decisions/20261119-printer-storage-in-state-tree.md)).
 
 ### Materials and stock
 

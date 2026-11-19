@@ -18,4 +18,4 @@ job end; no page sets it. A laser job stays `loaded` until a person's Start burn
 
 ## Where it shows
 
-[database.md](../database.md#files-jobs-queue-and-farm), [flows.md](../flows.md#4-a-job-with-the-laser-rule).
+[database.md](../database.md#files-jobs-queue-and-farm), [flows.md](../flows.md#3-a-job-with-the-laser-rule).

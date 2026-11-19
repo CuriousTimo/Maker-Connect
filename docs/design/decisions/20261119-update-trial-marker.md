@@ -21,4 +21,4 @@ the marker last. The agent keeps its `--version` trial; `install`'s try-out prov
 
 ## Where it shows
 
-[storage-ops.md](../storage-ops.md#self-update), [flows.md](../flows.md#8-self-update-dump-and-the-way-back), risk R-18.
+[storage-ops.md](../storage-ops.md#self-update), [flows.md](../flows.md#6-self-update-dump-and-the-way-back), risk R-18.

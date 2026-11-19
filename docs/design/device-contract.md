@@ -90,7 +90,7 @@ Registries, one Rust table each and generated docs that fail a test on drift (pl
 
 Ours, outside every port and driver. The plan lists these rules (plan §2.1) but not their order; the
 order is decided: authorization first, so a caller without the right learns nothing about the device
-([decision](decisions/20261119-host-checks-order.md), OQ-34), as [flows.md](flows.md#3-a-command-click-to-settled)
+([decision](decisions/20261119-host-checks-order.md), OQ-34), as [flows.md](flows.md#2-a-command-click-to-settled)
 draws it:
 
 ```mermaid
@@ -144,7 +144,7 @@ GRBL's ten (`IDLE` … `UNKNOWN`).
 | Kind | Verbs | States | Host and port | Reference |
 |---|---|---|---|---|
 | `marlin` (3D printer) | Prusa Connect's `core.command.*` names where the meaning is the same, else `mc.printer.*` | OctoPrint's 16 comm states, as they are; mapped to Prusa Connect names only in the API layer | agent, OctoPrint port | OctoPrint 1.11.8 `42be740` |
-| `prusa` (3D printer) | the 3D-printer verbs of both dialects' baseline | Buddy's | hub, driver `prusa-buddy`, dialects `buddy-http` and `buddy-ws` | Buddy 6.3.0 and Buddy 6.4+ |
+| `prusa` (3D printer) | the 3D-printer verbs of the `buddy-ws` dialect's baseline | Buddy's | hub, driver `prusa-buddy`, dialect `buddy-ws` | Buddy 6.4+ |
 | `grbl` (laser) | `mc.laser.*` (11: no raw G-code, [decision](decisions/20261119-no-raw-gcode-on-a-laser.md)) | GRBL's 10 machine states | agent, LaserFoundry port | LaserFoundry v0.5.0 `61febdb` |
 | `labelmanager` (tape) | `mc.label.print` | `DISCONNECTED`, `IDLE`, `BUSY` (ours, approved) | agent, labelle port | labelle `5e8f1e5` |
 | `labelwriter` (labels) | `mc.label.print` | `IDLE`, `PRINTING`, `OUT_OF_PAPER`, `ERROR` | agent, DYMO CUPS port | DYMO CUPS driver 1.4.0 |
