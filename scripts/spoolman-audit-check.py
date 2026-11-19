@@ -57,7 +57,7 @@ NORMALISATION = {
            "within 300 s of the time the request was made becomes `<now>`; any other date-time "
            "stays as it is (the requests use fixed dates in 2024)",
     "paths": "in /info, `data_dir`, `logs_dir`, `backups_dir` become `<path>` (a temp dir); "
-             "`latest_version` and `update_available` become `<volatile>` (Spoolman asks GitHub); "
+             "`latest_version` and `update_available` become `<volatile>` (Spoolman asks GitHub), and so does its `content-length`, which follows from them; "
              "in /backup, `path` becomes `<path>`",
     "headers": "in header values, `http://127.0.0.1:<port>` becomes `http://<host>` (the redirect's `location`)",
     "json": "JSON bodies are compared as values and by key order: of the keys two objects both have, the order must be the same (Spoolman writes its models' field order; the hub keeps the order it inserts, `preserve_order`, chosen in the hub's own `Cargo.toml` so the order does not depend on what else is in the build)",
@@ -678,6 +678,8 @@ def main():
             elif body is not None:
                 entry["body"] = body
             entry["status"] = resp.status
+            if urlsplit(path).path == "/api/v1/info" and "content-length" in hdrs:
+                hdrs["content-length"] = "<volatile>"  # see NORMALISATION["paths"]
             entry["headers"] = hdrs
             text = payload.decode("utf-8", "replace")
             if "json" in ctype:

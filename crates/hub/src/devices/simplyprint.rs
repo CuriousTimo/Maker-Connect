@@ -488,7 +488,9 @@ mod tests {
         ))
         .await
         .unwrap();
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        // Messages are handled in order: the pong says `gcode_executed` is in.
+        ws.send(say("ping", Value::Null)).await.unwrap();
+        next(&mut ws, "pong").await;
         let machine = store.lock().unwrap().machine(space, &id).unwrap().unwrap();
         let done = machine.commands.iter().find(|c| c.id == command).unwrap();
         assert_eq!(done.state, CommandState::Finished);
@@ -549,7 +551,8 @@ mod tests {
         ws.send(say("job_info", json!({"progress": 50, "job_id": job})))
             .await
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        ws.send(say("ping", Value::Null)).await.unwrap();
+        next(&mut ws, "pong").await;
         let machine = store.lock().unwrap().machine(space, &id).unwrap().unwrap();
         assert_eq!(
             machine.job.as_ref().map(|j| j.state),
@@ -565,7 +568,8 @@ mod tests {
         ws.send(say("state_change", json!({"new": "operational"})))
             .await
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        ws.send(say("ping", Value::Null)).await.unwrap();
+        next(&mut ws, "pong").await;
         let machine = store.lock().unwrap().machine(space, &id).unwrap().unwrap();
         assert!(machine.job.is_none());
         assert_eq!(machine.on_bed.map(|b| b.job), Some(job));
