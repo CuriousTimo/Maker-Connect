@@ -513,26 +513,29 @@ impl Store {
         if let Some((Some(used), Some(spool), machine, file_name)) = counted
             && used > 0.0
         {
-            let legacy = self.lock().unwrap();
-            legacy.db.execute(
-                "UPDATE spool SET used_weight = MAX(used_weight - ?1, 0) WHERE id = ?2",
-                params![used, spool],
-            )?;
-            let space: Option<i64> = legacy
-                .db
-                .query_row("SELECT space_id FROM spool WHERE id = ?1", [spool], |r| {
-                    r.get(0)
-                })
-                .optional()?;
+            // The spool's space (a machine moved away keeps its spool loaded): across spaces.
+            let space: Option<i64> = sqlx::query_scalar("SELECT space_id FROM spool WHERE id = $1")
+                .bind(spool)
+                .fetch_optional(&self.pg().admin)
+                .await?;
             if let Some(space) = space {
-                legacy.movement(
-                    space,
+                let mut w = self.work(space).await?;
+                sqlx::query(
+                    "UPDATE spool SET used_weight = GREATEST(used_weight - $1, 0) WHERE id = $2",
+                )
+                .bind(used)
+                .bind(spool)
+                .execute(w.c())
+                .await?;
+                w.movement(
                     &crate::stock::spool_code(spool),
                     "used",
                     Some(used),
                     Some(&machine),
                     Some(&format!("job {file_name}: taken up after a power cut")),
-                )?;
+                )
+                .await?;
+                w.commit(self).await?;
             }
         }
         sqlx::query(
@@ -555,30 +558,30 @@ impl Store {
         let Some(job) = self.job(id).await? else {
             return Ok(());
         };
-        // The spool, and whether something counted already (the stock's, on SQLite).
-        let found: Option<(i64, i64, f64, f64, Option<String>)> = {
-            let legacy = self.lock().unwrap();
-            let found: Option<(i64, i64, f64, f64, Option<String>)> = legacy
-                .db
-                .query_row(
-                    "SELECT s.id, s.space_id, f.density, f.diameter, f.unit FROM spool s
-                     JOIN filament f ON f.id = s.filament_id
-                     WHERE s.machine = ?1 AND s.archived = 0",
-                    [&job.machine_id],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        // The spool loaded in its machine (in whichever space it is), and whether something counted
+        // already: across spaces.
+        let found: Option<(i64, i64, f64, f64, Option<String>)> = sqlx::query_as(
+            "SELECT s.id, s.space_id, f.density, f.diameter, f.unit FROM spool s
+             JOIN filament f ON f.id = s.filament_id
+             WHERE s.machine = $1 AND NOT s.archived
+             ORDER BY s.id LIMIT 1",
+        )
+        .bind(&job.machine_id)
+        .fetch_optional(&self.pg().admin)
+        .await?;
+        let found = match found {
+            Some((spool, ..)) => {
+                let counted_already: bool = sqlx::query_scalar(
+                    "SELECT COUNT(*) > 0 FROM movements
+                     WHERE item = $1 AND kind = 'used' AND note IS NULL AND at >= at_unix($2)",
                 )
-                .optional()?;
-            match found {
-                Some((spool, ..)) => {
-                    let counted_already: bool = legacy.db.query_row(
-                        "SELECT COUNT(*) > 0 FROM movements WHERE item = ?1 AND kind = 'used' AND note IS NULL AND at >= ?2",
-                        params![crate::stock::spool_code(spool), job.started_at.unwrap_or(job.created_at)],
-                        |r| r.get(0),
-                    )?;
-                    found.filter(|_| !counted_already)
-                }
-                None => None,
+                .bind(crate::stock::spool_code(spool))
+                .bind(job.started_at.unwrap_or(job.created_at))
+                .fetch_one(&self.pg().admin)
+                .await?;
+                found.filter(|_| !counted_already)
             }
+            None => None,
         };
         let Some((spool, space, density, diameter, unit)) = found else {
             return Ok(());
@@ -652,22 +655,27 @@ impl Store {
             return Ok(());
         }
         {
-            let legacy = self.lock().unwrap();
+            let mut w = self.work(space).await?;
             let t = now();
-            legacy.db.execute(
-                "UPDATE spool SET used_weight = MAX(used_weight + ?1, 0), first_used = COALESCE(first_used, ?2),
-                     last_used = ?2 WHERE id = ?3",
-                params![used, t, spool],
-            )?;
-            legacy.movement(
-                space,
+            sqlx::query(
+                "UPDATE spool SET used_weight = GREATEST(used_weight + $1, 0),
+                     first_used = COALESCE(first_used, at_unix($2)), last_used = at_unix($2) WHERE id = $3",
+            )
+            .bind(used)
+            .bind(t)
+            .bind(spool)
+            .execute(w.c())
+            .await?;
+            w.movement(
                 &crate::stock::spool_code(spool),
                 "used",
                 Some(-used),
                 Some(&job.machine_id),
                 Some(&format!("job {}", job.file_name)),
-            )?;
-            legacy.spoolman_event("spool", "updated", spool);
+            )
+            .await?;
+            w.spoolman_event("spool", "updated", spool);
+            w.commit(self).await?;
         }
         sqlx::query("UPDATE jobs SET used = $1, spool_id = $2 WHERE id = $3")
             .bind(used)

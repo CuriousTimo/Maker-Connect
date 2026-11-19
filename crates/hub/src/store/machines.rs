@@ -35,11 +35,7 @@ impl Legacy {
     }
 
     /// A machine moved to another space ([`Store::move_machine`]): what stays behind in the old.
-    pub(crate) fn moved_away(&mut self, from: i64, machine: &str) -> rusqlite::Result<()> {
-        self.db.execute(
-            "UPDATE spool SET machine = NULL WHERE machine = ?1 AND space_id = ?2",
-            params![machine, from],
-        )?;
+    pub(crate) fn moved_away(&mut self, machine: &str) -> rusqlite::Result<()> {
         // Commands asked in the old space are not the new one's.
         self.commands.remove(machine);
         self.changed();
@@ -66,63 +62,19 @@ impl Legacy {
         })
     }
 
-    /// Machines from their rows, with what the modules on SQLite and the hub's memory add.
+    /// Machines from their rows, with what the modules on SQLite and the hub's memory add; `loaded`:
+    /// what is loaded in each, by machine id (crate::stock, read before).
     pub(crate) fn complete_machines(
         &self,
-        space: i64,
         rows: Vec<super::pg_machines::MachineRow>,
         jobs: &JobFacts,
+        loaded: &std::collections::HashMap<String, Loaded>,
     ) -> rusqlite::Result<Vec<Machine>> {
         let now = now();
         let mut machines: Vec<Machine> = rows.into_iter().map(|r| r.into_machine(now)).collect();
         let offered = self.offered_build();
-        let items = self.items(space)?;
-        let materials = self.materials(space)?;
         for machine in &mut machines {
-            machine.loaded = items
-                .iter()
-                .find(|i| i.machine.as_deref() == Some(&machine.id) && i.state == "loaded")
-                .map(|item| {
-                    let material = materials.iter().find(|m| m.id == item.material);
-                    Loaded {
-                        item: item.id.clone(),
-                        name: material
-                            .map(|m| m.color_name.clone().unwrap_or_else(|| m.name.clone()))
-                            .unwrap_or_else(|| item.material.clone()),
-                        color: material.and_then(|m| m.color.clone()),
-                        nozzle_c: material.and_then(|m| m.nozzle_c),
-                        bed_c: material.and_then(|m| m.bed_c),
-                        material: item.material.parse::<i64>().ok().and_then(|id| {
-                            self.db
-                                .query_row(
-                                    "SELECT material FROM filament WHERE id = ?1 AND kind = 'filament'",
-                                    [id],
-                                    |r| r.get::<_, Option<String>>(0),
-                                )
-                                .ok()
-                                .flatten()
-                        }),
-                        place: item.location.as_ref().and_then(|code| {
-                            self.db
-                                .query_row(
-                                    "SELECT name FROM locations WHERE id = ?1 AND space_id = ?2",
-                                    params![code, space],
-                                    |r| r.get(0),
-                                )
-                                .ok()
-                        }),
-                        slot: crate::stock::spool_number(&item.id).and_then(|id| {
-                            self.db
-                                .query_row("SELECT slot FROM spool WHERE id = ?1", [id], |r| {
-                                    r.get::<_, Option<i64>>(0)
-                                })
-                                .ok()
-                                .flatten()
-                        }),
-                        amount: item.amount,
-                        unit: material.map_or("pcs".to_owned(), |m| m.unit.clone()),
-                    }
-                });
+            machine.loaded = loaded.get(&machine.id).cloned();
             if machine.kind == MachineKind::Fdm {
                 machine.on_bed = jobs.on_bed(&machine.id);
                 machine.ready = jobs.ready_after(&machine.id);

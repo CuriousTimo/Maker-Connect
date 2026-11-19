@@ -11,13 +11,12 @@
 //! - **To a Spoolman**: the same, written to a running one through its API (it gives new ids).
 
 use crate::Store;
-use crate::store::{Legacy, now};
+use crate::store::{Work, now};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -151,38 +150,40 @@ async fn search(Query(q): Query<HashMap<String, String>>) -> Response {
 
 /// A SpoolmanDB filament taken into Materials (its maker a vendor), or the one taken before:
 /// its filament id.
-pub fn take_into(store: &Legacy, space: i64, f: &Value) -> rusqlite::Result<i64> {
+pub async fn take_into(w: &mut Work, f: &Value) -> sqlx::Result<i64> {
     let external = f["id"].as_str().unwrap_or_default();
-    if let Some(id) = store
-        .db
-        .query_row(
-            "SELECT id FROM filament WHERE space_id = ?1 AND external_id = ?2",
-            params![space, external],
-            |r| r.get(0),
-        )
-        .optional()?
+    if let Some(id) = sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM filament WHERE space_id = $1 AND external_id = $2",
+    )
+    .bind(w.space)
+    .bind(external)
+    .fetch_optional(w.c())
+    .await?
     {
         return Ok(id);
     }
     let maker = f["manufacturer"].as_str().unwrap_or("Unknown");
-    let vendor: i64 = match store
-        .db
-        .query_row(
-            "SELECT id FROM vendor WHERE space_id = ?1 AND (external_id = ?2 OR name = ?2)",
-            params![space, maker],
-            |r| r.get(0),
-        )
-        .optional()?
+    let vendor: i64 = match sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM vendor WHERE space_id = $1 AND (external_id = $2 OR name = $2)",
+    )
+    .bind(w.space)
+    .bind(maker)
+    .fetch_optional(w.c())
+    .await?
     {
         Some(id) => id,
         None => {
-            store.db.execute(
+            let id = sqlx::query_scalar(
                 "INSERT INTO vendor (space_id, registered, name, external_id, empty_spool_weight)
-                 VALUES (?1, ?2, ?3, ?3, ?4)",
-                params![space, now(), maker, f["spool_weight"].as_f64()],
-            )?;
-            let id = store.db.last_insert_rowid();
-            store.spoolman_event("vendor", "added", id);
+                 VALUES ($1, at_unix($2), $3, $3, $4) RETURNING id",
+            )
+            .bind(w.space)
+            .bind(now())
+            .bind(maker)
+            .bind(f["spool_weight"].as_f64())
+            .fetch_one(w.c())
+            .await?;
+            w.spoolman_event("vendor", "added", id);
             id
         }
     };
@@ -192,32 +193,32 @@ pub fn take_into(store: &Legacy, space: i64, f: &Value) -> rusqlite::Result<i64>
             .collect::<Vec<_>>()
             .join(",")
     });
-    store.db.execute(
+    let id = sqlx::query_scalar(
         "INSERT INTO filament (space_id, registered, name, vendor_id, material, density, diameter,
              weight, spool_weight, settings_extruder_temp, settings_bed_temp, color_hex,
              multi_color_hexes, multi_color_direction, external_id, minimum)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 1)",
-        params![
-            space,
-            now(),
-            f["name"].as_str(),
-            vendor,
-            f["material"].as_str(),
-            f["density"].as_f64().unwrap_or(1.24),
-            f["diameter"].as_f64().unwrap_or(1.75),
-            f["weight"].as_f64(),
-            f["spool_weight"].as_f64(),
-            f["extruder_temp"].as_i64(),
-            f["bed_temp"].as_i64(),
-            f["color_hex"].as_str().map(str::to_lowercase),
-            hexes,
-            f["multi_color_direction"].as_str(),
-            external,
-        ],
-    )?;
-    let id = store.db.last_insert_rowid();
-    store.spoolman_event("filament", "added", id);
-    store.changed();
+         VALUES ($1, at_unix($2), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 1)
+         RETURNING id",
+    )
+    .bind(w.space)
+    .bind(now())
+    .bind(f["name"].as_str())
+    .bind(vendor)
+    .bind(f["material"].as_str())
+    .bind(f["density"].as_f64().unwrap_or(1.24))
+    .bind(f["diameter"].as_f64().unwrap_or(1.75))
+    .bind(f["weight"].as_f64())
+    .bind(f["spool_weight"].as_f64())
+    .bind(f["extruder_temp"].as_i64())
+    .bind(f["bed_temp"].as_i64())
+    .bind(f["color_hex"].as_str().map(str::to_lowercase))
+    .bind(hexes)
+    .bind(f["multi_color_direction"].as_str())
+    .bind(external)
+    .fetch_one(w.c())
+    .await?;
+    w.spoolman_event("filament", "added", id);
+    w.changed();
     Ok(id)
 }
 
@@ -236,8 +237,7 @@ async fn take(
     let Some(f) = found else {
         return (StatusCode::NOT_FOUND, "not in SpoolmanDB").into_response();
     };
-    let store = store.lock().unwrap();
-    let taken = take_into(&store, access.space, &f);
+    let taken = crate::stock::in_space!(&store, access.space, |w| take_into(&mut w, &f)).await;
     match taken {
         Ok(id) => Json(json!({"id": id.to_string()})).into_response(),
         Err(e) => crate::failed(e),
@@ -311,16 +311,10 @@ impl Bundle {
         bundle
     }
 
-    /// Into Materials: each with its own id where that is free, else a new one.
-    pub fn into_store(self, store: &Legacy, space: i64) -> rusqlite::Result<Moved> {
+    /// Into Materials: each with its own id where that is free (in no space), else a new one.
+    pub async fn into_store(self, w: &mut Work) -> sqlx::Result<Moved> {
+        let space = w.space;
         let mut moved = Moved::default();
-        let free = |table: &str, id: i64| -> rusqlite::Result<bool> {
-            store.db.query_row(
-                &format!("SELECT COUNT(*) = 0 FROM {table} WHERE id = ?1"),
-                [id],
-                |r| r.get(0),
-            )
-        };
         let when = |v: &Value| v.as_str().and_then(crate::spoolman::parse_iso);
         let extra = |v: &Value| {
             v["extra"]
@@ -330,70 +324,71 @@ impl Bundle {
         let mut vendors = HashMap::new();
         for v in &self.vendors {
             let old = v["id"].as_i64().unwrap_or_default();
-            let id = if free("vendor", old)? {
-                Some(old)
-            } else {
-                None
+            let insert = |id: Option<i64>| {
+                sqlx::query_scalar::<_, i64>(
+                    "INSERT INTO vendor (id, space_id, registered, name, empty_spool_weight, comment, external_id, extra)
+                     VALUES (COALESCE($1, next_rowid('vendor')), $2, at_unix($3), $4, $5,
+                         $6, $7, $8)
+                     ON CONFLICT (id) DO NOTHING RETURNING id",
+                )
+                .bind(id)
+                .bind(space)
+                .bind(when(&v["registered"]).unwrap_or(now()))
+                .bind(v["name"].as_str().unwrap_or("Unknown"))
+                .bind(v["empty_spool_weight"].as_f64())
+                .bind(v["comment"].as_str())
+                .bind(v["external_id"].as_str())
+                .bind(extra(v))
             };
-            store.db.execute(
-                "INSERT INTO vendor (id, space_id, registered, name, empty_spool_weight, comment, external_id, extra)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![
-                    id,
-                    space,
-                    when(&v["registered"]).unwrap_or(now()),
-                    v["name"].as_str().unwrap_or("Unknown"),
-                    v["empty_spool_weight"].as_f64(),
-                    v["comment"].as_str(),
-                    v["external_id"].as_str(),
-                    extra(v)
-                ],
-            )?;
-            vendors.insert(old, store.db.last_insert_rowid());
+            let new = match insert(Some(old)).fetch_optional(w.c()).await? {
+                Some(id) => id,
+                None => insert(None).fetch_one(w.c()).await?,
+            };
+            vendors.insert(old, new);
             moved.vendors += 1;
         }
         let mut filaments = HashMap::new();
         for f in &self.filaments {
             let old = f["id"].as_i64().unwrap_or_default();
-            let id = if free("filament", old)? {
-                Some(old)
-            } else {
-                None
-            };
             let vendor = f["vendor"]["id"]
                 .as_i64()
                 .and_then(|v| vendors.get(&v).copied());
-            store.db.execute(
-                "INSERT INTO filament (id, space_id, registered, name, vendor_id, material, price, density,
-                     diameter, weight, spool_weight, article_number, comment, settings_extruder_temp,
-                     settings_bed_temp, color_hex, multi_color_hexes, multi_color_direction, external_id, extra)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
-                params![
-                    id,
-                    space,
-                    when(&f["registered"]).unwrap_or(now()),
-                    f["name"].as_str(),
-                    vendor,
-                    f["material"].as_str(),
-                    f["price"].as_f64(),
-                    f["density"].as_f64().unwrap_or(1.24),
-                    f["diameter"].as_f64().unwrap_or(1.75),
-                    f["weight"].as_f64(),
-                    f["spool_weight"].as_f64(),
-                    f["article_number"].as_str(),
-                    f["comment"].as_str(),
-                    f["settings_extruder_temp"].as_i64(),
-                    f["settings_bed_temp"].as_i64(),
-                    f["color_hex"].as_str(),
-                    f["multi_color_hexes"].as_str(),
-                    f["multi_color_direction"].as_str(),
-                    f["external_id"].as_str(),
-                    extra(f)
-                ],
-            )?;
-            let new = store.db.last_insert_rowid();
+            let insert = |id: Option<i64>| {
+                sqlx::query_scalar::<_, i64>(
+                    "INSERT INTO filament (id, space_id, registered, name, vendor_id, material, price, density,
+                         diameter, weight, spool_weight, article_number, comment, settings_extruder_temp,
+                         settings_bed_temp, color_hex, multi_color_hexes, multi_color_direction, external_id, extra)
+                     VALUES (COALESCE($1, next_rowid('filament')), $2, at_unix($3), $4,
+                         $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+                     ON CONFLICT (id) DO NOTHING RETURNING id",
+                )
+                .bind(id)
+                .bind(space)
+                .bind(when(&f["registered"]).unwrap_or(now()))
+                .bind(f["name"].as_str())
+                .bind(vendor)
+                .bind(f["material"].as_str())
+                .bind(f["price"].as_f64())
+                .bind(f["density"].as_f64().unwrap_or(1.24))
+                .bind(f["diameter"].as_f64().unwrap_or(1.75))
+                .bind(f["weight"].as_f64())
+                .bind(f["spool_weight"].as_f64())
+                .bind(f["article_number"].as_str())
+                .bind(f["comment"].as_str())
+                .bind(f["settings_extruder_temp"].as_i64())
+                .bind(f["settings_bed_temp"].as_i64())
+                .bind(f["color_hex"].as_str())
+                .bind(f["multi_color_hexes"].as_str())
+                .bind(f["multi_color_direction"].as_str())
+                .bind(f["external_id"].as_str())
+                .bind(extra(f))
+            };
+            let new = match insert(Some(old)).fetch_optional(w.c()).await? {
+                Some(id) => id,
+                None => insert(None).fetch_one(w.c()).await?,
+            };
             filaments.insert(old, new);
-            moved.tags += tags_into(store, space, "filament", new, &f["tags"])?;
+            moved.tags += tags_into(w, "filament", new, &f["tags"]).await?;
             moved.filaments += 1;
         }
         for s in &self.spools {
@@ -405,43 +400,47 @@ impl Bundle {
             else {
                 continue;
             };
-            let id = if free("spool", old)? { Some(old) } else { None };
             let place = match s["location"].as_str() {
-                Some(name) => store.location_named(space, name)?,
+                Some(name) => w.location_named(name).await?,
                 None => None,
             };
-            store.db.execute(
-                "INSERT INTO spool (id, space_id, registered, first_used, last_used, price, filament_id,
-                     initial_weight, spool_weight, used_weight, location_id, lot_nr, comment, archived, extra)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-                params![
-                    id,
-                    space,
-                    when(&s["registered"]).unwrap_or(now()),
-                    when(&s["first_used"]),
-                    when(&s["last_used"]),
-                    s["price"].as_f64(),
-                    filament,
-                    s["initial_weight"].as_f64(),
-                    s["spool_weight"].as_f64(),
-                    s["used_weight"].as_f64().unwrap_or(0.0),
-                    place,
-                    s["lot_nr"].as_str(),
-                    s["comment"].as_str(),
-                    s["archived"].as_bool().unwrap_or(false),
-                    extra(s)
-                ],
-            )?;
-            let new = store.db.last_insert_rowid();
-            store.movement(
-                space,
+            let insert = |id: Option<i64>| {
+                sqlx::query_scalar::<_, i64>(
+                    "INSERT INTO spool (id, space_id, registered, first_used, last_used, price, filament_id,
+                         initial_weight, spool_weight, used_weight, location_id, lot_nr, comment, archived, extra)
+                     VALUES (COALESCE($1, next_rowid('spool')), $2, at_unix($3),
+                         at_unix($4), at_unix($5), $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                     ON CONFLICT (id) DO NOTHING RETURNING id",
+                )
+                .bind(id)
+                .bind(space)
+                .bind(when(&s["registered"]).unwrap_or(now()))
+                .bind(when(&s["first_used"]))
+                .bind(when(&s["last_used"]))
+                .bind(s["price"].as_f64())
+                .bind(filament)
+                .bind(s["initial_weight"].as_f64())
+                .bind(s["spool_weight"].as_f64())
+                .bind(s["used_weight"].as_f64().unwrap_or(0.0))
+                .bind(place.clone())
+                .bind(s["lot_nr"].as_str())
+                .bind(s["comment"].as_str())
+                .bind(s["archived"].as_bool().unwrap_or(false))
+                .bind(extra(s))
+            };
+            let new = match insert(Some(old)).fetch_optional(w.c()).await? {
+                Some(id) => id,
+                None => insert(None).fetch_one(w.c()).await?,
+            };
+            w.movement(
                 &crate::stock::spool_code(new),
                 "received",
                 s["remaining_weight"].as_f64(),
                 None,
                 Some("from Spoolman"),
-            )?;
-            moved.tags += tags_into(store, space, "spool", new, &s["tags"])?;
+            )
+            .await?;
+            moved.tags += tags_into(w, "spool", new, &s["tags"]).await?;
             moved.spools += 1;
         }
         for (entity, list) in &self.fields {
@@ -454,25 +453,25 @@ impl Bundle {
                     m.remove("key");
                     m.remove("entity_type");
                 }
-                store.db.execute(
-                    "INSERT OR REPLACE INTO extra_field (space_id, entity_type, key, definition) VALUES (?1, ?2, ?3, ?4)",
-                    params![space, entity, key, definition.to_string()],
-                )?;
+                sqlx::query(
+                    "INSERT INTO extra_field (space_id, entity_type, key, definition) VALUES ($1, $2, $3, $4)
+                     ON CONFLICT (space_id, entity_type, key) DO UPDATE SET definition = excluded.definition",
+                )
+                .bind(space)
+                .bind(entity)
+                .bind(key)
+                .bind(definition.to_string())
+                .execute(w.c())
+                .await?;
                 moved.fields += 1;
             }
         }
-        store.changed();
+        w.changed();
         Ok(moved)
     }
 }
 
-fn tags_into(
-    store: &Legacy,
-    space: i64,
-    target: &str,
-    id: i64,
-    tags: &Value,
-) -> rusqlite::Result<usize> {
+async fn tags_into(w: &mut Work, target: &str, id: i64, tags: &Value) -> sqlx::Result<usize> {
     let mut n = 0;
     let column = if target == "spool" {
         "spool_id"
@@ -486,12 +485,19 @@ fn tags_into(
         else {
             continue;
         };
-        n += store.db.execute(
-            &format!(
-                "INSERT OR IGNORE INTO tag (space_id, uid, target_type, {column}, format, added) VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
-            ),
-            params![space, uid, target, id, tag["format"].as_str(), now()],
-        )?;
+        n += sqlx::query(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO tag (space_id, uid, target_type, {column}, format, added)
+             VALUES ($1, $2, $3, $4, $5, at_unix($6)) ON CONFLICT DO NOTHING"
+        )))
+        .bind(w.space)
+        .bind(uid)
+        .bind(target)
+        .bind(id)
+        .bind(tag["format"].as_str())
+        .bind(now())
+        .execute(w.c())
+        .await?
+        .rows_affected() as usize;
     }
     Ok(n)
 }
@@ -520,8 +526,7 @@ async fn import(
                 .into_response();
         }
     };
-    let store = store.lock().unwrap();
-    let moved = bundle.into_store(&store, access.space);
+    let moved = crate::stock::in_space!(&store, access.space, |w| bundle.into_store(&mut w)).await;
     match moved {
         Ok(m) => Json(m).into_response(),
         Err(e) => crate::failed(e),
@@ -550,24 +555,24 @@ async fn export(
         Err(error) => return crate::failed(error),
     };
     let (vendors, filaments, spools) = {
-        let store = store.lock().unwrap();
-        let space = access.space;
-        let all = |r: &str| -> Vec<Value> {
-            let mut q = match store.db.prepare(&format!(
-                "SELECT id FROM {r} WHERE space_id = ?1 ORDER BY id"
-            )) {
-                Ok(q) => q,
-                Err(_) => return Vec::new(),
-            };
-            let ids: Vec<i64> = q
-                .query_map([space], |row| row.get(0))
-                .map(|r| r.flatten().collect())
-                .unwrap_or_default();
-            ids.into_iter()
-                .filter_map(|id| store.one(r, space, id, &names).ok().flatten())
-                .collect()
+        let mut w = match store.work(access.space).await {
+            Ok(w) => w,
+            Err(error) => return crate::failed(error),
         };
-        (all("vendor"), all("filament"), all("spool"))
+        let mut out = Vec::new();
+        for r in ["vendor", "filament", "spool"] {
+            let ids = w.ids(r).await.unwrap_or_default();
+            let mut all = Vec::new();
+            for id in ids {
+                if let Ok(Some(v)) = w.one(r, id, &names).await {
+                    all.push(v);
+                }
+            }
+            out.push(all);
+        }
+        let spools = out.pop().unwrap_or_default();
+        let filaments = out.pop().unwrap_or_default();
+        (out.pop().unwrap_or_default(), filaments, spools)
     };
     let result = tokio::task::spawn_blocking(move || -> Result<Moved, String> {
         let post = |path: &str, body: Value| -> Result<Value, String> {
@@ -628,11 +633,15 @@ mod tests {
 
     /// A Spoolman's export comes over with its ids, its tags and its fields; a SpoolmanDB
     /// filament is taken once.
-    #[test]
-    fn a_spoolman_moves_over_and_spoolmandb_is_taken_once() {
-        let store = Legacy::open(":memory:").unwrap();
-        // SQLite alone: a space's id is only a number here.
-        let space = 1;
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_spoolman_moves_over_and_spoolmandb_is_taken_once(pool: sqlx::PgPool) {
+        let pg = Store::for_test(&pool).await;
+        let (space, _) = pg.default_space().await.unwrap();
+        let mut store = pg.work(space).await.unwrap();
         let export = json!([{
             "id": 12, "registered": "2025-03-01T10:00:00Z", "used_weight": 250.0,
             "initial_weight": 1000.0, "location": "Dry box 1", "archived": false,
@@ -644,7 +653,7 @@ mod tests {
         }]);
         let mut bundle = Bundle::from_spools(export.as_array().unwrap().clone());
         bundle.fields.push(("spool".into(), vec![json!({"key": "last_dried", "name": "Last dried", "field_type": "datetime", "order": 0})]));
-        let moved = bundle.into_store(&store, space).unwrap();
+        let moved = bundle.into_store(&mut store).await.unwrap();
         assert_eq!(
             moved,
             Moved {
@@ -656,23 +665,38 @@ mod tests {
             }
         );
         let spool = store
-            .sm_spool(space, 12, &crate::spoolman::MachineNames::new())
+            .sm_spool(12, &crate::spoolman::MachineNames::new())
+            .await
             .unwrap()
             .expect("spool 12 kept its id");
         assert_eq!(spool["remaining_weight"], 750.0);
         assert_eq!(spool["location"], "Dry box 1");
         assert_eq!(spool["tags"][0]["uid"], "04A2B3C4");
         assert_eq!(spool["filament"]["vendor"]["name"], "Bambu Lab");
-        assert_eq!(store.items(space).unwrap()[0].id, "S-0012");
+        assert_eq!(store.items().await.unwrap()[0].id, "S-0012");
 
         let f = json!({"id": "polymaker_pla_polysonicblack_1000_175", "manufacturer": "Polymaker",
             "name": "Polysonic Black", "material": "PLA", "density": 1.23, "weight": 1000,
             "spool_weight": 140, "diameter": 1.75, "color_hex": "1C1C1C", "extruder_temp": 210});
-        let first = take_into(&store, space, &f).unwrap();
-        assert_eq!(take_into(&store, space, &f).unwrap(), first, "taken once");
-        let taken = store.sm_filament(space, first).unwrap().unwrap();
+        let first = take_into(&mut store, &f).await.unwrap();
+        assert_eq!(
+            take_into(&mut store, &f).await.unwrap(),
+            first,
+            "taken once"
+        );
+        let taken = store.sm_filament(first).await.unwrap().unwrap();
         assert_eq!(taken["vendor"]["name"], "Polymaker");
         assert_eq!(taken["color_hex"], "1c1c1c");
         assert_eq!(taken["settings_extruder_temp"], 210);
+        store.commit(&pg).await.unwrap();
+        // A spool made later does not meet the one that kept its id.
+        let mut store = pg.work(space).await.unwrap();
+        let more = store
+            .receive(&first.to_string(), 12, None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!more.contains(&"S-0012".to_owned()), "{more:?}");
+        store.commit(&pg).await.unwrap();
     }
 }

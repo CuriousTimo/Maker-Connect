@@ -650,8 +650,14 @@ impl Store {
         .execute(&mut *tx)
         .await?;
         Self::transfers_moved_away(&mut tx, machine).await?;
+        // A spool loaded in it stays in the old space, no longer loaded.
+        sqlx::query("UPDATE spool SET machine = NULL WHERE machine = $1 AND space_id = $2")
+            .bind(machine)
+            .bind(from)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
-        self.lock().unwrap().moved_away(from, machine)?;
+        self.lock().unwrap().moved_away(machine)?;
         Ok(Ok(()))
     }
 
@@ -751,7 +757,11 @@ impl Store {
         tx.commit().await?;
         let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
         let jobs = self.job_facts(&ids).await?;
-        let mut machines = self.lock().unwrap().complete_machines(space, rows, &jobs)?;
+        let loaded = crate::stock::in_space!(self, space, |w| w.loaded()).await?;
+        let mut machines = self
+            .lock()
+            .unwrap()
+            .complete_machines(rows, &jobs, &loaded)?;
         // What the queued files say of themselves (their time, a picture), by id as before.
         let queued: Vec<String> = machines
             .iter()

@@ -4,7 +4,7 @@
 
 use maker_connect_protocol::{MachineKind, Register, Telemetry};
 use rand::Rng;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -517,6 +517,10 @@ struct Inner {
     files_dir: std::path::PathBuf,
     legacy: std::sync::Mutex<Legacy>,
     changes: tokio::sync::broadcast::Sender<()>,
+    /// A vendor, filament or spool added, changed or removed: for Spoolman's WebSockets.
+    spoolman: tokio::sync::broadcast::Sender<SpoolmanEvent>,
+    /// Spoolman's tag readers and scans of this hub (in memory, as Spoolman keeps them).
+    spoolman_scans: std::sync::Arc<crate::spoolman::Scans>,
     /// While nobody has an account: the code (printed at start) that makes the first one.
     setup_code: std::sync::Mutex<Option<String>>,
     /// Failed sign-ins per key (`ip:…`, `name:…`), Unix seconds, for slowing guessing down.
@@ -533,6 +537,8 @@ impl Store {
                 files_dir: legacy.files_dir.clone(),
                 legacy: std::sync::Mutex::new(legacy),
                 changes,
+                spoolman: tokio::sync::broadcast::channel(256).0,
+                spoolman_scans: Default::default(),
                 setup_code: Default::default(),
                 failures: Default::default(),
             }),
@@ -603,6 +609,26 @@ impl Store {
         let _ = self.inner.changes.send(());
     }
 
+    /// Spoolman's changes from now on (crate::spoolman's WebSockets).
+    pub fn subscribe_spoolman(&self) -> tokio::sync::broadcast::Receiver<SpoolmanEvent> {
+        self.inner.spoolman.subscribe()
+    }
+
+    /// Spoolman's tag readers and scans (in memory).
+    pub(crate) fn spoolman_scans(&self) -> std::sync::Arc<crate::spoolman::Scans> {
+        self.inner.spoolman_scans.clone()
+    }
+
+    /// A transaction in `space` that tells what changed once it is committed ([`Work`]).
+    pub async fn work(&self, space: i64) -> sqlx::Result<Work> {
+        Ok(Work {
+            tx: self.pg().space(space).await?,
+            space,
+            events: Vec::new(),
+            changed: false,
+        })
+    }
+
     /// While nobody has an account: the code that makes the first one.
     pub fn setup_code(&self) -> Option<String> {
         self.inner.setup_code.lock().unwrap().clone()
@@ -667,15 +693,11 @@ pub struct Legacy {
     pub(crate) laser_framed: std::collections::HashMap<String, String>,
     /// HS7b: lasers on which a Set origin was done since the hub started.
     pub(crate) laser_origin_set: std::collections::HashSet<String>,
-    /// Spoolman's tag readers and scans of this hub (in memory, as Spoolman keeps them).
-    pub(crate) spoolman_scans: std::sync::Arc<crate::spoolman::Scans>,
     next_command: u32,
     /// Temperature history per machine id, oldest first.
     history: std::collections::HashMap<String, std::collections::VecDeque<Sample>>,
     /// A signal whenever a machine changes, for the pages that show them live.
     changes: tokio::sync::broadcast::Sender<()>,
-    /// A vendor, filament or spool added, changed or removed: for Spoolman's WebSockets.
-    spoolman: tokio::sync::broadcast::Sender<SpoolmanEvent>,
 }
 
 /// A change to Spoolman's data: `spool` 7 `updated`. A removed one carries what it was.
@@ -687,6 +709,67 @@ pub struct SpoolmanEvent {
     pub kind: &'static str,
     pub id: i64,
     pub was: Option<serde_json::Value>,
+}
+
+/// A space's transaction on Postgres ([`Store::work`]), with what it changed: the live pages and
+/// Spoolman's WebSockets hear of it once it is committed, so what they read then is there.
+pub struct Work {
+    pub(crate) tx: sqlx::Transaction<'static, sqlx::Postgres>,
+    pub(crate) space: i64,
+    events: Vec<SpoolmanEvent>,
+    changed: bool,
+}
+
+impl Work {
+    /// The transaction's connection, for a query.
+    pub(crate) fn c(&mut self) -> &mut sqlx::PgConnection {
+        &mut self.tx
+    }
+
+    /// Something a live page shows changed.
+    pub(crate) fn changed(&mut self) {
+        self.changed = true;
+    }
+
+    /// Spoolman's data changed: `spool` 7 `updated`, in this space.
+    pub(crate) fn spoolman_event(&mut self, resource: &'static str, kind: &'static str, id: i64) {
+        let space = matches!(resource, "spool" | "filament" | "vendor").then_some(self.space);
+        self.events.push(SpoolmanEvent {
+            space,
+            resource,
+            kind,
+            id,
+            was: None,
+        });
+    }
+
+    /// One of Spoolman's things removed, with what it was.
+    pub(crate) fn spoolman_removed(
+        &mut self,
+        resource: &'static str,
+        id: i64,
+        was: serde_json::Value,
+    ) {
+        self.events.push(SpoolmanEvent {
+            space: Some(self.space),
+            resource,
+            kind: "deleted",
+            id,
+            was: Some(was),
+        });
+    }
+
+    /// Commits, then tells.
+    pub(crate) async fn commit(self, store: &Store) -> sqlx::Result<()> {
+        self.tx.commit().await?;
+        for event in self.events {
+            let _ = store.inner.spoolman.send(event);
+        }
+        if self.changed {
+            store.changed();
+        }
+        Ok(())
+    }
 }
 
 impl Legacy {
@@ -739,14 +822,12 @@ impl Legacy {
             own_prints: Default::default(),
             answers: Default::default(),
             own_job_control: Default::default(),
-            spoolman_scans: Default::default(),
             laser_framed: Default::default(),
             laser_origin_set: Default::default(),
             // Ids that do not repeat soon after a restart, as a printer may remember the last.
             next_command: (now() % 1_000_000_000) as u32,
             history: Default::default(),
             changes: tokio::sync::broadcast::channel(16).0,
-            spoolman: tokio::sync::broadcast::channel(256).0,
         };
         Ok(store)
     }
@@ -754,49 +835,6 @@ impl Legacy {
     /// Signals each change to a machine from now on (some may be merged into one).
     pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<()> {
         self.changes.subscribe()
-    }
-
-    /// Spoolman's data changed: `spool` 7 `updated`.
-    pub(crate) fn spoolman_event(&self, resource: &'static str, kind: &'static str, id: i64) {
-        let space = match resource {
-            "spool" | "filament" | "vendor" => self
-                .db
-                .query_row(
-                    &format!("SELECT space_id FROM {resource} WHERE id = ?1"),
-                    [id],
-                    |r| r.get(0),
-                )
-                .ok(),
-            _ => None,
-        };
-        let _ = self.spoolman.send(SpoolmanEvent {
-            space,
-            resource,
-            kind,
-            id,
-            was: None,
-        });
-    }
-
-    /// One of Spoolman's things removed, with what it was.
-    pub(crate) fn spoolman_removed(
-        &self,
-        space: i64,
-        resource: &'static str,
-        id: i64,
-        was: serde_json::Value,
-    ) {
-        let _ = self.spoolman.send(SpoolmanEvent {
-            space: Some(space),
-            resource,
-            kind: "deleted",
-            id,
-            was: Some(was),
-        });
-    }
-
-    pub fn subscribe_spoolman(&self) -> tokio::sync::broadcast::Receiver<SpoolmanEvent> {
-        self.spoolman.subscribe()
     }
 
     pub(crate) fn changed(&self) {
@@ -825,13 +863,13 @@ mod tests {
                 .unwrap_or_else(|_| Vec::<String>::new())
         };
         // A new database: nothing to back up.
-        // A row of the SQLite file's own (a Materials location).
+        // A row of the SQLite file's own.
         let id = {
             let store = Legacy::open(path).unwrap();
             store
                 .db
                 .execute(
-                    "INSERT INTO locations (id, space_id, name) VALUES ('L-0001', 1, 'Shelf A1')",
+                    "INSERT INTO meta (key, value) VALUES ('shelf', 'Shelf A1')",
                     [],
                 )
                 .unwrap();
@@ -858,11 +896,9 @@ mod tests {
         );
         // The copy holds the row, and so does the database itself.
         let count = |db: &Connection| -> i64 {
-            db.query_row(
-                "SELECT COUNT(*) FROM locations WHERE name = ?1",
-                [&id],
-                |r| r.get(0),
-            )
+            db.query_row("SELECT COUNT(*) FROM meta WHERE value = ?1", [&id], |r| {
+                r.get(0)
+            })
             .unwrap()
         };
         let copy = Connection::open(dir.join("maker-connect-backups").join(&made[0])).unwrap();
@@ -977,21 +1013,17 @@ mod tests {
             bed_c: None,
             source: None,
         };
-        let material = pg.lock().unwrap().add_material(space, pla).unwrap();
-        let spool = pg
-            .lock()
-            .unwrap()
-            .receive(space, &material, 1, None)
+        let material = pg.add_material(space, pla).await.unwrap();
+        let target = pg.machine(space, &printer).await.unwrap();
+        let mut w = pg.work(space).await.unwrap();
+        let spool = w
+            .receive(&material, 1, None)
+            .await
             .unwrap()
             .unwrap()
             .remove(0);
-        let target = pg.machine(space, &printer).await.unwrap();
-        let media = pg
-            .lock()
-            .unwrap()
-            .load_item(space, &spool, target.as_ref())
-            .unwrap()
-            .unwrap();
+        let media = w.load_item(&spool, target.as_ref()).await.unwrap().unwrap();
+        w.commit(&pg).await.unwrap();
         if let Some(media) = media {
             pg.set_media(space, &printer, Some(&media)).await.unwrap();
         }
@@ -1010,10 +1042,9 @@ mod tests {
             .unwrap();
         pg.set_job(job, JobState::Printing, None).await.unwrap();
         pg.set_job(job, JobState::Finished, None).await.unwrap();
-        let store = pg.lock().unwrap();
-        let left = store.items(space).unwrap()[0].amount;
+        let left = pg.items(space).await.unwrap()[0].amount;
         assert_eq!(left, 987.5);
-        let last = &store.movements(space, &spool).unwrap()[0];
+        let last = &pg.movements(space, &spool).await.unwrap()[0];
         assert_eq!(
             (last.kind.as_str(), last.note.as_deref()),
             ("used", Some("job cube.gcode"))

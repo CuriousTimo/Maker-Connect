@@ -20,7 +20,8 @@ fn modules() -> Vec<&'static Migrator> {
     static CORE: Migrator = sqlx::migrate!("src/store/migrations");
     static ACCOUNTS: Migrator = sqlx::migrate!("src/accounts/migrations");
     static ACCESS: Migrator = sqlx::migrate!("src/access/migrations");
-    vec![&CORE, &ACCOUNTS, &ACCESS]
+    static STOCK: Migrator = sqlx::migrate!("src/stock/migrations");
+    vec![&CORE, &ACCOUNTS, &ACCESS, &STOCK]
 }
 
 /// All modules' migrations in one list, by version.
@@ -284,5 +285,102 @@ mod tests {
                 .await;
             assert!(refused.is_err(), "{insert}");
         }
+    }
+
+    /// Row-level security on lane 4's tables, as the app role: each space-owned table shows nothing
+    /// without a space, only its space's rows with one, and refuses a row for another space.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn lane_4_tables_show_their_space_only(pool: PgPool) {
+        // A second space, and a row of each table in both, as the owner.
+        sqlx::raw_sql(
+            "INSERT INTO organisations (uid, name, created_at) VALUES ('o2', 'Other', at_unix(0));
+             INSERT INTO spaces (name, uid, organisation_id)
+                 SELECT 'Other', 's2', id FROM organisations WHERE uid = 'o2';
+             INSERT INTO locations (id, space_id, name) SELECT 'L-' || id, id, 'Shelf' FROM spaces;
+             INSERT INTO movements (space_id, item, kind, at) SELECT id, 'S-0001', 'moved', at_unix(0) FROM spaces;
+             INSERT INTO setting (space_id, key, value, last_updated) SELECT id, 'currency', 'EUR', at_unix(0) FROM spaces;
+             INSERT INTO vendor (space_id, registered, name) SELECT id, at_unix(0), 'V' FROM spaces;
+             INSERT INTO filament (space_id, registered) SELECT id, at_unix(0) FROM spaces;
+             INSERT INTO spool (space_id, registered, filament_id) SELECT id, at_unix(0), 1 FROM spaces;
+             INSERT INTO tag (space_id, uid, target_type, added) SELECT id, 'AA', 'spool', at_unix(0) FROM spaces;
+             INSERT INTO extra_field (space_id, entity_type, key, definition) SELECT id, 'spool', 'k', '{}' FROM spaces;",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let pg = Pg::with_options(&pool.connect_options(), 1);
+        let tables = [
+            (
+                "locations",
+                "INSERT INTO locations (id, space_id, name) VALUES ('x', 2, 'x')",
+            ),
+            (
+                "movements",
+                "INSERT INTO movements (space_id, item, kind, at) VALUES (2, 'x', 'x', at_unix(0))",
+            ),
+            (
+                "setting",
+                "INSERT INTO setting (space_id, key, value, last_updated) VALUES (2, 'x', 'x', at_unix(0))",
+            ),
+            (
+                "vendor",
+                "INSERT INTO vendor (space_id, registered, name) VALUES (2, at_unix(0), 'x')",
+            ),
+            (
+                "filament",
+                "INSERT INTO filament (space_id, registered) VALUES (2, at_unix(0))",
+            ),
+            (
+                "spool",
+                "INSERT INTO spool (space_id, registered, filament_id) VALUES (2, at_unix(0), 1)",
+            ),
+            (
+                "tag",
+                "INSERT INTO tag (space_id, uid, target_type, added) VALUES (2, 'BB', 'spool', at_unix(0))",
+            ),
+            (
+                "extra_field",
+                "INSERT INTO extra_field (space_id, entity_type, key, definition) VALUES (2, 'x', 'x', '{}')",
+            ),
+        ];
+        for (table, insert) in tables {
+            let count = format!("SELECT COUNT(*) FROM {table}");
+            let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(count.clone()))
+                .fetch_one(&pg.app)
+                .await
+                .unwrap();
+            assert_eq!(n, 0, "{table} without a space");
+            let mut tx = pg.space(1).await.unwrap();
+            let seen: Vec<i64> =
+                sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT space_id FROM {table}")))
+                    .fetch_all(&mut *tx)
+                    .await
+                    .unwrap();
+            assert_eq!(seen, vec![1], "{table} in space 1");
+            tx.commit().await.unwrap();
+            let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(count))
+                .fetch_one(&pg.admin)
+                .await
+                .unwrap();
+            assert_eq!(n, 2, "{table} as the admin role");
+            let mut tx = pg.space(1).await.unwrap();
+            let refused = sqlx::query(sqlx::AssertSqlSafe(insert))
+                .execute(&mut *tx)
+                .await;
+            assert!(refused.is_err(), "{insert}");
+        }
+        // Ids as SQLite's rowid: one past the highest in any space, also as the app role.
+        let mut tx = pg.space(1).await.unwrap();
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO vendor (space_id, registered, name) VALUES (1, at_unix(0), 'W') RETURNING id",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(id, 3);
     }
 }

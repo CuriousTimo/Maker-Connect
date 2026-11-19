@@ -4,7 +4,7 @@
 //! a ledger of **movements**: every change to an item (received, moved, loaded into a
 //! machine, weighed, used up) is one, with when; amounts follow from them.
 
-use crate::store::{Legacy, now};
+use crate::store::{Work, now};
 use crate::{STYLE, Store, failed, header, profiles};
 use axum::{
     Json, Router,
@@ -13,261 +13,10 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
-use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 const STOCK_STYLE: &str = include_str!("library.css");
 const STOCK_SCRIPT: &str = include_str!("library.js");
-
-/// The tables, made when missing: Spoolman's model (vendor, filament, spool), so its API
-/// and its data fit (see `spoolman.rs`), with what Spoolman does not have beside it (tapes
-/// and other kinds, locations as places with codes, what a spool is loaded in). Materials
-/// kept before (`materials`, `items`) are moved over once; those tables stay as they were.
-pub fn migrate(db: &Connection) -> rusqlite::Result<()> {
-    db.execute_batch(
-        "CREATE TABLE IF NOT EXISTS locations (
-             id TEXT PRIMARY KEY,
-             space_id INTEGER NOT NULL,
-             name TEXT NOT NULL,
-             parent TEXT
-         );
-         CREATE TABLE IF NOT EXISTS movements (
-             id INTEGER PRIMARY KEY,
-             space_id INTEGER NOT NULL,
-             item TEXT NOT NULL,
-             kind TEXT NOT NULL,
-             amount REAL,
-             place TEXT,
-             note TEXT,
-             at INTEGER NOT NULL
-         );
-         CREATE TABLE IF NOT EXISTS setting (
-             space_id INTEGER NOT NULL,
-             key TEXT NOT NULL,
-             value TEXT NOT NULL,
-             last_updated INTEGER NOT NULL,
-             PRIMARY KEY (space_id, key)
-         );",
-    )?;
-    let fresh: bool = db.query_row(
-        "SELECT COUNT(*) = 0 FROM sqlite_master WHERE type = 'table' AND name = 'spool'",
-        [],
-        |r| r.get(0),
-    )?;
-    db.execute_batch(
-        "CREATE TABLE IF NOT EXISTS vendor (
-             id INTEGER PRIMARY KEY,
-             space_id INTEGER NOT NULL,
-             registered INTEGER NOT NULL,
-             name TEXT NOT NULL,
-             empty_spool_weight REAL,
-             comment TEXT,
-             external_id TEXT,
-             extra TEXT NOT NULL DEFAULT '{}'
-         );
-         CREATE TABLE IF NOT EXISTS filament (
-             id INTEGER PRIMARY KEY,
-             space_id INTEGER NOT NULL,
-             registered INTEGER NOT NULL,
-             name TEXT,
-             vendor_id INTEGER REFERENCES vendor(id),
-             material TEXT,
-             price REAL,
-             density REAL NOT NULL DEFAULT 1.24,
-             diameter REAL NOT NULL DEFAULT 1.75,
-             weight REAL,
-             spool_weight REAL,
-             article_number TEXT,
-             comment TEXT,
-             settings_extruder_temp INTEGER,
-             settings_bed_temp INTEGER,
-             color_hex TEXT,
-             multi_color_hexes TEXT,
-             multi_color_direction TEXT,
-             external_id TEXT,
-             extra TEXT NOT NULL DEFAULT '{}',
-             -- Maker Connect's own, beside Spoolman's:
-             kind TEXT NOT NULL DEFAULT 'filament',
-             unit TEXT NOT NULL DEFAULT 'g',
-             color_name TEXT,
-             ink TEXT,
-             media TEXT,
-             width_mm INTEGER,
-             minimum INTEGER
-         );
-         CREATE TABLE IF NOT EXISTS spool (
-             id INTEGER PRIMARY KEY,
-             space_id INTEGER NOT NULL,
-             registered INTEGER NOT NULL,
-             first_used INTEGER,
-             last_used INTEGER,
-             price REAL,
-             filament_id INTEGER NOT NULL REFERENCES filament(id),
-             initial_weight REAL,
-             spool_weight REAL,
-             used_weight REAL NOT NULL DEFAULT 0,
-             location_id TEXT,
-             lot_nr TEXT,
-             comment TEXT,
-             archived INTEGER NOT NULL DEFAULT 0,
-             extra TEXT NOT NULL DEFAULT '{}',
-             -- Maker Connect's own: the machine it is loaded in.
-             machine TEXT
-         );",
-    )?;
-    // NFC tags (Spoolman 0.27's): one physical tag means one spool or filament.
-    db.execute_batch(
-        "CREATE TABLE IF NOT EXISTS tag (
-             id INTEGER PRIMARY KEY,
-             space_id INTEGER NOT NULL,
-             uid TEXT NOT NULL,
-             target_type TEXT NOT NULL,
-             spool_id INTEGER,
-             filament_id INTEGER,
-             target_value TEXT,
-             format TEXT,
-             added INTEGER NOT NULL,
-             UNIQUE (space_id, uid)
-         );
-         CREATE TABLE IF NOT EXISTS extra_field (
-             space_id INTEGER NOT NULL,
-             entity_type TEXT NOT NULL,
-             key TEXT NOT NULL,
-             definition TEXT NOT NULL,
-             PRIMARY KEY (space_id, entity_type, key)
-         );",
-    )?;
-    // A place can be a dry box with numbered slots, a spool in one of them.
-    for (table, column, definition) in [
-        ("locations", "slots", "INTEGER"),
-        ("locations", "model", "TEXT"),
-        ("locations", "description", "TEXT"),
-        ("spool", "slot", "INTEGER"),
-    ] {
-        let present: bool = db.query_row(
-            &format!("SELECT COUNT(*) > 0 FROM pragma_table_info('{table}') WHERE name = ?1"),
-            [column],
-            |r| r.get(0),
-        )?;
-        if !present {
-            db.execute(
-                &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
-                [],
-            )?;
-        }
-    }
-    if fresh {
-        move_over(db)?;
-    }
-    Ok(())
-}
-
-/// Materials and items kept before the Spoolman model: each brand a vendor, each material a
-/// filament, each item a spool with its number (`S-0007` is spool 7).
-fn move_over(db: &Connection) -> rusqlite::Result<()> {
-    let old: bool = db.query_row(
-        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = 'materials'",
-        [],
-        |r| r.get(0),
-    )?;
-    if !old {
-        return Ok(());
-    }
-    let mut materials = Vec::new();
-    {
-        let mut q = db.prepare("SELECT id, space_id, data FROM materials")?;
-        let rows = q.query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, String>(2)?,
-            ))
-        })?;
-        for row in rows {
-            let (id, space, data) = row?;
-            if let Ok(m) = serde_json::from_str::<Material>(&data) {
-                materials.push((id, space, m));
-            }
-        }
-    }
-    let mut filament_of = std::collections::HashMap::new();
-    for (old_id, space, m) in materials {
-        let id = insert_filament(db, space, &m)?;
-        filament_of.insert(old_id, id);
-    }
-    let mut q = db.prepare(
-        "SELECT id, space_id, material, amount, location, machine, state, created_at FROM items",
-    )?;
-    let items = q.query_map([], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, i64>(1)?,
-            r.get::<_, String>(2)?,
-            r.get::<_, f64>(3)?,
-            r.get::<_, Option<String>>(4)?,
-            r.get::<_, Option<String>>(5)?,
-            r.get::<_, String>(6)?,
-            r.get::<_, i64>(7)?,
-        ))
-    })?;
-    for item in items {
-        let (code, space, material, amount, location, machine, state, created) = item?;
-        let (Some(number), Some(filament)) = (spool_number(&code), filament_of.get(&material))
-        else {
-            continue;
-        };
-        let package: Option<f64> = db
-            .query_row(
-                "SELECT weight FROM filament WHERE id = ?1",
-                [filament],
-                |r| r.get(0),
-            )
-            .optional()?
-            .flatten();
-        let initial = package.unwrap_or(amount).max(amount);
-        let used_up = state == "used-up";
-        db.execute(
-            "INSERT INTO spool (id, space_id, registered, filament_id, initial_weight, used_weight,
-                 location_id, archived, machine)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                number,
-                space,
-                created,
-                filament,
-                initial,
-                if used_up { initial } else { initial - amount },
-                location,
-                used_up,
-                machine
-            ],
-        )?;
-    }
-    Ok(())
-}
-
-/// A vendor by its name in a space, made when missing.
-fn vendor_id(db: &Connection, space: i64, name: &str) -> rusqlite::Result<Option<i64>> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Ok(None);
-    }
-    if let Some(id) = db
-        .query_row(
-            "SELECT id FROM vendor WHERE space_id = ?1 AND name = ?2",
-            params![space, name],
-            |r| r.get(0),
-        )
-        .optional()?
-    {
-        return Ok(Some(id));
-    }
-    db.execute(
-        "INSERT INTO vendor (space_id, registered, name) VALUES (?1, ?2, ?3)",
-        params![space, now(), name],
-    )?;
-    Ok(Some(db.last_insert_rowid()))
-}
 
 /// A colour as Spoolman keeps it: hex without `#` (`1d1d1b`); None for one that is not.
 fn hex(color: Option<&str>) -> Option<String> {
@@ -280,41 +29,6 @@ fn hex(color: Option<&str>) -> Option<String> {
     full.chars()
         .all(|ch| ch.is_ascii_hexdigit())
         .then(|| full.to_ascii_lowercase())
-}
-
-fn insert_filament(db: &Connection, space: i64, m: &Material) -> rusqlite::Result<i64> {
-    let vendor = vendor_id(db, space, &m.brand)?;
-    db.execute(
-        "INSERT INTO filament (space_id, registered, name, vendor_id, material, density, diameter,
-             weight, spool_weight, article_number, settings_extruder_temp, settings_bed_temp,
-             color_hex, external_id, kind, unit, color_name, ink, media, width_mm, minimum)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-             ?19, ?20, ?21)",
-        params![
-            space,
-            now(),
-            m.name,
-            vendor,
-            material_of(m),
-            m.density_g_cm3.unwrap_or(1.24),
-            m.diameter_mm.unwrap_or(1.75),
-            m.package,
-            m.spool_g,
-            m.ean,
-            m.nozzle_c.map(|c| c.round() as i64),
-            m.bed_c.map(|c| c.round() as i64),
-            hex(m.color.as_deref()),
-            m.source,
-            m.kind,
-            m.unit,
-            m.color_name,
-            m.ink,
-            m.media,
-            m.width_mm,
-            m.minimum
-        ],
-    )?;
-    Ok(db.last_insert_rowid())
 }
 
 /// The material a name says (`Prusament PETG 1.75 mm` → `PETG`), for Spoolman's field.
@@ -560,117 +274,207 @@ pub struct Movement {
 }
 
 /// The next code of a kind in a space: `L-0001`.
-fn next_code(db: &Connection, table: &str, prefix: &str, space: i64) -> rusqlite::Result<String> {
-    let last: Option<String> = db
-        .query_row(
-            &format!(
-                "SELECT id FROM {table} WHERE space_id = ?1 AND id LIKE ?2 ORDER BY id DESC LIMIT 1"
-            ),
-            params![space, format!("{prefix}-%")],
-            |r| r.get(0),
-        )
-        .optional()?;
+async fn next_code(w: &mut Work, table: &str, prefix: &str) -> sqlx::Result<String> {
+    let last: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT id FROM {table} WHERE space_id = $1 AND id LIKE $2 ORDER BY id COLLATE \"C\" DESC LIMIT 1"
+    )))
+    .bind(w.space)
+    .bind(format!("{prefix}-%"))
+    .fetch_optional(w.c())
+    .await?;
     let n = last
         .and_then(|l| l.split_once('-').and_then(|(_, n)| n.parse::<u32>().ok()))
         .unwrap_or(0);
     Ok(format!("{prefix}-{:04}", n + 1))
 }
 
-impl Legacy {
-    pub(crate) fn movement(
-        &self,
-        space: i64,
+/// A material's row (`filament`), as [`Work::materials`] reads it.
+fn material_from(r: &sqlx::postgres::PgRow) -> sqlx::Result<Material> {
+    use sqlx::Row;
+    let kind: String = r.try_get(1)?;
+    let filament = kind == "filament";
+    Ok(Material {
+        id: r.try_get::<i64, _>(0)?.to_string(),
+        kind,
+        brand: r.try_get::<Option<String>, _>(2)?.unwrap_or_default(),
+        name: r.try_get::<Option<String>, _>(3)?.unwrap_or_default(),
+        color: r.try_get::<Option<String>, _>(4)?.map(|c| format!("#{c}")),
+        color_name: r.try_get(5)?,
+        ink: r.try_get(6)?,
+        unit: r.try_get(7)?,
+        package: r.try_get(8)?,
+        ean: r.try_get(9)?,
+        minimum: r.try_get::<Option<i64>, _>(10)?.map(|n| n as u32),
+        media: r.try_get(11)?,
+        width_mm: r.try_get::<Option<i64>, _>(12)?.map(|n| n as u32),
+        diameter_mm: if filament { r.try_get(13)? } else { None },
+        density_g_cm3: if filament { r.try_get(14)? } else { None },
+        spool_g: r.try_get(15)?,
+        nozzle_c: r.try_get::<Option<i64>, _>(16)?.map(|c| c as f64),
+        bed_c: r.try_get::<Option<i64>, _>(17)?.map(|c| c as f64),
+        source: r.try_get(18)?,
+    })
+}
+
+/// Rows as read: a location; a spool as an item; a movement.
+type LocationRow = (
+    String,
+    String,
+    Option<String>,
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+);
+type ItemRow = (i64, i64, f64, Option<String>, Option<String>, bool, i64);
+type MovementRow = (String, Option<f64>, Option<String>, Option<String>, i64);
+
+impl Work {
+    /// A vendor by its name in the space, made when missing.
+    async fn vendor_id(&mut self, name: &str) -> sqlx::Result<Option<i64>> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Ok(None);
+        }
+        if let Some(id) =
+            sqlx::query_scalar::<_, i64>("SELECT id FROM vendor WHERE space_id = $1 AND name = $2")
+                .bind(self.space)
+                .bind(name)
+                .fetch_optional(self.c())
+                .await?
+        {
+            return Ok(Some(id));
+        }
+        let id = sqlx::query_scalar(
+            "INSERT INTO vendor (space_id, registered, name) VALUES ($1, at_unix($2), $3) RETURNING id",
+        )
+        .bind(self.space)
+        .bind(now())
+        .bind(name)
+        .fetch_one(self.c())
+        .await?;
+        Ok(Some(id))
+    }
+
+    async fn insert_filament(&mut self, m: &Material) -> sqlx::Result<i64> {
+        let vendor = self.vendor_id(&m.brand).await?;
+        sqlx::query_scalar(
+            "INSERT INTO filament (space_id, registered, name, vendor_id, material, density, diameter,
+                 weight, spool_weight, article_number, settings_extruder_temp, settings_bed_temp,
+                 color_hex, external_id, kind, unit, color_name, ink, media, width_mm, minimum)
+             VALUES ($1, at_unix($2), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+                 $19, $20, $21)
+             RETURNING id",
+        )
+        .bind(self.space)
+        .bind(now())
+        .bind(&m.name)
+        .bind(vendor)
+        .bind(material_of(m))
+        .bind(m.density_g_cm3.unwrap_or(1.24))
+        .bind(m.diameter_mm.unwrap_or(1.75))
+        .bind(m.package)
+        .bind(m.spool_g)
+        .bind(&m.ean)
+        .bind(m.nozzle_c.map(|c| c.round() as i64))
+        .bind(m.bed_c.map(|c| c.round() as i64))
+        .bind(hex(m.color.as_deref()))
+        .bind(&m.source)
+        .bind(&m.kind)
+        .bind(&m.unit)
+        .bind(&m.color_name)
+        .bind(&m.ink)
+        .bind(&m.media)
+        .bind(m.width_mm.map(i64::from))
+        .bind(m.minimum.map(i64::from))
+        .fetch_one(self.c())
+        .await
+    }
+
+    pub(crate) async fn movement(
+        &mut self,
         item: &str,
         kind: &str,
         amount: Option<f64>,
         place: Option<&str>,
         note: Option<&str>,
-    ) -> rusqlite::Result<()> {
-        self.db.execute(
-            "INSERT INTO movements (space_id, item, kind, amount, place, note, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![space, item, kind, amount, place, note, now()],
-        )?;
+    ) -> sqlx::Result<()> {
+        sqlx::query(
+            "INSERT INTO movements (space_id, item, kind, amount, place, note, at)
+             VALUES ($1, $2, $3, $4, $5, $6, at_unix($7))",
+        )
+        .bind(self.space)
+        .bind(item)
+        .bind(kind)
+        .bind(amount)
+        .bind(place)
+        .bind(note)
+        .bind(now())
+        .execute(self.c())
+        .await?;
         Ok(())
     }
 
-    pub fn materials(&self, space: i64) -> rusqlite::Result<Vec<Material>> {
-        let mut q = self.db.prepare(
+    pub async fn materials(&mut self) -> sqlx::Result<Vec<Material>> {
+        let rows = sqlx::query(
             "SELECT f.id, f.kind, v.name, f.name, f.color_hex, f.color_name, f.ink, f.unit, f.weight,
                     f.article_number, f.minimum, f.media, f.width_mm, f.diameter, f.density,
                     f.spool_weight, f.settings_extruder_temp, f.settings_bed_temp, f.external_id
-             FROM filament f LEFT JOIN vendor v ON v.id = f.vendor_id WHERE f.space_id = ?1",
-        )?;
-        let rows = q.query_map([space], |r| {
-            let filament = r.get::<_, String>(1)? == "filament";
-            Ok(Material {
-                id: r.get::<_, i64>(0)?.to_string(),
-                kind: r.get(1)?,
-                brand: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                name: r.get::<_, Option<String>>(3)?.unwrap_or_default(),
-                color: r.get::<_, Option<String>>(4)?.map(|c| format!("#{c}")),
-                color_name: r.get(5)?,
-                ink: r.get(6)?,
-                unit: r.get(7)?,
-                package: r.get(8)?,
-                ean: r.get(9)?,
-                minimum: r.get(10)?,
-                media: r.get(11)?,
-                width_mm: r.get(12)?,
-                diameter_mm: if filament { r.get(13)? } else { None },
-                density_g_cm3: if filament { r.get(14)? } else { None },
-                spool_g: r.get(15)?,
-                nozzle_c: r.get::<_, Option<i64>>(16)?.map(|c| c as f64),
-                bed_c: r.get::<_, Option<i64>>(17)?.map(|c| c as f64),
-                source: r.get(18)?,
-            })
-        })?;
-        let mut out: Vec<Material> = rows.collect::<rusqlite::Result<_>>()?;
+             FROM filament f LEFT JOIN vendor v ON v.id = f.vendor_id WHERE f.space_id = $1",
+        )
+        .bind(self.space)
+        .fetch_all(self.c())
+        .await?;
+        let mut out: Vec<Material> = rows
+            .iter()
+            .map(material_from)
+            .collect::<sqlx::Result<_>>()?;
         out.sort_by(|a, b| (&a.kind, &a.brand, &a.name).cmp(&(&b.kind, &b.brand, &b.name)));
         Ok(out)
     }
 
-    pub fn add_material(&self, space: i64, material: Material) -> rusqlite::Result<String> {
-        let id = insert_filament(&self.db, space, &material)?;
+    pub async fn add_material(&mut self, material: Material) -> sqlx::Result<String> {
+        let id = self.insert_filament(&material).await?;
         self.changed();
         self.spoolman_event("filament", "added", id);
         Ok(id.to_string())
     }
 
     /// A material changed: false when there is no such one.
-    pub fn update_material(&self, space: i64, id: &str, m: Material) -> rusqlite::Result<bool> {
+    pub async fn update_material(&mut self, id: &str, m: Material) -> sqlx::Result<bool> {
         let Ok(id) = id.parse::<i64>() else {
             return Ok(false);
         };
-        let vendor = vendor_id(&self.db, space, &m.brand)?;
-        let n = self.db.execute(
-            "UPDATE filament SET name = ?1, vendor_id = ?2, material = ?3, density = ?4, diameter = ?5,
-                 weight = ?6, spool_weight = ?7, article_number = ?8, settings_extruder_temp = ?9,
-                 settings_bed_temp = ?10, color_hex = ?11, kind = ?12, unit = ?13, color_name = ?14,
-                 ink = ?15, media = ?16, width_mm = ?17, minimum = ?18
-             WHERE id = ?19 AND space_id = ?20",
-            params![
-                m.name,
-                vendor,
-                material_of(&m),
-                m.density_g_cm3.unwrap_or(1.24),
-                m.diameter_mm.unwrap_or(1.75),
-                m.package,
-                m.spool_g,
-                m.ean,
-                m.nozzle_c.map(|c| c.round() as i64),
-                m.bed_c.map(|c| c.round() as i64),
-                hex(m.color.as_deref()),
-                m.kind,
-                m.unit,
-                m.color_name,
-                m.ink,
-                m.media,
-                m.width_mm,
-                m.minimum,
-                id,
-                space
-            ],
-        )?;
+        let vendor = self.vendor_id(&m.brand).await?;
+        let n = sqlx::query(
+            "UPDATE filament SET name = $1, vendor_id = $2, material = $3, density = $4, diameter = $5,
+                 weight = $6, spool_weight = $7, article_number = $8, settings_extruder_temp = $9,
+                 settings_bed_temp = $10, color_hex = $11, kind = $12, unit = $13, color_name = $14,
+                 ink = $15, media = $16, width_mm = $17, minimum = $18
+             WHERE id = $19 AND space_id = $20",
+        )
+        .bind(&m.name)
+        .bind(vendor)
+        .bind(material_of(&m))
+        .bind(m.density_g_cm3.unwrap_or(1.24))
+        .bind(m.diameter_mm.unwrap_or(1.75))
+        .bind(m.package)
+        .bind(m.spool_g)
+        .bind(&m.ean)
+        .bind(m.nozzle_c.map(|c| c.round() as i64))
+        .bind(m.bed_c.map(|c| c.round() as i64))
+        .bind(hex(m.color.as_deref()))
+        .bind(&m.kind)
+        .bind(&m.unit)
+        .bind(&m.color_name)
+        .bind(&m.ink)
+        .bind(&m.media)
+        .bind(m.width_mm.map(i64::from))
+        .bind(m.minimum.map(i64::from))
+        .bind(id)
+        .bind(self.space)
+        .execute(self.c())
+        .await?
+        .rows_affected();
         if n > 0 {
             self.changed();
             self.spoolman_event("filament", "updated", id);
@@ -678,80 +482,88 @@ impl Legacy {
         Ok(n > 0)
     }
 
-    pub fn locations(&self, space: i64) -> rusqlite::Result<Vec<Location>> {
-        let mut q = self.db.prepare(
-            "SELECT id, name, parent, slots, model, description FROM locations WHERE space_id = ?1 ORDER BY id",
-        )?;
-        let rows = q.query_map([space], |r| {
-            Ok(Location {
-                id: r.get(0)?,
-                name: r.get(1)?,
-                parent: r.get(2)?,
-                slots: r.get(3)?,
-                model: r.get(4)?,
-                description: r.get(5)?,
+    pub async fn locations(&mut self) -> sqlx::Result<Vec<Location>> {
+        let rows: Vec<LocationRow> = sqlx::query_as(
+            "SELECT id, name, parent, slots, model, description FROM locations WHERE space_id = $1
+                 ORDER BY id COLLATE \"C\"",
+        )
+        .bind(self.space)
+        .fetch_all(self.c())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, name, parent, slots, model, description)| Location {
+                id,
+                name,
+                parent,
+                slots: slots.map(|s| s as u32),
+                model,
+                description,
             })
-        })?;
-        rows.collect()
+            .collect())
     }
 
-    pub fn add_location(
-        &self,
-        space: i64,
-        name: &str,
-        parent: Option<&str>,
-    ) -> rusqlite::Result<String> {
-        self.add_place(space, name, parent, None, None)
+    pub async fn add_location(&mut self, name: &str, parent: Option<&str>) -> sqlx::Result<String> {
+        self.add_place(name, parent, None, None).await
     }
 
     /// A place, perhaps a dry box with its slots (and which one it is): its code.
-    pub fn add_place(
-        &self,
-        space: i64,
+    pub async fn add_place(
+        &mut self,
         name: &str,
         parent: Option<&str>,
         slots: Option<u32>,
         model: Option<&str>,
-    ) -> rusqlite::Result<String> {
-        let id = next_code(&self.db, "locations", "L", space)?;
-        self.db.execute(
-            "INSERT INTO locations (id, space_id, name, parent, slots, model) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![id, space, name, parent, slots.filter(|s| *s > 0), model],
-        )?;
+    ) -> sqlx::Result<String> {
+        let id = next_code(self, "locations", "L").await?;
+        sqlx::query(
+            "INSERT INTO locations (id, space_id, name, parent, slots, model) VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(&id)
+        .bind(self.space)
+        .bind(name)
+        .bind(parent)
+        .bind(slots.filter(|s| *s > 0).map(i64::from))
+        .bind(model)
+        .execute(self.c())
+        .await?;
         self.changed();
         Ok(id)
     }
 
     /// A location changed: its name, description, slots, which dry box. Spools in slots it no
     /// longer has come out of them. False when there is no such location.
-    pub fn update_location(
-        &self,
-        space: i64,
+    pub async fn update_location(
+        &mut self,
         id: &str,
         name: &str,
         description: Option<&str>,
         slots: Option<u32>,
         model: Option<&str>,
-    ) -> rusqlite::Result<bool> {
-        let n = self.db.execute(
-            "UPDATE locations SET name = ?1, description = ?2, slots = ?3, model = ?4
-             WHERE id = ?5 AND space_id = ?6",
-            params![
-                name,
-                description,
-                slots.filter(|s| *s > 0),
-                model,
-                id,
-                space
-            ],
-        )?;
+    ) -> sqlx::Result<bool> {
+        let n = sqlx::query(
+            "UPDATE locations SET name = $1, description = $2, slots = $3, model = $4
+             WHERE id = $5 AND space_id = $6",
+        )
+        .bind(name)
+        .bind(description)
+        .bind(slots.filter(|s| *s > 0).map(i64::from))
+        .bind(model)
+        .bind(id)
+        .bind(self.space)
+        .execute(self.c())
+        .await?
+        .rows_affected();
         if n > 0 {
-            self.db.execute(
-                "UPDATE spool SET slot = NULL WHERE location_id = ?1 AND slot > COALESCE(?2, 0)",
-                params![id, slots],
-            )?;
+            sqlx::query(
+                "UPDATE spool SET slot = NULL WHERE location_id = $1 AND slot > COALESCE($2, 0)",
+            )
+            .bind(id)
+            .bind(slots.map(i64::from))
+            .execute(self.c())
+            .await?;
             self.changed();
-            for spool in self.spools_at(id)? {
+            for spool in self.spools_at(id).await? {
                 self.spoolman_event("spool", "updated", spool);
             }
         }
@@ -759,26 +571,31 @@ impl Legacy {
     }
 
     /// A location removed; what was in it has no location then (and stays loaded where it was).
-    pub fn remove_location(&self, space: i64, id: &str) -> rusqlite::Result<bool> {
-        let spools = self.spools_at(id)?;
-        self.db.execute(
-            "UPDATE spool SET location_id = NULL, slot = NULL WHERE location_id = ?1 AND space_id = ?2",
-            params![id, space],
-        )?;
-        let n = self.db.execute(
-            "DELETE FROM locations WHERE id = ?1 AND space_id = ?2",
-            params![id, space],
-        )?;
+    pub async fn remove_location(&mut self, id: &str) -> sqlx::Result<bool> {
+        let spools = self.spools_at(id).await?;
+        sqlx::query(
+            "UPDATE spool SET location_id = NULL, slot = NULL WHERE location_id = $1 AND space_id = $2",
+        )
+        .bind(id)
+        .bind(self.space)
+        .execute(self.c())
+        .await?;
+        let n = sqlx::query("DELETE FROM locations WHERE id = $1 AND space_id = $2")
+            .bind(id)
+            .bind(self.space)
+            .execute(self.c())
+            .await?
+            .rows_affected();
         if n > 0 {
             for spool in spools {
                 self.movement(
-                    space,
                     &spool_code(spool),
                     "moved",
                     None,
                     None,
                     Some("its location was removed"),
-                )?;
+                )
+                .await?;
                 self.spoolman_event("spool", "updated", spool);
             }
             self.changed();
@@ -786,94 +603,104 @@ impl Legacy {
         Ok(n > 0)
     }
 
-    fn spools_at(&self, location: &str) -> rusqlite::Result<Vec<i64>> {
-        let mut q = self
-            .db
-            .prepare("SELECT id FROM spool WHERE location_id = ?1")?;
-        let ids = q.query_map([location], |r| r.get(0))?;
-        ids.collect()
+    async fn spools_at(&mut self, location: &str) -> sqlx::Result<Vec<i64>> {
+        sqlx::query_scalar("SELECT id FROM spool WHERE location_id = $1")
+            .bind(location)
+            .fetch_all(self.c())
+            .await
     }
 
     /// A location by its name (Spoolman keeps locations as names), made when missing: its code.
-    pub fn location_named(&self, space: i64, name: &str) -> rusqlite::Result<Option<String>> {
+    pub async fn location_named(&mut self, name: &str) -> sqlx::Result<Option<String>> {
         let name = name.trim();
         if name.is_empty() {
             return Ok(None);
         }
-        if let Some(id) = self
-            .db
-            .query_row(
-                "SELECT id FROM locations WHERE space_id = ?1 AND name = ?2",
-                params![space, name],
-                |r| r.get(0),
-            )
-            .optional()?
+        if let Some(id) = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM locations WHERE space_id = $1 AND name = $2",
+        )
+        .bind(self.space)
+        .bind(name)
+        .fetch_optional(self.c())
+        .await?
         {
             return Ok(Some(id));
         }
-        self.add_location(space, name, None).map(Some)
+        self.add_location(name, None).await.map(Some)
     }
 
-    pub fn items(&self, space: i64) -> rusqlite::Result<Vec<Item>> {
-        let mut q = self.db.prepare(
+    pub async fn items(&mut self) -> sqlx::Result<Vec<Item>> {
+        let rows: Vec<ItemRow> = sqlx::query_as(
             "SELECT id, filament_id, COALESCE(initial_weight, 0) - used_weight, location_id, machine,
-                    archived, registered
-             FROM spool WHERE space_id = ?1 ORDER BY id",
-        )?;
-        let rows = q.query_map([space], |r| {
-            let archived: bool = r.get(5)?;
-            let machine: Option<String> = r.get(4)?;
-            Ok(Item {
-                id: spool_code(r.get(0)?),
-                material: r.get::<_, i64>(1)?.to_string(),
-                amount: r.get::<_, f64>(2)?.max(0.0),
-                location: r.get(3)?,
-                state: if archived {
-                    "used-up"
-                } else if machine.is_some() {
-                    "loaded"
-                } else {
-                    "stock"
-                }
-                .to_owned(),
-                machine,
-                created_at: r.get(6)?,
-            })
-        })?;
-        rows.collect()
+                    archived, unix_seconds(registered)
+             FROM spool WHERE space_id = $1 ORDER BY id",
+        )
+        .bind(self.space)
+        .fetch_all(self.c())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, filament, amount, location, machine, archived, registered)| Item {
+                    id: spool_code(id),
+                    material: filament.to_string(),
+                    amount: amount.max(0.0),
+                    location,
+                    state: if archived {
+                        "used-up"
+                    } else if machine.is_some() {
+                        "loaded"
+                    } else {
+                        "stock"
+                    }
+                    .to_owned(),
+                    machine,
+                    created_at: registered,
+                },
+            )
+            .collect())
     }
 
-    fn item(&self, space: i64, id: &str) -> rusqlite::Result<Option<Item>> {
-        Ok(self.items(space)?.into_iter().find(|i| i.id == id))
+    async fn item(&mut self, id: &str) -> sqlx::Result<Option<Item>> {
+        Ok(self.items().await?.into_iter().find(|i| i.id == id))
     }
 
     /// Items received: `count` of a material, each with its package's amount, at a place.
-    pub fn receive(
-        &self,
-        space: i64,
+    pub async fn receive(
+        &mut self,
         material: &str,
         count: u32,
         location: Option<&str>,
-    ) -> rusqlite::Result<Result<Vec<String>, &'static str>> {
+    ) -> sqlx::Result<Result<Vec<String>, &'static str>> {
         let Some(m) = self
-            .materials(space)?
+            .materials()
+            .await?
             .into_iter()
             .find(|m| m.id == material)
         else {
             return Ok(Err("no such material"));
         };
+        let filament: i64 = m.id.parse().unwrap_or_default();
         let mut made = Vec::new();
         for _ in 0..count.clamp(1, 200) {
             let amount = m.package.unwrap_or(1.0);
-            self.db.execute(
+            let id: i64 = sqlx::query_scalar(
                 "INSERT INTO spool (space_id, registered, filament_id, initial_weight, spool_weight,
                      used_weight, location_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)",
-                params![space, now(), m.id, amount, m.spool_g, location],
-            )?;
-            let id = self.db.last_insert_rowid();
+                 VALUES ($1, at_unix($2), $3, $4, $5, 0, $6)
+                 RETURNING id",
+            )
+            .bind(self.space)
+            .bind(now())
+            .bind(filament)
+            .bind(amount)
+            .bind(m.spool_g)
+            .bind(location)
+            .fetch_one(self.c())
+            .await?;
             let code = spool_code(id);
-            self.movement(space, &code, "received", Some(amount), location, None)?;
+            self.movement(&code, "received", Some(amount), location, None)
+                .await?;
             self.spoolman_event("spool", "added", id);
             made.push(code);
         }
@@ -882,21 +709,21 @@ impl Legacy {
     }
 
     /// Moves an item to a location (out of a machine, if it was loaded).
-    pub fn move_item(
-        &self,
-        space: i64,
-        id: &str,
-        location: Option<&str>,
-    ) -> rusqlite::Result<bool> {
+    pub async fn move_item(&mut self, id: &str, location: Option<&str>) -> sqlx::Result<bool> {
         let Some(number) = spool_number(id) else {
             return Ok(false);
         };
-        let n = self.db.execute(
-            "UPDATE spool SET location_id = ?1, machine = NULL, slot = NULL WHERE id = ?2 AND space_id = ?3",
-            params![location, number, space],
-        )?;
+        let n = sqlx::query(
+            "UPDATE spool SET location_id = $1, machine = NULL, slot = NULL WHERE id = $2 AND space_id = $3",
+        )
+        .bind(location)
+        .bind(number)
+        .bind(self.space)
+        .execute(self.c())
+        .await?
+        .rows_affected();
         if n > 0 {
-            self.movement(space, id, "moved", None, location, None)?;
+            self.movement(id, "moved", None, location, None).await?;
             self.changed();
             self.spoolman_event("spool", "updated", number);
         }
@@ -906,15 +733,14 @@ impl Legacy {
     /// Loads an item into a machine, where it is (a spool feeds a printer from its dry box):
     /// what was loaded there is no longer (one spool, one cassette at a time). A tape of the
     /// machine's profile tells the machine its tape: the media id returned, for the caller to
-    /// set on Postgres ([`Store::set_media`]; transitional, lane 3a). `target`: the machine of the
-    /// space ([`Store::machine`], None: not in it), read before the lock.
-    pub fn load_item(
-        &self,
-        space: i64,
+    /// set ([`Store::set_media`]). `target`: the machine of the space ([`Store::machine`], None: not
+    /// in it), read before.
+    pub async fn load_item(
+        &mut self,
         id: &str,
         target: Option<&crate::store::Machine>,
-    ) -> rusqlite::Result<Result<Option<String>, &'static str>> {
-        let Some(item) = self.item(space, id)? else {
+    ) -> sqlx::Result<Result<Option<String>, &'static str>> {
+        let Some(item) = self.item(id).await? else {
             return Ok(Err("no such item"));
         };
         let Some(target) = target else {
@@ -925,7 +751,8 @@ impl Legacy {
         // made for one printer model only into that model (a LabelManager's cassette does
         // not go into a LabelWriter). A printer without a profile takes any.
         let material = self
-            .materials(space)?
+            .materials()
+            .await?
             .into_iter()
             .find(|m| m.id == item.material);
         let made_for = material
@@ -949,36 +776,45 @@ impl Legacy {
             _ => {}
         }
         let others: Vec<String> = self
-            .items(space)?
+            .items()
+            .await?
             .into_iter()
             .filter(|i| i.machine.as_deref() == Some(machine) && i.id != id)
             .map(|i| i.id)
             .collect();
         for other in others {
             if let Some(number) = spool_number(&other) {
-                self.db
-                    .execute("UPDATE spool SET machine = NULL WHERE id = ?1", [number])?;
+                sqlx::query("UPDATE spool SET machine = NULL WHERE id = $1")
+                    .bind(number)
+                    .execute(self.c())
+                    .await?;
                 self.spoolman_event("spool", "updated", number);
             }
-            self.movement(space, &other, "unloaded", None, Some(machine), None)?;
+            self.movement(&other, "unloaded", None, Some(machine), None)
+                .await?;
         }
         let number = spool_number(id).unwrap_or_default();
-        self.db.execute(
+        sqlx::query(
             // In a box (a place with slots) it stays: the box feeds the printer. From a shelf,
             // or from nowhere, it is on the printer now.
-            "UPDATE spool SET machine = ?1,
+            "UPDATE spool SET machine = $1,
                  location_id = CASE WHEN (SELECT slots FROM locations WHERE id = spool.location_id) > 0
                      THEN location_id ELSE NULL END,
                  slot = CASE WHEN (SELECT slots FROM locations WHERE id = spool.location_id) > 0
                      THEN slot ELSE NULL END
-             WHERE id = ?2",
-            params![machine, number],
-        )?;
-        self.movement(space, id, "loaded", None, Some(machine), None)?;
+             WHERE id = $2",
+        )
+        .bind(machine)
+        .bind(number)
+        .execute(self.c())
+        .await?;
+        self.movement(id, "loaded", None, Some(machine), None)
+            .await?;
         self.spoolman_event("spool", "updated", number);
         // A tape of this printer's profile: the printer now knows which tape it has.
         if let Some(media) = self
-            .materials(space)?
+            .materials()
+            .await?
             .into_iter()
             .find(|m| m.id == item.material)
             .and_then(|m| m.media)
@@ -993,92 +829,204 @@ impl Legacy {
     }
 
     /// Takes an item out of its machine, leaving it where it is.
-    pub fn unload_item(&self, space: i64, id: &str) -> rusqlite::Result<bool> {
+    pub async fn unload_item(&mut self, id: &str) -> sqlx::Result<bool> {
         let Some(number) = spool_number(id) else {
             return Ok(false);
         };
-        let machine: Option<String> = self
-            .db
-            .query_row(
-                "SELECT machine FROM spool WHERE id = ?1 AND space_id = ?2",
-                params![number, space],
-                |r| r.get(0),
-            )
-            .optional()?
-            .flatten();
+        let machine: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT machine FROM spool WHERE id = $1 AND space_id = $2",
+        )
+        .bind(number)
+        .bind(self.space)
+        .fetch_optional(self.c())
+        .await?
+        .flatten();
         let Some(machine) = machine else {
             return Ok(false);
         };
-        self.db
-            .execute("UPDATE spool SET machine = NULL WHERE id = ?1", [number])?;
-        self.movement(space, id, "unloaded", None, Some(&machine), None)?;
+        sqlx::query("UPDATE spool SET machine = NULL WHERE id = $1")
+            .bind(number)
+            .execute(self.c())
+            .await?;
+        self.movement(id, "unloaded", None, Some(&machine), None)
+            .await?;
         self.changed();
         self.spoolman_event("spool", "updated", number);
         Ok(true)
     }
 
     /// Sets what is left (weighed or counted), the difference recorded.
-    pub fn set_amount(
-        &self,
-        space: i64,
-        id: &str,
-        amount: f64,
-        why: &str,
-    ) -> rusqlite::Result<bool> {
-        let (Some(item), Some(number)) = (self.item(space, id)?, spool_number(id)) else {
+    pub async fn set_amount(&mut self, id: &str, amount: f64, why: &str) -> sqlx::Result<bool> {
+        let (Some(item), Some(number)) = (self.item(id).await?, spool_number(id)) else {
             return Ok(false);
         };
         let amount = amount.max(0.0);
         // More than it came with: it came with more.
-        self.db.execute(
-            "UPDATE spool SET initial_weight = MAX(COALESCE(initial_weight, 0), ?1),
-                 used_weight = MAX(COALESCE(initial_weight, 0), ?1) - ?1
-             WHERE id = ?2",
-            params![amount, number],
-        )?;
+        sqlx::query(
+            "UPDATE spool SET initial_weight = GREATEST(COALESCE(initial_weight, 0), $1),
+                 used_weight = GREATEST(COALESCE(initial_weight, 0), $1) - $1
+             WHERE id = $2",
+        )
+        .bind(amount)
+        .bind(number)
+        .execute(self.c())
+        .await?;
         let kind = if why == "weighed" {
             "weighed"
         } else {
             "adjusted"
         };
-        self.movement(space, id, kind, Some(amount - item.amount), None, None)?;
+        self.movement(id, kind, Some(amount - item.amount), None, None)
+            .await?;
         self.changed();
         self.spoolman_event("spool", "updated", number);
         Ok(true)
     }
 
-    pub fn use_up(&self, space: i64, id: &str) -> rusqlite::Result<bool> {
+    pub async fn use_up(&mut self, id: &str) -> sqlx::Result<bool> {
         let Some(number) = spool_number(id) else {
             return Ok(false);
         };
-        let n = self.db.execute(
-            "UPDATE spool SET archived = 1, used_weight = COALESCE(initial_weight, used_weight),
+        let n = sqlx::query(
+            "UPDATE spool SET archived = true, used_weight = COALESCE(initial_weight, used_weight),
                  machine = NULL, location_id = NULL
-             WHERE id = ?1 AND space_id = ?2",
-            params![number, space],
-        )?;
+             WHERE id = $1 AND space_id = $2",
+        )
+        .bind(number)
+        .bind(self.space)
+        .execute(self.c())
+        .await?
+        .rows_affected();
         if n > 0 {
-            self.movement(space, id, "used-up", None, None, None)?;
+            self.movement(id, "used-up", None, None, None).await?;
             self.changed();
             self.spoolman_event("spool", "updated", number);
         }
         Ok(n > 0)
     }
 
-    pub fn movements(&self, space: i64, item: &str) -> rusqlite::Result<Vec<Movement>> {
-        let mut q = self.db.prepare(
-            "SELECT kind, amount, place, note, at FROM movements WHERE space_id = ?1 AND item = ?2 ORDER BY id DESC",
-        )?;
-        let rows = q.query_map(params![space, item], |r| {
-            Ok(Movement {
-                kind: r.get(0)?,
-                amount: r.get(1)?,
-                place: r.get(2)?,
-                note: r.get(3)?,
-                at: r.get(4)?,
+    pub async fn movements(&mut self, item: &str) -> sqlx::Result<Vec<Movement>> {
+        let rows: Vec<MovementRow> = sqlx::query_as(
+            "SELECT kind, amount, place, note, unix_seconds(at) FROM movements
+             WHERE space_id = $1 AND item = $2 ORDER BY id DESC",
+        )
+        .bind(self.space)
+        .bind(item)
+        .fetch_all(self.c())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(kind, amount, place, note, at)| Movement {
+                kind,
+                amount,
+                place,
+                note,
+                at,
             })
-        })?;
-        rows.collect()
+            .collect())
+    }
+
+    /// What is loaded in each machine of the space, as a machine shows it ([`Store::machines`]).
+    pub(crate) async fn loaded(
+        &mut self,
+    ) -> sqlx::Result<std::collections::HashMap<String, crate::store::Loaded>> {
+        let items = self.items().await?;
+        let materials = self.materials().await?;
+        let mut out = std::collections::HashMap::new();
+        for item in items.iter().filter(|i| i.state == "loaded") {
+            let Some(machine) = item.machine.clone() else {
+                continue;
+            };
+            if out.contains_key(&machine) {
+                continue;
+            }
+            let material = materials.iter().find(|m| m.id == item.material);
+            let kind_material = match item.material.parse::<i64>() {
+                Ok(id) => sqlx::query_scalar::<_, Option<String>>(
+                    "SELECT material FROM filament WHERE id = $1 AND kind = 'filament'",
+                )
+                .bind(id)
+                .fetch_optional(self.c())
+                .await?
+                .flatten(),
+                Err(_) => None,
+            };
+            let place = match &item.location {
+                Some(code) => {
+                    sqlx::query_scalar::<_, String>(
+                        "SELECT name FROM locations WHERE id = $1 AND space_id = $2",
+                    )
+                    .bind(code)
+                    .bind(self.space)
+                    .fetch_optional(self.c())
+                    .await?
+                }
+                None => None,
+            };
+            let slot = match spool_number(&item.id) {
+                Some(id) => {
+                    sqlx::query_scalar::<_, Option<i64>>("SELECT slot FROM spool WHERE id = $1")
+                        .bind(id)
+                        .fetch_optional(self.c())
+                        .await?
+                        .flatten()
+                }
+                None => None,
+            };
+            out.insert(
+                machine,
+                crate::store::Loaded {
+                    item: item.id.clone(),
+                    name: material
+                        .map(|m| m.color_name.clone().unwrap_or_else(|| m.name.clone()))
+                        .unwrap_or_else(|| item.material.clone()),
+                    color: material.and_then(|m| m.color.clone()),
+                    nozzle_c: material.and_then(|m| m.nozzle_c),
+                    bed_c: material.and_then(|m| m.bed_c),
+                    material: kind_material,
+                    place,
+                    slot,
+                    amount: item.amount,
+                    unit: material.map_or("pcs".to_owned(), |m| m.unit.clone()),
+                },
+            );
+        }
+        Ok(out)
+    }
+}
+
+/// One change to Materials in its own transaction: `stock!(store, space, |w| w.items())`.
+macro_rules! in_space {
+    ($store:expr, $space:expr, |$w:ident| $body:expr) => {
+        async {
+            let mut $w = $store.work($space).await?;
+            let out = $body.await?;
+            $w.commit($store).await?;
+            Ok::<_, sqlx::Error>(out)
+        }
+    };
+}
+pub(crate) use in_space;
+
+impl Store {
+    pub async fn materials(&self, space: i64) -> sqlx::Result<Vec<Material>> {
+        in_space!(self, space, |w| w.materials()).await
+    }
+
+    pub async fn add_material(&self, space: i64, material: Material) -> sqlx::Result<String> {
+        in_space!(self, space, |w| w.add_material(material)).await
+    }
+
+    pub async fn locations(&self, space: i64) -> sqlx::Result<Vec<Location>> {
+        in_space!(self, space, |w| w.locations()).await
+    }
+
+    pub async fn items(&self, space: i64) -> sqlx::Result<Vec<Item>> {
+        in_space!(self, space, |w| w.items()).await
+    }
+
+    pub async fn movements(&self, space: i64, item: &str) -> sqlx::Result<Vec<Movement>> {
+        in_space!(self, space, |w| w.movements(item)).await
     }
 }
 
@@ -1096,12 +1044,11 @@ async fn change_material(
     if material.name.trim().is_empty() {
         return (StatusCode::BAD_REQUEST, "a material needs a name").into_response();
     }
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.update_material(space, &id, material) {
+    match in_space!(&store, space, |w| w.update_material(&id, material)).await {
         Ok(true) => Json(serde_json::json!({ "id": id })).into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such material").into_response(),
         Err(e) => failed(e),
@@ -1251,17 +1198,16 @@ fn space(access: &crate::access::Access) -> Result<i64, Box<Response>> {
 }
 
 async fn overview(access: crate::access::Access, State(store): State<Store>) -> Response {
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match (
-        store.materials(space),
-        store.items(space),
-        store.locations(space),
-    ) {
-        (Ok(materials), Ok(items), Ok(locations)) => Json(serde_json::json!({
+    let all = in_space!(&store, space, |w| async {
+        Ok::<_, sqlx::Error>((w.materials().await?, w.items().await?, w.locations().await?))
+    })
+    .await;
+    match all {
+        Ok((materials, items, locations)) => Json(serde_json::json!({
             "materials": materials,
             "items": items,
             "locations": locations,
@@ -1269,7 +1215,7 @@ async fn overview(access: crate::access::Access, State(store): State<Store>) -> 
             "dryboxes": DRYBOXES,
         }))
         .into_response(),
-        (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => failed(e),
+        Err(e) => failed(e),
     }
 }
 
@@ -1281,12 +1227,11 @@ async fn new_material(
     if material.name.trim().is_empty() {
         return (StatusCode::BAD_REQUEST, "a material needs a name").into_response();
     }
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.add_material(space, material) {
+    match store.add_material(space, material).await {
         Ok(id) => Json(serde_json::json!({ "id": id })).into_response(),
         Err(e) => failed(e),
     }
@@ -1327,28 +1272,37 @@ async fn change_location(
     if name.is_empty() {
         return (StatusCode::BAD_REQUEST, "a location needs a name").into_response();
     }
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    if store
-        .locations(space)
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return failed(e),
+    };
+    if w.locations()
+        .await
         .is_ok_and(|all| all.iter().any(|l| l.name == name && l.id != id))
     {
         return (StatusCode::CONFLICT, "another location has that name").into_response();
     }
-    match store.update_location(
-        space,
-        &id,
-        name,
-        c.description
-            .as_deref()
-            .map(str::trim)
-            .filter(|d| !d.is_empty()),
-        c.slots.map(|n| n.min(64)),
-        c.model.as_deref().filter(|m| !m.is_empty()),
-    ) {
+    let changed = w
+        .update_location(
+            &id,
+            name,
+            c.description
+                .as_deref()
+                .map(str::trim)
+                .filter(|d| !d.is_empty()),
+            c.slots.map(|n| n.min(64)),
+            c.model.as_deref().filter(|m| !m.is_empty()),
+        )
+        .await;
+    let changed = match changed {
+        Ok(c) => w.commit(&store).await.map(|()| c),
+        Err(e) => Err(e),
+    };
+    match changed {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such location").into_response(),
         Err(e) => failed(e),
@@ -1360,12 +1314,11 @@ async fn remove_location(
     State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.remove_location(space, &id) {
+    match in_space!(&store, space, |w| w.remove_location(&id)).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such location").into_response(),
         Err(e) => failed(e),
@@ -1380,32 +1333,36 @@ async fn new_location(
     if new.name.trim().is_empty() {
         return (StatusCode::BAD_REQUEST, "a location needs a name").into_response();
     }
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.add_place(
-        space,
-        new.name.trim(),
-        new.parent.as_deref().filter(|p| !p.is_empty()),
-        new.slots.map(|n| n.min(64)),
-        new.model.as_deref().filter(|m| !m.is_empty()),
-    ) {
-        Ok(id) => {
-            if let Some(d) = new
-                .description
-                .as_deref()
-                .map(str::trim)
-                .filter(|d| !d.is_empty())
-            {
-                let _ = store.db.execute(
-                    "UPDATE locations SET description = ?1 WHERE id = ?2",
-                    params![d, id],
-                );
-            }
-            Json(serde_json::json!({ "id": id })).into_response()
+    let made = in_space!(&store, space, |w| async {
+        let id = w
+            .add_place(
+                new.name.trim(),
+                new.parent.as_deref().filter(|p| !p.is_empty()),
+                new.slots.map(|n| n.min(64)),
+                new.model.as_deref().filter(|m| !m.is_empty()),
+            )
+            .await?;
+        if let Some(d) = new
+            .description
+            .as_deref()
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+        {
+            let _ = sqlx::query("UPDATE locations SET description = $1 WHERE id = $2")
+                .bind(d)
+                .bind(&id)
+                .execute(w.c())
+                .await;
         }
+        Ok::<_, sqlx::Error>(id)
+    })
+    .await;
+    match made {
+        Ok(id) => Json(serde_json::json!({ "id": id })).into_response(),
         Err(e) => failed(e),
     }
 }
@@ -1423,17 +1380,12 @@ async fn receive(
     State(store): State<Store>,
     Json(r): Json<Receive>,
 ) -> Response {
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.receive(
-        space,
-        &r.material,
-        r.count,
-        r.location.as_deref().filter(|l| !l.is_empty()),
-    ) {
+    let location = r.location.as_deref().filter(|l| !l.is_empty());
+    match in_space!(&store, space, |w| w.receive(&r.material, r.count, location)).await {
         Ok(Ok(ids)) => Json(serde_json::json!({ "items": ids })).into_response(),
         Ok(Err(why)) => (StatusCode::BAD_REQUEST, why).into_response(),
         Err(e) => failed(e),
@@ -1458,12 +1410,12 @@ async fn move_item(
     Path(id): Path<String>,
     Json(p): Json<Place>,
 ) -> Response {
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.move_item(space, &id, p.location.as_deref().filter(|l| !l.is_empty())) {
+    let location = p.location.as_deref().filter(|l| !l.is_empty());
+    match in_space!(&store, space, |w| w.move_item(&id, location)).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such item").into_response(),
         Err(e) => failed(e),
@@ -1491,7 +1443,7 @@ async fn load_item(
         Ok(target) => target,
         Err(e) => return failed(e),
     };
-    let loaded = {
+    {
         let legacy = store.lock().unwrap();
         // Loading a spool or a tape is using the machine.
         if let Err(refused) = crate::access::check_machine(
@@ -1503,8 +1455,8 @@ async fn load_item(
         ) {
             return *refused;
         }
-        legacy.load_item(space, &id, target.as_ref())
-    };
+    }
+    let loaded = in_space!(&store, space, |w| w.load_item(&id, target.as_ref())).await;
     match loaded {
         Ok(Ok(None)) => StatusCode::NO_CONTENT.into_response(),
         Ok(Ok(Some(media))) => match store.set_media(space, &machine, Some(&media)).await {
@@ -1521,12 +1473,11 @@ async fn unload_item(
     State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.unload_item(space, &id) {
+    match in_space!(&store, space, |w| w.unload_item(&id)).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "not loaded in a machine").into_response(),
         Err(e) => failed(e),
@@ -1542,12 +1493,12 @@ async fn set_amount(
     let Some(amount) = p.amount.filter(|a| a.is_finite()) else {
         return (StatusCode::BAD_REQUEST, "how much?").into_response();
     };
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.set_amount(space, &id, amount, p.why.as_deref().unwrap_or("adjusted")) {
+    let why = p.why.as_deref().unwrap_or("adjusted");
+    match in_space!(&store, space, |w| w.set_amount(&id, amount, why)).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such item").into_response(),
         Err(e) => failed(e),
@@ -1559,12 +1510,11 @@ async fn use_up(
     State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.use_up(space, &id) {
+    match in_space!(&store, space, |w| w.use_up(&id)).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such item").into_response(),
         Err(e) => failed(e),
@@ -1576,12 +1526,11 @@ async fn movements(
     State(store): State<Store>,
     Path(id): Path<String>,
 ) -> Response {
-    let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.movements(space, &id) {
+    match store.movements(space, &id).await {
         Ok(list) => Json(list).into_response(),
         Err(e) => failed(e),
     }
@@ -1673,71 +1622,6 @@ mod tests {
         assert!(all.iter().filter(|m| m.kind == "filament").count() > 200);
     }
 
-    /// Materials kept before the Spoolman model move over: a brand a vendor, a material a
-    /// filament, an item a spool with its number, a used-up one archived.
-    #[test]
-    fn materials_from_before_move_over() {
-        let dir = std::env::temp_dir().join(format!("mc-move-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("old.db");
-        {
-            let db = Connection::open(&path).unwrap();
-            db.execute_batch(
-                "CREATE TABLE materials (id TEXT PRIMARY KEY, space_id INTEGER NOT NULL, data TEXT NOT NULL);
-                 CREATE TABLE items (id TEXT PRIMARY KEY, space_id INTEGER NOT NULL, material TEXT NOT NULL,
-                     amount REAL NOT NULL, location TEXT, machine TEXT, state TEXT NOT NULL, created_at INTEGER NOT NULL);",
-            )
-            .unwrap();
-            let petg = serde_json::json!({"kind": "filament", "brand": "Prusa Polymers",
-                "name": "Prusament PETG 1.75 mm", "color": "#2b2b33", "color_name": "Galaxy Black",
-                "unit": "g", "package": 1000.0, "density_g_cm3": 1.27, "diameter_mm": 1.75, "spool_g": 278.0});
-            db.execute(
-                "INSERT INTO materials VALUES ('m-1', 1, ?1)",
-                [petg.to_string()],
-            )
-            .unwrap();
-            db.execute(
-                "INSERT INTO items VALUES ('S-0007', 1, 'm-1', 412.0, 'L-0001', NULL, 'stock', 5)",
-                [],
-            )
-            .unwrap();
-            db.execute(
-                "INSERT INTO items VALUES ('S-0008', 1, 'm-1', 0.0, NULL, NULL, 'used-up', 6)",
-                [],
-            )
-            .unwrap();
-        }
-        let store = Legacy::open(path.to_str().unwrap()).unwrap();
-        // SQLite alone: a space's id is only a number here.
-        let space = 1;
-        let material = &store.materials(space).unwrap()[0];
-        assert_eq!(
-            (
-                material.brand.as_str(),
-                material.color_name.as_deref(),
-                material.spool_g
-            ),
-            ("Prusa Polymers", Some("Galaxy Black"), Some(278.0))
-        );
-        let items = store.items(space).unwrap();
-        assert_eq!(
-            items
-                .iter()
-                .map(|i| (i.id.as_str(), i.amount, i.state.as_str()))
-                .collect::<Vec<_>>(),
-            [("S-0007", 412.0, "stock"), ("S-0008", 0.0, "used-up")]
-        );
-        let spool = store
-            .sm_spool(space, 7, &crate::spoolman::MachineNames::new())
-            .unwrap()
-            .unwrap();
-        assert_eq!(spool["filament"]["material"], "PETG");
-        assert_eq!(spool["filament"]["vendor"]["name"], "Prusa Polymers");
-        assert_eq!(spool["used_weight"], 588.0);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
         not(feature = "pg-tests"),
@@ -1757,42 +1641,45 @@ mod tests {
         let dymo_m = pg.machine(space, &dymo).await.unwrap();
         let writer_m = pg.machine(space, &writer).await.unwrap();
         let media = {
-            let store = pg.lock().unwrap();
+            let mut store = pg.work(space).await.unwrap();
             let tape = catalogue()
                 .into_iter()
                 .find(|m| m.media.as_deref() == Some("dymo/labelmanager-pnp:45018"))
                 .unwrap();
-            let material = store.add_material(space, tape.clone()).unwrap();
+            let material = store.add_material(tape.clone()).await.unwrap();
             let named = Material {
                 color_name: Some("Black on Yellow".into()),
                 ..tape
             };
-            assert!(store.update_material(space, &material, named).unwrap());
+            assert!(store.update_material(&material, named).await.unwrap());
             assert_eq!(
-                store.materials(space).unwrap()[0].color_name.as_deref(),
+                store.materials().await.unwrap()[0].color_name.as_deref(),
                 Some("Black on Yellow")
             );
-            let shelf = store.add_location(space, "Shelf B2", None).unwrap();
+            let shelf = store.add_location("Shelf B2", None).await.unwrap();
             assert_eq!(shelf, "L-0001");
             let items = store
-                .receive(space, &material, 2, Some(&shelf))
+                .receive(&material, 2, Some(&shelf))
+                .await
                 .unwrap()
                 .unwrap();
             assert_eq!(items, ["S-0001", "S-0002"]);
-            assert_eq!(store.items(space).unwrap()[0].amount, 7.0);
+            assert_eq!(store.items().await.unwrap()[0].amount, 7.0);
 
             // Not into a LabelWriter: a LabelManager's cassette.
             assert_eq!(
-                store.load_item(space, "S-0001", writer_m.as_ref()).unwrap(),
+                store.load_item("S-0001", writer_m.as_ref()).await.unwrap(),
                 Err("this tape or roll is made for another label printer")
             );
             store
-                .load_item(space, "S-0001", dymo_m.as_ref())
+                .load_item("S-0001", dymo_m.as_ref())
+                .await
                 .unwrap()
                 .unwrap();
             // From a shelf it is on the printer now; from a box (a place with slots) it stays.
             let loaded = store
-                .items(space)
+                .items()
+                .await
                 .unwrap()
                 .into_iter()
                 .find(|i| i.id == "S-0001")
@@ -1802,15 +1689,18 @@ mod tests {
                 ("loaded", None)
             );
             let dry = store
-                .add_place(space, "RepBox", None, Some(6), Some("repkord-repbox-2.5"))
+                .add_place("RepBox", None, Some(6), Some("repkord-repbox-2.5"))
+                .await
                 .unwrap();
-            store.move_item(space, "S-0001", Some(&dry)).unwrap();
+            store.move_item("S-0001", Some(&dry)).await.unwrap();
             let media = store
-                .load_item(space, "S-0001", dymo_m.as_ref())
+                .load_item("S-0001", dymo_m.as_ref())
+                .await
                 .unwrap()
                 .unwrap();
             let fed = store
-                .items(space)
+                .items()
+                .await
                 .unwrap()
                 .into_iter()
                 .find(|i| i.id == "S-0001")
@@ -1819,13 +1709,14 @@ mod tests {
                 (fed.state.as_str(), fed.location.as_deref()),
                 ("loaded", Some(dry.as_str()))
             );
+            store.commit(&pg).await.unwrap();
             media
         };
         // What the website's load does next (crate::stock::load_item): the tape on Postgres.
         pg.set_media(space, &dymo, media.as_deref()).await.unwrap();
         let printer = pg.machine(space, &dymo).await.unwrap().unwrap();
         let dymo_m = Some(printer.clone());
-        let store = pg.lock().unwrap();
+        let mut store = pg.work(space).await.unwrap();
         assert_eq!(
             printer.media.as_deref(),
             Some("45018"),
@@ -1833,21 +1724,24 @@ mod tests {
         );
         // The second loaded: the first goes back to stock.
         store
-            .load_item(space, "S-0002", dymo_m.as_ref())
+            .load_item("S-0002", dymo_m.as_ref())
+            .await
             .unwrap()
             .unwrap();
         let first = store
-            .items(space)
+            .items()
+            .await
             .unwrap()
             .into_iter()
             .find(|i| i.id == "S-0001")
             .unwrap();
         assert_eq!((first.state.as_str(), first.machine), ("stock", None));
 
-        store.set_amount(space, "S-0002", 4.5, "weighed").unwrap();
-        store.use_up(space, "S-0001").unwrap();
+        store.set_amount("S-0002", 4.5, "weighed").await.unwrap();
+        store.use_up("S-0001").await.unwrap();
         let kinds: Vec<String> = store
-            .movements(space, "S-0001")
+            .movements("S-0001")
+            .await
             .unwrap()
             .into_iter()
             .map(|m| m.kind)
@@ -1858,7 +1752,7 @@ mod tests {
                 "used-up", "unloaded", "loaded", "moved", "loaded", "received"
             ]
         );
-        let weighed = &store.movements(space, "S-0002").unwrap()[0];
+        let weighed = &store.movements("S-0002").await.unwrap()[0];
         assert_eq!(
             (weighed.kind.as_str(), weighed.amount),
             ("weighed", Some(-2.5))
