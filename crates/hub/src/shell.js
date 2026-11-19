@@ -240,7 +240,7 @@
   document.addEventListener("saved", (event) => {
     if (!event.target.matches("[data-rename]")) return;
     const name = event.target.querySelector("input[name=name]").value.trim();
-    const title = document.querySelector(".title h2");
+    const title = document.querySelector(".title h1, .title h2");
     if (title) title.textContent = name;
     document.title = `${name} · Maker Connect`;
   });

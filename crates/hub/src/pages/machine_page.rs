@@ -10,6 +10,18 @@ use maker_connect_protocol::MachineKind;
 const MACHINE_STYLE: &str = include_str!("../machine.css");
 const MACHINE_SCRIPT: &str = include_str!("../machine.js");
 
+/// The design's badge class for a state class: as shell.js `ST`.
+fn st_class(cls: &str) -> &'static str {
+    match cls {
+        "idle" | "cooling" | "loaded" => "idle",
+        "busy" => "busy",
+        "paused" | "attention" => "warn",
+        "error" => "bad",
+        "offline" | "disconnected" | "out" => "off",
+        _ => "unk",
+    }
+}
+
 /// How a machine's state is shown, and its badge's class: as the pages' `shownState` does.
 /// A machine that is ready but waits for something (no cassette) shows that as a notice.
 pub(crate) fn shown_state(machine: &Machine) -> (String, String) {
@@ -92,6 +104,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         .flatten();
     let profile = found.or(told.as_ref());
     let (state, state_class) = shown_state(machine);
+    let state_class = st_class(&state_class);
     let kind = profile.map_or(machine.kind.label(), |p| p.model.as_str());
     let link = match machine.link.as_str() {
         "prusa-connect" => "Built-in Prusa Connect",
@@ -112,12 +125,10 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
 </head>
 <body>
 {header}
-<main class="wide" data-id="{id}" data-me="{me}" data-staff="{staff}">
-  <div class="title">
-    <h2>{name}</h2>
-    <span class="state {state_class}" data-live="state">{state}</span>
-  </div>
-  <p class="subtitle">{subtitle}</p>
+<main id="main" tabindex="-1" class="wide" data-id="{id}" data-me="{me}" data-staff="{staff}">
+  <p class="crumbs"><a href="../machines">Machines</a> › {name}</p>
+  <div class="head title"><h1>{name}</h1><span class="st {state_class}" data-live="state">{state}</span></div>
+  <p class="muted" style="margin-top:-8px">{subtitle}</p>
   {labels}
   {no_use}<div class="notices" data-notices>{notices}</div><div class="notices" data-question></div>
   <nav class="tabs" role="tablist">

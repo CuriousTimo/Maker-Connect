@@ -315,7 +315,7 @@ thead th { border-top: 0; color: var(--muted); font-weight: 600; font-size: var(
 /* Jog pad, tiles */
 .tiles { display: grid; gap: var(--s-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr)); }
 .tile { --bc: var(--line); padding: var(--s-3); }
-.tile span { display: block; font-size: var(--fs-1); color: var(--muted); }
+.tile > span { display: block; font-size: var(--fs-1); color: var(--muted); }
 .tile b { font-size: var(--fs-4); font-variant-numeric: tabular-nums; }
 .jog { display: grid; grid-template-columns: repeat(3, var(--tap)); gap: var(--s-2); }
 .jog .btn { padding: 0; }
