@@ -27,8 +27,9 @@ is, and which reference it follows. Flows over these links are in [flows.md](flo
 | L18 | Hub → event bus → subscribers | in-process broadcast | none | in-process | ours | plan §2.4 |
 | L19 | Hub page → hub | same origin | `/laser-design/*` (LaserFoundry web fork, gzip in the binary) calling `/api/v1` | session cookie | LaserFoundry v0.5.0 fork | hub-side.md HS13 |
 
-Not in v2 (parked by the plan, §3): the SimplyPrint/Moonraker route for Klipper, the MK3 PrusaLink
-port (the MK3 joins over `/p/ws`), out-of-process drivers over Prusa's plugin wire. Open: how USB
+Not in v2 (parked by the plan, §3): the SimplyPrint/Moonraker route for Klipper, out-of-process drivers
+over Prusa's plugin wire. The MK3 is the `prusa` kind on the agent, ported from PrusaLink's `websockets`
+branch; whether it joins over `/p/ws` or the agent link is [OQ-45](risks-and-open.md#oq-45-how-the-mk3-port-reaches-the-hub). Open: how USB
 camera frames reach the hub ([OQ-9](risks-and-open.md#oq-9-how-usb-camera-video-reaches-the-hub)),
 door access hardware ([OQ-10](risks-and-open.md#oq-10-door-access-link)).
 

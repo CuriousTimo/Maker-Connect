@@ -7,13 +7,16 @@ steps, owner 2026-11-16). Nothing is built. Rules: `CLAUDE.md` (one reference to
 
 | | Repo | Commit | Version |
 |---|---|---|---|
-| PrusaLink | `reference/Prusa-Link` (github.com/prusa3d/Prusa-Link) | `c453996d50fe176b352b8164ac7b0a6520f918de` (2026-11-03 13:31, "Fix multi-instance image reboot timeout") | `__version__ = "0.9.0.dev0"` (`prusa/link/__init__.py:8`); `ChangeLog` head is "0.9.0 (unreleased)" |
-| Connect SDK (printer) | `reference/Prusa-Connect-SDK-Printer` | `3d21ae5904ef00a7c08aa4d0c4a577fbdb609a66` (2026-11-03 13:11) | `__version__ = "0.9.0dev0"` (`prusa/connect/printer/__init__.py:38`) |
+| PrusaLink | `reference/Prusa-Link` (github.com/prusa3d/Prusa-Link), branch `websockets` | `171148ce7dbc7f1fb0633ea519523f3258877e2e` (2026-11-05, "Install the websockets branch of the SDK in README, CI and dev images") | `__version__ = "1.0.0.dev0"` (`prusa/link/__init__.py:8`) |
+| Connect SDK (printer) | `reference/Prusa-Connect-SDK-Printer`, branch `websockets` | `c0d7d233d4ce2081e6c020d2e98fb92ad9b51521` (2026-11-03, "test: cover the WebSocket transport and WS command parsing") | `__version__ = "0.9.0dev0"` (`prusa/connect/printer/__init__.py:39`) |
 
-- **Pin:** PrusaLink asks for `prusa.connect.sdk.printer>=0.8.1` (`requirements.txt:1`), a minimum, not a
-  pin. The SDK in `reference/` is 0.9.0dev0, newer than the minimum; so "the SDK PrusaLink pins" is
-  "any >= 0.8.1" and the reference is this checkout. Which release PrusaLink 0.8.1 shipped with is not in
-  the checkout (not read).
+- **Pin** (owner 2026-11-19, [decision](../design/decisions/20261119-mk3-reference-prusalink-websockets.md)): the
+  `websockets` branches, which speak the WebSocket to Connect. PrusaLink takes the SDK
+  `@git+…Prusa-Connect-SDK-Printer.git@websockets` (`requirements.txt:1`), so the pair is fixed. The earlier
+  pin was master `c453996d` and SDK `3d21ae59` (HTTP to Connect).
+- **Not re-counted yet:** the line numbers and sizes in §2 to §9 were taken at the earlier pin. Against it,
+  `prusa/` differs by +331/−105 lines in 18 files (PrusaLink) and by +609/−228 lines in 6 files (SDK), so
+  every file:line must be extracted again at the new pin before a section is built.
 - **Licence (D1, owner 2026-11-12):** port both. GitHub shows no licence for either; both `setup.py` say
   "Freeware" (`Prusa-Link/setup.py:129`, `Prusa-Connect-SDK-Printer/setup.py:29`, `pyproject.toml:5`). The
   code is public. Every ported file names its source and commit.
@@ -118,7 +121,7 @@ trigger** (ready, not ready, reprint). Question Q1.
 ### 3.4 The SDK's HTTP side (Connect)
 
 `Printer.register`, `loop`, `loop_step`, `parse_command`, `make_headers` (`__init__.py:647-860`) and `MyPrinter.parse_command`
-(`sdk_augmentation/printer.py`) speak to Prusa Connect. Proposal: **not ported**; the hub link (step 2) is the only link.
+(`sdk_augmentation/printer.py`) speak to Prusa Connect. Proposal: **not ported**; the hub link (step 2) is the only link. Reopened by the new pin: whether the SDK's WebSocket side (`ws.py`) is ported and talks `/p/ws` to the hub is [OQ-45](../design/risks-and-open.md#oq-45-how-the-mk3-port-reaches-the-hub).
 The seam kept: `set_state`, `event_cb`, `telemetry`, `set_handler` (`__init__.py:290-340,619`), whose output goes to the
 engine as `Event`s instead of a queue for HTTP. `Printer` is guarded by `if not self.token` (:315, :337), so a token-less
 `Printer` would drop everything: the port must not rely on that. UNCLEAR: whether `Printer` stays as a class or its seam is
