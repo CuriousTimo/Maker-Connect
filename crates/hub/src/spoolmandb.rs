@@ -544,6 +544,11 @@ async fn export(
         )
             .into_response();
     };
+    // What the spools' `loaded_in` says, read before the lock.
+    let names = match store.spool_machine_names(access.space).await {
+        Ok(names) => names,
+        Err(error) => return crate::failed(error),
+    };
     let (vendors, filaments, spools) = {
         let store = store.lock().unwrap();
         let space = access.space;
@@ -559,7 +564,7 @@ async fn export(
                 .map(|r| r.flatten().collect())
                 .unwrap_or_default();
             ids.into_iter()
-                .filter_map(|id| store.one(r, space, id).ok().flatten())
+                .filter_map(|id| store.one(r, space, id, &names).ok().flatten())
                 .collect()
         };
         (all("vendor"), all("filament"), all("spool"))
@@ -626,7 +631,8 @@ mod tests {
     #[test]
     fn a_spoolman_moves_over_and_spoolmandb_is_taken_once() {
         let store = Legacy::open(":memory:").unwrap();
-        let space = store.default_space().unwrap().0;
+        // SQLite alone: a space's id is only a number here.
+        let space = 1;
         let export = json!([{
             "id": 12, "registered": "2025-03-01T10:00:00Z", "used_weight": 250.0,
             "initial_weight": 1000.0, "location": "Dry box 1", "archived": false,
@@ -650,7 +656,7 @@ mod tests {
             }
         );
         let spool = store
-            .sm_spool(space, 12)
+            .sm_spool(space, 12, &crate::spoolman::MachineNames::new())
             .unwrap()
             .expect("spool 12 kept its id");
         assert_eq!(spool["remaining_weight"], 750.0);

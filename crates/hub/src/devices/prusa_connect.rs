@@ -386,7 +386,15 @@ async fn telemetry(
     }
     // A printer not seen for longer than ONLINE_SECONDS: what it was given and had not
     // answered failed, before this report is taken in (K18 (b), `docs/plans/agent-engine.md`).
-    if let Err(error) = store.lock().unwrap().fail_commands_of_gone_printer(token) {
+    let caller = match store.caller(token).await {
+        Ok(caller) => caller,
+        Err(error) => return failed(error),
+    };
+    if let Err(error) = store
+        .lock()
+        .unwrap()
+        .fail_commands_of_gone_printer(caller.as_ref())
+    {
         return failed(error);
     }
     let mut telemetry = to_telemetry(&report);
@@ -414,7 +422,7 @@ async fn telemetry(
         let _ = store
             .lock()
             .unwrap()
-            .command_still_running(token, id as u32);
+            .command_still_running(caller.as_ref(), id as u32);
     }
     let reported = store.report(token, &telemetry).await;
     // A print it runs itself (from its stick, or started at its screen): recorded as a job
@@ -460,7 +468,7 @@ async fn telemetry(
     let mut store = store.lock().unwrap();
     match reported {
         // A command goes back as the answer, G-code as text or JSON; none: an empty answer.
-        Ok(Some(_)) => match store.next_command_of_any_kind(token) {
+        Ok(Some(_)) => match store.next_command_of_any_kind(caller.as_ref()) {
             Ok(Some((id, body, json))) => {
                 println!(
                     "command {id} to the printer: {}",
@@ -500,6 +508,10 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
     }
     let shared = store;
     let name = text(&event, "event");
+    let caller = match shared.caller(token).await {
+        Ok(caller) => caller,
+        Err(error) => return failed(error),
+    };
     {
         let mut store = shared.lock().unwrap();
         if let Some(id) = event["command_id"].as_u64() {
@@ -522,7 +534,8 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
             if let Some(state) = state {
                 let reason = event["reason"].as_str().map(str::to_owned);
                 println!("command {id}: {name} {}", reason.as_deref().unwrap_or(""));
-                if let Err(error) = store.command_went(token, id as u32, state, reason, Vec::new())
+                if let Err(error) =
+                    store.command_went(caller.as_ref(), id as u32, state, reason, Vec::new())
                 {
                     return failed(error);
                 }
@@ -703,10 +716,11 @@ mod tests {
         // A command from the website goes back as the answer to its next telemetry, and the
         // printer tells how it went.
         let mini_id = mini.id.clone();
+        let link = store.link_of(space, &mini_id).await.unwrap();
         let id = store
             .lock()
             .unwrap()
-            .queue_command(space, &mini_id, "Home", "G28")
+            .queue_command(link.as_deref(), &mini_id, "Home", "G28")
             .unwrap()
             .unwrap();
         let report = || {

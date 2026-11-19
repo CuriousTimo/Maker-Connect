@@ -185,14 +185,10 @@ fn move_targets(
     access: &access::Access,
     machine: &str,
     spaces: &[access::SpaceOf],
+    grants: &access::Grants,
 ) -> Vec<(String, String)> {
     let manages = store
-        .may(
-            access,
-            machine,
-            access::Level::Manage,
-            &access::Grants::none_needed(),
-        )
+        .may(access, machine, access::Level::Manage, grants)
         .ok()
         .flatten()
         .unwrap_or(false);
@@ -297,14 +293,13 @@ pub(crate) async fn history(
     State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Response {
-    let store = store.lock().unwrap();
-    match store
-        .space_id_of(&access)
-        .and_then(|(space, _)| store.history(space, &id))
-    {
-        Ok(Some(samples)) => Json(samples).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
-        Err(error) => failed(error),
+    let of_space = match store.link_of(access.space, &id).await {
+        Ok(link) => link.is_some(),
+        Err(error) => return failed(error),
+    };
+    match store.lock().unwrap().history(of_space, &id) {
+        Some(samples) => Json(samples).into_response(),
+        None => (StatusCode::NOT_FOUND, "no such machine").into_response(),
     }
 }
 
@@ -487,7 +482,7 @@ pub(crate) async fn answer(
         let kwargs = serde_json::json!({ "dialog_id": dialog, "button": name });
         let command = serde_json::json!({ "command": "DIALOG_ACTION", "kwargs": kwargs });
         return match store.queue_connect_command(
-            space,
+            Some(machine.link.as_str()),
             &id,
             &format!("Answer: {name}"),
             &command,
@@ -611,14 +606,9 @@ pub(crate) async fn machine_page(
     let store = store.lock().unwrap();
     match found {
         Ok((space, Some(machine))) if machine.kind == protocol::MachineKind::Label => {
-            let move_to = move_targets(&store, &access, &machine.id, &spaces);
+            let move_to = move_targets(&store, &access, &machine.id, &spaces, &grants);
             let manage = store
-                .may(
-                    &access,
-                    &machine.id,
-                    access::Level::Manage,
-                    &access::Grants::none_needed(),
-                )
+                .may(&access, &machine.id, access::Level::Manage, &grants)
                 .ok()
                 .flatten()
                 .unwrap_or(false);
@@ -634,7 +624,7 @@ pub(crate) async fn machine_page(
         }
         Ok((space, Some(machine))) => {
             let extra = machine_page::Extra {
-                camera_tab: camera_tab(&store, &access, &machine.id),
+                camera_tab: camera_tab(&store, &access, &machine.id, &grants),
                 me: access.user_id,
                 staff: access.role >= access::Role::Admin,
                 asked,
@@ -645,14 +635,9 @@ pub(crate) async fn machine_page(
                     .ok()
                     .flatten()
                     .unwrap_or(false),
-                move_to: move_targets(&store, &access, &machine.id, &spaces),
+                move_to: move_targets(&store, &access, &machine.id, &spaces, &grants),
                 manage: store
-                    .may(
-                        &access,
-                        &machine.id,
-                        access::Level::Manage,
-                        &access::Grants::none_needed(),
-                    )
+                    .may(&access, &machine.id, access::Level::Manage, &grants)
                     .ok()
                     .flatten()
                     .unwrap_or(false),
@@ -673,12 +658,13 @@ fn camera_tab(
     store: &crate::store::Legacy,
     access: &crate::access::Access,
     machine: &str,
+    grants: &access::Grants,
 ) -> Option<String> {
     #[cfg(feature = "cameras")]
-    return crate::cameras::page::machine_tab(store, access, machine);
+    return crate::cameras::page::machine_tab(store, access, machine, grants);
     #[cfg(not(feature = "cameras"))]
     {
-        let _ = (store, access, machine);
+        let _ = (store, access, machine, grants);
         None
     }
 }

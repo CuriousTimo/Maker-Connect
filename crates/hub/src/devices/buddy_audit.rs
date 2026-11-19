@@ -651,9 +651,10 @@ async fn buddy_takes_every_command_the_hub_sends(pool: sqlx::PgPool) {
         ("resume", "ResumePrint"),
         ("stop", "StopPrint"),
     ] {
+        let link = mini.store.link_of(mini.space, id).await.unwrap();
         crate::devices::printer_files::job_control(
             &mut mini.store.lock().unwrap(),
-            mini.space,
+            link.as_deref(),
             id,
             action,
         )
@@ -900,12 +901,13 @@ async fn the_events_buddy_sends_settle_commands(pool: sqlx::PgPool) {
     ];
     for (name, settled, extra) in cases {
         // a command to settle
+        let link = mini.store.link_of(mini.space, &mini.id).await.unwrap();
         let id = mini
             .store
             .lock()
             .unwrap()
             .queue_connect_command(
-                mini.space,
+                link.as_deref(),
                 &mini.id,
                 "x",
                 &json!({"command": "SEND_INFO"}),
@@ -1003,11 +1005,12 @@ async fn the_answer_to_a_report_is_what_buddy_reads(pool: sqlx::PgPool) {
     assert_eq!(status, StatusCode::NO_CONTENT); // :726
     assert!(body.is_empty() && headers.get("command-id").is_none());
     // G-code: one command for the background (planner.cpp:673 Gcode), text/x.gcode (resp_parser :45).
+    let link = mini.store.link_of(mini.space, &mini.id).await.unwrap();
     let id = mini
         .store
         .lock()
         .unwrap()
-        .queue_command(mini.space, &mini.id, "Home", "G28")
+        .queue_command(link.as_deref(), &mini.id, "Home", "G28")
         .unwrap()
         .unwrap();
     let (cid, content_type, body) = mini.gets("IDLE").await;
@@ -1364,12 +1367,13 @@ async fn the_listing_follows_file_info_and_file_changed(pool: sqlx::PgPool) {
 async fn a_command_stays_pending_until_buddy_answers_it(pool: sqlx::PgPool) {
     let mini = Mini::new(&pool).await;
     mini.report(r#"{"state":"IDLE"}"#).await;
+    let link = mini.store.link_of(mini.space, &mini.id).await.unwrap();
     let queue = || {
         mini.store
             .lock()
             .unwrap()
             .queue_connect_command(
-                mini.space,
+                link.as_deref(),
                 &mini.id,
                 "x",
                 &json!({"command": "SEND_INFO"}),

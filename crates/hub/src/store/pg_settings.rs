@@ -10,13 +10,11 @@ impl Store {
     async fn set_column(
         &self,
         space: i64,
-        machine: &str,
         update: sqlx::query::Query<'_, sqlx::Postgres, sqlx::postgres::PgArguments>,
     ) -> sqlx::Result<bool> {
         let mut tx = self.pg().space(space).await?;
         let n = update.execute(&mut *tx).await?.rows_affected();
         tx.commit().await?;
-        self.mirror_machine(Some(machine), None).await?;
         self.changed();
         Ok(n > 0)
     }
@@ -30,7 +28,7 @@ impl Store {
             space,
             mode
         );
-        self.set_column(space, machine, q).await
+        self.set_column(space, q).await
     }
 
     /// Needs permission (true) or is open to every member (false).
@@ -52,7 +50,7 @@ impl Store {
             space,
             joined
         );
-        let found = self.set_column(space, machine, q).await?;
+        let found = self.set_column(space, q).await?;
         // What was confirmed was for the old list.
         self.lock().unwrap().ppe_ok.retain(|(_, m), _| m != machine);
         Ok(found)
@@ -66,7 +64,7 @@ impl Store {
             space,
             on
         );
-        self.set_column(space, machine, q).await
+        self.set_column(space, q).await
     }
 
     /// A service every so many printing hours (None: no upkeep).
@@ -82,7 +80,7 @@ impl Store {
             space,
             every_h
         );
-        self.set_column(space, machine, q).await
+        self.set_column(space, q).await
     }
 
     /// The service was done: the count starts again.
@@ -93,7 +91,7 @@ impl Store {
             space,
             now()
         );
-        self.set_column(space, machine, q).await
+        self.set_column(space, q).await
     }
 
     /// The build plate on a machine (`Textured PEI`), as someone said.
@@ -109,7 +107,7 @@ impl Store {
             space,
             sheet
         );
-        self.set_column(space, machine, q).await
+        self.set_column(space, q).await
     }
 
     /// Who started a print from the machine's USB stick on the website, and when (no job row: the
@@ -128,24 +126,20 @@ impl Store {
             by,
             now()
         );
-        self.set_column(space, machine, q).await
+        self.set_column(space, q).await
     }
 
     /// A print from the stick is over once the printer is idle again (a minute on: it may still be
     /// starting).
     pub async fn usb_print_over(&self, machine: &str) -> sqlx::Result<()> {
-        let n = sqlx::query!(
+        sqlx::query!(
             "UPDATE machines SET usb_print_by = NULL, usb_print_at = NULL
              WHERE id = $1 AND usb_print_by IS NOT NULL AND usb_print_at < at_unix($2)",
             machine,
             now() - 60
         )
         .execute(&self.pg().admin)
-        .await?
-        .rows_affected();
-        if n > 0 {
-            self.mirror_machine(Some(machine), None).await?;
-        }
+        .await?;
         Ok(())
     }
 
@@ -173,7 +167,7 @@ impl Store {
         )
         .execute(&self.pg().admin)
         .await?;
-        self.mirror_machine(Some(machine), None).await
+        Ok(())
     }
 
     /// Asks the agents of `machines` (in space `space`) to update to `tag`: how many were asked.
@@ -200,9 +194,6 @@ impl Store {
             .rows_affected();
         }
         tx.commit().await?;
-        for machine in machines {
-            self.mirror_machine(Some(machine), None).await?;
-        }
         Ok(asked)
     }
 }

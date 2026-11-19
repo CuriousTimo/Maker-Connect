@@ -204,15 +204,6 @@ impl Store {
         )
         .fetch_one(&self.pg().admin)
         .await?;
-        // Transitional (lanes 1-4): the SQLite tables still point at their space by id.
-        self.lock()
-            .unwrap()
-            .db
-            .execute(
-                "INSERT OR IGNORE INTO spaces (id, name) VALUES (?1, ?2)",
-                rusqlite::params![space, name],
-            )
-            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
         Ok(space)
     }
 
@@ -381,9 +372,11 @@ impl Store {
                 .unwrap_or_default(),
             None => String::new(),
         };
-        let machine = machine
-            .and_then(|m| self.lock().unwrap().machine_name_any_space(m))
-            .unwrap_or_default();
+        let machine = match machine {
+            Some(m) => self.machine_name_any_space(m).await.ok().flatten(),
+            None => None,
+        }
+        .unwrap_or_default();
         (user, machine)
     }
 
@@ -705,15 +698,17 @@ impl Store {
         .fetch_all(&mut *tx)
         .await?;
         tx.commit().await?;
-        // Transitional: machines are still on SQLite.
-        let legacy = self.lock().unwrap();
+        let machines = self.machine_modes(space).await?;
         Ok(rows
             .into_iter()
             .map(|r| AuditLine {
                 at: r.at,
                 actor: r.actor,
                 action: r.action,
-                target: legacy.machine_name_in(space, &r.target).unwrap_or(r.target),
+                target: machines
+                    .get(&r.target)
+                    .map(|m| m.name.clone())
+                    .unwrap_or(r.target),
                 detail: r.detail,
             })
             .collect())

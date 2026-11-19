@@ -85,10 +85,7 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
     let mut closed_of = Vec::new();
     let mut machine_grants: Vec<(String, i64, crate::access::Grant)> = Vec::new();
     for machine in &machines {
-        let closed = store
-            .lock()
-            .unwrap()
-            .induction_required(space, &machine.id)?;
+        let closed = machine.induction_required;
         if closed {
             for g in store.grants(space, &machine.id).await? {
                 machine_grants.push((machine.id.clone(), g.user_id, g));
@@ -735,25 +732,13 @@ async fn set_permissions(
         Ok(groups) => groups,
         Err(error) => return failed(error),
     };
-    // The machines that need permission (transitional: on SQLite, read before Postgres is written).
-    let machines = match store.machines(access.space).await {
-        Ok(machines) => machines,
-        Err(error) => return failed(error),
-    };
-    let closed: rusqlite::Result<Vec<(String, String)>> = {
-        let legacy = store.lock().unwrap();
-        let mut closed = Vec::new();
-        for machine in machines {
-            match legacy.induction_required(access.space, &machine.id) {
-                Ok(true) => closed.push((machine.id, machine.name)),
-                Ok(false) => {}
-                Err(error) => return failed(error),
-            }
-        }
-        Ok(closed)
-    };
-    let closed = match closed {
-        Ok(closed) => closed,
+    // The machines that need permission.
+    let closed: Vec<(String, String)> = match store.machines(access.space).await {
+        Ok(machines) => machines
+            .into_iter()
+            .filter(|m| m.induction_required)
+            .map(|m| (m.id, m.name))
+            .collect(),
         Err(error) => return failed(error),
     };
     // What is given and taken, in order; a refused date stops there, and what came before it is

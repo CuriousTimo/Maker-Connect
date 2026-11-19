@@ -17,7 +17,6 @@ mod pg_files;
 mod pg_jobs;
 pub(crate) use pg_jobs::JobFacts;
 
-mod pg_mirror;
 mod pg_settings;
 
 mod commands;
@@ -208,6 +207,10 @@ pub struct Machine {
     pub upkeep: Option<crate::farm::Upkeep>,
     /// The build plate on it (`Textured PEI`), as someone said (crate::farm).
     pub sheet: Option<String>,
+    /// Its farm flag as kept, whatever its kind (`farm` shows it for a 3D printer only): the
+    /// project queue's ([`crate::farm`]). Not sent.
+    #[serde(skip)]
+    pub takes_work: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -819,18 +822,17 @@ mod tests {
                 .unwrap_or_else(|_| Vec::<String>::new())
         };
         // A new database: nothing to back up.
-        // The SQLite file keeps its own machine rows (the copy of Postgres's, lane 3a).
+        // A row of the SQLite file's own (a Materials location).
         let id = {
             let store = Legacy::open(path).unwrap();
             store
                 .db
                 .execute(
-                    "INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at)
-                     VALUES ('m1', 1, 'MINI', 'printer', '0.1.0', 't1', 0)",
+                    "INSERT INTO locations (id, space_id, name) VALUES ('L-0001', 1, 'Shelf A1')",
                     [],
                 )
                 .unwrap();
-            "m1".to_owned()
+            "Shelf A1".to_owned()
         };
         assert!(backups().is_empty());
         // The same build again: no copy either.
@@ -851,15 +853,18 @@ mod tests {
             made[0].ends_with(&format!("-0.0.9-to-{BUILD}.db")),
             "{made:?}"
         );
-        // The copy holds the machine, and so does the database itself.
+        // The copy holds the row, and so does the database itself.
+        let count = |db: &Connection| -> i64 {
+            db.query_row(
+                "SELECT COUNT(*) FROM locations WHERE name = ?1",
+                [&id],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
         let copy = Connection::open(dir.join("maker-connect-backups").join(&made[0])).unwrap();
-        let kept: i64 = copy
-            .query_row("SELECT COUNT(*) FROM machines WHERE id = ?1", [&id], |r| {
-                r.get(0)
-            })
-            .unwrap();
-        assert_eq!(kept, 1);
-        assert!(store.machine_on_mirror(1, &id).unwrap().is_some());
+        assert_eq!(count(&copy), 1);
+        assert_eq!(count(&store.db), 1);
         drop(store);
         drop(Legacy::open(path).unwrap());
         assert_eq!(backups().len(), 1);
@@ -977,10 +982,11 @@ mod tests {
             .unwrap()
             .unwrap()
             .remove(0);
+        let target = pg.machine(space, &printer).await.unwrap();
         let media = pg
             .lock()
             .unwrap()
-            .load_item(space, &spool, &printer)
+            .load_item(space, &spool, target.as_ref())
             .unwrap()
             .unwrap();
         if let Some(media) = media {

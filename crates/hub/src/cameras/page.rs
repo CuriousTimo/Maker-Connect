@@ -49,7 +49,12 @@ pub fn routes() -> Router<Store> {
 }
 
 /// The camera, when `access` may watch it; else the answer.
-fn watchable(store: &Legacy, access: &Access, id: i64) -> Result<Camera, Box<Response>> {
+fn watchable(
+    store: &Legacy,
+    access: &Access,
+    id: i64,
+    grants: &crate::access::Grants,
+) -> Result<Camera, Box<Response>> {
     let camera = match store.camera(access.space, id) {
         Ok(Some(camera)) => camera,
         Ok(None) => {
@@ -59,7 +64,7 @@ fn watchable(store: &Legacy, access: &Access, id: i64) -> Result<Camera, Box<Res
         }
         Err(error) => return Err(Box::new(failed(error))),
     };
-    match store.may_view_camera(access, &camera) {
+    match store.may_view_camera(access, &camera, grants) {
         Ok(true) => Ok(camera),
         Ok(false) => Err(Box::new(
             (StatusCode::FORBIDDEN, "you may not watch this camera").into_response(),
@@ -73,7 +78,11 @@ async fn video_rtc() -> Response {
 }
 
 async fn live(access: Access, State(store): State<Store>, Path(id): Path<i64>) -> Response {
-    match watchable(&store.lock().unwrap(), &access, id) {
+    let grants = match store.grants_for(&access, crate::access::Level::View).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    match watchable(&store.lock().unwrap(), &access, id, &grants) {
         Ok(_) => Html(LIVE).into_response(),
         Err(refused) => *refused,
     }
@@ -85,7 +94,11 @@ async fn mse(
     Path(id): Path<i64>,
     ws: WebSocketUpgrade,
 ) -> Response {
-    if let Err(refused) = watchable(&store.lock().unwrap(), &access, id) {
+    let grants = match store.grants_for(&access, crate::access::Level::View).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    if let Err(refused) = watchable(&store.lock().unwrap(), &access, id, &grants) {
         return *refused;
     }
     match super::subscribe(id) {
@@ -106,7 +119,11 @@ async fn camera_page(access: Access, State(store): State<Store>, Path(id): Path<
         Err(error) => return failed(error),
     };
     let machines = store.machines(access.space).await.unwrap_or_default();
-    let camera = match watchable(&store.lock().unwrap(), &access, id) {
+    let grants = match store.grants_for(&access, crate::access::Level::View).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    let camera = match watchable(&store.lock().unwrap(), &access, id, &grants) {
         Ok(camera) => camera,
         Err(refused) => return *refused,
     };
@@ -156,6 +173,10 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
         Err(error) => return failed(error),
     };
     let machines = store.machines(access.space).await.unwrap_or_default();
+    let grants = match store.grants_for(&access, crate::access::Level::View).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
     let store = store.lock().unwrap();
     let cameras = match store.cameras(access.space) {
         Ok(cameras) => cameras,
@@ -164,7 +185,7 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
     let mut rows = String::new();
     for camera in cameras
         .iter()
-        .filter(|c| store.may_view_camera(&access, c).unwrap_or(false))
+        .filter(|c| store.may_view_camera(&access, c, &grants).unwrap_or(false))
     {
         rows.push_str(&format!(
             r#"<li class="cam"><a href="cameras/{id}"><b>{name}</b></a><small>{watches}</small></li>"#,
@@ -414,8 +435,13 @@ async fn remove(
 }
 
 /// The Camera tab of a machine's page: its cameras that `access` may watch.
-pub(crate) fn machine_tab(store: &Legacy, access: &Access, machine: &str) -> Option<String> {
-    let cameras = store.machine_cameras(access, machine);
+pub(crate) fn machine_tab(
+    store: &Legacy,
+    access: &Access,
+    machine: &str,
+    grants: &crate::access::Grants,
+) -> Option<String> {
+    let cameras = store.machine_cameras(access, machine, grants);
     if cameras.is_empty() {
         return None;
     }

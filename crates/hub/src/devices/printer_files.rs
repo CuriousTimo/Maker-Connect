@@ -383,8 +383,9 @@ impl Store {
     async fn print_from_stick(&self, transfer: &Transfer, machine: &str) -> Result<(), BoxError> {
         let command = json!({"command": "START_PRINT", "kwargs": {"path": transfer.path}});
         let label = format!("Print {}", transfer.path.rsplit('/').next().unwrap_or(""));
+        let link = self.link_of(transfer.space, machine).await?;
         let id = self.lock().unwrap().queue_connect_command(
-            transfer.space,
+            link.as_deref(),
             machine,
             &label,
             &command,
@@ -552,8 +553,9 @@ impl Store {
                 "orig_size": transfer.size,
             }
         });
+        let link = self.link_of(transfer.space, &transfer.machine).await?;
         let id = self.lock().unwrap().queue_connect_command(
-            transfer.space,
+            link.as_deref(),
             &transfer.machine,
             &format!("Send {name} to the USB stick"),
             &command,
@@ -672,6 +674,7 @@ pub async fn on_event(
     let Some((machine, space)) = store.placed(token).await? else {
         return Ok(());
     };
+    let caller = store.caller(token).await?;
     let data = &event["data"];
     match name {
         // Its state changed; while it wants someone (ATTENTION) or is in error (ERROR), it says
@@ -778,7 +781,7 @@ pub async fn on_event(
                 )
             {
                 store.lock().unwrap().command_went(
-                    token,
+                    caller.as_ref(),
                     command as u32,
                     crate::store::CommandState::Finished,
                     Some("taken: the file is on its way (see USB)".to_owned()),
@@ -810,7 +813,7 @@ pub async fn on_event(
                     (crate::store::CommandState::Rejected, Some(name.to_owned()))
                 };
                 let _ = store.lock().unwrap().command_went(
-                    token,
+                    caller.as_ref(),
                     command as u32,
                     state,
                     reason,
@@ -908,6 +911,7 @@ async fn prefetch(
     let Some((_, space)) = store.printer_of_machine(machine).await? else {
         return Ok(());
     };
+    let link = store.link_of(space, machine).await?;
     let children = listing["children"].as_array().cloned().unwrap_or_default();
     let mut asked = 0;
     for child in children
@@ -929,7 +933,7 @@ async fn prefetch(
         }
         let command = json!({"command": "SEND_FILE_INFO", "kwargs": {"path": path}});
         let queued = store.lock().unwrap().queue_connect_command(
-            space,
+            link.as_deref(),
             machine,
             &format!("Read {path}"),
             &command,
@@ -982,6 +986,8 @@ pub async fn on_report(
     let Some((machine, space)) = store.placed(token).await? else {
         return Ok(());
     };
+    let link = store.link_of(space, &machine).await?;
+    let link = link.as_deref();
     {
         let mut store = store.lock().unwrap();
         // A print whose file is not known here (started at the printer's screen, or before the
@@ -995,7 +1001,7 @@ pub async fn on_report(
         {
             store.job_info_asked.insert(token.to_owned(), job);
             let command = json!({"command": "SEND_JOB_INFO", "kwargs": {"job_id": job}});
-            store.queue_connect_command(space, &machine, "Which file it prints", &command, true)?;
+            store.queue_connect_command(link, &machine, "Which file it prints", &command, true)?;
         }
         // OURS, approved by the owner (2026-11-17, audit D6). Buddy opens a file's print preview
         // after a Connect download (`transfers/transfer.cpp:423-430`), and while it shows the
@@ -1011,7 +1017,7 @@ pub async fn on_report(
                 store.close_preview.remove(&machine);
             } else if store.open_commands(&machine).is_empty() {
                 store.close_preview.remove(&machine);
-                store.queue_command(space, &machine, "Close the print preview", "M604")?;
+                store.queue_command(link, &machine, "Close the print preview", "M604")?;
             }
         }
         // No longer asking, or out of its error: what it said goes.
@@ -1093,7 +1099,7 @@ pub async fn on_report(
 /// The command for a job's pause, resume or stop on a printer on its built-in Connect.
 pub fn job_control(
     store: &mut Legacy,
-    space: i64,
+    link: Option<&str>,
     machine: &str,
     action: &str,
 ) -> rusqlite::Result<()> {
@@ -1104,7 +1110,7 @@ pub fn job_control(
         _ => return Ok(()),
     };
     store.queue_connect_command(
-        space,
+        link,
         machine,
         &command.replace('_', " ").to_lowercase(),
         &json!({"command": command}),
@@ -1187,7 +1193,7 @@ async fn look(
     if !fresh && !waiting && printer.online {
         let command = json!({"command": "SEND_FILE_INFO", "kwargs": {"path": path}});
         let queued = store.lock().unwrap().queue_connect_command(
-            access.space,
+            Some(printer.link.as_str()),
             &machine,
             &format!("Read {path}"),
             &command,
@@ -1322,11 +1328,13 @@ async fn path_command(
         return (StatusCode::CONFLICT, "the printer is offline").into_response();
     }
     let body = json!({"command": command, "kwargs": {"path": path}});
-    let queued =
-        store
-            .lock()
-            .unwrap()
-            .queue_connect_command(access.space, machine, &label, &body, false);
+    let queued = store.lock().unwrap().queue_connect_command(
+        Some(printer.link.as_str()),
+        machine,
+        &label,
+        &body,
+        false,
+    );
     match queued {
         Ok(Some(_)) => {
             let _ = store.forget_printer_path(machine, path).await;
@@ -1347,14 +1355,14 @@ async fn print(
         return (StatusCode::BAD_REQUEST, "a file on the stick").into_response();
     };
     {
-        let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
+        let ppe_checks = store.ppe_rule(access.space, &machine).await;
         let active = match store.active_job(&machine).await {
             Ok(active) => active,
             Err(error) => return failed(error),
         };
         let found = store.machine(access.space, &machine).await;
         let s = store.lock().unwrap();
-        if let Err(refused) = crate::safety::check_ppe(&s, ppe_checks, &access, &machine) {
+        if let Err(refused) = crate::safety::check_ppe(&s, &ppe_checks, &access, &machine) {
             return *refused;
         }
         if let Ok(Some(m)) = found {
@@ -1850,11 +1858,12 @@ mod flow {
 
         // A command the printer is still carrying out (its id in the telemetry) is taken on,
         // not given up on, and nothing else is sent meanwhile.
+        let link = store.link_of(space, &mini).await.unwrap();
         let busy = store
             .lock()
             .unwrap()
             .queue_connect_command(
-                space,
+                link.as_deref(),
                 &mini,
                 "Home",
                 &json!({"command": "SEND_INFO"}),
@@ -2412,11 +2421,13 @@ mod flow {
 
         // A command of someone's waits: it goes first, then the M604 (never one before it).
         send("Box.bgcode").await;
-        let queued = {
-            let mut s = store.lock().unwrap();
-            let space = s.default_space().unwrap().0;
-            s.queue_command(space, &mini, "Fan", "M106 S255").unwrap()
-        };
+        let space = store.default_space().await.unwrap().0;
+        let link = store.link_of(space, &mini).await.unwrap();
+        let queued = store
+            .lock()
+            .unwrap()
+            .queue_command(link.as_deref(), &mini, "Fan", "M106 S255")
+            .unwrap();
         assert!(queued.is_some());
         assert_eq!(next("IDLE").await, "M106 S255");
         assert_eq!(next("IDLE").await, "M604");

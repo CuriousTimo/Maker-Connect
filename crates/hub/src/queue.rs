@@ -64,45 +64,27 @@ pub struct Queued {
 }
 
 impl Legacy {
-    /// A machine's queue, first first.
+    /// A machine's queue, first first. What the files say of themselves (`estimated_s`,
+    /// `thumbnail`) is on Postgres: [`crate::Store::machines`] fills it in.
     pub fn queue_of(&self, machine: &str) -> rusqlite::Result<Vec<Queued>> {
-        let rows: Vec<Queued> = {
-            let mut q = self.db.prepare(
-                "SELECT id, file_id, file_name, by_name, added_at, problem, by_user FROM machine_queue
-                 WHERE machine_id = ?1 ORDER BY pos, id",
-            )?;
-            q.query_map([machine], |r| {
-                Ok(Queued {
-                    id: r.get(0)?,
-                    file_id: r.get(1)?,
-                    file_name: r.get(2)?,
-                    by: r.get(3)?,
-                    added_at: r.get(4)?,
-                    estimated_s: None,
-                    thumbnail: false,
-                    problem: r.get(5)?,
-                    by_user: r.get(6)?,
-                })
-            })?
-            .collect::<rusqlite::Result<_>>()?
-        };
-        // What the files say of themselves, from the files table (the same space).
-        Ok(rows
-            .into_iter()
-            .map(|mut q| {
-                if let Ok(meta) =
-                    self.db
-                        .query_row("SELECT meta FROM files WHERE id = ?1", [&q.file_id], |r| {
-                            r.get::<_, String>(0)
-                        })
-                    && let Ok(meta) = serde_json::from_str::<crate::gcode::FileMeta>(&meta)
-                {
-                    q.estimated_s = meta.estimated_s;
-                    q.thumbnail = meta.thumbnail;
-                }
-                q
+        let mut q = self.db.prepare(
+            "SELECT id, file_id, file_name, by_name, added_at, problem, by_user FROM machine_queue
+             WHERE machine_id = ?1 ORDER BY pos, id",
+        )?;
+        q.query_map([machine], |r| {
+            Ok(Queued {
+                id: r.get(0)?,
+                file_id: r.get(1)?,
+                file_name: r.get(2)?,
+                by: r.get(3)?,
+                added_at: r.get(4)?,
+                estimated_s: None,
+                thumbnail: false,
+                problem: r.get(5)?,
+                by_user: r.get(6)?,
             })
-            .collect())
+        })?
+        .collect()
     }
 
     /// Puts a file at the end of a machine's queue: its place (1 is next).
@@ -504,19 +486,17 @@ mod tests {
                 .unwrap();
             store.set_job(job, JobState::Finished, None).await.unwrap();
         }
-        // The same machine, now a laser (its kind on Postgres, the farm's flag on SQLite).
+        // The same machine, now a laser, taking work.
         sqlx::query("UPDATE machines SET kind = $2 WHERE id = $1")
             .bind(&m)
             .bind(serde_json::to_string(&maker_connect_protocol::MachineKind::Laser).unwrap())
             .execute(&pool)
             .await
             .unwrap();
-        store.mirror_machine(Some(&m), None).await.unwrap();
         assert!(store.is_laser(space, &m).await.unwrap());
+        store.set_takes_work(space, &m, true).await.unwrap();
         {
             let mut s = store.lock().unwrap();
-            s.db.execute("UPDATE machines SET farm = 1 WHERE id = ?1", [&m])
-                .unwrap();
             s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap();
             s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap();
         }

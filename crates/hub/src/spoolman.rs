@@ -176,6 +176,20 @@ fn space(access: &crate::access::Access) -> Result<i64, Box<Response>> {
     Ok(access.space)
 }
 
+/// What a spool's `loaded_in` needs ([`Store::spool_machine_names`]), read before the lock; nothing
+/// for a vendor or filament.
+async fn names_for(
+    store: &Store,
+    space: i64,
+    resource: &str,
+) -> Result<MachineNames, crate::store::BoxError> {
+    if resource == "spool" {
+        store.spool_machine_names(space).await
+    } else {
+        Ok(MachineNames::new())
+    }
+}
+
 fn not_found(what: &str, id: i64) -> Response {
     (
         StatusCode::NOT_FOUND,
@@ -296,25 +310,33 @@ impl Legacy {
         Ok(Some(filament))
     }
 
-    pub fn sm_spool(&self, space: i64, id: i64) -> rusqlite::Result<Option<Value>> {
+    /// A spool as Spoolman gives it; `names`: the machines' names ([`Store::spool_machine_names`]).
+    pub fn sm_spool(
+        &self,
+        space: i64,
+        id: i64,
+        names: &MachineNames,
+    ) -> rusqlite::Result<Option<Value>> {
         let found = self
             .db
             .query_row(
                 "SELECT s.id, s.registered, s.first_used, s.last_used, s.price, s.filament_id,
                         s.initial_weight, s.spool_weight, s.used_weight, l.name, s.lot_nr, s.comment,
-                        s.archived, s.extra, s.machine, m.name, s.slot
+                        s.archived, s.extra, s.machine, s.slot
                  FROM spool s
                  LEFT JOIN locations l ON l.id = s.location_id AND l.space_id = s.space_id
-                 LEFT JOIN machines m ON m.id = s.machine
                  WHERE s.id = ?1 AND s.space_id = ?2",
                 params![id, space],
                 |r| {
                     let mut extra = extra_map(r.get(13)?);
-                    if let Some(machine) = r.get::<_, Option<String>>(15)? {
+                    if let Some(machine) = r
+                        .get::<_, Option<String>>(14)?
+                        .and_then(|m| names.get(&m))
+                    {
                         extra.insert("loaded_in".into(), extra_value(json!(machine)));
                     }
                     // Its slot in a dry box.
-                    if let Some(slot) = r.get::<_, Option<i64>>(16)? {
+                    if let Some(slot) = r.get::<_, Option<i64>>(15)? {
                         extra.insert("slot".into(), extra_value(json!(slot)));
                     }
                     Ok((
@@ -387,23 +409,67 @@ impl Legacy {
         ids.collect()
     }
 
-    fn all(&self, resource: &str, space: i64) -> rusqlite::Result<Vec<Value>> {
+    fn all(
+        &self,
+        resource: &str,
+        space: i64,
+        names: &MachineNames,
+    ) -> rusqlite::Result<Vec<Value>> {
         let mut out = Vec::new();
         for id in self.ids(resource, space)? {
-            if let Some(v) = self.one(resource, space, id)? {
+            if let Some(v) = self.one(resource, space, id, names)? {
                 out.push(v);
             }
         }
         Ok(out)
     }
 
-    pub fn one(&self, resource: &str, space: i64, id: i64) -> rusqlite::Result<Option<Value>> {
+    pub fn one(
+        &self,
+        resource: &str,
+        space: i64,
+        id: i64,
+        names: &MachineNames,
+    ) -> rusqlite::Result<Option<Value>> {
         match resource {
             "vendor" => self.sm_vendor(space, id),
             "filament" => self.sm_filament(space, id),
-            "spool" => self.sm_spool(space, id),
+            "spool" => self.sm_spool(space, id, names),
             _ => Ok(None),
         }
+    }
+
+    /// The machines the space's spools are loaded in.
+    fn spool_machines(&self, space: i64) -> rusqlite::Result<Vec<String>> {
+        let mut q = self.db.prepare(
+            "SELECT DISTINCT machine FROM spool WHERE space_id = ?1 AND machine IS NOT NULL",
+        )?;
+        let ids = q.query_map([space], |r| r.get(0))?;
+        ids.collect()
+    }
+}
+
+/// Machines' names by id: what a spool's `loaded_in` says.
+pub type MachineNames = HashMap<String, String>;
+
+impl Store {
+    /// The names of the machines the space's spools are loaded in (in whichever space the machine is
+    /// now: a machine moved away keeps the spool loaded). Read before the lock is taken for
+    /// `Legacy::one`, `Legacy::all`, [`Legacy::sm_spool`].
+    pub async fn spool_machine_names(
+        &self,
+        space: i64,
+    ) -> Result<MachineNames, crate::store::BoxError> {
+        let ids = self.lock().unwrap().spool_machines(space)?;
+        if ids.is_empty() {
+            return Ok(MachineNames::new());
+        }
+        let rows: Vec<(String, String)> =
+            sqlx::query_as("SELECT id, name FROM machines WHERE id = ANY($1)")
+                .bind(&ids)
+                .fetch_all(&self.pg().admin)
+                .await?;
+        Ok(rows.into_iter().collect())
     }
 }
 
@@ -530,7 +596,7 @@ async fn list_vendors(
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.all("vendor", space) {
+    match store.all("vendor", space, &MachineNames::new()) {
         Ok(all) => listing(all, &q, &[("name", "name"), ("external_id", "external_id")]),
         Err(e) => crate::failed(e),
     }
@@ -551,7 +617,7 @@ async fn list_filaments(
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.all("filament", space) {
+    match store.all("filament", space, &MachineNames::new()) {
         Ok(all) => listing(
             all,
             &q,
@@ -581,12 +647,16 @@ async fn list_spools(
     if let Some(ws) = ws {
         return upgrade(ws, store, access.space, "spool".to_owned(), None);
     }
+    let names = match names_for(&store, access.space, "spool").await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let mut all = match store.all("spool", space) {
+    let mut all = match store.all("spool", space, &names) {
         Ok(all) => all,
         Err(e) => return crate::failed(e),
     };
@@ -622,13 +692,22 @@ async fn list_spools(
     )
 }
 
-fn one_of(access: &crate::access::Access, store: &Store, resource: &str, id: i64) -> Response {
+async fn one_of(
+    access: &crate::access::Access,
+    store: &Store,
+    resource: &str,
+    id: i64,
+) -> Response {
+    let names = match names_for(store, access.space, resource).await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let store = store.lock().unwrap();
     let space = match space(access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    match store.one(resource, space, id) {
+    match store.one(resource, space, id, &names) {
         Ok(Some(v)) => Json(v).into_response(),
         Ok(None) => not_found(resource, id),
         Err(e) => crate::failed(e),
@@ -644,7 +723,7 @@ async fn one_vendor(
     if let Some(ws) = ws {
         return upgrade(ws, store, access.space, "vendor".to_owned(), Some(id));
     }
-    one_of(&access, &store, "vendor", id)
+    one_of(&access, &store, "vendor", id).await
 }
 async fn one_filament(
     access: crate::access::Access,
@@ -655,7 +734,7 @@ async fn one_filament(
     if let Some(ws) = ws {
         return upgrade(ws, store, access.space, "filament".to_owned(), Some(id));
     }
-    one_of(&access, &store, "filament", id)
+    one_of(&access, &store, "filament", id).await
 }
 async fn one_spool(
     access: crate::access::Access,
@@ -666,7 +745,7 @@ async fn one_spool(
     if let Some(ws) = ws {
         return upgrade(ws, store, access.space, "spool".to_owned(), Some(id));
     }
-    one_of(&access, &store, "spool", id)
+    one_of(&access, &store, "spool", id).await
 }
 
 // ---- writing -------------------------------------------------------------------------
@@ -757,7 +836,7 @@ async fn add_vendor(
         update(&store.db, "vendor", id, vendor_changes(&body))?;
         Ok::<_, rusqlite::Error>(id)
     })();
-    respond_made(&store, space, "vendor", made)
+    respond_made(&store, space, "vendor", made, &MachineNames::new())
 }
 
 async fn change_vendor(
@@ -775,7 +854,7 @@ async fn change_vendor(
         return not_found("vendor", id);
     }
     let done = update(&store.db, "vendor", id, vendor_changes(&body)).map(|()| id);
-    respond_changed(&store, space, "vendor", done)
+    respond_changed(&store, space, "vendor", done, &MachineNames::new())
 }
 
 fn filament_changes(
@@ -889,7 +968,7 @@ async fn add_filament(
         update(&store.db, "filament", id, changes)?;
         Ok::<_, rusqlite::Error>(id)
     })();
-    respond_made(&store, space, "filament", made)
+    respond_made(&store, space, "filament", made, &MachineNames::new())
 }
 
 async fn change_filament(
@@ -911,7 +990,7 @@ async fn change_filament(
         Err(_) => return invalid("no such vendor"),
     };
     let done = update(&store.db, "filament", id, changes).map(|()| id);
-    respond_changed(&store, space, "filament", done)
+    respond_changed(&store, space, "filament", done, &MachineNames::new())
 }
 
 fn spool_changes(
@@ -1029,6 +1108,10 @@ async fn add_spool(
     if body["filament_id"].as_i64().is_none() {
         return invalid("a spool needs its filament_id");
     }
+    let names = match names_for(&store, access.space, "spool").await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
@@ -1073,7 +1156,7 @@ async fn add_spool(
         )?;
         Ok::<_, rusqlite::Error>(id)
     })();
-    respond_made(&store, space, "spool", made)
+    respond_made(&store, space, "spool", made, &names)
 }
 
 async fn change_spool(
@@ -1082,12 +1165,16 @@ async fn change_spool(
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
+    let names = match names_for(&store, access.space, "spool").await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let Ok(Some(before)) = store.sm_spool(space, id) else {
+    let Ok(Some(before)) = store.sm_spool(space, id, &names) else {
         return not_found("spool", id);
     };
     let mut changes = match spool_changes(&store, space, &body, Some(id)) {
@@ -1106,7 +1193,7 @@ async fn change_spool(
     }
     let done = update(&store.db, "spool", id, changes).map(|()| id);
     store.changed();
-    respond_changed(&store, space, "spool", done)
+    respond_changed(&store, space, "spool", done, &names)
 }
 
 async fn use_spool(
@@ -1115,12 +1202,16 @@ async fn use_spool(
     Path(id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Response {
+    let names = match names_for(&store, access.space, "spool").await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let Ok(Some(spool)) = store.sm_spool(space, id) else {
+    let Ok(Some(spool)) = store.sm_spool(space, id, &names) else {
         return not_found("spool", id);
     };
     let grams = match (body["use_weight"].as_f64(), body["use_length"].as_f64()) {
@@ -1152,7 +1243,7 @@ async fn use_spool(
         Ok::<_, rusqlite::Error>(id)
     })();
     store.changed();
-    respond_changed(&store, space, "spool", done)
+    respond_changed(&store, space, "spool", done, &names)
 }
 
 async fn measure_spool(
@@ -1164,12 +1255,16 @@ async fn measure_spool(
     let Some(gross) = body["weight"].as_f64() else {
         return invalid("weight: the spool's gross weight, in g");
     };
+    let names = match names_for(&store, access.space, "spool").await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let Ok(Some(spool)) = store.sm_spool(space, id) else {
+    let Ok(Some(spool)) = store.sm_spool(space, id, &names) else {
         return not_found("spool", id);
     };
     // The empty spool: the spool's own, else its filament's, else its vendor's.
@@ -1203,7 +1298,7 @@ async fn measure_spool(
         Ok::<_, rusqlite::Error>(id)
     })();
     store.changed();
-    respond_changed(&store, space, "spool", done)
+    respond_changed(&store, space, "spool", done, &names)
 }
 
 fn respond_made(
@@ -1211,8 +1306,9 @@ fn respond_made(
     space: i64,
     resource: &'static str,
     made: rusqlite::Result<i64>,
+    names: &MachineNames,
 ) -> Response {
-    match made.and_then(|id| Ok((id, store.one(resource, space, id)?))) {
+    match made.and_then(|id| Ok((id, store.one(resource, space, id, names)?))) {
         Ok((id, Some(v))) => {
             store.changed();
             store.spoolman_event(resource, "added", id);
@@ -1228,8 +1324,9 @@ fn respond_changed(
     space: i64,
     resource: &'static str,
     done: rusqlite::Result<i64>,
+    names: &MachineNames,
 ) -> Response {
-    match done.and_then(|id| Ok((id, store.one(resource, space, id)?))) {
+    match done.and_then(|id| Ok((id, store.one(resource, space, id, names)?))) {
         Ok((id, Some(v))) => {
             store.changed();
             store.spoolman_event(resource, "updated", id);
@@ -1240,18 +1337,23 @@ fn respond_changed(
     }
 }
 
-fn remove(
+async fn remove(
     access: &crate::access::Access,
     store: &Store,
     resource: &'static str,
     id: i64,
 ) -> Response {
+    let names = match names_for(store, access.space, resource).await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
+
     let store = store.lock().unwrap();
     let space = match space(access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
-    let Ok(Some(was)) = store.one(resource, space, id) else {
+    let Ok(Some(was)) = store.one(resource, space, id, &names) else {
         return not_found(resource, id);
     };
     // A vendor with filaments, a filament with spools: Spoolman refuses those too.
@@ -1306,21 +1408,21 @@ async fn remove_vendor(
     State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
-    remove(&access, &store, "vendor", id)
+    remove(&access, &store, "vendor", id).await
 }
 async fn remove_filament(
     access: crate::access::Access,
     State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
-    remove(&access, &store, "filament", id)
+    remove(&access, &store, "filament", id).await
 }
 async fn remove_spool(
     access: crate::access::Access,
     State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
-    remove(&access, &store, "spool", id)
+    remove(&access, &store, "spool", id).await
 }
 
 // ---- lists of values, settings, export ----------------------------------------------
@@ -1525,13 +1627,17 @@ async fn export(
         "vendors" => "vendor",
         _ => return StatusCode::NOT_FOUND.into_response(),
     };
+    let names = match names_for(&store, access.space, resource).await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let all = {
         let store = store.lock().unwrap();
         let space = match space(&access) {
             Ok(s) => s,
             Err(r) => return *r,
         };
-        match store.all(resource, space) {
+        match store.all(resource, space, &names) {
             Ok(all) => all,
             Err(e) => return crate::failed(e),
         }
@@ -1633,8 +1739,11 @@ async fn live(mut socket: WebSocket, store: Store, space: i64, resource: String,
                 let payload = match event.was {
                     Some(was) => was,
                     None => {
+                        let Ok(names) = names_for(&store, space, event.resource).await else {
+                            continue;
+                        };
                         let store = store.lock().unwrap();
-                        match store.one(event.resource, space, event.id) {
+                        match store.one(event.resource, space, event.id, &names) {
                             Ok(Some(v)) => v,
                             _ => continue,
                         }
@@ -1703,7 +1812,11 @@ fn link(
         Ok(s) => s,
         Err(r) => return *r,
     };
-    if !matches!(store.one(target, space, id), Ok(Some(_))) {
+    // Whether it is there (its `loaded_in` does not matter here).
+    if !matches!(
+        store.one(target, space, id, &MachineNames::new()),
+        Ok(Some(_))
+    ) {
         return not_found(target, id);
     }
     let holder: Option<(String, Option<i64>, Option<i64>)> = store
@@ -1871,6 +1984,10 @@ async fn scan(
         .as_str()
         .map(str::to_owned)
         .unwrap_or_else(|| format!("ip-{}", peer.ip()).replace([':', '.'], "-"));
+    let names = match names_for(&store, access.space, "spool").await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let (spool, filament) = {
         let store = store.lock().unwrap();
         let space = match space(&access) {
@@ -1889,7 +2006,7 @@ async fn scan(
             .flatten();
         let (s, f) = held.unwrap_or((None, None));
         (
-            s.and_then(|s| store.sm_spool(space, s).ok().flatten()),
+            s.and_then(|s| store.sm_spool(space, s, &names).ok().flatten()),
             f.and_then(|f| store.sm_filament(space, f).ok().flatten()),
         )
     };
@@ -2183,13 +2300,17 @@ async fn field_values(
     let Some(e) = entity(&e) else {
         return StatusCode::NOT_FOUND.into_response();
     };
+    let names = match names_for(&store, access.space, e).await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
     let store = store.lock().unwrap();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
     };
     let mut values: Vec<Value> = store
-        .all(e, space)
+        .all(e, space, &names)
         .unwrap_or_default()
         .into_iter()
         .filter_map(|v| v["extra"].get(&key).cloned())
@@ -2391,8 +2512,8 @@ mod tests {
         assert_eq!(dried["extra"]["last_dried"], "\"2026-11-01T10:00:00Z\"");
 
         // The rest of the hub sees the same spool: S-0001 on the Materials page.
+        let space = store.default_space().await.unwrap().0;
         let s = store.lock().unwrap();
-        let space = s.default_space().unwrap().0;
         let item = s.items(space).unwrap().into_iter().next().unwrap();
         assert_eq!((item.id.as_str(), item.amount), ("S-0001", 500.0));
     }

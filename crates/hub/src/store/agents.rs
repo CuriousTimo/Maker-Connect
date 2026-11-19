@@ -1,24 +1,6 @@
 use super::*;
 
 impl Legacy {
-    /// For tests on SQLite alone (transitional, lanes 1-4): the first space, as SQLite's own
-    /// migration made it; its id is the Postgres default space's (both 1 on a new hub).
-    #[cfg(test)]
-    pub fn default_space(&self) -> rusqlite::Result<(i64, String)> {
-        self.db
-            .query_row("SELECT id, name FROM spaces ORDER BY id LIMIT 1", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
-    }
-
-    pub(super) fn machine_id(&self, token: &str) -> rusqlite::Result<Option<String>> {
-        self.db
-            .query_row("SELECT id FROM machines WHERE token = ?1", [token], |r| {
-                r.get(0)
-            })
-            .optional()
-    }
-
     /// A report kept ([`Store::report`]): its temperatures go into the machine's history.
     pub(crate) fn reported(&mut self, machine: &str, telemetry: &Telemetry) {
         self.sample(machine, telemetry);
@@ -243,7 +225,6 @@ impl Store {
             .await?;
         }
         tx.commit().await?;
-        self.mirror_machine(Some(&row.id), None).await?;
         self.lock().unwrap().reported(&row.id, telemetry);
         Ok(Some(row.space_id))
     }

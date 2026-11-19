@@ -21,7 +21,7 @@
 //!   time; a test reads the source and fails if anything else writes it.
 
 use crate::access::{Access, Level, Role};
-use crate::store::{BoxError, JobFacts, JobState, Legacy, now};
+use crate::store::{BoxError, JobFacts, JobState, Legacy, StoredFile, now};
 use crate::{Store, failed};
 use axum::{
     Form, Json, Router,
@@ -83,34 +83,14 @@ pub fn migrate(db: &Connection) -> rusqlite::Result<()> {
              note TEXT NOT NULL DEFAULT ''
          );",
     )?;
-    for (table, column, definition) in [
-        // A job for a part: which, the plate's file, and how many parts the plate holds.
-        ("jobs", "part_id", "INTEGER"),
-        ("jobs", "per_plate", "INTEGER"),
-        // How it was confirmed: when, by whom, how many good.
-        ("jobs", "confirmed_at", "INTEGER"),
-        ("jobs", "confirmed_good", "INTEGER"),
-        ("jobs", "confirmed_by", "TEXT"),
-        // A machine takes work from the queue.
-        ("machines", "farm", "INTEGER NOT NULL DEFAULT 0"),
-        // Build plates (sheets): which a part's file needs, which is on a machine.
-        ("part_files", "sheet", "TEXT"),
-        ("machines", "sheet", "TEXT"),
-        // Upkeep: a service every so many printing hours, and when the last was done.
-        ("machines", "service_every_h", "REAL"),
-        ("machines", "serviced_at", "INTEGER"),
-    ] {
-        let present: bool = db.query_row(
-            &format!("SELECT COUNT(*) > 0 FROM pragma_table_info('{table}') WHERE name = ?1"),
-            [column],
-            |r| r.get(0),
-        )?;
-        if !present {
-            db.execute(
-                &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
-                [],
-            )?;
-        }
+    // Build plates (sheets): which a part's file needs.
+    let present: bool = db.query_row(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('part_files') WHERE name = 'sheet'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !present {
+        db.execute("ALTER TABLE part_files ADD COLUMN sheet TEXT", [])?;
     }
     Ok(())
 }
@@ -186,7 +166,14 @@ struct Candidate {
 
 impl Legacy {
     /// The space's projects, newest first within their priority, with their parts.
-    pub(crate) fn projects(&self, space: i64, jobs: &JobFacts) -> rusqlite::Result<Vec<Project>> {
+    /// `machines` and `files`: the space's, read on Postgres before the lock.
+    pub(crate) fn projects(
+        &self,
+        space: i64,
+        jobs: &JobFacts,
+        machines: &[crate::store::Machine],
+        files: &[StoredFile],
+    ) -> rusqlite::Result<Vec<Project>> {
         let mut q = self.db.prepare(
             "SELECT id, name, description, state, priority, created_at FROM projects
              WHERE space_id = ?1 ORDER BY CASE state WHEN 'active' THEN 0 WHEN 'paused' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END,
@@ -206,7 +193,8 @@ impl Legacy {
             })?
             .collect::<rusqlite::Result<_>>()?;
         for project in &mut projects {
-            project.parts = self.parts_of(space, project.id, &project.state, jobs)?;
+            project.parts =
+                self.parts_of(space, project.id, &project.state, jobs, machines, files)?;
         }
         Ok(projects)
     }
@@ -217,6 +205,8 @@ impl Legacy {
         project: i64,
         state: &str,
         jobs: &JobFacts,
+        machines: &[crate::store::Machine],
+        files: &[StoredFile],
     ) -> rusqlite::Result<Vec<Part>> {
         let mut q = self.db.prepare(
             "SELECT id, name, target, done FROM parts WHERE space_id = ?1 AND project_id = ?2
@@ -230,7 +220,7 @@ impl Legacy {
         let mut parts = Vec::new();
         for (id, name, target, done) in rows {
             let (plates, held) = under_way(jobs, id);
-            let files = self.part_files(space, id)?;
+            let part_files = self.part_files(space, id, files)?;
             let mut part = Part {
                 id,
                 name,
@@ -238,31 +228,41 @@ impl Legacy {
                 done,
                 plates_under_way: plates,
                 parts_under_way: held,
-                files,
+                files: part_files,
                 waiting: None,
             };
-            part.waiting = self.why_waiting(space, state, &part)?;
+            part.waiting = self.why_waiting(state, &part, machines)?;
             parts.push(part);
         }
         Ok(parts)
     }
 
-    fn part_files(&self, space: i64, part: i64) -> rusqlite::Result<Vec<PartFile>> {
+    /// A part's files; `files`: the space's (on Postgres), for their names.
+    fn part_files(
+        &self,
+        space: i64,
+        part: i64,
+        files: &[StoredFile],
+    ) -> rusqlite::Result<Vec<PartFile>> {
         let mut q = self.db.prepare(
-            "SELECT pf.id, pf.profile, pf.file_id, COALESCE(f.name, '(file removed)'), pf.per_plate, pf.material, pf.color, pf.sheet
-             FROM part_files pf LEFT JOIN files f ON f.id = pf.file_id AND f.space_id = pf.space_id
-             WHERE pf.space_id = ?1 AND pf.part_id = ?2 ORDER BY pf.profile",
+            "SELECT pf.id, pf.profile, pf.file_id, pf.per_plate, pf.material, pf.color, pf.sheet
+             FROM part_files pf WHERE pf.space_id = ?1 AND pf.part_id = ?2 ORDER BY pf.profile",
         )?;
         q.query_map(params![space, part], |r| {
+            let file_id: String = r.get(2)?;
+            let file_name = files
+                .iter()
+                .find(|f| f.id == file_id)
+                .map_or_else(|| "(file removed)".to_owned(), |f| f.name.clone());
             Ok(PartFile {
                 id: r.get(0)?,
                 profile: r.get(1)?,
-                file_id: r.get(2)?,
-                file_name: r.get(3)?,
-                per_plate: r.get(4)?,
-                material: r.get(5)?,
-                color: r.get(6)?,
-                sheet: r.get(7)?,
+                file_id,
+                file_name,
+                per_plate: r.get(3)?,
+                material: r.get(4)?,
+                color: r.get(5)?,
+                sheet: r.get(6)?,
             })
         })?
         .collect()
@@ -271,9 +271,9 @@ impl Legacy {
     /// Why a part sends no plate out now, in words (print-farm-manager's dispatch status).
     fn why_waiting(
         &self,
-        space: i64,
         project_state: &str,
         part: &Part,
+        machines: &[crate::store::Machine],
     ) -> rusqlite::Result<Option<String>> {
         if part.done + part.parts_under_way >= part.target {
             return Ok(None);
@@ -284,11 +284,7 @@ impl Legacy {
         if part.files.is_empty() {
             return Ok(Some("no file for any machine yet".to_owned()));
         }
-        let machines = self.machines_on_mirror(space)?;
-        let farm: Vec<_> = machines
-            .iter()
-            .filter(|m| self.takes_work(&m.id).unwrap_or(false))
-            .collect();
+        let farm: Vec<_> = machines.iter().filter(|m| m.takes_work).collect();
         let fitting: Vec<_> = farm
             .iter()
             .filter(|m| {
@@ -348,17 +344,6 @@ impl Legacy {
         Ok(Some(
             "its machines are busy, or wait for someone".to_owned(),
         ))
-    }
-
-    /// Whether a machine takes work from the queue.
-    pub fn takes_work(&self, machine: &str) -> rusqlite::Result<bool> {
-        Ok(self
-            .db
-            .query_row("SELECT farm FROM machines WHERE id = ?1", [machine], |r| {
-                r.get(0)
-            })
-            .optional()?
-            .unwrap_or(false))
     }
 
     /// The plate that ended on a machine and waits for someone, if any: its last job, when it
@@ -467,6 +452,7 @@ impl Legacy {
         machine: &crate::store::Machine,
         planned: &std::collections::HashMap<i64, i64>,
         jobs: &JobFacts,
+        files: &[StoredFile],
     ) -> rusqlite::Result<Option<Candidate>> {
         let Some(profile) = machine.profile.as_deref() else {
             return Ok(None);
@@ -475,7 +461,6 @@ impl Legacy {
             "SELECT p.id, pf.id, pf.file_id, pf.per_plate, p.target, p.done, pf.material, pf.color, pf.sheet
              FROM parts p JOIN projects pr ON pr.id = p.project_id
              JOIN part_files pf ON pf.part_id = p.id AND pf.profile = ?2
-             JOIN files f ON f.id = pf.file_id AND f.space_id = p.space_id
              WHERE p.space_id = ?1 AND pr.state = 'active'
              ORDER BY pr.priority, pr.created_at, p.sort_order, p.created_at, p.id",
         )?;
@@ -499,7 +484,11 @@ impl Legacy {
                 ))
             })?
             .collect::<rusqlite::Result<_>>()?;
-        for (part, per_plate, target, done, file) in rows {
+        // Only files the space still has (on Postgres).
+        for (part, per_plate, target, done, file) in rows
+            .into_iter()
+            .filter(|(.., f)| files.iter().any(|kept| kept.id == f.file_id))
+        {
             let (_, under_way) = under_way(jobs, part);
             // Whole plates: still needed, less what is on a bed, waits to be confirmed, or
             // is planned already.
@@ -529,13 +518,22 @@ impl Store {
     /// The space's projects, newest first within their priority, with their parts.
     pub async fn projects(&self, space: i64) -> Result<Vec<Project>, BoxError> {
         let jobs = self.job_facts(&[]).await?;
-        Ok(self.lock().unwrap().projects(space, &jobs)?)
+        let machines = self.machines(space).await?;
+        let files = self.files(space).await?;
+        Ok(self
+            .lock()
+            .unwrap()
+            .projects(space, &jobs, &machines, &files)?)
     }
 
     /// The schedule (`Legacy::schedule`) of a space's machines as they are now.
     pub async fn schedule(&self, space: i64) -> Result<Vec<Lane>, BoxError> {
         let (machines, jobs) = self.machines_and_jobs(space).await?;
-        Ok(self.lock().unwrap().schedule(space, machines, &jobs)?)
+        let files = self.files(space).await?;
+        Ok(self
+            .lock()
+            .unwrap()
+            .schedule(space, machines, &jobs, &files)?)
     }
 
     /// Someone confirms the plate waiting on a machine: `good` parts are good (0: a bad
@@ -604,6 +602,7 @@ impl Store {
         let mut sent = 0;
         for space in spaces {
             let (machines, mut jobs) = self.machines_and_jobs(space).await?;
+            let files = self.files(space).await?;
             for machine in machines {
                 // A laser starts only when someone at the laser starts it.
                 if machine.kind == maker_connect_protocol::MachineKind::Laser {
@@ -615,10 +614,7 @@ impl Store {
                 }
                 let next = {
                     let legacy = self.lock().unwrap();
-                    if !legacy.takes_work(&machine.id)?
-                        || !machine.online
-                        || machine.out_of_use.is_some()
-                    {
+                    if !machine.takes_work || !machine.online || machine.out_of_use.is_some() {
                         continue;
                     }
                     let idle = machine
@@ -633,8 +629,13 @@ impl Store {
                     {
                         continue;
                     }
-                    let Some(c) =
-                        legacy.candidate_with(space, &machine, &Default::default(), &jobs)?
+                    let Some(c) = legacy.candidate_with(
+                        space,
+                        &machine,
+                        &Default::default(),
+                        &jobs,
+                        &files,
+                    )?
                     else {
                         continue;
                     };
@@ -691,19 +692,6 @@ pub struct Upkeep {
     /// Printing hours since the last service (or since it came, when never serviced).
     pub since_h: f64,
     pub due: bool,
-}
-
-impl Legacy {
-    /// The build plate on a machine (`Textured PEI`), as someone said.
-    pub fn sheet_of(&self, machine: &str) -> rusqlite::Result<Option<String>> {
-        Ok(self
-            .db
-            .query_row("SELECT sheet FROM machines WHERE id = ?1", [machine], |r| {
-                r.get(0)
-            })
-            .optional()?
-            .flatten())
-    }
 }
 
 /// Why `done` changes, for the ledger: what (`confirmed`, `bad print`, `corrected`), the
@@ -765,13 +753,15 @@ impl Legacy {
         space: i64,
         machines: Vec<crate::store::Machine>,
         jobs: &JobFacts,
+        files: &[StoredFile],
     ) -> rusqlite::Result<Vec<Lane>> {
+        let file_of = |id: &str| files.iter().find(|f| f.id == id);
         let at = now();
         let mut lanes = Vec::new();
         // Per lane: when it is free, and whether it can be planned.
         let mut free: Vec<(usize, i64, crate::store::Machine)> = Vec::new();
         for machine in machines {
-            if !self.takes_work(&machine.id)? {
+            if !machine.takes_work {
                 continue;
             }
             let mut lane = Lane {
@@ -789,7 +779,7 @@ impl Legacy {
                     .and_then(|j| j.remaining_s)
                     .map(|s| s as i64)
                     .or_else(|| {
-                        let file = self.file_on_mirror(space, &job.file_id).ok().flatten()?;
+                        let file = file_of(&job.file_id)?;
                         let whole = file.meta.estimated_s? as i64;
                         Some((whole - (at - job.started_at.unwrap_or(at))).max(60))
                     })
@@ -843,19 +833,17 @@ impl Legacy {
                 break;
             };
             let (lane, start, machine) = &free[next];
-            let Some(c) = self.candidate_with(space, machine, &planned, jobs)? else {
+            let Some(c) = self.candidate_with(space, machine, &planned, jobs, files)? else {
                 free.remove(next);
                 continue;
             };
-            let length = self
-                .file_on_mirror(space, &c.file_id)?
+            let length = file_of(&c.file_id)
                 .and_then(|f| f.meta.estimated_s)
                 .map_or(UNKNOWN_PLATE_SECONDS, |s| s as i64)
                 .max(60);
             let (part, project) = self.part_names(c.part);
-            let label = self
-                .file_on_mirror(space, &c.file_id)?
-                .map(|f| f.name)
+            let label = file_of(&c.file_id)
+                .map(|f| f.name.clone())
                 .unwrap_or_default();
             lanes[*lane].blocks.push(Block {
                 start: *start,
@@ -877,6 +865,7 @@ impl Legacy {
         &self,
         space: i64,
         machine: &crate::store::Machine,
+        files: &[StoredFile],
     ) -> rusqlite::Result<(i64, i64)> {
         let open: Vec<(i64, i64, i64)> = {
             let mut q = self.db.prepare(
@@ -894,7 +883,7 @@ impl Legacy {
             }
             all += 1;
             if self
-                .part_files(space, part)?
+                .part_files(space, part, files)?
                 .iter()
                 .any(|f| machine.profile.as_deref() == Some(f.profile.as_str()) && fits(f, machine))
             {
@@ -998,23 +987,33 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
         Ok(jobs) => jobs,
         Err(error) => return failed(error),
     };
-    let store = store.lock().unwrap();
-    let machines: Vec<Value> = match store.machines_on_mirror(access.space) {
-        Ok(ms) => ms
-            .iter()
-            .map(|m| {
-                json!({
-                    "id": m.id, "name": m.name, "profile": m.profile, "kind": m.kind,
-                    "farm": store.takes_work(&m.id).unwrap_or(false),
-                    "sheet": m.sheet,
-                    "compatible": store.compatible(access.space, m).ok(),
-                    "manage": store.may(&access, &m.id, Level::Manage, &crate::access::Grants::none_needed()).ok().flatten().unwrap_or(false),
-                })
-            })
-            .collect(),
+    // The space's machines, files and machine modes, from Postgres before the lock.
+    let ms = match store.machines(access.space).await {
+        Ok(ms) => ms,
         Err(error) => return failed(error),
     };
-    match store.projects(access.space, &jobs) {
+    let files = match store.files(access.space).await {
+        Ok(files) => files,
+        Err(error) => return failed(error),
+    };
+    let grants = match store.grants_for(&access, Level::Manage).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    let store = store.lock().unwrap();
+    let machines: Vec<Value> = ms
+        .iter()
+        .map(|m| {
+            json!({
+                "id": m.id, "name": m.name, "profile": m.profile, "kind": m.kind,
+                "farm": m.takes_work,
+                "sheet": m.sheet,
+                "compatible": store.compatible(access.space, m, &files).ok(),
+                "manage": store.may(&access, &m.id, Level::Manage, &grants).ok().flatten().unwrap_or(false),
+            })
+        })
+        .collect();
+    match store.projects(access.space, &jobs, &ms, &files) {
         Ok(projects) => Json(json!({ "projects": projects, "machines": machines, "admin": access.role >= Role::Admin })).into_response(),
         Err(error) => failed(error),
     }
@@ -1276,12 +1275,12 @@ async fn add_file(
     if crate::profiles::find(&body.profile).is_none() {
         return bad_request("no such machine model");
     }
-    let store = store.lock().unwrap();
-    let file = match store.file_on_mirror(access.space, &body.file) {
+    let file = match store.file(access.space, &body.file).await {
         Ok(Some(f)) => f,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such file").into_response(),
         Err(error) => return failed(error),
     };
+    let store = store.lock().unwrap();
     let per_plate = body
         .per_plate
         .or_else(|| per_plate_from_name(&file.name))
@@ -1521,15 +1520,18 @@ async fn confirm(
             form.note.as_deref().unwrap_or(""),
         )
         .await;
+    // How it is reached, for its ready (Postgres, before the lock).
+    let link = match &done {
+        Ok(Ok(_)) => store.link_of(access.space, &machine).await.ok().flatten(),
+        _ => None,
+    };
     let mut store = store.lock().unwrap();
     match done {
         Ok(Ok(count)) => {
             // A Prusa on its own Connect: ready on its screen too.
-            if let Ok(Some(m)) = store.machine_on_mirror(access.space, &machine)
-                && m.link == "prusa-connect"
-            {
+            if link.as_deref() == Some("prusa-connect") {
                 let _ = store.queue_connect_command(
-                    access.space,
+                    link.as_deref(),
                     &machine,
                     "Set ready",
                     &json!({"command": "SET_PRINTER_READY"}),
@@ -1712,6 +1714,7 @@ mod flow {
                 .unwrap();
             let lanes = store.schedule(space).await.unwrap();
             let active = store.active_job(&a).await.unwrap();
+            let files = store.files(space).await.unwrap();
             let s = store.lock().unwrap();
             assert_eq!(lanes.len(), 2, "only the machines that take work");
             let plates: usize = lanes
@@ -1723,7 +1726,7 @@ mod flow {
                 lanes.iter().all(|l| !l.blocks.is_empty()),
                 "both machines get one"
             );
-            assert_eq!(s.compatible(space, &ma).unwrap(), (1, 1));
+            assert_eq!(s.compatible(space, &ma, &files).unwrap(), (1, 1));
             assert!(active.is_none(), "looking ahead starts nothing");
         }
         assert_eq!(store.dispatch().await.unwrap(), 2);
@@ -1891,6 +1894,62 @@ mod upkeep {
             store.dispatch().await.unwrap(),
             1,
             "the right plate, however it is written"
+        );
+    }
+
+    /// Why a part waits, as its machine's job tells: a plate under way on the machine counts
+    /// towards the target (nothing to wait for once it covers it); short of it, the machine is busy.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn why_a_part_waits_sees_the_machines_job(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let space = store.default_space().await.unwrap().0;
+        let m = store
+            .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+            .await
+            .unwrap();
+        store
+            .add_file(space, "f1", "4x_a.gcode", 10, &Default::default())
+            .await
+            .unwrap();
+        store.idle_test_machine(&m).await;
+        store.set_takes_work(space, &m, true).await.unwrap();
+        {
+            let s = store.lock().unwrap();
+            s.db.execute("INSERT INTO projects (space_id, name, state, created_at) VALUES (?1, 'P', 'active', 0)", [space]).unwrap();
+            s.db.execute("INSERT INTO parts (project_id, space_id, name, target, created_at) VALUES (1, ?1, 'A', 8, 0)", [space]).unwrap();
+            s.db.execute(
+                "INSERT INTO part_files (part_id, space_id, profile, file_id, per_plate, created_at) VALUES (1, ?1, 'prusa/mk3s', 'f1', 4, 0)",
+                [space],
+            )
+            .unwrap();
+        }
+        let part = async || store.projects(space).await.unwrap()[0].parts[0].clone();
+        assert_eq!(store.dispatch().await.unwrap(), 1, "one plate goes out");
+        assert!(
+            store.active_job(&m).await.unwrap().is_some(),
+            "the machine has its job"
+        );
+        let now = part().await;
+        assert_eq!((now.plates_under_way, now.parts_under_way), (1, 4));
+        assert_eq!(
+            now.waiting.as_deref(),
+            Some("its machines are busy, or wait for someone"),
+            "4 of 8 under way, its only machine has the job"
+        );
+        store
+            .lock()
+            .unwrap()
+            .db
+            .execute("UPDATE parts SET target = 4 WHERE id = 1", [])
+            .unwrap();
+        assert_eq!(
+            part().await.waiting,
+            None,
+            "the plate under way makes the target: nothing to wait for"
         );
     }
 

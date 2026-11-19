@@ -311,6 +311,7 @@ async fn report(shared: &Store, token: &str, base: &str, printer: &mut Printer) 
     report.done = std::mem::take(&mut printer.done);
     report.mesh = printer.mesh.take();
     report.job_end = printer.job_end.take();
+    let caller = shared.caller(token).await.ok().flatten();
     {
         let mut store = shared.lock().unwrap();
         for done in &report.done {
@@ -320,7 +321,7 @@ async fn report(shared: &Store, token: &str, base: &str, printer: &mut Printer) 
                 CommandState::Rejected
             };
             let _ = store.command_went(
-                token,
+                caller.as_ref(),
                 done.id,
                 state,
                 done.reason.clone(),
@@ -337,7 +338,7 @@ async fn report(shared: &Store, token: &str, base: &str, printer: &mut Printer) 
     let next =
         if printer.command.is_none() && printer.job.is_none() && report.state == MachineState::Idle
         {
-            shared.lock().unwrap().next_command(token)
+            shared.lock().unwrap().next_command(caller.as_ref())
         } else {
             Ok(None)
         };
@@ -476,10 +477,11 @@ mod tests {
         );
 
         // A command: sent as a gcode demand, done when Moonraker says so.
+        let link = store.link_of(space, &id).await.unwrap();
         let command = store
             .lock()
             .unwrap()
-            .queue_command(space, &id, "Home", "G28")
+            .queue_command(link.as_deref(), &id, "Home", "G28")
             .unwrap()
             .unwrap();
         let asked = next(&mut ws, "gcode").await;

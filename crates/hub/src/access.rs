@@ -29,7 +29,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 pub use grants::Grants;
-use rusqlite::{OptionalExtension, params};
 use serde::Serialize;
 
 /// A role in a space, from least to most.
@@ -1180,7 +1179,7 @@ impl Legacy {
     /// not in it. Managing it (settings, permissions, removing) is for owners and admins;
     /// using it (jobs, moving, heating) is by permission for everyone, whatever their role:
     /// being owner does not mean having had the laser course. `grants`: the person's
-    /// ([`Store::grants_of`], read before the lock); [`Grants::none_needed`] for view and manage.
+    /// ([`Store::grants_of`], read before the lock); [`Store::grants_for`] for view and manage.
     pub fn may(
         &self,
         access: &Access,
@@ -1219,15 +1218,7 @@ impl Legacy {
         machine: &str,
         grants: &Grants,
     ) -> rusqlite::Result<Option<Level>> {
-        let found: Option<bool> = self
-            .db
-            .query_row(
-                "SELECT induction_required FROM machines WHERE id = ?1 AND space_id = ?2",
-                params![machine, access.space],
-                |r| r.get(0),
-            )
-            .optional()?;
-        let Some(induction) = found else {
+        let Some(induction) = grants.machine(machine).map(|m| m.induction_required != 0) else {
             return Ok(None);
         };
         Ok(Some(match access.role {
@@ -1239,76 +1230,10 @@ impl Legacy {
         }))
     }
 
-    /// Transitional (lanes 2-3, machines on SQLite): the ids of the space's machines of a kind (fdm,
-    /// laser, label), or all of them (`all`), for a new group.
-    pub(crate) fn machine_ids_of_kind(
-        &self,
-        space: i64,
-        kind: &str,
-    ) -> rusqlite::Result<Vec<String>> {
-        if kind == "all" {
-            let mut q = self
-                .db
-                .prepare("SELECT id FROM machines WHERE space_id = ?1")?;
-            return q.query_map([space], |r| r.get(0))?.collect();
-        }
-        // The kind is kept as JSON: "fdm", with its quotes.
-        let mut q = self
-            .db
-            .prepare("SELECT id FROM machines WHERE space_id = ?1 AND kind = ?2")?;
-        q.query_map(params![space, format!("\"{kind}\"")], |r| r.get(0))?
-            .collect()
-    }
-
-    /// Whether a machine's permission is a training (it needs training, not only permission).
-    pub fn needs_training(&self, space: i64, machine: &str) -> rusqlite::Result<bool> {
-        Ok(self
-            .db
-            .query_row(
-                "SELECT induction_required = 2 FROM machines WHERE id = ?1 AND space_id = ?2",
-                params![machine, space],
-                |r| r.get(0),
-            )
-            .optional()?
-            .unwrap_or(false))
-    }
-
-    pub fn induction_required(&self, space: i64, machine: &str) -> rusqlite::Result<bool> {
-        Ok(self
-            .db
-            .query_row(
-                "SELECT induction_required FROM machines WHERE id = ?1 AND space_id = ?2",
-                params![machine, space],
-                |r| r.get(0),
-            )
-            .optional()?
-            .unwrap_or(false))
-    }
-
     /// Transitional (lanes 1-4): the space a request acts in, for code under the SQLite lock; its name
     /// is on Postgres ([`Store::space_of`]).
     pub fn space_id_of(&self, access: &Access) -> rusqlite::Result<(i64, ())> {
         Ok((access.space, ()))
-    }
-
-    /// A machine's name, in whichever space (the audit log's names).
-    pub(crate) fn machine_name_any_space(&self, machine: &str) -> Option<String> {
-        self.db
-            .query_row("SELECT name FROM machines WHERE id = ?1", [machine], |r| {
-                r.get(0)
-            })
-            .ok()
-    }
-
-    /// A machine's name, when it is of the space.
-    pub(crate) fn machine_name_in(&self, space: i64, machine: &str) -> Option<String> {
-        self.db
-            .query_row(
-                "SELECT name FROM machines WHERE id = ?1 AND space_id = ?2",
-                params![machine, space],
-                |r| r.get(0),
-            )
-            .ok()
     }
 }
 
@@ -1785,7 +1710,7 @@ mod tests {
                 .0,
             StatusCode::NO_CONTENT
         );
-        assert!(w.store.lock().unwrap().needs_training(space, &p4).unwrap());
+        assert!(w.store.machine(space, &p4).await.unwrap().unwrap().training);
         assert_eq!(level(&p4).await, Level::View);
         let ask = format!("/machines/{p4}/ask");
         assert_eq!(w.post(&mia, &ask, "").await.0, StatusCode::NO_CONTENT);
@@ -2042,13 +1967,10 @@ mod tests {
                 w.store.machine(a1, &m).await.unwrap().is_none(),
                 "gone from the first space"
             );
+            let moved = w.store.machine(a2, &m).await.unwrap();
+            assert!(moved.is_some(), "in the second");
             assert!(
-                w.store.machine(a2, &m).await.unwrap().is_some(),
-                "in the second"
-            );
-            let s = w.store.lock().unwrap();
-            assert!(
-                !s.takes_work(&m).unwrap(),
+                !moved.unwrap().takes_work,
                 "no work from the new space's queue until someone says"
             );
         }

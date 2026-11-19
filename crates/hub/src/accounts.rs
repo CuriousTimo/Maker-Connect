@@ -316,15 +316,6 @@ impl Store {
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
-        // Transitional (lanes 1-3): SQLite's copy of the spaces, for the machines' foreign key, in step.
-        self.lock()
-            .unwrap()
-            .db
-            .execute(
-                "UPDATE spaces SET name = ?2 WHERE id = ?1",
-                rusqlite::params![space_id, name],
-            )
-            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
         Ok(())
     }
 

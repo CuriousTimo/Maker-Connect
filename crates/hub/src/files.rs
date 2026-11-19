@@ -759,7 +759,7 @@ async fn print(
         Ok(found) => found,
         Err(response) => return *response,
     };
-    let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
+    let ppe_checks = store.ppe_rule(access.space, &form.machine).await;
     let grants = match store.grants_of(&access).await {
         Ok(grants) => grants,
         Err(error) => return failed(error),
@@ -777,7 +777,8 @@ async fn print(
         ) {
             return *refused;
         }
-        if let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &form.machine) {
+        if let Err(refused) = crate::safety::check_ppe(&store, &ppe_checks, &access, &form.machine)
+        {
             return *refused;
         }
     }
@@ -916,7 +917,7 @@ async fn frame(
     Path(id): Path<String>,
     Form(form): Form<PrintForm>,
 ) -> Response {
-    let (space, file, dir) = match find(&access, &store, &id).await {
+    let (_, file, dir) = match find(&access, &store, &id).await {
         Ok(found) => found,
         Err(response) => return *response,
     };
@@ -929,7 +930,7 @@ async fn frame(
     let Some([x0, y0, x1, y1]) = bounds else {
         return (StatusCode::CONFLICT, "the file has no moves to frame").into_response();
     };
-    let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
+    let ppe_checks = store.ppe_rule(access.space, &form.machine).await;
     let grants = match store.grants_of(&access).await {
         Ok(grants) => grants,
         Err(error) => return failed(error),
@@ -946,7 +947,7 @@ async fn frame(
     ) {
         return *refused;
     }
-    if let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &form.machine) {
+    if let Err(refused) = crate::safety::check_ppe(&store, &ppe_checks, &access, &form.machine) {
         return *refused;
     }
     let machine = match found_machine {
@@ -975,7 +976,7 @@ async fn frame(
             download: format!("/api/agent/v1/files/{}", file.id),
         };
         return match store.queue_action(
-            space,
+            Some(machine.link.as_str()),
             &machine.id,
             &format!("Frame {}", file.name),
             &action,
@@ -994,7 +995,12 @@ async fn frame(
         corner(x0, y0),
     ]
     .join("\n");
-    match store.queue_command(space, &machine.id, &format!("Frame {}", file.name), &gcode) {
+    match store.queue_command(
+        Some(machine.link.as_str()),
+        &machine.id,
+        &format!("Frame {}", file.name),
+        &gcode,
+    ) {
         Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
         Ok(None) => (StatusCode::CONFLICT, "the machine takes no commands").into_response(),
         Err(error) => failed(error),
@@ -1025,7 +1031,7 @@ async fn start_burn(
     Path(id): Path<String>,
     Form(form): Form<StartBurnForm>,
 ) -> Response {
-    let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
+    let ppe_checks = store.ppe_rule(access.space, &id).await;
     let grants = match store.grants_of(&access).await {
         Ok(grants) => grants,
         Err(error) => return failed(error),
@@ -1048,7 +1054,7 @@ async fn start_burn(
         ) {
             return Err(*refused);
         }
-        if let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &id) {
+        if let Err(refused) = crate::safety::check_ppe(&store, &ppe_checks, &access, &id) {
             return Err(*refused);
         }
         if !crate::store::StartedBy::person(&access).is_person_at_a_session() {
@@ -1161,7 +1167,7 @@ async fn control_job(
     Path(id): Path<String>,
     Form(form): Form<JobForm>,
 ) -> Response {
-    let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
+    let ppe_checks = store.ppe_rule(access.space, &id).await;
     let found_machine = store
         .machine(access.space, &id)
         .await
@@ -1169,7 +1175,7 @@ async fn control_job(
     // Starting and resuming wait for PPE; pausing and stopping never do.
     if matches!(form.action.as_str(), "restart" | "resume")
         && let Err(refused) =
-            crate::safety::check_ppe(&store.lock().unwrap(), ppe_checks, &access, &id)
+            crate::safety::check_ppe(&store.lock().unwrap(), &ppe_checks, &access, &id)
     {
         return *refused;
     }
@@ -1231,7 +1237,7 @@ async fn control_job(
             if own.link == "prusa-connect" {
                 return match crate::printer_files::job_control(
                     &mut store.lock().unwrap(),
-                    access.space,
+                    Some(own.link.as_str()),
                     &id,
                     &form.action,
                 ) {
@@ -1285,7 +1291,7 @@ async fn control_job(
         && machine.link == "prusa-connect"
         && let Err(error) = crate::printer_files::job_control(
             &mut store.lock().unwrap(),
-            access.space,
+            Some(machine.link.as_str()),
             &id,
             &form.action,
         )

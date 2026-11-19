@@ -2,9 +2,9 @@
 //! their machines and grants, and requests for permission. Moved from crate::access's SQLite queries (hub
 //! core v2 step 2, lane 2); each runs in its space's transaction ([`crate::store::pg::Pg::space`]).
 //!
-//! Transitional (lanes 2-3): machines are still on SQLite. Where a list shows a machine's name or needs it to
-//! be of the space, that is read from [`Store::lock`] after the Postgres read, never while a transaction
-//! waits on it; rows whose machine is not in the space are left out, as SQLite's joins left them out.
+//! Where a list shows a machine's name or needs it to be of the space, the space's machines are read with
+//! it ([`Store::machine_modes`]); rows whose machine is not in the space are left out, as the joins on
+//! SQLite left them out.
 
 use super::{AskedFor, Grant, Group, Level};
 use crate::store::{BoxError, Store, now};
@@ -13,20 +13,18 @@ use std::collections::HashMap;
 /// A member's live permissions in one space, by machine: given on the machine or on a group it is in, the
 /// highest counting; expired ones left out. Read before the SQLite lock ([`Store::grants_of`]) and handed
 /// to [`crate::store::Legacy::may`] and [`crate::store::Legacy::machine_level`].
+///
+/// With them, the space's machines and who may use each (`MachineMode`): a machine not among them is not
+/// of the space.
 #[derive(Debug, Clone, Default)]
 pub struct Grants {
     levels: HashMap<String, Level>,
-    /// Read from the database; false for [`Grants::none_needed`].
+    /// The person's levels were read; not for view and manage ([`Store::grants_for`]).
     read: bool,
+    modes: HashMap<String, MachineMode>,
 }
 
 impl Grants {
-    /// For asking about `view` or `manage` only, which no grant changes (view: the machine is in the
-    /// space; manage: by role).
-    pub fn none_needed() -> Self {
-        Self::default()
-    }
-
     pub(crate) fn read(&self) -> bool {
         self.read
     }
@@ -34,6 +32,20 @@ impl Grants {
     pub(crate) fn of(&self, machine: &str) -> Option<Level> {
         self.levels.get(machine).copied()
     }
+
+    /// A machine of the space: its name, kind and who may use it.
+    pub(crate) fn machine(&self, machine: &str) -> Option<&MachineMode> {
+        self.modes.get(machine)
+    }
+}
+
+/// A machine of a space as the access rules read it: its name, kind (as kept: JSON, `"fdm"`) and who may
+/// use it (`induction_required` 0: every member; 1: with permission; 2: with training).
+#[derive(Debug, Clone)]
+pub struct MachineMode {
+    pub name: String,
+    pub kind: String,
+    pub induction_required: i32,
 }
 
 /// A permission as the Members tab's window sets it: given (level, until) or taken away (`None`).
@@ -47,6 +59,7 @@ fn nocase(text: &str) -> Vec<u8> {
 impl Store {
     /// Someone's permissions on the machines of their space (see [`Grants`]).
     pub async fn grants_of(&self, access: &super::Access) -> sqlx::Result<Grants> {
+        let modes = self.machine_modes(access.space).await?;
         let mut tx = self.pg().space(access.space).await?;
         let rows = sqlx::query!(
             r#"SELECT machine_id AS "machine_id!", level AS "level!" FROM machine_grants
@@ -69,15 +82,58 @@ impl Store {
                 *at = (*at).max(level);
             }
         }
-        Ok(Grants { levels, read: true })
+        Ok(Grants {
+            levels,
+            read: true,
+            modes,
+        })
     }
 
-    /// What asking for `need` takes: the person's grants for use and operate, none for view and manage.
+    /// What asking for `need` takes: the person's grants for use and operate; for view and manage the
+    /// space's machines only (no grant changes those: view, the machine is in the space; manage, by role).
     pub async fn grants_for(&self, access: &super::Access, need: Level) -> sqlx::Result<Grants> {
         match need {
-            Level::View | Level::Manage => Ok(Grants::none_needed()),
+            Level::View | Level::Manage => Ok(Grants {
+                modes: self.machine_modes(access.space).await?,
+                ..Grants::default()
+            }),
             Level::Use | Level::Operate => self.grants_of(access).await,
         }
+    }
+
+    /// The machines of a space, by id, as the access rules read them.
+    pub async fn machine_modes(&self, space: i64) -> sqlx::Result<HashMap<String, MachineMode>> {
+        let mut tx = self.pg().space(space).await?;
+        let rows = sqlx::query!(
+            "SELECT id, name, kind, induction_required FROM machines WHERE space_id = $1",
+            space
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                (
+                    r.id,
+                    MachineMode {
+                        name: r.name,
+                        kind: r.kind,
+                        induction_required: r.induction_required,
+                    },
+                )
+            })
+            .collect())
+    }
+
+    /// A machine's name, in whichever space (the audit log's names). Across spaces: the admin pool.
+    pub(crate) async fn machine_name_any_space(
+        &self,
+        machine: &str,
+    ) -> sqlx::Result<Option<String>> {
+        sqlx::query_scalar!("SELECT name FROM machines WHERE id = $1", machine)
+            .fetch_optional(&self.pg().admin)
+            .await
     }
 
     /// Who has permission on a machine of the space, by name.
@@ -341,7 +397,14 @@ impl Store {
     ) -> Result<i64, BoxError> {
         let machines = match kind {
             None => Vec::new(),
-            Some(kind) => self.lock().unwrap().machine_ids_of_kind(space, kind)?,
+            // The kind is kept as JSON: "fdm", with its quotes.
+            Some(kind) => self
+                .machine_modes(space)
+                .await?
+                .into_iter()
+                .filter(|(_, m)| kind == "all" || m.kind == format!("\"{kind}\""))
+                .map(|(id, _)| id)
+                .collect(),
         };
         let mut tx = self.pg().space(space).await?;
         let id = sqlx::query_scalar!(
@@ -415,11 +478,7 @@ impl Store {
         machine: &str,
         member: bool,
     ) -> Result<bool, BoxError> {
-        let machine_here = self
-            .lock()
-            .unwrap()
-            .machine_name_in(space, machine)
-            .is_some();
+        let machine_here = self.machine_modes(space).await?.contains_key(machine);
         if self.group_name(space, group).await?.is_none() || !machine_here {
             return Ok(false);
         }
@@ -571,20 +630,20 @@ impl Store {
         .fetch_all(&mut *tx)
         .await?;
         tx.commit().await?;
-        // The machine of the space, its name and whether it needs a training (transitional: on SQLite).
-        let legacy = self.lock().unwrap();
+        // The machine of the space, its name and whether it needs a training.
+        let machines = self.machine_modes(space).await?;
         let mut out = Vec::new();
         for r in rows {
-            let Some(name) = legacy.machine_name_in(space, &r.machine_id) else {
+            let Some(machine) = machines.get(&r.machine_id) else {
                 continue;
             };
             out.push(AskedFor {
                 id: r.id,
                 user_id: r.user_id,
                 who: r.display_name,
-                training: legacy.needs_training(space, &r.machine_id)?,
+                training: machine.induction_required == 2,
+                machine: machine.name.clone(),
                 machine_id: r.machine_id,
-                machine: name,
                 asked_at: r.asked_at,
             });
         }

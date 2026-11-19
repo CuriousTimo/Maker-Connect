@@ -906,19 +906,21 @@ impl Legacy {
     /// Loads an item into a machine, where it is (a spool feeds a printer from its dry box):
     /// what was loaded there is no longer (one spool, one cassette at a time). A tape of the
     /// machine's profile tells the machine its tape: the media id returned, for the caller to
-    /// set on Postgres ([`Store::set_media`]; transitional, lane 3a).
+    /// set on Postgres ([`Store::set_media`]; transitional, lane 3a). `target`: the machine of the
+    /// space ([`Store::machine`], None: not in it), read before the lock.
     pub fn load_item(
         &self,
         space: i64,
         id: &str,
-        machine: &str,
+        target: Option<&crate::store::Machine>,
     ) -> rusqlite::Result<Result<Option<String>, &'static str>> {
         let Some(item) = self.item(space, id)? else {
             return Ok(Err("no such item"));
         };
-        let Some(target) = self.machine_on_mirror(space, machine)? else {
+        let Some(target) = target else {
             return Ok(Err("no such machine"));
         };
+        let machine = target.id.as_str();
         // A tape into a label printer, filament into a 3D printer; a tape or roll of labels
         // made for one printer model only into that model (a LabelManager's cassette does
         // not go into a LabelWriter). A printer without a profile takes any.
@@ -1485,6 +1487,10 @@ async fn load_item(
     let Some(machine) = p.machine else {
         return (StatusCode::BAD_REQUEST, "which machine?").into_response();
     };
+    let target = match store.machine(space, &machine).await {
+        Ok(target) => target,
+        Err(e) => return failed(e),
+    };
     let loaded = {
         let legacy = store.lock().unwrap();
         // Loading a spool or a tape is using the machine.
@@ -1497,7 +1503,7 @@ async fn load_item(
         ) {
             return *refused;
         }
-        legacy.load_item(space, &id, &machine)
+        legacy.load_item(space, &id, target.as_ref())
     };
     match loaded {
         Ok(Ok(None)) => StatusCode::NO_CONTENT.into_response(),
@@ -1703,7 +1709,8 @@ mod tests {
             .unwrap();
         }
         let store = Legacy::open(path.to_str().unwrap()).unwrap();
-        let space = store.default_space().unwrap().0;
+        // SQLite alone: a space's id is only a number here.
+        let space = 1;
         let material = &store.materials(space).unwrap()[0];
         assert_eq!(
             (
@@ -1721,7 +1728,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             [("S-0007", 412.0, "stock"), ("S-0008", 0.0, "used-up")]
         );
-        let spool = store.sm_spool(space, 7).unwrap().unwrap();
+        let spool = store
+            .sm_spool(space, 7, &crate::spoolman::MachineNames::new())
+            .unwrap()
+            .unwrap();
         assert_eq!(spool["filament"]["material"], "PETG");
         assert_eq!(spool["filament"]["vendor"]["name"], "Prusa Polymers");
         assert_eq!(spool["used_weight"], 588.0);
@@ -1744,6 +1754,8 @@ mod tests {
             .add_virtual(space, profiles::find("dymo/labelwriter-450").unwrap())
             .await
             .unwrap();
+        let dymo_m = pg.machine(space, &dymo).await.unwrap();
+        let writer_m = pg.machine(space, &writer).await.unwrap();
         let media = {
             let store = pg.lock().unwrap();
             let tape = catalogue()
@@ -1771,10 +1783,13 @@ mod tests {
 
             // Not into a LabelWriter: a LabelManager's cassette.
             assert_eq!(
-                store.load_item(space, "S-0001", &writer).unwrap(),
+                store.load_item(space, "S-0001", writer_m.as_ref()).unwrap(),
                 Err("this tape or roll is made for another label printer")
             );
-            store.load_item(space, "S-0001", &dymo).unwrap().unwrap();
+            store
+                .load_item(space, "S-0001", dymo_m.as_ref())
+                .unwrap()
+                .unwrap();
             // From a shelf it is on the printer now; from a box (a place with slots) it stays.
             let loaded = store
                 .items(space)
@@ -1790,7 +1805,10 @@ mod tests {
                 .add_place(space, "RepBox", None, Some(6), Some("repkord-repbox-2.5"))
                 .unwrap();
             store.move_item(space, "S-0001", Some(&dry)).unwrap();
-            let media = store.load_item(space, "S-0001", &dymo).unwrap().unwrap();
+            let media = store
+                .load_item(space, "S-0001", dymo_m.as_ref())
+                .unwrap()
+                .unwrap();
             let fed = store
                 .items(space)
                 .unwrap()
@@ -1806,6 +1824,7 @@ mod tests {
         // What the website's load does next (crate::stock::load_item): the tape on Postgres.
         pg.set_media(space, &dymo, media.as_deref()).await.unwrap();
         let printer = pg.machine(space, &dymo).await.unwrap().unwrap();
+        let dymo_m = Some(printer.clone());
         let store = pg.lock().unwrap();
         assert_eq!(
             printer.media.as_deref(),
@@ -1813,7 +1832,10 @@ mod tests {
             "the printer knows its tape"
         );
         // The second loaded: the first goes back to stock.
-        store.load_item(space, "S-0002", &dymo).unwrap().unwrap();
+        store
+            .load_item(space, "S-0002", dymo_m.as_ref())
+            .unwrap()
+            .unwrap();
         let first = store
             .items(space)
             .unwrap()

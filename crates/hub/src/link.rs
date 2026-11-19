@@ -48,11 +48,16 @@ pub(crate) async fn telemetry(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
+    // The machine as it was before this report (when it was last seen), from Postgres.
+    let caller = match store.caller(token).await {
+        Ok(caller) => caller,
+        Err(error) => return failed(error),
+    };
     {
         let mut store = store.lock().unwrap();
         // K18: an agent not seen for longer than ONLINE_SECONDS: its Sent/Accepted commands failed,
         // before this report (and its Done, which then still wins) is taken in.
-        if let Err(error) = store.fail_commands_of_gone_agent(token) {
+        if let Err(error) = store.fail_commands_of_gone_agent(caller.as_ref()) {
             return failed(error);
         }
         for done in &report.done {
@@ -62,7 +67,7 @@ pub(crate) async fn telemetry(
                 store::CommandState::Rejected
             };
             if let Err(error) = store.command_went(
-                token,
+                caller.as_ref(),
                 done.id,
                 state,
                 done.reason.clone(),
@@ -116,6 +121,14 @@ pub(crate) async fn telemetry(
             },
             _ => None,
         };
+        // The machine as this report left it (its profile may have been recognised).
+        let caller = match &reported {
+            Ok(Some(_)) => match store.caller(token).await {
+                Ok(caller) => caller,
+                Err(error) => return failed(error),
+            },
+            _ => None,
+        };
         let mut store = store.lock().unwrap();
         match reported {
             Ok(Some(space)) => {
@@ -125,10 +138,12 @@ pub(crate) async fn telemetry(
                 // K18, HS4: a machine on a port that fails its pending commands on close (Marlin/OctoPrint,
                 // DYMO PnP, LabelWriter 450, laser) gets every Queued command at once (no gate, no
                 // 120 s); the other agent ports (Buddy, Klipper, the MK3 family) keep one at a time.
-                let next = match store.fails_pending_on_close(token) {
-                    Ok(true) => store.next_commands_for_agent(token),
-                    Ok(false) => store.next_command(token).map(|n| n.into_iter().collect()),
-                    Err(error) => Err(error),
+                let next = if caller.as_ref().is_some_and(|c| c.fails_pending_on_close) {
+                    store.next_commands_for_agent(caller.as_ref())
+                } else {
+                    store
+                        .next_command(caller.as_ref())
+                        .map(|n| n.into_iter().collect())
                 };
                 let commands = match next {
                     // Only typed commands go to an agent (the hub makes no G-code for it).
@@ -831,12 +846,13 @@ pub(crate) mod tests {
         (id, token, space)
     }
 
-    fn queue_gcode(store: &crate::Store, space: i64, machine: &str, text: &str) -> u32 {
+    async fn queue_gcode(store: &crate::Store, space: i64, machine: &str, text: &str) -> u32 {
+        let link = store.link_of(space, machine).await.unwrap();
         store
             .lock()
             .unwrap()
             .queue_action(
-                space,
+                link.as_deref(),
                 machine,
                 text,
                 &protocol::Action::Gcode { text: text.into() },
@@ -901,8 +917,8 @@ pub(crate) mod tests {
         let store = crate::store::Store::for_test(&pool).await;
         let app = crate::auth::signed_in_app(store.clone()).await;
         let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None).await;
-        let a = queue_gcode(&store, space, &id, "G28");
-        let b = queue_gcode(&store, space, &id, "M105");
+        let a = queue_gcode(&store, space, &id, "G28").await;
+        let b = queue_gcode(&store, space, &id, "M105").await;
         assert_eq!(
             report(&app, &token, vec![]).await,
             vec![a, b],
@@ -918,9 +934,9 @@ pub(crate) mod tests {
             "nothing queued, nothing sent twice"
         );
 
-        let m109 = queue_gcode(&store, space, &id, "M109 S200");
+        let m109 = queue_gcode(&store, space, &id, "M109 S200").await;
         assert_eq!(report(&app, &token, vec![]).await, vec![m109]);
-        let m112 = queue_gcode(&store, space, &id, "M112");
+        let m112 = queue_gcode(&store, space, &id, "M112").await;
         assert_eq!(
             report(&app, &token, vec![]).await,
             vec![m112],
@@ -959,8 +975,8 @@ pub(crate) mod tests {
             let store = crate::store::Store::fresh_for_test(&pool).await;
             let app = crate::auth::signed_in_app(store.clone()).await;
             let (id, token, space) = agent_machine(&store, kind, profile).await;
-            let a = queue_gcode(&store, space, &id, "G28");
-            let b = queue_gcode(&store, space, &id, "M105");
+            let a = queue_gcode(&store, space, &id, "G28").await;
+            let b = queue_gcode(&store, space, &id, "M105").await;
             assert_eq!(
                 report(&app, &token, vec![]).await,
                 vec![a],
@@ -973,7 +989,7 @@ pub(crate) mod tests {
             );
             assert_eq!(report(&app, &token, vec![finished(a)]).await, vec![b]);
             // and the 120 s
-            let c = queue_gcode(&store, space, &id, "M104 S0");
+            let c = queue_gcode(&store, space, &id, "M104 S0").await;
             report(&app, &token, vec![finished(b)]).await;
             assert_eq!(
                 state_of(&store, space, &id, c).await.0,
@@ -1005,8 +1021,8 @@ pub(crate) mod tests {
             let store = crate::store::Store::fresh_for_test(&pool).await;
             let app = crate::auth::signed_in_app(store.clone()).await;
             let (id, token, space) = agent_machine(&store, kind, None).await;
-            let a = queue_gcode(&store, space, &id, "G28");
-            let b = queue_gcode(&store, space, &id, "M105");
+            let a = queue_gcode(&store, space, &id, "G28").await;
+            let b = queue_gcode(&store, space, &id, "M105").await;
             assert_eq!(
                 report(&app, &token, vec![]).await,
                 vec![a, b],
@@ -1024,14 +1040,15 @@ pub(crate) mod tests {
                 "{kind:?}"
             );
             // the agent-gone rule: Sent fails, Queued does not
-            let c = queue_gcode(&store, space, &id, "M104 S0");
+            let c = queue_gcode(&store, space, &id, "M104 S0").await;
             store
                 .set_last_seen(&id, store::now() - store::ONLINE_SECONDS - 1)
                 .await;
+            let caller = store.caller(&token).await.unwrap();
             store
                 .lock()
                 .unwrap()
-                .fail_commands_of_gone_agent(&token)
+                .fail_commands_of_gone_agent(caller.as_ref())
                 .unwrap();
             assert_eq!(
                 state_of(&store, space, &id, a).await,
@@ -1062,24 +1079,26 @@ pub(crate) mod tests {
         let (other, other_token, _) = agent_machine(&store, MachineKind::Fdm, None).await;
         let (prusa, prusa_token, _) =
             agent_machine(&store, MachineKind::Fdm, Some("prusa/mk4s")).await;
-        let sent = queue_gcode(&store, space, &id, "M109 S200");
-        let accepted = queue_gcode(&store, space, &id, "G28");
-        let other_sent = queue_gcode(&store, space, &other, "M109 S200");
-        let prusa_sent = queue_gcode(&store, space, &prusa, "M109 S200");
+        let sent = queue_gcode(&store, space, &id, "M109 S200").await;
+        let accepted = queue_gcode(&store, space, &id, "G28").await;
+        let other_sent = queue_gcode(&store, space, &other, "M109 S200").await;
+        let prusa_sent = queue_gcode(&store, space, &prusa, "M109 S200").await;
         report(&app, &token, vec![]).await;
         report(&app, &other_token, vec![]).await;
         report(&app, &prusa_token, vec![]).await;
+        let caller = store.caller(&token).await.unwrap();
         store
             .lock()
             .unwrap()
-            .command_still_running(&token, accepted)
+            .command_still_running(caller.as_ref(), accepted)
             .unwrap();
-        let queued = queue_gcode(&store, space, &id, "M105");
+        let queued = queue_gcode(&store, space, &id, "M105").await;
         // seen just now: nothing happens
+        let caller = store.caller(&token).await.unwrap();
         store
             .lock()
             .unwrap()
-            .fail_commands_of_gone_agent(&token)
+            .fail_commands_of_gone_agent(caller.as_ref())
             .unwrap();
         assert_eq!(
             state_of(&store, space, &id, sent).await.0,
@@ -1090,10 +1109,11 @@ pub(crate) mod tests {
         for m in [&id, &prusa] {
             store.set_last_seen(m, gone).await;
         }
+        let caller = store.caller(&token).await.unwrap();
         store
             .lock()
             .unwrap()
-            .fail_commands_of_gone_agent(&token)
+            .fail_commands_of_gone_agent(caller.as_ref())
             .unwrap();
         for c in [sent, accepted] {
             assert_eq!(
@@ -1113,10 +1133,11 @@ pub(crate) mod tests {
             state_of(&store, space, &other, other_sent).await.0,
             store::CommandState::Sent
         );
+        let caller = store.caller(&prusa_token).await.unwrap();
         store
             .lock()
             .unwrap()
-            .fail_commands_of_gone_agent(&prusa_token)
+            .fail_commands_of_gone_agent(caller.as_ref())
             .unwrap();
         assert_eq!(
             state_of(&store, space, &prusa, prusa_sent).await.0,
@@ -1139,8 +1160,8 @@ pub(crate) mod tests {
         let store = crate::store::Store::for_test(&pool).await;
         let app = crate::auth::signed_in_app(store.clone()).await;
         let (id, token, space) = agent_machine(&store, MachineKind::Fdm, None).await;
-        let a = queue_gcode(&store, space, &id, "M109 S200");
-        let b = queue_gcode(&store, space, &id, "G28");
+        let a = queue_gcode(&store, space, &id, "M109 S200").await;
+        let b = queue_gcode(&store, space, &id, "G28").await;
         report(&app, &token, vec![]).await;
         store
             .set_last_seen(&id, store::now() - store::ONLINE_SECONDS - 1)

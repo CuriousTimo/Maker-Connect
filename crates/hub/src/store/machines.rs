@@ -36,13 +36,10 @@ impl Legacy {
 
     /// A machine moved to another space ([`Store::move_machine`]): what stays behind in the old.
     pub(crate) fn moved_away(&mut self, from: i64, machine: &str) -> rusqlite::Result<()> {
-        let tx = self.db.transaction()?;
-        tx.execute("UPDATE machines SET farm = 0 WHERE id = ?1", [machine])?;
-        tx.execute(
+        self.db.execute(
             "UPDATE spool SET machine = NULL WHERE machine = ?1 AND space_id = ?2",
             params![machine, from],
         )?;
-        tx.commit()?;
         // Commands asked in the old space are not the new one's.
         self.commands.remove(machine);
         self.changed();
@@ -69,92 +66,15 @@ impl Legacy {
         })
     }
 
-    /// One machine of a space, from the SQLite copy (transitional, lane 3a: for the modules still on
-    /// SQLite; the website reads [`Store::machine`]).
-    pub(crate) fn machine_on_mirror(
-        &self,
-        space: i64,
-        id: &str,
-    ) -> rusqlite::Result<Option<Machine>> {
-        Ok(self
-            .machines_on_mirror(space)?
-            .into_iter()
-            .find(|m| m.id == id))
-    }
-
-    /// A space's machines, by name, from the SQLite copy (transitional, lane 3a: for the modules
-    /// still on SQLite; the website reads [`Store::machines`]).
-    pub(crate) fn machines_on_mirror(&self, space: i64) -> rusqlite::Result<Vec<Machine>> {
-        let mut query = self.db.prepare(
-            "SELECT id, name, kind, agent_version, token, last_seen, telemetry, profile, profile_chosen, link,
-                    details, mesh, media, powered_by, power_channel, reached_through, agent, peer, out_of_use,
-                    out_of_use_at, laser_w, labels
-             FROM machines WHERE space_id = ?1 ORDER BY name",
-        )?;
-        let rows = query
-            .query_map([space], |r| {
-                Ok(super::pg_mirror::MachineRow {
-                    id: r.get(0)?,
-                    name: r.get(1)?,
-                    kind: r.get(2)?,
-                    agent_version: r.get(3)?,
-                    token: r.get(4)?,
-                    last_seen: r.get(5)?,
-                    telemetry: r.get(6)?,
-                    profile: r.get(7)?,
-                    profile_chosen: r.get(8)?,
-                    link: r.get(9)?,
-                    details: r.get(10)?,
-                    mesh: r.get(11)?,
-                    media: r.get(12)?,
-                    powered_by: r.get(13)?,
-                    power_channel: r.get(14)?,
-                    reached_through: r.get(15)?,
-                    agent: r.get(16)?,
-                    peer: r.get(17)?,
-                    out_of_use: r.get(18)?,
-                    out_of_use_at: r.get(19)?,
-                    laser_w: r.get(20)?,
-                    labels: r.get(21)?,
-                })
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        // Transitional (lane 3b): what jobs tell is on Postgres; these readers do not show it.
-        self.complete_machines(space, rows, &JobFacts::default())
-    }
-
     /// Machines from their rows, with what the modules on SQLite and the hub's memory add.
     pub(crate) fn complete_machines(
         &self,
         space: i64,
-        rows: Vec<super::pg_mirror::MachineRow>,
+        rows: Vec<super::pg_machines::MachineRow>,
         jobs: &JobFacts,
     ) -> rusqlite::Result<Vec<Machine>> {
         let now = now();
         let mut machines: Vec<Machine> = rows.into_iter().map(|r| r.into_machine(now)).collect();
-        // What the modules on SQLite keep in the machine's row (pg_mirror.rs).
-        for machine in &mut machines {
-            let owned: Option<(String, i64, Option<String>, Option<String>)> = self
-                .db
-                .query_row(
-                    "SELECT kind, induction_required, ppe, agent_update_to FROM machines WHERE id = ?1",
-                    [&machine.id],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-                )
-                .optional()?;
-            let (kind, induction, ppe, update_to) = owned.unwrap_or_else(|| {
-                (
-                    serde_json::to_string(&machine.kind).unwrap_or_default(),
-                    0,
-                    None,
-                    None,
-                )
-            });
-            machine.induction_required = induction != 0;
-            machine.training = induction == 2;
-            machine.ppe = crate::safety::ppe_of(&kind, ppe.as_deref());
-            machine.agent_update_to = update_to;
-        }
         let offered = self.offered_build();
         let items = self.items(space)?;
         let materials = self.materials(space)?;
@@ -230,24 +150,18 @@ impl Legacy {
                 } else {
                     jobs.bed_unchecked(&machine.id)
                 };
-                machine.usb_print_by = self
-                    .db
-                    .query_row(
-                        "SELECT usb_print_by FROM machines WHERE id = ?1",
-                        [&machine.id],
-                        |r| r.get(0),
-                    )
-                    .optional()?
-                    .flatten();
                 // A plate for a part waits for someone to confirm it (crate::farm): that, not
                 // "take the print".
                 machine.confirm = self.waiting_confirm(jobs, &machine.id);
                 if machine.confirm.is_some() {
                     machine.on_bed = None;
                 }
-                machine.farm = self.takes_work(&machine.id)?;
                 machine.upkeep = jobs.upkeep(&machine.id);
-                machine.sheet = self.sheet_of(&machine.id)?;
+            } else {
+                // Shown for a 3D printer only (its row keeps them whatever its kind).
+                machine.usb_print_by = None;
+                machine.farm = false;
+                machine.sheet = None;
             }
             // An agent from before builds were named is behind any build on offer.
             if let (Some(offered), Some(agent)) = (&offered, machine.agent.as_ref())

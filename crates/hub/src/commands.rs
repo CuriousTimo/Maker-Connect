@@ -378,7 +378,7 @@ pub(crate) async fn emergency_stop(
         None => (StatusCode::CONFLICT, "this machine has no emergency stop").into_response(),
         Some(EmergencyStop::TypedM112) => {
             let queued = shared.lock().unwrap().queue_action(
-                space,
+                Some(machine.link.as_str()),
                 &id,
                 "Emergency stop",
                 &protocol::Action::Gcode {
@@ -409,22 +409,25 @@ pub(crate) async fn command(
     headers: HeaderMap,
     Form(form): Form<CommandForm>,
 ) -> Response {
-    let ppe_checks = store.ppe_checks(access.space).await.unwrap_or(false);
+    let ppe_checks = store.ppe_rule(access.space, &id).await;
     // The machine as it is now, read once (the website's commands go into memory below).
     let found_machine = store
         .machine(access.space, &id)
         .await
         .map_err(|e| e.to_string());
     let machine_now = || found_machine.clone();
+    // How it is reached, for queueing (None: not in the space).
+    let link = found_machine
+        .as_ref()
+        .ok()
+        .and_then(|m| m.as_ref())
+        .map(|m| m.link.clone());
+    let link = link.as_deref();
     let mut store = store.lock().unwrap();
-    let space = match store.space_id_of(&access) {
-        Ok((space, _)) => space,
-        Err(error) => return failed(error),
-    };
     // Switching things off never waits for PPE; everything else does.
     let off = form.gcode.trim().is_empty()
         && matches!(form.action.as_str(), "cooldown" | "fan-off" | "motors-off");
-    if !off && let Err(refused) = crate::safety::check_ppe(&store, ppe_checks, &access, &id) {
+    if !off && let Err(refused) = crate::safety::check_ppe(&store, &ppe_checks, &access, &id) {
         return *refused;
     }
     // B3: nothing here refuses a command for a machine behind an agent because of what it is doing
@@ -447,7 +450,7 @@ pub(crate) async fn command(
             Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
         };
         for (label, action) in &actions {
-            match store.queue_action(space, &id, label, action) {
+            match store.queue_action(link, &id, label, action) {
                 Ok(Some(_)) => {}
                 Ok(None) => {
                     return (
@@ -470,7 +473,7 @@ pub(crate) async fn command(
             Ok(typed) => typed,
             Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
         };
-        return match store.queue_command(space, &id, &label, &gcode) {
+        return match store.queue_command(link, &id, &label, &gcode) {
             Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
             Ok(None) => (
                 StatusCode::NOT_FOUND,
@@ -571,7 +574,7 @@ pub(crate) async fn command(
     {
         return (StatusCode::CONFLICT, why).into_response();
     }
-    let queued = store.queue_command(space, &id, &label, &gcode);
+    let queued = store.queue_command(link, &id, &label, &gcode);
     match queued {
         // The page sends it without leaving; a plain form comes back to the page.
         Ok(Some(_)) if headers.contains_key("x-requested-with") => {

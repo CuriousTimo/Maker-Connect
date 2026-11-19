@@ -3,11 +3,125 @@
 //! lane 3). Space-keyed ones run in their space's transaction ([`pg::Pg::space`]); those keyed by a
 //! token or a pairing code (an agent, a printer, not yet in a space) use the admin pool, as
 //! sign-in does.
-//!
-//! Transitional (lane 3a): each write is copied onto SQLite's row (pg_mirror.rs) for the modules still
-//! there.
 
 use super::*;
+
+/// The columns of a machine, as [`MachineRow`] reads them.
+macro_rules! machine_select {
+    ($tail:literal) => {
+        concat!(
+            "SELECT id, space_id, name, kind, agent_version, token, unix_seconds(last_seen) AS last_seen, telemetry,
+                 profile, profile_chosen, link, details, mesh, media, powered_by,
+                 power_channel::bigint AS power_channel, reached_through, agent, peer, out_of_use,
+                 unix_seconds(out_of_use_at) AS out_of_use_at, laser_w, labels, induction_required, ppe,
+                 usb_print_by, agent_update_to, farm, sheet
+             FROM machines ",
+            $tail
+        )
+    };
+}
+
+/// A machine's row as the website reads it ([`machine_select!`]).
+#[derive(sqlx::FromRow)]
+pub(crate) struct MachineRow {
+    pub id: String,
+    pub space_id: Option<i64>,
+    pub name: String,
+    pub kind: String,
+    pub agent_version: String,
+    pub token: String,
+    pub last_seen: Option<i64>,
+    pub telemetry: Option<String>,
+    pub profile: Option<String>,
+    pub profile_chosen: bool,
+    pub link: String,
+    pub details: Option<String>,
+    pub mesh: Option<String>,
+    pub media: Option<String>,
+    pub powered_by: Option<String>,
+    pub power_channel: Option<i64>,
+    pub reached_through: Option<String>,
+    pub agent: Option<String>,
+    pub peer: Option<String>,
+    pub out_of_use: Option<String>,
+    pub out_of_use_at: Option<i64>,
+    pub laser_w: Option<f64>,
+    pub labels: Option<String>,
+    /// 0: open to every member; 1: needs permission; 2: needs training (crate::access).
+    pub induction_required: i32,
+    pub ppe: Option<String>,
+    pub usb_print_by: Option<String>,
+    pub agent_update_to: Option<String>,
+    pub farm: bool,
+    pub sheet: Option<String>,
+}
+
+impl MachineRow {
+    /// The machine as far as its own row tells; [`Legacy::complete_machines`] adds the rest.
+    pub(crate) fn into_machine(self, now: i64) -> Machine {
+        let seen = self.last_seen.map(|t| now - t);
+        let online = seen.is_some_and(|s| s <= ONLINE_SECONDS);
+        let kind = self.kind;
+        Machine {
+            laser_framed: false,
+            laser_origin_set: false,
+            id: self.id,
+            name: self.name,
+            kind: serde_json::from_str(&kind).unwrap_or(MachineKind::Other),
+            agent_version: self.agent_version,
+            seen_seconds_ago: seen,
+            online,
+            telemetry: self
+                .telemetry
+                .filter(|_| online)
+                .and_then(|t| serde_json::from_str(&t).ok()),
+            profile: self.profile,
+            profile_chosen: self.profile_chosen,
+            details: self.details.and_then(|d| serde_json::from_str(&d).ok()),
+            commands: Vec::new(),
+            job: None,
+            resumable: None,
+            mesh: self.mesh.and_then(|m| serde_json::from_str(&m).ok()),
+            media: self.media,
+            powered_by: self.powered_by.map(|device| PowerLink {
+                device,
+                channel: self.power_channel.unwrap_or(0) as u32,
+            }),
+            reached_through: self.reached_through,
+            agent: self.agent.and_then(|a| serde_json::from_str(&a).ok()),
+            peer: self.peer,
+            agent_update: None,
+            agent_update_to: self.agent_update_to,
+            out_of_use: self.out_of_use.map(|reason| OutOfUse {
+                reason,
+                since: self.out_of_use_at.unwrap_or(0),
+            }),
+            loaded: None,
+            on_bed: None,
+            ready: None,
+            queue: Vec::new(),
+            queue_held: None,
+            asking: None,
+            buttons: Vec::new(),
+            usb_print_by: self.usb_print_by,
+            moonraker_token: (self.link == "simplyprint").then_some(self.token),
+            link: self.link,
+            laser_w: self.laser_w,
+            labels: self
+                .labels
+                .and_then(|l| serde_json::from_str(&l).ok())
+                .unwrap_or_default(),
+            induction_required: self.induction_required != 0,
+            training: self.induction_required == 2,
+            ppe: crate::safety::ppe_of(&kind, self.ppe.as_deref()),
+            confirm: None,
+            farm: self.farm,
+            takes_work: self.farm,
+            upkeep: None,
+            sheet: self.sheet,
+        }
+    }
+}
 
 impl Store {
     /// Whether a token belongs to a machine.
@@ -40,7 +154,6 @@ impl Store {
         .execute(&self.pg().admin)
         .await?
         .rows_affected();
-        self.mirror_machine(None, Some(token)).await?;
         self.changed();
         Ok(n > 0)
     }
@@ -69,8 +182,7 @@ impl Store {
             .await?;
         }
         tx.commit().await?;
-        if let Some(r) = &found {
-            self.mirror_machine(Some(&r.id), None).await?;
+        if found.is_some() {
             self.changed();
         }
         Ok(found.map(|r| (r.id, r.name)))
@@ -124,7 +236,6 @@ impl Store {
         )
         .execute(&self.pg().admin)
         .await?;
-        self.mirror_machine(Some(&id), None).await?;
         self.changed();
         Ok((id, token, code))
     }
@@ -155,7 +266,6 @@ impl Store {
         )
         .execute(&self.pg().admin)
         .await?;
-        self.mirror_machine(Some(&id), None).await?;
         self.changed();
         Ok(id)
     }
@@ -181,7 +291,6 @@ impl Store {
         )
         .execute(&self.pg().admin)
         .await?;
-        self.mirror_machine(Some(&id), None).await?;
         self.changed();
         Ok(id)
     }
@@ -235,7 +344,6 @@ impl Store {
         .await?
         .rows_affected();
         tx.commit().await?;
-        self.mirror_machine(Some(machine), None).await?;
         Ok(n > 0)
     }
 
@@ -258,7 +366,6 @@ impl Store {
         .await?
         .rows_affected();
         tx.commit().await?;
-        self.mirror_machine(Some(machine), None).await?;
         self.changed();
         Ok(n > 0)
     }
@@ -358,7 +465,6 @@ impl Store {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        self.mirror_machine(Some(machine), None).await?;
         self.changed();
         Ok(Ok(()))
     }
@@ -376,7 +482,6 @@ impl Store {
         .await?
         .rows_affected();
         tx.commit().await?;
-        self.mirror_machine(Some(machine), None).await?;
         self.changed();
         Ok(n > 0)
     }
@@ -401,7 +506,6 @@ impl Store {
         .await?
         .rows_affected();
         tx.commit().await?;
-        self.mirror_machine(Some(machine), None).await?;
         self.changed();
         Ok(n > 0)
     }
@@ -434,7 +538,6 @@ impl Store {
         .await?
         .rows_affected();
         tx.commit().await?;
-        self.mirror_machine(Some(machine), None).await?;
         self.changed();
         Ok(n > 0)
     }
@@ -466,7 +569,6 @@ impl Store {
         )
         .execute(&self.pg().admin)
         .await?;
-        self.mirror_machine(None, Some(token)).await?;
         Ok(())
     }
 
@@ -480,7 +582,6 @@ impl Store {
         )
         .execute(&self.pg().admin)
         .await?;
-        self.mirror_machine(None, Some(token)).await?;
         Ok(())
     }
 
@@ -494,7 +595,6 @@ impl Store {
         )
         .execute(&self.pg().admin)
         .await?;
-        self.mirror_machine(None, Some(token)).await?;
         Ok(())
     }
 
@@ -545,7 +645,6 @@ impl Store {
         )
         .execute(&self.pg().admin)
         .await?;
-        self.mirror_machine(Some(machine), None).await?;
         self.transfers_moved_away(machine).await?;
         self.lock().unwrap().moved_away(from, machine)?;
         Ok(Ok(()))
@@ -594,7 +693,6 @@ impl Store {
         .await?
         .rows_affected();
         tx.commit().await?;
-        self.mirror_machine(Some(machine), None).await?;
         self.changed();
         Ok(n > 0)
     }
@@ -621,8 +719,154 @@ impl Store {
         .await?
         .rows_affected();
         tx.commit().await?;
-        self.mirror_machine(Some(machine), None).await?;
         self.changed();
         Ok(n > 0)
+    }
+}
+
+impl Store {
+    /// A space's machines, by name: their rows on Postgres, completed with what the modules still on
+    /// SQLite and the hub's memory know (stock, jobs, queue, farm, commands, questions).
+    pub async fn machines(&self, space: i64) -> Result<Vec<Machine>, BoxError> {
+        Ok(self.machines_and_jobs(space).await?.0)
+    }
+
+    /// [`Store::machines`], and what their jobs tell ([`JobFacts`]), read once for both.
+    pub(crate) async fn machines_and_jobs(
+        &self,
+        space: i64,
+    ) -> Result<(Vec<Machine>, JobFacts), BoxError> {
+        let mut tx = self.pg().space(space).await?;
+        let rows: Vec<MachineRow> = sqlx::query_as(machine_select!(
+            "WHERE space_id = $1 ORDER BY name COLLATE \"C\""
+        ))
+        .bind(space)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
+        let jobs = self.job_facts(&ids).await?;
+        let mut machines = self.lock().unwrap().complete_machines(space, rows, &jobs)?;
+        // What the queued files say of themselves (their time, a picture), by id as before.
+        let queued: Vec<String> = machines
+            .iter()
+            .flat_map(|m| m.queue.iter().map(|q| q.file_id.clone()))
+            .collect();
+        if !queued.is_empty() {
+            let metas: std::collections::HashMap<String, String> =
+                sqlx::query_as("SELECT id, meta FROM files WHERE id = ANY($1)")
+                    .bind(&queued)
+                    .fetch_all(&self.pg().admin)
+                    .await?
+                    .into_iter()
+                    .collect();
+            for q in machines.iter_mut().flat_map(|m| m.queue.iter_mut()) {
+                if let Some(meta) = metas
+                    .get(&q.file_id)
+                    .and_then(|m| serde_json::from_str::<crate::gcode::FileMeta>(m).ok())
+                {
+                    q.estimated_s = meta.estimated_s;
+                    q.thumbnail = meta.thumbnail;
+                }
+            }
+        }
+        Ok((machines, jobs))
+    }
+
+    /// One machine of a space.
+    pub async fn machine(&self, space: i64, id: &str) -> Result<Option<Machine>, BoxError> {
+        Ok(self.machines(space).await?.into_iter().find(|m| m.id == id))
+    }
+    /// A machine by its token as its own row tells (not completed: no jobs, stock or commands), and
+    /// its space, if it is in one. Across spaces: the admin pool.
+    pub(crate) async fn machine_by_token(
+        &self,
+        token: &str,
+    ) -> sqlx::Result<Option<(Machine, Option<i64>)>> {
+        let found: Option<MachineRow> = sqlx::query_as(machine_select!("WHERE token = $1"))
+            .bind(token)
+            .fetch_optional(&self.pg().admin)
+            .await?;
+        Ok(found.map(|r| {
+            let space = r.space_id;
+            (r.into_machine(now()), space)
+        }))
+    }
+}
+
+#[cfg(test)]
+impl Store {
+    /// For tests: a virtual machine of `profile` in the default space, reached by `link` when one is
+    /// given (as if it had registered that way): its space, id and token.
+    pub(crate) async fn add_test_machine(
+        &self,
+        profile: &str,
+        link: Option<&str>,
+    ) -> (i64, String, String) {
+        let space = self.default_space().await.unwrap().0;
+        let id = self
+            .add_virtual(space, crate::profiles::find(profile).unwrap())
+            .await
+            .unwrap();
+        if let Some(link) = link {
+            sqlx::query("UPDATE machines SET link = $1 WHERE id = $2")
+                .bind(link)
+                .bind(&id)
+                .execute(&self.pg().admin)
+                .await
+                .unwrap();
+        }
+        let token = self.token_of(&id).await;
+        (space, id, token)
+    }
+
+    /// For tests: a machine registered as `name` of `kind` and paired into the default space: its
+    /// space, id and token.
+    pub(crate) async fn register_test_machine(
+        &self,
+        name: &str,
+        kind: maker_connect_protocol::MachineKind,
+    ) -> (i64, String, String) {
+        let space = self.default_space().await.unwrap().0;
+        let (id, token, code) = self
+            .register(&maker_connect_protocol::Register {
+                protocol: maker_connect_protocol::VERSION,
+                name: name.into(),
+                kind,
+                agent_version: "0.2.0".into(),
+            })
+            .await
+            .unwrap();
+        self.pair(space, &code).await.unwrap();
+        (space, id, token)
+    }
+
+    /// For tests: when the machine's agent last reported (on Postgres, and its copy).
+    pub(crate) async fn set_last_seen(&self, machine: &str, at: i64) {
+        sqlx::query("UPDATE machines SET last_seen = at_unix($1) WHERE id = $2")
+            .bind(at)
+            .bind(machine)
+            .execute(&self.pg().admin)
+            .await
+            .unwrap();
+    }
+
+    /// For tests: a machine's token.
+    pub(crate) async fn token_of(&self, id: &str) -> String {
+        sqlx::query_scalar("SELECT token FROM machines WHERE id = $1")
+            .bind(id)
+            .fetch_one(&self.pg().admin)
+            .await
+            .unwrap()
+    }
+
+    /// For tests: a machine reports it is idle.
+    pub(crate) async fn idle_test_machine(&self, id: &str) {
+        let token = self.token_of(id).await;
+        let idle = maker_connect_protocol::Telemetry {
+            state: maker_connect_protocol::MachineState::Idle,
+            ..Default::default()
+        };
+        self.report(&token, &idle).await.unwrap();
     }
 }

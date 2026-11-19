@@ -75,16 +75,22 @@ fn run(
         let (order, control) = runtime
             .block_on(crate::agent_job(store, &of, &telemetry))
             .unwrap_or_default();
+        let caller = runtime.block_on(store.caller(token)).ok().flatten();
         let (order, control, command, file) = {
             let mut store = store.lock().unwrap();
             let command = if telemetry.job_id.is_none() && order.is_none() {
-                store.next_command(token).ok().flatten()
+                store.next_command(caller.as_ref()).ok().flatten()
             } else {
                 None
             };
             if let Some((command, _)) = &command {
-                let _ =
-                    store.command_went(token, *command, CommandState::Accepted, None, Vec::new());
+                let _ = store.command_went(
+                    caller.as_ref(),
+                    *command,
+                    CommandState::Accepted,
+                    None,
+                    Vec::new(),
+                );
             }
             let file = order.as_ref().and_then(|o| {
                 let file = o
@@ -118,10 +124,11 @@ fn run(
                 Ok(said) => (CommandState::Finished, None, said),
                 Err(why) => (CommandState::Rejected, Some(why), Vec::new()),
             };
-            let _ = store
-                .lock()
-                .unwrap()
-                .command_went(token, command, state, reason, output);
+            let _ =
+                store
+                    .lock()
+                    .unwrap()
+                    .command_went(caller.as_ref(), command, state, reason, output);
         }
     }
 }

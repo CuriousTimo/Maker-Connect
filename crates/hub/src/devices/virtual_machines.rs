@@ -55,6 +55,7 @@ pub async fn run(store: Store) {
                 continue;
             }
             let active = store.active_job(&id).await;
+            let caller = store.caller(&token).await.ok().flatten();
             // How its jobs move on, said to the store once the lock is let go.
             let mut moves: Vec<(i64, JobState, Option<String>)> = Vec::new();
             let telemetry = {
@@ -102,10 +103,10 @@ pub async fn run(store: Store) {
                 }
                 if sim.running.is_none()
                     && sim.playing.is_none()
-                    && let Ok(Some((command, gcode))) = store.next_command(&token)
+                    && let Ok(Some((command, gcode))) = store.next_command(caller.as_ref())
                 {
                     let _ = store.command_went(
-                        &token,
+                        caller.as_ref(),
                         command,
                         CommandState::Accepted,
                         None,
@@ -120,7 +121,13 @@ pub async fn run(store: Store) {
                 };
                 if let Some(done) = sim.step(seconds) {
                     let said = std::mem::take(&mut sim.said);
-                    let _ = store.command_went(&token, done, CommandState::Finished, None, said);
+                    let _ = store.command_went(
+                        caller.as_ref(),
+                        done,
+                        CommandState::Finished,
+                        None,
+                        said,
+                    );
                 }
                 if let Some(job) = sim.played(TICK) {
                     moves.push((job, JobState::Finished, None));

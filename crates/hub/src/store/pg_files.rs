@@ -1,8 +1,5 @@
 //! Files on Postgres (`migrations/20261118000300_machines.sql`): `files.rs`'s queries as async [`Store`]
 //! methods (hub core v2 step 2, lane 3). The G-code and thumbnails stay on disk, beside the database.
-//!
-//! Transitional (lane 3a): each write is copied onto SQLite's rows (pg_mirror.rs) for the modules still
-//! there.
 
 use super::*;
 
@@ -44,7 +41,7 @@ impl Store {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        self.mirror_file(id).await
+        Ok(())
     }
 
     /// A space's files, newest first.
@@ -102,7 +99,6 @@ impl Store {
                 )
                 .execute(&self.pg().admin)
                 .await?;
-                self.mirror_file(id).await?;
             }
         }
         Ok(stale.len())
@@ -124,7 +120,6 @@ impl Store {
         .await?
         .rows_affected();
         tx.commit().await?;
-        self.mirror_file(id).await?;
         if removed > 0 {
             let _ = std::fs::remove_file(self.file_path(id));
             let _ = std::fs::remove_file(self.thumbnail_path(id));

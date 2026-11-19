@@ -145,34 +145,37 @@ impl Legacy {
 
     /// Whether `access` may watch this camera (owner, 2026-11-16): a machine camera whoever
     /// may see the machine; a room camera from its `view_role` up; a camera whose machine is
-    /// gone, admins only.
-    pub fn may_view_camera(&self, access: &Access, camera: &Camera) -> rusqlite::Result<bool> {
+    /// gone, admins only. `grants`: the space's machines ([`crate::Store::grants_for`], View).
+    pub fn may_view_camera(
+        &self,
+        access: &Access,
+        camera: &Camera,
+        grants: &crate::access::Grants,
+    ) -> rusqlite::Result<bool> {
         if camera.space_id != access.space {
             return Ok(false);
         }
         match &camera.machine_id {
-            Some(machine) => Ok(
-                match self.may(
-                    access,
-                    machine,
-                    Level::View,
-                    &crate::access::Grants::none_needed(),
-                )? {
-                    Some(may) => may,
-                    None => access.role >= Role::Admin,
-                },
-            ),
+            Some(machine) => Ok(match self.may(access, machine, Level::View, grants)? {
+                Some(may) => may,
+                None => access.role >= Role::Admin,
+            }),
             None => Ok(access.role >= camera.view_role),
         }
     }
 
     /// The cameras on a machine that `access` may watch: for its page's Camera tab.
-    pub fn machine_cameras(&self, access: &Access, machine: &str) -> Vec<Camera> {
+    pub fn machine_cameras(
+        &self,
+        access: &Access,
+        machine: &str,
+        grants: &crate::access::Grants,
+    ) -> Vec<Camera> {
         self.cameras(access.space)
             .unwrap_or_default()
             .into_iter()
             .filter(|c| c.machine_id.as_deref() == Some(machine))
-            .filter(|c| self.may_view_camera(access, c).unwrap_or(false))
+            .filter(|c| self.may_view_camera(access, c, grants).unwrap_or(false))
             .collect()
     }
 }
@@ -227,7 +230,8 @@ mod tests {
     #[test]
     fn a_camera_is_of_its_space() {
         let s = Legacy::open(":memory:").unwrap();
-        let space = s.default_space().unwrap().0;
+        // SQLite alone: a space's id is only a number here.
+        let space = 1;
         let id = s
             .add_camera(space, &form("Hall", None, Role::Member))
             .unwrap();
@@ -267,6 +271,14 @@ mod tests {
             .set_induction_required(space, &inducted, true)
             .await
             .unwrap();
+        let grants = store
+            .grants_for(&access(space, Role::Owner), Level::View)
+            .await
+            .unwrap();
+        let elsewhere = store
+            .grants_for(&access(space + 1, Role::Owner), Level::View)
+            .await
+            .unwrap();
         let s = store.lock().unwrap();
         let on_open = s
             .add_camera(space, &form("a", Some(&open), Role::Admin))
@@ -281,7 +293,8 @@ mod tests {
         let room_member = s.add_camera(space, &form("e", None, Role::Member)).unwrap();
         let may = |role: Role, id: i64| {
             let c = s.camera(space, id).unwrap().unwrap();
-            s.may_view_camera(&access(space, role), &c).unwrap()
+            s.may_view_camera(&access(space, role), &c, &grants)
+                .unwrap()
         };
         for role in Role::ALL {
             // Whoever may see the machine (a guest has View), with or without induction.
@@ -296,11 +309,12 @@ mod tests {
         // Another space sees none of them.
         let c = s.camera(space, on_open).unwrap().unwrap();
         assert!(
-            !s.may_view_camera(&access(space + 1, Role::Owner), &c)
+            !s.may_view_camera(&access(space + 1, Role::Owner), &c, &elsewhere)
                 .unwrap()
         );
         assert_eq!(
-            s.machine_cameras(&access(space, Role::Guest), &open).len(),
+            s.machine_cameras(&access(space, Role::Guest), &open, &grants)
+                .len(),
             1
         );
     }

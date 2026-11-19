@@ -14,20 +14,67 @@ pub fn on_marlin_port(m: &Machine) -> bool {
             .is_none_or(|f| f == "marlin")
 }
 
+/// The machine asking with a token, as its commands need it (read from Postgres before the lock).
+#[derive(Debug, Clone)]
+pub struct Caller {
+    pub id: String,
+    pub link: String,
+    pub seen_seconds_ago: Option<i64>,
+    /// Whether it is an agent machine whose port fails its pending commands on close (K18, HS4): the
+    /// Marlin/OctoPrint port (an agent link, an FDM printer, a plain Marlin profile as K5, Marlin or no
+    /// firmware named), the DYMO PnP and LabelWriter 450 ports (a label printer) and the laser port (a
+    /// laser), in a space. Buddy, Klipper and the MK3 family keep the gate.
+    pub fails_pending_on_close: bool,
+}
+
+impl Store {
+    /// The machine behind this token, if the token is known (a `Caller`).
+    pub async fn caller(&self, token: &str) -> sqlx::Result<Option<Caller>> {
+        Ok(self.machine_by_token(token).await?.map(|(m, space)| {
+            // `plain_marlin` alone would take a Buddy or Klipper profile too (it leaves out only the
+            // MK3 family and GRBL): the Marlin port's machines are the ones whose profile says Marlin
+            // or says nothing
+            use maker_connect_protocol::MachineKind;
+            let fails_pending_on_close = space.is_some()
+                && (matches!(m.kind, MachineKind::Label | MachineKind::Laser)
+                    || on_marlin_port(&m));
+            Caller {
+                fails_pending_on_close,
+                seen_seconds_ago: m.seen_seconds_ago,
+                id: m.id,
+                link: m.link,
+            }
+        }))
+    }
+
+    /// How a machine of the space is reached (its `link`), or None when it is not in the space:
+    /// what queueing a command for it needs.
+    pub async fn link_of(&self, space: i64, machine: &str) -> sqlx::Result<Option<String>> {
+        let mut tx = self.pg().space(space).await?;
+        let link = sqlx::query_scalar!(
+            "SELECT link FROM machines WHERE id = $1 AND space_id = $2",
+            machine,
+            space
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(link)
+    }
+}
+
 impl Legacy {
     /// The owner gives a machine a command: its id, or None when the machine is not in
-    /// the space or cannot take commands (yet: only printers on built-in Prusa Connect).
+    /// the space (`link` None, [`Store::link_of`]) or cannot take commands (yet: only printers on
+    /// built-in Prusa Connect).
     pub fn queue_command(
         &mut self,
-        space: i64,
+        link: Option<&str>,
         machine: &str,
         label: &str,
         gcode: &str,
     ) -> rusqlite::Result<Option<u32>> {
-        if self
-            .machine_on_mirror(space, machine)?
-            .is_none_or(|m| !takes_commands(&m.link))
-        {
+        if link.is_none_or(|link| !takes_commands(link)) {
             return Ok(None);
         }
         self.next_command = self.next_command.wrapping_add(1);
@@ -54,13 +101,13 @@ impl Legacy {
     /// in the space or takes no commands.
     pub fn queue_action(
         &mut self,
-        space: i64,
+        link: Option<&str>,
         machine: &str,
         label: &str,
         action: &maker_connect_protocol::Action,
     ) -> rusqlite::Result<Option<u32>> {
         let body = serde_json::to_string(action).expect("an Action is JSON");
-        let Some(id) = self.queue_command(space, machine, label, &body)? else {
+        let Some(id) = self.queue_command(link, machine, label, &body)? else {
             return Ok(None);
         };
         if let Some(command) = self
@@ -73,11 +120,14 @@ impl Legacy {
         Ok(Some(id))
     }
 
-    /// The next command for the machine asking with this token, once the one before is
+    /// The next command for the machine asking ([`Store::caller`]), once the one before is
     /// done: one at a time, as a printer takes them.
-    pub fn next_command(&mut self, token: &str) -> rusqlite::Result<Option<(u32, String)>> {
+    pub fn next_command(
+        &mut self,
+        caller: Option<&Caller>,
+    ) -> rusqlite::Result<Option<(u32, String)>> {
         Ok(self
-            .next_command_of_any_kind(token)?
+            .next_command_of_any_kind(caller)?
             .map(|(id, body, _)| (id, body)))
     }
 
@@ -85,16 +135,13 @@ impl Legacy {
     /// like G-code, sent as JSON (`SEND_FILE_INFO`, `START_PRINT`, `START_ENCRYPTED_DOWNLOAD`).
     pub fn queue_connect_command(
         &mut self,
-        space: i64,
+        link: Option<&str>,
         machine: &str,
         label: &str,
         command: &serde_json::Value,
         background: bool,
     ) -> rusqlite::Result<Option<u32>> {
-        if self
-            .machine_on_mirror(space, machine)?
-            .is_none_or(|m| m.link != "prusa-connect")
-        {
+        if link != Some("prusa-connect") {
             return Ok(None);
         }
         let body = command.to_string();
@@ -149,15 +196,18 @@ impl Legacy {
             .collect()
     }
 
-    /// A command given to the machine with this token, by its id: what it sent (G-code or
-    /// Connect's JSON).
-    pub fn command_text(&self, token: &str, id: u32) -> rusqlite::Result<Option<String>> {
-        let Some(machine) = self.machine_id(token)? else {
+    /// A command given to the machine asking, by its id: what it sent (G-code or Connect's JSON).
+    pub fn command_text(
+        &self,
+        caller: Option<&Caller>,
+        id: u32,
+    ) -> rusqlite::Result<Option<String>> {
+        let Some(caller) = caller else {
             return Ok(None);
         };
         Ok(self
             .commands
-            .get(&machine)
+            .get(&caller.id)
             .and_then(|commands| commands.iter().find(|c| c.id == id))
             .map(|c| c.gcode.clone()))
     }
@@ -186,34 +236,6 @@ impl Legacy {
             .collect()
     }
 
-    /// Whether the machine behind this token is an agent machine whose port fails its pending commands
-    /// on close (K18, HS4): the Marlin/OctoPrint port (an agent link, an FDM printer, a plain Marlin
-    /// profile as K5, Marlin or no firmware named), the DYMO PnP and LabelWriter 450 ports (a label
-    /// printer) and the laser port (a laser). Buddy, Klipper and the MK3 family keep the gate.
-    pub fn fails_pending_on_close(&self, token: &str) -> rusqlite::Result<bool> {
-        let Some(space) = self
-            .db
-            .query_row(
-                "SELECT space_id FROM machines WHERE token = ?1 AND space_id IS NOT NULL",
-                [token],
-                |r| r.get::<_, i64>(0),
-            )
-            .optional()?
-        else {
-            return Ok(false);
-        };
-        let Some(id) = self.machine_id(token)? else {
-            return Ok(false);
-        };
-        Ok(self.machine_on_mirror(space, &id)?.is_some_and(|m| {
-            // `plain_marlin` alone would take a Buddy or Klipper profile too (it leaves out only the
-            // MK3 family and GRBL): the Marlin port's machines are the ones whose profile says Marlin
-            // or says nothing
-            use maker_connect_protocol::MachineKind;
-            matches!(m.kind, MachineKind::Label | MachineKind::Laser) || on_marlin_port(&m)
-        }))
-    }
-
     /// A test says when the machine's commands last changed.
     #[cfg(test)]
     pub fn set_commands_at(&mut self, machine: &str, at: i64) {
@@ -225,54 +247,34 @@ impl Legacy {
     /// K18, the agent-gone rule (ours): an agent machine whose port fails pending on close not seen for longer than
     /// `ONLINE_SECONDS` has its Sent and Accepted commands (not the Queued ones) failed with "the
     /// agent was gone", checked on its next report, before that report is taken in.
-    pub fn fail_commands_of_gone_agent(&mut self, token: &str) -> rusqlite::Result<()> {
-        if !self.fails_pending_on_close(token)? {
+    pub fn fail_commands_of_gone_agent(&mut self, caller: Option<&Caller>) -> rusqlite::Result<()> {
+        let Some(caller) = caller.filter(|c| c.fails_pending_on_close) else {
             return Ok(());
-        }
-        self.fail_pending_of_gone(token, AGENT_GONE)
+        };
+        self.fail_pending_of_gone(caller, AGENT_GONE)
     }
 
     /// The same rule for a printer on the built-in Prusa Connect (link `prusa-connect`), which
     /// has no 120 s: a command stays pending until Buddy answers it. Not seen for longer than
     /// `ONLINE_SECONDS`: its Sent and Accepted commands fail with "the printer was gone" (ours).
-    pub fn fail_commands_of_gone_printer(&mut self, token: &str) -> rusqlite::Result<()> {
-        if !self.on_prusa_connect(token)? {
-            return Ok(());
-        }
-        self.fail_pending_of_gone(token, PRINTER_GONE)
-    }
-
-    /// Whether the machine behind this token is a printer on the built-in Prusa Connect.
-    fn on_prusa_connect(&self, token: &str) -> rusqlite::Result<bool> {
-        Ok(self
-            .db
-            .query_row("SELECT link FROM machines WHERE token = ?1", [token], |r| {
-                r.get::<_, String>(0)
-            })
-            .optional()?
-            .is_some_and(|link| link == "prusa-connect"))
-    }
-
-    fn fail_pending_of_gone(&mut self, token: &str, reason: &str) -> rusqlite::Result<()> {
-        let Some(machine) = self.machine_id(token)? else {
+    pub fn fail_commands_of_gone_printer(
+        &mut self,
+        caller: Option<&Caller>,
+    ) -> rusqlite::Result<()> {
+        let Some(caller) = caller.filter(|c| c.link == "prusa-connect") else {
             return Ok(());
         };
-        let seen: Option<i64> = self
-            .db
-            .query_row(
-                "SELECT last_seen FROM machines WHERE token = ?1",
-                [token],
-                |r| r.get(0),
-            )
-            .optional()?
-            .flatten();
-        if seen.is_none_or(|t| now() - t <= ONLINE_SECONDS) {
+        self.fail_pending_of_gone(caller, PRINTER_GONE)
+    }
+
+    fn fail_pending_of_gone(&mut self, caller: &Caller, reason: &str) -> rusqlite::Result<()> {
+        if caller.seen_seconds_ago.is_none_or(|s| s <= ONLINE_SECONDS) {
             return Ok(());
         }
         let mut any = false;
         for c in self
             .commands
-            .entry(machine)
+            .entry(caller.id.clone())
             .or_default()
             .iter_mut()
             .filter(|c| matches!(c.state, CommandState::Sent | CommandState::Accepted))
@@ -289,11 +291,14 @@ impl Legacy {
 
     /// All Queued commands of an agent machine whose port fails pending on close, in the existing order (someone's before the
     /// hub's own background ones), each now Sent: no gate and no 120 s (K18).
-    pub fn next_commands_for_agent(&mut self, token: &str) -> rusqlite::Result<Vec<(u32, String)>> {
-        let Some(machine) = self.machine_id(token)? else {
+    pub fn next_commands_for_agent(
+        &mut self,
+        caller: Option<&Caller>,
+    ) -> rusqlite::Result<Vec<(u32, String)>> {
+        let Some(caller) = caller else {
             return Ok(Vec::new());
         };
-        let Some(commands) = self.commands.get_mut(&machine) else {
+        let Some(commands) = self.commands.get_mut(&caller.id) else {
             return Ok(Vec::new());
         };
         let now = now();
@@ -317,13 +322,13 @@ impl Legacy {
     /// The next command, with whether it is a Connect (JSON) command.
     pub fn next_command_of_any_kind(
         &mut self,
-        token: &str,
+        caller: Option<&Caller>,
     ) -> rusqlite::Result<Option<(u32, String, bool)>> {
-        let Some(machine) = self.machine_id(token)? else {
+        let Some(caller) = caller else {
             return Ok(None);
         };
-        let prusa_connect = self.on_prusa_connect(token)?;
-        let Some(commands) = self.commands.get_mut(&machine) else {
+        let prusa_connect = caller.link == "prusa-connect";
+        let Some(commands) = self.commands.get_mut(&caller.id) else {
             return Ok(None);
         };
         let now = now();
@@ -361,11 +366,15 @@ impl Legacy {
 
     /// The printer says in its telemetry it is still carrying out this command (Buddy sends
     /// the `command_id` of G-code running in the background): not "no answer" while it does.
-    pub fn command_still_running(&mut self, token: &str, id: u32) -> rusqlite::Result<()> {
-        let Some(machine) = self.machine_id(token)? else {
+    pub fn command_still_running(
+        &mut self,
+        caller: Option<&Caller>,
+        id: u32,
+    ) -> rusqlite::Result<()> {
+        let Some(caller) = caller else {
             return Ok(());
         };
-        if let Some(command) = self.commands.get_mut(&machine).and_then(|commands| {
+        if let Some(command) = self.commands.get_mut(&caller.id).and_then(|commands| {
             commands.iter_mut().find(|c| {
                 c.id == id && matches!(c.state, CommandState::Sent | CommandState::Accepted)
             })
@@ -379,15 +388,16 @@ impl Legacy {
     /// The machine tells how a command went.
     pub fn command_went(
         &mut self,
-        token: &str,
+        caller: Option<&Caller>,
         id: u32,
         state: CommandState,
         reason: Option<String>,
         output: Vec<String>,
     ) -> rusqlite::Result<()> {
-        let Some(machine) = self.machine_id(token)? else {
+        let Some(caller) = caller else {
             return Ok(());
         };
+        let machine = caller.id.clone();
         if let Some(command) = self
             .commands
             .get_mut(&machine)
