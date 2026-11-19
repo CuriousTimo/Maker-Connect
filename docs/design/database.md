@@ -409,7 +409,7 @@ deleted (the new space grants afresh); `spool.device_id` and `cameras.watches_de
 it are set null (the spool stays in its space, unloaded); `commands`, `transfers`, `jobs`, `sample` and
 `gap` have no key to the device and stay where they happened. The same transaction, after the `devices`
 update (the `device_access` FK has no `ON UPDATE CASCADE`), rebuilds the device's `device_access` rows
-in the new space from its roles, naming that space's id explicitly (the admin pool has no `app.space_id`), and bumps both spaces' `authz_epoch`
+in the new space from its roles, naming that space's id explicitly (the admin pool has no `app.space_id`), and bumps both spaces' `authz_epoch`, the lower space id first, as `Pg::org_spaces` does
 ([authz.md](authz.md#the-materialised-table)). A device with a job not ended is not moved.
 
 ### Files, jobs, queue and farm
