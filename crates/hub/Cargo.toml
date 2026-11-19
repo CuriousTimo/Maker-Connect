@@ -78,5 +78,7 @@ http-body-util = "0.1.5"
 tower = { version = "0.5.3", features = ["util"] }
 # A stand-in for Moonraker in the SimplyPrint tests.
 tokio-tungstenite = "0.29"
+# The Prusa SDK run as a child process, in the /p/ws test.
+tokio = { version = "1.54.1", features = ["process"] }
 # A JPG thumbnail to read, in the G-code tests.
 jpeg-encoder = "0.6"

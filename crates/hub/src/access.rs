@@ -164,6 +164,7 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ("*", "/p/register", Need::Public, None),
     ("*", "/p/telemetry", Need::Public, None),
     ("*", "/p/events", Need::Public, None),
+    ("*", "/p/ws", Need::Public, None),
     // A Prusa fetches a file sent to it: the transfer's iv in the address is its key.
     ("GET", "/f/{iv}/raw", Need::Public, None),
     ("*", "/simplyprint/{token}", Need::Public, None),
