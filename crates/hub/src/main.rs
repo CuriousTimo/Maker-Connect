@@ -244,7 +244,6 @@ fn go_back(
         "the update to {} goes back to {}: {why}",
         trial.to, trial.from
     );
-    updates::restore_database(trial);
     if let Err(error) = maker_connect_update::roll_back(exe, trial, why) {
         eprintln!("could not go back: {error}");
         std::process::exit(1);

@@ -48,7 +48,6 @@ flate2 = "1"
 tar = { version = "0.4", default-features = false }
 rand = "0.8"
 # Transitional (hub core v2 step 2, lanes 1-4): modules not yet on Postgres keep SQLite; gone in lane 4.
-rusqlite = { version = "0.41.1", features = ["bundled"] }
 # The store (docs/plans/hub-core-v2.md §2.7): Postgres only, rustls, checked queries with the `.sqlx/` cache.
 sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "macros"] }
 serde = { version = "1.0.229", features = ["derive"] }

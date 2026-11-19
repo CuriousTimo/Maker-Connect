@@ -2,9 +2,8 @@
 //! key (crate `maker-connect-update`):
 //!
 //! - **The hub itself** (About → Update; who runs the server only). The newest `hub-v…`
-//!   release for this system is fetched and checked, the database backed up, and the new
-//!   build tried on a copy of the database. Then it takes the old one's place and starts; if
-//!   it does not stay up, the old build and the backup come back (`main`).
+//!   release for this system is fetched and checked, and the new build tried. Then it takes
+//!   the old one's place and starts; if it does not stay up, the old build comes back (`main`).
 //! - **Agents** (a machine's Connection card, or every agent of a space; its admins). The
 //!   newest `agent-v…` release's signed list is fetched and kept; agents are told in their
 //!   reports, fetch their build through the hub (agents need no internet), check it
@@ -163,12 +162,8 @@ async fn hub_status(State(store): State<Store>) -> Response {
 }
 
 /// Fetches, checks and tries the newest hub release, and puts it in place of the program at
-/// `exe`; the database backed up first. Returns the release it put in place.
-pub(crate) fn prepare_hub(
-    store: &Store,
-    exe: &std::path::Path,
-    url: &str,
-) -> Result<String, String> {
+/// `exe`. Returns the release it put in place.
+pub(crate) fn prepare_hub(exe: &std::path::Path, url: &str) -> Result<String, String> {
     let release = newest(url, "hub")?;
     let tag = release.tag_name.clone();
     if !update::newer(&tag, crate::store::BUILD) {
@@ -188,28 +183,9 @@ pub(crate) fn prepare_hub(
     let archive = fetch(&release.asset(&name)?.browser_download_url)?;
     update::check(&archive, &name, &tag, &sums, &signature, &key())?;
     let build = unpack(&archive, "maker-connect-hub")?;
-    // The database as it is now: kept, for the way back; and a copy to try the new build on.
-    let (db, backup, trial_dir) = {
-        let store = store.lock().unwrap();
-        let file = store
-            .db
-            .path()
-            .filter(|p| !p.is_empty())
-            .ok_or("the database is not a file")?;
-        let db = std::fs::canonicalize(file).map_err(|e| format!("{file}: {e}"))?;
-        let backups = db.with_file_name("maker-connect-backups");
-        std::fs::create_dir_all(&backups).map_err(|e| e.to_string())?;
-        let backup = backups.join(format!("maker-connect-{}-before-{tag}.db", update::now()));
-        let trial_dir = std::env::temp_dir().join(format!("maker-connect-trial-{}", update::now()));
-        std::fs::create_dir_all(&trial_dir).map_err(|e| e.to_string())?;
-        for to in [&backup, &trial_dir.join("maker-connect.db")] {
-            store
-                .db
-                .execute("VACUUM INTO ?1", [to.to_string_lossy()])
-                .map_err(|e| format!("could not copy the database: {e}"))?;
-        }
-        (db, backup, trial_dir)
-    };
+    // The new build tried with folders of its own.
+    let trial_dir = std::env::temp_dir().join(format!("maker-connect-trial-{}", update::now()));
+    std::fs::create_dir_all(&trial_dir).map_err(|e| e.to_string())?;
     let trial_db = trial_dir.join("maker-connect.db");
     let installed = update::install(
         exe,
@@ -218,7 +194,7 @@ pub(crate) fn prepare_hub(
         crate::store::BUILD,
         version_of(&tag),
         120,
-        serde_json::json!({ "db": db, "backup": backup }),
+        serde_json::json!({}),
     );
     let _ = std::fs::remove_dir_all(&trial_dir);
     installed.map(|()| tag)
@@ -226,20 +202,6 @@ pub(crate) fn prepare_hub(
 
 /// Told when a new build is in place: the hub stops serving and tries it (main).
 pub static UPDATE: tokio::sync::Notify = tokio::sync::Notify::const_new();
-
-/// The database back as it was before an update, for the build before.
-pub fn restore_database(trial: &update::Trial) {
-    let (Some(db), Some(backup)) = (trial.note["db"].as_str(), trial.note["backup"].as_str())
-    else {
-        return;
-    };
-    if std::fs::copy(backup, db).is_ok() {
-        for suffix in ["-wal", "-shm"] {
-            let _ = std::fs::remove_file(format!("{db}{suffix}"));
-        }
-        println!("database back as it was before the update ({backup})");
-    }
-}
 
 async fn update_hub(access: Access, State(store): State<Store>) -> Response {
     let Ok(exe) = std::env::current_exe() else {
@@ -249,10 +211,9 @@ async fn update_hub(access: Access, State(store): State<Store>) -> Response {
         )
             .into_response();
     };
-    let shared = store.clone();
     let program = exe.clone();
     let prepared =
-        tokio::task::spawn_blocking(move || prepare_hub(&shared, &program, &releases_url())).await;
+        tokio::task::spawn_blocking(move || prepare_hub(&program, &releases_url())).await;
     match prepared {
         Ok(Ok(tag)) => {
             let _ = store
@@ -592,34 +553,24 @@ pub(crate) mod tests {
         gz.finish().unwrap()
     }
 
-    /// The hub fetches its newest release, checks it, backs its database up and tries the
-    /// new build on a copy before it takes the old one's place; a tampered archive or one
-    /// that fails its trial changes nothing.
+    /// The hub fetches its newest release, checks it and tries the new build before it
+    /// takes the old one's place; a tampered archive or one that fails its trial changes
+    /// nothing.
     #[cfg(unix)]
-    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
-    #[cfg_attr(
-        not(feature = "pg-tests"),
-        ignore = "needs Postgres: the pg-tests feature"
-    )]
-    async fn the_hub_updates_itself_only_to_a_signed_build_that_works(pool: sqlx::PgPool) {
+    #[tokio::test]
+    async fn the_hub_updates_itself_only_to_a_signed_build_that_works() {
         let dir = std::env::temp_dir().join(format!("mc-hub-update-{}", crate::store::random_id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let db = dir.join("maker-connect.db");
-        let store: Store = Store::with_legacy(
-            &pool,
-            crate::store::Legacy::open(db.to_str().unwrap()).unwrap(),
-        )
-        .await;
         let exe = dir.join("maker-connect-hub");
         std::fs::write(&exe, "#!/bin/sh\necho old\n").unwrap();
         let system = update::this_system().unwrap();
         let name: &'static str =
             Box::leak(format!("maker-connect-hub-{system}.tar.gz").into_boxed_str());
-        // The trial is given a copy of the database: the new build must find it.
-        let works = b"#!/bin/sh\n[ \"$1\" = --trial ] && [ -f \"$3\" ]\n".to_vec();
+        // The trial is given folders of its own.
+        let works = b"#!/bin/sh\n[ \"$1\" = --trial ] && [ \"$2\" = --db ]\n".to_vec();
         let url = releases(vec![("hub-v99.0.0", name, archive(&works))]).await;
-        let (s, e, u) = (store.clone(), exe.clone(), url.clone());
-        let tag = tokio::task::spawn_blocking(move || prepare_hub(&s, &e, &u))
+        let (e, u) = (exe.clone(), url.clone());
+        let tag = tokio::task::spawn_blocking(move || prepare_hub(&e, &u))
             .await
             .unwrap();
         assert_eq!(tag, Ok("hub-v99.0.0".to_owned()));
@@ -628,19 +579,14 @@ pub(crate) mod tests {
         let Start::OnTrial(trial) = update::on_start(&exe) else {
             panic!("on trial")
         };
-        let backup = trial.note["backup"].as_str().unwrap().to_owned();
-        assert!(
-            std::path::Path::new(&backup).is_file(),
-            "the database backed up"
-        );
         update::confirm(&exe, &trial);
 
         // A build that fails its trial is not put in place.
         std::fs::write(&exe, "#!/bin/sh\necho old\n").unwrap();
         let fails = b"#!/bin/sh\nexit 1\n".to_vec();
         let url = releases(vec![("hub-v99.0.1", name, archive(&fails))]).await;
-        let (s, e) = (store.clone(), exe.clone());
-        let error = tokio::task::spawn_blocking(move || prepare_hub(&s, &e, &url))
+        let e = exe.clone();
+        let error = tokio::task::spawn_blocking(move || prepare_hub(&e, &url))
             .await
             .unwrap();
         assert!(error.unwrap_err().contains("trial"));

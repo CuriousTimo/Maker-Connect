@@ -163,7 +163,7 @@ roadmap.
 
 | Part | What |
 |---|---|
-| **hub** (`crates/hub`) | The website and the API: one binary, one SQLite file, uploaded files beside it. Every record belongs to a space |
+| **hub** (`crates/hub`) | The website and the API: one binary over a Postgres database, uploaded files on disk. Every record belongs to a space |
 | **agent** (`crates/agent`) | Next to a machine: reports to the hub and runs one of the engine's ports for its machine |
 | **engine** (`crates/engine`) | The ports, one per device, each a translation of its one reference (OctoPrint, labelle, DYMO's CUPS driver, LaserFoundry, usbscale) |
 | **grbl** (`crates/grbl`) | GRBL machines (lasers), on LaserFoundry's `laserfoundry-device` and `laserfoundry-gcode`; used by the agent and by the hub's virtual lasers |

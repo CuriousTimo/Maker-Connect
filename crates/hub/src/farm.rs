@@ -990,7 +990,8 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
     let farm = crate::stock::in_space!(&store, access.space, |w| async {
         let mut compatible = Vec::new();
         for m in &ms {
-            compatible.push(w.compatible(m, &files).await.ok());
+            // A count that fails leaves its field empty, not the list.
+            compatible.push(w.or_none(async |w| w.compatible(m, &files).await).await?);
         }
         let projects = w.projects(&jobs, &ms, &files).await?;
         Ok::<_, sqlx::Error>((compatible, projects))

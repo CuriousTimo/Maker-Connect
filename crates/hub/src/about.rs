@@ -147,17 +147,15 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
         Ok(name) => name,
         Err(error) => return failed(error),
     };
-    let database = store
-        .lock()
-        .unwrap()
-        .db
-        .path()
-        .unwrap_or_default()
-        .to_owned();
+    // The database's size as Postgres counts it.
+    let database_size = sqlx::query_scalar::<_, i64>("SELECT pg_database_size(current_database())")
+        .fetch_one(&store.pg().admin)
+        .await
+        .ok()
+        .map(|n| bytes(n as u64));
     let s = tokio::task::spawn_blocking(system)
         .await
         .unwrap_or_default();
-    let database_size = std::fs::metadata(&database).ok().map(|m| bytes(m.len()));
     let commit = env!("MC_COMMIT");
     let commit_link = if commit.ends_with("-dirty") || commit == "unknown" {
         escape(commit)

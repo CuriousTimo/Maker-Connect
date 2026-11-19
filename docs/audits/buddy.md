@@ -51,7 +51,7 @@ row says OPEN, not identical.
 | `SEND_STATE_INFO` | both | `command.cpp:179` |  | **not used by the hub** |  |
 | `SEND_TRANSFER_INFO` | both | `command.cpp:157` |  | **not used by the hub** |  |
 | `SET_IDLE` | both | `command.cpp:164` |  | **not used by the hub** |  |
-| `SET_PRINTER_READY` | both | `command.cpp:162` | `farm.rs:1592` | **identical**: the literal body, taken as `SetPrinterReady` | `buddy_takes_set_printer_ready` |
+| `SET_PRINTER_READY` | both | `command.cpp:162` | `farm.rs:1593` | **identical**: the literal body, taken as `SetPrinterReady` | `buddy_takes_set_printer_ready` |
 | `SET_TOKEN` | both | `command.cpp:169` |  | **not used by the hub** |  |
 | `SET_VALUE` | both | `command.cpp:181` |  | **not used by the hub** |  |
 | `START_CONNECT_DOWNLOAD` | both | `command.cpp:191` |  | **not used by the hub** |  |

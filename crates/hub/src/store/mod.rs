@@ -1,10 +1,9 @@
-//! What the hub keeps: spaces and their machines, in one SQLite file. Everything belongs
+//! What the hub keeps: spaces and their machines, on Postgres. Everything belongs
 //! to a space from the start, so the same software can serve one makerspace on a Pi or
 //! many on a hosted service.
 
 use maker_connect_protocol::{MachineKind, Register, Telemetry};
 use rand::Rng;
-use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -28,9 +27,7 @@ mod agents;
 
 mod files;
 
-mod migrate;
 pub mod pg;
-use migrate::{back_up_before_upgrade, migrate};
 
 /// An error from either database while both are in use (transitional, lanes 1-4).
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -504,8 +501,7 @@ impl JobState {
 /// The store: a cloneable handle on the database (docs/plans/hub-core-v2.md §2.7), the change bus,
 /// and what is kept in memory on purpose (each behind its own small lock).
 ///
-/// Transitional (hub core v2 step 2, lanes 1-4): modules not yet on Postgres keep their SQLite
-/// queries in [`Legacy`], reached with [`Store::lock`]; lane 4 removes it.
+/// The folders and what is kept in memory are in [`Legacy`], reached with [`Store::lock`].
 #[derive(Clone)]
 pub struct Store {
     inner: std::sync::Arc<Inner>,
@@ -549,7 +545,7 @@ impl Store {
         Ok(store)
     }
 
-    /// Opens the SQLite file at `path` (transitional) and the database at `database_url`, migrated.
+    /// The folders beside `path` and the database at `database_url`, migrated.
     pub async fn open(
         path: &str,
         database_url: &str,
@@ -559,7 +555,7 @@ impl Store {
         Ok(Self::new(legacy, pg).await?)
     }
 
-    /// For `#[sqlx::test]`: the test's database, and an in-memory SQLite (transitional).
+    /// For `#[sqlx::test]`: the test's database, and folders of its own.
     #[cfg(test)]
     pub(crate) async fn for_test(pool: &sqlx::PgPool) -> Self {
         Self::with_legacy(pool, Legacy::open(":memory:").unwrap()).await
@@ -585,13 +581,13 @@ impl Store {
         Self::for_test(pool).await
     }
 
-    /// For `#[sqlx::test]`: the test's database over a SQLite store the test made (transitional).
+    /// For `#[sqlx::test]`: the test's database with folders the test made.
     #[cfg(test)]
     pub(crate) async fn with_legacy(pool: &sqlx::PgPool, legacy: Legacy) -> Self {
         Self::new(legacy, pg::Pg::from_pool(pool)).await.unwrap()
     }
 
-    /// Transitional: the modules still on SQLite (lanes 1-4).
+    /// The folders and what is kept in memory.
     pub fn lock(&self) -> std::sync::LockResult<std::sync::MutexGuard<'_, Legacy>> {
         self.inner.legacy.lock()
     }
@@ -651,9 +647,8 @@ impl Store {
     }
 }
 
-/// Transitional (lanes 1-4): the modules not yet on Postgres, on one SQLite file. Removed in lane 4.
+/// What the hub keeps beside the database: its folders, and what is kept in memory on purpose.
 pub struct Legacy {
-    pub(crate) db: Connection,
     /// Where uploaded files are kept: `<id>.gcode`, and `<id>.png` for a thumbnail.
     pub files_dir: std::path::PathBuf,
     /// What `/downloads` offers (the agent for each platform): `maker-connect-downloads/`
@@ -726,6 +721,29 @@ impl Work {
         &mut self.tx
     }
 
+    /// `f` in a savepoint: when it fails, what it did is undone and the transaction goes on
+    /// (`None`), as a failed SQLite statement left the others be.
+    pub(crate) async fn or_none<T>(
+        &mut self,
+        f: impl AsyncFnOnce(&mut Self) -> sqlx::Result<T>,
+    ) -> sqlx::Result<Option<T>> {
+        sqlx::query("SAVEPOINT or_none").execute(self.c()).await?;
+        match f(self).await {
+            Ok(value) => {
+                sqlx::query("RELEASE SAVEPOINT or_none")
+                    .execute(self.c())
+                    .await?;
+                Ok(Some(value))
+            }
+            Err(_) => {
+                sqlx::query("ROLLBACK TO SAVEPOINT or_none")
+                    .execute(self.c())
+                    .await?;
+                Ok(None)
+            }
+        }
+    }
+
     /// Something a live page shows changed.
     pub(crate) fn changed(&mut self) {
         self.changed = true;
@@ -773,19 +791,9 @@ impl Work {
 }
 
 impl Legacy {
-    /// Opens (or creates) the store; a new one gets one space.
-    pub fn open(path: &str) -> rusqlite::Result<Self> {
-        let existed = path != ":memory:" && std::fs::metadata(path).is_ok_and(|m| m.len() > 0);
-        let mut db = Connection::open(path)?;
-        db.execute_batch("PRAGMA journal_mode = WAL;")?;
-        if existed {
-            back_up_before_upgrade(&db, path)?;
-        }
-        let tx = db.transaction()?;
-        migrate(&tx)?;
-        tx.commit()?;
-        // Files beside the database (`maker-connect.db` keeps them in `maker-connect-files/`);
-        // an in-memory store (tests) in a folder of its own.
+    /// The folders beside `path` (`maker-connect.db` keeps its files in `maker-connect-files/`),
+    /// made when missing; `:memory:` (tests) a folder of its own.
+    pub fn open(path: &str) -> std::io::Result<Self> {
         let files_dir = if path == ":memory:" {
             std::env::temp_dir().join(format!("maker-connect-test-{}", random_id()))
         } else {
@@ -796,8 +804,7 @@ impl Legacy {
                 .unwrap_or("maker-connect");
             db.with_file_name(format!("{stem}-files"))
         };
-        std::fs::create_dir_all(&files_dir)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        std::fs::create_dir_all(&files_dir)?;
         let downloads_dir =
             files_dir.with_file_name(files_dir.file_name().and_then(|n| n.to_str()).map_or(
                 "maker-connect-downloads".to_owned(),
@@ -806,10 +813,8 @@ impl Legacy {
                         .replace("-test-", "-test-downloads-")
                 },
             ));
-        std::fs::create_dir_all(&downloads_dir)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        std::fs::create_dir_all(&downloads_dir)?;
         let store = Self {
-            db,
             files_dir,
             downloads_dir,
             commands: Default::default(),
@@ -847,67 +852,37 @@ impl Legacy {
 mod tests {
     use super::*;
 
-    #[test]
-    fn an_upgrade_backs_up_the_database_first() {
-        let dir = std::env::temp_dir().join(format!("maker-connect-upgrade-{}", random_id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("maker-connect.db");
-        let path = path.to_str().unwrap();
-        let backups = || {
-            std::fs::read_dir(dir.join("maker-connect-backups"))
-                .map(|d| {
-                    d.flatten()
-                        .map(|e| e.file_name().into_string().unwrap())
-                        .collect()
+    /// What fails in a savepoint is `None` and the transaction goes on: so the projects list
+    /// leaves one machine's count of compatible parts empty when it fails, as it did on SQLite.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_failure_in_a_savepoint_leaves_the_rest_going(pool: sqlx::PgPool) {
+        let store = Store::for_test(&pool).await;
+        let (space, _) = store.default_space().await.unwrap();
+        let got = crate::stock::in_space!(&store, space, |w| async {
+            let failed = w
+                .or_none(async |w| {
+                    sqlx::query_scalar::<_, i32>("SELECT 1 / 0")
+                        .fetch_one(w.c())
+                        .await
                 })
-                .unwrap_or_else(|_| Vec::<String>::new())
-        };
-        // A new database: nothing to back up.
-        // A row of the SQLite file's own.
-        let id = {
-            let store = Legacy::open(path).unwrap();
-            store
-                .db
-                .execute(
-                    "INSERT INTO meta (key, value) VALUES ('shelf', 'Shelf A1')",
-                    [],
-                )
-                .unwrap();
-            "Shelf A1".to_owned()
-        };
-        assert!(backups().is_empty());
-        // The same build again: no copy either.
-        drop(Legacy::open(path).unwrap());
-        assert!(backups().is_empty());
-        // As if an older build had it last.
-        Connection::open(path)
-            .unwrap()
-            .execute(
-                "UPDATE meta SET value = '0.0.9' WHERE key = 'opened_by'",
-                [],
-            )
-            .unwrap();
-        let store = Legacy::open(path).unwrap();
-        let made = backups();
-        assert_eq!(made.len(), 1, "{made:?}");
-        assert!(
-            made[0].ends_with(&format!("-0.0.9-to-{BUILD}.db")),
-            "{made:?}"
-        );
-        // The copy holds the row, and so does the database itself.
-        let count = |db: &Connection| -> i64 {
-            db.query_row("SELECT COUNT(*) FROM meta WHERE value = ?1", [&id], |r| {
-                r.get(0)
-            })
-            .unwrap()
-        };
-        let copy = Connection::open(dir.join("maker-connect-backups").join(&made[0])).unwrap();
-        assert_eq!(count(&copy), 1);
-        assert_eq!(count(&store.db), 1);
-        drop(store);
-        drop(Legacy::open(path).unwrap());
-        assert_eq!(backups().len(), 1);
-        std::fs::remove_dir_all(&dir).ok();
+                .await?;
+            let kept = w
+                .or_none(async |w| {
+                    sqlx::query_scalar::<_, i32>("SELECT 2")
+                        .fetch_one(w.c())
+                        .await
+                })
+                .await?;
+            let after: i32 = sqlx::query_scalar("SELECT 3").fetch_one(w.c()).await?;
+            Ok::<_, sqlx::Error>((failed, kept, after))
+        })
+        .await
+        .unwrap();
+        assert_eq!(got, (None, Some(2), 3));
     }
 
     async fn device(store: &Store, space: i64, name: &str) -> String {
