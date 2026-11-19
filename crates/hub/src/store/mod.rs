@@ -596,6 +596,14 @@ impl Store {
         &self.inner.pg
     }
 
+    /// The database closed for this process: whatever of it still runs (a task, an agent's open
+    /// connection) gets an error from now on instead of a connection. For a hub handing over to a new
+    /// build (main), which must not write meanwhile.
+    pub async fn close(&self) {
+        self.inner.pg.app.close().await;
+        self.inner.pg.admin.close().await;
+    }
+
     /// Signals each change to a machine from now on (some may be merged into one).
     pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<()> {
         self.inner.changes.subscribe()

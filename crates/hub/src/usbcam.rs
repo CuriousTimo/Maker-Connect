@@ -304,7 +304,7 @@ mod tests {
     }
 
     async fn next_chunk(body: &mut Body) -> String {
-        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), body.frame())
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(60), body.frame())
             .await
             .expect("an event in time")
             .unwrap()

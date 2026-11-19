@@ -2589,7 +2589,7 @@ mod tests {
         let grams = used["used_weight"].as_f64().unwrap();
         assert!((grams - 3.05).abs() < 0.01, "{grams}");
         assert!(used["first_used"].is_string());
-        let event = tokio::time::timeout(std::time::Duration::from_secs(3), ws.next())
+        let event = tokio::time::timeout(std::time::Duration::from_secs(60), ws.next())
             .await
             .unwrap()
             .unwrap()

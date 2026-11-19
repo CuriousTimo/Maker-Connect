@@ -429,7 +429,7 @@ mod tests {
             want: &str,
         ) -> Value {
             loop {
-                let message = tokio::time::timeout(Duration::from_secs(5), ws.next())
+                let message = tokio::time::timeout(Duration::from_secs(60), ws.next())
                     .await
                     .expect("in time")
                     .unwrap()

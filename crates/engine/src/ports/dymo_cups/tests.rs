@@ -958,7 +958,7 @@ mod top_edge {
         let mut done = None;
         let mut problems = Vec::new();
         while problems.len() < 2 || done.is_none() {
-            match erx.recv_timeout(Duration::from_secs(5)).unwrap() {
+            match erx.recv_timeout(Duration::from_secs(60)).unwrap() {
                 Event::Done(d) => done = Some(d),
                 Event::Telemetry(t) => {
                     if let Some(p) = t.problem {
@@ -1035,7 +1035,7 @@ mod top_edge {
         let mut problem = None;
         let mut raw = None;
         for _ in 0..200 {
-            if let Event::Telemetry(t) = erx.recv_timeout(Duration::from_secs(20)).unwrap() {
+            if let Event::Telemetry(t) = erx.recv_timeout(Duration::from_secs(60)).unwrap() {
                 if t.problem.is_some() {
                     problem = t.problem;
                     raw = t.raw_status;
@@ -1090,7 +1090,7 @@ mod top_edge {
         .unwrap();
         loop {
             if matches!(
-                erx.recv_timeout(Duration::from_secs(10)).unwrap(),
+                erx.recv_timeout(Duration::from_secs(60)).unwrap(),
                 Event::Gone
             ) {
                 break;

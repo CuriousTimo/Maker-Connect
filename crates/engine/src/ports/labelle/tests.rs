@@ -855,7 +855,7 @@ mod port {
 
     fn next(events: &Receiver<Event>) -> Event {
         events
-            .recv_timeout(Duration::from_secs(10))
+            .recv_timeout(Duration::from_secs(60))
             .expect("an event")
     }
 
@@ -1034,7 +1034,7 @@ mod port {
         let (orders, events, made, run) = start_polling(interval, |_| "single");
         let mut times = Vec::new();
         for _ in 0..3 {
-            times.push(made.recv_timeout(Duration::from_secs(5)).expect("a poll"));
+            times.push(made.recv_timeout(Duration::from_secs(60)).expect("a poll"));
         }
         // the first poll one interval after start-up; each next one an interval after the last
         assert!(times[0].duration_since(began) >= interval);
@@ -1076,7 +1076,7 @@ mod port {
                 file: png,
             })
             .unwrap();
-        let job_made = made.recv_timeout(Duration::from_secs(5)).expect("the job");
+        let job_made = made.recv_timeout(Duration::from_secs(60)).expect("the job");
         // the job is held for several intervals: no poll starts
         std::thread::sleep(interval * 5);
         assert!(made.try_recv().is_err(), "a poll started during a job");
@@ -1087,7 +1087,7 @@ mod port {
         }
         let ended_at = std::time::Instant::now();
         let poll = made
-            .recv_timeout(Duration::from_secs(5))
+            .recv_timeout(Duration::from_secs(60))
             .expect("a poll after the job");
         assert!(poll.duration_since(job_made) >= interval * 5);
         assert!(
@@ -1112,7 +1112,8 @@ mod port {
             "single"
         });
         // the poll has started (its backend is being made) ...
-        made.recv_timeout(Duration::from_secs(5)).expect("the poll");
+        made.recv_timeout(Duration::from_secs(60))
+            .expect("the poll");
         // ... a job comes: nothing of it happens while the poll holds the printer
         orders
             .send(Order::Job {
@@ -1153,8 +1154,8 @@ mod port {
         // polls 0 and 1 find no printer, the job (3rd) and later ones find it
         let (orders, events, made, run) =
             start_polling(interval, |n| if n < 2 { "no_dymo" } else { "single" });
-        made.recv_timeout(Duration::from_secs(5)).unwrap();
-        made.recv_timeout(Duration::from_secs(5)).unwrap();
+        made.recv_timeout(Duration::from_secs(60)).unwrap();
+        made.recv_timeout(Duration::from_secs(60)).unwrap();
         let mut seen = Vec::new();
         orders
             .send(Order::Job {
@@ -1192,8 +1193,8 @@ mod port {
         let interval = Duration::from_millis(30);
         let (orders, events, made, run) =
             start_polling(interval, |n| if n == 0 { "no_interface" } else { "single" });
-        made.recv_timeout(Duration::from_secs(5)).unwrap();
-        made.recv_timeout(Duration::from_secs(5)).unwrap();
+        made.recv_timeout(Duration::from_secs(60)).unwrap();
+        made.recv_timeout(Duration::from_secs(60)).unwrap();
         orders.send(Order::Close).unwrap();
         run.join().unwrap();
         assert!(

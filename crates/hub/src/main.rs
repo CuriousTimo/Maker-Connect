@@ -6,9 +6,9 @@ use maker_connect_hub::{
 const USAGE: &str = "Maker Connect hub (proof of concept)
 
 Usage:
-  maker-connect-hub [--listen 0.0.0.0:8460] [--db maker-connect.db] [--database-url postgres://…]
-                    [--keep-dumps 7] [--pg-command \"docker exec -i -e PGPASSWORD maker-connect-db\"]
-  maker-connect-hub reset-password <name> [--db maker-connect.db] [--database-url postgres://…]
+  maker-connect-hub [--listen 0.0.0.0:8460] [--db maker-connect.db] [--keep-dumps 7]
+                    [--pg-command <prefix>]
+  maker-connect-hub reset-password <name> [--db maker-connect.db]
 
 Open http://localhost:8460. On a fresh install, make the first account with the setup code
 this prints at start; then add machines with the code their agent shows.
@@ -16,12 +16,13 @@ this prints at start; then add machines with the code their agent shows.
 reset-password gives an account a new password (printed once) and signs it out everywhere:
 for when its owner cannot sign in any more.
 
-The Postgres database comes from --database-url, else from the DATABASE_URL environment variable.
+The Postgres database comes from the DATABASE_URL environment variable (postgres://…; never a
+flag: a command line is there for anyone on the computer to read, password and all).
 
 The database is dumped (pg_dump) every night and before an update, into maker-connect-dumps/ beside
 maker-connect-files/; the last --keep-dumps of each are kept (7 unless said). pg_dump, pg_restore and
-psql must be of the server's version: --pg-command names what runs them when the host has none of
-that version (the database's container, as above).
+psql must be of the server's version, found on PATH. --pg-command names a prefix that runs them
+elsewhere (such as docker exec -i -e PGPASSWORD <container>), which gives the hub Docker's rights.
 ";
 
 /// What a release's archive brings beside the hub, into the folders beside its database.
@@ -75,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut listen = "0.0.0.0:8460".to_owned();
     let mut db = "maker-connect.db".to_owned();
     let mut reset: Option<String> = None;
-    let mut database_url = std::env::var("DATABASE_URL").ok();
+    let database_url = std::env::var("DATABASE_URL").ok();
     // A new build tried before it is put in place (crate::updates): it opens the database (a
     // copy), builds its pages, takes a port, and ends.
     let mut trial = false;
@@ -88,12 +89,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match flag.as_str() {
             "--listen" => listen = args.next().ok_or("expected an address after --listen")?,
             "--db" => db = args.next().ok_or("expected a file after --db")?,
-            "--database-url" => {
-                database_url = Some(
-                    args.next()
-                        .ok_or("expected a postgres:// address after --database-url")?,
-                )
-            }
             "--trial" => trial = true,
             "--trial-database" => {
                 trial_database = Some(
@@ -123,7 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    let mut database_url = database_url.ok_or("expected --database-url or DATABASE_URL")?;
+    let mut database_url = database_url.ok_or("expected DATABASE_URL (postgres://…)")?;
     if trial {
         if let Some(copy) = &trial_database {
             database_url = maker_connect_hub::backup::with_database(&database_url, copy)?;
@@ -205,12 +200,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("read {reread} kept files again");
     }
     store.end_old_sessions().await?;
-    tokio::spawn(virtual_machines::run(store.clone()));
-    tokio::spawn(farm::run(store.clone()));
-    tokio::spawn(samples::run(store.clone()));
-    tokio::spawn(queue::run(store.clone()));
+    // The work on its own (stopped when a new build takes over, below).
+    let mut tasks = vec![
+        tokio::spawn(virtual_machines::run(store.clone())),
+        tokio::spawn(farm::run(store.clone())),
+        tokio::spawn(samples::run(store.clone())),
+        tokio::spawn(queue::run(store.clone())),
+    ];
     if let Some(dumps) = maker_connect_hub::backup::DUMPS.get() {
-        tokio::spawn(maker_connect_hub::backup::nightly(dumps));
+        tasks.push(tokio::spawn(maker_connect_hub::backup::nightly(dumps)));
     }
     // The cameras' sessions (crate::cameras), when the hub is built with them.
     #[cfg(feature = "cameras")]
@@ -250,8 +248,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // A new build is in place (crate::updates): this one stops serving (its port free).
         () = updates::UPDATE.notified() => {}
     }
-    // The new build runs as this one's child, on trial; this one waits, its store held so
-    // nothing of it runs meanwhile. Then the new build for good, or this one back.
+    // The new build runs as this one's child, on trial, on the database (migrated by it): nothing of
+    // this one may write meanwhile. Its own work stops, and its database closes, so what still runs
+    // (an agent's open connection, the cameras) gets errors, not rows. Then the new build for good,
+    // or this one back.
+    for task in &tasks {
+        task.abort();
+    }
+    if tokio::time::timeout(std::time::Duration::from_secs(5), store.close())
+        .await
+        .is_err()
+    {
+        eprintln!(
+            "the database is closed for this build; a connection still in use is left to end"
+        );
+    }
     let (program, args) = (exe.clone(), again.clone());
     let tried = tokio::task::spawn_blocking(move || {
         let _held = store.lock().unwrap();

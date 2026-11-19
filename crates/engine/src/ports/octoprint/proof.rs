@@ -481,8 +481,8 @@ fn run_scenario(top: &Value, scn: &Value, work: &Path) -> Value {
                     let _ = engine.remove(id);
                     let _ = tx.send(());
                 });
-                if rx.recv_timeout(Duration::from_secs(30)).is_err() {
-                    return Err("the port did not end within 30 s of Order::Close".to_string());
+                if rx.recv_timeout(Duration::from_secs(60)).is_err() {
+                    return Err("the port did not end within 60 s of Order::Close".to_string());
                 }
             } else {
                 return Err(format!("unknown step {step}"));

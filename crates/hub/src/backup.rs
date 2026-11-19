@@ -6,10 +6,11 @@
 //! - The dumps are PostgreSQL's custom format (`pg_dump -Fc`), each file only for the hub's user
 //!   (0600: they hold password hashes and token hashes), the folder too (0700).
 //! - The last [`KEEP`] of each kind are kept (`--keep-dumps`); that number is our choice.
-//! - The client tools (`pg_dump`, `pg_restore`, `psql`) must be those of the server's major version.
-//!   Where the host has none (the Pi .67: Debian has 13, the server is 17), `--pg-command` names what
-//!   runs them, e.g. `docker exec -i -e PGPASSWORD maker-connect-db` (the database's own container;
-//!   it publishes `127.0.0.1:5432` on its own port 5432, so the same address works inside it).
+//! - The client tools (`pg_dump`, `pg_restore`, `psql`) must be those of the server's major version,
+//!   found on `PATH`. Where the host has none (the Pi .67: Debian 11 has 13, the server is 17), they
+//!   are built from PostgreSQL's source (`docs/pi-hub.md`). `--pg-command`
+//!   can name a prefix that runs them elsewhere (`docker exec -i -e PGPASSWORD <container>`), but that
+//!   gives the hub Docker's rights, which are root's.
 //! - The password never goes on a command line: it is taken out of the address and handed over as
 //!   `PGPASSWORD`.
 //! - A restore never writes over the database in use: it fills a new database, and only once that
@@ -59,10 +60,30 @@ impl Dumps {
         command: &str,
         database_url: &str,
     ) -> Result<Self, String> {
-        let mut url =
-            url::Url::parse(database_url).map_err(|e| format!("{database_url:?}: {e}"))?;
-        let password = url.password().map(percent_decode);
+        // Never the address itself in an error: it holds the password.
+        let mut url = url::Url::parse(database_url)
+            .map_err(|e| format!("the database address is no URL: {e}"))?;
+        let mut password = url.password().map(percent_decode);
         let _ = url.set_password(None);
+        // A password in the query string (`?password=…`) is taken out as well: never on a command line.
+        if url.query_pairs().any(|(k, _)| k == "password") {
+            let rest: Vec<(String, String)> = url
+                .query_pairs()
+                .filter_map(|(k, v)| {
+                    if k == "password" {
+                        password = Some(v.into_owned());
+                        None
+                    } else {
+                        Some((k.into_owned(), v.into_owned()))
+                    }
+                })
+                .collect();
+            if rest.is_empty() {
+                url.set_query(None);
+            } else {
+                url.query_pairs_mut().clear().extend_pairs(rest);
+            }
+        }
         if url.path().trim_start_matches('/').is_empty() {
             return Err("the database address names no database".into());
         }
@@ -186,7 +207,15 @@ impl Dumps {
             }
         };
         drop(out);
+        // On the disk before it has its name (an SD card losing power keeps no cut-short dump
+        // under a dump's name), and the name on the disk too.
+        std::fs::File::open(&part)
+            .and_then(|f| f.sync_all())
+            .map_err(|e| format!("{}: {e}", part.display()))?;
         std::fs::rename(&part, &path).map_err(|e| e.to_string())?;
+        if let Ok(dir) = std::fs::File::open(&self.dir) {
+            let _ = dir.sync_all();
+        }
         self.prune(kind);
         Ok(path)
     }
@@ -259,27 +288,55 @@ impl Dumps {
     }
 
     /// The database in use back as `dump` holds it: restored as `<name>_back` first; only when that
-    /// worked does it take the place of the one in use (whose connections end).
+    /// worked does it take the place of the one in use. The one in use is renamed away
+    /// (`<name>_old`), not dropped, until the restored one has its name: when that rename fails, the
+    /// old one gets its name back.
     pub fn restore_live(&self, dump: &Path) -> Result<(), String> {
         let live = self.database();
         let back = format!("{live}_back");
+        let old = format!("{live}_old");
+        fits(&old)?;
         self.restore_as(dump, &back)?;
-        // pg_restore's session may still be ending when it has exited: the rename waits for it (10 s
-        // at most; then it fails as it would have).
-        let back_literal = format!("'{}'", back.replace('\'', "''"));
-        let live_literal = format!("'{}'", live.replace('\'', "''"));
-        self.psql(&[
-            format!("DROP DATABASE {} WITH (FORCE)", ident(&live)),
-            format!(
-                "DO $$ BEGIN \
-                 FOR i IN 1..100 LOOP \
-                     EXIT WHEN NOT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = {back_literal}); \
-                     PERFORM pg_sleep(0.1); \
-                 END LOOP; \
-                 EXECUTE format('ALTER DATABASE %I RENAME TO %I', {back_literal}, {live_literal}); \
-                 END $$",
-            ),
-        ])
+        self.drop_database(&old)?;
+        self.rename_free(&live, &old)?;
+        if let Err(why) = self.rename_free(&back, &live) {
+            return match self.rename_free(&old, &live) {
+                Ok(()) => Err(format!("{why} (the database in use is as it was)")),
+                Err(again) => Err(format!(
+                    "{why}; and {old} could not get its name {live} back: {again}"
+                )),
+            };
+        }
+        if let Err(why) = self.drop_database(&old) {
+            eprintln!("{old} (the database before the restore) is left: {why}");
+        }
+        Ok(())
+    }
+
+    /// `from` renamed `to`, its sessions ended first. A session can still be on its way out when the
+    /// rename looks (PostgreSQL then refuses it: `object_in_use`), or come again: its sessions are ended
+    /// again and the rename tried again, for 30 s at most; then it fails as the rename does.
+    fn rename_free(&self, from: &str, to: &str) -> Result<(), String> {
+        fits(from)?;
+        fits(to)?;
+        let literal = |name: &str| format!("'{}'", name.replace('\'', "''"));
+        let (from, to) = (literal(from), literal(to));
+        self.psql(&[format!(
+            "DO $$ DECLARE until timestamptz := clock_timestamp() + interval '30 seconds'; BEGIN \
+             LOOP \
+                 PERFORM pg_stat_clear_snapshot(); \
+                 PERFORM pg_terminate_backend(pid) FROM pg_stat_activity \
+                     WHERE datname = {from} AND pid <> pg_backend_pid(); \
+                 BEGIN \
+                     EXECUTE format('ALTER DATABASE %I RENAME TO %I', {from}, {to}); \
+                     RETURN; \
+                 EXCEPTION WHEN object_in_use THEN \
+                     IF clock_timestamp() > until THEN RAISE; END IF; \
+                 END; \
+                 PERFORM pg_sleep(0.1); \
+             END LOOP; \
+             END $$"
+        )])
     }
 
     /// The name of the copy a new build is tried on ([`crate::updates`]).
@@ -469,5 +526,87 @@ mod tests {
         restored.close().await;
         dumps.drop_database(&copy).unwrap();
         std::fs::remove_dir_all(&dumps.dir).unwrap();
+    }
+
+    /// The password never shows: not in the error for an address that does not parse, not in the
+    /// address the tools get (also when it is in the query string, which keeps the rest).
+    #[test]
+    fn the_password_is_never_in_an_error_or_an_address() {
+        let dir = std::env::temp_dir().join(format!("mc-dumps-{}", crate::store::random_id()));
+        let error = Dumps::new(dir.clone(), KEEP, "", "postgres://u:s3cret@[nope/db").unwrap_err();
+        assert!(!error.contains("s3cret"), "{error}");
+        let dumps = Dumps::new(
+            dir.clone(),
+            KEEP,
+            "",
+            "postgres://u@db:5432/mc?password=s3cret&sslmode=disable",
+        )
+        .unwrap();
+        let address = dumps.url_of("mc");
+        assert!(!address.contains("s3cret"), "{address}");
+        assert!(address.contains("sslmode=disable"), "{address}");
+        assert_eq!(dumps.password.as_deref(), Some("s3cret"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The database in use back as its dump, while sessions hold it: they are ended, and when it is
+    /// done neither the restored copy nor the database before it is left by another name.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_database_in_use_comes_back_as_its_dump_while_sessions_hold_it(pool: sqlx::PgPool) {
+        // A database of its own with a short name (the test's own is too long for `_old`).
+        let tools = for_test(&pool).await;
+        let live = format!("mc_live_{}", crate::store::random_id().to_lowercase());
+        tools
+            .restore_as(&tools.dump(NIGHTLY, None).unwrap(), &live)
+            .unwrap();
+        let base = std::env::var("DATABASE_URL").unwrap();
+        let dumps = Dumps::new(
+            tools.dir.join("live"),
+            KEEP,
+            &std::env::var("MC_PG_COMMAND").unwrap_or_default(),
+            &with_database(&base, &live).unwrap(),
+        )
+        .unwrap();
+        let holding = pool_of(&live).await;
+        sqlx::query("INSERT INTO meta (key, value) VALUES ('a', '1')")
+            .execute(&holding)
+            .await
+            .unwrap();
+        let dump = dumps.dump(NIGHTLY, None).unwrap();
+        sqlx::query("INSERT INTO meta (key, value) VALUES ('b', '2')")
+            .execute(&holding)
+            .await
+            .unwrap();
+        let mut held = holding.acquire().await.unwrap();
+        sqlx::query("SELECT 1").execute(&mut *held).await.unwrap();
+        let restore = {
+            let dumps = dumps.clone();
+            tokio::task::spawn_blocking(move || dumps.restore_live(&dump))
+        };
+        restore.await.unwrap().unwrap();
+        drop(held);
+        holding.close().await;
+        let back = pool_of(&live).await;
+        let keys: Vec<String> = sqlx::query_scalar("SELECT key FROM meta WHERE key IN ('a', 'b')")
+            .fetch_all(&back)
+            .await
+            .unwrap();
+        assert_eq!(keys, vec!["a".to_owned()]);
+        let left: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_database WHERE datname = $1 OR datname = $2",
+        )
+        .bind(format!("{live}_back"))
+        .bind(format!("{live}_old"))
+        .fetch_one(&back)
+        .await
+        .unwrap();
+        assert_eq!(left, 0);
+        back.close().await;
+        tools.drop_database(&live).unwrap();
+        std::fs::remove_dir_all(&tools.dir).unwrap();
     }
 }

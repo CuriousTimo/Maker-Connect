@@ -113,6 +113,9 @@ jobs:
           sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config postgresql-common
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y postgresql-client-17
+          # The runner's own PostgreSQL 16 comes first on PATH otherwise.
+          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/pg_dump --version | grep -q ' 17\.'
 
       - name: Cache
         uses: Swatinem/rust-cache@v2
