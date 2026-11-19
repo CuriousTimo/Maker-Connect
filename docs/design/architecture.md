@@ -143,7 +143,7 @@ flowchart LR
   api -->|"allowed requests"| cmd
   api -->|"allowed requests"| mods
   api -->|"door actions only"| door
-  api -->|"the upgrade, after device.view"| camh
+  api -->|"the upgrade, after the camera rule"| camh
   cmd -->|"action and person-only checks"| guard
   cmd --> host
   host --> bus
@@ -233,7 +233,7 @@ have on another block; anything else is a defect or a design change first
 | Block | May depend on |
 |---|---|
 | Web UI pages | API |
-| API | Route guard and authz; Command records; Modules; Door access module (door actions only); Camera sessions (the upgrade, after the guard's `device.view`); Registries |
+| API | Route guard and authz; Command records; Modules; Door access module (door actions only); Camera sessions (the upgrade, after the guard's camera rule: `device.view` on the watched device, or `room_view_role` for a room camera); Registries |
 | Route guard and authz | Accounts and tenancy; Registries; Store. It decides and never dispatches ([decision](decisions/20261119-architecture-approved.md)) |
 | Accounts and tenancy | Store |
 | Command records | Route guard and authz (the action and person-only checks of every command, whoever asks: a person, a token, the queue); Device host; Event bus and SSE; Registries; Store |
@@ -279,7 +279,7 @@ block inside the device, authz and history steps, not as a step of their own
 | Event bus and SSE | Stored facts with a `seq` in commit order, published by one relay after commit; state patches live with a `rev`; one SSE stream per subscriber, filtered by `device_access`; resume by `Last-Event-ID` ([decision](decisions/20261119-event-order.md)) | the `event` hypertable | browsers (L2 SSE); Spoolman WebSocket (L18 in-process, out to the client on L5); History subscriber (L18); Store | send an event the subscriber's `device_access` hides; store state patches |
 | History subscriber | An event subscriber, not part of the core (plan §1): takes state patches off the bus, writes `sample` and `gap` rows (plan §2.7) | `sample`, `metric`, `gap` | Event bus and SSE (L18); Registries (metrics); Store (the history writer is cross-space, plan §2.6, hub-core-v2.md:156) | store a text value as a sample; text values are events (plan §2.7, hub-core-v2.md:197) |
 | Device host | Every live device session through one `Host` boundary: in-process drivers (Prusa `prusa-buddy`, both dialects) and agent sessions over link v2 | `agents`, `devices`, `device_registrations`, `device_credentials`, `device_capabilities` | Prusa printers (L10 HTTP, L11 WebSocket); agents (L6 POST, L7 SSE, L8 register, L9 file downloads); Command records; Event bus and SSE | send a device anything its driver's one reference does not send; make G-code for an agent device (the port does) |
-| Camera sessions | RTSP cameras: retina session, frames to viewers, GOP since the last key frame | `cameras` | RTSP cameras (L12 RTSP over TCP); browsers (L3 WebSocket MSE); the API hands it the upgrade after the guard's `device.view` (in-process); Store | show a camera to a person without `device.view` on it (checked before the upgrade) |
+| Camera sessions | RTSP cameras: retina session, frames to viewers, GOP since the last key frame | `cameras` | RTSP cameras (L12 RTSP over TCP); browsers (L3 WebSocket MSE); the API hands it the upgrade after the guard's camera rule (in-process); Store | show a camera to a person the camera rule refuses: `device.view` on the watched device, or the role `room_view_role` names for a room camera (checked before the upgrade, [authz.md](authz.md#actions)) |
 | Registries | The generated lists: capability verbs, state sets, actions, fault codes, event types, metrics (plan §2.10) | `docs/registries/*`, generated from the code | read by Route guard and authz, Command records, Event bus and SSE, History subscriber, and the API spec (`openapi.json` enums); in-process and at build time | be edited by hand |
 | Store | The only way to the database: the app pool (`SET LOCAL app.space_id`, RLS), the admin pool (allowlist), the migrator | the roles of [database.md](database.md#roles-and-pools), the migrations | PostgreSQL (L14 PostgreSQL wire) | connect as a superuser or as the owner of the tables; use the admin pool outside the allowlist |
 | Dumps and self-update | Nightly and before-update dumps; signed releases, the trial and the way back; the agent's update download | the dumps folder, the update state | Release host (L16 HTTPS); `pg_dump`, `pg_restore` (L15 child processes); agents (L9 `/api/agent/v2/update/{tag}/{file}`) | take a build whose signature or sum does not hold; restore over the database in use |

@@ -118,10 +118,11 @@ printer or a label printer; it never starts a laser. The job's state follows fro
 the device's job end ([database.md](database.md#files-jobs-queue-and-farm)). A dispatcher never
 starts what its person may not: a queue item is started on behalf of the person who queued it
 (`machine_queue.by_user`), and the dispatcher checks that person's `job.start` on the device in the
-space transaction before each start; without it the item keeps a `problem` and waits. The farm
-dispatcher starts on behalf of the person who switched the farm on for that device
-(`devices.settings.farm_on_by`, set with `device.manage`), with the same check; when they lose
-`job.start` the device's farm switch goes off and the Now page says so.
+space transaction before each start; without it the item keeps a `problem` and waits (an item with no
+`by_user`, from older data, waits the same way until someone re-adds it). The farm dispatcher starts
+on behalf of the person who switched the farm on for that device (`devices.settings.farm_on_by`, set
+with `device.manage`; a device whose farm is on without a `farm_on_by` is treated as off until
+switched on again), with the same check and the same wait with a `problem` shown on the Now page.
 
 ```mermaid
 sequenceDiagram
@@ -200,7 +201,7 @@ sequenceDiagram
     H-->>B: buffered facts with seq above the last sent
     H-->>B: live facts and patches from the bus, a patch carries rev
   end
-  Note over H,B: a grant or role change bumps authz_epoch, the filter refreshes; no membership left: stream.reset and the stream closes
+  Note over H,B: a grant or role change bumps authz_epoch and the filter refreshes. No membership left: stream.reset and the stream closes
 ```
 
 ## 7. Sign-in and invite

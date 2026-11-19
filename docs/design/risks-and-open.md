@@ -264,9 +264,9 @@ kept (`authz/LAST_OWNER`); the owner decides.
 guessable within its life. Not stated: the code's alphabet and length, how long a registration stays
 open (`device_registrations.expires_at`), and whether claims of unknown codes are counted and slowed.
 **Recommendation:** for a Prusa printer exactly what Buddy expects and Prusa Connect issues (read in
-#18, as OQ-12); for an agent today's code as the agent registers it (agent-engine.md O7), an expiry
-of minutes, and the sign-in failure counter applied to unknown codes per caller; decided in the
-device step.
+#18, as OQ-12); for an agent today's code and life as the agent registers it (agent-engine.md O7,
+read from today's code in the device step), and the sign-in failure counter applied to unknown codes
+per caller; decided in the device step.
 
 ## Issues the design cannot place yet
 

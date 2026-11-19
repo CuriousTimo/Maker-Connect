@@ -114,7 +114,8 @@ report, an agent's first `up`), on the admin pool (#1). An agent's token is show
 collect of an agent's registration gets `410`. Whether a Prusa printer may collect again until its
 code is spent, and how the hub then answers, is [OQ-12](risks-and-open.md#oq-12-the-prusa-token-until-the-code-is-spent).
 A first agent registration has no `agents` row when the device is claimed: the device is inserted
-with `agent_id` null and `collect_registration` fills it.
+with `agent_id` null and `collect_registration` fills it. The code's strength, the registration's
+life and a limit on claims of unknown codes are [OQ-40](risks-and-open.md#oq-40-the-pairing-codes-strength-expiry-and-attempt-limit).
 
 **Org-wide work on the app pool** (V2-STORE-6 Q3). No allowlist reason covers it.
 `organisations`, `org_memberships` and `spaces` are visible via the organisation of `app_space()`, so
@@ -311,8 +312,6 @@ erDiagram
   agents ||--o{ devices : hosts
   devices ||--o| device_credentials : authenticates_with
   devices ||--o{ device_capabilities : declares
-  devices ||--o{ commands : receives
-  devices ||--o{ transfers : receives
   devices ||--o| cameras : is
   files ||--o{ transfers : sent_as
   jobs ||--o{ commands : controlled_by
@@ -392,7 +391,7 @@ erDiagram
 | `device_credentials` | `device_id uuid`, `space_id uuid`, `token_hash text`, `generation bigint`, `created_at`, `last_used timestamptz` | PK `device_id`; unique `token_hash`; FK `(space_id, device_id)` → `devices` on delete cascade, `ON UPDATE CASCADE` (the row moves with its device) | space (looked up by hash on the admin pool). Hub-hosted devices only (Prusa printers); an agent's devices authenticate through their agent ([decision](decisions/20261119-agent-link-identity-and-delivery.md)) |
 | `device_registrations` | `id uuid`, `code text`, `fingerprint text`, `secret_hash text`, `agent_id uuid` null (a further device of a known agent), `kind text`, `dialect text` null, `identity jsonb`, `created_at`, `expires_at timestamptz`, `space_id uuid` null, `device_id uuid` null, `approved_by uuid` null, `approved_at` null, `collected_at` null, `spent_at` null | PK `id`; unique `code` while open | admin only (no space before approval); a space transaction reaches it only through `claim_registration` and `collect_registration` ([roles and pools](#roles-and-pools)) |
 | `device_capabilities` | `device_id uuid`, `space_id uuid`, `epoch bigint`, `set jsonb`, `state_set jsonb`, `at timestamptz` | PK `(device_id, epoch)`; FK `(space_id, device_id)` → `devices` on delete cascade, `ON UPDATE CASCADE` (moves with its device) | space |
-| `commands` | `id uuid`, `space_id uuid`, `device_id uuid`, `verb text`, `args jsonb`, `idempotency_key text`, `origin text` (person, token, agent, queue, device), `requested_by uuid` null, `token_id uuid` null, `job_id uuid` null, `requested_at`, `authorized_at`, `sent_at`, `settled_at timestamptz` null, `grant_id uuid` null, `outcome text` null (ok, refused, failed, unknown), `fault_code text` null, `reason text` null, `late_outcome text` null, `late_reason text` null, `late_at timestamptz` null (a result that arrives after `unknown`: shown, never acted on) | PK `id`; unique `(space_id, id)`; no FK to `devices` (a record outlives a retired or moved device, like a job; the device is looked up in the space transaction before writing); FK `(space_id, job_id)` → `jobs`; unique `(device_id, idempotency_key)`; partial index `(device_id) WHERE settled_at IS NULL` | space |
+| `commands` | `id uuid`, `space_id uuid`, `device_id uuid`, `verb text`, `args jsonb`, `idempotency_key text`, `origin text` (person, token, agent, queue, device), `requested_by uuid` null, `token_id uuid` null, `job_id uuid` null, `requested_at`, `authorized_at`, `sent_at`, `settled_at timestamptz` null, `grant_id uuid` null, `outcome text` null (ok, refused, failed, unknown), `fault_code text` null, `reason text` null, `late_outcome text` null, `late_reason text` null, `late_at timestamptz` null (a result that arrives after `unknown`: shown, never acted on) | PK `id`; unique `(space_id, id)`; no FK to `devices` (a record outlives a retired or moved device, like a job; the device is looked up in the space transaction before writing); FK `(space_id, job_id)` → `jobs`; unique `(space_id, device_id, idempotency_key)`; partial index `(device_id) WHERE settled_at IS NULL` | space |
 | `transfers` | `id uuid`, `space_id uuid`, `device_id uuid`, `file_id uuid`, `path text`, `iv text`, `key text`, `size bigint`, `bytes_done bigint`, `state text`, `reason text` null, `command_id uuid` null, `job_id uuid` null, `print_after boolean`, `created_at`, `settled_at timestamptz` null | PK `id`; no FK to `devices` (as `commands`); FK `(space_id, file_id)` → `files`; FK `(space_id, command_id)` → `commands`; FK `(space_id, job_id)` → `jobs`; unique `iv`; partial index `WHERE settled_at IS NULL` | space (`/f/{iv}/raw` looks up by `iv` on the admin pool) |
 | `cameras` | `device_id uuid`, `space_id uuid`, `source text` (`rtsp` or `agent`), `url text` null, `username text` null, `password text` null, `watches_device_id uuid` null (empty: a room camera, seen by the role `room_view_role` names, default `admin`; a watching camera is seen with `device.view` on the watched device) | PK `device_id`; FK `(space_id, device_id)` → `devices` on delete cascade, `ON UPDATE CASCADE` (a camera device moves with its own row); FK `(space_id, watches_device_id)` → `devices` `ON DELETE SET NULL (watches_device_id)`, cleared by a move of either device | space |
 
@@ -408,8 +407,9 @@ pool (#3) that changes `devices.space_id` and, for every table that points at th
 `device_group_members`, `device_access`, `access_requests` and `machine_queue` rows of the device are
 deleted (the new space grants afresh); `spool.device_id` and `cameras.watches_device_id` that point at
 it are set null (the spool stays in its space, unloaded); `commands`, `transfers`, `jobs`, `sample` and
-`gap` have no key to the device and stay where they happened. A device with a job not ended is not
-moved.
+`gap` have no key to the device and stay where they happened. The same transaction rebuilds the
+device's `device_access` rows in the new space from its roles and bumps both spaces' `authz_epoch`
+([authz.md](authz.md#the-materialised-table)). A device with a job not ended is not moved.
 
 ### Files, jobs, queue and farm
 

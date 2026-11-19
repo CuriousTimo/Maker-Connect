@@ -14,7 +14,7 @@ every route names one or the other.
 | Namespace | Who calls it | Auth | In the public spec |
 |---|---|---|---|
 | `/api/v1` | the hub's own pages, external apps | session cookie or `Bearer mct_…` | yes |
-| `/api/v1/events` | pages, apps | as `/api/v1` | yes (SSE) |
+| `/api/v1/events` | pages | session cookie (gate `space.member`; a token has no stream) | yes (SSE) |
 | `/api/v1` 3D-printer REST | Prusa Connect clients, PrusaSlicer | as `/api/v1` | yes, mirroring Prusa Connect's ([OQ-2](risks-and-open.md#oq-2-the-3d-printer-rest-surface)) |
 | `/spoolman/api/v1` | Spoolman clients | [OQ-7](risks-and-open.md#oq-7-how-spoolman-clients-authenticate) | no: Spoolman's own API, to the letter |
 | `/api/agent/v2` | agents | registration secret, then agent token | no: ours, [wire.md](wire.md) |
@@ -35,7 +35,8 @@ every route names one or the other.
   `PUT /api/v1/session/space`) or the token's space (`api_tokens.space_id`); every tenant row it reads
   or writes is in that space's transaction. A path that names a space (`/spaces/{id}/…`) must name
   that space; another id gets `404 space/NOT_FOUND`, whatever the caller's role there. Only the
-  `instance.admin` routes and the `session` routes run outside a space.
+  `public` routes, the `session` routes (including `PUT /api/v1/session/space`, which chooses the
+  space) and the `instance.admin` routes run outside a space.
 - **Tokens** reach action routes in their own space only; the gates `session`, `space.member` and
   `instance.admin` and the `grants.manage` routes are a person's session ([authz.md](authz.md#the-decision-on-a-request)).
 
@@ -59,7 +60,7 @@ every route names one or the other.
 | GET, POST | `/api/v1/spaces/{id}/invites` | `space.members.manage`; the role at most the caller's own, `whole_organisation` only with an organisation role | `{role, whole_organisation, expires_at}` | invites; on POST the link once |
 | POST | `/api/v1/invites/accept` | `public`; the handler checks the invite token | `{token, name, display_name, password}` for a new account, `{token}` when signed in | 201 the membership, `Set-Cookie` for a new account; already a member: `authz/ALREADY_MEMBER` ([decision](decisions/20261119-invite-accept.md)) |
 | DELETE | `/api/v1/spaces/{id}/invites/{invite}` | `space.members.manage` | — | 204 (revoked) |
-| GET, POST | `/api/v1/tokens` | `tokens.manage`; POST from a session only, scopes at most the minter's own effective rights (`authz/SCOPE_ABOVE_OWN`) | `{name, scopes, expires_at}` | tokens; on POST the secret once |
+| GET, POST | `/api/v1/tokens` | `tokens.manage`; POST from a session only | `{name, scopes, expires_at}` | tokens; on POST the secret once; a token's rights are its scopes intersected with its person's at each request |
 | DELETE | `/api/v1/tokens/{id}` | `tokens.manage` | — | 204 (revoked) |
 | GET | `/api/v1/spaces/{id}/audit` | `audit.view` | cursor | audit rows |
 | GET | `/api/v1/grants` | `grants.view` | `?user=&device=&group=` | grants |
@@ -174,8 +175,9 @@ data: {"seq":1201,"type":"command.settled","time":"2026-11-19T17:40:00Z","space_
 | `data` | object | The type's own schema (registry) |
 
 - `?types=` narrows the stream; the subscriber sees only events of the session's space, and of those
-  only the device events its `device_access` allows (the registry says per type whether it is about a
-  device or about the space; a space event needs the area's `.view` action). When the space's
+  only the events it may see: the event types registry names per type the action a subscriber needs,
+  `device.view` on the event's device (through `device_access`) for device events, an area action for
+  the rest (`grant.changed` needs `grants.view`, a material moved `stock.view`). When the space's
   `authz_epoch` changes the filter is rebuilt; a subscriber who no longer has a membership there is
   sent `stream.reset` and the stream is closed.
 - **Facts** (device online or offline, job started or ended, command settled, grant changed, material

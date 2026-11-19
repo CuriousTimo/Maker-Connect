@@ -44,7 +44,7 @@ comes only from an organisation role, never from a space role, however high
 | queue | `queue.view`, `queue.manage` | the queue; add, reorder, remove (own items for their person) | `/machines/{id}/queue/*` |
 | farm | `farm.view`, `farm.use`, `farm.manage` | projects and parts; `farm.manage` for a count correction | `/api/projects`, `/api/parts` Member; `/api/parts/{id}/count` Admin |
 | stock | `stock.view`, `stock.use`, `stock.manage` | materials, spools, locations; `stock.manage` for import, export, field definitions, Spoolman backup | `/api/stock/*`, `/api/v1/*` Member; import, export, `field`, `backup` Admin |
-| cameras | `cameras.manage` | add, change, remove a camera; viewing is `device.view` | `/cameras` POST Admin |
+| cameras | `cameras.manage` | add, change, remove a camera; viewing follows the camera rule under `device.view` above | `/cameras` POST Admin |
 | labels, door access | not named | [OQ-14](risks-and-open.md#oq-14-tables-of-materials-items-and-labels), [OQ-10](risks-and-open.md#oq-10-door-access-link) | |
 
 **Gates.** A route that needs no action still names what lets a caller through, from the same registry,
@@ -111,19 +111,24 @@ The instance admin (`users.instance_admin`) is a flag, not an action: the `insta
 
 `device_access(space_id, user_id, device_id, actions bigint)` holds each person's effective action
 set per device. It is rebuilt **in the same transaction** as any grant, membership, role or device
-group change, and that transaction bumps the space's `authz_epoch`. Lists, counts and the SSE filter
-join `device_access`; nothing filters after fetching. Three changes reach more than one space
-transaction and each names its rebuilds:
+group change, a device added, retired or moved, and that transaction bumps the space's `authz_epoch`.
+Lists, counts and the SSE filter join `device_access`; nothing filters after fetching. Four changes
+reach more than one space and each names its rebuilds:
 
-- An **organisation role** change (org membership added, changed or removed) runs one space
-  transaction per space of the organisation, rebuilding each: a demoted organisation admin loses the
-  rights in every space at once.
+- An **organisation role** change (org membership added, changed or removed) rebuilds every space of
+  the organisation in **one** transaction: the handler issues `SET LOCAL app.space_id` for each space
+  in turn inside the same transaction, rebuilds, bumps that space's epoch, and moves on; a failure
+  rolls all of it back, so a demoted organisation admin never keeps rights in some spaces.
 - **Accepting an invite** (admin pool #2) is followed, in the same handler, by a space transaction per
   space joined (one, or every space of the organisation for a whole-organisation invite) that
   rebuilds the newcomer's rows.
+- **Moving a device** (admin pool #3, [decision](decisions/20261119-device-move.md)) deletes the
+  device's rows in the old space, rebuilds the device's rows in the new space from its roles, and
+  bumps both spaces' `authz_epoch`, all in the move's transaction.
 - A **grant's expiry** is honoured by the rebuild (an expired grant counts as absent) and by the
   expiry sweep (admin pool #4), which lists the spaces with a grant just expired and rebuilds each in
-  its own space transaction, so `device_access` never keeps an expired right.
+  its own space transaction; an expired right is gone at the sweep's next run (its interval is
+  [OQ-32](risks-and-open.md#oq-32-how-retention-runs)).
 
 ```mermaid
 flowchart LR
@@ -170,8 +175,9 @@ flowchart TB
   every gate but `public` is a person's session (`session`, `space.member`, `instance.admin`: a
   token is refused with `authz/SESSION_ONLY`), and so are the routes that make or change a grant
   (`grants.manage`), whoever holds the action: a grant is made by a person in Space, never by a
-  token. Minting a token (`POST /api/v1/tokens`) gives it at most the minter's own effective rights
-  at that moment (`authz/SCOPE_ABOVE_OWN`), as a role is given at most one's own.
+  token. Minting a token (`POST /api/v1/tokens`) is a session's act too; its scopes may name any
+  action, because the intersection with the person's rights at each request already keeps the token
+  within its person.
 - **Agent tokens** may only report and fetch for their own devices; they never carry a person's
   actions. **Printer tokens** (Prusa) likewise.
 - **Person-only verbs** (`mc.laser.start`, a frame with power above 0) are accepted only from a
