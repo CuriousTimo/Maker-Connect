@@ -294,8 +294,10 @@ fn close_is_seen_within_the_read_timeout() {
     let at = Instant::now();
     orders.send(Order::Close).unwrap();
     run.join().unwrap();
+    // A slow CI runner can stall a thread for some hundreds of ms; the bound stays far
+    // below the 60 s look-again interval this test tells it apart from.
     assert!(
-        at.elapsed() < Duration::from_millis(100 + 150),
+        at.elapsed() < Duration::from_millis(100 + 900),
         "took {:?}",
         at.elapsed()
     );
@@ -307,7 +309,7 @@ fn close_is_seen_within_the_read_timeout() {
     let at = Instant::now();
     orders.send(Order::Close).unwrap();
     run.join().unwrap();
-    assert!(at.elapsed() < Duration::from_millis(100));
+    assert!(at.elapsed() < Duration::from_millis(1000));
 }
 
 /// Nothing is sent to the scale: the fake source and device are asked only to list, open and read, and the

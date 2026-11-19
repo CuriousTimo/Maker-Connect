@@ -22,7 +22,7 @@
  },
  "normalisation": {
   "now": "a string that parses as an ISO 8601 date-time (`T` or space between date and time) within 300 s of the time the request was made becomes `<now>`; any other date-time stays as it is (the requests use fixed dates in 2024)",
-  "paths": "in /info, `data_dir`, `logs_dir`, `backups_dir` become `<path>` (a temp dir); `latest_version` and `update_available` become `<volatile>` (Spoolman asks GitHub); in /backup, `path` becomes `<path>`",
+  "paths": "in /info, `data_dir`, `logs_dir`, `backups_dir` become `<path>` (a temp dir); `latest_version` and `update_available` become `<volatile>` (Spoolman asks GitHub), and so does its `content-length`, which follows from them; in /backup, `path` becomes `<path>`",
   "headers": "in header values, `http://127.0.0.1:<port>` becomes `http://<host>` (the redirect's `location`)",
   "json": "JSON bodies are compared as values and by key order: of the keys two objects both have, the order must be the same (Spoolman writes its models' field order; the hub keeps the order it inserts, `preserve_order`, chosen in the hub's own `Cargo.toml` so the order does not depend on what else is in the build)",
   "text": "other bodies (CSV) are compared as text after the date-time rule"
@@ -39,7 +39,7 @@
    "path": "/api/v1/info",
    "status": 200,
    "headers": {
-    "content-length": "386",
+    "content-length": "<volatile>",
     "content-type": "application/json"
    },
    "response_json": {

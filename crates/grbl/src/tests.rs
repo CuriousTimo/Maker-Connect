@@ -577,7 +577,9 @@ fn a_lost_connection_is_reopened_and_nothing_resumes() {
     run.machine
         .start(5, "long", long_program(2000), None)
         .unwrap();
-    std::thread::sleep(Duration::from_millis(100));
+    run.until("the job under way", |r| {
+        r.telemetry.job.as_ref().is_some_and(|j| j.done > 0)
+    });
     // Handed to the link during the job: refused, as a command during a job is.
     assert!(run.machine.submit(&[Command::Home]).is_err());
     unplugged.store(true, Ordering::SeqCst);
