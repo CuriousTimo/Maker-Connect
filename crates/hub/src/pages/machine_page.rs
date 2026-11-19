@@ -112,6 +112,11 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         "simplyprint" => "Klipper, through Moonraker",
         _ => "Maker Connect agent",
     };
+    let subtitle = if machine.name.to_lowercase().contains(&kind.to_lowercase()) {
+        link.to_owned()
+    } else {
+        format!("{kind} · {link}")
+    };
     format!(
         r##"<!doctype html>
 <html lang="en">
@@ -127,15 +132,15 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
 {header}
 <main id="main" tabindex="-1" class="wide" data-id="{id}" data-me="{me}" data-staff="{staff}">
   <p class="crumbs"><a href="../machines">Machines</a> › {name}</p>
-  <div class="head title"><h1>{name}</h1><span class="st {state_class}" data-live="state">{state}</span></div>
-  <p class="muted" style="margin-top:-8px">{subtitle}</p>
+{head}
   {labels}
   {no_use}<div class="notices" data-notices>{notices}</div><div class="notices" data-question></div>
   <nav class="tabs" role="tablist">
-    <a href="#overview" role="tab">Overview</a>
-    <a href="#control" role="tab">Control</a>
-    {usb_tab}<a href="#jobs" role="tab">Jobs <small class="tab-count" data-queue-count></small></a>
-    {camera_link}<a href="#settings" role="tab">Settings</a>
+    <a href="#now" role="tab">Now</a>
+    {queue_tab}<a href="#controls" role="tab">Controls</a>
+    {usb_tab}{camera_link}<a href="#machine" role="tab">Machine</a>
+    <a href="#history" role="tab">History</a>
+    <a href="#advanced" role="tab">Advanced</a>
   </nav>
   <section class="tab" id="overview" role="tabpanel">
 {overview}
@@ -171,7 +176,13 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         name = escape(&machine.name),
         header = crate::header(space, "../", "machines"),
         id = escape(&machine.id),
-        state = escape(&state),
+        head = head(machine, profile, &state, state_class, &subtitle),
+        queue_tab = if machine.kind == maker_connect_protocol::MachineKind::Label {
+            ""
+        } else {
+            r##"<a href="#queue" role="tab">Queue <small class="tab-count" data-queue-count></small></a>
+    "##
+        },
         notices = notices(machine),
         me = extra.me,
         staff = extra.staff,
@@ -183,13 +194,6 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         no_use = before_use(machine, extra),
         overview = overview(machine, profile, ""),
         jobs = jobs_card(machine, extra),
-        subtitle = escape(
-            &if machine.name.to_lowercase().contains(&kind.to_lowercase()) {
-                link.to_owned()
-            } else {
-                format!("{kind} · {link}")
-            }
-        ),
         labels = labels_line(machine, extra.manage),
         filament = filament_card(machine),
         sheet = sheet_card(machine),
@@ -213,7 +217,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
             ""
         },
         camera_link = if extra.camera_tab.is_some() {
-            r##"<a href="#camera" role="tab">Camera</a>
+            r##"<a href="#cameras" role="tab">Cameras</a>
     "##
         } else {
             ""
@@ -238,6 +242,135 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         } else {
             String::new()
         },
+    )
+}
+
+/// The page's head (Prusa Connect's printer head, our own build): the machine's picture; its
+/// name, state and a pencil to rename it; what it is, its firmware and its material; for a
+/// printer a row of live chips (nozzle, bed, speed, flow); and Set ready on the right.
+fn head(
+    machine: &Machine,
+    profile: Option<&Profile>,
+    state: &str,
+    state_class: &str,
+    subtitle: &str,
+) -> String {
+    let t = machine.telemetry.as_ref().filter(|_| machine.online);
+    let picture = profile
+        .and_then(Profile::image)
+        .or_else(|| profiles::generic_image(machine.kind))
+        .unwrap_or(r#"<div class="no-picture">No picture</div>"#);
+    let fact = |label: &str, key: &str, value: Option<String>| match value {
+        Some(v) => format!(
+            r#"<div class="fact"><small>{label}</small><b data-live="{key}">{}</b></div>"#,
+            escape(&v)
+        ),
+        None => String::new(),
+    };
+    let firmware = fact(
+        "Firmware",
+        "firmware",
+        t.and_then(|t| t.firmware.clone())
+            .or_else(|| machine.details.as_ref().and_then(|d| d.firmware.clone())),
+    );
+    let material = if heats(machine) {
+        let (swatch, what) = match &machine.loaded {
+            Some(l) => (
+                l.color
+                    .as_deref()
+                    .filter(|c| {
+                        c.starts_with('#')
+                            && c.len() <= 9
+                            && c[1..].chars().all(|ch| ch.is_ascii_hexdigit())
+                    })
+                    .map(str::to_owned),
+                escape(&l.material.clone().unwrap_or_else(|| l.name.clone())),
+            ),
+            None => (
+                None,
+                format!(
+                    r#"<span data-live="material">{}</span>"#,
+                    escape(
+                        &t.and_then(|t| t.material.clone())
+                            .or_else(|| machine.details.as_ref().and_then(|d| d.material.clone()))
+                            .unwrap_or_else(|| "None set".to_owned())
+                    )
+                ),
+            ),
+        };
+        format!(
+            r#"<div class="fact"><small>Material</small><a class="material-pick" href="../stock" title="Set a spool in Materials"><span class="swatch" style="background:{}"></span>{what}<span aria-hidden="true">▾</span></a></div>"#,
+            swatch.as_deref().unwrap_or("transparent")
+        )
+    } else {
+        String::new()
+    };
+    let chips = if heats(machine) {
+        let heat = |label: &str, key: &str, now: Option<f32>, target: Option<f32>, on: Option<bool>| {
+            format!(
+                r#"<span class="chip" title="{label}">{flame}<small>{label}</small><b><span data-live="{key}_n">{}</span> °C</b><small data-live="{key}_note">{}</small></span>"#,
+                escape(&now.map_or("–".to_owned(), |v| format!("{v:.1}"))),
+                escape(&heat_note(now, target)),
+                flame = flame(key, on),
+            )
+        };
+        let pct = |label: &str, key: &str, v: Option<f32>| {
+            format!(
+                r#"<span class="chip"><small>{label}</small><b data-live="{key}">{}</b></span>"#,
+                v.map_or("–".to_owned(), |v| format!("{v} %"))
+            )
+        };
+        format!(
+            r#"<div class="chips">{}{}{}{}</div>"#,
+            heat(
+                "Nozzle",
+                "nozzle",
+                t.and_then(|t| t.nozzle_c),
+                t.and_then(|t| t.nozzle_target_c),
+                t.and_then(|t| t.nozzle_heating)
+            ),
+            heat(
+                "Bed",
+                "bed",
+                t.and_then(|t| t.bed_c),
+                t.and_then(|t| t.bed_target_c),
+                t.and_then(|t| t.bed_heating)
+            ),
+            pct("Speed", "speed", t.and_then(|t| t.speed_percent)),
+            pct("Flow", "flow", t.and_then(|t| t.flow_percent)),
+        )
+    } else {
+        String::new()
+    };
+    // Set ready (Prusa Connect's head button): the print is taken off the bed, so the next
+    // job may start; once ready, it can be taken back. Greyed out while there is nothing to say.
+    let id = escape(&machine.id);
+    let ready = if machine.kind == MachineKind::Scale {
+        String::new()
+    } else if machine.on_bed.is_some() {
+        format!(
+            r#"<form method="post" action="{id}/taken" data-async data-done="Ready" data-then="reload"><button class="ghost">Set ready</button></form>"#
+        )
+    } else if machine.ready.is_some() && machine.job.is_none() {
+        format!(
+            r#"<form method="post" action="{id}/not-ready" data-async data-done="Not ready" data-then="reload"><button class="ghost">Ready · undo</button></form>"#
+        )
+    } else {
+        r#"<button class="ghost" disabled title="Ready once a finished print is taken off">Set ready</button>"#.to_owned()
+    };
+    format!(
+        r##"<div class="mhead">
+    <div class="mhead-pic picture">{picture}</div>
+    <div class="mhead-main">
+      <div class="mhead-title"><h1>{name}</h1><span class="st {state_class}" data-live="state">{state}</span><a class="rename" href="#machine" title="Rename" aria-label="Rename"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></a></div>
+      <div class="facts"><div class="fact"><small>Machine</small><b>{subtitle}</b></div>{firmware}{material}</div>
+      {chips}
+    </div>
+    <div class="mhead-act">{ready}</div>
+  </div>"##,
+        name = escape(&machine.name),
+        state = escape(state),
+        subtitle = escape(subtitle),
     )
 }
 
@@ -1440,59 +1573,20 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
     }
     // printer.html: This print and Live on the left; the material, what is next, the machine
     // on the right.
-    let side_cards = if heats(machine) {
-        material_card(machine, material.as_deref()) + &next_card(machine)
-    } else {
-        next_card(machine)
-    };
+    // A printer: its heaters, material and facts are in the page's head (`head`).
+    if heats(machine) {
+        let _ = (material, tiles, machine_card);
+        return format!(
+            r#"{notice}<div class="cols"><div class="stack">{job}</div><div class="stack">{next}{side}</div></div>"#,
+            job = job_card(machine),
+            next = next_card(machine),
+        );
+    }
+    let side_cards = next_card(machine);
     format!(
         r#"{notice}<div class="cols"><div class="stack">{job}<div class="card"><h3>Live</h3><div class="tiles">{tiles}</div></div></div><div class="stack">{side_cards}{machine_card}{side}</div></div>"#,
         job = job_card(machine),
     )
-}
-
-/// The material on it (printer.html "Material"): the spool from Materials, else what the
-/// printer says it has.
-fn material_card(machine: &Machine, told: Option<&str>) -> String {
-    let body = match &machine.loaded {
-        Some(l) => {
-            let what = match &l.material {
-                Some(m) => format!("{} · {} · {m}", l.item, l.name),
-                None => format!("{} · {}", l.item, l.name),
-            };
-            let amount = if l.unit == "m" {
-                format!("{:.1} {}", l.amount, l.unit)
-            } else {
-                format!("{:.0} {}", l.amount, l.unit)
-            };
-            let from = match (&l.place, l.slot) {
-                (Some(p), Some(n)) => row("From", Some(format!("{p}, slot {n}"))),
-                (Some(p), None) => row("From", Some(p.clone())),
-                _ => String::new(),
-            };
-            format!(
-                r#"<p><span class="swatch" style="background:{}"></span> <a href="../stock">{}</a></p><dl class="kv">{}{from}{}</dl>"#,
-                // Only a colour as #hex goes into the style.
-                l.color
-                    .as_deref()
-                    .filter(|c| c.starts_with('#')
-                        && c.len() <= 9
-                        && c[1..].chars().all(|ch| ch.is_ascii_hexdigit()))
-                    .unwrap_or("transparent"),
-                escape(&what),
-                row("Left", Some(amount)),
-                row("Nozzle", l.nozzle_c.map(|c| format!("{c:.0} °C"))),
-            )
-        }
-        None => match told {
-            Some(m) => format!(
-                r#"<p><b data-live="material">{}</b> <small class="muted">as the printer says it</small></p><p><small>No spool from <a href="../stock">Materials</a> set on it.</small></p>"#,
-                escape(m)
-            ),
-            None => r#"<p class="muted">No spool set on it. Set one in <a href="../stock">Materials</a>.</p>"#.to_owned(),
-        },
-    };
-    format!(r#"<div class="card"><h3>Material</h3>{body}</div>"#)
 }
 
 /// What starts next here (printer.html "Next in its queue").

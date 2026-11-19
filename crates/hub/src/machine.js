@@ -2,21 +2,22 @@
   // its table), and every [data-live] value kept live from the server-sent events.
   const ID = document.querySelector("main").dataset.id;
   // Tabs by purpose; a tab may show more than one section. Old addresses still lead there.
-  // The tabs of docs/design/ui/mockups/printer.html: Overview, Control, Files, Jobs, Camera, Settings.
-  const TABS = { overview: ["overview", "telemetry"], control: ["control", "bedlevel", "terminal"], files: ["usb", "sd"], jobs: ["queue", "jobs"], camera: ["camera"], settings: ["settings"] };
-  const OLD = { data: "overview", telemetry: "overview", terminal: "control", bedmesh: "control", bedlevel: "control", usb: "files", sd: "files", queue: "jobs" };
+  // The tabs (Prusa Connect's printer page, laid out our way): Now, Queue, Controls, Files,
+  // Cameras, Machine, History, Advanced.
+  const TABS = { now: ["overview"], queue: ["queue", "jobs"], controls: ["control"], files: ["usb", "sd"], cameras: ["camera"], machine: ["settings"], history: ["telemetry"], advanced: ["terminal", "bedlevel"] };
+  const OLD = { overview: "now", data: "now", control: "controls", jobs: "queue", telemetry: "history", terminal: "advanced", bedmesh: "advanced", bedlevel: "advanced", usb: "files", sd: "files", camera: "cameras", settings: "machine" };
   // Set below for a Prusa on its own Connect: opens its USB stick when its tab is shown.
   let usbOpen = null;
   // Set below for a printer with its own SD card behind an agent.
   let sdOpen = null;
   function show() {
     const asked = location.hash.slice(1);
-    const id = TABS[asked] ? asked : OLD[asked] || "overview";
+    const id = TABS[asked] ? asked : OLD[asked] || "now";
     for (const tab of document.querySelectorAll(".tab")) tab.hidden = !TABS[id].includes(tab.id);
     for (const a of document.querySelectorAll(".tabs a")) a.setAttribute("aria-selected", a.hash === "#" + id);
     ticker();
-    if (id === "overview") draw();
-    if (id === "control") drawMesh();
+    if (id === "history") draw();
+    if (id === "advanced") drawMesh();
     if (id === "files") { usbOpen?.(); sdOpen?.(); }
     // A tab is a page of its own: from the top, not where the browser jumped to its id.
     scrollTo(0, 0);
