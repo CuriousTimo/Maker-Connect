@@ -386,3 +386,12 @@
   .now-queue .q-name { display: grid; min-width: 0; }
   .now-queue .q-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .now-queue small { color: var(--muted); }
+
+  /* Controls (printer.html): one card, two columns. */
+  .ctl-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--s-5); }
+  .ctl-cols > div > h4:first-child { margin-top: 0; }
+  .ctl-cols > div + div { border-left: 1px solid var(--line); padding-left: var(--s-5); }
+  @media (max-width: 760px) { .ctl-cols > div + div { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); padding-top: var(--s-4); } }
+  .tab > .control-below { margin-top: var(--s-4); }
+  .control-below > .card + .card { margin-top: 0; }
+  .ctl-cols .bed-row { max-width: 380px; }

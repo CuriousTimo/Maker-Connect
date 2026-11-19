@@ -1787,6 +1787,9 @@ fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str) -> String
     } else {
         button("home", "Home all")
     };
+    if fdm {
+        return printer_controls(machine, profile, t, loaded, &xyz, &gauge, &home, &button, &axis);
+    }
     let mut controls = if fdm {
         format!(
             r#"<h4>Move</h4><div class="jog">{}{}{}{}</div><p class="hint">10 mm from where the head is. Home first.</p>"#,
@@ -1841,6 +1844,78 @@ fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str) -> String
             "Control",
             "Sent one at a time; each shows below how it went",
             &form
+        ),
+        card(
+            "Commands",
+            "",
+            &format!(
+                r#"<ol class="commands" data-commands>{}</ol>"#,
+                commands(machine)
+            )
+        )
+    )
+}
+
+/// A printer's Controls (Prusa Connect's layout, our own build): one card, moving, the
+/// extruder and the fan on the left; temperatures, speed and flow on the right. One form, so
+/// each button sends its own action as before. Below it the spool and what was sent.
+#[allow(clippy::too_many_arguments)]
+fn printer_controls(
+    machine: &Machine,
+    profile: Option<&Profile>,
+    t: Option<&maker_connect_protocol::Telemetry>,
+    loaded: &str,
+    xyz: &str,
+    gauge: &str,
+    home: &str,
+    button: &dyn Fn(&str, &str) -> String,
+    axis: &dyn Fn(&str) -> String,
+) -> String {
+    let bed = profile.map_or(
+        r#"<p class="empty">Choose a profile under Machine to see the bed.</p>"#.to_owned(),
+        |p| {
+            format!(
+                r#"<div class="bed-row">{}{gauge}</div>"#,
+                profiles::bed_svg(p)
+            )
+        },
+    );
+    // Prusa's MK3 family: no fan control, as PrusaLink has none.
+    let fan = if crate::prusa_mk3_machine(machine) {
+        String::new()
+    } else {
+        format!(
+            r#"<h4>Print fan</h4><div class="buttons">{}{}</div>"#,
+            button("fan-on", "On"),
+            button("fan-off", "Off")
+        )
+    };
+    let left = format!(
+        r#"<h4>Coordinates</h4><div class="xyz">{xyz}</div>{bed}<div class="jog">{home}{}{}{}</div><p class="hint">10 mm from where the head is. Home first.</p><div class="buttons">{}</div><h4>Extruder</h4><div class="buttons">{}{}</div><p class="hint">10 mm at a time; the nozzle must be hot (the printer refuses a cold extrusion).</p>{fan}"#,
+        axis("X"),
+        axis("Y"),
+        axis("Z"),
+        button("motors-off", "Motors off"),
+        button("extrude", "Extrude 10 mm"),
+        button("retract", "Retract 10 mm"),
+    );
+    let right = format!(
+        r#"<h4>Temperatures</h4><div class="buttons">{}{}{}</div>{}{}"#,
+        button("preheat-pla", "Preheat PLA"),
+        button("preheat-petg", "Preheat PETG"),
+        button("cooldown", "Cool down"),
+        heat_inputs(t, profile),
+        factor_inputs(t),
+    );
+    format!(
+        r#"{}<div class="grid-2 control-below">{loaded}{}</div>"#,
+        card(
+            "Controls",
+            "Sent one at a time; each shows below how it went",
+            &format!(
+                r#"<form class="command" method="post" action="{}/command"><div class="ctl-cols"><div>{left}</div><div>{right}</div></div></form><p class="note" data-command-status role="status"></p>"#,
+                escape(&machine.id)
+            )
         ),
         card(
             "Commands",
