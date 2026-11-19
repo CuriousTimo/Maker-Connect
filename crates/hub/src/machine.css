@@ -375,3 +375,14 @@
     .mhead-pic { width: 72px; }
     .mhead-act { grid-column: 1 / -1; }
   }
+
+  /* Now (printer.html): the camera beside this print; the queue beside the recent jobs. */
+  .now-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: var(--s-4); align-items: stretch; }
+  .now-row > .card + .card { margin-top: 0; }
+  .tab > .now-row + .now-row { margin-top: var(--s-4); }
+  .now-cam .cam-player { width: 100%; aspect-ratio: 16 / 9; border: 0; background: #000; display: block; }
+  .now-queue { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-2); }
+  .now-queue li { display: flex; gap: var(--s-3); align-items: baseline; }
+  .now-queue .q-name { display: grid; min-width: 0; }
+  .now-queue .q-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .now-queue small { color: var(--muted); }

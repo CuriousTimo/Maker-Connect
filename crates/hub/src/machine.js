@@ -14,6 +14,12 @@
     const asked = location.hash.slice(1);
     const id = TABS[asked] ? asked : OLD[asked] || "now";
     for (const tab of document.querySelectorAll(".tab")) tab.hidden = !TABS[id].includes(tab.id);
+    // A camera streams only while its tab is shown.
+    for (const player of document.querySelectorAll("iframe[data-src]")) {
+      const shown = !player.closest(".tab").hidden;
+      if (shown && player.getAttribute("src") !== player.dataset.src) player.src = player.dataset.src;
+      if (!shown && player.hasAttribute("src")) player.removeAttribute("src");
+    }
     for (const a of document.querySelectorAll(".tabs a")) a.setAttribute("aria-selected", a.hash === "#" + id);
     ticker();
     if (id === "history") draw();
@@ -491,6 +497,11 @@
       const mine = it.by_user === ME, change = mayChange(it);
       return `<li${change ? ' draggable="true"' : ""} data-qid="${it.id}" data-mine="${mine}" class="${mine ? "mine" : ""}${change ? "" : " fixed"}"><span class="q-grip" aria-hidden="true">${change ? "⠿" : ""}</span><span class="q-n">${i + 1}</span>${it.thumbnail ? `<img src="../files/${encodeURIComponent(it.file_id)}/thumbnail.png" alt="">` : '<span class="q-img"></span>'}<span class="q-name"><b title="${escapeHtml(it.file_name)}">${escapeHtml(it.file_name)}</b><small>${mine ? '<span class="q-mine">yours</span> · ' : ""}${escapeHtml(facts)}${it.problem ? ` · <span class="q-problem">${escapeHtml(it.problem)}</span>` : ""}</small></span>${m.kind === "laser" && change ? `<button type="button" class="ghost q-load" data-qload="${it.id}" data-file="${escapeHtml(it.file_id)}" title="Load it on the laser (HS7b: a laser takes one loaded job, no queue)">Load</button>` : ""}${change ? `<button type="button" class="q-x" data-qremove="${it.id}" title="Take out of the queue" aria-label="Take out of the queue">×</button>` : "<span></span>"}</li>`;
     }).join("");
+    // The Now tab's short list: the first few, as machine_page.rs `now` draws them.
+    const nowQueue = document.querySelector("[data-now-queue]");
+    if (nowQueue) nowQueue.innerHTML = q.length
+      ? q.slice(0, 3).map((it, i) => `<li><span class="q-n">${i + 1}</span><span class="q-name"><b>${escapeHtml(it.file_name)}</b><small>${escapeHtml(it.by || "")}</small></span></li>`).join("")
+      : '<li class="empty">Nothing waits.</li>';
   }
   if (queueList) {
     queueList.addEventListener("dragstart", (e) => {

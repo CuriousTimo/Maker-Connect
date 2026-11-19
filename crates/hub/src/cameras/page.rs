@@ -441,30 +441,41 @@ async fn remove(
     }
 }
 
-/// The Camera tab of a machine's page: its cameras that `access` may watch.
+/// The Cameras tab of a machine's page, and the first camera for its Now tab: its cameras
+/// that `access` may watch. Each player loads only while its tab is shown (machine.js, `data-src`).
 pub(crate) async fn machine_tab(
     store: &Store,
     access: &Access,
     machine: &str,
     grants: &crate::access::Grants,
-) -> Option<String> {
+) -> Option<(String, String)> {
     let cameras = store.cameras(access.space).await.unwrap_or_default();
     let cameras = store
         .lock()
         .unwrap()
         .machine_cameras(access, machine, grants, cameras);
-    if cameras.is_empty() {
-        return None;
-    }
+    let player = |id: i64, name: &str| {
+        format!(
+            r#"<iframe class="cam-player" data-src="../cameras/{id}/live" title="{name}" allow="picture-in-picture"></iframe>"#,
+            name = escape(name),
+        )
+    };
+    let first = cameras.first()?;
     let mut out = String::new();
     for camera in &cameras {
         out.push_str(&format!(
-            r#"<h3><a href="../cameras/{id}">{name}</a></h3><iframe class="cam-player" src="../cameras/{id}/live" title="{name}" loading="lazy" allow="picture-in-picture"></iframe>"#,
+            r#"<h3><a href="../cameras/{id}">{name}</a></h3>{}"#,
+            player(camera.id, &camera.name),
             id = camera.id,
             name = escape(&camera.name),
         ));
     }
-    Some(out)
+    let preview = format!(
+        r#"<div class="card now-cam"><div class="card-head"><h3><a href="#cameras">{name}</a></h3></div>{}</div>"#,
+        player(first.id, &first.name),
+        name = escape(&first.name),
+    );
+    Some((out, preview))
 }
 
 pub(crate) const CAMERAS_STYLE: &str = r#"

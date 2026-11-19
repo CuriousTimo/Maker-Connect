@@ -586,9 +586,11 @@ pub(crate) async fn machine_page(
         .unwrap_or_default();
     let stats = store.job_stats(access.space, &id).await.unwrap_or_default();
     // The machine's Camera tab, read before the lock.
-    let camera_tab = match &found {
-        Ok((_, Some(machine))) => camera_tab(&store, &access, &machine.id, &grants).await,
-        _ => None,
+    let (camera_tab, camera_now) = match &found {
+        Ok((_, Some(machine))) => camera_tab(&store, &access, &machine.id, &grants)
+            .await
+            .unzip(),
+        _ => (None, None),
     };
     let store = store.lock().unwrap();
     match found {
@@ -607,6 +609,7 @@ pub(crate) async fn machine_page(
         Ok((space, Some(machine))) => {
             let extra = machine_page::Extra {
                 camera_tab,
+                camera_now,
                 me: access.user_id,
                 staff: access.role >= access::Role::Admin,
                 asked,
@@ -637,7 +640,7 @@ async fn camera_tab(
     access: &crate::access::Access,
     machine: &str,
     grants: &access::Grants,
-) -> Option<String> {
+) -> Option<(String, String)> {
     #[cfg(feature = "cameras")]
     return crate::cameras::page::machine_tab(store, access, machine, grants).await;
     #[cfg(not(feature = "cameras"))]

@@ -68,6 +68,8 @@ pub(crate) fn shown_state(machine: &Machine) -> (String, String) {
 pub struct Extra {
     /// Its Camera tab (crate::cameras): the cameras on it the person may watch.
     pub camera_tab: Option<String>,
+    /// Its first camera, for the Now tab beside this print.
+    pub camera_now: Option<String>,
     /// Who looks at it, and whether they are staff (admin, owner): they may change
     /// everyone's prints in its queue; others only their own (crate::queue).
     pub me: i64,
@@ -192,7 +194,11 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
             queue_card(machine)
         },
         no_use = before_use(machine, extra),
-        overview = overview(machine, profile, ""),
+        overview = if heats(machine) {
+            now(machine, profile, extra)
+        } else {
+            overview(machine, profile, "")
+        },
         jobs = jobs_card(machine, extra),
         labels = labels_line(machine, extra.manage),
         filament = filament_card(machine),
@@ -1573,21 +1579,79 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
     }
     // printer.html: This print and Live on the left; the material, what is next, the machine
     // on the right.
-    // A printer: its heaters, material and facts are in the page's head (`head`).
-    if heats(machine) {
-        let _ = (material, tiles, machine_card);
-        return format!(
-            r#"{notice}<div class="cols"><div class="stack">{job}</div><div class="stack">{next}{side}</div></div>"#,
-            job = job_card(machine),
-            next = next_card(machine),
-        );
-    }
     let side_cards = next_card(machine);
     format!(
         r#"{notice}<div class="cols"><div class="stack">{job}<div class="card"><h3>Live</h3><div class="tiles">{tiles}</div></div></div><div class="stack">{side_cards}{machine_card}{side}</div></div>"#,
         job = job_card(machine),
     )
 }
+
+/// A printer's Now tab (printer.html "Now"): its camera beside this print; what waits in its
+/// queue (kept live by machine.js) beside what ran last.
+fn now(machine: &Machine, profile: Option<&Profile>, extra: &Extra) -> String {
+    let notice = if profile.is_none() {
+        no_profile_notice()
+    } else {
+        String::new()
+    };
+    let camera = extra.camera_now.clone().unwrap_or_else(|| {
+        r##"<div class="card now-cam"><h3>Camera</h3><p class="empty">No camera on it. Cameras are linked to a machine in <a href="../space#cameras">Space → Cameras</a>.</p></div>"##.to_owned()
+    });
+    let queue = if machine.queue.is_empty() {
+        r#"<li class="empty">Nothing waits.</li>"#.to_owned()
+    } else {
+        machine
+            .queue
+            .iter()
+            .take(NOW_QUEUE)
+            .enumerate()
+            .map(|(i, q)| {
+                format!(
+                    r#"<li><span class="q-n">{}</span><span class="q-name"><b>{}</b><small>{}</small></span></li>"#,
+                    i + 1,
+                    escape(&q.file_name),
+                    escape(q.by.as_deref().unwrap_or(""))
+                )
+            })
+            .collect()
+    };
+    let recent: String = extra
+        .jobs
+        .iter()
+        .take(NOW_RECENT)
+        .map(|j| {
+            let state = j.state.name();
+            format!(
+                r#"<li><span class="j-name" title="{name}">{name}</span><b class="badge {state}">{state}</b><small>{when}{by}</small></li>"#,
+                name = escape(&j.file_name),
+                when = crate::spoolman::iso(j.created_at)
+                    .replace('T', " ")
+                    .chars()
+                    .take(16)
+                    .collect::<String>(),
+                by = j
+                    .by
+                    .as_deref()
+                    .map(|b| format!(" · {}", escape(b)))
+                    .unwrap_or_default(),
+            )
+        })
+        .collect();
+    format!(
+        r##"{notice}<div class="now-row">{camera}{job}</div>
+<div class="now-row"><div class="card"><div class="card-head"><h3>Next in its queue</h3><a href="#queue">The whole queue</a></div><ol class="now-queue" data-now-queue>{queue}</ol></div><div class="card"><div class="card-head"><h3>Recent jobs</h3><a href="#queue">All jobs</a></div><ol class="job-history">{recent}</ol></div></div>"##,
+        job = job_card(machine),
+        recent = if recent.is_empty() {
+            r#"<li class="empty">None yet</li>"#.to_owned()
+        } else {
+            recent
+        },
+    )
+}
+
+/// How many of its queue and its last jobs the Now tab lists (the Queue tab has them all).
+const NOW_QUEUE: usize = 3;
+const NOW_RECENT: usize = 5;
 
 /// What starts next here (printer.html "Next in its queue").
 fn next_card(machine: &Machine) -> String {
@@ -1601,7 +1665,7 @@ fn next_card(machine: &Machine) -> String {
         None => r#"<p class="muted">Nothing waits.</p>"#.to_owned(),
     };
     format!(
-        r##"<div class="card"><h3>Next in its queue</h3>{next}<p><a href="#jobs">All jobs on {}</a></p></div>"##,
+        r##"<div class="card"><h3>Next in its queue</h3>{next}<p><a href="#queue">All jobs on {}</a></p></div>"##,
         escape(&machine.name)
     )
 }
