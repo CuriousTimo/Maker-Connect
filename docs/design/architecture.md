@@ -183,7 +183,7 @@ The Klipper note has no arrow: the SimplyPrint/Moonraker route is parked (plan Â
 
 Every request and every unit of work is in one space. Its rows are reached in a **space transaction**
 on the app pool (`Pg::space(id)`); the one exception is an organisation role change, which walks the
-organisation's spaces in one transaction with `Pg::org_spaces(id)`; the admin pool is for the allowlist of [database.md](database.md#roles-and-pools)
+organisation's spaces in one transaction with `Pg::org_spaces(space_id)`; the admin pool is for the allowlist of [database.md](database.md#roles-and-pools)
 only. Organisation rows are seen from a space of that organisation.
 
 ```mermaid

@@ -20,7 +20,9 @@ The target design had no way to move a device from one space to another; the bui
   are unlinked (`spool.device_id`, `cameras.watches_device_id` set null). The device's own
   `device_credentials`, `device_capabilities` and `cameras` rows follow it by `ON UPDATE CASCADE`.
 - The move's transaction rebuilds the device's `device_access` rows in the new space from its roles
-  and bumps both spaces' `authz_epoch`, so lists and SSE filters on both sides change at once.
+  and bumps both spaces' `authz_epoch`, so lists and SSE filters on both sides change at once. It
+  bumps the lower space id first, the same ascending order `Pg::org_spaces` takes, so a move and an
+  organisation role change never deadlock (design review of PR #35, F1).
 - A device with a job not ended (`current_job_id` set) is not moved: `409 device/JOB_OPEN`. The
   job and its records stay in the old space; `devices.current_job_id` is a composite key into that
   space's `jobs` ([decision](20261119-composite-foreign-keys.md)).

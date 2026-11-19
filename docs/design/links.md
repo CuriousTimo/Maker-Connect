@@ -9,7 +9,7 @@ is, and which reference it follows. Flows over these links are in [flows.md](flo
 | # | From → to | Transport | Paths | Authentication | Reference | Source |
 |---|---|---|---|---|---|---|
 | L1 | Browser → hub | HTTP/1.1 | pages, `/api/v1/*` | session cookie (HttpOnly) set at sign-in (a further Origin check: [OQ-30](risks-and-open.md#oq-30-origin-check-on-state-changing-requests)) | ours | plan §2.6, §2.9 |
-| L2 | Hub → browser | SSE over HTTP | `/api/v1/events` | session cookie | ours (event envelope) | plan §2.4 |
+| L2 | Hub → browser | SSE over HTTP | `/api/v1/events` | session cookie, or an API token in its own space | ours (event envelope) | plan §2.4 |
 | L3 | Hub → browser | WebSocket, binary fMP4 fragments, MSE player | `/api/v1/cameras/{id}/ws` | session cookie; `device.view` on the camera checked before the upgrade | go2rtc v1.9.15 `internal/mp4/ws.go`, `www/video-rtc.js` | cameras.md |
 | L4 | External app → hub | HTTP | `/api/v1/*` | `Authorization: Bearer mct_…`: an API token, stored hashed, with scopes, expiry, last use and the person's generation | ours | plan §2.6, §2.8 |
 | L5 | Spoolman client → hub | HTTP + WebSocket | `/spoolman/api/v1/*` | open: [OQ-7](risks-and-open.md#oq-7-how-spoolman-clients-authenticate) | Spoolman `eccb05e` with base path `/spoolman` | plan §2.8 |

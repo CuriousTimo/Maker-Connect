@@ -119,7 +119,7 @@ reach more than one space and each names its rebuilds:
   the organisation in **one** transaction: the handler issues `SET LOCAL app.space_id` for each space
   in turn inside the same transaction, rebuilds, bumps that space's epoch, and moves on; a failure
   rolls all of it back, so a demoted organisation admin never keeps rights in some spaces. This is
-  `Pg::org_spaces(id)`, the one exception to one space per transaction
+  `Pg::org_spaces(space_id)`, the one exception to one space per transaction
   ([roles and pools](database.md#roles-and-pools)).
 - **Accepting an invite** (admin pool #2) is followed, in the same handler, by a space transaction per
   space joined (one, or every space of the organisation for a whole-organisation invite) that

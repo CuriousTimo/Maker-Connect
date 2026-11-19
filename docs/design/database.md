@@ -44,7 +44,7 @@ R2 ([decision](decisions/20261119-database-roles.md)).
 
 | Pool | Role after connect | Size | For |
 |---|---|---|---|
-| app | `SET ROLE maker_connect_app` | most of `max_connections` | every request and every unit of work in one space, always inside `Pg::space(id)`: a transaction with `SET LOCAL app.space_id`. One exception: `Pg::org_spaces(id)`, for an organisation role change only, is one transaction that lists the organisation's spaces under RLS from the request's space, then sets `SET LOCAL app.space_id` to each in ascending id order (the order a device move locks its two spaces in, so the two never deadlock) |
+| app | `SET ROLE maker_connect_app` | most of `max_connections` | every request and every unit of work in one space, always inside `Pg::space(id)`: a transaction with `SET LOCAL app.space_id`. One exception: `Pg::org_spaces(space_id)`, for an organisation role change only, is one transaction that lists the organisation's spaces under RLS from the request's space (`space_id`), then sets `SET LOCAL app.space_id` to each in ascending id order (the order a device move locks its two spaces in, so the two never deadlock) |
 | admin | `SET ROLE maker_connect_admin` | small | the allowlist below |
 | migrator | `SET ROLE maker_connect_owner` | one connection, at start, closed after | migrations |
 | dump tools | `pg_dump --role=maker_connect_owner` and `pg_restore --role=maker_connect_owner` | child processes | [storage-ops.md](storage-ops.md) |
@@ -396,7 +396,7 @@ erDiagram
 | `cameras` | `device_id uuid`, `space_id uuid`, `source text` (`rtsp` or `agent`), `url text` null, `username text` null, `password text` null, `watches_device_id uuid` null (empty: a room camera, seen by the role `room_view_role` names, default `admin`; a watching camera is seen with `device.view` on the watched device) | PK `device_id`; FK `(space_id, device_id)` → `devices` on delete cascade, `ON UPDATE CASCADE` (a camera device moves with its own row); FK `(space_id, watches_device_id)` → `devices` `ON DELETE SET NULL (watches_device_id)`, cleared by a move of either device | space |
 
 `devices.settings` holds the device's own settings: its machine profile, PPE list, induction rule,
-labels, farm on/off with `farm_on_by` (the person on whose behalf the farm dispatcher starts jobs,
+labels, farm on/off with `farm_on_by` (set in the same write that switches the farm on, cleared when it is switched off; the person on whose behalf the farm dispatcher starts jobs,
 [flows.md](flows.md#4-a-job-with-the-laser-rule)), sheet, service interval and last service,
 out-of-use note, and per laser the origin, G-code dialect, rotary and M4 (#24). Each key is defined
 by the module that owns it.
