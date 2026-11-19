@@ -392,3 +392,7 @@ dialog .acts, .dialog-mock .acts { display: flex; flex-wrap: wrap; gap: var(--s-
 .cols-even { display: grid; gap: var(--s-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
 .cols-even > .card + .card { margin-top: 0; }
 @media (max-width: 699px) { .mhead { grid-template-columns: 72px minmax(0, 1fr); } .mhead > :last-child { grid-column: 1 / -1; } }
+/* Controls (Prusa Connect's layout): one card, moving left, temperatures, speed and flow right. */
+.ctl-cols { display: grid; gap: var(--s-5); grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+.ctl-cols h3 { margin-top: 0; }
+.mhead .row > .chip { flex: 0 0 auto; }
