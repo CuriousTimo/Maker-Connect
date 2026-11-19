@@ -1,22 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of an Ortur Laser Master 2 Pro S2">
   <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
-  <ellipse cx="80" cy="124" rx="66" ry="8" fill="#d3d0c8"/>
+  <ellipse cx="80" cy="126" rx="68" ry="7" fill="#d3d0c8"/>
   <!-- the work piece: plywood, with a shape engraved -->
-  <path d="M30 112h86l20-44H50z" fill="#d8c29d"/>
-  <path d="M62 102l8-14h14l-8 14z" fill="none" stroke="#8a6438" stroke-width="1.6" stroke-linejoin="round"/>
-  <!-- the frame of extrusions -->
-  <path d="M20 116h98l26-56H46z" fill="none" stroke="#26272a" stroke-width="6" stroke-linejoin="round"/>
-  <!-- the gantry across, and the module on it -->
-  <path d="M30 92h102" stroke="#26272a" stroke-width="7" stroke-linecap="round"/>
-  <path d="M30 92h102" stroke="#4a4b50" stroke-width="2" stroke-linecap="round"/>
-  <rect x="70" y="62" width="20" height="32" rx="2.5" fill="#1f2023"/>
-  <path d="M73 66h14M73 70h14M73 74h14M73 78h14" stroke="#4a4b50" stroke-width="1.5"/>
-  <circle cx="80" cy="86" r="4.5" fill="#3a3b3f"/>
-  <circle cx="80" cy="86" r="1.5" fill="#c9a043"/>
-  <!-- the beam and its spot -->
-  <path d="M80 94v9" stroke="#e8432a" stroke-width="1.6"/>
-  <circle cx="80" cy="104" r="6" fill="#e8432a" opacity="0.25"/>
-  <circle cx="80" cy="104" r="2.2" fill="#e8432a"/>
-  <!-- the board at the back -->
-  <rect x="50" y="54" width="20" height="9" rx="1.5" fill="#26272a"/>
+  <path d="M36 112h76l20-42H56z" fill="#d8c29d"/>
+  <path d="M36 112h76l1.5-3H37.5z" fill="#c4ab80"/>
+  <path d="M70 101l7-13h14l-7 13z" fill="none" stroke="#7d5a30" stroke-width="1.6" stroke-linejoin="round"/>
+  <!-- the frame: four black extrusions on corner feet -->
+  <path d="M20 118h100l26-60H46z" fill="none" stroke="#26272a" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M20 118h100M46 58l-26 60" fill="none" stroke="#45464b" stroke-width="1.4"/>
+  <path d="M14 115h12v8H14zM114 115h12v8h-12zM140 55h11v7h-11zM41 55h10v7H41z" fill="#1a1b1d"/>
+  <!-- the Y motor at the back left -->
+  <rect x="38" y="46" width="14" height="12" rx="1.5" fill="#3a3b3f"/>
+  <!-- the gantry: one extrusion across, on a carriage at each side -->
+  <path d="M27 80h6l3 12h-8zM128 80h6l1 12h-8z" fill="#1a1b1d"/>
+  <rect x="26" y="74" width="112" height="9" rx="1.5" fill="#26272a"/>
+  <path d="M28 77.5h108" stroke="#45464b" stroke-width="1.4"/>
+  <!-- the laser module on the X carriage: heat sink, fan, the orange shield -->
+  <rect x="70" y="70" width="26" height="16" rx="2" fill="#1a1b1d"/>
+  <rect x="72" y="38" width="22" height="42" rx="2" fill="#2f3034"/>
+  <path d="M76 44v32M80 44v32M84 44v32M88 44v32" stroke="#5f6268" stroke-width="1.6"/>
+  <rect x="71" y="32" width="24" height="8" rx="2" fill="#3a3b3f"/>
+  <circle cx="83" cy="36" r="2.4" fill="#1a1b1d"/>
+  <path d="M75 80h16l-2 12h-12z" fill="#ff5a1f" opacity=".85"/>
+  <path d="M77 82h12" stroke="#ffb08c" stroke-width="1.2"/>
+  <!-- the beam on the wood -->
+  <circle cx="83" cy="96" r="2" fill="#4da3ff"/>
+  <circle cx="83" cy="96" r="4.5" fill="#4da3ff" opacity=".3"/>
 </svg>
