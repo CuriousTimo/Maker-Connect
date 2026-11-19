@@ -388,7 +388,7 @@ We follow each reference at a pinned commit; an unmerged upstream pull request i
 | prusa3d/prusa-connect#13, #32, PR #41: Buddy3D camera, RTSP from a container (WebRTC ICE) | open | confirms our MSE-over-WebSocket choice (no ICE); Buddy3D onboarding later |
 | prusa3d/prusa-connect#36: OIDC in settings | open | `identities (provider, subject)` already allows OIDC later |
 | prusa3d/prusa-connect PR #15: allowed origins in settings | open | relates to [OQ-30](#oq-30-origin-check-on-state-changing-requests) |
-| prusa3d/Prusa-Link PR #1049: SET_VALUE for speed, flow, temperatures | open | in the MK3 reference (#4): the `websockets` branch carries it (`9b5ab117`); Buddy 6.3.0's SET_VALUE does not cover these (hub-side.md) |
+| prusa3d/Prusa-Link PR #1049: SET_VALUE for speed, flow, temperatures | open | in the MK3 reference (#4): the `websockets` branch carries it as a commit marked WIP (`9b5ab117`, "WIP: Handle SET_VALUE for speed, flow and temperatures"); a port follows the pin as it is |
 | prusa3d/Prusa-Link PRs #1056, #1058, #1059, #1060; SDK 0.9 lazy file protocol | open | in the MK3 reference (#4) on the `websockets` branches; SDK `feat/ws-connect-local` is watched; informs [OQ-21](#oq-21-a-printers-storage-listing) |
 | prusa3d/Prusa-Link#1000: no TRANSFER_FINISHED after a transfer | open | a reference quirk: a port follows its pinned reference as it is |
 | prusa3d/Prusa-Link#1002 WebSocket, #154 multiple instances, #1039 and #943 systemd user units | open | #154 is our #12's question on their side; our agents run as `systemd --user` units; the hub is a system unit ([architecture.md](architecture.md#deployment)) |
