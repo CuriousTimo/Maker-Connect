@@ -79,7 +79,7 @@ fn usable_lasers(
         .iter()
         .filter(|m| m.kind == MachineKind::Laser)
         .filter_map(|m| {
-            let level = store.machine_level(access, &m.id, grants).ok().flatten()?;
+            let level = store.machine_level(access, &m.id, grants)?;
             (level >= Level::Use).then(|| crate::apps::machine_json(m, Some(level)))
         })
         .collect()

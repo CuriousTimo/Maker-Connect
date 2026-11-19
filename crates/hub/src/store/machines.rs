@@ -19,36 +19,29 @@ impl Legacy {
         jobs: &JobFacts,
         machine: &str,
         sending: i64,
-    ) -> rusqlite::Result<Option<String>> {
+    ) -> Option<String> {
         if jobs.active_job(machine).is_some() {
-            return Ok(Some(
-                "it has a job that is not over: stop it, or let it finish".to_owned(),
-            ));
+            return Some("it has a job that is not over: stop it, or let it finish".to_owned());
         }
         if jobs.waiting_plate(machine).is_some() {
-            return Ok(Some(
+            return Some(
                 "a plate on it waits to be confirmed: Set ready or Bad print first".to_owned(),
-            ));
+            );
         }
         if jobs.on_bed(machine).is_some() {
-            return Ok(Some(
-                "a print is still on its bed: say it was taken first".to_owned(),
-            ));
+            return Some("a print is still on its bed: say it was taken first".to_owned());
         }
         if sending > 0 {
-            return Ok(Some(
-                "a file is being sent to it: wait until it is there".to_owned(),
-            ));
+            return Some("a file is being sent to it: wait until it is there".to_owned());
         }
-        Ok(None)
+        None
     }
 
     /// A machine moved to another space ([`Store::move_machine`]): what stays behind in the old.
-    pub(crate) fn moved_away(&mut self, machine: &str) -> rusqlite::Result<()> {
+    pub(crate) fn moved_away(&mut self, machine: &str) {
         // Commands asked in the old space are not the new one's.
         self.commands.remove(machine);
         self.changed();
-        Ok(())
     }
 
     /// A machine removed ([`Store::remove_machine`]): what the hub keeps of it in memory goes.
@@ -78,7 +71,7 @@ impl Legacy {
         rows: Vec<super::pg_machines::MachineRow>,
         jobs: &JobFacts,
         space: Completion,
-    ) -> rusqlite::Result<Vec<Machine>> {
+    ) -> Vec<Machine> {
         let Completion {
             loaded,
             mut queues,
@@ -153,6 +146,6 @@ impl Legacy {
                     .collect();
             }
         }
-        Ok(machines)
+        machines
     }
 }

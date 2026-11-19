@@ -103,9 +103,9 @@ pub async fn run(store: Store) {
                 }
                 if sim.running.is_none()
                     && sim.playing.is_none()
-                    && let Ok(Some((command, gcode))) = store.next_command(caller.as_ref())
+                    && let Some((command, gcode)) = store.next_command(caller.as_ref())
                 {
-                    let _ = store.command_went(
+                    store.command_went(
                         caller.as_ref(),
                         command,
                         CommandState::Accepted,
@@ -121,13 +121,7 @@ pub async fn run(store: Store) {
                 };
                 if let Some(done) = sim.step(seconds) {
                     let said = std::mem::take(&mut sim.said);
-                    let _ = store.command_went(
-                        caller.as_ref(),
-                        done,
-                        CommandState::Finished,
-                        None,
-                        said,
-                    );
+                    store.command_went(caller.as_ref(), done, CommandState::Finished, None, said);
                 }
                 if let Some(job) = sim.played(TICK) {
                     moves.push((job, JobState::Finished, None));

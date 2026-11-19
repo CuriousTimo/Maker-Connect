@@ -1010,7 +1010,7 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
                 "farm": m.takes_work,
                 "sheet": m.sheet,
                 "compatible": compatible,
-                "manage": store.may(&access, &m.id, Level::Manage, &grants).ok().flatten().unwrap_or(false),
+                "manage": store.may(&access, &m.id, Level::Manage, &grants).unwrap_or(false),
             })
         })
         .collect();

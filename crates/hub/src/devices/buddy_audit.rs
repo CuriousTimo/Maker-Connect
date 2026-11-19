@@ -657,8 +657,7 @@ async fn buddy_takes_every_command_the_hub_sends(pool: sqlx::PgPool) {
             link.as_deref(),
             id,
             action,
-        )
-        .unwrap();
+        );
         let (cid, command, _) = mini.takes("IDLE").await;
         assert_eq!(command, taken(kind));
         mini.finished(cid).await;
@@ -913,7 +912,6 @@ async fn the_events_buddy_sends_settle_commands(pool: sqlx::PgPool) {
                 &json!({"command": "SEND_INFO"}),
                 false,
             )
-            .unwrap()
             .unwrap();
         let (status, headers, _) = mini.report(r#"{"state":"IDLE"}"#).await;
         assert_eq!(status, StatusCode::OK);
@@ -1011,7 +1009,6 @@ async fn the_answer_to_a_report_is_what_buddy_reads(pool: sqlx::PgPool) {
         .lock()
         .unwrap()
         .queue_command(link.as_deref(), &mini.id, "Home", "G28")
-        .unwrap()
         .unwrap();
     let (cid, content_type, body) = mini.gets("IDLE").await;
     assert_eq!(
@@ -1379,7 +1376,6 @@ async fn a_command_stays_pending_until_buddy_answers_it(pool: sqlx::PgPool) {
                 &json!({"command": "SEND_INFO"}),
                 false,
             )
-            .unwrap()
             .unwrap()
     };
     let (first, second) = (queue(), queue());

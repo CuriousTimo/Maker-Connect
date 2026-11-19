@@ -320,7 +320,7 @@ async fn report(shared: &Store, token: &str, base: &str, printer: &mut Printer) 
             } else {
                 CommandState::Rejected
             };
-            let _ = store.command_went(
+            store.command_went(
                 caller.as_ref(),
                 done.id,
                 state,
@@ -340,9 +340,9 @@ async fn report(shared: &Store, token: &str, base: &str, printer: &mut Printer) 
         {
             shared.lock().unwrap().next_command(caller.as_ref())
         } else {
-            Ok(None)
+            None
         };
-    if let Ok(Some((id, gcode))) = next {
+    if let Some((id, gcode)) = next {
         printer.command = Some(id);
         printer.output.clear();
         let lines: Vec<&str> = gcode.lines().collect();
@@ -482,7 +482,6 @@ mod tests {
             .lock()
             .unwrap()
             .queue_command(link.as_deref(), &id, "Home", "G28")
-            .unwrap()
             .unwrap();
         let asked = next(&mut ws, "gcode").await;
         assert_eq!(asked["data"]["list"], json!(["G28"]));

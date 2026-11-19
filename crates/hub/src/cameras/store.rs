@@ -5,7 +5,7 @@
 
 use crate::Store;
 use crate::access::{Access, Level, Role};
-use crate::store::{BoxError, Legacy, Work, now};
+use crate::store::{Legacy, Work, now};
 
 /// A camera as stored. `machine_id` empty: a room camera, seen from `view_role` up.
 #[derive(Debug, Clone)]
@@ -164,16 +164,16 @@ impl Legacy {
         access: &Access,
         camera: &Camera,
         grants: &crate::access::Grants,
-    ) -> Result<bool, BoxError> {
+    ) -> bool {
         if camera.space_id != access.space {
-            return Ok(false);
+            return false;
         }
         match &camera.machine_id {
-            Some(machine) => Ok(match self.may(access, machine, Level::View, grants)? {
+            Some(machine) => match self.may(access, machine, Level::View, grants) {
                 Some(may) => may,
                 None => access.role >= Role::Admin,
-            }),
-            None => Ok(access.role >= camera.view_role),
+            },
+            None => access.role >= camera.view_role,
         }
     }
 
@@ -189,7 +189,7 @@ impl Legacy {
         cameras
             .into_iter()
             .filter(|c| c.machine_id.as_deref() == Some(machine))
-            .filter(|c| self.may_view_camera(access, c, grants).unwrap_or(false))
+            .filter(|c| self.may_view_camera(access, c, grants))
             .collect()
     }
 }
@@ -315,10 +315,8 @@ mod tests {
         w.commit(&store).await.unwrap();
         let all = store.cameras(space).await.unwrap();
         let s = store.lock().unwrap();
-        let may = |role: Role, id: i64| {
-            s.may_view_camera(&access(space, role), &cameras[&id], &grants)
-                .unwrap()
-        };
+        let may =
+            |role: Role, id: i64| s.may_view_camera(&access(space, role), &cameras[&id], &grants);
         for role in Role::ALL {
             // Whoever may see the machine (a guest has View), with or without induction.
             assert!(may(role, on_open), "{role:?}");
@@ -330,14 +328,11 @@ mod tests {
             assert_eq!(may(role, room_member), role >= Role::Member, "{role:?}");
         }
         // Another space sees none of them.
-        assert!(
-            !s.may_view_camera(
-                &access(space + 1, Role::Owner),
-                &cameras[&on_open],
-                &elsewhere
-            )
-            .unwrap()
-        );
+        assert!(!s.may_view_camera(
+            &access(space + 1, Role::Owner),
+            &cameras[&on_open],
+            &elsewhere
+        ));
         assert_eq!(
             s.machine_cameras(&access(space, Role::Guest), &open, &grants, all)
                 .len(),

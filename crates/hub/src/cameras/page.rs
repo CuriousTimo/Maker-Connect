@@ -67,12 +67,12 @@ async fn watchable(
         .lock()
         .unwrap()
         .may_view_camera(access, &camera, grants);
-    match may {
-        Ok(true) => Ok(camera),
-        Ok(false) => Err(Box::new(
+    if may {
+        Ok(camera)
+    } else {
+        Err(Box::new(
             (StatusCode::FORBIDDEN, "you may not watch this camera").into_response(),
-        )),
-        Err(error) => Err(Box::new(failed(error))),
+        ))
     }
 }
 
@@ -188,7 +188,7 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
     let mut rows = String::new();
     for camera in cameras
         .iter()
-        .filter(|c| store.may_view_camera(&access, c, &grants).unwrap_or(false))
+        .filter(|c| store.may_view_camera(&access, c, &grants))
     {
         rows.push_str(&format!(
             r#"<li class="cam"><a href="cameras/{id}"><b>{name}</b></a><small>{watches}</small></li>"#,

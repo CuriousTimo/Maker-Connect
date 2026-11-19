@@ -311,12 +311,8 @@ async fn list(access: crate::access::Access, State(store): State<Store>) -> Resp
     // so here, before the button, rather than refusing after it. Granted only in Space.
     let mut may_use = std::collections::HashSet::new();
     for machine in &machines {
-        match store.may(&access, &machine.id, crate::access::Level::Use, &grants) {
-            Ok(Some(true)) => {
-                may_use.insert(machine.id.clone());
-            }
-            Ok(_) => {}
-            Err(error) => return failed(error),
+        if let Some(true) = store.may(&access, &machine.id, crate::access::Level::Use, &grants) {
+            may_use.insert(machine.id.clone());
         }
     }
     let no_permission = if access.role >= crate::access::Role::Admin {
@@ -439,10 +435,7 @@ pub(crate) async fn upload(
     };
     let (space, id, path, thumbnail_path) = {
         let store = store.lock().unwrap();
-        let space = match store.space_id_of(&access) {
-            Ok((space, _)) => space,
-            Err(error) => return failed(error),
-        };
+        let space = access.space;
         let id = crate::store::random_id();
         let path = store.file_path(&id);
         let thumbnail = store.thumbnail_path(&id);
@@ -990,9 +983,8 @@ async fn frame(
             &format!("Frame {}", file.name),
             &action,
         ) {
-            Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
-            Ok(None) => (StatusCode::CONFLICT, "the machine takes no commands").into_response(),
-            Err(error) => failed(error),
+            Some(_) => StatusCode::NO_CONTENT.into_response(),
+            None => (StatusCode::CONFLICT, "the machine takes no commands").into_response(),
         };
     }
     let corner = |x: f64, y: f64| format!("$J=G90 G21 X{x:.3} Y{y:.3} F3000");
@@ -1010,9 +1002,8 @@ async fn frame(
         &format!("Frame {}", file.name),
         &gcode,
     ) {
-        Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
-        Ok(None) => (StatusCode::CONFLICT, "the machine takes no commands").into_response(),
-        Err(error) => failed(error),
+        Some(_) => StatusCode::NO_CONTENT.into_response(),
+        None => (StatusCode::CONFLICT, "the machine takes no commands").into_response(),
     }
 }
 
@@ -1051,9 +1042,6 @@ async fn start_burn(
     #[allow(clippy::result_large_err)]
     let checked = (|| -> Result<(crate::store::Machine, crate::store::Job), Response> {
         let store = store.lock().unwrap();
-        let Ok(Some((_space, _))) = store.space_id_of(&access).map(Some) else {
-            return Err((StatusCode::FORBIDDEN, "no space").into_response());
-        };
         if let Err(refused) = crate::access::check_machine(
             &store,
             &access,
@@ -1190,10 +1178,7 @@ async fn control_job(
     }
     // Start an interrupted job again, a little before where it stopped.
     if form.action == "restart" {
-        let space = match store.lock().unwrap().space_id_of(&access) {
-            Ok((space, _)) => space,
-            Err(error) => return failed(error),
-        };
+        let space = access.space;
         let last = match store.resumable_job(&id).await {
             Ok(Some(job)) => job,
             Ok(_) => {
@@ -1248,15 +1233,13 @@ async fn control_job(
                 Err(error) => return failed(error),
             };
             if own.link == "prusa-connect" {
-                return match crate::printer_files::job_control(
+                crate::printer_files::job_control(
                     &mut store.lock().unwrap(),
                     Some(own.link.as_str()),
                     &id,
                     &form.action,
-                ) {
-                    Ok(()) => StatusCode::NO_CONTENT.into_response(),
-                    Err(error) => failed(error),
-                };
+                );
+                return StatusCode::NO_CONTENT.into_response();
             }
             let control = match form.action.as_str() {
                 "pause" => maker_connect_protocol::JobControl::Pause,
@@ -1302,14 +1285,13 @@ async fn control_job(
     // A Prusa on its built-in Connect is told so itself.
     if let Ok(Some(machine)) = &found_machine
         && machine.link == "prusa-connect"
-        && let Err(error) = crate::printer_files::job_control(
+    {
+        crate::printer_files::job_control(
             &mut store.lock().unwrap(),
             Some(machine.link.as_str()),
             &id,
             &form.action,
-        )
-    {
-        return failed(error);
+        );
     }
     match store.set_job(job.id, next, None).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),

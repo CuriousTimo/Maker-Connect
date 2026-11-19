@@ -386,13 +386,12 @@ pub(crate) async fn emergency_stop(
                 },
             );
             match queued {
-                Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
-                Ok(None) => (
+                Some(_) => StatusCode::NO_CONTENT.into_response(),
+                None => (
                     StatusCode::NOT_FOUND,
                     "no such machine, or it takes no commands",
                 )
                     .into_response(),
-                Err(error) => failed(error),
             }
         }
         // The laser's Stop, the same route as its Stop button.
@@ -451,15 +450,14 @@ pub(crate) async fn command(
         };
         for (label, action) in &actions {
             match store.queue_action(link, &id, label, action) {
-                Ok(Some(_)) => {}
-                Ok(None) => {
+                Some(_) => {}
+                None => {
                     return (
                         StatusCode::NOT_FOUND,
                         "no such machine, or it takes no commands",
                     )
                         .into_response();
                 }
-                Err(error) => return failed(error),
             }
         }
         return if headers.contains_key("x-requested-with") {
@@ -474,13 +472,12 @@ pub(crate) async fn command(
             Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
         };
         return match store.queue_command(link, &id, &label, &gcode) {
-            Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
-            Ok(None) => (
+            Some(_) => StatusCode::NO_CONTENT.into_response(),
+            None => (
                 StatusCode::NOT_FOUND,
                 "no such machine, or it takes no commands",
             )
                 .into_response(),
-            Err(error) => failed(error),
         };
     }
     // A GRBL machine homes with $H, not G28.
@@ -577,16 +574,15 @@ pub(crate) async fn command(
     let queued = store.queue_command(link, &id, &label, &gcode);
     match queued {
         // The page sends it without leaving; a plain form comes back to the page.
-        Ok(Some(_)) if headers.contains_key("x-requested-with") => {
+        Some(_) if headers.contains_key("x-requested-with") => {
             StatusCode::NO_CONTENT.into_response()
         }
-        Ok(Some(_)) => Redirect::to(&format!("/machines/{id}#control")).into_response(),
-        Ok(None) => (
+        Some(_) => Redirect::to(&format!("/machines/{id}#control")).into_response(),
+        None => (
             StatusCode::NOT_FOUND,
             "no such machine, or it takes no commands",
         )
             .into_response(),
-        Err(error) => failed(error),
     }
 }
 

@@ -129,12 +129,7 @@ async fn machines(
                     == Some(k.to_owned())
             })
         })
-        .map(|m| {
-            machine_json(
-                m,
-                store.machine_level(&access, &m.id, &grants).ok().flatten(),
-            )
-        })
+        .map(|m| machine_json(m, store.machine_level(&access, &m.id, &grants)))
         .collect();
     Json(list).into_response()
 }

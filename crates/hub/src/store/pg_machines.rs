@@ -638,7 +638,7 @@ impl Store {
         }
         let jobs = Self::job_facts_on(&mut tx, &[machine.to_owned()]).await?;
         let sending = Self::files_on_their_way(&mut tx, machine).await?;
-        let stays = self.lock().unwrap().why_it_stays(&jobs, machine, sending)?;
+        let stays = self.lock().unwrap().why_it_stays(&jobs, machine, sending);
         if let Some(why) = stays {
             return Ok(Err(why));
         }
@@ -657,7 +657,7 @@ impl Store {
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
-        self.lock().unwrap().moved_away(machine)?;
+        self.lock().unwrap().moved_away(machine);
         Ok(Ok(()))
     }
 
@@ -768,7 +768,7 @@ impl Store {
         let mut machines = self
             .lock()
             .unwrap()
-            .complete_machines(rows, &jobs, completion)?;
+            .complete_machines(rows, &jobs, completion);
         // What the queued files say of themselves (their time, a picture), by id as before.
         let queued: Vec<String> = machines
             .iter()

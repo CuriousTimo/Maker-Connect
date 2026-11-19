@@ -998,7 +998,7 @@ pub async fn permit(State(store): State<Store>, request: Request, next: Next) ->
                 .grants_for(a, level)
                 .await
                 .map_err(crate::store::BoxError::from)
-                .and_then(|grants| Ok(store.lock().unwrap().may(a, &machine, level, &grants)?))
+                .map(|grants| store.lock().unwrap().may(a, &machine, level, &grants))
             {
                 Ok(Some(true)) => Ok(()),
                 Ok(Some(false)) => Err((StatusCode::FORBIDDEN, level_refusal(level))),
@@ -1055,14 +1055,13 @@ pub fn check_machine(
     grants: &Grants,
 ) -> Result<(), Box<Response>> {
     match store.may(access, machine, level, grants) {
-        Ok(Some(true)) => Ok(()),
-        Ok(Some(false)) => Err(Box::new(
+        Some(true) => Ok(()),
+        Some(false) => Err(Box::new(
             (StatusCode::FORBIDDEN, level_refusal(level)).into_response(),
         )),
-        Ok(None) => Err(Box::new(
+        None => Err(Box::new(
             (StatusCode::NOT_FOUND, "no such machine").into_response(),
         )),
-        Err(error) => Err(Box::new(crate::failed(error))),
     }
 }
 
@@ -1186,54 +1185,34 @@ impl Legacy {
         machine: &str,
         need: Level,
         grants: &Grants,
-    ) -> rusqlite::Result<Option<bool>> {
+    ) -> Option<bool> {
         debug_assert!(
             grants.read() || matches!(need, Level::View | Level::Manage),
             "use and operate depend on grants: read them first"
         );
-        let Some(level) = self.level_with(access, machine, grants)? else {
-            return Ok(None);
-        };
-        Ok(Some(match need {
+        let level = self.level_with(access, machine, grants)?;
+        Some(match need {
             Level::Manage => access.role >= Role::Admin,
             _ => level >= need,
-        }))
+        })
     }
 
     /// What `access` may do with a machine of its space as a user of it: view, use, operate
     /// (managing is [`Legacy::may`]'s, by role); `None` when the machine is not in it.
-    pub fn machine_level(
-        &self,
-        access: &Access,
-        machine: &str,
-        grants: &Grants,
-    ) -> rusqlite::Result<Option<Level>> {
+    pub fn machine_level(&self, access: &Access, machine: &str, grants: &Grants) -> Option<Level> {
         debug_assert!(grants.read(), "a level depends on grants: read them first");
         self.level_with(access, machine, grants)
     }
 
-    fn level_with(
-        &self,
-        access: &Access,
-        machine: &str,
-        grants: &Grants,
-    ) -> rusqlite::Result<Option<Level>> {
-        let Some(induction) = grants.machine(machine).map(|m| m.induction_required != 0) else {
-            return Ok(None);
-        };
-        Ok(Some(match access.role {
+    fn level_with(&self, access: &Access, machine: &str, grants: &Grants) -> Option<Level> {
+        let induction = grants.machine(machine).map(|m| m.induction_required != 0)?;
+        Some(match access.role {
             Role::Guest => Level::View,
             _ if !induction => Level::Operate,
             // A member's permission on a machine, while it lasts: given on the machine, or on a
             // group it is in; the highest counts.
             _ => grants.of(machine).unwrap_or(Level::View),
-        }))
-    }
-
-    /// Transitional (lanes 1-4): the space a request acts in, for code under the SQLite lock; its name
-    /// is on Postgres ([`Store::space_of`]).
-    pub fn space_id_of(&self, access: &Access) -> rusqlite::Result<(i64, ())> {
-        Ok((access.space, ()))
+        })
     }
 }
 
@@ -1427,7 +1406,6 @@ mod tests {
                 .unwrap()
                 .machine_level(&as_mia, m, &grants)
                 .unwrap()
-                .unwrap()
         };
         assert_eq!(
             level(&p1).await,
@@ -1584,7 +1562,6 @@ mod tests {
                 .lock()
                 .unwrap()
                 .may(&as_adam, &laser, need, &grants)
-                .unwrap()
                 .unwrap()
         };
         assert!(adam_may(Level::Manage).await && !adam_may(Level::Use).await);

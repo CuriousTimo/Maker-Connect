@@ -189,8 +189,6 @@ fn move_targets(
 ) -> Vec<(String, String)> {
     let manages = store
         .may(access, machine, access::Level::Manage, grants)
-        .ok()
-        .flatten()
         .unwrap_or(false);
     if !manages || access.token_id.is_some() {
         return Vec::new();
@@ -420,10 +418,7 @@ pub(crate) async fn taken(
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    let space = match store.lock().unwrap().space_id_of(&access) {
-        Ok((space, _)) => space,
-        Err(error) => return failed(error),
-    };
+    let space = access.space;
     match store.print_taken(space, &id).await {
         Ok(true) => done(&headers, &format!("/machines/{id}")),
         Ok(false) => (StatusCode::NOT_FOUND, "no print on its bed").into_response(),
@@ -438,10 +433,7 @@ pub(crate) async fn not_ready(
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    let space = match store.lock().unwrap().space_id_of(&access) {
-        Ok((space, _)) => space,
-        Err(error) => return failed(error),
-    };
+    let space = access.space;
     match store.not_ready(space, &id).await {
         Ok(true) => done(&headers, &format!("/machines/{id}")),
         Ok(false) => (StatusCode::CONFLICT, "it is not ready").into_response(),
@@ -488,9 +480,8 @@ pub(crate) async fn answer(
             &command,
             false,
         ) {
-            Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
-            Ok(None) => (StatusCode::CONFLICT, "the printer takes no commands").into_response(),
-            Err(error) => failed(error),
+            Some(_) => StatusCode::NO_CONTENT.into_response(),
+            None => (StatusCode::CONFLICT, "the printer takes no commands").into_response(),
         };
     }
     let buttons = machine.buttons.len();
@@ -614,8 +605,6 @@ pub(crate) async fn machine_page(
             let move_to = move_targets(&store, &access, &machine.id, &spaces, &grants);
             let manage = store
                 .may(&access, &machine.id, access::Level::Manage, &grants)
-                .ok()
-                .flatten()
                 .unwrap_or(false);
             // HS2: a LabelWriter has its own page; a LabelManager the label page.
             let profile = machine.profile.as_deref().and_then(profiles::find);
@@ -637,14 +626,10 @@ pub(crate) async fn machine_page(
                 ppe_checks,
                 may_use: store
                     .may(&access, &machine.id, access::Level::Use, &grants)
-                    .ok()
-                    .flatten()
                     .unwrap_or(false),
                 move_to: move_targets(&store, &access, &machine.id, &spaces, &grants),
                 manage: store
                     .may(&access, &machine.id, access::Level::Manage, &grants)
-                    .ok()
-                    .flatten()
                     .unwrap_or(false),
                 jobs,
                 stats,

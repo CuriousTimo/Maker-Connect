@@ -79,12 +79,12 @@ fn run(
         let (order, control, command, file) = {
             let mut store = store.lock().unwrap();
             let command = if telemetry.job_id.is_none() && order.is_none() {
-                store.next_command(caller.as_ref()).ok().flatten()
+                store.next_command(caller.as_ref())
             } else {
                 None
             };
             if let Some((command, _)) = &command {
-                let _ = store.command_went(
+                store.command_went(
                     caller.as_ref(),
                     *command,
                     CommandState::Accepted,
@@ -124,11 +124,10 @@ fn run(
                 Ok(said) => (CommandState::Finished, None, said),
                 Err(why) => (CommandState::Rejected, Some(why), Vec::new()),
             };
-            let _ =
-                store
-                    .lock()
-                    .unwrap()
-                    .command_went(caller.as_ref(), command, state, reason, output);
+            store
+                .lock()
+                .unwrap()
+                .command_went(caller.as_ref(), command, state, reason, output);
         }
     }
 }

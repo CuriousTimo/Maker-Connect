@@ -390,13 +390,10 @@ async fn telemetry(
         Ok(caller) => caller,
         Err(error) => return failed(error),
     };
-    if let Err(error) = store
+    store
         .lock()
         .unwrap()
-        .fail_commands_of_gone_printer(caller.as_ref())
-    {
-        return failed(error);
-    }
+        .fail_commands_of_gone_printer(caller.as_ref());
     let mut telemetry = to_telemetry(&report);
     // Every request says the firmware's version.
     let version = header(&headers, "user-agent-version");
@@ -419,7 +416,7 @@ async fn telemetry(
     }
     // G-code still running in the background: its command is not given up on.
     if let Some(id) = report["command_id"].as_u64() {
-        let _ = store
+        store
             .lock()
             .unwrap()
             .command_still_running(caller.as_ref(), id as u32);
@@ -469,7 +466,7 @@ async fn telemetry(
     match reported {
         // A command goes back as the answer, G-code as text or JSON; none: an empty answer.
         Ok(Some(_)) => match store.next_command_of_any_kind(caller.as_ref()) {
-            Ok(Some((id, body, json))) => {
+            Some((id, body, json)) => {
                 println!(
                     "command {id} to the printer: {}",
                     crate::printer_files::for_the_log(&body)
@@ -489,8 +486,7 @@ async fn telemetry(
                 )
                     .into_response()
             }
-            Ok(None) => StatusCode::NO_CONTENT.into_response(),
-            Err(error) => failed(error),
+            None => StatusCode::NO_CONTENT.into_response(),
         },
         Ok(None) => (StatusCode::UNAUTHORIZED, "unknown printer: register again").into_response(),
         Err(error) => failed(error),
@@ -534,11 +530,7 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
             if let Some(state) = state {
                 let reason = event["reason"].as_str().map(str::to_owned);
                 println!("command {id}: {name} {}", reason.as_deref().unwrap_or(""));
-                if let Err(error) =
-                    store.command_went(caller.as_ref(), id as u32, state, reason, Vec::new())
-                {
-                    return failed(error);
-                }
+                store.command_went(caller.as_ref(), id as u32, state, reason, Vec::new());
             }
         }
     }
@@ -721,7 +713,6 @@ mod tests {
             .lock()
             .unwrap()
             .queue_command(link.as_deref(), &mini_id, "Home", "G28")
-            .unwrap()
             .unwrap();
         let report = || {
             Request::post("/p/telemetry")

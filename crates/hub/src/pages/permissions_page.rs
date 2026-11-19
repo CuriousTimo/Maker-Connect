@@ -560,10 +560,9 @@ async fn ask(access: Access, State(store): State<Store>, Path(machine): Path<Str
         .unwrap()
         .may(&access, &machine, Level::Use, &grants);
     match may {
-        Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
-        Ok(Some(true)) => return (StatusCode::CONFLICT, "you may use it already").into_response(),
-        Err(error) => return failed(error),
-        Ok(Some(false)) => {}
+        None => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
+        Some(true) => return (StatusCode::CONFLICT, "you may use it already").into_response(),
+        Some(false) => {}
     }
     match store
         .ask_permission(access.space, access.user_id, &machine)

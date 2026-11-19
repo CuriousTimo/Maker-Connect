@@ -57,24 +57,20 @@ pub(crate) async fn telemetry(
         let mut store = store.lock().unwrap();
         // K18: an agent not seen for longer than ONLINE_SECONDS: its Sent/Accepted commands failed,
         // before this report (and its Done, which then still wins) is taken in.
-        if let Err(error) = store.fail_commands_of_gone_agent(caller.as_ref()) {
-            return failed(error);
-        }
+        store.fail_commands_of_gone_agent(caller.as_ref());
         for done in &report.done {
             let state = if done.ok {
                 store::CommandState::Finished
             } else {
                 store::CommandState::Rejected
             };
-            if let Err(error) = store.command_went(
+            store.command_went(
                 caller.as_ref(),
                 done.id,
                 state,
                 done.reason.clone(),
                 done.output.clone(),
-            ) {
-                return failed(error);
-            }
+            );
         }
     }
     let (mut reply, space) = {
@@ -141,22 +137,17 @@ pub(crate) async fn telemetry(
                 let next = if caller.as_ref().is_some_and(|c| c.fails_pending_on_close) {
                     store.next_commands_for_agent(caller.as_ref())
                 } else {
-                    store
-                        .next_command(caller.as_ref())
-                        .map(|n| n.into_iter().collect())
+                    store.next_command(caller.as_ref()).into_iter().collect()
                 };
-                let commands = match next {
-                    // Only typed commands go to an agent (the hub makes no G-code for it).
-                    Ok(next) => next
-                        .into_iter()
-                        .filter_map(|(id, body)| {
-                            serde_json::from_str::<protocol::Action>(&body)
-                                .ok()
-                                .map(|action| protocol::MachineCommand { id, action })
-                        })
-                        .collect(),
-                    Err(error) => return failed(error),
-                };
+                // Only typed commands go to an agent (the hub makes no G-code for it).
+                let commands = next
+                    .into_iter()
+                    .filter_map(|(id, body)| {
+                        serde_json::from_str::<protocol::Action>(&body)
+                            .ok()
+                            .map(|action| protocol::MachineCommand { id, action })
+                    })
+                    .collect();
                 let (job, job_control) = agent_jobs.unwrap_or_default();
                 // Someone's answer to the question on its screen, once; and pause, resume or stop
                 // for a print it started itself (no job of the hub's).
@@ -858,7 +849,6 @@ pub(crate) mod tests {
                 &protocol::Action::Gcode { text: text.into() },
             )
             .unwrap()
-            .unwrap()
     }
 
     /// A report with these results, the reply's command ids.
@@ -1048,8 +1038,7 @@ pub(crate) mod tests {
             store
                 .lock()
                 .unwrap()
-                .fail_commands_of_gone_agent(caller.as_ref())
-                .unwrap();
+                .fail_commands_of_gone_agent(caller.as_ref());
             assert_eq!(
                 state_of(&store, space, &id, a).await,
                 (
@@ -1090,16 +1079,14 @@ pub(crate) mod tests {
         store
             .lock()
             .unwrap()
-            .command_still_running(caller.as_ref(), accepted)
-            .unwrap();
+            .command_still_running(caller.as_ref(), accepted);
         let queued = queue_gcode(&store, space, &id, "M105").await;
         // seen just now: nothing happens
         let caller = store.caller(&token).await.unwrap();
         store
             .lock()
             .unwrap()
-            .fail_commands_of_gone_agent(caller.as_ref())
-            .unwrap();
+            .fail_commands_of_gone_agent(caller.as_ref());
         assert_eq!(
             state_of(&store, space, &id, sent).await.0,
             store::CommandState::Sent
@@ -1113,8 +1100,7 @@ pub(crate) mod tests {
         store
             .lock()
             .unwrap()
-            .fail_commands_of_gone_agent(caller.as_ref())
-            .unwrap();
+            .fail_commands_of_gone_agent(caller.as_ref());
         for c in [sent, accepted] {
             assert_eq!(
                 state_of(&store, space, &id, c).await,
@@ -1137,8 +1123,7 @@ pub(crate) mod tests {
         store
             .lock()
             .unwrap()
-            .fail_commands_of_gone_agent(caller.as_ref())
-            .unwrap();
+            .fail_commands_of_gone_agent(caller.as_ref());
         assert_eq!(
             state_of(&store, space, &prusa, prusa_sent).await.0,
             store::CommandState::Sent,
