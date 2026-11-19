@@ -69,19 +69,23 @@ does not apply is left out, not dashed.
 
 ## Roles and what they see
 
-| Navigation item | Guest | Member | Admin, owner | Instance admin |
-|---|---|---|---|---|
-| Now | yes | yes | yes, plus requests and every machine's trouble | as in a space they belong to |
-| Machines, a machine's page | view only | yes; machines they may not use say so | yes, plus Add machine | — |
-| Jobs | yes | yes | yes | — |
-| Queue and farm | the queue and projects, read only | the queue (move and take out their own items); projects and parts (`farm.use`) | every item; a part's count correction (`farm.manage`) | — |
-| Files | view (`files.view`) | yes, their own | yes, all | — |
-| Materials | view | add, use, weigh, label, edit, archive; locations (`stock.use`) | plus import, export, extra fields, the Spoolman backup (`stock.manage`) | — |
-| Cameras | the ones they may view | the ones they may view | plus manage in Space → Cameras | — |
-| Prepare | — | yes | yes | — |
-| My permissions (user menu, read only, **proposal**) | yes | yes | — (they see Space) | — |
-| Space (tabs) | — | — | yes | — |
-| Instance (user menu) | — | — | — | yes |
+| Navigation item | Guest | Member | Host (the space's label) | Admin, owner | Instance admin |
+|---|---|---|---|---|---|
+| Now | yes | yes | yes, plus requests | yes, plus requests and every machine's trouble | as in a space they belong to |
+| Machines, a machine's page | view only | yes; machines they may not use say so | as member | yes, plus Add machine | — |
+| Jobs | yes | yes | yes | yes | — |
+| Queue and farm | the queue and projects, read only | the queue (move and take out their own items); projects and parts (`farm.use`) | every queue item (`queue.manage`); projects and parts | every item; a part's count correction (`farm.manage`) | — |
+| Files | view (`files.view`) | yes, their own | as member | yes, all | — |
+| Materials | view | add, use, weigh, label, edit, archive; locations (`stock.use`) | as member ([OQ-41](risks-and-open.md#oq-41-the-host-role-open-points)) | plus import, export, extra fields, the Spoolman backup (`stock.manage`) | — |
+| Cameras | the ones they may view | the ones they may view | as member | plus manage in Space → Cameras | — |
+| Prepare | — | yes | yes | yes | — |
+| My permissions (user menu, read only, **proposal**) | yes | yes | — (they see Space → Permissions, `grants.view`) | — (they see Space) | — |
+| Space (tabs) | — | — | Members (read only), Permissions → Requests and Grants (no damaging switches) | yes | — |
+| Instance (user menu) | — | — | — | — | yes |
+
+The rows are the `makerspace` defaults; a space's [area rights](authz.md#area-rights-per-space) move
+an area's `.view` and `.use` between roles (for example Materials' `stock.use` to host or admin), and
+the navigation follows the person's actions from `GET /api/v1/me`, not the role's name.
 
 - Lists, counts and the event stream show only devices in the person's `device_access` with
   `device.view`; nothing is filtered after fetching ([authz.md](authz.md#the-materialised-table)).
@@ -93,8 +97,8 @@ does not apply is left out, not dashed.
   the rest; the machines list is the Machines page.
 - Admin-only entries are absent from a member's navigation; a member who opens such a URL gets the
   refused page ("This page is for the space's staff") and the hub refuses the calls too.
-- The **role switch** "View as: Guest | Member | Admin | Instance admin" exists only in the mockups
-  (UT-26). Guest (Eli) looks only: no control that changes something is shown. Instance admin (Ada)
+- The **role switch** "View as: Guest | Member | Host | Admin | Instance admin" exists only in the
+  mockups (UT-26); Host (Mira) shows the space's label for the role ("Staff" in the mockups). Guest (Eli) looks only: no control that changes something is shown. Instance admin (Ada)
   is also the space's owner and the organisation's owner; the Instance entry shows for an instance
   admin only, never for every admin.
 
@@ -117,7 +121,7 @@ does not apply is left out, not dashed.
 | Farm, projects | projects, parts, dispatch | farm endpoints | | `farm.html#projects` |
 | Materials and stock | Spoolman's data with our UI; tapes and filaments apart; laser materials | Spoolman tables, locations, items | #10 | `materials.html`, `spool.html` |
 | Cameras | watching: the space's cameras, the player | cameras, `/ws` | #5 | `state-error.html` |
-| Space | tabs: General, Members (with invites), Permissions (grants, requests, machine groups), API tokens, Audit log, Cameras (manage), Access (doors) | space endpoints | | `space-members.html`, `space-permissions.html`, `space-settings.html` |
+| Space | tabs: General, Area rights, Members (with invites), Permissions (grants, requests, machine groups), API tokens, Audit log, Cameras (manage), Access (doors) | space endpoints | | `space-members.html`, `space-permissions.html`, `space-settings.html` |
 | Instance | organisations and spaces; moving a device; the hub's update | `GET /api/v1/instance/spaces`, `/api/v1/update` | | `instance.html` |
 | About | build, update, last update's outcome, dumps | `/api/v1/update` | | on `instance.html` |
 
@@ -337,8 +341,9 @@ Permissions. Only kinds of the [device contract](device-contract.md#kinds) are o
 
 ### Space (admin)
 
-Tabs, one subject each: **General** (space name, organisation name, PPE checks:
-`PATCH /api/v1/spaces/{id}`, `PATCH /api/v1/organisations/{id}`), **Members** (roles, remove, invites:
+Tabs, one subject each: **General** (space name, organisation name, PPE checks, the host role's
+label: `PATCH /api/v1/spaces/{id}`, `PATCH /api/v1/organisations/{id}`), **Area rights** (below),
+**Members** (roles, remove, invites:
 `space.members.manage`), **Permissions** (Grants, Requests, Machine groups), **API tokens**, **Audit
 log**, **Cameras** (manage), **Access** (doors: their own module,
 [OQ-10](risks-and-open.md#oq-10-door-access-link)).
@@ -350,12 +355,22 @@ only, `device.firmware`), never in a preset; an optional expiry; who granted and
 row is set here like anyone's: no other route and no "give myself" button, and no extra rule that
 locks the admin out of their own row.
 
+Area rights ([authz.md](authz.md#area-rights-per-space),
+[decision](decisions/20261119-host-role-and-area-rights.md)): the space's kind (makerspace, office,
+private, as chosen when the space was made) and per area a row with its `.view` and `.use`, each a
+select of the lowest role that holds it (guest, member, the host label, admin) →
+`PUT /api/v1/spaces/{id}/area-rights` (`space.manage`). The page says what never moves: the
+`.manage` actions and every device action, and that a change is in the audit log. Save asks first,
+listing each change in words ("Materials, use: member → host"). Changing the kind is not offered
+([OQ-42](risks-and-open.md#oq-42-area-rights-open-points)).
+
 Permissions → Requests: each request with **Grant…** (opens the grant form for that person and
 device; after saving, `PATCH /api/v1/access-requests/{id}` `{state: granted}`) and **Refuse…**
 (asks first).
 
-Members (UT-27, decided journal:UI-DESIGN:0011 Q1): a role select offers only roles up to the caller's
-own effective role (`authz/ROLE_ABOVE_OWN`); "owner" is offered only by an owner; a member above the
+Members (UT-27, decided journal:UI-DESIGN:0011 Q1): the role select lists guest, member, host (shown
+with the space's label, for example "Medewerker (host)"), admin, owner, and offers only roles up to
+the caller's own effective role (`authz/ROLE_ABOVE_OWN`); "owner" is offered only by an owner; a member above the
 caller and the last owner are greyed out with their reason (`authz/LAST_OWNER`;
 [OQ-39](risks-and-open.md#oq-39-roles-above-ones-own-and-the-last-owner) is open). An invite for the
 whole organisation gives at most the caller's organisation role (`authz/ORG_ROLE_NEEDED`). The invite
@@ -374,6 +389,8 @@ Audit log (UT-45): filters (who, what, from, to) and **Older** for the next page
 offline), Edit, Show live (the test after saving) and Remove…; Add a network camera
 (`POST /api/v1/cameras`, `cameras.manage`).
 
+- **Host:** Members read only; Permissions → Requests and Grants, where the grant form shows no
+  damaging switches (a host's grant holds none, "an admin grants these"); the other tabs are the refused page.
 - **User:** the refused page; their own permissions are in **My permissions** (read only, from
   `GET /api/v1/me` `actions`, **proposal**).
 
@@ -595,3 +612,4 @@ tags without the dot, never a state's chip or colour. The kind of a machine is a
 | UI-6 | The path to take a loaded laser job off ([OQ-1](risks-and-open.md#oq-1-exact-paths-and-fields-of-our-own-endpoints)) | open |
 | UI-7 | Making a new organisation: api.md has no route | open |
 | UI-8 | How long a page waits before it says an answer did not come (loading), and the sign-in wait's numbers (flows.md §7) | open: not in the design |
+| UI-9 | Host and area rights in Space: the host's exact tabs, the grant form's bounds, the kind's defaults ([OQ-41](risks-and-open.md#oq-41-the-host-role-open-points), [OQ-42](risks-and-open.md#oq-42-area-rights-open-points)) | open |

@@ -139,7 +139,7 @@ with its number above. Whether to use three logins instead of one is
 |---|---|
 | core: instance | `meta` |
 | tenancy and accounts | `organisations`, `spaces`, `users`, `identities`, `memberships`, `org_memberships`, `sessions`, `invites`, `api_tokens`, `audit_log` |
-| authz | `action_grants`, `device_groups`, `device_group_members`, `device_access`, `authz_epoch`, `access_requests` |
+| authz | `action_grants`, `device_groups`, `device_group_members`, `device_access`, `authz_epoch`, `access_requests`, `area_rights` |
 | devices | `agents`, `devices`, `device_credentials`, `device_registrations`, `device_capabilities` |
 | commands | `commands`, `transfers` |
 | files, jobs, queue | `files`, `jobs`, `machine_queue` |
@@ -174,6 +174,8 @@ erDiagram
     uuid id PK
     uuid organisation_id FK
     text name
+    text kind
+    text host_label
     boolean ppe_checks
     boolean samples_given
   }
@@ -235,13 +237,13 @@ erDiagram
 |---|---|---|---|
 | `meta` | `key text`, `value text` | PK `key` | admin only |
 | `organisations` | `id uuid`, `name text`, `created_at timestamptz` | PK `id` | via: the organisation of `app_space()` |
-| `spaces` | `id uuid`, `organisation_id uuid`, `name text`, `ppe_checks boolean`, `samples_given boolean` | PK `id`; FK `organisation_id` → `organisations` | via: `SELECT` where `organisation_id` = the organisation of `app_space()`; `INSERT WITH CHECK (organisation_id` = the organisation of `app_space()`); `UPDATE`, `DELETE` where `id = app_space()` |
+| `spaces` | `id uuid`, `organisation_id uuid`, `name text`, `kind text` (`makerspace`, `office`, `private`: chosen when the space is made, it gives the space's first `area_rights`), `host_label text` null (the space's word for the host role; empty: "host"), `ppe_checks boolean`, `samples_given boolean` | PK `id`; FK `organisation_id` → `organisations`; `CHECK (kind IN ('makerspace', 'office', 'private'))` | via: `SELECT` where `organisation_id` = the organisation of `app_space()`; `INSERT WITH CHECK (organisation_id` = the organisation of `app_space()`); `UPDATE`, `DELETE` where `id = app_space()` |
 | `users` | `id uuid`, `name text`, `display_name text`, `instance_admin boolean`, `disabled boolean`, `token_generation bigint`, `created_at timestamptz` | PK `id`; unique `lower(name)` | via, `SELECT` only: a membership in `app_space()` or an org membership in its organisation; every write is admin pool #2 (own row) or #3 (note 2) |
 | `identities` | `id bigint identity`, `user_id uuid`, `provider text`, `subject text`, `secret text` (Argon2id), `created_at timestamptz` | PK `id`; FK `user_id` → `users`; unique `(provider, subject)` | admin only |
-| `memberships` | `user_id uuid`, `space_id uuid`, `role text`, `created_at timestamptz` | PK `(user_id, space_id)`; FKs to `users`, `spaces` | space |
-| `org_memberships` | `user_id uuid`, `organisation_id uuid`, `role text`, `created_at timestamptz` | PK `(user_id, organisation_id)`; FKs | via: the organisation of `app_space()` |
+| `memberships` | `user_id uuid`, `space_id uuid`, `role text`, `created_at timestamptz` | PK `(user_id, space_id)`; FKs to `users`, `spaces`; `CHECK (role IN ('guest', 'member', 'host', 'admin', 'owner'))` | space |
+| `org_memberships` | `user_id uuid`, `organisation_id uuid`, `role text`, `created_at timestamptz` | PK `(user_id, organisation_id)`; FKs; a `CHECK` on `role` whose values wait on [OQ-41](risks-and-open.md#oq-41-the-host-role-open-points) (whether an organisation role can be host) | via: the organisation of `app_space()` |
 | `sessions` | `id bigint identity`, `token_hash text`, `user_id uuid`, `space_id uuid` null, `created_at`, `last_seen`, `expires_at timestamptz`, `user_agent text`, `address text` | PK `id`; unique `token_hash`; FKs | admin only |
-| `invites` | `id uuid`, `space_id uuid`, `token_hash text`, `role text`, `whole_organisation boolean`, `created_by uuid`, `created_at`, `expires_at timestamptz`, `used_by uuid` null, `used_at` null, `revoked_at` null | PK `id`; unique `token_hash`; FKs | space |
+| `invites` | `id uuid`, `space_id uuid`, `token_hash text`, `role text`, `whole_organisation boolean`, `created_by uuid`, `created_at`, `expires_at timestamptz`, `used_by uuid` null, `used_at` null, `revoked_at` null | PK `id`; unique `token_hash`; FKs; `CHECK` on `role` as `memberships` has it | space |
 | `api_tokens` | `id uuid`, `space_id uuid`, `token_hash text`, `name text`, `created_by uuid`, `scopes bigint`, `generation bigint`, `expires_at` null, `last_used` null, `revoked_at` null, `created_at timestamptz` | PK `id`; unique `token_hash`; FKs | space |
 | `audit_log` | `id bigint identity`, `space_id uuid`, `at timestamptz`, `user_id uuid` null, `token_id uuid` null, `actor text`, `action text`, `target text`, `detail text` | PK `id`; index `(space_id, at)` | space |
 
@@ -258,6 +260,7 @@ erDiagram
   device_access }o--|| devices : for
   device_access }o--|| users : of
   spaces ||--|| authz_epoch : has
+  spaces ||--o{ area_rights : sets
   access_requests }o--|| devices : about
   action_grants {
     uuid id PK
@@ -295,6 +298,11 @@ erDiagram
     uuid device_id FK
     text state
   }
+  area_rights {
+    uuid space_id PK
+    text action PK
+    text role
+  }
 ```
 
 | Table | Columns (type) | Keys and FKs | RLS |
@@ -306,8 +314,18 @@ erDiagram
 | `authz_epoch` | `space_id uuid`, `epoch bigint` | PK `space_id`; FK `space_id` → `spaces` | space |
 | `access_requests` | `id uuid`, `space_id uuid`, `user_id uuid`, `device_id uuid`, `asked_at timestamptz`, `state text` (`open`, `granted`, `refused`, `withdrawn` by its person), `handled_by uuid` null, `handled_at` null | PK `id`; FK `(space_id, device_id)` → `devices` on delete cascade; index `(space_id, state)`; index `(space_id, user_id)` | space |
 
+| `area_rights` | `space_id uuid`, `action text` (an area action named `.view` or `.use`, by its registry name), `role text` (the lowest role that holds it), `changed_by uuid` null, `changed_at timestamptz` | PK `(space_id, action)`; FK `space_id` → `spaces` on delete cascade; `CHECK (role IN ('guest', 'member', 'host', 'admin'))`; `CHECK (action LIKE '%.view' OR action LIKE '%.use')` | space |
+
 A grant's subject is a person; a group of people as subject waits until it is asked for
-([decision](decisions/20261119-actions-and-presets.md)).
+([decision](decisions/20261119-actions-and-presets.md)). `area_rights` holds a row per movable area
+action of the space, written from the space kind's defaults when the space is made and changed only
+with `space.manage`, each change in the audit log and with the space's `authz_epoch` bumped
+([authz.md](authz.md#area-rights-per-space), [decision](decisions/20261119-host-role-and-area-rights.md)).
+
+**Migration** (host role and area rights): a new migration of the accounts module adds the `role`
+checks and the `spaces` columns `kind` (existing spaces: `makerspace`) and `host_label`; one of the
+authz module adds `area_rights` and fills each existing space with the `makerspace` defaults, which
+are today's role table, so no right changes. No data is carried beyond that: v2 has no users yet.
 
 ### Devices and commands
 

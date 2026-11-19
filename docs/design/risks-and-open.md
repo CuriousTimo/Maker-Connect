@@ -268,6 +268,42 @@ open (`device_registrations.expires_at`), and whether claims of unknown codes ar
 read from today's code in the device step), and the sign-in failure counter applied to unknown codes
 per caller; decided in the device step.
 
+### OQ-41: The host role, open points
+
+The [decision](decisions/20261119-host-role-and-area-rights.md) gives the host a member's rights plus
+the daily work. Not stated:
+
+1. **Stock handling:** does a host hold `stock.manage` (import, export, extra fields, the Spoolman
+   backup), or is "stock handling" the member's `stock.use`, kept to hosts where a space moves it there
+   (area rights)?
+2. **The bounds of a host's grant:** besides the damaging actions, may a host's grant hold
+   `device.manage` (rename, settings, retire)? May a host grant to their own row (an admin may)? May a
+   host remove a grant, or one an admin made? What fault code refuses a host's grant that holds a
+   damaging action?
+3. **Recording an induction** is read here as a grant in Space on a device with induction. Does an
+   induction become its own record (who gave it, when) instead?
+4. **The label:** free text per space, or picked from a list (host, medewerker, staff)?
+5. **An organisation role** of host: does it exist (a host in every space of the organisation)?
+
+**Recommendation:** none here; the owner decides. For 2 the coordinator's proposal named only the
+damaging actions.
+
+### OQ-42: Area rights, open points
+
+The [decision](decisions/20261119-host-role-and-area-rights.md) moves an area's `.view` and `.use`
+between roles, with defaults from the space kind. Not stated:
+
+1. **The defaults of `office` and `private`** (the `makerspace` defaults are today's role table).
+2. **Changing the kind** later: allowed, and does it reset the area rights to the new kind's defaults?
+3. **Which `.view` actions move:** every area `.view`, or only the modules' (files, queue, farm,
+   stock)? `space.members.view`, `grants.view` and `audit.view` are area `.view` actions too.
+4. **`.view` against `.use`:** may a space set an area's `.use` to a lower role than its `.view`?
+5. **A guest with `.use`:** may `.use` go down to guest, who today "looks only"?
+6. **The route:** whether `PUT /api/v1/spaces/{id}/area-rights` is a person's session only, as a
+   grant is, and the fault code that refuses an action that does not move.
+
+**Recommendation:** none here; the owner decides.
+
 ## Issues the design cannot place yet
 
 | Issue | Why |
