@@ -511,20 +511,6 @@ fn heat_note(now: Option<f32>, target: Option<f32>) -> String {
     }
 }
 
-/// A tile with the loaded spool's colour as a spool beside its name, as Materials shows it.
-fn with_swatch(tile: String, color: Option<&str>) -> String {
-    let Some(color) = color.filter(|c| {
-        c.starts_with('#') && c.len() <= 9 && c[1..].chars().all(|ch| ch.is_ascii_hexdigit())
-    }) else {
-        return tile;
-    };
-    tile.replacen(
-        r#"<div class="label">Spool</div>"#,
-        &format!(r#"<div class="label heat-label">Spool<span class="spool-swatch" style="--c:{color}" role="img" aria-label="its colour"></span></div>"#),
-        1,
-    )
-}
-
 /// A heater's tile: its temperature, a flame beside its name while it has power (outlined
 /// while it has none, none when the machine does not tell), what it heats to below.
 fn heater_tile(
@@ -782,7 +768,7 @@ fn job_card(machine: &Machine) -> String {
     });
     format!(
         r#"<div class="card job-card">
-  <div class="card-head"><div class="card-title"><h3>Job</h3><p class="card-sub" data-live="job_state">{state}</p></div><span class="corner" data-live="job_eta">{left}</span></div>
+  <div class="card-head"><div class="card-title"><h3>This print</h3><p class="card-sub" data-live="job_state">{state}</p></div><span class="corner" data-live="job_eta">{left}</span></div>
   <div class="job" data-job{hidden}>
     {thumbnail}
     <div class="job-main">
@@ -1392,47 +1378,9 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
             String::new(),
         )
     } else if heats(machine) {
-        heater_tiles(machine)
-            + &match &machine.loaded {
-                // The spool from Materials: what is left, and which it is.
-                Some(l) => with_swatch(
-                    tile(
-                        "Spool",
-                        "none",
-                        Some(if l.unit == "m" {
-                            format!("{:.1}", l.amount)
-                        } else {
-                            format!("{:.0}", l.amount)
-                        }),
-                        &format!("{} left", l.unit),
-                        "none",
-                        {
-                            let what = match &l.material {
-                                Some(m) => format!("{} · {} · {m}", l.item, l.name),
-                                None => format!("{} · {}", l.item, l.name),
-                            };
-                            // Where it feeds from: a dry box and its slot.
-                            match (&l.place, l.slot) {
-                                (Some(p), Some(n)) => format!("{what} · from {p}, slot {n}"),
-                                (Some(p), None) => format!("{what} · from {p}"),
-                                _ => what,
-                            }
-                        },
-                    ),
-                    l.color.as_deref(),
-                ),
-                None => tile(
-                    "Material",
-                    "material",
-                    material,
-                    "",
-                    "none",
-                    profile
-                        .and_then(|p| p.nozzle_mm)
-                        .map_or(String::new(), |n| format!("{n} mm nozzle")),
-                ),
-            }
-            + &job_tile(machine)
+        // The material and the job have cards of their own (printer.html): the heaters here.
+        let _ = material;
+        heater_tiles(machine) + &fan_tiles(machine)
     } else {
         position_tiles(machine)
             + &tile(
@@ -1450,7 +1398,6 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
                     "optical power".to_owned()
                 },
             )
-            + &job_tile(machine)
     };
     let picture = profile
         .and_then(Profile::image)
@@ -1471,22 +1418,95 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
         .concat(),
         None => "<dt>Profile</dt><dd>Not known yet: choose one under Settings</dd>".to_owned(),
     };
-    let _ = label;
-    format!(
-        r#"{}<div class="tiles">{tiles}</div>
-<div class="grid-2">{}{side}</div>"#,
-        if profile.is_none() {
-            no_profile_notice()
-        } else {
-            String::new()
-        },
-        card(
-            "Machine",
-            "",
-            &format!(
-                r#"<div class="machine-card"><div class="picture">{picture}</div><dl>{facts}</dl></div>"#
-            )
+    let machine_card = card(
+        "Machine",
+        "",
+        &format!(
+            r#"<div class="machine-card"><div class="picture">{picture}</div><dl class="kv">{facts}</dl></div>"#
         ),
+    );
+    let notice = if profile.is_none() {
+        no_profile_notice()
+    } else {
+        String::new()
+    };
+    // A label printer or a scale: its tiles and the machine, as before.
+    if label || machine.kind == MachineKind::Scale {
+        return format!(
+            r#"{notice}<div class="tiles">{tiles}</div>
+<div class="grid-2">{machine_card}{side}</div>"#
+        );
+    }
+    // printer.html: This print and Live on the left; the material, what is next, the machine
+    // on the right.
+    let side_cards = if heats(machine) {
+        material_card(machine, material.as_deref()) + &next_card(machine)
+    } else {
+        next_card(machine)
+    };
+    format!(
+        r#"{notice}<div class="cols"><div class="stack">{job}<div class="card"><h3>Live</h3><div class="tiles">{tiles}</div></div></div><div class="stack">{side_cards}{machine_card}{side}</div></div>"#,
+        job = job_card(machine),
+    )
+}
+
+/// The material on it (printer.html "Material"): the spool from Materials, else what the
+/// printer says it has.
+fn material_card(machine: &Machine, told: Option<&str>) -> String {
+    let body = match &machine.loaded {
+        Some(l) => {
+            let what = match &l.material {
+                Some(m) => format!("{} · {} · {m}", l.item, l.name),
+                None => format!("{} · {}", l.item, l.name),
+            };
+            let amount = if l.unit == "m" {
+                format!("{:.1} {}", l.amount, l.unit)
+            } else {
+                format!("{:.0} {}", l.amount, l.unit)
+            };
+            let from = match (&l.place, l.slot) {
+                (Some(p), Some(n)) => row("From", Some(format!("{p}, slot {n}"))),
+                (Some(p), None) => row("From", Some(p.clone())),
+                _ => String::new(),
+            };
+            format!(
+                r#"<p><span class="swatch" style="background:{}"></span> <a href="../stock">{}</a></p><dl class="kv">{}{from}{}</dl>"#,
+                // Only a colour as #hex goes into the style.
+                l.color
+                    .as_deref()
+                    .filter(|c| c.starts_with('#')
+                        && c.len() <= 9
+                        && c[1..].chars().all(|ch| ch.is_ascii_hexdigit()))
+                    .unwrap_or("transparent"),
+                escape(&what),
+                row("Left", Some(amount)),
+                row("Nozzle", l.nozzle_c.map(|c| format!("{c:.0} °C"))),
+            )
+        }
+        None => match told {
+            Some(m) => format!(
+                r#"<p><b data-live="material">{}</b> <small class="muted">as the printer says it</small></p><p><small>No spool from <a href="../stock">Materials</a> set on it.</small></p>"#,
+                escape(m)
+            ),
+            None => r#"<p class="muted">No spool set on it. Set one in <a href="../stock">Materials</a>.</p>"#.to_owned(),
+        },
+    };
+    format!(r#"<div class="card"><h3>Material</h3>{body}</div>"#)
+}
+
+/// What starts next here (printer.html "Next in its queue").
+fn next_card(machine: &Machine) -> String {
+    let next = match machine.queue.first() {
+        Some(q) => format!(
+            "<p>{}{}</p>",
+            escape(&q.file_name),
+            q.by.as_deref().map_or(String::new(), |b| format!(" · {}", escape(b)))
+        ),
+        None => r#"<p class="muted">Nothing waits.</p>"#.to_owned(),
+    };
+    format!(
+        r##"<div class="card"><h3>Next in its queue</h3>{next}<p><a href="#jobs">All jobs on {}</a></p></div>"##,
+        escape(&machine.name)
     )
 }
 
@@ -1656,8 +1676,7 @@ fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str) -> String
         escape(&machine.id)
     );
     format!(
-        r#"<div class="grid-control">{bed}<div class="stack">{loaded}{}{}{}</div></div>"#,
-        job_card(machine),
+        r#"<div class="grid-control">{bed}<div class="stack">{loaded}{}{}</div></div>"#,
         card(
             "Control",
             "Sent one at a time; each shows below how it went",
@@ -1764,27 +1783,10 @@ fn terminal(machine: &Machine) -> String {
     )
 }
 
-fn telemetry_tab(machine: &Machine) -> String {
+/// A printer's fans, as tiles (printer.html "Live").
+fn fan_tiles(machine: &Machine) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
     let rpm = |v: Option<u32>| v.map(|v| v.to_string());
-    let percent = |v: Option<f32>| v.map(|v| format!("{v} %"));
-    let motion = [
-        live_row(
-            "Position",
-            "position",
-            t.and_then(|t| t.position_mm)
-                .map(|[x, y, z]| format!("{x:.1} · {y:.1} · {z:.1} mm")),
-        ),
-        live_row("Speed", "speed", percent(t.and_then(|t| t.speed_percent))),
-    ]
-    .concat();
-    if !heats(machine) {
-        return format!(
-            r#"<div class="tiles">{}</div><div class="grid-2">{}</div>"#,
-            position_tiles(machine),
-            card("Motion", "", &format!("<dl>{motion}</dl>"))
-        );
-    }
     // Where a printer tells its fans only while it prints, that is said while none is told.
     let fan_note = |rpm: Option<u32>| {
         if rpm.is_some() {
@@ -1808,6 +1810,29 @@ fn telemetry_tab(machine: &Machine) -> String {
         "none",
         fan_note(t.and_then(|t| t.hotend_fan_rpm)),
     );
+    fans
+}
+
+fn telemetry_tab(machine: &Machine) -> String {
+    let t = machine.telemetry.as_ref().filter(|_| machine.online);
+    let percent = |v: Option<f32>| v.map(|v| format!("{v} %"));
+    let motion = [
+        live_row(
+            "Position",
+            "position",
+            t.and_then(|t| t.position_mm)
+                .map(|[x, y, z]| format!("{x:.1} · {y:.1} · {z:.1} mm")),
+        ),
+        live_row("Speed", "speed", percent(t.and_then(|t| t.speed_percent))),
+    ]
+    .concat();
+    if !heats(machine) {
+        return format!(
+            r#"<div class="tiles">{}</div><div class="grid-2">{}</div>"#,
+            position_tiles(machine),
+            card("Motion", "", &format!("<dl>{motion}</dl>"))
+        );
+    }
     let printing = [
         live_row("Flow", "flow", percent(t.and_then(|t| t.flow_percent))),
         live_row("Material", "material", t.and_then(|t| t.material.clone())),
@@ -1851,9 +1876,8 @@ fn telemetry_tab(machine: &Machine) -> String {
   </div>
 </div>"#;
     format!(
-        // The heaters' tiles are above, in Overview's own row: only the fans here.
-        r#"<div class="tiles">{fans}</div>
-{chart}
+        // The heaters' and fans' tiles are in Overview's Live card.
+        r#"{chart}
 <div class="grid-2">{}{}</div>"#,
         card("Motion", "", &format!("<dl>{motion}</dl>")),
         card("Printing", "", &format!("<dl>{printing}</dl>")),
