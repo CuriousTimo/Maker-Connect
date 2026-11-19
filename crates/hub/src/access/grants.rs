@@ -216,7 +216,8 @@ impl Store {
         tx.commit().await
     }
 
-    /// A machine leaves its space (removed, or moved to another): its permissions and group places go, in
+    /// A machine moves to another space: its permissions and group places go (removed, they go with its row:
+    /// ON DELETE CASCADE), in
     /// whichever space they were (as admin: a move spans two spaces).
     pub async fn forget_machine_access(&self, machine: &str) -> sqlx::Result<()> {
         let mut tx = self.pg().admin.begin().await?;
@@ -655,6 +656,8 @@ mod tests {
             "INSERT INTO organisations (uid, name, created_at) VALUES ('o2', 'Other', at_unix(0));
              INSERT INTO spaces (name, uid, organisation_id)
                  SELECT 'Other', 's2', id FROM organisations WHERE uid = 'o2';
+             INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at)
+                 SELECT 'm' || id, id, 'M', '\"fdm\"', '0.1.0', 't' || id, at_unix(0) FROM spaces;
              INSERT INTO machine_grants (space_id, machine_id, user_id, level, granted_at)
                  SELECT id, 'm' || id, 1, 'use', at_unix(0) FROM spaces;
              INSERT INTO machine_groups (id, space_id, name, created_at)

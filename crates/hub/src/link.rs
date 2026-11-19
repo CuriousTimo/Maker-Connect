@@ -102,6 +102,13 @@ pub(crate) async fn telemetry(
             Ok(of) => of,
             Err(error) => return failed(error),
         };
+        let update = match &reported {
+            Ok(Some(_)) => match updates::order_for(&store, token, &report).await {
+                Ok(update) => update,
+                Err(error) => return failed(error),
+            },
+            _ => None,
+        };
         let mut store = store.lock().unwrap();
         match reported {
             Ok(Some(space)) => {
@@ -130,10 +137,6 @@ pub(crate) async fn telemetry(
                 };
                 let (job, job_control) = match agent_job(&mut store, &of, &report) {
                     Ok(job) => job,
-                    Err(error) => return failed(error),
-                };
-                let update = match updates::order_for(&store, token, &report) {
-                    Ok(update) => update,
                     Err(error) => return failed(error),
                 };
                 // Someone's answer to the question on its screen, once; and pause, resume or stop

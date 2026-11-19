@@ -367,20 +367,6 @@ impl Legacy {
             .unwrap_or(false))
     }
 
-    pub fn set_takes_work(
-        &mut self,
-        space: i64,
-        machine: &str,
-        on: bool,
-    ) -> rusqlite::Result<bool> {
-        let n = self.db.execute(
-            "UPDATE machines SET farm = ?3 WHERE id = ?1 AND space_id = ?2",
-            params![machine, space, on],
-        )?;
-        self.changed();
-        Ok(n > 0)
-    }
-
     /// The plate that ended on a machine and waits for someone, if any: its last job, when it
     /// was for a part and is not yet confirmed.
     pub fn waiting_confirm(&self, machine: &str) -> rusqlite::Result<Option<Confirm>> {
@@ -693,30 +679,6 @@ impl Legacy {
         }))
     }
 
-    pub fn set_upkeep(
-        &mut self,
-        space: i64,
-        machine: &str,
-        every_h: Option<f64>,
-    ) -> rusqlite::Result<bool> {
-        let n = self.db.execute(
-            "UPDATE machines SET service_every_h = ?3 WHERE id = ?1 AND space_id = ?2",
-            params![machine, space, every_h],
-        )?;
-        self.changed();
-        Ok(n > 0)
-    }
-
-    /// The service was done: the count starts again.
-    pub fn serviced(&mut self, space: i64, machine: &str) -> rusqlite::Result<bool> {
-        let n = self.db.execute(
-            "UPDATE machines SET serviced_at = ?3 WHERE id = ?1 AND space_id = ?2",
-            params![machine, space, now()],
-        )?;
-        self.changed();
-        Ok(n > 0)
-    }
-
     /// The build plate on a machine (`Textured PEI`), as someone said.
     pub fn sheet_of(&self, machine: &str) -> rusqlite::Result<Option<String>> {
         Ok(self
@@ -726,20 +688,6 @@ impl Legacy {
             })
             .optional()?
             .flatten())
-    }
-
-    pub fn set_sheet(
-        &mut self,
-        space: i64,
-        machine: &str,
-        sheet: Option<&str>,
-    ) -> rusqlite::Result<bool> {
-        let n = self.db.execute(
-            "UPDATE machines SET sheet = ?3 WHERE id = ?1 AND space_id = ?2",
-            params![machine, space, sheet],
-        )?;
-        self.changed();
-        Ok(n > 0)
     }
 
     /// Parts that people confirmed good from a machine's plates.
@@ -1410,9 +1358,8 @@ async fn farm_toggle(
     Form(form): Form<FarmForm>,
 ) -> Response {
     match store
-        .lock()
-        .unwrap()
         .set_takes_work(access.space, &machine, form.on.is_some())
+        .await
     {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
@@ -1438,9 +1385,8 @@ async fn sheet(
         .map(|s| s.trim().chars().take(40).collect::<String>())
         .filter(|s| !s.is_empty());
     match store
-        .lock()
-        .unwrap()
         .set_sheet(access.space, &machine, sheet.as_deref())
+        .await
     {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
@@ -1472,11 +1418,7 @@ async fn upkeep(
             _ => return bad_request("hours between services: 1 or more, or empty for none"),
         },
     };
-    match store
-        .lock()
-        .unwrap()
-        .set_upkeep(access.space, &machine, every)
-    {
+    match store.set_upkeep(access.space, &machine, every).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
@@ -1488,7 +1430,7 @@ async fn serviced(
     State(store): State<Store>,
     Path(machine): Path<String>,
 ) -> Response {
-    match store.lock().unwrap().serviced(access.space, &machine) {
+    match store.serviced(access.space, &machine).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
@@ -1652,9 +1594,8 @@ mod flow {
             let a = store.add_virtual(space, mk3s).await.unwrap();
             let b = store.add_virtual(space, mk3s).await.unwrap();
             let c = store.add_virtual(space, mk3s).await.unwrap();
-            let mut s = store.lock().unwrap();
-            s.set_takes_work(space, &a, true).unwrap();
-            s.set_takes_work(space, &b, true).unwrap();
+            store.set_takes_work(space, &a, true).await.unwrap();
+            store.set_takes_work(space, &b, true).await.unwrap();
             (space, a, b, c)
         };
         for m in [&a, &b, &c] {
@@ -1887,24 +1828,37 @@ mod upkeep {
             .await
             .unwrap();
         store.idle_test_machine(&m).await;
-        let mut s = store.lock().unwrap();
-        s.set_takes_work(space, &m, true).unwrap();
-        s.db.execute("INSERT INTO projects (space_id, name, state, created_at) VALUES (?1, 'P', 'active', 0)", [space]).unwrap();
-        s.db.execute("INSERT INTO parts (project_id, space_id, name, target, created_at) VALUES (1, ?1, 'A', 4, 0)", [space]).unwrap();
-        s.db.execute(
+        store.set_takes_work(space, &m, true).await.unwrap();
+        {
+            let mut s = store.lock().unwrap();
+            s.db.execute("INSERT INTO projects (space_id, name, state, created_at) VALUES (?1, 'P', 'active', 0)", [space]).unwrap();
+            s.db.execute("INSERT INTO parts (project_id, space_id, name, target, created_at) VALUES (1, ?1, 'A', 4, 0)", [space]).unwrap();
+            s.db.execute(
             "INSERT INTO part_files (part_id, space_id, profile, file_id, per_plate, created_at, sheet) VALUES (1, ?1, 'prusa/mk3s', 'f1', 4, 0, 'Textured PEI')",
             [space],
         )
         .unwrap();
-        assert_eq!(s.dispatch().unwrap(), 0, "no plate said: not sent");
-        let why = s.projects(space).unwrap()[0].parts[0].waiting.clone();
+            assert_eq!(s.dispatch().unwrap(), 0, "no plate said: not sent");
+            let why = s.projects(space).unwrap()[0].parts[0].waiting.clone();
+            assert_eq!(
+                why.as_deref(),
+                Some("no machine has a Textured PEI plate on")
+            );
+        }
+        store
+            .set_sheet(space, &m, Some("Smooth PEI"))
+            .await
+            .unwrap();
         assert_eq!(
-            why.as_deref(),
-            Some("no machine has a Textured PEI plate on")
+            store.lock().unwrap().dispatch().unwrap(),
+            0,
+            "the wrong plate"
         );
-        s.set_sheet(space, &m, Some("Smooth PEI")).unwrap();
-        assert_eq!(s.dispatch().unwrap(), 0, "the wrong plate");
-        s.set_sheet(space, &m, Some("textured pei")).unwrap();
+        store
+            .set_sheet(space, &m, Some("textured pei"))
+            .await
+            .unwrap();
+        let mut s = store.lock().unwrap();
         assert_eq!(
             s.dispatch().unwrap(),
             1,
@@ -1929,28 +1883,31 @@ mod upkeep {
             .await
             .unwrap();
         store.idle_test_machine(&m).await;
-        let mut s = store.lock().unwrap();
-        s.set_takes_work(space, &m, true).unwrap();
-        s.set_upkeep(space, &m, Some(1.0)).unwrap();
-        // Two hours printed: due.
-        s.db.execute(
+        store.set_takes_work(space, &m, true).await.unwrap();
+        store.set_upkeep(space, &m, Some(1.0)).await.unwrap();
+        {
+            let mut s = store.lock().unwrap();
+            // Two hours printed: due.
+            s.db.execute(
             "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at, started_at, ended_at, taken_at)
              VALUES (?1, ?2, 'f1', 'old.gcode', 'finished', ?3, ?3, ?4, ?4)",
             params![space, m, now() - 7300, now() - 100],
         )
         .unwrap();
-        let u = s.upkeep(&m).unwrap().unwrap();
-        assert!(u.due && u.since_h >= 2.0, "{u:?}");
-        // Work waiting for it.
-        s.db.execute("INSERT INTO projects (space_id, name, state, created_at) VALUES (?1, 'P', 'active', 0)", [space]).unwrap();
-        s.db.execute("INSERT INTO parts (project_id, space_id, name, target, created_at) VALUES (1, ?1, 'A', 10, 0)", [space]).unwrap();
-        s.db.execute(
+            let u = s.upkeep(&m).unwrap().unwrap();
+            assert!(u.due && u.since_h >= 2.0, "{u:?}");
+            // Work waiting for it.
+            s.db.execute("INSERT INTO projects (space_id, name, state, created_at) VALUES (?1, 'P', 'active', 0)", [space]).unwrap();
+            s.db.execute("INSERT INTO parts (project_id, space_id, name, target, created_at) VALUES (1, ?1, 'A', 10, 0)", [space]).unwrap();
+            s.db.execute(
             "INSERT INTO part_files (part_id, space_id, profile, file_id, per_plate, created_at) VALUES (1, ?1, 'prusa/mk3s', 'f1', 10, 0)",
             [space],
         )
         .unwrap();
-        assert_eq!(s.dispatch().unwrap(), 0, "due: no plate");
-        s.serviced(space, &m).unwrap();
+            assert_eq!(s.dispatch().unwrap(), 0, "due: no plate");
+        }
+        store.serviced(space, &m).await.unwrap();
+        let mut s = store.lock().unwrap();
         assert!(!s.upkeep(&m).unwrap().unwrap().due);
         assert_eq!(s.dispatch().unwrap(), 1, "serviced: work again");
     }

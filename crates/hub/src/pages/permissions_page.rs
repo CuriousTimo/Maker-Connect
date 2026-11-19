@@ -441,11 +441,7 @@ async fn machine_access(
         Some("2") => 2,
         _ => 0,
     };
-    match store
-        .lock()
-        .unwrap()
-        .set_access_mode(access.space, &machine, mode)
-    {
+    match store.set_access_mode(access.space, &machine, mode).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),

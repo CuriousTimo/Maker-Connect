@@ -177,11 +177,7 @@ mod serving_tests {
             anonymous.status()
         );
         // a laser that needs permission: not usable by ann until she is given it
-        w.store
-            .lock()
-            .unwrap()
-            .set_access_mode(w.space, &laser, 1)
-            .unwrap();
+        w.store.set_access_mode(w.space, &laser, 1).await.unwrap();
         assert_eq!(w.get(&ann, "/laser-design/").await.0, StatusCode::FORBIDDEN);
         let (user, _) = (w.user("ann").await, ());
         w.store
@@ -478,9 +474,8 @@ impl World {
             .unwrap();
         s.rename(self.space, &id, name).await.unwrap();
         // a new machine is closed until permission is given: open it to members, or keep it closed
-        s.lock()
-            .unwrap()
-            .set_access_mode(self.space, &id, u8::from(needs_permission))
+        s.set_access_mode(self.space, &id, u8::from(needs_permission))
+            .await
             .unwrap();
         // online, as a laser whose agent reports
         let token = s

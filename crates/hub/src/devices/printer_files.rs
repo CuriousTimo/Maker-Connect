@@ -889,15 +889,6 @@ pub fn on_report(
         store.dialogs.remove(&machine);
         store.changed();
     }
-    // A print from the stick is over once the printer is idle again (a minute on: it may
-    // still be starting).
-    if matches!(state, "IDLE" | "READY" | "FINISHED" | "STOPPED") {
-        store.db.execute(
-            "UPDATE machines SET usb_print_by = NULL, usb_print_at = NULL
-             WHERE id = ?1 AND usb_print_by IS NOT NULL AND usb_print_at < ?2",
-            params![machine, crate::store::now() - 60],
-        )?;
-    }
     let Some(job) = store.active_job(&machine)? else {
         return Ok(());
     };
@@ -1237,10 +1228,9 @@ async fn print(
     );
     if response.status().is_success() {
         // Who started it, for as long as it runs (Now's "Ends next").
-        let _ = store.lock().unwrap().db.execute(
-            "UPDATE machines SET usb_print_by = ?3, usb_print_at = ?4 WHERE id = ?1 AND space_id = ?2",
-            params![machine, access.space, access.actor, crate::store::now()],
-        );
+        let _ = store
+            .set_usb_print_by(access.space, &machine, &access.actor)
+            .await;
     }
     response
 }

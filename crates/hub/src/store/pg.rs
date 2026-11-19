@@ -209,4 +209,80 @@ mod tests {
             .unwrap();
         assert_eq!(n, 2);
     }
+
+    /// Row-level security on lane 3's tables, as the app role: each space-owned table (machines, files,
+    /// jobs, printer_files, printer_transfers) shows nothing without a space, only its space's rows with
+    /// one, and refuses a row for another space.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn lane_3_tables_show_their_space_only(pool: PgPool) {
+        // A second space, and a row of each table in both, as the owner.
+        sqlx::raw_sql(
+            "INSERT INTO organisations (uid, name, created_at) VALUES ('o2', 'Other', at_unix(0));
+             INSERT INTO spaces (name, uid, organisation_id)
+                 SELECT 'Other', 's2', id FROM organisations WHERE uid = 'o2';
+             INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at)
+                 SELECT 'm' || id, id, 'M', '\"fdm\"', '0.1.0', 't' || id, at_unix(0) FROM spaces;
+             INSERT INTO files (id, space_id, name, size, uploaded_at, meta)
+                 SELECT 'f' || id, id, 'a.gcode', 1, at_unix(0), '{}' FROM spaces;
+             INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at)
+                 SELECT id, 'm' || id, 'f' || id, 'a.gcode', 'finished', at_unix(0) FROM spaces;
+             INSERT INTO printer_files (machine_id, space_id, path) SELECT 'm' || id, id, '/usb' FROM spaces;
+             INSERT INTO printer_transfers (iv, machine_id, space_id, file_id, key, size, path, created_at)
+                 SELECT 'iv' || id, 'm' || id, id, 'f' || id, 'k', 1, '/usb/a.gcode', at_unix(0) FROM spaces;",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let pg = Pg::with_options(&pool.connect_options(), 1);
+        let tables = [
+            "machines",
+            "files",
+            "jobs",
+            "printer_files",
+            "printer_transfers",
+        ];
+        for table in tables {
+            let count = format!("SELECT COUNT(*) FROM {table}");
+            let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(count.clone()))
+                .fetch_one(&pg.app)
+                .await
+                .unwrap();
+            assert_eq!(n, 0, "{table} without a space");
+            let mut tx = pg.space(1).await.unwrap();
+            let seen: Vec<i64> =
+                sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT space_id FROM {table}")))
+                    .fetch_all(&mut *tx)
+                    .await
+                    .unwrap();
+            assert_eq!(seen, vec![1], "{table} in space 1");
+            tx.commit().await.unwrap();
+            let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(count))
+                .fetch_one(&pg.admin)
+                .await
+                .unwrap();
+            assert_eq!(n, 2, "{table} as the admin role");
+        }
+        // Writing a row of another space is refused, for each table.
+        let other = [
+            "INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at)
+                 VALUES ('x', 2, 'X', '\"fdm\"', '0.1.0', 'tx', at_unix(0))",
+            "INSERT INTO files (id, space_id, name, size, uploaded_at, meta) VALUES ('x', 2, 'x', 1, at_unix(0), '{}')",
+            "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at)
+                 VALUES (2, 'm2', 'f2', 'x', 'queued', at_unix(0))",
+            "INSERT INTO printer_files (machine_id, space_id, path) VALUES ('m2', 2, '/usb/x')",
+            "INSERT INTO printer_transfers (iv, machine_id, space_id, file_id, key, size, path, created_at)
+                 VALUES ('x', 'm2', 2, 'f2', 'k', 1, '/usb/x', at_unix(0))",
+        ];
+        for insert in other {
+            let mut tx = pg.space(1).await.unwrap();
+            let refused = sqlx::query(sqlx::AssertSqlSafe(insert))
+                .execute(&mut *tx)
+                .await;
+            assert!(refused.is_err(), "{insert}");
+        }
+    }
 }

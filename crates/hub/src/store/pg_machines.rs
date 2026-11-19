@@ -548,9 +548,8 @@ impl Store {
         Ok(Ok(()))
     }
 
-    /// Removes a machine of the space, with what the hub keeps of it in memory; the caller then has
-    /// its permissions and group places go ([`Store::forget_machine_access`]). Returns whether it
-    /// was there.
+    /// Removes a machine of the space, with what the hub keeps of it in memory; its permissions,
+    /// group places and requests go with its row (ON DELETE CASCADE). Returns whether it was there.
     pub async fn remove_machine(&self, space: i64, machine: &str) -> sqlx::Result<bool> {
         let removed = self.remove_machine_row(space, machine).await?;
         self.lock().unwrap().forget_machine(machine);

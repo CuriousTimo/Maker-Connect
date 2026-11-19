@@ -285,10 +285,8 @@ pub(crate) async fn remove(
 ) -> Response {
     let removed = store.remove_machine(access.space, &id).await;
     match removed {
-        Ok(true) => match store.forget_machine_access(&id).await {
-            Ok(()) => done(&headers, "/"),
-            Err(error) => failed(error),
-        },
+        // Its permissions, group places and requests go with it (ON DELETE CASCADE).
+        Ok(true) => done(&headers, "/"),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
     }

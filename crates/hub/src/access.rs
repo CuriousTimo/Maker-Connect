@@ -1273,21 +1273,6 @@ impl Legacy {
             .unwrap_or(false))
     }
 
-    /// Open to every member (0), needs permission (1), or needs training (2).
-    pub fn set_access_mode(
-        &mut self,
-        space: i64,
-        machine: &str,
-        mode: u8,
-    ) -> rusqlite::Result<bool> {
-        let n = self.db.execute(
-            "UPDATE machines SET induction_required = ?3 WHERE id = ?1 AND space_id = ?2",
-            params![machine, space, mode.min(2)],
-        )?;
-        self.changed();
-        Ok(n > 0)
-    }
-
     pub fn induction_required(&self, space: i64, machine: &str) -> rusqlite::Result<bool> {
         Ok(self
             .db
@@ -1298,20 +1283,6 @@ impl Legacy {
             )
             .optional()?
             .unwrap_or(false))
-    }
-
-    pub fn set_induction_required(
-        &mut self,
-        space: i64,
-        machine: &str,
-        on: bool,
-    ) -> rusqlite::Result<bool> {
-        let n = self.db.execute(
-            "UPDATE machines SET induction_required = ?3 WHERE id = ?1 AND space_id = ?2",
-            params![machine, space, on],
-        )?;
-        self.changed();
-        Ok(n > 0)
     }
 
     /// Transitional (lanes 1-4): the space a request acts in, for code under the SQLite lock; its name
@@ -2015,8 +1986,7 @@ mod tests {
                 .add_virtual(a1, crate::profiles::find("prusa/mk3s").unwrap())
                 .await
                 .unwrap();
-            let mut s = w.store.lock().unwrap();
-            s.set_takes_work(a1, &m, true).unwrap();
+            w.store.set_takes_work(a1, &m, true).await.unwrap();
             m
         };
         w.post(&adam, &format!("/machines/{m}/access"), "induction=1")
@@ -2244,9 +2214,11 @@ mod tests {
                 .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
                 .await
                 .unwrap();
-            let mut s = w.store.lock().unwrap();
             // Open to every member: this test is about roles, not permissions.
-            s.set_induction_required(space, &m, false).unwrap();
+            w.store
+                .set_induction_required(space, &m, false)
+                .await
+                .unwrap();
             m
         };
         let upload = |cookie: &str| {

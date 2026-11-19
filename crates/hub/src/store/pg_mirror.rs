@@ -2,10 +2,7 @@
 //! files, and each write there is copied onto the SQLite rows the modules still on SQLite read and join
 //! (farm, queue, access, stock, printer_files, spoolman, jobs). One way only, Postgres to SQLite.
 //!
-//! The columns those SQLite modules write themselves stay theirs until lane 3b moves them, so the copy
-//! never overwrites them (it sets them only on a new row): `induction_required` (crate::access),
-//! `ppe` (crate::safety), `usb_print_by`/`_at` (crate::printer_files), `agent_update_to`/`_at`
-//! (crate::updates), `farm`, `sheet`, `service_every_h`, `serviced_at` (crate::farm).
+//! Every column is Postgres's, the ones the modules set too (pg_settings.rs).
 
 use super::*;
 
@@ -161,7 +158,12 @@ impl Store {
                          reached_through = excluded.reached_through, agent = excluded.agent,
                          peer = excluded.peer, out_of_use = excluded.out_of_use,
                          out_of_use_at = excluded.out_of_use_at, laser_w = excluded.laser_w,
-                         labels = excluded.labels",
+                         labels = excluded.labels, induction_required = excluded.induction_required,
+                         ppe = excluded.ppe, usb_print_by = excluded.usb_print_by,
+                         usb_print_at = excluded.usb_print_at, agent_update_to = excluded.agent_update_to,
+                         agent_update_at = excluded.agent_update_at, farm = excluded.farm,
+                         sheet = excluded.sheet, service_every_h = excluded.service_every_h,
+                         serviced_at = excluded.serviced_at",
                     rusqlite::params![
                         r.id,
                         r.space_id,

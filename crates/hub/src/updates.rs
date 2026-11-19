@@ -340,19 +340,12 @@ fn agent_file(os: &str, arch: &str) -> Option<String> {
 
 /// What to tell an agent in its report's answer: the update asked for it, until it is on
 /// that release or says how its update went.
-pub(crate) fn order_for(
-    store: &crate::store::Legacy,
+pub(crate) async fn order_for(
+    store: &crate::store::Store,
     token: &str,
     report: &maker_connect_protocol::Telemetry,
-) -> rusqlite::Result<Option<maker_connect_protocol::AgentUpdate>> {
-    let asked: Option<(String, Option<String>, i64)> = store
-        .db
-        .query_row(
-            "SELECT id, agent_update_to, COALESCE(agent_update_at, 0) FROM machines WHERE token = ?1",
-            [token],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .ok();
+) -> sqlx::Result<Option<maker_connect_protocol::AgentUpdate>> {
+    let asked = store.agent_update_asked(token).await?;
     let Some((machine, Some(tag), at)) = asked else {
         return Ok(None);
     };
@@ -368,17 +361,14 @@ pub(crate) fn order_for(
     if !update::newer(version, &agent.version) && update::Version::parse(&agent.version).is_some()
         || answered
     {
-        store.db.execute(
-            "UPDATE machines SET agent_update_to = NULL, agent_update_at = NULL WHERE id = ?1",
-            [&machine],
-        )?;
+        store.agent_update_done(&machine).await?;
         return Ok(None);
     }
     if !agent.can_update {
         return Ok(None);
     }
     let (Some(prepared), Some(file)) = (
-        kept(&store.downloads_dir, &tag),
+        kept(&store.lock().unwrap().downloads_dir.clone(), &tag),
         agent_file(&agent.os, &agent.arch),
     ) else {
         return Ok(None);
@@ -391,24 +381,6 @@ pub(crate) fn order_for(
         sums: prepared.sums,
         signature: prepared.signature,
     }))
-}
-
-/// Asks the agents of `machines` (in space `space`) to update to `tag`.
-fn ask(
-    store: &crate::store::Legacy,
-    space: i64,
-    machines: &[String],
-    tag: &str,
-) -> rusqlite::Result<usize> {
-    let mut asked = 0;
-    for machine in machines {
-        asked += store.db.execute(
-            "UPDATE machines SET agent_update_to = ?1, agent_update_at = ?2
-             WHERE id = ?3 AND space_id = ?4 AND link = 'agent'",
-            rusqlite::params![tag, update::now(), machine, space],
-        )?;
-    }
-    Ok(asked)
 }
 
 async fn prepared(store: &Store) -> Result<Prepared, Box<Response>> {
@@ -429,12 +401,14 @@ async fn update_agent(
         Ok(p) => p,
         Err(response) => return *response,
     };
-    let asked = ask(
-        &store.lock().unwrap(),
-        access.space,
-        std::slice::from_ref(&id),
-        &prepared.tag,
-    );
+    let asked = store
+        .ask_agent_update(
+            access.space,
+            std::slice::from_ref(&id),
+            &prepared.tag,
+            update::now(),
+        )
+        .await;
     match asked {
         Ok(0) => (
             StatusCode::CONFLICT,
@@ -465,12 +439,9 @@ async fn update_agents(access: Access, State(store): State<Store>) -> Response {
             .collect(),
         Err(error) => return failed(error),
     };
-    let asked = ask(
-        &store.lock().unwrap(),
-        access.space,
-        &machines,
-        &prepared.tag,
-    );
+    let asked = store
+        .ask_agent_update(access.space, &machines, &prepared.tag, update::now())
+        .await;
     match asked {
         Ok(asked) => {
             let _ = store
@@ -726,13 +697,15 @@ pub(crate) mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(
-            ask(
-                &shared.lock().unwrap(),
-                space,
-                std::slice::from_ref(&machine_id),
-                &prepared.tag
-            )
-            .unwrap(),
+            shared
+                .ask_agent_update(
+                    space,
+                    std::slice::from_ref(&machine_id),
+                    &prepared.tag,
+                    update::now()
+                )
+                .await
+                .unwrap(),
             1
         );
 
@@ -746,9 +719,7 @@ pub(crate) mod tests {
             }),
             ..Default::default()
         };
-        let order = order_for(&shared.lock().unwrap(), &token, &report)
-            .unwrap()
-            .unwrap();
+        let order = order_for(&shared, &token, &report).await.unwrap().unwrap();
         assert_eq!(order.version, "v99.0.0");
         assert_eq!(order.file, "maker-connect-agent-linux-armv6");
         update::check(
@@ -799,7 +770,6 @@ pub(crate) mod tests {
             ok: false,
             note: "it did not reach the hub in time".into(),
         });
-        let store = shared.lock().unwrap();
-        assert_eq!(order_for(&store, token, &report).unwrap(), None);
+        assert_eq!(order_for(&shared, token, &report).await.unwrap(), None);
     }
 }

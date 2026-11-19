@@ -252,21 +252,22 @@ mod tests {
     }
 
     /// Who may watch (owner, 2026-11-16), per role and kind of camera.
-    #[test]
-    fn who_may_watch() {
-        let mut s = Legacy::open(":memory:").unwrap();
-        let space = s.default_space().unwrap().0;
-        let open = s
-            .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn who_may_watch(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let space = store.default_space().await.unwrap().0;
+        let mk3s = crate::profiles::find("prusa/mk3s").unwrap();
+        let open = store.add_virtual(space, mk3s).await.unwrap();
+        let inducted = store.add_virtual(space, mk3s).await.unwrap();
+        store
+            .set_induction_required(space, &inducted, true)
+            .await
             .unwrap();
-        let inducted = s
-            .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
-            .unwrap();
-        s.db.execute(
-            "UPDATE machines SET induction_required = 1 WHERE id = ?1",
-            [&inducted],
-        )
-        .unwrap();
+        let s = store.lock().unwrap();
         let on_open = s
             .add_camera(space, &form("a", Some(&open), Role::Admin))
             .unwrap();

@@ -288,9 +288,11 @@ mod tests {
                 .add_virtual(space, crate::profiles::find("ortur/lm2-pro-s2").unwrap())
                 .await
                 .unwrap();
-            let mut s = store.lock().unwrap();
             // Open to every member (a new machine needs permission).
-            s.set_induction_required(space, &laser, false).unwrap();
+            store
+                .set_induction_required(space, &laser, false)
+                .await
+                .unwrap();
             (space, laser, member, guest)
         };
         // Is this a Maker Connect? No token needed, any site may ask.
@@ -407,9 +409,8 @@ mod tests {
         let mia = store.create_user("mia", "Mia", "x", false).await.unwrap();
         store.set_membership(mia, space, "member").await.unwrap();
         store
-            .lock()
-            .unwrap()
             .set_induction_required(space, &laser, true)
+            .await
             .unwrap();
         let mia_token = store
             .create_token(space, mia, "Mia's LaserFoundry", Role::Member)

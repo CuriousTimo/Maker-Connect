@@ -50,23 +50,6 @@ pub fn ppe_of(kind: &str, stored: Option<&str>) -> Vec<String> {
 }
 
 impl Legacy {
-    /// Sets a machine's PPE (an empty list: nothing needed). Returns whether it is in the space.
-    pub fn set_ppe(
-        &mut self,
-        space: i64,
-        machine: &str,
-        list: &[String],
-    ) -> rusqlite::Result<bool> {
-        let n = self.db.execute(
-            "UPDATE machines SET ppe = ?3 WHERE id = ?1 AND space_id = ?2",
-            rusqlite::params![machine, space, list.join(", ")],
-        )?;
-        // What was confirmed was for the old list.
-        self.ppe_ok.retain(|(_, m), _| m != machine);
-        self.changed();
-        Ok(n > 0)
-    }
-
     /// Someone has and wears the machine's PPE: until when that holds.
     pub fn confirm_ppe(&mut self, user: i64, machine: &str) -> i64 {
         let until = now() + CONFIRM_FOR;
@@ -198,7 +181,7 @@ async fn set(
             }
         }
     }
-    match store.lock().unwrap().set_ppe(access.space, &machine, &list) {
+    match store.set_ppe(access.space, &machine, &list).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),

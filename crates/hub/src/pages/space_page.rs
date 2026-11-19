@@ -289,7 +289,9 @@ async fn page(
 
         // API tokens.
         // The cameras to manage (crate::cameras), for an admin, when the hub has them.
-        let cameras_html = crate::cameras_space_tab(&store.lock().unwrap(), &access);
+        let space_machines = store.machines(space).await?;
+        let cameras_html =
+            crate::cameras_space_tab(&store.lock().unwrap(), &access, &space_machines);
         let tokens_html = if admin {
             let mut list = String::new();
             for t in store.tokens(space).await? {

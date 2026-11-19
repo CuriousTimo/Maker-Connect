@@ -101,17 +101,17 @@ async fn mse(
 }
 
 async fn camera_page(access: Access, State(store): State<Store>, Path(id): Path<i64>) -> Response {
-    let store = store.lock().unwrap();
-    let camera = match watchable(&store, &access, id) {
-        Ok(camera) => camera,
-        Err(refused) => return *refused,
-    };
-    let space = match store.space_name(access.space) {
+    let space = match store.space_name(access.space).await {
         Ok(space) => space,
         Err(error) => return failed(error),
     };
+    let machines = store.machines(access.space).await.unwrap_or_default();
+    let camera = match watchable(&store.lock().unwrap(), &access, id) {
+        Ok(camera) => camera,
+        Err(refused) => return *refused,
+    };
     let watches = match &camera.machine_id {
-        Some(machine) => match store.machine(access.space, machine).ok().flatten() {
+        Some(machine) => match machines.iter().find(|m| &m.id == machine) {
             Some(m) => format!(
                 r#"Watches <a href="../machines/{}">{}</a>"#,
                 escape(&m.id),
@@ -151,16 +151,16 @@ async fn camera_page(access: Access, State(store): State<Store>, Path(id): Path<
 }
 
 async fn list(access: Access, State(store): State<Store>) -> Response {
-    let store = store.lock().unwrap();
-    let space = match store.space_name(access.space) {
+    let space = match store.space_name(access.space).await {
         Ok(space) => space,
         Err(error) => return failed(error),
     };
+    let machines = store.machines(access.space).await.unwrap_or_default();
+    let store = store.lock().unwrap();
     let cameras = match store.cameras(access.space) {
         Ok(cameras) => cameras,
         Err(error) => return failed(error),
     };
-    let machines = store.machines(access.space).unwrap_or_default();
     let mut rows = String::new();
     for camera in cameras
         .iter()
@@ -222,20 +222,23 @@ fn watches(camera: &Camera, machines: &[crate::store::Machine]) -> String {
 /// The Cameras tab of the Space page (owner, 2026-11-16: "camera beheer hoort in /space
 /// thuis als tab"): for an admin, every camera of the space to change or remove, and one to
 /// add; empty for others.
-pub(crate) fn space_tab(store: &Legacy, access: &Access) -> String {
+pub(crate) fn space_tab(
+    store: &Legacy,
+    access: &Access,
+    machines: &[crate::store::Machine],
+) -> String {
     if access.role < Role::Admin {
         return String::new();
     }
     let cameras = store.cameras(access.space).unwrap_or_default();
-    let machines = store.machines(access.space).unwrap_or_default();
     let mut rows = String::new();
     for camera in &cameras {
         rows.push_str(&format!(
             r#"<li class="cam"><a href="cameras/{id}"><b>{name}</b></a><small>{watches}</small>{edit}</li>"#,
             id = camera.id,
             name = escape(&camera.name),
-            watches = watches(camera, &machines),
-            edit = edit_form(camera, &machines),
+            watches = watches(camera, machines),
+            edit = edit_form(camera, machines),
         ));
     }
     if rows.is_empty() {
@@ -248,7 +251,7 @@ pub(crate) fn space_tab(store: &Legacy, access: &Access) -> String {
 <ul class="cams">{rows}</ul>
 <div class="cam-add"><h3>Add a camera</h3>
 <form method="post" action="cameras">{fields}<button>Add</button></form></div></section>"#,
-        fields = fields(None, &machines)
+        fields = fields(None, machines)
     )
 }
 

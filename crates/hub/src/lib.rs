@@ -14,6 +14,10 @@
 //! - `/login`, `/setup`, `/logout`: people sign in ([`auth`]); every other page and API
 //!   needs a session, except the routes machines use with their own tokens.
 
+// Hub core v2 step 2 (lane 3b): no code path holds the SQLite lock (`Store::lock`) while it awaits
+// Postgres; clippy refuses a guard held across an `.await` (scripts/check.sh runs it with -D warnings).
+#![deny(clippy::await_holding_lock)]
+
 pub mod about;
 pub mod access;
 pub mod accounts;
@@ -61,12 +65,16 @@ pub(crate) use web::router::{done, failed};
 pub(crate) use web::shell::{PAGE, STYLE, escape, header};
 
 /// The Space page's Cameras tab (empty without the feature, or for who may not manage them).
-pub(crate) fn cameras_space_tab(store: &store::Legacy, access: &access::Access) -> String {
+pub(crate) fn cameras_space_tab(
+    store: &store::Legacy,
+    access: &access::Access,
+    machines: &[store::Machine],
+) -> String {
     #[cfg(feature = "cameras")]
-    return cameras::page::space_tab(store, access);
+    return cameras::page::space_tab(store, access, machines);
     #[cfg(not(feature = "cameras"))]
     {
-        let _ = (store, access);
+        let _ = (store, access, machines);
         String::new()
     }
 }

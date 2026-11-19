@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE machines SET usb_print_by = $3, usb_print_at = at_unix($4)\n             WHERE id = $1 AND space_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a027232cf741c1d36066f5f38d8e37f72f616d2cc3cf9640b5bf20853d64ae13"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE machines SET agent_update_to = NULL, agent_update_at = NULL WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b5ac7f080e0a2d4a5ad1ff1f4635ae27730222d534897954c80e40f470ff8e31"
+}

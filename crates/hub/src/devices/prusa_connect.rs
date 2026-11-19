@@ -426,6 +426,18 @@ async fn telemetry(
     {
         return failed(error);
     }
+    // A print from the stick is over once the printer is idle again (a minute on: it may
+    // still be starting).
+    if let Ok(Some(_)) = reported
+        && matches!(
+            report["state"].as_str(),
+            Some("IDLE" | "READY" | "FINISHED" | "STOPPED")
+        )
+        && let Ok(Some(machine)) = store.machine_id_by_token(token).await
+        && let Err(error) = store.usb_print_over(&machine).await
+    {
+        return failed(error);
+    }
     let mut store = store.lock().unwrap();
     // A job for it goes to its stick when it is free; one printing follows its state.
     if let Ok(Some(_)) = reported
