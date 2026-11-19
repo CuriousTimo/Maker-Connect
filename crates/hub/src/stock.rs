@@ -1622,6 +1622,39 @@ mod tests {
         assert!(all.iter().filter(|m| m.kind == "filament").count() > 200);
     }
 
+    /// A location's code is its space's own (design decisions/20261119-composite-foreign-keys.md):
+    /// two spaces each get L-0001, and one's names never block the other's.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn each_space_numbers_its_own_locations(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let (first, _) = store.default_space().await.unwrap();
+        let second = store.create_space(first, "Lab").await.unwrap();
+        for space in [first, second] {
+            let mut w = store.work(space).await.unwrap();
+            assert_eq!(
+                w.add_place("Shelf", None, None, None).await.unwrap(),
+                "L-0001"
+            );
+            assert_eq!(
+                w.add_place("Box", Some("L-0001"), None, None)
+                    .await
+                    .unwrap(),
+                "L-0002"
+            );
+            w.commit(&store).await.unwrap();
+        }
+        for space in [first, second] {
+            let mut w = store.work(space).await.unwrap();
+            let places = w.locations().await.unwrap();
+            assert_eq!(places.len(), 2, "space {space}");
+            w.commit(&store).await.unwrap();
+        }
+    }
+
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
         not(feature = "pg-tests"),

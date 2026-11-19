@@ -210,13 +210,15 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     // Updating the hub, and asking agents to update (crate::updates).
     ("GET", "/api/update", Need::InstanceAdmin, None),
     ("POST", "/about/update", Need::InstanceAdmin, None),
+    // An agent hosts machines of several spaces: its update is the instance admin's (design
+    // decisions/20261119-agent-update-by-instance-admin.md).
     (
         "POST",
         "/machines/{id}/agent/update",
-        Need::Machine(Level::Manage),
+        Need::InstanceAdmin,
         None,
     ),
-    ("POST", "/agents/update", Need::Role(Role::Admin), None),
+    ("POST", "/agents/update", Need::InstanceAdmin, None),
     // An agent fetching its new build: its token, checked by the route.
     (
         "GET",
@@ -311,15 +313,9 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Machine(Level::Manage),
         Some("labelled"),
     ),
-    // Also needs an instance admin (design decisions/20261119-device-move.md) who is owner or
-    // admin in the space it goes to; the handler checks that, and writes the audit log of both
-    // spaces.
-    (
-        "POST",
-        "/machines/{id}/move",
-        Need::Machine(Level::Manage),
-        None,
-    ),
+    // An instance admin's, and only theirs (design decisions/20261119-device-move.md); the handler
+    // writes the audit log of both spaces.
+    ("POST", "/machines/{id}/move", Need::InstanceAdmin, None),
     (
         "POST",
         "/machines/{id}/remove",
@@ -1840,9 +1836,9 @@ mod tests {
         assert_eq!(now().await, [c]);
     }
 
-    /// A machine moves to another space of the organisation, by someone who is admin in both;
-    /// not while it has work, not into a space they do not manage. Permissions on it stay
-    /// behind, and so does its place in the queue.
+    /// A machine moves to another space, by an instance admin only (design
+    /// decisions/20261119-device-move.md): not by an admin of the organisation, not while it has
+    /// work (`409 device/JOB_OPEN`). Permissions on it stay behind.
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
         not(feature = "pg-tests"),
@@ -1850,7 +1846,7 @@ mod tests {
     )]
     async fn a_machine_moves_to_another_space(pool: sqlx::PgPool) {
         let w = World::new(&pool).await;
-        let (_, a1, a2, b1) = {
+        let (_, a1, a2) = {
             let owner = w
                 .store
                 .create_user("olga", "Olga", "x", false)
@@ -1862,12 +1858,7 @@ mod tests {
                 .await
                 .unwrap();
             let a2 = w.store.create_space(a1, "Lab").await.unwrap();
-            let (_, b1) = w
-                .store
-                .create_organisation("Makers Zuid", "Hal", owner)
-                .await
-                .unwrap();
-            (org, a1, a2, b1)
+            (org, a1, a2)
         };
         // All signed in to the first space.
         let in_first = async |name: &str, role: Role, instance_admin: bool| {
@@ -1913,12 +1904,7 @@ mod tests {
             1,
             "mia's permission before the move"
         );
-        let (uid_a2, uid_b1) = {
-            (
-                w.store.space_uid(a2).await.unwrap(),
-                w.store.space_uid(b1).await.unwrap(),
-            )
-        };
+        let uid_a2 = w.store.space_uid(a2).await.unwrap();
         let to = |uid: &str| format!("space={uid}");
         let path = format!("/machines/{m}/move");
         assert_eq!(
@@ -1931,10 +1917,23 @@ mod tests {
             StatusCode::FORBIDDEN,
             "an admin of the organisation does not move machines between spaces"
         );
+        // An agent hosts machines of several spaces: its update is the instance admin's (design
+        // decisions/20261119-agent-update-by-instance-admin.md), not a space admin's (the instance
+        // admin's own call would fetch the release: tests/routes.txt has the gate).
+        for update in [
+            format!("/machines/{m}/agent/update"),
+            "/agents/update".to_owned(),
+        ] {
+            assert_eq!(
+                w.post(&adam, &update, "").await.0,
+                StatusCode::FORBIDDEN,
+                "a space admin: {update}"
+            );
+        }
         assert_eq!(
-            w.post(&ian, &path, &to(&uid_b1)).await.0,
-            StatusCode::FORBIDDEN,
-            "not admin there"
+            w.post(&ian, &path, "space=nowhere").await.0,
+            StatusCode::NOT_FOUND,
+            "no such space"
         );
         // Work under way: not now.
         sqlx::query(
@@ -1947,6 +1946,7 @@ mod tests {
         .unwrap();
         let (status, why) = w.post(&ian, &path, &to(&uid_a2)).await;
         assert_eq!(status, StatusCode::CONFLICT, "{why}");
+        assert_eq!(why, r#"{"code":"device/JOB_OPEN"}"#);
         sqlx::query("UPDATE jobs SET state = 'stopped', taken_at = at_unix(1)")
             .execute(w.store.pg().admin_in_tests())
             .await

@@ -60,6 +60,9 @@ CREATE TABLE group_grants (
     FOREIGN KEY (group_id, space_id) REFERENCES machine_groups (id, space_id)
 );
 
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON machine_grants, machine_groups, machine_group_members, access_requests, group_grants
+    TO maker_connect_app;
 ALTER TABLE machine_grants ENABLE ROW LEVEL SECURITY;
 CREATE POLICY in_space ON machine_grants USING (space_id = app_space());
 ALTER TABLE machine_groups ENABLE ROW LEVEL SECURITY;

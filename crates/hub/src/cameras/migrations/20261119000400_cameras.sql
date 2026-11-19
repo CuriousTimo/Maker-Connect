@@ -29,9 +29,13 @@ CREATE TABLE cameras (
     password text,
     machine_id text,
     view_role text NOT NULL DEFAULT 'admin',
-    created_at timestamptz NOT NULL
+    created_at timestamptz NOT NULL,
+    -- The machine it watches, in its space; that machine removed or moved: a room camera, seen from its
+    -- view_role up.
+    FOREIGN KEY (machine_id, space_id) REFERENCES machines (id, space_id) ON DELETE SET NULL (machine_id)
 );
 CREATE INDEX cameras_by_space ON cameras (space_id, name, id);
 
+GRANT SELECT, INSERT, UPDATE, DELETE ON cameras TO maker_connect_app;
 ALTER TABLE cameras ENABLE ROW LEVEL SECURITY;
 CREATE POLICY in_space ON cameras USING (space_id = app_space());

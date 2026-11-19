@@ -1,4 +1,4 @@
-use crate::store::Legacy;
+use crate::store::MoveRefused;
 use crate::{
     PAGE, STYLE, Store, access, done, escape, failed, header, label_page, machine_page, profiles,
 };
@@ -178,66 +178,32 @@ pub(crate) struct MoveForm {
     space: String,
 }
 
-/// The other spaces an instance admin who manages a machine could move it to: where they are owner
-/// or admin too. (uid, "Organisation · Space"); none for a token. Moving is an instance admin's
-/// (design decisions/20261119-device-move.md; admin-pool allowlist #3).
-fn move_targets(
-    store: &Legacy,
-    access: &access::Access,
-    machine: &str,
-    spaces: &[access::SpaceOf],
-    grants: &access::Grants,
-) -> Vec<(String, String)> {
-    let manages = store
-        .may(access, machine, access::Level::Manage, grants)
-        .unwrap_or(false);
-    if !manages || !access.instance_admin || access.token_id.is_some() {
+/// The other spaces of theirs an instance admin could move a machine to. (uid, "Organisation ·
+/// Space"); none for a token. Moving is an instance admin's, and only theirs (design
+/// decisions/20261119-device-move.md; admin-pool allowlist #3).
+fn move_targets(access: &access::Access, spaces: &[access::SpaceOf]) -> Vec<(String, String)> {
+    if !access.instance_admin || access.token_id.is_some() {
         return Vec::new();
     }
     spaces
         .iter()
-        .filter(|s| s.id != access.space && s.role >= access::Role::Admin)
+        .filter(|s| s.id != access.space)
         .map(|s| (s.uid.clone(), format!("{} · {}", s.organisation, s.name)))
         .collect()
 }
 
-/// Moves a machine to another space: an instance admin's (who manages both).
+/// Moves a machine to another space: an instance admin's (the route's gate), any space of the
+/// instance (design decisions/20261119-device-move.md).
 pub(crate) async fn move_machine(
     access: crate::access::Access,
     State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
     Form(form): Form<MoveForm>,
 ) -> Response {
-    if access.token_id.is_some() {
-        return (
-            StatusCode::FORBIDDEN,
-            "a token belongs to one space: move machines signed in",
-        )
-            .into_response();
-    }
-    if !access.instance_admin {
-        return (
-            StatusCode::FORBIDDEN,
-            "only who runs the server moves machines between spaces",
-        )
-            .into_response();
-    }
-    let target = match store.space_by_uid(form.space.trim()).await {
-        Ok(found) => found,
+    let to = match store.space_by_uid(form.space.trim()).await {
+        Ok(Some(to)) => to,
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such space").into_response(),
         Err(error) => return failed(error),
-    };
-    // A space they are not owner or admin of is one they may not put machines in; whether it
-    // exists is none of their business either.
-    let role = match target {
-        Some(to) => store.role_of(access.user_id, to).await.ok().flatten(),
-        None => None,
-    };
-    let Some(to) = target.filter(|_| role.is_some_and(|r| r >= access::Role::Admin)) else {
-        return (
-            StatusCode::FORBIDDEN,
-            "you are not owner or admin of that space",
-        )
-            .into_response();
     };
     let name = match store.machine(access.space, &id).await {
         Ok(Some(m)) => m.name,
@@ -271,7 +237,17 @@ pub(crate) async fn move_machine(
                 .await;
             StatusCode::NO_CONTENT.into_response()
         }
-        Ok(Err(why)) => (StatusCode::CONFLICT, why).into_response(),
+        Ok(Err(MoveRefused::NoSuchMachine)) => {
+            (StatusCode::NOT_FOUND, "no such machine").into_response()
+        }
+        Ok(Err(MoveRefused::InThatSpace)) => {
+            (StatusCode::CONFLICT, "it is in that space already").into_response()
+        }
+        Ok(Err(MoveRefused::JobOpen(_))) => (
+            StatusCode::CONFLICT,
+            axum::Json(serde_json::json!({ "code": "device/JOB_OPEN" })),
+        )
+            .into_response(),
         Err(error) => failed(error),
     }
 }
@@ -607,19 +583,16 @@ pub(crate) async fn machine_page(
     let store = store.lock().unwrap();
     match found {
         Ok((space, Some(machine))) if machine.kind == protocol::MachineKind::Label => {
-            let move_to = move_targets(&store, &access, &machine.id, &spaces, &grants);
-            let manage = store
-                .may(&access, &machine.id, access::Level::Manage, &grants)
-                .unwrap_or(false);
+            let move_to = move_targets(&access, &spaces);
             // HS2: a LabelWriter has its own page; a LabelManager the label page.
             let profile = machine.profile.as_deref().and_then(profiles::find);
             if profile.is_some_and(|p| p.firmware.as_deref() == Some("dymo-lw")) {
                 return Html(crate::pages::labelwriter_page::render(
-                    &space, &machine, &move_to, manage,
+                    &space, &machine, &move_to,
                 ))
                 .into_response();
             }
-            Html(label_page::render(&space, &machine, &move_to, manage)).into_response()
+            Html(label_page::render(&space, &machine, &move_to)).into_response()
         }
         Ok((space, Some(machine))) => {
             let extra = machine_page::Extra {
@@ -632,7 +605,7 @@ pub(crate) async fn machine_page(
                 may_use: store
                     .may(&access, &machine.id, access::Level::Use, &grants)
                     .unwrap_or(false),
-                move_to: move_targets(&store, &access, &machine.id, &spaces, &grants),
+                move_to: move_targets(&access, &spaces),
                 manage: store
                     .may(&access, &machine.id, access::Level::Manage, &grants)
                     .unwrap_or(false),

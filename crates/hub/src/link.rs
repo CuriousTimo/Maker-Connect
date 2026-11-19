@@ -719,7 +719,7 @@ pub(crate) mod tests {
             machine_page::shown_state(&machine),
             ("no cassette".to_owned(), "attention".to_owned())
         );
-        let page = label_page::render("My space", &machine, &[], false);
+        let page = label_page::render("My space", &machine, &[]);
         assert!(page.contains(r#"class="state attention""#));
     }
 
@@ -1193,5 +1193,66 @@ pub(crate) mod tests {
             state_of(&store, space, &id, b).await,
             (store::CommandState::Finished, None)
         );
+    }
+
+    /// Two pairings of one code at once (design decisions/20261119-pairing-in-one-space-transaction.md):
+    /// one wins, the other finds no machine, also for a Prusa Connect printer, which keeps its code.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn two_pairings_of_one_code_end_with_one_winner(pool: sqlx::PgPool) {
+        let store = crate::Store::for_test(&pool).await;
+        let (first, _) = store.default_space().await.unwrap();
+        let second = store.create_space(first, "Lab").await.unwrap();
+        for link in ["agent", "prusa-connect"] {
+            let (id, _, code) = store
+                .register_linked(
+                    &Register {
+                        protocol: protocol::VERSION,
+                        name: "test".into(),
+                        kind: MachineKind::Fdm,
+                        agent_version: "0.1.0".into(),
+                    },
+                    link,
+                )
+                .await
+                .unwrap();
+            // The machine's row held, so both pairings are under way before either can take it.
+            let mut hold = store.pg().admin_in_tests().begin().await.unwrap();
+            sqlx::query("SELECT id FROM machines WHERE id = $1 FOR UPDATE")
+                .bind(&id)
+                .execute(&mut *hold)
+                .await
+                .unwrap();
+            let pairing = |space: i64| {
+                let (store, code) = (store.clone(), code.clone());
+                tokio::spawn(async move { store.pair(space, &code).await.unwrap() })
+            };
+            let (a, b) = (pairing(first), pairing(second));
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            hold.commit().await.unwrap();
+            let won: Vec<_> = [a.await.unwrap(), b.await.unwrap()]
+                .into_iter()
+                .flatten()
+                .collect();
+            assert_eq!(won.len(), 1, "{link}: {won:?}");
+            let space: Option<i64> =
+                sqlx::query_scalar("SELECT space_id FROM machines WHERE id = $1")
+                    .bind(&id)
+                    .fetch_one(store.pg().admin_in_tests())
+                    .await
+                    .unwrap();
+            assert!(
+                matches!(space, Some(s) if s == first || s == second),
+                "{link}"
+            );
+            assert_eq!(
+                store.pair(first, &code).await.unwrap(),
+                None,
+                "{link}: used once"
+            );
+        }
     }
 }

@@ -145,15 +145,19 @@ impl Store {
         crate::stock::in_space!(self, space, |w| w.cameras()).await
     }
 
-    /// Every camera of every space (their sessions start with the hub): a background task listing its
-    /// work (`Bypass::TaskList`).
+    /// Every camera of every space (their sessions start with the hub): a background task lists its
+    /// work, which camera in which space (`Bypass::TaskList`), and reads each camera in its space.
     pub async fn all_cameras(&self) -> sqlx::Result<Vec<Camera>> {
-        let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT {COLUMNS} FROM cameras ORDER BY id"
-        )))
-        .fetch_all(self.pg().admin(Bypass::TaskList))
-        .await?;
-        Ok(rows.into_iter().map(camera).collect())
+        let ids: Vec<(i64, i64)> = sqlx::query_as("SELECT space_id, id FROM cameras ORDER BY id")
+            .fetch_all(self.pg().admin(Bypass::TaskList))
+            .await?;
+        let mut all = Vec::with_capacity(ids.len());
+        for (space, id) in ids {
+            if let Some(camera) = crate::stock::in_space!(self, space, |w| w.camera(id)).await? {
+                all.push(camera);
+            }
+        }
+        Ok(all)
     }
 }
 
@@ -272,6 +276,38 @@ mod tests {
         assert!(store.all_cameras().await.unwrap().is_empty());
     }
 
+    /// The camera task's list (allowlist #5): every space's cameras, each read in its own space.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_camera_task_reads_each_camera_in_its_space(pool: sqlx::PgPool) {
+        let store = crate::Store::for_test(&pool).await;
+        let (first, _) = store.default_space().await.unwrap();
+        let second = store.create_space(first, "Lab").await.unwrap();
+        for (space, name) in [(first, "Hall"), (second, "Lab")] {
+            let mut w = store.work(space).await.unwrap();
+            w.add_camera(&form(name, None, Role::Admin)).await.unwrap();
+            w.commit(&store).await.unwrap();
+        }
+        let all: Vec<_> = store
+            .all_cameras()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|c| (c.space_id, c.name, c.password))
+            .collect();
+        let secret = Some("secret".to_owned());
+        assert_eq!(
+            all,
+            [
+                (first, "Hall".to_owned(), secret.clone()),
+                (second, "Lab".to_owned(), secret)
+            ]
+        );
+    }
+
     /// Who may watch (owner, 2026-11-16), per role and kind of camera.
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
@@ -284,6 +320,7 @@ mod tests {
         let mk3s = crate::profiles::find("prusa/mk3s").unwrap();
         let open = store.add_virtual(space, mk3s).await.unwrap();
         let inducted = store.add_virtual(space, mk3s).await.unwrap();
+        let removed = store.add_virtual(space, mk3s).await.unwrap();
         store
             .set_induction_required(space, &inducted, true)
             .await
@@ -301,7 +338,7 @@ mod tests {
         for (name, machine, role) in [
             ("a", Some(open.as_str()), Role::Admin),
             ("b", Some(inducted.as_str()), Role::Admin),
-            ("c", Some("no-such-machine"), Role::Guest),
+            ("c", Some(removed.as_str()), Role::Admin),
             ("d", None, Role::Admin),
             ("e", None, Role::Member),
         ] {
@@ -311,10 +348,15 @@ mod tests {
             unreachable!()
         };
         let mut cameras = std::collections::HashMap::new();
+        w.commit(&store).await.unwrap();
+        // Its machine removed: the camera stays, watching nothing (its key clears).
+        assert!(store.remove_machine(space, &removed).await.unwrap());
+        let mut w = store.work(space).await.unwrap();
         for id in &ids {
             cameras.insert(*id, w.camera(*id).await.unwrap().unwrap());
         }
         w.commit(&store).await.unwrap();
+        assert_eq!(cameras[&gone].machine_id, None);
         let all = store.cameras(space).await.unwrap();
         let s = store.lock().unwrap();
         let may =
@@ -323,7 +365,7 @@ mod tests {
             // Whoever may see the machine (a guest has View), with or without induction.
             assert!(may(role, on_open), "{role:?}");
             assert!(may(role, on_inducted), "{role:?}");
-            // A camera whose machine is gone: admins only.
+            // A camera whose machine is gone: a room camera, from its role up (admin here).
             assert_eq!(may(role, gone), role >= Role::Admin, "{role:?}");
             // A room camera: from its role up.
             assert_eq!(may(role, room_admin), role >= Role::Admin, "{role:?}");

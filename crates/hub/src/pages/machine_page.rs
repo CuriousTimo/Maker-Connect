@@ -184,7 +184,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         upkeep = upkeep_card(machine, extra.manage),
         control = control(machine, profile, &loaded_card(machine, extra)),
         telemetry = telemetry_tab(machine),
-        settings = settings(machine, &extra.move_to, extra.ppe_checks, extra.manage),
+        settings = settings(machine, &extra.move_to, extra.ppe_checks),
         terminal = terminal(machine),
         usb_tab = if machine.link == "prusa-connect" {
             r##"<a href="#usb" role="tab">USB</a>
@@ -1919,7 +1919,7 @@ fn controller(machine: &Machine) -> String {
 /// How a device reaches the hub, the same card for every kind: the way (an agent, its own
 /// firmware, simulated), the agent's computer as it tells, the address its reports come
 /// from, and when the last came.
-fn connection(machine: &Machine, manage: bool) -> String {
+fn connection(machine: &Machine) -> String {
     let way = match machine.link.as_str() {
         "prusa-connect" => "Its own firmware (Prusa Connect)",
         "virtual" => "Virtual: simulated in the hub",
@@ -1982,16 +1982,14 @@ url: ws://…/simplyprint/{token}</pre><p class="hint" data-moonraker-local hidd
     card(
         "Connection",
         "How it reaches the hub",
-        &format!(
-            "<dl>{rows}</dl>{}{moonraker}",
-            agent_update(machine, manage)
-        ),
+        &format!("<dl>{rows}</dl>{}{moonraker}", agent_update(machine)),
     )
 }
 
-/// Updating a machine's agent (crate::updates): how the last went, one asked for, and the
-/// button for who manages the machine.
-fn agent_update(machine: &Machine, manage: bool) -> String {
+/// Updating a machine's agent (crate::updates): how the last went, and one asked for. No button: an
+/// agent hosts machines of several spaces, its update is the instance admin's (design
+/// decisions/20261119-agent-update-by-instance-admin.md).
+fn agent_update(machine: &Machine) -> String {
     let Some(agent) = machine.agent.as_ref().filter(|_| machine.link == "agent") else {
         return String::new();
     };
@@ -2014,16 +2012,11 @@ fn agent_update(machine: &Machine, manage: bool) -> String {
         };
     }
     if !agent.can_update {
-        html += r#"<p class="hint">This agent is from before 0.2.0-beta.2 and cannot update itself. Install the new agent by hand once (Downloads); from then on it updates from here.</p>"#;
+        html += r#"<p class="hint">This agent is from before 0.2.0-beta.2 and cannot update itself. Install the new agent by hand once (Downloads); from then on whoever runs the server updates it from there.</p>"#;
     } else if let Some(to) = &machine.agent_update_to {
         html += &format!(
             r#"<p class="hint">Asked to update to {}: it does so once nothing runs on the machine, and goes back by itself if the new one does not reach the hub.</p>"#,
             escape(to.trim_start_matches("agent-"))
-        );
-    } else if manage {
-        html += &format!(
-            r#"<form method="post" action="{}/agent/update" data-async data-done="Asked: it updates once nothing runs on the machine" data-then="reload"><button class="ghost">Update the agent to the newest release</button></form><p class="hint">The release is checked against Maker Connect's signature, here and by the agent. It updates once nothing runs on the machine, and goes back by itself if the new one does not reach the hub.</p>"#,
-            escape(&machine.id)
         );
     }
     html
@@ -2033,7 +2026,6 @@ pub(crate) fn settings(
     machine: &Machine,
     move_to: &[(String, String)],
     ppe_checks: bool,
-    manage: bool,
 ) -> String {
     let details = machine.details.clone().unwrap_or_default();
     // The profile: chosen from all the machines known, by searching (the shell's picker).
@@ -2233,7 +2225,7 @@ pub(crate) fn settings(
         row("Wi-Fi network", network.wifi_ssid),
     ]
     .concat();
-    let mut info = connection(machine, manage);
+    let mut info = connection(machine);
     info += &controller(machine);
     if !about.is_empty() {
         info += &card(

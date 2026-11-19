@@ -31,5 +31,6 @@ CREATE TABLE machine_queue (
 );
 CREATE INDEX machine_queue_by_machine ON machine_queue (space_id, machine_id, pos, id);
 
+GRANT SELECT, INSERT, UPDATE, DELETE ON machine_queue TO maker_connect_app;
 ALTER TABLE machine_queue ENABLE ROW LEVEL SECURITY;
 CREATE POLICY in_space ON machine_queue USING (space_id = app_space());

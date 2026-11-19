@@ -132,14 +132,20 @@ impl Store {
         if !there || Self::file_in_use(&mut tx, id).await? {
             return Ok(false);
         }
-        let removed = sqlx::query!(
+        // Nor while a part's file or a transfer's record names it (their keys,
+        // design decisions/20261119-composite-foreign-keys.md).
+        let removed = match sqlx::query!(
             "DELETE FROM files WHERE id = $1 AND space_id = $2",
             id,
             space
         )
         .execute(&mut *tx)
-        .await?
-        .rows_affected();
+        .await
+        {
+            Ok(done) => done.rows_affected(),
+            Err(sqlx::Error::Database(e)) if e.is_foreign_key_violation() => return Ok(false),
+            Err(e) => return Err(e),
+        };
         tx.commit().await?;
         if removed > 0 {
             let _ = std::fs::remove_file(self.file_path(id));

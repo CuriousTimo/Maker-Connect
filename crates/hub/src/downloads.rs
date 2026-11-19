@@ -145,7 +145,6 @@ async fn page(
     State(store): State<Store>,
     headers: HeaderMap,
 ) -> Response {
-    let role = access.role;
     let space = match store.space_name(access.space).await {
         Ok(space) => space,
         Err(error) => return failed(error),
@@ -357,7 +356,7 @@ async fn page(
 </html>
 "##,
         header = header(&space, "", "downloads"),
-        update_all = if role >= crate::access::Role::Admin {
+        update_all = if access.instance_admin && access.token_id.is_none() {
             r#"<form class="update-all" method="post" action="agents/update" data-async data-done="Asked: each agent updates once nothing runs on its machine"><button class="ghost">Update every agent in this space to the newest release</button><small>Checked against Maker Connect's signature, here and by each agent. An agent updates once nothing runs on its machine, and goes back by itself if the new one does not reach the hub. Agents from before 0.2.0-beta.2 are installed by hand once.</small></form>"#
         } else {
             ""

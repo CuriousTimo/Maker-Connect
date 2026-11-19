@@ -652,6 +652,195 @@ mod tests {
         }
     }
 
+    /// Composite keys (design decisions/20261119-composite-foreign-keys.md): every reference from a
+    /// tenant row to another tenant row names the parent with its space, so a row of space 1 never
+    /// points at space 2's job, file, part, project, vendor, filament, spool, machine or location,
+    /// whoever writes it. One case per key.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_row_never_names_another_spaces_row(pool: PgPool) {
+        // The parents, `…1` in space 1 and `…2` in space 2, as the owner.
+        sqlx::raw_sql(
+            "INSERT INTO organisations (uid, name, created_at) VALUES ('o2', 'Other', at_unix(0));
+             INSERT INTO spaces (id, name, uid, organisation_id)
+                 SELECT 2, 'Other', 's2', id FROM organisations WHERE uid = 'o2';
+             INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at)
+                 VALUES ('m1', 1, 'M', '\"fdm\"', '0.1.0', 't1', at_unix(0)),
+                        ('m2', 2, 'M', '\"fdm\"', '0.1.0', 't2', at_unix(0));
+             INSERT INTO files (id, space_id, name, size, uploaded_at, meta)
+                 VALUES ('f1', 1, 'a.gcode', 1, at_unix(0), '{}'), ('f2', 2, 'a.gcode', 1, at_unix(0), '{}');
+             INSERT INTO jobs (id, space_id, machine_id, file_id, file_name, state, created_at)
+                 VALUES (1, 1, 'm1', 'f1', 'a.gcode', 'finished', at_unix(0)),
+                        (2, 2, 'm2', 'f2', 'a.gcode', 'finished', at_unix(0));
+             INSERT INTO projects (id, space_id, name, created_at)
+                 VALUES (1, 1, 'P', at_unix(0)), (2, 2, 'P', at_unix(0));
+             INSERT INTO parts (id, project_id, space_id, name, target, created_at)
+                 VALUES (1, 1, 1, 'A', 1, at_unix(0)), (2, 2, 2, 'A', 1, at_unix(0));
+             INSERT INTO vendor (id, space_id, registered, name)
+                 VALUES (1, 1, at_unix(0), 'V'), (2, 2, at_unix(0), 'V');
+             INSERT INTO filament (id, space_id, registered) VALUES (1, 1, at_unix(0)), (2, 2, at_unix(0));
+             INSERT INTO spool (id, space_id, registered, filament_id)
+                 VALUES (1, 1, at_unix(0), 1), (2, 2, at_unix(0), 2);
+             INSERT INTO locations (id, space_id, name) VALUES ('P1', 1, 'Shelf'), ('P2', 2, 'Shelf');
+             SELECT setval(pg_get_serial_sequence('jobs', 'id'), 10);",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // `{n}`: 2 names space 2's parent (refused), 1 its own (taken).
+        let rows = [
+            "INSERT INTO printer_transfers (iv, machine_id, space_id, file_id, key, size, path, created_at)
+                 VALUES ('iv-f{n}', 'm1', 1, 'f{n}', 'k', 1, '/usb/a', at_unix(0))",
+            "INSERT INTO printer_transfers (iv, machine_id, space_id, file_id, job_id, key, size, path, created_at)
+                 VALUES ('iv-j{n}', 'm1', 1, 'f1', {n}, 'k', 1, '/usb/a', at_unix(0))",
+            "INSERT INTO part_ledger (space_id, part_id, at, delta, done_after, source, actor)
+                 VALUES (1, {n}, at_unix(0), 1, 1, 'job', 'a')",
+            "INSERT INTO part_ledger (space_id, part_id, job_id, at, delta, done_after, source, actor)
+                 VALUES (1, 1, {n}, at_unix(0), 1, 1, 'job', 'a')",
+            "INSERT INTO parts (project_id, space_id, name, target, created_at)
+                 VALUES ({n}, 1, 'B', 1, at_unix(0))",
+            "INSERT INTO part_files (part_id, space_id, profile, file_id, created_at)
+                 VALUES ({n}, 1, 'p', 'f1', at_unix(0))",
+            "INSERT INTO part_files (part_id, space_id, profile, file_id, created_at)
+                 VALUES (1, 1, 'q', 'f{n}', at_unix(0))",
+            "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at, part_id)
+                 VALUES (1, 'm1', 'f1', 'a.gcode', 'finished', at_unix(0), {n})",
+            "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at, spool_id)
+                 VALUES (1, 'm1', 'f1', 'a.gcode', 'finished', at_unix(0), {n})",
+            "INSERT INTO filament (space_id, registered, vendor_id) VALUES (1, at_unix(0), {n})",
+            "INSERT INTO spool (space_id, registered, filament_id) VALUES (1, at_unix(0), {n})",
+            "INSERT INTO spool (space_id, registered, filament_id, machine) VALUES (1, at_unix(0), 1, 'm{n}')",
+            "INSERT INTO tag (space_id, uid, target_type, spool_id, added)
+                 VALUES (1, 's{n}', 'spool', {n}, at_unix(0))",
+            "INSERT INTO tag (space_id, uid, target_type, filament_id, added)
+                 VALUES (1, 'f{n}', 'filament', {n}, at_unix(0))",
+            "INSERT INTO cameras (space_id, name, url, machine_id, created_at)
+                 VALUES (1, 'C', 'rtsp://x', 'm{n}', at_unix(0))",
+            "INSERT INTO locations (id, space_id, name, parent) VALUES ('C{n}', 1, 'Box', 'P{n}')",
+        ];
+        let pg = Pg::from_pool(&pool);
+        for row in rows {
+            let other = row.replace("{n}", "2");
+            let mut tx = pg.space(1).await.unwrap();
+            let refused = sqlx::query(sqlx::AssertSqlSafe(other.clone()))
+                .execute(&mut *tx)
+                .await;
+            assert_eq!(code_of(refused), "23503", "as the app role: {other}");
+            drop(tx);
+            let refused = sqlx::query(sqlx::AssertSqlSafe(other.clone()))
+                .execute(&pool)
+                .await;
+            assert_eq!(code_of(refused), "23503", "as the owner: {other}");
+            let mut tx = pg.space(1).await.unwrap();
+            sqlx::query(sqlx::AssertSqlSafe(row.replace("{n}", "1")))
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            tx.commit().await.unwrap();
+        }
+        // The keys point at (space, id): each referenced table has that unique key.
+        let unique: Vec<String> = sqlx::query_scalar(
+            "SELECT c.conrelid::regclass::text FROM pg_constraint c
+             WHERE c.contype = 'u' AND c.connamespace = 'public'::regnamespace
+               AND (SELECT array_agg(a.attname::text ORDER BY k.n) FROM unnest(c.conkey) WITH ORDINALITY k(attnum, n)
+                    JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum) = ARRAY['space_id', 'id']
+             ORDER BY 1",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            unique,
+            [
+                "filament", "files", "jobs", "parts", "projects", "spool", "vendor"
+            ],
+            "UNIQUE (space_id, id)"
+        );
+    }
+
+    /// Row-level security by construction (catalog): every table the app role may touch has
+    /// row-level security (a tenant table without it, as `sessions`, is the admin role's alone); and
+    /// a new table gives the app role nothing by default: a migration grants it beside its policy.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn every_app_table_has_row_level_security(pool: PgPool) {
+        let without: Vec<String> = sqlx::query_scalar(
+            "SELECT c.relname::text FROM pg_class c
+             WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+               AND NOT c.relrowsecurity
+               AND has_table_privilege($1, c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+             ORDER BY 1",
+        )
+        .bind(APP_ROLE)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(without.is_empty(), "no row-level security: {without:?}");
+        let by_default: Vec<String> = sqlx::query_scalar(
+            "SELECT d.defaclobjtype::text FROM pg_default_acl d, aclexplode(d.defaclacl) a
+             WHERE a.grantee = $1::regrole AND d.defaclobjtype = 'r'",
+        )
+        .bind(APP_ROLE)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(by_default.is_empty(), "default privileges: {by_default:?}");
+        // What the app role is granted, table by table (a new table is added here on purpose).
+        let granted: Vec<String> = sqlx::query_scalar(
+            "SELECT c.relname::text FROM pg_class c
+             WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+               AND has_table_privilege($1, c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+             ORDER BY 1",
+        )
+        .bind(APP_ROLE)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            granted,
+            [
+                "access_requests",
+                "api_tokens",
+                "audit_log",
+                "cameras",
+                "extra_field",
+                "filament",
+                "files",
+                "group_grants",
+                "invites",
+                "jobs",
+                "locations",
+                "machine_grants",
+                "machine_group_members",
+                "machine_groups",
+                "machine_queue",
+                "machines",
+                "memberships",
+                "movements",
+                "org_memberships",
+                "organisations",
+                "part_files",
+                "part_ledger",
+                "parts",
+                "printer_files",
+                "printer_transfers",
+                "projects",
+                "setting",
+                "spaces",
+                "spool",
+                "tag",
+                "users",
+                "vendor",
+            ]
+        );
+    }
+
     /// The spike of step 2: one migrator from several modules' folders, in version order.
     #[test]
     fn the_modules_migrations_merge_in_version_order() {
@@ -843,17 +1032,20 @@ mod tests {
              INSERT INTO setting (space_id, key, value, last_updated) SELECT id, 'currency', 'EUR', at_unix(0) FROM spaces;
              INSERT INTO vendor (space_id, registered, name) SELECT id, at_unix(0), 'V' FROM spaces;
              INSERT INTO filament (space_id, registered) SELECT id, at_unix(0) FROM spaces;
-             INSERT INTO spool (space_id, registered, filament_id) SELECT id, at_unix(0), 1 FROM spaces;
+             INSERT INTO spool (space_id, registered, filament_id) SELECT space_id, at_unix(0), id FROM filament;
              INSERT INTO tag (space_id, uid, target_type, added) SELECT id, 'AA', 'spool', at_unix(0) FROM spaces;
              INSERT INTO extra_field (space_id, entity_type, key, definition) SELECT id, 'spool', 'k', '{}' FROM spaces;
              INSERT INTO machine_queue (space_id, machine_id, file_id, file_name, pos, added_at)
                  SELECT id, 'm', 'f', 'a.gcode', 1, at_unix(0) FROM spaces;
              INSERT INTO projects (space_id, name, created_at) SELECT id, 'P', at_unix(0) FROM spaces;
-             INSERT INTO parts (project_id, space_id, name, target, created_at) SELECT id, id, 'A', 1, at_unix(0) FROM spaces;
+             INSERT INTO parts (project_id, space_id, name, target, created_at)
+                 SELECT id, space_id, 'A', 1, at_unix(0) FROM projects;
+             INSERT INTO files (id, space_id, name, size, uploaded_at, meta)
+                 SELECT 'f' || id, id, 'a.gcode', 1, at_unix(0), '{}' FROM spaces;
              INSERT INTO part_files (part_id, space_id, profile, file_id, created_at)
-                 SELECT id, id, 'prusa/mk3s', 'f', at_unix(0) FROM spaces;
+                 SELECT p.id, p.space_id, 'prusa/mk3s', 'f' || p.space_id, at_unix(0) FROM parts p;
              INSERT INTO part_ledger (space_id, part_id, at, delta, done_after, source, actor)
-                 SELECT id, id, at_unix(0), 1, 1, 'corrected', 'x' FROM spaces;
+                 SELECT space_id, id, at_unix(0), 1, 1, 'corrected', 'x' FROM parts;
              INSERT INTO cameras (space_id, name, url, created_at) SELECT id, 'C', 'rtsp://x', at_unix(0) FROM spaces;",
         )
         .execute(&pool)

@@ -1,9 +1,9 @@
 //! Machines on Postgres (`migrations/20261118000300_machines.sql`): the queries of `machines.rs` and
 //! `agents.rs` that touch only the `machines` table, as async [`Store`] methods (hub core v2 step 2,
-//! lane 3). Space-keyed ones run in their space's transaction ([`pg::Pg::space`]); those keyed by a
-//! token or a pairing code (an agent, a printer, maybe in no space yet) use the admin pool
-//! (`Bypass::Secret`), and so does moving a machine to another space
-//! (`Bypass::InstanceAdmin`).
+//! lane 3). Space-keyed ones run in their space's transaction ([`pg::Pg::space`]), pairing too
+//! (`claim_registration`); those keyed by a token or a registration code (an agent, a printer, maybe
+//! in no space yet) use the admin pool (`Bypass::Secret`), and moving a machine to another space
+//! uses `Bypass::InstanceAdmin`.
 
 use super::*;
 use crate::store::pg::Bypass;
@@ -161,33 +161,22 @@ impl Store {
     }
 
     /// Puts the machine waiting with this pairing code in the space: its (id, name); None for an
-    /// unknown code. A code is used once.
+    /// unknown code, or one another pairing took first. A code is used once. In the space's
+    /// transaction, through `claim_registration` (design decisions/20261119-pairing-in-one-space-transaction.md):
+    /// one statement that takes the machine only while it has no space.
     pub async fn pair(&self, space: i64, code: &str) -> sqlx::Result<Option<(String, String)>> {
         let code = code.trim().to_ascii_uppercase();
-        let mut tx = self.pg().admin(Bypass::Secret).begin().await?;
-        let found = sqlx::query!(
-            "SELECT id, name FROM machines WHERE pairing_code = $1 AND space_id IS NULL",
-            code
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-        if found.is_some() {
-            // A Prusa Connect printer still asks with its code for its token.
-            sqlx::query!(
-                "UPDATE machines SET space_id = $1,
-                     pairing_code = CASE link WHEN 'prusa-connect' THEN pairing_code ELSE NULL END
-                 WHERE pairing_code = $2",
-                space,
-                code
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
+        let mut tx = self.pg().space(space).await?;
+        let claimed: Option<(String, String)> =
+            sqlx::query_as("SELECT machine_id, machine_name FROM claim_registration($1)")
+                .bind(&code)
+                .fetch_optional(&mut *tx)
+                .await?;
         tx.commit().await?;
-        if found.is_some() {
+        if claimed.is_some() {
             self.changed();
         }
-        Ok(found.map(|r| (r.id, r.name)))
+        Ok(claimed)
     }
 
     /// A new agent: its machine, not yet in a space, with a token and a pairing code.
@@ -647,19 +636,20 @@ impl Store {
             .await
     }
 
-    /// Moves a machine to another space: what someone may do with it there is that space's
-    /// business. Refused (with the reason) while it has work under way. What goes along is the
-    /// machine itself (name, labels, plate, service interval) and its agent, which keeps its token.
-    /// What stays: its jobs (their files are the old space's), the rights given on it (people of the
-    /// old space), the spool said to be loaded (the old space's Materials), and its place in the old
-    /// space's queue. Its permissions, group places and requests for permission go, in this
-    /// transaction.
+    /// Moves a machine to another space (design decisions/20261119-device-move.md): what someone may
+    /// do with it there is that space's business. Refused while it has work under way. What goes
+    /// along is the machine itself (name, labels, plate, service interval), what its stick holds,
+    /// and its agent, which keeps its token. What stays: its jobs and the records of what was sent
+    /// (their files are the old space's). What the old space said about it goes, in this
+    /// transaction: its permissions, group places, requests for permission and queue items are
+    /// deleted; a spool loaded in it and a camera watching it are unlinked (their keys name the
+    /// machine with its space, so the move fails while one is left).
     pub async fn move_machine(
         &self,
         from: i64,
         machine: &str,
         to: i64,
-    ) -> Result<Result<(), String>, BoxError> {
+    ) -> Result<Result<(), MoveRefused>, BoxError> {
         // The check and the move are one transaction, the machine's row locked: a job put on it
         // meanwhile ([`Store::add_job`] locks the same row) waits until it has moved, or is there
         // before the check sees it.
@@ -673,20 +663,23 @@ impl Store {
         .await?
         .is_some();
         if !here {
-            return Ok(Err("no such machine".to_owned()));
+            return Ok(Err(MoveRefused::NoSuchMachine));
         }
         if from == to {
-            return Ok(Err("it is in that space already".to_owned()));
+            return Ok(Err(MoveRefused::InThatSpace));
         }
         let jobs = Self::job_facts_on(&mut tx, &[machine.to_owned()]).await?;
         let sending = Self::files_on_their_way(&mut tx, machine).await?;
         let stays = self.lock().unwrap().why_it_stays(&jobs, machine, sending);
         if let Some(why) = stays {
-            return Ok(Err(why));
+            return Ok(Err(MoveRefused::JobOpen(why)));
         }
-        // Its permissions, group places and requests for permission stay behind: gone (their keys
-        // name the machine with its space). What its stick holds goes with it (ON UPDATE CASCADE).
-        for table in ["machine_grants", "machine_group_members", "access_requests"] {
+        for table in [
+            "machine_grants",
+            "machine_group_members",
+            "access_requests",
+            "machine_queue",
+        ] {
             sqlx::query(sqlx::AssertSqlSafe(format!(
                 "DELETE FROM {table} WHERE machine_id = $1 AND space_id = $2"
             )))
@@ -695,6 +688,18 @@ impl Store {
             .execute(&mut *tx)
             .await?;
         }
+        // A spool loaded in it stays in the old space, no longer loaded; a camera watching it stays
+        // too, watching nothing.
+        sqlx::query("UPDATE spool SET machine = NULL WHERE machine = $1 AND space_id = $2")
+            .bind(machine)
+            .bind(from)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE cameras SET machine_id = NULL WHERE machine_id = $1 AND space_id = $2")
+            .bind(machine)
+            .bind(from)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query!(
             "UPDATE machines SET space_id = $2, farm = false WHERE id = $1",
             machine,
@@ -703,12 +708,6 @@ impl Store {
         .execute(&mut *tx)
         .await?;
         Self::transfers_moved_away(&mut tx, machine).await?;
-        // A spool loaded in it stays in the old space, no longer loaded.
-        sqlx::query("UPDATE spool SET machine = NULL WHERE machine = $1 AND space_id = $2")
-            .bind(machine)
-            .bind(from)
-            .execute(&mut *tx)
-            .await?;
         tx.commit().await?;
         self.lock().unwrap().moved_away(machine);
         Ok(Ok(()))
@@ -869,6 +868,17 @@ impl Store {
             (r.into_machine(now()), space)
         }))
     }
+}
+
+/// Why a machine is not moved to another space ([`Store::move_machine`]).
+#[derive(Debug, PartialEq, Eq)]
+pub enum MoveRefused {
+    /// Not a machine of the space it is moved from.
+    NoSuchMachine,
+    /// It is in the space it would move to.
+    InThatSpace,
+    /// It has work not over (`409 device/JOB_OPEN`, design decisions/20261119-device-move.md): why.
+    JobOpen(String),
 }
 
 #[cfg(test)]

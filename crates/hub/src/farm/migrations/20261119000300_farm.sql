@@ -1,7 +1,8 @@
 -- The farm (crate::farm): projects, parts, their files and the ledger, today's tables on Postgres
 -- (hub-core-v2.md §3). Times are timestamptz through at_unix()/unix_seconds(). Every table carries
--- space_id with row-level security on app_space(). No foreign keys between these tables: today's never
--- held one; what goes with a removal the code removes, as before. Ids people see (projects, parts, a
+-- space_id with row-level security on app_space(). A reference to another tenant row is a key with its
+-- space, `(space_id, parent)` to the parent's `UNIQUE (space_id, id)` (design
+-- decisions/20261119-composite-foreign-keys.md); what goes with a removal goes by its key. Ids people see (projects, parts, a
 -- part's files) as SQLite's rowid gave them (next_rowid, stock/migrations); the ledger's are never shown.
 
 CREATE OR REPLACE FUNCTION next_rowid(t text) RETURNS bigint LANGUAGE plpgsql VOLATILE SECURITY DEFINER
@@ -25,7 +26,8 @@ CREATE TABLE projects (
     description text NOT NULL DEFAULT '',
     state text NOT NULL DEFAULT 'draft',
     priority bigint NOT NULL DEFAULT 0,
-    created_at timestamptz NOT NULL
+    created_at timestamptz NOT NULL,
+    UNIQUE (space_id, id)
 );
 CREATE INDEX projects_by_space ON projects (space_id);
 
@@ -37,7 +39,9 @@ CREATE TABLE parts (
     target bigint NOT NULL,
     done bigint NOT NULL DEFAULT 0,
     sort_order bigint NOT NULL DEFAULT 0,
-    created_at timestamptz NOT NULL
+    created_at timestamptz NOT NULL,
+    UNIQUE (space_id, id),
+    FOREIGN KEY (space_id, project_id) REFERENCES projects (space_id, id) ON DELETE CASCADE
 );
 CREATE INDEX parts_by_project ON parts (space_id, project_id);
 
@@ -53,7 +57,9 @@ CREATE TABLE part_files (
     created_at timestamptz NOT NULL,
     -- The build plate (sheet) it needs; none: any.
     sheet text,
-    UNIQUE (part_id, profile)
+    UNIQUE (part_id, profile),
+    FOREIGN KEY (space_id, part_id) REFERENCES parts (space_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (space_id, file_id) REFERENCES files (space_id, id)
 );
 CREATE INDEX part_files_by_part ON part_files (space_id, part_id);
 
@@ -67,10 +73,18 @@ CREATE TABLE part_ledger (
     source text NOT NULL,
     job_id bigint,
     actor text NOT NULL,
-    note text NOT NULL DEFAULT ''
+    note text NOT NULL DEFAULT '',
+    FOREIGN KEY (space_id, part_id) REFERENCES parts (space_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (space_id, job_id) REFERENCES jobs (space_id, id)
 );
 CREATE INDEX part_ledger_by_part ON part_ledger (space_id, part_id, at DESC, id DESC);
 
+-- A job's part: the job survives its project.
+ALTER TABLE jobs
+    ADD CONSTRAINT jobs_part FOREIGN KEY (space_id, part_id) REFERENCES parts (space_id, id)
+        ON DELETE SET NULL (part_id);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON projects, parts, part_files, part_ledger TO maker_connect_app;
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 CREATE POLICY in_space ON projects USING (space_id = app_space());
 ALTER TABLE parts ENABLE ROW LEVEL SECURITY;

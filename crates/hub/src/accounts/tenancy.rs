@@ -185,10 +185,11 @@ impl Store {
         Ok(name)
     }
 
-    /// A space by its id under the hood: the one someone chose, before its transaction.
+    /// A space by its id under the hood, any space of the instance: the one an instance admin moves
+    /// a machine to (crate::web::machines::move_machine).
     pub async fn space_by_uid(&self, uid: &str) -> sqlx::Result<Option<i64>> {
         sqlx::query_scalar!("SELECT id FROM spaces WHERE uid = $1", uid)
-            .fetch_optional(self.pg().admin(Bypass::SignIn))
+            .fetch_optional(self.pg().admin(Bypass::InstanceAdmin))
             .await
     }
 

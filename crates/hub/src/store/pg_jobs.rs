@@ -991,7 +991,9 @@ mod tests {
     }
 
     /// Q4: a machine moved to another space (instance admin) leaves its jobs and files in the old
-    /// space; its permissions, group places and requests for permission there are gone with the move.
+    /// space; its permissions, group places, requests for permission and queue items there are gone
+    /// with the move, and a spool loaded in it and a camera watching it stay, unlinked (design
+    /// decisions/20261119-device-move.md).
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
         not(feature = "pg-tests"),
@@ -1042,6 +1044,20 @@ mod tests {
         .await
         .unwrap();
 
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO machine_queue (space_id, machine_id, file_id, file_name, pos, added_at)
+                 VALUES ({space}, '{machine}', '{file}', 'cube.gcode', 1, at_unix(0));
+             INSERT INTO filament (id, space_id, registered) VALUES (1, {space}, at_unix(0));
+             INSERT INTO spool (id, space_id, registered, filament_id, machine, slot)
+                 VALUES (1, {space}, at_unix(0), 1, '{machine}', 0);
+             INSERT INTO cameras (id, space_id, name, url, machine_id, created_at)
+                 VALUES (1, {space}, 'Cam', 'rtsp://x', '{machine}', at_unix(0));",
+            file = file.id
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+
         assert_eq!(
             store.move_machine(space, &machine, to).await.unwrap(),
             Ok(())
@@ -1063,7 +1079,12 @@ mod tests {
             "the file stays"
         );
         assert!(store.file(to, &file.id).await.unwrap().is_none());
-        for table in ["machine_grants", "machine_group_members", "access_requests"] {
+        for table in [
+            "machine_grants",
+            "machine_group_members",
+            "access_requests",
+            "machine_queue",
+        ] {
             let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                 "SELECT COUNT(*) FROM {table} WHERE machine_id = $1"
             )))
@@ -1073,5 +1094,25 @@ mod tests {
             .unwrap();
             assert_eq!(n, 0, "{table}");
         }
+        let (spool_space, loaded): (i64, Option<String>) =
+            sqlx::query_as("SELECT space_id, machine FROM spool WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            (spool_space, loaded),
+            (space, None),
+            "the spool stays, unloaded"
+        );
+        let (camera_space, watching): (i64, Option<String>) =
+            sqlx::query_as("SELECT space_id, machine_id FROM cameras WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            (camera_space, watching),
+            (space, None),
+            "the camera stays, unlinked"
+        );
     }
 }

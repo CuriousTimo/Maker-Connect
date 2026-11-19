@@ -2546,6 +2546,16 @@ mod flow {
         let store = crate::store::Store::for_test(&pool).await;
         let (space, mini, _) = store.add_test_machine("prusa/mini", None).await;
         let path = "/usb/3dbenchy.bgcode";
+        store
+            .add_file(
+                space,
+                "file-1",
+                "3dbenchy.bgcode",
+                1000,
+                &crate::gcode::FileMeta::default(),
+            )
+            .await
+            .unwrap();
         let sent = store
             .create_transfer(space, &mini, "file-1", 1000, path, None)
             .await

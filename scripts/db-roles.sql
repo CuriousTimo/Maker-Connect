@@ -24,8 +24,6 @@ SELECT NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'maker_connect_owner') A
 CREATE ROLE maker_connect_owner;
 \endif
 ALTER ROLE maker_connect_owner NOSUPERUSER CREATEDB NOCREATEROLE NOBYPASSRLS INHERIT NOLOGIN;
--- Renaming or dropping a database (a restore, crate::backup) ends the hub's sessions on it first.
-GRANT pg_signal_backend TO maker_connect_owner;
 
 SELECT NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'maker_connect_app') AS make \gset
 \if :make

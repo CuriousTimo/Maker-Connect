@@ -126,6 +126,9 @@ GRANT EXECUTE ON FUNCTION app_organisation() TO maker_connect_app, maker_connect
 
 -- The organisation's spaces show and a new one may be made in it (org-wide work runs in a space of
 -- the organisation); only the transaction's own space is changed or removed.
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON spaces, organisations, org_memberships, memberships, invites, api_tokens, audit_log
+    TO maker_connect_app;
 ALTER TABLE spaces ENABLE ROW LEVEL SECURITY;
 CREATE POLICY in_organisation ON spaces FOR SELECT USING (organisation_id = app_organisation());
 CREATE POLICY made_in_organisation ON spaces FOR INSERT
@@ -147,7 +150,6 @@ CREATE POLICY in_space ON audit_log USING (space_id = app_space());
 
 -- People: the app role reads (only) those of its space and of its space's organisation, for names;
 -- their identities and sessions are the admin role's alone (sign-in, crate::accounts).
-REVOKE ALL ON users, identities, sessions FROM maker_connect_app;
 REVOKE ALL ON SEQUENCE users_id_seq, identities_id_seq, sessions_id_seq FROM maker_connect_app;
 GRANT SELECT ON users TO maker_connect_app;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;

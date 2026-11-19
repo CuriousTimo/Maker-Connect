@@ -10,6 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod machines;
 
 mod pg_machines;
+pub use pg_machines::MoveRefused;
 
 mod pg_files;
 // Jobs on Postgres (lane 3b).

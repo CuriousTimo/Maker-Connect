@@ -5,8 +5,10 @@
 --   maker_connect_app    request work: no BYPASSRLS, not the owner, so row-level security holds;
 --   maker_connect_admin  sign-in, session/token lookup, device token lookup, instance admin: BYPASSRLS.
 GRANT USAGE ON SCHEMA public TO maker_connect_app, maker_connect_admin;
+-- A new table is the admin role's only: the app role gets a table where its migration grants it, beside
+-- the table's row-level security (crate::store::pg::tests::every_app_table_has_row_level_security).
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO maker_connect_app, maker_connect_admin;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO maker_connect_admin;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO maker_connect_app, maker_connect_admin;
 
@@ -29,5 +31,4 @@ CREATE TABLE meta (
     key text PRIMARY KEY,
     value text NOT NULL
 );
--- The admin role's alone (design database.md#roles-and-pools).
-REVOKE ALL ON meta FROM maker_connect_app;
+-- The admin role's alone (design database.md#roles-and-pools): no grant to the app role.
