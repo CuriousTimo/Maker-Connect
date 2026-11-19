@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT path AS \"path!\" FROM printer_transfers\n               WHERE machine_id = $1 AND state IN ('finished', 'starting', 'printing', 'done')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "printer_transfers",
+            "name": "path"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c87e95caa1dba5d5a91bba8b30088a8f9660edaaa65db7668fafe689264d0991"
+}

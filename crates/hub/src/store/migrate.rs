@@ -172,7 +172,6 @@ pub(super) fn migrate(db: &Connection) -> rusqlite::Result<()> {
     if spaces == 0 {
         db.execute("INSERT INTO spaces (name) VALUES ('My space')", [])?;
     }
-    crate::printer_files::migrate(db)?;
     crate::farm::migrate(db)?;
     crate::queue::migrate(db)?;
     #[cfg(feature = "cameras")]

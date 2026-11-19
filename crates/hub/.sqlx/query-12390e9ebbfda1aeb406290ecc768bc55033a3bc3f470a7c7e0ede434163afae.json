@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE printer_transfers SET state = $2, command_id = COALESCE($3, command_id), reason = $4 WHERE iv = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "12390e9ebbfda1aeb406290ecc768bc55033a3bc3f470a7c7e0ede434163afae"
+}

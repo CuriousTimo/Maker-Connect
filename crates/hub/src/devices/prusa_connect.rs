@@ -451,19 +451,9 @@ async fn telemetry(
             Ok(active) => active,
             Err(error) => return failed(error),
         };
-        let mut moves = Vec::new();
-        let done = crate::printer_files::on_report(
-            &mut store.lock().unwrap(),
-            token,
-            state,
-            job_id,
-            active,
-            &mut moves,
-        );
-        if let Err(error) = done {
-            return failed(error);
-        }
-        if let Err(error) = store.move_jobs(moves).await {
+        if let Err(error) =
+            crate::printer_files::on_report(&store, token, state, job_id, active).await
+        {
             return failed(error);
         }
     }
@@ -510,7 +500,6 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
     }
     let shared = store;
     let name = text(&event, "event");
-    let mut moves = Vec::new();
     {
         let mut store = shared.lock().unwrap();
         if let Some(id) = event["command_id"].as_u64() {
@@ -539,14 +528,9 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
                 }
             }
         }
-        // Files on its stick, and transfers to it.
-        if let Err(error) =
-            crate::printer_files::on_event(&mut store, token, &name, &event, &mut moves)
-        {
-            return failed(error);
-        }
     }
-    if let Err(error) = shared.move_jobs(moves).await {
+    // Files on its stick, and transfers to it.
+    if let Err(error) = crate::printer_files::on_event(&shared, token, &name, &event).await {
         return failed(error);
     }
     let known = match name.as_str() {

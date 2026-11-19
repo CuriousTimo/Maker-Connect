@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM printer_files WHERE machine_id = $1 AND (path = $2 OR path ILIKE $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "213073f16112defc5bd853a3fe174e89d2c5a05dc7ab7d5f4c9859b8fbe7d71b"
+}

@@ -533,7 +533,8 @@ impl Store {
             return Ok(Err("it is in that space already".to_owned()));
         }
         let jobs = self.job_facts_of(machine).await?;
-        let stays = self.lock().unwrap().why_it_stays(&jobs, machine)?;
+        let sending = self.files_on_their_way(machine).await?;
+        let stays = self.lock().unwrap().why_it_stays(&jobs, machine, sending)?;
         if let Some(why) = stays {
             return Ok(Err(why));
         }
@@ -545,6 +546,7 @@ impl Store {
         .execute(&self.pg().admin)
         .await?;
         self.mirror_machine(Some(machine), None).await?;
+        self.transfers_moved_away(machine).await?;
         self.lock().unwrap().moved_away(from, machine)?;
         Ok(Ok(()))
     }

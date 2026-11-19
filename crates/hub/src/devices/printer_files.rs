@@ -22,7 +22,7 @@
 //! sends no token with it): 96 random bits, a transfer of one file to one printer, for a day.
 
 use crate::access::Access;
-use crate::store::{JobMove, JobState, Legacy, now};
+use crate::store::{BoxError, JobState, Legacy, now};
 use crate::{Store, failed};
 use aes::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
 use axum::{
@@ -35,7 +35,6 @@ use axum::{
 };
 use base64::Engine;
 use rand::RngCore;
-use rusqlite::{Connection, OptionalExtension, params};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -54,34 +53,6 @@ const PREFETCH_ASK_EVERY_SECONDS: i64 = 120;
 const PREFETCH_MAX: usize = 60;
 /// A transfer's address works this long.
 const TRANSFER_SECONDS: i64 = 24 * 3600;
-
-pub fn migrate(db: &Connection) -> rusqlite::Result<()> {
-    db.execute_batch(
-        "CREATE TABLE IF NOT EXISTS printer_files (
-             machine_id TEXT NOT NULL,
-             path TEXT NOT NULL,
-             data TEXT,
-             at INTEGER,
-             asked_at INTEGER,
-             PRIMARY KEY (machine_id, path)
-         );
-         CREATE TABLE IF NOT EXISTS printer_transfers (
-             iv TEXT PRIMARY KEY,
-             machine_id TEXT NOT NULL,
-             space_id INTEGER NOT NULL,
-             file_id TEXT NOT NULL,
-             key TEXT NOT NULL,
-             size INTEGER NOT NULL,
-             path TEXT NOT NULL,
-             command_id INTEGER,
-             job_id INTEGER,
-             print_after INTEGER NOT NULL DEFAULT 0,
-             state TEXT NOT NULL DEFAULT 'waiting',
-             reason TEXT,
-             created_at INTEGER NOT NULL
-         );",
-    )
-}
 
 /// A command for the log, its key left out.
 pub fn for_the_log(body: &str) -> String {
@@ -145,80 +116,135 @@ pub struct Transfer {
     pub state: String,
 }
 
-impl Legacy {
-    /// The machine (id, space) by its id, when it is in a space.
-    fn printer_of_machine(&self, machine: &str) -> rusqlite::Result<Option<(String, i64)>> {
-        self.db
-            .query_row(
-                "SELECT id, space_id FROM machines WHERE id = ?1 AND space_id IS NOT NULL",
-                [machine],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()
-    }
+/// The columns of a transfer, as the transfer queries read them ([`TransferRow`]).
+macro_rules! transfer_select {
+    ($tail:literal) => {
+        concat!(
+            "SELECT iv, machine_id, space_id, file_id, key, size, path, job_id, print_after, state
+             FROM printer_transfers WHERE ",
+            $tail
+        )
+    };
+}
 
-    /// The machine (id, space) a printer's token is for.
-    fn printer_of(&self, token: &str) -> rusqlite::Result<Option<(String, i64)>> {
-        self.db
-            .query_row(
-                "SELECT id, space_id FROM machines WHERE token = ?1 AND space_id IS NOT NULL",
-                [token],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()
+#[derive(sqlx::FromRow)]
+struct TransferRow {
+    iv: String,
+    machine_id: String,
+    space_id: i64,
+    file_id: String,
+    key: String,
+    size: i64,
+    path: String,
+    job_id: Option<i64>,
+    print_after: bool,
+    state: String,
+}
+
+impl From<TransferRow> for Transfer {
+    fn from(r: TransferRow) -> Self {
+        Transfer {
+            iv: r.iv,
+            machine: r.machine_id,
+            space: r.space_id,
+            file: r.file_id,
+            key: r.key,
+            size: r.size as u64,
+            path: r.path,
+            job: r.job_id,
+            print_after: r.print_after,
+            state: r.state,
+        }
+    }
+}
+
+/// What a printer's stick holds and what is on its way to it, on Postgres
+/// (`store/migrations/20261118000300_machines.sql`). Found by the machine across spaces, as before
+/// (the admin pool: a machine keeps what its stick holds when it moves); each row says its space.
+impl Store {
+    /// The machine (id, space) by its id, when it is in a space.
+    async fn printer_of_machine(&self, machine: &str) -> sqlx::Result<Option<(String, i64)>> {
+        Ok(sqlx::query!(
+            r#"SELECT id, space_id AS "space_id!" FROM machines WHERE id = $1 AND space_id IS NOT NULL"#,
+            machine
+        )
+        .fetch_optional(&self.pg().admin)
+        .await?
+        .map(|r| (r.id, r.space_id)))
     }
 
     /// What the printer last said of a path, and when (Unix seconds); and when it was last
     /// asked.
-    fn printer_file(&self, machine: &str, path: &str) -> rusqlite::Result<Seen> {
-        let row: Option<(Option<String>, Option<i64>, Option<i64>)> = self
-            .db
-            .query_row(
-                "SELECT data, at, asked_at FROM printer_files WHERE machine_id = ?1 AND path = ?2",
-                params![machine, path],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .optional()?;
+    async fn printer_file(&self, machine: &str, path: &str) -> sqlx::Result<Seen> {
+        let row = sqlx::query!(
+            "SELECT data, unix_seconds(at) AS at, unix_seconds(asked_at) AS asked_at
+             FROM printer_files WHERE machine_id = $1 AND path = $2",
+            machine,
+            path
+        )
+        .fetch_optional(&self.pg().admin)
+        .await?;
         Ok(match row {
-            Some((data, at, asked)) => (
-                data.and_then(|d| serde_json::from_str(&d).ok()).zip(at),
-                asked,
+            Some(r) => (
+                r.data.and_then(|d| serde_json::from_str(&d).ok()).zip(r.at),
+                r.asked_at,
             ),
             None => (None, None),
         })
     }
 
-    fn set_printer_file(&self, machine: &str, path: &str, data: &Value) -> rusqlite::Result<()> {
-        self.db.execute(
-            "INSERT INTO printer_files (machine_id, path, data, at) VALUES (?1, ?2, ?3, ?4)
+    async fn set_printer_file(
+        &self,
+        space: i64,
+        machine: &str,
+        path: &str,
+        data: &Value,
+    ) -> sqlx::Result<()> {
+        sqlx::query!(
+            "INSERT INTO printer_files (machine_id, space_id, path, data, at) VALUES ($1, $2, $3, $4, at_unix($5))
              ON CONFLICT (machine_id, path) DO UPDATE SET data = excluded.data, at = excluded.at",
-            params![machine, path, data.to_string(), now()],
-        )?;
+            machine,
+            space,
+            path,
+            data.to_string(),
+            now()
+        )
+        .execute(&self.pg().admin)
+        .await?;
         Ok(())
     }
 
-    fn asked_printer_file(&self, machine: &str, path: &str) -> rusqlite::Result<()> {
-        self.db.execute(
-            "INSERT INTO printer_files (machine_id, path, asked_at) VALUES (?1, ?2, ?3)
+    async fn asked_printer_file(&self, space: i64, machine: &str, path: &str) -> sqlx::Result<()> {
+        sqlx::query!(
+            "INSERT INTO printer_files (machine_id, space_id, path, asked_at) VALUES ($1, $2, $3, at_unix($4))
              ON CONFLICT (machine_id, path) DO UPDATE SET asked_at = excluded.asked_at",
-            params![machine, path, now()],
-        )?;
+            machine,
+            space,
+            path,
+            now()
+        )
+        .execute(&self.pg().admin)
+        .await?;
         Ok(())
     }
 
     /// A path changed: it and its folder are read again when next looked at.
-    fn forget_printer_path(&self, machine: &str, path: &str) -> rusqlite::Result<()> {
-        self.db.execute(
-            "UPDATE printer_files SET at = 0, asked_at = NULL
-             WHERE machine_id = ?1 AND (path = ?2 OR path = ?3)",
-            params![machine, path, parent(path)],
-        )?;
+    async fn forget_printer_path(&self, machine: &str, path: &str) -> sqlx::Result<()> {
+        sqlx::query!(
+            "UPDATE printer_files SET at = at_unix(0), asked_at = NULL
+             WHERE machine_id = $1 AND (path = $2 OR path = $3)",
+            machine,
+            path,
+            parent(path)
+        )
+        .execute(&self.pg().admin)
+        .await?;
         Ok(())
     }
 
     /// A new transfer of a file to a printer's stick: its iv (the address) and key, random.
     /// For a job, the file is printed once it is there.
-    fn create_transfer(
+    async fn create_transfer(
         &self,
         space: i64,
         machine: &str,
@@ -226,7 +252,7 @@ impl Legacy {
         size: u64,
         path: &str,
         job: Option<i64>,
-    ) -> rusqlite::Result<Transfer> {
+    ) -> sqlx::Result<Transfer> {
         let print_after = job.is_some();
         let (mut iv, mut key) = ([0u8; 16], [0u8; 16]);
         rand::rngs::OsRng.fill_bytes(&mut iv[..12]);
@@ -243,149 +269,193 @@ impl Legacy {
             print_after,
             state: "waiting".to_owned(),
         };
-        self.db.execute(
+        sqlx::query!(
             "INSERT INTO printer_transfers (iv, machine_id, space_id, file_id, key, size, path, job_id, print_after, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![transfer.iv, machine, space, file, transfer.key, size as i64, path, job, print_after, now()],
-        )?;
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, at_unix($10))",
+            transfer.iv,
+            machine,
+            space,
+            file,
+            transfer.key,
+            size as i64,
+            path,
+            job,
+            print_after,
+            now()
+        )
+        .execute(&self.pg().admin)
+        .await?;
         Ok(transfer)
     }
 
-    fn transfer_where(
-        &self,
-        filter: &str,
-        values: &[&dyn rusqlite::ToSql],
-    ) -> rusqlite::Result<Option<Transfer>> {
-        self.db
-            .query_row(
-                &format!(
-                    "SELECT iv, machine_id, space_id, file_id, key, size, path, job_id, print_after, state
-                     FROM printer_transfers WHERE {filter}"
-                ),
-                values,
-                |r| {
-                    Ok(Transfer {
-                        iv: r.get(0)?,
-                        machine: r.get(1)?,
-                        space: r.get(2)?,
-                        file: r.get(3)?,
-                        key: r.get(4)?,
-                        size: r.get::<_, i64>(5)? as u64,
-                        path: r.get(6)?,
-                        job: r.get(7)?,
-                        print_after: r.get(8)?,
-                        state: r.get(9)?,
-                    })
-                },
-            )
-            .optional()
-    }
-
-    /// A transfer by its address, while it lasts.
-    pub fn transfer(&self, iv: &str) -> rusqlite::Result<Option<Transfer>> {
-        self.transfer_where(
-            "iv = ?1 AND created_at > ?2",
-            &[&iv, &(now() - TRANSFER_SECONDS)],
-        )
+    /// A transfer by its address, while it lasts. The printer sends no token with it: the admin
+    /// pool.
+    pub async fn transfer(&self, iv: &str) -> sqlx::Result<Option<Transfer>> {
+        let row: Option<TransferRow> =
+            sqlx::query_as(transfer_select!("iv = $1 AND created_at > at_unix($2)"))
+                .bind(iv)
+                .bind(now() - TRANSFER_SECONDS)
+                .fetch_optional(&self.pg().admin)
+                .await?;
+        Ok(row.map(Transfer::from))
     }
 
     /// The paths on a printer's stick that we put there (downloads that got through).
-    fn sent_paths(&self, machine: &str) -> rusqlite::Result<Vec<String>> {
-        let mut q = self.db.prepare(
-            "SELECT DISTINCT path FROM printer_transfers
-             WHERE machine_id = ?1 AND state IN ('finished', 'starting', 'printing', 'done')",
-        )?;
-        q.query_map([machine], |r| r.get(0))?.collect()
+    async fn sent_paths(&self, machine: &str) -> sqlx::Result<Vec<String>> {
+        sqlx::query_scalar!(
+            r#"SELECT DISTINCT path AS "path!" FROM printer_transfers
+               WHERE machine_id = $1 AND state IN ('finished', 'starting', 'printing', 'done')"#,
+            machine
+        )
+        .fetch_all(&self.pg().admin)
+        .await
     }
 
     /// A file we put on the stick is not there any more: its transfers no longer say so.
-    fn gone_from_stick(&self, machine: &str, path: &str) -> rusqlite::Result<()> {
-        self.db.execute(
+    async fn gone_from_stick(&self, machine: &str, path: &str) -> sqlx::Result<()> {
+        sqlx::query!(
             "UPDATE printer_transfers SET state = 'gone'
-             WHERE machine_id = ?1 AND path = ?2 AND state IN ('finished', 'done')",
-            params![machine, path],
-        )?;
+             WHERE machine_id = $1 AND path = $2 AND state IN ('finished', 'done')",
+            machine,
+            path
+        )
+        .execute(&self.pg().admin)
+        .await?;
         Ok(())
     }
 
     /// Where this file already is on the printer's stick, put there by us before: the same
     /// file (and size), so it need not go again. With when that transfer began.
-    fn on_stick(
+    async fn on_stick(
         &self,
         machine: &str,
         file: &str,
         size: u64,
-    ) -> rusqlite::Result<Option<(String, i64)>> {
-        use rusqlite::OptionalExtension;
-        self.db
-            .query_row(
-                "SELECT path, created_at FROM printer_transfers
-                 WHERE machine_id = ?1 AND file_id = ?2 AND size = ?3
-                   AND state IN ('finished', 'starting', 'printing', 'done')
-                 ORDER BY created_at DESC LIMIT 1",
-                params![machine, file, size as i64],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()
+    ) -> sqlx::Result<Option<(String, i64)>> {
+        Ok(sqlx::query!(
+            r#"SELECT path, unix_seconds(created_at) AS "created_at!" FROM printer_transfers
+               WHERE machine_id = $1 AND file_id = $2 AND size = $3
+                 AND state IN ('finished', 'starting', 'printing', 'done')
+               ORDER BY created_at DESC LIMIT 1"#,
+            machine,
+            file,
+            size as i64
+        )
+        .fetch_optional(&self.pg().admin)
+        .await?
+        .map(|r| (r.path, r.created_at)))
     }
 
     /// How many downloads a job tried: not more than a few, then it fails.
-    fn transfers_of_job(&self, job: i64) -> rusqlite::Result<i64> {
-        self.db.query_row(
-            "SELECT COUNT(*) FROM printer_transfers WHERE job_id = ?1",
-            [job],
-            |r| r.get(0),
+    async fn transfers_of_job(&self, job: i64) -> sqlx::Result<i64> {
+        sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "n!" FROM printer_transfers WHERE job_id = $1"#,
+            job
         )
+        .fetch_one(&self.pg().admin)
+        .await
+    }
+
+    /// How many files are on their way to a machine (what holds it in its space,
+    /// [`Store::move_machine`]).
+    pub(crate) async fn files_on_their_way(&self, machine: &str) -> sqlx::Result<i64> {
+        sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "n!" FROM printer_transfers WHERE machine_id = $1 AND state IN ('waiting', 'sent')"#,
+            machine
+        )
+        .fetch_one(&self.pg().admin)
+        .await
+    }
+
+    /// A machine moved to another space: its transfers not through yet fail.
+    pub(crate) async fn transfers_moved_away(&self, machine: &str) -> sqlx::Result<()> {
+        sqlx::query!(
+            "UPDATE printer_transfers SET state = 'failed', reason = 'the machine moved to another space'
+             WHERE machine_id = $1 AND state NOT IN ('finished', 'done', 'failed')",
+            machine
+        )
+        .execute(&self.pg().admin)
+        .await?;
+        Ok(())
     }
 
     /// Prints a file that is on the stick: START_PRINT, and the transfer waits for it.
-    fn print_from_stick(&mut self, transfer: &Transfer, machine: &str) -> rusqlite::Result<()> {
+    async fn print_from_stick(&self, transfer: &Transfer, machine: &str) -> Result<(), BoxError> {
         let command = json!({"command": "START_PRINT", "kwargs": {"path": transfer.path}});
         let label = format!("Print {}", transfer.path.rsplit('/').next().unwrap_or(""));
-        if let Some(id) =
-            self.queue_connect_command(transfer.space, machine, &label, &command, false)?
-        {
-            self.set_transfer(&transfer.iv, "starting", Some(id), None)?;
+        let id = self.lock().unwrap().queue_connect_command(
+            transfer.space,
+            machine,
+            &label,
+            &command,
+            false,
+        )?;
+        if let Some(id) = id {
+            self.set_transfer(&transfer.iv, "starting", Some(id), None)
+                .await?;
         }
         Ok(())
     }
 
     /// A job's file again, under a name not on the stick yet: after the printer said a file
     /// by that name exists (`machine_reason` `FILE_EXISTS`, `planner.cpp:294`).
-    fn send_again(&mut self, old: &Transfer, job: i64, machine: &str) -> rusqlite::Result<bool> {
-        if self.transfers_of_job(job)? >= 3 {
+    async fn send_again(&self, old: &Transfer, job: i64, machine: &str) -> Result<bool, BoxError> {
+        if self.transfers_of_job(job).await? >= 3 {
             return Ok(false);
         }
-        let Some(file) = self.file_on_mirror(old.space, &old.file)? else {
+        let Some(file) = self.file(old.space, &old.file).await? else {
             return Ok(false);
         };
-        let mut taken = names_in(self, machine, "/usb");
+        let mut taken = names_in(self, machine, "/usb").await;
         taken.push(old.path.rsplit('/').next().unwrap_or("").to_owned());
         let path = format!("/usb/{}", stick_name(&file.name, &taken));
-        let fresh =
-            self.create_transfer(old.space, machine, &file.id, file.size, &path, Some(job))?;
-        Ok(self.start_transfer(&fresh, &file.name)?.is_some())
+        let fresh = self
+            .create_transfer(old.space, machine, &file.id, file.size, &path, Some(job))
+            .await?;
+        Ok(self.start_transfer(&fresh, &file.name).await?.is_some())
     }
 
     /// Everything on a printer's stick is read again when next looked at.
-    fn forget_printer_stick(&self, machine: &str) -> rusqlite::Result<()> {
-        self.db.execute(
-            "UPDATE printer_files SET at = 0, asked_at = NULL WHERE machine_id = ?1",
-            [machine],
-        )?;
+    async fn forget_printer_stick(&self, machine: &str) -> sqlx::Result<()> {
+        sqlx::query!(
+            "UPDATE printer_files SET at = at_unix(0), asked_at = NULL WHERE machine_id = $1",
+            machine
+        )
+        .execute(&self.pg().admin)
+        .await?;
         Ok(())
     }
 
     /// A path deleted from the stick: forgotten, and taken out of its folder's listing
-    /// (which stays as fresh as it was: the rest of the folder did not change).
-    fn drop_printer_path(&self, machine: &str, path: &str) -> rusqlite::Result<()> {
-        self.db.execute(
-            "DELETE FROM printer_files WHERE machine_id = ?1 AND (path = ?2 OR path LIKE ?3)",
-            params![machine, path, format!("{path}/%")],
-        )?;
+    /// (which stays as fresh as it was: the rest of the folder did not change). In one
+    /// transaction.
+    async fn drop_printer_path(&self, machine: &str, path: &str) -> sqlx::Result<()> {
+        let mut tx = self.pg().admin.begin().await?;
+        // `LIKE` as SQLite had it: ASCII case does not matter.
+        sqlx::query!(
+            "DELETE FROM printer_files WHERE machine_id = $1 AND (path = $2 OR path ILIKE $3)",
+            machine,
+            path,
+            format!("{path}/%")
+        )
+        .execute(&mut *tx)
+        .await?;
         let folder = parent(path);
         let name = path.rsplit('/').next().unwrap_or("");
-        if let (Some((mut data, at)), _) = self.printer_file(machine, folder)?
+        let listing = sqlx::query!(
+            "SELECT data, unix_seconds(at) AS at FROM printer_files
+             WHERE machine_id = $1 AND path = $2 FOR UPDATE",
+            machine,
+            folder
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .and_then(|r| {
+            r.data
+                .and_then(|d| serde_json::from_str::<Value>(&d).ok())
+                .zip(r.at)
+        });
+        if let Some((mut data, at)) = listing
             && let Some(children) = data["children"].as_array_mut()
         {
             let before = children.len();
@@ -394,20 +464,26 @@ impl Legacy {
                 if let Some(count) = data["file_count"].as_i64() {
                     data["file_count"] = json!(count - 1);
                 }
-                self.db.execute(
-                    "UPDATE printer_files SET data = ?3, at = ?4 WHERE machine_id = ?1 AND path = ?2",
-                    params![machine, folder, data.to_string(), at],
-                )?;
+                sqlx::query!(
+                    "UPDATE printer_files SET data = $3, at = at_unix($4) WHERE machine_id = $1 AND path = $2",
+                    machine,
+                    folder,
+                    data.to_string(),
+                    at
+                )
+                .execute(&mut *tx)
+                .await?;
             }
         }
-        Ok(())
+        tx.commit().await
     }
 
     /// What a folder's listing says of one of its children, by its path.
-    fn listed_child(&self, machine: &str, path: &str) -> rusqlite::Result<Option<Value>> {
+    async fn listed_child(&self, machine: &str, path: &str) -> sqlx::Result<Option<Value>> {
         let name = path.rsplit('/').next().unwrap_or("");
         Ok(self
-            .printer_file(machine, parent(path))?
+            .printer_file(machine, parent(path))
+            .await?
             .0
             .and_then(|(data, _)| {
                 data["children"]
@@ -418,34 +494,55 @@ impl Legacy {
             }))
     }
 
-    fn transfer_of_command(
+    async fn transfer_of_command(
         &self,
         machine: &str,
         command: u32,
-    ) -> rusqlite::Result<Option<Transfer>> {
-        self.transfer_where("machine_id = ?1 AND command_id = ?2", &[&machine, &command])
+    ) -> sqlx::Result<Option<Transfer>> {
+        let row: Option<TransferRow> =
+            sqlx::query_as(transfer_select!("machine_id = $1 AND command_id = $2"))
+                .bind(machine)
+                .bind(command as i64)
+                .fetch_optional(&self.pg().admin)
+                .await?;
+        Ok(row.map(Transfer::from))
     }
 
-    fn transfer_of_job(&self, job: i64) -> rusqlite::Result<Option<Transfer>> {
-        self.transfer_where("job_id = ?1 ORDER BY created_at DESC LIMIT 1", &[&job])
+    async fn transfer_of_job(&self, job: i64) -> sqlx::Result<Option<Transfer>> {
+        let row: Option<TransferRow> = sqlx::query_as(transfer_select!(
+            "job_id = $1 ORDER BY created_at DESC LIMIT 1"
+        ))
+        .bind(job)
+        .fetch_optional(&self.pg().admin)
+        .await?;
+        Ok(row.map(Transfer::from))
     }
 
-    fn set_transfer(
+    async fn set_transfer(
         &self,
         iv: &str,
         state: &str,
         command: Option<u32>,
         reason: Option<&str>,
-    ) -> rusqlite::Result<()> {
-        self.db.execute(
-            "UPDATE printer_transfers SET state = ?2, command_id = COALESCE(?3, command_id), reason = ?4 WHERE iv = ?1",
-            params![iv, state, command, reason],
-        )?;
+    ) -> sqlx::Result<()> {
+        sqlx::query!(
+            "UPDATE printer_transfers SET state = $2, command_id = COALESCE($3, command_id), reason = $4 WHERE iv = $1",
+            iv,
+            state,
+            command.map(i64::from),
+            reason
+        )
+        .execute(&self.pg().admin)
+        .await?;
         Ok(())
     }
 
     /// Queues the download of a transfer on its printer.
-    fn start_transfer(&mut self, transfer: &Transfer, name: &str) -> rusqlite::Result<Option<u32>> {
+    async fn start_transfer(
+        &self,
+        transfer: &Transfer,
+        name: &str,
+    ) -> Result<Option<u32>, BoxError> {
         let command = json!({
             "command": "START_ENCRYPTED_DOWNLOAD",
             "kwargs": {
@@ -455,7 +552,7 @@ impl Legacy {
                 "orig_size": transfer.size,
             }
         });
-        let id = self.queue_connect_command(
+        let id = self.lock().unwrap().queue_connect_command(
             transfer.space,
             &transfer.machine,
             &format!("Send {name} to the USB stick"),
@@ -463,7 +560,8 @@ impl Legacy {
             false,
         )?;
         if let Some(id) = id {
-            self.set_transfer(&transfer.iv, "sent", Some(id), None)?;
+            self.set_transfer(&transfer.iv, "sent", Some(id), None)
+                .await?;
         }
         Ok(id)
     }
@@ -502,11 +600,12 @@ fn stick_name(name: &str, taken: &[String]) -> String {
 /// The long names in a folder, as the printer last listed it.
 /// The names on the stick in a folder, as far as we know: what the printer listed, and what
 /// we put there ourselves (a listing can be older than our last upload).
-fn names_in(store: &Legacy, machine: &str, folder: &str) -> Vec<String> {
-    let mut names = listed_in(store, machine, folder).unwrap_or_default();
+async fn names_in(store: &Store, machine: &str, folder: &str) -> Vec<String> {
+    let mut names = listed_in(store, machine, folder).await.unwrap_or_default();
     names.extend(
         store
             .sent_paths(machine)
+            .await
             .unwrap_or_default()
             .into_iter()
             .filter_map(|p| {
@@ -522,25 +621,26 @@ fn names_in(store: &Legacy, machine: &str, folder: &str) -> Vec<String> {
 /// Where a file we put on the stick before still is. Not where the printer's listing of
 /// that folder no longer has it: deleted since (on the printer, or by us; the printer says
 /// so by its short name, which no transfer of ours is known by), and so forgotten.
-fn still_on_stick(
-    store: &Legacy,
+async fn still_on_stick(
+    store: &Store,
     machine: &str,
     file: &str,
     size: u64,
-) -> rusqlite::Result<Option<String>> {
-    let Some((path, began)) = store.on_stick(machine, file, size)? else {
+) -> sqlx::Result<Option<String>> {
+    let Some((path, began)) = store.on_stick(machine, file, size).await? else {
         return Ok(None);
     };
     let (folder, name) = path.rsplit_once('/').unwrap_or(("/usb", path.as_str()));
     // Only a listing the printer gave after the transfer (one from before it does not have
     // the file yet; a finished transfer marks its folder to be read again, `at` 0).
     let after = store
-        .printer_file(machine, folder)?
+        .printer_file(machine, folder)
+        .await?
         .0
         .is_some_and(|(_, at)| at > began);
-    match listed_in(store, machine, folder) {
+    match listed_in(store, machine, folder).await {
         Some(names) if after && !names.iter().any(|n| n == name) => {
-            store.gone_from_stick(machine, &path)?;
+            store.gone_from_stick(machine, &path).await?;
             Ok(None)
         }
         _ => Ok(Some(path)),
@@ -549,8 +649,8 @@ fn still_on_stick(
 
 /// The names (long and short) the printer last listed in a folder of its stick; None when
 /// it has not listed that folder yet.
-fn listed_in(store: &Legacy, machine: &str, folder: &str) -> Option<Vec<String>> {
-    let entry = store.printer_file(machine, folder).ok()?.0?;
+async fn listed_in(store: &Store, machine: &str, folder: &str) -> Option<Vec<String>> {
+    let entry = store.printer_file(machine, folder).await.ok()?.0?;
     let children = entry.0["children"].as_array()?.clone();
     Some(
         children
@@ -563,16 +663,13 @@ fn listed_in(store: &Legacy, machine: &str, folder: &str) -> Option<Vec<String>>
 }
 
 /// An event from a printer about its files and transfers (called for every event).
-///
-/// How its jobs move on goes into `moves`, for `Store::move_jobs` once the lock is let go.
-pub fn on_event(
-    store: &mut Legacy,
+pub async fn on_event(
+    store: &Store,
     token: &str,
     name: &str,
     event: &Value,
-    moves: &mut Vec<JobMove>,
-) -> rusqlite::Result<()> {
-    let Some((machine, _)) = store.printer_of(token)? else {
+) -> Result<(), BoxError> {
+    let Some((machine, space)) = store.placed(token).await? else {
         return Ok(());
     };
     let data = &event["data"];
@@ -588,6 +685,7 @@ pub fn on_event(
                     .filter(|t| !t.is_empty())
                     .map(str::to_owned)
             };
+            let mut store = store.lock().unwrap();
             match (asks, text("title"), text("text")) {
                 (true, title, body) if title.is_some() || body.is_some() => {
                     let title = title.or_else(|| body.clone()).unwrap_or_default();
@@ -627,10 +725,10 @@ pub fn on_event(
         }
         "FILE_INFO" => {
             if let Some(path) = data["path"].as_str().and_then(usb_path) {
-                store.set_printer_file(&machine, &path, data)?;
+                store.set_printer_file(space, &machine, &path, data).await?;
                 // A folder: its files' details and pictures are read ahead, one by one.
                 if data["children"].is_array() {
-                    prefetch(store, &machine, &path, data)?;
+                    prefetch(store, &machine, &path, data).await?;
                 }
                 store.changed();
             }
@@ -645,6 +743,8 @@ pub fn on_event(
             {
                 let job = event["job_id"].as_u64().or_else(|| data["job_id"].as_u64());
                 store
+                    .lock()
+                    .unwrap()
                     .printing_file
                     .insert(token.to_owned(), (job, name.to_owned()));
             }
@@ -654,15 +754,15 @@ pub fn on_event(
         // `new_path` with `rescan` when several things changed at once; paths in 8.3 form.
         "FILE_CHANGED" => {
             if data["rescan"].as_bool() == Some(true) {
-                store.forget_printer_stick(&machine)?;
+                store.forget_printer_stick(&machine).await?;
             }
             if let Some(path) = data["old_path"].as_str().and_then(usb_path) {
                 // Gone at once from its folder's listing: not shown until the folder is
                 // read again.
-                store.drop_printer_path(&machine, &path)?;
+                store.drop_printer_path(&machine, &path).await?;
             }
             if let Some(path) = data["new_path"].as_str() {
-                store.forget_printer_path(&machine, path)?;
+                store.forget_printer_path(&machine, path).await?;
             }
             store.changed();
         }
@@ -671,13 +771,13 @@ pub fn on_event(
         // so, until TRANSFER_FINISHED (or a stop) settles the command.
         "TRANSFER_INFO" | "FINISHED" => {
             if let Some(command) = event["command_id"].as_u64()
-                && let Some(transfer) = store.transfer_of_command(&machine, command as u32)?
+                && let Some(transfer) = store.transfer_of_command(&machine, command as u32).await?
                 && !matches!(
                     transfer.state.as_str(),
                     "finished" | "failed" | "starting" | "printing" | "done"
                 )
             {
-                store.command_went(
+                store.lock().unwrap().command_went(
                     token,
                     command as u32,
                     crate::store::CommandState::Finished,
@@ -690,12 +790,18 @@ pub fn on_event(
             let command = data["start_cmd_id"]
                 .as_u64()
                 .or_else(|| event["command_id"].as_u64());
-            let Some(transfer) =
-                command.and_then(|c| store.transfer_of_command(&machine, c as u32).ok().flatten())
-            else {
+            let transfer = match command {
+                Some(c) => store
+                    .transfer_of_command(&machine, c as u32)
+                    .await
+                    .ok()
+                    .flatten(),
+                None => None,
+            };
+            let Some(transfer) = transfer else {
                 return Ok(());
             };
-            store.forget_printer_path(&machine, &transfer.path)?;
+            store.forget_printer_path(&machine, &transfer.path).await?;
             // The download command is done with its transfer, whatever it said before.
             if let Some(command) = command {
                 let (state, reason) = if name == "TRANSFER_FINISHED" {
@@ -703,20 +809,28 @@ pub fn on_event(
                 } else {
                     (crate::store::CommandState::Rejected, Some(name.to_owned()))
                 };
-                let _ = store.command_went(token, command as u32, state, reason, Vec::new());
+                let _ = store.lock().unwrap().command_went(
+                    token,
+                    command as u32,
+                    state,
+                    reason,
+                    Vec::new(),
+                );
             }
             if name == "TRANSFER_FINISHED" {
                 println!("on the stick: {}", transfer.path);
-                store.set_transfer(&transfer.iv, "finished", None, None)?;
+                store
+                    .set_transfer(&transfer.iv, "finished", None, None)
+                    .await?;
                 // A download opens the file's print preview on the printer's screen (Buddy's
                 // one-click print), and while it shows the file stays where the download
                 // put it, listed read-only. To print: started from there (Buddy takes
                 // START_PRINT while the preview shows). Only to the stick: the preview is
                 // closed (`on_report`; ours, approved, audit D6).
                 if transfer.print_after {
-                    store.print_from_stick(&transfer, &machine)?;
+                    store.print_from_stick(&transfer, &machine).await?;
                 } else {
-                    store.close_preview.insert(machine.clone());
+                    store.lock().unwrap().close_preview.insert(machine.clone());
                 }
             } else {
                 // Why, when it says: STORAGE_FAILURE (the USB stick), NETWORK_FAILURE.
@@ -730,9 +844,11 @@ pub fn on_event(
                     Some(reason) => format!("the printer stopped the download ({name}, {reason})"),
                     None => format!("the printer stopped the download ({name})"),
                 };
-                store.set_transfer(&transfer.iv, "failed", None, Some(&why))?;
+                store
+                    .set_transfer(&transfer.iv, "failed", None, Some(&why))
+                    .await?;
                 if let Some(job) = transfer.job {
-                    moves.push((job, JobState::Failed, Some(why.clone())));
+                    store.set_job(job, JobState::Failed, Some(&why)).await?;
                 }
             }
             store.changed();
@@ -740,21 +856,23 @@ pub fn on_event(
         // Refused at once, or started and then failed: for a download or a print of ours.
         "REJECTED" | "FAILED" => {
             if let Some(command) = event["command_id"].as_u64()
-                && let Some(transfer) = store.transfer_of_command(&machine, command as u32)?
+                && let Some(transfer) = store.transfer_of_command(&machine, command as u32).await?
             {
                 let why = event["reason"]
                     .as_str()
                     .unwrap_or("refused by the printer")
                     .to_owned();
-                store.set_transfer(&transfer.iv, "failed", None, Some(&why))?;
+                store
+                    .set_transfer(&transfer.iv, "failed", None, Some(&why))
+                    .await?;
                 // A file by that name is there already (not ours, or changed): once more,
                 // under a free name. Buddy says so in `machine_reason` (`planner.cpp:294`,
                 // `render.cpp:330`), not in the text of `reason`.
                 let again = file_exists(event);
                 if let Some(job) = transfer.job
-                    && !(again && store.send_again(&transfer, job, &machine)?)
+                    && !(again && store.send_again(&transfer, job, &machine).await?)
                 {
-                    moves.push((job, JobState::Failed, Some(why.clone())));
+                    store.set_job(job, JobState::Failed, Some(&why)).await?;
                 }
             }
         }
@@ -781,13 +899,13 @@ fn still_good(entry: &Option<(Value, i64)>, size: Option<u64>) -> bool {
 
 /// Asks the printer (in the background, behind anyone's own commands) for each printable file
 /// of a folder whose details it does not have yet.
-fn prefetch(
-    store: &mut Legacy,
+async fn prefetch(
+    store: &Store,
     machine: &str,
     folder: &str,
     listing: &Value,
-) -> rusqlite::Result<()> {
-    let Some((_, space)) = store.printer_of_machine(machine)? else {
+) -> Result<(), BoxError> {
+    let Some((_, space)) = store.printer_of_machine(machine).await? else {
         return Ok(());
     };
     let children = listing["children"].as_array().cloned().unwrap_or_default();
@@ -803,18 +921,22 @@ fn prefetch(
         if usb_path(&path).is_none() {
             continue;
         }
-        let (entry, when) = store.printer_file(machine, &path)?;
+        let (entry, when) = store.printer_file(machine, &path).await?;
         if still_good(&entry, child["size"].as_u64())
             || when.is_some_and(|a| now() - a < PREFETCH_ASK_EVERY_SECONDS)
         {
             continue;
         }
         let command = json!({"command": "SEND_FILE_INFO", "kwargs": {"path": path}});
-        if store
-            .queue_connect_command(space, machine, &format!("Read {path}"), &command, true)?
-            .is_some()
-        {
-            store.asked_printer_file(machine, &path)?;
+        let queued = store.lock().unwrap().queue_connect_command(
+            space,
+            machine,
+            &format!("Read {path}"),
+            &command,
+            true,
+        )?;
+        if queued.is_some() {
+            store.asked_printer_file(space, machine, &path).await?;
             asked += 1;
         }
         if asked >= PREFETCH_MAX {
@@ -849,115 +971,116 @@ fn summary(data: &Value, at: i64) -> Value {
 /// After each report of a printer: a job waiting for it goes to its stick (when it is free),
 /// and a job printing follows the printer's state to its end.
 ///
-/// `active` is the machine's job that is not over ([`Store::active_job`]); how its jobs move on goes
-/// into `moves`, for `Store::move_jobs` once the lock is let go.
-pub fn on_report(
-    store: &mut Legacy,
+/// `active` is the machine's job that is not over ([`Store::active_job`]).
+pub async fn on_report(
+    store: &Store,
     token: &str,
     state: &str,
     job: Option<u64>,
     active: Option<crate::store::Job>,
-    moves: &mut Vec<JobMove>,
-) -> rusqlite::Result<()> {
-    let Some((machine, space)) = store.printer_of(token)? else {
+) -> Result<(), BoxError> {
+    let Some((machine, space)) = store.placed(token).await? else {
         return Ok(());
     };
-    // A print whose file is not known here (started at the printer's screen, or before the
-    // hub started): asked once, as Prusa Connect does; JOB_INFO answers.
-    if let Some(job) = job
-        && store
-            .printing_file
-            .get(token)
-            .is_none_or(|(known, _)| *known != Some(job))
-        && store.job_info_asked.get(token) != Some(&job)
     {
-        store.job_info_asked.insert(token.to_owned(), job);
-        let command = json!({"command": "SEND_JOB_INFO", "kwargs": {"job_id": job}});
-        store.queue_connect_command(space, &machine, "Which file it prints", &command, true)?;
-    }
-    // OURS, approved by the owner (2026-11-17, audit D6). Buddy opens a file's print preview
-    // after a Connect download (`transfers/transfer.cpp:423-430`), and while it shows the
-    // file stays read-only. Buddy 6.3.0 gives Connect no command that closes it (audit D6:
-    // STOP_PRINT, SET_IDLE and DIALOG_ACTION do not apply; only its own screen or M604 reach
-    // the abort, `marlin_server.cpp:1244-1251`). So a download only to the stick
-    // closes the preview with M604 (in the preview Buddy only closes it, as its Back
-    // button; tried on the MINI; in a print it would stop it). So only as the answer to a
-    // report that says IDLE, with nothing else to go before it. Anything but IDLE:
-    // someone pressed Print, or it is busy; no preview to close then.
-    if store.close_preview.contains(&machine) {
-        if state != "IDLE" {
-            store.close_preview.remove(&machine);
-        } else if store.open_commands(&machine).is_empty() {
-            store.close_preview.remove(&machine);
-            store.queue_command(space, &machine, "Close the print preview", "M604")?;
+        let mut store = store.lock().unwrap();
+        // A print whose file is not known here (started at the printer's screen, or before the
+        // hub started): asked once, as Prusa Connect does; JOB_INFO answers.
+        if let Some(job) = job
+            && store
+                .printing_file
+                .get(token)
+                .is_none_or(|(known, _)| *known != Some(job))
+            && store.job_info_asked.get(token) != Some(&job)
+        {
+            store.job_info_asked.insert(token.to_owned(), job);
+            let command = json!({"command": "SEND_JOB_INFO", "kwargs": {"job_id": job}});
+            store.queue_connect_command(space, &machine, "Which file it prints", &command, true)?;
         }
-    }
-    // No longer asking, or out of its error: what it said goes.
-    if !matches!(state, "ATTENTION" | "ERROR") && store.asking.remove(&machine).is_some() {
-        store.dialogs.remove(&machine);
-        store.changed();
+        // OURS, approved by the owner (2026-11-17, audit D6). Buddy opens a file's print preview
+        // after a Connect download (`transfers/transfer.cpp:423-430`), and while it shows the
+        // file stays read-only. Buddy 6.3.0 gives Connect no command that closes it (audit D6:
+        // STOP_PRINT, SET_IDLE and DIALOG_ACTION do not apply; only its own screen or M604 reach
+        // the abort, `marlin_server.cpp:1244-1251`). So a download only to the stick
+        // closes the preview with M604 (in the preview Buddy only closes it, as its Back
+        // button; tried on the MINI; in a print it would stop it). So only as the answer to a
+        // report that says IDLE, with nothing else to go before it. Anything but IDLE:
+        // someone pressed Print, or it is busy; no preview to close then.
+        if store.close_preview.contains(&machine) {
+            if state != "IDLE" {
+                store.close_preview.remove(&machine);
+            } else if store.open_commands(&machine).is_empty() {
+                store.close_preview.remove(&machine);
+                store.queue_command(space, &machine, "Close the print preview", "M604")?;
+            }
+        }
+        // No longer asking, or out of its error: what it said goes.
+        if !matches!(state, "ATTENTION" | "ERROR") && store.asking.remove(&machine).is_some() {
+            store.dialogs.remove(&machine);
+            store.changed();
+        }
     }
     let Some(job) = active.filter(|j| j.machine_id == machine) else {
         return Ok(());
     };
-    let transfer = store.transfer_of_job(job.id)?;
+    let transfer = store.transfer_of_job(job.id).await?;
     match (job.state, transfer) {
         (JobState::Queued, None) if matches!(state, "IDLE" | "READY" | "FINISHED" | "STOPPED") => {
-            let Some(file) = store.file_on_mirror(space, &job.file_id)? else {
-                moves.push((
-                    job.id,
-                    JobState::Failed,
-                    Some("its file is gone".to_owned()),
-                ));
+            let Some(file) = store.file(space, &job.file_id).await? else {
+                store
+                    .set_job(job.id, JobState::Failed, Some("its file is gone"))
+                    .await?;
                 return Ok(());
             };
             // Sent here before and still the same file: print that copy, no download.
-            if let Some(path) = still_on_stick(store, &machine, &file.id, file.size)? {
-                let transfer = store.create_transfer(
-                    space,
-                    &machine,
-                    &file.id,
-                    file.size,
-                    &path,
-                    Some(job.id),
-                )?;
-                store.set_transfer(&transfer.iv, "finished", None, Some("on the stick already"))?;
-                store.print_from_stick(&transfer, &machine)?;
-                moves.push((job.id, JobState::Printing, None));
+            if let Some(path) = still_on_stick(store, &machine, &file.id, file.size).await? {
+                let transfer = store
+                    .create_transfer(space, &machine, &file.id, file.size, &path, Some(job.id))
+                    .await?;
+                store
+                    .set_transfer(&transfer.iv, "finished", None, Some("on the stick already"))
+                    .await?;
+                store.print_from_stick(&transfer, &machine).await?;
+                store.set_job(job.id, JobState::Printing, None).await?;
                 return Ok(());
             }
-            let taken = names_in(store, &machine, "/usb");
+            let taken = names_in(store, &machine, "/usb").await;
             let path = format!("/usb/{}", stick_name(&file.name, &taken));
-            let transfer =
-                store.create_transfer(space, &machine, &file.id, file.size, &path, Some(job.id))?;
-            if store.start_transfer(&transfer, &file.name)?.is_some() {
-                moves.push((job.id, JobState::Printing, None));
+            let transfer = store
+                .create_transfer(space, &machine, &file.id, file.size, &path, Some(job.id))
+                .await?;
+            if store.start_transfer(&transfer, &file.name).await?.is_some() {
+                store.set_job(job.id, JobState::Printing, None).await?;
             }
         }
         (JobState::Printing | JobState::Paused | JobState::Stopping, Some(t)) => {
             match (t.state.as_str(), state) {
-                ("starting", "PRINTING") => store.set_transfer(&t.iv, "printing", None, None)?,
+                ("starting", "PRINTING") => {
+                    store.set_transfer(&t.iv, "printing", None, None).await?
+                }
                 ("printing", "PAUSED") if job.state == JobState::Printing => {
-                    moves.push((job.id, JobState::Paused, None))
+                    store.set_job(job.id, JobState::Paused, None).await?
                 }
                 ("printing", "PRINTING") if job.state == JobState::Paused => {
-                    moves.push((job.id, JobState::Printing, None))
+                    store.set_job(job.id, JobState::Printing, None).await?
                 }
                 ("printing", "FINISHED") => {
-                    store.set_transfer(&t.iv, "done", None, None)?;
-                    moves.push((job.id, JobState::Finished, None));
+                    store.set_transfer(&t.iv, "done", None, None).await?;
+                    store.set_job(job.id, JobState::Finished, None).await?;
                 }
                 ("printing", "STOPPED" | "IDLE" | "READY") => {
-                    store.set_transfer(&t.iv, "done", None, None)?;
-                    moves.push((job.id, JobState::Stopped, None));
+                    store.set_transfer(&t.iv, "done", None, None).await?;
+                    store.set_job(job.id, JobState::Stopped, None).await?;
                 }
                 ("printing" | "starting", "ERROR") => {
-                    store.set_transfer(&t.iv, "done", None, None)?;
-                    moves.push((
-                        job.id,
-                        JobState::Failed,
-                        Some("the printer reports an error".to_owned()),
-                    ));
+                    store.set_transfer(&t.iv, "done", None, None).await?;
+                    store
+                        .set_job(
+                            job.id,
+                            JobState::Failed,
+                            Some("the printer reports an error"),
+                        )
+                        .await?;
                 }
                 _ => {}
             }
@@ -1009,12 +1132,12 @@ struct PathQuery {
 }
 
 /// A Prusa printer of the space on its built-in Connect, or the answer to give.
-fn connect_printer(
-    store: &Legacy,
+async fn connect_printer(
+    store: &Store,
     access: &Access,
     machine: &str,
 ) -> Result<crate::store::Machine, Box<Response>> {
-    match store.machine_on_mirror(access.space, machine) {
+    match store.machine(access.space, machine).await {
         Ok(Some(m)) if m.link == "prusa-connect" => Ok(m),
         Ok(Some(_)) => Err(Box::new(
             (
@@ -1041,12 +1164,11 @@ async fn look(
     let Some(path) = usb_path(query.path.as_deref().unwrap_or("/usb")) else {
         return (StatusCode::BAD_REQUEST, "a path on the stick, under /usb").into_response();
     };
-    let mut store = store.lock().unwrap();
-    let printer = match connect_printer(&store, &access, &machine) {
+    let printer = match connect_printer(&store, &access, &machine).await {
         Ok(p) => p,
         Err(r) => return *r,
     };
-    let (entry, asked) = match store.printer_file(&machine, &path) {
+    let (entry, asked) = match store.printer_file(&machine, &path).await {
         Ok(found) => found,
         Err(error) => return failed(error),
     };
@@ -1064,14 +1186,17 @@ async fn look(
     let mut asking = waiting && !fresh;
     if !fresh && !waiting && printer.online {
         let command = json!({"command": "SEND_FILE_INFO", "kwargs": {"path": path}});
-        if let Ok(Some(_)) = store.queue_connect_command(
+        let queued = store.lock().unwrap().queue_connect_command(
             access.space,
             &machine,
             &format!("Read {path}"),
             &command,
             true,
-        ) {
-            let _ = store.asked_printer_file(&machine, &path);
+        );
+        if let Ok(Some(_)) = queued {
+            let _ = store
+                .asked_printer_file(access.space, &machine, &path)
+                .await;
             asking = true;
         }
     }
@@ -1084,35 +1209,36 @@ async fn look(
         let mut pending = 0;
         // Children with a delete on its way: shown as such until the printer says it is done.
         let deleting: Vec<String> = store
+            .lock()
+            .unwrap()
             .open_path_commands(&machine)
             .into_iter()
             .filter(|(_, c)| c.starts_with("DELETE_"))
             .map(|(p, _)| p)
             .collect();
-        let listed: Vec<Value> = children
-            .iter()
-            .map(|c| {
-                let mut c = c.clone();
-                let child = format!("{path}/{}", c["name"].as_str().unwrap_or(""));
-                if deleting.contains(&child) {
-                    c["deleting"] = json!(true);
-                }
-                if c["type"] == "PRINT_FILE" {
-                    let known = store
-                        .printer_file(&machine, &child)
-                        .ok()
-                        .map(|(e, _)| e)
-                        .unwrap_or(None);
-                    match &known {
-                        Some((d, at)) if still_good(&known, c["size"].as_u64()) => {
-                            c["details"] = summary(d, *at);
-                        }
-                        _ => pending += 1,
+        let mut listed: Vec<Value> = Vec::with_capacity(children.len());
+        for c in children {
+            let mut c = c.clone();
+            let child = format!("{path}/{}", c["name"].as_str().unwrap_or(""));
+            if deleting.contains(&child) {
+                c["deleting"] = json!(true);
+            }
+            if c["type"] == "PRINT_FILE" {
+                let known = store
+                    .printer_file(&machine, &child)
+                    .await
+                    .ok()
+                    .map(|(e, _)| e)
+                    .unwrap_or(None);
+                match &known {
+                    Some((d, at)) if still_good(&known, c["size"].as_u64()) => {
+                        c["details"] = summary(d, *at);
                     }
+                    _ => pending += 1,
                 }
-                c
-            })
-            .collect();
+            }
+            listed.push(c);
+        }
         return Json(json!({
             "path": path,
             "data": { "type": "FOLDER", "children": listed, "file_count": data["file_count"] },
@@ -1142,12 +1268,12 @@ async fn preview(
     let Some(path) = query.path.as_deref().and_then(usb_path) else {
         return StatusCode::BAD_REQUEST.into_response();
     };
-    let store = store.lock().unwrap();
-    if let Err(r) = connect_printer(&store, &access, &machine) {
+    if let Err(r) = connect_printer(&store, &access, &machine).await {
         return *r;
     }
     let png = store
         .printer_file(&machine, &path)
+        .await
         .ok()
         .and_then(|(entry, _)| entry)
         .and_then(|(data, _)| data["preview"].as_str().map(str::to_owned))
@@ -1180,7 +1306,7 @@ struct PathForm {
 }
 
 /// Sends one of Connect's commands about a path, for someone.
-fn path_command(
+async fn path_command(
     store: &Store,
     access: &Access,
     machine: &str,
@@ -1188,8 +1314,7 @@ fn path_command(
     label: String,
     path: &str,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    let printer = match connect_printer(&store, access, machine) {
+    let printer = match connect_printer(store, access, machine).await {
         Ok(p) => p,
         Err(r) => return *r,
     };
@@ -1197,9 +1322,14 @@ fn path_command(
         return (StatusCode::CONFLICT, "the printer is offline").into_response();
     }
     let body = json!({"command": command, "kwargs": {"path": path}});
-    match store.queue_connect_command(access.space, machine, &label, &body, false) {
+    let queued =
+        store
+            .lock()
+            .unwrap()
+            .queue_connect_command(access.space, machine, &label, &body, false);
+    match queued {
         Ok(Some(_)) => {
-            let _ = store.forget_printer_path(machine, path);
+            let _ = store.forget_printer_path(machine, path).await;
             StatusCode::NO_CONTENT.into_response()
         }
         Ok(None) => (StatusCode::CONFLICT, "the printer takes no commands").into_response(),
@@ -1222,11 +1352,12 @@ async fn print(
             Ok(active) => active,
             Err(error) => return failed(error),
         };
+        let found = store.machine(access.space, &machine).await;
         let s = store.lock().unwrap();
         if let Err(refused) = crate::safety::check_ppe(&s, ppe_checks, &access, &machine) {
             return *refused;
         }
-        if let Ok(Some(m)) = s.machine_on_mirror(access.space, &machine) {
+        if let Ok(Some(m)) = found {
             let state = m.telemetry.as_ref().map(|t| t.state);
             if active.is_some() || matches!(state, Some(maker_connect_protocol::MachineState::Busy))
             {
@@ -1242,7 +1373,8 @@ async fn print(
         "START_PRINT",
         format!("Print {name} from the stick"),
         &path,
-    );
+    )
+    .await;
     if response.status().is_success() {
         // Who started it, for as long as it runs (Now's "Ends next").
         let _ = store
@@ -1263,33 +1395,33 @@ async fn delete(
     };
     let folder = form.folder.is_some();
     let name = path.rsplit('/').next().unwrap_or("").to_owned();
+    // A file still arriving is refused by the printer ("File is being transferred"):
+    // said here, before it is asked. Buddy lists such a file as read_only.
+    if !folder
+        && let Ok(Some(child)) = store.listed_child(&machine, &path).await
+        && child["read_only"].as_bool() == Some(true)
     {
-        let s = store.lock().unwrap();
-        // A file still arriving is refused by the printer ("File is being transferred"):
-        // said here, before it is asked. Buddy lists such a file as read_only.
-        if !folder
-            && let Ok(Some(child)) = s.listed_child(&machine, &path)
-            && child["read_only"].as_bool() == Some(true)
-        {
-            return (
-                StatusCode::CONFLICT,
-                "it is still arriving on the stick: delete it once it is there",
-            )
-                .into_response();
-        }
-        if s.open_path_commands(&machine)
-            .iter()
-            .any(|(p, c)| p == &path && c.starts_with("DELETE_"))
-        {
-            return (StatusCode::CONFLICT, "it is being deleted already").into_response();
-        }
+        return (
+            StatusCode::CONFLICT,
+            "it is still arriving on the stick: delete it once it is there",
+        )
+            .into_response();
+    }
+    if store
+        .lock()
+        .unwrap()
+        .open_path_commands(&machine)
+        .iter()
+        .any(|(p, c)| p == &path && c.starts_with("DELETE_"))
+    {
+        return (StatusCode::CONFLICT, "it is being deleted already").into_response();
     }
     let (command, label) = if folder {
         ("DELETE_FOLDER", format!("Delete the folder {name}"))
     } else {
         ("DELETE_FILE", format!("Delete {name}"))
     };
-    path_command(&store, &access, &machine, command, label, &path)
+    path_command(&store, &access, &machine, command, label, &path).await
 }
 
 async fn new_folder(
@@ -1323,6 +1455,7 @@ async fn new_folder(
         format!("New folder {name}"),
         &path,
     )
+    .await
 }
 
 #[derive(Deserialize)]
@@ -1340,8 +1473,7 @@ async fn send(
     Path(machine): Path<String>,
     Form(form): Form<SendForm>,
 ) -> Response {
-    let mut store = store.lock().unwrap();
-    let printer = match connect_printer(&store, &access, &machine) {
+    let printer = match connect_printer(&store, &access, &machine).await {
         Ok(p) => p,
         Err(r) => return *r,
     };
@@ -1351,7 +1483,7 @@ async fn send(
     let Some(folder) = usb_path(form.folder.as_deref().unwrap_or("/usb")) else {
         return (StatusCode::BAD_REQUEST, "a folder on the stick").into_response();
     };
-    let file = match store.file_on_mirror(access.space, &form.file) {
+    let file = match store.file(access.space, &form.file).await {
         Ok(Some(f)) => f,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such file").into_response(),
         Err(error) => return failed(error),
@@ -1366,18 +1498,22 @@ async fn send(
     // There already (sent by us, the same file): no second copy. Unless the printer's
     // listing of the folder no longer has it (deleted since, on the printer, by hand or by
     // us: the printer names it by its short name then, so the transfer is not matched).
-    match still_on_stick(&store, &machine, &file.id, file.size) {
+    match still_on_stick(&store, &machine, &file.id, file.size).await {
         Ok(Some(path)) if path.rsplit_once('/').map(|(f, _)| f) == Some(folder.as_str()) => {
             return Json(json!({ "path": path, "already": true })).into_response();
         }
         Ok(_) => {}
         Err(error) => return failed(error),
     }
-    let taken = names_in(&store, &machine, &folder);
+    let taken = names_in(&store, &machine, &folder).await;
     let path = format!("{folder}/{}", stick_name(&file.name, &taken));
-    let sent = store
+    let sent = match store
         .create_transfer(access.space, &machine, &file.id, file.size, &path, None)
-        .and_then(|t| store.start_transfer(&t, &file.name));
+        .await
+    {
+        Ok(t) => store.start_transfer(&t, &file.name).await,
+        Err(error) => Err(error.into()),
+    };
     match sent {
         Ok(Some(_)) => Json(json!({ "path": path })).into_response(),
         Ok(None) => (StatusCode::CONFLICT, "the printer takes no commands").into_response(),
@@ -1392,16 +1528,13 @@ async fn download(
     Path(iv): Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    let (transfer, path) = {
-        let store = store.lock().unwrap();
-        match store.transfer(&iv.to_ascii_lowercase()) {
-            Ok(Some(t)) => {
-                let path = store.file_path(&t.file);
-                (t, path)
-            }
-            Ok(None) => return (StatusCode::NOT_FOUND, "no such transfer").into_response(),
-            Err(error) => return failed(error),
+    let (transfer, path) = match store.transfer(&iv.to_ascii_lowercase()).await {
+        Ok(Some(t)) => {
+            let path = store.file_path(&t.file);
+            (t, path)
         }
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such transfer").into_response(),
+        Err(error) => return failed(error),
     };
     let (Some(key), Some(nonce)) = (unhex(&transfer.key), unhex(&transfer.iv)) else {
         return failed("a transfer without its key");
@@ -1642,11 +1775,9 @@ mod flow {
 
         // Asked for the folder twice before it answers: one read queued.
         look(app.clone()).await;
-        store
-            .lock()
-            .unwrap()
-            .db
-            .execute("UPDATE printer_files SET asked_at = 0", [])
+        sqlx::query("UPDATE printer_files SET asked_at = at_unix(0)")
+            .execute(&pool)
+            .await
             .unwrap();
         look(app.clone()).await;
         assert_eq!(reads(&store.lock().unwrap()), 1, "read once");
@@ -1812,12 +1943,14 @@ mod flow {
         // Its printable file is read ahead, in the background (not listed with someone's commands).
         {
             let m = store.machine(space, &mini).await.unwrap().unwrap();
-            let s = store.lock().unwrap();
             assert!(
                 m.commands.iter().all(|c| !c.label.contains("BENCHY")),
                 "background: not listed"
             );
-            let (_, asked) = s.printer_file(&mini, "/usb/BENCHY~1.BGC").unwrap();
+            let (_, asked) = store
+                .printer_file(&mini, "/usb/BENCHY~1.BGC")
+                .await
+                .unwrap();
             assert!(asked.is_some(), "asked ahead");
         }
         let (_, _, body) = call(&app, get(format!("/api/machines/{mini}/usb?path=/usb"))).await;
@@ -2352,45 +2485,50 @@ mod flow {
         ignore = "needs Postgres: the pg-tests feature"
     )]
     async fn a_file_deleted_from_the_stick_goes_again(pool: sqlx::PgPool) {
-        let pg = crate::store::Store::for_test(&pool).await;
-        let (space, mini, _) = pg.add_test_machine("prusa/mini", None).await;
-        let store = pg.lock().unwrap();
+        let store = crate::store::Store::for_test(&pool).await;
+        let (space, mini, _) = store.add_test_machine("prusa/mini", None).await;
         let path = "/usb/3dbenchy.bgcode";
         let sent = store
             .create_transfer(space, &mini, "file-1", 1000, path, None)
+            .await
             .unwrap();
         store
             .set_transfer(&sent.iv, "finished", None, None)
+            .await
             .unwrap();
-        store
-            .db
-            .execute(
-                "UPDATE printer_transfers SET created_at = created_at - 100 WHERE iv = ?1",
-                [&sent.iv],
-            )
-            .unwrap();
+        sqlx::query(
+            "UPDATE printer_transfers SET created_at = created_at - interval '100 seconds' WHERE iv = $1",
+        )
+        .bind(&sent.iv)
+        .execute(&pool)
+        .await
+        .unwrap();
         let listing = |names: &[(&str, &str)]| {
             json!({"children": names.iter().map(|(short, long)| json!({
                 "name": short, "display_name": long, "type": "PRINT_FILE", "read_only": false
             })).collect::<Vec<_>>()})
         };
-        let back_dated = |seconds: i64| {
-            store
-                .db
-                .execute(
-                    "UPDATE printer_files SET at = at - ?2 WHERE machine_id = ?1 AND path = '/usb'",
-                    params![mini, seconds],
-                )
-                .unwrap();
+        let back_dated = async |seconds: i64| {
+            sqlx::query(
+                "UPDATE printer_files SET at = at - make_interval(secs => $2)
+                 WHERE machine_id = $1 AND path = '/usb'",
+            )
+            .bind(&mini)
+            .bind(seconds as f64)
+            .execute(&pool)
+            .await
+            .unwrap();
         };
 
         // A listing from before the transfer does not have it yet: still there.
         store
-            .set_printer_file(&mini, "/usb", &listing(&[]))
+            .set_printer_file(space, &mini, "/usb", &listing(&[]))
+            .await
             .unwrap();
-        back_dated(200);
+        back_dated(200).await;
         assert_eq!(
             still_on_stick(&store, &mini, "file-1", 1000)
+                .await
                 .unwrap()
                 .as_deref(),
             Some(path)
@@ -2398,25 +2536,32 @@ mod flow {
         // Listed after it (by its long name): there.
         store
             .set_printer_file(
+                space,
                 &mini,
                 "/usb",
                 &listing(&[("3DBENC~1.BGC", "3dbenchy.bgcode")]),
             )
+            .await
             .unwrap();
         assert_eq!(
             still_on_stick(&store, &mini, "file-1", 1000)
+                .await
                 .unwrap()
                 .as_deref(),
             Some(path)
         );
         // Gone from the next listing: not there, and the transfer no longer says so.
         store
-            .set_printer_file(&mini, "/usb", &listing(&[]))
+            .set_printer_file(space, &mini, "/usb", &listing(&[]))
+            .await
             .unwrap();
-        assert_eq!(still_on_stick(&store, &mini, "file-1", 1000).unwrap(), None);
-        assert_eq!(store.on_stick(&mini, "file-1", 1000).unwrap(), None);
+        assert_eq!(
+            still_on_stick(&store, &mini, "file-1", 1000).await.unwrap(),
+            None
+        );
+        assert_eq!(store.on_stick(&mini, "file-1", 1000).await.unwrap(), None);
         assert!(
-            store.sent_paths(&mini).unwrap().is_empty(),
+            store.sent_paths(&mini).await.unwrap().is_empty(),
             "its name is free again"
         );
     }

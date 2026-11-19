@@ -3,10 +3,13 @@ use super::*;
 impl Legacy {
     /// What holds a machine in its space ([`Store::move_machine`]): work under way, a plate to
     /// confirm, a print on its bed, a file on its way.
+    ///
+    /// `sending`: how many files are on their way to it ([`Store::files_on_their_way`]).
     pub(crate) fn why_it_stays(
         &self,
         jobs: &JobFacts,
         machine: &str,
+        sending: i64,
     ) -> rusqlite::Result<Option<String>> {
         if jobs.active_job(machine).is_some() {
             return Ok(Some(
@@ -23,11 +26,6 @@ impl Legacy {
                 "a print is still on its bed: say it was taken first".to_owned(),
             ));
         }
-        let sending: i64 = self.db.query_row(
-            "SELECT COUNT(*) FROM printer_transfers WHERE machine_id = ?1 AND state IN ('waiting', 'sent')",
-            [machine],
-            |r| r.get(0),
-        )?;
         if sending > 0 {
             return Ok(Some(
                 "a file is being sent to it: wait until it is there".to_owned(),
@@ -43,11 +41,6 @@ impl Legacy {
         tx.execute(
             "UPDATE spool SET machine = NULL WHERE machine = ?1 AND space_id = ?2",
             params![machine, from],
-        )?;
-        tx.execute(
-            "UPDATE printer_transfers SET state = 'failed', reason = 'the machine moved to another space'
-             WHERE machine_id = ?1 AND state NOT IN ('finished', 'done', 'failed')",
-            [machine],
         )?;
         tx.commit()?;
         // Commands asked in the old space are not the new one's.

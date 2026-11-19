@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, space_id AS \"space_id!\" FROM machines WHERE id = $1 AND space_id IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "machines",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "space_id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "machines",
+            "name": "space_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "19b302db74ed0f515b99cda61ca3018d99ca6ae1544dc46f1f85baf5f29411b5"
+}

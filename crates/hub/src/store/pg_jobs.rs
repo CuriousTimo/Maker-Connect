@@ -158,19 +158,7 @@ impl JobFacts {
     }
 }
 
-/// A job moving on ([`Store::set_job`]), asked where the lock is held: done by [`Store::move_jobs`]
-/// once it is let go.
-pub(crate) type JobMove = (i64, JobState, Option<String>);
-
 impl Store {
-    /// The jobs' moves asked under the lock ([`JobMove`]), in order.
-    pub(crate) async fn move_jobs(&self, moves: Vec<JobMove>) -> Result<(), BoxError> {
-        for (job, state, reason) in moves {
-            self.set_job(job, state, reason.as_deref()).await?;
-        }
-        Ok(())
-    }
-
     /// What the machines `ids` show of their jobs (see [`JobFacts`]).
     pub(crate) async fn job_facts(&self, ids: &[String]) -> sqlx::Result<JobFacts> {
         let admin = &self.pg().admin;

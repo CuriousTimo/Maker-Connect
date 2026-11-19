@@ -15,7 +15,7 @@ mod pg_machines;
 mod pg_files;
 // Jobs on Postgres (lane 3b).
 mod pg_jobs;
-pub(crate) use pg_jobs::{JobFacts, JobMove};
+pub(crate) use pg_jobs::JobFacts;
 
 mod pg_mirror;
 mod pg_settings;

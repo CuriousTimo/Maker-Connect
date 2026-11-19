@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE printer_transfers SET state = 'failed', reason = 'the machine moved to another space'\n             WHERE machine_id = $1 AND state NOT IN ('finished', 'done', 'failed')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2d2743e54bd11047f5b91521decb73cc2f4daa9bc0ae6f11e78af69125f6eeb3"
+}

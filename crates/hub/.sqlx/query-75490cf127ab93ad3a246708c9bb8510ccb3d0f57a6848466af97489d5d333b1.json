@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO printer_files (machine_id, space_id, path, asked_at) VALUES ($1, $2, $3, at_unix($4))\n             ON CONFLICT (machine_id, path) DO UPDATE SET asked_at = excluded.asked_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "75490cf127ab93ad3a246708c9bb8510ccb3d0f57a6848466af97489d5d333b1"
+}

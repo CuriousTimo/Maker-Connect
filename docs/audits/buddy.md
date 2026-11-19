@@ -37,17 +37,17 @@ row says OPEN, not identical.
 |---|---|---|---|---|---|
 | `CANCEL_OBJECT` | both | `command.cpp:182` |  | **not used by the hub** |  |
 | `CANCEL_PRINTER_READY` | both | `command.cpp:163` |  | **not used by the hub** |  |
-| `CREATE_FOLDER` | both | `command.cpp:167` | `devices/printer_files.rs:1322` | **identical**: taken as `CreateFolder` with `path` | `buddy_takes_every_command_the_hub_sends` |
-| `DELETE_FILE` | both | `command.cpp:165` | `devices/printer_files.rs:1290` | **identical**: taken as `DeleteFile` with `path` | `buddy_takes_every_command_the_hub_sends` |
-| `DELETE_FOLDER` | both | `command.cpp:166` | `devices/printer_files.rs:1288` | **identical**: taken as `DeleteFolder` with `path` | `buddy_takes_every_command_the_hub_sends` |
+| `CREATE_FOLDER` | both | `command.cpp:167` | `devices/printer_files.rs:1454` | **identical**: taken as `CreateFolder` with `path` | `buddy_takes_every_command_the_hub_sends` |
+| `DELETE_FILE` | both | `command.cpp:165` | `devices/printer_files.rs:1422` | **identical**: taken as `DeleteFile` with `path` | `buddy_takes_every_command_the_hub_sends` |
+| `DELETE_FOLDER` | both | `command.cpp:166` | `devices/printer_files.rs:1420` | **identical**: taken as `DeleteFolder` with `path` | `buddy_takes_every_command_the_hub_sends` |
 | `DIALOG_ACTION` | both | `command.cpp:180` | `web/machines.rs:488` | **identical**: taken as `DialogAction` with `dialog_id` and `button`; the hub offers the buttons only when the printer named a dialog, and refuses a press without one ("the printer named no dialog"), so it never sends one without `dialog_id` | `buddy_takes_every_command_the_hub_sends`, `a_dialog_answer_without_a_dialog_is_refused_by_the_hub` |
-| `PAUSE_PRINT` | both | `command.cpp:158` | `devices/printer_files.rs:978` | **identical**: taken as `PausePrint` | `buddy_takes_every_command_the_hub_sends` |
+| `PAUSE_PRINT` | both | `command.cpp:158` | `devices/printer_files.rs:1101` | **identical**: taken as `PausePrint` | `buddy_takes_every_command_the_hub_sends` |
 | `RESET` | both | `command.cpp:178` |  | **not used by the hub** |  |
 | `RESET_PRINTER` | both | `command.cpp:177` |  | **not used by the hub** |  |
-| `RESUME_PRINT` | both | `command.cpp:160` | `devices/printer_files.rs:979` | **identical**: taken as `ResumePrint` | `buddy_takes_every_command_the_hub_sends` |
-| `SEND_FILE_INFO` | both | `command.cpp:156` | `devices/printer_files.rs:812` `devices/printer_files.rs:1066` | **identical**: the body Buddy's port takes as `SendFileInfo` with its `path` | `buddy_takes_every_command_the_hub_sends` |
+| `RESUME_PRINT` | both | `command.cpp:160` | `devices/printer_files.rs:1102` | **identical**: taken as `ResumePrint` | `buddy_takes_every_command_the_hub_sends` |
+| `SEND_FILE_INFO` | both | `command.cpp:156` | `devices/printer_files.rs:930` `devices/printer_files.rs:1188` | **identical**: the body Buddy's port takes as `SendFileInfo` with its `path` | `buddy_takes_every_command_the_hub_sends` |
 | `SEND_INFO` | both | `command.cpp:154` |  | **not used by the hub** |  |
-| `SEND_JOB_INFO` | both | `command.cpp:155` | `devices/printer_files.rs:875` | **identical**: taken as `SendJobInfo` with `job_id` | `buddy_takes_every_command_the_hub_sends` |
+| `SEND_JOB_INFO` | both | `command.cpp:155` | `devices/printer_files.rs:997` | **identical**: taken as `SendJobInfo` with `job_id` | `buddy_takes_every_command_the_hub_sends` |
 | `SEND_STATE_INFO` | both | `command.cpp:179` |  | **not used by the hub** |  |
 | `SEND_TRANSFER_INFO` | both | `command.cpp:157` |  | **not used by the hub** |  |
 | `SET_IDLE` | both | `command.cpp:164` |  | **not used by the hub** |  |
@@ -55,10 +55,10 @@ row says OPEN, not identical.
 | `SET_TOKEN` | both | `command.cpp:169` |  | **not used by the hub** |  |
 | `SET_VALUE` | both | `command.cpp:181` |  | **not used by the hub** |  |
 | `START_CONNECT_DOWNLOAD` | both | `command.cpp:191` |  | **not used by the hub** |  |
-| `START_ENCRYPTED_DOWNLOAD` | both | `command.cpp:192` | `devices/printer_files.rs:450` | **identical**: taken as `StartEncryptedDownload` with `path`, `key`, `iv`, `orig_size` (32 hex digits each), no `port` | `buddy_takes_every_command_the_hub_sends` |
+| `START_ENCRYPTED_DOWNLOAD` | both | `command.cpp:192` | `devices/printer_files.rs:547` | **identical**: taken as `StartEncryptedDownload` with `path`, `key`, `iv`, `orig_size` (32 hex digits each), no `port` | `buddy_takes_every_command_the_hub_sends` |
 | `START_INLINE_DOWNLOAD` | both | `command.cpp:184` |  | **not used by the hub** |  |
-| `START_PRINT` | both | `command.cpp:161` | `devices/printer_files.rs:343` `devices/printer_files.rs:1242` | **identical**: taken as `StartPrint` with `path` (no `tool_mapping`: optional) | `buddy_takes_every_command_the_hub_sends` |
-| `STOP_PRINT` | both | `command.cpp:159` | `devices/printer_files.rs:980` | **identical**: taken as `StopPrint` | `buddy_takes_every_command_the_hub_sends` |
+| `START_PRINT` | both | `command.cpp:161` | `devices/printer_files.rs:384` `devices/printer_files.rs:1373` | **identical**: taken as `StartPrint` with `path` (no `tool_mapping`: optional) | `buddy_takes_every_command_the_hub_sends` |
+| `STOP_PRINT` | both | `command.cpp:159` | `devices/printer_files.rs:1103` | **identical**: taken as `StopPrint` | `buddy_takes_every_command_the_hub_sends` |
 | `STOP_TRANSFER` | both | `command.cpp:168` |  | **not used by the hub** |  |
 | `UNCANCEL_OBJECT` | both | `command.cpp:183` |  | **not used by the hub** |  |
 
@@ -71,7 +71,7 @@ row says OPEN, not identical.
 | `chamber.fan_pwm_target` | both | `command.cpp:408` |  | **not used by the hub** |  |
 | `chamber.led_intensity` | both | `command.cpp:414` |  | **not used by the hub** |  |
 | `chamber.target_temp` | both | `command.cpp:406` |  | **not used by the hub** |  |
-| `command` | both | `command.cpp:147` | `devices/printer_files.rs:1199` | **identical**: in every body, a string at depth 1 (`:147`) | `buddy_takes_every_command_the_hub_sends` |
+| `command` | both | `command.cpp:147` | `devices/printer_files.rs:1324` | **identical**: in every body, a string at depth 1 (`:147`) | `buddy_takes_every_command_the_hub_sends` |
 | `dialog_id` | both | `command.cpp:400` | `web/machines.rs:487` | **identical**: a number, the one the printer's `STATE_CHANGED` named (`render.cpp:673`); with none named there is no `DIALOG_ACTION` | `buddy_takes_every_command_the_hub_sends`, `a_dialog_answer_without_a_dialog_is_refused_by_the_hub` |
 | `enclosure_enabled` | both | `command.cpp:346` |  | **not used by the hub** |  |
 | `enclosure_postprint` | both | `command.cpp:350` |  | **not used by the hub** |  |
@@ -80,12 +80,12 @@ row says OPEN, not identical.
 | `hash` | both | `command.cpp:390` |  | **not used by the hub** |  |
 | `hostname` | both | `command.cpp:332` |  | **not used by the hub** |  |
 | `id` | both | `command.cpp:402` |  | **not used by the hub** |  |
-| `iv` | both | `command.cpp:398` | `devices/printer_files.rs:454` | **identical**: 32 hex digits | `buddy_takes_every_command_the_hub_sends` |
-| `job_id` | both | `command.cpp:269` | `devices/printer_files.rs:875` | **identical**: a number that fits 16 bits (it is the printer's own `job_id`) | `buddy_takes_every_command_the_hub_sends` |
-| `key` | both | `command.cpp:396` | `devices/printer_files.rs:453` | **identical**: 32 hex digits | `buddy_takes_every_command_the_hub_sends` |
-| `kwargs` | both | `command.cpp:265` | `devices/printer_files.rs:1199` | **identical**: an object at depth 1 (`:265`) | `buddy_takes_every_command_the_hub_sends` |
-| `orig_size` | both | `command.cpp:385` | `devices/printer_files.rs:455` | **identical**: a number that fits 32 bits | `buddy_takes_every_command_the_hub_sends` |
-| `path` | both | `command.cpp:271` | `devices/printer_files.rs:1199` | **identical**: a string; short names of the stick (`path_sfn` is the same argument, `:271`) | `buddy_takes_every_command_the_hub_sends` |
+| `iv` | both | `command.cpp:398` | `devices/printer_files.rs:551` | **identical**: 32 hex digits | `buddy_takes_every_command_the_hub_sends` |
+| `job_id` | both | `command.cpp:269` | `devices/printer_files.rs:997` | **identical**: a number that fits 16 bits (it is the printer's own `job_id`) | `buddy_takes_every_command_the_hub_sends` |
+| `key` | both | `command.cpp:396` | `devices/printer_files.rs:550` | **identical**: 32 hex digits | `buddy_takes_every_command_the_hub_sends` |
+| `kwargs` | both | `command.cpp:265` | `devices/printer_files.rs:1324` | **identical**: an object at depth 1 (`:265`) | `buddy_takes_every_command_the_hub_sends` |
+| `orig_size` | both | `command.cpp:385` | `devices/printer_files.rs:552` | **identical**: a number that fits 32 bits | `buddy_takes_every_command_the_hub_sends` |
+| `path` | both | `command.cpp:271` | `devices/printer_files.rs:1324` | **identical**: a string; short names of the stick (`path_sfn` is the same argument, `:271`) | `buddy_takes_every_command_the_hub_sends` |
 | `path_sfn` | both | `command.cpp:271` |  | **not used by the hub** |  |
 | `port` | both | `command.cpp:383` |  | **not used by the hub** |  |
 | `team_id` | both | `command.cpp:388` |  | **not used by the hub** |  |
@@ -101,43 +101,43 @@ Fourteen types, the whole list of `planner.cpp:253-280`. Common shape (`render.c
 
 | Item | In | Buddy 6.3.0 | Hub | Result | Test |
 |---|---|---|---|---|---|
-| `ACCEPTED` | both | `planner.cpp:256` | `devices/prusa_connect.rs:518=ACCEPTED` | **identical**: a command with that id becomes accepted; the event has no `job_id` or `data` (`render.cpp:269`) | `the_events_buddy_sends_settle_commands` |
-| `REJECTED` | both | `planner.cpp:258` | `devices/prusa_connect.rs:530=REJECTED` | **identical**: the command becomes rejected; `reason` and `machine_reason` (`render.cpp:327`, `:331`) are kept as the reason. The hub reads `machine_reason` `FILE_EXISTS` to send a file again under a free name, not the text | `the_events_buddy_sends_settle_commands`, `a_free_name_is_decided_by_machine_reason` |
-| `FINISHED` | both | `planner.cpp:266` | `devices/prusa_connect.rs:525=FINISHED` | **identical**: the command becomes finished | `the_events_buddy_sends_settle_commands` |
-| `FAILED` | both | `planner.cpp:268` | `devices/prusa_connect.rs:530=FAILED` | **identical**: the command becomes rejected (a background G-code that failed, `planner.cpp:1112`) | `the_events_buddy_sends_settle_commands` |
-| `INFO` | both | `planner.cpp:254` | `devices/prusa_connect.rs:553=INFO` | **identical**: the command is finished and the details are kept (serial, `printer_type` as the string `2.1.0`, firmware, `nozzle_diameter` at the top level, `tools.<n>.material` with `---` read as none, storages, network); keys only master writes are not read | `the_events_buddy_sends_settle_commands`, `info_says_a_dash_for_no_material`, `printer_type_is_read_as_buddys_string_only`, `info_of_6_3_0_is_read_as_buddy_writes_it` |
-| `JOB_INFO` | both | `planner.cpp:260` | `devices/printer_files.rs:640=JOB_INFO` | **identical**: the command is finished; `job_id` at the top and `data.display_name` give the file a print is (as the hub's telemetry shows it) | `the_events_buddy_sends_settle_commands`, `state_changed_and_job_info_reach_the_hub` |
-| `FILE_INFO` | both | `planner.cpp:262` | `devices/printer_files.rs:628=FILE_INFO` | **identical**: the command is finished; a folder's `children` and `path` fill the hub's listing of the stick | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
-| `TRANSFER_INFO` | both | `planner.cpp:264` | `devices/printer_files.rs:672=TRANSFER_INFO` | **identical**: the download command is finished (taken, the file on its way) | `the_events_buddy_sends_settle_commands`, `transfer_events_name_their_command_in_data` |
-| `TRANSFER_STOPPED` | both | `planner.cpp:270` | `devices/printer_files.rs:689=TRANSFER_STOPPED` | **OPEN**: no top-level `command_id` (`render.cpp:537`); the hub takes the command from `data.start_cmd_id`; the stopped branch (failed transfer, job failed) is not run by a test here |  |
-| `TRANSFER_ABORTED` | both | `planner.cpp:272` | `devices/printer_files.rs:689=TRANSFER_ABORTED` | **OPEN**: as `TRANSFER_STOPPED`; the `machine_reason` (`STORAGE_FAILURE`, `NETWORK_FAILURE`) wording is not run by a test here |  |
-| `TRANSFER_FINISHED` | both | `planner.cpp:274` | `devices/printer_files.rs:689=TRANSFER_FINISHED` | **identical**: no top-level `command_id` (`render.cpp:537`); the hub settles the download command by `data.start_cmd_id` and marks the transfer finished | `transfer_events_name_their_command_in_data` |
-| `FILE_CHANGED` | both | `planner.cpp:276` | `devices/printer_files.rs:655=FILE_CHANGED` | **identical**: the command (delete, make folder) is finished by it (`planner.cpp:850`); `old_path` takes the file out of the listing | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
-| `CANCELABLE_CHANGED` | both | `planner.cpp:278` | `devices/prusa_connect.rs:526=CANCELABLE_CHANGED` | **identical**: the command (`CANCEL_OBJECT`, `UNCANCEL_OBJECT`, never sent by the hub) would be finished; the `objects` list is not read by the hub | `the_events_buddy_sends_settle_commands` |
-| `STATE_CHANGED` | both | `planner.cpp:280` | `devices/printer_files.rs:582=STATE_CHANGED` | **identical**: `data.code`, `title`, `text`, `buttons` and the top-level `dialog_id` give what the screen asks (and the buttons for `DIALOG_ACTION`); a state without a dialog clears it | `the_events_buddy_sends_settle_commands`, `state_changed_and_job_info_reach_the_hub` |
+| `ACCEPTED` | both | `planner.cpp:256` | `devices/prusa_connect.rs:507=ACCEPTED` | **identical**: a command with that id becomes accepted; the event has no `job_id` or `data` (`render.cpp:269`) | `the_events_buddy_sends_settle_commands` |
+| `REJECTED` | both | `planner.cpp:258` | `devices/prusa_connect.rs:519=REJECTED` | **identical**: the command becomes rejected; `reason` and `machine_reason` (`render.cpp:327`, `:331`) are kept as the reason. The hub reads `machine_reason` `FILE_EXISTS` to send a file again under a free name, not the text | `the_events_buddy_sends_settle_commands`, `a_free_name_is_decided_by_machine_reason` |
+| `FINISHED` | both | `planner.cpp:266` | `devices/prusa_connect.rs:514=FINISHED` | **identical**: the command becomes finished | `the_events_buddy_sends_settle_commands` |
+| `FAILED` | both | `planner.cpp:268` | `devices/prusa_connect.rs:519=FAILED` | **identical**: the command becomes rejected (a background G-code that failed, `planner.cpp:1112`) | `the_events_buddy_sends_settle_commands` |
+| `INFO` | both | `planner.cpp:254` | `devices/prusa_connect.rs:537=INFO` | **identical**: the command is finished and the details are kept (serial, `printer_type` as the string `2.1.0`, firmware, `nozzle_diameter` at the top level, `tools.<n>.material` with `---` read as none, storages, network); keys only master writes are not read | `the_events_buddy_sends_settle_commands`, `info_says_a_dash_for_no_material`, `printer_type_is_read_as_buddys_string_only`, `info_of_6_3_0_is_read_as_buddy_writes_it` |
+| `JOB_INFO` | both | `planner.cpp:260` | `devices/printer_files.rs:738=JOB_INFO` | **identical**: the command is finished; `job_id` at the top and `data.display_name` give the file a print is (as the hub's telemetry shows it) | `the_events_buddy_sends_settle_commands`, `state_changed_and_job_info_reach_the_hub` |
+| `FILE_INFO` | both | `planner.cpp:262` | `devices/printer_files.rs:726=FILE_INFO` | **identical**: the command is finished; a folder's `children` and `path` fill the hub's listing of the stick | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
+| `TRANSFER_INFO` | both | `planner.cpp:264` | `devices/printer_files.rs:772=TRANSFER_INFO` | **identical**: the download command is finished (taken, the file on its way) | `the_events_buddy_sends_settle_commands`, `transfer_events_name_their_command_in_data` |
+| `TRANSFER_STOPPED` | both | `planner.cpp:270` | `devices/printer_files.rs:789=TRANSFER_STOPPED` | **OPEN**: no top-level `command_id` (`render.cpp:537`); the hub takes the command from `data.start_cmd_id`; the stopped branch (failed transfer, job failed) is not run by a test here |  |
+| `TRANSFER_ABORTED` | both | `planner.cpp:272` | `devices/printer_files.rs:789=TRANSFER_ABORTED` | **OPEN**: as `TRANSFER_STOPPED`; the `machine_reason` (`STORAGE_FAILURE`, `NETWORK_FAILURE`) wording is not run by a test here |  |
+| `TRANSFER_FINISHED` | both | `planner.cpp:274` | `devices/printer_files.rs:789=TRANSFER_FINISHED` | **identical**: no top-level `command_id` (`render.cpp:537`); the hub settles the download command by `data.start_cmd_id` and marks the transfer finished | `transfer_events_name_their_command_in_data` |
+| `FILE_CHANGED` | both | `planner.cpp:276` | `devices/printer_files.rs:755=FILE_CHANGED` | **identical**: the command (delete, make folder) is finished by it (`planner.cpp:850`); `old_path` takes the file out of the listing | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
+| `CANCELABLE_CHANGED` | both | `planner.cpp:278` | `devices/prusa_connect.rs:515=CANCELABLE_CHANGED` | **identical**: the command (`CANCEL_OBJECT`, `UNCANCEL_OBJECT`, never sent by the hub) would be finished; the `objects` list is not read by the hub | `the_events_buddy_sends_settle_commands` |
+| `STATE_CHANGED` | both | `planner.cpp:280` | `devices/printer_files.rs:679=STATE_CHANGED` | **identical**: `data.code`, `title`, `text`, `buttons` and the top-level `dialog_id` give what the screen asks (and the buttons for `DIALOG_ACTION`); a state without a dialog clears it | `the_events_buddy_sends_settle_commands`, `state_changed_and_job_info_reach_the_hub` |
 
 ## What it does with the server's answer, and its registration
 
 | Item | In | Buddy 6.3.0 | Hub | Result | Test |
 |---|---|---|---|---|---|
-| status `204` to a report or event |  | `connect.cpp:726=NoContent` | `devices/prusa_connect.rs:494=NO_CONTENT` | **identical**: nothing to tell; the printer goes on | `the_answer_to_a_report_is_what_buddy_reads` |
-| status `200` with a command |  | `connect.cpp:730=Status::Ok` | `devices/prusa_connect.rs:485=StatusCode::OK` | **identical**: `Command-Id` as decimal digits (`command_id.cpp`), a content type Buddy knows, a body of at most 512 bytes | `the_answer_to_a_report_is_what_buddy_reads`, `buddy_takes_every_command_the_hub_sends` |
-| `Command-Id` header |  | `resp_parser.cpp:51=CommandId` | `devices/prusa_connect.rs:487=Command-Id` | **identical**: the command's number, as digits | `the_answer_to_a_report_is_what_buddy_reads` |
-| `Content-Type: application/json` command |  | `resp_parser.cpp:42=ApplicationJson` | `devices/prusa_connect.rs:480=application/json` | **identical**: a JSON command parsed by `parse_json_command` | `buddy_takes_every_command_the_hub_sends` |
-| `Content-Type: text/x.gcode` command |  | `resp_parser.cpp:45=TextGcodeDot` | `devices/prusa_connect.rs:482=text/x.gcode` | **identical**: G-code lines; `text/x-gcode` is the same to Buddy (`:48`) | `the_answer_to_a_report_is_what_buddy_reads` |
+| status `204` to a report or event |  | `connect.cpp:726=NoContent` | `devices/prusa_connect.rs:484=NO_CONTENT` | **identical**: nothing to tell; the printer goes on | `the_answer_to_a_report_is_what_buddy_reads` |
+| status `200` with a command |  | `connect.cpp:730=Status::Ok` | `devices/prusa_connect.rs:475=StatusCode::OK` | **identical**: `Command-Id` as decimal digits (`command_id.cpp`), a content type Buddy knows, a body of at most 512 bytes | `the_answer_to_a_report_is_what_buddy_reads`, `buddy_takes_every_command_the_hub_sends` |
+| `Command-Id` header |  | `resp_parser.cpp:51=CommandId` | `devices/prusa_connect.rs:477=Command-Id` | **identical**: the command's number, as digits | `the_answer_to_a_report_is_what_buddy_reads` |
+| `Content-Type: application/json` command |  | `resp_parser.cpp:42=ApplicationJson` | `devices/prusa_connect.rs:470=application/json` | **identical**: a JSON command parsed by `parse_json_command` | `buddy_takes_every_command_the_hub_sends` |
+| `Content-Type: text/x.gcode` command |  | `resp_parser.cpp:45=TextGcodeDot` | `devices/prusa_connect.rs:472=text/x.gcode` | **identical**: G-code lines; `text/x-gcode` is the same to Buddy (`:48`) | `the_answer_to_a_report_is_what_buddy_reads` |
 | a command body over 512 bytes |  | `connect.cpp:203=512` | `commands.rs:315=512` | **OPEN**: JSON commands the hub builds are far smaller (tested); the G-code of the hub's typed commands is limited to 480 characters on the hub's side, a limit that is the hub's UI. A G-code body of the MINI mapping (HS10) is not covered | `buddy_takes_every_command_the_hub_sends` |
 | one command at a time |  | `planner.cpp:661=Processing other command` | `store/commands.rs:318=next_command_of_any_kind` | **identical**: the hub sends one and the next only once the first is answered (FINISHED or REJECTED), however long Buddy carries it out (its `command_id` in telemetry, `render.cpp:251`); no time of the hub's ends it. When the printer itself was not seen for longer than the hub's `ONLINE_SECONDS`, what it had not answered fails with "the printer was gone" (ours, K18 (b), not on the wire) | `the_answer_to_a_report_is_what_buddy_reads`, `a_command_stays_pending_until_buddy_answers_it` |
-| status `401` to an unknown token |  | `connect.cpp:631=Unauthorized` | `devices/prusa_connect.rs:497=UNAUTHORIZED` | **identical**: Buddy reads it as an authentication error and refuses the report | `the_answer_to_a_report_is_what_buddy_reads` |
-| a command in the answer to `/p/events` |  | `connect.cpp:697=send_command` | `devices/prusa_connect.rs:502=fn event` | **identical**: Buddy takes a command from any `200` answer; the hub answers events with `204` and sends commands in the answer to telemetry only | `the_events_buddy_sends_settle_commands` |
+| status `401` to an unknown token |  | `connect.cpp:631=Unauthorized` | `devices/prusa_connect.rs:487=UNAUTHORIZED` | **identical**: Buddy reads it as an authentication error and refuses the report | `the_answer_to_a_report_is_what_buddy_reads` |
+| a command in the answer to `/p/events` |  | `connect.cpp:697=send_command` | `devices/prusa_connect.rs:492=fn event` | **identical**: Buddy takes a command from any `200` answer; the hub answers events with `204` and sends commands in the answer to telemetry only | `the_events_buddy_sends_settle_commands` |
 | `POST /p/register`: body |  | `registrator.cpp:61=sn` | `devices/prusa_connect.rs:134=register` | **identical**: `sn`, `fingerprint`, `printer_type` as the string `2.1.0`, `firmware`, in that order, read; the hub answers `200` with a `Code` header of at most 25 characters | `registration_is_what_registrator_cpp_does` |
 | `GET /p/register`: poll |  | `registrator.cpp:219=Accepted` | `devices/prusa_connect.rs:187=ACCEPTED` | **identical**: `202` until added, then `200` with `Token` (at most 20 characters, `printer.hpp:190`), again for as long as the printer has not reported with it (`registrator.cpp:233`); once it has, the code is spent and gets `404` | `registration_is_what_registrator_cpp_does`, `a_mini_registers_by_itself` |
-| raw G-code as a command |  | `command.cpp:90=gcode_command` | `devices/prusa_connect.rs:482=text/x.gcode` | **OPEN**: the transport is read as Buddy reads it; the G-code itself (what the hub sends for jog, heat, home; HS10) is not part of this step |  |
+| raw G-code as a command |  | `command.cpp:90=gcode_command` | `devices/prusa_connect.rs:472=text/x.gcode` | **OPEN**: the transport is read as Buddy reads it; the G-code itself (what the hub sends for jog, heat, home; HS10) is not part of this step |  |
 
 ## Endpoints it calls
 
 | Item | In | Buddy 6.3.0 | Hub | Result | Test |
 |---|---|---|---|---|---|
-| `/f/<iv>/raw` | both | `planner.cpp:177=/raw` | `devices/printer_files.rs:1003=/f/{iv}/raw` | **OPEN**: the download (Range, `Content-Encryption-Mode: AES-CTR`, decryption, 200/206) is not run against `transfers/download.cpp` in this step |  |
+| `/f/<iv>/raw` | both | `planner.cpp:177=/raw` | `devices/printer_files.rs:1126=/f/{iv}/raw` | **OPEN**: the download (Range, `Content-Encryption-Mode: AES-CTR`, decryption, 200/206) is not run against `transfers/download.cpp` in this step |  |
 | `/p/events` | both | `connect.cpp:124` | `devices/prusa_connect.rs:104=/p/events` | **identical**: `POST`, `204` | `the_events_buddy_sends_settle_commands` |
 | `/p/register` | both | `registrator.cpp:42` | `devices/prusa_connect.rs:102=/p/register` | **identical** | `registration_is_what_registrator_cpp_does` |
 | `/p/telemetry` | both | `connect.cpp:121` | `devices/prusa_connect.rs:103=/p/telemetry` | **identical**: `POST`, the answer as described above | `the_answer_to_a_report_is_what_buddy_reads` |
@@ -161,19 +161,19 @@ Fourteen types, the whole list of `planner.cpp:253-280`. Common shape (`render.c
 
 | Item | In | Buddy 6.3.0 | Hub | Result | Test |
 |---|---|---|---|---|---|
-| `ApplicationJson` | both | `resp_parser.cpp:42` | `devices/prusa_connect.rs:480=application/json` | **identical**: the hub's JSON command says `application/json` | `buddy_takes_every_command_the_hub_sends` |
+| `ApplicationJson` | both | `resp_parser.cpp:42` | `devices/prusa_connect.rs:470=application/json` | **identical**: the hub's JSON command says `application/json` | `buddy_takes_every_command_the_hub_sends` |
 | `Body` | both | `resp_parser.cpp:32` |  | **n/a**: the automaton's own state for the body |  |
 | `Code` | both | `resp_parser.cpp:54` | `devices/prusa_connect.rs:177=Code` | **identical**: `Code` of the registration answer | `registration_is_what_registrator_cpp_does` |
-| `CommandId` | both | `resp_parser.cpp:51` | `devices/prusa_connect.rs:487=Command-Id` | **identical**: `Command-Id` | `the_answer_to_a_report_is_what_buddy_reads` |
+| `CommandId` | both | `resp_parser.cpp:51` | `devices/prusa_connect.rs:477=Command-Id` | **identical**: `Command-Id` | `the_answer_to_a_report_is_what_buddy_reads` |
 | `ConnectionHeader` | both | `resp_parser.cpp:72` |  | **OPEN**: set by the HTTP server (axum); not read against the parser here |  |
 | `ConnectionKeepAlive` | both | `resp_parser.cpp:76` |  | **OPEN**: as `ConnectionHeader` |  |
 | `ConnectionUpgrade` | both | `resp_parser.cpp:69` |  | **not used by the hub**: WebSocket (6.4+) |  |
 | `ContentEncryptionModeCBC` | both | `resp_parser.cpp:79` |  | **not used by the hub**: the hub says `AES-CTR` |  |
-| `ContentEncryptionModeCTR` | both | `resp_parser.cpp:82` | `devices/printer_files.rs:1476=content-encryption-mode` | **OPEN**: the hub's download says `AES-CTR`; the download is not run against Buddy here |  |
+| `ContentEncryptionModeCTR` | both | `resp_parser.cpp:82` | `devices/printer_files.rs:1609=content-encryption-mode` | **OPEN**: the hub's download says `AES-CTR`; the download is not run against Buddy here |  |
 | `ContentLength` | both | `resp_parser.cpp:36` |  | **OPEN**: set by the HTTP server for answers and by the download; not read against the parser here |  |
 | `StatusCode` | both | `resp_parser.cpp:29` |  | **OPEN**: the codes the hub answers are listed above |  |
 | `TextGcodeDash` | both | `resp_parser.cpp:48` |  | **not used by the hub**: the hub says `text/x.gcode` |  |
-| `TextGcodeDot` | both | `resp_parser.cpp:45` | `devices/prusa_connect.rs:482=text/x.gcode` | **identical**: the hub's G-code command says `text/x.gcode` | `the_answer_to_a_report_is_what_buddy_reads` |
+| `TextGcodeDot` | both | `resp_parser.cpp:45` | `devices/prusa_connect.rs:472=text/x.gcode` | **identical**: the hub's G-code command says `text/x.gcode` | `the_answer_to_a_report_is_what_buddy_reads` |
 | `Token` | both | `resp_parser.cpp:57` | `devices/prusa_connect.rs:186=Token` | **identical**: `Token` of the registration answer | `registration_is_what_registrator_cpp_does` |
 | `UpgradeWebsocket` | both | `resp_parser.cpp:66` |  | **not used by the hub**: WebSocket (6.4+) |  |
 | `Version` | both | `resp_parser.cpp:85` |  | **OPEN**: HTTP version of the server's answer; not read against the parser here |  |
@@ -196,25 +196,25 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `axis_y` | both |  |  | UNCHECKED |  |
 | `axis_z` | both |  |  | UNCHECKED |  |
 | `base_model` | master only |  |  | **not in 6.3.0** |  |
-| `buttons` | both | `render.cpp:654` | `devices/printer_files.rs:611=buttons` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
+| `buttons` | both | `render.cpp:654` | `devices/printer_files.rs:709=buttons` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `canceled` | both |  |  | UNCHECKED |  |
 | `chamber` | both |  |  | UNCHECKED |  |
 | `chamber_temperature` | master only |  |  | **not in 6.3.0** |  |
-| `children` | both | `render.cpp:1023` | `devices/printer_files.rs:389=children` | **identical**: read from where `render.cpp` writes it | `the_listing_follows_file_info_and_file_changed` |
+| `children` | both | `render.cpp:1023` | `devices/printer_files.rs:459=children` | **identical**: read from where `render.cpp` writes it | `the_listing_follows_file_info_and_file_changed` |
 | `chunk` | both |  |  | UNCHECKED |  |
 | `class` | master only |  |  | **not in 6.3.0** |  |
-| `code` | both | `render.cpp:615` | `devices/printer_files.rs:598=code` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
+| `code` | both | `render.cpp:615` | `devices/printer_files.rs:696=code` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `color_rgba` | master only |  |  | **not in 6.3.0** |  |
 | `command` | 6.3.0 only |  |  | UNCHECKED |  |
-| `command_id` | both | `render.cpp:251` | `devices/prusa_connect.rs:516=command_id` | **identical**: read from where `render.cpp` writes it | `the_events_buddy_sends_settle_commands` |
+| `command_id` | both | `render.cpp:251` | `devices/prusa_connect.rs:505=command_id` | **identical**: read from where `render.cpp` writes it | `the_events_buddy_sends_settle_commands` |
 | `consumed_weight` | master only |  |  | **not in 6.3.0** |  |
-| `data` | both | `render.cpp:340` | `devices/printer_files.rs:578=data` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
-| `dialog_id` | both | `render.cpp:255` | `devices/printer_files.rs:617=dialog_id` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub`, `buddy_takes_every_command_the_hub_sends` |
-| `display_name` | both | `render.cpp:454` | `devices/printer_files.rs:641=display_name` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
+| `data` | both | `render.cpp:340` | `devices/printer_files.rs:675=data` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
+| `dialog_id` | both | `render.cpp:255` | `devices/printer_files.rs:715=dialog_id` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub`, `buddy_takes_every_command_the_hub_sends` |
+| `display_name` | both | `render.cpp:454` | `devices/printer_files.rs:739=display_name` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `enabled` | both |  |  | UNCHECKED |  |
 | `enclosure` | both |  |  | UNCHECKED |  |
 | `end` | both |  |  | UNCHECKED |  |
-| `event` | both | `render.cpp:682` | `devices/prusa_connect.rs:512=event` | **identical**: read from where `render.cpp` writes it | `the_events_buddy_sends_settle_commands` |
+| `event` | both | `render.cpp:682` | `devices/prusa_connect.rs:502=event` | **identical**: read from where `render.cpp` writes it | `the_events_buddy_sends_settle_commands` |
 | `extruder_fs_state` | both |  |  | UNCHECKED |  |
 | `fan_1_rpm` | both |  |  | UNCHECKED |  |
 | `fan_2_rpm` | both |  |  | UNCHECKED |  |
@@ -244,7 +244,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `hostname` | both |  |  | UNCHECKED |  |
 | `id` | both |  |  | UNCHECKED |  |
 | `is_sfn` | both |  |  | UNCHECKED |  |
-| `job_id` | both | `render.cpp:149` | `devices/printer_files.rs:646=job_id` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
+| `job_id` | both | `render.cpp:149` | `devices/printer_files.rs:744=job_id` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `lan_ipv4` | both |  |  | UNCHECKED |  |
 | `lan_mac` | both |  |  | UNCHECKED |  |
 | `led_intensity` | both |  |  | UNCHECKED |  |
@@ -275,7 +275,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `objects` | both |  |  | UNCHECKED |  |
 | `odometer_e` | master only |  |  | **not in 6.3.0** |  |
 | `odometer_id` | master only |  |  | **not in 6.3.0** |  |
-| `old_path` | both | `render.cpp:552` | `devices/printer_files.rs:659=old_path` | **identical**: read from where `render.cpp` writes it | `the_listing_follows_file_info_and_file_changed` |
+| `old_path` | both | `render.cpp:552` | `devices/printer_files.rs:759=old_path` | **identical**: read from where `render.cpp` writes it | `the_listing_follows_file_info_and_file_changed` |
 | `package` | master only |  |  | **not in 6.3.0** |  |
 | `path` | both |  |  | UNCHECKED |  |
 | `post_print` | both |  |  | UNCHECKED |  |
@@ -299,8 +299,8 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `sn` | both |  |  | UNCHECKED |  |
 | `speed` | both |  |  | UNCHECKED |  |
 | `start` | both |  |  | UNCHECKED |  |
-| `start_cmd_id` | both | `render.cpp:460` | `devices/printer_files.rs:690=start_cmd_id` | **identical**: read from where `render.cpp` writes it | `transfer_events_name_their_command_in_data` |
-| `state` | both | `render.cpp:242` | `devices/printer_files.rs:583=state` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub`, `every_state_buddy_sends_is_read` |
+| `start_cmd_id` | both | `render.cpp:460` | `devices/printer_files.rs:790=start_cmd_id` | **identical**: read from where `render.cpp` writes it | `transfer_events_name_their_command_in_data` |
+| `state` | both | `render.cpp:242` | `devices/printer_files.rs:680=state` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub`, `every_state_buddy_sends_is_read` |
 | `storages` | both |  |  | UNCHECKED |  |
 | `tags` | master only |  |  | **not in 6.3.0** |  |
 | `target_bed` | both |  |  | UNCHECKED |  |
@@ -313,12 +313,12 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `temp_heatbreak` | both |  |  | UNCHECKED |  |
 | `temp_nozzle` | 6.3.0 only |  |  | UNCHECKED |  |
 | `temp_psu` | both |  |  | UNCHECKED |  |
-| `text` | both | `render.cpp:636` | `devices/printer_files.rs:591=text` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
+| `text` | both | `render.cpp:636` | `devices/printer_files.rs:689=text` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `time_in_use` | both |  |  | UNCHECKED |  |
 | `time_printing` | both |  |  | UNCHECKED |  |
 | `time_remaining` | both |  |  | UNCHECKED |  |
 | `time_transferring` | both |  |  | UNCHECKED |  |
-| `title` | both | `render.cpp:626` | `devices/printer_files.rs:591=title` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
+| `title` | both | `render.cpp:626` | `devices/printer_files.rs:689=title` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `tool_count` | master only |  |  | **not in 6.3.0** |  |
 | `tools` | both |  |  | UNCHECKED |  |
 | `transfer` | both |  |  | UNCHECKED |  |
@@ -339,23 +339,23 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 
 | Item | In | Buddy 6.3.0 | Hub | Result | Test |
 |---|---|---|---|---|---|
-| `ACCEPTED` | both | `planner.cpp:256` | `devices/prusa_connect.rs:518=ACCEPTED` | **identical**: a command with that id becomes accepted; the event has no `job_id` or `data` (`render.cpp:269`) | `the_events_buddy_sends_settle_commands` |
-| `CANCELABLE_CHANGED` | both | `planner.cpp:278` | `devices/prusa_connect.rs:526=CANCELABLE_CHANGED` | **identical**: the command (`CANCEL_OBJECT`, `UNCANCEL_OBJECT`, never sent by the hub) would be finished; the `objects` list is not read by the hub | `the_events_buddy_sends_settle_commands` |
+| `ACCEPTED` | both | `planner.cpp:256` | `devices/prusa_connect.rs:507=ACCEPTED` | **identical**: a command with that id becomes accepted; the event has no `job_id` or `data` (`render.cpp:269`) | `the_events_buddy_sends_settle_commands` |
+| `CANCELABLE_CHANGED` | both | `planner.cpp:278` | `devices/prusa_connect.rs:515=CANCELABLE_CHANGED` | **identical**: the command (`CANCEL_OBJECT`, `UNCANCEL_OBJECT`, never sent by the hub) would be finished; the `objects` list is not read by the hub | `the_events_buddy_sends_settle_commands` |
 | `DISABLED` | both |  |  | UNCHECKED |  |
-| `FAILED` | both | `planner.cpp:268` | `devices/prusa_connect.rs:530=FAILED` | **identical**: the command becomes rejected (a background G-code that failed, `planner.cpp:1112`) | `the_events_buddy_sends_settle_commands` |
+| `FAILED` | both | `planner.cpp:268` | `devices/prusa_connect.rs:519=FAILED` | **identical**: the command becomes rejected (a background G-code that failed, `planner.cpp:1112`) | `the_events_buddy_sends_settle_commands` |
 | `FFF` | master only |  |  | **not in 6.3.0** |  |
 | `FFF_FEEDER_SLOT` | master only |  |  | **not in 6.3.0** |  |
 | `FFF_PRINT_HEAD` | master only |  |  | **not in 6.3.0** |  |
-| `FILE_CHANGED` | both | `planner.cpp:276` | `devices/printer_files.rs:655=FILE_CHANGED` | **identical**: the command (delete, make folder) is finished by it (`planner.cpp:850`); `old_path` takes the file out of the listing | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
+| `FILE_CHANGED` | both | `planner.cpp:276` | `devices/printer_files.rs:755=FILE_CHANGED` | **identical**: the command (delete, make folder) is finished by it (`planner.cpp:850`); `old_path` takes the file out of the listing | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
 | `FILE_EXISTS` | both |  |  | UNCHECKED |  |
-| `FILE_INFO` | both | `planner.cpp:262` | `devices/printer_files.rs:628=FILE_INFO` | **identical**: the command is finished; a folder's `children` and `path` fill the hub's listing of the stick | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
-| `FINISHED` | both | `planner.cpp:266` | `devices/prusa_connect.rs:525=FINISHED` | **identical**: the command becomes finished | `the_events_buddy_sends_settle_commands` |
+| `FILE_INFO` | both | `planner.cpp:262` | `devices/printer_files.rs:726=FILE_INFO` | **identical**: the command is finished; a folder's `children` and `path` fill the hub's listing of the stick | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
+| `FINISHED` | both | `planner.cpp:266` | `devices/prusa_connect.rs:514=FINISHED` | **identical**: the command becomes finished | `the_events_buddy_sends_settle_commands` |
 | `FIN_OK` | both |  |  | UNCHECKED |  |
 | `FIN_STOPPED` | both |  |  | UNCHECKED |  |
 | `FOLDER` | both |  |  | UNCHECKED |  |
 | `HAS_FILAMENT` | both |  |  | UNCHECKED |  |
-| `INFO` | both | `planner.cpp:254` | `devices/prusa_connect.rs:553=INFO` | **identical**: the command is finished and the details are kept (serial, `printer_type` as the string `2.1.0`, firmware, `nozzle_diameter` at the top level, `tools.<n>.material` with `---` read as none, storages, network); keys only master writes are not read | `the_events_buddy_sends_settle_commands`, `info_says_a_dash_for_no_material`, `printer_type_is_read_as_buddys_string_only`, `info_of_6_3_0_is_read_as_buddy_writes_it` |
-| `JOB_INFO` | both | `planner.cpp:260` | `devices/printer_files.rs:640=JOB_INFO` | **identical**: the command is finished; `job_id` at the top and `data.display_name` give the file a print is (as the hub's telemetry shows it) | `the_events_buddy_sends_settle_commands`, `state_changed_and_job_info_reach_the_hub` |
+| `INFO` | both | `planner.cpp:254` | `devices/prusa_connect.rs:537=INFO` | **identical**: the command is finished and the details are kept (serial, `printer_type` as the string `2.1.0`, firmware, `nozzle_diameter` at the top level, `tools.<n>.material` with `---` read as none, storages, network); keys only master writes are not read | `the_events_buddy_sends_settle_commands`, `info_says_a_dash_for_no_material`, `printer_type_is_read_as_buddys_string_only`, `info_of_6_3_0_is_read_as_buddy_writes_it` |
+| `JOB_INFO` | both | `planner.cpp:260` | `devices/printer_files.rs:738=JOB_INFO` | **identical**: the command is finished; `job_id` at the top and `data.display_name` give the file a print is (as the hub's telemetry shows it) | `the_events_buddy_sends_settle_commands`, `state_changed_and_job_info_reach_the_hub` |
 | `MMU` | master only |  |  | **not in 6.3.0** |  |
 | `MMU3` | master only |  |  | **not in 6.3.0** |  |
 | `NETWORK_FAILURE` | both |  |  | UNCHECKED |  |
@@ -367,14 +367,14 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `NO_TRANSFER` | both |  |  | UNCHECKED |  |
 | `PAUSED` | both | `render.cpp:445` | `devices/prusa_connect.rs:211=PAUSED` | **identical**: read as a device state (see States) | `every_state_buddy_sends_is_read` |
 | `PRINTING` | both | `render.cpp:443` | `devices/prusa_connect.rs:210=PRINTING` | **identical**: read as a device state (see States) | `every_state_buddy_sends_is_read` |
-| `REJECTED` | both | `planner.cpp:258` | `devices/prusa_connect.rs:530=REJECTED` | **identical**: the command becomes rejected; `reason` and `machine_reason` (`render.cpp:327`, `:331`) are kept as the reason. The hub reads `machine_reason` `FILE_EXISTS` to send a file again under a free name, not the text | `the_events_buddy_sends_settle_commands`, `a_free_name_is_decided_by_machine_reason` |
-| `STATE_CHANGED` | both | `planner.cpp:280` | `devices/printer_files.rs:582=STATE_CHANGED` | **identical**: `data.code`, `title`, `text`, `buttons` and the top-level `dialog_id` give what the screen asks (and the buttons for `DIALOG_ACTION`); a state without a dialog clears it | `the_events_buddy_sends_settle_commands`, `state_changed_and_job_info_reach_the_hub` |
+| `REJECTED` | both | `planner.cpp:258` | `devices/prusa_connect.rs:519=REJECTED` | **identical**: the command becomes rejected; `reason` and `machine_reason` (`render.cpp:327`, `:331`) are kept as the reason. The hub reads `machine_reason` `FILE_EXISTS` to send a file again under a free name, not the text | `the_events_buddy_sends_settle_commands`, `a_free_name_is_decided_by_machine_reason` |
+| `STATE_CHANGED` | both | `planner.cpp:280` | `devices/printer_files.rs:679=STATE_CHANGED` | **identical**: `data.code`, `title`, `text`, `buttons` and the top-level `dialog_id` give what the screen asks (and the buttons for `DIALOG_ACTION`); a state without a dialog clears it | `the_events_buddy_sends_settle_commands`, `state_changed_and_job_info_reach_the_hub` |
 | `STORAGE_FAILURE` | both |  |  | UNCHECKED |  |
-| `TRANSFER_ABORTED` | both | `planner.cpp:272` | `devices/printer_files.rs:689=TRANSFER_ABORTED` | **OPEN**: as `TRANSFER_STOPPED`; the `machine_reason` (`STORAGE_FAILURE`, `NETWORK_FAILURE`) wording is not run by a test here |  |
-| `TRANSFER_FINISHED` | both | `planner.cpp:274` | `devices/printer_files.rs:689=TRANSFER_FINISHED` | **identical**: no top-level `command_id` (`render.cpp:537`); the hub settles the download command by `data.start_cmd_id` and marks the transfer finished | `transfer_events_name_their_command_in_data` |
-| `TRANSFER_INFO` | both | `planner.cpp:264` | `devices/printer_files.rs:672=TRANSFER_INFO` | **identical**: the download command is finished (taken, the file on its way) | `the_events_buddy_sends_settle_commands`, `transfer_events_name_their_command_in_data` |
+| `TRANSFER_ABORTED` | both | `planner.cpp:272` | `devices/printer_files.rs:789=TRANSFER_ABORTED` | **OPEN**: as `TRANSFER_STOPPED`; the `machine_reason` (`STORAGE_FAILURE`, `NETWORK_FAILURE`) wording is not run by a test here |  |
+| `TRANSFER_FINISHED` | both | `planner.cpp:274` | `devices/printer_files.rs:789=TRANSFER_FINISHED` | **identical**: no top-level `command_id` (`render.cpp:537`); the hub settles the download command by `data.start_cmd_id` and marks the transfer finished | `transfer_events_name_their_command_in_data` |
+| `TRANSFER_INFO` | both | `planner.cpp:264` | `devices/printer_files.rs:772=TRANSFER_INFO` | **identical**: the download command is finished (taken, the file on its way) | `the_events_buddy_sends_settle_commands`, `transfer_events_name_their_command_in_data` |
 | `TRANSFER_IN_PROGRESS` | both |  |  | UNCHECKED |  |
-| `TRANSFER_STOPPED` | both | `planner.cpp:270` | `devices/printer_files.rs:689=TRANSFER_STOPPED` | **OPEN**: no top-level `command_id` (`render.cpp:537`); the hub takes the command from `data.start_cmd_id`; the stopped branch (failed transfer, job failed) is not run by a test here |  |
+| `TRANSFER_STOPPED` | both | `planner.cpp:270` | `devices/printer_files.rs:789=TRANSFER_STOPPED` | **OPEN**: no top-level `command_id` (`render.cpp:537`); the hub takes the command from `data.start_cmd_id`; the stopped branch (failed transfer, job failed) is not run by a test here |  |
 | `USB` | both |  |  | UNCHECKED |  |
 
 ## States it sends (`state/printer_state.cpp` `to_str(DeviceState)`)
@@ -485,7 +485,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 
 | # | Buddy 6.3.0 | Ours | What differs | Proposed fix |
 |---|---|---|---|---|
-| D6 | Nothing in Connect's commands closes the print preview that opens after a download (`transfers/transfer.cpp:423-430`, `print_begin` shows the preview, state `PrintPreviewImage`, which `printer_state.cpp:267-272` reports as IDLE or READY). `STOP_PRINT` (`marlin_printer.cpp:454-457`) is accepted only for Paused, Printing or Attention, and answers REJECTED "No print to stop" (`planner.cpp:687`); `SET_IDLE` (`marlin_printer.cpp:577-584`) only for Finished or Stopped; `DIALOG_ACTION` needs a `dialog_id`, which `render.cpp:255` writes only while the state has a dialog (`printer_state.cpp:355-367`: the preview itself has none; only its questions have). The preview is closed by Buddy's own screen (`print_abort` in a preview state, `marlin_server.cpp:1244-1251`), and `M604` reaches the same call (`src/marlin_stubs/host/M604.cpp:17`) | `devices/printer_files.rs:892` | After a download that is not printed the hub sends `M604` as G-code to close the preview (its own comment: "WORKAROUND, NEEDS TRACING"). Buddy's Connect offers no command for it; `M604` is G-code, not a Connect command | **Ours, approved by the owner (2026-11-17, "D6 A")**: kept: after a download only to the stick, while the printer reports IDLE and nothing else waits, the hub sends `M604` (Buddy's abort, which in the preview acts as its Back button; tried on the MINI 2026-11-08). Buddy 6.3.0 gives Connect no other way |
+| D6 | Nothing in Connect's commands closes the print preview that opens after a download (`transfers/transfer.cpp:423-430`, `print_begin` shows the preview, state `PrintPreviewImage`, which `printer_state.cpp:267-272` reports as IDLE or READY). `STOP_PRINT` (`marlin_printer.cpp:454-457`) is accepted only for Paused, Printing or Attention, and answers REJECTED "No print to stop" (`planner.cpp:687`); `SET_IDLE` (`marlin_printer.cpp:577-584`) only for Finished or Stopped; `DIALOG_ACTION` needs a `dialog_id`, which `render.cpp:255` writes only while the state has a dialog (`printer_state.cpp:355-367`: the preview itself has none; only its questions have). The preview is closed by Buddy's own screen (`print_abort` in a preview state, `marlin_server.cpp:1244-1251`), and `M604` reaches the same call (`src/marlin_stubs/host/M604.cpp:17`) | `devices/printer_files.rs:1014` | After a download that is not printed the hub sends `M604` as G-code to close the preview (its own comment: "WORKAROUND, NEEDS TRACING"). Buddy's Connect offers no command for it; `M604` is G-code, not a Connect command | **Ours, approved by the owner (2026-11-17, "D6 A")**: kept: after a download only to the stick, while the printer reports IDLE and nothing else waits, the hub sends `M604` (Buddy's abort, which in the preview acts as its Back button; tried on the MINI 2026-11-08). Buddy 6.3.0 gives Connect no other way |
 
 ## What we send or read that the firmware does not
 
