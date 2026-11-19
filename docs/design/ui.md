@@ -27,7 +27,7 @@ data. An SPA is reconsidered only for the multi-tenant cloud if page weight or o
 | Now | the space at a glance, wall screen | devices, jobs, queue, events | |
 | Machines | the device list | `GET /api/v1/devices`, events | |
 | Machine | one device: tabs per subject (overview, control, files, jobs, camera, settings) | device, commands, history, transfers | |
-| Add machine | pairing by code; the Buddy INI with the hub's address, warning when the address does not fit the dialect's hostname limit (20 bytes for Buddy 6.3.0) | `POST /api/v1/devices/pair` (proposed path, [OQ-1](risks-and-open.md#oq-1-exact-paths-and-fields-of-our-own-endpoints)) | #22 |
+| Add machine | pairing by code; the Buddy INI with the hub's address, warning when the address does not fit the dialect's hostname limit (35 bytes for Buddy 6.4.0, `reference/buddy-6.4.0` `src/connect/hostname.hpp:16`) | `POST /api/v1/devices/pair` (proposed path, [OQ-1](risks-and-open.md#oq-1-exact-paths-and-fields-of-our-own-endpoints)) | #22 |
 | Files | uploads, what a file says about itself, Print on | files, devices | |
 | Queue | per device, order, take out | queue | |
 | Prepare | the tools that make the work: laser design (the LaserFoundry web fork; picks a hub laser, its settings from the hub), the label editor | `/api/v1/lasers`, devices | #6, #24 |

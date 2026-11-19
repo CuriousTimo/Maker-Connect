@@ -74,19 +74,17 @@ result; `engine::Port` (`engine/src/lib.rs:83`) gains a contract adapter; `proto
 (`hub/src/profiles.rs`) become the "model profile" term of the intersection. A conformance test kit in
 `crates/device` (fake host, fake device) every port and driver passes.
 
-### 2.2 The Prusa driver, both Buddy protocols
+### 2.2 The Prusa driver, the Buddy websocket protocol
 
-**Decision.** One driver `prusa-buddy`, inbound, hosted in the hub process. v2 builds only the websocket
-dialect `buddy-ws`; `buddy-http` (6.3.0) is shelved (owner, journal:V2-DEVICES:0005;
-[decision](../design/decisions/20261119-buddy-websocket-dialect-only.md)). The two dialects as first planned:
+**Decision.** One driver `prusa-buddy`, inbound, hosted in the hub process, with one dialect `buddy-ws`;
+Buddy 6.3.0's HTTP dialect is not built (owner, journal:V2-DEVICES:0005; clean break, journal:DESIGN-WS:0005;
+[decision](../design/decisions/20261119-buddy-websocket-dialect-only.md)).
 
 | Dialect | Wire | Reference (normative) | Server-side reference | Today |
 |---|---|---|---|---|
-| `buddy-http` | 6.3.0 HTTP Connect: `/p/register`, `/p/telemetry`, `/p/events`, `/f/…` | Buddy 6.3.0 (`reference/buddy-6.3.0`) | none (their server serves only 6.4+, study §2) | `devices/prusa_connect.rs:102-104`, `devices/printer_files.rs`, audit `docs/audits/buddy.md` (HS15) |
 | `buddy-ws` | 6.4+: `/p/register`, `/p/auth`, `/p/ws` | Buddy 6.4+ | their `internal/connector/xbuddy` (R1) | not built (#2) |
 
-Both map onto the same 3D-printer capability set; what differs is declared by the dialect's baseline,
-not by comparing firmware. With `buddy-http` shelved nothing has to tell the two apart on `/p/register`. The hub's own G-code for Prusa
+It maps onto the 3D-printer capability set, declared by the dialect's baseline. The hub's own G-code for Prusa
 (`devices/legacy_gcode.rs`, HS10) is not carried into the driver; the button rows wait for HS10.
 
 **Replaces.** hub-side.md H1/HS9 ("engine inside the hub"): the hub hosts this driver directly through
@@ -285,7 +283,7 @@ Each step ends green (fmt, clippy `-D warnings`, tests, audit checkers) and is r
 | 2 | **Store on Postgres**: sqlx, per-module migrations, the schema of §2.7 except history, RLS, `Store` handle; every module's queries moved; `rusqlite` removed | All hub tests on Postgres locally and in Linux CI; `cargo tree -p maker-connect-hub` has no `rusqlite`; hub runs on .67 against the container; an RLS test shows a query without `app.space_id` sees nothing |
 | 3 | **Authz + events + history**: actions and presets, `device_access`, route guard from actions; event table and bus, `/api/v1/events` with resume; history subscriber into `sample` with aggregates; narrow trial repeated on .67 | Route walk: every route has an action; list/count/SSE filtering tests per role; resume test (disconnect, events, reconnect with id) ; .67 numbers recorded in this doc |
 | 4 | **Commands + agent link v2**: command records, transfers, agent hosts sessions, one WebSocket per agent, on-disk outbox | Restart test: open command → outcome unknown, not re-sent; agent on .67 drives the MINI-less bench (Marlin + DYMO + laser framing only, laser never fires: safety rule) through v2 |
-| 5 | **Prusa driver, websocket dialect only** (#2 `buddy-ws`) in the hub on the contract; `buddy-http` (6.3.0) shelved | #2 its own audit, tested on the owner's MINI with websocket firmware |
+| 5 | **Prusa driver, websocket dialect only** (#2 `buddy-ws`) in the hub on the contract | #2 its own audit, tested on the owner's MINI with websocket firmware |
 | 6 | **API**: utoipa spec, their 3D-printer REST, ours, Spoolman at `/spoolman/api/v1`, oasdiff in CI | Spec checked in and in sync; tracking test against their server for the 3D-printer paths both serve; Spoolman audit green with base path |
 | 7 | **Web UI on the API**, page by page (Now, machines, machine, files, queue, labels, Space tabs) | No page route changes data; each page's HTML in a template; UI-study states on each page |
 

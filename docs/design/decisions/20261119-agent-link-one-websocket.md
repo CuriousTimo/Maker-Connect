@@ -2,7 +2,7 @@
 
 Date: 2026-11-19  
 Status: accepted; supersedes OQ-18 and the transport of [agent identity and delivery](20261119-agent-link-identity-and-delivery.md) (POST up, SSE down)  
-Decided by: owner ("ja websocket, aparte PR", journal:DESIGN-WS:0001; no v1, journal:DESIGN-HOST:0006); the values taken from the references (15 s, 54 s, 60 s) owner may overrule
+Decided by: owner ("ja websocket, aparte PR", journal:DESIGN-WS:0001; no v1, journal:DESIGN-HOST:0006); the timings taken from the references (agent ping after 15 s, hub ping every 54 s, 60 s read deadline, reconnect at agent-engine.md O5) decided by the coordinator (journal:DESIGN-WS:0005); owner may overrule
 
 ## Context
 

@@ -18,7 +18,7 @@ The deployment view is in [architecture.md](architecture.md#deployment).
 | Agent | `maker-connect-agent` | next to the machines (Linux, macOS, Windows) | none (outbound only) | a service per agent host | One session per device; see below. |
 | Agent on trial | the new `maker-connect-agent` | agent host | none | the running agent, `--version` trial | Confirmed once the hub answered it (`crates/update`). |
 | Browser | any | anywhere on the LAN | none | a person | Pages, `/api/v1`, `/api/v1/events` (SSE), the camera player (MSE over WebSocket). |
-| Prusa printer | Buddy firmware | the printer | none | the printer's Connect settings pointing at the hub | 6.4+ over `/p/ws`; 6.3.0 over HTTP shelved (plan §2.2). |
+| Prusa printer | Buddy firmware | the printer | none | the printer's Connect settings pointing at the hub | 6.4+ over `/p/ws` (plan §2.2). |
 | Network camera | the camera | LAN | RTSP | the camera | Reached by the hub over RTSP/TCP; hub's LAN only (cameras.md). |
 | Spoolman clients | Moonraker `[spoolman]`, OctoPrint's Spoolman plugin, Mainsail, Fluidd, KlipperScreen | their own hosts | none | their operators | Pointed at `http://hub/spoolman` (plan §2.8). |
 | External apps | LaserFoundry desktop, scripts | anywhere | none | a person | `/api/v1` with an API token. |

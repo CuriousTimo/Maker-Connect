@@ -65,7 +65,7 @@ sequenceDiagram
   drains what was queued while a printer was away (`xbuddy.go:793-795`). The agent keeps an on-disk
   set of taken command ids with their results until acknowledged and never runs a taken id twice.
   What else is re-sent after a reconnect is [OQ-43](risks-and-open.md#oq-43-the-agent-websocket-open-points).
-- **Ping and pong,** as the references: the agent sends a ping after 15 s of sending nothing and
+- **Ping and pong,** decided as the references ([decision](decisions/20261119-agent-link-one-websocket.md)): the agent sends a ping after 15 s of sending nothing and
   answers every ping with a pong (`connect.cpp:49-50`, `:828-829`, `:386-409`); the hub re-arms a
   60 s read deadline on every frame, ping and pong included, and pings every 54 s (`link.go:70-85`,
   `:241-249`; `internal/connector/xbuddy/inbound.go:25-36`). A close, a failed send or a passed

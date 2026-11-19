@@ -17,11 +17,10 @@ websocket support.
   prusa-connect's `internal/connector/xbuddy` as the server-side reference. Its routes are
   `/p/register`, `/p/auth` and `/p/ws` (`reference/prusa-connect` `internal/connector/xbuddy/xbuddy.go:16-19`,
   `:505`; `internal/transport/http/httpapi/printerroutes.go:15`).
-- `buddy-http` (Buddy 6.3.0 over HTTP) is shelved: not built in v2, its routes not served. Its audit
-  (`docs/audits/buddy.md`) stays as the record of that dialect.
+- `buddy-http` (Buddy 6.3.0 over HTTP) is not built in v2 and its routes are not served (clean break,
+  journal:DESIGN-WS:0005). The design keeps no flow or link of it; git history keeps the drafts.
 - With one dialect nothing has to tell two dialects apart, so OQ-3's question falls away.
 
 ## Where it shows
 
-Plan §2.2 and §3, [links.md](../links.md) (L10, L11), [architecture.md](../architecture.md),
-[flows.md](../flows.md#2-a-prusa-printer-registers-buddy-630).
+Plan §2.2 and §3, [links.md](../links.md) (L11), [architecture.md](../architecture.md).

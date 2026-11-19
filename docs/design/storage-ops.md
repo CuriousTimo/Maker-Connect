@@ -61,7 +61,7 @@ measured on .67. The .67 trial is repeated narrow in step 3 (size after compress
   starts the new build as its child, on trial, on the live database (which the new build migrates). The
   agent: the new build's `--version`, then a run confirmed once the hub answered it.
 - **A way back.** A new build that stops, hangs or is not confirmed in time is stopped and rolled back,
-  with the database restored from the before-update dump ([flows.md](flows.md#8-self-update-dump-and-the-way-back)).
+  with the database restored from the before-update dump ([flows.md](flows.md#6-self-update-dump-and-the-way-back)).
   The About page says what happened.
 - **The marker drives it** ([decision](decisions/20261119-update-trial-marker.md)). Before the dump the
   old build writes and fsyncs `<exe>.update.json` (`from`, `to`, `until`, `starts`, the dump's name,

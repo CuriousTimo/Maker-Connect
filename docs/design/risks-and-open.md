@@ -48,8 +48,8 @@ released rather than PrusaLink's; our queue stays ours until theirs exists.
 ### OQ-3: Telling the two Buddy dialects apart
 
 Both use `/p/register`; how a request shows its dialect is not checked (plan §2.2).
-**Decided:** only the websocket dialect (`buddy-ws`, Buddy 6.4.0) is built; `buddy-http` (6.3.0) is
-shelved, so nothing tells two dialects apart ([decision](decisions/20261119-buddy-websocket-dialect-only.md)).
+**Decided:** only the websocket dialect (`buddy-ws`, Buddy 6.4.0) is built, so nothing tells two
+dialects apart ([decision](decisions/20261119-buddy-websocket-dialect-only.md)).
 
 ### OQ-4: Action names and preset contents
 
@@ -108,10 +108,10 @@ The printer may ask `GET /p/register` again until its first report spends the co
 must give the same token again, but tokens are stored hashed. Options: (a) the token kept in
 `device_registrations` until spent, then only its hash; (b) a new token each time. **Recommendation:**
 whatever Buddy's registrator and Prusa's server do (read in #18); until read, (a).
-**Decided:** (a) ([decision](decisions/20261119-prusa-token-until-spent.md)). Checked against
-prusa-connect at `2e8c62b`: it keeps the plaintext token only in the minting process's memory and
-mints a fresh one when a printer collects after a restart (`internal/connector/xbuddy/registration.go:114-118`,
-`:624-638`), which differs from (a); put to the owner.
+**Decided:** neither (a) nor (b): as prusa-connect at `2e8c62b` does, the plaintext token is never
+stored, only held in the memory of the process that minted it, which gives it again; a printer that
+collects after a hub restart gets a freshly minted token (`internal/connector/xbuddy/registration.go:114-118`,
+`:624-638`). `device_registrations` has no `token` column ([decision](decisions/20261119-prusa-token-never-stored.md)).
 
 ### OQ-13: The event types
 
@@ -233,7 +233,7 @@ Options: (a) a template database with the extension, owned by `maker_connect_own
 
 ### OQ-34: The order of the host-side checks
 
-The plan lists argument validation, state guard, authz, the laser rule (plan §2.1), without an order. Options: (a) capability, arguments, state, authz, person-only; (b) authz first, so a caller without the right learns nothing about the device's state. **Decided:** (b) ([decision](decisions/20261119-host-checks-order.md)); [device-contract.md](device-contract.md#host-side-rules) and [flows.md](flows.md#3-a-command-click-to-settled) draw it.
+The plan lists argument validation, state guard, authz, the laser rule (plan §2.1), without an order. Options: (a) capability, arguments, state, authz, person-only; (b) authz first, so a caller without the right learns nothing about the device's state. **Decided:** (b) ([decision](decisions/20261119-host-checks-order.md)); [device-contract.md](device-contract.md#host-side-rules) and [flows.md](flows.md#2-a-command-click-to-settled) draw it.
 
 ### OQ-35: Source modules per architecture block
 
@@ -284,7 +284,7 @@ The link is one WebSocket per agent ([decision](decisions/20261119-agent-link-on
 stated:
 
 1. **What the hub re-sends after a reconnect** besides the open command records: a pending `answer`
-   or `update`, which the SSE stream's `Last-Event-ID` used to replay.
+   or `update`.
 2. **Hellos on a new connection:** whether the agent sends each session's `hello` and a full state
    again on every new connection, as Buddy starts again with INFO after 10 s without success and sends
    fresh telemetry after a reconnect (`reference/buddy-6.4.0` `src/connect/planner.cpp:109`, `:586-597`;
@@ -296,15 +296,17 @@ stated:
 5. **Close codes:** whether the hub closes with a WebSocket close code and reason (a new stream taken,
    a revoked token) or only drops the connection.
 
-**Recommendation:** none here; decided with V2-DEVICES step 1.
+**Decided by:** the architect in V2-DEVICES step 1, from the references (Buddy 6.4.0, prusa-connect);
+the owner only where a reference is silent and it is a product choice (journal:DESIGN-WS:0005).
 
 ### OQ-44: The agent settings page, open points
 
 The page is decided ([decision](decisions/20261119-agent-settings-page.md)). Not stated: the config
 file or the page as the source of the settings; what "a password made at install" is (made by the
 installer and shown once, or chosen by the person installing); how the agent keeps it; what "LAN only"
-checks (the address the page listens on, or the caller's address). **Recommendation:** none here;
-decided with V2-DEVICES step 2.
+checks (the address the page listens on, or the caller's address). **Decided by:** the architect in
+V2-DEVICES step 2, from the references; the owner only where a reference is silent and it is a product
+choice (journal:DESIGN-WS:0005).
 
 ## Issues the design cannot place yet
 
@@ -321,7 +323,7 @@ We follow each reference at a pinned commit; an unmerged upstream pull request i
 | Upstream | State | Effect on us |
 |---|---|---|
 | prusa3d/prusa-connect#37, PR #38: readings declared by the driver | open | informs [OQ-23](#oq-23-readings-declared-by-the-driver) |
-| prusa3d/prusa-connect#26, prusa3d/Prusa-Firmware-Buddy#5631: Connect hostname 20 bytes, raised to 35 | open | our #22: the limit belongs to each dialect's baseline; 20 for 6.3.0 until a pinned Buddy changes it |
+| prusa3d/prusa-connect#26, prusa3d/Prusa-Firmware-Buddy#5631: Connect hostname 20 bytes, raised to 35 | open | our #22: 35 in Buddy 6.4.0 (`reference/buddy-6.4.0` `src/connect/hostname.hpp:16`) |
 | prusa3d/prusa-connect#29: path prefix | open | [OQ-24](#oq-24-serving-under-a-path-prefix) |
 | prusa3d/prusa-connect#24, #27: upload from PrusaSlicer | open | [OQ-2](#oq-2-the-3d-printer-rest-surface) |
 | prusa3d/prusa-connect#8: print queue as an extension | open | [OQ-2](#oq-2-the-3d-printer-rest-surface) |

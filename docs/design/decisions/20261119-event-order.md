@@ -31,4 +31,4 @@ state patch could arrive before the snapshot it changes.
 ## Where it shows
 
 [database.md](../database.md#events-and-history), [api.md](../api.md#the-sse-envelope),
-[flows.md](../flows.md#6-sse-resume-browser), [processes.md](../processes.md#inside-the-hub).
+[flows.md](../flows.md#4-sse-resume-browser), [processes.md](../processes.md#inside-the-hub).

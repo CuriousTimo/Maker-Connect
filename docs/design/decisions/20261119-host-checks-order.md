@@ -23,5 +23,5 @@ verb and what state it is in.
 
 ## Where it shows
 
-[device-contract.md](../device-contract.md#host-side-rules), [flows.md](../flows.md#3-a-command-click-to-settled),
+[device-contract.md](../device-contract.md#host-side-rules), [flows.md](../flows.md#2-a-command-click-to-settled),
 [authz.md](../authz.md#the-decision-on-a-request), [risks-and-open.md](../risks-and-open.md#oq-34-the-order-of-the-host-side-checks).

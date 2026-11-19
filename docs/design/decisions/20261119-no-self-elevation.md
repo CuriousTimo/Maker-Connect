@@ -24,4 +24,4 @@ and what happens to the last owner.
 
 ## Where it shows
 
-[authz.md](../authz.md#presets-roles-and-grants), [api.md](../api.md), [flows.md](../flows.md#7-sign-in-and-invite).
+[authz.md](../authz.md#presets-roles-and-grants), [api.md](../api.md), [flows.md](../flows.md#5-sign-in-and-invite).

@@ -96,7 +96,7 @@ every route names one or the other.
 | GET | `/api/v1/jobs` | `device.view` per row | `?device=&person=&file=&from=&to=` cursor (#11) | jobs |
 | GET | `/api/v1/jobs/{id}` | `device.view` | — | job with its command records |
 | POST | `/api/v1/jobs/{id}/confirm` | `job.control` | `{good}` (farm: Set Ready, Bad print) | job |
-| GET, POST | `/api/v1/queue` | `queue.view`; POST `queue.manage` and `job.start` on that device: the item is started on its person's behalf, and the dispatcher checks `job.start` of that person again before each start ([flows.md](flows.md#4-a-job-with-the-laser-rule)) | `{device_id, file_id}` | queue items |
+| GET, POST | `/api/v1/queue` | `queue.view`; POST `queue.manage` and `job.start` on that device: the item is started on its person's behalf, and the dispatcher checks `job.start` of that person again before each start ([flows.md](flows.md#3-a-job-with-the-laser-rule)) | `{device_id, file_id}` | queue items |
 | PATCH, DELETE | `/api/v1/queue/{id}` | `queue.manage`; own items for their person | `{pos}` | item |
 | GET, POST | `/api/v1/projects` | `farm.view`; POST `farm.use` | `{name, description, priority}` | projects |
 | PATCH, DELETE | `/api/v1/projects/{id}` | `farm.use` | fields | project |
@@ -116,7 +116,7 @@ every route names one or the other.
 | GET | `/api/v1/instance/agents` | `instance.admin` | — | every agent: version, last seen, stream state, its devices with their spaces |
 | POST | `/api/v1/instance/agents/{id}/update` | `instance.admin` ([decision](decisions/20261119-agent-update-by-instance-admin.md)) | `{tag}` | 202; the `update` message goes to the agent on its WebSocket ([wire.md](wire.md#hub-to-agent)) |
 | GET | `/api/v1/update` | `instance.admin` | — | running build, newer signed release, last update's outcome |
-| POST | `/api/v1/update` | `instance.admin` | `{tag}` | 202; [flows.md](flows.md#8-self-update-dump-and-the-way-back) |
+| POST | `/api/v1/update` | `instance.admin` | `{tag}` | 202; [flows.md](flows.md#6-self-update-dump-and-the-way-back) |
 | POST | `/setup` | `public`; the handler checks the one-time setup code | `{code, name, password}` | the first account |
 
 Labels (render and print from Prepare, #6) are [OQ-14](risks-and-open.md#oq-14-tables-of-materials-items-and-labels);

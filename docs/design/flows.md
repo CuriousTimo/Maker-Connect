@@ -43,42 +43,13 @@ sequenceDiagram
   Note over A,H: a further device: register with the agent token, a new code, pair, collect the device id
 ```
 
-## 2. A Prusa printer registers (Buddy 6.3.0)
+A Prusa printer (Buddy 6.4+, `/p/register`, `/p/auth`, `/p/ws`) is paired in Space by the code on its
+screen the same way; its flow is drawn with the Buddy driver (V2-DEVICES step 3). Its token's plaintext
+is never stored: a printer that collects again gets it from the hub process that minted it, and after a
+hub restart a freshly minted one, as prusa-connect does (`internal/connector/xbuddy/registration.go:114-118`,
+`:624-638`; [decision](decisions/20261119-prusa-token-never-stored.md)).
 
-**Shelved:** v2 builds only the websocket dialect (Buddy 6.4+: `/p/register`, `/p/auth`, `/p/ws`;
-[decision](decisions/20261119-buddy-websocket-dialect-only.md)); this flow and flow 5 are kept as the
-record of the 6.3.0 dialect until the Buddy driver (V2-DEVICES step 3) draws the websocket one.
-As Buddy 6.3.0's registrator does it (`reference/buddy-6.3.0` `src/connect`, audit
-`docs/audits/buddy.md`). The token is kept in the registration until its first use, so a printer that
-asks again gets the same token ([decision](decisions/20261119-prusa-token-until-spent.md)).
-
-```mermaid
-sequenceDiagram
-  participant M as Printer, Buddy 6.3.0
-  participant H as Hub, prusa-buddy driver
-  participant D as Database
-  participant P as Person in Space
-  M->>H: POST /p/register, serial, fingerprint, printer type, firmware
-  H->>D: admin pool: insert device_registrations
-  H-->>M: 200 with header Code
-  M->>M: show the code on its screen
-  loop every few seconds, as Buddy does
-    M->>H: GET /p/register with header Code
-    H-->>M: 202 waiting
-  end
-  P->>H: POST /api/v1/devices/pair, code and name
-  H->>D: space tx: claim_registration(code), insert devices kind prusa, dialect buddy-http, event device.added
-  M->>H: GET /p/register with header Code
-  H->>D: admin pool: registration by code, its space
-  H->>D: space tx: collect_registration(id, token hash) locks it, insert device_credentials, collected
-  H-->>M: 200 with header Token
-  M->>H: POST /p/telemetry with headers Token and Fingerprint
-  H->>D: admin pool: device by token hash, registration spent at the token's first use
-  H->>D: space tx: state patches, last_seen
-  H-->>M: 204, or a command as the answer
-```
-
-## 3. A command: click to settled
+## 2. A command: click to settled
 
 ```mermaid
 sequenceDiagram
@@ -115,7 +86,7 @@ acknowledged them, and never runs one twice; on a reconnect on the same stream t
 open records of that stream on the new WebSocket. A result that arrives after the record was settled `unknown` is kept
 as a late result and never acted on ([wire.md](wire.md#shape)).
 
-## 4. A job, with the laser rule
+## 3. A job, with the laser rule
 
 A job's start, pause and stop are command records (plan §2.5). The queue may start a job on a 3D
 printer or a label printer; it never starts a laser. The job's state follows from those records and
@@ -159,31 +130,7 @@ sequenceDiagram
   A->>H: WebSocket up: job end
 ```
 
-## 5. A file to a printer
-
-For an agent device the file is fetched whole before the job is handed on (agent-engine.md O6). For a
-Prusa printer the file goes as Buddy's encrypted download; the transfer is a durable record like a
-command (bytes, state, reason; plan §2.5).
-
-```mermaid
-sequenceDiagram
-  participant B as Browser
-  participant H as Hub
-  participant D as Database
-  participant M as Printer, Buddy 6.3.0
-  B->>H: POST /api/v1/devices/{id}/transfers, file and path
-  H->>D: space tx: insert transfers, state waiting, with iv and key
-  M->>H: POST /p/telemetry
-  H-->>M: answer: START_ENCRYPTED_DOWNLOAD with path, iv, key, size
-  M->>H: GET /f/{iv}/raw with Range
-  H-->>M: 206 AES-128-CTR bytes
-  H->>D: transfer bytes and state
-  M->>H: POST /p/events: transfer finished
-  H->>D: space tx: transfer done, event transfer.settled
-  H-->>B: SSE: transfer.settled
-```
-
-## 6. SSE resume (browser)
+## 4. SSE resume (browser)
 
 ```mermaid
 sequenceDiagram
@@ -207,7 +154,7 @@ sequenceDiagram
   Note over H,B: a grant or role change bumps authz_epoch and the filter refreshes. No membership left: stream.reset and the stream closes
 ```
 
-## 7. Sign-in and invite
+## 5. Sign-in and invite
 
 ```mermaid
 sequenceDiagram
@@ -241,7 +188,7 @@ sequenceDiagram
 On a fresh database the hub logs a one-time setup code; `/setup` with that code makes the first
 account, its organisation and space.
 
-## 8. Self-update, dump and the way back
+## 6. Self-update, dump and the way back
 
 ```mermaid
 sequenceDiagram
@@ -276,7 +223,7 @@ sequenceDiagram
 Changes made after the update started are lost on the way back
 ([decision](decisions/20261119-database-dumps.md)).
 
-## 9. The nightly dump
+## 7. The nightly dump
 
 ```mermaid
 sequenceDiagram

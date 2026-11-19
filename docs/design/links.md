@@ -17,8 +17,7 @@ is, and which reference it follows. Flows over these links are in [flows.md](flo
 | L7 | (not used) | folded into L6: the hub's downstream travels on the agent's WebSocket | | | | |
 | L8 | Agent → hub, pairing | HTTP | `/api/agent/v2/register` | none to ask; the registration secret to collect the token; a person enters the pairing code in Space | ours (registering as today, agent-engine.md O7) | plan §2.3, §2.7 `device_registrations` |
 | L9 | Agent → hub, files | HTTP GET | `/api/agent/v2/files/{id}`, `/api/agent/v2/update/{tag}/{file}` | agent token | ours | agent-engine.md O6, O7 |
-| L10 | Prusa printer, Buddy 6.3.0 → hub: **shelved**, not built in v2 ([decision](decisions/20261119-buddy-websocket-dialect-only.md)) | HTTP | `/p/register`, `/p/telemetry`, `/p/events`, `/f/{iv}/raw` | `Code` header while registering; then `Token` and `Fingerprint` headers; an encrypted download is AES-128-CTR with the key sent in the printer's command | Buddy 6.3.0 `src/connect` (`reference/buddy-6.3.0`), audit `docs/audits/buddy.md` | plan §2.2 |
-| L11 | Prusa printer, Buddy 6.4+ → hub | HTTP + WebSocket | `/p/register`, `/p/auth`, `/p/ws` | `Code` header while registering; then `Fingerprint` and `Token` headers on the upgrade, `Sec-WebSocket-Protocol: prusa-connect` (`reference/buddy-6.4.0` `src/connect/connect.cpp:151-189`); the only Buddy dialect built ([decision](decisions/20261119-buddy-websocket-dialect-only.md)) | Buddy 6.4+; server side read in `reference/prusa-connect` `internal/connector/xbuddy` | plan §2.2 |
+| L11 | Prusa printer, Buddy 6.4+ → hub | HTTP + WebSocket | `/p/register`, `/p/auth`, `/p/ws` | `Code` header while registering; then `Fingerprint` and `Token` headers on the upgrade, `Sec-WebSocket-Protocol: prusa-connect` (`reference/buddy-6.4.0` `src/connect/connect.cpp:151-189`); the only Buddy dialect ([decision](decisions/20261119-buddy-websocket-dialect-only.md)) | Buddy 6.4+; server side read in `reference/prusa-connect` `internal/connector/xbuddy` | plan §2.2 |
 | L12 | Hub → network camera | RTSP over TCP | the camera's stream URL | the camera's user and password, kept by the hub | retina `2b6b7fe` (0.4.22) | cameras.md |
 | L13 | Agent → device | USB HID, USB printer class, serial, CUPS | per port | none (local) | the port's one reference (device-contract.md) | `CLAUDE.md` |
 | L14 | Hub → database | PostgreSQL wire, TLS off on `127.0.0.1` or a Unix socket | `DATABASE_URL` | the hub's login role, neither superuser nor table owner ([database.md](database.md#roles-and-pools)) | sqlx 0.9 | plan §2.6, §2.7 |
@@ -41,7 +40,6 @@ flowchart LR
   app["External app"]
   spool["Spoolman client"]
   agent["Agent"]
-  mini["Buddy 6.3.0"]
   xl["Buddy 6.4+"]
   hub["Hub"]
   db[("Database")]
@@ -54,7 +52,6 @@ flowchart LR
   app -->|"L4 Bearer mct_"| hub
   spool -->|"L5"| hub
   agent <-->|"L6 WebSocket, L8 pair, L9 files"| hub
-  mini -.->|"L10 shelved"| hub
   xl -->|"L11 /p/ws"| hub
   hub -->|"L12 RTSP"| cam
   hub -->|"L14 login role"| db

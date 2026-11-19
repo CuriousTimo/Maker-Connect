@@ -64,8 +64,8 @@ owner's decisions in [decisions/](decisions/).
 | #13 | Hub core v2 | this folder |
 | #15 | v2 step 2: store on Postgres | [database.md](database.md), [storage-ops.md](storage-ops.md) |
 | #16 | v2 step 3: actions, events, history | [authz.md](authz.md), [api.md](api.md#the-sse-envelope), [database.md](database.md#events-and-history) |
-| #17 | v2 step 4: command records, agent link v2 | [device-contract.md](device-contract.md), [wire.md](wire.md), [flows.md](flows.md#3-a-command-click-to-settled) |
-| #18 | v2 step 5: Prusa driver, 6.3.0: shelved, only the websocket dialect is built ([decision](decisions/20261119-buddy-websocket-dialect-only.md)) | [links.md](links.md) L10, [flows.md](flows.md#2-a-prusa-printer-registers-buddy-630) |
+| #17 | v2 step 4: command records, agent link v2 | [device-contract.md](device-contract.md), [wire.md](wire.md), [flows.md](flows.md#2-a-command-click-to-settled) |
+| #18 | v2 step 5: Prusa driver, the websocket dialect only ([decision](decisions/20261119-buddy-websocket-dialect-only.md)) | [links.md](links.md) L11 |
 | #19 | v2 step 6: the API | [api.md](api.md) |
 | #20 | v2 step 7: web UI on the API | [ui.md](ui.md) |
 | #21 | step 1b: LabelWriter 320 adapter, laser frame through `job.frame` | [device-contract.md](device-contract.md#kinds) |

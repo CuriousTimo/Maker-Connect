@@ -24,4 +24,4 @@ account; it changes nothing itself.
 
 ## Where it shows
 
-[api.md](../api.md), [flows.md](../flows.md#7-sign-in-and-invite), [database.md](../database.md#roles-and-pools).
+[api.md](../api.md), [flows.md](../flows.md#5-sign-in-and-invite), [database.md](../database.md#roles-and-pools).

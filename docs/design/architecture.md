@@ -13,7 +13,7 @@ devices and outside services), [containers](#level-2-containers) (hub, agent, da
 [components](#level-3-components) (the blocks inside the hub and the agent, with their tables below),
 then [accounts and tenancy](#accounts-and-tenancy-the-organisation-and-space-boundary),
 [the rules on who may depend on whom](#may-depend-on), the [deployment](#deployment) and
-[the agent](#the-agent-update-credentials-management-page).
+[the agent](#the-agent-update-credentials-settings-page).
 
 ## Level 1: context
 
@@ -30,7 +30,7 @@ flowchart LR
   people -->|"Browsers: L1-L3, L19"| mc
   operator -->|"roles, database, DATABASE_URL, units"| mc
   apps -->|"L4, L5: HTTP with a token"| mc
-  mc ---|"L10-L13: each device's own link"| devs
+  mc ---|"L11-L13: each device's own link"| devs
   mc -->|"L16 HTTPS GET"| rel
   mc -->|"L17 HTTPS GET"| sdb
   mc -.-|"link open: OQ-10"| doorhw
@@ -277,7 +277,7 @@ block inside the device, authz and history steps, not as a step of their own
 | Door access module | Doors and badges: who may open which door when, with its own tables and actions (plan §2.6, hub-core-v2.md:158) | its own tables, not designed ([OQ-10](risks-and-open.md#oq-10-door-access-link)) | called by the API with an allowed door action, after the guard's decision; Event bus and SSE; Store; all in-process. Door hardware: open ([OQ-10](risks-and-open.md#oq-10-door-access-link)) | grant a machine action; open a door for a machine grant (plan §2.6, hub-core-v2.md:158-159) |
 | Event bus and SSE | Stored facts with a `seq` in commit order, published by one relay after commit; state patches live with a `rev`; one SSE stream per subscriber, filtered by `device_access`; resume by `Last-Event-ID` ([decision](decisions/20261119-event-order.md)) | the `event` hypertable | browsers (L2 SSE); Spoolman WebSocket (L18 in-process, out to the client on L5); History subscriber (L18); Store | send an event the subscriber's `device_access` hides; store state patches |
 | History subscriber | An event subscriber, not part of the core (plan §1): takes state patches off the bus, writes `sample` and `gap` rows (plan §2.7) | `sample`, `metric`, `gap` | Event bus and SSE (L18); Registries (metrics); Store (the history writer is cross-space, plan §2.6, hub-core-v2.md:156) | store a text value as a sample; text values are events (plan §2.7, hub-core-v2.md:197) |
-| Device host | Every live device session through one `Host` boundary: in-process drivers (Prusa `prusa-buddy`, websocket dialect only) and agent sessions over link v2 | `agents`, `devices`, `device_registrations`, `device_credentials`, `device_capabilities` | Prusa printers (L10 HTTP, L11 WebSocket); agents (L6 POST, L7 SSE, L8 register, L9 file downloads); Command records; Event bus and SSE | send a device anything its driver's one reference does not send; make G-code for an agent device (the port does) |
+| Device host | Every live device session through one `Host` boundary: in-process drivers (Prusa `prusa-buddy`, websocket dialect only) and agent sessions over link v2 | `agents`, `devices`, `device_registrations`, `device_credentials`, `device_capabilities` | Prusa printers (L11 WebSocket); agents (L6 WebSocket, L8 register, L9 file downloads); Command records; Event bus and SSE | send a device anything its driver's one reference does not send; make G-code for an agent device (the port does) |
 | Camera sessions | RTSP cameras: retina session, frames to viewers, GOP since the last key frame | `cameras` | RTSP cameras (L12 RTSP over TCP); browsers (L3 WebSocket MSE); the API hands it the upgrade after the guard's camera rule (in-process); Store | show a camera to a person the camera rule refuses: `device.view` on the watched device, or the role `room_view_role` names for a room camera (checked before the upgrade, [authz.md](authz.md#actions)) |
 | Registries | The generated lists: capability verbs, state sets, actions, fault codes, event types, metrics (plan §2.10) | `docs/registries/*`, generated from the code | read by Route guard and authz, Command records, Event bus and SSE, History subscriber, and the API spec (`openapi.json` enums); in-process and at build time | be edited by hand |
 | Store | The only way to the database: the app pool (`SET LOCAL app.space_id`, RLS), the admin pool (allowlist), the migrator | the roles of [database.md](database.md#roles-and-pools), the migrations | PostgreSQL (L14 PostgreSQL wire) | connect as a superuser or as the owner of the tables; use the admin pool outside the allowlist |
@@ -300,7 +300,7 @@ block inside the device, authz and history steps, not as a step of their own
 | Browsers | People using the pages | HTTP, SSE, camera WebSocket (L1-L3), the LaserFoundry web fork (L19) | |
 | PrusaSlicer, external apps | Uploads and scripts | HTTP `/api/v1` with a token (L4) | the 3D-printer REST surface is [OQ-2](risks-and-open.md#oq-2-the-3d-printer-rest-surface) |
 | Spoolman clients | Moonraker, OctoPrint's Spoolman plugin, Mainsail, Fluidd, KlipperScreen | HTTP and WebSocket `/spoolman/api/v1` (L5), fed by the event bus (L18) | authentication is [OQ-7](risks-and-open.md#oq-7-how-spoolman-clients-authenticate) |
-| Prusa printers | Buddy 6.4+ over `/p/ws`; Buddy 6.3.0 over HTTP shelved | L11 (L10 shelved) | [decision](decisions/20261119-buddy-websocket-dialect-only.md) |
+| Prusa printers | Buddy 6.4+ over `/p/ws` | L11 | [decision](decisions/20261119-buddy-websocket-dialect-only.md) |
 | RTSP cameras | Network cameras | pulled by the hub over RTSP (L12) | |
 | Release host, SpoolmanDB | Signed releases; the public filament catalogue | HTTPS GET (L16, L17) | |
 | Door hardware | Door locks, badge readers | open ([OQ-10](risks-and-open.md#oq-10-door-access-link)) | not machine permissions |
