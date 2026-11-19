@@ -1,28 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of a DYMO LabelManager PnP">
   <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
-  <ellipse cx="82" cy="134" rx="50" ry="5" fill="#d3d0c8"/>
-  <!-- the USB cable out of the bottom, and its plug -->
-  <path d="M100 128c10 8 22 6 30-4" fill="none" stroke="#2a2b2f" stroke-width="3.2" stroke-linecap="round"/>
-  <rect x="126" y="108" width="10" height="16" rx="2" fill="#2a2b2f"/>
-  <rect x="128" y="100" width="6" height="9" fill="#c4c8cc"/>
-  <!-- the side: dark grey, the cassette door in it -->
-  <path d="M104 26l14 6q4 2 4 6v80q0 4-4 6l-14 6z" fill="#3a3c40"/>
-  <path d="M108 44l9 4v56l-9 4z" fill="none" stroke="#5a5d63" stroke-width="1.4" stroke-linejoin="round"/>
-  <!-- the front: silver shell, a black face in it -->
-  <rect x="44" y="26" width="64" height="104" rx="10" fill="#c9ccd0"/>
-  <rect x="44" y="26" width="64" height="6" rx="3" fill="#e1e3e6"/>
-  <rect x="52" y="40" width="48" height="74" rx="6" fill="#2a2b2f"/>
-  <!-- the cassette window: the tape on its spool -->
-  <rect x="58" y="48" width="36" height="28" rx="3" fill="#45474c"/>
-  <circle cx="70" cy="62" r="8" fill="#f4f2ec"/>
-  <circle cx="70" cy="62" r="3" fill="#2a2b2f"/>
-  <path d="M78 62h12" stroke="#f4f2ec" stroke-width="3"/>
-  <!-- the buttons: power with its light, and the cut button -->
-  <circle cx="76" cy="96" r="7" fill="#45474c" stroke="#6a6d73" stroke-width="1.2"/>
-  <circle cx="76" cy="96" r="2" fill="#5fbfa9"/>
-  <rect x="70" y="18" width="24" height="9" rx="3" fill="#3a3c40"/>
-  <!-- the label coming out of the slot at the top left -->
-  <rect x="40" y="34" width="6" height="12" rx="1.5" fill="#1d1e21"/>
-  <path d="M16 36h26v8H16z" fill="#fff" stroke="#c9c6be" stroke-width="1"/>
-  <path d="M20 40h16" stroke="#26272a" stroke-width="2" stroke-linecap="round"/>
+  <ellipse cx="80" cy="140" rx="54" ry="6" fill="#d3d0c8"/>
+  <!-- the stand: a flat silver plate, and the neck up to the body -->
+  <path d="M62 122h36v10H62z" fill="#8d949a"/>
+  <path d="M36 132h90l-6 6H30z" fill="#c4c8cc"/>
+  <!-- the body: a silver rim, the top left corner cut off -->
+  <path d="M42 62L68 26q3-4 8-4h40q8 0 8 8v86q0 8-8 8H50q-8 0-8-8z" fill="#c4c8cc"/>
+  <!-- the black face, stepped around the silver at the lower right -->
+  <path d="M47 63L71 30q2-3 6-3h33v62H96q-10 0-10 10v20H53q-6 0-6-6z" fill="#2f3033"/>
+  <!-- the tape slot and the cut button -->
+  <rect x="110" y="38" width="10" height="5" rx="1" fill="#1c1d20"/>
+  <rect x="98" y="17" width="18" height="6" rx="2" fill="#b4babf"/>
+  <!-- the small window low on the face -->
+  <path d="M62 104l2-8h16l-2 8z" fill="#5a5b60"/>
 </svg>

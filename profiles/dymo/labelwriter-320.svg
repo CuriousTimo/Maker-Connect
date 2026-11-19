@@ -1,22 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of a DYMO LabelWriter 320">
   <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
-  <ellipse cx="82" cy="134" rx="62" ry="5" fill="#d3d0c8"/>
-  <!-- the light grey body: a wedge, low at the front, square at the back -->
-  <path d="M22 130v-24q0-6 5-9l24-15h82q8 0 8 8v40q0 0-4 0H26q-4 0-4 0z" fill="#c8c9c4"/>
-  <path d="M22 116h119" stroke="#a9aaa5" stroke-width="1.4"/>
-  <!-- the tinted lid over the roll -->
-  <path d="M50 84l14-36q2-6 9-6h56q8 0 10 8l2 34z" fill="#3e4652" opacity=".9"/>
-  <path d="M62 76l10-26" fill="none" stroke="#7d8896" stroke-width="2.4" stroke-linecap="round"/>
-  <!-- the label roll seen through the lid -->
-  <circle cx="104" cy="64" r="16" fill="#eceae4" opacity=".7"/>
-  <circle cx="104" cy="64" r="10" fill="none" stroke="#c9c6be" stroke-width="1" opacity=".8"/>
-  <circle cx="104" cy="64" r="5" fill="#2b2d31" opacity=".8"/>
-  <!-- the dark band at the lid's edge and the front slot with a label -->
-  <path d="M44 86h97" stroke="#2a2b2f" stroke-width="4"/>
-  <path d="M14 98h34l2 9H16z" fill="#fff" stroke="#c9c6be" stroke-width="1"/>
-  <path d="M20 101.5h16M20 104.5h22" stroke="#26272a" stroke-width="1.4" stroke-linecap="round"/>
-  <rect x="44" y="96" width="8" height="12" rx="2" fill="#2a2b2f"/>
-  <!-- the feed button and its light -->
-  <rect x="62" y="100" width="14" height="9" rx="2" fill="#8f918c" stroke="#73756f" stroke-width="1"/>
-  <circle cx="86" cy="104.5" r="2" fill="#5fbfa9"/>
+  <ellipse cx="80" cy="140" rx="56" ry="6" fill="#d3d0c8"/>
+  <!-- the label coming up out of the top -->
+  <rect x="58" y="16" width="44" height="30" rx="1.5" fill="#fff"/>
+  <path d="M64 24h22M64 30h30M64 36h18" stroke="#8d949a" stroke-width="2" stroke-linecap="round"/>
+  <!-- the dark base, flaring out at the bottom -->
+  <path d="M40 96h80l5 36q1 4-3 4H38q-4 0-3-4z" fill="#2b3142"/>
+  <!-- the silver shell, a dome over the roll -->
+  <path d="M40 118V54q0-22 22-22h36q22 0 22 22v64q0 4-4 4H44q-4 0-4-4z" fill="#c9c7bf"/>
+  <!-- the smoked window in the top, and the slot the label comes out of -->
+  <path d="M50 70V50q0-10 10-10h40q10 0 10 10v20z" fill="#4a4d55"/>
+  <rect x="56" y="40" width="48" height="4" rx="1" fill="#2f3033"/>
+  <!-- the front panel: the green light and the feed button -->
+  <path d="M50 78h60l-6 38H56z" fill="#b4b2aa"/>
+  <circle cx="80" cy="96" r="2.4" fill="#7ccf3a"/>
+  <rect x="75" y="104" width="10" height="10" rx="3" fill="#5a5b60"/>
 </svg>
