@@ -1,45 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of an Original Prusa i3 MK3S">
   <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
-  <ellipse cx="80" cy="140" rx="64" ry="5" fill="#d3d0c8"/>
-  <!-- the spool behind the top of the frame, on its holder -->
-  <circle cx="80" cy="25" r="19" fill="#5e6b52"/>
-  <circle cx="80" cy="25" r="16" fill="#93a682"/>
-  <path d="M68 13a17 17 0 0 1 24 0" fill="none" stroke="#b5c4a6" stroke-width="2" stroke-linecap="round"/>
-  <circle cx="80" cy="25" r="6" fill="#3a3b3f"/>
-  <circle cx="80" cy="25" r="2.2" fill="#c4c8cc"/>
-  <path d="M76 37v-9h8v9z" fill="#fa6831"/>
-  <!-- the frame: a black plate with a window, standing up -->
-  <path fill-rule="evenodd" fill="#2c2d30" d="M28 36h104a3 3 0 0 1 3 3v83H25v-83a3 3 0 0 1 3-3zM40 46v62h80v-62z"/>
-  <!-- the Y frame under it, and its feet -->
-  <rect x="18" y="122" width="124" height="7" rx="2" fill="#3a3b3f"/>
-  <path d="M22 129h10v4H22zM128 129h10v4h-10z" fill="#1d1e21"/>
-  <!-- Z: rods, the orange top and bottom corners, the motors -->
-  <path d="M47 46V108M113 46V108" stroke="#c4c8cc" stroke-width="2.4"/>
-  <path d="M40 46h14v6l-4 4h-10zM120 46h-14v6l4 4h10z" fill="#fa6831"/>
-  <rect x="40" y="100" width="14" height="8" fill="#fa6831"/>
-  <rect x="106" y="100" width="14" height="8" fill="#fa6831"/>
-  <!-- X: rods between the two orange X ends -->
-  <rect x="50" y="62" width="60" height="2.8" rx="1.4" fill="#c4c8cc"/>
-  <rect x="50" y="72" width="60" height="2.8" rx="1.4" fill="#c4c8cc"/>
-  <rect x="40" y="58" width="15" height="22" rx="2" fill="#fa6831"/>
-  <rect x="105" y="58" width="15" height="22" rx="2" fill="#fa6831"/>
-  <!-- the extruder: motor on top, orange body, round fan, print fan, nozzle -->
-  <rect x="70" y="44" width="20" height="9" rx="1.5" fill="#3a3b3f"/>
-  <rect x="68" y="52" width="24" height="32" rx="3" fill="#fa6831"/>
-  <rect x="68" y="52" width="24" height="4" rx="2" fill="#ff8a5c"/>
-  <circle cx="80" cy="68" r="7.5" fill="#2c2d30"/>
-  <path d="M80 61.5v13M73.5 68h13" stroke="#4a4b50" stroke-width="1.3"/>
-  <circle cx="80" cy="68" r="2.2" fill="#4a4b50"/>
-  <rect x="62" y="66" width="7" height="16" rx="2" fill="#e85a24"/>
-  <path d="M76 84h8l-2 5h-4z" fill="#3a3b3f"/>
-  <path d="M78.5 89h3l-1.5 3.5z" fill="#c9a043"/>
-  <!-- the heated bed in the window, its gold sheet on top -->
-  <rect x="30" y="98" width="100" height="6" rx="1.5" fill="#8d949a"/>
-  <rect x="30" y="96" width="100" height="3.5" rx="1.5" fill="#cdb779"/>
-  <!-- the display on the front, left; its knob on the right of it -->
-  <rect x="30" y="108" width="62" height="20" rx="3" fill="#fa6831"/>
-  <rect x="34" y="111.5" width="40" height="13" rx="1.5" fill="#1d3550"/>
-  <path d="M37 115.5h20M37 120.5h30" stroke="#9fc3e8" stroke-width="1.3" stroke-linecap="round"/>
-  <circle cx="83" cy="118" r="4.2" fill="#2c2d30"/>
-  <circle cx="83" cy="118" r="1.4" fill="#5a5b60"/>
+  <ellipse cx="80" cy="140" rx="62" ry="6" fill="#d3d0c8"/>
+  <!-- the frame: a plate with a window, standing up -->
+  <path fill-rule="evenodd" fill="#4a4b50" d="M34 22h92a4 4 0 0 1 4 4v96H30v-96a4 4 0 0 1 4-4zM44 32v62h72v-62z"/>
+  <!-- Z rods, and the X axis on them -->
+  <path d="M50 28V112M110 28V112" stroke="#c4c8cc" stroke-width="2.5"/>
+  <rect x="44" y="56" width="72" height="3" rx="1.5" fill="#c4c8cc"/>
+  <rect x="44" y="63" width="72" height="3" rx="1.5" fill="#c4c8cc"/>
+  <rect x="40" y="50" width="14" height="20" rx="2" fill="#ef6c2c"/>
+  <rect x="106" y="50" width="14" height="20" rx="2" fill="#ef6c2c"/>
+  <!-- the head -->
+  <rect x="69" y="42" width="24" height="34" rx="3.5" fill="#ef6c2c"/>
+  <circle cx="81" cy="58" r="7" fill="#2f3033"/>
+  <circle cx="81" cy="58" r="2.2" fill="#5a5b60"/>
+  <path d="M77 76h8l-4 6z" fill="#c9a043"/>
+  <!-- the bed in front, and the display below it -->
+  <path d="M24 120h112l-7-12H31z" fill="#8d949a"/>
+  <path d="M31 108h98l1.2 2H29.8z" fill="#b4babf"/>
+  <rect x="28" y="120" width="104" height="6" rx="1" fill="#2f3033"/>
+  <rect x="54" y="126" width="52" height="12" rx="2.5" fill="#ef6c2c"/>
+  <rect x="58" y="128.5" width="28" height="7" rx="1" fill="#1c1d20"/>
+  <circle cx="97" cy="132" r="3" fill="#2f3033"/>
 </svg>
