@@ -50,7 +50,7 @@ mod prepare_tests {
             let access = w.access_of(name).await;
             let grants = store.grants_of(&access).await.unwrap();
             let machines = store.machines(access.space).await.unwrap();
-            availability_of(&store.lock().unwrap(), &machines, &access, &grants, built).unwrap()
+            availability_of(&store.lock().unwrap(), &machines, &access, &grants, built)
         };
         assert_eq!(of("ann", false).await, Availability::NotBuilt);
         assert_eq!(of("ann", true).await, Availability::NoLaser);

@@ -74,15 +74,15 @@ fn usable_lasers(
     machines: &[crate::store::Machine],
     access: &Access,
     grants: &crate::access::Grants,
-) -> rusqlite::Result<Vec<serde_json::Value>> {
-    Ok(machines
+) -> Vec<serde_json::Value> {
+    machines
         .iter()
         .filter(|m| m.kind == MachineKind::Laser)
         .filter_map(|m| {
             let level = store.machine_level(access, &m.id, grants).ok().flatten()?;
             (level >= Level::Use).then(|| crate::apps::machine_json(m, Some(level)))
         })
-        .collect())
+        .collect()
 }
 
 async fn lasers(access: Access, State(store): State<Store>) -> Response {
@@ -94,10 +94,13 @@ async fn lasers(access: Access, State(store): State<Store>) -> Response {
         Ok(machines) => machines,
         Err(error) => return failed(error),
     };
-    match usable_lasers(&store.lock().unwrap(), &machines, &access, &grants) {
-        Ok(list) => Json(list).into_response(),
-        Err(error) => failed(error),
-    }
+    Json(usable_lasers(
+        &store.lock().unwrap(),
+        &machines,
+        &access,
+        &grants,
+    ))
+    .into_response()
 }
 
 /// Whether the laser design tool is there for this person (Prepare, a laser's page): derived from
@@ -120,7 +123,7 @@ pub(crate) fn availability(
     machines: &[crate::store::Machine],
     access: &Access,
     grants: &crate::access::Grants,
-) -> rusqlite::Result<Availability> {
+) -> Availability {
     availability_of(store, machines, access, grants, !ASSETS.is_empty())
 }
 
@@ -130,23 +133,21 @@ fn availability_of(
     access: &Access,
     grants: &crate::access::Grants,
     built: bool,
-) -> rusqlite::Result<Availability> {
+) -> Availability {
     if !built {
-        return Ok(Availability::NotBuilt);
+        return Availability::NotBuilt;
     }
     if access.role < Role::Member {
-        return Ok(Availability::Guest);
+        return Availability::Guest;
     }
     if !machines.iter().any(|m| m.kind == MachineKind::Laser) {
-        return Ok(Availability::NoLaser);
+        return Availability::NoLaser;
     }
-    Ok(
-        if usable_lasers(store, machines, access, grants)?.is_empty() {
-            Availability::NotPermitted
-        } else {
-            Availability::Open
-        },
-    )
+    if usable_lasers(store, machines, access, grants).is_empty() {
+        Availability::NotPermitted
+    } else {
+        Availability::Open
+    }
 }
 
 /// Whether this person may open the page: a member who may use a laser.
@@ -165,17 +166,16 @@ fn may_open(
                 .into_response(),
         ));
     }
-    match usable_lasers(store, machines, access, grants) {
-        Ok(list) if !list.is_empty() => Ok(()),
-        Ok(_) => Err(Box::new(
+    if usable_lasers(store, machines, access, grants).is_empty() {
+        return Err(Box::new(
             (
                 StatusCode::FORBIDDEN,
                 "there is no laser in this space that you may use",
             )
                 .into_response(),
-        )),
-        Err(error) => Err(Box::new(failed(error))),
+        ));
     }
+    Ok(())
 }
 
 async fn index(access: Access, State(store): State<Store>) -> Response {

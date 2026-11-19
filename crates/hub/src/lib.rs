@@ -65,13 +65,13 @@ pub(crate) use web::router::{done, failed};
 pub(crate) use web::shell::{PAGE, STYLE, escape, header};
 
 /// The Space page's Cameras tab (empty without the feature, or for who may not manage them).
-pub(crate) fn cameras_space_tab(
-    store: &store::Legacy,
+pub(crate) async fn cameras_space_tab(
+    store: &Store,
     access: &access::Access,
     machines: &[store::Machine],
 ) -> String {
     #[cfg(feature = "cameras")]
-    return cameras::page::space_tab(store, access, machines);
+    return cameras::page::space_tab(store, access, machines).await;
     #[cfg(not(feature = "cameras"))]
     {
         let _ = (store, access, machines);

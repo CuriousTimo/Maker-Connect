@@ -5,7 +5,6 @@
 
 use super::store::{Camera, CameraForm};
 use crate::access::{Access, Role};
-use crate::store::Legacy;
 use crate::{STYLE, Store, escape, failed, header};
 use axum::{
     Form, Router,
@@ -49,13 +48,13 @@ pub fn routes() -> Router<Store> {
 }
 
 /// The camera, when `access` may watch it; else the answer.
-fn watchable(
-    store: &Legacy,
+async fn watchable(
+    store: &Store,
     access: &Access,
     id: i64,
     grants: &crate::access::Grants,
 ) -> Result<Camera, Box<Response>> {
-    let camera = match store.camera(access.space, id) {
+    let camera = match crate::stock::in_space!(store, access.space, |w| w.camera(id)).await {
         Ok(Some(camera)) => camera,
         Ok(None) => {
             return Err(Box::new(
@@ -64,7 +63,11 @@ fn watchable(
         }
         Err(error) => return Err(Box::new(failed(error))),
     };
-    match store.may_view_camera(access, &camera, grants) {
+    let may = store
+        .lock()
+        .unwrap()
+        .may_view_camera(access, &camera, grants);
+    match may {
         Ok(true) => Ok(camera),
         Ok(false) => Err(Box::new(
             (StatusCode::FORBIDDEN, "you may not watch this camera").into_response(),
@@ -82,7 +85,7 @@ async fn live(access: Access, State(store): State<Store>, Path(id): Path<i64>) -
         Ok(grants) => grants,
         Err(error) => return failed(error),
     };
-    match watchable(&store.lock().unwrap(), &access, id, &grants) {
+    match watchable(&store, &access, id, &grants).await {
         Ok(_) => Html(LIVE).into_response(),
         Err(refused) => *refused,
     }
@@ -98,7 +101,7 @@ async fn mse(
         Ok(grants) => grants,
         Err(error) => return failed(error),
     };
-    if let Err(refused) = watchable(&store.lock().unwrap(), &access, id, &grants) {
+    if let Err(refused) = watchable(&store, &access, id, &grants).await {
         return *refused;
     }
     match super::subscribe(id) {
@@ -123,7 +126,7 @@ async fn camera_page(access: Access, State(store): State<Store>, Path(id): Path<
         Ok(grants) => grants,
         Err(error) => return failed(error),
     };
-    let camera = match watchable(&store.lock().unwrap(), &access, id, &grants) {
+    let camera = match watchable(&store, &access, id, &grants).await {
         Ok(camera) => camera,
         Err(refused) => return *refused,
     };
@@ -177,11 +180,11 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
         Ok(grants) => grants,
         Err(error) => return failed(error),
     };
-    let store = store.lock().unwrap();
-    let cameras = match store.cameras(access.space) {
+    let cameras = match store.cameras(access.space).await {
         Ok(cameras) => cameras,
         Err(error) => return failed(error),
     };
+    let store = store.lock().unwrap();
     let mut rows = String::new();
     for camera in cameras
         .iter()
@@ -243,15 +246,15 @@ fn watches(camera: &Camera, machines: &[crate::store::Machine]) -> String {
 /// The Cameras tab of the Space page (owner, 2026-11-16: "camera beheer hoort in /space
 /// thuis als tab"): for an admin, every camera of the space to change or remove, and one to
 /// add; empty for others.
-pub(crate) fn space_tab(
-    store: &Legacy,
+pub(crate) async fn space_tab(
+    store: &Store,
     access: &Access,
     machines: &[crate::store::Machine],
 ) -> String {
     if access.role < Role::Admin {
         return String::new();
     }
-    let cameras = store.cameras(access.space).unwrap_or_default();
+    let cameras = store.cameras(access.space).await.unwrap_or_default();
     let mut rows = String::new();
     for camera in &cameras {
         rows.push_str(&format!(
@@ -378,11 +381,12 @@ async fn add(
         Ok(form) => form,
         Err(refused) => return *refused,
     };
-    let store = store.lock().unwrap();
-    match store
-        .add_camera(access.space, &form)
-        .and_then(|id| store.camera(access.space, id))
-    {
+    let added = crate::stock::in_space!(&store, access.space, |w| async {
+        let id = w.add_camera(&form).await?;
+        w.camera(id).await
+    })
+    .await;
+    match added {
         Ok(Some(camera)) => {
             super::start(&camera);
             crate::done(&headers, "/space#cameras")
@@ -403,17 +407,20 @@ async fn change(
         Ok(form) => form,
         Err(refused) => return *refused,
     };
-    let store = store.lock().unwrap();
-    match store.change_camera(access.space, id, &form) {
-        Ok(true) => match store.camera(access.space, id) {
-            Ok(Some(camera)) => {
-                super::start(&camera);
-                crate::done(&headers, "/space#cameras")
-            }
-            Ok(None) => (StatusCode::NOT_FOUND, "no such camera").into_response(),
-            Err(error) => failed(error),
-        },
-        Ok(false) => (StatusCode::NOT_FOUND, "no such camera").into_response(),
+    let changed = crate::stock::in_space!(&store, access.space, |w| async {
+        if w.change_camera(id, &form).await? {
+            w.camera(id).await
+        } else {
+            Ok(None)
+        }
+    })
+    .await;
+    match changed {
+        Ok(Some(camera)) => {
+            super::start(&camera);
+            crate::done(&headers, "/space#cameras")
+        }
+        Ok(None) => (StatusCode::NOT_FOUND, "no such camera").into_response(),
         Err(error) => failed(error),
     }
 }
@@ -424,7 +431,7 @@ async fn remove(
     Path(id): Path<i64>,
     headers: HeaderMap,
 ) -> Response {
-    match store.lock().unwrap().remove_camera(access.space, id) {
+    match crate::stock::in_space!(&store, access.space, |w| w.remove_camera(id)).await {
         Ok(true) => {
             super::stop(id);
             crate::done(&headers, "/space#cameras")
@@ -435,13 +442,17 @@ async fn remove(
 }
 
 /// The Camera tab of a machine's page: its cameras that `access` may watch.
-pub(crate) fn machine_tab(
-    store: &Legacy,
+pub(crate) async fn machine_tab(
+    store: &Store,
     access: &Access,
     machine: &str,
     grants: &crate::access::Grants,
 ) -> Option<String> {
-    let cameras = store.machine_cameras(access, machine, grants);
+    let cameras = store.cameras(access.space).await.unwrap_or_default();
+    let cameras = store
+        .lock()
+        .unwrap()
+        .machine_cameras(access, machine, grants, cameras);
     if cameras.is_empty() {
         return None;
     }

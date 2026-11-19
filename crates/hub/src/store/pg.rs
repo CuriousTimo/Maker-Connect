@@ -23,7 +23,9 @@ fn modules() -> Vec<&'static Migrator> {
     static STOCK: Migrator = sqlx::migrate!("src/stock/migrations");
     static QUEUE: Migrator = sqlx::migrate!("src/queue/migrations");
     static FARM: Migrator = sqlx::migrate!("src/farm/migrations");
-    vec![&CORE, &ACCOUNTS, &ACCESS, &STOCK, &QUEUE, &FARM]
+    // In every build, with the feature `cameras` or without: one database has one set of migrations.
+    static CAMERAS: Migrator = sqlx::migrate!("src/cameras/migrations");
+    vec![&CORE, &ACCOUNTS, &ACCESS, &STOCK, &QUEUE, &FARM, &CAMERAS]
 }
 
 /// All modules' migrations in one list, by version.
@@ -289,7 +291,7 @@ mod tests {
         }
     }
 
-    /// Row-level security on lane 4's tables (stock, Spoolman, queue, farm), as the app role: each
+    /// Row-level security on lane 4's tables (stock, Spoolman, queue, farm, cameras), as the app role: each
     /// space-owned table shows nothing without a space, only its space's rows with one, and refuses a
     /// row for another space.
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
@@ -318,7 +320,8 @@ mod tests {
              INSERT INTO part_files (part_id, space_id, profile, file_id, created_at)
                  SELECT id, id, 'prusa/mk3s', 'f', at_unix(0) FROM spaces;
              INSERT INTO part_ledger (space_id, part_id, at, delta, done_after, source, actor)
-                 SELECT id, id, at_unix(0), 1, 1, 'corrected', 'x' FROM spaces;",
+                 SELECT id, id, at_unix(0), 1, 1, 'corrected', 'x' FROM spaces;
+             INSERT INTO cameras (space_id, name, url, created_at) SELECT id, 'C', 'rtsp://x', at_unix(0) FROM spaces;",
         )
         .execute(&pool)
         .await
@@ -379,6 +382,10 @@ mod tests {
                 "part_ledger",
                 "INSERT INTO part_ledger (space_id, part_id, at, delta, done_after, source, actor)
                  VALUES (2, 2, at_unix(0), 1, 1, 'x', 'x')",
+            ),
+            (
+                "cameras",
+                "INSERT INTO cameras (space_id, name, url, created_at) VALUES (2, 'x', 'x', at_unix(0))",
             ),
         ];
         for (table, insert) in tables {

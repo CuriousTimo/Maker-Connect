@@ -32,13 +32,7 @@ pub async fn page(access: crate::access::Access, State(store): State<Store>) -> 
         Ok(machines) => machines,
         Err(error) => return failed(error),
     };
-    let laser = {
-        let store = store.lock().unwrap();
-        match availability(&store, &machines, &access, &grants) {
-            Ok(a) => a,
-            Err(error) => return failed(error),
-        }
-    };
+    let laser = availability(&store.lock().unwrap(), &machines, &access, &grants);
     // Ours (UI only): the card's line for each state.
     let action = match laser {
         Availability::Open => {

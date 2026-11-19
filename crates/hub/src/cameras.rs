@@ -284,8 +284,8 @@ pub(crate) fn subscribe(
 }
 
 /// Starts the sessions of every camera, when the hub starts.
-pub fn start_all(store: &Store) {
-    let cameras = store.lock().unwrap().all_cameras().unwrap_or_default();
+pub async fn start_all(store: &Store) {
+    let cameras = store.all_cameras().await.unwrap_or_default();
     for camera in &cameras {
         start(camera);
     }

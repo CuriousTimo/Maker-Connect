@@ -53,8 +53,6 @@ pub(super) fn migrate(db: &Connection) -> rusqlite::Result<()> {
              value TEXT NOT NULL
          );",
     )?;
-    #[cfg(feature = "cameras")]
-    crate::cameras::store::migrate(db)?;
     db.execute(
         "INSERT INTO meta (key, value) VALUES ('opened_by', ?1)
          ON CONFLICT (key) DO UPDATE SET value = excluded.value",

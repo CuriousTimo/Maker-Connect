@@ -603,6 +603,11 @@ pub(crate) async fn machine_page(
         .await
         .unwrap_or_default();
     let stats = store.job_stats(access.space, &id).await.unwrap_or_default();
+    // The machine's Camera tab, read before the lock.
+    let camera_tab = match &found {
+        Ok((_, Some(machine))) => camera_tab(&store, &access, &machine.id, &grants).await,
+        _ => None,
+    };
     let store = store.lock().unwrap();
     match found {
         Ok((space, Some(machine))) if machine.kind == protocol::MachineKind::Label => {
@@ -624,7 +629,7 @@ pub(crate) async fn machine_page(
         }
         Ok((space, Some(machine))) => {
             let extra = machine_page::Extra {
-                camera_tab: camera_tab(&store, &access, &machine.id, &grants),
+                camera_tab,
                 me: access.user_id,
                 staff: access.role >= access::Role::Admin,
                 asked,
@@ -654,14 +659,14 @@ pub(crate) async fn machine_page(
 }
 
 /// A machine's Camera tab, when the hub has cameras and one on it may be watched.
-fn camera_tab(
-    store: &crate::store::Legacy,
+async fn camera_tab(
+    store: &Store,
     access: &crate::access::Access,
     machine: &str,
     grants: &access::Grants,
 ) -> Option<String> {
     #[cfg(feature = "cameras")]
-    return crate::cameras::page::machine_tab(store, access, machine, grants);
+    return crate::cameras::page::machine_tab(store, access, machine, grants).await;
     #[cfg(not(feature = "cameras"))]
     {
         let _ = (store, access, machine, grants);
