@@ -791,18 +791,23 @@ impl Work {
 }
 
 impl Legacy {
+    /// The files folder beside `path` (`maker-connect.db` → `maker-connect-files/`).
+    pub fn files_dir_of(path: &str) -> std::path::PathBuf {
+        let db = std::path::Path::new(path);
+        let stem = db
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("maker-connect");
+        db.with_file_name(format!("{stem}-files"))
+    }
+
     /// The folders beside `path` (`maker-connect.db` keeps its files in `maker-connect-files/`),
     /// made when missing; `:memory:` (tests) a folder of its own.
     pub fn open(path: &str) -> std::io::Result<Self> {
         let files_dir = if path == ":memory:" {
             std::env::temp_dir().join(format!("maker-connect-test-{}", random_id()))
         } else {
-            let db = std::path::Path::new(path);
-            let stem = db
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("maker-connect");
-            db.with_file_name(format!("{stem}-files"))
+            Self::files_dir_of(path)
         };
         std::fs::create_dir_all(&files_dir)?;
         let downloads_dir =

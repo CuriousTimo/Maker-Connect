@@ -163,7 +163,14 @@ async fn hub_status(State(store): State<Store>) -> Response {
 
 /// Fetches, checks and tries the newest hub release, and puts it in place of the program at
 /// `exe`. Returns the release it put in place.
-pub(crate) fn prepare_hub(exe: &std::path::Path, url: &str) -> Result<String, String> {
+///
+/// With `dumps`, the database is dumped first (kept as the way back, in the trial's note), and the
+/// new build is tried on a copy of it, restored from that dump (crate::backup).
+pub(crate) fn prepare_hub(
+    exe: &std::path::Path,
+    url: &str,
+    dumps: Option<&crate::backup::Dumps>,
+) -> Result<String, String> {
     let release = newest(url, "hub")?;
     let tag = release.tag_name.clone();
     if !update::newer(&tag, crate::store::BUILD) {
@@ -187,16 +194,33 @@ pub(crate) fn prepare_hub(exe: &std::path::Path, url: &str) -> Result<String, St
     let trial_dir = std::env::temp_dir().join(format!("maker-connect-trial-{}", update::now()));
     std::fs::create_dir_all(&trial_dir).map_err(|e| e.to_string())?;
     let trial_db = trial_dir.join("maker-connect.db");
+    let mut args: Vec<std::ffi::OsString> =
+        vec!["--trial".into(), "--db".into(), trial_db.into_os_string()];
+    let mut note = serde_json::json!({});
+    if let Some(dumps) = dumps {
+        let dump = dumps
+            .dump(crate::backup::BEFORE_UPDATE, Some(&tag))
+            .map_err(|why| format!("the database could not be backed up: {why}"))?;
+        let copy = dumps.trial_database();
+        dumps
+            .restore_as(&dump, &copy)
+            .map_err(|why| format!("the copy to try the new build on failed: {why}"))?;
+        args.extend(["--trial-database".into(), copy.into()]);
+        note = serde_json::json!({ "dump": dump });
+    }
     let installed = update::install(
         exe,
         &build,
-        &["--trial".into(), "--db".into(), trial_db.into_os_string()],
+        &args,
         crate::store::BUILD,
         version_of(&tag),
         120,
-        serde_json::json!({}),
+        note,
     );
     let _ = std::fs::remove_dir_all(&trial_dir);
+    if let Some(dumps) = dumps {
+        let _ = dumps.drop_database(&dumps.trial_database());
+    }
     installed.map(|()| tag)
 }
 
@@ -212,8 +236,10 @@ async fn update_hub(access: Access, State(store): State<Store>) -> Response {
             .into_response();
     };
     let program = exe.clone();
-    let prepared =
-        tokio::task::spawn_blocking(move || prepare_hub(&program, &releases_url())).await;
+    let prepared = tokio::task::spawn_blocking(move || {
+        prepare_hub(&program, &releases_url(), crate::backup::DUMPS.get())
+    })
+    .await;
     match prepared {
         Ok(Ok(tag)) => {
             let _ = store
@@ -570,7 +596,7 @@ pub(crate) mod tests {
         let works = b"#!/bin/sh\n[ \"$1\" = --trial ] && [ \"$2\" = --db ]\n".to_vec();
         let url = releases(vec![("hub-v99.0.0", name, archive(&works))]).await;
         let (e, u) = (exe.clone(), url.clone());
-        let tag = tokio::task::spawn_blocking(move || prepare_hub(&e, &u))
+        let tag = tokio::task::spawn_blocking(move || prepare_hub(&e, &u, None))
             .await
             .unwrap();
         assert_eq!(tag, Ok("hub-v99.0.0".to_owned()));
@@ -586,7 +612,7 @@ pub(crate) mod tests {
         let fails = b"#!/bin/sh\nexit 1\n".to_vec();
         let url = releases(vec![("hub-v99.0.1", name, archive(&fails))]).await;
         let e = exe.clone();
-        let error = tokio::task::spawn_blocking(move || prepare_hub(&e, &url))
+        let error = tokio::task::spawn_blocking(move || prepare_hub(&e, &url, None))
             .await
             .unwrap();
         assert!(error.unwrap_err().contains("trial"));
@@ -599,6 +625,105 @@ pub(crate) mod tests {
 
     #[cfg(unix)]
     use maker_connect_update::Start;
+
+    /// Before a self-update the database is dumped and the new build tried on a copy restored from
+    /// that dump; when the new build then does not stay up, the way back brings the database back as
+    /// the dump holds it (main's `go_back`), together with the build before.
+    #[cfg(unix)]
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn an_update_is_backed_up_tried_on_a_copy_and_goes_back_with_its_database(
+        pool: sqlx::PgPool,
+    ) {
+        use crate::backup;
+        // A database of its own with a short name (the test's own is too long for `_back`).
+        let tools = backup::for_test(&pool).await;
+        let name = format!("mc_live_{}", crate::store::random_id());
+        tools
+            .restore_as(&tools.dump(backup::NIGHTLY, None).unwrap(), &name)
+            .unwrap();
+        let base = std::env::var("DATABASE_URL").unwrap();
+        let live_url = backup::with_database(&base, &name).unwrap();
+        let live = sqlx::PgPool::connect(&live_url).await.unwrap();
+        sqlx::query("INSERT INTO meta (key, value) VALUES ('before', 'update')")
+            .execute(&live)
+            .await
+            .unwrap();
+        let dumps = backup::Dumps::new(
+            tools.dir.join("live"),
+            backup::KEEP,
+            &std::env::var("MC_PG_COMMAND").unwrap_or_default(),
+            &live_url,
+        )
+        .unwrap();
+
+        let dir = std::env::temp_dir().join(format!("mc-hub-update-{}", crate::store::random_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("maker-connect-hub");
+        std::fs::write(&exe, "#!/bin/sh\necho old\n").unwrap();
+        let system = update::this_system().unwrap();
+        let file: &'static str =
+            Box::leak(format!("maker-connect-hub-{system}.tar.gz").into_boxed_str());
+        // The trial is told the copy to run on.
+        let works = format!(
+            "#!/bin/sh\n[ \"$1\" = --trial ] && [ \"$4\" = --trial-database ] && [ \"$5\" = {name}_trial ]\n"
+        )
+        .into_bytes();
+        let url = releases(vec![("hub-v99.0.0", file, archive(&works))]).await;
+        let (e, d) = (exe.clone(), dumps.clone());
+        let tag = tokio::task::spawn_blocking(move || prepare_hub(&e, &url, Some(&d)))
+            .await
+            .unwrap();
+        assert_eq!(tag, Ok("hub-v99.0.0".to_owned()));
+        assert_eq!(std::fs::read(&exe).unwrap(), works);
+        // Backed up; the copy is gone again.
+        let backed_up = dumps.of_kind(backup::BEFORE_UPDATE);
+        assert_eq!(backed_up.len(), 1);
+        let copies: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_database WHERE datname = $1")
+            .bind(format!("{name}_trial"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(copies, 0);
+
+        // The new build changes the database, then does not stay up: the way back.
+        sqlx::query("CREATE TABLE only_in_the_new_build (x int)")
+            .execute(&live)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE meta SET value = 'changed' WHERE key = 'before'")
+            .execute(&live)
+            .await
+            .unwrap();
+        live.close().await;
+        let Start::OnTrial(trial) = update::on_start(&exe) else {
+            panic!("on trial")
+        };
+        let d = dumps.clone();
+        let back = tokio::task::spawn_blocking(move || backup::back_as_before(&d, &trial.note))
+            .await
+            .unwrap();
+        assert_eq!(back, Ok(Some(backed_up[0].clone())));
+        let live = sqlx::PgPool::connect(&live_url).await.unwrap();
+        let value: String = sqlx::query_scalar("SELECT value FROM meta WHERE key = 'before'")
+            .fetch_one(&live)
+            .await
+            .unwrap();
+        assert_eq!(value, "update");
+        let new_table: Option<String> =
+            sqlx::query_scalar("SELECT to_regclass('only_in_the_new_build')::text")
+                .fetch_one(&live)
+                .await
+                .unwrap();
+        assert_eq!(new_table, None);
+        live.close().await;
+        tools.drop_database(&name).unwrap();
+        std::fs::remove_dir_all(&tools.dir).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// An agent asked to update gets the order, fetches its build through the hub (checked),
     /// and is no longer asked once it says how it went.

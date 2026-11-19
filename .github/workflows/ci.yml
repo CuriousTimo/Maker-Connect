@@ -106,8 +106,13 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Serial port headers
-        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config postgresql-client
+      # pg_dump/pg_restore/psql of the server's version (17) for the backup tests (crate::backup): from
+      # PostgreSQL's own apt repository (Ubuntu 24.04 has 16).
+      - name: Serial port headers, PostgreSQL 17 client
+        run: |
+          sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
 
       - name: Cache
         uses: Swatinem/rust-cache@v2

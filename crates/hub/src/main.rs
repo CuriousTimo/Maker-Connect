@@ -7,6 +7,7 @@ const USAGE: &str = "Maker Connect hub (proof of concept)
 
 Usage:
   maker-connect-hub [--listen 0.0.0.0:8460] [--db maker-connect.db] [--database-url postgres://…]
+                    [--keep-dumps 7] [--pg-command \"docker exec -i -e PGPASSWORD maker-connect-db\"]
   maker-connect-hub reset-password <name> [--db maker-connect.db] [--database-url postgres://…]
 
 Open http://localhost:8460. On a fresh install, make the first account with the setup code
@@ -16,6 +17,11 @@ reset-password gives an account a new password (printed once) and signs it out e
 for when its owner cannot sign in any more.
 
 The Postgres database comes from --database-url, else from the DATABASE_URL environment variable.
+
+The database is dumped (pg_dump) every night and before an update, into maker-connect-dumps/ beside
+maker-connect-files/; the last --keep-dumps of each are kept (7 unless said). pg_dump, pg_restore and
+psql must be of the server's version: --pg-command names what runs them when the host has none of
+that version (the database's container, as above).
 ";
 
 /// What a release's archive brings beside the hub, into the folders beside its database.
@@ -73,6 +79,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // A new build tried before it is put in place (crate::updates): it opens the database (a
     // copy), builds its pages, takes a port, and ends.
     let mut trial = false;
+    // The copy of the database a trial runs on (crate::updates::prepare_hub).
+    let mut trial_database: Option<String> = None;
+    let mut keep_dumps = maker_connect_hub::backup::KEEP;
+    let mut pg_command = String::new();
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         match flag.as_str() {
@@ -85,6 +95,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
             }
             "--trial" => trial = true,
+            "--trial-database" => {
+                trial_database = Some(
+                    args.next()
+                        .ok_or("expected a name after --trial-database")?,
+                )
+            }
+            "--keep-dumps" => {
+                keep_dumps = args
+                    .next()
+                    .and_then(|n| n.parse().ok())
+                    .filter(|n| *n > 0)
+                    .ok_or("expected a number (1 or more) after --keep-dumps")?
+            }
+            "--pg-command" => {
+                pg_command = args.next().ok_or("expected a command after --pg-command")?
+            }
             "reset-password" => {
                 reset = Some(
                     args.next()
@@ -97,8 +123,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    let database_url = database_url.ok_or("expected --database-url or DATABASE_URL")?;
+    let mut database_url = database_url.ok_or("expected --database-url or DATABASE_URL")?;
     if trial {
+        if let Some(copy) = &trial_database {
+            database_url = maker_connect_hub::backup::with_database(&database_url, copy)?;
+        }
         let opened = Store::open(&db, &database_url)
             .await
             .map_err(|e| e.to_string())?;
@@ -107,6 +136,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("trial: {} opens its database and starts", store::BUILD);
         return Ok(());
     }
+    let dumps = maker_connect_hub::backup::Dumps::new(
+        maker_connect_hub::backup::dir_beside(&Legacy::files_dir_of(&db)),
+        keep_dumps,
+        &pg_command,
+        &database_url,
+    )?;
+    let _ = maker_connect_hub::backup::DUMPS.set(dumps);
     // An update under way: this build on trial, or one to go back from.
     let exe = std::env::current_exe()?;
     let again: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
@@ -173,6 +209,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(farm::run(store.clone()));
     tokio::spawn(samples::run(store.clone()));
     tokio::spawn(queue::run(store.clone()));
+    if let Some(dumps) = maker_connect_hub::backup::DUMPS.get() {
+        tokio::spawn(maker_connect_hub::backup::nightly(dumps));
+    }
     // The cameras' sessions (crate::cameras), when the hub is built with them.
     #[cfg(feature = "cameras")]
     maker_connect_hub::cameras::start_all(&store).await;
@@ -244,6 +283,19 @@ fn go_back(
         "the update to {} goes back to {}: {why}",
         trial.to, trial.from
     );
+    // The database as the dump before the update holds it, then the build before.
+    let mut why = why.to_owned();
+    if let Some(dumps) = maker_connect_hub::backup::DUMPS.get() {
+        match maker_connect_hub::backup::back_as_before(dumps, &trial.note) {
+            Ok(Some(dump)) => println!("the database is back as {} holds it", dump.display()),
+            Ok(None) => {}
+            Err(error) => {
+                eprintln!("could not bring the database back: {error}");
+                why = format!("{why} (the database could not be brought back: {error})");
+            }
+        }
+    }
+    let why = why.as_str();
     if let Err(error) = maker_connect_update::roll_back(exe, trial, why) {
         eprintln!("could not go back: {error}");
         std::process::exit(1);

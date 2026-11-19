@@ -130,13 +130,19 @@ unpack it and start it in its folder:
 
 The agent has releases of its own (`agent-v…`); the hub's Downloads page offers the newest.
 The archive brings SpoolmanDB; printer
-profiles and filaments are inside the hub. The data (`maker-connect.db`, and
-`maker-connect-files/`, `-downloads/`, `-backups/` beside it) is made where the database is:
-the folder it starts in, or `--db /somewhere/maker-connect.db`. To upgrade, stop it, unpack
-the new release over the old one, start it: the archive holds no data, and a hub that opens
-a database an older build had copies it to `maker-connect-backups/` first. Or update from
-**About → Updates** (Linux and macOS), which does all of that and goes back by itself if the
-new build does not work. On macOS, the first time: `xattr -d com.apple.quarantine
+profiles and filaments are inside the hub. The data is a PostgreSQL 17 database (TimescaleDB's image
+`timescale/timescaledb:2.32.0-pg17`), given as `--database-url` or `DATABASE_URL`, and the folders
+`maker-connect-files/`, `-downloads/` and `-dumps/` beside `--db /somewhere/maker-connect.db` (the
+folder it starts in unless said). The hub dumps the database (`pg_dump`) every night and before an
+update into `maker-connect-dumps/` (only for its own user), keeping the last 7 of each
+(`--keep-dumps`, our choice); `pg_dump`, `pg_restore` and `psql` must be of the server's version, and
+where the computer has none (a Raspberry Pi on Debian 11), `--pg-command "docker exec -i -e
+PGPASSWORD <container>"` runs those of the database's container. To upgrade, stop it, unpack the new
+release over the old one, start it: the archive holds no data. Or update from **About → Updates**
+(Linux and macOS): it dumps the database, tries the new build on a copy restored from that dump, and
+goes back by itself, database and build together, if the new build does not work. A Pi set up this
+way (the database's container, the hub as a `systemd --user` service): [docs/pi-hub.md](docs/pi-hub.md).
+On macOS, the first time: `xattr -d com.apple.quarantine
 maker-connect-hub` (the builds are not signed by Apple; the releases are signed with Maker
 Connect's own key, which the updates check).
 

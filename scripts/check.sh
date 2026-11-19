@@ -40,6 +40,7 @@ export SQLX_OFFLINE=true
 DEV_DB_WAS_UP=$(docker ps -q --filter "name=^mc-dev-db$" 2>/dev/null)
 if DEV_DB=$(scripts/dev-db.sh up | grep '^DATABASE_URL='); then
     export "${DEV_DB?}"
+    export "$(scripts/dev-db.sh command)"
     step "tests" quiet cargo test --workspace --locked --features maker-connect-hub/pg-tests
     # With the cameras too (the .67 build), which also checks the routes' snapshot (tests/routes.txt).
     step "hub tests (cameras)" quiet cargo test -p maker-connect-hub --lib --locked --features pg-tests,cameras

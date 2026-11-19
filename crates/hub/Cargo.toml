@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [features]
 # Network cameras over RTSP, the module `cameras` (docs/plans/cameras.md, "Network cameras").
-cameras = ["dep:retina", "dep:bytes", "dep:url"]
+cameras = ["dep:retina", "dep:bytes"]
 
 # HS13: the LaserFoundry web fork, packed gzip into the binary. Needs `crates/hub/laser-design/`, made by
 # `scripts/laserfoundry-web.sh`; without the feature the hub builds and serves "not built in" there.
@@ -61,7 +61,7 @@ tower = { version = "0.5.3", default-features = false }
 # Network cameras (docs/plans/cameras.md): retina, the reference, at the version of reference/retina (2b6b7fe).
 retina = { version = "=0.4.22", optional = true }
 bytes = { version = "1", optional = true }
-url = { version = "2", optional = true }
+url = "2"
 # SpoolmanDB fetched, a Spoolman imported from or exported to.
 ureq = { version = "2", features = ["json"] }
 argon2 = "0.5"

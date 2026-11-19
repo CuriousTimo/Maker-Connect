@@ -23,6 +23,7 @@ pub mod access;
 pub mod accounts;
 pub mod apps;
 pub mod auth;
+pub mod backup;
 #[cfg(feature = "cameras")]
 pub mod cameras;
 pub mod codes;

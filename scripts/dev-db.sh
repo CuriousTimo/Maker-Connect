@@ -7,6 +7,8 @@
 #   scripts/dev-db.sh prepare   refresh the queries' offline cache (crates/hub/.sqlx/) against a fresh
 #                               database with every migration applied (needs `up` first and sqlx-cli)
 #   scripts/dev-db.sh url       print DATABASE_URL
+#   scripts/dev-db.sh command   print MC_PG_COMMAND: what runs pg_dump/pg_restore/psql (17) for the hub's
+#                               backup tests, the container's own (the Mac has none of the server's version)
 #
 # `up` leaves a mark in the state directory when it started Colima, so `down` stops only what `up` started.
 set -euo pipefail
@@ -35,7 +37,10 @@ up() {
     fi
     if [ -z "$(docker ps -q --filter "name=^${NAME}$")" ]; then
         docker rm -f "$NAME" >/dev/null 2>&1 || true
-        docker run -d --name "$NAME" -p "127.0.0.1:${PORT}:5432" \
+        # The server on the same port inside as outside (PGPORT), so the client tools in the container
+        # reach it at the same address as the hub: the hub's backup tests run them there
+        # (MC_PG_COMMAND below, crate::backup).
+        docker run -d --name "$NAME" -p "127.0.0.1:${PORT}:${PORT}" -e PGPORT="$PORT" \
             -e POSTGRES_PASSWORD="$PASSWORD" -e TS_TUNE_MAX_CONNS="$MAX_CONNS" "$IMAGE" >/dev/null
         touch "$STATE/container-started"
     fi
@@ -78,6 +83,7 @@ case "${1:-}" in
     up) up ;;
     down) down ;;
     prepare) shift; prepare "$@" ;;
+    command) echo "MC_PG_COMMAND=docker exec -i -e PGPASSWORD $NAME" ;;
     url) echo "$URL" ;;
-    *) echo "usage: $0 up|down|prepare|url" >&2; exit 2 ;;
+    *) echo "usage: $0 up|down|prepare|command|url" >&2; exit 2 ;;
 esac
