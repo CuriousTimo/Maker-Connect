@@ -354,7 +354,12 @@ fn a_job_is_refused_while_the_machine_is_not_idle() {
 #[test]
 fn settings_are_read_and_jogs_go_through() {
     let mut run = Run::sim(1);
-    run.until("the settings", |r| r.telemetry.grbl.is_some());
+    // `$$` answers line by line: wait for the last of the three, not the first.
+    run.until("the settings", |r| {
+        r.telemetry.grbl.as_ref().is_some_and(|g| {
+            g.laser_mode.is_some() && g.max_power.is_some() && g.travel_mm.is_some()
+        })
+    });
     let settings = run.telemetry.grbl.clone().unwrap();
     assert_eq!(settings.laser_mode, Some(true));
     assert_eq!(settings.max_power, Some(1000.0));
@@ -414,7 +419,11 @@ fn an_interrupted_job_starts_again() {
     run.machine
         .start(9, "rows.gcode", program.clone(), None)
         .unwrap();
-    std::thread::sleep(Duration::from_millis(250));
+    // Stop once more than LaserFoundry's 20 lines of restart margin (`RESTART_BACKUP_LINES`)
+    // are acknowledged; a fixed wait is too short on a slow runner.
+    run.until("over 20 lines done", |r| {
+        r.telemetry.job.as_ref().is_some_and(|j| j.done > 40)
+    });
     run.machine.control(JobControl::Stop).unwrap();
     run.until("the end", |r| !r.ended.is_empty());
     let line = run.ended[0]
@@ -568,7 +577,9 @@ fn a_lost_connection_is_reopened_and_nothing_resumes() {
     run.machine
         .start(5, "long", long_program(2000), None)
         .unwrap();
-    std::thread::sleep(Duration::from_millis(100));
+    run.until("the job under way", |r| {
+        r.telemetry.job.as_ref().is_some_and(|j| j.done > 0)
+    });
     // Handed to the link during the job: refused, as a command during a job is.
     assert!(run.machine.submit(&[Command::Home]).is_err());
     unplugged.store(true, Ordering::SeqCst);

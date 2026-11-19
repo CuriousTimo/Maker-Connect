@@ -46,7 +46,11 @@ its findings.
 
 ## Other standing rules
 
-- Commit only when asked.
+- **Work goes through pull requests** (owner, 2026-11-18). One PR per step (not per lane), from a
+  branch for that step (for example `v2-store`). Agents may commit and push on that branch; nothing
+  lands on `main` except through a PR, and a PR is merged **only on the owner's word**. Before asking
+  for the merge: CI green on the PR, and `on-track` plus a reviewer on the PR's current head (filed as
+  atlas `review` entries with `pr:`). Small doc changes go through a small PR too.
 - The release key (`~/.config/maker-connect/release-key.pk8`) is never in the repo; releases
   are signed. Test builds go only to the Pis, never as GitHub releases.
 - Answer the user's questions first, before carrying on with other work.
