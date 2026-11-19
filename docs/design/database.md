@@ -73,15 +73,20 @@ completed here). Each use is one of:
    presented secret is looked up: session token hash, API token hash, agent token hash, Prusa printer
    token, registration code or secret, invite token hash, the `iv` of `/f/{iv}/raw`. The answer is the
    ids needed to open a space transaction, nothing more; the only writes are on the row the secret
-   found: `last_seen` or `last_used`, an agent's `stream` and `info` on its hello or new stream, and
-   `spent_at` on a registration at its token's first use.
+   found: `last_seen` or `last_used`, an agent's `stream` and `info` on its hello or new stream,
+   `spent_at` on a registration at its token's first use, and the device's own report about itself
+   (its "info"): what the device tells about itself (`set_details`), the profile recognised at
+   registration (`recognise`), where its reports come from (`set_peer`), a Moonraker printer's name
+   (`moonraker_name`), and its registration code spent (`code_spent`).
 2. Getting in, and the signed-in person's own account rows: a user by name and their identity's
-   secret at sign-in; the first account on a fresh database; accepting an invite (the user, identity,
+   secret at sign-in; the first account on a fresh database; creating an organisation with its first
+   space and its maker as owner, by an instance admin or by anyone where spaces are open (account
+   level, before any space: `create_organisation`); accepting an invite (the user, identity,
    membership and the invite's use in one transaction, [decision](decisions/20261119-invite-accept.md));
    then, always `WHERE user_id` is the session's user: `sessions` (insert at sign-in, delete at
    sign-out, `space_id` on `PUT /api/v1/session/space`), `identities` (`PUT /api/v1/me/password`), and
    the person's own `users.display_name` and `users.token_generation` (`POST /api/v1/me/tokens/end`).
-3. Instance admin: organisations and spaces across tenants, creating an organisation, `users.instance_admin`
+3. Instance admin: organisations and spaces across tenants, `users.instance_admin`
    and `users.disabled`, agents and their update ([decision](decisions/20261119-agent-update-by-instance-admin.md)),
    moving a device to another space ([decision](decisions/20261119-device-move.md)); only for a user
    with `instance_admin`. An organisation admin is not #3: org-wide work runs on the app pool (below).
@@ -121,8 +126,8 @@ life and a limit on claims of unknown codes are [OQ-40](risks-and-open.md#oq-40-
 `organisations`, `org_memberships` and `spaces` are visible via the organisation of `app_space()`, so
 an organisation admin's work runs in a space transaction of a space of that organisation, and the
 guard checks the org role: renaming the organisation, org membership, removing a member, open spaces,
-listing the organisation's spaces. Creating an organisation is allowlist #2 (the first account) or #3
-(an instance admin).
+listing the organisation's spaces. Creating an organisation is allowlist #2, by an instance admin or,
+where spaces are open, by anyone signed in.
 
 A test extracts every admin-pool call from the source and fails when one is not on a checked-in list
 with its number above. Whether to use three logins instead of one is
