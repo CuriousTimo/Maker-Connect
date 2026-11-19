@@ -8,7 +8,7 @@
 //! queue of its own.
 
 use crate::access::Access;
-use crate::store::{BoxError, Legacy, now};
+use crate::store::{BoxError, Work, now};
 use crate::{Store, failed};
 use axum::{
     Form, Router,
@@ -17,35 +17,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post,
 };
-use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-
-pub fn migrate(db: &Connection) -> rusqlite::Result<()> {
-    db.execute_batch(
-        "CREATE TABLE IF NOT EXISTS machine_queue (
-             id INTEGER PRIMARY KEY,
-             space_id INTEGER NOT NULL,
-             machine_id TEXT NOT NULL,
-             file_id TEXT NOT NULL,
-             file_name TEXT NOT NULL,
-             by_name TEXT,
-             pos REAL NOT NULL,
-             added_at INTEGER NOT NULL,
-             -- Why it cannot start (the file no longer suits the machine); empty: it can.
-             problem TEXT
-         );",
-    )?;
-    // Who queued it, as a person: they may move and take out their own.
-    let present: bool = db.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('machine_queue') WHERE name = 'by_user'",
-        [],
-        |r| r.get::<_, i64>(0).map(|n| n > 0),
-    )?;
-    if !present {
-        db.execute("ALTER TABLE machine_queue ADD COLUMN by_user INTEGER", [])?;
-    }
-    Ok(())
-}
 
 /// A file waiting in a machine's queue.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -63,79 +35,155 @@ pub struct Queued {
     pub problem: Option<String>,
 }
 
-impl Legacy {
+/// A queue's row, as [`Queued`] reads it.
+type QueueRow = (
+    i64,
+    String,
+    String,
+    String,
+    Option<String>,
+    i64,
+    Option<String>,
+    Option<i64>,
+);
+
+const QUEUE_SELECT: &str =
+    "SELECT id, machine_id, file_id, file_name, by_name, unix_seconds(added_at),
+         problem, by_user FROM machine_queue";
+
+fn queued((id, _, file_id, file_name, by, added_at, problem, by_user): QueueRow) -> Queued {
+    Queued {
+        id,
+        file_id,
+        file_name,
+        by,
+        added_at,
+        estimated_s: None,
+        thumbnail: false,
+        problem,
+        by_user,
+    }
+}
+
+impl Work {
     /// A machine's queue, first first. What the files say of themselves (`estimated_s`,
-    /// `thumbnail`) is on Postgres: [`crate::Store::machines`] fills it in.
-    pub fn queue_of(&self, machine: &str) -> rusqlite::Result<Vec<Queued>> {
-        let mut q = self.db.prepare(
-            "SELECT id, file_id, file_name, by_name, added_at, problem, by_user FROM machine_queue
-             WHERE machine_id = ?1 ORDER BY pos, id",
-        )?;
-        q.query_map([machine], |r| {
-            Ok(Queued {
-                id: r.get(0)?,
-                file_id: r.get(1)?,
-                file_name: r.get(2)?,
-                by: r.get(3)?,
-                added_at: r.get(4)?,
-                estimated_s: None,
-                thumbnail: false,
-                problem: r.get(5)?,
-                by_user: r.get(6)?,
-            })
-        })?
-        .collect()
+    /// `thumbnail`) [`crate::Store::machines`] fills in.
+    pub(crate) async fn queue_of(&mut self, machine: &str) -> sqlx::Result<Vec<Queued>> {
+        let rows: Vec<QueueRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "{QUEUE_SELECT} WHERE machine_id = $1 ORDER BY pos, id"
+        )))
+        .bind(machine)
+        .fetch_all(self.c())
+        .await?;
+        Ok(rows.into_iter().map(queued).collect())
+    }
+
+    /// The queues of these machines, by machine id.
+    pub(crate) async fn queues(
+        &mut self,
+        machines: &[String],
+    ) -> sqlx::Result<std::collections::HashMap<String, Vec<Queued>>> {
+        let rows: Vec<QueueRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "{QUEUE_SELECT} WHERE machine_id = ANY($1) ORDER BY pos, id"
+        )))
+        .bind(machines)
+        .fetch_all(self.c())
+        .await?;
+        let mut out: std::collections::HashMap<String, Vec<Queued>> = Default::default();
+        for row in rows {
+            out.entry(row.1.clone()).or_default().push(queued(row));
+        }
+        Ok(out)
     }
 
     /// Puts a file at the end of a machine's queue: its place (1 is next).
-    pub fn queue_add(
+    pub(crate) async fn queue_add(
         &mut self,
-        space: i64,
         machine: &str,
         file: &crate::store::StoredFile,
         by: Option<(i64, &str)>,
-    ) -> rusqlite::Result<usize> {
-        let last: f64 = self.db.query_row(
-            "SELECT COALESCE(MAX(pos), 0) FROM machine_queue WHERE machine_id = ?1",
-            [machine],
-            |r| r.get(0),
-        )?;
-        self.db.execute(
+    ) -> sqlx::Result<usize> {
+        let last: f64 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(pos), 0) FROM machine_queue WHERE machine_id = $1",
+        )
+        .bind(machine)
+        .fetch_one(self.c())
+        .await?;
+        sqlx::query(
             "INSERT INTO machine_queue (space_id, machine_id, file_id, file_name, by_name, pos, added_at, by_user)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![space, machine, file.id, file.name, by.map(|b| b.1), last + 1.0, now(), by.map(|b| b.0)],
-        )?;
+             VALUES ($1, $2, $3, $4, $5, $6, at_unix($7), $8)",
+        )
+        .bind(self.space)
+        .bind(machine)
+        .bind(&file.id)
+        .bind(&file.name)
+        .bind(by.map(|b| b.1))
+        .bind(last + 1.0)
+        .bind(now())
+        .bind(by.map(|b| b.0))
+        .execute(self.c())
+        .await?;
         self.changed();
-        let n: i64 = self.db.query_row(
-            "SELECT COUNT(*) FROM machine_queue WHERE machine_id = ?1",
-            [machine],
-            |r| r.get(0),
-        )?;
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM machine_queue WHERE machine_id = $1")
+            .bind(machine)
+            .fetch_one(self.c())
+            .await?;
         Ok(n as usize)
     }
 
     /// Takes a file out of a machine's queue.
-    pub fn queue_remove(&mut self, space: i64, machine: &str, id: i64) -> rusqlite::Result<bool> {
-        let n = self.db.execute(
-            "DELETE FROM machine_queue WHERE id = ?1 AND machine_id = ?2 AND space_id = ?3",
-            params![id, machine, space],
-        )?;
+    pub(crate) async fn queue_remove(&mut self, machine: &str, id: i64) -> sqlx::Result<bool> {
+        let n = sqlx::query(
+            "DELETE FROM machine_queue WHERE id = $1 AND machine_id = $2 AND space_id = $3",
+        )
+        .bind(id)
+        .bind(machine)
+        .bind(self.space)
+        .execute(self.c())
+        .await?
+        .rows_affected();
         self.changed();
         Ok(n > 0)
     }
 
     /// A machine's queue in this order (ids not given keep their place after them).
-    pub fn queue_order(&mut self, space: i64, machine: &str, ids: &[i64]) -> rusqlite::Result<()> {
-        let tx = self.db.transaction()?;
+    pub(crate) async fn queue_order(&mut self, machine: &str, ids: &[i64]) -> sqlx::Result<()> {
         for (i, id) in ids.iter().enumerate() {
-            tx.execute(
-                "UPDATE machine_queue SET pos = ?4 WHERE id = ?1 AND machine_id = ?2 AND space_id = ?3",
-                params![id, machine, space, i as f64 + 1.0],
-            )?;
+            sqlx::query(
+                "UPDATE machine_queue SET pos = $4 WHERE id = $1 AND machine_id = $2 AND space_id = $3",
+            )
+            .bind(id)
+            .bind(machine)
+            .bind(self.space)
+            .bind(i as f64 + 1.0)
+            .execute(self.c())
+            .await?;
         }
-        tx.commit()?;
         self.changed();
         Ok(())
+    }
+}
+
+impl Store {
+    /// A machine's queue in a space (`Work::queue_of`).
+    pub async fn queue_of(&self, space: i64, machine: &str) -> sqlx::Result<Vec<Queued>> {
+        crate::stock::in_space!(self, space, |w| w.queue_of(machine)).await
+    }
+
+    /// `Work::queue_add`, in its own transaction.
+    pub async fn queue_add(
+        &self,
+        space: i64,
+        machine: &str,
+        file: &crate::store::StoredFile,
+        by: Option<(i64, &str)>,
+    ) -> sqlx::Result<usize> {
+        crate::stock::in_space!(self, space, |w| w.queue_add(machine, file, by)).await
+    }
+
+    /// `Work::queue_remove`, in its own transaction.
+    pub async fn queue_remove(&self, space: i64, machine: &str, id: i64) -> sqlx::Result<bool> {
+        crate::stock::in_space!(self, space, |w| w.queue_remove(machine, id)).await
     }
 }
 
@@ -184,22 +232,22 @@ impl Store {
     /// Starts what may start: per machine with a queue, its first file once the machine is
     /// free, its bed clear and its service not due. How many started.
     pub async fn start_queued(&self) -> Result<usize, BoxError> {
-        let waiting: Vec<(i64, String)> = {
-            let legacy = self.lock().unwrap();
-            let mut q = legacy
-                .db
-                .prepare("SELECT DISTINCT space_id, machine_id FROM machine_queue")?;
-            q.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-                .collect::<rusqlite::Result<_>>()?
-        };
+        // Across spaces: the admin pool; each queue's work in its own space.
+        let waiting: Vec<(i64, String)> =
+            sqlx::query_as("SELECT DISTINCT space_id, machine_id FROM machine_queue")
+                .fetch_all(&self.pg().admin)
+                .await?;
         let mut started = 0;
         for (space, machine_id) in waiting {
             let Some(machine) = self.machine(space, &machine_id).await? else {
                 // Gone, or moved to another space: its queue goes too.
-                self.lock().unwrap().db.execute(
-                    "DELETE FROM machine_queue WHERE machine_id = ?1 AND space_id = ?2",
-                    params![machine_id, space],
-                )?;
+                let mut w = self.work(space).await?;
+                sqlx::query("DELETE FROM machine_queue WHERE machine_id = $1 AND space_id = $2")
+                    .bind(&machine_id)
+                    .bind(space)
+                    .execute(w.c())
+                    .await?;
+                w.commit(self).await?;
                 continue;
             };
             // A laser's queue waits for someone at the laser (crate::store::StartedBy).
@@ -209,27 +257,22 @@ impl Store {
             if machine.upkeep.as_ref().is_some_and(|u| u.due) || machine.queue_held.is_some() {
                 continue;
             }
-            let Some(first) = self
-                .lock()
-                .unwrap()
-                .queue_of(&machine_id)?
-                .into_iter()
-                .next()
-            else {
+            let Some(first) = self.queue_of(space, &machine_id).await?.into_iter().next() else {
                 continue;
             };
             let Some(file) = self.file(space, &first.file_id).await? else {
-                self.lock()
-                    .unwrap()
-                    .queue_remove(space, &machine_id, first.id)?;
+                self.queue_remove(space, &machine_id, first.id).await?;
                 continue;
             };
             // It no longer suits the machine (its profile changed): it waits, with why.
             if let Err(why) = crate::files::suits(&file, &machine) {
-                self.lock().unwrap().db.execute(
-                    "UPDATE machine_queue SET problem = ?2 WHERE id = ?1",
-                    params![first.id, why],
-                )?;
+                let mut w = self.work(space).await?;
+                sqlx::query("UPDATE machine_queue SET problem = $2 WHERE id = $1")
+                    .bind(first.id)
+                    .bind(why)
+                    .execute(w.c())
+                    .await?;
+                w.commit(self).await?;
                 continue;
             }
             if crate::files::fit(&file, &machine).is_err() {
@@ -247,10 +290,12 @@ impl Store {
                 )
                 .await?
             {
-                self.lock()
-                    .unwrap()
-                    .db
-                    .execute("DELETE FROM machine_queue WHERE id = ?1", [first.id])?;
+                let mut w = self.work(space).await?;
+                sqlx::query("DELETE FROM machine_queue WHERE id = $1")
+                    .bind(first.id)
+                    .execute(w.c())
+                    .await?;
+                w.commit(self).await?;
                 started += 1;
                 println!("from the queue: {} on {}", file.name, machine.name);
             }
@@ -303,8 +348,11 @@ async fn order(
         .split(',')
         .filter_map(|s| s.trim().parse().ok())
         .collect();
-    let mut store = store.lock().unwrap();
-    let now: Vec<Queued> = match store.queue_of(&machine) {
+    let mut w = match store.work(access.space).await {
+        Ok(w) => w,
+        Err(error) => return failed(error),
+    };
+    let now: Vec<Queued> = match w.queue_of(&machine).await {
         Ok(q) => q,
         Err(error) => return failed(error),
     };
@@ -333,8 +381,11 @@ async fn order(
                 .into_response();
         }
     }
-    match store.queue_order(access.space, &machine, &ids) {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+    match w.queue_order(&machine, &ids).await {
+        Ok(()) => match w.commit(&store).await {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(error) => failed(error),
+        },
         Err(error) => failed(error),
     }
 }
@@ -345,10 +396,14 @@ async fn remove(
     State(store): State<Store>,
     Path((machine, item)): Path<(String, i64)>,
 ) -> Response {
-    let mut store = store.lock().unwrap();
+    let mut w = match store.work(access.space).await {
+        Ok(w) => w,
+        Err(error) => return failed(error),
+    };
     if !staff(&access) {
-        let own = store
+        let own = w
             .queue_of(&machine)
+            .await
             .ok()
             .and_then(|q| q.into_iter().find(|q| q.id == item))
             .is_some_and(|q| q.by_user == Some(access.user_id));
@@ -360,8 +415,11 @@ async fn remove(
                 .into_response();
         }
     }
-    match store.queue_remove(access.space, &machine, item) {
-        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+    match w.queue_remove(&machine, item).await {
+        Ok(true) => match w.commit(&store).await {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(error) => failed(error),
+        },
         Ok(false) => (StatusCode::NOT_FOUND, "not in its queue").into_response(),
         Err(error) => failed(error),
     }
@@ -400,11 +458,20 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap();
-            {
-                let mut s = store.lock().unwrap();
-                assert_eq!(s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap(), 1);
-                assert_eq!(s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap(), 2);
-            }
+            assert_eq!(
+                store
+                    .queue_add(space, &m, &file, Some((2, "Mia")))
+                    .await
+                    .unwrap(),
+                1
+            );
+            assert_eq!(
+                store
+                    .queue_add(space, &m, &file, Some((2, "Mia")))
+                    .await
+                    .unwrap(),
+                2
+            );
             assert_eq!(store.start_queued().await.unwrap(), 0, "busy");
             // It failed: what it left may be on the bed.
             store
@@ -442,7 +509,7 @@ mod tests {
         assert_eq!(machine.queue.len(), 1);
         // Reordering and taking out.
         let left = machine.queue[0].id;
-        assert!(store.lock().unwrap().queue_remove(space, &m, left).unwrap());
+        assert!(store.queue_remove(space, &m, left).await.unwrap());
         assert!(
             store
                 .machine(space, &m)
@@ -495,10 +562,11 @@ mod tests {
             .unwrap();
         assert!(store.is_laser(space, &m).await.unwrap());
         store.set_takes_work(space, &m, true).await.unwrap();
-        {
-            let mut s = store.lock().unwrap();
-            s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap();
-            s.queue_add(space, &m, &file, Some((2, "Mia"))).unwrap();
+        for _ in 0..2 {
+            store
+                .queue_add(space, &m, &file, Some((2, "Mia")))
+                .await
+                .unwrap();
         }
         let s = &store;
         assert_eq!(
@@ -513,7 +581,7 @@ mod tests {
         );
         assert!(s.active_job(&m).await.unwrap().is_none());
         assert_eq!(
-            s.lock().unwrap().queue_of(&m).unwrap().len(),
+            s.queue_of(space, &m).await.unwrap().len(),
             2,
             "the copies wait"
         );
@@ -557,7 +625,7 @@ mod tests {
             .unwrap();
         assert_eq!(s.active_job(&m).await.unwrap().unwrap().id, job);
         assert_eq!(
-            s.lock().unwrap().queue_of(&m).unwrap().len(),
+            s.queue_of(space, &m).await.unwrap().len(),
             2,
             "starting one leaves the copies waiting"
         );

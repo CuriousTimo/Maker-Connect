@@ -17,11 +17,11 @@
 //!   failed (*Bad print*). Only that counts: never a time window, never a status seen after
 //!   a restart (print-farm-manager's "phantom credit"). Code never releases a held machine
 //!   by itself.
-//! - **The ledger:** `done` changes in [`Legacy::adjust_part`] only, with one ledger row each
+//! - **The ledger:** `done` changes in [`Work::adjust_part`] only, with one ledger row each
 //!   time; a test reads the source and fails if anything else writes it.
 
 use crate::access::{Access, Level, Role};
-use crate::store::{BoxError, JobFacts, JobState, Legacy, StoredFile, now};
+use crate::store::{BoxError, JobFacts, JobState, StoredFile, Work, now};
 use crate::{Store, failed};
 use axum::{
     Form, Json, Router,
@@ -30,70 +30,11 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 /// How often the dispatcher looks for free machines.
 const DISPATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(3);
-
-pub fn migrate(db: &Connection) -> rusqlite::Result<()> {
-    db.execute_batch(
-        "CREATE TABLE IF NOT EXISTS projects (
-             id INTEGER PRIMARY KEY,
-             space_id INTEGER NOT NULL,
-             name TEXT NOT NULL,
-             description TEXT NOT NULL DEFAULT '',
-             state TEXT NOT NULL DEFAULT 'draft',
-             priority INTEGER NOT NULL DEFAULT 0,
-             created_at INTEGER NOT NULL
-         );
-         CREATE TABLE IF NOT EXISTS parts (
-             id INTEGER PRIMARY KEY,
-             project_id INTEGER NOT NULL,
-             space_id INTEGER NOT NULL,
-             name TEXT NOT NULL,
-             target INTEGER NOT NULL,
-             done INTEGER NOT NULL DEFAULT 0,
-             sort_order INTEGER NOT NULL DEFAULT 0,
-             created_at INTEGER NOT NULL
-         );
-         CREATE TABLE IF NOT EXISTS part_files (
-             id INTEGER PRIMARY KEY,
-             part_id INTEGER NOT NULL,
-             space_id INTEGER NOT NULL,
-             profile TEXT NOT NULL,
-             file_id TEXT NOT NULL,
-             per_plate INTEGER NOT NULL DEFAULT 1,
-             material TEXT,
-             color TEXT,
-             created_at INTEGER NOT NULL,
-             UNIQUE (part_id, profile)
-         );
-         CREATE TABLE IF NOT EXISTS part_ledger (
-             id INTEGER PRIMARY KEY,
-             space_id INTEGER NOT NULL,
-             part_id INTEGER NOT NULL,
-             at INTEGER NOT NULL,
-             delta INTEGER NOT NULL,
-             done_after INTEGER NOT NULL,
-             source TEXT NOT NULL,
-             job_id INTEGER,
-             actor TEXT NOT NULL,
-             note TEXT NOT NULL DEFAULT ''
-         );",
-    )?;
-    // Build plates (sheets): which a part's file needs.
-    let present: bool = db.query_row(
-        "SELECT COUNT(*) > 0 FROM pragma_table_info('part_files') WHERE name = 'sheet'",
-        [],
-        |r| r.get(0),
-    )?;
-    if !present {
-        db.execute("ALTER TABLE part_files ADD COLUMN sheet TEXT", [])?;
-    }
-    Ok(())
-}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Project {
@@ -164,63 +105,65 @@ struct Candidate {
     per_plate: i64,
 }
 
-impl Legacy {
+impl Work {
     /// The space's projects, newest first within their priority, with their parts.
-    /// `machines` and `files`: the space's, read on Postgres before the lock.
-    pub(crate) fn projects(
-        &self,
-        space: i64,
+    /// `machines` and `files`: the space's, read before.
+    pub(crate) async fn projects(
+        &mut self,
         jobs: &JobFacts,
         machines: &[crate::store::Machine],
         files: &[StoredFile],
-    ) -> rusqlite::Result<Vec<Project>> {
-        let mut q = self.db.prepare(
-            "SELECT id, name, description, state, priority, created_at FROM projects
-             WHERE space_id = ?1 ORDER BY CASE state WHEN 'active' THEN 0 WHEN 'paused' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END,
+    ) -> sqlx::Result<Vec<Project>> {
+        let rows: Vec<(i64, String, String, String, i64, i64)> = sqlx::query_as(
+            "SELECT id, name, description, state, priority, unix_seconds(created_at) FROM projects
+             WHERE space_id = $1 ORDER BY CASE state WHEN 'active' THEN 0 WHEN 'paused' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END,
                  priority, created_at",
-        )?;
-        let mut projects: Vec<Project> = q
-            .query_map([space], |r| {
-                Ok(Project {
-                    id: r.get(0)?,
-                    name: r.get(1)?,
-                    description: r.get(2)?,
-                    state: r.get(3)?,
-                    priority: r.get(4)?,
-                    created_at: r.get(5)?,
+        )
+        .bind(self.space)
+        .fetch_all(self.c())
+        .await?;
+        let mut projects: Vec<Project> = rows
+            .into_iter()
+            .map(
+                |(id, name, description, state, priority, created_at)| Project {
+                    id,
+                    name,
+                    description,
+                    state,
+                    priority,
+                    created_at,
                     parts: Vec::new(),
-                })
-            })?
-            .collect::<rusqlite::Result<_>>()?;
+                },
+            )
+            .collect();
         for project in &mut projects {
-            project.parts =
-                self.parts_of(space, project.id, &project.state, jobs, machines, files)?;
+            project.parts = self
+                .parts_of(project.id, &project.state, jobs, machines, files)
+                .await?;
         }
         Ok(projects)
     }
 
-    fn parts_of(
-        &self,
-        space: i64,
+    async fn parts_of(
+        &mut self,
         project: i64,
         state: &str,
         jobs: &JobFacts,
         machines: &[crate::store::Machine],
         files: &[StoredFile],
-    ) -> rusqlite::Result<Vec<Part>> {
-        let mut q = self.db.prepare(
-            "SELECT id, name, target, done FROM parts WHERE space_id = ?1 AND project_id = ?2
+    ) -> sqlx::Result<Vec<Part>> {
+        let rows: Vec<(i64, String, i64, i64)> = sqlx::query_as(
+            "SELECT id, name, target, done FROM parts WHERE space_id = $1 AND project_id = $2
              ORDER BY sort_order, created_at, id",
-        )?;
-        let rows: Vec<(i64, String, i64, i64)> = q
-            .query_map(params![space, project], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-            })?
-            .collect::<rusqlite::Result<_>>()?;
+        )
+        .bind(self.space)
+        .bind(project)
+        .fetch_all(self.c())
+        .await?;
         let mut parts = Vec::new();
         for (id, name, target, done) in rows {
             let (plates, held) = under_way(jobs, id);
-            let part_files = self.part_files(space, id, files)?;
+            let part_files = self.part_files(id, files).await?;
             let mut part = Part {
                 id,
                 name,
@@ -231,177 +174,125 @@ impl Legacy {
                 files: part_files,
                 waiting: None,
             };
-            part.waiting = self.why_waiting(state, &part, machines)?;
+            part.waiting = why_waiting(state, &part, machines);
             parts.push(part);
         }
         Ok(parts)
     }
 
-    /// A part's files; `files`: the space's (on Postgres), for their names.
-    fn part_files(
-        &self,
-        space: i64,
-        part: i64,
-        files: &[StoredFile],
-    ) -> rusqlite::Result<Vec<PartFile>> {
-        let mut q = self.db.prepare(
+    /// A part's files; `files`: the space's, for their names.
+    async fn part_files(&mut self, part: i64, files: &[StoredFile]) -> sqlx::Result<Vec<PartFile>> {
+        type Row = (
+            i64,
+            String,
+            String,
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        );
+        let rows: Vec<Row> = sqlx::query_as(
             "SELECT pf.id, pf.profile, pf.file_id, pf.per_plate, pf.material, pf.color, pf.sheet
-             FROM part_files pf WHERE pf.space_id = ?1 AND pf.part_id = ?2 ORDER BY pf.profile",
-        )?;
-        q.query_map(params![space, part], |r| {
-            let file_id: String = r.get(2)?;
-            let file_name = files
-                .iter()
-                .find(|f| f.id == file_id)
-                .map_or_else(|| "(file removed)".to_owned(), |f| f.name.clone());
-            Ok(PartFile {
-                id: r.get(0)?,
-                profile: r.get(1)?,
-                file_id,
-                file_name,
-                per_plate: r.get(3)?,
-                material: r.get(4)?,
-                color: r.get(5)?,
-                sheet: r.get(6)?,
-            })
-        })?
-        .collect()
+             FROM part_files pf WHERE pf.space_id = $1 AND pf.part_id = $2 ORDER BY pf.profile COLLATE \"C\"",
+        )
+        .bind(self.space)
+        .bind(part)
+        .fetch_all(self.c())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, profile, file_id, per_plate, material, color, sheet)| {
+                    let file_name = files
+                        .iter()
+                        .find(|f| f.id == file_id)
+                        .map_or_else(|| "(file removed)".to_owned(), |f| f.name.clone());
+                    PartFile {
+                        id,
+                        profile,
+                        file_id,
+                        file_name,
+                        per_plate,
+                        material,
+                        color,
+                        sheet,
+                    }
+                },
+            )
+            .collect())
     }
 
-    /// Why a part sends no plate out now, in words (print-farm-manager's dispatch status).
-    fn why_waiting(
-        &self,
-        project_state: &str,
-        part: &Part,
-        machines: &[crate::store::Machine],
-    ) -> rusqlite::Result<Option<String>> {
-        if part.done + part.parts_under_way >= part.target {
-            return Ok(None);
+    /// The plates that ended on these machines and wait for someone ([`Work::waiting_confirm`]),
+    /// by machine id.
+    pub(crate) async fn confirms(
+        &mut self,
+        jobs: &JobFacts,
+        machines: &[String],
+    ) -> sqlx::Result<std::collections::HashMap<String, Confirm>> {
+        let mut out = std::collections::HashMap::new();
+        for machine in machines {
+            if let Some(confirm) = self.waiting_confirm(jobs, machine).await? {
+                out.insert(machine.clone(), confirm);
+            }
         }
-        if project_state != "active" {
-            return Ok(Some(format!("the project is {project_state}")));
-        }
-        if part.files.is_empty() {
-            return Ok(Some("no file for any machine yet".to_owned()));
-        }
-        let farm: Vec<_> = machines.iter().filter(|m| m.takes_work).collect();
-        let fitting: Vec<_> = farm
-            .iter()
-            .filter(|m| {
-                part.files
-                    .iter()
-                    .any(|f| m.profile.as_deref() == Some(f.profile.as_str()))
-            })
-            .collect();
-        if fitting.is_empty() {
-            let models: Vec<String> = part
-                .files
-                .iter()
-                .map(|f| {
-                    crate::profiles::find(&f.profile).map_or(f.profile.clone(), |p| p.model.clone())
-                })
-                .collect();
-            return Ok(Some(format!(
-                "no machine in the queue is a {}",
-                models.join(" or ")
-            )));
-        }
-        let loaded: Vec<_> = fitting
-            .iter()
-            .filter(|m| {
-                part.files.iter().any(|f| {
-                    m.profile.as_deref() == Some(f.profile.as_str())
-                        && material_fits(f, m.loaded.as_ref())
-                })
-            })
-            .collect();
-        if loaded.is_empty() {
-            let wants: Vec<String> = part
-                .files
-                .iter()
-                .filter_map(|f| f.material.clone().or_else(|| f.color.clone()))
-                .collect();
-            return Ok(Some(format!("nothing with {} loaded", wants.join(" or "))));
-        }
-        let plated: Vec<_> = loaded
-            .iter()
-            .filter(|m| {
-                part.files
-                    .iter()
-                    .any(|f| m.profile.as_deref() == Some(f.profile.as_str()) && fits(f, m))
-            })
-            .collect();
-        if plated.is_empty() {
-            let sheets: Vec<String> = part.files.iter().filter_map(|f| f.sheet.clone()).collect();
-            return Ok(Some(format!(
-                "no machine has a {} plate on",
-                sheets.join(" or ")
-            )));
-        }
-        if plated.iter().all(|m| !m.online) {
-            return Ok(Some("its machines are offline".to_owned()));
-        }
-        Ok(Some(
-            "its machines are busy, or wait for someone".to_owned(),
-        ))
+        Ok(out)
     }
 
     /// The plate that ended on a machine and waits for someone, if any: its last job, when it
     /// was for a part and is not yet confirmed.
     /// The job is the jobs' ([`JobFacts::waiting_plate`]); the part's and project's names are here.
-    pub(crate) fn waiting_confirm(&self, jobs: &JobFacts, machine: &str) -> Option<Confirm> {
-        let job = jobs.waiting_plate(machine)?;
-        let (part, project) = job
-            .part_id
-            .map(|part| {
-                self.db
-                    .query_row(
-                        "SELECT p.name, pr.name FROM parts p LEFT JOIN projects pr ON pr.id = p.project_id
-                         WHERE p.id = ?1",
-                        [part],
-                        |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?)),
-                    )
-                    .optional()
-                    .ok()
-                    .flatten()
-                    .map(|(p, pr)| (p, pr.unwrap_or_default()))
-                    .unwrap_or_default()
-            })
-            .unwrap_or_default();
+    pub(crate) async fn waiting_confirm(
+        &mut self,
+        jobs: &JobFacts,
+        machine: &str,
+    ) -> sqlx::Result<Option<Confirm>> {
+        let Some(job) = jobs.waiting_plate(machine) else {
+            return Ok(None);
+        };
+        let (part, project) = match job.part_id {
+            Some(part) => sqlx::query_as::<_, (String, Option<String>)>(
+                "SELECT p.name, pr.name FROM parts p LEFT JOIN projects pr ON pr.id = p.project_id
+                 WHERE p.id = $1",
+            )
+            .bind(part)
+            .fetch_optional(self.c())
+            .await?
+            .map(|(p, pr)| (p, pr.unwrap_or_default()))
+            .unwrap_or_default(),
+            None => Default::default(),
+        };
         let job_ = job.job();
-        Some(Confirm {
+        Ok(Some(Confirm {
             job: job_.id,
             file_name: job_.file_name,
             state: job_.state.name(),
             part,
             project,
             per_plate: job.per_plate.unwrap_or(1),
-        })
+        }))
     }
 
     /// The only way `done` changes: by `delta` (or to `set`), with a line in the ledger saying
     /// why and who. Returns the new count.
-    pub fn adjust_part(
+    pub async fn adjust_part(
         &mut self,
-        space: i64,
         part: i64,
         change: PartChange,
-        why: Why,
-    ) -> rusqlite::Result<Option<i64>> {
+        why: Why<'_>,
+    ) -> sqlx::Result<Option<i64>> {
         let Why {
             source,
             job,
             actor,
             note,
         } = why;
-        let Some(done) = self
-            .db
-            .query_row(
-                "SELECT done FROM parts WHERE id = ?1 AND space_id = ?2",
-                params![part, space],
-                |r| r.get::<_, i64>(0),
-            )
-            .optional()?
+        let Some(done) = sqlx::query_scalar::<_, i64>(
+            "SELECT done FROM parts WHERE id = $1 AND space_id = $2 FOR UPDATE",
+        )
+        .bind(part)
+        .bind(self.space)
+        .fetch_optional(self.c())
+        .await?
         else {
             return Ok(None);
         };
@@ -409,85 +300,114 @@ impl Legacy {
             PartChange::By(delta) => (done + delta).max(0),
             PartChange::To(value) => value.max(0),
         };
-        let tx = self.db.unchecked_transaction()?;
-        tx.execute(
-            "UPDATE parts SET done = ?2 WHERE id = ?1",
-            params![part, after],
-        )?;
-        tx.execute(
+        sqlx::query("UPDATE parts SET done = $2 WHERE id = $1")
+            .bind(part)
+            .bind(after)
+            .execute(self.c())
+            .await?;
+        sqlx::query(
             "INSERT INTO part_ledger (space_id, part_id, at, delta, done_after, source, job_id, actor, note)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![space, part, now(), after - done, after, source, job, actor, note],
-        )?;
-        tx.commit()?;
+             VALUES ($1, $2, at_unix($3), $4, $5, $6, $7, $8, $9)",
+        )
+        .bind(self.space)
+        .bind(part)
+        .bind(now())
+        .bind(after - done)
+        .bind(after)
+        .bind(source)
+        .bind(job)
+        .bind(actor)
+        .bind(note)
+        .execute(self.c())
+        .await?;
         self.changed();
         Ok(Some(after))
     }
 
-    pub fn ledger(&self, space: i64, part: i64) -> rusqlite::Result<Vec<LedgerLine>> {
-        let mut q = self.db.prepare(
-            "SELECT at, delta, done_after, source, job_id, actor, note FROM part_ledger
-             WHERE space_id = ?1 AND part_id = ?2 ORDER BY at DESC, id DESC LIMIT 200",
-        )?;
-        q.query_map(params![space, part], |r| {
-            Ok(LedgerLine {
-                at: r.get(0)?,
-                delta: r.get(1)?,
-                done_after: r.get(2)?,
-                source: r.get(3)?,
-                job_id: r.get(4)?,
-                actor: r.get(5)?,
-                note: r.get(6)?,
-            })
-        })?
-        .collect()
+    pub(crate) async fn ledger(&mut self, part: i64) -> sqlx::Result<Vec<LedgerLine>> {
+        type Row = (i64, i64, i64, String, Option<i64>, String, String);
+        let rows: Vec<Row> = sqlx::query_as(
+            "SELECT unix_seconds(at), delta, done_after, source, job_id, actor, note FROM part_ledger
+             WHERE space_id = $1 AND part_id = $2 ORDER BY at DESC, id DESC LIMIT 200",
+        )
+        .bind(self.space)
+        .bind(part)
+        .fetch_all(self.c())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(at, delta, done_after, source, job_id, actor, note)| LedgerLine {
+                    at,
+                    delta,
+                    done_after,
+                    source,
+                    job_id,
+                    actor,
+                    note,
+                },
+            )
+            .collect())
     }
 
-    /// The next plate a free machine suits, if any (the rule in one place).
     /// The next plate a free machine suits, if any: the rule in one place, for the dispatcher
     /// (nothing planned) and the schedule (plates it has planned already, per part).
-    fn candidate_with(
-        &self,
-        space: i64,
+    async fn candidate_with(
+        &mut self,
         machine: &crate::store::Machine,
         planned: &std::collections::HashMap<i64, i64>,
         jobs: &JobFacts,
         files: &[StoredFile],
-    ) -> rusqlite::Result<Option<Candidate>> {
+    ) -> sqlx::Result<Option<Candidate>> {
         let Some(profile) = machine.profile.as_deref() else {
             return Ok(None);
         };
-        let mut q = self.db.prepare(
+        type Row = (
+            i64,
+            i64,
+            String,
+            i64,
+            i64,
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        );
+        let rows: Vec<Row> = sqlx::query_as(
             "SELECT p.id, pf.id, pf.file_id, pf.per_plate, p.target, p.done, pf.material, pf.color, pf.sheet
              FROM parts p JOIN projects pr ON pr.id = p.project_id
-             JOIN part_files pf ON pf.part_id = p.id AND pf.profile = ?2
-             WHERE p.space_id = ?1 AND pr.state = 'active'
+             JOIN part_files pf ON pf.part_id = p.id AND pf.profile = $2
+             WHERE p.space_id = $1 AND pr.state = 'active'
              ORDER BY pr.priority, pr.created_at, p.sort_order, p.created_at, p.id",
-        )?;
-        let rows: Vec<(i64, i64, i64, i64, PartFile)> = q
-            .query_map(params![space, profile], |r| {
-                Ok((
-                    r.get(0)?,
-                    r.get::<_, i64>(3)?.max(1),
-                    r.get(4)?,
-                    r.get(5)?,
+        )
+        .bind(self.space)
+        .bind(profile)
+        .fetch_all(self.c())
+        .await?;
+        let rows = rows.into_iter().map(
+            |(part, id, file_id, per_plate, target, done, material, color, sheet)| {
+                let per_plate = per_plate.max(1);
+                (
+                    part,
+                    per_plate,
+                    target,
+                    done,
                     PartFile {
-                        id: r.get(1)?,
+                        id,
                         profile: profile.to_owned(),
-                        file_id: r.get(2)?,
+                        file_id,
                         file_name: String::new(),
-                        per_plate: r.get::<_, i64>(3)?.max(1),
-                        material: r.get(6)?,
-                        color: r.get(7)?,
-                        sheet: r.get(8)?,
+                        per_plate,
+                        material,
+                        color,
+                        sheet,
                     },
-                ))
-            })?
-            .collect::<rusqlite::Result<_>>()?;
-        // Only files the space still has (on Postgres).
-        for (part, per_plate, target, done, file) in rows
-            .into_iter()
-            .filter(|(.., f)| files.iter().any(|kept| kept.id == f.file_id))
+                )
+            },
+        );
+        // Only files the space still has.
+        for (part, per_plate, target, done, file) in
+            rows.filter(|(.., f)| files.iter().any(|kept| kept.id == f.file_id))
         {
             let (_, under_way) = under_way(jobs, part);
             // Whole plates: still needed, less what is on a bed, waits to be confirmed, or
@@ -509,6 +429,78 @@ impl Legacy {
     }
 }
 
+/// Why a part sends no plate out now, in words (print-farm-manager's dispatch status).
+fn why_waiting(
+    project_state: &str,
+    part: &Part,
+    machines: &[crate::store::Machine],
+) -> Option<String> {
+    if part.done + part.parts_under_way >= part.target {
+        return None;
+    }
+    if project_state != "active" {
+        return Some(format!("the project is {project_state}"));
+    }
+    if part.files.is_empty() {
+        return Some("no file for any machine yet".to_owned());
+    }
+    let farm: Vec<_> = machines.iter().filter(|m| m.takes_work).collect();
+    let fitting: Vec<_> = farm
+        .iter()
+        .filter(|m| {
+            part.files
+                .iter()
+                .any(|f| m.profile.as_deref() == Some(f.profile.as_str()))
+        })
+        .collect();
+    if fitting.is_empty() {
+        let models: Vec<String> = part
+            .files
+            .iter()
+            .map(|f| {
+                crate::profiles::find(&f.profile).map_or(f.profile.clone(), |p| p.model.clone())
+            })
+            .collect();
+        return Some(format!(
+            "no machine in the queue is a {}",
+            models.join(" or ")
+        ));
+    }
+    let loaded: Vec<_> = fitting
+        .iter()
+        .filter(|m| {
+            part.files.iter().any(|f| {
+                m.profile.as_deref() == Some(f.profile.as_str())
+                    && material_fits(f, m.loaded.as_ref())
+            })
+        })
+        .collect();
+    if loaded.is_empty() {
+        let wants: Vec<String> = part
+            .files
+            .iter()
+            .filter_map(|f| f.material.clone().or_else(|| f.color.clone()))
+            .collect();
+        return Some(format!("nothing with {} loaded", wants.join(" or ")));
+    }
+    let plated: Vec<_> = loaded
+        .iter()
+        .filter(|m| {
+            part.files
+                .iter()
+                .any(|f| m.profile.as_deref() == Some(f.profile.as_str()) && fits(f, m))
+        })
+        .collect();
+    if plated.is_empty() {
+        let sheets: Vec<String> = part.files.iter().filter_map(|f| f.sheet.clone()).collect();
+        return Some(format!("no machine has a {} plate on", sheets.join(" or ")));
+    }
+    if plated.iter().all(|m| !m.online) {
+        return Some("its machines are offline".to_owned());
+    }
+    Some("its machines are busy, or wait for someone".to_owned())
+}
+
 /// Plates of a part under way (on a bed, or ended and not yet confirmed), and the parts they hold.
 fn under_way(jobs: &JobFacts, part: i64) -> (i64, i64) {
     jobs.under_way.get(&part).copied().unwrap_or((0, 0))
@@ -520,20 +512,19 @@ impl Store {
         let jobs = self.job_facts(&[]).await?;
         let machines = self.machines(space).await?;
         let files = self.files(space).await?;
-        Ok(self
-            .lock()
-            .unwrap()
-            .projects(space, &jobs, &machines, &files)?)
+        Ok(crate::stock::in_space!(self, space, |w| w.projects(&jobs, &machines, &files)).await?)
     }
 
-    /// The schedule (`Legacy::schedule`) of a space's machines as they are now.
+    /// The schedule (`Work::schedule`) of a space's machines as they are now.
     pub async fn schedule(&self, space: i64) -> Result<Vec<Lane>, BoxError> {
         let (machines, jobs) = self.machines_and_jobs(space).await?;
         let files = self.files(space).await?;
-        Ok(self
-            .lock()
-            .unwrap()
-            .schedule(space, machines, &jobs, &files)?)
+        Ok(crate::stock::in_space!(self, space, |w| w.schedule(machines, &jobs, &files)).await?)
+    }
+
+    /// A part's ledger, newest first (`Work::ledger`).
+    pub async fn ledger(&self, space: i64, part: i64) -> sqlx::Result<Vec<LedgerLine>> {
+        crate::stock::in_space!(self, space, |w| w.ledger(part)).await
     }
 
     /// Someone confirms the plate waiting on a machine: `good` parts are good (0: a bad
@@ -573,21 +564,19 @@ impl Store {
             return Ok(Err("it was confirmed meanwhile"));
         }
         let source = if good == 0 { "bad print" } else { "confirmed" };
-        let after = self
-            .lock()
-            .unwrap()
-            .adjust_part(
-                access.space,
-                part,
-                PartChange::By(good),
-                Why {
-                    source,
-                    job: Some(job),
-                    actor: &access.actor,
-                    note,
-                },
-            )?
-            .unwrap_or(0);
+        let why = Why {
+            source,
+            job: Some(job),
+            actor: &access.actor,
+            note,
+        };
+        let after = crate::stock::in_space!(self, access.space, |w| w.adjust_part(
+            part,
+            PartChange::By(good),
+            why
+        ))
+        .await?
+        .unwrap_or(0);
         Ok(Ok(after))
     }
 
@@ -613,7 +602,6 @@ impl Store {
                     continue;
                 }
                 let next = {
-                    let legacy = self.lock().unwrap();
                     if !machine.takes_work || !machine.online || machine.out_of_use.is_some() {
                         continue;
                     }
@@ -625,24 +613,22 @@ impl Store {
                         || machine.job.is_some()
                         || machine.on_bed.is_some()
                         || machine.upkeep.as_ref().is_some_and(|u| u.due)
-                        || legacy.waiting_confirm(&jobs, &machine.id).is_some()
+                        || jobs.waiting_plate(&machine.id).is_some()
                     {
                         continue;
                     }
-                    let Some(c) = legacy.candidate_with(
-                        space,
-                        &machine,
-                        &Default::default(),
-                        &jobs,
-                        &files,
-                    )?
+                    let mut w = self.work(space).await?;
+                    let Some(c) = w
+                        .candidate_with(&machine, &Default::default(), &jobs, &files)
+                        .await?
                     else {
                         continue;
                     };
-                    let by = match legacy.part_names(c.part) {
+                    let by = match w.part_names(c.part).await? {
                         (_, Some(project)) => format!("queue · {project}"),
                         _ => "queue".to_owned(),
                     };
+                    w.commit(self).await?;
                     (c, by)
                 };
                 let (c, by) = next;
@@ -732,29 +718,28 @@ const SCHEDULE_PLATES: usize = 60;
 /// A plate whose file says nothing of its time is planned as this long.
 const UNKNOWN_PLATE_SECONDS: i64 = 3600;
 
-impl Legacy {
+impl Work {
     /// The names of a part and its project.
-    fn part_names(&self, part: i64) -> (Option<String>, Option<String>) {
-        self.db
-            .query_row(
-                "SELECT p.name, pr.name FROM parts p JOIN projects pr ON pr.id = p.project_id WHERE p.id = ?1",
-                [part],
-                |r| Ok((Some(r.get(0)?), Some(r.get(1)?))),
-            )
-            .unwrap_or((None, None))
+    async fn part_names(&mut self, part: i64) -> sqlx::Result<(Option<String>, Option<String>)> {
+        Ok(sqlx::query_as::<_, (String, String)>(
+            "SELECT p.name, pr.name FROM parts p JOIN projects pr ON pr.id = p.project_id WHERE p.id = $1",
+        )
+        .bind(part)
+        .fetch_optional(self.c())
+        .await?
+        .map_or((None, None), |(p, pr)| (Some(p), Some(pr))))
     }
 
     /// What the machines that take work will print, and when: worked out from the jobs running
-    /// and the dispatcher's own rule (`Legacy::candidate_with`), without changing anything.
+    /// and the dispatcher's own rule (`Work::candidate_with`), without changing anything.
     /// print-farm-manager's projection: a schedule that disagrees with dispatch is worse than
     /// none, so both use the same rule.
-    pub(crate) fn schedule(
-        &self,
-        space: i64,
+    pub(crate) async fn schedule(
+        &mut self,
         machines: Vec<crate::store::Machine>,
         jobs: &JobFacts,
         files: &[StoredFile],
-    ) -> rusqlite::Result<Vec<Lane>> {
+    ) -> sqlx::Result<Vec<Lane>> {
         let file_of = |id: &str| files.iter().find(|f| f.id == id);
         let at = now();
         let mut lanes = Vec::new();
@@ -785,7 +770,10 @@ impl Legacy {
                     })
                     .unwrap_or(UNKNOWN_PLATE_SECONDS);
                 let part: Option<i64> = jobs.active_part(&machine.id);
-                let (part, project) = part.map_or((None, None), |p| self.part_names(p));
+                let (part, project) = match part {
+                    Some(p) => self.part_names(p).await?,
+                    None => (None, None),
+                };
                 lane.blocks.push(Block {
                     start: job.started_at.unwrap_or(at),
                     end: at + left,
@@ -833,7 +821,7 @@ impl Legacy {
                 break;
             };
             let (lane, start, machine) = &free[next];
-            let Some(c) = self.candidate_with(space, machine, &planned, jobs, files)? else {
+            let Some(c) = self.candidate_with(machine, &planned, jobs, files).await? else {
                 free.remove(next);
                 continue;
             };
@@ -841,7 +829,7 @@ impl Legacy {
                 .and_then(|f| f.meta.estimated_s)
                 .map_or(UNKNOWN_PLATE_SECONDS, |s| s as i64)
                 .max(60);
-            let (part, project) = self.part_names(c.part);
+            let (part, project) = self.part_names(c.part).await?;
             let label = file_of(&c.file_id)
                 .map(|f| f.name.clone())
                 .unwrap_or_default();
@@ -861,20 +849,18 @@ impl Legacy {
     }
 
     /// How many open parts (of active projects) a machine could make, of how many there are.
-    pub fn compatible(
-        &self,
-        space: i64,
+    pub(crate) async fn compatible(
+        &mut self,
         machine: &crate::store::Machine,
         files: &[StoredFile],
-    ) -> rusqlite::Result<(i64, i64)> {
-        let open: Vec<(i64, i64, i64)> = {
-            let mut q = self.db.prepare(
-                "SELECT p.id, p.target, p.done FROM parts p JOIN projects pr ON pr.id = p.project_id
-                 WHERE p.space_id = ?1 AND pr.state = 'active'",
-            )?;
-            q.query_map([space], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
-                .collect::<rusqlite::Result<_>>()?
-        };
+    ) -> sqlx::Result<(i64, i64)> {
+        let open: Vec<(i64, i64, i64)> = sqlx::query_as(
+            "SELECT p.id, p.target, p.done FROM parts p JOIN projects pr ON pr.id = p.project_id
+             WHERE p.space_id = $1 AND pr.state = 'active'",
+        )
+        .bind(self.space)
+        .fetch_all(self.c())
+        .await?;
         let mut can = 0;
         let mut all = 0;
         for (part, target, done) in open {
@@ -883,7 +869,8 @@ impl Legacy {
             }
             all += 1;
             if self
-                .part_files(space, part, files)?
+                .part_files(part, files)
+                .await?
                 .iter()
                 .any(|f| machine.profile.as_deref() == Some(f.profile.as_str()) && fits(f, machine))
             {
@@ -987,7 +974,7 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
         Ok(jobs) => jobs,
         Err(error) => return failed(error),
     };
-    // The space's machines, files and machine modes, from Postgres before the lock.
+    // The space's machines, files and machine modes, read first.
     let ms = match store.machines(access.space).await {
         Ok(ms) => ms,
         Err(error) => return failed(error),
@@ -1000,23 +987,35 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
         Ok(grants) => grants,
         Err(error) => return failed(error),
     };
+    let farm = crate::stock::in_space!(&store, access.space, |w| async {
+        let mut compatible = Vec::new();
+        for m in &ms {
+            compatible.push(w.compatible(m, &files).await.ok());
+        }
+        let projects = w.projects(&jobs, &ms, &files).await?;
+        Ok::<_, sqlx::Error>((compatible, projects))
+    })
+    .await;
+    let (compatible, projects) = match farm {
+        Ok(farm) => farm,
+        Err(error) => return failed(error),
+    };
     let store = store.lock().unwrap();
     let machines: Vec<Value> = ms
         .iter()
-        .map(|m| {
+        .zip(compatible)
+        .map(|(m, compatible)| {
             json!({
                 "id": m.id, "name": m.name, "profile": m.profile, "kind": m.kind,
                 "farm": m.takes_work,
                 "sheet": m.sheet,
-                "compatible": store.compatible(access.space, m, &files).ok(),
+                "compatible": compatible,
                 "manage": store.may(&access, &m.id, Level::Manage, &grants).ok().flatten().unwrap_or(false),
             })
         })
         .collect();
-    match store.projects(access.space, &jobs, &ms, &files) {
-        Ok(projects) => Json(json!({ "projects": projects, "machines": machines, "admin": access.role >= Role::Admin })).into_response(),
-        Err(error) => failed(error),
-    }
+    Json(json!({ "projects": projects, "machines": machines, "admin": access.role >= Role::Admin }))
+        .into_response()
 }
 
 #[derive(Deserialize)]
@@ -1040,22 +1039,22 @@ async fn new_project(
     let Some(name) = body.name.as_deref().and_then(|n| clean(n, 80)) else {
         return bad_request("a project needs a name of at most 80 characters");
     };
-    let store = store.lock().unwrap();
-    let made = store.db.execute(
-        "INSERT INTO projects (space_id, name, description, created_at) VALUES (?1, ?2, ?3, ?4)",
-        params![
-            access.space,
-            name,
-            body.description.unwrap_or_default().trim(),
-            now()
-        ],
-    );
-    match made {
-        Ok(_) => (
-            StatusCode::CREATED,
-            Json(json!({ "id": store.db.last_insert_rowid() })),
+    let description = body.description.unwrap_or_default();
+    let made = crate::stock::in_space!(&store, access.space, |w| async {
+        sqlx::query_scalar::<_, i64>(
+            "INSERT INTO projects (space_id, name, description, created_at) VALUES ($1, $2, $3, at_unix($4))
+             RETURNING id",
         )
-            .into_response(),
+        .bind(w.space)
+        .bind(&name)
+        .bind(description.trim())
+        .bind(now())
+        .fetch_one(w.c())
+        .await
+    })
+    .await;
+    match made {
+        Ok(id) => (StatusCode::CREATED, Json(json!({ "id": id }))).into_response(),
         Err(error) => failed(error),
     }
 }
@@ -1076,26 +1075,30 @@ async fn change_project(
         Some(Some(n)) => Some(n),
         None => None,
     };
-    let store = store.lock().unwrap();
-    let n = store.db.execute(
-        "UPDATE projects SET name = COALESCE(?3, name), description = COALESCE(?4, description),
-             state = COALESCE(?5, state), priority = COALESCE(?6, priority)
-         WHERE id = ?1 AND space_id = ?2",
-        params![
-            id,
-            access.space,
-            name,
-            body.description,
-            body.state,
-            body.priority
-        ],
-    );
+    let n = crate::stock::in_space!(&store, access.space, |w| async {
+        let n = sqlx::query(
+            "UPDATE projects SET name = COALESCE($3, name), description = COALESCE($4, description),
+                 state = COALESCE($5, state), priority = COALESCE($6, priority)
+             WHERE id = $1 AND space_id = $2",
+        )
+        .bind(id)
+        .bind(w.space)
+        .bind(&name)
+        .bind(&body.description)
+        .bind(&body.state)
+        .bind(body.priority)
+        .execute(w.c())
+        .await?
+        .rows_affected();
+        if n > 0 {
+            w.changed();
+        }
+        Ok::<_, sqlx::Error>(n)
+    })
+    .await;
     match n {
         Ok(0) => (StatusCode::NOT_FOUND, "no such project").into_response(),
-        Ok(_) => {
-            store.changed();
-            StatusCode::NO_CONTENT.into_response()
-        }
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
     }
 }
@@ -1105,18 +1108,15 @@ async fn remove_project(
     State(store): State<Store>,
     Path(id): Path<i64>,
 ) -> Response {
-    // The project's parts are the farm's (SQLite); their jobs are on Postgres.
-    let parts: Vec<i64> = {
-        let store = store.lock().unwrap();
-        store
-            .db
-            .prepare("SELECT id FROM parts WHERE project_id = ?1")
-            .and_then(|mut q| {
-                q.query_map([id], |r| r.get(0))?
-                    .collect::<rusqlite::Result<_>>()
-            })
-            .unwrap_or_default()
-    };
+    // The project's parts, and whether plates of them are under way.
+    let parts: Vec<i64> = crate::stock::in_space!(&store, access.space, |w| async {
+        sqlx::query_scalar("SELECT id FROM parts WHERE project_id = $1")
+            .bind(id)
+            .fetch_all(w.c())
+            .await
+    })
+    .await
+    .unwrap_or_default();
     let busy: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM jobs WHERE part_id = ANY($1)
            AND (state IN ('loaded', 'queued', 'printing', 'paused', 'stopping') OR (state IN ('finished', 'stopped', 'failed') AND confirmed_at IS NULL))",
@@ -1125,7 +1125,6 @@ async fn remove_project(
     .fetch_one(&store.pg().admin)
     .await
     .unwrap_or(0);
-    let store = store.lock().unwrap();
     if busy > 0 {
         return (
             StatusCode::CONFLICT,
@@ -1133,17 +1132,28 @@ async fn remove_project(
         )
             .into_response();
     }
-    let removed = store
-        .db
-        .execute("DELETE FROM projects WHERE id = ?1 AND space_id = ?2", params![id, access.space])
-        .and_then(|n| {
-            store.db.execute(
-                "DELETE FROM part_files WHERE part_id IN (SELECT id FROM parts WHERE project_id = ?1 AND space_id = ?2)",
-                params![id, access.space],
-            )?;
-            store.db.execute("DELETE FROM parts WHERE project_id = ?1 AND space_id = ?2", params![id, access.space])?;
-            Ok(n)
-        });
+    let removed = crate::stock::in_space!(&store, access.space, |w| async {
+        let n = sqlx::query("DELETE FROM projects WHERE id = $1 AND space_id = $2")
+            .bind(id)
+            .bind(w.space)
+            .execute(w.c())
+            .await?
+            .rows_affected();
+        sqlx::query(
+            "DELETE FROM part_files WHERE part_id IN (SELECT id FROM parts WHERE project_id = $1 AND space_id = $2)",
+        )
+        .bind(id)
+        .bind(w.space)
+        .execute(w.c())
+        .await?;
+        sqlx::query("DELETE FROM parts WHERE project_id = $1 AND space_id = $2")
+            .bind(id)
+            .bind(w.space)
+            .execute(w.c())
+            .await?;
+        Ok::<_, sqlx::Error>(n)
+    })
+    .await;
     match removed {
         Ok(0) => (StatusCode::NOT_FOUND, "no such project").into_response(),
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
@@ -1170,24 +1180,35 @@ async fn new_part(
     let Some(target) = body.target.filter(|t| (1..=1_000_000).contains(t)) else {
         return bad_request("how many: 1 or more");
     };
-    let store = store.lock().unwrap();
-    let in_space: bool = store
-        .db
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM projects WHERE id = ?1 AND space_id = ?2",
-            params![project, access.space],
-            |r| r.get(0),
+    let made = crate::stock::in_space!(&store, access.space, |w| async {
+        let in_space: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM projects WHERE id = $1 AND space_id = $2",
         )
-        .unwrap_or(false);
-    if !in_space {
-        return (StatusCode::NOT_FOUND, "no such project").into_response();
-    }
-    match store.db.execute(
-        "INSERT INTO parts (project_id, space_id, name, target, sort_order, created_at)
-         VALUES (?1, ?2, ?3, ?4, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM parts WHERE project_id = ?1), ?5)",
-        params![project, access.space, name, target, now()],
-    ) {
-        Ok(_) => (StatusCode::CREATED, Json(json!({ "id": store.db.last_insert_rowid() }))).into_response(),
+        .bind(project)
+        .bind(w.space)
+        .fetch_one(w.c())
+        .await?;
+        if !in_space {
+            return Ok(None);
+        }
+        sqlx::query_scalar::<_, i64>(
+            "INSERT INTO parts (project_id, space_id, name, target, sort_order, created_at)
+             VALUES ($1, $2, $3, $4, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM parts WHERE project_id = $1), at_unix($5))
+             RETURNING id",
+        )
+        .bind(project)
+        .bind(w.space)
+        .bind(&name)
+        .bind(target)
+        .bind(now())
+        .fetch_one(w.c())
+        .await
+        .map(Some)
+    })
+    .await;
+    match made {
+        Ok(Some(id)) => (StatusCode::CREATED, Json(json!({ "id": id }))).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "no such project").into_response(),
         Err(error) => failed(error),
     }
 }
@@ -1206,25 +1227,34 @@ async fn change_part(
         Some(Some(n)) => Some(n),
         None => None,
     };
-    let store = store.lock().unwrap();
-    match store.db.execute(
-        "UPDATE parts SET name = COALESCE(?3, name), target = COALESCE(?4, target), sort_order = COALESCE(?5, sort_order)
-         WHERE id = ?1 AND space_id = ?2",
-        params![id, access.space, name, body.target, body.sort_order],
-    ) {
-        Ok(0) => (StatusCode::NOT_FOUND, "no such part").into_response(),
-        Ok(_) => {
-            store.changed();
-            StatusCode::NO_CONTENT.into_response()
+    let n = crate::stock::in_space!(&store, access.space, |w| async {
+        let n = sqlx::query(
+            "UPDATE parts SET name = COALESCE($3, name), target = COALESCE($4, target), sort_order = COALESCE($5, sort_order)
+             WHERE id = $1 AND space_id = $2",
+        )
+        .bind(id)
+        .bind(w.space)
+        .bind(&name)
+        .bind(body.target)
+        .bind(body.sort_order)
+        .execute(w.c())
+        .await?
+        .rows_affected();
+        if n > 0 {
+            w.changed();
         }
+        Ok::<_, sqlx::Error>(n)
+    })
+    .await;
+    match n {
+        Ok(0) => (StatusCode::NOT_FOUND, "no such part").into_response(),
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
     }
 }
 
 async fn remove_part(access: Access, State(store): State<Store>, Path(id): Path<i64>) -> Response {
-    let jobs = store.job_facts(&[]).await;
-    let store = store.lock().unwrap();
-    match jobs.map(|jobs| under_way(&jobs, id)) {
+    match store.job_facts(&[]).await.map(|jobs| under_way(&jobs, id)) {
         Ok((plates, _)) if plates > 0 => {
             return (
                 StatusCode::CONFLICT,
@@ -1235,19 +1265,21 @@ async fn remove_part(access: Access, State(store): State<Store>, Path(id): Path<
         Err(error) => return failed(error),
         _ => {}
     }
-    let removed = store
-        .db
-        .execute(
-            "DELETE FROM parts WHERE id = ?1 AND space_id = ?2",
-            params![id, access.space],
-        )
-        .and_then(|n| {
-            store.db.execute(
-                "DELETE FROM part_files WHERE part_id = ?1 AND space_id = ?2",
-                params![id, access.space],
-            )?;
-            Ok(n)
-        });
+    let removed = crate::stock::in_space!(&store, access.space, |w| async {
+        let n = sqlx::query("DELETE FROM parts WHERE id = $1 AND space_id = $2")
+            .bind(id)
+            .bind(w.space)
+            .execute(w.c())
+            .await?
+            .rows_affected();
+        sqlx::query("DELETE FROM part_files WHERE part_id = $1 AND space_id = $2")
+            .bind(id)
+            .bind(w.space)
+            .execute(w.c())
+            .await?;
+        Ok::<_, sqlx::Error>(n)
+    })
+    .await;
     match removed {
         Ok(0) => (StatusCode::NOT_FOUND, "no such part").into_response(),
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
@@ -1280,32 +1312,46 @@ async fn add_file(
         Ok(None) => return (StatusCode::NOT_FOUND, "no such file").into_response(),
         Err(error) => return failed(error),
     };
-    let store = store.lock().unwrap();
     let per_plate = body
         .per_plate
         .or_else(|| per_plate_from_name(&file.name))
         .unwrap_or(1)
         .clamp(1, 1000);
-    let in_space: bool = store
-        .db
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM parts WHERE id = ?1 AND space_id = ?2",
-            params![part, access.space],
-            |r| r.get(0),
-        )
-        .unwrap_or(false);
-    if !in_space {
-        return (StatusCode::NOT_FOUND, "no such part").into_response();
-    }
     let blank = |v: Option<String>| v.map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
-    match store.db.execute(
-        "INSERT INTO part_files (part_id, space_id, profile, file_id, per_plate, material, color, created_at, sheet)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-         ON CONFLICT (part_id, profile) DO UPDATE SET file_id = excluded.file_id, per_plate = excluded.per_plate,
-             material = excluded.material, color = excluded.color, sheet = excluded.sheet",
-        params![part, access.space, body.profile, file.id, per_plate, blank(body.material), blank(body.color), now(), blank(body.sheet)],
-    ) {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+    let (material, color, sheet) = (blank(body.material), blank(body.color), blank(body.sheet));
+    let added = crate::stock::in_space!(&store, access.space, |w| async {
+        let in_space: bool =
+            sqlx::query_scalar("SELECT COUNT(*) > 0 FROM parts WHERE id = $1 AND space_id = $2")
+                .bind(part)
+                .bind(w.space)
+                .fetch_one(w.c())
+                .await?;
+        if !in_space {
+            return Ok(false);
+        }
+        sqlx::query(
+            "INSERT INTO part_files (part_id, space_id, profile, file_id, per_plate, material, color, created_at, sheet)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, at_unix($8), $9)
+             ON CONFLICT (part_id, profile) DO UPDATE SET file_id = excluded.file_id, per_plate = excluded.per_plate,
+                 material = excluded.material, color = excluded.color, sheet = excluded.sheet",
+        )
+        .bind(part)
+        .bind(w.space)
+        .bind(&body.profile)
+        .bind(&file.id)
+        .bind(per_plate)
+        .bind(&material)
+        .bind(&color)
+        .bind(now())
+        .bind(&sheet)
+        .execute(w.c())
+        .await?;
+        Ok::<_, sqlx::Error>(true)
+    })
+    .await;
+    match added {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, "no such part").into_response(),
         Err(error) => failed(error),
     }
 }
@@ -1315,10 +1361,17 @@ async fn remove_file(
     State(store): State<Store>,
     Path((part, file)): Path<(i64, i64)>,
 ) -> Response {
-    match store.lock().unwrap().db.execute(
-        "DELETE FROM part_files WHERE id = ?1 AND part_id = ?2 AND space_id = ?3",
-        params![file, part, access.space],
-    ) {
+    let removed = crate::stock::in_space!(&store, access.space, |w| async {
+        sqlx::query("DELETE FROM part_files WHERE id = $1 AND part_id = $2 AND space_id = $3")
+            .bind(file)
+            .bind(part)
+            .bind(w.space)
+            .execute(w.c())
+            .await
+            .map(|r| r.rows_affected())
+    })
+    .await;
+    match removed {
         Ok(0) => (StatusCode::NOT_FOUND, "no such file of this part").into_response(),
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
@@ -1342,17 +1395,19 @@ async fn correct(
     if note.trim().is_empty() {
         return bad_request("say why: it goes into the ledger");
     }
-    match store.lock().unwrap().adjust_part(
-        access.space,
+    let why = Why {
+        source: "corrected",
+        job: None,
+        actor: &access.actor,
+        note: note.trim(),
+    };
+    match crate::stock::in_space!(&store, access.space, |w| w.adjust_part(
         part,
         PartChange::To(body.done),
-        Why {
-            source: "corrected",
-            job: None,
-            actor: &access.actor,
-            note: note.trim(),
-        },
-    ) {
+        why
+    ))
+    .await
+    {
         Ok(Some(done)) => Json(json!({ "done": done })).into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, "no such part").into_response(),
         Err(error) => failed(error),
@@ -1360,7 +1415,7 @@ async fn correct(
 }
 
 async fn ledger(access: Access, State(store): State<Store>, Path(part): Path<i64>) -> Response {
-    match store.lock().unwrap().ledger(access.space, part) {
+    match store.ledger(access.space, part).await {
         Ok(lines) => Json(lines).into_response(),
         Err(error) => failed(error),
     }
@@ -1561,14 +1616,17 @@ mod tests {
     /// `done` is written in one place only: adjust_part, with its ledger line.
     #[test]
     fn only_the_ledger_writes_done() {
-        // SQL in the source: string literals, each a line starting with a quote.
+        // SQL in the source: string literals, a line starting with a quote or a query's own line.
         let mut writers = 0;
         for source in crate::access::route_sources() {
-            for line in source.lines().filter(|l| l.trim_start().starts_with('"')) {
+            for line in source
+                .lines()
+                .filter(|l| l.trim_start().starts_with('"') || l.contains("query(\""))
+            {
                 let l = line.replace(' ', "");
                 if l.contains("UPDATEparts") && l.contains("done=") {
                     assert!(
-                        l.contains("SETdone=?2WHEREid=?1"),
+                        l.contains("SETdone=$2WHEREid=$1"),
                         "a part's done written outside adjust_part: {line}"
                     );
                     writers += 1;
@@ -1715,7 +1773,9 @@ mod flow {
             let lanes = store.schedule(space).await.unwrap();
             let active = store.active_job(&a).await.unwrap();
             let files = store.files(space).await.unwrap();
-            let s = store.lock().unwrap();
+            let compatible = crate::stock::in_space!(&store, space, |w| w.compatible(&ma, &files))
+                .await
+                .unwrap();
             assert_eq!(lanes.len(), 2, "only the machines that take work");
             let plates: usize = lanes
                 .iter()
@@ -1726,7 +1786,7 @@ mod flow {
                 lanes.iter().all(|l| !l.blocks.is_empty()),
                 "both machines get one"
             );
-            assert_eq!(s.compatible(space, &ma, &files).unwrap(), (1, 1));
+            assert_eq!(compatible, (1, 1));
             assert!(active.is_none(), "looking ahead starts nothing");
         }
         assert_eq!(store.dispatch().await.unwrap(), 2);
@@ -1807,7 +1867,7 @@ mod flow {
         assert_eq!(store.dispatch().await.unwrap(), 0, "enough");
         assert!(waiting().await.waiting.is_none());
         // Every change is in the ledger, with who and why.
-        let ledger = store.lock().unwrap().ledger(space, part).unwrap();
+        let ledger = store.ledger(space, part).await.unwrap();
         let sources: Vec<&str> = ledger.iter().map(|l| l.source.as_str()).collect();
         assert_eq!(
             sources,
@@ -1859,16 +1919,14 @@ mod upkeep {
             .unwrap();
         store.idle_test_machine(&m).await;
         store.set_takes_work(space, &m, true).await.unwrap();
-        {
-            let s = store.lock().unwrap();
-            s.db.execute("INSERT INTO projects (space_id, name, state, created_at) VALUES (?1, 'P', 'active', 0)", [space]).unwrap();
-            s.db.execute("INSERT INTO parts (project_id, space_id, name, target, created_at) VALUES (1, ?1, 'A', 4, 0)", [space]).unwrap();
-            s.db.execute(
-            "INSERT INTO part_files (part_id, space_id, profile, file_id, per_plate, created_at, sheet) VALUES (1, ?1, 'prusa/mk3s', 'f1', 4, 0, 'Textured PEI')",
-            [space],
-        )
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO projects (space_id, name, state, created_at) VALUES ({space}, 'P', 'active', at_unix(0));
+             INSERT INTO parts (project_id, space_id, name, target, created_at) VALUES (1, {space}, 'A', 4, at_unix(0));
+             INSERT INTO part_files (part_id, space_id, profile, file_id, per_plate, created_at, sheet) VALUES (1, {space}, 'prusa/mk3s', 'f1', 4, at_unix(0), 'Textured PEI');"
+        )))
+        .execute(&pool)
+        .await
         .unwrap();
-        }
         assert_eq!(
             store.dispatch().await.unwrap(),
             0,
@@ -1917,16 +1975,14 @@ mod upkeep {
             .unwrap();
         store.idle_test_machine(&m).await;
         store.set_takes_work(space, &m, true).await.unwrap();
-        {
-            let s = store.lock().unwrap();
-            s.db.execute("INSERT INTO projects (space_id, name, state, created_at) VALUES (?1, 'P', 'active', 0)", [space]).unwrap();
-            s.db.execute("INSERT INTO parts (project_id, space_id, name, target, created_at) VALUES (1, ?1, 'A', 8, 0)", [space]).unwrap();
-            s.db.execute(
-                "INSERT INTO part_files (part_id, space_id, profile, file_id, per_plate, created_at) VALUES (1, ?1, 'prusa/mk3s', 'f1', 4, 0)",
-                [space],
-            )
-            .unwrap();
-        }
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO projects (space_id, name, state, created_at) VALUES ({space}, 'P', 'active', at_unix(0));
+             INSERT INTO parts (project_id, space_id, name, target, created_at) VALUES (1, {space}, 'A', 8, at_unix(0));
+             INSERT INTO part_files (part_id, space_id, profile, file_id, per_plate, created_at) VALUES (1, {space}, 'prusa/mk3s', 'f1', 4, at_unix(0));"
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         let part = async || store.projects(space).await.unwrap()[0].parts[0].clone();
         assert_eq!(store.dispatch().await.unwrap(), 1, "one plate goes out");
         assert!(
@@ -1940,11 +1996,9 @@ mod upkeep {
             Some("its machines are busy, or wait for someone"),
             "4 of 8 under way, its only machine has the job"
         );
-        store
-            .lock()
-            .unwrap()
-            .db
-            .execute("UPDATE parts SET target = 4 WHERE id = 1", [])
+        sqlx::query("UPDATE parts SET target = 4 WHERE id = 1")
+            .execute(&pool)
+            .await
             .unwrap();
         assert_eq!(
             part().await.waiting,
@@ -1986,17 +2040,15 @@ mod upkeep {
         .unwrap();
         let u = store.job_facts_of(&m).await.unwrap().upkeep(&m).unwrap();
         assert!(u.due && u.since_h >= 2.0, "{u:?}");
-        {
-            let s = store.lock().unwrap();
-            // Work waiting for it.
-            s.db.execute("INSERT INTO projects (space_id, name, state, created_at) VALUES (?1, 'P', 'active', 0)", [space]).unwrap();
-            s.db.execute("INSERT INTO parts (project_id, space_id, name, target, created_at) VALUES (1, ?1, 'A', 10, 0)", [space]).unwrap();
-            s.db.execute(
-            "INSERT INTO part_files (part_id, space_id, profile, file_id, per_plate, created_at) VALUES (1, ?1, 'prusa/mk3s', 'f1', 10, 0)",
-            [space],
-        )
+        // Work waiting for it.
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO projects (space_id, name, state, created_at) VALUES ({space}, 'P', 'active', at_unix(0));
+             INSERT INTO parts (project_id, space_id, name, target, created_at) VALUES (1, {space}, 'A', 10, at_unix(0));
+             INSERT INTO part_files (part_id, space_id, profile, file_id, per_plate, created_at) VALUES (1, {space}, 'prusa/mk3s', 'f1', 10, at_unix(0));"
+        )))
+        .execute(&pool)
+        .await
         .unwrap();
-        }
         assert_eq!(store.dispatch().await.unwrap(), 0, "due: no plate");
         store.serviced(space, &m).await.unwrap();
         assert!(

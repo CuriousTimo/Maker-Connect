@@ -864,19 +864,20 @@ async fn print(
     let copies = form.copies.unwrap_or(1).clamp(1, MAX_COPIES);
     let by = Some((access.user_id, access.actor.as_str()));
     // Copies after the first wait in the queue, one after another.
-    let queue_rest = |store: &Store, n: u32| -> rusqlite::Result<usize> {
-        let mut store = store.lock().unwrap();
+    let queue_rest = async |store: &Store, n: u32| -> sqlx::Result<usize> {
+        let mut w = store.work(space).await?;
         let mut place = 0;
         for _ in 0..n {
-            place = store.queue_add(space, &machine.id, &file, by)?;
+            place = w.queue_add(&machine.id, &file, by).await?;
         }
+        w.commit(store).await?;
         Ok(place)
     };
     if !machine.queue.is_empty() || fit(&file, &machine).is_err() {
         if let Err(why) = suits(&file, &machine) {
             return (StatusCode::CONFLICT, why).into_response();
         }
-        return match queue_rest(&store, copies) {
+        return match queue_rest(&store, copies).await {
             Ok(place) if headers.contains_key("x-requested-with") => (
                 StatusCode::ACCEPTED,
                 Json(serde_json::json!({ "queued": place, "copies": copies })),
@@ -896,7 +897,7 @@ async fn print(
         )
         .await
     {
-        Ok(Ok(_)) if copies > 1 => match queue_rest(&store, copies - 1) {
+        Ok(Ok(_)) if copies > 1 => match queue_rest(&store, copies - 1).await {
             Ok(_) if headers.contains_key("x-requested-with") => Json(serde_json::json!({
                 "started": true,
                 "copies": copies,

@@ -1794,23 +1794,25 @@ mod tests {
                 .await
                 .unwrap();
             let file = w.store.file(space, "f1").await.unwrap().unwrap();
-            let mut s = w.store.lock().unwrap();
-            s.queue_add(space, &m, &file, Some((mia_id, "mia")))
-                .unwrap();
-            s.queue_add(space, &m, &file, Some((zoe_id, "zoe")))
-                .unwrap();
-            s.queue_add(space, &m, &file, Some((mia_id, "mia")))
-                .unwrap();
-            let q: Vec<i64> = s.queue_of(&m).unwrap().iter().map(|q| q.id).collect();
+            for by in [(mia_id, "mia"), (zoe_id, "zoe"), (mia_id, "mia")] {
+                w.store.queue_add(space, &m, &file, Some(by)).await.unwrap();
+            }
+            let q: Vec<i64> = w
+                .store
+                .queue_of(space, &m)
+                .await
+                .unwrap()
+                .iter()
+                .map(|q| q.id)
+                .collect();
             (m, q[0], q[1], q[2])
         };
         let order = format!("/machines/{m}/queue/order");
         let ids = |v: [i64; 3]| format!("ids={},{},{}", v[0], v[1], v[2]);
-        let now = || -> Vec<i64> {
+        let now = async || -> Vec<i64> {
             w.store
-                .lock()
-                .unwrap()
-                .queue_of(&m)
+                .queue_of(space, &m)
+                .await
                 .unwrap()
                 .iter()
                 .map(|q| q.id)
@@ -1821,7 +1823,7 @@ mod tests {
             w.post(&mia, &order, &ids([c, b, a])).await.0,
             StatusCode::NO_CONTENT
         );
-        assert_eq!(now(), [c, b, a]);
+        assert_eq!(now().await, [c, b, a]);
         // Moving Zoe's, or getting ahead of it: no.
         assert_eq!(
             w.post(&mia, &order, &ids([b, c, a])).await.0,
@@ -1831,7 +1833,7 @@ mod tests {
             w.post(&mia, &order, &ids([c, a, b])).await.0,
             StatusCode::FORBIDDEN
         );
-        assert_eq!(now(), [c, b, a], "unchanged");
+        assert_eq!(now().await, [c, b, a], "unchanged");
         // Taking out: her own, not Zoe's.
         assert_eq!(
             w.post(&mia, &format!("/machines/{m}/queue/{b}/remove"), "")
@@ -1844,7 +1846,7 @@ mod tests {
             w.post(&adam, &order, &ids([b, a, c])).await.0,
             StatusCode::NO_CONTENT
         );
-        assert_eq!(now(), [b, a, c]);
+        assert_eq!(now().await, [b, a, c]);
         assert_eq!(
             w.post(&adam, &format!("/machines/{m}/queue/{b}/remove"), "")
                 .await
@@ -1857,7 +1859,7 @@ mod tests {
                 .0,
             StatusCode::NO_CONTENT
         );
-        assert_eq!(now(), [c]);
+        assert_eq!(now().await, [c]);
     }
 
     /// A machine moves to another space of the organisation, by someone who is admin in both;
@@ -2463,7 +2465,12 @@ mod tests {
                 .fetch_one(&w.store.pg().admin)
                 .await
                 .unwrap();
-            (n, w.store.lock().unwrap().queue_of(laser).unwrap().len())
+            let space: i64 = sqlx::query_scalar("SELECT space_id FROM machines WHERE id = $1")
+                .bind(laser)
+                .fetch_one(&w.store.pg().admin)
+                .await
+                .unwrap();
+            (n, w.store.queue_of(space, laser).await.unwrap().len())
         }
         // An API token (no session) may not start a laser, even with permission to use it.
         assert_eq!(

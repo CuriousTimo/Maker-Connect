@@ -21,7 +21,9 @@ fn modules() -> Vec<&'static Migrator> {
     static ACCOUNTS: Migrator = sqlx::migrate!("src/accounts/migrations");
     static ACCESS: Migrator = sqlx::migrate!("src/access/migrations");
     static STOCK: Migrator = sqlx::migrate!("src/stock/migrations");
-    vec![&CORE, &ACCOUNTS, &ACCESS, &STOCK]
+    static QUEUE: Migrator = sqlx::migrate!("src/queue/migrations");
+    static FARM: Migrator = sqlx::migrate!("src/farm/migrations");
+    vec![&CORE, &ACCOUNTS, &ACCESS, &STOCK, &QUEUE, &FARM]
 }
 
 /// All modules' migrations in one list, by version.
@@ -287,8 +289,9 @@ mod tests {
         }
     }
 
-    /// Row-level security on lane 4's tables, as the app role: each space-owned table shows nothing
-    /// without a space, only its space's rows with one, and refuses a row for another space.
+    /// Row-level security on lane 4's tables (stock, Spoolman, queue, farm), as the app role: each
+    /// space-owned table shows nothing without a space, only its space's rows with one, and refuses a
+    /// row for another space.
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
         not(feature = "pg-tests"),
@@ -307,7 +310,15 @@ mod tests {
              INSERT INTO filament (space_id, registered) SELECT id, at_unix(0) FROM spaces;
              INSERT INTO spool (space_id, registered, filament_id) SELECT id, at_unix(0), 1 FROM spaces;
              INSERT INTO tag (space_id, uid, target_type, added) SELECT id, 'AA', 'spool', at_unix(0) FROM spaces;
-             INSERT INTO extra_field (space_id, entity_type, key, definition) SELECT id, 'spool', 'k', '{}' FROM spaces;",
+             INSERT INTO extra_field (space_id, entity_type, key, definition) SELECT id, 'spool', 'k', '{}' FROM spaces;
+             INSERT INTO machine_queue (space_id, machine_id, file_id, file_name, pos, added_at)
+                 SELECT id, 'm', 'f', 'a.gcode', 1, at_unix(0) FROM spaces;
+             INSERT INTO projects (space_id, name, created_at) SELECT id, 'P', at_unix(0) FROM spaces;
+             INSERT INTO parts (project_id, space_id, name, target, created_at) SELECT id, id, 'A', 1, at_unix(0) FROM spaces;
+             INSERT INTO part_files (part_id, space_id, profile, file_id, created_at)
+                 SELECT id, id, 'prusa/mk3s', 'f', at_unix(0) FROM spaces;
+             INSERT INTO part_ledger (space_id, part_id, at, delta, done_after, source, actor)
+                 SELECT id, id, at_unix(0), 1, 1, 'corrected', 'x' FROM spaces;",
         )
         .execute(&pool)
         .await
@@ -345,6 +356,29 @@ mod tests {
             (
                 "extra_field",
                 "INSERT INTO extra_field (space_id, entity_type, key, definition) VALUES (2, 'x', 'x', '{}')",
+            ),
+            (
+                "machine_queue",
+                "INSERT INTO machine_queue (space_id, machine_id, file_id, file_name, pos, added_at)
+                 VALUES (2, 'x', 'x', 'x', 1, at_unix(0))",
+            ),
+            (
+                "projects",
+                "INSERT INTO projects (space_id, name, created_at) VALUES (2, 'x', at_unix(0))",
+            ),
+            (
+                "parts",
+                "INSERT INTO parts (project_id, space_id, name, target, created_at) VALUES (2, 2, 'x', 1, at_unix(0))",
+            ),
+            (
+                "part_files",
+                "INSERT INTO part_files (part_id, space_id, profile, file_id, created_at)
+                 VALUES (9, 2, 'x', 'x', at_unix(0))",
+            ),
+            (
+                "part_ledger",
+                "INSERT INTO part_ledger (space_id, part_id, at, delta, done_after, source, actor)
+                 VALUES (2, 2, at_unix(0), 1, 1, 'x', 'x')",
             ),
         ];
         for (table, insert) in tables {

@@ -757,11 +757,18 @@ impl Store {
         tx.commit().await?;
         let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
         let jobs = self.job_facts(&ids).await?;
-        let loaded = crate::stock::in_space!(self, space, |w| w.loaded()).await?;
+        let completion = crate::stock::in_space!(self, space, |w| async {
+            Ok::<_, sqlx::Error>(super::machines::Completion {
+                loaded: w.loaded().await?,
+                queues: w.queues(&ids).await?,
+                confirms: w.confirms(&jobs, &ids).await?,
+            })
+        })
+        .await?;
         let mut machines = self
             .lock()
             .unwrap()
-            .complete_machines(rows, &jobs, &loaded)?;
+            .complete_machines(rows, &jobs, completion)?;
         // What the queued files say of themselves (their time, a picture), by id as before.
         let queued: Vec<String> = machines
             .iter()

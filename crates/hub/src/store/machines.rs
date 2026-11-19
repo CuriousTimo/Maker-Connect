@@ -1,5 +1,14 @@
 use super::*;
 
+/// What a space's modules say of its machines, by machine id, for [`Legacy::complete_machines`]:
+/// what is loaded (crate::stock), their queues (crate::queue), the plates waiting to be confirmed
+/// (crate::farm).
+pub(crate) struct Completion {
+    pub loaded: std::collections::HashMap<String, Loaded>,
+    pub queues: std::collections::HashMap<String, Vec<crate::queue::Queued>>,
+    pub confirms: std::collections::HashMap<String, crate::farm::Confirm>,
+}
+
 impl Legacy {
     /// What holds a machine in its space ([`Store::move_machine`]): work under way, a plate to
     /// confirm, a print on its bed, a file on its way.
@@ -16,7 +25,7 @@ impl Legacy {
                 "it has a job that is not over: stop it, or let it finish".to_owned(),
             ));
         }
-        if self.waiting_confirm(jobs, machine).is_some() {
+        if jobs.waiting_plate(machine).is_some() {
             return Ok(Some(
                 "a plate on it waits to be confirmed: Set ready or Bad print first".to_owned(),
             ));
@@ -62,14 +71,19 @@ impl Legacy {
         })
     }
 
-    /// Machines from their rows, with what the modules on SQLite and the hub's memory add; `loaded`:
-    /// what is loaded in each, by machine id (crate::stock, read before).
+    /// Machines from their rows, with what the hub's memory adds; `space`: what the space's
+    /// modules say of each, by machine id, read before ([`Completion`]).
     pub(crate) fn complete_machines(
         &self,
         rows: Vec<super::pg_machines::MachineRow>,
         jobs: &JobFacts,
-        loaded: &std::collections::HashMap<String, Loaded>,
+        space: Completion,
     ) -> rusqlite::Result<Vec<Machine>> {
+        let Completion {
+            loaded,
+            mut queues,
+            mut confirms,
+        } = space;
         let now = now();
         let mut machines: Vec<Machine> = rows.into_iter().map(|r| r.into_machine(now)).collect();
         let offered = self.offered_build();
@@ -78,7 +92,7 @@ impl Legacy {
             if machine.kind == MachineKind::Fdm {
                 machine.on_bed = jobs.on_bed(&machine.id);
                 machine.ready = jobs.ready_after(&machine.id);
-                machine.queue = self.queue_of(&machine.id)?;
+                machine.queue = queues.remove(&machine.id).unwrap_or_default();
                 machine.asking = self.asking.get(&machine.id).cloned();
                 // Only with a dialog the printer named: DIALOG_ACTION needs its `dialog_id`.
                 machine.buttons = self
@@ -104,7 +118,7 @@ impl Legacy {
                 };
                 // A plate for a part waits for someone to confirm it (crate::farm): that, not
                 // "take the print".
-                machine.confirm = self.waiting_confirm(jobs, &machine.id);
+                machine.confirm = confirms.remove(&machine.id);
                 if machine.confirm.is_some() {
                     machine.on_bed = None;
                 }

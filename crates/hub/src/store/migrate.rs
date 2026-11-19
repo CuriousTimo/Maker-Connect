@@ -53,8 +53,6 @@ pub(super) fn migrate(db: &Connection) -> rusqlite::Result<()> {
              value TEXT NOT NULL
          );",
     )?;
-    crate::farm::migrate(db)?;
-    crate::queue::migrate(db)?;
     #[cfg(feature = "cameras")]
     crate::cameras::store::migrate(db)?;
     db.execute(
