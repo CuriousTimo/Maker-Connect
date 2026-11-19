@@ -13,7 +13,7 @@
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
   <span class="spacer"></span>
   <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
-  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <aside class="side" aria-label="Navigation"><nav aria-label="Pages">
 <a href="now.html">Now</a>
@@ -56,10 +56,10 @@
 <label class="field">Picture<select><option>Spool #12 · PLA Sage (made in Prepare)</option><option>Shelf A2</option></select></label>
 <label class="field">Roll<select><option>Address, 28 × 89 mm</option><option>Shipping, 54 × 101 mm</option></select></label>
 <div class="preview" style="aspect-ratio:89/28;background:var(--surface);color:var(--ink);text-align:left;padding:var(--s-3);place-items:start"><span><b>#12 PLA Sage</b><br><small>1 kg · Shelf A2</small></span></div>
-<p style="margin-top:var(--s-3)"><span class="ctl"><button class="btn" aria-disabled="true" type="button" aria-describedby="why-1">Print on Labels-1</button><span class="why" id="why-1">Out of labels: load a roll first.</span></span></p>
+<p style="margin-top:var(--s-3)"><span class="ctl"><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-describedby="why-1">Print on Labels-1</button></span><span class="why" id="why-1">Out of labels: load a roll first.</span></span></p>
 <span class="anno">mc.label.print {picture, page_size} · job.start · OUT_OF_PAPER, accepted in IDLE</span>
 </div><div class="card"><h2>About rolls</h2><p><small>The rolls come from the label catalogue as data. The names here are samples. Pictures are made in Prepare.</small></p><span class="anno">DYMO Connect roll catalogue (device-map answer)</span></div></div></section>
-<section id="llsettings" role="tabpanel" aria-labelledby="t-llsettings" hidden><div class="card"><dl class="kv"><dt>Kind</dt><dd>label printer (labelwriter)</dd></dl><p data-only="guest user" style="margin-top:var(--s-3)">Settings are changed by the space's staff.</p><p data-only="admin instance" style="margin-top:var(--s-3)"><button class="btn" type="button">Rename…</button></p></div></section>
+<section id="llsettings" role="tabpanel" aria-labelledby="t-llsettings" hidden><div class="card"><dl class="kv"><dt>Kind</dt><dd>label printer (labelwriter)</dd></dl><p data-only="guest user" style="margin-top:var(--s-3)">Settings are changed by the space's staff.</p><p data-only="admin instance" style="margin-top:var(--s-3)"><span class="fw"><button class="btn" type="button">Rename…</button></span></p></div></section>
 
 </main>
 <nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>

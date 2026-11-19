@@ -13,7 +13,7 @@
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
   <span class="spacer"></span>
   <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
-  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <aside class="side" aria-label="Navigation"><nav aria-label="Pages">
 <a href="now.html">Now</a>
@@ -48,7 +48,7 @@
 <div class="head"><h1>Instance</h1></div>
 <p class="note-role" data-only="instance"><b>As Ada (instance admin):</b> this hub's organisations, spaces and update. Being instance admin is a flag on the account, not a role in a space.</p>
 <p class="note-role" data-only="admin"><b>As an admin (Noor):</b> a space admin who is not an instance admin gets the refused page below.</p>
-<div data-only="guest user admin"><div class="empty"><div class="big" aria-hidden="true">⌀</div><h2>This page is for the hub's instance admins</h2><p>It lists every organisation and space on this hub, and updates the hub.</p><p><a class="btn" href="now.html" data-guest>Back to Now</a></p></div>
+<div data-only="guest user admin"><div class="empty"><div class="big" aria-hidden="true">⌀</div><h2>This page is for the hub's instance admins</h2><p>It lists every organisation and space on this hub, and updates the hub.</p><p><span class="fw"><a class="btn" href="now.html" data-guest>Back to Now</a></span></p></div>
 <p style="margin-top:var(--s-3)"><small>The hub refuses the page's calls too; the navigation never offers it.</small></p></div>
 <div data-only="instance">
 <div class="cols"><div>
@@ -57,17 +57,17 @@
 <tr><td>Makers Guild</td><td>Workshop North</td></tr><tr><td>Makers Guild</td><td>Workshop South</td></tr><tr><td>Home bench</td><td>Garage</td></tr></tbody></table></div>
 <span class="anno">GET /api/v1/instance/spaces · instance.admin</span>
 <h3 style="margin-top:var(--s-4)">A new space</h3>
-<div class="row"><label class="field">In<select><option>Makers Guild</option></select></label><label class="field">Name<input value="Workshop East"></label><button class="btn" type="button">Make space</button></div>
+<div class="row"><label class="field">In<select><option>Makers Guild</option></select></label><label class="field">Name<input value="Workshop East"></label><span class="fw"><button class="btn" type="button">Make space</button></span></div>
 <p><small>Only in an organisation where you have an admin or owner role (you own Makers Guild); being instance admin alone is not enough.</small> <span class="anno">POST /api/v1/spaces {name} · organisation.manage, an organisation role only</span></p>
 </div>
 <div class="card"><h2>Move a machine to another space</h2>
-<div class="row"><label class="field">Machine<select><option>Printer-4 (Workshop North)</option><option>MINI-1 (Workshop North)</option></select></label><label class="field">To<select><option>Workshop South</option><option>Garage</option></select></label><button class="btn" type="button" data-dialog="confirm-move">Move…</button></div>
+<div class="row"><label class="field">Machine<select><option>Printer-4 (Workshop North)</option><option>MINI-1 (Workshop North)</option></select></label><label class="field">To<select><option>Workshop South</option><option>Garage</option></select></label><span class="fw"><button class="btn" type="button" data-dialog="confirm-move">Move…</button></span></div>
 <div class="banner bad"><span><b>MINI-1 cannot be moved now:</b> its print has not ended. Move it when the job is over.</span></div>
 <span class="anno">decision 20261119-device-move; 409 device/JOB_OPEN; the route's path is open (OQ-1)</span>
 </div>
 </div><div>
 <div class="card"><h2>This hub</h2><dl class="kv"><dt>Running</dt><dd>hub-v2.0.0</dd><dt>Newer</dt><dd>hub-v2.0.1, signature checked ✓</dd><dt>Last update</dt><dd>done, 12 Nov</dd></dl>
-<p style="margin-top:var(--s-3)"><button class="btn primary" type="button" data-dialog="confirm-update">Update to hub-v2.0.1…</button></p>
+<p style="margin-top:var(--s-3)"><span class="fw"><button class="btn primary" type="button" data-dialog="confirm-update">Update to hub-v2.0.1…</button></span></p>
 <span class="anno">GET, POST /api/v1/update {tag} · instance.admin (flows.md §8)</span></div>
 <div class="card"><h2>An update, step by step</h2>
 <p class="anno">Mockup: what About shows during and after an update.</p>
@@ -80,8 +80,8 @@
 </div></div>
 <p style="margin-top:var(--s-3)"><small>A new organisation is not made from this page: the API has no route for it yet.</small></p>
 </div>
-<dialog id="confirm-update" aria-labelledby="cu-h"><h2 id="cu-h">Update the hub to hub-v2.0.1?</h2><p>The hub saves its database first, then starts the new build on trial. If the new build does not confirm itself, the hub goes back to hub-v2.0.0 and restores the database: changes made in between are lost. Pages reconnect by themselves.</p><form method="dialog" class="acts"><button class="btn" value="no">Not now</button><button class="btn primary" value="yes">Update</button></form></dialog>
-<dialog id="confirm-move" aria-labelledby="cmv-h"><h2 id="cmv-h">Move Printer-4 to Workshop South?</h2><p>Its history stays in Workshop North. Its grants, requests and queue items in Workshop North are removed; its spool and camera are unlinked. In Workshop South its roles' defaults apply.</p><form method="dialog" class="acts"><button class="btn" value="no">Keep it here</button><button class="btn primary" value="yes">Move</button></form></dialog>
+<dialog id="confirm-update" aria-labelledby="cu-h"><h2 id="cu-h">Update the hub to hub-v2.0.1?</h2><p>The hub saves its database first, then starts the new build on trial. If the new build does not confirm itself, the hub goes back to hub-v2.0.0 and restores the database: changes made in between are lost. Pages reconnect by themselves.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Not now</button></span><span class="fw"><button class="btn primary" value="yes">Update</button></span></form></dialog>
+<dialog id="confirm-move" aria-labelledby="cmv-h"><h2 id="cmv-h">Move Printer-4 to Workshop South?</h2><p>Its history stays in Workshop North. Its grants, requests and queue items in Workshop North are removed; its spool and camera are unlinked. In Workshop South its roles' defaults apply.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep it here</button></span><span class="fw"><button class="btn primary" value="yes">Move</button></span></form></dialog>
 
 </main>
 <nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>

@@ -13,7 +13,7 @@
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
   <span class="spacer"></span>
   <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
-  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <aside class="side" aria-label="Navigation"><nav aria-label="Pages">
 <a href="now.html">Now</a>
@@ -56,13 +56,13 @@
 <div class="preview" style="aspect-ratio:6/1;font-family:var(--mono);font-size:18px;color:var(--ink);background:var(--surface)">Drawer 14 · M3 bolts</div>
 <label class="field" style="margin-top:var(--s-3)">Tape<select><option>12 mm</option><option>9 mm</option><option>6 mm</option></select></label>
 <p><small>Pictures are made with the label editor in Prepare (not in these mockups); this page only prints them.</small></p>
-<p style="margin-top:var(--s-3)"><span class="ctl"><button class="btn primary" type="button" data-cmd="ok" data-settled="Printed at 15:51.">Print on Tape-1</button><span class="status" aria-live="polite"></span></span></p>
+<p style="margin-top:var(--s-3)"><span class="ctl"><span class="fw"><button class="btn primary" type="button" data-cmd="ok" data-settled="Printed at 15:51.">Print on Tape-1</button></span><span class="status" aria-live="polite"></span></span></p>
 <span class="anno">mc.label.print {picture, tape_size_mm} · job.start; sizes are the ones the port declares (samples); editor: Prepare, #6, OQ-14</span>
 </div><div class="card"><h2>When it cannot print</h2>
-<p><span class="st off">Offline</span> <small>not connected</small></p><p><span class="ctl"><button class="btn" aria-disabled="true" type="button" aria-describedby="why-1">Print on Tape-1</button><span class="why" id="why-1">Tape-1 is not connected: plug it in at the agent's computer.</span></span></p>
+<p><span class="st off">Offline</span> <small>not connected</small></p><p><span class="ctl"><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-describedby="why-1">Print on Tape-1</button></span><span class="why" id="why-1">Tape-1 is not connected: plug it in at the agent's computer.</span></span></p>
 <p><span class="st busy">Printing</span> while a tape prints: Print waits until it is done.</p>
 <span class="anno">labelmanager states DISCONNECTED, IDLE, BUSY; print accepted in IDLE</span></div></div></section>
-<section id="tsettings" role="tabpanel" aria-labelledby="t-tsettings" hidden><div class="card"><dl class="kv"><dt>Kind</dt><dd>tape printer (labelmanager)</dd></dl><p data-only="guest user" style="margin-top:var(--s-3)">Settings are changed by the space's staff.</p><p data-only="admin instance" style="margin-top:var(--s-3)"><button class="btn" type="button">Rename…</button></p></div></section>
+<section id="tsettings" role="tabpanel" aria-labelledby="t-tsettings" hidden><div class="card"><dl class="kv"><dt>Kind</dt><dd>tape printer (labelmanager)</dd></dl><p data-only="guest user" style="margin-top:var(--s-3)">Settings are changed by the space's staff.</p><p data-only="admin instance" style="margin-top:var(--s-3)"><span class="fw"><button class="btn" type="button">Rename…</button></span></p></div></section>
 
 </main>
 <nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>

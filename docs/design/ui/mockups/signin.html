@@ -13,7 +13,7 @@
   <a class="brand" href="signin.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Sign in</small></span></a>
   <span class="spacer"></span>
   <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
-  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <main id="main" tabindex="-1" class="bare" data-no-guest-note>
 
@@ -23,7 +23,7 @@
 <form action="now.html" method="get" data-guest>
 <label class="field">Name<input name="name" autocomplete="username" value="sam"></label>
 <label class="field">Password<input name="password" type="password" autocomplete="current-password" value="example"></label>
-<button class="btn primary" style="width:100%" data-guest>Sign in</button>
+<span class="fw" style="width:100%"><button class="btn primary" data-guest>Sign in</button></span>
 </form>
 <p style="margin-top:var(--s-3)"><small>Have an invite link? It opens <a href="invite.html">a page to make your account</a>. A fresh hub starts at <a href="setup.html">first-run setup</a>.</small> <span class="anno">POST /api/v1/session</span></p>
 </div>

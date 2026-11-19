@@ -92,10 +92,10 @@
   var toast = document.getElementById("toast");
   document.addEventListener("click", function (e) {
     var u = e.target.closest("[data-undo]"); if (!u || !toast) return;
-    toast.innerHTML = "<span></span><button class='btn small' type='button'>Undo</button><button class='btn small' type='button' aria-label='Close'>×</button>";
+    toast.innerHTML = "<span></span><span class='fw'><button class='btn small' type='button'>Undo</button></span><span class='fw'><button class='btn small' type='button' aria-label='Close'>×</button></span>";
     toast.firstChild.textContent = u.dataset.undo; toast.hidden = false;
     var bs = toast.querySelectorAll("button");
-    bs[0].onclick = function () { toast.firstChild.textContent = "Undone."; bs[0].remove(); };
+    bs[0].onclick = function () { toast.firstChild.textContent = "Undone."; bs[0].parentNode.remove(); };
     bs[1].onclick = function () { toast.hidden = true; };
   });
 
@@ -103,7 +103,7 @@
      data-cmd="ok|refused|unknown"; data-settled holds the settled text; the status line is aria-live. */
   document.addEventListener("click", function (e) {
     var c = e.target.closest("[data-cmd]"); if (!c || c.getAttribute("aria-busy") === "true") return;
-    var st = document.getElementById(c.getAttribute("aria-describedby") || "") || c.parentNode.querySelector(".status");
+    var st = document.getElementById(c.getAttribute("aria-describedby") || "") || (c.closest(".ctl") || c.parentNode).querySelector(".status");
     var label = c.textContent;
     c.setAttribute("aria-busy", "true"); c.textContent = label + "…";
     if (st) { st.className = "status"; st.textContent = c.dataset.pending || "Sent. Waiting for the machine to answer."; }

@@ -13,7 +13,7 @@
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
   <span class="spacer"></span>
   <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
-  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <aside class="side" aria-label="Navigation"><nav aria-label="Pages">
 <a href="now.html">Now</a>
@@ -57,13 +57,13 @@
 <b>Laser-A</b><div class="lane"><small>Never from the queue: a loaded job waits for a person.</small></div>
 </div></div>
 <div class="card"><h2>In order</h2><ul class="list">
-<li><div class="grow"><b>badge-round × 4</b> · MINI-1 · Sam<br><small>PLA · 1 h 05 min · ends about 17:40</small></div><button class="btn small" type="button">Move up</button><button class="btn small ghost" type="button" data-undo="badge-round taken out of the queue.">Take out</button></li>
-<li><div class="grow"><b>clip-set</b> · MINI-1 · Noor<br><small>PETG · 40 min · <b>waits: nothing with PETG loaded</b></small></div><span data-only="guest user"><small>Not yours</small></span><span data-only="admin instance"><button class="btn small" type="button">Move up</button> <button class="btn small ghost" type="button" data-undo="clip-set taken out of the queue.">Take out</button></span></li>
+<li><div class="grow"><b>badge-round × 4</b> · MINI-1 · Sam<br><small>PLA · 1 h 05 min · ends about 17:40</small></div><span class="fw"><button class="btn small" type="button">Move up</button></span><span class="fw"><button class="btn small ghost" type="button" data-undo="badge-round taken out of the queue.">Take out</button></span></li>
+<li><div class="grow"><b>clip-set</b> · MINI-1 · Noor<br><small>PETG · 40 min · <b>waits: nothing with PETG loaded</b></small></div><span data-only="guest user"><small>Not yours</small></span><span data-only="admin instance"><span class="fw"><button class="btn small" type="button">Move up</button></span> <span class="fw"><button class="btn small ghost" type="button" data-undo="clip-set taken out of the queue.">Take out</button></span></span></li>
 </ul><span class="anno">GET /api/v1/queue · queue.view; PATCH, DELETE /api/v1/queue/{id} · queue.manage, own items for their person; the dispatcher starts 3D and label printers, never a laser (flows.md §4)</span></div>
 </section>
 <section id="projects" role="tabpanel" aria-labelledby="t-projects" hidden>
 <div class="card"><h2>Club badges</h2><p class="num"><b>134 +14 / 200</b> parts</p><div class="bar" role="img" aria-label="67 percent"><i style="width:67%"></i></div>
-<ul class="list" style="margin-top:var(--s-3)"><li><div class="grow"><b>badge-round</b> · 100 / 120</div><button class="btn small" type="button">Edit</button><button class="btn small ghost" type="button" data-only="admin instance">Correct the count…</button></li><li><div class="grow"><b>badge-square</b> · 34 / 80<br><small>waits: no free printer with a textured sheet</small></div><button class="btn small" type="button">Edit</button></li></ul>
+<ul class="list" style="margin-top:var(--s-3)"><li><div class="grow"><b>badge-round</b> · 100 / 120</div><span class="fw"><button class="btn small" type="button">Edit</button></span><span class="fw" data-only="admin instance"><button class="btn small ghost" type="button">Correct the count…</button></span></li><li><div class="grow"><b>badge-square</b> · 34 / 80<br><small>waits: no free printer with a textured sheet</small></div><span class="fw"><button class="btn small" type="button">Edit</button></span></li></ul>
 <span class="anno">/api/v1/projects, /parts · farm.view, farm.use; a count: farm.manage</span></div>
 </section>
 

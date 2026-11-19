@@ -13,7 +13,7 @@
   <a class="brand" href="signin.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Sign in</small></span></a>
   <span class="spacer"></span>
   <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
-  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <main id="main" tabindex="-1" class="bare" data-no-guest-note>
 
@@ -26,15 +26,15 @@
 <label class="field">Name to sign in with<input autocomplete="username" value="ravi"></label>
 <label class="field">Name others see<input autocomplete="name" value="Ravi"></label>
 <label class="field">Password<input type="password" autocomplete="new-password"></label>
-<button class="btn primary" style="width:100%" data-guest>Make my account and join</button>
+<span class="fw" style="width:100%"><button class="btn primary" data-guest>Make my account and join</button></span>
 </form>
 <span class="anno">{token, name, display_name, password}: 201 the membership and a session</span></div></section>
 <section id="i-signed" role="tabpanel" aria-labelledby="t-i-signed" hidden><div class="card">
-<p>You are signed in as <b>Ravi</b>.</p><p><a class="btn primary" href="now.html" data-guest>Join Workshop North</a></p>
+<p>You are signed in as <b>Ravi</b>.</p><p><span class="fw"><a class="btn primary" href="now.html" data-guest>Join Workshop North</a></span></p>
 <span class="anno">{token}: 201 the membership</span></div></section>
 <section id="i-bad" role="tabpanel" aria-labelledby="t-i-bad" hidden>
 <div class="banner bad"><span><b>This invite link no longer works.</b> It was used, revoked or has ended. Ask the person who sent it for a new one.</span></div>
-<div class="banner info"><span><b>You are already a member of Workshop North.</b></span><a class="btn small" href="now.html" data-guest>Go to Now</a></div>
+<div class="banner info"><span><b>You are already a member of Workshop North.</b></span><span class="fw"><a class="btn small" href="now.html" data-guest>Go to Now</a></span></div>
 <span class="anno">authz/ALREADY_MEMBER (decision 20261119-invite-accept)</span>
 </section>
 

@@ -13,7 +13,7 @@
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
   <span class="spacer"></span>
   <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
-  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <aside class="side" aria-label="Navigation"><nav aria-label="Pages">
 <a href="now.html">Now</a>
@@ -48,7 +48,7 @@
 <div class="head"><h1>Add machine</h1></div>
 <p class="note-role" data-only="user"><b>As a member (Sam):</b> this is a staff page; you get the refused page below.</p>
 <p class="note-role" data-only="admin instance"><b>As an admin or owner:</b> you pair a machine by the code it shows.</p>
-<div data-only="guest user"><div class="empty"><div class="big" aria-hidden="true">⌀</div><h2>This page is for the space's staff</h2><p>Owners and admins add machines here.</p><p><a class="btn" href="now.html" data-guest>Back to Now</a></p></div>
+<div data-only="guest user"><div class="empty"><div class="big" aria-hidden="true">⌀</div><h2>This page is for the space's staff</h2><p>Owners and admins add machines here.</p><p><span class="fw"><a class="btn" href="now.html" data-guest>Back to Now</a></span></p></div>
 <p style="margin-top:var(--s-3)"><small>The hub refuses the page's calls too; the navigation never offers it.</small></p></div>
 <div data-only="admin instance">
 <p class="anno">Mockup: the kind picks step 2; the last tab shows the steps after Add.</p>
@@ -67,7 +67,7 @@ tls = false</pre>
 <span class="anno">today's INI lines (crates/hub/src/shell.js:89); the hub writes the lines for the printer's dialect</span>
 </li>
 <li><h3>Enter the code it shows</h3>
-<div class="row"><label class="field">Code<input value="K7Q2MX" autocomplete="off" class="num" style="letter-spacing:.2em;text-transform:uppercase"></label><label class="field">Name here<input value="MINI-3"></label><button class="btn primary" type="button" data-goto="k-after">Add</button></div>
+<div class="row"><label class="field">Code<input value="K7Q2MX" autocomplete="off" class="num" style="letter-spacing:.2em;text-transform:uppercase"></label><label class="field">Name here<input value="MINI-3"></label><span class="fw"><button class="btn primary" type="button" data-goto="k-after">Add</button></span></div>
 <span class="anno">POST /api/v1/devices/pair {code, name} · devices.manage</span>
 </li>
 <li><h3>Then: who may use it</h3><p>Set who may use it in Space → Permissions.</p></li>
@@ -79,15 +79,15 @@ tls = false</pre>
 <li class="done"><h3>What are you adding?</h3><p>A machine on USB: a 3D printer, a laser, a tape or label printer, a scale or a USB camera, through the agent on a computer beside it.</p></li>
 <li class="now"><h3>Start the agent beside it</h3>
 <p>On the computer the machine is plugged into, download the agent for that computer and start it against this hub. It then shows a code.</p>
-<div class="row"><label class="field">That computer<select><option>Linux, Raspberry Pi (aarch64)</option><option>Linux (x86_64)</option><option>macOS (aarch64)</option><option>Windows (x86_64)</option></select></label><a class="btn" href="#k-usb">Download the agent</a></div>
+<div class="row"><label class="field">That computer<select><option>Linux, Raspberry Pi (aarch64)</option><option>Linux (x86_64)</option><option>macOS (aarch64)</option><option>Windows (x86_64)</option></select></label><span class="fw"><a class="btn" href="#k-usb">Download the agent</a></span></div>
 <pre>chmod +x maker-connect-agent-linux-aarch64
 sudo usermod -aG dialout $USER   # once: serial ports, then log in again
 ./maker-connect-agent-linux-aarch64 run --hub http://192.168.1.20:8080 --name "My machine" --save</pre>
-<button class="btn small" type="button">Copy</button>
+<span class="fw"><button class="btn small" type="button">Copy</button></span>
 <span class="anno">today's downloads page and start command (crates/hub/src/downloads.rs:114); the v2 agent's own command follows its step</span>
 </li>
 <li><h3>Enter the code it shows</h3>
-<div class="row"><label class="field">Code<input value="" placeholder="from the agent" autocomplete="off" class="num" style="letter-spacing:.2em;text-transform:uppercase"></label><label class="field">Name here<input value="Laser-B"></label><button class="btn primary" type="button" data-goto="k-after">Add</button></div>
+<div class="row"><label class="field">Code<input value="" placeholder="from the agent" autocomplete="off" class="num" style="letter-spacing:.2em;text-transform:uppercase"></label><label class="field">Name here<input value="Laser-B"></label><span class="fw"><button class="btn primary" type="button" data-goto="k-after">Add</button></span></div>
 <span class="anno">POST /api/v1/devices/pair {code, name} · devices.manage (flows.md §1)</span>
 </li>
 <li><h3>Then: who may use it</h3><p>Set who may use it in Space → Permissions.</p></li>
@@ -100,10 +100,10 @@ sudo usermod -aG dialout $USER   # once: serial ports, then log in again
 
 <section id="k-after" role="tabpanel" aria-labelledby="t-k-after" hidden>
 <div class="card"><h2>While it pairs</h2>
-<p><span class="ctl"><button class="btn primary" type="button" aria-busy="true">Add…</button><span class="status">Pairing MINI-3: waiting for the printer to collect its token. Leave the printer on.</span></span></p></div>
+<p><span class="ctl"><span class="fw"><button class="btn primary" type="button" aria-busy="true">Add…</button></span><span class="status">Pairing MINI-3: waiting for the printer to collect its token. Leave the printer on.</span></span></p></div>
 <div class="card"><h2>Paired</h2>
-<div class="banner ok"><span><b>MINI-3 is added</b> and reports to the hub. Its first values come in now.</span><a class="btn small" href="printer.html">Open MINI-3</a></div>
-<p>Step 4: set who may use it in <a class="btn" href="space-permissions.html#grants">Space → Permissions</a></p></div>
+<div class="banner ok"><span><b>MINI-3 is added</b> and reports to the hub. Its first values come in now.</span><span class="fw"><a class="btn small" href="printer.html">Open MINI-3</a></span></div>
+<p>Step 4: set who may use it in <span class="fw"><a class="btn" href="space-permissions.html#grants">Space → Permissions</a></span></p></div>
 <div class="card"><h2>Errors</h2>
 <div class="banner bad"><span><b>That code is not waiting here.</b> It may have expired: the printer or the agent shows a new one; enter that one.</span></div>
 <div class="banner bad"><span><b>The machine did not collect its token.</b> It was added, but has not reported yet. Check that it is on and can reach this hub, then wait.</span></div>

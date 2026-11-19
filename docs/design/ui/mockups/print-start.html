@@ -13,7 +13,7 @@
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
   <span class="spacer"></span>
   <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
-  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <aside class="side" aria-label="Navigation"><nav aria-label="Pages">
 <a href="now.html">Now</a>
@@ -66,8 +66,8 @@
 </div><div>
 <div class="card"><h2>badge-round.bgcode</h2>
 <dl class="kv"><dt>Made for</dt><dd>MINI, 0.4 mm nozzle</dd><dt>Material</dt><dd>PLA, 18 g</dd><dt>Time</dt><dd class="num">1 h 05 min</dd><dt>Loaded now</dt><dd>PLA Sage ✓</dd></dl>
-<p style="margin-top:var(--s-3)"><span class="ctl" style="display:grid"><button class="btn" aria-disabled="true" type="button" aria-describedby="why-1">Print now on MINI-1</button><span class="why" id="why-1">MINI-1 is printing. Print now works when it is ready; add it to the queue instead.</span></span></p>
-<p><span class="ctl" style="display:grid"><button class="btn primary" type="button" data-cmd="ok" data-settled="Added to MINI-1's queue as number 3.">Add to MINI-1's queue</button><span class="status" aria-live="polite"></span></span><span class="why">It starts by itself when MINI-1 is free and its bed is clear.</span></p>
+<p style="margin-top:var(--s-3)"><span class="ctl" style="display:grid"><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-describedby="why-1">Print now on MINI-1</button></span><span class="why" id="why-1">MINI-1 is printing. Print now works when it is ready; add it to the queue instead.</span></span></p>
+<p><span class="ctl" style="display:grid"><span class="fw"><button class="btn primary" type="button" data-cmd="ok" data-settled="Added to MINI-1's queue as number 3.">Add to MINI-1's queue</button></span><span class="status" aria-live="polite"></span></span><span class="why">It starts by itself when MINI-1 is free and its bed is clear.</span></p>
 <label class="check" data-only="admin instance"><input type="checkbox"> Put it first</label>
 <span class="anno">POST /api/v1/queue {device_id, file_id} · queue.manage and job.start; first: PATCH /api/v1/queue/{id} {pos}</span>
 </div>

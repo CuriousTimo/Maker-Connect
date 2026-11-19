@@ -13,7 +13,7 @@
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
   <span class="spacer"></span>
   <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
-  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <aside class="side" aria-label="Navigation"><nav aria-label="Pages">
 <a href="now.html" aria-current="page">Now</a>
@@ -45,7 +45,7 @@
 </nav></aside>
 <main id="main" tabindex="-1">
 
-<div class="head"><h1>Now</h1><span class="clock num">15:50</span><div class="actions"><a class="btn" href="wall.html" data-guest>Wall screen</a></div></div>
+<div class="head"><h1>Now</h1><span class="clock num">15:50</span><div class="actions"><span class="fw"><a class="btn" href="wall.html" data-guest>Wall screen</a></span></div></div>
 <p class="note-role" data-only="user"><b>As a member (Sam):</b> you see the machines you may view; Set Ready and Bad print show where you may confirm a print.</p>
 <p class="note-role" data-only="admin instance"><b>As an admin or owner:</b> you also see requests for permission and every machine's trouble; the buttons lead to Space, they grant nothing here.</p>
 <div class="stats">
@@ -59,10 +59,10 @@
 <section class="card" id="needs"><h2>Needs someone</h2>
 <ul class="list">
 <li class="edge-wait" style="padding-left:var(--s-3)"><div class="grow"><b>MINI-2</b> <span class="st wait">Needs someone</span><br><small>Print done: was it good? <span class="num">Good: 4 / 4</span> · waiting 12 min</small></div>
-<span class="ctl"><button class="btn primary small" type="button" data-cmd="ok" data-settled="MINI-2 is ready for the next print.">Set Ready</button><span class="status" aria-live="polite"></span></span><button class="btn small" type="button" data-dialog="confirm-bad">Bad print…</button></li>
-<li class="edge-warn" style="padding-left:var(--s-3)"><div class="grow"><b>Labels-1</b> <span class="st warn">Attention</span><br><small>Out of labels: load a roll · since 15:31</small></div><a class="btn small" href="label-labels.html" data-guest>Look</a></li>
-<li style="padding-left:var(--s-3)"><div class="grow"><b>Printer-4</b> <span class="st off">Offline</span><br><small>No report since 13:12 · 2 h 38 min</small></div><a class="btn small" href="state-unknown.html" data-guest>Look</a></li>
-<li data-only="admin instance" class="edge-warn" style="padding-left:var(--s-3)"><div class="grow"><b>2 requests for permission</b><br><small>Ravi for Laser-A, 13:50 · Sam for a training on Printer-3, 14:20</small></div><a class="btn small" href="space-permissions.html#requests">Review in Space</a></li>
+<span class="ctl"><span class="fw"><button class="btn primary small" type="button" data-cmd="ok" data-settled="MINI-2 is ready for the next print.">Set Ready</button></span><span class="status" aria-live="polite"></span></span><span class="fw"><button class="btn small" type="button" data-dialog="confirm-bad">Bad print…</button></span></li>
+<li class="edge-warn" style="padding-left:var(--s-3)"><div class="grow"><b>Labels-1</b> <span class="st warn">Attention</span><br><small>Out of labels: load a roll · since 15:31</small></div><span class="fw"><a class="btn small" href="label-labels.html" data-guest>Look</a></span></li>
+<li style="padding-left:var(--s-3)"><div class="grow"><b>Printer-4</b> <span class="st off">Offline</span><br><small>No report since 13:12 · 2 h 38 min</small></div><span class="fw"><a class="btn small" href="state-unknown.html" data-guest>Look</a></span></li>
+<li data-only="admin instance" class="edge-warn" style="padding-left:var(--s-3)"><div class="grow"><b>2 requests for permission</b><br><small>Ravi for Laser-A, 13:50 · Sam for a training on Printer-3, 14:20</small></div><span class="fw"><a class="btn small" href="space-permissions.html#requests">Review in Space</a></span></li>
 </ul>
 <span class="anno">Set Ready, Bad print: POST /api/v1/jobs/{id}/confirm {good} · job.control on MINI-2</span>
 </section>
@@ -87,7 +87,7 @@
 </div>
 </div>
 <p><small>Live: every row is filtered on the hub to the machines you may view, never after fetching.</small> <span class="anno">/api/v1/events · device_access</span></p>
-<dialog id="confirm-bad" aria-labelledby="cbp-h"><h2 id="cbp-h">Mark MINI-2's print as bad?</h2><p>It does not count as a good part. Clear the plate before the next print.</p><form method="dialog" class="acts"><button class="btn" value="no">Back</button><button class="btn primary" value="yes">Bad print</button></form></dialog>
+<dialog id="confirm-bad" aria-labelledby="cbp-h"><h2 id="cbp-h">Mark MINI-2's print as bad?</h2><p>It does not count as a good part. Clear the plate before the next print.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Back</button></span><span class="fw"><button class="btn primary" value="yes">Bad print</button></span></form></dialog>
 
 </main>
 <nav class="bottom" aria-label="Pages (phone)"><a href="now.html" aria-current="page"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>

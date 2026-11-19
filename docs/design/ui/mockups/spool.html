@@ -13,7 +13,7 @@
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
   <span class="spacer"></span>
   <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
-  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <aside class="side" aria-label="Navigation"><nav aria-label="Pages">
 <a href="now.html">Now</a>
@@ -54,15 +54,15 @@
 <div class="tiles"><div class="tile"><span>Left</span><b class="num">640 g</b></div><div class="tile"><span>Used</span><b class="num">360 g</b></div><div class="tile"><span>Weighed</span><b class="num">18 Nov</b></div></div>
 <h3 style="margin-top:var(--s-4)">Weigh it on Scale-1</h3>
 <p><span class="out">Weighing</span> <span class="unknown">unknown</span> <small>not steady yet</small></p>
-<p><span class="ctl"><button class="btn" aria-disabled="true" type="button" aria-describedby="why-1">Use this weight</button><span class="why" id="why-1" aria-live="polite">Wait until the scale shows a steady weight.</span></span></p>
+<p><span class="ctl"><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-describedby="why-1">Use this weight</button></span><span class="why" id="why-1" aria-live="polite">Wait until the scale shows a steady weight.</span></span></p>
 <span class="anno">PUT /spoolman/api/v1/spool/12/measure, enabled when Scale-1 reports STABLE</span>
 <h3 style="margin-top:var(--s-4)">Used by hand</h3>
-<div class="row" data-act><label class="field">Grams used<input inputmode="numeric" placeholder="e.g. 25"></label><span class="ctl"><button class="btn" type="button" data-cmd="ok" data-settled="25 g subtracted: 615 g left.">Subtract used grams</button><span class="status" aria-live="polite"></span></span></div>
+<div class="row" data-act><label class="field">Grams used<input inputmode="numeric" placeholder="e.g. 25"></label><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="25 g subtracted: 615 g left.">Subtract used grams</button></span><span class="status" aria-live="polite"></span></span></div>
 <span class="anno">PUT /spool/12/use</span>
 </div></div><div>
 <div class="card"><h2>Facts</h2><dl class="kv"><dt>Filament</dt><dd>PLA Sage, Generic, 1.75 mm</dd><dt>Where</dt><dd>on MINI-1 (from Shelf A2)</dd><dt>Lot</dt><dd><span class="unknown">unknown</span></dd><dt>Price</dt><dd>18.00</dd></dl></div>
-<div class="card"><h2>Label</h2><p><a class="btn" href="label-labels.html">Print on Labels-1</a> <a class="btn" href="label-tape.html">Print on Tape-1</a></p><p><small>Each printer prints its own way; the button names the printer.</small></p></div>
-<div class="card"><h2>Change</h2><p><button class="btn" type="button">Edit</button> <button class="btn ghost" type="button" data-undo="Spool #12 archived.">Archive</button></p></div>
+<div class="card"><h2>Label</h2><p><span class="fw"><a class="btn" href="label-labels.html">Print on Labels-1</a></span> <span class="fw"><a class="btn" href="label-tape.html">Print on Tape-1</a></span></p><p><small>Each printer prints its own way; the button names the printer.</small></p></div>
+<div class="card"><h2>Change</h2><p><span class="fw"><button class="btn" type="button">Edit</button></span> <span class="fw"><button class="btn ghost" type="button" data-undo="Spool #12 archived.">Archive</button></span></p></div>
 </div></div>
 
 </main>

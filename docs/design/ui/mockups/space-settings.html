@@ -13,7 +13,7 @@
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
   <span class="spacer"></span>
   <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
-  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <aside class="side" aria-label="Navigation"><nav aria-label="Pages">
 <a href="now.html">Now</a>
@@ -49,14 +49,14 @@
 <p class="note-role" data-only="user"><b>As a member (Sam):</b> this is a staff page; you get the refused page below.</p>
 <p class="note-role" data-only="admin"><b>As an admin (Noor):</b> the space's own settings, one subject per tab.</p>
 <p class="note-role" data-only="instance"><b>As Ada (owner of the space and of the organisation):</b> the same tabs; you may also rename the organisation.</p>
-<div data-only="guest user"><div class="empty"><div class="big" aria-hidden="true">⌀</div><h2>This page is for the space's staff</h2><p>Owners and admins manage the space's settings here.</p><p><a class="btn" href="now.html" data-guest>Back to Now</a></p></div>
+<div data-only="guest user"><div class="empty"><div class="big" aria-hidden="true">⌀</div><h2>This page is for the space's staff</h2><p>Owners and admins manage the space's settings here.</p><p><span class="fw"><a class="btn" href="now.html" data-guest>Back to Now</a></span></p></div>
 <p style="margin-top:var(--s-3)"><small>The hub refuses the page's calls too; the navigation never offers it.</small></p></div>
 <div data-only="admin instance">
 <nav class="tabs" data-pagenav aria-label="Space"><a href="space-settings.html#general">General</a><a href="space-members.html">Members</a><a href="space-permissions.html">Permissions</a><a href="space-settings.html#tokens">API tokens</a><a href="space-settings.html#audit">Audit log</a><a href="space-settings.html#cameras">Cameras</a><a href="space-settings.html#access">Access (doors)</a></nav>
 
 <section id="general" data-section aria-label="General"><div class="card">
-<div class="row"><label class="field">Space name<input value="Workshop North"></label><button class="btn" type="button">Save</button></div>
-<div class="row" data-only="instance"><label class="field">Organisation name<input value="Makers Guild"></label><button class="btn" type="button">Save</button></div>
+<div class="row"><label class="field">Space name<input value="Workshop North"></label><span class="fw"><button class="btn" type="button">Save</button></span></div>
+<div class="row" data-only="instance"><label class="field">Organisation name<input value="Makers Guild"></label><span class="fw"><button class="btn" type="button">Save</button></span></div>
 <div class="row" data-only="admin"><label class="field">Organisation name<input value="Makers Guild" readonly aria-describedby="why-org"></label><span class="why" id="why-org" style="flex-basis:100%">Renaming the organisation needs an admin or owner role in the organisation; yours there is member.</span></div>
 <label class="check"><input type="checkbox" checked> Ask for PPE before a machine with a PPE list is used</label>
 <span class="anno">PATCH /api/v1/spaces/{id} {name, ppe_checks} · space.manage; PATCH /api/v1/organisations/{id} · organisation.manage (an organisation role only)</span></div></section>
@@ -64,7 +64,7 @@
 <section id="tokens" data-section aria-label="API tokens" hidden>
 <div class="card"><h2>Make a token</h2>
 <div class="row"><label class="field">Name<input value="slicer on the bench PC"></label><label class="field">Ends<input type="date" value="2027-02-19"></label></div>
-<fieldset style="border:1px solid var(--line);border-radius:var(--r-1);padding:var(--s-3);margin:0 0 var(--s-3)"><legend style="font-weight:600;font-size:var(--fs-2)">What it may do</legend>
+<fieldset style="border:1px solid var(--line);padding:var(--s-3);margin:0 0 var(--s-3)"><legend style="font-weight:600;font-size:var(--fs-2)">What it may do</legend>
 <p><small>A token never does more than you may do yourself, at the time of each call. Tick only what it needs.</small></p>
 <div class="grid" style="gap:var(--s-2)">
 <div><b style="font-size:var(--fs-2)">Machines</b>
@@ -85,14 +85,14 @@
 <p style="margin-top:var(--s-2)"><small>Not offered, because a token can never do them: Start burn on a laser and a frame with the laser on (only from a person's own sign-in), and granting permissions (only a person, in Space).</small></p>
 <span class="anno">scopes = an action set: device.view, job.start, job.control, device.move, device.heat, files.view, files.manage, queue.view, queue.manage, stock.view, stock.use · effective = scopes ∩ the person's rights at each request (decision 20261119-token-effective-rights)</span>
 </fieldset>
-<p><button class="btn primary" type="button">Make token</button> <span class="anno">POST /api/v1/tokens {name, scopes, expires_at} · tokens.manage, from a session only</span></p>
-<div class="banner ok" role="status"><span><b>Token "slicer on the bench PC" made. Copy it now: it is shown only this once.</b><code class="secret" style="margin-top:var(--s-2)">mct_7Hq2vX9kLp3RtB8nWc4ZsYe6JmUa1DgF</code><small>If it is lost, revoke it and make a new one.</small></span><button class="btn small" type="button">Copy</button><button class="btn small ghost" type="button">Done</button></div>
+<p><span class="fw"><button class="btn primary" type="button">Make token</button></span> <span class="anno">POST /api/v1/tokens {name, scopes, expires_at} · tokens.manage, from a session only</span></p>
+<div class="banner ok" role="status"><span><b>Token "slicer on the bench PC" made. Copy it now: it is shown only this once.</b><code class="secret" style="margin-top:var(--s-2)">mct_7Hq2vX9kLp3RtB8nWc4ZsYe6JmUa1DgF</code><small>If it is lost, revoke it and make a new one.</small></span><span class="fw"><button class="btn small" type="button">Copy</button></span><span class="fw"><button class="btn small ghost" type="button">Done</button></span></div>
 </div>
 <div class="table-wrap dense"><table><thead><tr><th>Name</th><th>May do</th><th>Ends</th><th>Last used</th><th></th></tr></thead><tbody>
-<tr><td>slicer</td><td>start jobs; see machines, files</td><td>1 Feb</td><td>today 13:02</td><td><button class="btn small ghost" type="button" data-dialog="confirm-revoke">Revoke…</button></td></tr>
-<tr><td>old script</td><td>see machines</td><td>no end</td><td><span class="unknown">never</span></td><td><button class="btn small ghost" type="button" data-dialog="confirm-revoke">Revoke…</button></td></tr>
+<tr><td>slicer</td><td>start jobs; see machines, files</td><td>1 Feb</td><td>today 13:02</td><td><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-revoke">Revoke…</button></span></td></tr>
+<tr><td>old script</td><td>see machines</td><td>no end</td><td><span class="unknown">never</span></td><td><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-revoke">Revoke…</button></span></td></tr>
 </tbody></table></div>
-<dialog id="confirm-revoke" aria-labelledby="rv-h"><h2 id="rv-h">Revoke this token?</h2><p>Every app that uses it stops working at once.</p><form method="dialog" class="acts"><button class="btn" value="no">Keep it</button><button class="btn danger" value="yes">Revoke</button></form></dialog>
+<dialog id="confirm-revoke" aria-labelledby="rv-h"><h2 id="rv-h">Revoke this token?</h2><p>Every app that uses it stops working at once.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep it</button></span><span class="fw"><button class="btn danger" value="yes">Revoke</button></span></form></dialog>
 </section>
 
 <section id="audit" data-section aria-label="Audit log" hidden>
@@ -101,21 +101,21 @@
 <tr><td>19 Nov 14:02</td><td>Sam</td><td>loaded sign-oak on Laser-A</td></tr>
 <tr><td>18 Nov 20:10</td><td>Noor</td><td>made an invite link (member)</td></tr>
 <tr><td>12 Nov 18:05</td><td>Noor</td><td>granted Sam Start a laser job on Laser-A</td></tr></tbody></table></div>
-<p style="margin-top:var(--s-3)"><button class="btn" type="button">Older</button> <small>Showing 3 of the newest; Older loads the next page.</small> <span class="anno">GET /api/v1/spaces/{id}/audit with a cursor · audit.view</span></p>
+<p style="margin-top:var(--s-3)"><span class="fw"><button class="btn" type="button">Older</button></span> <small>Showing 3 of the newest; Older loads the next page.</small> <span class="anno">GET /api/v1/spaces/{id}/audit with a cursor · audit.view</span></p>
 </section>
 
 <section id="cameras" data-section aria-label="Cameras" hidden>
 <div class="card"><h2>Cameras</h2>
 <ul class="list">
-<li><div class="grow"><b>Cam-MINI-1</b> <span class="out">Online</span><br><small>Watches MINI-1 · rtsp://192.168.1.41/stream1</small></div><button class="btn small" type="button">Edit</button><a class="btn small" href="#cam-live">Show live</a><button class="btn small ghost" type="button" data-dialog="confirm-camdel">Remove…</button></li>
-<li><div class="grow"><b>Cam-Door</b> <span class="out">Online</span><br><small>The room · seen by admins · rtsp://192.168.1.40/stream1</small></div><button class="btn small" type="button">Edit</button><a class="btn small" href="#cam-live">Show live</a><button class="btn small ghost" type="button" data-dialog="confirm-camdel">Remove…</button></li>
-<li><div class="grow"><b>Cam-Laser-A</b> <span class="st off">Offline</span><br><small>Watches Laser-A · no picture since 11:20 · check the camera's power and network</small></div><button class="btn small" type="button">Edit</button><button class="btn small ghost" type="button" data-dialog="confirm-camdel">Remove…</button></li>
+<li><div class="grow"><b>Cam-MINI-1</b> <span class="out">Online</span><br><small>Watches MINI-1 · rtsp://192.168.1.41/stream1</small></div><span class="fw"><button class="btn small" type="button">Edit</button></span><span class="fw"><a class="btn small" href="#cam-live">Show live</a></span><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-camdel">Remove…</button></span></li>
+<li><div class="grow"><b>Cam-Door</b> <span class="out">Online</span><br><small>The room · seen by admins · rtsp://192.168.1.40/stream1</small></div><span class="fw"><button class="btn small" type="button">Edit</button></span><span class="fw"><a class="btn small" href="#cam-live">Show live</a></span><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-camdel">Remove…</button></span></li>
+<li><div class="grow"><b>Cam-Laser-A</b> <span class="st off">Offline</span><br><small>Watches Laser-A · no picture since 11:20 · check the camera's power and network</small></div><span class="fw"><button class="btn small" type="button">Edit</button></span><span class="fw"><button class="btn small ghost" type="button" data-dialog="confirm-camdel">Remove…</button></span></li>
 </ul>
 <span class="anno">GET /api/v1/cameras; PATCH, DELETE /api/v1/cameras/{id} · cameras.manage</span></div>
-<div class="card"><h2>Add a network camera</h2><div class="row"><label class="field">Name<input value="Cam-Bench"></label><label class="field">RTSP address<input value="rtsp://192.168.1.42/stream1"></label><label class="field">User name<input value="viewer"></label><label class="field">Password<input type="password" placeholder="not shown again once saved"></label><label class="field">Watches<select><option>the room</option><option>MINI-1</option><option>Laser-A</option></select></label><label class="field">The room's camera is seen by<select><option>admins</option><option>members</option><option>guests</option></select></label></div><p><button class="btn primary" type="button">Add camera</button></p>
+<div class="card"><h2>Add a network camera</h2><div class="row"><label class="field">Name<input value="Cam-Bench"></label><label class="field">RTSP address<input value="rtsp://192.168.1.42/stream1"></label><label class="field">User name<input value="viewer"></label><label class="field">Password<input type="password" placeholder="not shown again once saved"></label><label class="field">Watches<select><option>the room</option><option>MINI-1</option><option>Laser-A</option></select></label><label class="field">The room's camera is seen by<select><option>admins</option><option>members</option><option>guests</option></select></label></div><p><span class="fw"><button class="btn primary" type="button">Add camera</button></span></p>
 <p><small>The password never comes back; editing with an empty password keeps it. To test a camera, Show live after saving. USB cameras come through the agent (Add machine).</small> <span class="anno">POST /api/v1/cameras {name, url, username, password, watches_device_id, room_view_role}</span></p></div>
-<div class="card" id="cam-live"><h2>Cam-MINI-1: live</h2><div class="preview">Live view</div><span class="anno">/api/v1/cameras/{id}/ws</span></div>
-<dialog id="confirm-camdel" aria-labelledby="cm-h"><h2 id="cm-h">Remove this camera?</h2><p>Its live view goes from every page.</p><form method="dialog" class="acts"><button class="btn" value="no">Keep it</button><button class="btn danger" value="yes">Remove</button></form></dialog>
+<div class="card" id="cam-live"><h2>Cam-MINI-1: live</h2><div class="preview cam">Live view</div><span class="anno">/api/v1/cameras/{id}/ws</span></div>
+<dialog id="confirm-camdel" aria-labelledby="cm-h"><h2 id="cm-h">Remove this camera?</h2><p>Its live view goes from every page.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep it</button></span><span class="fw"><button class="btn danger" value="yes">Remove</button></span></form></dialog>
 </section>
 
 <section id="access" data-section aria-label="Access (doors)" hidden><div class="card"><h2>Doors</h2><p>Doors and badges are their own module: a door permission never grants a machine action, and a machine permission never opens a door. Not designed yet.</p><span class="anno">OQ-10</span></div></section>

@@ -418,6 +418,58 @@ decided as `#5E6B52` (journal:UI-DESIGN:0009 #2): (same hue, HSV value lowered f
 `#68765C` (4.51:1), which leaves no margin. The earlier candidate `#697C58` reaches only 4.23:1 on
 the page.
 
+### The motif: one cut corner
+
+The house style is the wiki page *Design: House Style* (owner, 2026-11-19); this section applies it.
+**One 45° chamfered corner, top right; every other corner is square** (no rounded corners anywhere;
+only a state's dot and a step's number stay round, as marks).
+
+| Element | Cut | Token |
+|---|---|---|
+| Cards, panels (value tiles, steps, banners, the table frame, the laser's Stop bar, the phone's More menu, the empty state, the Undo toast), dialogs, camera tiles, the logo | 12 px | `--cut-l` |
+| Buttons (and the theme switch) | 8 px | `--cut-m` |
+| Chips: the state chip, the outcome tag, *unknown*, filter chips, label tags | 6 px | `--cut-s` |
+
+- The shape is `clip-path: polygon(0 0, calc(100% - C) 0, 100% C, 100% 100%, 0 100%)`.
+- **A shape with an outline is two layers**: an outer layer in the outline colour (border-box) and an
+  inner layer in the fill (padding-box) whose cut is **C − 0.5858 × w** (w = outline width, 1 px). With
+  the same cut on both, the diagonal comes out √2 times too thick. In `mc.css` the two layers are two
+  backgrounds of the one element (the inner one a 225° gradient whose edge is the inner cut, blended
+  over 1 px as anti-aliasing), so a scrolling frame (`.table-wrap`) keeps its shape. Measured in
+  headless Chrome on a black-on-white test (sum of coverage across the edge): the diagonal is
+  0.97 px at 1x, 0.99 px at 2x, 1.00 px at 3x and 4x against 1.00 px straight edges.
+- A dashed outline (offline, unknown, the empty state, a pending command) is a 135° stripe on the
+  outer layer, so the diagonal is dashed as well.
+- A shape without an outline (filter chips, label tags, the logo, the toast, the primary button) is set
+  apart by its fill alone.
+- **Focus ring:** `clip-path` cuts off an outline, so every cut control (button, chip, theme switch)
+  sits in a wrapper `<span class="fw">` that draws the ring on `:focus-within`. Controls without a cut
+  (links, tabs, inputs, selects, checkboxes, summaries) keep their own ring. A list that is itself a
+  card keeps the card's side padding, so its cut never cuts a ring.
+
+### Transparency
+
+Transparency is used only where it shows something of what is behind:
+
+- **Tints of the house colour at alpha** (`--tint-hover` 10 %, `--tint-sel` 18 %, `--tint-chip` 24 %):
+  one token for light and dark. They replace the solid tints: the navigation's hover and current page,
+  the fill of filter chips and label tags. A selected row also keeps a bar on its left, so selection
+  never rests on colour alone.
+- **The sticky header** is translucent (`--glass`, 88 %) with a 10 px backdrop blur; a **bar over a
+  camera image** uses the same token and blur. These are the only two blurred layers (cost on the Pi
+  and old phones). The mockups draw no bar over a camera image yet.
+- **Behind a dialog** a scrim of 50 % (`--scrim`; 60 % in dark).
+- **The cut corner** shows the background behind it.
+
+Never on text (a stale camera picture says *Last picture* in words; it is not dimmed), never to
+disable a control (the muted text colour, contrast measured), never on status colours, warnings, Stop
+or any laser control: those stay opaque.
+
+Every translucent layer has an opaque version: where `backdrop-filter` is missing the header is
+`--glass-solid`; under `prefers-reduced-transparency: reduce` every layer is replaced by its colour
+over its usual background (the tints over `--surface`, the header `--glass-solid`, the scrim
+`#848484` light, `#070708` dark) and the blur is off.
+
 ### Tokens
 
 Every ratio below was computed with the WCAG 2.x formula (relative luminance, sRGB). Text needs
@@ -439,9 +491,37 @@ Every ratio below was computed with the WCAG 2.x formula (relative luminance, sR
 | `--st-info` | `#2F62B8` | 5.49 on bg, 5.90 on surface | `#86B3FF` | 8.84 on bg, 8.04 on surface | notes |
 | `--st-off` (idle, offline) | `#6B6E66` | 5.19 on surface | `#9A9C95` | 6.14 on surface | free, offline |
 | `--on-strong` | `#FFFFFF` | 6.54 on bad, 5.31 on wait | `#1D1D1B` | 6.76 on bad, 8.03 on wait | text on a state fill |
+| `--tint-hover` | `rgb(147 166 130 / .10)` | see below | same | see below | hover in the navigation |
+| `--tint-sel` | `rgb(147 166 130 / .18)` | see below | same | see below | the current page in the navigation (with its left bar) |
+| `--tint-chip` | `rgb(147 166 130 / .24)` | see below | same | see below | filter chips, label tags |
+| `--glass` | `rgb(255 255 255 / .88)` | see below | `rgb(27 28 31 / .88)` | see below | the sticky header, a bar over a camera image |
+| `--glass-solid` | `#FFFFFF` | — | `#1B1C1F` | — | the opaque version of `--glass` |
+| `--scrim` | `rgb(17 18 20 / .5)` | no text on it | `rgb(0 0 0 / .6)` | no text on it | behind a dialog |
+| `--cut-l`, `--cut-m`, `--cut-s` | 12, 8, 6 px | — | same | — | the cut corner |
 
 The focus ring is 2 px of `--accent-text` with a 2 px gap, so it is measured against the page
-(5.28:1 light, 7.16:1 dark). No container clips it: tabs wrap instead of scrolling (UT-19, UT-46).
+(5.28:1 light, 7.16:1 dark). No container clips it: tabs wrap instead of scrolling (UT-19, UT-46), and
+on a cut control it sits on the wrapper (see the motif).
+
+Pairs added by the house style. Text on a translucent layer is measured against the lightest and the
+darkest background that can be behind it: for a tint `--bg`, `--surface` and `--surface-2` (the table
+gives the worst, then the best); for `--glass` pure white and pure black, since any picture or page
+can scroll under the header.
+
+| Pair | Light | Dark | Use |
+|---|---|---|---|
+| `--ink` on `--tint-hover` | 13.73 – 15.53 | 11.62 – 14.38 | a hovered navigation link |
+| `--muted` on `--tint-hover` | 5.55 – 6.28 | 5.46 – 6.76 | a hovered machine's state word in the navigation |
+| `--ink` on `--tint-sel` | 12.94 – 14.54 | 10.08 – 12.43 | the current page's link |
+| `--muted` on `--tint-sel` | 5.24 – 5.89 | 4.74 – 5.84 | the current machine's state word |
+| `--ink` on `--tint-chip` | 12.31 – 13.82 | 8.95 – 10.98 | a filter chip's word and count, a label tag |
+| `--ink` on `--glass` | 12.79 – 16.88 | 10.54 – 15.58 | the header's name |
+| `--muted` on `--glass` | 5.18 – 6.83 | 4.95 – 7.32 | the header's space name and *View as* |
+| `--line-strong` on `--glass` | 2.98 – 3.94 | 2.72 – 4.02 | not a boundary that counts: the header's select and theme switch are opaque (`--surface` fill), and their edge measures 3.94 / 3.89 against that fill |
+| `--ink`, `--muted` on the opaque tints (reduced transparency) | 13.82 / 5.59 (chip), 14.54 / 5.89 (selected) | 9.83 / 4.62, 11.04 / 5.19 | the same, without transparency |
+
+`--muted` on `--tint-chip` is not used: it falls to 4.21 on `--surface-2` in dark, so chips and tags
+carry `--ink`.
 
 Pairs added by the UX-test sweep (computed with the same formula; text needs 4.5:1, a boundary 3:1):
 

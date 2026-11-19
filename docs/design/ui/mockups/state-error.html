@@ -13,7 +13,7 @@
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
   <span class="spacer"></span>
   <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
-  <button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <aside class="side" aria-label="Navigation"><nav aria-label="Pages">
 <a href="now.html">Now</a>
@@ -45,13 +45,13 @@
 </nav></aside>
 <main id="main" tabindex="-1">
 
-<div class="banner"><span><b>State: error.</b> Say what failed, what still holds, and what to do. Never a silent blank.</span><a class="btn small ghost" href="index.html" data-guest>All screens</a></div>
+<div class="banner"><span><b>State: error.</b> Say what failed, what still holds, and what to do. Never a silent blank.</span><span class="fw"><a class="btn small ghost" href="index.html" data-guest>All screens</a></span></div>
 <div class="head"><h1>Cameras</h1><span class="st bad">Not live</span></div>
 <p class="note-role" data-only="user"><b>As a member (Sam):</b> you see the cameras of machines and rooms you may view.</p><p class="note-role" data-only="admin instance"><b>As an admin or owner:</b> the same; cameras are managed in Space → Cameras.</p>
-<div class="banner bad" role="alert"><span><b>The hub cannot be reached.</b> The page last heard from it at 15:42. What you see below is from then, not now. It tries again by itself.</span><button class="btn small" type="button" data-guest>Try now</button></div>
+<div class="banner bad" role="alert"><span><b>The hub cannot be reached.</b> The page last heard from it at 15:42. What you see below is from then, not now. It tries again by itself.</span><span class="fw"><button class="btn small" type="button" data-guest>Try now</button></span></div>
 <div class="grid">
-<div class="card"><h2>Cam-MINI-1</h2><div class="preview" style="opacity:.6">Last picture, 15:42</div><p style="margin-top:var(--s-2)"><span class="st unk">Live state unknown</span></p></div>
-<div class="card"><h2>Cam-Door</h2><div class="preview" style="opacity:.6">Last picture, 15:41</div><p style="margin-top:var(--s-2)"><span class="st unk">Live state unknown</span></p></div>
+<div class="card"><h2>Cam-MINI-1</h2><div class="preview cam">Last picture, 15:42</div><p style="margin-top:var(--s-2)"><span class="st unk">Live state unknown</span></p></div>
+<div class="card"><h2>Cam-Door</h2><div class="preview cam">Last picture, 15:41</div><p style="margin-top:var(--s-2)"><span class="st unk">Live state unknown</span></p></div>
 </div>
 <p style="margin-top:var(--s-3)"><small>The same banner shows on every page when the hub cannot be reached; on a machine's page it also says that its buttons cannot reach the machine (see <a href="laser.html#j-offline">Laser-A</a>). A refused call is the <a href="state-refused.html">refused</a> state, not this one.</small> <span class="anno">SSE reconnects and resumes with Last-Event-ID; on stream.reset the page reloads (flows.md §6)</span></p>
 
