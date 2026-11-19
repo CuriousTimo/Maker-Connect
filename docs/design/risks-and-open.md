@@ -310,8 +310,9 @@ and the route.
 5. **A guest never holds `.use`.**
 6. **The route** `PUT /api/v1/spaces/{id}/area-rights` is a person's session only (no tokens).
 
-Not named by the answer: the fault code that refuses an action that does not move, a `.use` at guest
-or below its `.view`.
+The refusal of an action that does not move, a role outside the list, a `.use` at guest or below its
+`.view` uses the existing `validation/ARGUMENT_NOT_SUPPORTED` (400), with a `text` saying which rule
+(coordinator, journal:DESIGN-HOST:0009); no new code.
 
 ## Issues the design cannot place yet
 
