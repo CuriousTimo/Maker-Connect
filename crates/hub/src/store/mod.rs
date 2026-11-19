@@ -385,8 +385,9 @@ pub struct Sample {
     pub hotend_fan: Option<u32>,
 }
 
-/// What a machine's page shows of its history unless asked for more: the last half hour.
-pub const HISTORY_SECONDS: i64 = 30 * 60;
+/// What a machine's page shows of its history: the last 2 hours, as Prusa Connect's History tab
+/// (reference/prusa-connect frontend printer-detail.svelte `HISTORY_WINDOW_HOURS`).
+pub const HISTORY_SECONDS: i64 = 2 * 3600;
 /// Commands shown per machine.
 const COMMANDS_KEPT: usize = 40;
 /// Lines of a command's output kept.

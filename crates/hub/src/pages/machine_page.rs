@@ -1856,23 +1856,23 @@ fn telemetry_tab(machine: &Machine) -> String {
     .concat();
     let chart = r#"<div class="card chart-card">
   <div class="card-head">
-    <div><h3>Temperatures</h3><p class="card-sub">The last 30 minutes, live · targets dashed</p></div>
+    <div><h3>Temperatures</h3><p class="card-sub">The last 2 hours, live · targets dashed</p></div>
     <button type="button" class="ghost" data-table-toggle aria-pressed="false">Table</button>
   </div>
   <div class="legend"><span><i class="key key-nozzle"></i>Nozzle</span><span><i class="key key-bed"></i>Bed</span><span><i class="key key-target"></i>Target</span></div>
   <div class="plot">
-    <svg id="chart" role="img" aria-label="Nozzle and bed temperature over the last 30 minutes"></svg>
+    <svg id="chart" role="img" aria-label="Nozzle and bed temperature over the last 2 hours"></svg>
     <div id="tip" class="tip" hidden></div>
   </div>
   <div class="table-wrap" data-table hidden></div>
 </div>
 <div class="card chart-card">
   <div class="card-head">
-    <div><h3>Fans</h3><p class="card-sub">The last 30 minutes, live · where the machine tells them</p></div>
+    <div><h3>Fans</h3><p class="card-sub">The last 2 hours, live · where the machine tells them</p></div>
   </div>
   <div class="legend"><span><i class="key key-print-fan"></i>Print fan</span><span><i class="key key-hotend-fan"></i>Hotend fan</span></div>
   <div class="plot">
-    <svg id="fanchart" role="img" aria-label="Print fan and hotend fan speed over the last 30 minutes"></svg>
+    <svg id="fanchart" role="img" aria-label="Print fan and hotend fan speed over the last 2 hours"></svg>
     <div id="fantip" class="tip" hidden></div>
   </div>
 </div>"#;

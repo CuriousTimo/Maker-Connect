@@ -117,13 +117,14 @@
     return now > 40 ? `${told} · ▼ cooling` : told;
   }
 
-  // The temperatures over the last half hour: nozzle and bed, their targets dashed.
-  const SPAN = 30 * 60;
+  // The temperatures over the last 2 hours: nozzle and bed, their targets dashed.
+  // The last 2 hours, as Prusa Connect's History tab (printer-detail.svelte HISTORY_WINDOW_HOURS).
+  const SPAN = 2 * 3600;
   const chart = document.getElementById("chart");
   const tip = document.getElementById("tip");
   let samples = [];
   const degrees = (v) => (v == null ? "–" : `${v.toFixed(1)} °C`);
-  // The fans over the same half hour: their speeds, where the machine tells them.
+  // The fans over the same 2 hours: their speeds, where the machine tells them.
   const fanChart = document.getElementById("fanchart");
   function drawFans() {
     if (!fanChart) return;
@@ -141,9 +142,9 @@
       svg += `<line class="grid" x1="${m.l}" x2="${w - m.r}" y1="${y(v)}" y2="${y(v)}"/>`;
       svg += `<text class="axis" x="${m.l - 10}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
     }
-    for (const ago of [30, 20, 10, 0]) {
-      const anchor = ago === 30 ? "start" : ago ? "middle" : "end";
-      svg += `<text class="axis" x="${x(now - ago * 60)}" y="${h - 6}" text-anchor="${anchor}">${ago ? `−${ago} min` : "now"}</text>`;
+    for (const ago of [120, 60, 0]) {
+      const anchor = ago === 120 ? "start" : ago ? "middle" : "end";
+      svg += `<text class="axis" x="${x(now - ago * 60)}" y="${h - 6}" text-anchor="${anchor}">${ago ? `−${ago / 60} h` : "now"}</text>`;
     }
     const path = (key) => {
       let d = "", pen = "M";
@@ -216,9 +217,10 @@
       svg += `<line class="grid" x1="${m.l}" x2="${w - m.r}" y1="${y(v)}" y2="${y(v)}"/>`;
       svg += `<text class="axis" x="${m.l - 10}" y="${y(v) + 4}" text-anchor="end">${v}°</text>`;
     }
-    for (const ago of [30, 25, 20, 15, 10, 5, 0]) {
-      const anchor = ago === 30 ? "start" : ago ? "middle" : "end";
-      svg += `<text class="axis" x="${x(now - ago * 60)}" y="${h - 6}" text-anchor="${anchor}">${ago ? `−${ago} min` : "now"}</text>`;
+    for (const ago of [120, 90, 60, 30, 0]) {
+      const anchor = ago === 120 ? "start" : ago ? "middle" : "end";
+      const label = ago % 60 ? `−${ago} min` : `−${ago / 60} h`;
+      svg += `<text class="axis" x="${x(now - ago * 60)}" y="${h - 6}" text-anchor="${anchor}">${ago ? label : "now"}</text>`;
     }
     const path = (key) => {
       let d = "", pen = "M";

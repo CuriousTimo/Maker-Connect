@@ -269,7 +269,7 @@ pub(crate) async fn remove(
 
 #[derive(serde::Deserialize)]
 pub(crate) struct HistoryQuery {
-    /// How far back, in seconds; the last half hour when not said.
+    /// How far back, in seconds; the last 2 hours (HISTORY_SECONDS) when not said.
     seconds: Option<i64>,
 }
 

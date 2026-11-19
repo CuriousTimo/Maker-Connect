@@ -16,6 +16,12 @@
 
   /* Tiles (mc.css .tiles, .tile): a label, a number, a line under it; all one height in a row. */
   .tiles { grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr)); }
+  /* Four tiles: two by two, or four in a row where the card is wide enough; never three and one. */
+  .card:has(> .tiles) { container-type: inline-size; }
+  .tiles:has(> :nth-child(4):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @container (min-width: 640px) {
+    .tiles:has(> :nth-child(4):last-child) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
   .tile { display: grid; grid-template-rows: auto auto 1fr; align-content: start; }
   .tile .label { color: var(--muted); font-size: var(--fs-1); }
   /* A tile's or card's title with a fact top right (a job's time left and ETA): that fact
