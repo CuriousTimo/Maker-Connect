@@ -191,13 +191,13 @@ pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> S
           </select></label>
           <label class="field code-data"><span>What it encodes</span><input data-code-data maxlength="400" placeholder="The text, when empty" autocomplete="off"><small data-code-note></small></label>
           <div class="field wide-field"><span>Drawing</span>
-            <div class="drawing-row"><input type="file" accept=".svg,image/svg+xml,image/png" data-drawing aria-label="Add an SVG drawing"><button type="button" class="ghost" data-drawing-remove hidden>Remove</button></div>
+            <div class="drawing-row"><input type="file" accept=".svg,image/svg+xml,image/png" data-drawing aria-label="Add an SVG drawing"><span class="fw"><button type="button" class="btn ghost" data-drawing-remove hidden>Remove</button></span></div>
             <small>An SVG (or PNG), placed before the text at the {medium}'s height</small></div>
         </div>
         <h4>Preview</h4>
         <div class="preview-wrap"><canvas data-preview aria-label="The label as it will print"></canvas></div>
         <p class="preview-note" data-preview-note></p>
-        <div class="print-row"><button type="button" data-print>Print</button><span data-print-status role="status"></span></div>
+        <div class="print-row"><span class="fw"><button class="btn primary" type="button" data-print>Print</button></span><span data-print-status role="status"></span></div>
         <details class="svg-source"><summary>The label's SVG</summary><pre data-svg></pre></details>
       </div>
       <div class="stack">

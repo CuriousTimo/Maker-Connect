@@ -1555,12 +1555,12 @@ async fn page(access: crate::access::Access, State(store): State<Store>) -> Resp
 <body>
 {header}
 <main id="main" tabindex="-1" class="library-page">
-  <div class="page-head">
-    <div><h2>Materials</h2><p class="subtitle">Every spool and cassette: what is left, where it is, what is loaded. Spoolman's API speaks here too, for Moonraker, OctoPrint and scales.</p></div>
-    <div class="page-actions">
-      <button type="button" class="ghost" data-settings>Fields and labels</button>
-      <button type="button" class="ghost" data-import>Import from Spoolman</button>
-      <button type="button" data-add-spools>Add stock</button>
+  <div class="head">
+    <div><h1>Materials</h1><p class="lede">Every spool and cassette: what is left, where it is, what is loaded. Spoolman's API speaks here too, for Moonraker, OctoPrint and scales.</p></div>
+    <div class="actions">
+      <span class="fw"><button type="button" class="btn ghost" data-settings>Fields and labels</button></span>
+      <span class="fw"><button type="button" class="btn ghost" data-import>Import from Spoolman</button></span>
+      <span class="fw"><button class="btn primary" type="button" data-add-spools>Add stock</button></span>
     </div>
   </div>
   <div class="tiles" data-totals></div>
@@ -1570,7 +1570,7 @@ async fn page(access: crate::access::Access, State(store): State<Store>) -> Resp
       <button type="button" role="tab" data-view="locations" aria-selected="false">Locations</button>
     </nav>
     <label class="search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg><input type="search" data-search placeholder="Search, or scan: S-0007, L-0002, an EAN, a tag" aria-label="Search or scan" autocomplete="off"><button type="button" class="camera" data-camera title="Scan a QR code or barcode with the camera" aria-label="Scan with the camera"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7V4h3M14 4h3v3M17 13v3h-3M6 16H3v-3M6 10h8"/></svg></button></label>
-    <button type="button" class="ghost filter-button" data-filter-open>+ Filter</button>
+    <span class="fw"><button type="button" class="btn small ghost" data-filter-open>+ Filter</button></span>
     <span class="filters" data-filters></span>
     <label class="pick">Group <select data-group><option value="filament">Filament</option><option value="vendor">Vendor</option><option value="location">Location</option><option value="material">Material</option><option value="none">None</option></select></label>
     <label class="pick">Sort <select data-sort><option value="name">Name</option><option value="remaining">Left</option><option value="last_used">Last used</option><option value="id">Newest</option></select></label>

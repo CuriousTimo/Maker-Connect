@@ -165,7 +165,7 @@ pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> S
           </select></label>
           <label class="field wide" data-code-field hidden><span>What it encodes</span><input data-code-data maxlength="400" placeholder="The text, when empty" autocomplete="off"><small data-code-note></small></label>
         </div>
-        <div class="lw-print"><label><span>Copies</span><input type="number" data-copies min="1" max="50" value="1"></label><button type="button" data-print>Print</button><span data-print-status role="status"></span></div>
+        <div class="lw-print"><label><span>Copies</span><input type="number" data-copies min="1" max="50" value="1"></label><span class="fw"><button class="btn primary" type="button" data-print>Print</button></span><span data-print-status role="status"></span></div>
       </div>
       <div class="stack">
         <div class="card">

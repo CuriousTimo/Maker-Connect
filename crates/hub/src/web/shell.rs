@@ -51,10 +51,20 @@ impl<'a> Chrome<'a> {
     /// The navigation of this build: Prepare only with a tool in it (the laser design),
     /// Cameras only with the network cameras built in.
     pub(crate) fn new(space: &'a str, root: &'a str, here: &'a str) -> Self {
-        // An empty link is the page itself: from the root, Now is at "./".
-        let home = if root.is_empty() { "/" } else { root };
         let prepare = !crate::laser_design::ASSETS.is_empty();
-        let cameras = cfg!(feature = "cameras");
+        Self::with(space, root, here, prepare, cfg!(feature = "cameras"))
+    }
+
+    /// The navigation with or without Prepare and Cameras.
+    pub(crate) fn with(
+        space: &'a str,
+        root: &'a str,
+        here: &'a str,
+        prepare: bool,
+        cameras: bool,
+    ) -> Self {
+        // From the root, the pages are at "/…".
+        let home = if root.is_empty() { "/" } else { root };
         let mut nav = vec![
             item("", "", "Now", "now", "", "◷"),
             item("Work", "machines", "Machines", "machines", "", "▦"),
@@ -221,7 +231,7 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
       all = machines;
       const list = document.getElementById("machines");
       document.querySelector("[data-tools]").hidden = !machines.length;
-      if (!machines.length) { document.querySelector("[data-banners]").innerHTML = ""; list.innerHTML = '<p class="empty">No machines yet. <a href="#add" data-add-open>Add one</a>: with the code its agent shows, or a virtual one to try everything.</p>'; return; }
+      if (!machines.length) { document.querySelector("[data-banners]").innerHTML = ""; list.innerHTML = '<p class="empty">No machines yet.</p>'; return; }
       // The chips, with their counts; one with nothing in it does not show (All always does).
       const counts = Object.fromEntries(BUCKETS.map(([k]) => [k, 0]));
       for (const m of machines) { counts.all++; counts[bucket(m)]++; }
@@ -351,4 +361,117 @@ pub(crate) fn bare_page(title: &str, body: &str) -> String {
     Bare { title, body }
         .render()
         .expect("the bare page renders")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The chrome as ui.md draws it, compared with a reviewed copy: `MC_UPDATE_SNAPSHOTS=1`
+    /// writes the copy anew (then look at the diff before committing it).
+    fn snapshot(name: &str, rendered: &str) {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("templates/snapshots")
+            .join(name);
+        if std::env::var_os("MC_UPDATE_SNAPSHOTS").is_some() {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, rendered).unwrap();
+        }
+        let kept = std::fs::read_to_string(&path).unwrap_or_default();
+        assert_eq!(rendered, kept, "{name} differs from its snapshot");
+    }
+
+    #[test]
+    fn the_chrome_is_the_designs() {
+        let chrome = Chrome::new("Workshop <North>", "", "stock")
+            .render()
+            .unwrap();
+        snapshot("chrome-stock.html", &chrome);
+        // Skip to content comes first; the space's name is escaped.
+        assert!(chrome.starts_with(r##"<a class="skip" href="#main">Skip to content</a>"##));
+        assert!(chrome.contains("<small data-me-space>Workshop &#60;North&#62;</small>"));
+        // The theme switch, named with its state.
+        assert!(
+            chrome
+                .contains(r#"class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button>"#)
+        );
+        // Desktop: the sidebar grouped as the wiki has it, the current page marked.
+        let side = &chrome
+            [chrome.find(r#"<aside class="side""#).unwrap()..chrome.find("</aside>").unwrap()];
+        let order = [
+            "Now",
+            ">Work<",
+            "Machines",
+            "Queue and farm",
+            ">Stock<",
+            "Files",
+            "Materials",
+            ">Machines<",
+            ">Manage<",
+            "Space",
+            "Your account",
+            "Sign out",
+        ];
+        let mut at = 0;
+        for word in order {
+            let found = side[at..]
+                .find(word)
+                .unwrap_or_else(|| panic!("{word} after {at}"));
+            at += found + word.len();
+        }
+        assert!(side.contains(r#"<a href="/stock" aria-current="page">Materials</a>"#));
+        assert_eq!(side.matches("aria-current").count(), 1);
+        // Staff-only entries are hidden until /api/me says so.
+        assert!(side.contains(r#"<a href="/space" data-gate="staff" hidden>Space</a>"#));
+        // Phone: four in the bottom bar and More with the rest.
+        let bottom = &chrome[chrome.find(r#"<nav class="bottom""#).unwrap()..];
+        let first: Vec<&str> = ["Now", "Machines", "Files", "Materials"]
+            .into_iter()
+            .filter(|w| {
+                bottom[..bottom.find("<details").unwrap()].contains(&format!("</span>{w}</a>"))
+            })
+            .collect();
+        assert_eq!(first.len(), 4);
+        assert!(
+            bottom.contains(
+                "<summary><span class=\"ic\" aria-hidden=\"true\">≡</span>More</summary>"
+            )
+        );
+        assert!(bottom[bottom.find("<details").unwrap()..].contains("Queue and farm"));
+    }
+
+    #[test]
+    fn the_stylesheet_switches_between_desktop_and_phone_and_themes() {
+        // Desktop >= 900 px: the sidebar; below: no sidebar, the bottom bar.
+        let phone = &STYLE[STYLE.find("@media (max-width: 899px) {").unwrap()..];
+        assert!(phone.contains(".side { display: none; }"));
+        assert!(phone.contains(".bottom { display: flex;"));
+        assert!(STYLE.contains(".bottom { display: none; }"));
+        // The house colour, its text shade, the cut corners, light and dark.
+        for token in [
+            "--accent: #93A682;",
+            "--accent-text: #5E6B52;",
+            "--cut-l: 12px; --cut-m: 8px; --cut-s: 6px;",
+        ] {
+            assert!(STYLE.contains(token), "{token}");
+        }
+        assert!(STYLE.contains(
+            "@media (prefers-color-scheme: dark) {\n  :root:not([data-theme=\"light\"]) {"
+        ));
+        assert!(STYLE.contains(":root[data-theme=\"dark\"] {"));
+        // Nothing of the mockups' own: no annotation, no View-as.
+        for mock in [".anno", "data-view", ".viewas", ".dialog-mock"] {
+            assert!(!STYLE.contains(mock), "{mock}");
+        }
+    }
+
+    #[test]
+    fn a_bare_page_has_the_top_bar_and_no_navigation() {
+        let page = bare_page("Sign in", "<p>x</p>");
+        assert!(page.contains("<title>Sign in · Maker Connect</title>"));
+        assert!(page.contains(r#"<main id="main" tabindex="-1" class="bare">"#));
+        assert!(page.contains("data-theme-btn"));
+        assert!(!page.contains(r#"class="side""#));
+        assert!(!page.contains(r#"class="bottom""#));
+    }
 }

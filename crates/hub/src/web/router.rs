@@ -116,6 +116,7 @@ async fn not_found(uri: axum::http::Uri, headers: axum::http::HeaderMap) -> Resp
     }
     let page = NOT_FOUND_PAGE
         .replace("{style}", STYLE)
+        .replace("{theme}", crate::web::shell::THEME_SCRIPT)
         .replace("{path}", &escape(path));
     (StatusCode::NOT_FOUND, axum::response::Html(page)).into_response()
 }
@@ -128,6 +129,7 @@ const NOT_FOUND_PAGE: &str = r##"<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Spaghetti · Maker Connect</title>
 <link rel="icon" href="/logo.svg" type="image/svg+xml">
+{theme}
 <style>
 {style}
   .lost { min-height: 100vh; display: grid; place-items: center; padding: 24px max(16px, env(safe-area-inset-left, 0px)); box-sizing: border-box; }
@@ -140,9 +142,6 @@ const NOT_FOUND_PAGE: &str = r##"<!doctype html>
   .gcode b { color: var(--accent-text); font-weight: 600; }
   .gcode i { color: var(--st-bad); font-style: normal; }
   .lost-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-  .lost-actions a, .lost-actions button { font: inherit; padding: 8px 14px; border-radius: 0; border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-decoration: none; cursor: pointer; }
-  .lost-actions a.primary { background: var(--accent); border-color: var(--accent-text); color: #fff; }
-  .lost-actions a:focus-visible, .lost-actions button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .nozzle { animation: wander 3.2s ease-in-out infinite; transform-origin: 210px 40px; }
   .strand { stroke-dasharray: 900; stroke-dashoffset: 900; animation: ooze 3.2s ease-in-out infinite; }
   @keyframes wander { 0%, 100% { transform: translateX(-46px); } 50% { transform: translateX(46px); } }
@@ -151,7 +150,7 @@ const NOT_FOUND_PAGE: &str = r##"<!doctype html>
 </style>
 </head>
 <body>
-<main class="lost">
+<main id="main" tabindex="-1" class="bare lost">
   <div class="lost-card">
     <svg viewBox="0 0 420 230" role="img" aria-label="A print nozzle drawing a tangle of filament in mid-air, spelling 404">
       <line x1="20" y1="22" x2="400" y2="22" stroke="var(--line)" stroke-width="6" stroke-linecap="round"/>
@@ -177,8 +176,8 @@ const NOT_FOUND_PAGE: &str = r##"<!doctype html>
       <b>G28</b> ; home
     </div>
     <div class="lost-actions">
-      <a class="primary" href="/">G28 · Home</a>
-      <button type="button" onclick="history.back()">Undo last move</button>
+      <span class="fw"><a class="btn primary" href="/">G28 · Home</a></span>
+      <span class="fw"><button type="button" class="btn" onclick="history.back()">Undo last move</button></span>
     </div>
   </div>
 </main>
@@ -230,7 +229,11 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let (_, body) = call(&app, hostile).await;
-        assert!(!body.contains("<script>"), "the path is escaped");
+        assert!(
+            body.contains("<code>/%3Cscript%3E</code>"),
+            "the path as asked"
+        );
+        assert!(!body.contains("<code>/<script>"), "the path is escaped");
         for (path, accept) in [
             ("/api/v1/nope", "text/html"),
             ("/no-such-page", "application/json"),

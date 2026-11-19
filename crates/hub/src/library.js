@@ -203,7 +203,7 @@
     const groups = groupsOf(list);
     const listEl = $("[data-list]");
     if (!spools.length && !filaments.length) {
-      listEl.innerHTML = `<div class="group"><p class="empty" style="padding:24px">Nothing yet. <b>Add stock</b> finds a filament among thousands of SpoolmanDB, or your label printers' tapes and labels; <b>Import from Spoolman</b> brings a Spoolman's spools over.</p></div>`;
+      listEl.innerHTML = `<div class="sgroup"><p class="empty" style="padding:24px">Nothing yet. <b>Add stock</b> finds a filament among thousands of SpoolmanDB, or your label printers' tapes and labels; <b>Import from Spoolman</b> brings a Spoolman's spools over.</p></div>`;
     } else if (!groups.length) {
       listEl.innerHTML = `<p class="empty">Nothing matches “${esc(ui.search)}”.</p>`;
     } else {
@@ -220,17 +220,17 @@
             ${g.swatchFor ? swatch(g.swatchFor) : `<span class="badge">${live.length}</span>`}
             <span class="g-name"><b>${esc(g.title)} ${chip}</b>${g.sub ? `<small>${esc(g.sub)}</small>` : ""}</span>
             <span class="g-total"><b>${amount(total, unit)}</b><small class="${low ? "low" : ""}">${holders(unit, live.length)}${low ? " · low" : ""}</small></span>
-            ${g.spools.length ? `<button type="button" class="fold${open ? " open" : ""}" data-fold="${esc(g.key)}" aria-label="${open ? "Fold" : "Unfold"}" aria-expanded="${open}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></button>` : "<span></span>"}</div>`;
+            ${g.spools.length ? `<span class="fw"><button class="btn primary" type="button" class="fold${open ? " open" : ""}" data-fold="${esc(g.key)}" aria-label="${open ? "Fold" : "Unfold"}" aria-expanded="${open}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></button></span>` : "<span></span>"}</div>`;
         const rows = (open || ui.group === "none") && g.spools.length ? `<ul class="rows">${g.spools.map((s) => {
             const p = share(s);
-            return `<li class="row${s.archived ? " archived" : ""}${chosen?.type === "spool" && chosen.id === s.id ? " chosen" : ""}" data-pick="spool:${s.id}">
+            return `<li class="srow${s.archived ? " archived" : ""}${chosen?.type === "spool" && chosen.id === s.id ? " chosen" : ""}" data-pick="spool:${s.id}">
             <code>${code(s.id)}</code>
             <span class="used">${ui.group !== "filament" ? esc(nameOf(s.filament)) : s.archived ? "used up" : s.last_used ? `used ${ago(s.last_used)}` : "unused"}</span>
             ${bar(s)}
             <span class="left${p != null && p < 0.15 ? " low" : ""}">${amount(leftOf(s), unitOf(s.filament))}</span>
             <span class="where${loadedIn(s) ? " loaded" : ""}">${esc(s.archived ? "" : loadedIn(s) ? (s.location ? `${s.location} → ${loadedIn(s)}` : loadedIn(s)) : s.location || "")}</span></li>`;
           }).join("")}</ul>` : "";
-        return `<div class="group${isChosen ? " chosen" : ""}">${head}${rows}</div>`;
+        return `<div class="sgroup${isChosen ? " chosen" : ""}">${head}${rows}</div>`;
       }).join("");
     }
     renderInspector();
@@ -256,7 +256,7 @@
     if (type === "spool" && !spools.some((s) => s.id === Number(id))) { toast(`No spool ${code(id)}`, "bad"); chosen = null; }
     render();
     sheet();
-    if (scroll) $(".row.chosen, .group.chosen")?.scrollIntoView({ block: "nearest" });
+    if (scroll) $(".srow.chosen, .sgroup.chosen")?.scrollIntoView({ block: "nearest" });
   }
 
   function renderInspector() {
@@ -311,11 +311,11 @@
     const metres = unit === "g" && s.remaining_length != null ? ` · ${Math.round(s.remaining_length / 1000)} m` : "";
     const fits = machines.filter((m) => kindOf(f) === "tape" ? m.kind === "label" : kindOf(f) === "filament" ? m.kind === "fdm" : true);
     const status = s.archived ? "used up" : esc(whereOf(s));
-    const crumbs = `<nav class="crumbs">${f.vendor ? `<button type="button" class="link" data-pick="vendor:${f.vendor.id}">${esc(f.vendor.name)}</button> › ` : ""}<button type="button" class="link" data-pick="filament:${f.id}">${esc(f.name || f.material || "Filament")}</button> › <span>${code(s.id)}</span></nav>`;
+    const crumbs = `<nav class="crumbs">${f.vendor ? `<span class="fw"><button type="button" class="btn ghost" data-pick="vendor:${f.vendor.id}">${esc(f.vendor.name)}</button></span> › ` : ""}<span class="fw"><button type="button" class="btn ghost" data-pick="filament:${f.id}">${esc(f.name || f.material || "Filament")}</button></span> › <span>${code(s.id)}</span></nav>`;
     return `${crumbs}
       <div class="i-top">
         <div class="i-head">${swatch(f, true)}<div><h3>${esc(nameOf(f))} <small class="muted">${code(s.id)}</small></h3><small>${esc([f.material, kindOf(f) === "filament" && f.diameter && `${f.diameter} mm`].filter(Boolean).join(" · "))} · ${status}</small></div></div>
-        <div class="i-actions"><button type="button" class="ghost" data-adjust>Adjust weight</button><button type="button" class="ghost" data-print-label>Print label</button><button type="button" class="ghost" data-clone title="A new, full spool like this one">Duplicate</button><button type="button" class="ghost" data-archive>${s.archived ? "Unarchive" : "Archive"}</button><button type="button" class="ghost danger" data-delete="spool:${s.id}" title="Remove it for good (asks first)">Remove</button></div>
+        <div class="i-actions"><span class="fw"><button type="button" class="btn ghost" data-adjust>Adjust weight</button></span><span class="fw"><button type="button" class="btn ghost" data-print-label>Print label</button></span><span class="fw"><button type="button" class="btn ghost" data-clone title="A new, full spool like this one">Duplicate</button></span><span class="fw"><button type="button" class="btn ghost" data-archive>${s.archived ? "Unarchive" : "Archive"}</button></span><span class="fw"><button type="button" class="btn ghost danger" data-delete="spool:${s.id}" title="Remove it for good (asks first)">Remove</button></span></div>
       </div>
       <div class="i-left"><b>${amount(leftOf(s), unit)}</b><span>${s.initial_weight ? `of ${amount(s.initial_weight, unit)} remaining` : "remaining"}${metres}${p != null ? ` · ${Math.round(p * 100)} %` : ""}</span><span class="i-used">used ${amount(used, unit)}</span></div>
       <div class="bar wide${p != null && p < 0.15 ? " low" : ""}"><i style="width:${p == null ? 0 : Math.round(p * 100)}%"></i></div>
@@ -335,11 +335,11 @@
             <label>Last used</label><input class="inline" type="datetime-local" name="last_used" value="${localTime(s.last_used)}">
             <label>Comment</label>${editable("comment", s.comment, { type: "textarea" })}
           </div>
-          <h4 class="h-row">Extra fields <button type="button" class="link" data-settings>Manage fields →</button></h4>
+          <h4 class="h-row">Extra fields <span class="fw"><button type="button" class="btn ghost" data-settings>Manage fields →</button></span></h4>
           <div class="fields">${fields.spool.map((fl) => `<label>${esc(fl.name)}</label><span>${extraInput(fl, s)}</span>`).join("") || '<span class="muted" style="grid-column:1/-1">None: add a drying date, a shop…</span>'}</div>
         </form>
         <div>
-          <h4 class="h-row">Filament <button type="button" class="link" data-pick="filament:${f.id}">Open filament →</button></h4>
+          <h4 class="h-row">Filament <span class="fw"><button type="button" class="btn ghost" data-pick="filament:${f.id}">Open filament →</button></span></h4>
           <div class="fields">
             ${fact("Material", esc(f.material || ""))}
             ${fact("Colour", f.color_hex ? `<span class="dot-colour" style="background:#${esc(f.color_hex.slice(0, 6))}"></span> <code>#${esc(f.color_hex.toUpperCase())}</code>${colourName(f) ? ` ${esc(colourName(f))}` : ""}` : "")}
@@ -363,7 +363,7 @@
     const empty = s.spool_weight ?? f.spool_weight ?? f.vendor?.empty_spool_weight;
     show(`${head(`Adjust weight · ${code(s.id)}`)}<section>
       <nav class="views" role="tablist" style="margin-bottom:14px">${unit === "g" ? '<button type="button" role="tab" data-mode="measure" aria-selected="true">Weigh</button>' : ""}<button type="button" role="tab" data-mode="use" aria-selected="${unit !== "g"}">Used</button><button type="button" role="tab" data-mode="left" aria-selected="false">Left</button></nav>
-      <form class="act" data-adjust-form><input name="value" type="number" step="any" min="0" required autofocus style="width:10em"><span class="muted" data-adjust-unit></span><button>Save</button></form>
+      <form class="act" data-adjust-form><input name="value" type="number" step="any" min="0" required autofocus style="width:10em"><span class="muted" data-adjust-unit></span><span class="fw"><button class="btn primary">Save</button></span></form>
       <p class="hint" data-adjust-hint></p>
     </section>`);
     let mode = unit === "g" ? "measure" : "use";
@@ -398,8 +398,8 @@
 
   function tagsBlock(type, owner) {
     const tags = owner.tags || [];
-    return `<div class="chips">${tags.map((t) => `<span class="chip"><code>${esc(t.uid)}</code>${t.format ? `<small class="muted">${esc(t.format)}</small>` : ""}<button type="button" data-untag="${type}:${owner.id}:${esc(t.uid)}" aria-label="Remove tag">✕</button></span>`).join("") || '<span class="muted">No NFC tag. A scale or reader links one, or add its UID:</span>'}</div>
-      <form class="act" data-tag="${type}:${owner.id}" style="margin-top:8px"><input name="uid" placeholder="04:A2:B3:C4…" aria-label="Tag UID" required><select name="format" aria-label="Kind of tag"><option value="">kind</option>${["ntag", "openprinttag", "bambu", "tigertag", "creality", "prusa", "qidi"].map((x) => `<option>${x}</option>`).join("")}</select><button class="ghost">Add tag</button></form>`;
+    return `<div class="chips">${tags.map((t) => `<span class="tag"><code>${esc(t.uid)}</code>${t.format ? `<small class="muted">${esc(t.format)}</small>` : ""}<span class="fw"><button class="btn primary" type="button" data-untag="${type}:${owner.id}:${esc(t.uid)}" aria-label="Remove tag">✕</button></span></span>`).join("") || '<span class="muted">No NFC tag. A scale or reader links one, or add its UID:</span>'}</div>
+      <form class="act" data-tag="${type}:${owner.id}" style="margin-top:8px"><input name="uid" placeholder="04:A2:B3:C4…" aria-label="Tag UID" required><select name="format" aria-label="Kind of tag"><option value="">kind</option>${["ntag", "openprinttag", "bambu", "tigertag", "creality", "prusa", "qidi"].map((x) => `<option>${x}</option>`).join("")}</select><span class="fw"><button class="btn ghost">Add tag</button></span></form>`;
   }
 
   function filamentInspector(f) {
@@ -407,11 +407,11 @@
     const live = own.filter((s) => !s.archived);
     const unit = unitOf(f);
     const db = f.external_id ? `<span class="badge db">SpoolmanDB</span>` : "";
-    const crumbs = `<nav class="crumbs">${f.vendor ? `<button type="button" class="link" data-pick="vendor:${f.vendor.id}">${esc(f.vendor.name)}</button> › ` : ""}<span>${esc(f.name || f.material || "Filament")}</span></nav>`;
+    const crumbs = `<nav class="crumbs">${f.vendor ? `<span class="fw"><button type="button" class="btn ghost" data-pick="vendor:${f.vendor.id}">${esc(f.vendor.name)}</button></span> › ` : ""}<span>${esc(f.name || f.material || "Filament")}</span></nav>`;
     return `${crumbs}
       <div class="i-top">
         <div class="i-head">${swatch(f, true)}<div><h3>${esc(nameOf(f))} ${db}</h3><small>${esc(facts(f))}</small></div></div>
-        <div class="i-actions"><button type="button" data-add-of="${f.id}">Add spools of it</button><button type="button" class="ghost" data-clone-filament="${f.id}" title="A new filament with the same settings, to change the colour or name">Duplicate</button></div>
+        <div class="i-actions"><span class="fw"><button class="btn primary" type="button" data-add-of="${f.id}">Add spools of it</button></span><span class="fw"><button type="button" class="btn ghost" data-clone-filament="${f.id}" title="A new filament with the same settings, to change the colour or name">Duplicate</button></span></div>
       </div>
       <div class="i-left"><b>${amount(live.reduce((t, s) => t + (leftOf(s) ?? 0), 0), unit)}</b><span>in ${holders(unit, live.length)}</span></div>
       <div class="i-cols">
@@ -430,14 +430,14 @@
             <label>Price</label>${editable("price", f.price, { type: "number", unit: currency })}
             <label>Comment</label>${editable("comment", f.comment, { type: "textarea" })}
           </div>
-          <h4 class="h-row">Extra fields <button type="button" class="link" data-settings>Manage fields →</button></h4>
+          <h4 class="h-row">Extra fields <span class="fw"><button type="button" class="btn ghost" data-settings>Manage fields →</button></span></h4>
           <div class="fields">${fields.filament.map((fl) => `<label>${esc(fl.name)}</label><span>${extraInput(fl, f)}</span>`).join("") || '<span class="muted" style="grid-column:1/-1">None yet</span>'}</div>
         </form>
         <div>
           <h4>Spools</h4>
-          <ul class="history">${own.map((s) => `<li><button type="button" class="link" data-pick="spool:${s.id}">${code(s.id)}</button> ${amount(leftOf(s), unit)} <span class="muted">${esc(s.archived ? "used up" : whereOf(s))}</span></li>`).join("") || '<li class="muted">None yet</li>'}</ul>
+          <ul class="history">${own.map((s) => `<li><span class="fw"><button type="button" class="btn ghost" data-pick="spool:${s.id}">${code(s.id)}</button></span> ${amount(leftOf(s), unit)} <span class="muted">${esc(s.archived ? "used up" : whereOf(s))}</span></li>`).join("") || '<li class="muted">None yet</li>'}</ul>
           <h4>Tags</h4>${tagsBlock("filament", f)}
-          ${own.length ? "" : `<p><button type="button" class="link" data-delete="filament:${f.id}">Remove this filament</button></p>`}
+          ${own.length ? "" : `<p><span class="fw"><button type="button" class="btn ghost" data-delete="filament:${f.id}">Remove this filament</button></span></p>`}
         </div>
       </div>`;
   }
@@ -450,8 +450,8 @@
         <label>Empty spool</label><span><input name="empty_spool_weight" type="number" step="any" value="${esc(v.empty_spool_weight ?? "")}"> <small class="muted">g</small></span>
         <label>Note</label><textarea name="comment">${esc(v.comment ?? "")}</textarea>
       </div></form>
-      <div class="i-section"><h4>Filaments</h4><ul class="history">${of.map((f) => `<li><button type="button" class="link" data-pick="filament:${f.id}">${esc(f.name || f.material)}</button> <span class="muted">${esc(facts(f))}</span></li>`).join("")}</ul></div>
-      ${of.length ? "" : `<div class="i-section"><button type="button" class="link" data-delete="vendor:${v.id}">Remove this vendor</button></div>`}`;
+      <div class="i-section"><h4>Filaments</h4><ul class="history">${of.map((f) => `<li><span class="fw"><button type="button" class="btn ghost" data-pick="filament:${f.id}">${esc(f.name || f.material)}</button></span> <span class="muted">${esc(facts(f))}</span></li>`).join("")}</ul></div>
+      ${of.length ? "" : `<div class="i-section"><span class="fw"><button type="button" class="btn ghost" data-delete="vendor:${v.id}">Remove this vendor</button></span></div>`}`;
   }
 
   async function loadHistory(s) {
@@ -634,7 +634,7 @@
   function renderFilters() {
     const names = { material: "Material", vendor: "Vendor", location: "Location" };
     const label = (k, v) => k === "location" && v === "-" ? "no location" : k === "location" && v === "+" ? "not loaded" : v;
-    $("[data-filters]").innerHTML = Object.entries(ui.filters).filter(([, v]) => v).map(([k, v]) => `<span class="chip">${names[k]}: ${esc(label(k, v))}<button type="button" data-unfilter="${k}" aria-label="Remove filter">✕</button></span>`).join("");
+    $("[data-filters]").innerHTML = Object.entries(ui.filters).filter(([, v]) => v).map(([k, v]) => `<span class="tag">${names[k]}: ${esc(label(k, v))}<span class="fw"><button class="btn primary" type="button" data-unfilter="${k}" aria-label="Remove filter">✕</button></span></span>`).join("");
   }
   function filterDialog() {
     const options = (values, chosenValue) => `<option value="">Any</option>` + [...new Set(values)].filter(Boolean).sort().map((v) => `<option${v === chosenValue ? " selected" : ""}>${esc(v)}</option>`).join("");
@@ -642,7 +642,7 @@
       <label>Material <select name="material">${options(filaments.map((f) => f.material), ui.filters.material)}</select></label>
       <label>Vendor <select name="vendor">${options(vendors.map((v) => v.name), ui.filters.vendor)}</select></label>
       <label class="wide">Location <select name="location">${options(places.map((p) => p.name), ui.filters.location)}<option value="-"${ui.filters.location === "-" ? " selected" : ""}>No location</option><option value="+"${ui.filters.location === "+" ? " selected" : ""}>Not loaded</option></select></label>
-      <div class="wide act"><button>Show</button><button type="button" class="ghost" data-clear-filters>Clear</button></div>
+      <div class="wide act"><span class="fw"><button class="btn primary">Show</button></span><span class="fw"><button type="button" class="btn ghost" data-clear-filters>Clear</button></span></div>
     </form></section>`);
     const form = $("[data-filter-form]", dialogBody);
     form.addEventListener("submit", (e) => { e.preventDefault(); ui.filters = Object.fromEntries(new FormData(form)); remember(); renderFilters(); dialog.close(); render(); });
@@ -794,7 +794,7 @@
     ];
     // A column per printer and label printer: drop a spool on it to load it, where it is.
     const feeders = machines.filter((m) => ["fdm", "label"].includes(m.kind));
-    const pickers = `<div class="board-top"><label class="pick">Board by <select data-board-field><option value="location">Location</option>${fields.spool.filter((f) => !f.multi_choice && ["text", "choice"].includes(f.field_type)).map((f) => `<option value="${esc(f.key)}"${f.key === settings.board_field ? " selected" : ""}>${esc(f.name)}</option>`).join("")}</select></label>${field ? "" : '<button type="button" class="ghost" data-new-place>New location</button>'}<span class="hint">Drag a spool to a location, a slot or a printer, or tap it, then where.</span></div>`;
+    const pickers = `<div class="board-top"><label class="pick">Board by <select data-board-field><option value="location">Location</option>${fields.spool.filter((f) => !f.multi_choice && ["text", "choice"].includes(f.field_type)).map((f) => `<option value="${esc(f.key)}"${f.key === settings.board_field ? " selected" : ""}>${esc(f.name)}</option>`).join("")}</select></label>${field ? "" : '<span class="fw"><button type="button" class="btn ghost" data-new-place>New location</button></span>'}<span class="hint">Drag a spool to a location, a slot or a printer, or tap it, then where.</span></div>`;
     const body = (c) => {
       const p = !field && placeOf(c.key);
       if (!p?.slots) return c.spools.map((x) => card(x)).join("") || '<p class="muted" style="margin:6px 4px;font-size:13px">Empty</p>';
@@ -817,7 +817,7 @@
       return of.length ? `<div class="printer-group"><h4>${title} <span class="muted">${of.length}</span></h4><div class="printer-row">${of.map(drop).join("")}</div></div>` : "";
     }).join("")}</div>` : "";
     const pickedSpool = picked != null && spools.find((x) => x.id === picked);
-    const pickedBar = pickedSpool ? `<div class="board-picked" role="status"><span><b>${code(pickedSpool.id)}</b> ${esc(nameOf(pickedSpool.filament))} picked: tap where it goes</span><button type="button" class="ghost" data-open-picked>Open</button><button type="button" class="ghost" data-cancel-pick>Cancel</button></div>` : "";
+    const pickedBar = pickedSpool ? `<div class="board-picked" role="status"><span><b>${code(pickedSpool.id)}</b> ${esc(nameOf(pickedSpool.filament))} picked: tap where it goes</span><span class="fw"><button type="button" class="btn ghost" data-open-picked>Open</button></span><span class="fw"><button type="button" class="btn ghost" data-cancel-pick>Cancel</button></span></div>` : "";
     $("[data-board]").innerHTML = pickers + pickedBar + strip + `<div class="board-grid">` + cols.map((c) => `<div class="col${c.key !== null && picked ? " target" : ""}"${c.key !== null ? ` data-drop="${esc(c.key)}"` : ""}>
         <div class="col-head"><b>${esc(c.title)}</b><small>${c.code ? `<code>${esc(c.code)}</code> · ` : ""}${c.spools.length}</small>${c.code ? `<span class="col-tools"><button type="button" class="icon-button" data-label-place="${esc(c.code)}" title="Print its label" aria-label="Print the label of ${esc(c.title)}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6.5 9.5 3H17v7.5L10.5 17 3 10.5z"/><circle cx="13.5" cy="6.5" r="1.3"/></svg></button><button type="button" class="icon-button" data-edit-place="${esc(c.code)}" title="Edit: name, description, slots, remove" aria-label="Edit ${esc(c.title)}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16l1-4 8.5-8.5 3 3L8 15z"/><path d="m11.5 5.5 3 3"/></svg></button></span>` : ""}</div>
         ${modelOf(c.key) ? `<small class="muted" style="padding:0 4px">${esc(modelOf(c.key))}</small>` : ""}
@@ -906,7 +906,7 @@
       <label>Slots <input name="slots" type="number" min="0" max="64" placeholder="none"></label>
       <label class="wide">Description <input name="description" placeholder="Under the bench, left; the box with the blue lid"></label>
       <p class="hint wide" data-place-hint>A location with slots is drawn with them on the board; a spool goes in a slot.</p>
-      <div class="wide act">${was ? `<button>Save</button><button type="button" class="danger" data-remove-place>Remove</button>` : "<button>Add location</button>"}</div>
+      <div class="wide act">${was ? `<span class="fw"><button class="btn primary">Save</button></span><span class="fw"><button type="button" class="btn danger" data-remove-place>Remove</button></span>` : `<span class="fw"><button class="btn primary">Add location</button></span>`}</div>
     </form></section>`);
     const form = $("[data-place-form]", dialogBody);
     let named = !!was;
@@ -961,7 +961,7 @@
       <div data-step-what>
         <label class="search" style="margin-bottom:4px"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg><input data-find placeholder="Which filament, tape or labels? prusament petg, polymaker pla black, dymo 12 mm, 45013, 99012…" autocomplete="off" aria-label="Find a filament, a tape or labels"></label>
         <ul class="found" data-found role="listbox"></ul>
-        <p class="hint">Your own filaments, your label printers' tapes and labels, and SpoolmanDB's. Not there? <button type="button" class="link" data-new-filament>Make a new filament</button></p>
+        <p class="hint">Your own filaments, your label printers' tapes and labels, and SpoolmanDB's. Not there? <span class="fw"><button type="button" class="btn ghost" data-new-filament>Make a new filament</button></span></p>
       </div>
       <form class="grid-form" data-new-form hidden style="margin-top:10px">
         <label>Vendor <input name="vendor" list="vendors-list" required placeholder="Prusament"></label>
@@ -984,7 +984,7 @@
         <label>Empty spool (g) <input name="spool" type="number" step="any" min="0"></label>
         <label>Lot <input name="lot"></label>
         <label>Price each <input name="price" type="number" step="any" min="0"></label>
-        <div class="wide"><button data-add-button>Add</button></div>
+        <div class="wide"><span class="fw"><button class="btn primary" data-add-button>Add</button></span></div>
       </form>
       <datalist id="vendors-list">${vendors.map((v) => `<option value="${esc(v.name)}">`).join("")}</datalist>
       <datalist id="places-list">${places.map((p) => `<option value="${esc(p.name)}">`).join("")}</datalist>
@@ -994,7 +994,7 @@
     const set = (o) => {
       pickedOne = o;
       const f = o.filament;
-      $("[data-chosen]", dialogBody).innerHTML = `<div class="chosen-filament">${swatch(f)}<span class="f-text" style="display:grid"><b>${esc(nameOf(f))}</b><small class="muted">${esc(facts(f) || "")}${o.source === "db" ? " · from SpoolmanDB" : o.source === "tape" ? " · label tape" : ""}</small></span><button type="button" class="link" data-again>Change</button></div>`;
+      $("[data-chosen]", dialogBody).innerHTML = `<div class="chosen-filament">${swatch(f)}<span class="f-text" style="display:grid"><b>${esc(nameOf(f))}</b><small class="muted">${esc(facts(f) || "")}${o.source === "db" ? " · from SpoolmanDB" : o.source === "tape" ? " · label tape" : ""}</small></span><span class="fw"><button type="button" class="btn ghost" data-again>Change</button></span></div>`;
       how.hidden = false;
       how.initial.value = f.weight ?? "";
       how.spool.value = f.spool_weight ?? f.vendor?.empty_spool_weight ?? "";
@@ -1107,7 +1107,7 @@
   // ---- fields and labels -------------------------------------------------------------------
   const TYPES = { text: "Text", integer: "Whole number", float: "Number", datetime: "Date and time", boolean: "Yes or no", choice: "Choice", integer_range: "Range of whole numbers", float_range: "Range of numbers" };
   function settingsDialog() {
-    const list = (entity) => (fields[entity].map((f) => `<li><b>${esc(f.name)}</b> <code>${esc(f.key)}</code> <span class="muted">${esc(TYPES[f.field_type] || f.field_type)}${f.unit ? `, ${esc(f.unit)}` : ""}${f.choices?.length ? `: ${esc(f.choices.join(", "))}` : ""}</span> <button type="button" class="link" data-drop-field="${entity}:${esc(f.key)}">remove</button></li>`).join("") || '<li class="muted">None yet</li>');
+    const list = (entity) => (fields[entity].map((f) => `<li><b>${esc(f.name)}</b> <code>${esc(f.key)}</code> <span class="muted">${esc(TYPES[f.field_type] || f.field_type)}${f.unit ? `, ${esc(f.unit)}` : ""}${f.choices?.length ? `: ${esc(f.choices.join(", "))}` : ""}</span> <span class="fw"><button type="button" class="btn ghost" data-drop-field="${entity}:${esc(f.key)}">remove</button></span></li>`).join("") || '<li class="muted">None yet</li>');
     show(`${head("Fields and labels")}<section>
       <h3 style="margin:0 0 6px;font-size:15px">Your own fields</h3>
       <p class="hint">Asked of every spool or filament, beside the usual ones: a drying date, a hardness, a shop. Spoolman and its scales see them too.</p>
@@ -1119,12 +1119,12 @@
         <label>Name <input name="name" required placeholder="Last dried"></label>
         <label>Unit <input name="unit" placeholder="°C, h, Shore"></label>
         <label class="wide">Choices (for a choice, comma-separated) <input name="choices" placeholder="open, sealed, in the dryer"></label>
-        <div class="wide"><button>Add field</button></div>
+        <div class="wide"><span class="fw"><button class="btn primary">Add field</button></span></div>
       </form>
       <h3 style="margin:22px 0 6px;font-size:15px">A spool's label</h3>
       <form data-label-form><textarea name="template" rows="3" style="width:100%;font:13px ui-monospace,monospace">${esc(settings.label_template)}</textarea>
         <p class="hint">One line each. Fill in: {code} {vendor} {name} {material} {color} {diameter} {weight} {nozzle} {bed} {lot} {location}, and your fields by their key. The QR code beside it opens the spool here.</p>
-        <button class="ghost">Save the label</button></form>
+        <span class="fw"><button class="btn ghost">Save the label</button></span></form>
     </section>`);
     $("[data-new-field]", dialogBody).addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -1158,12 +1158,12 @@
   function importDialog() {
     show(`${head("Spoolman")}<section>
       <h3 style="margin:0 0 6px;font-size:15px">Bring a Spoolman's spools here</h3>
-      <form class="act" data-from-url><input name="url" placeholder="http://192.168.1.20:7912" required style="flex:1" aria-label="Spoolman's address"><button>Import</button></form>
-      <form class="act" data-from-file><input type="file" name="file" accept="application/json,.json" aria-label="Spoolman's JSON export of spools"><button class="ghost">Import its export</button></form>
+      <form class="act" data-from-url><input name="url" placeholder="http://192.168.1.20:7912" required style="flex:1" aria-label="Spoolman's address"><span class="fw"><button class="btn primary">Import</button></span></form>
+      <form class="act" data-from-file><input type="file" name="file" accept="application/json,.json" aria-label="Spoolman's JSON export of spools"><span class="fw"><button class="btn ghost">Import its export</button></span></form>
       <p class="hint">Its vendors, filaments, spools, tags and extra fields. Spools keep their numbers where they are free, so their labels and tags still find them.</p>
       <h3 style="margin:18px 0 6px;font-size:15px">Take them along</h3>
       <div class="act"><a class="button ghost" href="api/v1/export/spools?fmt=csv" download>Spools as CSV</a><a class="button ghost" href="api/v1/export/spools?fmt=json" download>Spools as JSON</a></div>
-      <form class="act" data-to-url><input name="url" placeholder="http://192.168.1.20:7912" required style="flex:1" aria-label="Spoolman to copy to"><button class="ghost">Copy to that Spoolman</button></form>
+      <form class="act" data-to-url><input name="url" placeholder="http://192.168.1.20:7912" required style="flex:1" aria-label="Spoolman to copy to"><span class="fw"><button class="btn ghost">Copy to that Spoolman</button></span></form>
       <p class="hint">Moonraker, OctoPrint's Spoolman plugin and scales such as SpoolmanScale can use this hub as their Spoolman: give them <code>${esc(location.origin)}</code>.</p>
       <p class="note" data-import-note></p>
     </section>`);
