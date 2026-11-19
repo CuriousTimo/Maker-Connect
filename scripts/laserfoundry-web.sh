@@ -13,7 +13,7 @@ set -eu
 cd "$(dirname "$0")/.."
 root="$(pwd)"
 fork="${LASERFOUNDRY_FORK:-$root/../laserfoundry-fork}"
-[ -d "$fork/.git" ] || { echo "The fork is not at $fork (set LASERFOUNDRY_FORK)." >&2; exit 1; }
+[ -e "$fork/.git" ] || { echo "The fork is not at $fork (set LASERFOUNDRY_FORK)." >&2; exit 1; }
 out="$root/crates/hub/laser-design"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
