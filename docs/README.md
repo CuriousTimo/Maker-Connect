@@ -3,6 +3,11 @@
 What is where. `scripts/docs-links-check.py` fails when a document named anywhere in the repository
 (code comments, scripts, docs) does not exist.
 
+## Design: the v2 target
+
+`design/README.md` is the map of the v2 target design (processes, links, the device contract, flows,
+authz, database, API, wire, storage, UI), with dated decision records in `design/decisions/`.
+
 ## Plans: what we build, decided and open
 
 | Document                     | What it holds                                                                                   |
@@ -71,4 +76,4 @@ Not leading any more; each says so at its top. Their place is taken by the audit
 
 ## Other
 
-`design-overview.html` (the design page; one pass due under HS14) and `screenshots/` (for the README).
+`design-overview.html` (superseded by `design/README.md`) and `screenshots/` (for the README).

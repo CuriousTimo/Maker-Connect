@@ -1,0 +1,28 @@
+# Moving a device to another space
+
+Date: 2026-11-19  
+Status: accepted; confirms what the builder built (V2-STORE-6, `move_machine`)  
+Decided by: coordinator on the owner's "beantwoord de vragen en fix het design waar nodig" (journal:DESIGN-DOC:0031, V2-STORE-6 Q4); owner may overrule
+
+## Context
+
+The target design had no way to move a device from one space to another; the builder's step had one
+(handoff:V2-STORE-6:001) and asked which data goes with it.
+
+## Decision
+
+- History belongs to the space where it happened. A move hands over the device, not the old space's data.
+- Old jobs, files sent and samples stay in the old space.
+- The old space's grants, group memberships and access requests for the device are deleted in the move's transaction.
+- A device with a job not ended (`current_job_id` set) is not moved: `409 device/JOB_OPEN`. The
+  job and its records stay in the old space; `devices.current_job_id` is a composite key into that
+  space's `jobs` ([decision](20261119-composite-foreign-keys.md)).
+- Moving is an instance-admin action: admin-pool allowlist #3.
+- An agent-hosted device keeps its agent: an agent is a host, not a tenant row
+  ([decision](20261119-agent-link-identity-and-delivery.md)).
+
+Confirmed, not overruled: it matches the builder's code.
+
+## Where it shows
+
+[database.md](../database.md#roles-and-pools) (allowlist #3).
