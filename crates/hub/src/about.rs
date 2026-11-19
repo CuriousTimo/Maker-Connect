@@ -208,16 +208,16 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 {STYLE}
   .about {{ max-width: 760px; }}
   .about .lead {{ color: var(--muted); }}
-  .about section {{ background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 22px; margin: 16px 0; }}
+  .about section {{ background: var(--surface); border: 1px solid var(--line); border-radius: 0; padding: 18px 22px; margin: 16px 0; }}
   .about h3 {{ margin: 0 0 10px; font-size: 16px; }}
   .about table {{ border-collapse: collapse; width: 100%; }}
   .about th {{ text-align: left; font-weight: 500; color: var(--muted); padding: 5px 16px 5px 0; width: 34%; vertical-align: top; }}
   .about td {{ padding: 5px 0; overflow-wrap: anywhere; }}
   .about .links {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }}
-  .about .links a {{ display: block; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; text-decoration: none; color: var(--ink); }}
+  .about .links a {{ display: block; padding: 10px 14px; border: 1px solid var(--line); border-radius: 0; text-decoration: none; color: var(--ink); }}
   .about .links a small {{ display: block; color: var(--muted); }}
   .about p {{ margin: 0 0 8px; }}
-  .about .notes {{ max-height: 220px; overflow: auto; background: var(--bg); border-radius: 8px; padding: 10px 12px; font-size: 13px; white-space: pre-wrap; }}
+  .about .notes {{ max-height: 220px; overflow: auto; background: var(--bg); border-radius: 0; padding: 10px 12px; font-size: 13px; white-space: pre-wrap; }}
   .about .bad {{ color: var(--bad, #c0392b); }}
 </style>
 </head>

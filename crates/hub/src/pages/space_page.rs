@@ -19,6 +19,8 @@ use serde::Deserialize;
 pub fn routes() -> Router<Store> {
     Router::new()
         .route("/space", get(page))
+        .route("/space/{tab}", get(tab_page))
+        .route("/account", get(account_page))
         .route("/api/space/audit", get(audit))
         .route("/space/name", post(rename))
         .route("/organisation/name", post(rename_organisation))
@@ -26,7 +28,7 @@ pub fn routes() -> Router<Store> {
         .route("/space/invites/{id}/revoke", post(revoke_invite))
         .route("/space/members/{user}/role", post(set_role))
         .route("/space/members/{user}/remove", post(remove_member))
-        .route("/space/tokens", post(new_token))
+        .route("/space/tokens", get(tokens_page).post(new_token))
         .route("/space/tokens/{id}/revoke", post(revoke_token))
         .route("/invite/{token}", get(invite_page).post(join))
         .route("/welcome", get(welcome))
@@ -45,39 +47,16 @@ pub(crate) fn day(at: i64) -> String {
 }
 
 pub(crate) const SPACE_STYLE: &str = r#"
-  .tabs { display: flex; gap: 4px; margin: 14px 0 4px; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
-  .tabs::-webkit-scrollbar { display: none; }
-  .tabs a { padding: 10px 14px; text-decoration: none; color: var(--muted); font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
-  .tabs a[aria-selected=true] { color: var(--ink); border-color: var(--accent); }
-  .space-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
-  .space-head h2 { margin: 0; }
-  .section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin: 18px 0; }
-  .section h3 { margin: 0 0 4px; font-size: 17px; }
-  .section > p.sub { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
-  table.list { width: 100%; border-collapse: collapse; font-size: 14px; }
-  table.list th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
-  table.list td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
-  table.list tr:last-child td { border-bottom: 0; }
-  table.list form { margin: 0; display: inline-flex; gap: 6px; flex-wrap: nowrap; }
-  table.list small, .muted { color: var(--muted); }
-  .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--line); font-size: 12px; font-weight: 600; }
-  .chip.owner, .chip.admin { background: color-mix(in srgb, var(--accent) 20%, transparent); }
-  .ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
-  .danger { background: transparent; color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 40%, transparent); }
-  button.small, select.small { padding: 4px 8px; font-size: 13px; }
-  .secret { margin: 10px 0 0; padding: 12px; border: 1px solid var(--accent); border-radius: 10px; background: color-mix(in srgb, var(--accent) 8%, transparent); }
-  .secret pre { margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
   .pchips { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
-  .pchips li { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; white-space: nowrap; }
-  .pchips li.group { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .pchips li { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border: 1px solid var(--line); border-radius: 0; font-size: 13px; white-space: nowrap; }
+  .pchips li.group { border-color: color-mix(in srgb, var(--accent-text) 45%, var(--line)); }
   .pchips form { margin: 0; }
   .pchips button { padding: 0 6px; background: none; color: var(--muted); font-size: 15px; border: 0; }
   .pchips li.add { border-style: dashed; padding: 0; }
   .pchips li.add select { border: 0; background: transparent; font-size: 13px; padding: 3px 8px; color: var(--muted); }
   td.may { min-width: 220px; }
-  table.list td.since { white-space: nowrap; }
   .give { margin-top: 6px; }
-  .give summary { cursor: pointer; color: var(--accent); font-size: 13px; font-weight: 600; list-style: none; display: inline-block; }
+  .give summary { cursor: pointer; color: var(--accent-text); font-size: 13px; font-weight: 600; list-style: none; display: inline-block; }
   .give summary::-webkit-details-marker { display: none; }
   .give form { display: flex !important; flex-wrap: wrap !important; gap: 6px; align-items: center; margin-top: 6px !important; }
   .give label { font-size: 13px; }
@@ -85,8 +64,8 @@ pub(crate) const SPACE_STYLE: &str = r#"
   .pchips li { position: relative; }
   .pchips details.edit summary { list-style: none; cursor: pointer; }
   .pchips details.edit summary::-webkit-details-marker { display: none; }
-  .pchips li.add details.edit summary { color: var(--accent); font-weight: 600; padding: 2px 10px 2px 0; }
-  .pchips details.edit[open] > form { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; width: max-content; max-width: min(520px, 80vw); padding: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgb(0 0 0 / .25); }
+  .pchips li.add details.edit summary { color: var(--accent-text); font-weight: 600; padding: 2px 10px 2px 0; }
+  .pchips details.edit[open] > form { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; width: max-content; max-width: min(520px, 80vw); padding: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 0; box-shadow: 0 10px 30px rgb(0 0 0 / .25); }
   .pchips details.edit form label { font-size: 13px; }
   .gcard .g-label { margin: 0 0 -4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
   .gcard header { justify-content: space-between; }
@@ -101,19 +80,19 @@ pub(crate) const SPACE_STYLE: &str = r#"
   .perm-table .pick { display: inline-flex; gap: 8px; align-items: center; cursor: pointer; }
   .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
   /* Access (planned): the design, marked as such. */
-  .chip.planned { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .chip.planned { background: color-mix(in srgb, var(--st-warn) 18%, transparent); color: var(--st-warn); }
   .a-head { display: flex; align-items: center; gap: 10px; }
   .a-head h3 { margin: 0 0 4px; }
   .a-flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; counter-reset: a; }
-  .a-flow li { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; }
+  .a-flow li { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 0; }
   .a-flow small { color: var(--muted); font-size: 13px; }
-  .a-n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--line); font-size: 12px; font-weight: 700; }
+  .a-n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 0; background: var(--line); font-size: 12px; font-weight: 700; }
   .a-form { display: flex; flex-wrap: wrap; gap: 8px; }
   .a-form input { flex: 1 1 220px; }
   .access-plan button:disabled { opacity: .45; cursor: not-allowed; }
   .a-example { opacity: .7; }
   .a-note { margin: 8px 0 0; font-size: 12px; }
-  .a-state { font-size: 12px; font-weight: 600; } .a-state.ok { color: var(--accent); } .a-state.warn { color: var(--warn); }
+  .a-state { font-size: 12px; font-weight: 600; } .a-state.ok { color: var(--accent-text); } .a-state.warn { color: var(--st-warn); }
   .a-log { list-style: none; margin: 0; padding: 0; font-size: 14px; }
   .a-log li { padding: 6px 0; border-top: 1px solid var(--line); } .a-log li:first-child { border-top: 0; }
   .a-log time { color: var(--muted); margin-right: 10px; font-variant-numeric: tabular-nums; }
@@ -121,11 +100,11 @@ pub(crate) const SPACE_STYLE: &str = r#"
   .mx-table th.mx, .mx-table td.mx { text-align: center; white-space: nowrap; }
   .mx-table td.mx label { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; min-width: 48px; }
   .mx-table td.mx input { width: 18px; height: 18px; margin: 0; }
-  .mx-table td.mx .mx-level { display: block; margin: 2px auto 0; padding: 0 6px; border: 0; border-radius: 4px; background: none; color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer; text-decoration: underline dotted; }
+  .mx-table td.mx .mx-level { display: block; margin: 2px auto 0; padding: 0 6px; border: 0; border-radius: 0; background: none; color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer; text-decoration: underline dotted; }
   .mx-table td.mx .mx-level:hover:not(:disabled) { color: var(--ink); background: var(--line); }
   .mx-table td.mx-more { text-align: right; white-space: nowrap; }
   .gcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-  .gcard { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 10px; align-content: start; }
+  .gcard { border: 1px solid var(--line); border-radius: 0; padding: 12px 14px; display: grid; gap: 10px; align-content: start; }
   .gcard header { display: flex; align-items: baseline; gap: 8px; }
   .gcard header small { color: var(--muted); margin-right: auto; }
   .gcard header form { margin: 0; }
@@ -137,7 +116,7 @@ pub(crate) const SPACE_STYLE: &str = r#"
   .machine-access:first-of-type { border-top: 0; }
   .machine-access header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .machine-access .grants { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
-  .machine-access .grants li { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; }
+  .machine-access .grants li { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border: 1px solid var(--line); border-radius: 0; font-size: 13px; }
   .machine-access .grants form { margin: 0; }
   .machine-access .g-label { margin: 10px 0 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
   .machine-access header small { margin-right: auto; }
@@ -145,17 +124,61 @@ pub(crate) const SPACE_STYLE: &str = r#"
   .audit li { padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 14px; list-style: none; }
   .audit { padding: 0; margin: 0; max-height: 420px; overflow-y: auto; }
   .audit time { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 8px; }
-  .switch { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 "#;
 
-async fn page(
+/// Space's tabs, one subject each (docs/design/ui.md "Space (admin)"), as pages: a navigation
+/// between pages is a list of links with `aria-current`. A member or guest has one: their own
+/// permissions, read only ("My permissions").
+const TABS: [(&str, &str); 6] = [
+    ("general", "General"),
+    ("members", "Members"),
+    ("permissions", "Permissions"),
+    ("access", "Access"),
+    ("tokens", "API tokens"),
+    ("audit", "Audit log"),
+];
+
+async fn page(access: Access, store: State<Store>, signed: Option<Extension<Signed>>) -> Response {
+    space_tab(access, store, signed, None, false).await
+}
+
+async fn tab_page(
+    access: Access,
+    store: State<Store>,
+    signed: Option<Extension<Signed>>,
+    Path(tab): Path<String>,
+) -> Response {
+    space_tab(access, store, signed, Some(tab), false).await
+}
+
+/// API tokens: its path is also where a new one is made (POST).
+async fn tokens_page(
+    access: Access,
+    store: State<Store>,
+    signed: Option<Extension<Signed>>,
+) -> Response {
+    space_tab(access, store, signed, Some("tokens".to_owned()), false).await
+}
+
+/// One's own account (the password), from the user menu.
+async fn account_page(
+    access: Access,
+    store: State<Store>,
+    signed: Option<Extension<Signed>>,
+) -> Response {
+    space_tab(access, store, signed, None, true).await
+}
+
+async fn space_tab(
     access: Access,
     State(store): State<Store>,
     signed: Option<Extension<Signed>>,
+    tab: Option<String>,
+    account: bool,
 ) -> Response {
     // With an API token (no session) the page shows all but one's own account.
     let signed = signed.map(|Extension(s)| s);
-    let built: Result<String, crate::store::BoxError> = async {
+    let built: Result<(StatusCode, String), crate::store::BoxError> = async {
         let space = access.space;
         let name = store.space_name(space).await?;
         let org_name = store.organisation_name(space).await?;
@@ -197,13 +220,13 @@ async fn page(
             let layer = |label: &str, scope: &str, have: Option<Role>, allowed: bool| {
                 if editable && allowed {
                     format!(
-                        r#"<form method="post" action="space/members/{id}/role" data-async data-then="reload" data-done="Role changed"><input type="hidden" name="scope" value="{scope}"><select class="small" name="role" aria-label="Role {label}" onchange="this.form.requestSubmit()">{opts}</select></form>"#,
+                        r#"<form method="post" action="space/members/{id}/role" data-async data-then="reload" data-done="Role changed"><input type="hidden" name="scope" value="{scope}"><select name="role" aria-label="Role {label}" onchange="this.form.requestSubmit()">{opts}</select></form>"#,
                         id = m.user_id,
                         opts = roles(access.role, have, true),
                     )
                 } else {
                     have.map_or("<small>—</small>".to_owned(), |r| {
-                        format!(r#"<span class="chip {r}">{r}</span>"#, r = r.as_str())
+                        format!(r#"<span class="tag">{r}</span>"#, r = r.as_str())
                     })
                 }
             };
@@ -217,7 +240,7 @@ async fn page(
                 since = day(m.since),
                 remove = if editable && !you {
                     format!(
-                        r#"<form method="post" action="space/members/{id}/remove" data-async data-then="reload" data-done="Removed" data-confirm="Take {who} out of {what}?"><input type="hidden" name="scope" value="{scope}"><button class="small danger">Remove</button></form>"#,
+                        r#"<form method="post" action="space/members/{id}/remove" data-async data-then="reload" data-done="Removed" data-confirm="Take {who} out of {what}?"><input type="hidden" name="scope" value="{scope}"><span class="fw"><button class="btn small danger">Remove</button></span></form>"#,
                         id = m.user_id,
                         who = escape(&m.display_name),
                         what = if m.org_role.is_some() {
@@ -236,10 +259,9 @@ async fn page(
                 },
             );
         }
-        let matrix = &access_parts.matrix;
         let members_html = format!(
-            r#"<section class="section"><h3>Members</h3><p class="sub">A role in the organisation counts in all of its spaces; a role in this space only here. The higher one counts. Owners and admins manage the space and every machine; using a machine takes permission, for everyone (below), unless it is open; guests look only.</p>
-<table class="list"><thead><tr><th>Who</th><th>Organisation</th><th>This space</th><th>Since</th><th></th></tr></thead><tbody>{rows}</tbody></table></section>{matrix}"#
+            r#"<section class="card"><h3>Members</h3><p class="muted">A role in the organisation counts in all of its spaces; a role in this space only here. The higher one counts. Owners and admins manage the space and every machine; using a machine takes permission, for everyone (below), unless it is open; guests look only.</p>
+<div class="table-wrap"><table><thead><tr><th>Who</th><th>Organisation</th><th>This space</th><th>Since</th><th></th></tr></thead><tbody>{rows}</tbody></table></div></section>"#
         );
 
         // Invite links.
@@ -247,7 +269,7 @@ async fn page(
             let mut list = String::new();
             for i in store.invites(space).await?.iter().filter(|i| i.open()).take(20) {
                 list += &format!(
-                    r#"<tr><td><span class="chip {r}">{r}</span></td><td>{scope}</td><td><small>{by}, until {until}</small></td><td><form method="post" action="space/invites/{id}/revoke" data-async data-then="reload" data-done="Revoked"><button class="small ghost">Revoke</button></form></td></tr>"#,
+                    r#"<tr><td><span class="tag">{r}</span></td><td>{scope}</td><td><small>{by}, until {until}</small></td><td><form method="post" action="space/invites/{id}/revoke" data-async data-then="reload" data-done="Revoked"><span class="fw"><button class="btn small ghost">Revoke</button></span></form></td></tr>"#,
                     r = i.role.as_str(),
                     scope = if i.whole_organisation {
                         escape(&org_name)
@@ -269,16 +291,16 @@ async fn page(
                 r#"<input type="hidden" name="scope" value="space">"#.to_owned()
             };
             format!(
-                r#"<section class="section"><h3>Invite links</h3><p class="sub">A link for one person, valid a week: they make their account (or sign in) and are in. No email needed: send it however you like.</p>
-<form method="post" action="space/invites" data-async data-done="Link made" data-secret="invite" class="switch"><label>As <select name="role">{roles}</select></label><label>Into {scope_choice}</label><button>Make a link</button></form>
-<div data-secret-box="invite" hidden class="secret"><b>The link, shown once:</b><pre data-secret-text></pre><button type="button" class="small ghost" data-copy-secret>Copy</button></div>
+                r#"<section class="card"><h3>Invite links</h3><p class="muted">A link for one person, valid a week: they make their account (or sign in) and are in. No email needed: send it however you like.</p>
+<form method="post" action="space/invites" data-async data-done="Link made" data-secret="invite" class="row"><label>As <select name="role">{roles}</select></label><label>Into {scope_choice}</label><span class="fw"><button class="btn primary">Make a link</button></span></form>
+<div data-secret-box="invite" hidden class="secret"><b>The link, shown once:</b><pre data-secret-text></pre><span class="fw"><button type="button" class="btn small ghost" data-copy-secret>Copy</button></span></div>
 {table}</section>"#,
                 roles = roles(access.role, Some(Role::Member), false),
                 table = if list.is_empty() {
                     String::new()
                 } else {
                     format!(
-                        r#"<table class="list" style="margin-top:12px"><thead><tr><th>Role</th><th>Into</th><th>Made</th><th></th></tr></thead><tbody>{list}</tbody></table>"#
+                        r#"<div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Role</th><th>Into</th><th>Made</th><th></th></tr></thead><tbody>{list}</tbody></table></div>"#
                     )
                 },
             )
@@ -294,7 +316,7 @@ async fn page(
             let mut list = String::new();
             for t in store.tokens(space).await? {
                 list += &format!(
-                    r#"<tr><td><b>{name}</b></td><td><span class="chip {r}">{r}</span></td><td><small>{by}, {made}</small></td><td><small>{used}</small></td><td><form method="post" action="space/tokens/{id}/revoke" data-async data-then="reload" data-done="Revoked" data-confirm="Revoke {name}? What uses it stops working."><button class="small danger">Revoke</button></form></td></tr>"#,
+                    r#"<tr><td><b>{name}</b></td><td><span class="tag">{r}</span></td><td><small>{by}, {made}</small></td><td><small>{used}</small></td><td><form method="post" action="space/tokens/{id}/revoke" data-async data-then="reload" data-done="Revoked" data-confirm="Revoke {name}? What uses it stops working."><span class="fw"><button class="btn small danger">Revoke</button></span></form></td></tr>"#,
                     name = escape(&t.name),
                     r = t.role.as_str(),
                     by = escape(&t.by),
@@ -306,16 +328,16 @@ async fn page(
                 );
             }
             format!(
-                r#"<section class="section"><h3>API tokens</h3><p class="sub">For programs: Moonraker's and OctoPrint's Spoolman (they take the address with the token in it), LaserFoundry, scripts (<code>Authorization: Bearer</code>). A token acts in this space with its role, never more than yours.</p>
-<form method="post" action="space/tokens" data-async data-done="Token made" data-secret="token" class="switch"><input name="name" required maxlength="60" placeholder="Voron's Moonraker" aria-label="Name"><select name="role" aria-label="Role">{roles}</select><button>Make a token</button></form>
-<div data-secret-box="token" hidden class="secret"><b>The token, shown once:</b><pre data-secret-text></pre><span class="muted">For Moonraker, in <code>moonraker.conf</code>:</span><pre data-secret-moonraker></pre><button type="button" class="small ghost" data-copy-secret>Copy the token</button></div>
+                r#"<section class="card"><h3>API tokens</h3><p class="muted">For programs: Moonraker's and OctoPrint's Spoolman (they take the address with the token in it), LaserFoundry, scripts (<code>Authorization: Bearer</code>). A token acts in this space with its role, never more than yours.</p>
+<form method="post" action="space/tokens" data-async data-done="Token made" data-secret="token" class="row"><input name="name" required maxlength="60" placeholder="Voron's Moonraker" aria-label="Name"><select name="role" aria-label="Role">{roles}</select><span class="fw"><button class="btn primary">Make a token</button></span></form>
+<div data-secret-box="token" hidden class="secret"><b>The token, shown once:</b><pre data-secret-text></pre><span class="muted">For Moonraker, in <code>moonraker.conf</code>:</span><pre data-secret-moonraker></pre><span class="fw"><button type="button" class="btn small ghost" data-copy-secret>Copy the token</button></span></div>
 {table}</section>"#,
                 roles = roles(access.role.min(Role::Admin), Some(Role::Member), false),
                 table = if list.is_empty() {
                     String::new()
                 } else {
                     format!(
-                        r#"<table class="list" style="margin-top:12px"><thead><tr><th>Name</th><th>Role</th><th>Made</th><th>Used</th><th></th></tr></thead><tbody>{list}</tbody></table>"#
+                        r#"<div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Name</th><th>Role</th><th>Made</th><th>Used</th><th></th></tr></thead><tbody>{list}</tbody></table></div>"#
                     )
                 },
             )
@@ -347,7 +369,7 @@ async fn page(
                 );
             }
             format!(
-                r#"<section class="section"><h3>Audit log</h3><p class="sub">Who changed what in this space, newest first (times in UTC).</p><ul class="audit">{}</ul></section>"#,
+                r#"<section class="card"><h3>Audit log</h3><p class="muted">Who changed what in this space, newest first (times in UTC).</p><ul class="audit">{}</ul></section>"#,
                 if lines.is_empty() {
                     r#"<li class="muted">Nothing yet.</li>"#.to_owned()
                 } else {
@@ -363,10 +385,10 @@ async fn page(
             .iter()
             .map(|s| {
                 if s.id == space {
-                    format!(r#"<span class="chip">{}</span>"#, escape(&s.name))
+                    format!(r#"<span class="tag">{}</span>"#, escape(&s.name))
                 } else {
                     format!(
-                        r#"<form method="post" action="spaces/switch" data-async data-then="./"><input type="hidden" name="space" value="{id}"><button class="small ghost">{name}</button></form>"#,
+                        r#"<form method="post" action="spaces/switch" data-async data-then="./"><input type="hidden" name="space" value="{id}"><span class="fw"><button class="btn small ghost">{name}</button></span></form>"#,
                         id = s.id,
                         name = escape(&s.name)
                     )
@@ -375,7 +397,7 @@ async fn page(
             .collect();
         let new_space = if org_admin {
             format!(
-                r#"<form method="post" action="spaces" data-async data-then="./" data-done="Space made" class="switch"><input type="hidden" name="organisation" value="this"><input name="name" required maxlength="60" placeholder="A second location" aria-label="Name of the new space"><button class="small">New space in {org}</button></form>"#,
+                r#"<form method="post" action="spaces" data-async data-then="./" data-done="Space made" class="row"><input type="hidden" name="organisation" value="this"><input name="name" required maxlength="60" placeholder="A second location" aria-label="Name of the new space"><span class="fw"><button class="btn small">New space in {org}</button></span></form>"#,
                 org = escape(&org_name)
             )
         } else {
@@ -385,28 +407,28 @@ async fn page(
         let name_form = if admin {
             let org_form = if org_admin {
                 format!(
-                    r#"<form method="post" action="organisation/name" data-async data-then="reload" data-done="Renamed" class="switch"><label class="muted">Organisation <input name="name" value="{org}" required maxlength="60"></label><button class="small ghost">Rename</button></form>"#,
+                    r#"<form method="post" action="organisation/name" data-async data-then="reload" data-done="Renamed" class="row"><label class="muted">Organisation <input name="name" value="{org}" required maxlength="60"></label><span class="fw"><button class="btn small ghost">Rename</button></span></form>"#,
                     org = escape(&org_name)
                 )
             } else {
                 String::new()
             };
             format!(
-                r#"{org_form}<form method="post" action="space/name" data-async data-then="reload" data-done="Renamed" class="switch" style="margin-top:8px"><label class="muted">This space <input name="name" value="{name}" required maxlength="60"></label><button class="small ghost">Rename</button></form>"#,
+                r#"{org_form}<form method="post" action="space/name" data-async data-then="reload" data-done="Renamed" class="row" style="margin-top:8px"><label class="muted">This space <input name="name" value="{name}" required maxlength="60"></label><span class="fw"><button class="btn small ghost">Rename</button></span></form>"#,
                 name = escape(&name)
             )
         } else {
             String::new()
         };
         let org_html = format!(
-            r#"<section class="section"><h3>{org}</h3><p class="sub">The organisation this space belongs to; its members are in all of its spaces.</p><div class="switch">{switch_list}</div><div style="margin-top:12px">{name_form}</div><div style="margin-top:8px">{new_space}</div></section>"#,
+            r#"<section class="card"><h3>{org}</h3><p class="muted">The organisation this space belongs to; its members are in all of its spaces.</p><div class="row">{switch_list}</div><div style="margin-top:12px">{name_form}</div><div style="margin-top:8px">{new_space}</div></section>"#,
             org = escape(&org_name)
         );
 
         // Safety: asking for PPE before use (crate::safety).
         let ppe_on = store.ppe_checks(space).await?;
         let safety_html = format!(
-            r#"<section class="section"><h3>Safety</h3><p class="sub">For a makerspace: before someone uses a machine that needs it, they tick off its PPE (laser safety glasses at a laser, safety glasses and hearing protection at a CNC). Each machine's list is in its Settings. At home you may leave it off.</p>{}</section>"#,
+            r#"<section class="card"><h3>Safety</h3><p class="muted">For a makerspace: before someone uses a machine that needs it, they tick off its PPE (laser safety glasses at a laser, safety glasses and hearing protection at a CNC). Each machine's list is in its Settings. At home you may leave it off.</p>{}</section>"#,
             if admin {
                 format!(
                     r#"<form method="post" action="space/safety" data-async data-then="reload" data-done="Saved"><label><input type="checkbox" name="on" value="1"{checked} onchange="this.form.requestSubmit()"> Ask for PPE before use</label></form>"#,
@@ -423,28 +445,91 @@ async fn page(
         let instance_html = if signed.as_ref().is_some_and(|s| s.instance_admin) {
             let open_spaces = store.open_spaces().await;
             format!(
-                r#"<section class="section"><h3>This server</h3><p class="sub">You run it. Usually only you make organisations; on a hosted service anyone signed in may make their own.</p><form method="post" action="instance/open-spaces" data-async data-done="Saved"><label><input type="checkbox" name="open" value="1"{checked} onchange="this.form.requestSubmit()"> Anyone signed in may make an organisation</label></form>
-<form method="post" action="spaces" data-async data-then="./" data-done="Organisation made" class="switch" style="margin-top:12px"><input name="name" required maxlength="60" placeholder="Fablab Zuid" aria-label="Name of the new organisation"><button class="small ghost">New organisation</button></form></section>"#,
+                r#"<section class="card"><h3>This server</h3><p class="muted">You run it. Usually only you make organisations; on a hosted service anyone signed in may make their own.</p><form method="post" action="instance/open-spaces" data-async data-done="Saved"><label><input type="checkbox" name="open" value="1"{checked} onchange="this.form.requestSubmit()"> Anyone signed in may make an organisation</label></form>
+<form method="post" action="spaces" data-async data-then="./" data-done="Organisation made" class="row" style="margin-top:12px"><input name="name" required maxlength="60" placeholder="Fablab Zuid" aria-label="Name of the new organisation"><span class="fw"><button class="btn small ghost">New organisation</button></span></form></section>"#,
                 checked = if open_spaces { " checked" } else { "" }
             )
         } else {
             String::new()
         };
         let account_html = signed.as_ref().map_or(String::new(), |signed| format!(
-            r#"<section class="section"><h3>Your account</h3><p class="sub">Signed in as <b>{display}</b> ({name}).</p><form method="post" action="account/password" data-async data-done="Password changed: signed out elsewhere" class="switch"><input type="password" name="current" required autocomplete="current-password" placeholder="Current password" aria-label="Current password"><input type="password" name="new" required minlength="{min}" autocomplete="new-password" placeholder="New password" aria-label="New password"><input type="password" name="again" required minlength="{min}" autocomplete="new-password" placeholder="Again" aria-label="New password again"><button class="small">Change password</button></form></section>"#,
+            r#"<section class="card"><h3>Your account</h3><p class="muted">Signed in as <b>{display}</b> ({name}).</p><form method="post" action="account/password" data-async data-done="Password changed: signed out elsewhere" class="row"><input type="password" name="current" required autocomplete="current-password" placeholder="Current password" aria-label="Current password"><input type="password" name="new" required minlength="{min}" autocomplete="new-password" placeholder="New password" aria-label="New password"><input type="password" name="again" required minlength="{min}" autocomplete="new-password" placeholder="Again" aria-label="New password again"><span class="fw"><button class="btn small">Change password</button></span></form></section>"#,
             display = escape(&signed.display_name),
             name = escape(&signed.name),
             min = accounts::MIN_PASSWORD,
         ));
 
-        Ok(format!(
+        // The tab asked for, or the first one this person has.
+        let here = match (&tab, account) {
+            (_, true) => "account",
+            (Some(tab), _) => tab.as_str(),
+            (None, _) if admin => "general",
+            (None, _) => "permissions",
+        };
+        let mut tabs: Vec<(&str, &str)> = TABS.to_vec();
+        if !cameras_html.is_empty() {
+            tabs.insert(4, ("cameras", "Cameras"));
+        }
+        let permissions_html = format!(
+            "{}{}{}",
+            access_parts.matrix, access_parts.groups, access_parts.machines
+        );
+        let panel = match here {
+            "account" if !account_html.is_empty() => Some(account_html.clone()),
+            "permissions" => Some(permissions_html),
+            _ if !admin => None,
+            "general" => Some(format!("{org_html}{safety_html}{instance_html}")),
+            "members" => Some(format!("{members_html}{invites_html}")),
+            "access" => Some(crate::access_page::placeholder()),
+            "cameras" if !cameras_html.is_empty() => Some(cameras_html.clone()),
+            "tokens" if !tokens_html.is_empty() => Some(tokens_html.clone()),
+            "audit" if !audit_html.is_empty() => Some(audit_html.clone()),
+            _ => None,
+        };
+        let known = here == "account" || tabs.iter().any(|(id, _)| *id == here);
+        let status = match (&panel, known) {
+            (Some(_), _) => StatusCode::OK,
+            (None, true) => StatusCode::FORBIDDEN,
+            (None, false) => StatusCode::NOT_FOUND,
+        };
+        let title = match here {
+            "account" => "Your account",
+            _ if admin => "Space",
+            _ => "My permissions",
+        };
+        let nav = if admin && here != "account" {
+            let links: String = tabs
+                .iter()
+                .map(|(id, label)| {
+                    format!(
+                        r#"<a href="/space/{id}"{current}>{label}</a>"#,
+                        current = if *id == here { r#" aria-current="page""# } else { "" }
+                    )
+                })
+                .collect();
+            format!(r#"<nav aria-label="Space"><div class="tabs">{links}</div></nav>"#)
+        } else {
+            String::new()
+        };
+        let body = format!(
+            r#"<div class="head"><h1>{title}</h1><span class="tag">{name} · you: {role}</span></div>{nav}{panel}"#,
+            name = escape(&name),
+            role = access.role.as_str(),
+            panel = panel.unwrap_or_else(|| match known {
+                true => r#"<div class="banner warn" role="alert"><span>This page is for the space's staff.</span></div>"#.to_owned(),
+                false => r#"<div class="banner warn" role="alert"><span>There is no such tab in Space.</span></div>"#.to_owned(),
+            }),
+        );
+
+        Ok((status, format!(
             r##"<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{name} · Maker Connect</title>
-<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<base href="/">
 <style>
 {STYLE}{SPACE_STYLE}
 </style>
@@ -452,28 +537,9 @@ async fn page(
 <body>
 {header}
 <main id="main" tabindex="-1">
-  <div class="space-head"><h2>{name}</h2><span class="chip {role}">you: {role}</span></div>
-  <nav class="tabs" role="tablist"><a href="#members" role="tab">Members</a><a href="#permissions" role="tab">Permissions</a><a href="#access" role="tab">Access</a>{cameras_tab}{tokens_tab}{audit_tab}<a href="#general" role="tab">General</a></nav>
-  <div role="tabpanel" data-panel="members">{members_html}{invites_html}</div>
-  <div role="tabpanel" data-panel="access" hidden>{access_html}</div>
-  <div role="tabpanel" data-panel="permissions" hidden>{groups_html}{machines_html}</div>
-  <div role="tabpanel" data-panel="cameras" hidden>{cameras_html}</div>
-  <div role="tabpanel" data-panel="tokens" hidden>{tokens_html}</div>
-  <div role="tabpanel" data-panel="audit" hidden>{audit_html}</div>
-  <div role="tabpanel" data-panel="general" hidden>{org_html}{safety_html}{account_html}{instance_html}</div>
+  {body}
 </main>
 <script>
-  // Tabs: the address says which (#members), so a reload stays there.
-  function showTab() {{
-    const tabs = [...document.querySelectorAll(".tabs a")];
-    // Groups and machines are part of Permissions (older links said #groups, #machines).
-    const hash = ["#groups", "#machines"].includes(location.hash) ? "#permissions" : location.hash;
-    const tab = tabs.find((a) => a.hash === hash) || tabs[0];
-    for (const a of tabs) a.setAttribute("aria-selected", String(a === tab));
-    for (const p of document.querySelectorAll("[data-panel]")) p.hidden = `#${{p.dataset.panel}}` !== tab.hash;
-  }}
-  addEventListener("hashchange", showTab);
-  showTab();
   // The matrix: a tick gives (operate) or takes a group's permission, at once; the level
   // under it switches between operate (everything) and use (jobs only).
   const tick = (user, group, body) => fetch(`permissions/groups/${{group}}/people/${{user}}`, {{ method: "POST", headers: {{ "x-requested-with": "fetch" }}, body: new URLSearchParams(body) }});
@@ -528,32 +594,13 @@ async fn page(
 </script>
 </body>
 </html>"##,
-            header = header(&name, "", "space"),
-            role = access.role.as_str(),
-            groups_html = access_parts.groups,
-            access_html = crate::access_page::placeholder(),
-            machines_html = access_parts.machines,
-            cameras_tab = if cameras_html.is_empty() {
-                ""
-            } else {
-                r##"<a href="#cameras" role="tab">Cameras</a>"##
-            },
-            tokens_tab = if tokens_html.is_empty() {
-                ""
-            } else {
-                r##"<a href="#tokens" role="tab">API tokens</a>"##
-            },
-            audit_tab = if audit_html.is_empty() {
-                ""
-            } else {
-                r##"<a href="#audit" role="tab">Audit log</a>"##
-            },
+            header = header(&name, "", if account { "account" } else { "space" }),
             name = escape(&name),
-        ))
+        )))
     }
     .await;
     match built {
-        Ok(html) => Html(html).into_response(),
+        Ok((status, html)) => (status, Html(html)).into_response(),
         Err(error) => failed(error),
     }
 }

@@ -135,14 +135,14 @@ const NOT_FOUND_PAGE: &str = r##"<!doctype html>
   .lost svg { width: 100%; max-width: 420px; height: auto; margin: 0 auto; overflow: visible; }
   .lost h1 { margin: 0; font-size: 26px; letter-spacing: -0.01em; }
   .lost p { margin: 0; color: var(--muted); }
-  .lost code { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; color: var(--ink); word-break: break-all; }
-  .gcode { text-align: left; margin: 4px auto 0; padding: 12px 14px; max-width: 420px; width: 100%; box-sizing: border-box; background: var(--card); border: 1px solid var(--line); border-radius: 8px; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
-  .gcode b { color: var(--accent); font-weight: 600; }
-  .gcode i { color: var(--bad); font-style: normal; }
+  .lost code { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--surface); border: 1px solid var(--line); border-radius: 0; padding: 2px 6px; color: var(--ink); word-break: break-all; }
+  .gcode { text-align: left; margin: 4px auto 0; padding: 12px 14px; max-width: 420px; width: 100%; box-sizing: border-box; background: var(--surface); border: 1px solid var(--line); border-radius: 0; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+  .gcode b { color: var(--accent-text); font-weight: 600; }
+  .gcode i { color: var(--st-bad); font-style: normal; }
   .lost-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-  .lost-actions a, .lost-actions button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); text-decoration: none; cursor: pointer; }
-  .lost-actions a.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .lost-actions a:focus-visible, .lost-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .lost-actions a, .lost-actions button { font: inherit; padding: 8px 14px; border-radius: 0; border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-decoration: none; cursor: pointer; }
+  .lost-actions a.primary { background: var(--accent); border-color: var(--accent-text); color: #fff; }
+  .lost-actions a:focus-visible, .lost-actions button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .nozzle { animation: wander 3.2s ease-in-out infinite; transform-origin: 210px 40px; }
   .strand { stroke-dasharray: 900; stroke-dashoffset: 900; animation: ooze 3.2s ease-in-out infinite; }
   @keyframes wander { 0%, 100% { transform: translateX(-46px); } 50% { transform: translateX(46px); } }
@@ -156,9 +156,9 @@ const NOT_FOUND_PAGE: &str = r##"<!doctype html>
     <svg viewBox="0 0 420 230" role="img" aria-label="A print nozzle drawing a tangle of filament in mid-air, spelling 404">
       <line x1="20" y1="22" x2="400" y2="22" stroke="var(--line)" stroke-width="6" stroke-linecap="round"/>
       <g class="nozzle">
-        <rect x="186" y="6" width="48" height="30" rx="5" fill="var(--card)" stroke="var(--ink)" stroke-width="2.5"/>
-        <rect x="198" y="36" width="24" height="10" fill="var(--off)"/>
-        <path d="M200 46 L220 46 L213 58 L207 58 Z" fill="var(--warn)"/>
+        <rect x="186" y="6" width="48" height="30" rx="5" fill="var(--surface)" stroke="var(--ink)" stroke-width="2.5"/>
+        <rect x="198" y="36" width="24" height="10" fill="var(--st-off)"/>
+        <path d="M200 46 L220 46 L213 58 L207 58 Z" fill="var(--st-warn)"/>
       </g>
       <path class="strand" fill="none" stroke="var(--accent)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"
         d="M210 58 C 205 80, 150 70, 130 95 C 112 118, 96 150, 112 160 L 62 160 L 112 100 L 112 196

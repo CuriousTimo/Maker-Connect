@@ -12,11 +12,11 @@ use axum::{
 
 const PREPARE_STYLE: &str = "
   .tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
-  .tool { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+  .tool { background: var(--surface); border: 1px solid var(--line); border-radius: 0; padding: 18px 20px; }
   .tool h3 { margin: 0 0 6px; }
   .tool p { margin: 0 0 12px; color: var(--muted); }
   .tool .tool-note { font-size: 13px; margin: 10px 0 0; }
-  .tool a.button { display: inline-block; font-weight: 600; padding: 8px 14px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; }
+  .tool a.button { display: inline-block; font-weight: 600; padding: 8px 14px; border-radius: 0; background: var(--accent); color: var(--on-accent); text-decoration: none; }
 ";
 
 pub async fn page(access: crate::access::Access, State(store): State<Store>) -> Response {

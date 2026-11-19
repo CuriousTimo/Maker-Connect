@@ -1604,9 +1604,9 @@ mod tests {
             Level::Use,
             "closed again: through the group Printers"
         );
-        // In the Space page's Members tab: an admin sees everyone's permissions, with a
-        // Permissions… window per person; a member sees only their own, without it.
-        let (status, page) = w.get(&adam, "/space").await;
+        // On Space → Permissions: an admin sees everyone's permissions, with a Permissions…
+        // window per person; a member sees only their own (My permissions), without it.
+        let (status, page) = w.get(&adam, "/space/permissions").await;
         assert_eq!(status, StatusCode::OK);
         assert!(
             page.contains(&format!(
@@ -1622,7 +1622,9 @@ mod tests {
             page.contains(&format!(r#"data-open-perm="{mia_id}""#)),
             "her window"
         );
-        assert!(page.contains(r#"data-panel="permissions""#));
+        assert!(
+            page.contains(r#"<a href="/space/permissions" aria-current="page">Permissions</a>"#)
+        );
         let (status, page) = w.get(&mia, "/space").await;
         assert_eq!(status, StatusCode::OK);
         assert!(
@@ -1692,7 +1694,7 @@ mod tests {
         let asked = w.store.requests(space).await.unwrap();
         assert_eq!(asked.len(), 1, "asked once");
         assert!(asked[0].training);
-        let (_, page) = w.get(&adam, "/space").await;
+        let (_, page) = w.get(&adam, "/space/permissions").await;
         assert!(page.contains("asks for a training"), "the staff see it");
         let give = format!("/permissions/requests/{}/give", asked[0].id);
         assert_eq!(

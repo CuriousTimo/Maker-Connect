@@ -71,7 +71,7 @@ fn level_options(chosen: Level) -> String {
 
 fn x_form(action: &str, title: &str) -> String {
     format!(
-        r#"<form method="post" action="{action}" data-async data-then="reload" data-done="Taken away"><button title="{title}" aria-label="{title}">×</button></form>"#,
+        r#"<form method="post" action="{action}" data-async data-then="reload" data-done="Taken away"><span class="fw"><button class="btn primary" title="{title}" aria-label="{title}">×</button></span></form>"#,
         action = escape(action)
     )
 }
@@ -137,7 +137,7 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
         } else {
             let row = |on: String, label: String, grant: Option<&crate::access::Grant>| {
                 format!(
-                    r#"<tr><td><label class="pick"><input type="checkbox" name="on" value="{on}"{checked}> {label}</label></td><td><select class="small" name="level:{on}" aria-label="May">{levels}</select></td><td><input class="small" type="date" name="until:{on}" value="{date}" aria-label="Until"></td></tr>"#,
+                    r#"<tr><td><label class="pick"><input type="checkbox" name="on" value="{on}"{checked}> {label}</label></td><td><select name="level:{on}" aria-label="May">{levels}</select></td><td><input class="small" type="date" name="until:{on}" value="{date}" aria-label="Until"></td></tr>"#,
                     checked = if grant.is_some() { " checked" } else { "" },
                     levels = level_options(grant.map_or(Level::Use, |g| g.level)),
                     date = grant
@@ -173,13 +173,13 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
                 );
             }
             format!(
-                r#"<form method="post" action="permissions/people/{id}" data-async data-then="reload" data-done="Permissions saved"><table class="list perm-table"><thead><tr><th>May use</th><th>As</th><th>Until</th></tr></thead><tbody>{rows}</tbody></table><p class="muted" style="font-size:13px">Use: jobs and labels. Operate: also move, heat, G-code. No date: no end.</p><div class="dialog-actions"><button type="button" class="ghost" data-close>Cancel</button><button>Save</button></div></form>"#,
+                r#"<form method="post" action="permissions/people/{id}" data-async data-then="reload" data-done="Permissions saved"><table class="list perm-table"><thead><tr><th>May use</th><th>As</th><th>Until</th></tr></thead><tbody>{rows}</tbody></table><p class="muted" style="font-size:13px">Use: jobs and labels. Operate: also move, heat, G-code. No date: no end.</p><div class="dialog-actions"><span class="fw"><button type="button" class="btn ghost" data-close>Cancel</button></span><span class="fw"><button class="btn primary">Save</button></span></div></form>"#,
                 id = m.user_id
             )
         };
         let edit = if admin {
             format!(
-                r#"<button type="button" class="small ghost" data-open-perm="{id}">Permissions…</button><dialog class="perm-dialog" data-perm="{id}" aria-label="Permissions of {who}"><div class="dialog-head"><h2>Permissions of {who}</h2><button type="button" class="close" data-close aria-label="Close">✕</button></div><section>{body}</section></dialog>"#,
+                r#"<span class="fw"><button type="button" class="btn small ghost" data-open-perm="{id}">Permissions…</button></span><dialog class="perm-dialog" data-perm="{id}" aria-label="Permissions of {who}"><div class="dialog-head"><h2>Permissions of {who}</h2><button type="button" class="close" data-close aria-label="Close">✕</button></div><section>{body}</section></dialog>"#,
                 id = m.user_id
             )
         } else {
@@ -219,7 +219,7 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
             .iter()
             .map(|r| {
                 format!(
-                    r#"<tr><td><b>{who}</b></td><td>{machine}</td><td><small>{what}</small></td><td class="since"><small>{at}</small></td><td class="mx-more"><form method="post" action="permissions/requests/{id}/give" data-async data-then="reload" data-done="Given"><button class="small">{give}</button></form> <form method="post" action="permissions/requests/{id}/decline" data-async data-then="reload" data-done="Declined"><button class="small ghost">Decline</button></form></td></tr>"#,
+                    r#"<tr><td><b>{who}</b></td><td>{machine}</td><td><small>{what}</small></td><td class="since"><small>{at}</small></td><td class="mx-more"><form method="post" action="permissions/requests/{id}/give" data-async data-then="reload" data-done="Given"><span class="fw"><button class="btn small">{give}</button></span></form> <form method="post" action="permissions/requests/{id}/decline" data-async data-then="reload" data-done="Declined"><span class="fw"><button class="btn small ghost">Decline</button></span></form></td></tr>"#,
                     who = escape(&r.who),
                     machine = escape(&r.machine),
                     what = if r.training { "asks for a training" } else { "asks for permission" },
@@ -230,12 +230,12 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
             })
             .collect();
         format!(
-            r#"<section class="section asked"><h3>Asked for <span class="chip planned">{n}</span></h3><p class="sub">People who may not use a machine yet asked the staff. Give is "use" on that machine; more under Permissions….</p><table class="list"><tbody>{rows}</tbody></table></section>"#,
+            r#"<section class="section asked"><h3>Asked for <span class="tag">{n}</span></h3><p class="muted">People who may not use a machine yet asked the staff. Give is "use" on that machine; more under Permissions….</p><div class="table-wrap"><table><tbody>{rows}</tbody></table></div></section>"#,
             n = asked.len()
         )
     };
     let matrix = format!(
-        r#"{requests}<section class="section"><h3>Who may use what</h3><p class="sub">A person per row, a machine group per column: a tick gives permission to use every machine in it, at once. Permissions… for the rest: use or operate, until when, single machines. Owners and admins too: managing is not using. Groups are made under Permissions.</p><div class="mx-wrap"><table class="list mx-table"><thead><tr><th>Who</th>{group_heads}{no_groups}<th class="mx">Access <span class="chip planned">Planned</span></th><th></th></tr></thead><tbody>{matrix_rows}</tbody></table></div></section>"#,
+        r#"{requests}<section class="card"><h3>Who may use what</h3><p class="muted">A person per row, a machine group per column: a tick gives permission to use every machine in it, at once. Permissions… for the rest: use or operate, until when, single machines. Owners and admins too: managing is not using. Groups are made under Permissions.</p><div class="mx-wrap"><table class="list mx-table"><thead><tr><th>Who</th>{group_heads}{no_groups}<th class="mx">Access <span class="tag">Planned</span></th><th></th></tr></thead><tbody>{matrix_rows}</tbody></table></div></section>"#,
         no_groups = if groups.is_empty() {
             r#"<th class="mx"><small class="muted">no machine groups yet</small></th>"#
         } else {
@@ -289,7 +289,7 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
             name = escape(&g.name),
             remove = if admin {
                 format!(
-                    r#"<form method="post" action="permissions/groups/{}/remove" data-async data-then="reload" data-done="Group removed" data-confirm="Remove the group {}? The permissions on it go too; those per machine stay."><button class="small ghost" title="Remove the group">Remove</button></form>"#,
+                    r#"<form method="post" action="permissions/groups/{}/remove" data-async data-then="reload" data-done="Group removed" data-confirm="Remove the group {}? The permissions on it go too; those per machine stay."><span class="fw"><button class="btn small ghost" title="Remove the group">Remove</button></span></form>"#,
                     g.id,
                     escape(&g.name)
                 )
@@ -312,12 +312,12 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
         );
     }
     let new_group = if admin {
-        r#"<form method="post" action="permissions/groups" data-async data-then="reload" data-done="Group made" class="gnew"><input name="name" required maxlength="60" placeholder="3D printers" aria-label="Name of a new group"><select name="kind" aria-label="Start with"><option value="">empty</option><option value="all">with all machines</option><option value="fdm">with all 3D printers</option><option value="laser">with all lasers</option><option value="label">with all label printers</option></select><button class="ghost">New group</button></form>"#
+        r#"<form method="post" action="permissions/groups" data-async data-then="reload" data-done="Group made" class="gnew"><input name="name" required maxlength="60" placeholder="3D printers" aria-label="Name of a new group"><select name="kind" aria-label="Start with"><option value="">empty</option><option value="all">with all machines</option><option value="fdm">with all 3D printers</option><option value="laser">with all lasers</option><option value="label">with all label printers</option></select><span class="fw"><button class="btn ghost">New group</button></span></form>"#
     } else {
         ""
     };
     let groups_html = format!(
-        r#"<section class="section"><h3>Machine groups</h3><p class="sub">Machines that go together: the 3D printers, the lasers. Who may use a group is ticked under Members; permission on a group is permission on every machine in it, also those added later.</p><div class="gcards">{}</div>{new_group}</section>"#,
+        r#"<section class="card"><h3>Machine groups</h3><p class="muted">Machines that go together: the 3D printers, the lasers. Who may use a group is ticked under Members; permission on a group is permission on every machine in it, also those added later.</p><div class="gcards">{}</div>{new_group}</section>"#,
         if cards.is_empty() {
             r#"<p class="muted">No groups yet.</p>"#.to_owned()
         } else {
@@ -405,12 +405,12 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
         );
     }
     let machines_html = format!(
-        r#"<section class="section"><h3>Machines</h3><p class="sub">A new machine needs permission, for everyone: owners and admins manage it, but use it only with permission like anyone else. Whoever adds a machine gets it. Open a machine to let every member use it.</p>{}</section>"#,
+        r#"<section class="card"><h3>Machines</h3><p class="muted">A new machine needs permission, for everyone: owners and admins manage it, but use it only with permission like anyone else. Whoever adds a machine gets it. Open a machine to let every member use it.</p>{}</section>"#,
         if rows.is_empty() {
             r#"<p class="muted">No machines yet.</p>"#.to_owned()
         } else {
             format!(
-                r#"<table class="list"><thead><tr><th>Machine</th><th>Groups</th><th>Access</th><th>Who may use it</th></tr></thead><tbody>{rows}</tbody></table>"#
+                r#"<div class="table-wrap"><table><thead><tr><th>Machine</th><th>Groups</th><th>Access</th><th>Who may use it</th></tr></thead><tbody>{rows}</tbody></table></div>"#
             )
         }
     );

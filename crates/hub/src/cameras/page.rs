@@ -470,9 +470,9 @@ pub(crate) async fn machine_tab(
 pub(crate) const CAMERAS_STYLE: &str = r#"
   .cam-intro { color: var(--muted); margin: 0 0 12px; max-width: 640px; font-size: 14px; }
   .cams { list-style: none; padding: 0; margin: 0 0 20px; display: grid; gap: 10px; }
-  .cam { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; display: grid; gap: 4px; }
+  .cam { background: var(--surface); border: 1px solid var(--line); border-radius: 0; padding: 12px 16px; display: grid; gap: 4px; }
   .cam small { color: var(--muted); }
   .cam-edit form, .cam-add form { display: grid; gap: 8px; max-width: 520px; margin-top: 8px; }
   .cam-edit label, .cam-add label { display: grid; gap: 4px; font-size: 14px; }
-  .cam-player { width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 12px; background: #000; }
+  .cam-player { width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 0; background: #000; }
 "#;
