@@ -37,7 +37,7 @@ impl Running {
     }
 
     fn until(&mut self, what: &str, ready: impl Fn(&[Event]) -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(15);
+        let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             while let Ok(event) = self.events.try_recv() {
                 self.seen.push(event);

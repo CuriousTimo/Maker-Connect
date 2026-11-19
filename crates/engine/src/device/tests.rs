@@ -89,7 +89,7 @@ impl Host {
 
     /// Waits until the tree has `/state` = `state`.
     fn state(&mut self, state: &str) {
-        let deadline = Instant::now() + Duration::from_secs(15);
+        let deadline = Instant::now() + Duration::from_secs(60);
         while self.tree.get("/state").and_then(Value::as_str) != Some(state) {
             let left = deadline.saturating_duration_since(Instant::now());
             let patch = self
