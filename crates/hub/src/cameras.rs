@@ -79,6 +79,49 @@ fn running<T>(f: impl FnOnce(&mut HashMap<i64, Running>) -> T) -> T {
     f(RUNNING.lock().unwrap().get_or_insert_with(HashMap::new))
 }
 
+/// Why a camera does not play, by camera id: what its session's last start or end said (the
+/// hub's log line, without user and password), for its pages; gone when it starts again.
+static PROBLEMS: Mutex<Option<HashMap<i64, String>>> = Mutex::new(None);
+
+fn problems<T>(f: impl FnOnce(&mut HashMap<i64, String>) -> T) -> T {
+    f(PROBLEMS.lock().unwrap().get_or_insert_with(HashMap::new))
+}
+
+/// How a camera's session is doing, for its pages.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Status {
+    /// Its frames go to the viewers.
+    Playing,
+    /// Its session is opening the camera.
+    Connecting,
+    /// It does not play: what went wrong.
+    Failed(String),
+    /// No session (the hub has not started it).
+    Off,
+}
+
+/// A camera's [`Status`] now.
+pub(crate) fn status(id: i64) -> Status {
+    if let Some(problem) = problems(|p| p.get(&id).cloned()) {
+        return Status::Failed(problem);
+    }
+    running(|r| match r.get(&id) {
+        Some(r) if r.frames.is_some() => Status::Playing,
+        Some(_) => Status::Connecting,
+        None => Status::Off,
+    })
+}
+
+/// An error's text as a camera's page shows it: without its password, should the error
+/// quote it.
+fn shown_error(error: &dyn std::fmt::Display, source: &Source) -> String {
+    let text = error.to_string();
+    match source.password.as_deref().filter(|p| !p.is_empty()) {
+        Some(password) => text.replace(password, "…"),
+        None => text,
+    }
+}
+
 /// A frame ready to be broadcast to all websockets (the example's `FrameItem`, carrying what
 /// go2rtc's muxer needs instead of the example's WebCodecs messages): the frame in AVC form,
 /// its 32-bit RTP timestamp, and its parameters (`avcC`, width and height).
@@ -204,7 +247,9 @@ async fn run(id: i64, source: Source) {
     let session = match open(&source).await {
         Ok(session) => session,
         Err(error) => {
+            let error = shown_error(&error, &source);
             eprintln!("camera {id} {shown}: {error}");
+            problems(|p| p.insert(id, error));
             return;
         }
     };
@@ -227,6 +272,11 @@ async fn run(id: i64, source: Source) {
     });
     gop.lock().unwrap().clear();
     eprintln!("camera {id} {shown}: RTSP session ending: {res:?}");
+    let ended = match res {
+        Ok(()) => "The camera ended its stream.".to_owned(),
+        Err(error) => format!("The stream broke off: {}", shown_error(&error, &source)),
+    };
+    problems(|p| p.insert(id, ended));
 }
 
 /// Starts a camera's session, ending the one it had (its viewers are closed).
@@ -236,6 +286,7 @@ pub fn start(camera: &store::Camera) {
         Err(error) => {
             eprintln!("camera {}: not an address: {error}", camera.id);
             stop(camera.id);
+            problems(|p| p.insert(camera.id, format!("Not an address: {error}")));
             return;
         }
     };
@@ -245,6 +296,7 @@ pub fn start(camera: &store::Camera) {
         password: camera.password.clone(),
     };
     let id = camera.id;
+    problems(|p| p.remove(&id));
     running(|r| {
         if let Some(old) = r.remove(&id) {
             old.task.abort();
@@ -263,6 +315,7 @@ pub fn start(camera: &store::Camera) {
 
 /// Ends a camera's session; its viewers are closed.
 pub fn stop(id: i64) {
+    problems(|p| p.remove(&id));
     running(|r| {
         if let Some(old) = r.remove(&id) {
             old.task.abort();
@@ -418,5 +471,53 @@ impl Viewer {
         }
         let fragment = self.muxer.get_payload(item.rtp_timestamp, &payload);
         ws_send(socket, Message::Binary(fragment.into())).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn camera(id: i64, url: &str) -> store::Camera {
+        store::Camera {
+            id,
+            space_id: 1,
+            name: "Bench".to_owned(),
+            source: "rtsp".to_owned(),
+            url: url.to_owned(),
+            username: Some("admin".to_owned()),
+            password: Some("s3cret".to_owned()),
+            machine_id: None,
+            view_role: crate::access::Role::Member,
+            created_at: 0,
+        }
+    }
+
+    /// A camera that cannot start says why on its pages, until it starts again or goes.
+    #[test]
+    fn a_camera_that_cannot_start_says_why() {
+        let id = -41;
+        assert_eq!(status(id), Status::Off);
+        start(&camera(id, "not an address"));
+        let Status::Failed(problem) = status(id) else {
+            panic!("{:?}", status(id));
+        };
+        assert!(problem.starts_with("Not an address: "), "{problem}");
+        stop(id);
+        assert_eq!(status(id), Status::Off);
+    }
+
+    /// The password never shows in an error a page shows.
+    #[test]
+    fn a_shown_error_has_no_password() {
+        let source = Source {
+            url: "rtsp://192.0.2.1/stream".parse().unwrap(),
+            username: Some("admin".to_owned()),
+            password: Some("s3cret".to_owned()),
+        };
+        assert_eq!(
+            shown_error(&"401 for admin:s3cret", &source),
+            "401 for admin:…"
+        );
     }
 }

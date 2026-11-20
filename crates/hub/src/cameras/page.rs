@@ -165,7 +165,7 @@ async fn camera_page(access: Access, State(store): State<Store>, Path(id): Path<
 <main id="main" tabindex="-1">
   <h2>{name}</h2>
   <p class="cam-intro">{watches} · <a href="../cameras">All cameras</a></p>
-  <iframe class="cam-player" src="{id}/live" title="{name}" allow="picture-in-picture"></iframe>
+  {status}<iframe class="cam-player" src="{id}/live" title="{name}" allow="picture-in-picture"></iframe>
 </main>
 </body>
 </html>"##,
@@ -173,6 +173,7 @@ async fn camera_page(access: Access, State(store): State<Store>, Path(id): Path<
         title = escape(&space),
         header = header(&space, "../", "cameras"),
         id = camera.id,
+        status = status_note(camera.id),
     ))
     .into_response()
 }
@@ -198,10 +199,11 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
         .filter(|c| store.may_view_camera(&access, c, &grants))
     {
         rows.push_str(&format!(
-            r#"<li class="cam"><a href="cameras/{id}"><b>{name}</b></a><small>{watches}</small></li>"#,
+            r#"<li class="cam"><a href="cameras/{id}"><b>{name}</b></a><small>{watches}</small>{status}</li>"#,
             id = camera.id,
             name = escape(&camera.name),
             watches = watches(camera, &machines),
+            status = status_note(camera.id),
         ));
     }
     if rows.is_empty() {
@@ -239,6 +241,23 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
     .into_response()
 }
 
+/// Why a camera does not play, as one line on its pages ([`super::status`]); nothing while it
+/// plays or connects.
+fn status_note(id: i64) -> String {
+    match super::status(id) {
+        // While it connects: nothing either, its player starts once it plays.
+        super::Status::Playing | super::Status::Connecting => String::new(),
+        super::Status::Failed(problem) => format!(
+            r#"<p class="cam-status bad" role="status">Not playing: {}</p>"#,
+            escape(&problem)
+        ),
+        super::Status::Off => {
+            r#"<p class="cam-status bad" role="status">Not playing: the hub has not started it.</p>"#
+                .to_owned()
+        }
+    }
+}
+
 /// What a camera watches, for a list.
 fn watches(camera: &Camera, machines: &[crate::store::Machine]) -> String {
     match &camera.machine_id {
@@ -265,10 +284,11 @@ pub(crate) async fn space_tab(
     let mut rows = String::new();
     for camera in &cameras {
         rows.push_str(&format!(
-            r#"<li class="cam"><a href="cameras/{id}"><b>{name}</b></a><small>{watches}</small>{edit}</li>"#,
+            r#"<li class="cam"><a href="cameras/{id}"><b>{name}</b></a><small>{watches}</small>{status}{edit}</li>"#,
             id = camera.id,
             name = escape(&camera.name),
             watches = watches(camera, machines),
+            status = status_note(camera.id),
             edit = edit_form(camera, machines),
         ));
     }
@@ -471,14 +491,16 @@ pub(crate) async fn machine_tab(
     let mut out = String::new();
     for camera in &cameras {
         out.push_str(&format!(
-            r#"<h3><a href="../cameras/{id}">{name}</a></h3>{}"#,
+            r#"<h3><a href="../cameras/{id}">{name}</a></h3>{}{}"#,
+            status_note(camera.id),
             player(camera.id, &camera.name),
             id = camera.id,
             name = escape(&camera.name),
         ));
     }
     let preview = format!(
-        r##"<div class="card now-cam"><div class="card-head"><h3><a href="#cameras">{name}</a></h3></div>{}</div>"##,
+        r##"<div class="card now-cam"><div class="card-head"><h3><a href="#cameras">{name}</a></h3></div>{}{}</div>"##,
+        status_note(first.id),
         player(first.id, &first.name),
         name = escape(&first.name),
     );
@@ -492,5 +514,7 @@ pub(crate) const CAMERAS_STYLE: &str = r#"
   .cam small { color: var(--muted); }
   .cam-edit form, .cam-add form { display: grid; gap: 8px; max-width: 520px; margin-top: 8px; }
   .cam-edit label, .cam-add label { display: grid; gap: 4px; font-size: 14px; }
+  .cam-status { margin: 0 0 8px; font-size: 14px; color: var(--muted); }
+  .cam-status.bad { color: var(--st-bad); }
   .cam-player { width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 0; background: #000; }
 "#;
