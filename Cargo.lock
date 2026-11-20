@@ -1509,6 +1509,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "maker-connect-gcode-metadata"
+version = "0.2.0"
+dependencies = [
+ "log",
+ "regex",
+ "serde_json",
+]
+
+[[package]]
 name = "maker-connect-grbl"
 version = "0.2.0"
 dependencies = [

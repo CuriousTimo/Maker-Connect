@@ -1,0 +1,15 @@
+[package]
+name = "maker-connect-gcode-metadata"
+description = "A port of prusa3d/gcode-metadata (@7d8f25d, LGPLv2+) to Rust, as the Connect SDK uses it"
+version.workspace = true
+edition.workspace = true
+# The port of an LGPLv2+ library; the workspace is AGPL-3.0, which LGPLv2+ code may be part of.
+license = "LGPL-2.0-or-later"
+
+[dependencies]
+regex = "1"
+log = "0.4"
+
+[dev-dependencies]
+# reads the recorded CPython cases (`tests/py-cases.json`) without our own json port
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
