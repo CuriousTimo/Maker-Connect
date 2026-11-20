@@ -321,7 +321,12 @@ same print page; Settings is read only for a member.
 
 ### Materials and a spool
 
-Tabs: Spools, Filaments, Tapes, Label rolls, Laser materials, Locations. Tape cassettes and label
+After Prusa Connect online's Materials (owner, journal:HUB-FINISH:0006; materials.html): the stock in
+kg and spools on top; **Filament** is one card with search, sort and filter chips (all, on a printer,
+low, a type, a brand, a location) over a table with **one row per material** (colour, name, brand,
+type, its spools and how many are on a printer, what is left with a bar), each with **Assign…** (a
+spool of it onto a printer, a dialog) and **+ Spool**; its spools open under the row.
+Tabs: Filament, Tapes, Label rolls, Laser materials, Locations. Tape cassettes and label
 rolls are two tabs, as the two stacks are apart (decided, journal:UI-DESIGN:0011 Q4; UT-38). Data is
 Spoolman's (`/spoolman/api/v1`).
 
