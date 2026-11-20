@@ -1576,7 +1576,7 @@ mod tests {
             "managing: yes"
         );
         assert_eq!(
-            w.post(&adam, &format!("/machines/{laser}/command"), "gcode=G0")
+            w.post(&adam, &format!("/machines/{laser}/command"), "action=home")
                 .await
                 .0,
             StatusCode::FORBIDDEN,
@@ -2317,7 +2317,7 @@ mod tests {
         let command = format!("/machines/{laser}/command");
         let media = format!("/machines/{laser}/job");
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::FORBIDDEN
         );
         assert_eq!(
@@ -2332,7 +2332,7 @@ mod tests {
             StatusCode::NO_CONTENT
         );
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::FORBIDDEN,
             "use is not operate"
         );
@@ -2349,7 +2349,7 @@ mod tests {
         // A laser in a space that asks for PPE: first the glasses (crate::safety). Switching
         // off never waits for them. (A space that does not ask: no glasses needed.)
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::NO_CONTENT,
             "not asked: on"
         );
@@ -2363,7 +2363,7 @@ mod tests {
             StatusCode::NO_CONTENT
         );
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::PRECONDITION_REQUIRED
         );
         assert_ne!(
@@ -2382,7 +2382,7 @@ mod tests {
             StatusCode::OK
         );
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::NO_CONTENT
         );
         // Its manager says it needs safety glasses and hearing protection: asked again, and
@@ -2398,7 +2398,7 @@ mod tests {
             StatusCode::NO_CONTENT
         );
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::PRECONDITION_REQUIRED
         );
         assert_eq!(
@@ -2413,7 +2413,7 @@ mod tests {
             StatusCode::OK
         );
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::NO_CONTENT
         );
         // Until a day long gone: ended.
@@ -2428,7 +2428,7 @@ mod tests {
             StatusCode::NO_CONTENT
         );
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::FORBIDDEN
         );
         // Members may not give inductions.
