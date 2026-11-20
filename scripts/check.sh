@@ -16,6 +16,7 @@ export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
 PY313="${PY313:-$HOME/.local/share/uv/python/cpython-3.13.12-macos-aarch64-none/bin/python3.13}"
 OCTOPRINT_PY="reference/.venv-octoprint/bin/python"
 OCTOPRINT_313_PY="reference/.venv-octoprint-313/bin/python"
+CONNECT_SDK_PY="reference/.venv-connect-sdk-313/bin/python"
 
 failed=()
 step() { # name, command...
@@ -74,6 +75,9 @@ step "octoprint script context" quiet "$OCTOPRINT_PY" scripts/octoprint-script-c
 step "octoprint file read (CPython 3.13)" quiet "$PY313" scripts/octoprint-file-read-check.py
 step "octoprint str.format (CPython 3.13)" quiet "$PY313" scripts/octoprint-format-check.py
 step "octoprint % (CPython 3.13)" quiet "$PY313" scripts/octoprint-percent-check.py
+# gcode-metadata's recorded cases (crates/gcode-metadata/tests/*.json) = what the reference records now.
+step "gcode-metadata py cases (CPython 3.13)" quiet "$CONNECT_SDK_PY" -I scripts/gcode-metadata-py-cases.py --check
+step "gcode-metadata cases (the reference)" quiet "$CONNECT_SDK_PY" -I scripts/gcode-metadata-cases.py --check
 # shellcheck disable=SC2086
 step "regenerated fixtures unchanged" test "$BEFORE" = "$(shasum $FIXTURES)"
 

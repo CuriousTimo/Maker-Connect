@@ -13,3 +13,4 @@ log = "0.4"
 [dev-dependencies]
 # reads the recorded CPython cases (`tests/py-cases.json`) without our own json port
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+sha2 = "0.10"

@@ -18,29 +18,55 @@ use std::fmt::Write as _;
 
 use crate::py_unicode;
 
-/// A Python exception, by class. `JSONDecodeError` and `UnicodeDecodeError` are `ValueError`s.
+/// A Python exception, by class. `JSONDecodeError` and `UnicodeDecodeError` are `ValueError`s;
+/// `Other` names any other class (`BadZipFile`, `NotImplementedError`, ...).
 #[derive(Debug, Clone, PartialEq)]
 pub enum PyErr {
     ValueError(String),
     TypeError(String),
     OverflowError(String),
     RecursionError(String),
+    KeyError(String),
+    AttributeError(String),
+    AssertionError(String),
+    Other(&'static str, String),
 }
 
 impl PyErr {
     pub fn is_value_error(&self) -> bool {
         matches!(self, PyErr::ValueError(_))
     }
+
+    pub fn class_name(&self) -> &'static str {
+        match self {
+            PyErr::ValueError(_) => "ValueError",
+            PyErr::TypeError(_) => "TypeError",
+            PyErr::OverflowError(_) => "OverflowError",
+            PyErr::RecursionError(_) => "RecursionError",
+            PyErr::KeyError(_) => "KeyError",
+            PyErr::AttributeError(_) => "AttributeError",
+            PyErr::AssertionError(_) => "AssertionError",
+            PyErr::Other(class, _) => class,
+        }
+    }
+
+    pub fn message(&self) -> &str {
+        match self {
+            PyErr::ValueError(m)
+            | PyErr::TypeError(m)
+            | PyErr::OverflowError(m)
+            | PyErr::RecursionError(m)
+            | PyErr::KeyError(m)
+            | PyErr::AttributeError(m)
+            | PyErr::AssertionError(m)
+            | PyErr::Other(_, m) => m,
+        }
+    }
 }
 
 impl std::fmt::Display for PyErr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PyErr::ValueError(m) => write!(f, "ValueError: {m}"),
-            PyErr::TypeError(m) => write!(f, "TypeError: {m}"),
-            PyErr::OverflowError(m) => write!(f, "OverflowError: {m}"),
-            PyErr::RecursionError(m) => write!(f, "RecursionError: {m}"),
-        }
+        write!(f, "{}: {}", self.class_name(), self.message())
     }
 }
 

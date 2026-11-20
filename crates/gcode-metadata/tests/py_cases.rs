@@ -36,15 +36,6 @@ fn from_hex(text: &str) -> f64 {
     if negative { -value } else { value }
 }
 
-fn class(err: &PyErr) -> (&'static str, String) {
-    match err {
-        PyErr::ValueError(m) => ("ValueError", m.clone()),
-        PyErr::TypeError(m) => ("TypeError", m.clone()),
-        PyErr::OverflowError(m) => ("OverflowError", m.clone()),
-        PyErr::RecursionError(m) => ("RecursionError", m.clone()),
-    }
-}
-
 /// Python's JSON decode errors are `JSONDecodeError`, a `ValueError`.
 fn expected(outcome: &Value) -> (String, String) {
     let kind = outcome[0].as_str().unwrap();
@@ -59,10 +50,7 @@ fn expected(outcome: &Value) -> (String, String) {
 fn ours<T>(result: Result<T, PyErr>, ok: impl Fn(T) -> String) -> (String, String) {
     match result {
         Ok(value) => ("ok".to_owned(), ok(value)),
-        Err(err) => {
-            let (kind, message) = class(&err);
-            (kind.to_owned(), message)
-        }
+        Err(err) => (err.class_name().to_owned(), err.message().to_owned()),
     }
 }
 

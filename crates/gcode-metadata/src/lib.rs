@@ -5,5 +5,6 @@
 //!
 //! The Python it stands on is CPython 3.13.12 ([`py`]).
 
+pub mod metadata;
 pub mod py;
 pub mod py_unicode;

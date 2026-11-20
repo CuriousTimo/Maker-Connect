@@ -1,0 +1,971 @@
+{
+ "python": "3.13.12",
+ "cases": {
+  ".hidden_fdn_filename.gcode": {
+   "whole": [
+    "ok",
+    {
+     "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+     "thumbnails": [
+      [
+       "16x16_PNG",
+       608,
+       "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+      ],
+      [
+       "220x124_PNG",
+       11680,
+       "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+      ]
+     ]
+    }
+   ],
+   "chunks": {
+    "1024": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+      "thumbnails": [
+       [
+        "16x16_PNG",
+        608,
+        "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+       ],
+       [
+        "220x124_PNG",
+        11680,
+        "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+       ]
+      ]
+     }
+    ],
+    "10240": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+      "thumbnails": [
+       [
+        "16x16_PNG",
+        608,
+        "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+       ],
+       [
+        "220x124_PNG",
+        11680,
+        "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+       ]
+      ]
+     }
+    ],
+    "65536": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+      "thumbnails": [
+       [
+        "16x16_PNG",
+        608,
+        "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+       ],
+       [
+        "220x124_PNG",
+        11680,
+        "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+       ]
+      ]
+     }
+    ],
+    "2097152": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+      "thumbnails": [
+       [
+        "16x16_PNG",
+        608,
+        "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+       ],
+       [
+        "220x124_PNG",
+        11680,
+        "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+       ]
+      ]
+     }
+    ],
+    "20971520": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+      "thumbnails": [
+       [
+        "16x16_PNG",
+        608,
+        "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+       ],
+       [
+        "220x124_PNG",
+        11680,
+        "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "fdn_all_empty.gcode": {
+   "whole": [
+    "ok",
+    {
+     "data": "{}",
+     "thumbnails": []
+    }
+   ],
+   "chunks": {
+    "1024": [
+     "ok",
+     {
+      "data": "{}",
+      "thumbnails": []
+     }
+    ],
+    "10240": [
+     "ok",
+     {
+      "data": "{}",
+      "thumbnails": []
+     }
+    ],
+    "65536": [
+     "ok",
+     {
+      "data": "{}",
+      "thumbnails": []
+     }
+    ],
+    "2097152": [
+     "ok",
+     {
+      "data": "{}",
+      "thumbnails": []
+     }
+    ],
+    "20971520": [
+     "ok",
+     {
+      "data": "{}",
+      "thumbnails": []
+     }
+    ]
+   }
+  },
+  "fdn_filename.gcode": {
+   "whole": [
+    "ok",
+    {
+     "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+     "thumbnails": [
+      [
+       "16x16_PNG",
+       608,
+       "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+      ],
+      [
+       "220x124_PNG",
+       11680,
+       "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+      ]
+     ]
+    }
+   ],
+   "chunks": {
+    "1024": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+      "thumbnails": [
+       [
+        "16x16_PNG",
+        608,
+        "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+       ],
+       [
+        "220x124_PNG",
+        11680,
+        "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+       ]
+      ]
+     }
+    ],
+    "10240": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+      "thumbnails": [
+       [
+        "16x16_PNG",
+        608,
+        "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+       ],
+       [
+        "220x124_PNG",
+        11680,
+        "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+       ]
+      ]
+     }
+    ],
+    "65536": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+      "thumbnails": [
+       [
+        "16x16_PNG",
+        608,
+        "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+       ],
+       [
+        "220x124_PNG",
+        11680,
+        "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+       ]
+      ]
+     }
+    ],
+    "2097152": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+      "thumbnails": [
+       [
+        "16x16_PNG",
+        608,
+        "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+       ],
+       [
+        "220x124_PNG",
+        11680,
+        "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+       ]
+      ]
+     }
+    ],
+    "20971520": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+      "thumbnails": [
+       [
+        "16x16_PNG",
+        608,
+        "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+       ],
+       [
+        "220x124_PNG",
+        11680,
+        "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "fdn_filename_empty.gcode": {
+   "whole": [
+    "ok",
+    {
+     "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+     "thumbnails": [
+      [
+       "16x16_PNG",
+       608,
+       "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+      ],
+      [
+       "220x124_PNG",
+       11680,
+       "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+      ]
+     ]
+    }
+   ],
+   "chunks": {
+    "1024": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+      "thumbnails": [
+       [
+        "16x16_PNG",
+        608,
+        "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+       ],
+       [
+        "220x124_PNG",
+        11680,
+        "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+       ]
+      ]
+     }
+    ],
+    "10240": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+      "thumbnails": [
+       [
+        "16x16_PNG",
+        608,
+        "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+       ],
+       [
+        "220x124_PNG",
+        11680,
+        "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+       ]
+      ]
+     }
+    ],
+    "65536": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+      "thumbnails": [
+       [
+        "16x16_PNG",
+        608,
+        "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+       ],
+       [
+        "220x124_PNG",
+        11680,
+        "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+       ]
+      ]
+     }
+    ],
+    "2097152": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+      "thumbnails": [
+       [
+        "16x16_PNG",
+        608,
+        "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+       ],
+       [
+        "220x124_PNG",
+        11680,
+        "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+       ]
+      ]
+     }
+    ],
+    "20971520": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"filament used [mm]\": 7003.4, \"filament used [cm3]\": 16.8, \"filament used [g]\": 21.4, \"filament cost\": 0.6, \"estimated printing time (normal mode)\": \"2h 9m 24s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_type\": \"PETG\", \"fill_density\": \"0%\", \"layer_height\": 0.25, \"nozzle_diameter\": 0.4, \"printer_model\": \"MINI\", \"support_material\": 0, \"temperature\": 240}",
+      "thumbnails": [
+       [
+        "16x16_PNG",
+        608,
+        "659c180a36d0e8af850cb1cb9f131f5a1fdc6af5e9fd825e0275ca1c5f8f5b71"
+       ],
+       [
+        "220x124_PNG",
+        11680,
+        "fabb7e6844ce984f94860969edac6efd916af49e96a8c5c21a4bea1193ce4824"
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "fdn_full_0.15mm_PETG_MK3S_2h6m.gcode": {
+   "whole": [
+    "ok",
+    {
+     "data": "{\"layer_height\": 0.15, \"filament_type\": \"PETG\", \"printer_model\": \"MK3S\", \"estimated printing time (normal mode)\": \"2h 6m 5s\", \"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"filament used [mm]\": 4427.38, \"filament used [cm3]\": 10.65, \"filament used [g]\": 13.52, \"filament cost\": 0.41, \"bed_temperature\": 90, \"brim_width\": 0, \"filament_abrasive\": 1, \"fill_density\": \"20%\", \"ironing\": 0, \"nozzle_diameter\": 0.4, \"nozzle_high_flow\": 0, \"objects_info\": {\"objects\": [{\"name\": \"Shape-Box id:0 copy 0\", \"polygon\": [[111.0, 111.0], [93.0, 111.0], [93.0, 93.0], [111.0, 93.0]]}, {\"name\": \"Shape-Box id:0 copy 1\", \"polygon\": [[87.0, 111.0], [69.0, 111.0], [69.0, 93.0], [87.0, 93.0]]}, {\"name\": \"Shape-Box id:0 copy 2\", \"polygon\": [[111.0, 87.0], [93.0, 87.0], [93.0, 69.0], [111.0, 69.0]]}, {\"name\": \"Shape-Box id:0 copy 3\", \"polygon\": [[87.0, 87.0], [69.0, 87.0], [69.0, 69.0], [87.0, 69.0]]}]}, \"support_material\": 0, \"temperature\": 250}",
+     "thumbnails": [
+      [
+       "640x480_PNG",
+       158644,
+       "6b03361cd47df41a5f81d8629386b6bd5aabb2980ab076f32d8aa279b71ec9b4"
+      ]
+     ]
+    }
+   ],
+   "chunks": {
+    "1024": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"filament used [mm]\": 4427.38, \"filament used [cm3]\": 10.65, \"filament used [g]\": 13.52, \"filament cost\": 0.41, \"estimated printing time (normal mode)\": \"2h 6m 5s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_abrasive\": 1, \"filament_type\": \"PETG\", \"fill_density\": \"20%\", \"ironing\": 0, \"layer_height\": 0.15, \"nozzle_diameter\": 0.4, \"nozzle_high_flow\": 0, \"objects_info\": {\"objects\": [{\"name\": \"Shape-Box id:0 copy 0\", \"polygon\": [[111.0, 111.0], [93.0, 111.0], [93.0, 93.0], [111.0, 93.0]]}, {\"name\": \"Shape-Box id:0 copy 1\", \"polygon\": [[87.0, 111.0], [69.0, 111.0], [69.0, 93.0], [87.0, 93.0]]}, {\"name\": \"Shape-Box id:0 copy 2\", \"polygon\": [[111.0, 87.0], [93.0, 87.0], [93.0, 69.0], [111.0, 69.0]]}, {\"name\": \"Shape-Box id:0 copy 3\", \"polygon\": [[87.0, 87.0], [69.0, 87.0], [69.0, 69.0], [87.0, 69.0]]}]}, \"printer_model\": \"MK3S\", \"support_material\": 0, \"temperature\": 250}",
+      "thumbnails": [
+       [
+        "640x480_PNG",
+        158644,
+        "6b03361cd47df41a5f81d8629386b6bd5aabb2980ab076f32d8aa279b71ec9b4"
+       ]
+      ]
+     }
+    ],
+    "10240": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"filament used [mm]\": 4427.38, \"filament used [cm3]\": 10.65, \"filament used [g]\": 13.52, \"filament cost\": 0.41, \"estimated printing time (normal mode)\": \"2h 6m 5s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_abrasive\": 1, \"filament_type\": \"PETG\", \"fill_density\": \"20%\", \"ironing\": 0, \"layer_height\": 0.15, \"nozzle_diameter\": 0.4, \"nozzle_high_flow\": 0, \"objects_info\": {\"objects\": [{\"name\": \"Shape-Box id:0 copy 0\", \"polygon\": [[111.0, 111.0], [93.0, 111.0], [93.0, 93.0], [111.0, 93.0]]}, {\"name\": \"Shape-Box id:0 copy 1\", \"polygon\": [[87.0, 111.0], [69.0, 111.0], [69.0, 93.0], [87.0, 93.0]]}, {\"name\": \"Shape-Box id:0 copy 2\", \"polygon\": [[111.0, 87.0], [93.0, 87.0], [93.0, 69.0], [111.0, 69.0]]}, {\"name\": \"Shape-Box id:0 copy 3\", \"polygon\": [[87.0, 87.0], [69.0, 87.0], [69.0, 69.0], [87.0, 69.0]]}]}, \"printer_model\": \"MK3S\", \"support_material\": 0, \"temperature\": 250}",
+      "thumbnails": [
+       [
+        "640x480_PNG",
+        158644,
+        "6b03361cd47df41a5f81d8629386b6bd5aabb2980ab076f32d8aa279b71ec9b4"
+       ]
+      ]
+     }
+    ],
+    "65536": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"filament used [mm]\": 4427.38, \"filament used [cm3]\": 10.65, \"filament used [g]\": 13.52, \"filament cost\": 0.41, \"estimated printing time (normal mode)\": \"2h 6m 5s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_abrasive\": 1, \"filament_type\": \"PETG\", \"fill_density\": \"20%\", \"ironing\": 0, \"layer_height\": 0.15, \"nozzle_diameter\": 0.4, \"nozzle_high_flow\": 0, \"objects_info\": {\"objects\": [{\"name\": \"Shape-Box id:0 copy 0\", \"polygon\": [[111.0, 111.0], [93.0, 111.0], [93.0, 93.0], [111.0, 93.0]]}, {\"name\": \"Shape-Box id:0 copy 1\", \"polygon\": [[87.0, 111.0], [69.0, 111.0], [69.0, 93.0], [87.0, 93.0]]}, {\"name\": \"Shape-Box id:0 copy 2\", \"polygon\": [[111.0, 87.0], [93.0, 87.0], [93.0, 69.0], [111.0, 69.0]]}, {\"name\": \"Shape-Box id:0 copy 3\", \"polygon\": [[87.0, 87.0], [69.0, 87.0], [69.0, 69.0], [87.0, 69.0]]}]}, \"printer_model\": \"MK3S\", \"support_material\": 0, \"temperature\": 250}",
+      "thumbnails": [
+       [
+        "640x480_PNG",
+        158644,
+        "6b03361cd47df41a5f81d8629386b6bd5aabb2980ab076f32d8aa279b71ec9b4"
+       ]
+      ]
+     }
+    ],
+    "2097152": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"filament used [mm]\": 4427.38, \"filament used [cm3]\": 10.65, \"filament used [g]\": 13.52, \"filament cost\": 0.41, \"estimated printing time (normal mode)\": \"2h 6m 5s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_abrasive\": 1, \"filament_type\": \"PETG\", \"fill_density\": \"20%\", \"ironing\": 0, \"layer_height\": 0.15, \"nozzle_diameter\": 0.4, \"nozzle_high_flow\": 0, \"objects_info\": {\"objects\": [{\"name\": \"Shape-Box id:0 copy 0\", \"polygon\": [[111.0, 111.0], [93.0, 111.0], [93.0, 93.0], [111.0, 93.0]]}, {\"name\": \"Shape-Box id:0 copy 1\", \"polygon\": [[87.0, 111.0], [69.0, 111.0], [69.0, 93.0], [87.0, 93.0]]}, {\"name\": \"Shape-Box id:0 copy 2\", \"polygon\": [[111.0, 87.0], [93.0, 87.0], [93.0, 69.0], [111.0, 69.0]]}, {\"name\": \"Shape-Box id:0 copy 3\", \"polygon\": [[87.0, 87.0], [69.0, 87.0], [69.0, 69.0], [87.0, 69.0]]}]}, \"printer_model\": \"MK3S\", \"support_material\": 0, \"temperature\": 250}",
+      "thumbnails": [
+       [
+        "640x480_PNG",
+        158644,
+        "6b03361cd47df41a5f81d8629386b6bd5aabb2980ab076f32d8aa279b71ec9b4"
+       ]
+      ]
+     }
+    ],
+    "20971520": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"filament used [mm]\": 4427.38, \"filament used [cm3]\": 10.65, \"filament used [g]\": 13.52, \"filament cost\": 0.41, \"estimated printing time (normal mode)\": \"2h 6m 5s\", \"bed_temperature\": 90, \"brim_width\": 0, \"filament_abrasive\": 1, \"filament_type\": \"PETG\", \"fill_density\": \"20%\", \"ironing\": 0, \"layer_height\": 0.15, \"nozzle_diameter\": 0.4, \"nozzle_high_flow\": 0, \"objects_info\": {\"objects\": [{\"name\": \"Shape-Box id:0 copy 0\", \"polygon\": [[111.0, 111.0], [93.0, 111.0], [93.0, 93.0], [111.0, 93.0]]}, {\"name\": \"Shape-Box id:0 copy 1\", \"polygon\": [[87.0, 111.0], [69.0, 111.0], [69.0, 93.0], [87.0, 93.0]]}, {\"name\": \"Shape-Box id:0 copy 2\", \"polygon\": [[111.0, 87.0], [93.0, 87.0], [93.0, 69.0], [111.0, 69.0]]}, {\"name\": \"Shape-Box id:0 copy 3\", \"polygon\": [[87.0, 87.0], [69.0, 87.0], [69.0, 69.0], [87.0, 69.0]]}]}, \"printer_model\": \"MK3S\", \"support_material\": 0, \"temperature\": 250}",
+      "thumbnails": [
+       [
+        "640x480_PNG",
+        158644,
+        "6b03361cd47df41a5f81d8629386b6bd5aabb2980ab076f32d8aa279b71ec9b4"
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "fdn_only_filename_0.4n_0.25mm_PETG_MK3S_2h9m.gcode": {
+   "whole": [
+    "ok",
+    {
+     "data": "{\"nozzle_diameter\": 0.4, \"layer_height\": 0.25, \"filament_type\": \"PETG\", \"printer_model\": \"MK3S\", \"estimated printing time (normal mode)\": \"2h9m\"}",
+     "thumbnails": []
+    }
+   ],
+   "chunks": {
+    "1024": [
+     "ok",
+     {
+      "data": "{}",
+      "thumbnails": []
+     }
+    ],
+    "10240": [
+     "ok",
+     {
+      "data": "{}",
+      "thumbnails": []
+     }
+    ],
+    "65536": [
+     "ok",
+     {
+      "data": "{}",
+      "thumbnails": []
+     }
+    ],
+    "2097152": [
+     "ok",
+     {
+      "data": "{}",
+      "thumbnails": []
+     }
+    ],
+    "20971520": [
+     "ok",
+     {
+      "data": "{}",
+      "thumbnails": []
+     }
+    ]
+   }
+  },
+  "full_m73_layers_0.2mm_PLA_MK3SMMU2S_11m.gcode": {
+   "whole": [
+    "ok",
+    {
+     "data": "{\"layer_height\": 0.2, \"filament_type\": \"PLA\", \"printer_model\": \"MK3SMMU2S\", \"estimated printing time (normal mode)\": \"10m 32s\", \"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"filament used [mm] per tool\": [400.85, 0.0, 98.63], \"filament used [mm]\": 499.48, \"filament used [cm3] per tool\": [0.96, 0.0, 0.24], \"filament used [cm3]\": 1.2, \"filament used [g] per tool\": [1.2, 0.0, 0.29], \"filament used [g]\": 1.49, \"filament cost per tool\": [0.03, 0.0, 0.01], \"filament cost\": 0.04, \"bed_temperature per tool\": [60, 60, 60, 60, 60], \"bed_temperature\": 60, \"brim_width\": 0, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\", \"#FBEB7D\"], \"filament_type per tool\": [\"PLA\", \"PLA\", \"PLA\", \"PLA\", \"PLA\"], \"fill_density\": \"15%\", \"ironing\": 0, \"nozzle_diameter per tool\": [0.4, 0.4, 0.4, 0.4, 0.4], \"nozzle_diameter\": 0.4, \"support_material\": 0, \"temperature per tool\": [205, 205, 205, 205, 205], \"temperature\": 205}",
+     "thumbnails": [
+      [
+       "160x120_PNG",
+       5616,
+       "97ab7efe860e49ead09165a5da6b5b0320fb13a23e421873dedb554f6ebb4c79"
+      ]
+     ]
+    }
+   ],
+   "chunks": {
+    "1024": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"filament used [mm] per tool\": [400.85, 0.0, 98.63], \"filament used [mm]\": 499.48, \"filament used [cm3] per tool\": [0.96, 0.0, 0.24], \"filament used [cm3]\": 1.2, \"filament used [g] per tool\": [1.2, 0.0, 0.29], \"filament used [g]\": 1.49, \"filament cost per tool\": [0.03, 0.0, 0.01], \"filament cost\": 0.04, \"estimated printing time (normal mode)\": \"10m 32s\", \"bed_temperature per tool\": [60, 60, 60, 60, 60], \"bed_temperature\": 60, \"brim_width\": 0, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\", \"#FBEB7D\"], \"filament_type per tool\": [\"PLA\", \"PLA\", \"PLA\", \"PLA\", \"PLA\"], \"filament_type\": \"PLA\", \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.2, \"nozzle_diameter per tool\": [0.4, 0.4, 0.4, 0.4, 0.4], \"nozzle_diameter\": 0.4, \"printer_model\": \"MK3SMMU2S\", \"support_material\": 0, \"temperature per tool\": [205, 205, 205, 205, 205], \"temperature\": 205}",
+      "thumbnails": [
+       [
+        "160x120_PNG",
+        5616,
+        "97ab7efe860e49ead09165a5da6b5b0320fb13a23e421873dedb554f6ebb4c79"
+       ]
+      ]
+     }
+    ],
+    "10240": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"filament used [mm] per tool\": [400.85, 0.0, 98.63], \"filament used [mm]\": 499.48, \"filament used [cm3] per tool\": [0.96, 0.0, 0.24], \"filament used [cm3]\": 1.2, \"filament used [g] per tool\": [1.2, 0.0, 0.29], \"filament used [g]\": 1.49, \"filament cost per tool\": [0.03, 0.0, 0.01], \"filament cost\": 0.04, \"estimated printing time (normal mode)\": \"10m 32s\", \"bed_temperature per tool\": [60, 60, 60, 60, 60], \"bed_temperature\": 60, \"brim_width\": 0, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\", \"#FBEB7D\"], \"filament_type per tool\": [\"PLA\", \"PLA\", \"PLA\", \"PLA\", \"PLA\"], \"filament_type\": \"PLA\", \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.2, \"nozzle_diameter per tool\": [0.4, 0.4, 0.4, 0.4, 0.4], \"nozzle_diameter\": 0.4, \"printer_model\": \"MK3SMMU2S\", \"support_material\": 0, \"temperature per tool\": [205, 205, 205, 205, 205], \"temperature\": 205}",
+      "thumbnails": [
+       [
+        "160x120_PNG",
+        5616,
+        "97ab7efe860e49ead09165a5da6b5b0320fb13a23e421873dedb554f6ebb4c79"
+       ]
+      ]
+     }
+    ],
+    "65536": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"filament used [mm] per tool\": [400.85, 0.0, 98.63], \"filament used [mm]\": 499.48, \"filament used [cm3] per tool\": [0.96, 0.0, 0.24], \"filament used [cm3]\": 1.2, \"filament used [g] per tool\": [1.2, 0.0, 0.29], \"filament used [g]\": 1.49, \"filament cost per tool\": [0.03, 0.0, 0.01], \"filament cost\": 0.04, \"estimated printing time (normal mode)\": \"10m 32s\", \"bed_temperature per tool\": [60, 60, 60, 60, 60], \"bed_temperature\": 60, \"brim_width\": 0, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\", \"#FBEB7D\"], \"filament_type per tool\": [\"PLA\", \"PLA\", \"PLA\", \"PLA\", \"PLA\"], \"filament_type\": \"PLA\", \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.2, \"nozzle_diameter per tool\": [0.4, 0.4, 0.4, 0.4, 0.4], \"nozzle_diameter\": 0.4, \"printer_model\": \"MK3SMMU2S\", \"support_material\": 0, \"temperature per tool\": [205, 205, 205, 205, 205], \"temperature\": 205}",
+      "thumbnails": [
+       [
+        "160x120_PNG",
+        5616,
+        "97ab7efe860e49ead09165a5da6b5b0320fb13a23e421873dedb554f6ebb4c79"
+       ]
+      ]
+     }
+    ],
+    "2097152": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"filament used [mm] per tool\": [400.85, 0.0, 98.63], \"filament used [mm]\": 499.48, \"filament used [cm3] per tool\": [0.96, 0.0, 0.24], \"filament used [cm3]\": 1.2, \"filament used [g] per tool\": [1.2, 0.0, 0.29], \"filament used [g]\": 1.49, \"filament cost per tool\": [0.03, 0.0, 0.01], \"filament cost\": 0.04, \"estimated printing time (normal mode)\": \"10m 32s\", \"bed_temperature per tool\": [60, 60, 60, 60, 60], \"bed_temperature\": 60, \"brim_width\": 0, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\", \"#FBEB7D\"], \"filament_type per tool\": [\"PLA\", \"PLA\", \"PLA\", \"PLA\", \"PLA\"], \"filament_type\": \"PLA\", \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.2, \"nozzle_diameter per tool\": [0.4, 0.4, 0.4, 0.4, 0.4], \"nozzle_diameter\": 0.4, \"printer_model\": \"MK3SMMU2S\", \"support_material\": 0, \"temperature per tool\": [205, 205, 205, 205, 205], \"temperature\": 205}",
+      "thumbnails": [
+       [
+        "160x120_PNG",
+        5616,
+        "97ab7efe860e49ead09165a5da6b5b0320fb13a23e421873dedb554f6ebb4c79"
+       ]
+      ]
+     }
+    ],
+    "20971520": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"filament used [mm] per tool\": [400.85, 0.0, 98.63], \"filament used [mm]\": 499.48, \"filament used [cm3] per tool\": [0.96, 0.0, 0.24], \"filament used [cm3]\": 1.2, \"filament used [g] per tool\": [1.2, 0.0, 0.29], \"filament used [g]\": 1.49, \"filament cost per tool\": [0.03, 0.0, 0.01], \"filament cost\": 0.04, \"estimated printing time (normal mode)\": \"10m 32s\", \"bed_temperature per tool\": [60, 60, 60, 60, 60], \"bed_temperature\": 60, \"brim_width\": 0, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\", \"#FBEB7D\"], \"filament_type per tool\": [\"PLA\", \"PLA\", \"PLA\", \"PLA\", \"PLA\"], \"filament_type\": \"PLA\", \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.2, \"nozzle_diameter per tool\": [0.4, 0.4, 0.4, 0.4, 0.4], \"nozzle_diameter\": 0.4, \"printer_model\": \"MK3SMMU2S\", \"support_material\": 0, \"temperature per tool\": [205, 205, 205, 205, 205], \"temperature\": 205}",
+      "thumbnails": [
+       [
+        "160x120_PNG",
+        5616,
+        "97ab7efe860e49ead09165a5da6b5b0320fb13a23e421873dedb554f6ebb4c79"
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "mmu_attribute_test.gcode": {
+   "whole": [
+    "ok",
+    {
+     "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"max_layer_z\": 30.95, \"objects_info\": {\"objects\": [{\"name\": \"Embossed text\", \"polygon\": [[125.653, 53.942], [150.183, 53.799], [197.874, 53.848], [198.825, 54.129], [198.605, 59.662], [196.438, 61.433], [174.988, 62.478], [142.362, 62.478], [125.653, 61.565]]}, {\"name\": \"Shape-Sphere\", \"polygon\": [[127.425, 89.691], [129.79, 90.259], [132.037, 91.189], [134.111, 92.46], [135.96, 94.04], [137.54, 95.889], [138.811, 97.963], [139.741, 100.21], [140.309, 102.575], [140.5, 105.0], [140.309, 107.425], [139.741, 109.79], [138.811, 112.037], [137.54, 114.111], [135.96, 115.96], [134.111, 117.54], [132.037, 118.811], [129.79, 119.741], [127.425, 120.309], [125.0, 120.5], [122.575, 120.309], [120.21, 119.741], [117.963, 118.811], [115.889, 117.54], [114.04, 115.96], [112.46, 114.111], [111.189, 112.037], [110.259, 109.79], [109.691, 107.425], [109.5, 105.0], [109.691, 102.575], [110.259, 100.21], [111.189, 97.963], [112.46, 95.889], [114.04, 94.04], [115.889, 92.46], [117.963, 91.189], [120.21, 90.259], [122.575, 89.691], [125.0, 89.5]]}]}, \"filament used [mm] per tool\": [1.0, 2.0, 3.0, 0.0, 0.0], \"filament used [mm]\": 6.0, \"filament used [g] per tool\": [27.0, 4.0, 5.0, 5.23, 1.46], \"filament used [g]\": 42.69, \"filament cost per tool\": [3.0, -3.0, 0.0, 0.0, 0.0], \"filament cost\": 0.0, \"estimated printing time (normal mode)\": \"1h 15m 51s\", \"bed_temperature per tool\": [90, 60, 105, 105, 105], \"brim_width\": 0, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\", \"#FBEB7D\"], \"filament_abrasive per tool\": [1, 1, 1, 1, 1], \"filament_abrasive\": 1, \"filament_type per tool\": [\"PETG\", \"PLA\", \"ASA\", \"PETG\", \"PETG\"], \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.15, \"nozzle_high_flow per tool\": [1, 0, 0, 1, 0], \"printer_model\": \"MK4ISMMU3\", \"support_material\": 0, \"temperature per tool\": [280, -280, 280, 280, 280]}",
+     "thumbnails": [
+      [
+       "16x16_QOI",
+       596,
+       "509e6629bc65cf9fa6903efb17d049806deaf27aa20fb4edb49eb3c7c819dbba"
+      ],
+      [
+       "313x173_QOI",
+       62824,
+       "d28366d43e53f327d4eed98a25b8001c09050625dfac435a8f1ae9095d43bf8e"
+      ],
+      [
+       "440x240_QOI",
+       104300,
+       "8ab98af09802ce84ea1089b5ab8e8aab4b3bd9a47be69ad1db65570942126058"
+      ],
+      [
+       "480x240_QOI",
+       111712,
+       "2fd7f5d8989644cd60c8894164d6286f0b7c67d2046b4720b85fe80208289cd7"
+      ],
+      [
+       "640x480_PNG",
+       182676,
+       "5867fc62cec9e3f53ffbf53cbb0c07755173b67f74906b53b6c688d3033184cd"
+      ]
+     ]
+    }
+   ],
+   "chunks": {
+    "1024": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"max_layer_z\": 30.95, \"objects_info\": {\"objects\": [{\"name\": \"Embossed text\", \"polygon\": [[125.653, 53.942], [150.183, 53.799], [197.874, 53.848], [198.825, 54.129], [198.605, 59.662], [196.438, 61.433], [174.988, 62.478], [142.362, 62.478], [125.653, 61.565]]}, {\"name\": \"Shape-Sphere\", \"polygon\": [[127.425, 89.691], [129.79, 90.259], [132.037, 91.189], [134.111, 92.46], [135.96, 94.04], [137.54, 95.889], [138.811, 97.963], [139.741, 100.21], [140.309, 102.575], [140.5, 105.0], [140.309, 107.425], [139.741, 109.79], [138.811, 112.037], [137.54, 114.111], [135.96, 115.96], [134.111, 117.54], [132.037, 118.811], [129.79, 119.741], [127.425, 120.309], [125.0, 120.5], [122.575, 120.309], [120.21, 119.741], [117.963, 118.811], [115.889, 117.54], [114.04, 115.96], [112.46, 114.111], [111.189, 112.037], [110.259, 109.79], [109.691, 107.425], [109.5, 105.0], [109.691, 102.575], [110.259, 100.21], [111.189, 97.963], [112.46, 95.889], [114.04, 94.04], [115.889, 92.46], [117.963, 91.189], [120.21, 90.259], [122.575, 89.691], [125.0, 89.5]]}]}, \"filament used [mm] per tool\": [1.0, 2.0, 3.0, 0.0, 0.0], \"filament used [mm]\": 6.0, \"filament used [g] per tool\": [27.0, 4.0, 5.0, 5.23, 1.46], \"filament used [g]\": 42.69, \"filament cost per tool\": [3.0, -3.0, 0.0, 0.0, 0.0], \"filament cost\": 0.0, \"estimated printing time (normal mode)\": \"1h 15m 51s\", \"bed_temperature per tool\": [90, 60, 105, 105, 105], \"brim_width\": 0, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\", \"#FBEB7D\"], \"filament_abrasive per tool\": [1, 1, 1, 1, 1], \"filament_abrasive\": 1, \"filament_type per tool\": [\"PETG\", \"PLA\", \"ASA\", \"PETG\", \"PETG\"], \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.15, \"nozzle_high_flow per tool\": [1, 0, 0, 1, 0], \"printer_model\": \"MK4ISMMU3\", \"support_material\": 0, \"temperature per tool\": [280, -280, 280, 280, 280]}",
+      "thumbnails": [
+       [
+        "16x16_QOI",
+        596,
+        "509e6629bc65cf9fa6903efb17d049806deaf27aa20fb4edb49eb3c7c819dbba"
+       ],
+       [
+        "313x173_QOI",
+        62824,
+        "d28366d43e53f327d4eed98a25b8001c09050625dfac435a8f1ae9095d43bf8e"
+       ],
+       [
+        "440x240_QOI",
+        104300,
+        "8ab98af09802ce84ea1089b5ab8e8aab4b3bd9a47be69ad1db65570942126058"
+       ],
+       [
+        "480x240_QOI",
+        111712,
+        "2fd7f5d8989644cd60c8894164d6286f0b7c67d2046b4720b85fe80208289cd7"
+       ],
+       [
+        "640x480_PNG",
+        182676,
+        "5867fc62cec9e3f53ffbf53cbb0c07755173b67f74906b53b6c688d3033184cd"
+       ]
+      ]
+     }
+    ],
+    "10240": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"max_layer_z\": 30.95, \"objects_info\": {\"objects\": [{\"name\": \"Embossed text\", \"polygon\": [[125.653, 53.942], [150.183, 53.799], [197.874, 53.848], [198.825, 54.129], [198.605, 59.662], [196.438, 61.433], [174.988, 62.478], [142.362, 62.478], [125.653, 61.565]]}, {\"name\": \"Shape-Sphere\", \"polygon\": [[127.425, 89.691], [129.79, 90.259], [132.037, 91.189], [134.111, 92.46], [135.96, 94.04], [137.54, 95.889], [138.811, 97.963], [139.741, 100.21], [140.309, 102.575], [140.5, 105.0], [140.309, 107.425], [139.741, 109.79], [138.811, 112.037], [137.54, 114.111], [135.96, 115.96], [134.111, 117.54], [132.037, 118.811], [129.79, 119.741], [127.425, 120.309], [125.0, 120.5], [122.575, 120.309], [120.21, 119.741], [117.963, 118.811], [115.889, 117.54], [114.04, 115.96], [112.46, 114.111], [111.189, 112.037], [110.259, 109.79], [109.691, 107.425], [109.5, 105.0], [109.691, 102.575], [110.259, 100.21], [111.189, 97.963], [112.46, 95.889], [114.04, 94.04], [115.889, 92.46], [117.963, 91.189], [120.21, 90.259], [122.575, 89.691], [125.0, 89.5]]}]}, \"filament used [mm] per tool\": [1.0, 2.0, 3.0, 0.0, 0.0], \"filament used [mm]\": 6.0, \"filament used [g] per tool\": [27.0, 4.0, 5.0, 5.23, 1.46], \"filament used [g]\": 42.69, \"filament cost per tool\": [3.0, -3.0, 0.0, 0.0, 0.0], \"filament cost\": 0.0, \"estimated printing time (normal mode)\": \"1h 15m 51s\", \"bed_temperature per tool\": [90, 60, 105, 105, 105], \"brim_width\": 0, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\", \"#FBEB7D\"], \"filament_abrasive per tool\": [1, 1, 1, 1, 1], \"filament_abrasive\": 1, \"filament_type per tool\": [\"PETG\", \"PLA\", \"ASA\", \"PETG\", \"PETG\"], \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.15, \"nozzle_high_flow per tool\": [1, 0, 0, 1, 0], \"printer_model\": \"MK4ISMMU3\", \"support_material\": 0, \"temperature per tool\": [280, -280, 280, 280, 280]}",
+      "thumbnails": [
+       [
+        "16x16_QOI",
+        596,
+        "509e6629bc65cf9fa6903efb17d049806deaf27aa20fb4edb49eb3c7c819dbba"
+       ],
+       [
+        "313x173_QOI",
+        62824,
+        "d28366d43e53f327d4eed98a25b8001c09050625dfac435a8f1ae9095d43bf8e"
+       ],
+       [
+        "440x240_QOI",
+        104300,
+        "8ab98af09802ce84ea1089b5ab8e8aab4b3bd9a47be69ad1db65570942126058"
+       ],
+       [
+        "480x240_QOI",
+        111712,
+        "2fd7f5d8989644cd60c8894164d6286f0b7c67d2046b4720b85fe80208289cd7"
+       ],
+       [
+        "640x480_PNG",
+        182676,
+        "5867fc62cec9e3f53ffbf53cbb0c07755173b67f74906b53b6c688d3033184cd"
+       ]
+      ]
+     }
+    ],
+    "65536": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"max_layer_z\": 30.95, \"objects_info\": {\"objects\": [{\"name\": \"Embossed text\", \"polygon\": [[125.653, 53.942], [150.183, 53.799], [197.874, 53.848], [198.825, 54.129], [198.605, 59.662], [196.438, 61.433], [174.988, 62.478], [142.362, 62.478], [125.653, 61.565]]}, {\"name\": \"Shape-Sphere\", \"polygon\": [[127.425, 89.691], [129.79, 90.259], [132.037, 91.189], [134.111, 92.46], [135.96, 94.04], [137.54, 95.889], [138.811, 97.963], [139.741, 100.21], [140.309, 102.575], [140.5, 105.0], [140.309, 107.425], [139.741, 109.79], [138.811, 112.037], [137.54, 114.111], [135.96, 115.96], [134.111, 117.54], [132.037, 118.811], [129.79, 119.741], [127.425, 120.309], [125.0, 120.5], [122.575, 120.309], [120.21, 119.741], [117.963, 118.811], [115.889, 117.54], [114.04, 115.96], [112.46, 114.111], [111.189, 112.037], [110.259, 109.79], [109.691, 107.425], [109.5, 105.0], [109.691, 102.575], [110.259, 100.21], [111.189, 97.963], [112.46, 95.889], [114.04, 94.04], [115.889, 92.46], [117.963, 91.189], [120.21, 90.259], [122.575, 89.691], [125.0, 89.5]]}]}, \"filament used [mm] per tool\": [1.0, 2.0, 3.0, 0.0, 0.0], \"filament used [mm]\": 6.0, \"filament used [g] per tool\": [27.0, 4.0, 5.0, 5.23, 1.46], \"filament used [g]\": 42.69, \"filament cost per tool\": [3.0, -3.0, 0.0, 0.0, 0.0], \"filament cost\": 0.0, \"estimated printing time (normal mode)\": \"1h 15m 51s\", \"bed_temperature per tool\": [90, 60, 105, 105, 105], \"brim_width\": 0, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\", \"#FBEB7D\"], \"filament_abrasive per tool\": [1, 1, 1, 1, 1], \"filament_abrasive\": 1, \"filament_type per tool\": [\"PETG\", \"PLA\", \"ASA\", \"PETG\", \"PETG\"], \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.15, \"nozzle_high_flow per tool\": [1, 0, 0, 1, 0], \"printer_model\": \"MK4ISMMU3\", \"support_material\": 0, \"temperature per tool\": [280, -280, 280, 280, 280]}",
+      "thumbnails": [
+       [
+        "16x16_QOI",
+        596,
+        "509e6629bc65cf9fa6903efb17d049806deaf27aa20fb4edb49eb3c7c819dbba"
+       ],
+       [
+        "313x173_QOI",
+        62824,
+        "d28366d43e53f327d4eed98a25b8001c09050625dfac435a8f1ae9095d43bf8e"
+       ],
+       [
+        "440x240_QOI",
+        104300,
+        "8ab98af09802ce84ea1089b5ab8e8aab4b3bd9a47be69ad1db65570942126058"
+       ],
+       [
+        "480x240_QOI",
+        111712,
+        "2fd7f5d8989644cd60c8894164d6286f0b7c67d2046b4720b85fe80208289cd7"
+       ],
+       [
+        "640x480_PNG",
+        182676,
+        "5867fc62cec9e3f53ffbf53cbb0c07755173b67f74906b53b6c688d3033184cd"
+       ]
+      ]
+     }
+    ],
+    "2097152": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"max_layer_z\": 30.95, \"objects_info\": {\"objects\": [{\"name\": \"Embossed text\", \"polygon\": [[125.653, 53.942], [150.183, 53.799], [197.874, 53.848], [198.825, 54.129], [198.605, 59.662], [196.438, 61.433], [174.988, 62.478], [142.362, 62.478], [125.653, 61.565]]}, {\"name\": \"Shape-Sphere\", \"polygon\": [[127.425, 89.691], [129.79, 90.259], [132.037, 91.189], [134.111, 92.46], [135.96, 94.04], [137.54, 95.889], [138.811, 97.963], [139.741, 100.21], [140.309, 102.575], [140.5, 105.0], [140.309, 107.425], [139.741, 109.79], [138.811, 112.037], [137.54, 114.111], [135.96, 115.96], [134.111, 117.54], [132.037, 118.811], [129.79, 119.741], [127.425, 120.309], [125.0, 120.5], [122.575, 120.309], [120.21, 119.741], [117.963, 118.811], [115.889, 117.54], [114.04, 115.96], [112.46, 114.111], [111.189, 112.037], [110.259, 109.79], [109.691, 107.425], [109.5, 105.0], [109.691, 102.575], [110.259, 100.21], [111.189, 97.963], [112.46, 95.889], [114.04, 94.04], [115.889, 92.46], [117.963, 91.189], [120.21, 90.259], [122.575, 89.691], [125.0, 89.5]]}]}, \"filament used [mm] per tool\": [1.0, 2.0, 3.0, 0.0, 0.0], \"filament used [mm]\": 6.0, \"filament used [g] per tool\": [27.0, 4.0, 5.0, 5.23, 1.46], \"filament used [g]\": 42.69, \"filament cost per tool\": [3.0, -3.0, 0.0, 0.0, 0.0], \"filament cost\": 0.0, \"estimated printing time (normal mode)\": \"1h 15m 51s\", \"bed_temperature per tool\": [90, 60, 105, 105, 105], \"brim_width\": 0, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\", \"#FBEB7D\"], \"filament_abrasive per tool\": [1, 1, 1, 1, 1], \"filament_abrasive\": 1, \"filament_type per tool\": [\"PETG\", \"PLA\", \"ASA\", \"PETG\", \"PETG\"], \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.15, \"nozzle_high_flow per tool\": [1, 0, 0, 1, 0], \"printer_model\": \"MK4ISMMU3\", \"support_material\": 0, \"temperature per tool\": [280, -280, 280, 280, 280]}",
+      "thumbnails": [
+       [
+        "16x16_QOI",
+        596,
+        "509e6629bc65cf9fa6903efb17d049806deaf27aa20fb4edb49eb3c7c819dbba"
+       ],
+       [
+        "313x173_QOI",
+        62824,
+        "d28366d43e53f327d4eed98a25b8001c09050625dfac435a8f1ae9095d43bf8e"
+       ],
+       [
+        "440x240_QOI",
+        104300,
+        "8ab98af09802ce84ea1089b5ab8e8aab4b3bd9a47be69ad1db65570942126058"
+       ],
+       [
+        "480x240_QOI",
+        111712,
+        "2fd7f5d8989644cd60c8894164d6286f0b7c67d2046b4720b85fe80208289cd7"
+       ],
+       [
+        "640x480_PNG",
+        182676,
+        "5867fc62cec9e3f53ffbf53cbb0c07755173b67f74906b53b6c688d3033184cd"
+       ]
+      ]
+     }
+    ],
+    "20971520": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"max_layer_z\": 30.95, \"objects_info\": {\"objects\": [{\"name\": \"Embossed text\", \"polygon\": [[125.653, 53.942], [150.183, 53.799], [197.874, 53.848], [198.825, 54.129], [198.605, 59.662], [196.438, 61.433], [174.988, 62.478], [142.362, 62.478], [125.653, 61.565]]}, {\"name\": \"Shape-Sphere\", \"polygon\": [[127.425, 89.691], [129.79, 90.259], [132.037, 91.189], [134.111, 92.46], [135.96, 94.04], [137.54, 95.889], [138.811, 97.963], [139.741, 100.21], [140.309, 102.575], [140.5, 105.0], [140.309, 107.425], [139.741, 109.79], [138.811, 112.037], [137.54, 114.111], [135.96, 115.96], [134.111, 117.54], [132.037, 118.811], [129.79, 119.741], [127.425, 120.309], [125.0, 120.5], [122.575, 120.309], [120.21, 119.741], [117.963, 118.811], [115.889, 117.54], [114.04, 115.96], [112.46, 114.111], [111.189, 112.037], [110.259, 109.79], [109.691, 107.425], [109.5, 105.0], [109.691, 102.575], [110.259, 100.21], [111.189, 97.963], [112.46, 95.889], [114.04, 94.04], [115.889, 92.46], [117.963, 91.189], [120.21, 90.259], [122.575, 89.691], [125.0, 89.5]]}]}, \"filament used [mm] per tool\": [1.0, 2.0, 3.0, 0.0, 0.0], \"filament used [mm]\": 6.0, \"filament used [g] per tool\": [27.0, 4.0, 5.0, 5.23, 1.46], \"filament used [g]\": 42.69, \"filament cost per tool\": [3.0, -3.0, 0.0, 0.0, 0.0], \"filament cost\": 0.0, \"estimated printing time (normal mode)\": \"1h 15m 51s\", \"bed_temperature per tool\": [90, 60, 105, 105, 105], \"brim_width\": 0, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\", \"#FBEB7D\"], \"filament_abrasive per tool\": [1, 1, 1, 1, 1], \"filament_abrasive\": 1, \"filament_type per tool\": [\"PETG\", \"PLA\", \"ASA\", \"PETG\", \"PETG\"], \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.15, \"nozzle_high_flow per tool\": [1, 0, 0, 1, 0], \"printer_model\": \"MK4ISMMU3\", \"support_material\": 0, \"temperature per tool\": [280, -280, 280, 280, 280]}",
+      "thumbnails": [
+       [
+        "16x16_QOI",
+        596,
+        "509e6629bc65cf9fa6903efb17d049806deaf27aa20fb4edb49eb3c7c819dbba"
+       ],
+       [
+        "313x173_QOI",
+        62824,
+        "d28366d43e53f327d4eed98a25b8001c09050625dfac435a8f1ae9095d43bf8e"
+       ],
+       [
+        "440x240_QOI",
+        104300,
+        "8ab98af09802ce84ea1089b5ab8e8aab4b3bd9a47be69ad1db65570942126058"
+       ],
+       [
+        "480x240_QOI",
+        111712,
+        "2fd7f5d8989644cd60c8894164d6286f0b7c67d2046b4720b85fe80208289cd7"
+       ],
+       [
+        "640x480_PNG",
+        182676,
+        "5867fc62cec9e3f53ffbf53cbb0c07755173b67f74906b53b6c688d3033184cd"
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "ps3_support_Sphere_0.2mm_PLA_COREONE_INDX4T_18m.gcode": {
+   "whole": [
+    "ok",
+    {
+     "data": "{\"layer_height\": 0.2, \"filament_type\": \"PLA\", \"printer_model\": \"COREONE_INDX4T\", \"estimated printing time (normal mode)\": \"18m 18s\", \"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"max_layer_z\": 25.0, \"objects_info\": {\"objects\": [{\"name\": \"Sphere\", \"polygon\": [[125.955, 90.154], [127.863, 90.612], [129.675, 91.362], [131.347, 92.387], [132.839, 93.661], [134.113, 95.153], [135.138, 96.825], [135.888, 98.637], [136.346, 100.545], [136.5, 102.5], [136.346, 104.455], [135.888, 106.363], [135.138, 108.175], [134.113, 109.847], [132.839, 111.339], [131.347, 112.613], [129.675, 113.638], [127.863, 114.388], [125.955, 114.846], [124.0, 115.0], [122.045, 114.846], [120.137, 114.388], [118.325, 113.638], [116.653, 112.613], [115.161, 111.339], [113.887, 109.847], [112.862, 108.175], [112.112, 106.363], [111.654, 104.455], [111.5, 102.5], [111.654, 100.545], [112.112, 98.637], [112.862, 96.825], [113.887, 95.153], [115.161, 93.661], [116.653, 92.387], [118.325, 91.362], [120.137, 90.612], [122.045, 90.154], [124.0, 90.0]]}]}, \"filament used [mm] per tool\": [1233.06, 0.0, 0.0, 0.0], \"filament used [mm]\": 1233.06, \"filament used [cm3] per tool\": [2.97, 0.0, 0.0, 0.0], \"filament used [cm3]\": 2.97, \"filament used [g] per tool\": [3.68, 0.0, 0.0, 0.0], \"filament used [g]\": 3.68, \"filament cost per tool\": [0.1, 0.0, 0.0, 0.0], \"filament cost\": 0.1, \"bed_temperature per tool\": [60, 60, 60, 60], \"bed_temperature\": 60, \"brim_width\": 5, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\"], \"filament_abrasive per tool\": [0, 0, 0, 0], \"filament_abrasive\": 0, \"filament_type per tool\": [\"PLA\", \"PLA\", \"PLA\", \"PLA\"], \"fill_density\": \"15%\", \"ironing\": 0, \"nozzle_diameter per tool\": [0.4, 0.4, 0.4, 0.4], \"nozzle_diameter\": 0.4, \"nozzle_high_flow per tool\": [1, 1, 1, 1], \"nozzle_high_flow\": 1, \"support_material\": 1, \"temperature per tool\": [225, 225, 225, 225], \"temperature\": 225}",
+     "thumbnails": [
+      [
+       "16x16_QOI",
+       564,
+       "d7df9420b20b4fca6d17f2ec065aaa576975b0f97aa04ca0208c7a7f506233f5"
+      ],
+      [
+       "313x173_QOI",
+       47672,
+       "3ed952bb63dd1a517e5b9dbf8eadb294494ea2489f21f331d0abcf363f3ede64"
+      ],
+      [
+       "480x240_QOI",
+       89680,
+       "6c7fd6dcf26e23b85038f866d2b40b143be5c6196c97aabff623cea7b2c3b21f"
+      ],
+      [
+       "380x285_PNG",
+       66316,
+       "dc0e5955326ff67a55318550b6e97d5fa0df50e495c993588dfc01261a8c1be7"
+      ]
+     ]
+    }
+   ],
+   "chunks": {
+    "1024": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"max_layer_z\": 25.0, \"objects_info\": {\"objects\": [{\"name\": \"Sphere\", \"polygon\": [[125.955, 90.154], [127.863, 90.612], [129.675, 91.362], [131.347, 92.387], [132.839, 93.661], [134.113, 95.153], [135.138, 96.825], [135.888, 98.637], [136.346, 100.545], [136.5, 102.5], [136.346, 104.455], [135.888, 106.363], [135.138, 108.175], [134.113, 109.847], [132.839, 111.339], [131.347, 112.613], [129.675, 113.638], [127.863, 114.388], [125.955, 114.846], [124.0, 115.0], [122.045, 114.846], [120.137, 114.388], [118.325, 113.638], [116.653, 112.613], [115.161, 111.339], [113.887, 109.847], [112.862, 108.175], [112.112, 106.363], [111.654, 104.455], [111.5, 102.5], [111.654, 100.545], [112.112, 98.637], [112.862, 96.825], [113.887, 95.153], [115.161, 93.661], [116.653, 92.387], [118.325, 91.362], [120.137, 90.612], [122.045, 90.154], [124.0, 90.0]]}]}, \"filament used [mm] per tool\": [1233.06, 0.0, 0.0, 0.0], \"filament used [mm]\": 1233.06, \"filament used [cm3] per tool\": [2.97, 0.0, 0.0, 0.0], \"filament used [cm3]\": 2.97, \"filament used [g] per tool\": [3.68, 0.0, 0.0, 0.0], \"filament used [g]\": 3.68, \"filament cost per tool\": [0.1, 0.0, 0.0, 0.0], \"filament cost\": 0.1, \"estimated printing time (normal mode)\": \"18m 18s\", \"bed_temperature per tool\": [60, 60, 60, 60], \"bed_temperature\": 60, \"brim_width\": 5, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\"], \"filament_abrasive per tool\": [0, 0, 0, 0], \"filament_abrasive\": 0, \"filament_type per tool\": [\"PLA\", \"PLA\", \"PLA\", \"PLA\"], \"filament_type\": \"PLA\", \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.2, \"nozzle_diameter per tool\": [0.4, 0.4, 0.4, 0.4], \"nozzle_diameter\": 0.4, \"nozzle_high_flow per tool\": [1, 1, 1, 1], \"nozzle_high_flow\": 1, \"printer_model\": \"COREONE_INDX4T\", \"support_material\": 1, \"temperature per tool\": [225, 225, 225, 225], \"temperature\": 225}",
+      "thumbnails": [
+       [
+        "16x16_QOI",
+        564,
+        "d7df9420b20b4fca6d17f2ec065aaa576975b0f97aa04ca0208c7a7f506233f5"
+       ],
+       [
+        "313x173_QOI",
+        47672,
+        "3ed952bb63dd1a517e5b9dbf8eadb294494ea2489f21f331d0abcf363f3ede64"
+       ],
+       [
+        "480x240_QOI",
+        89680,
+        "6c7fd6dcf26e23b85038f866d2b40b143be5c6196c97aabff623cea7b2c3b21f"
+       ],
+       [
+        "380x285_PNG",
+        66316,
+        "dc0e5955326ff67a55318550b6e97d5fa0df50e495c993588dfc01261a8c1be7"
+       ]
+      ]
+     }
+    ],
+    "10240": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"max_layer_z\": 25.0, \"objects_info\": {\"objects\": [{\"name\": \"Sphere\", \"polygon\": [[125.955, 90.154], [127.863, 90.612], [129.675, 91.362], [131.347, 92.387], [132.839, 93.661], [134.113, 95.153], [135.138, 96.825], [135.888, 98.637], [136.346, 100.545], [136.5, 102.5], [136.346, 104.455], [135.888, 106.363], [135.138, 108.175], [134.113, 109.847], [132.839, 111.339], [131.347, 112.613], [129.675, 113.638], [127.863, 114.388], [125.955, 114.846], [124.0, 115.0], [122.045, 114.846], [120.137, 114.388], [118.325, 113.638], [116.653, 112.613], [115.161, 111.339], [113.887, 109.847], [112.862, 108.175], [112.112, 106.363], [111.654, 104.455], [111.5, 102.5], [111.654, 100.545], [112.112, 98.637], [112.862, 96.825], [113.887, 95.153], [115.161, 93.661], [116.653, 92.387], [118.325, 91.362], [120.137, 90.612], [122.045, 90.154], [124.0, 90.0]]}]}, \"filament used [mm] per tool\": [1233.06, 0.0, 0.0, 0.0], \"filament used [mm]\": 1233.06, \"filament used [cm3] per tool\": [2.97, 0.0, 0.0, 0.0], \"filament used [cm3]\": 2.97, \"filament used [g] per tool\": [3.68, 0.0, 0.0, 0.0], \"filament used [g]\": 3.68, \"filament cost per tool\": [0.1, 0.0, 0.0, 0.0], \"filament cost\": 0.1, \"estimated printing time (normal mode)\": \"18m 18s\", \"bed_temperature per tool\": [60, 60, 60, 60], \"bed_temperature\": 60, \"brim_width\": 5, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\"], \"filament_abrasive per tool\": [0, 0, 0, 0], \"filament_abrasive\": 0, \"filament_type per tool\": [\"PLA\", \"PLA\", \"PLA\", \"PLA\"], \"filament_type\": \"PLA\", \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.2, \"nozzle_diameter per tool\": [0.4, 0.4, 0.4, 0.4], \"nozzle_diameter\": 0.4, \"nozzle_high_flow per tool\": [1, 1, 1, 1], \"nozzle_high_flow\": 1, \"printer_model\": \"COREONE_INDX4T\", \"support_material\": 1, \"temperature per tool\": [225, 225, 225, 225], \"temperature\": 225}",
+      "thumbnails": [
+       [
+        "16x16_QOI",
+        564,
+        "d7df9420b20b4fca6d17f2ec065aaa576975b0f97aa04ca0208c7a7f506233f5"
+       ],
+       [
+        "313x173_QOI",
+        47672,
+        "3ed952bb63dd1a517e5b9dbf8eadb294494ea2489f21f331d0abcf363f3ede64"
+       ],
+       [
+        "480x240_QOI",
+        89680,
+        "6c7fd6dcf26e23b85038f866d2b40b143be5c6196c97aabff623cea7b2c3b21f"
+       ],
+       [
+        "380x285_PNG",
+        66316,
+        "dc0e5955326ff67a55318550b6e97d5fa0df50e495c993588dfc01261a8c1be7"
+       ]
+      ]
+     }
+    ],
+    "65536": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"max_layer_z\": 25.0, \"objects_info\": {\"objects\": [{\"name\": \"Sphere\", \"polygon\": [[125.955, 90.154], [127.863, 90.612], [129.675, 91.362], [131.347, 92.387], [132.839, 93.661], [134.113, 95.153], [135.138, 96.825], [135.888, 98.637], [136.346, 100.545], [136.5, 102.5], [136.346, 104.455], [135.888, 106.363], [135.138, 108.175], [134.113, 109.847], [132.839, 111.339], [131.347, 112.613], [129.675, 113.638], [127.863, 114.388], [125.955, 114.846], [124.0, 115.0], [122.045, 114.846], [120.137, 114.388], [118.325, 113.638], [116.653, 112.613], [115.161, 111.339], [113.887, 109.847], [112.862, 108.175], [112.112, 106.363], [111.654, 104.455], [111.5, 102.5], [111.654, 100.545], [112.112, 98.637], [112.862, 96.825], [113.887, 95.153], [115.161, 93.661], [116.653, 92.387], [118.325, 91.362], [120.137, 90.612], [122.045, 90.154], [124.0, 90.0]]}]}, \"filament used [mm] per tool\": [1233.06, 0.0, 0.0, 0.0], \"filament used [mm]\": 1233.06, \"filament used [cm3] per tool\": [2.97, 0.0, 0.0, 0.0], \"filament used [cm3]\": 2.97, \"filament used [g] per tool\": [3.68, 0.0, 0.0, 0.0], \"filament used [g]\": 3.68, \"filament cost per tool\": [0.1, 0.0, 0.0, 0.0], \"filament cost\": 0.1, \"estimated printing time (normal mode)\": \"18m 18s\", \"bed_temperature per tool\": [60, 60, 60, 60], \"bed_temperature\": 60, \"brim_width\": 5, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\"], \"filament_abrasive per tool\": [0, 0, 0, 0], \"filament_abrasive\": 0, \"filament_type per tool\": [\"PLA\", \"PLA\", \"PLA\", \"PLA\"], \"filament_type\": \"PLA\", \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.2, \"nozzle_diameter per tool\": [0.4, 0.4, 0.4, 0.4], \"nozzle_diameter\": 0.4, \"nozzle_high_flow per tool\": [1, 1, 1, 1], \"nozzle_high_flow\": 1, \"printer_model\": \"COREONE_INDX4T\", \"support_material\": 1, \"temperature per tool\": [225, 225, 225, 225], \"temperature\": 225}",
+      "thumbnails": [
+       [
+        "16x16_QOI",
+        564,
+        "d7df9420b20b4fca6d17f2ec065aaa576975b0f97aa04ca0208c7a7f506233f5"
+       ],
+       [
+        "313x173_QOI",
+        47672,
+        "3ed952bb63dd1a517e5b9dbf8eadb294494ea2489f21f331d0abcf363f3ede64"
+       ],
+       [
+        "480x240_QOI",
+        89680,
+        "6c7fd6dcf26e23b85038f866d2b40b143be5c6196c97aabff623cea7b2c3b21f"
+       ],
+       [
+        "380x285_PNG",
+        66316,
+        "dc0e5955326ff67a55318550b6e97d5fa0df50e495c993588dfc01261a8c1be7"
+       ]
+      ]
+     }
+    ],
+    "2097152": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"max_layer_z\": 25.0, \"objects_info\": {\"objects\": [{\"name\": \"Sphere\", \"polygon\": [[125.955, 90.154], [127.863, 90.612], [129.675, 91.362], [131.347, 92.387], [132.839, 93.661], [134.113, 95.153], [135.138, 96.825], [135.888, 98.637], [136.346, 100.545], [136.5, 102.5], [136.346, 104.455], [135.888, 106.363], [135.138, 108.175], [134.113, 109.847], [132.839, 111.339], [131.347, 112.613], [129.675, 113.638], [127.863, 114.388], [125.955, 114.846], [124.0, 115.0], [122.045, 114.846], [120.137, 114.388], [118.325, 113.638], [116.653, 112.613], [115.161, 111.339], [113.887, 109.847], [112.862, 108.175], [112.112, 106.363], [111.654, 104.455], [111.5, 102.5], [111.654, 100.545], [112.112, 98.637], [112.862, 96.825], [113.887, 95.153], [115.161, 93.661], [116.653, 92.387], [118.325, 91.362], [120.137, 90.612], [122.045, 90.154], [124.0, 90.0]]}]}, \"filament used [mm] per tool\": [1233.06, 0.0, 0.0, 0.0], \"filament used [mm]\": 1233.06, \"filament used [cm3] per tool\": [2.97, 0.0, 0.0, 0.0], \"filament used [cm3]\": 2.97, \"filament used [g] per tool\": [3.68, 0.0, 0.0, 0.0], \"filament used [g]\": 3.68, \"filament cost per tool\": [0.1, 0.0, 0.0, 0.0], \"filament cost\": 0.1, \"estimated printing time (normal mode)\": \"18m 18s\", \"bed_temperature per tool\": [60, 60, 60, 60], \"bed_temperature\": 60, \"brim_width\": 5, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\"], \"filament_abrasive per tool\": [0, 0, 0, 0], \"filament_abrasive\": 0, \"filament_type per tool\": [\"PLA\", \"PLA\", \"PLA\", \"PLA\"], \"filament_type\": \"PLA\", \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.2, \"nozzle_diameter per tool\": [0.4, 0.4, 0.4, 0.4], \"nozzle_diameter\": 0.4, \"nozzle_high_flow per tool\": [1, 1, 1, 1], \"nozzle_high_flow\": 1, \"printer_model\": \"COREONE_INDX4T\", \"support_material\": 1, \"temperature per tool\": [225, 225, 225, 225], \"temperature\": 225}",
+      "thumbnails": [
+       [
+        "16x16_QOI",
+        564,
+        "d7df9420b20b4fca6d17f2ec065aaa576975b0f97aa04ca0208c7a7f506233f5"
+       ],
+       [
+        "313x173_QOI",
+        47672,
+        "3ed952bb63dd1a517e5b9dbf8eadb294494ea2489f21f331d0abcf363f3ede64"
+       ],
+       [
+        "480x240_QOI",
+        89680,
+        "6c7fd6dcf26e23b85038f866d2b40b143be5c6196c97aabff623cea7b2c3b21f"
+       ],
+       [
+        "380x285_PNG",
+        66316,
+        "dc0e5955326ff67a55318550b6e97d5fa0df50e495c993588dfc01261a8c1be7"
+       ]
+      ]
+     }
+    ],
+    "20971520": [
+     "ok",
+     {
+      "data": "{\"normal_percent_present\": true, \"normal_left_present\": true, \"quiet_percent_present\": true, \"quiet_left_present\": true, \"layer_info_present\": true, \"max_layer_z\": 25.0, \"objects_info\": {\"objects\": [{\"name\": \"Sphere\", \"polygon\": [[125.955, 90.154], [127.863, 90.612], [129.675, 91.362], [131.347, 92.387], [132.839, 93.661], [134.113, 95.153], [135.138, 96.825], [135.888, 98.637], [136.346, 100.545], [136.5, 102.5], [136.346, 104.455], [135.888, 106.363], [135.138, 108.175], [134.113, 109.847], [132.839, 111.339], [131.347, 112.613], [129.675, 113.638], [127.863, 114.388], [125.955, 114.846], [124.0, 115.0], [122.045, 114.846], [120.137, 114.388], [118.325, 113.638], [116.653, 112.613], [115.161, 111.339], [113.887, 109.847], [112.862, 108.175], [112.112, 106.363], [111.654, 104.455], [111.5, 102.5], [111.654, 100.545], [112.112, 98.637], [112.862, 96.825], [113.887, 95.153], [115.161, 93.661], [116.653, 92.387], [118.325, 91.362], [120.137, 90.612], [122.045, 90.154], [124.0, 90.0]]}]}, \"filament used [mm] per tool\": [1233.06, 0.0, 0.0, 0.0], \"filament used [mm]\": 1233.06, \"filament used [cm3] per tool\": [2.97, 0.0, 0.0, 0.0], \"filament used [cm3]\": 2.97, \"filament used [g] per tool\": [3.68, 0.0, 0.0, 0.0], \"filament used [g]\": 3.68, \"filament cost per tool\": [0.1, 0.0, 0.0, 0.0], \"filament cost\": 0.1, \"estimated printing time (normal mode)\": \"18m 18s\", \"bed_temperature per tool\": [60, 60, 60, 60], \"bed_temperature\": 60, \"brim_width\": 5, \"extruder_colour per tool\": [\"#FF8000\", \"#DB5182\", \"#3EC0FF\", \"#FF4F4F\"], \"filament_abrasive per tool\": [0, 0, 0, 0], \"filament_abrasive\": 0, \"filament_type per tool\": [\"PLA\", \"PLA\", \"PLA\", \"PLA\"], \"filament_type\": \"PLA\", \"fill_density\": \"15%\", \"ironing\": 0, \"layer_height\": 0.2, \"nozzle_diameter per tool\": [0.4, 0.4, 0.4, 0.4], \"nozzle_diameter\": 0.4, \"nozzle_high_flow per tool\": [1, 1, 1, 1], \"nozzle_high_flow\": 1, \"printer_model\": \"COREONE_INDX4T\", \"support_material\": 1, \"temperature per tool\": [225, 225, 225, 225], \"temperature\": 225}",
+      "thumbnails": [
+       [
+        "16x16_QOI",
+        564,
+        "d7df9420b20b4fca6d17f2ec065aaa576975b0f97aa04ca0208c7a7f506233f5"
+       ],
+       [
+        "313x173_QOI",
+        47672,
+        "3ed952bb63dd1a517e5b9dbf8eadb294494ea2489f21f331d0abcf363f3ede64"
+       ],
+       [
+        "480x240_QOI",
+        89680,
+        "6c7fd6dcf26e23b85038f866d2b40b143be5c6196c97aabff623cea7b2c3b21f"
+       ],
+       [
+        "380x285_PNG",
+        66316,
+        "dc0e5955326ff67a55318550b6e97d5fa0df50e495c993588dfc01261a8c1be7"
+       ]
+      ]
+     }
+    ]
+   }
+  }
+ }
+}
