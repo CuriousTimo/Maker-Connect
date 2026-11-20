@@ -211,3 +211,23 @@
   .icon-button:hover, .icon-button:focus-visible { color: var(--ink); background: var(--line); border-color: var(--line); }
   .board-picked { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; padding: 8px 12px; border-radius: 0; background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent-text) 40%, transparent); }
   .board-picked span { flex: 1; min-width: 12em; }
+  /* Materials after Prusa Connect online: the stock line, the chips, one row per material. */
+  .stock-line { color: var(--muted); margin: 6px 0 14px; }
+  .stock-line b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .stock-line .low { color: var(--st-warn); }
+  .mat-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+  .mat-cols, .group-head.mat-row { display: grid; grid-template-columns: 28px minmax(0, 2fr) minmax(0, 1fr) minmax(0, 0.7fr) minmax(0, 1fr) minmax(140px, 1.4fr) auto; align-items: center; gap: 12px; }
+  .mat-cols { padding: 8px 14px; font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); }
+  .mat-row .m-brand, .mat-row .m-type { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mat-row .m-spools, .mat-row .m-left { font-variant-numeric: tabular-nums; }
+  .mat-row .m-left.low { color: var(--st-warn); }
+  .mat-row .m-left .bar { margin-top: 4px; }
+  .mat-row .m-act { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+  @media (max-width: 760px) {
+    .mat-cols { display: none; }
+    .group-head.mat-row { grid-template-columns: 28px minmax(0, 1fr) auto; }
+    .mat-row .m-brand, .mat-row .m-type { display: none; }
+    .mat-row .m-spools { grid-column: 2; }
+    .mat-row .m-left { grid-column: 2 / -1; }
+    .mat-row .m-act { grid-column: 1 / -1; justify-content: flex-start; }
+  }

@@ -1563,7 +1563,7 @@ async fn page(access: crate::access::Access, State(store): State<Store>) -> Resp
       <span class="fw"><button class="btn primary" type="button" data-add-spools>Add stock</button></span>
     </div>
   </div>
-  <div class="tiles" data-totals></div>
+  <p class="stock-line" data-totals></p>
   <div class="toolbar">
     <nav class="views" role="tablist" aria-label="View">
       <button type="button" role="tab" data-view="library" aria-selected="true">Library</button>
@@ -1576,6 +1576,7 @@ async fn page(access: crate::access::Access, State(store): State<Store>) -> Resp
     <label class="pick">Sort <select data-sort><option value="name">Name</option><option value="remaining">Left</option><option value="last_used">Last used</option><option value="id">Newest</option></select></label>
     <label class="toggle"><input type="checkbox" data-archived> Used up</label>
   </div>
+  <div class="chips mat-chips" data-chips role="group" aria-label="Show"></div>
   <div class="library" data-library-view>
     <section class="list" data-list aria-label="Spools"><p class="empty">Loading…</p></section>
     <aside class="inspector" data-inspector aria-label="Details"><p class="empty">Choose a spool, a filament or a vendor.</p></aside>

@@ -13,7 +13,7 @@
   let settings = { label_template: "{code}\n{vendor} {name}\n{material} {color}", board_field: "location" };
   let machines = [];
   let chosen = null; // { type: "spool" | "filament" | "vendor", id }
-  const ui = { view: "library", group: "filament", sort: "name", search: "", archived: false, collapsed: new Set(), filters: { material: "", vendor: "", location: "" } };
+  const ui = { view: "library", group: "filament", sort: "name", search: "", archived: false, collapsed: new Set(), filters: { material: "", vendor: "", location: "", low: "" } };
   try { Object.assign(ui, JSON.parse(localStorage.getItem("library-ui") || "{}"), { collapsed: new Set(JSON.parse(localStorage.getItem("library-collapsed") || "[]")) }); } catch (e) { /* defaults */ }
   const remember = () => {
     try {
@@ -65,6 +65,8 @@
     const place = s.location ? `${s.location}${extra(s, "slot") ? ` · ${extra(s, "slot")}` : ""}` : "";
     return loadedIn(s) ? `${place ? `${place} → ` : "in "}${loadedIn(s)}` : place || "no location";
   };
+  // Low: less than 15 % left, as its bar says (the bar's own mark).
+  const isLow = (s) => { const p = share(s); return p != null && p < 0.15; };
   const bar = (s) => { const p = share(s); return `<div class="bar${p != null && p < 0.15 ? " low" : ""}"><i style="width:${p == null ? 0 : Math.round(p * 100)}%"></i></div>`; };
   const ago = (iso) => {
     if (!iso) return "never";
@@ -152,10 +154,11 @@
   }
   function matching() {
     const words = ui.search.toLowerCase().split(/\s+/).filter(Boolean);
-    const { material, vendor, location } = ui.filters;
+    const { material, vendor, location, low } = ui.filters;
     return spools.filter((s) => {
       if (s.archived && !ui.archived) return false;
       const f = s.filament;
+      if (low && !isLow(s)) return false;
       if (material && f?.material !== material) return false;
       if (vendor && vendorOf(f) !== vendor) return false;
       if (location && (location === "-" ? s.location || loadedIn(s) : location === "+" ? !loadedIn(s) : s.location !== location)) return false;
@@ -196,8 +199,22 @@
     return groups;
   }
 
+  // The filter chips (Prusa Connect online's): all, on a printer, low, and each type in stock.
+  function renderChips() {
+    const live = spools.filter((s) => !s.archived);
+    const f = ui.filters;
+    const none = !f.material && !f.vendor && !f.location && !f.low;
+    const chip = (key, value, text, pressed, n) => `<span class="fw"><button class="chip" type="button" data-chip="${key}" data-chip-value="${esc(value)}" aria-pressed="${pressed}">${esc(text)}${n != null ? ` <b>${n}</b>` : ""}</button></span>`;
+    const types = [...new Set(live.map((s) => s.filament?.material).filter(Boolean))].sort();
+    $("[data-chips]").innerHTML = chip("all", "", "All", none, live.length)
+      + chip("location", "+", "On a printer", f.location === "+", live.filter((s) => loadedIn(s)).length)
+      + chip("low", "1", "Low", !!f.low, live.filter(isLow).length)
+      + types.map((t) => chip("material", t, t, f.material === t)).join("");
+  }
+
   function render() {
     renderTotals();
+    renderChips();
     if (ui.view === "locations") { renderBoard(); return; }
     const list = matching();
     const groups = groupsOf(list);
@@ -207,7 +224,9 @@
     } else if (!groups.length) {
       listEl.innerHTML = `<p class="empty">Nothing matches “${esc(ui.search)}”.</p>`;
     } else {
-      listEl.innerHTML = groups.map((g) => {
+      // Grouped by filament: a table with one row per material (Prusa Connect online's).
+      const table = ui.group === "filament";
+      listEl.innerHTML = (table ? `<div class="mat-cols" aria-hidden="true"><span>Colour</span><span>Name</span><span>Brand</span><span>Type</span><span>Spools</span><span>Left</span><span></span></div>` : "") + groups.map((g) => {
         const live = g.spools.filter((s) => !s.archived);
         const unit = g.spools[0] ? unitOf(g.spools[0].filament) : g.swatchFor ? unitOf(g.swatchFor) : "g";
         const total = live.reduce((t, s) => t + (leftOf(s) ?? 0), 0);
@@ -216,11 +235,23 @@
         const isChosen = chosen && g.kind === chosen.type && g.id === chosen.id;
         const open = !ui.collapsed.has(g.key);
         const chip = g.swatchFor?.material ? `<span class="chip-material">${esc(g.swatchFor.material)}</span>` : "";
-        const head = ui.group === "none" ? "" : `<div class="group-head" data-group-key="${esc(g.key)}"${g.kind ? ` data-pick="${g.kind}:${g.id}"` : ""}>
+        const f = g.swatchFor;
+        const on = live.filter((s) => loadedIn(s));
+        const initial = live.reduce((t, s) => t + (s.initial_weight ?? 0), 0);
+        const p = initial ? Math.max(0, Math.min(1, total / initial)) : null;
+        const head = table && f ? `<div class="group-head mat-row" data-group-key="${esc(g.key)}" data-pick="filament:${f.id}">
+            ${swatch(f)}
+            <span class="g-name"><b>${esc(g.title)}</b>${colourName(f) ? `<small>${esc(colourName(f))}</small>` : ""}</span>
+            <span class="m-brand">${esc(vendorOf(f))}</span>
+            <span class="m-type">${esc(f.material || "")}</span>
+            <span class="m-spools">${live.length}${on.length ? ` <span class="tag">${on.length} on ${esc(on.length === 1 ? loadedIn(on[0]) : "printers")}</span>` : ""}</span>
+            <span class="m-left${low ? " low" : ""}">${live.length ? `${esc(amount(total, unit))}${initial ? ` of ${esc(amount(initial, unit))}` : ""}${low ? " · low" : ""}<div class="bar${p != null && p < 0.15 ? " low" : ""}"><i style="width:${p == null ? 0 : Math.round(p * 100)}%"></i></div>` : `<small>none in stock</small>`}</span>
+            <span class="m-act">${live.length && kindOf(f) !== "laser" ? `<span class="fw"><button class="btn small" type="button" data-assign="${f.id}">Assign…</button></span>` : ""}<span class="fw"><button class="btn small ghost" type="button" data-add-of="${f.id}" aria-label="Add a spool of ${esc(g.title)}">+ Spool</button></span>${g.spools.length ? `<span class="fw"><button class="btn small ghost fold${open ? " open" : ""}" type="button" data-fold="${esc(g.key)}" aria-label="${open ? "Fold" : "Unfold"} its spools" aria-expanded="${open}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></button></span>` : ""}</span></div>`
+          : ui.group === "none" ? "" : `<div class="group-head" data-group-key="${esc(g.key)}"${g.kind ? ` data-pick="${g.kind}:${g.id}"` : ""}>
             ${g.swatchFor ? swatch(g.swatchFor) : `<span class="badge">${live.length}</span>`}
             <span class="g-name"><b>${esc(g.title)} ${chip}</b>${g.sub ? `<small>${esc(g.sub)}</small>` : ""}</span>
             <span class="g-total"><b>${amount(total, unit)}</b><small class="${low ? "low" : ""}">${holders(unit, live.length)}${low ? " · low" : ""}</small></span>
-            ${g.spools.length ? `<span class="fw"><button class="btn primary" type="button" class="fold${open ? " open" : ""}" data-fold="${esc(g.key)}" aria-label="${open ? "Fold" : "Unfold"}" aria-expanded="${open}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></button></span>` : "<span></span>"}</div>`;
+            ${g.spools.length ? `<span class="fw"><button class="btn primary fold${open ? " open" : ""}" type="button" data-fold="${esc(g.key)}" aria-label="${open ? "Fold" : "Unfold"}" aria-expanded="${open}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></button></span>` : "<span></span>"}</div>`;
         const rows = (open || ui.group === "none") && g.spools.length ? `<ul class="rows">${g.spools.map((s) => {
             const p = share(s);
             return `<li class="srow${s.archived ? " archived" : ""}${chosen?.type === "spool" && chosen.id === s.id ? " chosen" : ""}" data-pick="spool:${s.id}">
@@ -241,12 +272,11 @@
     const grams = live.filter((s) => unitOf(s.filament) === "g");
     const cassettes = live.filter((s) => kindOf(s.filament) === "tape");
     const lows = filaments.filter((f) => { const m = extra(f, "minimum"); return m != null && live.filter((s) => s.filament.id === f.id).length < m; });
-    $("[data-totals]").innerHTML = [
-      ["Filament", amount(grams.reduce((t, s) => t + (leftOf(s) ?? 0), 0)), `${grams.length} spools`],
-      ["Loaded", String(live.filter((s) => loadedIn(s)).length), "in machines"],
-      ["Low", String(lows.length), lows.length ? lows.slice(0, 2).map(nameOf).join(", ") : "nothing to order", lows.length > 0],
-      ["Label tape", String(cassettes.length), "cassettes"],
-    ].map(([l, v, s, warn]) => `<div class="tile"><div class="label">${l}</div><div class="value">${esc(v)}</div><div class="sub${warn ? " low" : ""}">${esc(s)}</div></div>`).join("");
+    // One line, as Prusa Connect online's Materials: what is in stock, then what is on a printer.
+    const on = live.filter((s) => loadedIn(s)).length;
+    $("[data-totals]").innerHTML = `In stock: <b>${esc(amount(grams.reduce((t, s) => t + (leftOf(s) ?? 0), 0)))}</b> on <b>${grams.length}</b> ${grams.length === 1 ? "spool" : "spools"} · <b>${on}</b> on a printer`
+      + (cassettes.length ? ` · <b>${cassettes.length}</b> label ${cassettes.length === 1 ? "cassette" : "cassettes"}` : "")
+      + (lows.length ? ` · <span class="low">below its minimum: ${esc(lows.slice(0, 2).map(nameOf).join(", "))}${lows.length > 2 ? " …" : ""}</span>` : "");
   }
 
   // ---- the inspector ---------------------------------------------------------------------
@@ -539,6 +569,15 @@
   // ---- clicks -------------------------------------------------------------------------------
   document.addEventListener("click", async (e) => {
     const t = e.target;
+    const chipEl = t.closest("[data-chip]");
+    if (chipEl) {
+      const { chip, chipValue } = chipEl.dataset;
+      if (chip === "all") ui.filters = { material: "", vendor: "", location: "", low: "" };
+      else ui.filters[chip] = ui.filters[chip] === chipValue ? "" : chipValue;
+      remember(); renderFilters(); return render();
+    }
+    const assignEl = t.closest("[data-assign]");
+    if (assignEl) return assignDialog(filament(Number(assignEl.dataset.assign)));
     const pick = t.closest("[data-pick]");
     if (pick && !t.closest("button:not([data-pick]), input, select, textarea, form")) {
       const [type, id] = pick.dataset.pick.split(":");
@@ -632,8 +671,8 @@
 
   // ---- filters ---------------------------------------------------------------------------
   function renderFilters() {
-    const names = { material: "Material", vendor: "Vendor", location: "Location" };
-    const label = (k, v) => k === "location" && v === "-" ? "no location" : k === "location" && v === "+" ? "not loaded" : v;
+    const names = { material: "Material", vendor: "Vendor", location: "Location", low: "Low" };
+    const label = (k, v) => k === "location" && v === "-" ? "no location" : k === "location" && v === "+" ? "on a printer" : k === "low" ? "less than 15 % left" : v;
     $("[data-filters]").innerHTML = Object.entries(ui.filters).filter(([, v]) => v).map(([k, v]) => `<span class="tag">${names[k]}: ${esc(label(k, v))}<span class="fw"><button class="btn primary" type="button" data-unfilter="${k}" aria-label="Remove filter">✕</button></span></span>`).join("");
   }
   function filterDialog() {
@@ -641,19 +680,45 @@
     show(`${head("Filter")}<section><form class="grid-form" data-filter-form>
       <label>Material <select name="material">${options(filaments.map((f) => f.material), ui.filters.material)}</select></label>
       <label>Vendor <select name="vendor">${options(vendors.map((v) => v.name), ui.filters.vendor)}</select></label>
-      <label class="wide">Location <select name="location">${options(places.map((p) => p.name), ui.filters.location)}<option value="-"${ui.filters.location === "-" ? " selected" : ""}>No location</option><option value="+"${ui.filters.location === "+" ? " selected" : ""}>Not loaded</option></select></label>
+      <label class="wide">Location <select name="location">${options(places.map((p) => p.name), ui.filters.location)}<option value="-"${ui.filters.location === "-" ? " selected" : ""}>No location</option><option value="+"${ui.filters.location === "+" ? " selected" : ""}>On a printer</option></select></label>
       <div class="wide act"><span class="fw"><button class="btn primary">Show</button></span><span class="fw"><button type="button" class="btn ghost" data-clear-filters>Clear</button></span></div>
     </form></section>`);
     const form = $("[data-filter-form]", dialogBody);
-    form.addEventListener("submit", (e) => { e.preventDefault(); ui.filters = Object.fromEntries(new FormData(form)); remember(); renderFilters(); dialog.close(); render(); });
-    $("[data-clear-filters]", dialogBody).addEventListener("click", () => { ui.filters = { material: "", vendor: "", location: "" }; remember(); renderFilters(); dialog.close(); render(); });
+    form.addEventListener("submit", (e) => { e.preventDefault(); ui.filters = { ...ui.filters, ...Object.fromEntries(new FormData(form)) }; remember(); renderFilters(); dialog.close(); render(); });
+    $("[data-clear-filters]", dialogBody).addEventListener("click", () => { ui.filters = { material: "", vendor: "", location: "", low: "" }; remember(); renderFilters(); dialog.close(); render(); });
+  }
+  // Assign (Prusa Connect online's): a spool of this material onto a printer; the printer's spool,
+  // if it had one, goes back to its place (the load route does both).
+  function assignDialog(f) {
+    if (!f) return;
+    const live = spools.filter((s) => !s.archived && s.filament?.id === f.id);
+    const fits = machines.filter((m) => kindOf(f) === "tape" ? m.kind === "label" : kindOf(f) === "filament" ? m.kind === "fdm" : true);
+    if (!fits.length) return toast("No printer here takes it", "bad");
+    const has = (m) => spools.find((s) => !s.archived && loadedIn(s) === m.name);
+    show(`${head(`Assign ${esc(nameOf(f))} to a printer`)}<section><form class="grid-form" data-assign-form>
+      <label class="wide">Spool <select name="spool">${live.map((s) => `<option value="${s.id}"${!loadedIn(s) && !live.some((x) => x.id < s.id && !loadedIn(x)) ? " selected" : ""}>${esc(code(s.id))} · ${esc(amount(leftOf(s), unitOf(f)))} · ${esc(loadedIn(s) ? `on ${loadedIn(s)}` : s.location || "no location")}</option>`).join("")}</select></label>
+      <label class="wide">Printer <select name="machine">${fits.map((m) => { const s = has(m); return `<option value="${esc(m.id)}">${esc(m.name)} · ${s ? `has ${esc(code(s.id))} ${esc(nameOf(s.filament))}` : "no spool"}</option>`; }).join("")}</select></label>
+      <p class="hint wide">The spool goes on the printer: its material says so, and its jobs count it down. A spool already on it goes back to its place.</p>
+      <div class="wide act"><span class="fw"><button class="btn primary">Assign</button></span><span class="fw"><button type="button" class="btn ghost" data-close>Cancel</button></span></div>
+    </form></section>`);
+    const form = $("[data-assign-form]", dialogBody);
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const v = Object.fromEntries(new FormData(form));
+      try {
+        await api("POST", `api/stock/items/${code(Number(v.spool))}/load`, { machine: v.machine });
+        dialog.close();
+        toast(`${code(Number(v.spool))} on ${machines.find((m) => m.id === v.machine)?.name}`);
+        await load();
+      } catch (err) { toast(String(err.message || err), "bad"); }
+    });
   }
   document.addEventListener("click", (e) => {
     if (e.target.closest("[data-filter-open]")) filterDialog();
     const un = e.target.closest("[data-unfilter]");
     if (un) { ui.filters[un.dataset.unfilter] = ""; remember(); renderFilters(); render(); }
   });
-  ui.filters = { material: "", vendor: "", location: "", ...(ui.filters || {}) };
+  ui.filters = { material: "", vendor: "", location: "", low: "", ...(ui.filters || {}) };
   renderFilters();
 
   // ---- toolbar ---------------------------------------------------------------------------

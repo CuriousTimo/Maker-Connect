@@ -2,7 +2,8 @@
 
 Date: 2026-11-19  
 Status: accepted  
-Decided by: architect (journal:DESIGN-DOC:0024, review defect 1) under the owner's laser rules (hub-core-v2.md:29; memory maker-connect-laser-never-unattended); owner may overrule
+Decided by: architect (journal:DESIGN-DOC:0024, review defect 1) under the owner's laser rules (hub-core-v2.md:29; memory maker-connect-laser-never-unattended); owner may overrule  
+Confirmed by the owner, 2026-11-20 ("houden"): the hub refuses typed G-code to a laser (`LASER_NO_GCODE`).
 
 ## Context
 
