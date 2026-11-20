@@ -1,7 +1,7 @@
 # Agent identity and delivery on link v2
 
 Date: 2026-11-19  
-Status: accepted; decides OQ-11 (a); its transport (POST up, SSE down, the down query, the keepalive interval) superseded by [the agent link over one WebSocket](20261119-agent-link-one-websocket.md), the rules on stream, cursor and delivery stand  
+Status: superseded by [the agent link is the Prusa Connect printer protocol](20261120-agent-link-is-prusa-connect-protocol.md) (2026-11-20); the late result on `commands` stays as a hub rule  
 Decided by: architect (journal:DESIGN-DOC:0024, review defects 4 and 5) and coordinator (journal:DESIGN-DOC:0037 D3) on the owner's "fix het"; owner may overrule
 
 ## Context

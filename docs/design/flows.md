@@ -7,46 +7,45 @@ with `SET LOCAL app.space_id`; a lookup before the space is known runs on the ad
 
 ## 1. Pairing a device on an agent
 
-The agent registers once for its link and then each device it hosts; a person adds each device in
-Space with the code the agent shows (registering as today, agent-engine.md O7; tables `agents`,
-`device_registrations`, plan §2.7; [decision](decisions/20261119-agent-link-identity-and-delivery.md)).
-The first registration carries no token and yields the agent token with the first device; every
-further one carries the agent token and yields only the device. A device that already has a row is
-paired again by the person, who picks "this is MINI-1 again": the row gets the new `agent_id` and keeps
-its history and grants, never automatically ([decision](decisions/20261119-re-pairing-by-the-person.md)).
+Each device on an agent registers and pairs on its own, as a Prusa Connect printer does
+([wire.md](wire.md#registration-http), [decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)):
+the agent's `Printer` for that device posts `/p/register` and polls it with the code; a person types the
+code shown on the agent's settings page into Space; the poll then carries the token, which the agent
+writes into the device's settings file. The hub's side is the one built for Prusa printers. A device that
+already has a row is paired again by the person, who picks "this is MINI-1 again": the row keeps its
+history and grants, never automatically ([decision](decisions/20261119-re-pairing-by-the-person.md)).
 
 ```mermaid
 sequenceDiagram
-  participant A as Agent
+  participant A as Agent: Printer of one device
   participant H as Hub
   participant D as Database
   participant P as Person in Space
-  A->>H: POST /api/agent/v2/register, identity and fingerprint
-  H->>D: admin pool: insert device_registrations, code, secret hash, expires
-  H-->>A: 201 registration id, pairing code, registration secret
-  A->>A: show the pairing code
-  loop until approved or expired
-    A->>H: GET /api/agent/v2/register/{id} with the secret
-    H-->>A: 202 waiting
+  A->>H: POST /p/register, sn, fingerprint, printer_type, firmware
+  H->>D: admin pool: insert device_registrations, code, expires
+  H-->>A: 200, header Code
+  A->>A: settings page shows the code, status IN_PROGRESS
+  loop every 1 s, at most 30 min
+    A->>H: GET /p/register, header Code
+    H-->>A: 202
   end
   P->>H: POST /api/v1/devices/pair, code and name
-  H->>D: space tx: claim_registration(code) locks and approves it into this space, insert devices (agent_id from the registration, null for a first registration), event device.added
+  H->>D: space tx: claim_registration(code) locks and approves it into this space, insert devices, event device.added
   H-->>P: 201 the device
-  A->>H: GET /api/agent/v2/register/{id} with the secret
-  H->>D: admin pool: registration by id and secret hash, its space
-  H->>D: space tx: collect_registration(id, token hash) locks it, first registration inserts agents and sets devices.agent_id, collected
-  H-->>A: 200 the agent token (first time only, shown once) and the device id
-  A->>H: GET /api/agent/v2/ws?stream=…, WebSocket upgrade with the token
-  H-->>A: 101, subprotocol maker-connect-agent.v2
-  A->>H: up: hello with identity, capabilities, epoch, state set
-  H->>D: admin pool: agent by token hash, registration spent at the token's first use
-  Note over A,H: a further device: register with the agent token, a new code, pair, collect the device id
+  A->>H: GET /p/register, header Code
+  H-->>A: 200, header Token
+  A->>A: token into the device's prusa_printer_settings.ini, status FINISHED
+  A->>H: GET /p/ws, Fingerprint and Token headers
+  H->>D: admin pool: the device by its credentials, registration spent at the token's first use
+  H-->>A: 101
+  H-->>A: J frame SEND_INFO
+  A->>H: ACCEPTED, then INFO
 ```
 
 A Prusa printer (Buddy 6.4+, `/p/register`, `/p/auth`, `/p/ws`) is paired in Space by the code on its
-screen the same way; its flow is drawn with the Buddy driver (V2-DEVICES step 3). Its token's plaintext
-is never stored: a printer that collects again gets it from the hub process that minted it, and after a
-hub restart a freshly minted one, as prusa-connect does (`internal/connector/xbuddy/registration.go:114-118`,
+screen the same way; its flow is drawn with the Buddy driver (V2-DEVICES step 3). The token's plaintext
+is never stored by the hub: a device that collects again gets it from the hub process that minted it, and
+after a hub restart a freshly minted one, as prusa-connect does (`internal/connector/xbuddy/registration.go:114-118`,
 `:624-638`; [decision](decisions/20261119-prusa-token-never-stored.md)).
 
 ## 2. A command: click to settled
@@ -68,23 +67,23 @@ sequenceDiagram
   else authorized
     H->>D: state authorized by grant, then sent
     H-->>B: 202 the command record
-    H->>A: WebSocket: command with record id
+    H->>A: /p/ws: J or G frame, the command's 32-bit id
+    A->>H: /p/ws: event ACCEPTED with that id
     A->>X: the verb, in order
     X-->>A: result: ok, refused, failed, with the device's reason
-    A->>H: WebSocket up: result, seq n
+    A->>H: /p/ws: event FINISHED, REJECTED or FAILED with that id
     H->>D: space tx: settle the record, event command.settled
-    H-->>A: WebSocket: ack up to seq n
     H-->>B: SSE: command.settled
   end
 ```
 
-A hub restart turns every open record into `outcome unknown`; nothing is re-sent (plan §2.5). An
-agent that is offline keeps results in its outbox and sends them when it is back; the hub accepts
-each seq once, per agent and stream, and applies each item by its own key, so a repeated batch
-changes nothing. The agent keeps the ids of the commands it took, with their results, until the hub
-acknowledged them, and never runs one twice; on a reconnect on the same stream the hub re-sends the
-open records of that stream on the new WebSocket. A result that arrives after the record was settled `unknown` is kept
-as a late result and never acted on ([wire.md](wire.md#shape)).
+A hub restart turns every open record into `outcome unknown`; nothing is re-sent (plan §2.5). The
+link carries no outbox and no sequence: while a device's socket is down its `Printer` drops telemetry and
+events (SDK `__init__.py:806-812`), the hub keeps the device's queue and sends it when the device
+reattaches (`xbuddy.go:793-804`), and the same command id sent again is answered with its current or last
+state, not run again (SDK `command.py:84-96`) ([wire.md](wire.md#the-websocket)). A result that arrives
+after the record was settled `unknown` is kept as a late result and never acted on
+([database.md](database.md#devices-and-commands)).
 
 ## 3. A job, with the laser rule
 
@@ -109,25 +108,24 @@ sequenceDiagram
   alt the device is a 3D printer or label printer
     H->>H: space tx: the item's person still holds job.start on the device, else the item gets a problem and waits
     H->>H: command job.start, origin queue, on the item's person's behalf
-    H->>A: WebSocket: job with record id
-    A->>H: GET /api/agent/v2/files/{id}, the whole file
+    H->>A: /p/ws: the job's commands, as the SDK carries them (designed with the first driver that takes a file)
     A->>A: hand the job to the port
-    A->>H: WebSocket up: patches, then job end
+    A->>H: /p/ws: telemetry and events
     H-->>B: SSE: job.started, job.ended
   else the device is a laser
     H->>H: no start: the queue skips lasers
   end
   Note over B,A: Laser: the job is sent and loaded at the laser
   B->>H: POST /api/v1/devices/{id}/jobs, load the file
-  H->>A: WebSocket: job, loaded
+  H->>A: /p/ws: the job, loaded
   B->>H: command mc.laser.frame
   B->>H: command mc.laser.set_origin
   B->>H: command mc.laser.frame
   B->>H: PPE confirmed in this session
   B->>H: command mc.laser.start from the person's own session
   H->>H: person-only, frame after last origin, PPE, grant mc.laser.start
-  H->>A: WebSocket: command mc.laser.start with record id
-  A->>H: WebSocket up: job end
+  H->>A: /p/ws: the start command with its id
+  A->>H: /p/ws: events
 ```
 
 ## 4. SSE resume (browser)

@@ -17,8 +17,7 @@ every route names one or the other.
 | `/api/v1/events` | pages, external apps | session cookie (gate `space.member`) or `Bearer mct_…` in its own space | yes (SSE) |
 | `/api/v1` 3D-printer REST | Prusa Connect clients, PrusaSlicer | as `/api/v1` | yes, mirroring Prusa Connect's ([OQ-2](risks-and-open.md#oq-2-the-3d-printer-rest-surface)) |
 | `/spoolman/api/v1` | Spoolman clients | [OQ-7](risks-and-open.md#oq-7-how-spoolman-clients-authenticate) | no: Spoolman's own API, to the letter |
-| `/api/agent/v2` | agents: registration and files over HTTP, the link over one WebSocket (`/api/agent/v2/ws`) | registration secret, then agent token | no: ours, [wire.md](wire.md) |
-| `/p/*`, `/f/{iv}/raw` | Prusa printers | Buddy's own | no: Buddy's protocol |
+| `/p/*`, `/f/{iv}/raw` | Prusa printers; every device on an agent (`/p/register`, `/p/ws`, [wire.md](wire.md)) | Buddy's own; the Connect SDK's | no: Prusa Connect's printer protocol |
 | page routes | browsers | session cookie | no; GET only: no page route changes data (plan step 7) |
 
 ## Conventions (`/api/v1`)
@@ -116,7 +115,7 @@ every route names one or the other.
 | GET | `/api/v1/events` | `space.member` of the session's space, or a token in its own space; filtered per event by `device_access`, for a token also by its scopes (an event is sent only when the token could read the row it is about) | `?types=`, `Last-Event-ID` | SSE, below |
 | GET | `/api/v1/instance/spaces` | `instance.admin` | — | every organisation and space |
 | GET | `/api/v1/instance/agents` | `instance.admin` | — | every agent: version, last seen, stream state, its devices with their spaces |
-| POST | `/api/v1/instance/agents/{id}/update` | `instance.admin` ([decision](decisions/20261119-agent-update-by-instance-admin.md)) | `{tag}` | 202; the `update` message goes to the agent on its WebSocket ([wire.md](wire.md#hub-to-agent)) |
+| POST | `/api/v1/instance/agents/{id}/update` | `instance.admin` ([decision](decisions/20261119-agent-update-by-instance-admin.md)) | `{tag}` | 202; how it reaches the agent is [OQ-46](risks-and-open.md#oq-46-how-the-agents-own-update-reaches-it) |
 | GET | `/api/v1/update` | `instance.admin` | — | running build, newer signed release, last update's outcome |
 | POST | `/api/v1/update` | `instance.admin` | `{tag}` | 202; [flows.md](flows.md#6-self-update-dump-and-the-way-back) |
 | POST | `/setup` | `public`; the handler checks the one-time setup code | `{code, name, password, kind}`; `kind` is the first space's (`makerspace`, `office`, `private`), its area rights' defaults | the first account |
@@ -154,9 +153,9 @@ Spoolman audit (#7) runs real Spoolman with the same base path.
 The WebSocket is fed from the event bus. Lists keep Spoolman's filters, sort, `limit`/`offset` and
 `x-total-count`, not our keyset paging.
 
-## `/api/agent/v2` and `/p/*`
+## `/p/*`
 
-See [wire.md](wire.md) and [links.md](links.md) (L6-L11).
+See [wire.md](wire.md) and [links.md](links.md) (L6, L11).
 
 ## The SSE envelope
 
