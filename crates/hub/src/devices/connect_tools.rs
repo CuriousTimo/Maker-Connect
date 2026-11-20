@@ -80,6 +80,8 @@ pub(crate) struct Session {
     /// the hub's lock (ours: the server writes patches onto one tree; ours is the telemetry). None
     /// after a restart: the stored one then.
     pub(crate) last: Option<Telemetry>,
+    /// What the server's connector keeps per session about the print (`crate::devices::connect_job`).
+    pub(crate) job: crate::devices::connect_job::Job,
 }
 
 /// The tree in a telemetry, written as the server writes patches: a null removes the member.

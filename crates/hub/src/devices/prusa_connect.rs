@@ -433,23 +433,24 @@ fn take_in(
         t.chamber_c = None;
     }
     session.telemetry(&mut t, report, model);
+    session.job.telemetry(
+        &mut t,
+        report["job_id"].as_i64(),
+        report["state"].as_str().unwrap_or(""),
+    );
     t
 }
 
 /// The job as a reader of the machine sees it: the stored telemetry keeps `/job/*` after the print
 /// (the server's state tree, [`take_in`]), and the server's readers take a print as current only
-/// while `jobFacts.running` holds (`internal/app/devicejobs.go:315-331`, `jobRunningStates` `:95`:
-/// PRINTING, PAUSED, ATTENTION). Every reader of [`crate::store::Machine`] goes through this
-/// (`MachineRow::into_machine`); what a job used is counted off the stored telemetry instead, as
-/// the server keeps a stopped print's last figure (`devicejobs.go:230-235`).
-///
-/// Ours: our `Busy` is Buddy's PRINTING and BUSY both, so a BUSY counts as running here; the
-/// server counts a BUSY only over a `/job/state` that still runs (`devicejobs.go:330`).
+/// while `jobFacts.running` holds over the machine's word and the print's
+/// (`internal/app/devicejobs.go:270-290`, `:325-331`; [`crate::devices::connect_job::is_running`]).
+/// Every reader of [`crate::store::Machine`] goes through this (`MachineRow::into_machine`), and
+/// so does the following of a print the printer runs itself (`telemetry`); what a job used is
+/// counted off the stored telemetry instead, as the server keeps a stopped print's last figure
+/// (`devicejobs.go:230-235`).
 pub(crate) fn current_job(t: &mut Telemetry) {
-    if !matches!(
-        t.state,
-        MachineState::Busy | MachineState::Paused | MachineState::Attention
-    ) {
+    if !crate::devices::connect_job::is_running(t) {
         t.job = None;
     }
 }
@@ -583,7 +584,15 @@ async fn telemetry(
     // when it ends, as it says (FINISHED, STOPPED, ERROR).
     if let Ok(Some(_)) = reported
         && let Err(error) = store
-            .follow_own_print(token, &telemetry, report["state"].as_str())
+            .follow_own_print(
+                token,
+                &{
+                    let mut current = telemetry.clone();
+                    current_job(&mut current);
+                    current
+                },
+                report["state"].as_str(),
+            )
             .await
     {
         return failed(error);
@@ -705,6 +714,16 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
             .entry(caller.id.clone())
             .or_default()
             .info(&event["data"], header(&headers, "user-agent-printer"));
+    }
+    // Every event carries the machine's state, and a JOB_INFO the print's (`inbound.go:245-258`).
+    if let Some(caller) = caller.as_ref() {
+        let mut store = shared.lock().unwrap();
+        store
+            .connect_tools
+            .entry(caller.id.clone())
+            .or_default()
+            .job
+            .event(&name, event["state"].as_str().unwrap_or(""), &event["data"]);
     }
     let known = match name.as_str() {
         "INFO" => shared.set_details(token, &to_details(&event["data"])).await,
@@ -880,6 +899,27 @@ mod tests {
             current_job(&mut t);
             assert_eq!(t.job.is_some(), current, "{state}");
         }
+    }
+
+    /// Bed levelling after a print (G29: BUSY, `jobrefresh.go:76-81`) brings the kept job back
+    /// to no reader: the server counts a BUSY only over a print that still runs
+    /// (`devicejobs.go:325-331`). A long move within a print keeps it.
+    #[test]
+    fn busy_after_a_print_is_no_print() {
+        let mut mini = Printer::new("MINI");
+        let current = |mut t: Telemetry| {
+            current_job(&mut t);
+            t.job.is_some()
+        };
+        let printing = json!({"state": "PRINTING", "job_id": 29, "progress": 99});
+        assert!(current(mini.frame(printing.clone())));
+        assert!(current(mini.frame(json!({"state": "BUSY", "job_id": 29}))));
+        assert!(current(mini.frame(printing)));
+        assert!(!current(mini.frame(json!({"state": "FINISHED"}))));
+        assert!(!current(mini.frame(json!({"state": "IDLE"}))));
+        let levelling = mini.frame(json!({"state": "BUSY"}));
+        assert!(levelling.job.is_some(), "the telemetry keeps it");
+        assert!(!current(levelling), "no print while it levels the bed");
     }
 
     /// Buddy 8.0.2 (the owner's MINI): a Full frame (v8.0.2 `render.cpp:177-292`, the head under

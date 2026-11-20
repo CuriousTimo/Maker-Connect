@@ -167,6 +167,14 @@ pub struct Telemetry {
     /// The job the machine runs now (its progress is [`Telemetry::job`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_id: Option<i64>,
+    /// A printer on Prusa Connect: the machine's own word, `/state` of the server's state tree
+    /// (PRINTING, BUSY, IDLE, …; [`Telemetry::state`] merges PRINTING and BUSY).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub printer_state: Option<String>,
+    /// A printer on Prusa Connect: the print's own word, `/job/state` of the server's state tree
+    /// (PRINTING, PAUSED, FINISHED, STOPPED, IDLE), kept as the server's connector keeps it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_state: Option<String>,
     /// A GRBL machine's settings, once read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grbl: Option<GrblSettings>,
