@@ -48,7 +48,7 @@ the link's edges, so a proof at `04c5bd59` does not prove `c0d7d233`:
   (`__init__.py:91`, `:264-271`, `:354-358`, `:669-674`). Where a device's serial, fingerprint and type
   come from is its port's, designed with each driver (PrusaLink: fingerprint = SHA-256 of the serial,
   `prusa/link/util.py:153-159`, set in `prusa/link/printer_adapter/prusa_link.py:906-916`). What a
-  device that is not a Prusa sends as its type is the [extension](prusa-sdk-extension.md#e1-a-printer-type-for-a-device-that-is-not-a-prusa)
+  device that is not a Prusa sends as its type is the [extension](prusa-sdk-extension.md#part-1-device-types)
   ([OQ-48](risks-and-open.md#oq-48-what-a-device-that-is-not-a-prusa-says-it-is)).
 
 ## Shape
@@ -208,7 +208,7 @@ The first device registered and paired over this protocol (owner, 2026-11-20,
 [decision](decisions/20261120-dymo-first-device-and-sdk-extension.md)). Its port is labelle, already ported
 and audited (`crates/engine/src/ports/labelle`, [audit](../audits/dymo-labelmanager.md); adapter
 `crates/engine/src/device/labelmanager.rs`). On the wire it is an SDK `Printer` like any other, plus the
-three additions of the [extension](prusa-sdk-extension.md) (E1 type, E2 telemetry keys, E3 tape width). The
+additions of the [extension](prusa-sdk-extension.md#part-2-a-tape-label-printer-dymolabelmanager-pnp): its type `dymo.labelmanager-pnp`, three telemetry keys and the kwarg `tape_size_mm`. The
 rest is choosing values the protocol already has, all **ours**:
 
 - **Serial and fingerprint.** The port reads no serial (`labelmanager.rs:64-72`), but the SDK needs one
@@ -218,7 +218,7 @@ rest is choosing values the protocol already has, all **ours**:
   PnP.
 - **State:** the port's idle is `IDLE` and its busy is `PRINTING` (`port.rs:138`, `:179`;
   `const.py:24-34`).
-- **A label print** comes as `START_CONNECT_DOWNLOAD` with `printing: true` (E3). The download's end is
+- **A label print** comes as `START_CONNECT_DOWNLOAD` with `printing: true` and `tape_size_mm`. The download's end is
   the SDK's own `TRANSFER_FINISHED` (`download.py:363-368`); then the port prints the label. A label that
   fails is reported as a `STATE_CHANGED` event with state `ERROR` and the port's reason in `reason`
   (`models.py:148-163`), and then `IDLE`.

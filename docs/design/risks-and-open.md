@@ -85,10 +85,11 @@ login; (c) three logins, one per pool, each with its own address variable. **Rec
 
 ### OQ-9: How USB camera video reaches the hub
 
-Snapshots went over the agent link in step 1; live MJPEG is ~1.2 Mbit/s per camera at 5 fps. Options:
-(a) frames as upstream items on link v2; (b) a separate streaming upload per camera; (c) go2rtc's MJPEG
-way for USB cameras too (owner asked whether that could be used later). **Recommendation:** decide
-with step 4 of cameras.md, after measuring (a) on .67.
+**Decided** (owner, 2026-11-20, [decision](decisions/20261120-dymo-first-device-and-sdk-extension.md)):
+first the SDK's own camera protocol (snapshots), then live view as the extension's part 4: a separate
+upload per camera, `POST /c/stream` in go2rtc's pushed-MJPEG format, started and stopped by
+`START_CAMERA_STREAM` and `STOP_CAMERA_STREAM`, only while someone watches. Each camera's settings choose
+snapshots alone or live view ([prusa-sdk-extension.md](prusa-sdk-extension.md#part-4-a-usb-camera)).
 
 ### OQ-10: Door access link
 
@@ -408,8 +409,8 @@ the probe out. **Recommendation:** (a): the client stays PrusaLink's to the lett
 `printer_type` and `User-Agent-Printer` are the SDK's `PrinterType`, which knows only Prusa models
 (`const.py:47-60`); the hub reads the model from that header (`internal/connector/xbuddy/xbuddy.go:816-829`).
 **Direction decided** (owner, 2026-11-20, [decision](decisions/20261120-dymo-first-device-and-sdk-extension.md)): the Prusa protocol is extended with additions on
-top of it, kept in [prusa-sdk-extension.md](prusa-sdk-extension.md). The DYMO PnP's additions are there;
-each further driver adds its own in its step.
+top of it, kept in [prusa-sdk-extension.md](prusa-sdk-extension.md). It holds the DYMO PnP, the GRBL laser and the
+USB camera's live view (owner, 2026-11-20); a further device adds its own in its step.
 
 ### OQ-49: Registering in an agent without drivers
 

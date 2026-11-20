@@ -2,7 +2,7 @@
 
 Date: 2026-11-20  
 Status: accepted; decides OQ-49 and the direction of OQ-48  
-Decided by: owner (2026-11-20, relayed by the coordinator); the additions' shapes by the architect, **ours (owner-approved direction 2026-11-20)**, waiting for the owner's approval
+Decided by: owner (2026-11-20); the additions' shapes worked out with the owner in the coordinator's session, 2026-11-20
 
 ## Context
 
@@ -26,7 +26,21 @@ telemetry keys and no label job in that protocol.
 - **The reference is read at `c0d7d233`** with `git show c0d7d233:<path>`, because the checkout is at
   `04c5bd59` ([wire.md](../wire.md)).
 
+## The extension's shape (owner, 2026-11-20)
+
+- **Written as a proposal Prusa could adopt.** No prefix on the names; the SDK's naming (upper-case
+  commands, snake_case keys). The owner: "eerst werkend met de DYMO en niet zelf Prusa benaderen nu".
+- **The protocol's own words first**, additions only where nothing existing means the same.
+- **Three devices:** the DYMO PnP (owner: "akkoord"), the GRBL laser ("we hebben dus ook een extension
+  nodig voor de laser"), the USB camera's live view ("we willen live beeld en hebben daar een
+  uitbreiding voor nodig").
+- **Laser:** GRBL's state mapped onto the SDK's states, with `Door` and `Sleep` as `ATTENTION`, and GRBL's
+  own state in `machine_state`. Motion commands get general names (`HOME`, `JOG`, `FRAME`, …), not laser
+  names, because a CNC needs the same (owner: "akkoord, algemene namen").
+- **Camera:** "eerst wat prusa heeft. daarna de live stream . alleen als iemand kijkt"; "in de camera
+  settings een keuze tussen prusa mode / live". This decides OQ-9.
+
 ## Where it shows
 
-[wire.md](../wire.md#the-first-device-dymo-labelmanager-pnp), [prusa-sdk-extension.md](../prusa-sdk-extension.md),
+[wire.md](../wire.md#the-first-device-dymo-labelmanager-pnp), [prusa-sdk-extension.md](../prusa-sdk-extension.md), [cameras.md](../cameras.md#usb-cameras-snapshots-then-live-view),
 [risks-and-open.md](../risks-and-open.md).
