@@ -269,7 +269,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
             ),
             None => String::new(),
         },
-        bed_level = if heats(machine) {
+        bed_level = if shows_bed_mesh(machine) {
             format!(
                 r#"<section class="tab" id="bedlevel" role="tabpanel" hidden>
 {}
@@ -680,6 +680,15 @@ pub(crate) fn scale_line(reading: &maker_connect_protocol::ScaleReading) -> Stri
 
 fn heats(machine: &Machine) -> bool {
     machine.kind == MachineKind::Fdm
+}
+
+/// Whether the page has the bed mesh (its view and Probe bed): a printer that heats, and not one
+/// on Prusa Connect, whose protocol carries no mesh. Buddy's Connect client sends none
+/// (Prusa-Firmware-Buddy v8.0.2 `src/connect`: no mesh in its telemetry, `render.cpp:124-306`,
+/// nor in its events), and Prusa's server keeps none (`reference/prusa-connect`
+/// `internal/connector/xbuddy/inbound.go:136-159`, the telemetry it keeps).
+fn shows_bed_mesh(machine: &Machine) -> bool {
+    heats(machine) && machine.link != "prusa-connect"
 }
 
 /// A tile: a label, a big live value with its unit, and a live line below.
@@ -2846,6 +2855,43 @@ mod tests {
             page.contains(r#"value="home""#) && !page.contains("home-xy"),
             "{page}"
         );
+    }
+
+    /// A command's outcome is words on its own filled block (`.badge.finished`, `.badge.rejected`):
+    /// no rule outside the job lists recolours a badge's words without its block, which left them
+    /// in the block's own colour (green on green in the dark theme).
+    #[test]
+    fn a_badge_keeps_its_words_readable() {
+        for rule in MACHINE_STYLE.split('}') {
+            let Some((selector, body)) = rule.split_once('{') else {
+                continue;
+            };
+            for one in selector.split(',') {
+                let one = one.trim();
+                if one.contains(".badge.") && !one.contains(".job-history") {
+                    assert!(body.contains("background"), "{one} {{{body}}}");
+                }
+            }
+        }
+    }
+
+    /// A printer on Prusa Connect has no bed mesh on its page: the protocol carries none. The
+    /// same printer through an agent has it.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn no_bed_mesh_over_prusa_connect(pool: sqlx::PgPool) {
+        let store = store::Store::for_test(&pool).await;
+        let (space, agent, _) = store.add_test_machine("prusa/mini", None).await;
+        let agent = store.machine(space, &agent).await.unwrap().unwrap();
+        assert!(shows_bed_mesh(&agent), "through an agent: {}", agent.link);
+        let (_, connect, _) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
+        let connect = store.machine(space, &connect).await.unwrap().unwrap();
+        assert!(!shows_bed_mesh(&connect));
     }
 
     /// Seen on the MINI (2026-11-08): a print started from its USB stick had no Stop
