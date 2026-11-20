@@ -734,7 +734,7 @@ pub(crate) mod tests {
             machine_page::shown_state(&machine),
             ("no cassette".to_owned(), "attention".to_owned())
         );
-        let page = label_page::render("My space", &machine, &[]);
+        let page = label_page::render("My space", &machine, &[], false);
         assert!(page.contains(r#"class="state attention""#));
     }
 
