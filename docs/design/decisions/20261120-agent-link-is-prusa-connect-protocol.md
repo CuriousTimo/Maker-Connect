@@ -69,6 +69,7 @@ Two SDK commits were in use. PR #40's proof ran the SDK at `feat/ws-connect-loca
 [OQ-47](../risks-and-open.md#oq-47-the-info-probe-before-registering) (`/info`),
 [OQ-48](../risks-and-open.md#oq-48-what-a-device-that-is-not-a-prusa-says-it-is) (a non-Prusa device's type, for the driver steps),
 [OQ-49](../risks-and-open.md#oq-49-registering-in-an-agent-without-drivers) (registering without drivers).
+OQ-48 and OQ-49 are decided in [the DYMO PnP as first device](20261120-dymo-first-device-and-sdk-extension.md), whose additions are the [proposed SDK extension](../prusa-sdk-extension.md), kept apart from wire.md. The SDK is read at `c0d7d233` with `git show`, because the checkout is at `04c5bd59`.
 The hub's tables shaped by the superseded identity decision (`agents`, `devices.agent_id`, `up_seq`,
 `stream`) are reshaped in the build step, not here.
 

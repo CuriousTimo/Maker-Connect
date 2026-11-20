@@ -407,8 +407,9 @@ the probe out. **Recommendation:** (a): the client stays PrusaLink's to the lett
 
 `printer_type` and `User-Agent-Printer` are the SDK's `PrinterType`, which knows only Prusa models
 (`const.py:47-60`); the hub reads the model from that header (`internal/connector/xbuddy/xbuddy.go:816-829`).
-What a DYMO, a Marlin printer or a GRBL laser sends there is open. **Decided by:** the architect in each
-driver step; not designed here.
+**Direction decided** (owner, 2026-11-20, [decision](decisions/20261120-dymo-first-device-and-sdk-extension.md)): the Prusa protocol is extended with additions on
+top of it, kept in [prusa-sdk-extension.md](prusa-sdk-extension.md). The DYMO PnP's additions are there;
+each further driver adds its own in its step.
 
 ### OQ-49: Registering in an agent without drivers
 
@@ -420,7 +421,8 @@ the hub, register, pair, open `/p/ws`, answer `SEND_INFO`, and are compared; the
 and an empty device list; the first real pairing comes with the first driver (DYMO); (b) a stand-in device
 for development only, with the SDK tests' identity, never in a release; (c) the agent registers itself as
 a printer, which puts a serial and a type of our own on the wire and is therefore refused.
-**Recommendation:** (a). **Decided by:** the owner, since it reads their order.
+**Decided:** (a) (owner, 2026-11-20, [decision](decisions/20261120-dymo-first-device-and-sdk-extension.md)). The first device is the DYMO LabelManager PnP, with no
+test device and no agent-as-device.
 
 ## Issues the design cannot place yet
 

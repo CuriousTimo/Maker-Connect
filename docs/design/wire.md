@@ -3,15 +3,21 @@
 Every device on an agent talks to the hub exactly as a Prusa Connect printer talks to Prusa Connect
 (owner, 2026-11-19; [decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)). The agent's
 client is a port of Prusa-Connect-SDK-Printer; what the hub answers is what Prusa's own server answers.
-Nothing on this wire is ours. What is ours lies beside it (where files live, the settings page) and is
-marked **ours**. File and line references below are to these trees:
+Nothing on this wire is ours, except the additions of the
+[proposed SDK extension](prusa-sdk-extension.md), which lie on top of it and are kept on that page,
+apart from this one. What is ours beside the wire (where files live, the settings page) is marked
+**ours**. File and line references below are to these trees:
 
 | Role | Reference | Commit | Cited as |
 |---|---|---|---|
 | Client, ported by the agent | `reference/Prusa-Connect-SDK-Printer`, branch `websockets` | `c0d7d233d4ce2081e6c020d2e98fb92ad9b51521` | `__init__.py`, `ws.py`, `models.py`, `command.py`, `const.py`, `conditions.py` (all under `prusa/connect/printer/`) |
 | How a program uses the client | `reference/Prusa-Link`, branch `websockets` | `171148ce7dbc7f1fb0633ea519523f3258877e2e` | `prusa/link/…` |
 | Server answers, read only (OCL) | `reference/prusa-connect` `internal/connector/xbuddy` | `2e8c62b` | `xbuddy.go`, `wire.go`, `inbound.go`, `link.go`, `session.go`, `registration.go` |
-| The client's WebSocket library | websocket-client, `>=1.6.0` (SDK `requirements.txt:6`) | not pinned by the SDK | `websocket/_app.py` |
+| The client's WebSocket library | websocket-client, `>=1.6.0` (SDK `requirements.txt:6`) | not pinned by the SDK | only through the SDK's calls (`ws.py`) |
+
+**How it is read.** `reference/Prusa-Connect-SDK-Printer` is checked out at `04c5bd59`; the SDK is read
+at `c0d7d233` with `git -C reference/Prusa-Connect-SDK-Printer show c0d7d233:<path>` (or `git archive
+c0d7d233`). Every SDK line below is a line at `c0d7d233`.
 
 **Why `c0d7d233`.** PrusaLink takes the SDK from the branch `websockets` (`requirements.txt:1`,
 `.github/workflows/python-tests.yml:51`, `README.md:68`), whose head is `c0d7d233`
@@ -34,14 +40,16 @@ the link's edges, so a proof at `04c5bd59` does not prove `c0d7d233`:
   WebSocket, as PrusaLink runs one instance with one settings file per printer
   (`prusa/link/multi_instance/config_component.py:145-175`, `prusa/link/multi_instance/const.py:30`).
 - The agent has no identity of its own on the wire. An agent without drivers hosts no `Printer` and so
-  registers nothing ([OQ-49](risks-and-open.md#oq-49-registering-in-an-agent-without-drivers)).
+  registers nothing. The first real registration and pairing come with the first device, the DYMO
+  LabelManager PnP (owner, [OQ-49](risks-and-open.md#oq-49-registering-in-an-agent-without-drivers);
+  [below](#the-first-device-dymo-labelmanager-pnp)).
 - Without serial, fingerprint and type the `Printer` is not initialised: its telemetry goes without
   fields and every command is answered `REJECTED`, reason "Printer has not been initialized properly"
   (`__init__.py:91`, `:264-271`, `:354-358`, `:669-674`). Where a device's serial, fingerprint and type
   come from is its port's, designed with each driver (PrusaLink: fingerprint = SHA-256 of the serial,
   `prusa/link/util.py:153-159`, set in `prusa/link/printer_adapter/prusa_link.py:906-916`). What a
-  device that is not a Prusa sends as its type is
-  [OQ-48](risks-and-open.md#oq-48-what-a-device-that-is-not-a-prusa-says-it-is).
+  device that is not a Prusa sends as its type is the [extension](prusa-sdk-extension.md#e1-a-printer-type-for-a-device-that-is-not-a-prusa)
+  ([OQ-48](risks-and-open.md#oq-48-what-a-device-that-is-not-a-prusa-says-it-is)).
 
 ## Shape
 
@@ -82,6 +90,8 @@ PrusaLink starts the registration from its page: it resolves the host name (`pru
 opens `<server>/info` and stops if that fails (`:112-116`,
 [OQ-47](risks-and-open.md#oq-47-the-info-probe-before-registering)), stores host, port and TLS (`:118-122`),
 then calls `register()` (`:18-21`, `:124-127`). A person who already has a token gets `409` (`:93-94`).
+The agent's page does these steps as PrusaLink's does, `409` included: **ours, following PrusaLink** (the
+SDK has no page).
 
 ### How the code reaches the person
 
@@ -90,10 +100,14 @@ exists, `FINISHED` once a token exists) and `connect.code` (`prusa/link/web/conn
 `const.py:179-183`), and links to `<server>/add-printer/connect/<type>/<code>` with name and location
 (`connection.py:18-34`). The agent's page shows the same status and code per device. The person types the
 code into Space's pairing page on the hub ([flows.md](flows.md#1-pairing-a-device-on-an-agent)). The
-`add-printer` link is not offered: the hub has no such page (**ours**, minimal; a hub page for it is a
-later choice).
+`add-printer` link is not offered: the hub has no such page (**ours**, a departure from PrusaLink's
+`connection.py:22`; a hub page for it is a later choice).
 
 ## What the agent keeps
+
+The SDK keeps the token only in memory (`Printer.token`, `__init__.py:83`, `:381-387`) and hands it to its
+register handler (`:850`); storing it is the program's. So this whole section is **ours, following
+PrusaLink** (the SDK's own consumer), listed for the owner's approval:
 
 | What | Where, as PrusaLink | Reference |
 |---|---|---|
@@ -119,13 +133,14 @@ login is [OQ-44](risks-and-open.md#oq-44-the-agent-settings-page-open-points).
   ones left out (`ws.py:45-48`): `Fingerprint`; `Timestamp`; `User-Agent: Prusa-Connect-SDK-Printer/0.9.0dev0`
   (`:39`, `:280`); `User-Agent-Printer` (the type as `a.b.c`); `User-Agent-Version` (software, else
   firmware); `Token`; `Clock-Adjusted: 1` once after the clock jumped (`:287-290`). No
-  `Sec-WebSocket-Protocol` (`ws.py:50-57`). The hub offers `prusa-connect` (`xbuddy.go:61`, `:388`) and
-  takes an upgrade that names none; it must not refuse one.
+  `Sec-WebSocket-Protocol` (`ws.py:50-57`). The hub offers `prusa-connect` (`xbuddy.go:61`, `:388`).
+  That the hub takes an upgrade naming none, and must not refuse one, is **ours**: xbuddy does not say
+  what it does then, and the SDK at `c0d7d233` never names one.
 - **When it opens:** only when a telemetry or event item is to be sent and no socket is open or the token
   changed (`ensure_ws_connected`, `__init__.py:631-638`, called at `:805-806`). The dial waits up to 10 s
   for the open (`ws.py:69-70`, `const.py:6`). Each socket is `WebSocketApp.run_forever(ping_interval=30,
-  ping_timeout=10)` in a daemon thread (`ws.py:59-67`); websocket-client does not reconnect by itself
-  (`reconnect` defaults to `RECONNECT = 0`, `websocket/_app.py:40` in 1.9.2).
+  ping_timeout=10)` in a daemon thread (`ws.py:59-67`), called with no reconnect argument; the SDK
+  dials again only through `ensure_ws_connected`.
 - **The hub's checks, before the upgrade:** credentials refused `401` (`xbuddy.go:696-702`); the hub does
   not accept the printer `403` (`:704-712`). A printer it knows with the same identity is reattached to
   its session, which drains the commands queued while it was away (`:714-718`, `:793-804`); one that comes
@@ -187,6 +202,32 @@ login is [OQ-44](risks-and-open.md#oq-44-the-agent-settings-page-open-points).
   Internet, HTTP (`5xx`), Token (no valid token), API (`4xx`) (`conditions.py:266-282`; PrusaLink
   `prusa/link/conditions.py:114-122`).
 
+## The first device: DYMO LabelManager PnP
+
+The first device registered and paired over this protocol (owner, 2026-11-20,
+[decision](decisions/20261120-dymo-first-device-and-sdk-extension.md)). Its port is labelle, already ported
+and audited (`crates/engine/src/ports/labelle`, [audit](../audits/dymo-labelmanager.md); adapter
+`crates/engine/src/device/labelmanager.rs`). On the wire it is an SDK `Printer` like any other, plus the
+three additions of the [extension](prusa-sdk-extension.md) (E1 type, E2 telemetry keys, E3 tape width). The
+rest is choosing values the protocol already has, all **ours**:
+
+- **Serial and fingerprint.** The port reads no serial (`labelmanager.rs:64-72`), but the SDK needs one
+  (`__init__.py:264-271`) and the hub needs a fingerprint (`xbuddy.go:620-624`). So the agent draws a random
+  serial once, keeps it in the device's settings file, and makes the fingerprint from it as PrusaLink does
+  (SHA-256 of the serial, `prusa/link/util.py:153-159`). In this step an agent has at most one LabelManager
+  PnP.
+- **State:** the port's idle is `IDLE` and its busy is `PRINTING` (`port.rs:138`, `:179`;
+  `const.py:24-34`).
+- **A label print** comes as `START_CONNECT_DOWNLOAD` with `printing: true` (E3). The download's end is
+  the SDK's own `TRANSFER_FINISHED` (`download.py:363-368`); then the port prints the label. A label that
+  fails is reported as a `STATE_CHANGED` event with state `ERROR` and the port's reason in `reason`
+  (`models.py:148-163`), and then `IDLE`.
+- **Gone and back:** while the port says the printer is gone, the agent sends nothing for it, so its
+  socket ends and the hub sees it as away, as it sees any printer that went away (`inbound.go:18-35`).
+  When it is back, telemetry dials again.
+- **Pause, resume, dialogs:** there is no handler, so the SDK answers `REJECTED` "Not Implemented"
+  (`command.py:184-186`).
+
 ## Removed
 
 Our own link, which the SDK does not have, is gone; none of it is carried over:
@@ -209,15 +250,15 @@ A result that arrives after its record was settled `unknown` stays a hub rule on
 
 ## Not in this step
 
-Each comes with the driver that needs it, as the SDK has it: files (`START_URL_DOWNLOAD`,
-`START_CONNECT_DOWNLOAD` from `/p/teams/{team_id}/files/{hash}/raw`, `__init__.py:436-483`, `download.py`);
+Each comes with the driver that needs it, as the SDK has it: files beyond the LabelManager's
+`START_CONNECT_DOWNLOAD` (`START_URL_DOWNLOAD`, `__init__.py:436-455`);
 cameras (`/p/camera`, `models.py:198-224`); the commands each port handles; how often a device sends
 telemetry (PrusaLink's pace, `prusa/link/const.py:67-71`). The agent's own update:
 [OQ-46](risks-and-open.md#oq-46-how-the-agents-own-update-reaches-it).
 
 ## Not settled
 
-- websocket-client's exact version: the SDK asks for `>=1.6.0` only; the port follows the version
-  PrusaLink's image installs, read in the build step.
+- websocket-client's exact version: the SDK asks for `>=1.6.0` only (`requirements.txt:6`); what
+  `run_forever` does underneath is not read from any other source here.
 - The proof: PR #40's test ran `04c5bd59`; it is run again with `c0d7d233` in the build step, and the
   audit compares what the SDK and the agent's port send to the hub.
