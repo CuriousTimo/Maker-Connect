@@ -24,10 +24,13 @@
 //!   flag left out of the example's command line; the example's `creds()` is inline, and its
 //!   `(None, Some)` arm (`unreachable!()`, clap forbids it) is an error before connecting;
 //! - `log::` lines are `eprintln!`, as everywhere in the hub; no `--tls` (MSE needs none);
-//! - the example ends the program when the RTSP session ends; here only that camera's
-//!   session ends and its viewers are closed (no reconnecting: not in the example);
+//! - the example ends the program when the RTSP session ends; here the camera is opened again
+//!   as go2rtc v1.9.15 does it (`internal/streams/producer.go`, `worker` and `reconnect`: at
+//!   once, then after 1 s, 5 s, 10 s or a minute; owner, 2026-11-20: "pak de reconnect op
+//!   zoals go2rtc"), and its viewers stay connected;
 //! - the example serves only after the camera is open; here the websocket answers 503 until
-//!   then (and after the session ended);
+//!   then (when the first open failed, it is not retried: go2rtc retries it with the next
+//!   viewer, the hub when the camera is saved or the hub starts);
 //! - `run` is split into `open` and `run`; no ctrl-C `select!` (the hub has its own);
 //! - error types (`anyhow` → `Box<dyn Error>`/`retina::Error`) and log texts are the hub's;
 //!   the two `debug!` lines and `next_frame_num` (only for them) are left out; the URL is
@@ -235,7 +238,11 @@ async fn open(source: &Source) -> Result<retina::client::Demuxed, Box<dyn std::e
         .demuxed()?)
 }
 
-/// Opens the camera and keeps its frames going to the viewers, until the session ends.
+/// Opens the camera and keeps its frames going to the viewers. When the session ends, with an
+/// error or without, it opens the camera again (go2rtc's `Producer.worker`, which calls
+/// `reconnect(workerID, 0)` whenever `conn.Start()` returns); the viewers stay connected and get
+/// the frames of the new session (go2rtc's `receiver.Replace`). It runs until [`stop`] or
+/// [`start`] aborts it (go2rtc: the `workerID` changes).
 async fn run(id: i64, source: Source) {
     let (frames_tx, _) = tokio::sync::broadcast::channel(64);
     let shown = {
@@ -244,7 +251,7 @@ async fn run(id: i64, source: Source) {
         let _ = url.set_username("");
         url
     };
-    let session = match open(&source).await {
+    let mut session = match open(&source).await {
         Ok(session) => session,
         Err(error) => {
             let error = shown_error(&error, &source);
@@ -253,7 +260,6 @@ async fn run(id: i64, source: Source) {
             return;
         }
     };
-    eprintln!("camera {id} {shown}: playing");
     let gop = running(|r| {
         r.get_mut(&id).map(|r| {
             r.frames = Some(frames_tx.clone());
@@ -263,20 +269,54 @@ async fn run(id: i64, source: Source) {
     let Some(gop) = gop else {
         return;
     };
-    let res = receive_frames(session, frames_tx, gop.clone()).await;
-    // The last sender goes: every viewer's `recv` ends with `Closed`, as when the example ends.
-    running(|r| {
-        if let Some(r) = r.get_mut(&id) {
-            r.frames = None;
-        }
-    });
-    gop.lock().unwrap().clear();
-    eprintln!("camera {id} {shown}: RTSP session ending: {res:?}");
-    let ended = match res {
-        Ok(()) => "The camera ended its stream.".to_owned(),
-        Err(error) => format!("The stream broke off: {}", shown_error(&error, &source)),
-    };
-    problems(|p| p.insert(id, ended));
+    loop {
+        eprintln!("camera {id} {shown}: playing");
+        problems(|p| p.remove(&id));
+        let res = receive_frames(session, frames_tx.clone(), gop.clone()).await;
+        // The kept frames belong to the session that ended.
+        gop.lock().unwrap().clear();
+        eprintln!("camera {id} {shown}: RTSP session ending: {res:?}");
+        let ended = match res {
+            Ok(()) => "The camera ended its stream.".to_owned(),
+            Err(error) => format!("The stream broke off: {}", shown_error(&error, &source)),
+        };
+        problems(|p| p.insert(id, format!("{ended} Reconnecting…")));
+        session = reconnect(id, &source, &shown, &ended).await;
+    }
+}
+
+/// How long go2rtc's `Producer.reconnect` waits after its `retry`-th failed attempt: a second
+/// for the first five, 5 seconds up to ten, 10 seconds up to twenty, then a minute.
+fn retry_wait(retry: u32) -> std::time::Duration {
+    std::time::Duration::from_secs(match retry {
+        0..5 => 1,
+        5..10 => 5,
+        10..20 => 10,
+        _ => 60,
+    })
+}
+
+/// go2rtc's `Producer.reconnect`: opens the camera again at once, and after each failure again
+/// after [`retry_wait`], until it opens.
+async fn reconnect(
+    id: i64,
+    source: &Source,
+    shown: &url::Url,
+    ended: &str,
+) -> retina::client::Demuxed {
+    let mut retry = 0;
+    loop {
+        eprintln!("camera {id} {shown}: retry={retry}");
+        // The error's text only: `open`'s error is not `Send` and must not live across the wait.
+        let error = match open(source).await {
+            Ok(session) => return session,
+            Err(error) => shown_error(&error, source),
+        };
+        eprintln!("camera {id} {shown}: {error}");
+        problems(|p| p.insert(id, format!("{ended} Reconnecting: {error}")));
+        tokio::time::sleep(retry_wait(retry)).await;
+        retry += 1;
+    }
 }
 
 /// Starts a camera's session, ending the one it had (its viewers are closed).
@@ -477,6 +517,17 @@ impl Viewer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// go2rtc's `Producer.reconnect` timeouts, retry by retry.
+    #[test]
+    fn retry_waits_as_go2rtc() {
+        let secs: Vec<u64> = (0..22).map(|r| retry_wait(r).as_secs()).collect();
+        let mut want = vec![1; 5];
+        want.extend([5; 5]);
+        want.extend([10; 10]);
+        want.extend([60; 2]);
+        assert_eq!(secs, want);
+    }
 
     fn camera(id: i64, url: &str) -> store::Camera {
         store::Camera {
