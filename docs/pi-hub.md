@@ -63,7 +63,7 @@ Docker socket is root on the Pi, and the hub faces the network).
 ## The hub
 
 The hub's user and folder `/var/lib/maker-connect/`: the binary, `pg17/` (the client above), and the
-folders the hub makes beside `--db maker-connect.db`: `maker-connect-files/`, `-downloads/` and
+folders the hub makes beside `--db maker-connect.db`: `maker-connect-files/` and
 `-dumps/` (0700; dumps 0600, the last 7 of each kind kept). The address of the database is in
 `/etc/maker-connect/hub.env` (mode 0600, root's: systemd reads it), never on a command line:
 `DATABASE_URL=postgres://maker_connect_hub:…@127.0.0.1:5432/maker_connect`.

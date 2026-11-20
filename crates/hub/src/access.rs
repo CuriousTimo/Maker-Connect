@@ -152,17 +152,6 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ("*", "/logo.svg", Need::Public, None),
     ("*", "/logo-large.svg", Need::Public, None),
     ("*", "/logo-large-dark.svg", Need::Public, None),
-    ("*", maker_connect_protocol::REGISTER, Need::Public, None),
-    ("*", maker_connect_protocol::TELEMETRY, Need::Public, None),
-    // A USB camera's frame: the agent's token, checked by the route (crate::usbcam).
-    (
-        "*",
-        maker_connect_protocol::CAMERA_FRAME,
-        Need::Public,
-        None,
-    ),
-    ("*", "/api/agent/v1/jobs/{id}/file", Need::Public, None),
-    ("*", "/api/agent/v1/files/{id}", Need::Public, None),
     ("*", "/p/register", Need::Public, None),
     ("*", "/p/telemetry", Need::Public, None),
     ("*", "/p/events", Need::Public, None),
@@ -210,25 +199,9 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ("POST", "/spaces", Need::Signed, None),
     ("POST", "/account/password", Need::Signed, None),
     ("POST", "/instance/open-spaces", Need::InstanceAdmin, None),
-    // Updating the hub, and asking agents to update (crate::updates).
+    // Updating the hub (crate::updates).
     ("GET", "/api/update", Need::InstanceAdmin, None),
     ("POST", "/about/update", Need::InstanceAdmin, None),
-    // An agent hosts machines of several spaces: its update is the instance admin's (design
-    // decisions/20261119-agent-update-by-instance-admin.md).
-    (
-        "POST",
-        "/machines/{id}/agent/update",
-        Need::InstanceAdmin,
-        None,
-    ),
-    ("POST", "/agents/update", Need::InstanceAdmin, None),
-    // An agent fetching its new build: its token, checked by the route.
-    (
-        "GET",
-        "/api/agent/v1/update/{tag}/{file}",
-        Need::Public,
-        None,
-    ),
     // The space.
     (
         "POST",
@@ -412,13 +385,6 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Machine(Level::Operate),
         Some("sent a command to"),
     ),
-    // HS6: stopping never waits for PPE or for 'operate': whoever may use the machine may press it.
-    (
-        "POST",
-        "/machines/{id}/emergency-stop",
-        Need::Machine(Level::Use),
-        Some("pressed the emergency stop of"),
-    ),
     (
         "POST",
         "/machines/{id}/job",
@@ -457,19 +423,6 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         "/machines/{id}/media",
         Need::Machine(Level::Use),
         Some("said what is loaded in"),
-    ),
-    // A printer's own SD card, through its agent (crate::sd_card).
-    (
-        "GET",
-        "/api/machines/{id}/sd",
-        Need::Machine(Level::View),
-        None,
-    ),
-    (
-        "POST",
-        "/machines/{id}/sd/print",
-        Need::Machine(Level::Use),
-        Some("printed from the SD card of"),
     ),
     // A Prusa's USB stick (crate::printer_files).
     (
@@ -890,20 +843,6 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         "/api/v1/backup",
         Need::Role(Role::Admin),
         Some("backed up the materials"),
-    ),
-    // The USB cameras' test page (crate::usbcam, docs/briefs/usb-cam-step1.md): admins only.
-    ("GET", "/usb-cameras/test", Need::Role(Role::Admin), None),
-    (
-        "GET",
-        "/usb-cameras/test/events",
-        Need::Role(Role::Admin),
-        None,
-    ),
-    (
-        "GET",
-        "/usb-cameras/test/frame/{machine}/{index}",
-        Need::Role(Role::Admin),
-        None,
     ),
     // Cameras (crate::cameras, owner 2026-11-16): watching is checked per camera by its
     // handler (`Legacy::may_view_camera`); adding, changing and removing take an admin.
@@ -1961,19 +1900,6 @@ mod tests {
             StatusCode::FORBIDDEN,
             "an admin of the organisation does not move machines between spaces"
         );
-        // An agent hosts machines of several spaces: its update is the instance admin's (design
-        // decisions/20261119-agent-update-by-instance-admin.md), not a space admin's (the instance
-        // admin's own call would fetch the release: tests/routes.txt has the gate).
-        for update in [
-            format!("/machines/{m}/agent/update"),
-            "/agents/update".to_owned(),
-        ] {
-            assert_eq!(
-                w.post(&adam, &update, "").await.0,
-                StatusCode::FORBIDDEN,
-                "a space admin: {update}"
-            );
-        }
         assert_eq!(
             w.post(&ian, &path, "space=nowhere").await.0,
             StatusCode::NOT_FOUND,
@@ -2589,15 +2515,17 @@ mod tests {
                 .state,
             JobState::Loaded
         );
-        // Stop on a loaded job is the laser's own Stop (a soft reset): the job stays loaded.
+        // Stop on a loaded job: not now (the job never ran); the job stays loaded.
         let (status, body) = w
             .post(&adam, &format!("/machines/{laser}/job"), "action=stop")
             .await;
-        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        assert!(matches!(
-            w.store.lock().unwrap().own_job_control.remove(&laser),
-            Some(maker_connect_protocol::JobControl::Stop)
-        ));
+        assert_eq!(
+            (status, body.as_str()),
+            (
+                StatusCode::CONFLICT,
+                "not now: the job is loaded, not started"
+            )
+        );
         assert_eq!(
             w.store
                 .active_job(space, &laser)
@@ -2645,28 +2573,26 @@ mod tests {
             .await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
         assert_eq!(jobs(&w, &laser).await.0, 3);
-        // Stop with no job: a laser's (a soft reset) goes to the agent; a printer's is "no job".
+        // Stop or pause with no job: "no job on this machine".
         w.store
             .set_job(space, 3, JobState::Finished, None)
             .await
             .unwrap();
         w.store.report(&token, &Default::default()).await.unwrap();
-        let (status, body) = w
-            .post(&adam, &format!("/machines/{laser}/job"), "action=stop")
-            .await;
-        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-        assert!(matches!(
-            w.store.lock().unwrap().own_job_control.remove(&laser),
-            Some(maker_connect_protocol::JobControl::Stop)
-        ));
-        let (status, _) = w
-            .post(&adam, &format!("/machines/{laser}/job"), "action=pause")
-            .await;
-        assert_eq!(
-            status,
-            StatusCode::NOT_FOUND,
-            "only Stop is offered with no job"
-        );
+        for action in ["stop", "pause"] {
+            let (status, body) = w
+                .post(
+                    &adam,
+                    &format!("/machines/{laser}/job"),
+                    &format!("action={action}"),
+                )
+                .await;
+            assert_eq!(
+                (status, body.as_str()),
+                (StatusCode::NOT_FOUND, "no job on this machine"),
+                "{action}"
+            );
+        }
     }
 
     /// An invite link: a newcomer makes an account and is in; the link works once.
@@ -2882,15 +2808,9 @@ mod tests {
         for source in route_sources() {
             for piece in source.split(".route(").skip(1) {
                 let piece = piece.trim_start();
-                let path = if piece.starts_with("protocol::REGISTER") {
-                    maker_connect_protocol::REGISTER
-                } else if piece.starts_with("protocol::TELEMETRY") {
-                    maker_connect_protocol::TELEMETRY
-                } else {
-                    match piece.strip_prefix('"').and_then(|r| r.split('"').next()) {
-                        Some(p) if p.starts_with('/') => p,
-                        _ => continue,
-                    }
+                let path = match piece.strip_prefix('"').and_then(|r| r.split('"').next()) {
+                    Some(p) if p.starts_with('/') => p,
+                    _ => continue,
                 };
                 paths.insert(path.to_owned());
             }
@@ -2907,7 +2827,6 @@ mod tests {
 
         // The status of each method on each path, for no session and for each role.
         text.push_str("# status: method path, then none guest member admin owner\n");
-        let skipped = [(Method::POST, "/agents/update")];
         // A new hub: the store emptied again, its owner and organisation, and a session for
         // no one and for each role.
         async fn new_hub(pool: &sqlx::PgPool) -> (World, Vec<Option<String>>) {
@@ -2963,18 +2882,8 @@ mod tests {
                 }
                 let (w, cookies) = fresh.as_ref().unwrap();
                 let mut keep = true;
-                let needed = need(&method, path);
                 let mut line = format!("{method} {path} =>");
-                for (i, cookie) in cookies.iter().enumerate() {
-                    // What reaches outside this process is not called, where the rule lets
-                    // the role in.
-                    let allowed = i > 0
-                        && matches!(needed, Some((Need::Role(r), _))
-                            if [Role::Guest, Role::Member, Role::Admin, Role::Owner][i - 1] >= r);
-                    if allowed && skipped.iter().any(|(m, p)| *m == method && p == path) {
-                        line.push_str(" not-called");
-                        continue;
-                    }
+                for cookie in cookies {
                     let mut request = HttpRequest::builder()
                         .method(method.clone())
                         .uri(&address)

@@ -1079,23 +1079,6 @@ struct JobForm {
     action: String,
 }
 
-/// HS6: the job route's Stop, for the emergency-stop button of a laser (LaserFoundry's Stop).
-pub(crate) async fn stop_job(
-    access: crate::access::Access,
-    state: State<Store>,
-    id: Path<String>,
-) -> Response {
-    control_job(
-        access,
-        state,
-        id,
-        Form(JobForm {
-            action: "stop".to_owned(),
-        }),
-    )
-    .await
-}
-
 /// Pause, resume or stop a machine's job.
 async fn control_job(
     access: crate::access::Access,
@@ -1249,25 +1232,9 @@ mod tests {
         ignore = "needs Postgres: the pg-tests feature"
     )]
     async fn a_laser_checks_its_settings(pool: sqlx::PgPool) {
-        use maker_connect_protocol::{
-            GrblSettings, MachineKind, MachineState, Register, Telemetry,
-        };
+        use maker_connect_protocol::{GrblSettings, MachineKind, MachineState, Telemetry};
         let store = crate::store::Store::for_test(&pool).await;
-        let space = store.default_space().await.unwrap().0;
-        let (id, token, code) = store
-            .register(&Register {
-                protocol: maker_connect_protocol::VERSION,
-                name: "Ortur".into(),
-                kind: MachineKind::Laser,
-                agent_version: "0.1.0".into(),
-            })
-            .await
-            .unwrap();
-        store.pair(space, &code).await.unwrap();
-        store
-            .set_profile(space, &id, Some("ortur/lm2-pro-s2"))
-            .await
-            .unwrap();
+        let (space, id, token) = store.add_test_machine("ortur/lm2-pro-s2", None).await;
         let file = |bounds: [f64; 4], power: f64| crate::store::StoredFile {
             id: "f".into(),
             name: "sign.gcode".into(),

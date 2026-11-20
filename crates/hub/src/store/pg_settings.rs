@@ -1,10 +1,9 @@
 //! The columns of a machine's row that the modules set (hub core v2 step 2, lane 3b), on Postgres: its
 //! access mode (crate::access), PPE (crate::safety), farm settings (crate::farm), who started a print
-//! from its USB stick (crate::devices::printer_files) and the agent update asked for (crate::updates).
+//! from its USB stick (crate::devices::printer_files).
 //! Space-keyed ones run in their space's transaction ([`pg::Pg::space`]).
 
 use super::*;
-use crate::store::pg::Bypass;
 
 impl Store {
     /// One space-keyed column update; whether the machine is in the space.

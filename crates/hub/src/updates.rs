@@ -8,8 +8,8 @@ use crate::access::Access;
 use crate::{Store, failed};
 use axum::{
     Json, Router,
-    extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    extract::State,
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
 };

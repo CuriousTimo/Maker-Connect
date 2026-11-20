@@ -1,4 +1,4 @@
-use crate::commands::{command, emergency_stop};
+use crate::commands::command;
 use crate::link::pair;
 use crate::web::machines::{
     add_klipper, add_virtual, answer, choose_media, choose_profile, history, laser_power,
@@ -7,9 +7,9 @@ use crate::web::machines::{
 };
 use crate::web::shell::{logo, logo_large, logo_large_dark};
 use crate::{
-    STYLE, Store, about, access, apps, auth, codes, escape, farm, files, files_page,
-    now_page, permissions_page, printer_files, projects_page, prusa_connect, queue, safety,
-    samples, simplyprint, space_page, spoolman, spoolmandb, stock, updates,
+    STYLE, Store, about, access, apps, auth, codes, escape, farm, files, files_page, now_page,
+    permissions_page, printer_files, projects_page, prusa_connect, queue, safety, samples,
+    simplyprint, space_page, spoolman, spoolmandb, stock, updates,
 };
 use axum::{
     Router,
@@ -35,7 +35,6 @@ pub fn app(store: Store) -> Router {
         .route("/machines/{id}/name", post(rename))
         .route("/machines/{id}/labels", post(set_labels))
         .route("/machines/{id}/command", post(command))
-        .route("/machines/{id}/emergency-stop", post(emergency_stop))
         .route("/machines/{id}/remove", post(remove))
         .route("/machines/{id}/move", post(move_machine))
         .route("/machines/{id}/out-of-use", post(out_of_use))

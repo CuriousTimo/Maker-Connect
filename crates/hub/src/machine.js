@@ -1023,20 +1023,6 @@
       }
     });
   }
-  // HS6: the emergency stop asks once, then goes to the hub at once.
-  for (const form of document.querySelectorAll("[data-emergency]")) {
-    const url = new URL(form.getAttribute("action"), location.href);
-    form.querySelector("button").addEventListener("click", async (event) => {
-      event.preventDefault();
-      if (!(await ask("Emergency stop?", { ok: "Emergency stop", danger: true }))) return;
-      try {
-        const r = await fetch(url, { method: "POST" });
-        if (!r.ok) toast(`Not done: ${await r.text()}`, "bad");
-      } catch {
-        toast("The hub does not answer.", "bad");
-      }
-    });
-  }
   show();
 
 // Times the page gives as Unix seconds, shown in this browser's own time.

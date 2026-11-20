@@ -107,7 +107,7 @@ pub fn render(
     let kind = profile.map_or(machine.kind.label(), |p| p.model.as_str());
     let link = match machine.link.as_str() {
         "virtual" => "Virtual, in the hub",
-        _ => "Maker Connect agent",
+        other => other,
     };
     let id = escape(&machine.id);
     let count = profile.map_or(0, |p| p.media.len());

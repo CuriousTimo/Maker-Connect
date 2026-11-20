@@ -616,9 +616,9 @@ mod tests {
             "INSERT INTO organisations (uid, name, created_at) VALUES ('o2', 'Other', at_unix(0));
              INSERT INTO spaces (id, name, uid, organisation_id)
                  SELECT 2, 'Other', 's2', id FROM organisations WHERE uid = 'o2';
-             INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at)
-                 VALUES ('m1', 1, 'M', '\"fdm\"', '0.1.0', 't1', at_unix(0)),
-                        ('m2', 2, 'M', '\"fdm\"', '0.1.0', 't2', at_unix(0));
+             INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at, link)
+                 VALUES ('m1', 1, 'M', '\"fdm\"', '0.1.0', 't1', at_unix(0), 'virtual'),
+                        ('m2', 2, 'M', '\"fdm\"', '0.1.0', 't2', at_unix(0), 'virtual');
              INSERT INTO machine_groups (id, space_id, name, created_at) VALUES (1, 1, 'G', at_unix(0));",
         )
         .execute(&pool)
@@ -670,9 +670,9 @@ mod tests {
             "INSERT INTO organisations (uid, name, created_at) VALUES ('o2', 'Other', at_unix(0));
              INSERT INTO spaces (id, name, uid, organisation_id)
                  SELECT 2, 'Other', 's2', id FROM organisations WHERE uid = 'o2';
-             INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at)
-                 VALUES ('m1', 1, 'M', '\"fdm\"', '0.1.0', 't1', at_unix(0)),
-                        ('m2', 2, 'M', '\"fdm\"', '0.1.0', 't2', at_unix(0));
+             INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at, link)
+                 VALUES ('m1', 1, 'M', '\"fdm\"', '0.1.0', 't1', at_unix(0), 'virtual'),
+                        ('m2', 2, 'M', '\"fdm\"', '0.1.0', 't2', at_unix(0), 'virtual');
              INSERT INTO files (id, space_id, name, size, uploaded_at, meta)
                  VALUES ('f1', 1, 'a.gcode', 1, at_unix(0), '{}'), ('f2', 2, 'a.gcode', 1, at_unix(0), '{}');
              INSERT INTO jobs (id, space_id, machine_id, file_id, file_name, state, created_at)
@@ -954,8 +954,8 @@ mod tests {
             "INSERT INTO organisations (uid, name, created_at) VALUES ('o2', 'Other', at_unix(0));
              INSERT INTO spaces (name, uid, organisation_id)
                  SELECT 'Other', 's2', id FROM organisations WHERE uid = 'o2';
-             INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at)
-                 SELECT 'm' || id, id, 'M', '\"fdm\"', '0.1.0', 't' || id, at_unix(0) FROM spaces;
+             INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at, link)
+                 SELECT 'm' || id, id, 'M', '\"fdm\"', '0.1.0', 't' || id, at_unix(0), 'virtual' FROM spaces;
              INSERT INTO files (id, space_id, name, size, uploaded_at, meta)
                  SELECT 'f' || id, id, 'a.gcode', 1, at_unix(0), '{}' FROM spaces;
              INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at)
@@ -998,8 +998,8 @@ mod tests {
         }
         // Writing a row of another space is refused, for each table.
         let other = [
-            "INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at)
-                 VALUES ('x', 2, 'X', '\"fdm\"', '0.1.0', 'tx', at_unix(0))",
+            "INSERT INTO machines (id, space_id, name, kind, agent_version, token, registered_at, link)
+                 VALUES ('x', 2, 'X', '\"fdm\"', '0.1.0', 'tx', at_unix(0), 'virtual')",
             "INSERT INTO files (id, space_id, name, size, uploaded_at, meta) VALUES ('x', 2, 'x', 1, at_unix(0), '{}')",
             "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at)
                  VALUES (2, 'm2', 'f2', 'x', 'queued', at_unix(0))",

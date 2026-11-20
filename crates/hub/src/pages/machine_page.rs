@@ -972,24 +972,6 @@ fn loaded_card(machine: &Machine, extra: &Extra) -> String {
     )
 }
 
-/// HS6 (ours): the emergency-stop button of the machines that have one, with what it does.
-fn emergency_form(machine: &Machine) -> String {
-    use crate::commands::{EmergencyStop, emergency_stop_of};
-    let what = match emergency_stop_of(machine) {
-        Some(EmergencyStop::TypedM112) => {
-            "Sends M112, OctoPrint's emergency stop: the printer halts and its connection closes. Switch it off and on again afterwards."
-        }
-        // A laser's emergency stop is its Stop (LaserFoundry has one stop): that button is
-        // named so in the job card, not shown twice (owner, 2026-11-17).
-        Some(EmergencyStop::LaserStop) => return String::new(),
-        None => return String::new(),
-    };
-    format!(
-        r#"<form class="emergency" data-emergency action="{id}/emergency-stop" method="post"><button class="danger">Emergency stop</button> <span class="hint">{what}</span></form>"#,
-        id = escape(&machine.id),
-    )
-}
-
 /// The job card: the file, how far, how long, and pause, resume, stop.
 fn job_card(machine: &Machine) -> String {
     let job = machine.job.as_ref();
@@ -1041,13 +1023,11 @@ fn job_card(machine: &Machine) -> String {
   </form>
   <p class="empty no-job" data-no-job{shown}>{no_job}</p>
   <p class="hint" data-laser-stop{stop_hint_hidden}>Emergency stop halts the laser at once (LaserFoundry's Stop, a soft reset): motion stops and the laser goes off, also while it frames.</p>
-  {emergency}
   <div class="resume" data-resume{resume_hidden}>
     <p><b>Interrupted:</b> <span data-live="resume_name">{resume_name}</span> ({resume_why}). It can start again from line <b data-live="resume_line">{resume_line}</b>, a little before where it stopped; the head goes there with the laser off first.</p>
     <form data-restart action="{id}/job"><button name="action" value="restart">Start again from there</button></form>
   </div>
 </div>"#,
-        emergency = emergency_form(machine),
         // Its state only: the file is in the card itself.
         state = escape(note.split(" · ").next().unwrap_or_default()),
         left = escape(&left),
@@ -2357,12 +2337,11 @@ fn connection(machine: &Machine) -> String {
         row("Connected by", Some(way.to_owned())),
         row(
             "Agent version",
-            agent
-                .map(|a| match (&a.build, &a.built) {
-                    (Some(build), Some(built)) => format!("{} · build {build}, {built}", a.version),
-                    (Some(build), None) => format!("{} · build {build}", a.version),
-                    _ => format!("{} (an agent from before builds were named)", a.version),
-                }),
+            agent.map(|a| match (&a.build, &a.built) {
+                (Some(build), Some(built)) => format!("{} · build {build}, {built}", a.version),
+                (Some(build), None) => format!("{} · build {build}", a.version),
+                _ => format!("{} (an agent from before builds were named)", a.version),
+            }),
         ),
         row("Computer", agent.and_then(|a| a.hostname.clone())),
         row("System", system),

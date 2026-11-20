@@ -905,7 +905,7 @@ impl Store {
     ) -> (i64, String, String) {
         let space = self.default_space().await.unwrap().0;
         let (id, token, code) = self
-            .register_linked(name, kind, "0.2.0", "prusa-connect")
+            .register_linked(name, kind, "0.2.0", "virtual")
             .await
             .unwrap();
         self.pair(space, &code).await.unwrap();

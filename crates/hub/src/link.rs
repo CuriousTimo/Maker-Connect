@@ -1,6 +1,7 @@
 use crate::{Store, failed, store};
 use axum::{
     Form,
+    extract::State,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
 };
@@ -230,14 +231,6 @@ pub(crate) mod tests {
         let status = response.status();
         let body = response.into_body().collect().await.unwrap().to_bytes();
         (status, String::from_utf8_lossy(&body).into_owned())
-    }
-
-    pub(crate) fn json(path: &str, token: Option<&str>, body: String) -> Request<Body> {
-        let mut request = Request::post(path).header("content-type", "application/json");
-        if let Some(token) = token {
-            request = request.header("authorization", format!("Bearer {token}"));
-        }
-        request.body(Body::from(body)).unwrap()
     }
 
     /// Two pairings of one code at once (design decisions/20261119-pairing-in-one-space-transaction.md):
