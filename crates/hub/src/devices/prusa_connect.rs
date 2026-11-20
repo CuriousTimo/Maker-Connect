@@ -107,6 +107,67 @@ pub fn routes() -> Router<Store> {
         .route("/p/telemetry", post(telemetry))
         .route("/p/events", post(event))
         .route("/p/ws", axum::routing::get(ws))
+        .route("/p/teams/{team}/files/{hash}/raw", axum::routing::get(raw_file))
+}
+
+/// A file of the printer's space, as the SDK fetches it for START_CONNECT_DOWNLOAD
+/// (`__init__.py:468`: `/p/teams/{team_id}/files/{hash}/raw`), with its `Token`.
+async fn raw_file(
+    State(store): State<Store>,
+    headers: HeaderMap,
+    axum::extract::Path((team, hash)): axum::extract::Path<(i64, String)>,
+) -> Response {
+    let token = header(&headers, "token");
+    match store.placed(token).await {
+        Ok(Some((_, space))) if space == team => {}
+        Ok(_) => return StatusCode::FORBIDDEN.into_response(),
+        Err(error) => return failed(error),
+    }
+    match store.file(team, &hash).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(error) => return failed(error),
+    }
+    match tokio::fs::read(store.file_path(&hash)).await {
+        Ok(bytes) => (StatusCode::OK, bytes).into_response(),
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// A label printer on the protocol (the agent's DYMO): a job waiting for it goes out as
+/// START_CONNECT_DOWNLOAD with `printing` and `tape_size_mm` (docs/design/wire.md, "The first
+/// device"), when it is idle and nothing else is in flight.
+async fn label_job(store: &Store, token: &str, machine: &crate::store::Machine, space: i64) -> Result<(), crate::store::BoxError> {
+    if !store.lock().unwrap().open_commands(&machine.id).is_empty() {
+        return Ok(());
+    }
+    let of = crate::agent_of(store, token).await?;
+    let report = Telemetry {
+        state: MachineState::Idle,
+        ..Telemetry::default()
+    };
+    let (Some(order), _) = crate::agent_job(store, &of, &report).await? else {
+        return Ok(());
+    };
+    let hash = order
+        .download
+        .trim_start_matches("/files/")
+        .trim_end_matches("/download")
+        .to_owned();
+    let command = serde_json::json!({"command": "START_CONNECT_DOWNLOAD", "kwargs": {
+        "path": format!("/labels/{}.png", order.id),
+        "team_id": space,
+        "hash": hash,
+        "printing": true,
+        "tape_size_mm": order.tape_mm,
+    }});
+    let mut legacy = store.lock().unwrap();
+    if let Some(id) =
+        legacy.queue_connect_command(Some(&machine.link), &machine.id, "Print the label", &command, false)
+    {
+        legacy.label_jobs.insert(id, (space, order.id));
+    }
+    Ok(())
 }
 
 /// The one subprotocol the server offers (`xbuddy.go:61`, `:388`).
@@ -340,10 +401,15 @@ async fn register(State(store): State<Store>, body: String) -> Response {
         format!("{model} {tail}")
     };
     let firmware = text(&about, "firmware");
-    let agent_version = format!("Prusa firmware {firmware} (built-in Connect)").replace("  ", " ");
+    let kind = profile.map_or(MachineKind::Fdm, |p| p.kind);
+    let agent_version = if kind == MachineKind::Fdm {
+        format!("Prusa firmware {firmware} (built-in Connect)").replace("  ", " ")
+    } else {
+        format!("Maker Connect agent {firmware}")
+    };
     let registered: sqlx::Result<_> = async {
         let (id, token, code) = store
-            .register_linked(&name, MachineKind::Fdm, &agent_version, "prusa-connect")
+            .register_linked(&name, kind, &agent_version, "prusa-connect")
             .await?;
         if let Some(profile) = profile {
             store.recognise(&token, &profile.id).await?;
@@ -646,8 +712,21 @@ async fn telemetry(
     {
         return failed(error);
     }
+    // A label printer: its job goes out as a download to print.
+    let label = match store.machine_by_token(token).await {
+        Ok(Some((m, Some(space)))) if m.kind == MachineKind::Label => Some((m, space)),
+        _ => None,
+    };
+    if let Ok(Some(_)) = reported
+        && let Some((machine, space)) = label.as_ref()
+        && report["state"].as_str() == Some("IDLE")
+        && let Err(error) = label_job(&store, token, machine, *space).await
+    {
+        return failed(error);
+    }
     // A job for it goes to its stick when it is free; one printing follows its state.
     if let Ok(Some(_)) = reported
+        && label.is_none()
         && let Some(state) = report["state"].as_str()
     {
         let active = match store.placed(token).await {
@@ -711,6 +790,7 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
         Ok(caller) => caller,
         Err(error) => return failed(error),
     };
+    let mut ended_label = None;
     {
         let mut store = shared.lock().unwrap();
         if let Some(id) = event["command_id"].as_u64() {
@@ -733,8 +813,24 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
             if let Some(state) = state {
                 let reason = event["reason"].as_str().map(str::to_owned);
                 println!("command {id}: {name} {}", reason.as_deref().unwrap_or(""));
-                store.command_went(caller.as_ref(), id as u32, state, reason, Vec::new());
+                store.command_went(caller.as_ref(), id as u32, state, reason.clone(), Vec::new());
+                if let Some(job) = store.label_jobs.remove(&(id as u32)) {
+                    ended_label = Some((job, state, reason));
+                }
             }
+        }
+    }
+    // A label printed, or not.
+    if let Some(((space, job), state, reason)) = ended_label {
+        let (state, reason) = match state {
+            CommandState::Finished => (crate::store::JobState::Finished, None),
+            _ => (
+                crate::store::JobState::Failed,
+                Some(reason.unwrap_or_else(|| "the label printer refused it".to_owned())),
+            ),
+        };
+        if let Err(error) = shared.set_job(space, job, state, reason.as_deref()).await {
+            return failed(error);
         }
     }
     // Files on its stick, and transfers to it.

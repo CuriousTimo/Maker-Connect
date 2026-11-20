@@ -1,0 +1,18 @@
+[package]
+name = "maker-connect-sdk"
+description = "A port of Prusa-Connect-SDK-Printer (websockets branch @ c0d7d233) to Rust"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["preserve_order", "float_roundtrip"] }
+sha2 = "0.10"
+# requests.Session (`util.py`, `models.py`): a blocking HTTP client, as the SDK's.
+ureq = { version = "2", features = ["gzip"] }
+# urllib3's deflate decoding; ureq decodes gzip only.
+flate2 = "1"
+# websocket-client (`ws.py`): a blocking WebSocket client in its own thread, as the SDK's.
+tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+log = "0.4"

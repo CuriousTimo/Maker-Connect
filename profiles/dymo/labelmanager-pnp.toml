@@ -8,6 +8,7 @@ battery = true         # a Li-ion pack (or six AA cells): its charge is shown
 
 [detect]
 machine_type = "DYMO LabelManager PnP"   # the USB product name, as the agent reports it
+printer_type = "dymo.labelmanager-pnp"   # its type over the Prusa Connect protocol (docs/design/wire.md)
 
 # D1 cassettes, from thermal-label's media list (MIT). The printer cannot tell which is in:
 # the owner chooses. Tried: 45013.

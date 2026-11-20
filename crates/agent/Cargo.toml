@@ -4,3 +4,13 @@ description = "Maker Connect's module next to a machine: drives it and reports t
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[dependencies]
+maker-connect-sdk = { path = "../connect-sdk" }
+maker-connect-engine = { path = "../engine" }
+maker-connect-protocol = { path = "../protocol" }
+serde_json = { version = "1", features = ["preserve_order"] }
+ureq = "2"
+sha2 = "0.10"
+tiny_http = "0.12"
+log = "0.4"

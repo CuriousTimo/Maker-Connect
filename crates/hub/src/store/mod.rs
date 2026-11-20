@@ -662,6 +662,8 @@ pub struct Legacy {
     /// `Session.Connected`, `:466-471`), whatever it last sent (Buddy's websocket telemetry comes
     /// every 15 s when nothing changes, `planner.cpp:97-99`).
     pub(crate) attached: std::collections::HashMap<String, usize>,
+    /// A label printer's START_CONNECT_DOWNLOAD in flight, by command id: its space and job.
+    pub(crate) label_jobs: std::collections::HashMap<u32, (i64, i64)>,
     /// The print each Prusa on Connect was last asked about (SEND_JOB_INFO), by token: once.
     pub(crate) job_info_asked: std::collections::HashMap<String, u64>,
     /// Prints a machine runs itself (from its USB stick or SD card, or started at its
@@ -804,6 +806,7 @@ impl Legacy {
             printing_file: Default::default(),
             connect_tools: Default::default(),
             attached: Default::default(),
+            label_jobs: Default::default(),
             job_info_asked: Default::default(),
             own_prints: Default::default(),
             laser_framed: Default::default(),
