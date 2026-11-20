@@ -4,8 +4,8 @@
   // Tabs by purpose; a tab may show more than one section. Old addresses still lead there.
   // The tabs (Prusa Connect's printer page, laid out our way): Now, Queue, Controls, Files,
   // Cameras, Machine, History, Advanced.
-  const TABS = { now: ["overview"], queue: ["queue", "jobs"], controls: ["control"], files: ["usb", "sd"], cameras: ["camera"], machine: ["settings"], history: ["telemetry"], advanced: ["terminal", "bedlevel"] };
-  const OLD = { overview: "now", data: "now", control: "controls", jobs: "queue", telemetry: "history", terminal: "advanced", bedmesh: "advanced", bedlevel: "advanced", usb: "files", sd: "files", camera: "cameras", settings: "machine" };
+  const TABS = { now: ["overview"], queue: ["queue", "jobs"], controls: ["control", "bedlevel"], files: ["usb", "sd"], cameras: ["camera"], machine: ["settings"], history: ["telemetry"], advanced: ["terminal"] };
+  const OLD = { overview: "now", data: "now", control: "controls", jobs: "queue", telemetry: "history", terminal: "advanced", bedmesh: "controls", bedlevel: "controls", usb: "files", sd: "files", camera: "cameras", settings: "machine" };
   // Set below for a Prusa on its own Connect: opens its USB stick when its tab is shown.
   let usbOpen = null;
   // Set below for a printer with its own SD card behind an agent.
@@ -57,7 +57,14 @@
           body: sent,
           headers: { "x-requested-with": "fetch" },
         });
-        if (status) status.textContent = response.ok ? "" : `Not sent: ${await response.text()}`;
+        const refused = response.ok ? "" : `Not sent: ${await response.text()}`;
+        if (status) status.textContent = refused;
+        // A head's temperature menu closes once a value is sent; a refusal is told.
+        const menu = form.closest("details.temp-pick");
+        if (menu) {
+          menu.open = false;
+          if (refused) alert(refused);
+        }
       } catch (error) {
         if (status) status.textContent = `Not sent: ${error.message}`;
       } finally {
@@ -113,6 +120,11 @@
   }
 
   // How a heater is doing, as the page says it on the server too.
+  // A head chip's target (machine_page.rs target_note): " / 215" while one is set.
+  function targetNote(target) {
+    return target > 0 ? ` / ${target.toFixed(0)}` : "";
+  }
+
   function heatNote(now, target) {
     if (now == null) return "not reported";
     if (target > 0) {
@@ -578,6 +590,8 @@
     const values = {
       nozzle_n: fixed(t.nozzle_c),
       nozzle_note: heatNote(t.nozzle_c, t.nozzle_target_c),
+      nozzle_t: targetNote(t.nozzle_target_c),
+      bed_t: targetNote(t.bed_target_c),
       bed_n: fixed(t.bed_c),
       bed_note: heatNote(t.bed_c, t.bed_target_c),
       chamber_n: fixed(t.chamber_c),

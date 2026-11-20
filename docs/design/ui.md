@@ -160,6 +160,12 @@ registry; a state that does not accept the verb disables it with the reason.
   (`core.command.pause_print`, `job.control`, a real command button, UT-13); waiting for a sign-off →
   Set Ready; free printer → Print (opens Start a print); laser → Go to the laser (never a start);
   tape or label printer → Print. A laser with a job loaded shows the tag *Job loaded*, not a state.
+- **The card** (owner, 2026-11-20: "neem die van prusa als voorbeeld"; after Prusa Connect's printer
+  card, in our own drawing and words): the machine's picture (its profile's drawing, else its kind's),
+  its model small over its name, its state on the right; the job line (file and %, its bar, time left;
+  else "No print running"); for a 3D printer three boxes: nozzle and bed (now / target, the target
+  only while one is set) and the material (swatch and name, "–" without); a message with its tag when
+  something needs someone or is wrong; then the actions.
 - **States:** a card offline has a dashed outline (the state list's rule, UT-36) and shows its last
   report's time; values are unknown, not the last ones shown as current.
 
@@ -169,11 +175,15 @@ Laid out after Prusa Connect's printer page, the online one's head and the local
 code and words (owner, 2026-11-20: "layout grotendeels van Prusa Connect local", then "Mengen";
 journal:HUB-FINISH:0006). This replaces the six tabs of UI-2.
 
-**Head**, above the tabs on every tab: the machine's picture; its name, its state and a pencil to
-rename it (to the Machine tab); what it is and how it is connected, its firmware, its material (the
-spool from Materials, else what the printer says; a link to Materials until assigning is built there);
-for a printer a row of live chips: nozzle and bed (temperature, flame, what it heats to), speed %,
-flow %. On the right **Set ready**: enabled while a finished print is on the bed (the print is taken),
+**Head**, above the tabs on every tab: the machine's picture; on one line its name, its state and, for a
+printer, its live values in the state's own small
+style (owner, 2026-11-20: "inline met idle in dezelfde stijl", "met icons"), each with its icon and its
+name as label, a flame beside a heater while it heats; for who may operate it, nozzle and bed open a menu to set
+them as Prusa Connect's head does (Off, the firmware's preheat presets PLA … PA, a value of one's own): nozzle and bed (temperature / target,
+the target only while one is set), speed %, flow % and its material (the spool from Materials, else what
+the printer says; a link to Materials until assigning is built there), and at its far right a pencil to
+rename it (to the Machine tab); below one muted line: what it is
+and how it is connected, its firmware. On the right **Set ready**: enabled while a finished print is on the bed (the print is taken),
 then *Ready · undo* until a job starts; otherwise disabled with its reason (the control rule).
 
 Tabs: Now, Queue, Controls, Files, Cameras, Machine, History, Advanced; a tab is shown only when the
@@ -185,12 +195,12 @@ only with a linked camera the person may view). Old addresses (`#overview`, `#co
 |---|---|---|
 | Now | the printer's question and its buttons; the camera beside this print (file, by whom, progress, time left and the clock); the queue's next items beside the recent jobs | the same |
 | Queue | the device's queue (move and take out own items), its past jobs | every queue item |
-| Controls | the declared verbs they hold, enabled when the state accepts them, one card: moving and tools left, temperatures, speed, flow and nozzles right | the same, with their own actions |
+| Controls | the declared verbs they hold, enabled when the state accepts them, one card: moving and tools left, temperatures, speed, flow and nozzles right; below it the bed level (Probe bed and the mesh, as Prusa Connect's Utilities → Calibration; owner, 2026-11-20) | the same, with their own actions |
 | Files | files on the device; Print… | plus Delete (`core.command.delete_file`, `job.control`) |
 | Cameras | the linked camera (`device.view`) | the same; managing is in Space → Cameras |
 | Machine | first **Details** in two columns, Specification (from its profile) and This machine (what it told); then read only: name, model, firmware label, serial, connection; "changed by the space's staff" | name and labels, induction, PPE list (`PATCH /api/v1/devices/{id}`, `device.manage`); Retire with a reason (`DELETE`, history stays) |
 | History | temperatures and fans over the last 2 hours (Prusa Connect's span); the commands sent from the hub and how each went | the same |
-| Advanced | the terminal (holder only, UT-03), the bed level and its mesh | the same |
+| Advanced | the terminal (holder only, UT-03) | the same |
 
 Control tab, a 3D printer (verbs of the `marlin` registry; the `prusa` kind uses the same
 `core.command.*` names where its driver declares them):

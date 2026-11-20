@@ -8,6 +8,7 @@
 <script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
 </head>
 <body data-view="user">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="i-nozzle" viewBox="0 0 20 20"><path d="M5 3h10v6H5zM7 9h6l-2 5H9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 14v3" stroke="currentColor" stroke-width="1.6"/></symbol><symbol id="i-bed" viewBox="0 0 20 20"><path d="M3 15h14" stroke="currentColor" stroke-width="1.8"/><path d="M6 12c-1-1.5 1-2.5 0-4M10 12c-1-1.5 1-2.5 0-4M14 12c-1-1.5 1-2.5 0-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol><symbol id="i-speed" viewBox="0 0 20 20"><path d="M3.5 14a6.5 6.5 0 0 1 13 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M10 14l3.5-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol><symbol id="i-flow" viewBox="0 0 20 20"><path d="M10 3c3 4 5 6.5 5 9a5 5 0 0 1-10 0c0-2.5 2-5 5-9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol><symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 2.5c.6 3.2 2.6 4.9 4.2 6.9 1.4 1.8 2.3 3.6 2.3 5.8A6.5 6.5 0 0 1 12 21.7a6.5 6.5 0 0 1-6.5-6.5c0-2.3 1-4.2 2.6-5.7.2 1.6.9 2.8 2.1 3.5-.4-3.9.5-7.3 1.8-10.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol></svg>
 <a class="skip" href="#main">Skip to content</a>
 <header class="top">
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
@@ -47,10 +48,8 @@
 
 <p class="crumbs"><a href="machines.html">Machines</a> › MINI-1</p>
 <div class="mhead card"><div class="mhead-pic"><div class="empty">picture</div></div>
-<div><div class="head"><h1>MINI-1</h1><span class="st busy">Printing 62 %</span><span data-only="admin instance"><span class="fw"><a class="btn small ghost" href="#machine" aria-label="Rename MINI-1">✎</a></span></span></div>
-<p class="muted">MINI · built-in Connect · firmware 6.3.0 · labels: <span class="tag">Room 2</span></p>
-<p><span class="chip" aria-label="Material"><span class="swatch" style="background:#93A682"></span> Spool #12 · PLA Sage ▾</span></p>
-<p class="row"><span class="chip">Nozzle <b>215 °C</b> / 215</span><span class="chip">Bed <b>60 °C</b> / 60</span><span class="chip">Speed <b>100 %</b></span><span class="chip">Flow <b>95 %</b></span></p></div>
+<div><div class="head"><h1>MINI-1</h1><span class="st busy">Printing 62 %</span><details class="temp-pick"><summary class="st val" title="Nozzle: set its temperature" aria-label="Nozzle: set its temperature"><svg class="ico" aria-hidden="true"><use href="#i-nozzle"/></svg><b>215 °C</b> / 215<svg class="ico flame-on" aria-label="Heating" role="img"><use href="#i-flame"/></svg> ▾</summary><div class="temp-menu" data-only="admin instance"><button type="button">Off</button><button type="button">PLA <span>215 °C</span></button><button type="button">PETG <span>230 °C</span></button><button type="button">ASA <span>260 °C</span></button><button type="button">ABS <span>255 °C</span></button><button type="button">PC <span>275 °C</span></button><button type="button">FLEX <span>240 °C</span></button><button type="button">HIPS <span>220 °C</span></button><button type="button">PP <span>240 °C</span></button><button type="button">PVB <span>215 °C</span></button><button type="button">PA <span>285 °C</span></button><label>Other <input type="number" min="0" max="280" value="215"> °C <button type="button" class="btn small">Set</button></label></div></details><span class="st val" title="Bed" aria-label="Bed"><svg class="ico" aria-hidden="true"><use href="#i-bed"/></svg><b>60 °C</b> / 60</span><span class="st val" title="Speed" aria-label="Speed"><svg class="ico" aria-hidden="true"><use href="#i-speed"/></svg><b>100 %</b></span><span class="st val" title="Flow" aria-label="Flow"><svg class="ico" aria-hidden="true"><use href="#i-flow"/></svg><b>95 %</b></span><a class="st val" href="materials.html" aria-label="Material"><span class="swatch" style="background:#93A682"></span>Spool #12 · PLA Sage ▾</a><span class="rename" data-only="admin instance"><span class="fw"><a class="btn small ghost" href="#machine" aria-label="Rename MINI-1">✎</a></span></span></div>
+<p class="muted">MINI · built-in Connect · firmware 6.3.0 · labels: <span class="tag">Room 2</span></p></div>
 <div><span class="ctl"><span class="fw"><button class="btn ghost" type="button" aria-disabled="true" aria-describedby="why-ready">Set ready</button></span><span class="why" id="why-ready">Ready once a finished print is taken off the bed.</span></span></div></div>
 <p class="note-role" data-only="user"><b>As a member (Sam):</b> on MINI-1 you may start, pause and stop jobs, but not move or heat it (sample data). What you may not do is hidden, with one banner on Control.</p>
 <p class="note-role" data-only="admin instance"><b>As an admin or owner:</b> you hold every non-damaging action on MINI-1. You rename, label, set its PPE and retire it here; permissions are granted in Space.</p>
@@ -107,6 +106,7 @@
 </div>
 </div></div>
 <p style="margin-top:var(--s-3)"><small>Each control shows because MINI-1 declared it; it works only when MINI-1's state accepts it and you hold the right. A terminal shows only on a printer that declares one, and only to a person granted raw G-code by name.</small></p>
+<div class="card"><h2>Bed level</h2><p class="muted">Calibration, as Prusa Connect's Utilities: measure the bed, then its mesh.</p><span class="fw"><button class="btn small" type="button">Probe bed</button></span><div class="empty">the bed mesh as a surface, a map or a table</div></div>
 </section>
 
 <section id="files" role="tabpanel" aria-labelledby="t-files" hidden>
@@ -161,7 +161,6 @@
 
 <section id="advanced" role="tabpanel" aria-labelledby="t-advanced" hidden>
 <div class="card" data-only="admin instance"><h2>Terminal</h2><div class="empty">sent commands and the printer's answers</div></div>
-<div class="card"><h2>Bed level</h2><div class="empty">the bed mesh as a surface, a map or a table</div></div>
 </section>
 </main>
 <nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="host admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>

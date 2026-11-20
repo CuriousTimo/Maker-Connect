@@ -1038,7 +1038,10 @@ mod tests {
                 .unwrap()
         };
         let html = call(&app, page()).await.1;
-        assert!(html.contains("You may not move, heat or send G-code"), "{html}");
+        assert!(
+            html.contains("You may not move, heat or send G-code"),
+            "{html}"
+        );
         for sends in [r#"value="jog:0:1""#, "data-gcode ", r#"value="probe-bed""#] {
             assert!(!html.contains(sends), "{sends} shown without operate");
         }

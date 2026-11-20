@@ -181,7 +181,14 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         name = escape(&machine.name),
         header = crate::header(space, "../", "machines"),
         id = escape(&machine.id),
-        head = head(machine, profile, &state, state_class, &subtitle),
+        head = head(
+            machine,
+            profile,
+            &state,
+            state_class,
+            &subtitle,
+            extra.may_operate
+        ),
         queue_tab = if machine.kind == maker_connect_protocol::MachineKind::Label {
             ""
         } else {
@@ -207,7 +214,12 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         filament = filament_card(machine, extra.may_operate),
         sheet = sheet_card(machine),
         upkeep = upkeep_card(machine, extra.manage),
-        control = control(machine, profile, &loaded_card(machine, extra), extra.may_operate),
+        control = control(
+            machine,
+            profile,
+            &loaded_card(machine, extra),
+            extra.may_operate
+        ),
         telemetry = telemetry_tab(machine),
         settings = settings(machine, &extra.move_to, extra.ppe_checks, extra.may_operate),
         terminal = if extra.may_operate || !store::takes_commands(&machine.link) {
@@ -258,6 +270,12 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
     )
 }
 
+/// The head's and the machine list's icons (ui.md "Head", "The card"): our own drawings.
+const ICON_NOZZLE: &str = r#"<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3h10v6H5zM7 9h6l-2 5H9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 14v3" stroke="currentColor" stroke-width="1.6"/></svg>"#;
+const ICON_BED: &str = r#"<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 15h14" stroke="currentColor" stroke-width="1.8"/><path d="M6 12c-1-1.5 1-2.5 0-4M10 12c-1-1.5 1-2.5 0-4M14 12c-1-1.5 1-2.5 0-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>"#;
+const ICON_SPEED: &str = r#"<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 14a6.5 6.5 0 0 1 13 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M10 14l3.5-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>"#;
+const ICON_FLOW: &str = r#"<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3c3 4 5 6.5 5 9a5 5 0 0 1-10 0c0-2.5 2-5 5-9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>"#;
+
 /// The page's head (Prusa Connect's printer head, our own build): the machine's picture; its
 /// name, state and a pencil to rename it; what it is, its firmware and its material; for a
 /// printer a row of live chips (nozzle, bed, speed, flow); and Set ready on the right.
@@ -267,25 +285,40 @@ fn head(
     state: &str,
     state_class: &str,
     subtitle: &str,
+    may_operate: bool,
 ) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
+    // Who may operate a machine that takes commands sets a heater from its value (Prusa Connect's
+    // head): Off, the firmware's preheat presets, a value of one's own; up to the profile's maximum.
+    let settable = may_operate && t.is_some() && crate::store::takes_commands(&machine.link);
+    let menu = |key: &str, max: f64, pick: PresetColumn, now: f64| {
+        let item = |text: &str, celsius: f64| {
+            format!(
+                r#"<span class="heat-set"><input type="hidden" name="{key}" value="{celsius:.0}"><button name="action" value="set-{key}">{text}</button></span>"#
+            )
+        };
+        let mut items = item("Off", 0.0);
+        for preset in PREHEAT_PRESETS.iter().filter(|p| pick(p) <= max) {
+            items.push_str(&item(
+                &format!("{} <span>{:.0} °C</span>", preset.0, pick(preset)),
+                pick(preset),
+            ));
+        }
+        format!(
+            r#"<form class="command temp-menu" method="post" action="{id}/command">{items}<label class="heat-set">Other <input type="number" name="{key}" min="0" max="{max:.0}" step="1" value="{now:.0}" inputmode="numeric"> °C <button name="action" value="set-{key}" class="btn small">Set</button></label></form>"#,
+            id = escape(&machine.id),
+        )
+    };
     let picture = profile
         .and_then(Profile::image)
         .or_else(|| profiles::generic_image(machine.kind))
         .unwrap_or(r#"<div class="no-picture">No picture</div>"#);
-    let fact = |label: &str, key: &str, value: Option<String>| match value {
-        Some(v) => format!(
-            r#"<div class="fact"><small>{label}</small><b data-live="{key}">{}</b></div>"#,
-            escape(&v)
-        ),
-        None => String::new(),
-    };
-    let firmware = fact(
-        "Firmware",
-        "firmware",
-        t.and_then(|t| t.firmware.clone())
-            .or_else(|| machine.details.as_ref().and_then(|d| d.firmware.clone())),
-    );
+    // printer.html: one muted line, what it is and its firmware.
+    let firmware = t
+        .and_then(|t| t.firmware.clone())
+        .or_else(|| machine.details.as_ref().and_then(|d| d.firmware.clone()))
+        .map(|v| format!(r#" · <span data-live="firmware">{}</span>"#, escape(&v)))
+        .unwrap_or_default();
     let material = if heats(machine) {
         let (swatch, what) = match &machine.loaded {
             Some(l) => (
@@ -312,45 +345,81 @@ fn head(
             ),
         };
         format!(
-            r#"<div class="fact"><small>Material</small><a class="material-pick" href="../stock" title="Set a spool in Materials"><span class="swatch" style="background:{}"></span>{what}<span aria-hidden="true">▾</span></a></div>"#,
+            r#"<a class="st val" href="../stock" aria-label="Material" title="Set a spool in Materials"><span class="swatch" style="background:{}"></span>{what}<span aria-hidden="true">▾</span></a>"#,
             swatch.as_deref().unwrap_or("transparent")
         )
     } else {
         String::new()
     };
     let chips = if heats(machine) {
-        let heat = |label: &str, key: &str, now: Option<f32>, target: Option<f32>, on: Option<bool>| {
-            format!(
-                r#"<span class="chip" title="{label}">{flame}<small>{label}</small><b><span data-live="{key}_n">{}</span> °C</b><small data-live="{key}_note">{}</small></span>"#,
+        // printer.html: "Nozzle 215 °C / 215", the target only while one is set.
+        let heat = |label: &str,
+                    key: &str,
+                    icon: &str,
+                    now: Option<f32>,
+                    target: Option<f32>,
+                    on: Option<bool>| {
+            let value = format!(
+                r#"{icon}<b><span data-live="{key}_n">{}</span> °C</b><span data-live="{key}_t">{}</span>{}"#,
                 escape(&now.map_or("–".to_owned(), |v| format!("{v:.1}"))),
-                escape(&heat_note(now, target)),
-                flame = flame(key, on),
+                target_note(target),
+                flame(key, on),
+            );
+            if !settable {
+                return format!(
+                    r#"<span class="st val" title="{label}" aria-label="{label}">{value}</span>"#
+                );
+            }
+            let (max, pick, fallback): (f64, PresetColumn, f64) = if key == "bed" {
+                (
+                    profile.and_then(|p| p.max_bed_c).unwrap_or(100.0),
+                    |p| p.2,
+                    60.0,
+                )
+            } else {
+                (
+                    profile.and_then(|p| p.max_nozzle_c).unwrap_or(260.0),
+                    |p| p.1,
+                    215.0,
+                )
+            };
+            let now = target.filter(|v| *v > 0.0).map_or(fallback, f64::from);
+            format!(
+                r#"<details class="temp-pick"><summary class="st val" title="{label}: set its temperature" aria-label="{label}: set its temperature">{value} <span aria-hidden="true">▾</span></summary>{}</details>"#,
+                menu(key, max, pick, now)
             )
         };
-        let pct = |label: &str, key: &str, v: Option<f32>| {
+        let pct = |label: &str, key: &str, icon: &str, v: Option<f32>| {
             format!(
-                r#"<span class="chip"><small>{label}</small><b data-live="{key}">{}</b></span>"#,
+                r#"<span class="st val" title="{label}" aria-label="{label}">{icon}<b data-live="{key}">{}</b></span>"#,
                 v.map_or("–".to_owned(), |v| format!("{v} %"))
             )
         };
         format!(
-            r#"<div class="chips">{}{}{}{}</div>"#,
+            "{}{}{}{}",
             heat(
                 "Nozzle",
                 "nozzle",
+                ICON_NOZZLE,
                 t.and_then(|t| t.nozzle_c),
                 t.and_then(|t| t.nozzle_target_c),
-                t.and_then(|t| t.nozzle_heating)
+                t.and_then(|t| t.nozzle_heating),
             ),
             heat(
                 "Bed",
                 "bed",
+                ICON_BED,
                 t.and_then(|t| t.bed_c),
                 t.and_then(|t| t.bed_target_c),
-                t.and_then(|t| t.bed_heating)
+                t.and_then(|t| t.bed_heating),
             ),
-            pct("Speed", "speed", t.and_then(|t| t.speed_percent)),
-            pct("Flow", "flow", t.and_then(|t| t.flow_percent)),
+            pct(
+                "Speed",
+                "speed",
+                ICON_SPEED,
+                t.and_then(|t| t.speed_percent)
+            ),
+            pct("Flow", "flow", ICON_FLOW, t.and_then(|t| t.flow_percent)),
         )
     } else {
         String::new()
@@ -375,9 +444,8 @@ fn head(
         r##"<div class="mhead">
     <div class="mhead-pic picture">{picture}</div>
     <div class="mhead-main">
-      <div class="mhead-title"><h1>{name}</h1><span class="st {state_class}" data-live="state">{state}</span><a class="rename" href="#machine" title="Rename" aria-label="Rename"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></a></div>
-      <div class="facts"><div class="fact"><small>Machine</small><b>{subtitle}</b></div>{firmware}{material}</div>
-      {chips}
+      <div class="mhead-title"><h1>{name}</h1><span class="st {state_class}" data-live="state">{state}</span>{chips}{material}<a class="rename" href="#machine" title="Rename" aria-label="Rename"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></a></div>
+      <p class="muted">{subtitle}{firmware}</p>
     </div>
     <div class="mhead-act">{ready}</div>
   </div>"##,
@@ -637,6 +705,32 @@ fn battery_tile(percent: Option<u8>) -> String {
 /// How a heater is doing, as the tiles say it (the script says it the same way).
 /// A heater's line under its temperature: what it heats to, and how it is getting there.
 /// (Whether it has power now is the flame beside its name.) As the page's script says it.
+/// The preheat presets a head's heater offers (material, nozzle °C, bed °C): Prusa Connect's
+/// `PREHEAT_PRESETS` (packages/svelte/src/domain/preheat.ts @2e8c62b), the firmware's own list.
+const PREHEAT_PRESETS: [(&str, f64, f64); 10] = [
+    ("PLA", 215.0, 60.0),
+    ("PETG", 230.0, 85.0),
+    ("ASA", 260.0, 100.0),
+    ("ABS", 255.0, 100.0),
+    ("PC", 275.0, 100.0),
+    ("FLEX", 240.0, 50.0),
+    ("HIPS", 220.0, 100.0),
+    ("PP", 240.0, 100.0),
+    ("PVB", 215.0, 75.0),
+    ("PA", 285.0, 100.0),
+];
+
+/// Which of a preset's temperatures a heater takes (its nozzle's or its bed's).
+type PresetColumn = fn(&(&str, f64, f64)) -> f64;
+
+/// A head chip's target: " / 215" while one is set (printer.html), else nothing.
+fn target_note(target: Option<f32>) -> String {
+    match target {
+        Some(target) if target > 0.0 => format!(" / {target:.0}"),
+        _ => String::new(),
+    }
+}
+
 fn heat_note(now: Option<f32>, target: Option<f32>) -> String {
     let Some(now) = now else {
         return "not reported".to_owned();
@@ -2121,7 +2215,11 @@ fn telemetry_tab(machine: &Machine) -> String {
         r#"{chart}
 <div class="grid-2">{}{}</div>{sent}"#,
         card("Motion", "", &format!(r#"<dl class="kv">{motion}</dl>"#)),
-        card("Printing", "", &format!(r#"<dl class="kv">{printing}</dl>"#)),
+        card(
+            "Printing",
+            "",
+            &format!(r#"<dl class="kv">{printing}</dl>"#)
+        ),
     )
 }
 

@@ -239,16 +239,49 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
     return parts.join(" · ");
   }
   const EDGE = { needs: "edge-wait", error: "edge-bad" };
+  // The card (ui.md "The card", after Prusa Connect's printer card in our own drawing): picture,
+  // model over name, state; the job and its bar; nozzle, bed, material; a message; the actions.
+  const ICON = {
+    nozzle: '<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3h10v6H5zM7 9h6l-2 5H9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 14v3" stroke="currentColor" stroke-width="1.6"/></svg>',
+    bed: '<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 15h14" stroke="currentColor" stroke-width="1.8"/><path d="M6 12c-1-1.5 1-2.5 0-4M10 12c-1-1.5 1-2.5 0-4M14 12c-1-1.5 1-2.5 0-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  };
+  // Its profile's drawing, else its kind's (crate::profiles), served by the hub.
+  function picture(m) {
+    const p = profiles[m.profile];
+    const src = p?.image ? `profiles/${p.id}.svg` : ["fdm", "laser", "cnc"].includes(m.kind) ? `profiles/_generic/${m.kind}.svg` : null;
+    return src ? `<img src="${esc(src)}" alt="" loading="lazy">` : "";
+  }
+  // "215° / 215°": now, and the target only while one is set.
+  const deg = (now, target) => now == null ? "–" : `${Math.round(now)}°${target > 0 ? ` / ${Math.round(target)}°` : ""}`;
+  const HEX = /^#[0-9a-fA-F]{3,8}$/;
   function card(m) {
-    const t = m.telemetry || {};
+    const t = (m.online && m.telemetry) || {};
     const st = shownState(m), b = bucket(m);
     const go = `machines/${encodeURIComponent(m.id)}`;
-    const percent = t.job && m.online ? Math.round((t.job.done * 100) / Math.max(1, t.job.total)) : null;
-    const bar = percent != null ? `<div class="bar" role="img" aria-label="${percent} percent"><i style="width:${percent}%"></i></div><b class="num">${esc(timeLeft(t.job.remaining_s) || `${percent} %`)}</b>` : "";
+    const model = profiles[m.profile] ? modelOf(m) : [KIND[m.kind] || m.kind, LINK[m.link] || m.link].filter(Boolean).join(" · ");
+    let job = "";
+    if (m.online && t.job) {
+      const pct = Math.round((t.job.done * 100) / Math.max(1, t.job.total));
+      const left = timeLeft(t.job.remaining_s);
+      job = `<div class="mc-job"><span title="${esc(t.job.file)}">${esc(t.job.file)}</span><b class="num">${pct} %</b></div><div class="bar" role="img" aria-label="${pct} percent"><i style="width:${pct}%"></i></div>${left ? `<small class="num">${esc(left)}</small>` : ""}`;
+    } else if (m.online) {
+      const line = m.kind === "fdm" ? "No print running" : says(m);
+      job = line ? `<div class="mc-job"><span>${esc(line)}</span></div>` : "";
+    }
+    let vals = "";
+    if (m.online && m.kind === "fdm") {
+      const l = m.loaded;
+      const swatch = l?.color && HEX.test(l.color) ? `<span class="swatch" style="background:${l.color}"></span>` : "";
+      const material = l ? (l.material || l.name) : t.material;
+      vals = `<div class="mc-vals"><span title="Nozzle">${ICON.nozzle}${deg(t.nozzle_c, t.nozzle_target_c)}</span><span title="Bed">${ICON.bed}${deg(t.bed_c, t.bed_target_c)}</span><span title="Material">${swatch}${esc(material || "–")}</span></div>`;
+    }
+    // What needs someone, in the printer's own words when it says them; offline: since when.
+    let msg = "";
+    if (!m.online) msg = `<p class="mc-msg"><small>${esc(says(m))}</small></p>`;
+    else if (st.title) msg = `<p class="mc-msg"><span class="tag ${st.cls === "error" ? "bad" : "warn"}">${st.cls === "error" ? "Error" : "Attention"}</span><small>${esc(st.title)}</small></p>`;
     const cls = ["card", "mcard", EDGE[b] || "", m.online ? "" : "is-off"].filter(Boolean).join(" ");
-    return `<article class="${cls}"><div class="top-line"><a href="${go}">${esc(m.name)}</a>${stateBadge(m, "span")}</div>
-      <span class="kind">${esc([modelOf(m), LINK[m.link] || m.link].filter(Boolean).join(" · "))}</span>
-      <small data-says>${esc(says(m))}</small>${bar}
+    return `<article class="${cls}"><div class="mc-head"><div class="mc-pic">${picture(m)}</div><div class="mc-name"><small>${esc(model)}</small><a href="${go}">${esc(m.name)}</a></div>${stateBadge(m, "span")}</div>
+      ${job}${vals}${msg}
       <div class="acts"><span class="fw"><a class="btn small${m.online ? "" : " ghost"}" href="${go}">${m.online ? "Open" : "Look"}</a></span></div></article>${confirmHtml(m, "machines/")}`;
   }
   let all = [];

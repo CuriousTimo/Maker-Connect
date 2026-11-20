@@ -165,7 +165,10 @@ mod tests {
         // A printer's Z, at F600 whatever the speed; not on GRBL.
         assert_eq!(
             jog_command("jog:0:0:-1", 0.1, 3000.0, false),
-            Some(("Move Z−0.1 mm".to_owned(), "G91\nG1 Z-0.1 F600\nG90".to_owned()))
+            Some((
+                "Move Z−0.1 mm".to_owned(),
+                "G91\nG1 Z-0.1 F600\nG90".to_owned()
+            ))
         );
         assert_eq!(jog_command("jog:0:0:1", 1.0, 3000.0, true), None);
         assert_eq!(jog_command("jog:1:0:1", 1.0, 3000.0, false), None);
