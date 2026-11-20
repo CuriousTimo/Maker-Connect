@@ -1774,8 +1774,8 @@ fn now(machine: &Machine, profile: Option<&Profile>, extra: &Extra) -> String {
 }
 
 /// A laser's job on Now (laser.html): its loaded job and the steps to burn it, above the job
-/// card, which is always there: it carries the laser's Stop (a soft reset, also with no job) and
-/// shows a job's progress live once it burns.
+/// card, which is always there: it carries the laser's Stop (a soft reset, only while a job runs)
+/// and shows a job's progress live once it burns.
 fn laser_job(machine: &Machine, extra: &Extra) -> String {
     format!(
         r#"<div class="stack">{}{}</div>"#,
