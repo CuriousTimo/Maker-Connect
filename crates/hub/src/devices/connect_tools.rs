@@ -3,7 +3,14 @@
 //! and the tree's contract in `sdk/connectorapi/tools.go` (read only: OCL, nothing copied). The
 //! tree is kept in [`Telemetry::tool_tree`] (the server's state tree, which outlives a link); what
 //! the server keeps per session (the layout an INFO gave, the readings written, the head the top
-//! target went to, the active members) is in [`Session`], in memory per printer token.
+//! target went to, the active members) is in [`Session`], in memory per machine, made only for a
+//! printer whose token is known and dropped with the machine (`Legacy::forget_machine`).
+//!
+//! Ours (the cost of our persistence): the server's session is memory-only, and so is ours, but
+//! our tree is stored with the telemetry. After a hub restart the tree is back and the session is
+//! empty until the next INFO: the layout falls back to `currentLayout`'s default, the one head to
+//! head 0, and the active members and readings are not known. Nothing rebuilds the session from
+//! the tree (the server has no such rebuild).
 //!
 //! Not covered: what an INFO writes onto the tree besides the active members (tool count,
 //! enabled, type, features, materials; our `Details` keeps INFO's material, `to_details`), the
@@ -69,6 +76,10 @@ pub(crate) struct Session {
     /// What an INFO wrote onto the tree, put on it with the next telemetry frame (ours: the tree
     /// lives in the telemetry, which an event does not write).
     pending: Vec<(String, &'static str, Value)>,
+    /// The telemetry as the last frame left it, so that the next frame is taken in over it under
+    /// the hub's lock (ours: the server writes patches onto one tree; ours is the telemetry). None
+    /// after a restart: the stored one then.
+    pub(crate) last: Option<Telemetry>,
 }
 
 /// The tree in a telemetry, written as the server writes patches: a null removes the member.
@@ -612,10 +623,9 @@ fn report_head(
 /// - the material at the top is the active tool's (in front of an MMU: the loaded slot), or that
 ///   head's; no material (`""`) shows as none;
 /// - the list of heads only when there is more than one, head `"n"` numbered `n + 1` on the page.
+///
+/// An empty tree shows no tool values: nothing is carried over from the frame before.
 fn show(t: &mut Telemetry) {
-    if t.tool_tree.is_empty() {
-        return;
-    }
     let tree = &t.tool_tree;
     let mut heads: Vec<&String> = tree.keys().filter(|id| !id.contains('.')).collect();
     heads.sort_by(|a, b| compare_ids(a, b));

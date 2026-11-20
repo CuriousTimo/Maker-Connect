@@ -678,8 +678,8 @@ pub struct Legacy {
     /// The file a Prusa on Connect prints, by its token: its JOB_INFO says it once, as a
     /// print starts; its telemetry only says how far.
     pub(crate) printing_file: std::collections::HashMap<String, (Option<u64>, String)>,
-    /// What Prusa's server keeps per printer session about a Prusa on Connect's tools, by token
-    /// (crate::devices::connect_tools).
+    /// What Prusa's server keeps per printer session about a Prusa on Connect's tools, by machine
+    /// id, for a known printer only (crate::devices::connect_tools).
     pub(crate) connect_tools:
         std::collections::HashMap<String, crate::devices::connect_tools::Session>,
     /// The print each Prusa on Connect was last asked about (SEND_JOB_INFO), by token: once.

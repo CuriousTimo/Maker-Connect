@@ -682,8 +682,13 @@ impl Store {
         };
         let share = match state {
             JobState::Finished => 1.0,
-            // As far as it got: its last progress.
+            // As far as it got: its last progress, as the machine keeps it after the print (a
+            // Prusa on Connect: `/job/progress`, kept as Prusa's server keeps a stopped print's
+            // figure, `devicejobs.go:230-235`). Ours: a job that never started has none, not the
+            // figure of the print before it (the server matches a reading to its print by the
+            // job's number, `printidentity.go`; we have no number for a hub job).
             _ => telemetry
+                .filter(|_| job.started_at.is_some())
                 .and_then(|t| t.job)
                 .filter(|j| j.total > 0)
                 .map_or(0.0, |j| (j.done as f64 / j.total as f64).clamp(0.0, 1.0)),

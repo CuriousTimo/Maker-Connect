@@ -441,6 +441,24 @@ fn take_in(
     t
 }
 
+/// The job as a reader of the machine sees it: the stored telemetry keeps `/job/*` after the print
+/// (the server's state tree, [`take_in`]), and the server's readers take a print as current only
+/// while `jobFacts.running` holds (`internal/app/devicejobs.go:315-331`, `jobRunningStates` `:95`:
+/// PRINTING, PAUSED, ATTENTION). Every reader of [`crate::store::Machine`] goes through this
+/// (`MachineRow::into_machine`); what a job used is counted off the stored telemetry instead, as
+/// the server keeps a stopped print's last figure (`devicejobs.go:230-235`).
+///
+/// Ours: our `Busy` is Buddy's PRINTING and BUSY both, so a BUSY counts as running here; the
+/// server counts a BUSY only over a `/job/state` that still runs (`devicejobs.go:330`).
+pub(crate) fn current_job(t: &mut Telemetry) {
+    if !matches!(
+        t.state,
+        MachineState::Busy | MachineState::Paused | MachineState::Attention
+    ) {
+        t.job = None;
+    }
+}
+
 /// What an `INFO` event tells about the printer, its secrets (the Prusa Link key) left out.
 pub(crate) fn to_details(info: &Value) -> Details {
     let some = |value: &Value| value.as_str().filter(|s| !s.is_empty()).map(str::to_owned);
@@ -504,37 +522,57 @@ async fn telemetry(
     // A printer not seen for longer than ONLINE_SECONDS: what it was given and had not
     // answered failed, before this report is taken in (K18 (b), `docs/plans/agent-engine.md`).
     let caller = match store.caller(token).await {
-        Ok(caller) => caller,
+        Ok(Some(caller)) => caller,
+        // An unknown token: refused, and nothing of it kept (no session).
+        Ok(None) => {
+            return (StatusCode::UNAUTHORIZED, "unknown printer: register again").into_response();
+        }
         Err(error) => return failed(error),
     };
+    let machine = caller.id.clone();
+    let caller = Some(caller);
     store
         .lock()
         .unwrap()
         .fail_commands_of_gone_printer(caller.as_ref());
-    // As before this hub kept the last report: a report it cannot read back is taken in over
-    // nothing.
-    let last = store.last_telemetry(token).await.ok().flatten();
+    // The last report, from the session when it has one (the frame before this one, under the
+    // lock), else as stored (after a restart); one it cannot read back: taken in over nothing.
+    let kept = store
+        .lock()
+        .unwrap()
+        .connect_tools
+        .get(&machine)
+        .is_some_and(|s| s.last.is_some());
+    let stored = if kept {
+        None
+    } else {
+        store.last_telemetry(token).await.ok().flatten()
+    };
     // The model, as the server reads it off the request (`identityOf`, `xbuddy.go:817-835`;
     // Buddy's `httpc.cpp:218`).
     let model = header(&headers, "user-agent-printer");
-    let mut telemetry = {
-        let mut store = store.lock().unwrap();
-        let session = store.connect_tools.entry(token.to_owned()).or_default();
-        take_in(&report, last, session, model)
-    };
-    // Every request says the firmware's version; none said, none shown (as before).
-    let version = header(&headers, "user-agent-version");
-    telemetry.firmware = (!version.is_empty()).then(|| format!("Prusa firmware {version}"));
-    // The file it prints, as its JOB_INFO said for this print (not the last report's, which
-    // may be the print before).
     let job_id = report["job_id"].as_u64();
-    if let Some(job) = telemetry.job.as_mut() {
-        match store.lock().unwrap().printing_file.get(token) {
-            Some((known, name)) if known.is_none() || *known == job_id => job.file = name.clone(),
-            _ if job_id.is_some() => job.file.clear(),
-            _ => {}
+    let telemetry = {
+        let mut store = store.lock().unwrap();
+        let file = store.printing_file.get(token).cloned();
+        let session = store.connect_tools.entry(machine).or_default();
+        let last = session.last.take().or(stored);
+        let mut telemetry = take_in(&report, last, session, model);
+        // Every request says the firmware's version; none said, none shown (as before).
+        let version = header(&headers, "user-agent-version");
+        telemetry.firmware = (!version.is_empty()).then(|| format!("Prusa firmware {version}"));
+        // The file it prints, as its JOB_INFO said for this print (not the last report's, which
+        // may be the print before).
+        if let Some(job) = telemetry.job.as_mut() {
+            match file {
+                Some((known, name)) if known.is_none() || known == job_id => job.file = name,
+                _ if job_id.is_some() => job.file.clear(),
+                _ => {}
+            }
         }
-    }
+        session.last = Some(telemetry.clone());
+        telemetry
+    };
     if let Some(peer) = crate::peer_address(&headers, &extensions) {
         let _ = store.set_peer(token, &peer).await;
     }
@@ -662,11 +700,14 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
     if let Err(error) = crate::printer_files::on_event(&shared, token, &name, &event).await {
         return failed(error);
     }
-    if name == "INFO" {
+    // Only a known printer has a session (an unknown token is refused below).
+    if name == "INFO"
+        && let Some(caller) = caller.as_ref()
+    {
         let mut store = shared.lock().unwrap();
         store
             .connect_tools
-            .entry(token.to_owned())
+            .entry(caller.id.clone())
             .or_default()
             .info(&event["data"], header(&headers, "user-agent-printer"));
     }
@@ -794,6 +835,56 @@ mod tests {
         let t = first(json!({"state": "PRINTING", "axis_z": 1.2}));
         assert_eq!(t.position_mm, Some([None, None, Some(1.2)]));
         assert_eq!(first(json!({"state": "IDLE"})).position_mm, None);
+    }
+
+    /// The one-path shape (no `tools`, no `slot`): a null `temp_nozzle` removes the head's nozzle
+    /// (`reportHead`, `telemetrytools.go:184-201`), and with the tree empty nothing of the frame
+    /// before is shown (its nozzle, target and fans).
+    #[test]
+    fn a_null_nozzle_on_the_one_path_shape_shows_none() {
+        let mut mini = Printer::new("");
+        let told = mini.frame(json!({
+            "state": "IDLE", "temp_nozzle": 215.0, "target_nozzle": 215.0
+        }));
+        assert_eq!(
+            (told.nozzle_c, told.nozzle_target_c),
+            (Some(215.0), Some(215.0))
+        );
+        let gone = mini.frame(json!({
+            "state": "IDLE", "temp_nozzle": null, "target_nozzle": null
+        }));
+        assert!(gone.tool_tree.is_empty(), "{:?}", gone.tool_tree);
+        assert_eq!(
+            (
+                gone.nozzle_c,
+                gone.nozzle_target_c,
+                gone.print_fan_rpm,
+                gone.hotend_fan_rpm,
+                gone.material.as_deref()
+            ),
+            (None, None, None, None, None)
+        );
+    }
+
+    /// A reader sees the kept job only while the print runs (`jobFacts.running`,
+    /// `devicejobs.go:325-331`: PRINTING, PAUSED, ATTENTION); the telemetry keeps it.
+    #[test]
+    fn the_kept_job_is_current_only_while_it_runs() {
+        let mut mini = Printer::new("MINI");
+        for (state, current) in [
+            ("PRINTING", true),
+            ("PAUSED", true),
+            ("ATTENTION", true),
+            ("FINISHED", false),
+            ("STOPPED", false),
+            ("IDLE", false),
+            ("ERROR", false),
+        ] {
+            let mut t = mini.frame(json!({"state": state, "job_id": 3, "progress": 50}));
+            assert!(t.job.is_some(), "{state}: kept");
+            current_job(&mut t);
+            assert_eq!(t.job.is_some(), current, "{state}");
+        }
     }
 
     /// Buddy 8.0.2 (the owner's MINI): a Full frame (v8.0.2 `render.cpp:177-292`, the head under
@@ -1260,12 +1351,47 @@ mod tests {
         assert_eq!(call(&app, finished).await.0, StatusCode::NO_CONTENT);
         let machines = store.machines(space).await.unwrap();
         assert_eq!(machines[0].commands[0].state, CommandState::Finished);
+        // Idle again: the stored telemetry keeps the job's members (`/job/*`), and no reader of
+        // the machine sees a print (`jobFacts.running`, `devicejobs.go:325-331`).
+        assert_eq!(
+            store
+                .last_telemetry(&token)
+                .await
+                .unwrap()
+                .and_then(|t| t.job)
+                .map(|j| j.done),
+            Some(43)
+        );
+        assert_eq!(machines[0].telemetry.as_ref().unwrap().job, None);
 
         let unknown = Request::post("/p/telemetry")
             .header("Token", "nope")
             .body(Body::from(r#"{"state":"IDLE"}"#))
             .unwrap();
         assert_eq!(call(&app, unknown).await.0, StatusCode::UNAUTHORIZED);
+        let unknown_info = Request::post("/p/events")
+            .header("Token", "nope")
+            .body(Body::from(r#"{"event":"INFO","data":{"tools":{"0":{}}}}"#))
+            .unwrap();
+        assert_eq!(call(&app, unknown_info).await.0, StatusCode::UNAUTHORIZED);
+        let sessions = || {
+            let mut ids: Vec<String> = store
+                .lock()
+                .unwrap()
+                .connect_tools
+                .keys()
+                .cloned()
+                .collect();
+            ids.sort();
+            ids
+        };
+        assert_eq!(
+            sessions(),
+            vec![mini_id.clone()],
+            "none for an unknown token"
+        );
+        assert!(store.remove_machine(space, &mini_id).await.unwrap());
+        assert!(sessions().is_empty(), "gone with its machine");
     }
 
     /// Mesh bed leveling on a MINI over Prusa Connect: shown in its Controls to whoever may operate

@@ -958,8 +958,7 @@
     // HS7b: a loaded laser job is not running: the Loaded job card shows it, not the Job card.
     const loaded = m.job?.state === "loaded";
     const job = (loaded ? null : m.job) || own;
-    // Only beside a job: a Prusa on Connect keeps its last progress after the print.
-    const percent = job && progress && progress.total ? (progress.done / progress.total) * 100 : null;
+    const percent = progress && progress.total ? (progress.done / progress.total) * 100 : null;
     const values = {
       job_pct: percent == null ? null : percent.toFixed(0),
       // What: state and file (scrolls when long). How long still: top right, apart.
