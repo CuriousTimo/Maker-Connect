@@ -686,7 +686,8 @@ fn heats(machine: &Machine) -> bool {
 /// on Prusa Connect, whose protocol carries no mesh. Buddy's Connect client sends none
 /// (Prusa-Firmware-Buddy v8.0.2 `src/connect`: no mesh in its telemetry, `render.cpp:124-306`,
 /// nor in its events), and Prusa's server keeps none (`reference/prusa-connect`
-/// `internal/connector/xbuddy/inbound.go:136-159`, the telemetry it keeps).
+/// `internal/connector/xbuddy/inbound.go:136-159`, the telemetry it keeps). Ours: hiding the
+/// section (the server has no page to hide it on).
 fn shows_bed_mesh(machine: &Machine) -> bool {
     heats(machine) && machine.link != "prusa-connect"
 }
