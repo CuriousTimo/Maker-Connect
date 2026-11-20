@@ -26,7 +26,7 @@ owner's decisions in [decisions/](decisions/).
 | [authz.md](authz.md) | Actions, presets, grants, `device_access`, the route guard, tenancy and RLS | anything about who may do what |
 | [database.md](database.md) | The schema per module, the database roles and pools | writing a migration or a query |
 | [api.md](api.md) | Every endpoint by namespace, with its action and schemas; the SSE envelope | writing a client or a page |
-| [wire.md](wire.md) | The agent link v2 messages | changing the agent or its link |
+| [wire.md](wire.md) | The agent link: the Prusa Connect printer protocol, per device | changing the agent or its link |
 | [storage-ops.md](storage-ops.md) | Files on disk, dumps, retention, history, the Pi deployment, self-update | operating a hub |
 | [cameras.md](cameras.md) | Network and USB cameras, their references, viewing and rights | adding a camera source |
 | [ui.md](ui.md) | The web UI on the public API, page rules, the house colour | building a page |

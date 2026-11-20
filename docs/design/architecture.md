@@ -55,7 +55,7 @@ flowchart LR
   browser -->|"L1 HTTP, L2 SSE, L3 WebSocket, L19"| hub
   prusa -->|"L11 HTTP and WebSocket"| hub
   hub -->|"L12 RTSP over TCP"| rtsp
-  agent <-->|"L6 WebSocket, L8 register, L9 files and updates"| hub
+  agent <-->|"L6 per device: HTTP /p/register, WebSocket /p/ws"| hub
   hub -->|"L14 PostgreSQL wire: DATABASE_URL"| db
   hub -->|"spawns"| tools
   tools -->|"L15"| db
@@ -92,7 +92,7 @@ flowchart LR
     door["Door access module"]
     bus["Event bus and SSE"]
     hist["History subscriber"]
-    host["Device host: prusa-buddy driver, agent sessions"]
+    host["Device host: prusa-buddy driver, the devices on agents"]
     camh["Camera sessions"]
     reg["Registries"]
     store["Store: app pool, admin pool, migrator"]
@@ -100,7 +100,7 @@ flowchart LR
   end
   db[("PostgreSQL 17 + TimescaleDB")]
   subgraph agent["Agent: maker-connect-agent"]
-    link["Link v2 with outbox"]
+    link["Connect link: one SDK Printer per device"]
     eng["Engine: one session per device"]
     subgraph ports["Ports"]
       poct["Port: OctoPrint"]
@@ -128,8 +128,7 @@ flowchart LR
   spoolc -->|"L5 HTTP and WebSocket: /spoolman/api/v1"| api
   bus -->|"L18 in-process, out on L5: Spoolman WebSocket"| spoolc
   prusa -->|"L11 HTTP: /p/register, /p/auth; WebSocket: /p/ws"| host
-  link <-->|"L6 WebSocket: /api/agent/v2/ws; L8 register; L9 HTTP GET: files"| host
-  link -->|"L9 HTTP GET: /api/agent/v2/update/tag/file"| ops
+  link <-->|"L6 HTTP: /p/register; WebSocket: /p/ws"| host
   camh -->|"L12 RTSP over TCP"| rtsp
   ops -->|"L16 HTTPS GET"| rel
   mods -->|"L17 HTTPS GET"| sdb
@@ -213,12 +212,13 @@ flowchart TB
   not allowlist #3 ([database.md](database.md#roles-and-pools)).
 - Moving a device to another space is #3; its history stays behind
   ([decision](decisions/20261119-device-move.md)).
-- An **agent is a host, not a tenant row**: `agents` has no space. Each device under it belongs to its
-  own space, every item the agent sends is applied in that device's space transaction, and the agent
-  is sent only its own devices' commands. A moved device keeps its agent
-  ([decision](decisions/20261119-agent-link-identity-and-delivery.md)). What is done to the agent
+- An **agent is a host, not a tenant row**, and it has no identity on the link: each device on it
+  registers as a Prusa Connect printer of its own, with its own token, belongs to its own space, has
+  what it sends applied in that space's transaction, and gets only its own commands on its own socket
+  ([decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)). What is done to the agent
   itself, its update, is the instance admin's: no space may break a host other spaces share
-  ([decision](decisions/20261119-agent-update-by-instance-admin.md)).
+  ([decision](decisions/20261119-agent-update-by-instance-admin.md)); how it reaches the agent is
+  [OQ-46](risks-and-open.md#oq-46-how-the-agents-own-update-reaches-it).
 - `organisation.manage` comes from an organisation role only; a space admin without one does not
   reach the organisation ([decision](decisions/20261119-organisation-actions-by-organisation-role.md)).
 - The rule on the request path is [authz.md](authz.md#tenancy).
@@ -245,10 +245,10 @@ have on another block; anything else is a defect or a design change first
 | Registries | nothing |
 | Store | nothing in-process; the database (L14) |
 | Dumps and self-update | nothing in-process; the dump tools (L15), the Release host (L16) |
-| Agent: Link v2 with outbox | Engine |
+| Agent: Connect link | Engine |
 | Agent: Engine | Ports |
 | Agent: Ports | nothing; no port depends on another (no shared code between the LabelManager and LabelWriter stacks) |
-| Agent: Camera capture | Link v2 with outbox ([OQ-9](risks-and-open.md#oq-9-how-usb-camera-video-reaches-the-hub)) |
+| Agent: Camera capture | Connect link ([OQ-9](risks-and-open.md#oq-9-how-usb-camera-video-reaches-the-hub)) |
 
 Only Store reaches the database, and only Registries are read by many without depending on anything.
 The route guard is a decision: who the caller is, which action is needed, whether it is held. It
@@ -277,20 +277,20 @@ block inside the device, authz and history steps, not as a step of their own
 | Door access module | Doors and badges: who may open which door when, with its own tables and actions (plan §2.6, hub-core-v2.md:158) | its own tables, not designed ([OQ-10](risks-and-open.md#oq-10-door-access-link)) | called by the API with an allowed door action, after the guard's decision; Event bus and SSE; Store; all in-process. Door hardware: open ([OQ-10](risks-and-open.md#oq-10-door-access-link)) | grant a machine action; open a door for a machine grant (plan §2.6, hub-core-v2.md:158-159) |
 | Event bus and SSE | Stored facts with a `seq` in commit order, published by one relay after commit; state patches live with a `rev`; one SSE stream per subscriber, filtered by `device_access`; resume by `Last-Event-ID` ([decision](decisions/20261119-event-order.md)) | the `event` hypertable | browsers (L2 SSE); Spoolman WebSocket (L18 in-process, out to the client on L5); History subscriber (L18); Store | send an event the subscriber's `device_access` hides; store state patches |
 | History subscriber | An event subscriber, not part of the core (plan §1): takes state patches off the bus, writes `sample` and `gap` rows (plan §2.7) | `sample`, `metric`, `gap` | Event bus and SSE (L18); Registries (metrics); Store (the history writer is cross-space, plan §2.6, hub-core-v2.md:156) | store a text value as a sample; text values are events (plan §2.7, hub-core-v2.md:197) |
-| Device host | Every live device session through one `Host` boundary: in-process drivers (Prusa `prusa-buddy`, websocket dialect only) and agent sessions over link v2 | `agents`, `devices`, `device_registrations`, `device_credentials`, `device_capabilities` | Prusa printers (L11 WebSocket); agents (L6 WebSocket, L8 register, L9 file downloads); Command records; Event bus and SSE | send a device anything its driver's one reference does not send; make G-code for an agent device (the port does) |
+| Device host | Every live device session through one `Host` boundary: in-process drivers (Prusa `prusa-buddy`, websocket dialect only) and every device on an agent, each a Prusa Connect printer over `/p/ws` | `agents`, `devices`, `device_registrations`, `device_credentials`, `device_capabilities` | Prusa printers (L11 WebSocket); the devices on agents (L6: `/p/register`, `/p/ws`); Command records; Event bus and SSE | send a device anything its driver's one reference does not send; make G-code for an agent device (the port does) |
 | Camera sessions | RTSP cameras: retina session, frames to viewers, GOP since the last key frame | `cameras` | RTSP cameras (L12 RTSP over TCP); browsers (L3 WebSocket MSE); the API hands it the upgrade after the guard's camera rule (in-process); Store | show a camera to a person the camera rule refuses: `device.view` on the watched device, or the role `room_view_role` names for a room camera (checked before the upgrade, [authz.md](authz.md#actions)) |
 | Registries | The generated lists: capability verbs, state sets, actions, fault codes, event types, metrics (plan §2.10) | `docs/registries/*`, generated from the code | read by Route guard and authz, Command records, Event bus and SSE, History subscriber, and the API spec (`openapi.json` enums); in-process and at build time | be edited by hand |
 | Store | The only way to the database: the app pool (`SET LOCAL app.space_id`, RLS), the admin pool (allowlist), the migrator | the roles of [database.md](database.md#roles-and-pools), the migrations | PostgreSQL (L14 PostgreSQL wire) | connect as a superuser or as the owner of the tables; use the admin pool outside the allowlist |
-| Dumps and self-update | Nightly and before-update dumps; signed releases, the trial and the way back; the agent's update download | the dumps folder, the update state | Release host (L16 HTTPS); `pg_dump`, `pg_restore` (L15 child processes); agents (L9 `/api/agent/v2/update/{tag}/{file}`) | take a build whose signature or sum does not hold; restore over the database in use |
+| Dumps and self-update | Nightly and before-update dumps; signed releases, the trial and the way back | the dumps folder, the update state | Release host (L16 HTTPS); `pg_dump`, `pg_restore` (L15 child processes) | take a build whose signature or sum does not hold; restore over the database in use |
 
 ### Agent
 
 | Block | Responsible for | Owns | Talks to, over | Must never |
 |---|---|---|---|---|
-| Link v2 with outbox | One WebSocket to the hub: upstream items the hub acknowledges, commands, jobs, answers and updates on the same socket, ping and pong; registration and pairing, file and update downloads over HTTP ([wire.md](wire.md), [decision](decisions/20261119-agent-link-one-websocket.md)) | the outbox, the stream id and the set of taken command ids on disk | Hub's Device host (L6 WebSocket, L8 register, L9 files); hub's Dumps and self-update (L9 update); Engine (in-process) | drop an unacknowledged item; report for a device it does not host |
-| Engine | One session per device, commands in order (agent-engine.md O1, O2) | the sessions | Link v2; Ports (in-process) | reorder a device's commands |
+| Connect link | Per device one port of the SDK's `Printer`: registration over `/p/register`, the token, one `/p/ws` with telemetry and events up, `J`/`G`/`F` frames down, ping and pong, the command lifecycle ([wire.md](wire.md), [decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)) | per device a `prusa_printer_settings.ini` with the hub address and the token | Hub's Device host (L6); Engine (in-process) | send anything the SDK at `c0d7d233` does not send; report for a device it does not host |
+| Engine | One session per device, commands in order (agent-engine.md O1, O2) | the sessions | Connect link; Ports (in-process) | reorder a device's commands |
 | Ports | Each device kind's protocol, a port of one reference to the letter, one port per stack: OctoPrint (Marlin), LaserFoundry (GRBL), labelle (DYMO LabelManager PnP, tape), DYMO CUPS (DYMO LabelWriter, labels), usbscale (scales) | nothing persistent | devices (L13: serial over USB, USB HID, CUPS and USB printer class) | fuse references, or add timing, retries, limits or bytes the reference does not have; share code between the LabelManager and the LabelWriter stack (owner 2026-11-12, 2026-11-15) |
-| Camera capture | USB cameras through nokhwa; MJPEG passed on with the Huffman tables inserted as FFmpeg's mjpeg2jpeg does ([decision](decisions/20261119-usb-camera-dht-ffmpeg.md)) | nothing persistent | USB cameras (UVC, no L-number); Link v2 (how frames reach the hub is [OQ-9](risks-and-open.md#oq-9-how-usb-camera-video-reaches-the-hub)) | decode or re-encode the camera's image data; only the missing DHT is inserted (plans/cameras.md:15, :31) |
+| Camera capture | USB cameras through nokhwa; MJPEG passed on with the Huffman tables inserted as FFmpeg's mjpeg2jpeg does ([decision](decisions/20261119-usb-camera-dht-ffmpeg.md)) | nothing persistent | USB cameras (UVC, no L-number); Connect link (how frames reach the hub is [OQ-9](risks-and-open.md#oq-9-how-usb-camera-video-reaches-the-hub)) | decode or re-encode the camera's image data; only the missing DHT is inserted (plans/cameras.md:15, :31) |
 
 ### Database and outside parties
 
@@ -330,8 +330,7 @@ flowchart TB
   end
   subgraph ah["Agent host: Pi or PC next to the machines"]
     agentp["maker-connect-agent, a service per agent host"]
-    cred[["maker-connect-agent.json beside the config: hub address and agent token"]]
-    outbox[["outbox, stream id, taken command ids"]]
+    cred[["per device: prusa_printer_settings.ini, hub address and the device's token"]]
   end
   devs["Devices on USB and serial"]
   env -.->|"EnvironmentFile"| hubp
@@ -341,8 +340,7 @@ flowchart TB
   hubp -->|"spawns on self-update"| trial
   hubp --> home
   agentp --> cred
-  agentp --> outbox
-  agentp -->|"L6 WebSocket, L8, L9 over HTTP :8460"| hubp
+  agentp -->|"L6 HTTP and WebSocket :8460"| hubp
   agentp -->|"L13"| devs
 ```
 
@@ -360,21 +358,24 @@ makerspace host (arm64/amd64) uses TimescaleDB's apt packages instead of Docker.
 
 ## The agent: update, credentials, settings page
 
-- **Update path.** The hub fetches signed releases from the Release host (L16) and serves the agent's
-  files on L9 `/api/agent/v2/update/{tag}/{file}`. The agent takes a file only when the signature over
-  tag and `SHA256SUMS` holds and its sum is listed, runs the new build's `--version`, and keeps it once
-  the hub answered it; otherwise it goes back ([storage-ops.md](storage-ops.md#self-update),
-  agent-engine.md O7: "as today").
-- **Credentials.** The agent registers once (L8, a person enters the pairing code in Space) and keeps
-  its hub address and agent token in `maker-connect-agent.json` beside its config file, or at
-  `--state` (`crates/agent/src/link.rs`, kept "as today", agent-engine.md O7). The hub keeps only the
-  token's hash; the token may only report and fetch for the agent's own devices ([wire.md](wire.md)).
-  The file's mode is not designed ([OQ-36](risks-and-open.md#oq-36-the-mode-of-the-agents-credentials-file)).
-- **One agent, several devices, and its settings page (#12).** One agent hosts several devices, each
-  with its own registration and pairing code ([decision](decisions/20261119-agent-link-identity-and-delivery.md)).
-  It has a settings page of its own, LAN only, behind a password made at install, in the house style
-  ([decision](decisions/20261119-agent-settings-page.md)); its open points are
-  [OQ-44](risks-and-open.md#oq-44-the-agent-settings-page-open-points). The hub side of this design
-  does not change. The first devices on agent v2: the DYMO LabelManager PnP (labelle stack) and the
-  DYMO LabelWriter 450 (DYMO CUPS stack), two separate stacks (plan §3, V2-DEVICES).
+- **Update path.** The `update` message and the agent's update route are gone with our own link; how a
+  signed release reaches the agent is [OQ-46](risks-and-open.md#oq-46-how-the-agents-own-update-reaches-it).
+  Taking a file only when the signature over tag and `SHA256SUMS` holds and its sum is listed, the
+  `--version` trial and the way back stay as [storage-ops.md](storage-ops.md#self-update) has them.
+- **Credentials.** Each device registers on its own (L6, a person enters its code in Space) and the agent
+  keeps, per device, PrusaLink's `prusa_printer_settings.ini` with the hub address and the device's token
+  in the clear (`[service::connect]`, PrusaLink `prusa/link/config.py:298-307`, written at
+  `prusa/link/printer_adapter/prusa_link.py:918-928`); serial and fingerprint are read from the device at
+  every start, not kept ([wire.md](wire.md#what-the-agent-keeps)). Where the files lie is **ours**; their
+  mode is [OQ-36](risks-and-open.md#oq-36-the-mode-of-the-agents-credentials-file). The hub never keeps a
+  token's plaintext ([decision](decisions/20261119-prusa-token-never-stored.md)).
+- **One agent, several devices, and its settings page (#12).** One agent hosts several devices, each a
+  Prusa Connect printer of its own with its own registration and code, as PrusaLink runs one instance per
+  printer ([decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)). It has a settings page
+  of its own, LAN only, behind a password made at install, in the house style
+  ([decision](decisions/20261119-agent-settings-page.md)); it shows the hub address and, per device, the
+  registration status, the code and the link's condition ([wire.md](wire.md#how-the-code-reaches-the-person));
+  its open points are [OQ-44](risks-and-open.md#oq-44-the-agent-settings-page-open-points). The first
+  devices on agent v2: the DYMO LabelManager PnP (labelle stack) and the DYMO LabelWriter 450 (DYMO CUPS
+  stack), two separate stacks (plan §3, V2-DEVICES).
 - **USB camera video** to the hub: [OQ-9](risks-and-open.md#oq-9-how-usb-camera-video-reaches-the-hub).

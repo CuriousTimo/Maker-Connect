@@ -1,127 +1,223 @@
-# Agent link v2: the wire
+# Agent link: the Prusa Connect printer protocol
 
-Ours, not in the public spec (plan §2.3, §2.8). One WebSocket per agent, modelled on Buddy and Prusa
-Connect's `/p/ws` ([decision](decisions/20261119-agent-link-one-websocket.md)). It replaces the v1
-agent link (`/api/agent/v1/*` and the 2-second report loop) outright: no v1 fallback, no transition
-period, no old agents served (owner, journal:DESIGN-HOST:0006). The path, the subprotocol name and the
-JSON of every message below are ours; the generated schema (`schemars` from `crates/protocol`) fixes
-them in the build, with these names as its start.
+Every device on an agent talks to the hub exactly as a Prusa Connect printer talks to Prusa Connect
+(owner, 2026-11-19; [decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)). The agent's
+client is a port of Prusa-Connect-SDK-Printer; what the hub answers is what Prusa's own server answers.
+Nothing on this wire is ours. What is ours lies beside it (where files live, the settings page) and is
+marked **ours**. File and line references below are to these trees:
+
+| Role | Reference | Commit | Cited as |
+|---|---|---|---|
+| Client, ported by the agent | `reference/Prusa-Connect-SDK-Printer`, branch `websockets` | `c0d7d233d4ce2081e6c020d2e98fb92ad9b51521` | `__init__.py`, `ws.py`, `models.py`, `command.py`, `const.py`, `conditions.py` (all under `prusa/connect/printer/`) |
+| How a program uses the client | `reference/Prusa-Link`, branch `websockets` | `171148ce7dbc7f1fb0633ea519523f3258877e2e` | `prusa/link/…` |
+| Server answers, read only (OCL) | `reference/prusa-connect` `internal/connector/xbuddy` | `2e8c62b` | `xbuddy.go`, `wire.go`, `inbound.go`, `link.go`, `session.go`, `registration.go` |
+| The client's WebSocket library | websocket-client, `>=1.6.0` (SDK `requirements.txt:6`) | not pinned by the SDK | `websocket/_app.py` |
+
+**Why `c0d7d233`.** PrusaLink takes the SDK from the branch `websockets` (`requirements.txt:1`,
+`.github/workflows/python-tests.yml:51`, `README.md:68`), whose head is `c0d7d233`
+(`git ls-remote`, 2026-11-20). `feat/ws-connect-local` @ `04c5bd59`, which PR #40's proof ran
+(`crates/hub/src/devices/prusa_connect.rs:17`), is not pinned by PrusaLink and is not the reference
+([decision](decisions/20261119-mk3-reference-prusalink-websockets.md)). Its four commits change exactly
+the link's edges, so a proof at `04c5bd59` does not prove `c0d7d233`:
+
+| Behaviour | `c0d7d233` (the reference) | `04c5bd59` (not the reference) |
+|---|---|---|
+| Subprotocol on the upgrade | none (`ws.py:50-57`) | `prusa-connect` |
+| `401`/`403` on the upgrade | not read; dialled again for the next item | the token is marked bad, no dial until it changes |
+| Retry pace | none: every item dials again (`__init__.py:804-806`) | backoff with jitter, at most 60 s |
+| Events while the socket is down | dropped (`__init__.py:807-812`) | kept and sent later |
+| Files over the socket | `T` frames ignored (`__init__.py:665-667`) | `START_INLINE_DOWNLOAD`, binary `T` frames |
+
+## The unit: one printer per device
+
+- Each device is one SDK `Printer`: its own serial (`sn`), fingerprint, type, registration, token and
+  WebSocket, as PrusaLink runs one instance with one settings file per printer
+  (`prusa/link/multi_instance/config_component.py:145-175`, `prusa/link/multi_instance/const.py:30`).
+- The agent has no identity of its own on the wire. An agent without drivers hosts no `Printer` and so
+  registers nothing ([OQ-49](risks-and-open.md#oq-49-registering-in-an-agent-without-drivers)).
+- Without serial, fingerprint and type the `Printer` is not initialised: its telemetry goes without
+  fields and every command is answered `REJECTED`, reason "Printer has not been initialized properly"
+  (`__init__.py:91`, `:264-271`, `:354-358`, `:669-674`). Where a device's serial, fingerprint and type
+  come from is its port's, designed with each driver (PrusaLink: fingerprint = SHA-256 of the serial,
+  `prusa/link/util.py:153-159`, set in `prusa/link/printer_adapter/prusa_link.py:906-916`). What a
+  device that is not a Prusa sends as its type is
+  [OQ-48](risks-and-open.md#oq-48-what-a-device-that-is-not-a-prusa-says-it-is).
 
 ## Shape
 
 ```mermaid
 sequenceDiagram
-  participant A as Agent
+  participant A as Agent: SDK Printer of one device
   participant H as Hub
-  A->>H: GET /api/agent/v2/ws?stream=uuid, Upgrade websocket, Sec-WebSocket-Protocol maker-connect-agent.v2, Bearer token
-  H-->>A: 101 Switching Protocols, Sec-WebSocket-Protocol maker-connect-agent.v2
-  H-->>A: open command records of this stream, re-sent
-  A->>H: up, items with seq 41 to 44
-  H-->>A: ack 44
-  Note over A: items up to 44 leave the outbox
-  H-->>A: command, job, answer, update, whenever one is due
-  A->>H: up, item with seq 45
-  Note over A,H: the connection drops before the ack: 45 stays in the outbox
-  A->>H: GET /api/agent/v2/ws?stream=uuid, the same stream
-  H-->>A: 101, then the open command records again
-  A->>H: up, items with seq 45 and 46
-  H-->>A: ack 46, 45 taken once
-  Note over A,H: no frame sent for 15 s: the agent pings; the hub pings every 54 s, 60 s of silence ends the connection
+  participant P as Person
+  A->>H: POST /p/register, JSON sn, fingerprint, printer_type, firmware
+  H-->>A: 200, header Code
+  A->>P: settings page shows the code
+  loop every 1 s, at most 30 min
+    A->>H: GET /p/register, header Code
+    H-->>A: 202
+  end
+  P->>H: enters the code in Space, the hub approves it
+  A->>H: GET /p/register, header Code
+  H-->>A: 200, header Token
+  A->>A: token written to the device's settings file
+  Note over A: the first telemetry or event item opens the socket
+  A->>H: GET /p/ws, Upgrade, Fingerprint, Token, Timestamp, User-Agent headers
+  H-->>A: 101 Switching Protocols
+  H-->>A: after 100 ms, J frame SEND_INFO
+  A->>H: event ACCEPTED, then event INFO with the command_id
+  A->>H: telemetry, a JSON object per text frame
+  Note over A,H: the agent pings every 30 s and drops the socket without a pong in 10 s; the hub pings every 54 s and drops it after 60 s without a frame
 ```
-
-- **One socket:** upstream items, their acknowledgements and every downstream message (commands, jobs,
-  answers, updates) travel on the one WebSocket. Registration and file and update downloads stay HTTP
-  (below), as Buddy registers over HTTP before it dials `/p/ws`
-  (`reference/buddy-6.4.0` `src/connect/connect.cpp:151-189`, `src/connect/registrator.cpp`).
-- **Upgrade:** `GET /api/agent/v2/ws?stream=<uuid>` with `Upgrade: websocket`,
-  `Sec-WebSocket-Version: 13`, `Sec-WebSocket-Protocol: maker-connect-agent.v2` and
-  `Authorization: Bearer <agent token>`. The hub checks the token before the upgrade and refuses with
-  the fault's HTTP status ([api.md](api.md#conventions-apiv1)), as the reference server checks a
-  printer's credentials before its upgrade (`reference/prusa-connect`
-  `internal/connector/xbuddy/xbuddy.go:695-709`); the agent takes only a `101` that names the
-  subprotocol, as Buddy does (`connect.cpp:592-617`).
-- **Messages:** each WebSocket text message is one JSON object with a `type`. Buddy's own frames (a
-  type letter and a hex command id before the body, `connect.cpp:363-466`) are not used.
-- **Identity:** one agent token for the link (`agents`); the agent's devices are paired one by one
-  under it, each with its own registration and code ([decision](decisions/20261119-agent-link-identity-and-delivery.md)).
-- **Stream:** the agent makes a random `stream` uuid together with its outbox and sends it in the
-  upgrade query. A new stream (a reinstalled agent, a lost outbox) resets the hub's cursor for that
-  agent and settles the old stream's open command records as `outcome unknown`. The hub takes a new
-  stream only while no connection of the current stream is open; otherwise it answers the upgrade
-  with `409 agent/STREAM_IN_USE` and the agent dials again at its retry pace (agent-engine.md O5). So
-  two hosts with one token cannot reset each other, and a clone of an agent is refused rather than
-  let in. A reconnect **on the same stream** while the old connection is still open (a network drop
-  the hub has not noticed) replaces the old connection without a reset, as prusa-connect replaces a
-  printer's older connection (`internal/connector/xbuddy/link.go:126-130`): no record is settled by
-  it ([decision](decisions/20261119-agent-link-identity-and-delivery.md)).
-- **Upstream:** `up` messages. Each item has an agent-wide `seq`; the hub keeps the highest applied
-  seq per agent and stream (`agents.up_seq`), answers with an `ack` carrying it, and takes each seq
-  once. Items are applied idempotently by their own key (the command id, the job id, the capability
-  epoch, the state rev); the ack is sent after the items' space transactions have committed.
-  Unacknowledged items stay in the on-disk outbox across reconnects and restarts and are sent again
-  on the next connection.
-- **Downstream:** a command arrives at once on the socket. On every (re)connect on the same stream
-  the hub re-sends the open command records it sent on this stream, as prusa-connect's reattach
-  drains what was queued while a printer was away (`xbuddy.go:793-795`). The agent keeps an on-disk
-  set of taken command ids with their results until acknowledged and never runs a taken id twice.
-  What else is re-sent after a reconnect is [OQ-43](risks-and-open.md#oq-43-the-agent-websocket-open-points).
-- **Ping and pong,** decided as the references ([decision](decisions/20261119-agent-link-one-websocket.md)): the agent sends a ping after 15 s of sending nothing and
-  answers every ping with a pong (`connect.cpp:49-50`, `:828-829`, `:386-409`); the hub re-arms a
-  60 s read deadline on every frame, ping and pong included, and pings every 54 s (`link.go:70-85`,
-  `:241-249`; `internal/connector/xbuddy/inbound.go:25-36`). A close, a failed send or a passed
-  deadline ends the connection; the agent dials again at its retry pace (O5), as Buddy throws a broken
-  socket away and upgrades anew (`connect.cpp:559-574`).
-- **A late result** (after the hub settled the record `unknown`) is stored on the record as
-  `late_outcome`, `late_reason`, `late_at`: shown, never acted on; the outcome stays `unknown`.
-- The agent token may only report and fetch for its own devices.
 
 ## Registration (HTTP)
 
-| Message | Direction | Fields |
+| Step | The agent sends (SDK) | The hub answers (xbuddy) | The agent then (SDK) |
+|---|---|---|---|
+| Begin | `POST /p/register` (`__init__.py:739`), JSON `{"sn", "fingerprint", "printer_type": "<type as a.b.c>", "firmware"}` (`:733-738`, `const.py:47-60`), the common headers (below) without `Token`, timeout 10 s (`const.py:6`) | `200` with header `Code` (`xbuddy.go:653-654`): 10 characters of `ACDEFGHJKMNPQRSTUVWXYZ2345679` (`registration.go:80-86`), usable 24 h (`registration.go:266`); `400` when the body is unreadable or has no fingerprint (`xbuddy.go:613-624`); `503` with `Retry-After: 54` when the table is full (`xbuddy.go:634-640`, `:128`); `500` (`xbuddy.go:641-645`) | on `200` keeps the code in memory (`Printer.code`, `__init__.py:117`, `:756`) and queues the poll (`:757`); on anything else raises with the body as its message, marks API bad and, on `5xx`, HTTP bad (`:744-754`); `Retry-After` is not read |
+| Poll | `GET /p/register` (`models.py:91-92`) with header `Code` (`models.py:100-103`) and the common headers stamped at the poll's creation (`__init__.py:824-826`) | `202` while nobody approved (`xbuddy.go:670-671`); `404` for an unknown code (`:672-673`); `400` without a code (`:661-664`); `200` with header `Token` (`:676-678`) | `200`: takes `Token`, marks the token good, calls the register handler with it, forgets the code (`__init__.py:844-851`); `202`: polls again after 1 s (`:852-854`) until 30 min after the code was made (`models.py:18`, `:98`); anything else: the poll is dropped and the state set from the status (`:863-882`), and the code is kept, so the page still shows it as in progress |
+| Not used | `GET /p/auth` (`xbuddy.go:483-484`, `auth.go:43-72`) is never called by the SDK at `c0d7d233` | | |
+
+PrusaLink starts the registration from its page: it resolves the host name (`prusa/link/web/connection.py:105-108`),
+opens `<server>/info` and stops if that fails (`:112-116`,
+[OQ-47](risks-and-open.md#oq-47-the-info-probe-before-registering)), stores host, port and TLS (`:118-122`),
+then calls `register()` (`:18-21`, `:124-127`). A person who already has a token gets `409` (`:93-94`).
+
+### How the code reaches the person
+
+PrusaLink's page reads, per printer, `connect.registration` (`NO_REGISTRATION`, `IN_PROGRESS` while a code
+exists, `FINISHED` once a token exists) and `connect.code` (`prusa/link/web/connection.py:46-56`, `:75-81`;
+`const.py:179-183`), and links to `<server>/add-printer/connect/<type>/<code>` with name and location
+(`connection.py:18-34`). The agent's page shows the same status and code per device. The person types the
+code into Space's pairing page on the hub ([flows.md](flows.md#1-pairing-a-device-on-an-agent)). The
+`add-printer` link is not offered: the hub has no such page (**ours**, minimal; a hub page for it is a
+later choice).
+
+## What the agent keeps
+
+| What | Where, as PrusaLink | Reference |
 |---|---|---|
-| `RegisterRequest` | agent → hub, `POST /api/agent/v2/register`; without a token the first time, with the agent token for every further device | `kind` string, `identity` Identity, `fingerprint` string, `agent` AgentInfo |
-| `RegisterAnswer` | 201 | `registration_id` uuid, `code` string (the pairing code), `secret` string (once), `expires_at` time |
-| `CollectAnswer` | `GET /api/agent/v2/register/{id}` with the secret | 202 while waiting; 200 once approved, once: `{token, device}` for the agent's first registration (the agent token, shown once), `{device}` for every further device; 410 expired |
+| Hub host, TLS, port, token | the device's `prusa_printer_settings.ini`, `[service::connect] hostname`, `tls`, `port`, `token`; the token in the clear | `prusa/link/config.py:298-307`; written when registered, `prusa/link/printer_adapter/prusa_link.py:918-928`; read back with `connection_from_settings`, `prusa/link/sdk_augmentation/printer.py:60-71` |
+| Type, name, location | the same file, `[printer] type`, `name`, `location` | `prusa/link/config.py:280-289` |
+| Serial and fingerprint | not kept: read from the device at every start | `prusa/link/printer_adapter/prusa_link.py:906-916` |
+| The registration code | memory only; lost at a restart | `__init__.py:117`, `:756` |
+| Reset of a registration | the token set to `""` and the file written | `prusa/link/web/connection.py:136-150` |
 
-## Agent to hub (`up`)
+**Ours:** where the files lie (one folder per device under the agent's state folder, each with its
+`prusa_printer_settings.ini`); one hub address entered once for all devices and written into each file
+(PrusaLink has one per instance); the file's mode
+([OQ-36](risks-and-open.md#oq-36-the-mode-of-the-agents-credentials-file)). PrusaLink's
+`[service::local]` (its own page's login, `config.py:309-315`) is not kept per device; the agent page's
+login is [OQ-44](risks-and-open.md#oq-44-the-agent-settings-page-open-points).
 
-Message: `{"type": "up", "agent": AgentInfo, "items": [Item…]}`.
+## The WebSocket
 
-| Item `type` | Fields | When |
-|---|---|---|
-| `hello` | `seq`, `device` uuid, `identity` Identity, `capabilities` CapabilitySet, `state_set` StateSet | a session opens, or its set changes (new epoch) |
-| `patch` | `seq`, `device`, `time`, `rev` integer (the device's state rev after these patches), `patches` [Patch] | the state tree changed |
-| `result` | `seq`, `device`, `command` uuid (the hub's record id), `outcome` (`ok`, `refused`, `failed`), `fault` string or null, `reason` string or null, `output` string or null | a command settled at the device |
-| `job_end` | `seq`, `device`, `job` uuid, `outcome` (`done`, `stopped`, `failed`), `reason` string or null, `lines` integer or null | a job ended |
-| `offline` | `seq`, `device`, `why` string | the port says the device went away |
-| `camera_frame` | open ([OQ-9](risks-and-open.md#oq-9-how-usb-camera-video-reaches-the-hub)) | — |
+- **URL:** the server address with `http://` made `ws://` and `https://` made `wss://`, plus `/p/ws`
+  (`__init__.py:625-629`). The hub answers `GET /p/ws` only (`xbuddy.go:485-486`), other methods `405`
+  (`:487-489`).
+- **Headers,** stamped when the socket is dialled (`__init__.py:637`, `make_headers` `:273-292`), empty
+  ones left out (`ws.py:45-48`): `Fingerprint`; `Timestamp`; `User-Agent: Prusa-Connect-SDK-Printer/0.9.0dev0`
+  (`:39`, `:280`); `User-Agent-Printer` (the type as `a.b.c`); `User-Agent-Version` (software, else
+  firmware); `Token`; `Clock-Adjusted: 1` once after the clock jumped (`:287-290`). No
+  `Sec-WebSocket-Protocol` (`ws.py:50-57`). The hub offers `prusa-connect` (`xbuddy.go:61`, `:388`) and
+  takes an upgrade that names none; it must not refuse one.
+- **When it opens:** only when a telemetry or event item is to be sent and no socket is open or the token
+  changed (`ensure_ws_connected`, `__init__.py:631-638`, called at `:805-806`). The dial waits up to 10 s
+  for the open (`ws.py:69-70`, `const.py:6`). Each socket is `WebSocketApp.run_forever(ping_interval=30,
+  ping_timeout=10)` in a daemon thread (`ws.py:59-67`); websocket-client does not reconnect by itself
+  (`reconnect` defaults to `RECONNECT = 0`, `websocket/_app.py:40` in 1.9.2).
+- **The hub's checks, before the upgrade:** credentials refused `401` (`xbuddy.go:696-702`); the hub does
+  not accept the printer `403` (`:704-712`). A printer it knows with the same identity is reattached to
+  its session, which drains the commands queued while it was away (`:714-718`, `:793-804`); one that comes
+  back as something else gets a new session and the old one's queue is dropped (`:719-731`). A second
+  connection replaces the first, which is closed without a close frame (`link.go:126-130`, `:424-429`).
+- **Agent to hub:** text frames, one JSON object each, no header (`wire.go:13-15`), nulls left out
+  (`models.py:39-55`).
+  - Telemetry: the telemetry fields with `state` (`models.py:171-195`; `__init__.py:334-359`, which adds
+    `command_id` while a command runs, `job_id`, and transfer fields during a transfer).
+  - Event: `{"event", "source", "data"}` plus `command_id`, `job_id`, `transfer_id`, `reason`,
+    `dialog_id` when set and `state` (`models.py:148-163`; `__init__.py:312-332`).
+  - Without a token neither is made (`__init__.py:319-321`, `:341-343`).
+  - The hub reads a frame with an `event` key as an event, one with `"transfer": "inline"` as a block
+    request, anything else as telemetry (`wire.go:237-271`); at most 1 MiB a frame (`session.go:63-64`,
+    `link.go:70`); a frame it cannot read, or a binary one, is dropped and the connection kept
+    (`inbound.go:189-205`, `:448-456`).
+- **Hub to agent:** a type letter, the id as 8 hex digits, then the payload (`wire.go:13-19`, `:52-58`):
+  `J` JSON `{"command": <name>, "kwargs": {…}}` (`wire.go:60-74`), `G` G-code, `F` forced G-code, `T` a
+  file chunk (`wire.go:23-31`). The SDK reads (`__init__.py:640-724`): shorter than 9 characters, logged and
+  dropped (`:649-651`); an id that is not hex, `REJECTED` "Invalid command_id" without an id
+  (`:654-661`); `T` ignored (`:665-667`); not initialised, `REJECTED` (`:669-674`); `G` and `F` become
+  `GCODE` with `force` for `F` (`:676-693`); `J` is parsed, `REJECTED` "Invalid JSON body" if it is not
+  JSON (`:695-705`); then checked and accepted (`:707-715`); any other letter is logged (`:723-724`).
+- **A command's life** (`command.py`): accepted, event `ACCEPTED` (`:99-117`); while another runs,
+  `REJECTED` "Another command is running" (`:76-83`); the same id again, its current or last state again
+  (`:84-96`). A runner thread calls it (PrusaLink `prusa/link/sdk_augmentation/command_handler.py:23-34`):
+  the handler's answer ends it `FINISHED` or with the event the handler names (`:146-157`); a
+  `CommandRejected`, `REJECTED` with its reason (`:190-191`); any other error, `FAILED` "Command error"
+  (`:192-198`); an unknown name `REJECTED` "Unknown command", one without a handler "Not Implemented"
+  (`:180-186`). The hub matches an event's `command_id` to the command in flight (`inbound.go:235-266`).
+- **The SDK's own handlers,** in every `Printer` before any port adds one (`__init__.py:137-156`). In this
+  step only `SEND_INFO` is in use: it answers event `INFO` with type, version, subversion, firmware, SDK
+  version, network info, API key, storages, serial, fingerprint, MBL, sheets and MMU (`:393-434`). The
+  hub sends `SEND_INFO` 100 ms after every attach (`link.go:134`, `:148-171`; `inbound.go:44-47`).
 
-## Hub to agent
+## Ping, silence and a dropped socket
 
-| Message `type` | Fields | Meaning |
-|---|---|---|
-| `ack` | `ack` integer | the highest seq applied on this stream; items up to it leave the outbox |
-| `command` | `id` uuid (record id), `device`, `verb`, `args` object | run this verb; answer with a `result` |
-| `job` | `id` uuid, `device`, `file` {`id`, `name`, `size`}, `from_line` integer or null | fetch the file whole (`GET /api/agent/v2/files/{id}`, at most 512 MB), then hand the job to the port; a laser job is loaded, not started |
-| `answer` | `device`, `dialog` string, `button` string | a person's answer to a device's question |
-| `update` | `tag` string | a signed agent release to take (`GET /api/agent/v2/update/{tag}/{file}`) |
+- **The agent** pings every 30 s and closes the socket when no pong comes within 10 s (`ws.py:62-63`).
+- **The hub** pings every 54 s, bounds each write to 10 s, and re-arms a 60 s read deadline on every
+  frame, ping and pong (`inbound.go:32-42`; `link.go:72-87`, `:241-250`, `:301-325`).
+- **A dropped socket:** the socket's thread ends and the `Printer` is no longer connected (`ws.py:30-34`).
+  The next telemetry or event item dials again (`__init__.py:805-806`); there is no other retry and no
+  backoff. An item that finds no socket is dropped with "WS not connected, dropping item" and the
+  Internet condition goes bad (`:807-812`); a failed send marks HTTP bad (`:813-821`). The queue is in
+  memory (`:135`): nothing is kept for later. The hub keeps the session and its queue (`link.go:327-353`)
+  and drains it on the next attach (`xbuddy.go:793-804`).
 
-## Files and updates (HTTP)
+## When the hub refuses
 
-`GET /api/agent/v2/files/{id}` and `GET /api/agent/v2/update/{tag}/{file}`, with the agent token
-(agent-engine.md O6, O7).
+- **`401` or `403` on the upgrade:** websocket-client fails the handshake; the SDK logs it and stops
+  waiting (`ws.py:107-109`). The socket is not connected, so the item is dropped and the Internet
+  condition goes bad (`__init__.py:806-812`). The token is kept and the next item dials again. The SDK
+  does not read the status of a refused upgrade; it reads `403` only on its HTTP path
+  (`deduce_state_from_code`, `:869-882`), which at `c0d7d233` carries only the registration poll and
+  `/p/camera` (`:823-867`).
+- **The way out** is the person's: "reset registration" clears the token
+  (`prusa/link/web/connection.py:136-150`); the device then registers again.
+- **What the page shows** for the link is the worst of the SDK's conditions, each with its own message:
+  Internet, HTTP (`5xx`), Token (no valid token), API (`4xx`) (`conditions.py:266-282`; PrusaLink
+  `prusa/link/conditions.py:114-122`).
 
-## Shared types
+## Removed
 
-| Type | Fields |
-|---|---|
-| AgentInfo | `version` string, `os` string, `arch` string |
-| Identity | `vendor`, `model`, `firmware_label`, `serial`, `unit_uid`: strings or null |
-| CapabilitySet | `epoch` integer, `verbs` [Verb] |
-| Verb | `name` string (registry), `args` [Arg] |
-| Arg | `name`, `kind` (string, number, integer, boolean, opaque), `unit` or null, `bounds` or null, `required` boolean |
-| StateSet | `states` [{`name`, `accepts` [verb names]}], `transitions` [{`from`, `to`, `verb`}] |
-| Patch | `path` string (JSON pointer), `value` any JSON, `null` removes |
+Our own link, which the SDK does not have, is gone; none of it is carried over:
 
-The agent's own values (report pace, retry, download progress, the update trial) are ours, as
-approved for the agent (agent-engine.md O4-O7); what goes to a device is the port's alone.
+- the path `/api/agent/v2/ws?stream=<uuid>`, the subprotocol `maker-connect-agent.v2` and
+  `Authorization: Bearer` with an agent token;
+- the agent token and the agent as the link's identity; the stream uuid, `409 agent/STREAM_IN_USE`;
+- `POST /api/agent/v2/register`, `GET /api/agent/v2/register/{id}`, the registration secret,
+  `RegisterRequest`, `RegisterAnswer`, `CollectAnswer`;
+- the `up` message and its items `hello`, `patch`, `result`, `job_end`, `offline`, `camera_frame`; the
+  agent-wide `seq`, `ack`, the outbox, `agents.up_seq`, the taken command ids on disk;
+- the down messages `ack`, `command`, `job`, `answer`, `update`;
+- `GET /api/agent/v2/files/{id}` and `GET /api/agent/v2/update/{tag}/{file}`;
+- the shared types `AgentInfo`, `Identity`, `CapabilitySet`, `Verb`, `Arg`, `StateSet`, `Patch` and the
+  schema generated from them;
+- the agent's ping after 15 s of silence (Buddy's, `reference/buddy-6.4.0` `src/connect/connect.cpp:49-50`, not the SDK's).
+
+A result that arrives after its record was settled `unknown` stays a hub rule on `commands`
+([database.md](database.md#devices-and-commands)); it is not part of the wire.
+
+## Not in this step
+
+Each comes with the driver that needs it, as the SDK has it: files (`START_URL_DOWNLOAD`,
+`START_CONNECT_DOWNLOAD` from `/p/teams/{team_id}/files/{hash}/raw`, `__init__.py:436-483`, `download.py`);
+cameras (`/p/camera`, `models.py:198-224`); the commands each port handles; how often a device sends
+telemetry (PrusaLink's pace, `prusa/link/const.py:67-71`). The agent's own update:
+[OQ-46](risks-and-open.md#oq-46-how-the-agents-own-update-reaches-it).
+
+## Not settled
+
+- websocket-client's exact version: the SDK asks for `>=1.6.0` only; the port follows the version
+  PrusaLink's image installs, read in the build step.
+- The proof: PR #40's test ran `04c5bd59`; it is run again with `c0d7d233` in the build step, and the
+  audit compares what the SDK and the agent's port send to the hub.

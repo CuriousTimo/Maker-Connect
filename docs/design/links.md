@@ -13,10 +13,10 @@ is, and which reference it follows. Flows over these links are in [flows.md](flo
 | L3 | Hub → browser | WebSocket, binary fMP4 fragments, MSE player | `/api/v1/cameras/{id}/ws` | session cookie; `device.view` on the camera checked before the upgrade | go2rtc v1.9.15 `internal/mp4/ws.go`, `www/video-rtc.js` | cameras.md |
 | L4 | External app → hub | HTTP | `/api/v1/*` | `Authorization: Bearer mct_…`: an API token, stored hashed, with scopes, expiry, last use and the person's generation | ours | plan §2.6, §2.8 |
 | L5 | Spoolman client → hub | HTTP + WebSocket | `/spoolman/api/v1/*` | open: [OQ-7](risks-and-open.md#oq-7-how-spoolman-clients-authenticate) | Spoolman `eccb05e` with base path `/spoolman` | plan §2.8 |
-| L6 | Agent ↔ hub | WebSocket, one per agent, subprotocol `maker-connect-agent.v2`, JSON text messages both ways: upstream items and acks, commands, jobs, answers, updates; ping and pong | `/api/agent/v2/ws?stream=<uuid>` | `Authorization: Bearer` agent token on the upgrade, checked before it: hashed, may only report and fetch | ours, shaped after Buddy 6.4.0 and prusa-connect's `/p/ws` ([decision](decisions/20261119-agent-link-one-websocket.md)) | plan §2.3 |
-| L7 | (not used) | folded into L6: the hub's downstream travels on the agent's WebSocket | | | | |
-| L8 | Agent → hub, pairing | HTTP | `/api/agent/v2/register` | none to ask; the registration secret to collect the token; a person enters the pairing code in Space | ours (registering as today, agent-engine.md O7) | plan §2.3, §2.7 `device_registrations` |
-| L9 | Agent → hub, files | HTTP GET | `/api/agent/v2/files/{id}`, `/api/agent/v2/update/{tag}/{file}` | agent token | ours | agent-engine.md O6, O7 |
+| L6 | Each device on an agent → hub, as a Prusa Connect printer | HTTP to register; then one WebSocket per device, JSON text frames up (telemetry, events), `J`/`G`/`F` frames down; ping and pong | `/p/register`, `/p/ws` | `Code` header while registering; then `Fingerprint` and `Token` headers on the upgrade, no subprotocol ([wire.md](wire.md#the-websocket)) | Prusa-Connect-SDK-Printer `websockets` @ `c0d7d233` (client, ported), PrusaLink `websockets` @ `171148ce` (its use); server answers read in `reference/prusa-connect` `internal/connector/xbuddy` ([decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)) | owner ruling 2026-11-19 |
+| L7 | (not used) | folded into L6: commands travel on the device's WebSocket | | | | |
+| L8 | (not used) | folded into L6: a device registers over `/p/register`; a person enters its code in Space | | | | |
+| L9 | (not used) | our file and update routes are gone; files come with the drivers as the SDK fetches them, the agent's update is [OQ-46](risks-and-open.md#oq-46-how-the-agents-own-update-reaches-it) | | | | |
 | L11 | Prusa printer, Buddy 6.4+ → hub | HTTP + WebSocket | `/p/register`, `/p/auth`, `/p/ws` | `Code` header while registering; then `Fingerprint` and `Token` headers on the upgrade, `Sec-WebSocket-Protocol: prusa-connect` (`reference/buddy-6.4.0` `src/connect/connect.cpp:151-189`); the only Buddy dialect ([decision](decisions/20261119-buddy-websocket-dialect-only.md)) | Buddy 6.4+; server side read in `reference/prusa-connect` `internal/connector/xbuddy` | plan §2.2 |
 | L12 | Hub → network camera | RTSP over TCP | the camera's stream URL | the camera's user and password, kept by the hub | retina `2b6b7fe` (0.4.22) | cameras.md |
 | L13 | Agent → device | USB HID, USB printer class, serial, CUPS | per port | none (local) | the port's one reference (device-contract.md) | `CLAUDE.md` |
@@ -29,8 +29,8 @@ is, and which reference it follows. Flows over these links are in [flows.md](flo
 
 Not in v2 (parked by the plan, §3): the SimplyPrint/Moonraker route for Klipper, out-of-process drivers
 over Prusa's plugin wire. The MK3 is the `prusa` kind on the agent, ported from PrusaLink's `websockets`
-branch; whether it joins over `/p/ws` or the agent link is
-[OQ-45](risks-and-open.md#oq-45-how-the-mk3-port-reaches-the-hub). Open: how USB
+branch; it reaches the hub over L6 like every device on an agent, which is `/p/ws` as PrusaLink speaks it
+([OQ-45](risks-and-open.md#oq-45-how-the-mk3-port-reaches-the-hub), decided). Open: how USB
 camera frames reach the hub ([OQ-9](risks-and-open.md#oq-9-how-usb-camera-video-reaches-the-hub)),
 door access hardware ([OQ-10](risks-and-open.md#oq-10-door-access-link)).
 
@@ -53,7 +53,7 @@ flowchart LR
   hub -->|"L3 WS video"| browser
   app -->|"L4 Bearer mct_"| hub
   spool -->|"L5"| hub
-  agent <-->|"L6 WebSocket, L8 pair, L9 files"| hub
+  agent <-->|"L6 /p/register, /p/ws per device"| hub
   xl -->|"L11 /p/ws"| hub
   hub -->|"L12 RTSP"| cam
   hub -->|"L14 login role"| db
@@ -64,8 +64,8 @@ flowchart LR
 ## Rules on every link
 
 - What the request log redacts is [OQ-31](risks-and-open.md#oq-31-log-redaction-and-urls-a-device-hands-the-hub).
-- A secret is stored hashed where the other side only presents it (sessions, API tokens, agent
-  tokens, registration secrets, invites). Secrets the hub must present itself (a camera's password)
+- A secret is stored hashed where the other side only presents it (sessions, API tokens, device
+  tokens, invites). Secrets the hub must present itself (a camera's password)
   are stored as the owner decided for cameras (plain, cameras.md, 2026-11-16).
 - Every request that changes data runs in one transaction with `SET LOCAL app.space_id` for the
   caller's space ([authz.md](authz.md#tenancy)).

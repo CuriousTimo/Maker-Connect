@@ -1,7 +1,7 @@
 # The agent's update is the instance admin's
 
 Date: 2026-11-19  
-Status: accepted  
+Status: accepted; how the update reaches the agent superseded by [the agent link is the Prusa Connect printer protocol](20261120-agent-link-is-prusa-connect-protocol.md) (2026-11-20), open as OQ-46  
 Decided by: coordinator on the owner's "fix het" and "kritisch en grondig" (design review of 2a2ec32, defect 3, journal:DESIGN-DOC:0044); owner may overrule
 
 ## Context

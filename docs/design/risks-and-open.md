@@ -101,6 +101,8 @@ boundary now.
 
 **Decided:** (a), one agent credential for the link (`agents`), each device registered and paired
 under it with its own code ([decision](decisions/20261119-agent-link-identity-and-delivery.md)).
+**Superseded** (2026-11-20): there is no agent credential; each device on an agent registers as a Prusa
+Connect printer with its own token ([decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)).
 
 ### OQ-12: The Prusa token until the code is spent
 
@@ -153,6 +155,8 @@ stream is resumed are ours and not in the plan. **Decided:** superseded: the lin
 agent ([decision](decisions/20261119-agent-link-one-websocket.md)), so there is no SSE stream to resume;
 wire.md's names are the start of the generated schema (`schemars` from `crates/protocol`); the agent's
 retry pace stays O5. What the WebSocket leaves open is [OQ-43](#oq-43-the-agent-websocket-open-points).
+**Superseded** (2026-11-20): the link is the Connect SDK's protocol, with no JSON names, batches or
+retry pace of our own ([decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)).
 
 ### OQ-19: The flag that names the folders
 
@@ -241,9 +245,10 @@ The plan lists argument validation, state guard, authz, the laser rule (plan §2
 
 ### OQ-36: The mode of the agent's credentials file
 
-`maker-connect-agent.json` holds the agent token in the clear and is written with the default mode
-(`crates/agent/src/link.rs`); the design keeps it "as today" (agent-engine.md O7). **Recommendation:**
-0600, as the hub's own secrets file ([storage-ops.md](storage-ops.md#what-is-kept-where)).
+Each device's `prusa_printer_settings.ini` holds its token in the clear ([wire.md](wire.md#what-the-agent-keeps));
+PrusaLink writes it with the default mode (`prusa/link/printer_adapter/prusa_link.py:927`).
+**Recommendation:** 0600, as the hub's own secrets file ([storage-ops.md](storage-ops.md#what-is-kept-where));
+**ours**, since PrusaLink sets no mode.
 
 ### OQ-37: Re-pairing a device that has a row
 
@@ -274,9 +279,9 @@ kept (`authz/LAST_OWNER`); the owner decides.
 guessable within its life. Not stated: the code's alphabet and length, how long a registration stays
 open (`device_registrations.expires_at`), and whether claims of unknown codes are counted and slowed.
 **Recommendation:** for a Prusa printer exactly what Buddy expects and Prusa Connect issues (read in
-#18, as OQ-12); for an agent today's code and life as the agent registers it (agent-engine.md O7,
-read from today's code in the device step), and the sign-in failure counter applied to unknown codes
-per caller; decided in the device step.
+#18, as OQ-12); a device on an agent registers as a Prusa Connect printer, so the same: 10
+characters of `ACDEFGHJKMNPQRSTUVWXYZ2345679`, usable 24 h (`internal/connector/xbuddy/registration.go:80-86`,
+`:266`); and the sign-in failure counter applied to unknown codes per caller; decided in the device step.
 
 ### OQ-41: The host role, open points
 
@@ -326,64 +331,96 @@ The refusal of an action that does not move, a role outside the list, a `.use` a
 
 ### OQ-43: The agent WebSocket, open points
 
-The link is one WebSocket per agent ([decision](decisions/20261119-agent-link-one-websocket.md)). Not
-stated:
+The points were asked of our own WebSocket. **Decided** by the references (2026-11-20, [decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md);
+[wire.md](wire.md#the-websocket)):
 
-1. **What the hub re-sends after a reconnect** besides the open command records: a pending `answer`
-   or `update`.
-2. **Hellos on a new connection:** whether the agent sends each session's `hello` and a full state
-   again on every new connection, as Buddy starts again with INFO after 10 s without success and sends
-   fresh telemetry after a reconnect (`reference/buddy-6.4.0` `src/connect/planner.cpp:109`, `:586-597`;
-   `src/connect/connect.cpp:832-837`), or only when a session opens or its set changes, as wire.md has it.
-3. **An unreadable message:** how either side answers a message it cannot read (Buddy settles a
-   down frame it cannot parse as a broken command, `connect.cpp:448-461`, `:518-521`).
-4. **Sizes:** the largest message either side takes (prusa-connect bounds a printer frame at 1 MiB,
-   `internal/connector/xbuddy/session.go:63-64`, `link.go:70`), and how many items one `up` carries.
-5. **Close codes:** whether the hub closes with a WebSocket close code and reason (a new stream taken,
-   a revoked token) or only drops the connection.
-
-**Decided by:** the architect in V2-DEVICES step 1, from the references (Buddy 6.4.0, prusa-connect);
-the owner only where a reference is silent and it is a product choice (journal:DESIGN-WS:0005).
+1. **After a reconnect** the hub drains the device's queued commands (`internal/connector/xbuddy/xbuddy.go:793-804`)
+   and sends `SEND_INFO` after 100 ms (`link.go:134`, `:148-171`); there is no `answer` or `update` message.
+2. **No hello:** the SDK sends nothing special on a new socket; the hub's `SEND_INFO` is answered with
+   `INFO`, and telemetry goes on as before (SDK `__init__.py:631-638`, `:393-434`).
+3. **An unreadable message:** the SDK logs it or answers `REJECTED` (`__init__.py:649-724`); the hub drops
+   the frame and keeps the connection (`inbound.go:189-205`, `:448-456`).
+4. **Sizes:** the hub takes at most 1 MiB a frame (`session.go:63-64`, `link.go:70`); one frame is one
+   telemetry or event object, there are no batches.
+5. **Close codes:** none; the hub closes the connection without a close frame (`link.go:424-429`) and the
+   SDK logs the close (`ws.py:111-112`).
 
 ### OQ-44: The agent settings page, open points
 
-The page is decided ([decision](decisions/20261119-agent-settings-page.md)). Not stated: the config
-file or the page as the source of the settings; what "a password made at install" is (made by the
-installer and shown once, or chosen by the person installing); how the agent keeps it; what "LAN only"
-checks (the address the page listens on, or the caller's address). **Decided by:** the architect in
-V2-DEVICES step 2, from the references; the owner only where a reference is silent and it is a product
-choice (journal:DESIGN-WS:0005).
+The page is decided ([decision](decisions/20261119-agent-settings-page.md)); it shows the hub address and,
+per device, the registration status, the code and the link's condition ([wire.md](wire.md#how-the-code-reaches-the-person)).
+Its points, each with PrusaLink's own page as option (a):
+
+1. **The source of the settings.** For each device's Connect settings this is **settled** by PrusaLink:
+   the device's `prusa_printer_settings.ini` is the source and the page writes it
+   (`prusa/link/web/connection.py:118-122`, `:141-148`; `prusa/link/printer_adapter/prusa_link.py:918-928`).
+   For the agent's own settings (the shared hub address, the page's password and listener): (a) one agent
+   file the page writes, as PrusaLink writes its file; (b) a config file the page only shows.
+   **Recommendation:** (a). **Ours.**
+2. **"A password made at install".** (a) chosen by the person on the page's first visit, as PrusaLink's
+   wizard (`prusa/link/web/wizard.py:218-242`; the wizard shows until a username and digest exist,
+   `prusa/link/config.py:339-347`); (b) made at random by the installer and shown once; (c) asked by the
+   installer. **Recommendation:** (b), which is what the accepted decision says; (a) leaves a fresh agent
+   to whoever on the LAN opens it first. **Ours.**
+3. **How the agent keeps it.** (a) as PrusaLink: HTTP Digest, the username and the digest of realm
+   `Administrator` in the settings file (`prusa/link/web/lib/auth.py:19`, `:32`, `:55-76`, `:94-96`;
+   `prusa/link/config.py:309-315`); (b) an Argon2 hash and a session cookie, as the hub's sign-in.
+   **Recommendation:** (a): it has a reference and needs no session store. **Ours.**
+4. **What "LAN only" checks.** (a) as PrusaLink: it listens on `0.0.0.0:8080` and checks no caller
+   (`prusa/link/config.py:154-158`); "LAN only" means the page is never served or passed on by the hub;
+   (b) listen on a LAN address only; (c) refuse callers outside private address ranges.
+   **Recommendation:** (a), port 8080 as PrusaLink; (c) would be a check of our own. **Ours.**
+
+**Decided by:** the owner, approving or changing the recommendations (PR of lane V2-AGENT).
 
 ### OQ-45: How the MK3 port reaches the hub
 
 The MK3 port follows PrusaLink's `websockets` branch ([decision](decisions/20261119-mk3-reference-prusalink-websockets.md)).
-PrusaLink speaks to Connect over `/p/ws` through its SDK (`prusa/connect/printer/ws.py`); the hub serves
-`/p/ws` for Buddy (`buddy-ws`, #18). Two places disagree: [links.md](links.md) says "the MK3 joins over
-`/p/ws`", and [mk3-port-plan.md](../plans/mk3-port-plan.md) §3.4 says the SDK's Connect side is not
-ported and the agent link is the only link. Options: (a) the agent's `prusa` port also ports the SDK's
-WebSocket side and talks `/p/ws` to the hub, as PrusaLink does; (b) the port stops at the SDK's `Printer`
-seam, and its events go over the agent link like every other device.
+Options were: (a) the `prusa` port also ports the SDK's WebSocket side and talks `/p/ws`, as PrusaLink
+does; (b) it stops at the SDK's `Printer` and goes over our own agent link.
 
-What the reference's Connect side holds, all of which (b) would leave out (SDK `websockets` @ `c0d7d233`):
+**Decided:** (a), by the owner's ruling that every device on the agent talks the Prusa Connect printer
+protocol (2026-11-19, [decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)). [mk3-port-plan.md](../plans/mk3-port-plan.md) §3.4 still says otherwise and
+is brought in line with the MK3 step.
 
-- **Onboarding:** `register` posts `/p/register` over HTTP (`prusa/connect/printer/__init__.py:726-739`,
-  `models.py:91`). PrusaLink's own settings and wizard pages start it (`prusa/link/web/settings.py`).
-- **Token:** `/p/register` answers with a temporary `Code` (`__init__.py:756`); a later answer `200` carries
-  the `Token` (`:844-850`). Every request and the socket upgrade send `Fingerprint`, `Timestamp`, the
-  User-Agent headers and `Token` (`make_headers`, `:273-284`). The socket is opened again when the token
-  changes (`ensure_ws_connected`, `:632-639`). PrusaLink keeps the token in its settings
-  (`[service::connect] token`, `prusa/link/config.py:299-307`, written by `web/lib/wizard.py:200`), or
-  takes one typed into the wizard (`web/wizard.py:130-132`).
-- **Telemetry and events** over `/p/ws`. Register and `/p/camera` stay HTTP (`__init__.py:781-783`).
-- **Commands** read from the socket (`handle_ws_message`).
-- **Files:** the lazy file protocol (`fileinfo.py`, SEND_FILE_INFO) and the download of
-  `/p/teams/{team_id}/files/{hash}/raw` (`__init__.py:468`).
-- **The socket:** `ws.py`, with `ping_interval` 30 and `ping_timeout` 10 (`ws.py:62-63`). These are the
-  SDK's own timings, not Buddy's 15 s, so under (a) the hub's `/p/ws` (#18) meets both clients as each
-  of them is.
+### OQ-46: How the agent's own update reaches it
 
-**Decided by:** the architect,
-before section G1 of the MK3 port, from the references and the device contract.
+The `update` message and `GET /api/agent/v2/update/{tag}/{file}` were ours and are removed with our link.
+The SDK has no update of its host: `UPGRADE` is a printer command (`const.py:141`) with no handler of the
+SDK's own (`__init__.py:137-156`). Who may update stays the instance admin
+([decision](decisions/20261119-agent-update-by-instance-admin.md)). Options: (a) the agent fetches signed
+releases from the release host itself, as the hub does (L16, `crates/update`); (b) the hub serves the
+release files on a route of its own beside the Connect protocol; (c) the operator updates the agent's
+package by hand. **Recommendation:** (c) for the step without drivers; (a) or (b) chosen with the step
+that builds the agent's update. **Ours** in every option.
+
+### OQ-47: The `/info` probe before registering
+
+PrusaLink opens `<server>/info` before it registers and stops when that fails
+(`prusa/link/web/connection.py:112-116`). Prusa's local server serves no `/info`
+(`internal/connector/xbuddy/xbuddy.go:477-493` routes only `/p/register`, `/p/auth`, `/p/ws`), and neither
+does the hub. Options: (a) the hub answers `GET /info` with `200` and an empty body; (b) the agent leaves
+the probe out. **Recommendation:** (a): the client stays PrusaLink's to the letter; the hub's answer is
+**ours**.
+
+### OQ-48: What a device that is not a Prusa says it is
+
+`printer_type` and `User-Agent-Printer` are the SDK's `PrinterType`, which knows only Prusa models
+(`const.py:47-60`); the hub reads the model from that header (`internal/connector/xbuddy/xbuddy.go:816-829`).
+What a DYMO, a Marlin printer or a GRBL laser sends there is open. **Decided by:** the architect in each
+driver step; not designed here.
+
+### OQ-49: Registering in an agent without drivers
+
+The owner's order for this step: "een v2 agent die nog geen drivers heeft, heeft wel de webinterface
+enz. aanmelden enzo werkend" (journal:HUB-FINISH:0002). On this wire only a device registers, and an agent
+without drivers hosts none ([wire.md](wire.md#the-unit-one-printer-per-device)). Options: (a) the step
+builds and proves the client in tests: the SDK at `c0d7d233` and the agent's port run side by side against
+the hub, register, pair, open `/p/ws`, answer `SEND_INFO`, and are compared; the page shows the hub address
+and an empty device list; the first real pairing comes with the first driver (DYMO); (b) a stand-in device
+for development only, with the SDK tests' identity, never in a release; (c) the agent registers itself as
+a printer, which puts a serial and a type of our own on the wire and is therefore refused.
+**Recommendation:** (a). **Decided by:** the owner, since it reads their order.
 
 ## Issues the design cannot place yet
 
