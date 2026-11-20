@@ -133,7 +133,7 @@ cut out (Q2).
 |---|---|---|---|
 | Q1 | `M72`, `RePrint` | Port them from the firmware `//action` lines only, no new typed message now? | yes, no new message |
 | Q2 | SDK `Printer` | Keep it as the seam, with Connect HTTP not ported? | yes |
-| Q3 | `storage.py`, `storage_controller.py`, `files.py` | `StartPrint` needs the job file in `printer.fs` (`command_handlers.py:294`, `download_finished_cb` `prusa_link.py:509`): port `Filesystem` minimally (one folder holding `job-<id>`), no inotify, no tree for Connect? | yes |
+| Q3 | `storage.py`, `storage_controller.py`, `files.py` | Owner, 2026-11-20: `files.py` is ported with its inotify (`crates/inotify-simple`, a port of inotify_simple). Before that: `StartPrint` needs the job file in `printer.fs` (`command_handlers.py:294`, `download_finished_cb` `prusa_link.py:509`): port `Filesystem` minimally (one folder holding `job-<id>`), no inotify, no tree for Connect? | yes |
 | Q4 | `download.py` | Not ported (the hub link downloads, O6)? | not ported |
 | Q5 | `lcd_printer.py` `M117` (`:523-533`) | Port the screen messages (a wire-visible thing PrusaLink does; S4 dropped download progress)? | port it, **before G2** (section L): `MyPrinter` needs `LCDPrinter` at once (`sdk_augmentation/printer.py:38`); changes Q5 "after the core", **for the proxy** |
 | Q6 | `ip_updater.py` `M552` (`:166-182`) | Port it (shows the Pi's IP on the MK3 screen)? | port it, after the core |

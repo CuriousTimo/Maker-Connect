@@ -1582,6 +1582,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "maker-connect-inotify-simple"
+version = "0.2.0"
+dependencies = [
+ "libc",
+ "serde_json",
+]
+
+[[package]]
 name = "maker-connect-label"
 version = "0.2.0"
 dependencies = [
