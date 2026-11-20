@@ -12,7 +12,12 @@
 //!
 //! Not covered: the refresh pump (SEND_JOB_INFO on a move, `requestJobRefresh`), `/job/outcome`
 //! (`joboutcome.go`; a print's end is read off the machine's state, `Store::follow_own_print_of`),
-//! and the objects that go with a new job number (`forgetTheObjects`).
+//! the objects that go with a new job number (`forgetTheObjects`), and the job number on the tree
+//! (`/job/id`, which a JOB_INFO restates, `inbound.go:394-400`: no reader here takes it).
+//!
+//! As the reference reads it: a printer that says PRINTING before it names a job, and then BUSY,
+//! has no print under the BUSY (no job state was written, `noteThePrintIsRunning`). Buddy names the
+//! job on every frame while it prints (`render.cpp`), so this stays the reference's rule.
 
 use maker_connect_protocol::Telemetry;
 
@@ -48,12 +53,18 @@ pub(crate) struct Job {
     /// telemetry frame (ours: the tree lives in the telemetry, which an event does not write).
     /// `Some(None)`: removed (a patch of null).
     pending: Option<Option<String>>,
+    /// The machine's word an event wrote to `/state`, put on the tree with the next telemetry frame
+    /// before that frame's own (ours, as `pending`).
+    pending_state: Option<String>,
 }
 
 impl Job {
     /// A telemetry frame (`dispatchTelemetry`, `inbound.go:268-311`): its `/state` written, then its
     /// job number noted, then its state.
     pub(crate) fn telemetry(&mut self, t: &mut Telemetry, job_id: Option<i64>, state: &str) {
+        if let Some(word) = self.pending_state.take() {
+            t.printer_state = Some(word);
+        }
         if !state.is_empty() {
             t.printer_state = Some(state.to_owned());
         }
@@ -66,16 +77,23 @@ impl Job {
         }
     }
 
-    /// An event (`inbound.go:245-258`): a JOB_INFO's job (`noteJob`), then the envelope's state.
+    /// An event (`inbound.go:245-258`): a JOB_INFO's job (`noteJob`), then the envelope's state
+    /// written to `/state` (`reportText` writes nothing for an empty one) and noted.
     pub(crate) fn event(&mut self, name: &str, state: &str, data: &serde_json::Value) {
         if name == "JOB_INFO" {
             self.note_job(state, data);
+        }
+        if !state.is_empty() {
+            self.pending_state = Some(state.to_owned());
         }
         self.note_machine_state(state);
     }
 
     /// `noteJob` (`inbound.go:350-410`).
     fn note_job(&mut self, envelope: &str, data: &serde_json::Value) {
+        if !job_frame(data) {
+            return;
+        }
         let mut state = data["state"].as_str().unwrap_or("").to_owned();
         if state.is_empty() {
             state = envelope.to_owned();
@@ -203,6 +221,25 @@ impl Job {
     }
 }
 
+/// Whether a JOB_INFO's data reads as a `jobFrame` (`inbound.go:330-336`): `json.Unmarshal` fails,
+/// and `noteJob` writes nothing (`:355-359`), for data that is not an object or a member of the
+/// wrong type. A null or absent member, and absent data (`len(reported.Data) > 0`), read as none.
+fn job_frame(data: &serde_json::Value) -> bool {
+    use serde_json::Value;
+    let Some(frame) = data.as_object() else {
+        return data.is_null();
+    };
+    let text = |key: &str| matches!(frame.get(key), None | Some(Value::Null | Value::String(_)));
+    let number = match frame.get("job_id") {
+        None | Some(Value::Null) => true,
+        Some(n) => n.as_i64().is_some(),
+    };
+    number
+        && ["state", "path", "display_name", "display"]
+            .iter()
+            .all(|k| text(k))
+}
+
 /// `jobStateOf` (`devicejobs.go:270-290`): the print's word, the machine's where the print's has
 /// gone stale.
 fn job_state_of(machine: &str, reported: &str) -> String {
@@ -313,6 +350,26 @@ mod tests {
             frame(&mut job, &mut t, BUSY, Some(7)),
             "PRINTING held under BUSY"
         );
+    }
+
+    /// An event's state reaches `/state` with the next frame, before the frame's own; a JOB_INFO
+    /// that does not read as a `jobFrame` writes nothing.
+    #[test]
+    fn an_event_writes_the_machines_word() {
+        let mut job = Job::default();
+        let mut t = Telemetry::default();
+        frame(&mut job, &mut t, PRINTING, Some(5));
+        job.event("STATE_CHANGED", PAUSED, &serde_json::Value::Null);
+        job.telemetry(&mut t, None, "");
+        assert_eq!(t.printer_state.as_deref(), Some(PAUSED));
+        assert_eq!(t.job_state.as_deref(), Some(PAUSED));
+        assert!(!job_frame(&serde_json::json!({"state": 3})));
+        assert!(!job_frame(&serde_json::json!({"job_id": "7"})));
+        assert!(!job_frame(&serde_json::json!([1])));
+        assert!(job_frame(
+            &serde_json::json!({"job_id": null, "path": "/usb/a.gcode"})
+        ));
+        assert!(job_frame(&serde_json::Value::Null));
     }
 
     /// The server's reading: a print that claims to run on a machine that is idle is over.
