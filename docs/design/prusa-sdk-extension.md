@@ -114,8 +114,9 @@ A label is Connect's own "download and print". The server sends `START_CONNECT_D
 `/p/teams/{team_id}/files/{hash}/raw` with the device's headers (`:468`; `download.py:399-413`).
 
 The file lands in a storage the device attaches with the SDK's own `Printer.attach`: a folder, as a
-`LOCAL` storage (`__init__.py:888-904`). `path` must point into it, or the download ends `FAILED`
-(`download.py:314-334`). The storage's name and folder are ours.
+`LOCAL` storage (`__init__.py:888-904`). `attach` needs Linux, for inotify (`:899`). `path` must point
+into the storage; otherwise `to_os_path` raises (`download.py:302`, `:314-334`) and the command ends
+`FAILED` "Command error" (`command.py:192-198`). The storage's name and folder are ours.
 
 The addition is one kwarg, `tape_size_mm`: an integer, one of `19`, `12`, `9` or `6`, default `12`.
 That is labelle's own name, values and default (labelle `5e8f1e5` `lib/devices/dymo_labeler.py:243-257`;

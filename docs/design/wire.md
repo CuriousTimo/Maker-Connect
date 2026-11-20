@@ -220,7 +220,8 @@ rest is choosing values the protocol already has, all **ours**:
   `const.py:24-34`).
 - **A label print** comes as `START_CONNECT_DOWNLOAD` with `printing: true` and `tape_size_mm`. The download's end is
   the SDK's own `TRANSFER_FINISHED` (`download.py:363-368`); then the port prints the label. The file lands in the storage the device attaches with `Printer.attach`
-  (`__init__.py:888-904`), which `path` must point into (`download.py:314-334`). A label that
+  (`__init__.py:888-904`; Linux only, for inotify, `:899`), which `path` must point into, or the command
+  ends `FAILED` "Command error" (`download.py:302`, `:314-334`; `command.py:192-198`). A label that
   fails is reported as a `STATE_CHANGED` event with state `ERROR` and the port's reason in `reason`
   (`models.py:148-163`), and then `IDLE`.
 - **Gone and back:** while the port says the printer is gone, the agent sends nothing for it, so its
