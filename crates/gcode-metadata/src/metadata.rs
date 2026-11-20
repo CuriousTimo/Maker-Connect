@@ -948,7 +948,7 @@ impl MetaData {
         }
     }
 
-    /// Create cache name in format .<filename>.cache
+    /// Create cache name in format `.<filename>.cache`
     pub fn cache_name(&self) -> String {
         let (head, tail) = path_split(&self.path);
         format!("{head}/.{tail}.cache")
@@ -1022,7 +1022,7 @@ impl MetaData {
         Ok(file_version == VERSION)
     }
 
-    /// Take metadata from source file and save them as JSON to <file_name>.cache file. Parse
+    /// Take metadata from source file and save them as JSON to `<file_name>.cache` file. Parse
     /// thumbnail from bytes to string format because of JSON serialization requirements
     pub fn save_cache(&self) -> Result<(), MetaError> {
         let get_cache_data = |info: &ImageInfo| -> Result<PyValue, MetaError> {
@@ -1067,7 +1067,7 @@ impl MetaData {
         Ok(())
     }
 
-    /// Load metadata values from <file_name>.cache file
+    /// Load metadata values from `<file_name>.cache` file
     pub fn load_cache(&mut self) -> Result<(), MetaError> {
         let incorrect = || {
             MetaError::Py(PyErr::ValueError(
