@@ -107,7 +107,10 @@ pub fn routes() -> Router<Store> {
         .route("/p/telemetry", post(telemetry))
         .route("/p/events", post(event))
         .route("/p/ws", axum::routing::get(ws))
-        .route("/p/teams/{team}/files/{hash}/raw", axum::routing::get(raw_file))
+        .route(
+            "/p/teams/{team}/files/{hash}/raw",
+            axum::routing::get(raw_file),
+        )
 }
 
 /// A file of the printer's space, as the SDK fetches it for START_CONNECT_DOWNLOAD
@@ -137,7 +140,12 @@ async fn raw_file(
 /// A label printer on the protocol (the agent's DYMO): a job waiting for it goes out as
 /// START_CONNECT_DOWNLOAD with `printing` and `tape_size_mm` (docs/design/wire.md, "The first
 /// device"), when it is idle and nothing else is in flight.
-async fn label_job(store: &Store, token: &str, machine: &crate::store::Machine, space: i64) -> Result<(), crate::store::BoxError> {
+async fn label_job(
+    store: &Store,
+    token: &str,
+    machine: &crate::store::Machine,
+    space: i64,
+) -> Result<(), crate::store::BoxError> {
     if !store.lock().unwrap().open_commands(&machine.id).is_empty() {
         return Ok(());
     }
@@ -162,9 +170,13 @@ async fn label_job(store: &Store, token: &str, machine: &crate::store::Machine, 
         "tape_size_mm": order.tape_mm,
     }});
     let mut legacy = store.lock().unwrap();
-    if let Some(id) =
-        legacy.queue_connect_command(Some(&machine.link), &machine.id, "Print the label", &command, false)
-    {
+    if let Some(id) = legacy.queue_connect_command(
+        Some(&machine.link),
+        &machine.id,
+        "Print the label",
+        &command,
+        false,
+    ) {
         legacy.label_jobs.insert(id, (space, order.id));
     }
     Ok(())
@@ -835,7 +847,13 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
             if let Some(state) = state {
                 let reason = event["reason"].as_str().map(str::to_owned);
                 println!("command {id}: {name} {}", reason.as_deref().unwrap_or(""));
-                store.command_went(caller.as_ref(), id as u32, state, reason.clone(), Vec::new());
+                store.command_went(
+                    caller.as_ref(),
+                    id as u32,
+                    state,
+                    reason.clone(),
+                    Vec::new(),
+                );
                 if let Some(job) = store.label_jobs.remove(&(id as u32)) {
                     ended_label = Some((job, state, reason));
                 }
@@ -1781,6 +1799,158 @@ mod tests {
             next().await,
             "GOT M115",
             "the G-code reached the SDK over /p/ws"
+        );
+    }
+
+    /// The DYMO LabelManager PnP on the agent (docs/design/wire.md, "The first device"): it
+    /// registers as `dymo.labelmanager-pnp` and is a label printer; its cassette, charge and
+    /// status bytes are kept; a label job goes out, when it is idle, as START_CONNECT_DOWNLOAD
+    /// with `printing` and `tape_size_mm`; the file comes from `/p/teams/{team}/files/{hash}/raw`
+    /// with its token only; FINISHED ends the job, FAILED fails it with the agent's reason.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_dymo_on_the_agent_prints_a_label(pool: sqlx::PgPool) {
+        use crate::store::{JobState, StartedBy};
+        use http_body_util::BodyExt;
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (status, headers) = call(
+            &app,
+            Request::post("/p/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"sn":"MC0011223344556677","fingerprint":"fp","printer_type":"dymo.labelmanager-pnp","firmware":"0.3.0"}"#,
+                ))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let code = headers["code"].to_str().unwrap().to_owned();
+        let space = store.default_space().await.unwrap().0;
+        assert!(store.pair(space, &code).await.unwrap().is_some());
+        let (_, headers) = call(
+            &app,
+            Request::get("/p/register")
+                .header("Code", &code)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let token = headers["token"].to_str().unwrap().to_owned();
+        let dymo = store.machines(space).await.unwrap()[0].clone();
+        assert_eq!(dymo.kind, MachineKind::Label);
+        assert_eq!(dymo.profile.as_deref(), Some("dymo/labelmanager-pnp"));
+
+        let png = b"\x89PNG label".to_vec();
+        for f in ["l1", "l2"] {
+            std::fs::write(store.file_path(f), &png).unwrap();
+            store
+                .add_file(
+                    space,
+                    f,
+                    &format!("{f}.png"),
+                    png.len() as u64,
+                    &Default::default(),
+                )
+                .await
+                .unwrap();
+        }
+        let idle = || {
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .body(Body::from(
+                    r#"{"state":"IDLE","media_loaded":true,"battery_percent":80,"raw_status":"00 00 00 00 00 00 00 00"}"#,
+                ))
+                .unwrap()
+        };
+        assert_eq!(
+            call(&app, idle()).await.0,
+            StatusCode::NO_CONTENT,
+            "no job yet"
+        );
+        let t = store.machines(space).await.unwrap()[0]
+            .telemetry
+            .clone()
+            .unwrap();
+        assert_eq!(
+            (t.cassette, t.battery_percent, t.raw_status.as_deref()),
+            (Some(true), Some(80), Some("00 00 00 00 00 00 00 00"))
+        );
+
+        let mut ends = Vec::new();
+        for (f, event) in [
+            ("l1", r#""event":"FINISHED""#),
+            ("l2", r#""event":"FAILED","reason":"no cassette""#),
+        ] {
+            let file = store.file(space, f).await.unwrap().unwrap();
+            let job = store
+                .add_job(
+                    space,
+                    &dymo.id,
+                    &file,
+                    None,
+                    StartedBy::Auto { by: Some("test") },
+                )
+                .await
+                .unwrap()
+                .unwrap();
+            let answer = app.clone().oneshot(idle()).await.unwrap();
+            assert_eq!(answer.status(), StatusCode::OK);
+            let sent: u32 = answer.headers()["command-id"]
+                .to_str()
+                .unwrap()
+                .parse()
+                .unwrap();
+            let frame = command_of(answer).await.expect("a command");
+            let command: Value = serde_json::from_str(&frame[9..]).unwrap();
+            assert_eq!(&frame[..9], format!("J{sent:08x}"));
+            assert_eq!(
+                command,
+                json!({"command": "START_CONNECT_DOWNLOAD", "kwargs": {
+                    "path": format!("/labels/{job}.png"),
+                    "team_id": space,
+                    "hash": f,
+                    "printing": true,
+                    "tape_size_mm": null,
+                }})
+            );
+            assert_eq!(
+                call(&app, idle()).await.0,
+                StatusCode::NO_CONTENT,
+                "one at a time"
+            );
+
+            let raw = |t: &str| {
+                Request::get(format!("/p/teams/{space}/files/{f}/raw"))
+                    .header("Token", t)
+                    .body(Body::empty())
+                    .unwrap()
+            };
+            let answer = app.clone().oneshot(raw(&token)).await.unwrap();
+            assert_eq!(answer.status(), StatusCode::OK);
+            let body = answer.into_body().collect().await.unwrap().to_bytes();
+            assert_eq!(body.as_ref(), png.as_slice());
+            assert_eq!(call(&app, raw("nope")).await.0, StatusCode::FORBIDDEN);
+
+            let end = Request::post("/p/events")
+                .header("Token", &token)
+                .body(Body::from(format!(
+                    r#"{{{event},"command_id":{sent},"source":"CONNECT","state":"IDLE"}}"#
+                )))
+                .unwrap();
+            assert_eq!(call(&app, end).await.0, StatusCode::NO_CONTENT);
+            let job = store.job(space, job).await.unwrap().unwrap();
+            ends.push((job.state, job.reason));
+        }
+        assert_eq!(
+            ends,
+            vec![
+                (JobState::Finished, None),
+                (JobState::Failed, Some("no cassette".to_owned()))
+            ]
         );
     }
 }

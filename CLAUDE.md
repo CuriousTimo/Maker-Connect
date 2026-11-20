@@ -46,11 +46,12 @@ its findings.
 
 ## Other standing rules
 
-- **Work goes through pull requests** (owner, 2026-11-18). One PR per step (not per lane), from a
-  branch for that step (for example `v2-store`). Agents may commit and push on that branch; nothing
-  lands on `main` except through a PR, and a PR is merged **only on the owner's word**. Before asking
-  for the merge: CI green on the PR, and `on-track` plus a reviewer on the PR's current head (filed as
-  atlas `review` entries with `pr:`). Small doc changes go through a small PR too.
+- **No pull requests** (owner, 2026-11-20: one person works here, not a team). Commit straight on
+  `main` and push, only when the owner asks for a commit.
+- **Checks** (owner, 2026-11-20: the full gate every time costs too much time). Before a commit: a
+  quick check only: `cargo fmt --check`, `clippy -D warnings` and the tests of the crates changed, and
+  the audit check that belongs to the change. CI runs the rest on the push to `main`; when it is red,
+  fix it in one go. The full `scripts/check.sh` only before a build for a Pi or a release.
 - The release key (`~/.config/maker-connect/release-key.pk8`) is never in the repo; releases
   are signed. Test builds go only to the Pis, never as GitHub releases.
 - Answer the user's questions first, before carrying on with other work.

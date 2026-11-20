@@ -165,7 +165,10 @@ impl Agent {
                 "User-Agent".to_owned(),
                 Some(format!("Prusa-Connect-SDK-Printer/{SDK_VERSION}")),
             ),
-            ("User-Agent-Printer".to_owned(), Some(PRINTER_TYPE.to_owned())),
+            (
+                "User-Agent-Printer".to_owned(),
+                Some(PRINTER_TYPE.to_owned()),
+            ),
             ("User-Agent-Version".to_owned(), Some(VERSION.to_owned())),
         ];
         if token && !s.token.is_empty() {
@@ -323,7 +326,12 @@ fn handle_ws_message(command: &Command, message: &str) {
         ),
         "J" => {
             let Ok(data) = serde_json::from_str::<Value>(body) else {
-                command.failed(Source::Connect, "Invalid JSON body", Some(command_id), Kwargs::new());
+                command.failed(
+                    Source::Connect,
+                    "Invalid JSON body",
+                    Some(command_id),
+                    Kwargs::new(),
+                );
                 return;
             };
             (
@@ -415,7 +423,13 @@ fn print_label(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
         };
         let engine = agent.engine.lock().unwrap();
         engine
-            .send(id, Order::Job { order, file: file.clone() })
+            .send(
+                id,
+                Order::Job {
+                    order,
+                    file: file.clone(),
+                },
+            )
             .map_err(|_| HandlerError::Failed("the DYMO port has ended".into()))?;
         drop(engine);
         loop {
@@ -431,7 +445,8 @@ fn print_label(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
                     Ok(Finish::new(Source::Connect))
                 } else {
                     Err(HandlerError::Failed(
-                        end.reason.unwrap_or_else(|| "the label did not print".into()),
+                        end.reason
+                            .unwrap_or_else(|| "the label did not print".into()),
                     ))
                 };
             }
@@ -485,17 +500,7 @@ fn link_loop(agent: &Arc<Agent>) {
             }
             continue;
         }
-        let mut kwargs = Kwargs::new();
-        let t = &report.telemetry;
-        if let Some(c) = t.cassette {
-            kwargs.insert("media_loaded".into(), c.into());
-        }
-        if let Some(b) = t.battery_percent {
-            kwargs.insert("battery_percent".into(), b.into());
-        }
-        if let Some(r) = &t.raw_status {
-            kwargs.insert("raw_status".into(), r.clone().into());
-        }
+        let mut kwargs = dymo_telemetry(&report.telemetry);
         if let Some(cmd) = agent.command.lock().unwrap().as_ref()
             && cmd.state().is_some()
         {
@@ -509,6 +514,23 @@ fn link_loop(agent: &Arc<Agent>) {
             agent.set_status("the hub cannot be reached");
         }
     }
+}
+
+/// What the DYMO tells beyond its state, as the hub reads it (`docs/design/wire.md`, "The first
+/// device"): whether a cassette is in, its charge, its status bytes; what the port does not know
+/// is left out.
+fn dymo_telemetry(t: &maker_connect_protocol::Telemetry) -> Kwargs {
+    let mut kwargs = Kwargs::new();
+    if let Some(c) = t.cassette {
+        kwargs.insert("media_loaded".into(), c.into());
+    }
+    if let Some(b) = t.battery_percent {
+        kwargs.insert("battery_percent".into(), b.into());
+    }
+    if let Some(r) = &t.raw_status {
+        kwargs.insert("raw_status".into(), r.clone().into());
+    }
+    kwargs
 }
 
 /// `register` and the poll (`__init__.py:726-757`, `:823-882`).
@@ -529,7 +551,10 @@ fn register(agent: &Agent, server: &str, s: &Settings) {
                     request = request.set(&k, &v);
                 }
             }
-            match request.set("Content-Type", "application/json").send_string(&body.to_string()) {
+            match request
+                .set("Content-Type", "application/json")
+                .send_string(&body.to_string())
+            {
                 Ok(r) => {
                     if let Some(code) = r.header("Code") {
                         *agent.code.lock().unwrap() = Some(code.to_owned());
@@ -610,9 +635,8 @@ fn web(agent: &Arc<Agent>, listen: &str) {
                 }
                 _ => {}
             }
-            let response = tiny_http::Response::empty(303).with_header(
-                tiny_http::Header::from_bytes(&b"Location"[..], &b"/"[..]).unwrap(),
-            );
+            let response = tiny_http::Response::empty(303)
+                .with_header(tiny_http::Header::from_bytes(&b"Location"[..], &b"/"[..]).unwrap());
             let _ = request.respond(response);
             continue;
         }
@@ -636,7 +660,11 @@ fn page(agent: &Agent) -> String {
         "not registered".to_owned()
     };
     let on = s.on;
-    let esc = |t: &str| t.replace('&', "&amp;").replace('<', "&lt;").replace('"', "&quot;");
+    let esc = |t: &str| {
+        t.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('"', "&quot;")
+    };
     let linked = !s.token.is_empty() && on;
     let (state, state_class) = if !on {
         ("off", "idle")
@@ -663,10 +691,18 @@ fn page(agent: &Agent) -> String {
 <div class="row btns"><form method=post action=/module><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form>
 <form method=post action=/reset><span class=fw><button class="btn ghost">Reset registration</button></span></form></div></section>
 </main></body></html>"#,
-        refresh = if linked || !on { "" } else { "<meta http-equiv=refresh content=5>" },
+        refresh = if linked || !on {
+            ""
+        } else {
+            "<meta http-equiv=refresh content=5>"
+        },
         icon = MARK.replace('#', "%23").replace('"', "'").replace('\n', ""),
         host = esc(&s.hostname),
-        port = if s.port == 0 { String::new() } else { s.port.to_string() },
+        port = if s.port == 0 {
+            String::new()
+        } else {
+            s.port.to_string()
+        },
         tls = if s.tls { "checked" } else { "" },
         off = if on { "" } else { " is-off" },
         code_block = match (s.token.is_empty(), agent.code.lock().unwrap().clone()) {
@@ -729,4 +765,135 @@ impl log::Log for Logger {
         }
     }
     fn flush(&self) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "mc-agent-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    /// The settings file is PrusaLink's `prusa_printer_settings.ini` as configparser writes it
+    /// (`key = value`, Python's `True`/`False`), read back as written; a serial is drawn once.
+    #[test]
+    fn the_settings_file_as_prusalink_keeps_it() {
+        let dir = dir();
+        let drawn = Settings::load(&dir);
+        assert!(drawn.serial.starts_with("MC") && drawn.serial.len() == 18);
+        assert_eq!(Settings::load(&dir).serial, drawn.serial, "drawn once");
+        let s = Settings {
+            hostname: "192.168.60.67".into(),
+            tls: false,
+            port: 8460,
+            token: "t0k3n".into(),
+            serial: "MC0011223344556677".into(),
+            on: true,
+        };
+        s.save(&dir);
+        assert_eq!(
+            std::fs::read_to_string(Settings::path(&dir)).unwrap(),
+            "[printer]\ntype = dymo.labelmanager-pnp\nserial = MC0011223344556677\n\n\
+             [service::connect]\nhostname = 192.168.60.67\ntls = False\nport = 8460\ntoken = t0k3n\n\n\
+             [module]\non = True\n"
+        );
+        let back = Settings::load(&dir);
+        assert_eq!(
+            (
+                back.hostname.as_str(),
+                back.tls,
+                back.port,
+                back.token.as_str(),
+                back.serial.as_str(),
+                back.on
+            ),
+            (
+                "192.168.60.67",
+                false,
+                8460,
+                "t0k3n",
+                "MC0011223344556677",
+                true
+            )
+        );
+        assert_eq!(back.server().as_deref(), Some("http://192.168.60.67:8460"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(Settings::path(&dir))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600, "the token is not for others");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `make_fingerprint` (`prusa/link/util.py:153-159`): `sha256(sn.encode()).hexdigest()`,
+    /// the value CPython 3.13 gives for this serial.
+    #[test]
+    fn the_fingerprint_is_prusalinks() {
+        let s = Settings {
+            serial: "MC0011223344556677".into(),
+            ..Settings::default()
+        };
+        assert_eq!(
+            s.fingerprint(),
+            "0ca5a92567ae13a3864ac94beb9bca2997046b9a509fd138edbf6dc98fb06ed1"
+        );
+    }
+
+    /// No hub address, no server; otherwise the address as the SDK makes it
+    /// (`Printer.connect_url`, `__init__.py:189-205`).
+    #[test]
+    fn the_server_from_the_settings() {
+        assert_eq!(Settings::default().server(), None);
+        let url = |host: &str, tls: bool, port: u16| {
+            Settings {
+                hostname: host.into(),
+                tls,
+                port,
+                ..Settings::default()
+            }
+            .server()
+            .unwrap()
+        };
+        // Its doctests.
+        assert_eq!(url("connect", true, 0), "https://connect");
+        assert_eq!(url("connect", false, 0), "http://connect");
+        assert_eq!(url("connect", false, 8000), "http://connect:8000");
+    }
+
+    /// The DYMO's telemetry: what the port read goes out under the names the hub reads; what it
+    /// did not read is not sent.
+    #[test]
+    fn the_dymo_tells_what_the_port_read() {
+        let t = maker_connect_protocol::Telemetry {
+            cassette: Some(true),
+            battery_percent: Some(80),
+            raw_status: Some("00 00".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            Value::Object(dymo_telemetry(&t)),
+            json!({"media_loaded": true, "battery_percent": 80, "raw_status": "00 00"})
+        );
+        assert!(dymo_telemetry(&maker_connect_protocol::Telemetry::default()).is_empty());
+    }
+
+    /// A form as the page posts it, `+` and `%XX` decoded.
+    #[test]
+    fn the_pages_form() {
+        let form = parse_form("hostname=hub+one&port=8460&tls=on&x=%3C%26%3E");
+        assert_eq!(form["hostname"], "hub one");
+        assert_eq!(form["port"], "8460");
+        assert_eq!(form["x"], "<&>");
+    }
 }

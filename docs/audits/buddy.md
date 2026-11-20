@@ -54,7 +54,7 @@ row says OPEN, not identical.
 | `SET_PRINTER_READY` | both | `command.cpp:162` | `farm.rs:1605` | **identical**: the literal body, taken as `SetPrinterReady` | `buddy_takes_set_printer_ready` |
 | `SET_TOKEN` | both | `command.cpp:169` |  | **not used by the hub** |  |
 | `SET_VALUE` | both | `command.cpp:181` |  | **not used by the hub** |  |
-| `START_CONNECT_DOWNLOAD` | both | `command.cpp:191` |  | **not used by the hub** |  |
+| `START_CONNECT_DOWNLOAD` | both | `command.cpp:191` | `devices/prusa_connect.rs` `label_job` | **OPEN**: the hub sends it to the agent's label printer; not compared with Buddy |  |
 | `START_ENCRYPTED_DOWNLOAD` | both | `command.cpp:192` | `devices/printer_files.rs:573` | **identical**: taken as `StartEncryptedDownload` with `path`, `key`, `iv`, `orig_size` (32 hex digits each), no `port` | `buddy_takes_every_command_the_hub_sends` |
 | `START_INLINE_DOWNLOAD` | both | `command.cpp:184` |  | **not used by the hub** |  |
 | `START_PRINT` | both | `command.cpp:161` | `devices/printer_files.rs:396` `devices/printer_files.rs:1429` | **identical**: taken as `StartPrint` with `path` (no `tool_mapping`: optional) | `buddy_takes_every_command_the_hub_sends` |
@@ -141,7 +141,7 @@ Fourteen types, the whole list of `planner.cpp:253-280`. Common shape (`render.c
 | `/p/events` | both | `connect.cpp:124` | `devices/prusa_connect.rs:104=/p/events` | **identical**: `POST`, `204` | `the_events_buddy_sends_settle_commands` |
 | `/p/register` | both | `registrator.cpp:42` | `devices/prusa_connect.rs:102=/p/register` | **identical** | `registration_is_what_registrator_cpp_does` |
 | `/p/telemetry` | both | `connect.cpp:121` | `devices/prusa_connect.rs:103=/p/telemetry` | **identical**: `POST`, the answer as described above | `the_answer_to_a_report_is_what_buddy_reads` |
-| `/p/ws` | both | `connect.cpp:178` |  | **not used by the hub**: the WebSocket (6.4+; 6.3.0 never asks for it) is later |  |
+| `/p/ws` | both | `connect.cpp:178` | `devices/prusa_connect.rs` `ws` | **OPEN**: the hub serves it (the agent; 6.4+, 6.3.0 never asks for it); not compared with Buddy |  |
 
 ## Headers it sends
 

@@ -157,7 +157,12 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ("*", "/p/events", Need::Public, None),
     ("*", "/p/ws", Need::Public, None),
     // The agent fetches a file to print with its Token (the route checks it is placed there).
-    ("GET", "/p/teams/{team}/files/{hash}/raw", Need::Public, None),
+    (
+        "GET",
+        "/p/teams/{team}/files/{hash}/raw",
+        Need::Public,
+        None,
+    ),
     // A Prusa fetches a file sent to it: the transfer's iv in the address is its key.
     ("GET", "/f/{iv}/raw", Need::Public, None),
     ("*", "/simplyprint/{token}", Need::Public, None),

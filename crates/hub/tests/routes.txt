@@ -145,6 +145,7 @@
 /organisation/name
 /p/events
 /p/register
+/p/teams/{team}/files/{hash}/raw
 /p/telemetry
 /p/ws
 /pair
@@ -192,6 +193,7 @@
 ("*", "/p/telemetry", Public, None)
 ("*", "/p/events", Public, None)
 ("*", "/p/ws", Public, None)
+("GET", "/p/teams/{team}/files/{hash}/raw", Public, None)
 ("GET", "/f/{iv}/raw", Public, None)
 ("*", "/simplyprint/{token}", Public, None)
 ("*", "/simplyprint/{token}/jobs/{job}/file", Public, None)
@@ -1060,6 +1062,11 @@ POST /p/register => 400 400 400 400 400
 PUT /p/register => 405 405 405 405 405
 PATCH /p/register => 405 405 405 405 405
 DELETE /p/register => 405 405 405 405 405
+GET /p/teams/{team}/files/{hash}/raw => 403 403 403 403 403
+POST /p/teams/{team}/files/{hash}/raw => 403 403 403 403 403
+PUT /p/teams/{team}/files/{hash}/raw => 403 403 403 403 403
+PATCH /p/teams/{team}/files/{hash}/raw => 403 403 403 403 403
+DELETE /p/teams/{team}/files/{hash}/raw => 403 403 403 403 403
 GET /p/telemetry => 405 405 405 405 405
 POST /p/telemetry => 400 400 400 400 400
 PUT /p/telemetry => 405 405 405 405 405
@@ -1249,7 +1256,7 @@ DELETE /welcome => 401 403 403 403 403
 header 8d5a86f661c53d5d9c2a987bc2a2f3acfd95e2e163aa2b18344201ea0573f383
 files.css dcd93251794ba443091f0adc652e98842ec61049844f90ab07592de304138158
 files.js dc5a452f14d09b597c27ddaa74e677a9e3ee57abf768f36297cce5fe1c2f13ad
-label.css f9a5b385a814d5b7049176e7ac481f9553e4671487a22fece0616874e2d9e207
+label.css f76ca53a91ce777ac5e19cf8b0394a65f04ae1c37e7404f3f4dc634b0c0b69b7
 label.js 0f57b55158405485bb1b8dbf6465e55f882378f66c3055c547acc473984ec060
 labelwriter.css d13fba33faa7673612b492e4046b7b1629e95ee99f8e853142ef7bf5d325e6dc
 labelwriter.js db2346bc9f66818a8ed4772689c5e656111d6d4bf8d008dc6a7d1056080f9460
