@@ -245,8 +245,13 @@ and *Add to the queue* becomes the primary button.
 
 ### The laser
 
-One tab, **Job**, carries the laser flow as numbered steps; Control (jog, home, unlock, set origin, go
-to origin, read settings), Camera and Settings follow. The flow is the owner's HS7b and the device
+A laser's page has a printer's layout (printer.html, laser.html): the head with X, Y and the laser's
+power as chips, and the tabs Now, Queue, Controls, Cameras, Machine and History (no Files, no
+Advanced: a laser has no console). **Now** carries the laser flow as numbered steps in the **Loaded
+job** card, beside the camera, and below them what waits in its queue beside its last jobs; while it
+burns, the card is the job's progress. **Controls** is one card in two columns: Coordinates (X and Y,
+the work area, the pad with its step and speed, Home) and Origin and Machine (set origin, go to origin,
+unlock, read settings); the Loaded job card below it. The flow is the owner's HS7b and the device
 contract's laser rule; the order is the owner's "prepares, frames, PPE, presses Start" and flows.md §4
 (origin, then frame), decided in journal:UI-DESIGN:0011 Q2 (UT-08):
 
@@ -270,10 +275,10 @@ contract's laser rule; the order is the owner's "prepares, frames, PPE, presses 
 the top bar on every tab, so it never scrolls away (UT-01). The queue never starts a laser; a token
 never does.
 
-The Job tab's states (UT-02, from GRBL's states and the job flow; the device's state is said in
+The Loaded job card's states (UT-02, from GRBL's states and the job flow; the device's state is said in
 words):
 
-| State | What the Job tab shows |
+| State | What the Loaded job card shows |
 |---|---|
 | Ready | the five steps, the current one marked |
 | Burning (GRBL `RUN`) | progress, time left and the clock, who started it; Pause; "stay at the laser"; steps 1-4 closed: the running job cannot be taken off, placed again or framed |

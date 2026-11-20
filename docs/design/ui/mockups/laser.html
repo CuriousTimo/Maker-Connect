@@ -46,16 +46,22 @@
 <main id="main" tabindex="-1">
 
 <p class="crumbs"><a href="machines.html">Machines</a> › Laser-A</p>
-<div class="head"><h1>Laser-A</h1><span class="out">Job loaded</span></div>
-<p class="muted" style="margin-top:-8px">Laser · agent (USB) · the laser reports <b>Idle</b></p>
+<div class="mhead card"><div class="mhead-pic"><div class="empty">picture</div></div>
+<div><div class="head"><h1>Laser-A</h1><span class="st">Job loaded</span><span class="st val" title="X, from the left" aria-label="X"><small>X</small><b>120.0</b> mm</span><span class="st val" title="Y, from the front" aria-label="Y"><small>Y</small><b>80.0</b> mm</span><span class="st val" title="Optical power" aria-label="Laser"><small>Laser</small><b>10 W</b></span><span class="rename" data-only="admin instance"><span class="fw"><a class="btn small ghost" href="#lsettings" aria-label="Rename Laser-A">✎</a></span></span></div>
+<p class="muted">Ortur LM2 Pro S2 · agent (USB) · the laser reports <b>Idle</b> · <span class="anno">X and Y live, as the controller tells them; the power as said under Machine</span></p></div>
+<div></div></div>
 <div class="stopbar" role="region" aria-label="Stop Laser-A"><span class="ctl"><span class="fw"><button class="btn danger" type="button" data-cmd="ok" data-pending="Sent 15:50:01. Waiting for Laser-A to answer." data-settled="Stopped 15:50:02: the laser is off; a running job ends as stopped.">Stop</button></span><span class="status" aria-live="polite"></span></span><span>Stop switches the laser off at once and ends a running job. It stays here on every tab. <span class="anno">mc.laser.stop · job.control · GRBL soft reset</span></span></div>
 <p class="note-role" data-only="user"><b>As a member (Sam):</b> you were granted Start burn on Laser-A by name, after the laser course.</p>
 <p class="note-role" data-only="admin"><b>As an admin (Noor):</b> you were not granted Start burn: being admin or owner is not having had the laser course. Grant it in Space, your own included.</p>
 <p class="note-role" data-only="instance"><b>As Ada (owner, instance admin):</b> not granted Start burn either; the same rule holds for an owner.</p>
 <p class="note-role" data-only="guest"><b>As a guest (Eli):</b> you see Laser-A and its job; you cannot stop, move or start it.</p>
-<div class="tabs" role="tablist" aria-label="Laser-A"><a href="#job" role="tab" id="t-job" aria-controls="job">Job</a><a href="#lcontrol" role="tab" id="t-lcontrol" aria-controls="lcontrol">Control</a><a href="#lcamera" role="tab" id="t-lcamera" aria-controls="lcamera">Camera</a><a href="#lsettings" role="tab" id="t-lsettings" aria-controls="lsettings">Settings</a></div>
+<div class="tabs" role="tablist" aria-label="Laser-A"><a href="#job" role="tab" id="t-job" aria-controls="job">Now</a><a href="#lqueue" role="tab" id="t-lqueue" aria-controls="lqueue">Queue</a><a href="#lcontrol" role="tab" id="t-lcontrol" aria-controls="lcontrol">Controls</a><a href="#lcamera" role="tab" id="t-lcamera" aria-controls="lcamera">Cameras</a><a href="#lsettings" role="tab" id="t-lsettings" aria-controls="lsettings">Machine</a><a href="#lhistory" role="tab" id="t-lhistory" aria-controls="lhistory">History</a></div>
 
 <section id="job" role="tabpanel" aria-labelledby="t-job">
+<p class="anno">Now, as a printer's (printer.html): the camera beside this job, then what waits in its queue beside its last jobs. A laser's job is the loaded job and its steps; while it burns, its progress.</p>
+<div class="cols-even">
+<div class="preview cam"><span class="feed" aria-hidden="true">camera picture</span><div class="cam-bar"><b>Cam-Laser-A</b><span class="live">LIVE</span></div></div>
+<div class="card"><h2>Loaded job</h2>
 <div class="banner info"><span>A laser never starts by itself: not from the queue, not from a token. One loaded job per laser; a person at the laser places it, frames it, puts on PPE and presses Start burn.</span></div>
 <p class="anno">Mockup only: pick the state of the Job tab.</p>
 <div class="tabs" role="tablist" aria-label="State of the Job tab (mockup)"><a href="#j-ready" role="tab" id="t-j-ready" aria-controls="j-ready">Ready</a><a href="#j-burning" role="tab" id="t-j-burning" aria-controls="j-burning">Burning</a><a href="#j-door" role="tab" id="t-j-door" aria-controls="j-door">Lid open</a><a href="#j-alarm" role="tab" id="t-j-alarm" aria-controls="j-alarm">Alarm</a><a href="#j-ended" role="tab" id="t-j-ended" aria-controls="j-ended">Ended</a><a href="#j-stopped" role="tab" id="t-j-stopped" aria-controls="j-stopped">Stopped</a><a href="#j-offline" role="tab" id="t-j-offline" aria-controls="j-offline">Hub unreachable</a></div>
@@ -131,19 +137,42 @@
 <div class="stopbar" style="position:static"><span class="ctl"><span class="fw"><button class="btn danger" type="button" aria-disabled="true" aria-describedby="why-2">Stop</button></span><span class="why" id="why-2">Cannot reach the laser: use its own emergency stop or its power switch.</span></span><span>Every other control is greyed out the same way, and every live value reads <span class="unknown">unknown</span> with its last time.</span></div>
 <div class="banner warn" style="margin-top:var(--s-4)"><span><b>Or: the hub answers but Laser-A does not</b> (no report since 15:51; its agent on bench-pc is silent). Stop cannot reach it either: use its own emergency stop or its power switch.</span></div>
 </div>
+</div></div>
+<div class="cols-even" style="margin-top:var(--s-4)">
+<div class="card"><h2>Next in its queue</h2><ul class="list"><li><div class="grow"><b>1 · coaster-set</b><br><small>Sam · plywood 3 mm · waits: a laser never starts from the queue</small></div></li></ul><p><a href="#lqueue">The whole queue</a></p></div>
+<div class="card"><h2>Recent jobs</h2><ul class="list"><li><div class="grow"><b>sign-pine</b><br><small>Sam · 18 Nov 20:10 · 22 min</small></div><span class="out">Done</span></li><li><div class="grow"><b>test-square</b><br><small>Noor · 18 Nov 16:40 · 2 min</small></div><span class="out">Stopped</span></li></ul><p><a href="#lqueue">All jobs</a></p></div>
+</div>
+</section>
+
+<section id="lqueue" role="tabpanel" aria-labelledby="t-lqueue" hidden>
+<div class="card"><h2>Queue on Laser-A</h2><ul class="list"><li><div class="grow"><b>1 · coaster-set</b><br><small>Sam · plywood 3 mm</small></div></li></ul><p><small>A queued laser job is sent to the laser as its loaded job; a person starts it.</small></p></div>
 </section>
 
 <section id="lcontrol" role="tabpanel" aria-labelledby="t-lcontrol" hidden>
-<div class="grid">
-<div class="card"><h2>Jog</h2>
-<div class="jog"><span></span><span class="fw"><button class="btn" type="button" aria-label="Y plus">▲</button></span><span></span><span class="fw"><button class="btn" type="button" aria-label="X minus">◀</button></span><span class="fw"><button class="btn" type="button" aria-label="Go to origin">◎</button></span><span class="fw"><button class="btn" type="button" aria-label="X plus">▶</button></span><span></span><span class="fw"><button class="btn" type="button" aria-label="Y minus">▼</button></span><span></span></div>
-<div class="row" style="margin-top:var(--s-3)" data-act><label class="field">Step<select><option>0.1 mm</option><option selected>1 mm</option><option>10 mm</option><option>50 mm</option></select></label><label class="field">Speed mm/min<input inputmode="numeric" value="3000"></label></div>
-<span class="anno">mc.laser.jog {x, y, feed}, mc.laser.go_origin · device.move; steps as LaserFoundry offers them</span></div>
-<div class="card"><h2>Machine</h2><div class="row"><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Homed at 15:51.">Home</button></span><span class="status" aria-live="polite"></span></span><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Unlocked at 15:51.">Unlock</button></span><span class="status" aria-live="polite"></span></span><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Settings read at 15:51: see Settings.">Read settings</button></span><span class="status" aria-live="polite"></span></span></div>
-<span class="anno">mc.laser.home ($H), mc.laser.unlock ($X) · device.move; mc.laser.read_settings ($$) · device.view</span></div>
-</div>
+<div class="banner info" data-only="guest"><span><b>You may not move Laser-A.</b> That takes 'operate' permission on it; the space's staff give it.</span><span class="fw"><a class="btn small" href="ask-permission.html">Ask for permission</a></span></div>
+<div class="card"><h2>Controls</h2>
+<p class="anno">One card in two columns, as a printer's Controls (printer.html).</p>
+<div class="ctl-cols">
+<div><h3>Coordinates</h3>
+<div class="row"><span class="st val"><small>X</small><b>120.0</b> mm</span><span class="st val"><small>Y</small><b>80.0</b> mm</span></div>
+<div class="empty">the work area, the head where the laser says it is</div>
+<div class="row" style="margin-top:var(--s-3)" role="radiogroup" aria-label="Step in mm"><small>Step</small><span class="chip" aria-pressed="false">0.1</span><span class="chip" aria-pressed="false">1</span><span class="chip" aria-pressed="true">10</span><span class="chip" aria-pressed="false">50</span><small>mm</small></div>
+<div class="row"><label class="field">Speed<select><option>slow</option><option>medium</option><option selected>normal</option><option>fast</option></select></label></div>
+<div class="jog" role="group" aria-label="Move X and Y"><span class="fw"><button class="btn" type="button" aria-label="Move diagonally">↖</button></span><span class="fw"><button class="btn" type="button" aria-label="Y plus">↑</button></span><span class="fw"><button class="btn" type="button" aria-label="Move diagonally">↗</button></span><span class="fw"><button class="btn" type="button" aria-label="X minus">←</button></span><span class="fw"><button class="btn" type="button" aria-label="Home">⌂</button></span><span class="fw"><button class="btn" type="button" aria-label="X plus">→</button></span><span class="fw"><button class="btn" type="button" aria-label="Move diagonally">↙</button></span><span class="fw"><button class="btn" type="button" aria-label="Y minus">↓</button></span><span class="fw"><button class="btn" type="button" aria-label="Move diagonally">↘</button></span></div>
+<p><small>Click the pad, then the arrow keys move it too. The laser stays off while it moves.</small></p>
+<span class="anno">mc.laser.jog {x, y, feed}, mc.laser.home ($H) · device.move; steps as LaserFoundry offers them</span></div>
+<div><h3>Origin</h3>
+<div class="row"><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Origin set at 15:50. Frame it again: a new origin undoes the frame.">Set origin here</button></span><span class="status" aria-live="polite"></span></span><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="At the origin at 15:50.">Go to origin</button></span><span class="status" aria-live="polite"></span></span></div>
+<p><small>A job starts from its origin; the laser forgets it when it restarts.</small></p>
+<span class="anno">mc.laser.set_origin, mc.laser.go_origin · device.move</span>
+<h3>Machine</h3><div class="row"><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Unlocked at 15:51.">Unlock</button></span><span class="status" aria-live="polite"></span></span><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Settings read at 15:51: see Machine.">Read settings</button></span><span class="status" aria-live="polite"></span></span></div>
+<p><small>Unlock after an alarm ($X).</small></p>
+<span class="anno">mc.laser.unlock ($X) · device.move; mc.laser.read_settings ($$) · device.view</span></div>
+</div></div>
+<div class="card"><h2>Loaded job</h2><p><b>sign-oak.gcode</b> · framed at 14:05. Frame and Start burn are here too, beside the pad: <a href="#job">its steps on Now</a>.</p></div>
 <p><small>A laser has no console: nothing but Start burn switches the laser on. Framing is with the laser off only.</small> <span class="anno">decision 20261119-no-raw-gcode-on-a-laser; no frame-power field</span></p>
 </section>
+<section id="lhistory" role="tabpanel" aria-labelledby="t-lhistory" hidden><div class="card"><h2>Commands</h2><ul class="list"><li><div class="grow"><b>Set origin here</b><br><small>Sam · 14:04</small></div><span class="out">done</span></li></ul><span class="anno">what was sent from the hub, and how it went</span></div></section>
 <section id="lcamera" role="tabpanel" aria-labelledby="t-lcamera" hidden><div class="card"><div class="preview cam"><span class="feed" aria-hidden="true">camera picture</span><div class="cam-bar"><b>Cam-Laser-A</b><span class="live">LIVE</span></div></div></div></section>
 <section id="lsettings" role="tabpanel" aria-labelledby="t-lsettings" hidden>
 <div class="card"><dl class="kv"><dt>Work area</dt><dd class="num">400 × 400 mm (from the controller)</dd><dt>Origin</dt><dd>front left</dd><dt>PPE list</dt><dd>laser safety glasses; lid closed and extraction on</dd></dl></div>
