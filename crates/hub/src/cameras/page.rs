@@ -19,7 +19,8 @@ use serde::Deserialize;
 const VIDEO_RTC: &str = include_str!("video-rtc.js");
 
 /// One camera's MSE player: go2rtc's `VideoRTC` element, used as go2rtc's `video-stream.js`
-/// uses it (defined as a custom element), in its `mse` mode, its `src` the camera's websocket.
+/// uses it (a subclass defined as a custom element), in its `mse` mode, its `src` the camera's
+/// websocket. Our UI's choice (owner, 2026-11-20): the video without the browser's controls.
 const LIVE: &str = r#"<!doctype html>
 <html>
 <head>
@@ -27,7 +28,13 @@ const LIVE: &str = r#"<!doctype html>
 <style>html, body { margin: 0; height: 100%; background: #000; } video-rtc { display: block; height: 100%; }</style>
 <script type="module">
 import {VideoRTC} from "../video-rtc.js";
-customElements.define("video-rtc", VideoRTC);
+class Player extends VideoRTC {
+    oninit() {
+        super.oninit();
+        this.video.controls = false;
+    }
+}
+customElements.define("video-rtc", Player);
 const player = document.createElement("video-rtc");
 player.mode = "mse";
 document.body.appendChild(player);
