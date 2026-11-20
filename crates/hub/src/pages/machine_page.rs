@@ -119,6 +119,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         "simplyprint" => "Klipper, through Moonraker",
         _ => "Maker Connect agent",
     };
+    let laser = machine.kind == MachineKind::Laser;
     let subtitle = if machine.name.to_lowercase().contains(&kind.to_lowercase()) {
         link.to_owned()
     } else {
@@ -147,8 +148,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
     {queue_tab}<a href="#controls" role="tab">Controls</a>
     {usb_tab}{camera_link}<a href="#machine" role="tab">Machine</a>
     <a href="#history" role="tab">History</a>
-    <a href="#advanced" role="tab">Advanced</a>
-  </nav>
+    {advanced_tab}</nav>
   <section class="tab" id="overview" role="tabpanel">
 {overview}
   </section>
@@ -206,7 +206,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
             queue_card(machine)
         },
         no_use = before_use(machine, extra),
-        overview = if heats(machine) {
+        overview = if heats(machine) || laser {
             now(machine, profile, extra)
         } else {
             overview(machine, profile, "")
@@ -225,7 +225,16 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         ),
         telemetry = telemetry_tab(machine),
         settings = settings(machine, &extra.move_to, extra.ppe_checks, extra.may_operate),
-        terminal = if extra.may_operate || !store::takes_commands(&machine.link) {
+        // A laser has no console (decision 20261119-no-raw-gcode-on-a-laser): no Advanced tab.
+        advanced_tab = if laser {
+            ""
+        } else {
+            r##"<a href="#advanced" role="tab">Advanced</a>
+  "##
+        },
+        terminal = if laser {
+            String::new()
+        } else if extra.may_operate || !store::takes_commands(&machine.link) {
             terminal(machine)
         } else {
             no_operate(machine, extra)
@@ -427,6 +436,8 @@ fn head(
             ),
             pct("Flow", "flow", ICON_FLOW, t.and_then(|t| t.flow_percent)),
         )
+    } else if machine.kind == MachineKind::Laser {
+        laser_chips(machine, profile)
     } else {
         String::new()
     };
@@ -711,6 +722,29 @@ fn battery_tile(percent: Option<u8>) -> String {
 /// How a heater is doing, as the tiles say it (the script says it the same way).
 /// A heater's line under its temperature: what it heats to, and how it is getting there.
 /// (Whether it has power now is the flame beside its name.) As the page's script says it.
+/// A laser's head chips (laser.html): X and Y where the controller says the head is, live, and
+/// the laser's optical power (as said under Machine, else its profile's).
+fn laser_chips(machine: &Machine, profile: Option<&Profile>) -> String {
+    let t = machine.telemetry.as_ref().filter(|_| machine.online);
+    let axis = |name: &str, key: &str, what: &str, i: usize| {
+        format!(
+            r#"<span class="st val" title="{name}, {what}" aria-label="{name}"><small>{name}</small><b data-live="{key}">{}</b> mm</span>"#,
+            t.and_then(|t| t.position_mm)
+                .filter(|_| !t.is_some_and(|t| t.only_z))
+                .map_or("–".to_owned(), |p| format!("{:.1}", p[i]))
+        )
+    };
+    let power = machine
+        .laser_w
+        .or(profile.and_then(|p| p.laser_w))
+        .map_or(String::new(), |w| {
+            format!(
+                r#"<span class="st val" title="Optical power" aria-label="Laser"><small>Laser</small><b>{w} W</b></span>"#
+            )
+        });
+    axis("X", "pos_x", "from the left", 0) + &axis("Y", "pos_y", "from the front", 1) + &power
+}
+
 /// Which of a preset's temperatures a heater takes (its nozzle's or its bed's).
 type PresetColumn = fn(&(&str, f64, f64)) -> f64;
 
@@ -1761,12 +1795,27 @@ fn now(machine: &Machine, profile: Option<&Profile>, extra: &Extra) -> String {
     format!(
         r##"{notice}<div class="now-row">{camera}{job}</div>
 <div class="now-row"><div class="card"><div class="card-head"><h3>Next in its queue</h3><a href="#queue">The whole queue</a></div><ol class="now-queue" data-now-queue>{queue}</ol></div><div class="card"><div class="card-head"><h3>Recent jobs</h3><a href="#queue">All jobs</a></div><ol class="job-history">{recent}</ol></div></div>"##,
-        job = job_card(machine),
+        job = if machine.kind == MachineKind::Laser {
+            laser_job(machine, extra)
+        } else {
+            job_card(machine)
+        },
         recent = if recent.is_empty() {
             r#"<li class="empty">None yet</li>"#.to_owned()
         } else {
             recent
         },
+    )
+}
+
+/// A laser's job on Now (laser.html): its loaded job and the steps to burn it, above the job
+/// card, which is always there: it carries the laser's Stop (a soft reset, also with no job) and
+/// shows a job's progress live once it burns.
+fn laser_job(machine: &Machine, extra: &Extra) -> String {
+    format!(
+        r#"<div class="stack">{}{}</div>"#,
+        loaded_card(machine, extra),
+        job_card(machine)
     )
 }
 
@@ -1916,23 +1965,41 @@ fn control(
     if fdm {
         return printer_controls(machine, profile, t, loaded, &xyz, &gauge, &home, &button);
     }
-    let mut controls = jog_pad();
-    controls += &format!(
-        r#"<h4>Origin</h4><div class="buttons">{}{}</div><p class="hint">A job starts from its origin. Move the head to the corner of what you work on, then set it; the machine forgets it when it restarts.</p><h4>Machine</h4><div class="buttons">{}</div><p class="hint">Unlock after an alarm ($X).</p>"#,
+    // laser.html: one card in two columns, as a printer's; the loaded job below.
+    let area = profile.map_or(
+        r#"<p class="empty">Choose a profile under Machine to see the work area.</p>"#.to_owned(),
+        |p| {
+            format!(
+                r#"<div class="bed-row">{}{gauge}</div>"#,
+                profiles::bed_svg(p)
+            )
+        },
+    );
+    let left = format!(
+        r#"<h4>Coordinates</h4><div class="xyz">{xyz}</div>{area}{}"#,
+        jog_pad()
+    );
+    // Read settings: what its controller reported is under Machine (the Controller card).
+    let read = if t.is_some_and(|t| t.grbl.is_some()) {
+        button("settings", "Read settings")
+    } else {
+        String::new()
+    };
+    let right = format!(
+        r#"<h4>Origin</h4><div class="buttons">{}{}</div><p class="hint">A job starts from its origin. Move the head to the corner of what you work on, then set it; the machine forgets it when it restarts.</p><h4>Machine</h4><div class="buttons">{}{read}</div><p class="hint">Unlock after an alarm ($X). A laser has no console: nothing but Start burn switches the laser on.</p>"#,
         button("set-origin", "Set origin here"),
         button("go-origin", "Go to origin"),
-        button("unlock", "Unlock")
-    );
-    let form = format!(
-        r#"<form class="command" method="post" action="{}/command">{controls}</form><p class="note" data-command-status role="status"></p>"#,
-        escape(&machine.id)
+        button("unlock", "Unlock"),
     );
     format!(
-        r#"<div class="grid-control">{bed}<div class="stack">{loaded}{}</div></div>"#,
+        r#"{}<div class="grid-2 control-below">{loaded}</div>"#,
         card(
-            "Control",
+            "Controls",
             "Sent one at a time; History lists how each went",
-            &form
+            &format!(
+                r#"<form class="command" method="post" action="{}/command"><div class="ctl-cols"><div>{left}</div><div>{right}</div></div></form><p class="note" data-command-status role="status"></p>"#,
+                escape(&machine.id)
+            )
         ),
     )
 }
@@ -2686,7 +2753,7 @@ fn jog_pad() -> String {
         })
         .collect();
     format!(
-        r#"<h4>Move</h4><div class="jogpad" tabindex="0" data-jogpad aria-label="Move the head: arrow keys move by the step">
+        r#"<div class="jogpad" tabindex="0" data-jogpad aria-label="Move the head: arrow keys move by the step">
   <div class="jog-grid">{pad}</div>
   <div class="jog-settings"><div class="jog-steps" role="radiogroup" aria-label="Step in mm">{steps}<small>mm</small></div>
     <label class="jog-speed">Speed <select name="feed"><option value="600">slow</option><option value="1500">medium</option><option value="3000" selected>normal</option><option value="6000">fast</option></select></label></div>

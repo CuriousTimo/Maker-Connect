@@ -420,6 +420,10 @@ pub(crate) async fn emergency_stop(
     }
 }
 
+/// Why typed G-code to a laser is refused (our text).
+pub(crate) const LASER_NO_GCODE: &str =
+    "a laser takes no typed G-code: only Start burn switches it on";
+
 pub(crate) async fn command(
     access: crate::access::Access,
     State(store): State<Store>,
@@ -441,6 +445,14 @@ pub(crate) async fn command(
         .and_then(|m| m.as_ref())
         .map(|m| m.link.clone());
     let link = link.as_deref();
+    // A laser takes no typed G-code: a line could switch it on without a frame, PPE or a person's
+    // Start (docs/design/decisions/20261119-no-raw-gcode-on-a-laser.md).
+    if !form.gcode.trim().is_empty()
+        && let Ok(Some(machine)) = &found_machine
+        && machine.kind == protocol::MachineKind::Laser
+    {
+        return (StatusCode::BAD_REQUEST, LASER_NO_GCODE).into_response();
+    }
     let mut store = store.lock().unwrap();
     // Switching things off never waits for PPE; everything else does.
     let off = form.gcode.trim().is_empty()
@@ -1078,6 +1090,60 @@ mod tests {
         assert!(!html.contains("You may not move, heat or send G-code"));
         assert!(html.contains(r#"value="jog:0:1""#));
         assert!(html.contains(r#"value="jog:0:0:-1""#));
+    }
+
+    /// A laser takes no typed G-code, also for whoever may operate it (decision
+    /// 20261119-no-raw-gcode-on-a-laser); its page has no terminal and no Advanced tab, and its
+    /// Controls are one card (laser.html): Coordinates with the pad, Origin and Machine.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_laser_takes_no_typed_gcode(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (laser, token) = agent_of(&store, MachineKind::Laser, None).await;
+        let user = store.user_id("tester").await.unwrap().unwrap();
+        let space = store.default_space().await.unwrap().0;
+        store
+            .set_grant(
+                space,
+                &laser,
+                user,
+                crate::access::Level::Operate,
+                user,
+                None,
+            )
+            .await
+            .unwrap();
+        for gcode in ["M3 S1000", "M105"] {
+            let typed = Request::post(format!("/machines/{laser}/command"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("gcode={gcode}")))
+                .unwrap();
+            let (status, why) = call(&app, typed).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{gcode}");
+            assert_eq!(why, LASER_NO_GCODE);
+        }
+        assert!(given(&store, &token).await.is_empty(), "nothing sent");
+        let page = call(
+            &app,
+            Request::get(format!("/machines/{laser}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .1;
+        assert!(!page.contains(r#"<pre class="terminal""#), "no terminal");
+        assert!(!page.contains(r##"href="#advanced""##), "no Advanced tab");
+        assert!(page.contains("<h4>Coordinates</h4>") && page.contains(r#"class="ctl-cols""#));
+        assert!(page.contains(r#"value="set-origin""#) && page.contains(r#"value="jog:1:1""#));
+        assert!(page.contains(r#"data-live="pos_x""#), "X in the head");
+        assert!(
+            page.contains(">Emergency stop (soft reset)</button>"),
+            "its Stop on Now"
+        );
     }
 
     /// HS6: the button's route, per kind: a Marlin machine is sent exactly the typed `M112` (the path
