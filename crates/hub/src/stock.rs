@@ -1565,8 +1565,11 @@ async fn page(access: crate::access::Access, State(store): State<Store>) -> Resp
   </div>
   <p class="stock-line" data-totals></p>
   <div class="toolbar">
-    <nav class="views" role="tablist" aria-label="View">
-      <button type="button" role="tab" data-view="library" aria-selected="true">Library</button>
+    <nav class="views" role="tablist" aria-label="Materials">
+      <button type="button" role="tab" data-view="filament" aria-selected="true">Filament</button>
+      <button type="button" role="tab" data-view="tape" aria-selected="false">Tapes</button>
+      <button type="button" role="tab" data-view="labels" aria-selected="false">Label rolls</button>
+      <button type="button" role="tab" data-view="laser" aria-selected="false">Laser materials</button>
       <button type="button" role="tab" data-view="locations" aria-selected="false">Locations</button>
     </nav>
     <label class="search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg><input type="search" data-search placeholder="Search, or scan: S-0007, L-0002, an EAN, a tag" aria-label="Search or scan" autocomplete="off"><button type="button" class="camera" data-camera title="Scan a QR code or barcode with the camera" aria-label="Scan with the camera"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7V4h3M14 4h3v3M17 13v3h-3M6 16H3v-3M6 10h8"/></svg></button></label>
