@@ -303,7 +303,7 @@ only. The first agent v2 devices (owner): the DYMO LabelManager PnP (labelle sta
 LabelWriter 450 (DYMO CUPS stack, labels), kept as two separate stacks with no shared code.
 
 **Parked:** HS10 (MINI button G-code: owner's choice, lands in the driver after step 5); #2 waits for
-step 5 (the device model first); #4 MK3 PrusaLink HTTP port parked (MK3 to come over `/p/ws`, study §5b);
+step 5 (the device model first); #4 MK3 PrusaLink HTTP port parked (MK3 to come over `/p/ws`, study §5b; 2026-11-19: no longer parked, ported from PrusaLink's `websockets` branch, [decision](../design/decisions/20261119-mk3-reference-prusalink-websockets.md));
 Marlin/OctoPrint port frozen as is (only wrapped by the step 1 adapter); HS11 Klipper and the SimplyPrint
 route (`devices/simplyprint.rs`) frozen, Moonraker mapping later after their example; hosting their
 out-of-process drivers (not built until Prusa publishes the driver methods); modules out of process.

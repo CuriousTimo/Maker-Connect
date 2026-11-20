@@ -70,12 +70,12 @@ owner's decisions in [decisions/](decisions/).
 | #20 | v2 step 7: web UI on the API | [ui.md](ui.md) |
 | #21 | step 1b: LabelWriter 320 adapter, laser frame through `job.frame` | [device-contract.md](device-contract.md#kinds) |
 | #25 | LabelWriter 320 on the LabelWriter stack | [device-contract.md](device-contract.md#kinds) (kind `labelwriter`) |
-| #2 | Buddy 6.4+ WebSocket | [links.md](links.md) L11, [OQ-3](risks-and-open.md#oq-3-telling-the-two-buddy-dialects-apart) |
-| #3 | Buddy 6.3.0 audit rest, HS10 | the `prusa` kind's verbs from Buddy's own menu G-code ([device-contract.md](device-contract.md#kinds)); the hub's own G-code is not carried over and the button rows wait for HS10 (plan §2.2, hub-core-v2.md:89) |
+| #2 | Buddy 6.4+ WebSocket (closed: folded into #18) | [links.md](links.md) L11 |
+| #3 | Buddy audit rest (6.4.0), HS10 | the `prusa` kind's verbs from Buddy's own menu G-code ([device-contract.md](device-contract.md#kinds)); the hub's own G-code is not carried over and the button rows wait for HS10 (plan §2.2, hub-core-v2.md:89) |
 | #22 | Add-machine hostname limit | [ui.md](ui.md#pages) (the dialect's baseline) |
 | #1 | Marlin on Windows | the OctoPrint port on the agent ([device-contract.md](device-contract.md#kinds)); no hub surface |
 | #8 | Marlin audit rows, stale PrusaLink audit | proof of the ports; no hub surface |
-| #4 | MK3 family | not placed: [risks-and-open.md](risks-and-open.md#issues-the-design-cannot-place-yet) |
+| #4 | MK3 family | the `prusa` kind on the agent, ported from PrusaLink `websockets` ([decision](decisions/20261119-mk3-reference-prusalink-websockets.md)); link to the hub [OQ-45](risks-and-open.md#oq-45-how-the-mk3-port-reaches-the-hub) |
 | #9 | Klipper | not placed: [risks-and-open.md](risks-and-open.md#issues-the-design-cannot-place-yet) |
 | #5 | USB webcams into the cameras module | [cameras.md](cameras.md) |
 | #6 | Label editor into Prepare | [ui.md](ui.md#pages); tables [OQ-14](risks-and-open.md#oq-14-tables-of-materials-items-and-labels) |

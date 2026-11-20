@@ -195,7 +195,7 @@ Plan:
 
 Head still 2e8c62b (#23), release only 0.1.0-beta.1; 33 issues/PRs in two days, Prusa staff answer daily.
 - #9: PrusaLink gets a last update **on the WebSocket protocol**, so the MK3S will be supported (staff, no date).
-  → MK3 goes over `/p/ws` like Buddy; our #4 (MK3 PrusaLink HTTP port) stays parked.
+  → MK3 goes over `/p/ws` like Buddy; our #4 (MK3 PrusaLink HTTP port) stays parked. (2026-11-19: no longer parked; #4 follows PrusaLink's `websockets` branch, [decision](../design/decisions/20261119-mk3-reference-prusalink-websockets.md).)
 - #24: **the next PrusaSlicer 3 alpha uploads to local Connect**. → An API-compatible hub gets PrusaSlicer upload
   for free. A community extension already speaks OctoPrint's upload API for PrusaSlicer 2.x (ZachGoldberg/connect-octoprint-upload).
 - #27: they announce `_prusalink._tcp` but `/api/version` is 404 (PrusaSlicer's PrusaLink host fails); open.
@@ -267,7 +267,7 @@ Head still 2e8c62b (#23), release only 0.1.0-beta.1; 33 issues/PRs in two days, 
    owner has reviewed it; the items below are chapters of that design, not separate work.
 2. Then build v2 in the order the design gives (device model, store on Postgres + Timescale, events, command
    records, API, UI).
-3. Parked behind the v2 device model: HS10 (#3), `/p/ws` (#2). Parked: #4 (MK3 PrusaLink HTTP port; Prusa will move
+3. Parked behind the v2 device model: HS10 (#3), `/p/ws` (#2; 2026-11-19: folded into #18). Parked: #4 (MK3 PrusaLink HTTP port; Prusa will move
    PrusaLink to WebSocket, issue #9 on their repo). Frozen as is: the Marlin/OctoPrint port (#8 audit rows).
 4. Absorbed into the v2 design, not done separately: #11 (job history, durable command records), #12 (multi-device
    agent, declared capabilities), #5 (USB cameras as devices), #7 (Spoolman API vs `/api/v1`).
