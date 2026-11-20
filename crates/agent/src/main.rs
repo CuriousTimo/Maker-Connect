@@ -631,37 +631,62 @@ fn page(agent: &Agent) -> String {
     let registration = if !s.token.is_empty() {
         "registered".to_owned()
     } else if let Some(code) = agent.code.lock().unwrap().clone() {
-        format!("in progress: enter <b class=code>{code}</b> on the hub (Space, add a machine)")
+        format!("in progress: code {code}")
     } else {
         "not registered".to_owned()
     };
     let on = s.on;
     let esc = |t: &str| t.replace('&', "&amp;").replace('<', "&lt;").replace('"', "&quot;");
+    let linked = !s.token.is_empty() && on;
+    let (state, state_class) = if !on {
+        ("off", "idle")
+    } else if linked {
+        ("linked", "wait")
+    } else {
+        ("not linked", "warn")
+    };
     format!(
-        r#"<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<meta http-equiv=refresh content=5><title>Maker Connect agent</title><style>
-body{{font:16px system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem;color:#222}}
-h1{{font-size:1.4rem}} section{{border:1px solid #ccc;border-radius:6px;padding:1rem;margin:1rem 0}}
-.code{{font-size:1.6rem;letter-spacing:.1em;color:#5E6B52}} input{{font:inherit;padding:.3rem}} button{{font:inherit;padding:.3rem .8rem}}
-</style></head><body><h1>Maker Connect agent {VERSION}</h1>
-<section><h2>Hub</h2><form method=post action=/hub>
-<label>Address <input name=hostname value="{host}" placeholder="192.168.60.67"></label>
-<label>Port <input name=port size=5 value="{port}"></label>
-<label><input type=checkbox name=tls {tls}> TLS</label> <button>Save</button></form></section>
-<section><h2>DYMO LabelManager PnP</h2>
-<form method=post action=/module><input type=hidden name=on value="{toggle}"><button>{button}</button></form>
-<p>Module: {module}</p><p>Registration: {registration}</p><p>Link: {status}</p>
-<form method=post action=/reset><button>Reset registration</button></form></section>
-</body></html>"#,
+        r#"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+{refresh}<title>Maker Connect agent</title><link rel=icon href="data:image/svg+xml,{icon}"><style>{CSS}
+.code{{font:700 var(--fs-6)/1 var(--mono);letter-spacing:.12em;color:var(--accent-text);margin:var(--s-2) 0 var(--s-3)}}
+.brand .mark svg{{width:100%;height:100%;display:block}} .card form{{margin:0}} .card .row.btns{{margin-top:var(--s-3)}}</style></head><body>
+<header class=top><span class=brand><span class=mark>{MARK}</span><span class=where><b>Maker Connect agent</b><small>{VERSION}</small></span></span></header>
+<main class=bare>
+<div class=head><h1>This agent</h1></div>
+<section class=card><h2>Hub</h2><form method=post action=/hub>
+<div class=row><label class=field>Address <input name=hostname value="{host}" placeholder="192.168.60.67"></label>
+<label class=field style="flex:0 1 7rem">Port <input name=port inputmode=numeric value="{port}" placeholder="8460"></label></div>
+<label class=check><input type=checkbox name=tls {tls}> TLS</label>
+<div class="row btns"><span class=fw><button class="btn primary">Save</button></span></div></form></section>
+<section class="card{off}"><div class=head><h2 style="margin:0">DYMO LabelManager PnP</h2><span class="st {state_class}">{state}</span></div>
+{code_block}<dl class=kv><dt>Module</dt><dd>{module}</dd><dt>Registration</dt><dd>{registration}</dd><dt>Link</dt><dd>{status}</dd></dl>
+<div class="row btns"><form method=post action=/module><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form>
+<form method=post action=/reset><span class=fw><button class="btn ghost">Reset registration</button></span></form></div></section>
+</main></body></html>"#,
+        refresh = if linked || !on { "" } else { "<meta http-equiv=refresh content=5>" },
+        icon = MARK.replace('#', "%23").replace('"', "'").replace('\n', ""),
         host = esc(&s.hostname),
         port = if s.port == 0 { String::new() } else { s.port.to_string() },
         tls = if s.tls { "checked" } else { "" },
+        off = if on { "" } else { " is-off" },
+        code_block = match (s.token.is_empty(), agent.code.lock().unwrap().clone()) {
+            (true, Some(code)) => format!(
+                "<p class=muted>Enter this code on the hub: Space, add a machine.</p><p class=code>{}</p>",
+                esc(&code)
+            ),
+            _ => String::new(),
+        },
         toggle = if on { "0" } else { "1" },
+        toggle_class = if on { "" } else { " primary" },
         button = if on { "Turn off" } else { "Turn on" },
         module = if on { "on" } else { "off" },
         status = esc(&status),
     )
 }
+
+/// The hub's stylesheet and logo mark, so the agent's page is in the house style.
+const CSS: &str = include_str!("../../hub/src/web/mc.css");
+const MARK: &str = include_str!("../../../assets/logo-v2-mark.svg");
 
 fn parse_form(body: &str) -> std::collections::HashMap<String, String> {
     body.split('&')
@@ -679,7 +704,7 @@ fn decode(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%'
-            && i + 2 < bytes.len() + 0
+            && i + 2 < bytes.len()
             && let Ok(b) = u8::from_str_radix(&s[i + 1..i + 3], 16)
         {
             out.push(b);
