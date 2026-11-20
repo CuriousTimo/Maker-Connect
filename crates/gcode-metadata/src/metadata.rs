@@ -158,7 +158,7 @@ static RE_ESTIMATED: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// `str.lower()`
-fn py_lower(s: &str) -> String {
+pub fn py_lower(s: &str) -> String {
     s.to_lowercase()
 }
 

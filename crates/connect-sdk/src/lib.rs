@@ -13,6 +13,8 @@ pub mod command;
 pub mod conditions;
 pub mod consts;
 pub mod errors;
+#[cfg(unix)]
+pub mod fileinfo;
 pub mod models;
 #[cfg(unix)]
 pub mod pyos;
