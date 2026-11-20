@@ -354,12 +354,42 @@ checks (the address the page listens on, or the caller's address). **Decided by:
 V2-DEVICES step 2, from the references; the owner only where a reference is silent and it is a product
 choice (journal:DESIGN-WS:0005).
 
+### OQ-45: How the MK3 port reaches the hub
+
+The MK3 port follows PrusaLink's `websockets` branch ([decision](decisions/20261119-mk3-reference-prusalink-websockets.md)).
+PrusaLink speaks to Connect over `/p/ws` through its SDK (`prusa/connect/printer/ws.py`); the hub serves
+`/p/ws` for Buddy (`buddy-ws`, #18). Two places disagree: [links.md](links.md) says "the MK3 joins over
+`/p/ws`", and [mk3-port-plan.md](../plans/mk3-port-plan.md) §3.4 says the SDK's Connect side is not
+ported and the agent link is the only link. Options: (a) the agent's `prusa` port also ports the SDK's
+WebSocket side and talks `/p/ws` to the hub, as PrusaLink does; (b) the port stops at the SDK's `Printer`
+seam, and its events go over the agent link like every other device.
+
+What the reference's Connect side holds, all of which (b) would leave out (SDK `websockets` @ `c0d7d233`):
+
+- **Onboarding:** `register` posts `/p/register` over HTTP (`prusa/connect/printer/__init__.py:726-739`,
+  `models.py:91`). PrusaLink's own settings and wizard pages start it (`prusa/link/web/settings.py`).
+- **Token:** `/p/register` answers with a temporary `Code` (`__init__.py:756`); a later answer `200` carries
+  the `Token` (`:844-850`). Every request and the socket upgrade send `Fingerprint`, `Timestamp`, the
+  User-Agent headers and `Token` (`make_headers`, `:273-284`). The socket is opened again when the token
+  changes (`ensure_ws_connected`, `:632-639`). PrusaLink keeps the token in its settings
+  (`[service::connect] token`, `prusa/link/config.py:299-307`, written by `web/lib/wizard.py:200`), or
+  takes one typed into the wizard (`web/wizard.py:130-132`).
+- **Telemetry and events** over `/p/ws`. Register and `/p/camera` stay HTTP (`__init__.py:781-783`).
+- **Commands** read from the socket (`handle_ws_message`).
+- **Files:** the lazy file protocol (`fileinfo.py`, SEND_FILE_INFO) and the download of
+  `/p/teams/{team_id}/files/{hash}/raw` (`__init__.py:468`).
+- **The socket:** `ws.py`, with `ping_interval` 30 and `ping_timeout` 10 (`ws.py:62-63`). These are the
+  SDK's own timings, not Buddy's 15 s, so under (a) the hub's `/p/ws` (#18) meets both clients as each
+  of them is.
+
+**Decided by:** the architect,
+before section G1 of the MK3 port, from the references and the device contract.
+
 ## Issues the design cannot place yet
 
 | Issue | Why |
 |---|---|
 | #9 Klipper | The SimplyPrint/Moonraker route is parked (plan §3); no link, device kind or table in v2 until a Moonraker mapping after their example |
-| #4 MK3 family | Parked: the MK3 joins over `/p/ws` once PrusaLink gets WebSocket support (prusa3d/prusa-connect#9); it would then be the `prusa` kind |
 | #10, #6 (tables) | Placed as pages and endpoints; their tables are [OQ-14](#oq-14-tables-of-materials-items-and-labels) |
 
 ## Upstream changes that move a reference or inform the design
@@ -373,13 +403,13 @@ We follow each reference at a pinned commit; an unmerged upstream pull request i
 | prusa3d/prusa-connect#29: path prefix | open | [OQ-24](#oq-24-serving-under-a-path-prefix) |
 | prusa3d/prusa-connect#24, #27: upload from PrusaSlicer | open | [OQ-2](#oq-2-the-3d-printer-rest-surface) |
 | prusa3d/prusa-connect#8: print queue as an extension | open | [OQ-2](#oq-2-the-3d-printer-rest-surface) |
-| prusa3d/prusa-connect#9: MK3S over the WebSocket | open | #4 parked |
+| prusa3d/prusa-connect#9: MK3S over the WebSocket | open | PrusaLink's `websockets` branch is #4's reference ([decision](decisions/20261119-mk3-reference-prusalink-websockets.md)) |
 | prusa3d/prusa-connect#10: material import/export | open | none: ours is Spoolman-compatible |
 | prusa3d/prusa-connect#13, #32, PR #41: Buddy3D camera, RTSP from a container (WebRTC ICE) | open | confirms our MSE-over-WebSocket choice (no ICE); Buddy3D onboarding later |
 | prusa3d/prusa-connect#36: OIDC in settings | open | `identities (provider, subject)` already allows OIDC later |
 | prusa3d/prusa-connect PR #15: allowed origins in settings | open | relates to [OQ-30](#oq-30-origin-check-on-state-changing-requests) |
-| prusa3d/Prusa-Link PR #1049: SET_VALUE for speed, flow, temperatures | open | would change the MK3 reference (#4) when merged and pinned; Buddy 6.3.0's SET_VALUE does not cover these (hub-side.md) |
-| prusa3d/Prusa-Link PRs #1056, #1058, #1059, #1060; SDK 0.9 lazy file protocol | open | the MK3 port's pin will move; informs [OQ-21](#oq-21-a-printers-storage-listing) |
+| prusa3d/Prusa-Link PR #1049: SET_VALUE for speed, flow, temperatures | open | in the MK3 reference (#4): the `websockets` branch carries it as a commit marked WIP (`9b5ab117`, "WIP: Handle SET_VALUE for speed, flow and temperatures"); a port follows the pin as it is |
+| prusa3d/Prusa-Link PRs #1056, #1058, #1059, #1060; SDK 0.9 lazy file protocol | open | in the MK3 reference (#4) on the `websockets` branches; SDK `feat/ws-connect-local` is watched; informs [OQ-21](#oq-21-a-printers-storage-listing) |
 | prusa3d/Prusa-Link#1000: no TRANSFER_FINISHED after a transfer | open | a reference quirk: a port follows its pinned reference as it is |
 | prusa3d/Prusa-Link#1002 WebSocket, #154 multiple instances, #1039 and #943 systemd user units | open | #154 is our #12's question on their side; our agents run as `systemd --user` units; the hub is a system unit ([architecture.md](architecture.md#deployment)) |
 | prusa3d/Prusa-Link PR #1062: Huffman tables for UVC MJPEG | open | not our reference: FFmpeg's `mjpeg2jpeg` is ([cameras.md](cameras.md)) |
