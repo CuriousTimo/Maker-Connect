@@ -66,7 +66,13 @@ impl Legacy {
             mut confirms,
         } = space;
         let now = now();
-        let mut machines: Vec<Machine> = rows.into_iter().map(|r| r.into_machine(now)).collect();
+        let mut machines: Vec<Machine> = rows
+            .into_iter()
+            .map(|r| {
+                let attached = self.attached.contains_key(&r.id);
+                r.into_machine(now, attached)
+            })
+            .collect();
         for machine in &mut machines {
             machine.loaded = loaded.get(&machine.id).cloned();
             if machine.kind == MachineKind::Fdm {

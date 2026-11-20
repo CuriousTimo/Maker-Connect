@@ -193,6 +193,11 @@ async fn link(
     mut socket: axum::extract::ws::WebSocket,
 ) {
     use axum::extract::ws::Message;
+    // Connected while the socket is attached (`Session.Connected`, `xbuddy/session.go:466-471`).
+    let _attached = match store.caller(&token).await {
+        Ok(Some(caller)) => Attached::new(&store, caller.id),
+        _ => return,
+    };
     let mut ping = tokio::time::interval(PING_EVERY);
     ping.tick().await;
     // A command goes out as soon as it is queued, as the reference server sends one when it
@@ -247,6 +252,38 @@ async fn link(
                 }
             }
         }
+    }
+}
+
+/// A printer's `/p/ws` socket, counted in [`crate::store::Legacy::attached`] while it is open.
+struct Attached {
+    store: Store,
+    machine: String,
+}
+
+impl Attached {
+    fn new(store: &Store, machine: String) -> Self {
+        let mut legacy = store.lock().unwrap();
+        *legacy.attached.entry(machine.clone()).or_default() += 1;
+        legacy.changed();
+        drop(legacy);
+        Self {
+            store: store.clone(),
+            machine,
+        }
+    }
+}
+
+impl Drop for Attached {
+    fn drop(&mut self) {
+        let mut legacy = self.store.lock().unwrap();
+        if let Some(n) = legacy.attached.get_mut(&self.machine) {
+            *n -= 1;
+            if *n == 0 {
+                legacy.attached.remove(&self.machine);
+            }
+        }
+        legacy.changed();
     }
 }
 
@@ -899,6 +936,27 @@ mod tests {
             current_job(&mut t);
             assert_eq!(t.job.is_some(), current, "{state}");
         }
+    }
+
+    /// A printer on Prusa Connect is connected while its socket is attached
+    /// (`xbuddy/session.go:466-471`), not while its last frame is recent: Buddy's websocket
+    /// telemetry comes every 15 s when nothing changes (`planner.cpp:97-99`). Closed: offline.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn connected_while_the_socket_is_attached(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let (space, mini, _) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
+        let online = |m: crate::store::Machine| m.online;
+        assert!(!online(store.machine(space, &mini).await.unwrap().unwrap()));
+        let socket = Attached::new(&store, mini.clone());
+        assert!(online(store.machine(space, &mini).await.unwrap().unwrap()));
+        drop(socket);
+        assert!(!online(store.machine(space, &mini).await.unwrap().unwrap()));
     }
 
     /// Bed levelling after a print (G29: BUSY, `jobrefresh.go:76-81`) brings the kept job back

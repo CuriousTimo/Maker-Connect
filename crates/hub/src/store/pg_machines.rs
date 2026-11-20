@@ -59,9 +59,10 @@ pub(crate) struct MachineRow {
 
 impl MachineRow {
     /// The machine as far as its own row tells; [`Legacy::complete_machines`] adds the rest.
-    pub(crate) fn into_machine(self, now: i64) -> Machine {
+    /// `attached`: a `/p/ws` socket of it is open ([`Legacy::attached`]).
+    pub(crate) fn into_machine(self, now: i64, attached: bool) -> Machine {
         let seen = self.last_seen.map(|t| now - t);
-        let online = seen.is_some_and(|s| s <= ONLINE_SECONDS);
+        let online = attached || seen.is_some_and(|s| s <= ONLINE_SECONDS);
         let kind = self.kind;
         Machine {
             laser_framed: false,
@@ -860,7 +861,8 @@ impl Store {
             .await?;
         Ok(found.map(|r| {
             let space = r.space_id;
-            (r.into_machine(now()), space)
+            let attached = self.lock().unwrap().attached.contains_key(&r.id);
+            (r.into_machine(now(), attached), space)
         }))
     }
 }

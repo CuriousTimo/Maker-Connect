@@ -190,7 +190,9 @@ impl Legacy {
     }
 
     fn fail_pending_of_gone(&mut self, caller: &Caller, reason: &str) {
-        if caller.seen_seconds_ago.is_none_or(|s| s <= ONLINE_SECONDS) {
+        if self.attached.contains_key(&caller.id)
+            || caller.seen_seconds_ago.is_none_or(|s| s <= ONLINE_SECONDS)
+        {
             return;
         }
         let mut any = false;
