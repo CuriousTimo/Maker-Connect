@@ -736,8 +736,8 @@ fn laser_chips(machine: &Machine, profile: Option<&Profile>) -> String {
         format!(
             r#"<span class="st val" title="{name}, {what}" aria-label="{name}"><small>{name}</small><b data-live="{key}">{}</b> mm</span>"#,
             t.and_then(|t| t.position_mm)
-                .filter(|_| !t.is_some_and(|t| t.only_z))
-                .map_or("–".to_owned(), |p| format!("{:.1}", p[i]))
+                .and_then(|p| p[i])
+                .map_or("–".to_owned(), |v| format!("{v:.1}"))
         )
     };
     let power = machine
@@ -868,7 +868,8 @@ fn position_tiles(machine: &Machine) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
     let axis = |i: usize| {
         t.and_then(|t| t.position_mm)
-            .map(|p| format!("{:.1}", p[i]))
+            .and_then(|p| p[i])
+            .map(|v| format!("{v:.1}"))
     };
     tile(
         "X",
@@ -1899,16 +1900,15 @@ fn control(
     refused: &str,
 ) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
+    // An axis the machine has not told: "–".
     let position = t.and_then(|t| t.position_mm);
-    // X and Y not told now (a Prusa printing tells only Z): "–", not the last ones told.
-    let only_z = t.is_some_and(|t| t.only_z);
     let z_max = profile.map_or(0.0, |p| p.build_volume_mm[2]);
     let axis = |name: &str, key: &str, i: usize| {
         format!(
             r#"<span><small>{name}</small><b data-live="{key}">{}</b><small>mm</small></span>"#,
             position
-                .filter(|_| i == 2 || !only_z)
-                .map_or("–".to_owned(), |p| format!("{:.1}", p[i]))
+                .and_then(|p| p[i])
+                .map_or("–".to_owned(), |v| format!("{v:.1}"))
         )
     };
     let xyz = axis("X", "pos_x", 0)
@@ -1920,7 +1920,9 @@ fn control(
         };
     // Z beside the bed, as a bar that fills to the head's height.
     let gauge = if z_max > 0.0 {
-        let filled = position.map_or(0.0, |p| (p[2] as f64 / z_max * 100.0).clamp(0.0, 100.0));
+        let filled = position
+            .and_then(|p| p[2])
+            .map_or(0.0, |z| (z as f64 / z_max * 100.0).clamp(0.0, 100.0));
         format!(
             r#"<div class="zgauge" data-z-max="{z_max}" title="Z, of {z_max} mm"><span>{z_max}</span><div class="ztrack"><i data-z-fill style="height: {filled:.1}%"></i></div><span>0</span></div>"#
         )
@@ -2255,8 +2257,10 @@ fn telemetry_tab(machine: &Machine) -> String {
         live_row(
             "Position",
             "position",
-            t.and_then(|t| t.position_mm)
-                .map(|[x, y, z]| format!("{x:.1} · {y:.1} · {z:.1} mm")),
+            t.and_then(|t| t.position_mm).map(|p| {
+                let axis = |v: Option<f32>| v.map_or("–".to_owned(), |v| format!("{v:.1}"));
+                format!("{} · {} · {} mm", axis(p[0]), axis(p[1]), axis(p[2]))
+            }),
         ),
         live_row("Speed", "speed", percent(t.and_then(|t| t.speed_percent))),
     ]

@@ -134,7 +134,7 @@ fn a_command_is_not_waited_for() {
     let said = run.answer(ticket).unwrap();
     assert_eq!(said, ["> $H", "ok"]);
     run.until("the head home", |r| {
-        r.telemetry.position_mm == Some([0.0, 0.0, 0.0])
+        r.telemetry.position_mm == Some([Some(0.0), Some(0.0), Some(0.0)])
     });
 }
 
@@ -373,7 +373,7 @@ fn settings_are_read_and_jogs_go_through() {
     run.send("$J=G90 G21 X20 Y30 F3000").unwrap();
     run.send("$J=G91 G21 X5 F3000").unwrap();
     run.until("the head", |r| {
-        r.telemetry.position_mm == Some([25.0, 30.0, 0.0])
+        r.telemetry.position_mm == Some([Some(25.0), Some(30.0), Some(0.0)])
     });
     assert!(run.send("$J=G91 Z5 F100").is_err(), "X and Y only");
 }
@@ -386,11 +386,11 @@ fn the_origin_is_set_and_gone_back_to() {
     run.send("G92 X0 Y0").unwrap();
     run.send("$J=G91 G21 X10 Y-5 F3000").unwrap();
     run.until("moved", |r| {
-        r.telemetry.position_mm == Some([50.0, 10.0, 0.0])
+        r.telemetry.position_mm == Some([Some(50.0), Some(10.0), Some(0.0)])
     });
     run.send("G90 G0 X0 Y0").unwrap();
     run.until("back", |r| {
-        r.telemetry.position_mm == Some([40.0, 15.0, 0.0])
+        r.telemetry.position_mm == Some([Some(40.0), Some(15.0), Some(0.0)])
     });
 }
 

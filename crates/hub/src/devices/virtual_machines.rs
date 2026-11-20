@@ -700,7 +700,7 @@ impl Sim {
             bed_heating: fdm.then_some(self.bed_target > 0.0 && self.bed < self.bed_target + 0.5),
             print_fan_rpm: fdm.then(|| u32::from(self.fan) * 5200 / 255),
             hotend_fan_rpm: fdm.then_some(if self.nozzle > 50.0 { 6800 } else { 0 }),
-            position_mm: Some(self.position.map(round)),
+            position_mm: Some(self.position.map(|v| Some(round(v)))),
             speed_percent: Some(self.speed),
             flow_percent: fdm.then_some(self.flow),
             material: fdm.then(|| "PLA".to_owned()),

@@ -115,15 +115,19 @@ const PROBE_LABEL: &str = "Probe the bed";
 /// Prusa Connect's `core.command.mesh_bed_leveling`, as Prusa's server sends it to a printer on
 /// Buddy (`reference/prusa-connect` `internal/connector/xbuddy/verbs.go:41`, `:303-308`: a G-code
 /// frame, `fixedGCode("G28\r\nG29")`, a full home first; the same bytes in `wire_test.go:29`).
-/// - Who: the MINI's profile has it (`internal/printer/profile/profiles.json:2368`). That profile
-///   covers firmware from `6.4.0-0` up (`:2286-2291`); a firmware no profile covers gets the
-///   driver's baseline bounded by what the profiles cover between them
-///   (`internal/printer/capability/resolver.go:9-11`), and every profile there has it. So the
-///   server offers it to a MINI on any firmware: no version gate here.
+/// - Who: all 13 profiles in `internal/printer/profile/profiles.json` have
+///   `core.command.mesh_bed_leveling` with `"flag": true`: CoreOne (`:96`), CoreOneL (`:558`),
+///   CoreOneL_INDX (`:1020`), CoreOne_INDX (`:1486`), IX (`:1944`), MINI (`:2368`), MK3.5
+///   (`:2784`), MK3.5S (`:3208`), MK3.9 (`:3632`), MK3.9S (`:4056`), MK4 (`:4480`), MK4S
+///   (`:4904`), XL (`:5328`). The MINI's profile covers firmware from `6.4.0-0` up
+///   (`:2286-2291`); a firmware no profile covers gets the driver's baseline bounded by what the
+///   profiles cover between them (`internal/printer/capability/resolver.go:9-11`), which has it
+///   too. So the server offers it to every Buddy printer on any firmware: no model or version
+///   gate here.
 /// - When: not a `stateChecked` verb (`verbs.go:190-193`): the server sends it in any state, and
 ///   the firmware decides.
 /// - By whom: an operate action (`internal/authz/generatedverbs.go:80`), as our Controls are.
-/// - Label: the server has none but its key; ours is that key's words.
+/// - Label (ours): the server has only the key; "Mesh bed leveling" is that key's words.
 ///
 /// No mesh comes back over Prusa Connect.
 pub(crate) const MESH_BED_LEVELING: (&str, &str) = ("Mesh bed leveling", "G28\r\nG29");

@@ -423,7 +423,7 @@ impl Edge {
                 })
                 .collect();
         }
-        t.position_mm = inner.position;
+        t.position_mm = inner.position.map(|p| p.map(Some));
         t.sd_card = inner.sd_ready;
         if let Some(job) = &inner.job {
             t.job = Some(JobProgress {

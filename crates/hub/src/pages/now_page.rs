@@ -204,7 +204,9 @@ const NOW_SCRIPT: &str = r#"
     }).join("") : '<li class="clear">✓ All clear</li>';
 
     // Ends next: what runs, by when it ends.
-    const running = machines.filter((m) => m.online && m.telemetry?.job)
+    // A Prusa on Connect keeps its job's last progress after the print, as Prusa's server keeps
+    // /job/*: what runs is a busy or paused machine's.
+    const running = machines.filter((m) => m.online && m.telemetry?.job && ["busy", "paused"].includes(m.telemetry.state))
       .sort((a, b) => (a.telemetry.job.remaining_s ?? 1e12) - (b.telemetry.job.remaining_s ?? 1e12));
     document.querySelector("[data-ends]").innerHTML = running.length ? running.map((m) => {
       const j = m.telemetry.job, pct = Math.round((j.done * 100) / Math.max(1, j.total));
