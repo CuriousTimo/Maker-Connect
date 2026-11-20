@@ -298,7 +298,10 @@ fn head(
             )
         };
         let mut items = item("Off", 0.0);
-        for preset in PREHEAT_PRESETS.iter().filter(|p| pick(p) <= max) {
+        for preset in crate::commands::PREHEAT_PRESETS
+            .iter()
+            .filter(|p| pick(p) <= max)
+        {
             items.push_str(&item(
                 &format!("{} <span>{:.0} °C</span>", preset.0, pick(preset)),
                 pick(preset),
@@ -705,21 +708,6 @@ fn battery_tile(percent: Option<u8>) -> String {
 /// How a heater is doing, as the tiles say it (the script says it the same way).
 /// A heater's line under its temperature: what it heats to, and how it is getting there.
 /// (Whether it has power now is the flame beside its name.) As the page's script says it.
-/// The preheat presets a head's heater offers (material, nozzle °C, bed °C): Prusa Connect's
-/// `PREHEAT_PRESETS` (packages/svelte/src/domain/preheat.ts @2e8c62b), the firmware's own list.
-const PREHEAT_PRESETS: [(&str, f64, f64); 10] = [
-    ("PLA", 215.0, 60.0),
-    ("PETG", 230.0, 85.0),
-    ("ASA", 260.0, 100.0),
-    ("ABS", 255.0, 100.0),
-    ("PC", 275.0, 100.0),
-    ("FLEX", 240.0, 50.0),
-    ("HIPS", 220.0, 100.0),
-    ("PP", 240.0, 100.0),
-    ("PVB", 215.0, 75.0),
-    ("PA", 285.0, 100.0),
-];
-
 /// Which of a preset's temperatures a heater takes (its nozzle's or its bed's).
 type PresetColumn = fn(&(&str, f64, f64)) -> f64;
 

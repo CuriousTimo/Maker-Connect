@@ -94,7 +94,7 @@ pub(crate) fn action(name: &str) -> Option<(&'static str, &'static str)> {
         "z+" => ("Z +10 mm", "G91\nG1 Z10 F600\nG90"),
         "z-" => ("Z −10 mm", "G91\nG1 Z-10 F600\nG90"),
         "preheat-pla" => ("Preheat PLA (215/60 °C)", "M104 S215\nM140 S60"),
-        "preheat-petg" => ("Preheat PETG (240/80 °C)", "M104 S240\nM140 S80"),
+        "preheat-petg" => ("Preheat PETG (230/85 °C)", "M104 S230\nM140 S85"),
         "cooldown" => ("Cool down", "M104 S0\nM140 S0"),
         "unlock" => ("Unlock", "$X"),
         "fan-on" => ("Print fan on", "M106 S255"),

@@ -62,6 +62,22 @@ fn refused_now(
     None
 }
 
+/// The preheat presets (material, nozzle °C, bed °C): one list for the head's menu and Controls'
+/// Preheat buttons. Prusa Connect's `PREHEAT_PRESETS` (packages/svelte/src/domain/preheat.ts
+/// @2e8c62b), the firmware's own list.
+pub(crate) const PREHEAT_PRESETS: [(&str, f64, f64); 10] = [
+    ("PLA", 215.0, 60.0),
+    ("PETG", 230.0, 85.0),
+    ("ASA", 260.0, 100.0),
+    ("ABS", 255.0, 100.0),
+    ("PC", 275.0, 100.0),
+    ("FLEX", 240.0, 50.0),
+    ("HIPS", 220.0, 100.0),
+    ("PP", 240.0, 100.0),
+    ("PVB", 215.0, 75.0),
+    ("PA", 285.0, 100.0),
+];
+
 /// The commands the website offers: a label and its G-code. Moves are relative, 10 mm.
 /// A button of the website for a machine behind an agent, as typed commands (exactly the
 /// controls the pages offer, owner's approval O8). Its step and speed from the page's lists
@@ -197,7 +213,7 @@ fn agent_actions(
             },
         ),
         "preheat-pla" => heat("Preheat PLA (215/60 °C)", 215.0, 60.0),
-        "preheat-petg" => heat("Preheat PETG (240/80 °C)", 240.0, 80.0),
+        "preheat-petg" => heat("Preheat PETG (230/85 °C)", 230.0, 85.0),
         "cooldown" => heat("Cool down", 0.0, 0.0),
         "fan-on" => one("Print fan on", Action::Fan { on: true }),
         "fan-off" => one("Print fan off", Action::Fan { on: false }),
@@ -592,7 +608,19 @@ pub(crate) async fn command(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::link::tests::{call, json};
+
+    /// Controls' Preheat buttons and the legacy G-code follow PREHEAT_PRESETS (one list).
+    #[test]
+    fn the_preheat_buttons_are_the_presets() {
+        for (action, material) in [("preheat-pla", "PLA"), ("preheat-petg", "PETG")] {
+            let (_, nozzle, bed) = PREHEAT_PRESETS.iter().find(|p| p.0 == material).unwrap();
+            let (label, gcode) = crate::devices::legacy_gcode::action(action).unwrap();
+            assert_eq!(gcode, format!("M104 S{nozzle}\nM140 S{bed}"), "{action}");
+            assert!(label.contains(&format!("({nozzle}/{bed} °C)")), "{label}");
+        }
+    }
 
     use axum::body::Body;
     use axum::http::Request;
