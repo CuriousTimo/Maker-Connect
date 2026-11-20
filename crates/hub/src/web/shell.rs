@@ -339,7 +339,8 @@ mod tests {
 
     #[test]
     fn the_chrome_is_the_designs() {
-        let chrome = Chrome::new("Workshop <North>", "", "stock")
+        // The same in every build: without Prepare and Cameras (their entries are tested apart).
+        let chrome = Chrome::with("Workshop <North>", "", "stock", false, false)
             .render()
             .unwrap();
         snapshot("chrome-stock.html", &chrome);

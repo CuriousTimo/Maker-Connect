@@ -471,7 +471,7 @@ pub(crate) async fn machine_tab(
         ));
     }
     let preview = format!(
-        r#"<div class="card now-cam"><div class="card-head"><h3><a href="#cameras">{name}</a></h3></div>{}</div>"#,
+        r##"<div class="card now-cam"><div class="card-head"><h3><a href="#cameras">{name}</a></h3></div>{}</div>"##,
         player(first.id, &first.name),
         name = escape(&first.name),
     );

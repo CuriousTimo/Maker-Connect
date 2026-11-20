@@ -2870,6 +2870,32 @@ mod tests {
         // The status of each method on each path, for no session and for each role.
         text.push_str("# status: method path, then none guest member admin owner\n");
         let skipped = [(Method::POST, "/agents/update")];
+        // A new hub: the store emptied again, its owner and organisation, and a session for
+        // no one and for each role.
+        async fn new_hub(pool: &sqlx::PgPool) -> (World, Vec<Option<String>>) {
+            let store = Store::fresh_for_test(pool).await;
+            let w = World {
+                app: crate::app(store.clone()),
+                store,
+            };
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            let (org, _) = w
+                .store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
+                .unwrap();
+            let mut cookies: Vec<Option<String>> = vec![None];
+            for role in [Role::Guest, Role::Member, Role::Admin, Role::Owner] {
+                let name = role.as_str();
+                cookies.push(Some(w.person(name, Some((org, role)), None).await.1));
+            }
+            (w, cookies)
+        }
+        let mut fresh: Option<(World, Vec<Option<String>>)> = None;
         for path in &paths {
             let mut address = String::new();
             let mut rest = path.as_str();
@@ -2891,27 +2917,14 @@ mod tests {
                 Method::PATCH,
                 Method::DELETE,
             ] {
-                // A new hub for each call (the database emptied again).
-                let store = Store::fresh_for_test(&pool).await;
-                let w = World {
-                    app: crate::app(store.clone()),
-                    store,
-                };
-                let owner = w
-                    .store
-                    .create_user("olga", "Olga", "x", false)
-                    .await
-                    .unwrap();
-                let (org, _) = w
-                    .store
-                    .create_organisation("Fablab", "Werkplaats", owner)
-                    .await
-                    .unwrap();
-                let mut cookies: Vec<Option<String>> = vec![None];
-                for role in [Role::Guest, Role::Member, Role::Admin, Role::Owner] {
-                    let name = role.as_str();
-                    cookies.push(Some(w.person(name, Some((org, role)), None).await.1));
+                // Every line starts on a new hub (the database emptied again). A line whose
+                // calls were all refused before a handler ran (401, 403, 405) leaves the hub as
+                // it was, so the next line keeps it.
+                if fresh.is_none() {
+                    fresh = Some(new_hub(&pool).await);
                 }
+                let (w, cookies) = fresh.as_ref().unwrap();
+                let mut keep = true;
                 let needed = need(&method, path);
                 let mut line = format!("{method} {path} =>");
                 for (i, cookie) in cookies.iter().enumerate() {
@@ -2937,7 +2950,12 @@ mod tests {
                         .oneshot(request.body(Body::empty()).unwrap())
                         .await
                         .unwrap();
-                    let _ = write!(line, " {}", response.status().as_u16());
+                    let status = response.status().as_u16();
+                    keep &= matches!(status, 401 | 403 | 405);
+                    let _ = write!(line, " {status}");
+                }
+                if !keep {
+                    fresh = None;
                 }
                 text.push_str(&line);
                 text.push('\n');
