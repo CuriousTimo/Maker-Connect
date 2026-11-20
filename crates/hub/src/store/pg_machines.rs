@@ -75,7 +75,13 @@ impl MachineRow {
             telemetry: self
                 .telemetry
                 .filter(|_| online)
-                .and_then(|t| serde_json::from_str(&t).ok()),
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .map(|mut t| {
+                    if self.link == "prusa-connect" {
+                        crate::devices::prusa_connect::current_job(&mut t);
+                    }
+                    t
+                }),
             profile: self.profile,
             profile_chosen: self.profile_chosen,
             details: self.details.and_then(|d| serde_json::from_str(&d).ok()),

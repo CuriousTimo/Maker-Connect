@@ -708,7 +708,7 @@ impl GrblMachine {
             position_mm: status
                 .filter(|s| !s.position_is_work)
                 .and_then(|s| s.position)
-                .map(|(x, y, z)| [x as f32, y as f32, z as f32]),
+                .map(|(x, y, z)| [Some(x as f32), Some(y as f32), Some(z as f32)]),
             job_id: self.running(),
             job,
             problem: self.problem.clone(),

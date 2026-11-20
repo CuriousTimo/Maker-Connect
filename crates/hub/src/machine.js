@@ -563,11 +563,11 @@
         : null,
       print_fan_n: t.print_fan_rpm != null ? String(t.print_fan_rpm) : null,
       hotend_fan_n: t.hotend_fan_rpm != null ? String(t.hotend_fan_rpm) : null,
-      // X and Y not told now (a Prusa printing tells only Z): not shown as if they were.
-      pos_x: p && !t.only_z ? fixed(p[0]) : null,
-      pos_y: p && !t.only_z ? fixed(p[1]) : null,
+      // An axis the machine has not told is null: "–".
+      pos_x: p && fixed(p[0]),
+      pos_y: p && fixed(p[1]),
       pos_z: p && fixed(p[2]),
-      position: p && (t.only_z ? `Z ${p[2].toFixed(1)} mm` : p.map((n) => n.toFixed(1)).join(" · ") + " mm"),
+      position: p && p.map((n) => (n != null ? n.toFixed(1) : "–")).join(" · ") + " mm",
       speed: t.speed_percent != null ? `${t.speed_percent} %` : null,
       flow: t.flow_percent != null ? `${t.flow_percent} %` : null,
       material: t.material,
@@ -614,7 +614,7 @@
     }
     showJob(m, t);
     const gauge = document.querySelector("[data-z-fill]");
-    if (gauge && p) {
+    if (gauge && p && p[2] != null) {
       const max = +document.querySelector("[data-z-max]").dataset.zMax;
       gauge.style.height = `${Math.min(100, Math.max(0, (p[2] / max) * 100))}%`;
     }
@@ -626,8 +626,9 @@
     // The head on the bed, where the machine says it is.
     const bed = document.querySelector("svg.bed"), head = bed?.querySelector(".head");
     if (head) {
-      head.setAttribute("visibility", p && !t.only_z ? "visible" : "hidden");
-      if (p) head.setAttribute("transform", `translate(${p[0]} ${bed.dataset.depth - p[1]})`);
+      const placed = p && p[0] != null && p[1] != null;
+      head.setAttribute("visibility", placed ? "visible" : "hidden");
+      if (placed) head.setAttribute("transform", `translate(${p[0]} ${bed.dataset.depth - p[1]})`);
     }
 
     if (m.online && t.nozzle_c != null) {

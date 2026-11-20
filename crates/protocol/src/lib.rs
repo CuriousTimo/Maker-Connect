@@ -145,13 +145,10 @@ pub struct Telemetry {
     pub print_fan_rpm: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hotend_fan_rpm: Option<u32>,
-    /// Where the tool is: X, Y, Z (Marlin's M114).
+    /// Where the tool is: X, Y, Z (Marlin's M114); an axis the machine has not told is `None`
+    /// (a Prusa on Connect that has told only Z).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub position_mm: Option<[f32; 3]>,
-    /// Only Z of `position_mm` is current: the machine does not tell X and Y now (a Prusa
-    /// on Connect while it prints); X and Y there are the last it told.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub only_z: bool,
+    pub position_mm: Option<[Option<f32>; 3]>,
     /// The speed factor (M220), 100 as sliced.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed_percent: Option<f32>,
@@ -161,9 +158,23 @@ pub struct Telemetry {
     /// The material loaded ("PETG"), where the machine knows it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub material: Option<String>,
+    /// A Prusa on Connect's tools as Prusa's server holds them on its tool tree: by tool id
+    /// (`"0"`, `"1"`, `"0.0"`), each member's value by its name (`nozzle_temp`, `active`, ...)
+    /// (`reference/prusa-connect` `sdk/connectorapi/tools.go`). The values above (`nozzle_c`,
+    /// `tools`, the fans, `material`) are read off it.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub tool_tree: std::collections::BTreeMap<String, serde_json::Map<String, serde_json::Value>>,
     /// The job the machine runs now (its progress is [`Telemetry::job`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_id: Option<i64>,
+    /// A printer on Prusa Connect: the machine's own word, `/state` of the server's state tree
+    /// (PRINTING, BUSY, IDLE, …; [`Telemetry::state`] merges PRINTING and BUSY).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub printer_state: Option<String>,
+    /// A printer on Prusa Connect: the print's own word, `/job/state` of the server's state tree
+    /// (PRINTING, PAUSED, FINISHED, STOPPED, IDLE), kept as the server's connector keeps it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_state: Option<String>,
     /// A GRBL machine's settings, once read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grbl: Option<GrblSettings>,

@@ -266,7 +266,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
             ),
             None => String::new(),
         },
-        bed_level = if heats(machine) {
+        bed_level = if shows_bed_mesh(machine) {
             format!(
                 r#"<section class="tab" id="bedlevel" role="tabpanel" hidden>
 {}
@@ -670,6 +670,16 @@ fn heats(machine: &Machine) -> bool {
     machine.kind == MachineKind::Fdm
 }
 
+/// Whether the page has the bed mesh (its view and Probe bed): a printer that heats, and not one
+/// on Prusa Connect, whose protocol carries no mesh. Buddy's Connect client sends none
+/// (Prusa-Firmware-Buddy v8.0.2 `src/connect`: no mesh in its telemetry, `render.cpp:124-306`,
+/// nor in its events), and Prusa's server keeps none (`reference/prusa-connect`
+/// `internal/connector/xbuddy/inbound.go:136-159`, the telemetry it keeps). Ours: hiding the
+/// section (the server has no page to hide it on).
+fn shows_bed_mesh(machine: &Machine) -> bool {
+    heats(machine) && machine.link != "prusa-connect"
+}
+
 /// A tile: a label, a big live value with its unit, and a live line below.
 fn tile(
     label: &str,
@@ -715,8 +725,8 @@ fn laser_chips(machine: &Machine, profile: Option<&Profile>) -> String {
         format!(
             r#"<span class="st val" title="{name}, {what}" aria-label="{name}"><small>{name}</small><b data-live="{key}">{}</b> mm</span>"#,
             t.and_then(|t| t.position_mm)
-                .filter(|_| !t.is_some_and(|t| t.only_z))
-                .map_or("–".to_owned(), |p| format!("{:.1}", p[i]))
+                .and_then(|p| p[i])
+                .map_or("–".to_owned(), |v| format!("{v:.1}"))
         )
     };
     let power = machine
@@ -847,7 +857,8 @@ fn position_tiles(machine: &Machine) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
     let axis = |i: usize| {
         t.and_then(|t| t.position_mm)
-            .map(|p| format!("{:.1}", p[i]))
+            .and_then(|p| p[i])
+            .map(|v| format!("{v:.1}"))
     };
     tile(
         "X",
@@ -1844,16 +1855,15 @@ fn control(
     refused: &str,
 ) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
+    // An axis the machine has not told: "–".
     let position = t.and_then(|t| t.position_mm);
-    // X and Y not told now (a Prusa printing tells only Z): "–", not the last ones told.
-    let only_z = t.is_some_and(|t| t.only_z);
     let z_max = profile.map_or(0.0, |p| p.build_volume_mm[2]);
     let axis = |name: &str, key: &str, i: usize| {
         format!(
             r#"<span><small>{name}</small><b data-live="{key}">{}</b><small>mm</small></span>"#,
             position
-                .filter(|_| i == 2 || !only_z)
-                .map_or("–".to_owned(), |p| format!("{:.1}", p[i]))
+                .and_then(|p| p[i])
+                .map_or("–".to_owned(), |v| format!("{v:.1}"))
         )
     };
     let xyz = axis("X", "pos_x", 0)
@@ -1865,7 +1875,9 @@ fn control(
         };
     // Z beside the bed, as a bar that fills to the head's height.
     let gauge = if z_max > 0.0 {
-        let filled = position.map_or(0.0, |p| (p[2] as f64 / z_max * 100.0).clamp(0.0, 100.0));
+        let filled = position
+            .and_then(|p| p[2])
+            .map_or(0.0, |z| (z as f64 / z_max * 100.0).clamp(0.0, 100.0));
         format!(
             r#"<div class="zgauge" data-z-max="{z_max}" title="Z, of {z_max} mm"><span>{z_max}</span><div class="ztrack"><i data-z-fill style="height: {filled:.1}%"></i></div><span>0</span></div>"#
         )
@@ -1982,8 +1994,18 @@ fn printer_controls(
         )
     };
     let pad = printer_pad();
+    // A printer on Prusa Connect: the server's Mesh bed leveling beside Home (crate::probe_gcode);
+    // others measure from their bed level section, where the mesh comes back.
+    let level = if machine.link == "prusa-connect" {
+        button(
+            "probe-bed",
+            crate::devices::legacy_gcode::MESH_BED_LEVELING.0,
+        )
+    } else {
+        String::new()
+    };
     let left = format!(
-        r#"<h4>Coordinates</h4><div class="xyz">{xyz}</div>{bed}{pad}<div class="buttons">{home}{}</div><h4>Extruder</h4><div class="buttons">{}{}</div><p class="hint">10 mm at a time; the nozzle must be hot (the printer refuses a cold extrusion).</p>{fan}"#,
+        r#"<h4>Coordinates</h4><div class="xyz">{xyz}</div>{bed}{pad}<div class="buttons">{home}{level}{}</div><h4>Extruder</h4><div class="buttons">{}{}</div><p class="hint">10 mm at a time; the nozzle must be hot (the printer refuses a cold extrusion).</p>{fan}"#,
         button("motors-off", "Motors off"),
         button("extrude", "Extrude 10 mm"),
         button("retract", "Retract 10 mm"),
@@ -2181,8 +2203,10 @@ fn telemetry_tab(machine: &Machine) -> String {
         live_row(
             "Position",
             "position",
-            t.and_then(|t| t.position_mm)
-                .map(|[x, y, z]| format!("{x:.1} · {y:.1} · {z:.1} mm")),
+            t.and_then(|t| t.position_mm).map(|p| {
+                let axis = |v: Option<f32>| v.map_or("–".to_owned(), |v| format!("{v:.1}"));
+                format!("{} · {} · {} mm", axis(p[0]), axis(p[1]), axis(p[2]))
+            }),
         ),
         live_row("Speed", "speed", percent(t.and_then(|t| t.speed_percent))),
     ]
@@ -2717,6 +2741,43 @@ mod tests {
             overview(&machine, None, "")
                 .contains(r#"<span data-live="scale">Weighing... · 123.4 g</span>"#)
         );
+    }
+
+    /// A command's outcome is words on its own filled block (`.badge.finished`, `.badge.rejected`):
+    /// no rule outside the job lists recolours a badge's words without its block, which left them
+    /// in the block's own colour (green on green in the dark theme).
+    #[test]
+    fn a_badge_keeps_its_words_readable() {
+        for rule in MACHINE_STYLE.split('}') {
+            let Some((selector, body)) = rule.split_once('{') else {
+                continue;
+            };
+            for one in selector.split(',') {
+                let one = one.trim();
+                if one.contains(".badge.") && !one.contains(".job-history") {
+                    assert!(body.contains("background"), "{one} {{{body}}}");
+                }
+            }
+        }
+    }
+
+    /// A printer on Prusa Connect has no bed mesh on its page: the protocol carries none. The
+    /// same printer through an agent has it.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn no_bed_mesh_over_prusa_connect(pool: sqlx::PgPool) {
+        let store = store::Store::for_test(&pool).await;
+        let (space, agent, _) = store.add_test_machine("prusa/mini", None).await;
+        let agent = store.machine(space, &agent).await.unwrap().unwrap();
+        assert!(shows_bed_mesh(&agent), "through an agent: {}", agent.link);
+        let (_, connect, _) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
+        let connect = store.machine(space, &connect).await.unwrap().unwrap();
+        assert!(!shows_bed_mesh(&connect));
     }
 
     /// Seen on the MINI (2026-11-08): a print started from its USB stick had no Stop

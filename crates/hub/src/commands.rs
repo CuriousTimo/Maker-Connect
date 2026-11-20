@@ -313,7 +313,7 @@ pub(crate) async fn command(
     } else if form.action == "probe-bed" {
         match machine_now() {
             Ok(Some(machine)) => match probe_gcode(&machine) {
-                Ok(gcode) => Some(owned(("Probe the bed", gcode))),
+                Ok(found) => Some(owned(found)),
                 Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
             },
             Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),

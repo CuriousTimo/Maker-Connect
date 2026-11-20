@@ -109,17 +109,40 @@ pub(crate) fn action(name: &str) -> Option<(&'static str, &'static str)> {
     })
 }
 
-/// The G-code that has a machine measure its bed and print the mesh, by its firmware; or
-/// why it cannot be done.
-pub(crate) fn probe_gcode(machine: &store::Machine) -> Result<&'static str, &'static str> {
+/// The label of measuring the bed where the mesh comes back to the page.
+const PROBE_LABEL: &str = "Probe the bed";
+
+/// Prusa Connect's `core.command.mesh_bed_leveling`, as Prusa's server sends it to a printer on
+/// Buddy (`reference/prusa-connect` `internal/connector/xbuddy/verbs.go:41`, `:303-308`: a G-code
+/// frame, `fixedGCode("G28\r\nG29")`, a full home first; the same bytes in `wire_test.go:29`).
+/// - Who: all 13 profiles in `internal/printer/profile/profiles.json` have
+///   `core.command.mesh_bed_leveling` with `"flag": true`: CoreOne (`:96`), CoreOneL (`:558`),
+///   CoreOneL_INDX (`:1020`), CoreOne_INDX (`:1486`), IX (`:1944`), MINI (`:2368`), MK3.5
+///   (`:2784`), MK3.5S (`:3208`), MK3.9 (`:3632`), MK3.9S (`:4056`), MK4 (`:4480`), MK4S
+///   (`:4904`), XL (`:5328`). The MINI's profile covers firmware from `6.4.0-0` up
+///   (`:2286-2291`); a firmware no profile covers gets the driver's baseline bounded by what the
+///   profiles cover between them (`internal/printer/capability/resolver.go:9-11`), which has it
+///   too. So the server offers it to every Buddy printer on any firmware: no model or version
+///   gate here.
+/// - When: not a `stateChecked` verb (`verbs.go:190-193`): the server sends it in any state, and
+///   the firmware decides.
+/// - By whom: an operate action (`internal/authz/generatedverbs.go:80`), as our Controls are.
+/// - Label (ours): the server has only the key; "Mesh bed leveling" is that key's words.
+///
+/// No mesh comes back over Prusa Connect.
+pub(crate) const MESH_BED_LEVELING: (&str, &str) = ("Mesh bed leveling", "G28\r\nG29");
+
+/// What has a machine measure its bed (its label in the Commands list, and the G-code), by its
+/// link and firmware; or why it cannot be done.
+pub(crate) fn probe_gcode(
+    machine: &store::Machine,
+) -> Result<(&'static str, &'static str), &'static str> {
     // Klipper measures with BED_MESH_CALIBRATE; Moonraker sends the mesh by itself.
     if machine.link == "simplyprint" {
-        return Ok("G28\nBED_MESH_CALIBRATE");
+        return Ok((PROBE_LABEL, "G28\nBED_MESH_CALIBRATE"));
     }
     if machine.link == "prusa-connect" {
-        return Err(
-            "this printer does not send its mesh over Prusa Connect: an agent on USB could read it",
-        );
+        return Ok(MESH_BED_LEVELING);
     }
     let firmware = machine
         .profile
@@ -133,7 +156,7 @@ pub(crate) fn probe_gcode(machine: &store::Machine) -> Result<&'static str, &'st
             "PrusaLink measures no bed: start it on the printer (Calibration); its mesh is read after",
         ),
         // Marlin (and Prusa's Buddy, which is Marlin): G29 measures, M420 V prints.
-        Some("marlin" | "prusa-buddy") => Ok("G28\nG29\nM420 V"),
+        Some("marlin" | "prusa-buddy") => Ok((PROBE_LABEL, "G28\nG29\nM420 V")),
         // Klipper measures with BED_MESH_CALIBRATE, through Moonraker: not connected yet.
         Some("klipper") => {
             Err("measuring the bed of a printer on Klipper follows, with Klipper itself")

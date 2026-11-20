@@ -233,7 +233,7 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
     if (t.nozzle_c != null) parts.push(`Nozzle ${t.nozzle_c.toFixed(1)} °C`);
     if (t.bed_c != null) parts.push(`bed ${t.bed_c.toFixed(1)} °C`);
     if (m.kind === "label") parts.push(t.cassette === false ? "no cassette" : m.media ? `Tape ${m.media}` : "tape not set");
-    if (t.position_mm) parts.push(`X ${t.position_mm[0].toFixed(1)} · Y ${t.position_mm[1].toFixed(1)}`);
+    if (t.position_mm && t.position_mm[0] != null && t.position_mm[1] != null) parts.push(`X ${t.position_mm[0].toFixed(1)} · Y ${t.position_mm[1].toFixed(1)}`);
     if (m.loaded) parts.push(loadedText(m.loaded));
     return parts.join(" · ");
   }

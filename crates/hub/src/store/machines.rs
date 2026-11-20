@@ -48,6 +48,7 @@ impl Legacy {
     pub(crate) fn forget_machine(&mut self, machine: &str) {
         self.commands.remove(machine);
         self.last_sample.remove(machine);
+        self.connect_tools.remove(machine);
         self.changed();
     }
 
