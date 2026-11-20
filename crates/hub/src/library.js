@@ -237,6 +237,8 @@
     } else {
       // Grouped by filament: a table with one row per material (Prusa Connect online's).
       const table = ui.group === "filament";
+      // The table takes the page's width (ui.md, Materials); what is chosen comes in from the side.
+      $("[data-library-view]").classList.toggle("wide", table);
       listEl.innerHTML = (table ? `<div class="mat-cols" aria-hidden="true"><span>Colour</span><span>Name</span><span>Brand</span><span>Type</span><span>${esc(cap(holders(ui.view === "tape" ? "m" : ui.view === "labels" ? "labels" : "g", 2).slice(2)))}</span><span>Left</span><span></span></div>` : "") + groups.map((g) => {
         const live = g.spools.filter((s) => !s.archived);
         const unit = g.spools[0] ? unitOf(g.spools[0].filament) : g.swatchFor ? unitOf(g.swatchFor) : "g";
