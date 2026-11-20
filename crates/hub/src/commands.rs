@@ -1021,6 +1021,34 @@ mod tests {
             .collect()
     }
 
+    /// The control rule (ui.md): without 'operate' the page shows no button that sends a command
+    /// (pad, terminal, probe), one notice instead; with it, the pad is there.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn without_operate_the_controls_are_hidden(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (id, _) = agent_of(&store, MachineKind::Fdm, None).await;
+        let page = || {
+            Request::get(format!("/machines/{id}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+        let html = call(&app, page()).await.1;
+        assert!(html.contains("You may not move, heat or send G-code"), "{html}");
+        for sends in [r#"value="jog:0:1""#, "data-gcode ", r#"value="probe-bed""#] {
+            assert!(!html.contains(sends), "{sends} shown without operate");
+        }
+        crate::auth::tester_may_operate(&store, &id).await;
+        let html = call(&app, page()).await.1;
+        assert!(!html.contains("You may not move, heat or send G-code"));
+        assert!(html.contains(r#"value="jog:0:1""#));
+        assert!(html.contains(r#"value="jog:0:0:-1""#));
+    }
+
     /// HS6: the button's route, per kind: a Marlin machine is sent exactly the typed `M112` (the path
     /// `b3_b5_...` shows for the terminal), a laser is sent LaserFoundry's Stop (`JobControl::Stop`, the
     /// route of its Stop button); a label printer, a Prusa (Buddy) and a machine whose profile is not

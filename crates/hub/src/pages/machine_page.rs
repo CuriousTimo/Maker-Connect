@@ -77,6 +77,9 @@ pub struct Extra {
     pub manage: bool,
     /// Whether the person may use it (jobs and more): by permission, whatever their role.
     pub may_use: bool,
+    /// May they move, heat and send G-code ('operate', crate::access): without it the controls
+    /// that send commands are hidden, and one notice says so (ui.md, the control rule).
+    pub may_operate: bool,
     /// When they asked the staff for permission, while nobody answered.
     pub asked: Option<i64>,
     /// Until when they confirmed having and wearing its PPE (crate::safety).
@@ -201,13 +204,17 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         },
         jobs = jobs_card(machine, extra),
         labels = labels_line(machine, extra.manage),
-        filament = filament_card(machine),
+        filament = filament_card(machine, extra.may_operate),
         sheet = sheet_card(machine),
         upkeep = upkeep_card(machine, extra.manage),
-        control = control(machine, profile, &loaded_card(machine, extra)),
+        control = control(machine, profile, &loaded_card(machine, extra), extra.may_operate),
         telemetry = telemetry_tab(machine),
-        settings = settings(machine, &extra.move_to, extra.ppe_checks),
-        terminal = terminal(machine),
+        settings = settings(machine, &extra.move_to, extra.ppe_checks, extra.may_operate),
+        terminal = if extra.may_operate || !store::takes_commands(&machine.link) {
+            terminal(machine)
+        } else {
+            no_operate(machine)
+        },
         usb_tab = if machine.link == "prusa-connect" || (machine.link == "agent" && heats(machine))
         {
             r##"<a href="#files" role="tab">Files</a>
@@ -243,7 +250,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
                 r#"<section class="tab" id="bedlevel" role="tabpanel" hidden>
 {}
   </section>"#,
-                bed_level(machine, profile)
+                bed_level(machine, profile, extra.may_operate)
             )
         } else {
             String::new()
@@ -488,7 +495,7 @@ fn notices(machine: &Machine) -> String {
 }
 
 /// The bed level tab: the last mesh as numbers, and as a surface, a map and a table.
-fn bed_level(machine: &Machine, profile: Option<&Profile>) -> String {
+fn bed_level(machine: &Machine, profile: Option<&Profile>, operate: bool) -> String {
     let mesh = machine.mesh.as_ref();
     let range = mesh.and_then(|m| {
         maker_connect_protocol::Mesh {
@@ -533,7 +540,7 @@ fn bed_level(machine: &Machine, profile: Option<&Profile>) -> String {
         }),
     );
     let probe = match crate::probe_gcode(machine) {
-        Ok(_) if store::takes_commands(&machine.link) => format!(
+        Ok(_) if store::takes_commands(&machine.link) && operate => format!(
             r#"<form class="command" method="post" action="{}/command"><button name="action" value="probe-bed">Probe bed</button></form>"#,
             escape(&machine.id)
         ),
@@ -1334,6 +1341,16 @@ fn upkeep_card(machine: &Machine, manage: bool) -> String {
     )
 }
 
+/// Where the controls would be, for someone without 'operate' on this machine (ui.md, the
+/// control rule): one notice of what they may not do and who gives it, no buttons that would be
+/// refused. Asking for 'operate' from the page is not built: the request asks for 'use' only.
+fn no_operate(machine: &Machine) -> String {
+    format!(
+        r##"<div class="notices"><div class="notice before-use"><span><b>You may not move, heat or send G-code to {}.</b> That takes 'operate' permission on it ('use' is jobs only). The space's staff give it in <a href="../space#members">Space → Members</a>.</span></div></div>"##,
+        escape(&machine.name)
+    )
+}
+
 /// Above the tabs, when it matters: may this person use it (else: ask the staff), and the
 /// PPE to have and wear before they do (crate::safety).
 fn before_use(machine: &Machine, extra: &Extra) -> String {
@@ -1413,7 +1430,7 @@ fn sheet_card(machine: &Machine) -> String {
 
 /// A 3D printer's filament: the spool loaded (from Materials), and loading or unloading it,
 /// hot to that spool's temperature first.
-fn filament_card(machine: &Machine) -> String {
+fn filament_card(machine: &Machine, operate: bool) -> String {
     if machine.kind != MachineKind::Fdm || !store::takes_commands(&machine.link) {
         return String::new();
     }
@@ -1432,7 +1449,7 @@ fn filament_card(machine: &Machine) -> String {
     );
     // A plain Marlin printer through an agent: no load or unload (OctoPrint, its port's
     // reference, has no such control), only the spool.
-    if plain_marlin(machine) {
+    if plain_marlin(machine) || !operate {
         return card(
             "Filament",
             "The spool on it, from Materials",
@@ -1713,7 +1730,7 @@ pub(crate) fn plain_marlin(machine: &Machine) -> bool {
             != Some("grbl")
 }
 
-fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str) -> String {
+fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str, operate: bool) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
     let position = t.and_then(|t| t.position_mm);
     // X and Y not told now (a Prusa printing tells only Z): "–", not the last ones told.
@@ -1756,6 +1773,13 @@ fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str) -> String
             },
         ),
     );
+    // Without 'operate': where the head is, and one notice; no button that would be refused.
+    if !operate && store::takes_commands(&machine.link) {
+        return format!(
+            r#"{}<div class="grid-control">{bed}<div class="stack">{loaded}</div></div>"#,
+            no_operate(machine)
+        );
+    }
     if !store::takes_commands(&machine.link) {
         return format!(
             r#"<div class="grid-control">{bed}{}</div>"#,
@@ -2107,7 +2131,7 @@ fn gigabytes(bytes: u64) -> String {
 }
 
 /// A GRBL machine's own settings (`$$`), and what in them matters before a job.
-fn controller(machine: &Machine) -> String {
+fn controller(machine: &Machine, operate: bool) -> String {
     let Some(grbl) = machine.telemetry.as_ref().and_then(|t| t.grbl.as_ref()) else {
         return String::new();
     };
@@ -2145,7 +2169,7 @@ fn controller(machine: &Machine) -> String {
         .iter()
         .map(|n| format!(r#"<p class="note">{}</p>"#, escape(n)))
         .collect();
-    let read = if store::takes_commands(&machine.link) {
+    let read = if store::takes_commands(&machine.link) && operate {
         format!(
             r#"<form class="command" method="post" action="{}/command"><button name="action" value="settings" class="ghost">Read them again</button></form><p class="note" data-command-status role="status"></p>"#,
             escape(&machine.id)
@@ -2270,6 +2294,7 @@ pub(crate) fn settings(
     machine: &Machine,
     move_to: &[(String, String)],
     ppe_checks: bool,
+    operate: bool,
 ) -> String {
     let details = machine.details.clone().unwrap_or_default();
     // The profile: chosen from all the machines known, by searching (the shell's picker).
@@ -2470,7 +2495,7 @@ pub(crate) fn settings(
     ]
     .concat();
     let mut info = connection(machine);
-    info += &controller(machine);
+    info += &controller(machine, operate);
     if !storage.is_empty() {
         info += &card("Storage", "", &format!("<dl>{storage}</dl>"));
     }
@@ -2627,7 +2652,7 @@ mod tests {
         let fdm = maker_connect_protocol::MachineKind::Fdm;
         let (space, ender, _) = store.register_test_machine("Ender", fdm).await;
         let marlin = store.machine(space, &ender).await.unwrap().unwrap();
-        let page = control(&marlin, None, "");
+        let page = control(&marlin, None, "", true);
         assert!(
             page.contains(r#"value="home-xy""#) && page.contains(r#"value="home-z""#),
             "{page}"
@@ -2637,7 +2662,7 @@ mod tests {
         let (_, mk3, _) = store.register_test_machine("MK3", fdm).await;
         let mut mk3 = store.machine(space, &mk3).await.unwrap().unwrap();
         mk3.profile = Some("prusa/mk3s".to_owned());
-        let page = control(&mk3, profiles::find("prusa/mk3s"), "");
+        let page = control(&mk3, profiles::find("prusa/mk3s"), "", true);
         assert!(
             page.contains(r#"value="home""#) && !page.contains("home-xy"),
             "{page}"

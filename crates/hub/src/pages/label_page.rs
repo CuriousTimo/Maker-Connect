@@ -251,7 +251,7 @@ pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> S
             .as_ref()
             .map_or("–".to_owned(), |j| escape(&j.file_name)),
         tape = tape_json(profile, machine),
-        settings = machine_page::settings(machine, move_to, false),
+        settings = machine_page::settings(machine, move_to, false, true),
         overview = machine_page::overview(machine, profile, ""),
         no_profile = if profile.is_none() {
             machine_page::no_profile_notice()

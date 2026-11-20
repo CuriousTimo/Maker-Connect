@@ -216,7 +216,7 @@ pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> S
             .map_or("–".to_owned(), |j| escape(&j.file_name)),
         rolls = roll_list(profile, machine.media.as_deref()),
         roll = roll_json(profile, machine),
-        settings = machine_page::settings(machine, move_to, false),
+        settings = machine_page::settings(machine, move_to, false, true),
         overview = machine_page::overview(machine, profile, ""),
     )
 }

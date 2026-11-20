@@ -618,6 +618,9 @@ pub(crate) async fn machine_page(
                 may_use: store
                     .may(&access, &machine.id, access::Level::Use, &grants)
                     .unwrap_or(false),
+                may_operate: store
+                    .may(&access, &machine.id, access::Level::Operate, &grants)
+                    .unwrap_or(false),
                 move_to: move_targets(&access, &spaces),
                 manage: store
                     .may(&access, &machine.id, access::Level::Manage, &grants)
