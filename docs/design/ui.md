@@ -326,6 +326,10 @@ kg and spools on top; **Filament** is one card with search, sort and filter chip
 low, a type, a brand, a location) over a table with **one row per material** (colour, name, brand,
 type, its spools and how many are on a printer, what is left with a bar), each with **Assign…** (a
 spool of it onto a printer, a dialog) and **+ Spool**; its spools open under the row.
+**Low** means one thing: less than 15 % of a spool or a material left, the mark the bar already
+had (ours, UI only). A material's own minimum ("Keep at least") reads *below its minimum*, never
+"low". Assign offers the printers a spool fits, as moving a spool already does (filament to a 3D
+printer, tape and labels to a label printer); laser materials are not assigned.
 Tabs: Filament, Tapes, Label rolls, Laser materials, Locations. Tape cassettes and label
 rolls are two tabs, as the two stacks are apart (decided, journal:UI-DESIGN:0011 Q4; UT-38). Data is
 Spoolman's (`/spoolman/api/v1`).
