@@ -1022,7 +1022,7 @@ fn job_card(machine: &Machine) -> String {
     <button name="action" value="stop" class="danger">{stop_label}</button>
   </form>
   <p class="empty no-job" data-no-job{shown}>{no_job}</p>
-  <p class="hint" data-laser-stop{stop_hint_hidden}>Emergency stop halts the laser at once (LaserFoundry's Stop, a soft reset): motion stops and the laser goes off, also while it frames.</p>
+  <p class="hint" data-laser-stop{stop_hint_hidden}>Emergency stop halts the laser at once (LaserFoundry's Stop, a soft reset): motion stops and the laser goes off.</p>
   <div class="resume" data-resume{resume_hidden}>
     <p><b>Interrupted:</b> <span data-live="resume_name">{resume_name}</span> ({resume_why}). It can start again from line <b data-live="resume_line">{resume_line}</b>, a little before where it stopped; the head goes there with the laser off first.</p>
     <form data-restart action="{id}/job"><button name="action" value="restart">Start again from there</button></form>
@@ -1037,12 +1037,12 @@ fn job_card(machine: &Machine) -> String {
             r#"No job. <a href="../files">Print a file</a> on this machine."#
         },
         hidden = if running { "" } else { " hidden" },
-        // A laser's Stop (a soft reset) stays also with no job.
-        actions_hidden = if running || laser { "" } else { " hidden" },
+        // Only while a job runs: with no job or a loaded one the hub has nothing to stop.
+        actions_hidden = if running { "" } else { " hidden" },
         // A loaded job is shown in its own card above, so no "nothing loaded" here.
         shown = if running || loaded { " hidden" } else { "" },
         only_hidden = if running { "" } else { " hidden" },
-        stop_hint_hidden = if laser && !running { "" } else { " hidden" },
+        stop_hint_hidden = if laser && running { "" } else { " hidden" },
         stop_label = if laser {
             "Emergency stop (soft reset)"
         } else {
@@ -2772,5 +2772,56 @@ mod tests {
             assert!(card.contains(r#"value="stop""#));
             assert!(card.contains("a print the printer runs itself"));
         }
+    }
+
+    /// A laser's Stop (a soft reset) and its hint are there only while a job runs: with no
+    /// job the hub answers 404 and with a loaded one 409 (files.rs control_job).
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_laser_has_stop_only_while_a_job_runs(pool: sqlx::PgPool) {
+        let store = store::Store::for_test(&pool).await;
+        let (space, laser, _) = store.add_test_machine("ortur/lm2-pro-s2", None).await;
+        let mut machine = store.machine(space, &laser).await.unwrap().unwrap();
+        let shown = |machine: &Machine| {
+            let card = job_card(machine);
+            let tag = |at: &str| {
+                card.split(at)
+                    .nth(1)
+                    .unwrap()
+                    .split('>')
+                    .next()
+                    .unwrap()
+                    .to_owned()
+            };
+            (
+                !tag("<form class=\"job-actions\"").contains("hidden"),
+                !tag("data-laser-stop").contains("hidden"),
+            )
+        };
+        assert_eq!(shown(&machine), (false, false), "idle: no Stop, no hint");
+        let job = |state| store::Job {
+            id: 1,
+            machine_id: laser.clone(),
+            file_id: "f".into(),
+            file_name: "sign.gcode".into(),
+            state,
+            created_at: 0,
+            started_at: None,
+            ended_at: None,
+            reason: None,
+            from_line: None,
+            restart_line: None,
+            by: None,
+        };
+        machine.job = Some(job(store::JobState::Loaded));
+        assert_eq!(shown(&machine), (false, false), "loaded: no Stop, no hint");
+        machine.job = Some(job(store::JobState::Printing));
+        assert_eq!(shown(&machine), (true, true), "running: Stop and hint");
+        let card = job_card(&machine);
+        assert!(card.contains(">Emergency stop (soft reset)</button>"));
+        assert!(!card.contains("also while it frames"));
     }
 }

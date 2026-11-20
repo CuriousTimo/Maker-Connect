@@ -1,6 +1,5 @@
 //! Bakes the build's identity into the hub: the git commit it was built from (with
-//! `-dirty` when files differed from it) and when, for its About page. The same as the
-//! agent's (crates/agent/build.rs).
+//! `-dirty` when files differed from it) and when, for its About page.
 
 use std::process::Command;
 

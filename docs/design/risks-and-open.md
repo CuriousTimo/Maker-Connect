@@ -241,8 +241,9 @@ The plan lists argument validation, state guard, authz, the laser rule (plan §2
 
 ### OQ-36: The mode of the agent's credentials file
 
-`maker-connect-agent.json` holds the agent token in the clear and is written with the default mode
-(`crates/agent/src/link.rs`); the design keeps it "as today" (agent-engine.md O7). **Recommendation:**
+`maker-connect-agent.json` holds the agent token in the clear. The v1 agent link that wrote it with
+the default mode (`crates/agent/src/link.rs`) was removed; the v2 agent link replaces it
+([links.md](links.md)) and its mode is still to be set. **Recommendation:**
 0600, as the hub's own secrets file ([storage-ops.md](storage-ops.md#what-is-kept-where)).
 
 ### OQ-37: Re-pairing a device that has a row

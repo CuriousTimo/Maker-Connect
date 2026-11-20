@@ -57,8 +57,7 @@ the agent connects again.
 - **Printers on Marlin** through the agent (`mode = "marlin"`): a port of **OctoPrint
   1.11.8**'s serial layer, proved against OctoPrint itself on its own virtual printer (the
   same bytes in 22 of 24 scenarios; the other two differ between OctoPrint's own runs). Files
-  print as jobs, with pause, resume, stop and the emergency stop (`M112`). Not yet tried on a
-  real printer.
+  print as jobs, with pause, resume and stop. Not yet tried on a real printer.
 - **Lasers (GRBL)** through the agent (`mode = "grbl"`), a port of
   [LaserFoundry](https://github.com/StitchFoundry/laserfoundry) (v0.5.0): homing, the jog pad,
   Set origin and Go to origin, Frame. **A laser never starts by itself**: a file sent to a laser
@@ -102,7 +101,7 @@ the agent connects again.
 |---|---|---|---|
 | **Prusa MINI** (Buddy firmware) | Its own firmware speaks Prusa Connect to the hub: no agent | Buddy 6.3.0 | Yes: a MINI on firmware 6.3.0 |
 | **3D printers on Marlin** | Agent, USB serial, `mode = "marlin"` (Linux and macOS; not yet Windows) | OctoPrint 1.11.8 | Not yet: proved against OctoPrint on its virtual printer |
-| **Prusa MK3S, MK2.5S** (8-bit firmware) | Agent, USB or an MK3S's RPi port | PrusaLink (the port is planned: [docs/plans/mk3-port-plan.md](docs/plans/mk3-port-plan.md)) | An MK3S through a Pi Zero 2 W with the earlier agent |
+| **Prusa MK3S, MK2.5S** (8-bit firmware) | Agent, USB or an MK3S's RPi port | PrusaLink (the port is planned: [docs/plans/mk3-port-plan.md](docs/plans/mk3-port-plan.md)) | Not yet |
 | **3D printers on Klipper** | Moonraker connects by itself: no agent | Moonraker | Not yet |
 | **Lasers on GRBL**: Ortur, Creality Falcon, Sculpfun, xTool, … | Agent, USB serial, `mode = "grbl"` | LaserFoundry v0.5.0 | Yes: an Ortur Laser Master 2 Pro S2 (motion and framing; no burning yet) |
 | **DYMO LabelManager PnP** (tape) | Agent, USB HID, `mode = "dymo-pnp"`: no driver | labelle | Yes |

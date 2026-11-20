@@ -367,7 +367,8 @@ makerspace host (arm64/amd64) uses TimescaleDB's apt packages instead of Docker.
   agent-engine.md O7: "as today").
 - **Credentials.** The agent registers once (L8, a person enters the pairing code in Space) and keeps
   its hub address and agent token in `maker-connect-agent.json` beside its config file, or at
-  `--state` (`crates/agent/src/link.rs`, kept "as today", agent-engine.md O7). The hub keeps only the
+  `--state`. The v1 agent link that did this (`crates/agent/src/link.rs`) was removed; the v2 agent
+  link replaces it ([links.md](links.md)). The hub keeps only the
   token's hash; the token may only report and fetch for the agent's own devices ([wire.md](wire.md)).
   The file's mode is not designed ([OQ-36](risks-and-open.md#oq-36-the-mode-of-the-agents-credentials-file)).
 - **One agent, several devices, and its settings page (#12).** One agent hosts several devices, each

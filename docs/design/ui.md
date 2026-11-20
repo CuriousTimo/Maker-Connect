@@ -371,11 +371,13 @@ reads `0 g`. A **Mine** filter needs an owner on a spool and is not shown until 
 Numbered steps (**proposal**, after prusa-connect-ui-study.md): 1 what are you adding (a printer
 with built-in Connect; a machine on USB through the agent; a network camera → Space → Cameras);
 2, per kind (UT-07): for built-in Connect the INI's lines and the hostname length warning; for USB
-the agent's download for the computer beside the machine and its start command (today's, from the
-downloads page); 3 the code it shows, with the name here → `POST /api/v1/devices/pair`
-`{code, name}` (`devices.manage`); after Add: *pending* until the device collected its token
+the agent's download for the computer beside the machine and its start command; 3 the code it
+shows, with the name here → `POST /api/v1/devices/pair` `{code, name}` (`devices.manage`); after Add: *pending* until the device collected its token
 (flows.md §1), then *paired* with a link to the machine; 4 "who may use it": a link to Space →
 Permissions. Only kinds of the [device contract](device-contract.md#kinds) are offered.
+
+**Today** the hub offers no "A machine on USB" kind: it was the v1 agent link's, which was removed;
+the step returns with the v2 agent ([links.md](links.md)).
 
 - **Errors** (shown only when they happen): "That code is not waiting here. It may have expired: the
   device shows a new one."; "The machine did not collect its token" (added, not reported yet).

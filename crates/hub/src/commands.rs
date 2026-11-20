@@ -543,9 +543,22 @@ mod tests {
         assert!(page.contains("<h4>Coordinates</h4>") && page.contains(r#"class="ctl-cols""#));
         assert!(page.contains(r#"value="set-origin""#) && page.contains(r#"value="jog:1:1""#));
         assert!(page.contains(r#"data-live="pos_x""#), "X in the head");
-        assert!(
-            page.contains(">Emergency stop (soft reset)</button>"),
-            "its Stop on Now"
-        );
+        // Idle: nothing to stop (control_job answers 404), so no Stop and no hint.
+        let actions = page
+            .split(r#"<form class="job-actions""#)
+            .nth(1)
+            .unwrap()
+            .split('>')
+            .next()
+            .unwrap();
+        assert!(actions.contains("hidden"), "no Stop for an idle laser");
+        let hint = page
+            .split("data-laser-stop")
+            .nth(1)
+            .unwrap()
+            .split('>')
+            .next()
+            .unwrap();
+        assert!(hint.contains("hidden"), "no Stop hint for an idle laser");
     }
 }
