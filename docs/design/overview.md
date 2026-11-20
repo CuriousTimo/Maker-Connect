@@ -92,8 +92,9 @@ flowchart LR
 5. **Permissions only in Space.** No button or route outside the Space page grants an action, the
    owner's own included.
 6. **Server to browser is SSE**; browser to server is HTTP. Camera video is the browser's one WebSocket, as the
-   browser-side reference (go2rtc) does it (cameras.md). The agent link is one WebSocket per agent, as
-   Buddy and Prusa Connect's `/p/ws` ([decision](decisions/20261119-agent-link-one-websocket.md)).
+   browser-side reference (go2rtc) does it (cameras.md). Each device on an agent talks to the hub as a
+   Prusa Connect printer, `/p/register` and one `/p/ws` per device, the SDK's protocol to the letter
+   ([decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)).
 7. **One subject per page or tab** in the UI.
 8. **No compatibility with old builds**: nobody uses the hub; old code is deleted, not wrapped (plan §1).
    No v1 is kept anywhere: not the agent link v1 (`/api/agent/v1`), not the Apps API v1
