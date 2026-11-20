@@ -2,7 +2,7 @@
 //! to a space from the start, so the same software can serve one makerspace on a Pi or
 //! many on a hosted service.
 
-use maker_connect_protocol::{MachineKind, Register, Telemetry};
+use maker_connect_protocol::{MachineKind, Telemetry};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -20,7 +20,6 @@ pub(crate) use pg_jobs::JobFacts;
 mod pg_settings;
 
 mod commands;
-pub use commands::on_marlin_port;
 
 mod history;
 
@@ -35,7 +34,7 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Whether machines on this link take commands from the website (yet).
 pub fn takes_commands(link: &str) -> bool {
-    matches!(link, "prusa-connect" | "virtual" | "agent" | "simplyprint")
+    matches!(link, "prusa-connect" | "virtual" | "simplyprint")
 }
 
 /// Why a laser job is refused when nobody at the laser started it (our UI text).
@@ -123,8 +122,8 @@ pub struct Machine {
     pub name: String,
     pub kind: MachineKind,
     pub agent_version: String,
-    /// How it reaches the hub: `agent` (Maker Connect's agent next to it), or
-    /// `prusa-connect` (its own firmware, speaking Prusa Connect's printer protocol).
+    /// How it reaches the hub: `prusa-connect` (its own firmware, speaking Prusa Connect's printer
+    /// protocol), `simplyprint` (Klipper through Moonraker), or `virtual` (simulated in the hub).
     pub link: String,
     /// Seconds since its agent last reported.
     pub seen_seconds_ago: Option<i64>,
@@ -159,10 +158,6 @@ pub struct Machine {
     pub agent: Option<maker_connect_protocol::AgentInfo>,
     /// The address its last report came from, as the hub saw it.
     pub peer: Option<String>,
-    /// The agent build on the Downloads page, when this machine's agent is another.
-    pub agent_update: Option<String>,
-    /// The agent release its agent was asked to update to (`agent-v0.3.0`), till it has.
-    pub agent_update_to: Option<String>,
     /// Taken out of use by its owner (broken, waiting for a part): no jobs until it is back.
     pub out_of_use: Option<OutOfUse>,
     /// The spool (or cassette) loaded in it, from Materials.
@@ -268,17 +263,6 @@ pub struct OnBed {
 /// A print on the bed can be taken once the bed is at or below this (°C); above, it cools.
 pub const TAKE_BELOW_C: f32 = 30.0;
 
-/// The agent build the Downloads page offers.
-#[derive(Debug, Clone, PartialEq)]
-pub struct OfferedBuild {
-    /// The git commit: `d12d6c7`.
-    pub commit: String,
-    /// When: `2026-11-04 13:20 UTC`.
-    pub built: String,
-    /// The agent's version: `0.1.0`.
-    pub version: Option<String>,
-}
-
 /// Where a device gets its power: a channel of another device (a plug, a power strip).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PowerLink {
@@ -332,10 +316,6 @@ pub struct Command {
     /// A command of Prusa Connect's (`{"command": "START_PRINT", ...}`) rather than G-code:
     /// only for printers on their built-in Connect.
     pub json: bool,
-    /// A typed command for a machine behind an agent (an `Action` as JSON in `gcode`): the
-    /// hub makes no G-code for those (owner, 2026-11-12).
-    #[serde(default)]
-    pub action: bool,
     /// Asked by the hub itself (reading the USB stick), not by someone: not listed.
     #[serde(skip)]
     pub background: bool,
@@ -398,8 +378,6 @@ const COMMAND_SECONDS: i64 = 120;
 /// Why a Sent or Accepted command of a Prusa Connect printer fails when the printer was gone
 /// (ours, K18 (b) for that link).
 pub const PRINTER_GONE: &str = "the printer was gone";
-/// K18: why a Sent or Accepted command of a Marlin agent machine fails when its agent was gone.
-pub const AGENT_GONE: &str = "the agent was gone";
 
 /// Keeps a machine's commands to [`COMMANDS_KEPT`]: the oldest done ones go first, the
 /// hub's own before someone's; one still waiting or on its way is never dropped.
@@ -658,9 +636,6 @@ impl Store {
 pub struct Legacy {
     /// Where uploaded files are kept: `<id>.gcode`, and `<id>.png` for a thumbnail.
     pub files_dir: std::path::PathBuf,
-    /// What `/downloads` offers (the agent for each platform): `maker-connect-downloads/`
-    /// beside the database.
-    pub downloads_dir: std::path::PathBuf,
     /// Commands per machine id, oldest first.
     commands: std::collections::HashMap<String, Vec<Command>>,
     /// Who said they have and wear a machine's PPE, until when: (user, machine) → Unix
@@ -684,13 +659,6 @@ pub struct Legacy {
     /// screen), by machine id, while they run: recorded as a job when they end (see
     /// `follow_own_print`).
     pub(crate) own_prints: std::collections::HashMap<String, OwnPrint>,
-    /// Answers to an agent's printer's question, by machine, until its next report takes
-    /// them (`M876 S<index>`).
-    pub(crate) answers: std::collections::HashMap<String, u8>,
-    /// Pause, resume or stop for a print the machine started itself (from its SD card): no
-    /// job of the hub's, so said once with its next report.
-    pub(crate) own_job_control:
-        std::collections::HashMap<String, maker_connect_protocol::JobControl>,
     /// HS7b: per laser, the file id it last framed completely since its last Set origin.
     pub(crate) laser_framed: std::collections::HashMap<String, String>,
     /// HS7b: lasers on which a Set origin was done since the hub started.
@@ -817,18 +785,8 @@ impl Legacy {
             Self::files_dir_of(path)
         };
         std::fs::create_dir_all(&files_dir)?;
-        let downloads_dir =
-            files_dir.with_file_name(files_dir.file_name().and_then(|n| n.to_str()).map_or(
-                "maker-connect-downloads".to_owned(),
-                |n| {
-                    n.replace("-files", "-downloads")
-                        .replace("-test-", "-test-downloads-")
-                },
-            ));
-        std::fs::create_dir_all(&downloads_dir)?;
         let store = Self {
             files_dir,
-            downloads_dir,
             commands: Default::default(),
             ppe_ok: Default::default(),
             asking: Default::default(),
@@ -837,8 +795,6 @@ impl Legacy {
             printing_file: Default::default(),
             job_info_asked: Default::default(),
             own_prints: Default::default(),
-            answers: Default::default(),
-            own_job_control: Default::default(),
             laser_framed: Default::default(),
             laser_origin_set: Default::default(),
             // Ids that do not repeat soon after a restart, as a printer may remember the last.
@@ -1109,50 +1065,6 @@ mod tests {
         );
         assert_eq!(
             pg.machine(space, &dryer).await.unwrap().unwrap().powered_by,
-            None
-        );
-    }
-
-    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
-    #[cfg_attr(
-        not(feature = "pg-tests"),
-        ignore = "needs Postgres: the pg-tests feature"
-    )]
-    async fn an_agent_behind_the_downloads_is_told(pool: sqlx::PgPool) {
-        let pg = Store::for_test(&pool).await;
-        let (space, _) = pg.default_space().await.unwrap();
-        let id = device(&pg, space, "Dymo").await;
-        let token = pg.virtual_machines().await.unwrap()[0].1.clone();
-        let report = |build: &str| Telemetry {
-            agent: Some(maker_connect_protocol::AgentInfo {
-                version: "0.1.0".into(),
-                build: Some(build.into()),
-                ..Default::default()
-            }),
-            ..Telemetry::default()
-        };
-        pg.report(&token, &report("1d5c84c")).await.unwrap();
-        assert_eq!(
-            pg.machine(space, &id).await.unwrap().unwrap().agent_update,
-            None
-        );
-        std::fs::write(
-            pg.lock().unwrap().downloads_dir.join(".build"),
-            "abc1234\n2026-11-04 15:00 UTC\n",
-        )
-        .unwrap();
-        assert_eq!(
-            pg.machine(space, &id)
-                .await
-                .unwrap()
-                .unwrap()
-                .agent_update
-                .as_deref(),
-            Some("abc1234 (2026-11-04 15:00 UTC)")
-        );
-        pg.report(&token, &report("abc1234")).await.unwrap();
-        assert_eq!(
-            pg.machine(space, &id).await.unwrap().unwrap().agent_update,
             None
         );
     }

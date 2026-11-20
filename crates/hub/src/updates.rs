@@ -1,20 +1,15 @@
-//! Updates from the project's releases on GitHub, checked against Maker Connect's release
-//! key (crate `maker-connect-update`):
-//!
-//! - **The hub itself** (About → Update; who runs the server only). The newest `hub-v…`
-//!   release for this system is fetched and checked, and the new build tried. Then it takes
-//!   the old one's place and starts; if it does not stay up, the old build comes back (`main`).
-//! - **Agents** (a machine's Connection card, or every agent of a space; its admins). The
-//!   newest `agent-v…` release's signed list is fetched and kept; agents are told in their
-//!   reports, fetch their build through the hub (agents need no internet), check it
-//!   themselves, and update once their machine is idle, with their own way back.
+//! The hub's updates from the project's releases on GitHub, checked against Maker Connect's
+//! release key (crate `maker-connect-update`), from About → Update (who runs the server only).
+//! The newest `hub-v…` release for this system is fetched and checked, and the new build tried.
+//! Then it takes the old one's place and starts; if it does not stay up, the old build comes
+//! back (`main`).
 
 use crate::access::Access;
 use crate::{Store, failed};
 use axum::{
     Json, Router,
-    extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    extract::State,
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -25,9 +20,6 @@ pub fn routes() -> Router<Store> {
     Router::new()
         .route("/api/update", get(hub_status))
         .route("/about/update", post(update_hub))
-        .route("/machines/{id}/agent/update", post(update_agent))
-        .route("/agents/update", post(update_agents))
-        .route("/api/agent/v1/update/{tag}/{file}", get(agent_build))
 }
 
 /// The key releases are checked with: Maker Connect's, or in tests one of their own.
@@ -88,7 +80,7 @@ fn fetch(url: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-/// The newest release of `part` (`hub`, `agent`), betas too.
+/// The newest release of `part` (`hub`), betas too.
 fn newest(url: &str, part: &str) -> Result<Release, String> {
     let releases: Vec<Release> = serde_json::from_slice(&fetch(url)?)
         .map_err(|e| format!("the list of releases does not read: {e}"))?;
@@ -110,12 +102,10 @@ fn signed(release: &Release) -> Result<(String, String), String> {
     Ok((sums, signature))
 }
 
-/// `agent-v0.3.0` → `v0.3.0`.
+/// `hub-v0.3.0` → `v0.3.0`.
 fn version_of(tag: &str) -> &str {
     tag.split_once('-').map_or(tag, |(_, v)| v)
 }
-
-// The hub.
 
 /// The hub's own binary out of its release archive (`maker-connect-hub-<system>.tar.gz`).
 fn unpack(archive: &[u8], program: &str) -> Result<Vec<u8>, String> {
@@ -263,249 +253,20 @@ async fn update_hub(access: Access, State(store): State<Store>) -> Response {
     }
 }
 
-// Agents.
-
-/// An agent release, signed list checked, as the hub keeps it to pass on.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Prepared {
-    pub tag: String,
-    pub sums: String,
-    pub signature: String,
-}
-
-fn kept_dir(downloads: &std::path::Path, tag: &str) -> Option<std::path::PathBuf> {
-    // A tag as GitHub has it: no way out of the folder.
-    let plain = tag.starts_with("agent-v")
-        && tag
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || ".-".contains(c));
-    plain.then(|| downloads.join(".updates").join(tag))
-}
-
-/// The newest agent release, its signed list fetched, checked and kept.
-fn prepare_agent(downloads: &std::path::Path, url: &str) -> Result<Prepared, String> {
-    let release = newest(url, "agent")?;
-    let (sums, signature) = signed(&release)?;
-    let dir = kept_dir(downloads, &release.tag_name).ok_or("an odd release tag")?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join("SHA256SUMS"), &sums).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join("SHA256SUMS.sig"), &signature).map_err(|e| e.to_string())?;
-    Ok(Prepared {
-        tag: release.tag_name,
-        sums,
-        signature,
-    })
-}
-
-/// An agent release kept, its list checked again.
-fn kept(downloads: &std::path::Path, tag: &str) -> Option<Prepared> {
-    let dir = kept_dir(downloads, tag)?;
-    let sums = std::fs::read_to_string(dir.join("SHA256SUMS")).ok()?;
-    let signature = std::fs::read_to_string(dir.join("SHA256SUMS.sig")).ok()?;
-    update::verify(tag, &sums, &signature, &key()).ok()?;
-    Some(Prepared {
-        tag: tag.to_owned(),
-        sums,
-        signature,
-    })
-}
-
-/// The file an agent of `os` and `arch` needs from a release.
-fn agent_file(os: &str, arch: &str) -> Option<String> {
-    let exe = if os == "windows" { ".exe" } else { "" };
-    update::system(os, arch).map(|system| format!("maker-connect-agent-{system}{exe}"))
-}
-
-/// What to tell an agent in its report's answer: the update asked for it, until it is on
-/// that release or says how its update went.
-pub(crate) async fn order_for(
-    store: &crate::store::Store,
-    token: &str,
-    report: &maker_connect_protocol::Telemetry,
-) -> sqlx::Result<Option<maker_connect_protocol::AgentUpdate>> {
-    let asked = store.agent_update_asked(token).await?;
-    let Some((_, Some(tag), at)) = asked else {
-        return Ok(None);
-    };
-    let Some(agent) = &report.agent else {
-        return Ok(None);
-    };
-    let version = version_of(&tag);
-    let answered = agent
-        .last_update
-        .as_ref()
-        .is_some_and(|o| o.to == version && o.at >= at);
-    // On that release or a newer one already, or it said how it went: asked no more.
-    if !update::newer(version, &agent.version) && update::Version::parse(&agent.version).is_some()
-        || answered
-    {
-        store.agent_update_done(token).await?;
-        return Ok(None);
-    }
-    if !agent.can_update {
-        return Ok(None);
-    }
-    let (Some(prepared), Some(file)) = (
-        kept(&store.lock().unwrap().downloads_dir.clone(), &tag),
-        agent_file(&agent.os, &agent.arch),
-    ) else {
-        return Ok(None);
-    };
-    Ok(Some(maker_connect_protocol::AgentUpdate {
-        version: version.to_owned(),
-        download: format!("/api/agent/v1/update/{tag}/{file}"),
-        file,
-        tag: prepared.tag,
-        sums: prepared.sums,
-        signature: prepared.signature,
-    }))
-}
-
-async fn prepared(store: &Store) -> Result<Prepared, Box<Response>> {
-    let downloads = store.lock().unwrap().downloads_dir.clone();
-    match tokio::task::spawn_blocking(move || prepare_agent(&downloads, &releases_url())).await {
-        Ok(Ok(p)) => Ok(p),
-        Ok(Err(why)) => Err(Box::new((StatusCode::CONFLICT, why).into_response())),
-        Err(error) => Err(Box::new(failed(error))),
-    }
-}
-
-async fn update_agent(
-    access: Access,
-    State(store): State<Store>,
-    Path(id): Path<String>,
-) -> Response {
-    let prepared = match prepared(&store).await {
-        Ok(p) => p,
-        Err(response) => return *response,
-    };
-    let asked = store
-        .ask_agent_update(
-            access.space,
-            std::slice::from_ref(&id),
-            &prepared.tag,
-            update::now(),
-        )
-        .await;
-    match asked {
-        Ok(0) => (
-            StatusCode::CONFLICT,
-            "only a machine with Maker Connect's agent updates it",
-        )
-            .into_response(),
-        Ok(_) => {
-            let _ = store
-                .audit(&access, "asked an agent to update", &id, &prepared.tag)
-                .await;
-            Json(serde_json::json!({ "to": prepared.tag })).into_response()
-        }
-        Err(error) => failed(error),
-    }
-}
-
-async fn update_agents(access: Access, State(store): State<Store>) -> Response {
-    let prepared = match prepared(&store).await {
-        Ok(p) => p,
-        Err(response) => return *response,
-    };
-    let machines = store.machines(access.space).await;
-    let machines: Vec<String> = match machines {
-        Ok(machines) => machines
-            .into_iter()
-            .filter(|m| m.link == "agent")
-            .map(|m| m.id)
-            .collect(),
-        Err(error) => return failed(error),
-    };
-    let asked = store
-        .ask_agent_update(access.space, &machines, &prepared.tag, update::now())
-        .await;
-    match asked {
-        Ok(asked) => {
-            let _ = store
-                .audit(
-                    &access,
-                    "asked every agent to update",
-                    &prepared.tag,
-                    &format!("{asked} agents"),
-                )
-                .await;
-            Json(serde_json::json!({ "to": prepared.tag, "agents": asked })).into_response()
-        }
-        Err(error) => failed(error),
-    }
-}
-
-/// An agent's build, for an agent asked to update (its token): kept here once fetched, and
-/// checked against the release's signed list before it is kept or handed out.
-async fn agent_build(
-    State(store): State<Store>,
-    headers: HeaderMap,
-    Path((tag, file)): Path<(String, String)>,
-) -> Response {
-    let token = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .unwrap_or("");
-    let known = !token.is_empty()
-        && store
-            .machine_id_by_token(token)
-            .await
-            .ok()
-            .flatten()
-            .is_some();
-    let downloads = store.lock().unwrap().downloads_dir.clone();
-    let not_found = || (StatusCode::NOT_FOUND, "no such build").into_response();
-    if !known || !file.starts_with("maker-connect-agent-") || file.contains(['/', '\\']) {
-        return not_found();
-    }
-    let Some(prepared) = kept(&downloads, &tag) else {
-        return not_found();
-    };
-    let dir = kept_dir(&downloads, &tag).expect("kept");
-    let found = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
-        let path = dir.join(&file);
-        let build = match std::fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                let releases: Vec<Release> =
-                    serde_json::from_slice(&fetch(&releases_url())?).map_err(|e| e.to_string())?;
-                let release = releases
-                    .iter()
-                    .find(|r| r.tag_name == tag)
-                    .ok_or("the release is gone")?;
-                fetch(&release.asset(&file)?.browser_download_url)?
-            }
-        };
-        update::check(
-            &build,
-            &file,
-            &tag,
-            &prepared.sums,
-            &prepared.signature,
-            &key(),
-        )?;
-        let _ = std::fs::write(&path, &build);
-        Ok(build)
-    })
-    .await;
-    match found {
-        Ok(Ok(build)) => ([("content-type", "application/octet-stream")], build).into_response(),
-        Ok(Err(why)) => (StatusCode::BAD_GATEWAY, why).into_response(),
-        Err(error) => failed(error),
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
+    // The update tests run on Unix (a release archive is a tar of a program); the key is for all.
+    #[cfg(unix)]
     use super::*;
+    #[cfg(unix)]
     use base64::Engine;
     use ring::signature::KeyPair;
     use std::sync::LazyLock;
 
     pub(crate) struct TestKey {
-        pub pair: ring::signature::Ed25519KeyPair,
+        /// Signs the test releases (the hub's own update tests, Unix only).
+        #[cfg(unix)]
+        pair: ring::signature::Ed25519KeyPair,
         pub public: Vec<u8>,
     }
 
@@ -515,11 +276,16 @@ pub(crate) mod tests {
         let pkcs8 = ring::signature::Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
         let pair = ring::signature::Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
         let public = pair.public_key().as_ref().to_vec();
-        TestKey { pair, public }
+        TestKey {
+            #[cfg(unix)]
+            pair,
+            public,
+        }
     });
 
     /// A release as GitHub lists it, served by a small server of the test's own.
-    pub(crate) async fn releases(files: Vec<(&'static str, &'static str, Vec<u8>)>) -> String {
+    #[cfg(unix)]
+    async fn releases(files: Vec<(&'static str, &'static str, Vec<u8>)>) -> String {
         // (tag, name, bytes); every tag gets its SHA256SUMS and signature.
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
@@ -723,115 +489,5 @@ pub(crate) mod tests {
         tools.drop_database(&name).unwrap();
         std::fs::remove_dir_all(&tools.dir).unwrap();
         std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    /// An agent asked to update gets the order, fetches its build through the hub (checked),
-    /// and is no longer asked once it says how it went.
-    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
-    #[cfg_attr(
-        not(feature = "pg-tests"),
-        ignore = "needs Postgres: the pg-tests feature"
-    )]
-    async fn an_agent_is_told_and_fetches_its_build_through_the_hub(pool: sqlx::PgPool) {
-        let build = b"a new agent".to_vec();
-        let url = releases(vec![(
-            "agent-v99.0.0",
-            "maker-connect-agent-linux-armv6",
-            build.clone(),
-        )])
-        .await;
-        let shared: Store = Store::for_test(&pool).await;
-        let (machine_id, token, code) = shared
-            .register(&maker_connect_protocol::Register {
-                protocol: maker_connect_protocol::VERSION,
-                name: "Pi".into(),
-                kind: maker_connect_protocol::MachineKind::Label,
-                agent_version: "v0.2.0-beta.2".into(),
-            })
-            .await
-            .unwrap();
-        let space = 1;
-        shared.pair(space, &code).await.unwrap();
-        let downloads = shared.lock().unwrap().downloads_dir.clone();
-        let u = url.clone();
-        let prepared = tokio::task::spawn_blocking(move || prepare_agent(&downloads, &u))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            shared
-                .ask_agent_update(
-                    space,
-                    std::slice::from_ref(&machine_id),
-                    &prepared.tag,
-                    update::now()
-                )
-                .await
-                .unwrap(),
-            1
-        );
-
-        let mut report = maker_connect_protocol::Telemetry {
-            agent: Some(maker_connect_protocol::AgentInfo {
-                version: "v0.2.0-beta.2".into(),
-                os: "linux".into(),
-                arch: "arm".into(),
-                can_update: true,
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let order = order_for(&shared, &token, &report).await.unwrap().unwrap();
-        assert_eq!(order.version, "v99.0.0");
-        assert_eq!(order.file, "maker-connect-agent-linux-armv6");
-        update::check(
-            &build,
-            &order.file,
-            &order.tag,
-            &order.sums,
-            &order.signature,
-            &KEY.public,
-        )
-        .unwrap();
-
-        // Through the hub, with the agent's token only.
-        let app = routes().with_state(shared.clone());
-        let get = |token: &'static str| {
-            let app = app.clone();
-            let path = order.download.clone();
-            async move {
-                use tower::ServiceExt;
-                let response = app
-                    .oneshot(
-                        axum::http::Request::get(path)
-                            .header("authorization", format!("Bearer {token}"))
-                            .body(axum::body::Body::empty())
-                            .unwrap(),
-                    )
-                    .await
-                    .unwrap();
-                let status = response.status();
-                let body = http_body_util::BodyExt::collect(response.into_body())
-                    .await
-                    .unwrap()
-                    .to_bytes();
-                (status, body.to_vec())
-            }
-        };
-        assert_eq!(get("nobody").await.0, StatusCode::NOT_FOUND);
-        let token: &'static str = Box::leak(token.clone().into_boxed_str());
-        // The release must be found where the test serves it.
-        unsafe { std::env::set_var("MAKER_CONNECT_RELEASES", &url) };
-        assert_eq!(get(token).await, (StatusCode::OK, build));
-
-        // An agent that says how it went is not asked again.
-        report.agent.as_mut().unwrap().last_update = Some(maker_connect_protocol::UpdateOutcome {
-            at: update::now() + 1,
-            from: "v0.2.0-beta.2".into(),
-            to: "v99.0.0".into(),
-            ok: false,
-            note: "it did not reach the hub in time".into(),
-        });
-        assert_eq!(order_for(&shared, token, &report).await.unwrap(), None);
     }
 }

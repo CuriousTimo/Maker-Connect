@@ -4,12 +4,6 @@
 /about/update
 /account
 /account/password
-/agents/update
-/api/agent/v1/files/{id}
-/api/agent/v1/jobs/{id}/file
-/api/agent/v1/register
-/api/agent/v1/telemetry
-/api/agent/v1/update/{tag}/{file}
 /api/apps/v1/files
 /api/apps/v1/info
 /api/apps/v1/machines
@@ -23,7 +17,6 @@
 /api/machines
 /api/machines/stream
 /api/machines/{id}/history
-/api/machines/{id}/sd
 /api/machines/{id}/usb
 /api/me
 /api/parts/{id}
@@ -94,8 +87,6 @@
 /cameras/{id}/live
 /cameras/{id}/remove
 /cameras/{id}/ws
-/downloads
-/downloads/{name}
 /f/{iv}/raw
 /files
 /files/{id}/download
@@ -119,12 +110,10 @@
 /machines/add
 /machines/{id}
 /machines/{id}/access
-/machines/{id}/agent/update
 /machines/{id}/answer
 /machines/{id}/ask
 /machines/{id}/bad
 /machines/{id}/command
-/machines/{id}/emergency-stop
 /machines/{id}/farm
 /machines/{id}/grants
 /machines/{id}/grants/{user}/remove
@@ -143,7 +132,6 @@
 /machines/{id}/ready
 /machines/{id}/remove
 /machines/{id}/safety
-/machines/{id}/sd/print
 /machines/{id}/serviced
 /machines/{id}/sheet
 /machines/{id}/start-burn
@@ -192,9 +180,6 @@
 /spaces/switch
 /spool/show/{id}
 /stock
-/usb-cameras/test
-/usb-cameras/test/events
-/usb-cameras/test/frame/{machine}/{index}
 /virtual
 /welcome
 # RULES
@@ -203,11 +188,6 @@
 ("*", "/logo.svg", Public, None)
 ("*", "/logo-large.svg", Public, None)
 ("*", "/logo-large-dark.svg", Public, None)
-("*", "/api/agent/v1/register", Public, None)
-("*", "/api/agent/v1/telemetry", Public, None)
-("*", "/api/agent/v1/cameras/{index}/frame", Public, None)
-("*", "/api/agent/v1/jobs/{id}/file", Public, None)
-("*", "/api/agent/v1/files/{id}", Public, None)
 ("*", "/p/register", Public, None)
 ("*", "/p/telemetry", Public, None)
 ("*", "/p/events", Public, None)
@@ -233,9 +213,6 @@
 ("POST", "/instance/open-spaces", InstanceAdmin, None)
 ("GET", "/api/update", InstanceAdmin, None)
 ("POST", "/about/update", InstanceAdmin, None)
-("POST", "/machines/{id}/agent/update", InstanceAdmin, None)
-("POST", "/agents/update", InstanceAdmin, None)
-("GET", "/api/agent/v1/update/{tag}/{file}", Public, None)
 ("POST", "/space/name", Role(Admin), Some("renamed the space"))
 ("POST", "/organisation/name", Role(Admin), Some("renamed the organisation"))
 ("POST", "/space/invites", Role(Admin), Some("made an invite link"))
@@ -269,15 +246,12 @@
 ("POST", "/machines/{id}/grants/{user}/remove", Machine(Manage), Some("took permission away on"))
 ("POST", "/machines/{id}/laser", Machine(Manage), Some("set the laser module of"))
 ("POST", "/machines/{id}/command", Machine(Operate), Some("sent a command to"))
-("POST", "/machines/{id}/emergency-stop", Machine(Use), Some("pressed the emergency stop of"))
 ("POST", "/machines/{id}/job", Machine(Use), Some("paused, resumed or stopped the job on"))
 ("POST", "/machines/{id}/start-burn", Machine(Operate), Some("started the burn on"))
 ("POST", "/machines/{id}/taken", Machine(Use), Some("took the print off"))
 ("POST", "/machines/{id}/not-ready", Machine(Use), Some("said it is not ready after all:"))
 ("POST", "/machines/{id}/answer", Machine(Use), Some("answered the question on the screen of"))
 ("POST", "/machines/{id}/media", Machine(Use), Some("said what is loaded in"))
-("GET", "/api/machines/{id}/sd", Machine(View), None)
-("POST", "/machines/{id}/sd/print", Machine(Use), Some("printed from the SD card of"))
 ("GET", "/api/machines/{id}/usb", Machine(View), None)
 ("GET", "/machines/{id}/usb/preview", Machine(View), None)
 ("POST", "/machines/{id}/usb/print", Machine(Use), Some("printed from the USB stick of"))
@@ -348,9 +322,6 @@
 ("DELETE", "/api/v1/filament/{id}/tag/{uid}", Role(Member), Some("untagged filament"))
 ("POST", "/api/v1/tag/scan", Role(Member), None)
 ("POST", "/api/v1/backup", Role(Admin), Some("backed up the materials"))
-("GET", "/usb-cameras/test", Role(Admin), None)
-("GET", "/usb-cameras/test/events", Role(Admin), None)
-("GET", "/usb-cameras/test/frame/{machine}/{index}", Role(Admin), None)
 ("GET", "/cameras", Role(Guest), None)
 ("GET", "/cameras/{id}", Role(Guest), None)
 ("GET", "/cameras/{id}/live", Role(Guest), None)
@@ -384,36 +355,6 @@ POST /account/password => 401 415 415 415 415
 PUT /account/password => 401 403 403 403 403
 PATCH /account/password => 401 403 403 403 403
 DELETE /account/password => 401 403 403 403 403
-GET /agents/update => 401 405 405 405 405
-POST /agents/update => 401 403 403 403 403
-PUT /agents/update => 401 403 403 403 403
-PATCH /agents/update => 401 403 403 403 403
-DELETE /agents/update => 401 403 403 403 403
-GET /api/agent/v1/files/{id} => 404 404 404 404 404
-POST /api/agent/v1/files/{id} => 405 405 405 405 405
-PUT /api/agent/v1/files/{id} => 405 405 405 405 405
-PATCH /api/agent/v1/files/{id} => 405 405 405 405 405
-DELETE /api/agent/v1/files/{id} => 405 405 405 405 405
-GET /api/agent/v1/jobs/{id}/file => 404 404 404 404 404
-POST /api/agent/v1/jobs/{id}/file => 405 405 405 405 405
-PUT /api/agent/v1/jobs/{id}/file => 405 405 405 405 405
-PATCH /api/agent/v1/jobs/{id}/file => 405 405 405 405 405
-DELETE /api/agent/v1/jobs/{id}/file => 405 405 405 405 405
-GET /api/agent/v1/register => 405 405 405 405 405
-POST /api/agent/v1/register => 415 415 415 415 415
-PUT /api/agent/v1/register => 405 405 405 405 405
-PATCH /api/agent/v1/register => 405 405 405 405 405
-DELETE /api/agent/v1/register => 405 405 405 405 405
-GET /api/agent/v1/telemetry => 405 405 405 405 405
-POST /api/agent/v1/telemetry => 415 415 415 415 415
-PUT /api/agent/v1/telemetry => 405 405 405 405 405
-PATCH /api/agent/v1/telemetry => 405 405 405 405 405
-DELETE /api/agent/v1/telemetry => 405 405 405 405 405
-GET /api/agent/v1/update/{tag}/{file} => 404 404 404 404 404
-POST /api/agent/v1/update/{tag}/{file} => 403 403 403 403 403
-PUT /api/agent/v1/update/{tag}/{file} => 403 403 403 403 403
-PATCH /api/agent/v1/update/{tag}/{file} => 403 403 403 403 403
-DELETE /api/agent/v1/update/{tag}/{file} => 403 403 403 403 403
 GET /api/apps/v1/files => 401 401 401 401 401
 POST /api/apps/v1/files => 401 401 401 401 401
 PUT /api/apps/v1/files => 401 401 401 401 401
@@ -479,11 +420,6 @@ POST /api/machines/{id}/history => 401 403 403 403 403
 PUT /api/machines/{id}/history => 401 403 403 403 403
 PATCH /api/machines/{id}/history => 401 403 403 403 403
 DELETE /api/machines/{id}/history => 401 403 403 403 403
-GET /api/machines/{id}/sd => 401 404 404 404 404
-POST /api/machines/{id}/sd => 401 403 403 403 403
-PUT /api/machines/{id}/sd => 401 403 403 403 403
-PATCH /api/machines/{id}/sd => 401 403 403 403 403
-DELETE /api/machines/{id}/sd => 401 403 403 403 403
 GET /api/machines/{id}/usb => 401 404 404 404 404
 POST /api/machines/{id}/usb => 401 403 403 403 403
 PUT /api/machines/{id}/usb => 401 403 403 403 403
@@ -834,16 +770,6 @@ POST /cameras/{id}/ws => 401 403 403 403 403
 PUT /cameras/{id}/ws => 401 403 403 403 403
 PATCH /cameras/{id}/ws => 401 403 403 403 403
 DELETE /cameras/{id}/ws => 401 403 403 403 403
-GET /downloads => 401 200 200 200 200
-POST /downloads => 401 403 403 403 403
-PUT /downloads => 401 403 403 403 403
-PATCH /downloads => 401 403 403 403 403
-DELETE /downloads => 401 403 403 403 403
-GET /downloads/{name} => 401 404 404 404 404
-POST /downloads/{name} => 401 403 403 403 403
-PUT /downloads/{name} => 401 403 403 403 403
-PATCH /downloads/{name} => 401 403 403 403 403
-DELETE /downloads/{name} => 401 403 403 403 403
 GET /f/{iv}/raw => 404 404 404 404 404
 POST /f/{iv}/raw => 403 403 403 403 403
 PUT /f/{iv}/raw => 403 403 403 403 403
@@ -959,11 +885,6 @@ POST /machines/{id}/access => 401 404 404 404 404
 PUT /machines/{id}/access => 401 403 403 403 403
 PATCH /machines/{id}/access => 401 403 403 403 403
 DELETE /machines/{id}/access => 401 403 403 403 403
-GET /machines/{id}/agent/update => 401 405 405 405 405
-POST /machines/{id}/agent/update => 401 403 403 403 403
-PUT /machines/{id}/agent/update => 401 403 403 403 403
-PATCH /machines/{id}/agent/update => 401 403 403 403 403
-DELETE /machines/{id}/agent/update => 401 403 403 403 403
 GET /machines/{id}/answer => 401 405 405 405 405
 POST /machines/{id}/answer => 401 404 404 404 404
 PUT /machines/{id}/answer => 401 403 403 403 403
@@ -984,11 +905,6 @@ POST /machines/{id}/command => 401 404 404 404 404
 PUT /machines/{id}/command => 401 403 403 403 403
 PATCH /machines/{id}/command => 401 403 403 403 403
 DELETE /machines/{id}/command => 401 403 403 403 403
-GET /machines/{id}/emergency-stop => 401 405 405 405 405
-POST /machines/{id}/emergency-stop => 401 404 404 404 404
-PUT /machines/{id}/emergency-stop => 401 403 403 403 403
-PATCH /machines/{id}/emergency-stop => 401 403 403 403 403
-DELETE /machines/{id}/emergency-stop => 401 403 403 403 403
 GET /machines/{id}/farm => 401 405 405 405 405
 POST /machines/{id}/farm => 401 404 404 404 404
 PUT /machines/{id}/farm => 401 403 403 403 403
@@ -1079,11 +995,6 @@ POST /machines/{id}/safety => 401 404 404 404 404
 PUT /machines/{id}/safety => 401 403 403 403 403
 PATCH /machines/{id}/safety => 401 403 403 403 403
 DELETE /machines/{id}/safety => 401 403 403 403 403
-GET /machines/{id}/sd/print => 401 405 405 405 405
-POST /machines/{id}/sd/print => 401 404 404 404 404
-PUT /machines/{id}/sd/print => 401 403 403 403 403
-PATCH /machines/{id}/sd/print => 401 403 403 403 403
-DELETE /machines/{id}/sd/print => 401 403 403 403 403
 GET /machines/{id}/serviced => 401 405 405 405 405
 POST /machines/{id}/serviced => 401 404 404 404 404
 PUT /machines/{id}/serviced => 401 403 403 403 403
@@ -1324,21 +1235,6 @@ POST /stock => 401 403 403 403 403
 PUT /stock => 401 403 403 403 403
 PATCH /stock => 401 403 403 403 403
 DELETE /stock => 401 403 403 403 403
-GET /usb-cameras/test => 401 403 403 200 200
-POST /usb-cameras/test => 401 403 403 403 403
-PUT /usb-cameras/test => 401 403 403 403 403
-PATCH /usb-cameras/test => 401 403 403 403 403
-DELETE /usb-cameras/test => 401 403 403 403 403
-GET /usb-cameras/test/events => 401 403 403 200 200
-POST /usb-cameras/test/events => 401 403 403 403 403
-PUT /usb-cameras/test/events => 401 403 403 403 403
-PATCH /usb-cameras/test/events => 401 403 403 403 403
-DELETE /usb-cameras/test/events => 401 403 403 403 403
-GET /usb-cameras/test/frame/{machine}/{index} => 401 403 403 404 404
-POST /usb-cameras/test/frame/{machine}/{index} => 401 403 403 403 403
-PUT /usb-cameras/test/frame/{machine}/{index} => 401 403 403 403 403
-PATCH /usb-cameras/test/frame/{machine}/{index} => 401 403 403 403 403
-DELETE /usb-cameras/test/frame/{machine}/{index} => 401 403 403 403 403
 GET /virtual => 401 405 405 405 405
 POST /virtual => 401 403 403 415 415
 PUT /virtual => 401 403 403 403 403
@@ -1350,7 +1246,7 @@ PUT /welcome => 401 403 403 403 403
 PATCH /welcome => 401 403 403 403 403
 DELETE /welcome => 401 403 403 403 403
 # embedded
-header d0f93d4187616815e0408042e03fbcb30bab293c19a5f98a72ec1b2502fd165c
+header 8d5a86f661c53d5d9c2a987bc2a2f3acfd95e2e163aa2b18344201ea0573f383
 files.css dcd93251794ba443091f0adc652e98842ec61049844f90ab07592de304138158
 files.js dc5a452f14d09b597c27ddaa74e677a9e3ee57abf768f36297cce5fe1c2f13ad
 label.css f9a5b385a814d5b7049176e7ac481f9553e4671487a22fece0616874e2d9e207
@@ -1359,8 +1255,8 @@ labelwriter.css d13fba33faa7673612b492e4046b7b1629e95ee99f8e853142ef7bf5d325e6dc
 labelwriter.js db2346bc9f66818a8ed4772689c5e656111d6d4bf8d008dc6a7d1056080f9460
 library.css 589961a7065efff38168ff267ad49fe2396aa8dbd4060ed62b44f4bd30f943fd
 library.js 5d6862caee23b47a5bac714c11db8fce72285e11414cacd462fde263d78947ad
-machine.css 13195d9381a83c71e2d679486d5b64a1ac7618b646c6bb2705cdf2d5570ec66d
-machine.js 38ffe57bfe6b3be83c5c6ae1bdc591695aa35352fdf9b024f510711ec37b0884
+machine.css 1feaeca15d84a0e743c2629f8269ecc21702ae55bf573cbf891c69e637bdaf1f
+machine.js eb1d2eaf657c9bdaa8b54d9fd521ee94aa3351c91371cfbb0d1b671032c142da
 mc.css 2f6213936ee8b52ac673ffc4533db4a765028fe69727542ebff8997ed03c779c
 shell.js 6c03350c18dfe71b8c46d3053adf487ff503ebc4d147d3b598cfb9fef79f1e58
 theme.js 0dc06d091c3bfb6e62df270e28bf92587ddab81d5aa453e30419c6e41c4729a6

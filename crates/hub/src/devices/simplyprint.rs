@@ -203,7 +203,6 @@ fn heard(printer: &mut Printer, kind: &str, data: &Value) {
                 arch: data["machine"].as_str().unwrap_or("").to_owned(),
                 hostname: data["hostname"].as_str().map(str::to_owned),
                 address: data["local_ip"].as_str().map(str::to_owned),
-                ..AgentInfo::default()
             });
         }
         "mesh_data" => {

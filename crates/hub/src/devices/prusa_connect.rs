@@ -28,9 +28,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post,
 };
-use maker_connect_protocol::{
-    Identity, JobProgress, MachineKind, MachineState, Register, Telemetry,
-};
+use maker_connect_protocol::{Identity, JobProgress, MachineKind, MachineState, Telemetry};
 use serde_json::Value;
 
 /// Logs what a printer asks under `/p/` (and anything not found), its secrets left out:
@@ -305,14 +303,11 @@ async fn register(State(store): State<Store>, body: String) -> Response {
         format!("{model} {tail}")
     };
     let firmware = text(&about, "firmware");
-    let machine = Register {
-        protocol: maker_connect_protocol::VERSION,
-        name: name.clone(),
-        kind: MachineKind::Fdm,
-        agent_version: format!("Prusa firmware {firmware} (built-in Connect)").replace("  ", " "),
-    };
+    let agent_version = format!("Prusa firmware {firmware} (built-in Connect)").replace("  ", " ");
     let registered: sqlx::Result<_> = async {
-        let (id, token, code) = store.register_linked(&machine, "prusa-connect").await?;
+        let (id, token, code) = store
+            .register_linked(&name, MachineKind::Fdm, &agent_version, "prusa-connect")
+            .await?;
         if let Some(profile) = profile {
             store.recognise(&token, &profile.id).await?;
         }

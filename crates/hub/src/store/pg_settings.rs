@@ -1,10 +1,9 @@
 //! The columns of a machine's row that the modules set (hub core v2 step 2, lane 3b), on Postgres: its
 //! access mode (crate::access), PPE (crate::safety), farm settings (crate::farm), who started a print
-//! from its USB stick (crate::devices::printer_files) and the agent update asked for (crate::updates).
+//! from its USB stick (crate::devices::printer_files).
 //! Space-keyed ones run in their space's transaction ([`pg::Pg::space`]).
 
 use super::*;
-use crate::store::pg::Bypass;
 
 impl Store {
     /// One space-keyed column update; whether the machine is in the space.
@@ -144,60 +143,5 @@ impl Store {
         .await?;
         tx.commit().await?;
         Ok(())
-    }
-
-    /// The agent update asked for a machine (by its agent's token): its id, the release tag, and
-    /// when it was asked (Unix seconds, 0 when never).
-    pub async fn agent_update_asked(
-        &self,
-        token: &str,
-    ) -> sqlx::Result<Option<(String, Option<String>, i64)>> {
-        let row = sqlx::query!(
-            r#"SELECT id, agent_update_to, COALESCE(unix_seconds(agent_update_at), 0) AS "at!"
-               FROM machines WHERE token = $1"#,
-            token
-        )
-        .fetch_optional(self.pg().admin(Bypass::Secret))
-        .await?;
-        Ok(row.map(|r| (r.id, r.agent_update_to, r.at)))
-    }
-
-    /// The agent is on the release asked for, or said how its update went: asked no more.
-    pub async fn agent_update_done(&self, token: &str) -> sqlx::Result<()> {
-        // By the agent's token: its own row, maybe in no space yet.
-        sqlx::query(
-            "UPDATE machines SET agent_update_to = NULL, agent_update_at = NULL WHERE token = $1",
-        )
-        .bind(token)
-        .execute(self.pg().admin(Bypass::Secret))
-        .await?;
-        Ok(())
-    }
-
-    /// Asks the agents of `machines` (in space `space`) to update to `tag`: how many were asked.
-    pub async fn ask_agent_update(
-        &self,
-        space: i64,
-        machines: &[String],
-        tag: &str,
-        at: i64,
-    ) -> sqlx::Result<u64> {
-        let mut tx = self.pg().space(space).await?;
-        let mut asked = 0;
-        for machine in machines {
-            asked += sqlx::query!(
-                "UPDATE machines SET agent_update_to = $1, agent_update_at = at_unix($2)
-                 WHERE id = $3 AND space_id = $4 AND link = 'agent'",
-                tag,
-                at,
-                machine,
-                space
-            )
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
-        }
-        tx.commit().await?;
-        Ok(asked)
     }
 }

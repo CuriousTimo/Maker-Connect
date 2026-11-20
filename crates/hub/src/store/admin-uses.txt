@@ -49,6 +49,4 @@ store/pg_machines.rs set_peer 1 device token: where its reports come from
 store/pg_machines.rs machine_id_by_token 1 device token: its machine id
 store/pg_machines.rs move_machine 3 a device moved to another space (decisions/20261119-device-move.md)
 store/pg_machines.rs machine_by_token 1 device token: its own row and space
-store/pg_settings.rs agent_update_asked 1 agent token: the update asked for it
-store/pg_settings.rs agent_update_done 1 agent token: its update done
 store/history.rs record_history 4 the history writer: a report's samples into sample (no app-role grant)

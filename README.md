@@ -25,8 +25,8 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 | **Control**: the bed with the head where it is, the job, moves, heating, the fan | **Telemetry**: temperatures and fans, live, with a table view |
 | ![The bed mesh as a surface to turn, with its range, lowest and highest point](docs/screenshots/bed-level.png) | ![The files page: filters by type and machine, labels and G-code with their pictures, where each was printed](docs/screenshots/files.png) |
 | **Bed level**: the mesh as a surface, a map and a table | **Files**: sorted and filtered by type and machine, where each was printed, removed many at once |
-| ![A label printer's label tab: text, font, a QR code, and the preview of the dots that will burn on 12 mm tape](docs/screenshots/label.png) | ![The downloads page: the agent for macOS and Windows, with the command to start it](docs/screenshots/downloads.png) |
-| **Label**: text, a QR code or barcode, a drawing; the preview is the dots that will burn | **Downloads**: the agent for each platform, with the command for this hub |
+| ![A label printer's label tab: text, font, a QR code, and the preview of the dots that will burn on 12 mm tape](docs/screenshots/label.png) | |
+| **Label**: text, a QR code or barcode, a drawing; the preview is the dots that will burn | |
 | ![A laser's control tab: the work area, the loaded job with Frame, Start burn (not yet: frame it first) and Take it off, the emergency stop, and the jog pad](docs/screenshots/laser-control.png) | ![The Materials page: filament and label tapes with their spools and cassettes, where each is, a scan box](docs/screenshots/materials.png) |
 | **A laser's Control**: the loaded job is framed, then started by a person at the laser (Start burn); the emergency stop; the jog pad | **Materials**: spools grouped by filament, what is left of each, the chosen one in its inspector; Spoolman's API speaks here too |
 | ![Prepare: the laser design tool, which opens in a new tab](docs/screenshots/prepare.png) | ![The LabelWriter 450's label tab: DYMO's S0722530 roll, two labels side by side on one page, with what the PPD says about it](docs/screenshots/labelwriter.png) |
@@ -43,6 +43,11 @@ translations of that reference, file by file, and each is proved against the ref
 (the audits in [docs/audits](docs/audits/README.md), each with a checker script and a test per
 row). What a port does not know, it does not guess.
 
+The agent's link to the hub is being rebuilt (agent link v2, [docs/design/wire.md](docs/design/wire.md));
+the old link is gone, with no fallback. Until the new one lands, the machines below that go
+*through the agent* do not reach the hub: their ports work and are proved, the hub shows them once
+the agent connects again.
+
 - **Machines report themselves.** An agent next to a machine, or the machine's own firmware,
   connects to the hub: no port to open where the machine stands. Add one with the code it
   shows. Every page updates live (server-sent events).
@@ -52,8 +57,7 @@ row). What a port does not know, it does not guess.
 - **Printers on Marlin** through the agent (`mode = "marlin"`): a port of **OctoPrint
   1.11.8**'s serial layer, proved against OctoPrint itself on its own virtual printer (the
   same bytes in 22 of 24 scenarios; the other two differ between OctoPrint's own runs). Files
-  print as jobs, with pause, resume, stop and the emergency stop (`M112`). Not yet tried on a
-  real printer.
+  print as jobs, with pause, resume and stop. Not yet tried on a real printer.
 - **Lasers (GRBL)** through the agent (`mode = "grbl"`), a port of
   [LaserFoundry](https://github.com/StitchFoundry/laserfoundry) (v0.5.0): homing, the jog pad,
   Set origin and Go to origin, Frame. **A laser never starts by itself**: a file sent to a laser
@@ -74,7 +78,7 @@ row). What a port does not know, it does not guess.
   S0722530, two labels side by side).
 - **Cameras**: network cameras (RTSP/ONVIF) straight to the hub, live in the browser (go2rtc's
   way, checked frame by frame), linked to a machine or a room; and USB webcams through the
-  agent (nokhwa; a Logitech C270 on an Orange Pi shown on a test page).
+  agent (nokhwa; a Logitech C270 on an Orange Pi).
 - **Materials, compatible with [Spoolman](https://github.com/Donkie/Spoolman)**: its model
   (vendors, filaments, spools) and its API at `/api/v1`, measured request by request against
   real Spoolman, so Moonraker's `[spoolman]`, OctoPrint's Spoolman plugin, Mainsail, Fluidd and
@@ -97,14 +101,14 @@ row). What a port does not know, it does not guess.
 |---|---|---|---|
 | **Prusa MINI** (Buddy firmware) | Its own firmware speaks Prusa Connect to the hub: no agent | Buddy 6.3.0 | Yes: a MINI on firmware 6.3.0 |
 | **3D printers on Marlin** | Agent, USB serial, `mode = "marlin"` (Linux and macOS; not yet Windows) | OctoPrint 1.11.8 | Not yet: proved against OctoPrint on its virtual printer |
-| **Prusa MK3S, MK2.5S** (8-bit firmware) | Agent, USB or an MK3S's RPi port | PrusaLink (the port is planned: [docs/plans/mk3-port-plan.md](docs/plans/mk3-port-plan.md)) | An MK3S through a Pi Zero 2 W with the earlier agent |
+| **Prusa MK3S, MK2.5S** (8-bit firmware) | Agent, USB or an MK3S's RPi port | PrusaLink (the port is planned: [docs/plans/mk3-port-plan.md](docs/plans/mk3-port-plan.md)) | Not yet |
 | **3D printers on Klipper** | Moonraker connects by itself: no agent | Moonraker | Not yet |
 | **Lasers on GRBL**: Ortur, Creality Falcon, Sculpfun, xTool, … | Agent, USB serial, `mode = "grbl"` | LaserFoundry v0.5.0 | Yes: an Ortur Laser Master 2 Pro S2 (motion and framing; no burning yet) |
 | **DYMO LabelManager PnP** (tape) | Agent, USB HID, `mode = "dymo-pnp"`: no driver | labelle | Yes |
 | **DYMO LabelWriter 450** (labels) | Agent, USB, `mode = "labelwriter-450"`: no driver | DYMO's CUPS driver 1.4.0, DYMO Connect's catalogue | Yes |
 | **DYMO M-series scale** (weight) | Agent, USB HID, `mode = "dymo-scale"` | usbscale | Not yet |
 | **Network cameras** (RTSP, ONVIF) | Straight to the hub | retina, go2rtc | Yes: an LSC Smart Connect camera |
-| **USB webcams** | Agent, `mode = "cameras"` | nokhwa, FFmpeg's `mjpeg2jpeg` | Yes: a Logitech C270 (a test page for now) |
+| **USB webcams** | Agent, `mode = "cameras"` | nokhwa, FFmpeg's `mjpeg2jpeg` | Yes: a Logitech C270 |
 | **A virtual one of every profile** | Simulated in the hub | – | – |
 
 | The agent runs on | Build | On real hardware |
@@ -128,11 +132,11 @@ unpack it and start it in its folder:
 ./maker-connect-hub                            # http://localhost:8460
 ```
 
-The agent has releases of its own (`agent-v…`); the hub's Downloads page offers the newest.
+The agent has releases of its own (`agent-v…`).
 The archive brings SpoolmanDB; printer
 profiles and filaments are inside the hub. The data is a PostgreSQL 17 database (TimescaleDB's image
 `timescale/timescaledb:2.32.0-pg17`), given as `DATABASE_URL` (in the environment: never on the command line, where anyone on the computer can read it) with the hub's own login `maker_connect_hub` (the roles and the restore template come from [scripts/db-roles.sql](scripts/db-roles.sql), run once per server by its superuser; the database is owned by `maker_connect_owner`; the hub refuses a login that is a superuser or owns tables), and the folders
-`maker-connect-files/`, `-downloads/` and `-dumps/` beside `--db /somewhere/maker-connect.db` (the
+`maker-connect-files/` and `-dumps/` beside `--db /somewhere/maker-connect.db` (the
 folder it starts in unless said). The hub dumps the database (`pg_dump`) every night and before an
 update into `maker-connect-dumps/` (only for its own user), keeping the last 7 of each
 (`--keep-dumps`, our choice); `pg_dump`, `pg_restore` and `psql` must be of the server's version, found on `PATH` (where the
@@ -153,9 +157,9 @@ From the source:
 cargo run -p maker-connect-hub                 # http://localhost:8460
 ```
 
-Then the ＋ next to "Machines" in the sidebar (or ⌘K, *Add a machine*), "A virtual one", and pick a printer, a laser or a label printer. For a real
-machine, the hub's **Downloads** page has the agent for each platform, with the command to
-start it: [Getting Started](https://github.com/CuriousTimo/Maker-Connect/wiki/Getting-Started)
+Then the ＋ next to "Machines" in the sidebar (or ⌘K, *Add a machine*), "A virtual one", and pick a printer, a laser or a label printer. A Prusa
+with built-in Connect is added with the code it shows (Add machine); machines through the agent
+wait for its new hub link (above). [Getting Started](https://github.com/CuriousTimo/Maker-Connect/wiki/Getting-Started)
 in the wiki goes through it, [The Agent](https://github.com/CuriousTimo/Maker-Connect/wiki/The-Agent)
 has its options and its config file.
 

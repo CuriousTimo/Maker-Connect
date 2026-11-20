@@ -59,7 +59,6 @@ pub fn public(path: &str) -> bool {
         "/login" | "/setup" | "/logo.svg" | "/logo-large.svg" | "/logo-large-dark.svg"
     ) || path.starts_with("/invite/")
         || path == "/api/apps/v1/info"
-        || path.starts_with("/api/agent/v1/")
         || path.starts_with("/p/")
         || path.starts_with("/f/")
         || path.starts_with("/simplyprint/")
@@ -874,8 +873,6 @@ mod tests {
                 }
             }
         }
-        paths.push(maker_connect_protocol::REGISTER.to_owned());
-        paths.push(maker_connect_protocol::TELEMETRY.to_owned());
         assert!(
             paths.len() > 90,
             "found only {} routes: is the parsing still right?",

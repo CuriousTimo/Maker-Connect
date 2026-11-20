@@ -97,7 +97,6 @@ impl<'a> Chrome<'a> {
                 "",
             ),
             item("", "space", "Space", "space", "staff", ""),
-            item("", "downloads", "Downloads", "downloads", "staff", ""),
             item("", "about", "About", "about", "instance", ""),
         ];
         let bottom = nav
@@ -205,7 +204,7 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
   // The cards of docs/design/ui/mockups/machines.html, live over server-sent events.
   const esc = escapeHtml;
   const KIND = { fdm: "3D printer", laser: "Laser", cnc: "CNC", cutter: "Cutting plotter", label: "Label printer", paper: "Paper printer", scale: "Scale", other: "Machine" };
-  const LINK = { virtual: "virtual", "prusa-connect": "built-in Connect", agent: "agent (USB)", simplyprint: "Moonraker" };
+  const LINK = { virtual: "virtual", "prusa-connect": "built-in Connect", simplyprint: "Moonraker" };
   let profiles = {};
   function seen(seconds) {
     if (seconds == null) return "never";
