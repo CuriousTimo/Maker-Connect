@@ -16,3 +16,14 @@ flate2 = "1"
 # websocket-client (`ws.py`): a blocking WebSocket client in its own thread, as the SDK's.
 tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 log = "0.4"
+# files.py and fileinfo.py: gcode-metadata's get_metadata; its port of CPython's repr() for the
+# OSError that command.py sends as `error=repr(err)`.
+maker-connect-gcode-metadata = { path = "../gcode-metadata" }
+
+# The os, os.path and shutil calls of files.py (src/pyos.rs), POSIX as the reference.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+# reads what the reference's Python gives (tests/pyos_reference.rs) without our own json port
+serde_json = { version = "1.0.154", features = ["preserve_order"] }

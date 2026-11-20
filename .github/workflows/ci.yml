@@ -156,6 +156,20 @@ jobs:
           PRUSA_SDK_PYTHON: ${{ runner.temp }}/sdk-venv/bin/python
         run: cargo test -p maker-connect-inotify-simple --locked
 
+      # The reference of crates/connect-sdk/src/pyos.rs (CPython 3.13.12's os, os.path and shutil),
+      # stdlib only, beside the runner's own python3 (`update-environment: false`).
+      - name: CPython 3.13.12
+        id: cpython
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.12"
+          update-environment: false
+
+      - name: Python's os functions against CPython 3.13.12
+        env:
+          PYOS_PYTHON: ${{ steps.cpython.outputs.python-path }}
+        run: cargo test -p maker-connect-sdk --test pyos_reference --locked
+
       # `.sqlx/` must match the queries: checked against a database with every migration applied.
       - name: Query cache current
         shell: bash

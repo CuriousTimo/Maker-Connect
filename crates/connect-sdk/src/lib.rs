@@ -14,5 +14,7 @@ pub mod conditions;
 pub mod consts;
 pub mod errors;
 pub mod models;
+#[cfg(unix)]
+pub mod pyos;
 pub mod util;
 pub mod ws;
