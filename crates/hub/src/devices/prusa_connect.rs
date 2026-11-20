@@ -1092,6 +1092,68 @@ mod tests {
         assert_eq!(call(&app, unknown).await.0, StatusCode::UNAUTHORIZED);
     }
 
+    /// Mesh bed leveling on a MINI over Prusa Connect: shown in its Controls to whoever may operate
+    /// it, and on the wire exactly as Prusa's server sends `core.command.mesh_bed_leveling`
+    /// (`internal/connector/xbuddy/verbs.go:303-308`, `wire_test.go:29`): a G frame, its id as 8
+    /// hex digits, then `G28\r\nG29` (`wire.go:53-58`); over HTTP the same G-code as the answer.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn mesh_bed_leveling_goes_out_as_the_server_sends_it(pool: sqlx::PgPool) {
+        use http_body_util::BodyExt;
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (_, id, token) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
+        crate::auth::tester_may_operate(&store, &id).await;
+        let page = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/machines/{id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let html = page.into_body().collect().await.unwrap().to_bytes();
+        assert!(
+            String::from_utf8_lossy(&html)
+                .contains(r#"<button name="action" value="probe-bed">Mesh bed leveling</button>"#),
+            "the button in Controls"
+        );
+        let press = Request::post(format!("/machines/{id}/command"))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("x-requested-with", "fetch")
+            .body(Body::from("action=probe-bed"))
+            .unwrap();
+        assert_eq!(call(&app, press).await.0, StatusCode::NO_CONTENT);
+        let answer = app
+            .clone()
+            .oneshot(
+                Request::post("/p/telemetry")
+                    .header("Token", &token)
+                    .body(Body::from(r#"{"state":"IDLE"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(answer.status(), StatusCode::OK);
+        assert_eq!(answer.headers()["content-type"], "text/x.gcode");
+        let sent: u32 = answer.headers()["command-id"]
+            .to_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let ws = command_of(answer).await.expect("a command");
+        assert_eq!(ws, format!("G{sent:08x}G28\r\nG29"));
+        let space = store.default_space().await.unwrap().0;
+        let machine = store.machine(space, &id).await.unwrap().unwrap();
+        assert_eq!(machine.commands[0].label, "Mesh bed leveling");
+    }
+
     /// An INFO event as a MINI sends it: its details are kept, its Prusa Link key is not.
     #[test]
     fn info_becomes_details_without_secrets() {

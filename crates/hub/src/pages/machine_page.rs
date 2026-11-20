@@ -2046,8 +2046,18 @@ fn printer_controls(
         )
     };
     let pad = printer_pad();
+    // A printer on Prusa Connect: the server's Mesh bed leveling beside Home (crate::probe_gcode);
+    // others measure from their bed level section, where the mesh comes back.
+    let level = if machine.link == "prusa-connect" {
+        button(
+            "probe-bed",
+            crate::devices::legacy_gcode::MESH_BED_LEVELING.0,
+        )
+    } else {
+        String::new()
+    };
     let left = format!(
-        r#"<h4>Coordinates</h4><div class="xyz">{xyz}</div>{bed}{pad}<div class="buttons">{home}{}</div><h4>Extruder</h4><div class="buttons">{}{}</div><p class="hint">10 mm at a time; the nozzle must be hot (the printer refuses a cold extrusion).</p>{fan}"#,
+        r#"<h4>Coordinates</h4><div class="xyz">{xyz}</div>{bed}{pad}<div class="buttons">{home}{level}{}</div><h4>Extruder</h4><div class="buttons">{}{}</div><p class="hint">10 mm at a time; the nozzle must be hot (the printer refuses a cold extrusion).</p>{fan}"#,
         button("motors-off", "Motors off"),
         button("extrude", "Extrude 10 mm"),
         button("retract", "Retract 10 mm"),
