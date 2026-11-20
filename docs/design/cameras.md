@@ -68,6 +68,6 @@ camera settings een keuze tussen prusa mode / live" ([OQ-9](risks-and-open.md#oq
 ## Not in this design yet
 
 A USB camera's identity across replugs ([OQ-15](risks-and-open.md#oq-15-device-identity-across-replugs-and-agents)),
-ONVIF discovery and `GetStreamUri`, sub streams, reconnecting, sessions only while someone watches,
+ONVIF discovery and `GetStreamUri`, sub streams, reconnecting, network-camera sessions only while someone watches,
 HTTPS, per-layer snapshots, privacy (who may watch, logging, notices; the microphone is never opened),
 WebRTC on a fat hub, cameras outside the hub's LAN.

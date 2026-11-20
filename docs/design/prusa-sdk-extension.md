@@ -35,7 +35,7 @@ This page proposes exactly those additions, for three devices:
   made only where nothing existing means the same.
 - **The SDK's naming.** Commands are upper-case with underscores, like `LOAD_FILAMENT`
   (`const.py` `Command`). Telemetry keys and kwargs are lower-case snake_case, like `temp_bed`
-  (`models.py:171-195`).
+  (prusa-connect `inbound.go:148`).
 - **Ignored by a peer that does not know it.** The SDK reads only the kwargs it names
   (`__init__.py:436-483`). Connect maps only the telemetry keys it knows and drops the rest
   (prusa-connect `internal/connector/xbuddy/inbound.go:146-159`, `:273-299`). A command a printer has
@@ -59,8 +59,9 @@ This page proposes exactly those additions, for three devices:
   as `a.b.c` numbers (`const.py:47-60`). A number for another device could collide with a model Prusa
   numbers later.
 - **Compatibility:** Prusa printers send only `a.b.c` values. A Connect that does not know the string
-  reads it as an unknown model (`xbuddy.go:816-829`) and refuses the device at admission (`403`,
-  `:704-712`). It never misreads it as a Prusa.
+  takes the model from the header (`xbuddy.go:816-829`) and, not knowing it, holds the device to its
+  driver baseline, the floor "a device of an unknown model is held to" (`verbs.go:115-119`). It never
+  misreads it as a Prusa.
 
 A camera needs no type: it registers through the camera protocol (part 4).
 
@@ -82,8 +83,10 @@ Added to the telemetry object (`models.py:171-195`), and left out when unknown:
 | `battery_percent` | integer 0-100 | status byte 3, when at most 100 |
 | `raw_status` | string | the first 8 status bytes in hex |
 
-These are the readings the device's reference driver gives: labelle `5e8f1e5`, as ported in
-`crates/engine/src/ports/labelle/port.rs:90-103`. Connect's telemetry has no key for a cassette, a
+These are **not** the reference driver's: labelle `5e8f1e5` does not interpret these bytes
+(`dymo_labeler.py:234`). They are what the owner saw on his PnP, an approved exception (owner,
+2026-11-16; `crates/engine/src/ports/labelle/port.rs:91-103`,
+[device map](../plans/hub-core-v2-device-map.md), the label printer's other options, item 3). Connect's telemetry has no key for a cassette, a
 battery or raw status bytes (`inbound.go:146-159`).
 
 ### Printing a label: `tape_size_mm`
@@ -93,7 +96,8 @@ A label is Connect's own "download and print". The server sends `START_CONNECT_D
 `/p/teams/{team_id}/files/{hash}/raw` with the device's headers (`:468`; `download.py:399-413`).
 
 The addition is one kwarg, `tape_size_mm`: an integer, one of `19`, `12`, `9` or `6`, default `12`.
-That is labelle's own name and its default (`crates/engine/src/device/labelmanager.rs:38-52`). A Connect
+That is labelle's own name, values and default (labelle `5e8f1e5` `lib/devices/dymo_labeler.py:243-257`;
+[device map](../plans/hub-core-v2-device-map.md) row 1 of the label verbs). A Connect
 print takes its settings from the G-code file. A PNG has none, and no Connect command carries a tape
 width. The SDK's handler reads only `path`, `hash`, `team_id`, `printing` and `selecting`
 (`__init__.py:467-477`), so it ignores the kwarg.
@@ -122,9 +126,14 @@ state itself, unchanged, in the new key `machine_state`.
 | `Sleep` | `ATTENTION`: a person must wake it |
 | `Unknown` (no status report yet) | `BUSY` |
 
-The mapping is this proposal's. `Idle`, `Jog`, `Home`, `Check`, `Hold`, `Alarm` and `Unknown` follow
-the mapping the laser port already uses (`crates/grbl/src/lib.rs:671-674`). `Run` is split so that a
-running job is `PRINTING`. `Door` and `Sleep` become `ATTENTION`, because a person must act.
+The mapping is this proposal's. These rows follow the mapping the laser port already uses
+(`crates/grbl/src/lib.rs:669-674`): `Idle`; `Jog`, `Home`, `Check` as `BUSY`; `Hold` as `PAUSED`;
+`Alarm` as `ERROR`. These differ from it:
+- `Run` is split, so that a running job is `PRINTING`; the port has `BUSY` for every `Run`.
+- `Door` and `Sleep` are `ATTENTION`, because a person must act (owner, 2026-11-20). The port has
+  `PAUSED` for `Door` and `IDLE` for `Sleep`.
+- `Unknown` is `BUSY`, so that nothing is sent to a machine whose state is not yet known. The port has
+  `IDLE`.
 
 ### Telemetry keys
 
@@ -134,7 +143,7 @@ The protocol's own keys, with their Connect meaning (`inbound.go:146-159`):
 |---|---|
 | `axis_x`, `axis_y` | the machine position in mm (GRBL's `MPos`) |
 | `progress` | the job's progress in percent |
-| `job_id` | the job, as the SDK adds it for a print (`__init__.py:323`) |
+| `job_id` | the job, as for a print (`inbound.go:155`) |
 
 New keys:
 
@@ -152,7 +161,7 @@ The four settings keys are sent as the device read them: after connecting, and a
 | Command | On a laser | Kwargs |
 |---|---|---|
 | `START_CONNECT_DOWNLOAD` | loads a job file onto the device; with `printing: false` only. A download never starts the laser | the SDK's (`__init__.py:457-483`) |
-| `START_PRINT` | starts the loaded job | `path`, as PrusaLink reads it (Prusa-Link `prusa_link.py:563-570`), and the new kwarg `from_line`: an integer ≥ 1, to start from a line of the file |
+| `START_PRINT` | starts the loaded job | `path`, as PrusaLink reads it (Prusa-Link `prusa/link/printer_adapter/prusa_link.py:563-570`), and the new kwarg `from_line`: an integer ≥ 1, to start from a line of the file |
 | `PAUSE_PRINT` | feed hold | none |
 | `RESUME_PRINT` | resumes a feed hold | none |
 | `STOP_PRINT` | stops the job | none |
@@ -187,6 +196,11 @@ confirming eye protection.
 
 ### Snapshots: the SDK's camera protocol, unchanged
 
+The camera side is the SDK's. Prusa's server side of these two endpoints is not in reference/prusa-connect,
+so what the hub answers is **ours**, built to what the SDK reads: a `200` with a `Token` header on
+registration (`__init__.py:855-859`).
+
+
 - **Register:** `POST /p/camera` with `config`, `options`, `capabilities` and `fingerprint`
   (`models.py:198-225`). The answer's `Token` header is the camera's token (`__init__.py:855-859`).
 - **Snapshots:** `PUT /c/snapshot`, a JPEG body with `Content-Type: image/jpg` and the headers
@@ -201,12 +215,15 @@ The SDK has snapshots only, and no command that reaches a camera (`const.py` `Co
 an upload stream and two commands to start and stop it.
 
 **The stream.** `POST /c/stream`, with the same `Fingerprint` and `Token` headers as `/c/snapshot`. The
-body is a continuous `multipart/x-mixed-replace` stream of JPEG parts. Each part has a `Content-Length`
-header and then the JPEG. This is the format go2rtc v1.9.15 `7c05066` takes as a pushed MJPEG source
-(`internal/mjpeg/mjpeg.go:173-191` `inputMjpeg`; the parser `pkg/mpjpeg/multipart.go:13-60`). The stream
+body is go2rtc's own MJPEG stream, as go2rtc v1.9.15 `7c05066` writes it (`pkg/mjpeg/writer.go:11-30`):
+`Content-Type: multipart/x-mixed-replace; boundary=frame`, and per frame `--frame`, `Content-Type:
+image/jpeg`, `Content-Length`, an empty line, the JPEG and `\r\n`. It is also the format go2rtc takes as a
+pushed MJPEG source (`internal/mjpeg/mjpeg.go:173-191` `inputMjpeg`; the parser
+`pkg/mpjpeg/multipart.go:13-60`). The stream
 is its own connection, so video never delays telemetry, events or commands on the WebSocket.
 
-**The commands.** They go over the device's WebSocket, which also registered the camera:
+**The commands.** They go over the WebSocket of the device the camera belongs to. The camera itself
+registered over HTTP (`POST /p/camera`, `__init__.py:855-859`).
 
 | Command | Does | Kwargs |
 |---|---|---|

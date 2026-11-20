@@ -21,8 +21,7 @@ telemetry keys and no label job in that protocol.
   Prusa-protocol aan te vullen hiervoor". A device that is not a Prusa uses the Prusa Connect protocol
   plus additions on top of it, not a link of our own. The additions are kept apart as a proposed SDK
   extension ([prusa-sdk-extension.md](../prusa-sdk-extension.md)): additive, ignored by a peer that does
-  not know them, and minimal. v1's label fields were read as input only, and nothing of v1 is carried
-  over.
+  not know them, and minimal.
 - **The reference is read at `c0d7d233`** with `git show c0d7d233:<path>`, because the checkout is at
   `04c5bd59` ([wire.md](../wire.md)).
 
@@ -37,6 +36,12 @@ telemetry keys and no label job in that protocol.
 - **Laser:** GRBL's state mapped onto the SDK's states, with `Door` and `Sleep` as `ATTENTION`, and GRBL's
   own state in `machine_state`. Motion commands get general names (`HOME`, `JOG`, `FRAME`, …), not laser
   names, because a CNC needs the same (owner: "akkoord, algemene namen").
+- **The proposal as a whole:** put to the owner item by item in the session (the type names; the DYMO's
+  keys; the laser's state table, `machine_state`, the settings keys, the commands it reuses and the new
+  ones; the camera's `/c/stream`, `START_CAMERA_STREAM`/`STOP_CAMERA_STREAM` with `camera_id` and `fps`
+  default 5). The owner: "akkoord, algemene namen, schrijf het document". Afterwards the coordinator added two
+  points and told the owner, who has not contradicted them: `Unknown` as `BUSY`, and no `time_printing` for the
+  laser (its port does not give it).
 - **Camera:** "eerst wat prusa heeft. daarna de live stream . alleen als iemand kijkt"; "in de camera
   settings een keuze tussen prusa mode / live". This decides OQ-9.
 
