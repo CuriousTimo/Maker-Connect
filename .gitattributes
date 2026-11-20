@@ -1,3 +1,5 @@
-# Generated docs are compared byte for byte with their generator (crates/device/tests/registry_docs.rs),
-# so a Windows checkout must not turn them into CRLF (#27).
+# Every text file is checked out with LF, also on Windows: the hub embeds its CSS, scripts and pages
+# byte for byte (include_str!) and compares them, its snapshots and generated docs with what it
+# renders (crates/hub/templates/snapshots, crates/device/tests/registry_docs.rs; #27).
+* text=auto eol=lf
 docs/registries/*.md text eol=lf

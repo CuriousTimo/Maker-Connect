@@ -719,9 +719,6 @@ fn battery_tile(percent: Option<u8>) -> String {
     )
 }
 
-/// How a heater is doing, as the tiles say it (the script says it the same way).
-/// A heater's line under its temperature: what it heats to, and how it is getting there.
-/// (Whether it has power now is the flame beside its name.) As the page's script says it.
 /// A laser's head chips (laser.html): X and Y where the controller says the head is, live, and
 /// the laser's optical power (as said under Machine, else its profile's).
 fn laser_chips(machine: &Machine, profile: Option<&Profile>) -> String {
@@ -756,6 +753,8 @@ fn target_note(target: Option<f32>) -> String {
     }
 }
 
+/// A heater's line under its temperature: what it heats to, and how it is getting there.
+/// (Whether it has power now is the flame beside its name.) As the page's script says it.
 fn heat_note(now: Option<f32>, target: Option<f32>) -> String {
     let Some(now) = now else {
         return "not reported".to_owned();
