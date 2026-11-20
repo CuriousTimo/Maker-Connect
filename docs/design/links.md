@@ -10,13 +10,14 @@ is, and which reference it follows. Flows over these links are in [flows.md](flo
 |---|---|---|---|---|---|---|
 | L1 | Browser → hub | HTTP/1.1 | pages, `/api/v1/*` | session cookie (HttpOnly) set at sign-in (a further Origin check: [OQ-30](risks-and-open.md#oq-30-origin-check-on-state-changing-requests)) | ours | plan §2.6, §2.9 |
 | L2 | Hub → browser | SSE over HTTP | `/api/v1/events` | session cookie, or an API token in its own space | ours (event envelope) | plan §2.4 |
-| L3 | Hub → browser | WebSocket, binary fMP4 fragments, MSE player | `/api/v1/cameras/{id}/ws` | session cookie; `device.view` on the camera checked before the upgrade | go2rtc v1.9.15 `internal/mp4/ws.go`, `www/video-rtc.js` | cameras.md |
+| L3 | Hub → browser | WebSocket: binary fMP4 fragments for a network camera (MSE), JPEG frames for a USB camera (go2rtc's `mjpeg` mode) | `/api/v1/cameras/{id}/ws` | session cookie; `device.view` on the camera checked before the upgrade | go2rtc v1.9.15 `internal/mp4/ws.go`, `www/video-rtc.js` | cameras.md |
 | L4 | External app → hub | HTTP | `/api/v1/*` | `Authorization: Bearer mct_…`: an API token, stored hashed, with scopes, expiry, last use and the person's generation | ours | plan §2.6, §2.8 |
 | L5 | Spoolman client → hub | HTTP + WebSocket | `/spoolman/api/v1/*` | open: [OQ-7](risks-and-open.md#oq-7-how-spoolman-clients-authenticate) | Spoolman `eccb05e` with base path `/spoolman` | plan §2.8 |
 | L6 | Each device on an agent → hub, as a Prusa Connect printer | HTTP to register; then one WebSocket per device, JSON text frames up (telemetry, events), `J`/`G`/`F` frames down; ping and pong | `/p/register`, `/p/ws` | `Code` header while registering; then `Fingerprint` and `Token` headers on the upgrade, no subprotocol ([wire.md](wire.md#the-websocket)) | Prusa-Connect-SDK-Printer `websockets` @ `c0d7d233` (client, ported), PrusaLink `websockets` @ `171148ce` (its use); server answers read in `reference/prusa-connect` `internal/connector/xbuddy` ([decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)) | owner ruling 2026-11-19 |
 | L7 | (not used) | folded into L6: commands travel on the device's WebSocket | | | | |
 | L8 | (not used) | folded into L6: a device registers over `/p/register`; a person enters its code in Space | | | | |
 | L9 | (not used) | our file and update routes are gone; files come with the drivers as the SDK fetches them, the agent's update is [OQ-46](risks-and-open.md#oq-46-how-the-agents-own-update-reaches-it) | | | | |
+| L10 | USB camera on an agent → hub, as a Prusa Connect camera | HTTP only, not the WebSocket: register, then snapshots; live view as one long upload | `/p/camera` (register), `/c/snapshot` (`PUT`, JPEG), `/c/stream` (`POST`, MJPEG, only between `START_CAMERA_STREAM` and `STOP_CAMERA_STREAM` on the device's L6) | the printer's headers on `/p/camera`; then the camera's `Timestamp`, `Fingerprint` and `Token` headers | Prusa-Connect-SDK-Printer @ `c0d7d233` (`models.py:198-225`, `camera.py:31`, `:54-77`); `/c/stream` is the [proposed extension](prusa-sdk-extension.md#part-5-a-usb-camera), in go2rtc v1.9.15's MJPEG format; the hub's answers are ours | owner 2026-11-20, cameras.md |
 | L11 | Prusa printer, Buddy 6.4+ → hub | HTTP + WebSocket | `/p/register`, `/p/auth`, `/p/ws` | `Code` header while registering; then `Fingerprint` and `Token` headers on the upgrade, `Sec-WebSocket-Protocol: prusa-connect` (`reference/buddy-6.4.0` `src/connect/connect.cpp:151-189`); the only Buddy dialect ([decision](decisions/20261119-buddy-websocket-dialect-only.md)) | Buddy 6.4+; server side read in `reference/prusa-connect` `internal/connector/xbuddy` | plan §2.2 |
 | L12 | Hub → network camera | RTSP over TCP | the camera's stream URL | the camera's user and password, kept by the hub | retina `2b6b7fe` (0.4.22) | cameras.md |
 | L13 | Agent → device | USB HID, USB printer class, serial, CUPS | per port | none (local) | the port's one reference (device-contract.md) | `CLAUDE.md` |
@@ -30,9 +31,8 @@ is, and which reference it follows. Flows over these links are in [flows.md](flo
 Not in v2 (parked by the plan, §3): the SimplyPrint/Moonraker route for Klipper, out-of-process drivers
 over Prusa's plugin wire. The MK3 is the `prusa` kind on the agent, ported from PrusaLink's `websockets`
 branch; it reaches the hub over L6 like every device on an agent, which is `/p/ws` as PrusaLink speaks it
-([OQ-45](risks-and-open.md#oq-45-how-the-mk3-port-reaches-the-hub), decided). Open: how USB
-camera frames reach the hub ([OQ-9](risks-and-open.md#oq-9-how-usb-camera-video-reaches-the-hub)),
-door access hardware ([OQ-10](risks-and-open.md#oq-10-door-access-link)).
+([OQ-45](risks-and-open.md#oq-45-how-the-mk3-port-reaches-the-hub), decided). How USB camera frames reach the hub is L10
+([OQ-9](risks-and-open.md#oq-9-how-usb-camera-video-reaches-the-hub), decided). Open: door access hardware ([OQ-10](risks-and-open.md#oq-10-door-access-link)).
 
 ## Who talks to whom
 

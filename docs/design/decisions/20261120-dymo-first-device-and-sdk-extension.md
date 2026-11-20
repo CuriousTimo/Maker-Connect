@@ -39,9 +39,13 @@ telemetry keys and no label job in that protocol.
 - **The proposal as a whole:** put to the owner item by item in the session (the type names; the DYMO's
   keys; the laser's state table, `machine_state`, the settings keys, the commands it reuses and the new
   ones; the camera's `/c/stream`, `START_CAMERA_STREAM`/`STOP_CAMERA_STREAM` with `camera_id` and `fps`
-  default 5). The owner: "akkoord, algemene namen, schrijf het document". Afterwards the coordinator added two
-  points and told the owner, who has not contradicted them: `Unknown` as `BUSY`, and no `time_printing` for the
-  laser (its port does not give it).
+  default 5). The owner: "akkoord, algemene namen, schrijf het document". Two points added afterwards, `Unknown` as `BUSY` and no `time_printing`
+  for the laser (its port does not give it), and the LabelWriter part (types `dymo.labelwriter-450` and
+  `-320`, `jsPaperOut` as `ATTENTION`, `state_reason`, `page_size`, `STOP_PRINT` as a cancel), after the owner's
+  "je bent de dymo 450 en 320 vergeten (4xx, 3xx)": "akkoord op beide, schrijf het erbij".
+- **The device profile is set on the agent's page** where the module is turned on (owner: "je haalt de
+  ref code straks uit de agent webinterface. daar zet je ook de module aan voor dymo/laser/enz. dus daar
+  kun je ook het device profiel al instellen").
 - **Camera:** "eerst wat prusa heeft. daarna de live stream . alleen als iemand kijkt"; "in de camera
   settings een keuze tussen prusa mode / live". This decides OQ-9.
 

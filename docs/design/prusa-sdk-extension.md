@@ -20,8 +20,9 @@ What it lacks is small:
 - a few commands;
 - live video.
 
-This page proposes exactly those additions, for three devices:
+This page proposes exactly those additions, for four kinds of device:
 - a tape label printer (DYMO LabelManager PnP);
+- label printers on DYMO's CUPS driver (LabelWriter 3xx and 4xx);
 - a laser cutter running GRBL;
 - a USB camera with live view.
 
@@ -53,6 +54,8 @@ This page proposes exactly those additions, for three devices:
   | Type | Device |
   |---|---|
   | `dymo.labelmanager-pnp` | DYMO LabelManager PnP tape printer |
+  | `dymo.labelwriter-450` | DYMO LabelWriter 450 |
+  | `dymo.labelwriter-320` | DYMO LabelWriter 320 |
   | `grbl.laser` | a laser cutter running GRBL. GRBL is the firmware; the vendor differs per machine |
 
 - **Why the protocol cannot carry it:** `printer_type` is `PrinterType`, an enum of Prusa models written
@@ -63,7 +66,16 @@ This page proposes exactly those additions, for three devices:
   driver baseline, the floor "a device of an unknown model is held to" (`verbs.go:115-119`). It never
   misreads it as a Prusa.
 
-A camera needs no type: it registers through the camera protocol (part 4).
+A further LabelWriter model takes the same form, `dymo.labelwriter-<model>`, when it is ported. DYMO's
+driver has a PPD per model (`ppd/lw300.ppd` … `ppd/lw450tt.ppd`).
+
+**Where the type comes from** (ours, owner 2026-11-20): the person picks the device's profile on the
+agent's own page, where they also turn on its module (DYMO, laser, …) and see its registration code. The
+agent keeps it as `[printer] type` in the device's settings file, where PrusaLink keeps its type
+(Prusa-Link `prusa/link/config.py:280-289`). PrusaLink itself reads its type from the printer and writes it
+there (`prusa/link/web/lib/wizard.py:188-191`); picking it on the page is ours.
+
+A camera needs no type: it registers through the camera protocol (part 5).
 
 ## Part 2: a tape label printer (`dymo.labelmanager-pnp`)
 
@@ -102,7 +114,48 @@ print takes its settings from the G-code file. A PNG has none, and no Connect co
 width. The SDK's handler reads only `path`, `hash`, `team_id`, `printing` and `selecting`
 (`__init__.py:467-477`), so it ignores the kwarg.
 
-## Part 3: a GRBL laser cutter (`grbl.laser`)
+## Part 3: label printers on DYMO's CUPS driver (`dymo.labelwriter-450`, `dymo.labelwriter-320`)
+
+The reference is DYMO's own CUPS driver 1.4.0 (`reference/dymo-cups-drivers-1.4.0`, filter `raster2dymolw`),
+the same for the 3xx and the 4xx. The `Open/Default` lines of `ppd/lw450.ppd` and `ppd/lw320.ppd` are
+identical ([device map](../plans/hub-core-v2-device-map.md) §3). It is a stack apart from the tape printer
+of part 2. Driver paths below are under its `src/` unless a PPD.
+
+### States
+
+| Driver | Protocol `state` |
+|---|---|
+| no job | `IDLE` |
+| a job runs | `PRINTING` |
+| `jsPaperOut` | `ATTENTION`: a person must load labels |
+| `jsError` | `ERROR` |
+
+The driver's job states are `common/PrinterDriver.h:54-66`. The 450's code sets only `jsOK`, `jsPaperOut` and
+`jsError` (`lw/LabelWriterLanguageMonitor.cpp:261-271`). `IDLE` and `PRINTING` are this proposal's, as the
+driver has no idle state of its own (device map §3.2).
+
+### Telemetry key
+
+| Key | Type | Value |
+|---|---|---|
+| `state_reason` | string | the driver's own CUPS `STATE:` keyword, unchanged, for example `com.dymo.out-of-paper-error` (`common/CupsPrintEnvironment.cpp:160-190`); left out while the driver reports none |
+
+Connect's telemetry has no key for a printer's state reason (`inbound.go:146-159`).
+
+### Printing a label: `page_size`
+
+As on the tape printer, a label is Connect's own `START_CONNECT_DOWNLOAD` with `printing: true`, the file a
+PNG. The addition is one kwarg, `page_size`: one of the PPD's own `PageSize` choices, for example
+`w167h288`; without it the PPD's `DefaultPageSize` (`ppd/lw450.ppd:147-149`). Which page size a roll takes
+is the server's data (DYMO Connect's roll catalogue), not part of the protocol.
+
+### Stopping a label
+
+`STOP_PRINT`, as the protocol has it, cancels the running job, as a CUPS cancel does: the driver sees
+`jsDeleted` (`lw/LabelWriterLanguageMonitor.cpp:247`). CUPS's own side of the cancel is not checked
+(device map §3.1, verb 2).
+
+## Part 4: a GRBL laser cutter (`grbl.laser`)
 
 The reference for the machine side is LaserFoundry v0.5.0 `61febdb`
 ([device-contract.md](device-contract.md#kinds)). A laser offers no raw G-code: nothing but a start can
@@ -132,8 +185,8 @@ The mapping is this proposal's. These rows follow the mapping the laser port alr
 - `Run` is split, so that a running job is `PRINTING`; the port has `BUSY` for every `Run`.
 - `Door` and `Sleep` are `ATTENTION`, because a person must act (owner, 2026-11-20). The port has
   `PAUSED` for `Door` and `IDLE` for `Sleep`.
-- `Unknown` is `BUSY`, so that nothing is sent to a machine whose state is not yet known. The port has
-  `IDLE`.
+- `Unknown` is `BUSY`, so that nothing is sent to a machine whose state is not yet known (owner,
+  2026-11-20). The port has `IDLE`.
 
 ### Telemetry keys
 
@@ -192,7 +245,7 @@ something the protocol can carry: the SDK has no idea of who sent a command. The
 before sending. In our server, only a person's own session may send these, after framing the job and
 confirming eye protection.
 
-## Part 4: a USB camera
+## Part 5: a USB camera
 
 ### Snapshots: the SDK's camera protocol, unchanged
 
@@ -200,11 +253,16 @@ The camera side is the SDK's. Prusa's server side of these two endpoints is not 
 so what the hub answers is **ours**, built to what the SDK reads: a `200` with a `Token` header on
 registration (`__init__.py:855-859`).
 
-
 - **Register:** `POST /p/camera` with `config`, `options`, `capabilities` and `fingerprint`
   (`models.py:198-225`). The answer's `Token` header is the camera's token (`__init__.py:855-859`).
-- **Snapshots:** `PUT /c/snapshot`, a JPEG body with `Content-Type: image/jpg` and the headers
-  `Fingerprint` and `Token` (`camera.py:31`, `:61-72`).
+- **Both are HTTP**, not the WebSocket: "Register (/p/register) and CameraRegister (/p/camera) remain
+  HTTP" (`__init__.py:783`); the camera's registration is sent with the printer's own headers
+  (`:822-826`).
+- **Snapshots:** `PUT /c/snapshot` from the camera controller's own loop (`camera_controller.py:166-186`),
+  a JPEG body with the headers `Timestamp`, `Fingerprint`, `Token` and `Content-Type: image/jpg`, and the
+  query parameter `printer_uuid` when the camera belongs to a printer (`camera.py:31`, `:54-77`).
+- **A refused snapshot:** on `401` or `403` the SDK drops the camera's token, so the camera registers again
+  (`camera_controller.py:176-179`).
 - **When:** the trigger schemes every 10, 30 or 60 seconds, on a layer change, on every fifth layer
   change, or manual (`const.py:246-253`).
 - **Settings:** resolution, rotation, exposure and focus, as capabilities (`const.py:237-242`).
@@ -214,8 +272,9 @@ registration (`__init__.py:855-859`).
 The SDK has snapshots only, and no command that reaches a camera (`const.py` `Command`). Live view adds
 an upload stream and two commands to start and stop it.
 
-**The stream.** `POST /c/stream`, with the same `Fingerprint` and `Token` headers as `/c/snapshot`. The
-body is go2rtc's own MJPEG stream, as go2rtc v1.9.15 `7c05066` writes it (`pkg/mjpeg/writer.go:11-30`):
+**The stream.** `POST /c/stream`, HTTP like the rest of the camera protocol, with the same headers and
+`printer_uuid` as `/c/snapshot`. The
+body is go2rtc's own MJPEG stream, as go2rtc v1.9.15 `7c05066` writes it (`pkg/mjpeg/writer.go:9-27`):
 `Content-Type: multipart/x-mixed-replace; boundary=frame`, and per frame `--frame`, `Content-Type:
 image/jpeg`, `Content-Length`, an empty line, the JPEG and `\r\n`. It is also the format go2rtc takes as a
 pushed MJPEG source (`internal/mjpeg/mjpeg.go:173-191` `inputMjpeg`; the parser

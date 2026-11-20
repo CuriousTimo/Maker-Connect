@@ -112,7 +112,7 @@ PrusaLink** (the SDK's own consumer), listed for the owner's approval:
 | What | Where, as PrusaLink | Reference |
 |---|---|---|
 | Hub host, TLS, port, token | the device's `prusa_printer_settings.ini`, `[service::connect] hostname`, `tls`, `port`, `token`; the token in the clear | `prusa/link/config.py:298-307`; written when registered, `prusa/link/printer_adapter/prusa_link.py:918-928`; read back with `connection_from_settings`, `prusa/link/sdk_augmentation/printer.py:60-71` |
-| Type, name, location | the same file, `[printer] type`, `name`, `location` | `prusa/link/config.py:280-289` |
+| Type, name, location | the same file, `[printer] type`, `name`, `location`. The type is the device profile the person picks on the agent's page when turning on the device's module (**ours**, owner 2026-11-20; PrusaLink reads its type from the printer, `prusa/link/web/lib/wizard.py:188-191`) | `prusa/link/config.py:280-289` |
 | Serial and fingerprint | not kept: read from the device at every start | `prusa/link/printer_adapter/prusa_link.py:906-916` |
 | The registration code | memory only; lost at a restart | `__init__.py:117`, `:756` |
 | Reset of a registration | the token set to `""` and the file written | `prusa/link/web/connection.py:136-150` |
@@ -252,7 +252,7 @@ A result that arrives after its record was settled `unknown` stays a hub rule on
 
 Each comes with the driver that needs it, as the SDK has it: files beyond the LabelManager's
 `START_CONNECT_DOWNLOAD` (`START_URL_DOWNLOAD`, `__init__.py:436-455`);
-cameras (`/p/camera`, `models.py:198-224`); the commands each port handles; how often a device sends
+cameras (`/p/camera`, `models.py:198-224`; [links.md](links.md) L10, live view in the [extension](prusa-sdk-extension.md#part-5-a-usb-camera)); the commands each port handles; how often a device sends
 telemetry (PrusaLink's pace, `prusa/link/const.py:67-71`). The agent's own update:
 [OQ-46](risks-and-open.md#oq-46-how-the-agents-own-update-reaches-it).
 

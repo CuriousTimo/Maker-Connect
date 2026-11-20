@@ -56,8 +56,8 @@ camera settings een keuze tussen prusa mode / live" ([OQ-9](risks-and-open.md#oq
 
 1. **Snapshots** go by the SDK's own camera protocol, unchanged: `POST /p/camera`, then `PUT /c/snapshot`
    with `Fingerprint` and `Token`, at the SDK's trigger schemes
-   ([prusa-sdk-extension.md](prusa-sdk-extension.md#part-4-a-usb-camera)).
-2. **Live view** is the extension's part 4. The agent uploads `POST /c/stream` in go2rtc's pushed-MJPEG
+   ([prusa-sdk-extension.md](prusa-sdk-extension.md#part-5-a-usb-camera)).
+2. **Live view** is the extension's part 5. The agent uploads `POST /c/stream` in go2rtc's pushed-MJPEG
    format only between `START_CAMERA_STREAM` and `STOP_CAMERA_STREAM`, which the hub sends for the first
    viewer and after the last one. The hub hands the frames to the browser in go2rtc's WebSocket
    `mjpeg` mode (go2rtc v1.9.15 `internal/mjpeg/mjpeg.go:193-216`, `www/video-rtc.js:384-392`,
