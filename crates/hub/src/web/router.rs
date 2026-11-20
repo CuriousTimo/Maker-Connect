@@ -1,5 +1,5 @@
 use crate::commands::{command, emergency_stop};
-use crate::link::{pair, register, telemetry};
+use crate::link::pair;
 use crate::web::machines::{
     add_klipper, add_virtual, answer, choose_media, choose_profile, history, laser_power,
     machine_page, machine_stream, machines, move_machine, not_ready, out_of_use, page,
@@ -7,9 +7,9 @@ use crate::web::machines::{
 };
 use crate::web::shell::{logo, logo_large, logo_large_dark};
 use crate::{
-    STYLE, Store, about, access, apps, auth, codes, downloads, escape, farm, files, files_page,
+    STYLE, Store, about, access, apps, auth, codes, escape, farm, files, files_page,
     now_page, permissions_page, printer_files, projects_page, prusa_connect, queue, safety,
-    samples, sd_card, simplyprint, space_page, spoolman, spoolmandb, stock, updates,
+    samples, simplyprint, space_page, spoolman, spoolmandb, stock, updates,
 };
 use axum::{
     Router,
@@ -17,12 +17,9 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
-use maker_connect_protocol as protocol;
 
 pub fn app(store: Store) -> Router {
     let app = Router::new()
-        .route(protocol::REGISTER, post(register))
-        .route(protocol::TELEMETRY, post(telemetry))
         .route("/pair", post(pair))
         .route("/api/machines", get(machines))
         .route("/api/machines/stream", get(machine_stream))
@@ -57,7 +54,6 @@ pub fn app(store: Store) -> Router {
         .merge(spoolmandb::routes())
         .route("/klipper", post(add_klipper))
         .merge(files::routes())
-        .merge(downloads::routes())
         .merge(updates::routes())
         .merge(about::routes())
         .merge(codes::routes())
@@ -73,12 +69,10 @@ pub fn app(store: Store) -> Router {
         .merge(apps::routes())
         .merge(crate::laser_design::routes())
         .merge(printer_files::routes())
-        .merge(sd_card::routes())
         .merge(now_page::routes())
         .merge(farm::routes())
         .merge(projects_page::routes())
         .merge(cameras_routes())
-        .merge(crate::usbcam::routes())
         // After a route is matched: what it needs, against who asks (access::RULES).
         .route_layer(axum::middleware::from_fn_with_state(
             store.clone(),

@@ -1,49 +1,20 @@
 use super::*;
 
-/// Whether an agent machine runs on the Marlin/OctoPrint port: an FDM printer with a plain Marlin
-/// profile (`plain_marlin`, K5) whose firmware is Marlin or not named (not Buddy, Klipper, the MK3
-/// family or GRBL). K18.
-pub fn on_marlin_port(m: &Machine) -> bool {
-    m.link == "agent"
-        && m.kind == maker_connect_protocol::MachineKind::Fdm
-        && crate::machine_page::plain_marlin(m)
-        && m.profile
-            .as_deref()
-            .and_then(crate::profiles::find)
-            .and_then(|p| p.firmware.as_deref())
-            .is_none_or(|f| f == "marlin")
-}
-
 /// The machine asking with a token, as its commands need it (read from Postgres before the lock).
 #[derive(Debug, Clone)]
 pub struct Caller {
     pub id: String,
     pub link: String,
     pub seen_seconds_ago: Option<i64>,
-    /// Whether it is an agent machine whose port fails its pending commands on close (K18, HS4): the
-    /// Marlin/OctoPrint port (an agent link, an FDM printer, a plain Marlin profile as K5, Marlin or no
-    /// firmware named), the DYMO PnP and LabelWriter 450 ports (a label printer) and the laser port (a
-    /// laser), in a space. Buddy, Klipper and the MK3 family keep the gate.
-    pub fails_pending_on_close: bool,
 }
 
 impl Store {
     /// The machine behind this token, if the token is known (a `Caller`).
     pub async fn caller(&self, token: &str) -> sqlx::Result<Option<Caller>> {
-        Ok(self.machine_by_token(token).await?.map(|(m, space)| {
-            // `plain_marlin` alone would take a Buddy or Klipper profile too (it leaves out only the
-            // MK3 family and GRBL): the Marlin port's machines are the ones whose profile says Marlin
-            // or says nothing
-            use maker_connect_protocol::MachineKind;
-            let fails_pending_on_close = space.is_some()
-                && (matches!(m.kind, MachineKind::Label | MachineKind::Laser)
-                    || on_marlin_port(&m));
-            Caller {
-                fails_pending_on_close,
-                seen_seconds_ago: m.seen_seconds_ago,
-                id: m.id,
-                link: m.link,
-            }
+        Ok(self.machine_by_token(token).await?.map(|(m, _)| Caller {
+            seen_seconds_ago: m.seen_seconds_ago,
+            id: m.id,
+            link: m.link,
         }))
     }
 
@@ -85,7 +56,6 @@ impl Legacy {
             label: label.to_owned(),
             gcode: gcode.to_owned(),
             json: false,
-            action: false,
             background: false,
             output: Vec::new(),
             state: CommandState::Queued,
@@ -94,27 +64,6 @@ impl Legacy {
         });
         trim(commands);
         self.changed();
-        Some(id)
-    }
-
-    /// A typed command for a machine behind an agent: its id, or None when the machine is not
-    /// in the space or takes no commands.
-    pub fn queue_action(
-        &mut self,
-        link: Option<&str>,
-        machine: &str,
-        label: &str,
-        action: &maker_connect_protocol::Action,
-    ) -> Option<u32> {
-        let body = serde_json::to_string(action).expect("an Action is JSON");
-        let id = self.queue_command(link, machine, label, &body)?;
-        if let Some(command) = self
-            .commands
-            .get_mut(machine)
-            .and_then(|c| c.iter_mut().find(|c| c.id == id))
-        {
-            command.action = true;
-        }
         Some(id)
     }
 
@@ -162,7 +111,6 @@ impl Legacy {
             label: label.to_owned(),
             gcode: body,
             json: true,
-            action: false,
             background,
             output: Vec::new(),
             state: CommandState::Queued,
@@ -231,18 +179,8 @@ impl Legacy {
         }
     }
 
-    /// K18, the agent-gone rule (ours): an agent machine whose port fails pending on close not seen for longer than
-    /// `ONLINE_SECONDS` has its Sent and Accepted commands (not the Queued ones) failed with "the
-    /// agent was gone", checked on its next report, before that report is taken in.
-    pub fn fail_commands_of_gone_agent(&mut self, caller: Option<&Caller>) {
-        let Some(caller) = caller.filter(|c| c.fails_pending_on_close) else {
-            return;
-        };
-        self.fail_pending_of_gone(caller, AGENT_GONE)
-    }
-
-    /// The same rule for a printer on the built-in Prusa Connect (link `prusa-connect`), which
-    /// has no 120 s: a command stays pending until Buddy answers it. Not seen for longer than
+    /// K18 (b) for a printer on the built-in Prusa Connect (link `prusa-connect`), which has no
+    /// 120 s: a command stays pending until Buddy answers it. Not seen for longer than
     /// `ONLINE_SECONDS`: its Sent and Accepted commands fail with "the printer was gone" (ours).
     pub fn fail_commands_of_gone_printer(&mut self, caller: Option<&Caller>) {
         let Some(caller) = caller.filter(|c| c.link == "prusa-connect") else {
@@ -270,33 +208,6 @@ impl Legacy {
         if any {
             self.changed();
         }
-    }
-
-    /// All Queued commands of an agent machine whose port fails pending on close, in the existing order (someone's before the
-    /// hub's own background ones), each now Sent: no gate and no 120 s (K18).
-    pub fn next_commands_for_agent(&mut self, caller: Option<&Caller>) -> Vec<(u32, String)> {
-        let Some(caller) = caller else {
-            return Vec::new();
-        };
-        let Some(commands) = self.commands.get_mut(&caller.id) else {
-            return Vec::new();
-        };
-        let now = now();
-        let mut out = Vec::new();
-        for background in [false, true] {
-            for c in commands
-                .iter_mut()
-                .filter(|c| c.state == CommandState::Queued && c.background == background)
-            {
-                c.state = CommandState::Sent;
-                c.at = now;
-                out.push((c.id, c.gcode.clone()));
-            }
-        }
-        if !out.is_empty() {
-            self.changed();
-        }
-        out
     }
 
     /// The next command, with whether it is a Connect (JSON) command.
@@ -389,24 +300,6 @@ impl Legacy {
             let excess = command.output.len().saturating_sub(OUTPUT_KEPT);
             command.output.drain(..excess);
             command.at = now();
-            // HS7b (ours, the hub's own state; nothing of it reaches the wire): a laser's completed
-            // frame of a file, and a completed Set origin, which a later Start burn needs to know.
-            if state == CommandState::Finished && command.action {
-                let action =
-                    serde_json::from_str::<maker_connect_protocol::Action>(&command.gcode).ok();
-                match action {
-                    Some(maker_connect_protocol::Action::Frame { download }) => {
-                        if let Some(file) = download.rsplit('/').next() {
-                            self.laser_framed.insert(machine.clone(), file.to_owned());
-                        }
-                    }
-                    Some(maker_connect_protocol::Action::SetOrigin) => {
-                        self.laser_framed.remove(&machine);
-                        self.laser_origin_set.insert(machine.clone());
-                    }
-                    _ => {}
-                }
-            }
             self.changed();
         }
     }

@@ -13,19 +13,18 @@
 #                              hub has fetched it itself
 #   README.md, LICENSE, SpoolmanDB-LICENSE
 #
-#   Its Downloads page offers the newest agent release from GitHub.
-#   The archive holds no data: the database, its files, downloads and backups are made beside
+#   The archive holds no data: the database, its files and backups are made beside
 #   the database when the hub starts, so unpacking a new release over an old one keeps them.
 #
 # agent: maker-connect-agent-<os>-<arch>[.exe] for every platform.
 #
 # Both come with SHA256SUMS, signed with the release key (SHA256SUMS.sig, over the tag and
-# the list; crates/update): the hub and the agent update themselves only to a signed release.
+# the list; crates/update): the hub updates itself only to a signed release.
 # The key: $MAKER_CONNECT_RELEASE_KEY, or ~/.config/maker-connect/release-key.pk8; never in
 # the repository.
 #
 # Built on a Mac: macOS natively (Apple silicon and Intel),
-# Windows and Linux with cargo-zigbuild (see build-downloads.sh). Only from a clean tree at
+# Windows and Linux with cargo-zigbuild. Only from a clean tree at
 # the commit being tagged, so every build says the release it is.
 set -e
 cd "$(dirname "$0")/.."
@@ -50,7 +49,7 @@ rm -rf "$out"
 mkdir -p "$out"
 
 # The release each build says it is (`v0.2.0-beta.1`): the hub writes it into the databases
-# it opens, the agent tells the hub.
+# it opens.
 export MAKER_CONNECT_RELEASE="$version"
 
 # The hub carries the laser design page (HS13): our LaserFoundry fork's browser version, built at

@@ -439,8 +439,7 @@ pub(crate) struct AnswerForm {
 }
 
 /// A button of the question on a printer's screen, pressed from the website: a Prusa on
-/// Connect gets `DIALOG_ACTION` (its dialog and the button's name), an agent's printer
-/// `M876 S<index>` (with its next report).
+/// Connect gets `DIALOG_ACTION` (its dialog and the button's name).
 pub(crate) async fn answer(
     access: crate::access::Access,
     State(store): State<Store>,
@@ -475,15 +474,7 @@ pub(crate) async fn answer(
             None => (StatusCode::CONFLICT, "the printer takes no commands").into_response(),
         };
     }
-    let buttons = machine.buttons.len();
-    if buttons == 0 {
-        return (StatusCode::CONFLICT, "it asks nothing now").into_response();
-    }
-    if form.button >= buttons || form.button > u8::MAX as usize {
-        return (StatusCode::BAD_REQUEST, "no such button").into_response();
-    }
-    store.answers.insert(id, form.button as u8);
-    StatusCode::NO_CONTENT.into_response()
+    (StatusCode::CONFLICT, "it asks nothing now").into_response()
 }
 
 pub(crate) async fn choose_profile(
@@ -668,12 +659,12 @@ async fn camera_tab(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::link::tests::{call, json};
+    use crate::link::tests::call;
 
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
-    use maker_connect_protocol::{MachineKind, Register, Registered};
+    use maker_connect_protocol::{MachineKind, MachineState, Telemetry};
 
     use tower::ServiceExt;
 
@@ -702,12 +693,7 @@ mod tests {
         };
         assert_eq!(next().await, "data: []\n\n");
         let (_, _, code) = store
-            .register(&Register {
-                protocol: protocol::VERSION,
-                name: "Gonzo".into(),
-                kind: MachineKind::Fdm,
-                agent_version: "0.1.0".into(),
-            })
+            .register_linked("Gonzo", MachineKind::Fdm, "0.1.0", "prusa-connect")
             .await
             .unwrap();
         store.pair(1, &code).await.unwrap();
@@ -725,24 +711,27 @@ mod tests {
         ignore = "needs Postgres: the pg-tests feature"
     )]
     async fn a_machine_gets_its_profile(pool: sqlx::PgPool) {
-        let app = crate::auth::signed_in_app(crate::store::Store::for_test(&pool).await).await;
-        let register =
-            r#"{"protocol":1,"name":"Mini","kind":"fdm","agent_version":"0.1.0"}"#.to_owned();
-        let (_, body) = call(&app, json(protocol::REGISTER, None, register)).await;
-        let registered: Registered = serde_json::from_str(&body).unwrap();
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (id, token, code) = store
+            .register_linked("Mini", MachineKind::Fdm, "0.1.0", "prusa-connect")
+            .await
+            .unwrap();
         let pair = Request::post("/pair")
             .header("content-type", "application/x-www-form-urlencoded")
-            .body(Body::from(format!("code={}", registered.pairing_code)))
+            .body(Body::from(format!("code={code}")))
             .unwrap();
         call(&app, pair).await;
-        let report =
-            r#"{"state":"idle","identity":{"machine_type":"Prusa-MINI","model_code":120}}"#
-                .to_owned();
-        call(
-            &app,
-            json(protocol::TELEMETRY, Some(&registered.token), report.clone()),
-        )
-        .await;
+        let report = Telemetry {
+            state: MachineState::Idle,
+            identity: Some(maker_connect_protocol::Identity {
+                machine_type: Some("Prusa-MINI".into()),
+                model_code: Some(120),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        store.report(&token, &report).await.unwrap();
         let (_, body) = call(
             &app,
             Request::get("/api/machines").body(Body::empty()).unwrap(),
@@ -752,7 +741,6 @@ mod tests {
         assert_eq!(machines[0]["profile"], "prusa/mini");
         assert_eq!(machines[0]["profile_chosen"], false);
 
-        let id = registered.machine_id;
         let choose = Request::post(format!("/machines/{id}/profile"))
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from("profile=zaribo%2F320"))
@@ -760,11 +748,7 @@ mod tests {
         let (status, _) = call(&app, choose).await;
         assert_eq!(status, StatusCode::SEE_OTHER);
         // Its next report does not undo the choice.
-        call(
-            &app,
-            json(protocol::TELEMETRY, Some(&registered.token), report),
-        )
-        .await;
+        store.report(&token, &report).await.unwrap();
         let (status, page) = call(
             &app,
             Request::get(format!("/machines/{id}"))

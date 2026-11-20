@@ -11,7 +11,7 @@ Usage:
   maker-connect-hub reset-password <name> [--db maker-connect.db]
 
 Open http://localhost:8460. On a fresh install, make the first account with the setup code
-this prints at start; then add machines with the code their agent shows.
+this prints at start; then add machines with the code they show.
 
 reset-password gives an account a new password (printed once) and signs it out everywhere:
 for when its owner cannot sign in any more.
@@ -32,8 +32,6 @@ elsewhere (such as docker exec -i -e PGPASSWORD <container>), which gives the hu
 /// Never the other way: the archive holds no data, so unpacking a new release over an old
 /// one leaves the database, the files and the backups as they were.
 ///
-/// - `agents/`: the agents of this release go to the downloads when they are another build
-///   than those offered (`.build` last, so a copy cut short is done again next time).
 /// - `spoolmandb/`: SpoolmanDB as of the release, only when there is no copy yet.
 fn from_release(store: &store::Legacy) {
     let Some(here) = std::env::current_exe()
@@ -42,28 +40,6 @@ fn from_release(store: &store::Legacy) {
     else {
         return;
     };
-    let agents = here.join("agents");
-    let build = |dir: &std::path::Path| std::fs::read(dir.join(".build")).ok();
-    if let Some(new) = build(&agents)
-        && build(&store.downloads_dir).as_ref() != Some(&new)
-    {
-        let copied = std::fs::read_dir(&agents)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter(|e| {
-                e.file_name()
-                    .to_str()
-                    .is_some_and(|n| n.starts_with("maker-connect-agent-"))
-            })
-            .all(|e| std::fs::copy(e.path(), store.downloads_dir.join(e.file_name())).is_ok());
-        if copied && std::fs::write(store.downloads_dir.join(".build"), &new).is_ok() {
-            println!(
-                "offering this release's agents: {}",
-                String::from_utf8_lossy(&new).lines().next().unwrap_or("")
-            );
-        }
-    }
     let seed = here.join("spoolmandb");
     let kept = store.files_dir.join("spoolmandb");
     if seed.join("filaments.json").is_file() && !kept.join("filaments.json").is_file() {

@@ -1,8 +1,8 @@
 //! A space's G-code files, and printing one on a machine. Files are kept on disk beside the
 //! database (`<id>.gcode`, with `<id>.png` for a thumbnail found in it); their metadata
 //! ([`crate::gcode`]) in the store. Printing makes a job on the machine: virtual machines
-//! play it ([`crate::virtual_machines`]), an agent streams it (GRBL lasers, Marlin printers
-//! over USB); Prusas on built-in Connect follow.
+//! play it ([`crate::virtual_machines`]), Moonraker fetches it, and a Prusa on built-in
+//! Connect fetches it onto its USB stick.
 
 use crate::store::{JobState, Machine, StoredFile};
 use crate::{Store, failed, profiles};
@@ -29,8 +29,6 @@ pub fn routes() -> Router<Store> {
         )
         .route("/files/{id}/thumbnail.png", get(thumbnail))
         .route("/files/{id}/download", get(download))
-        .route("/api/agent/v1/jobs/{id}/file", get(agent_file))
-        .route("/api/agent/v1/files/{id}", get(agent_space_file))
         .route("/files/{id}/remove", post(remove))
         .route("/api/files/remove", post(remove_many))
         .route("/api/storage", get(storage))
@@ -112,8 +110,7 @@ pub fn suits(file: &StoredFile, machine: &Machine) -> Result<Option<String>, Str
         warning = Some("the file does not say what it is for".to_owned());
     }
     match machine.link.as_str() {
-        // An agent streams to a GRBL machine (a laser) and to a Marlin printer over USB.
-        "virtual" | "agent" => {}
+        "virtual" => {}
         // Moonraker fetches the file from here and prints it.
         "simplyprint" => {}
         // A Prusa on its own Connect fetches it onto its USB stick, then prints it
@@ -126,7 +123,7 @@ pub fn suits(file: &StoredFile, machine: &Machine) -> Result<Option<String>, Str
 
 /// HS2: whether a page fits a LabelWriter now: the PNG must be exactly the loaded roll's page
 /// as its port gives it (`ports::geometry::lw450`: width across the head, `cupsWidth` ×
-/// `cupsHeight`); the job then tells the agent the roll's length (`label_length_mm`).
+/// `cupsHeight`); the job then says the roll's length (`label_length_mm`).
 fn labelwriter_check(
     file: &StoredFile,
     machine: &Machine,
@@ -136,8 +133,8 @@ fn labelwriter_check(
         return Err("not a label".to_owned());
     };
     labelwriter_fits([w, h], profile, machine.media.as_deref())?;
-    if !matches!(machine.link.as_str(), "virtual" | "agent") {
-        return Err("labels go through an agent".to_owned());
+    if machine.link != "virtual" {
+        return Err("this machine takes no labels from here".to_owned());
     }
     if !machine.online {
         return Err("offline".to_owned());
@@ -216,8 +213,8 @@ fn label_check(
             media.length_mm.unwrap_or_default()
         ));
     }
-    if !matches!(machine.link.as_str(), "virtual" | "agent") {
-        return Err("labels go through an agent".to_owned());
+    if machine.link != "virtual" {
+        return Err("this machine takes no labels from here".to_owned());
     }
     if !machine.online {
         return Err("offline".to_owned());
@@ -542,56 +539,8 @@ async fn download(
     serve(&file, &dir).await
 }
 
-/// An agent fetches the file of a job given to its machine, with the machine's token (the
-/// address is the one in its [`maker_connect_protocol::JobOrder`]). Only that machine's jobs,
-/// and only files of its space.
-async fn agent_file(
-    State(store): State<Store>,
-    headers: HeaderMap,
-    Path(job): Path<i64>,
-) -> Response {
-    let token = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .unwrap_or("");
-    job_file(&store, token, job).await
-}
-
-/// An agent fetches a file of its machine's space that is not a job's (a laser's frame,
-/// `Action::Frame`), with the machine's token: only files of that space.
-async fn agent_space_file(
-    State(store): State<Store>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> Response {
-    let token = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .unwrap_or("");
-    let found: Result<Option<(StoredFile, std::path::PathBuf)>, crate::store::BoxError> = async {
-        if token.is_empty() {
-            return Ok(None);
-        }
-        let Some((_, space)) = store.placed(token).await? else {
-            return Ok(None);
-        };
-        Ok(store
-            .file(space, &id)
-            .await?
-            .map(|f| (f, store.files_dir().to_owned())))
-    }
-    .await;
-    match found {
-        Ok(Some((file, dir))) => serve(&file, &dir).await,
-        Ok(None) => (StatusCode::NOT_FOUND, "no such file for this machine").into_response(),
-        Err(error) => failed(error),
-    }
-}
-
-/// The file of job `job`, for the machine whose token is `token` (an agent's, or a Klipper
-/// printer's): only that machine's jobs, only files of its space; else 404.
+/// The file of job `job`, for the Klipper printer whose token is `token`: only that machine's
+/// jobs, only files of its space; else 404.
 pub(crate) async fn job_file(store: &Store, token: &str, job: i64) -> Response {
     let found: Result<Option<(StoredFile, std::path::PathBuf)>, crate::store::BoxError> = async {
         if token.is_empty() {
@@ -972,21 +921,6 @@ async fn frame(
     if let Err(why) = fit(&file, &machine) {
         return (StatusCode::CONFLICT, why).into_response();
     }
-    // A laser behind an agent: framed by its port (the hub makes no G-code for it).
-    if machine.link == "agent" {
-        let action = maker_connect_protocol::Action::Frame {
-            download: format!("/api/agent/v1/files/{}", file.id),
-        };
-        return match store.queue_action(
-            Some(machine.link.as_str()),
-            &machine.id,
-            &format!("Frame {}", file.name),
-            &action,
-        ) {
-            Some(_) => StatusCode::NO_CONTENT.into_response(),
-            None => (StatusCode::CONFLICT, "the machine takes no commands").into_response(),
-        };
-    }
     let corner = |x: f64, y: f64| format!("$J=G90 G21 X{x:.3} Y{y:.3} F3000");
     let gcode = [
         corner(x0, y0),
@@ -1222,57 +1156,32 @@ async fn control_job(
             // screen): no job of the hub's, so the printer is told directly.
             let own = match found_machine.clone() {
                 Ok(Some(m))
-                    if m.online && m.telemetry.as_ref().is_some_and(|t| t.job.is_some()) =>
-                {
-                    m
-                }
-                // A laser's Stop (a soft reset) is offered with no job too.
-                Ok(Some(m))
-                    if m.online
-                        && m.kind == maker_connect_protocol::MachineKind::Laser
-                        && form.action == "stop" =>
+                    if m.link == "prusa-connect"
+                        && m.online
+                        && m.telemetry.as_ref().is_some_and(|t| t.job.is_some()) =>
                 {
                     m
                 }
                 Ok(_) => return (StatusCode::NOT_FOUND, "no job on this machine").into_response(),
                 Err(error) => return failed(error),
             };
-            if own.link == "prusa-connect" {
-                crate::printer_files::job_control(
-                    &mut store.lock().unwrap(),
-                    Some(own.link.as_str()),
-                    &id,
-                    &form.action,
-                );
-                return StatusCode::NO_CONTENT.into_response();
-            }
-            let control = match form.action.as_str() {
-                "pause" => maker_connect_protocol::JobControl::Pause,
-                "resume" => maker_connect_protocol::JobControl::Resume,
-                "stop" => maker_connect_protocol::JobControl::Stop,
-                _ => return (StatusCode::CONFLICT, "not now").into_response(),
-            };
-            store.lock().unwrap().own_job_control.insert(id, control);
+            crate::printer_files::job_control(
+                &mut store.lock().unwrap(),
+                Some(own.link.as_str()),
+                &id,
+                &form.action,
+            );
             return StatusCode::NO_CONTENT.into_response();
         }
         Err(error) => return failed(error),
     };
-    // HS7b: a loaded laser job never ran. "unload" takes it off the laser; Stop stays the
-    // laser's own Stop (a soft reset), as with no job, so a moving head (a frame) is stopped.
+    // HS7b: a loaded laser job never ran. "unload" takes it off the laser.
     if job.state == JobState::Loaded {
         return match form.action.as_str() {
             "unload" => match store.unload_laser_job(access.space, &id).await {
                 Ok(_) => StatusCode::NO_CONTENT.into_response(),
                 Err(error) => failed(error),
             },
-            "stop" => {
-                store
-                    .lock()
-                    .unwrap()
-                    .own_job_control
-                    .insert(id, maker_connect_protocol::JobControl::Stop);
-                StatusCode::NO_CONTENT.into_response()
-            }
             _ => (
                 StatusCode::CONFLICT,
                 "not now: the job is loaded, not started",

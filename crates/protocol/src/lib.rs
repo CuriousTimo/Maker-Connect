@@ -1,32 +1,7 @@
-//! What an agent (the module next to a machine) and the hub say to each other. Shared by
-//! both, so they always fit.
-//!
-//! The agent always starts the conversation, as Prusa Link does with Prusa Connect: it
-//! registers once, then keeps reporting its machine's state over HTTPS (JSON). So an agent
-//! works behind any NAT or firewall, with no port opened at the makerspace. Commands for
-//! the machine come back in the replies.
-//!
-//! 1. `POST` [`REGISTER`] with [`Register`]: the hub answers [`Registered`] with the
-//!    machine's id, a token for everything after, and a pairing code. The agent shows the
-//!    code; someone enters it on the website, which adds the machine to their space.
-//! 2. `POST` [`TELEMETRY`] with [`Telemetry`] every few seconds, the token as
-//!    `Authorization: Bearer <token>`: the hub answers [`TelemetryReply`], with the
-//!    commands for the machine, if any. The next report says how they went
-//!    ([`Telemetry::done`]), and brings a bed mesh when one was measured.
-//!
-//! Every message carries [`VERSION`] (in [`Register`]), so agents and the hub can be
-//! updated apart.
+//! What a machine is and reports, and what the hub asks of it: the types the device engine
+//! (`maker-connect-engine`) and the hub share. Plain JSON with lowercase names.
 
 use serde::{Deserialize, Serialize};
-
-/// The protocol version this crate speaks.
-pub const VERSION: u32 = 1;
-
-pub const REGISTER: &str = "/api/agent/v1/register";
-pub const TELEMETRY: &str = "/api/agent/v1/telemetry";
-/// `POST` one JPEG of a USB camera (`{index}`: its nokhwa index on the agent), the body the JPEG
-/// (`image/jpeg`), the token as for [`TELEMETRY`] (docs/briefs/usb-cam-step1.md).
-pub const CAMERA_FRAME: &str = "/api/agent/v1/cameras/{index}/frame";
 
 /// What kind of machine an agent drives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,26 +35,6 @@ impl MachineKind {
             MachineKind::Other => "Machine",
         }
     }
-}
-
-/// An agent introduces itself and its machine.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Register {
-    /// [`VERSION`], as the agent speaks it.
-    pub protocol: u32,
-    /// The machine's name, as its owner calls it ("MK3S Gonzo").
-    pub name: String,
-    pub kind: MachineKind,
-    pub agent_version: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Registered {
-    pub machine_id: String,
-    /// For every request after this one: `Authorization: Bearer <token>`. Kept secret.
-    pub token: String,
-    /// Shown by the agent, entered on the website to add the machine to a space.
-    pub pairing_code: String,
 }
 
 /// What a machine is doing.
@@ -129,7 +84,7 @@ pub struct JobProgress {
 
 /// A question on a printer's screen, with its buttons in order (Marlin's host prompt:
 /// `//action:prompt_begin`, `prompt_button`, `prompt_show`); answered with the button's
-/// index ([`TelemetryReply::answer`]: the agent sends `M876 S<index>`).
+/// index (`M876 S<index>`).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Prompt {
     pub text: String,
@@ -331,42 +286,6 @@ pub struct AgentInfo {
     /// Its address on the network it reaches the hub through.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
-    /// It updates itself when the hub asks ([`TelemetryReply::update`]); agents before
-    /// 0.2.0-beta.2 do not.
-    #[serde(default)]
-    pub can_update: bool,
-    /// How its last update went.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_update: Option<UpdateOutcome>,
-}
-
-/// How an agent's last update went: in place and working, or rolled back (why).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct UpdateOutcome {
-    /// Unix seconds.
-    pub at: i64,
-    pub from: String,
-    pub to: String,
-    pub ok: bool,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub note: String,
-}
-
-/// An agent release to update to, as the hub passes it on. The agent checks it itself: the
-/// signature over `tag` and `sums` must be the release key's, and the file's sum on the list.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentUpdate {
-    /// `agent-v0.3.0`.
-    pub tag: String,
-    /// `v0.3.0`: what the agent will say it is.
-    pub version: String,
-    /// This agent's build in it: `maker-connect-agent-linux-armv6`.
-    pub file: String,
-    /// Where on the hub, with the agent's token.
-    pub download: String,
-    /// The release's `SHA256SUMS`, and its signature.
-    pub sums: String,
-    pub signature: String,
 }
 
 /// What a machine says it is: M115's `MACHINE_TYPE` ("Prusa-MINI"), and on a Prusa its
@@ -391,33 +310,7 @@ pub struct Identity {
     pub mmu_firmware: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TelemetryReply {
-    /// Whether someone has added the machine to a space with its pairing code.
-    pub paired: bool,
-    /// The space it belongs to, once paired.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub space: Option<String>,
-    /// Commands for the machine, in order.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub commands: Vec<MachineCommand>,
-    /// A file to run, when the machine has none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub job: Option<JobOrder>,
-    /// What to do with the running job, said again each report until the machine has.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub job_control: Option<JobControl>,
-    /// Someone's answer to the question on its screen: the index of the button pressed
-    /// ([`Telemetry::prompt`]). Said once.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub answer: Option<u8>,
-    /// Update the agent: once its machine is idle.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub update: Option<AgentUpdate>,
-}
-
-/// A file for the machine to run: fetched from the hub at `download` (a path, with the
-/// agent's token), then streamed to the machine.
+/// A file for the machine to run (`download`: where the file is), streamed to the machine.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JobOrder {
     pub id: i64,
@@ -484,8 +377,7 @@ pub struct GrblSettings {
 /// What the hub asks of a machine, typed: the hub makes no G-code; the machine's port makes the
 /// bytes, as its reference does (owner, 2026-11-12). Exactly the controls the hub's pages offer
 /// today (owner's approval O8), nothing added. A label is printed as a job ([`JobOrder`] with
-/// `tape_mm`, `label_length_mm`), pause, resume and stop are [`JobControl`], and a question's
-/// answer is [`TelemetryReply::answer`].
+/// `tape_mm`, `label_length_mm`), and pause, resume and stop are [`JobControl`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Action {
@@ -582,13 +474,6 @@ pub enum Heater {
     Bed,
 }
 
-/// A command for a machine behind an agent: what to do, typed (its port makes the bytes).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MachineCommand {
-    pub id: u32,
-    pub action: Action,
-}
-
 /// How a command went.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommandDone {
@@ -624,8 +509,7 @@ impl Mesh {
 mod tests {
     use super::*;
 
-    /// The wire format is plain JSON with lowercase names, so other agents (other
-    /// languages, other machines) can speak it.
+    /// Plain JSON with lowercase names.
     #[test]
     fn messages_are_plain_json() {
         let telemetry = Telemetry {
@@ -640,11 +524,6 @@ mod tests {
         let text = serde_json::to_string(&telemetry).unwrap();
         assert_eq!(text, r#"{"state":"idle","nozzle_c":21.5}"#);
         assert_eq!(serde_json::from_str::<Telemetry>(&text).unwrap(), telemetry);
-        let register: Register = serde_json::from_str(
-            r#"{"protocol":1,"name":"Gonzo","kind":"fdm","agent_version":"0.1.0"}"#,
-        )
-        .unwrap();
-        assert_eq!(register.kind, MachineKind::Fdm);
     }
 
     /// A scale's reading is plain JSON, and a scale is a kind of machine.
