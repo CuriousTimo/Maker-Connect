@@ -75,6 +75,15 @@ impl OsError {
         }
     }
 
+    /// The `OSError` Python raises for a failed call that Rust's `std` made (gcode-metadata's
+    /// reads): its `errno` and `strerror`; no filename.
+    pub fn from_io(err: &std::io::Error) -> OsError {
+        match err.raw_os_error() {
+            Some(errno) => OsError::from_errno(errno, None),
+            None => OsError::message(&err.to_string()),
+        }
+    }
+
     fn message(message: &str) -> OsError {
         OsError {
             errno: None,
@@ -168,6 +177,14 @@ fn set_errno(value: c_int) {
 // os.path: posixpath.py, genericpath.py
 
 const SEP: u8 = b'/';
+
+// `mode_t`: a `u16` on macOS, a `u32` on Linux.
+#[allow(clippy::unnecessary_cast)]
+const S_IFMT: u32 = libc::S_IFMT as u32;
+#[allow(clippy::unnecessary_cast)]
+const S_IFDIR: u32 = libc::S_IFDIR as u32;
+#[allow(clippy::unnecessary_cast)]
+const S_IFLNK: u32 = libc::S_IFLNK as u32;
 
 /// `posixpath.join(a, *p)`.
 pub fn join(a: &[u8], p: &[&[u8]]) -> Vec<u8> {
@@ -389,7 +406,7 @@ pub fn realpath(filename: &[u8]) -> Result<Vec<u8>, Error> {
             Err(Error::Os(_)) => None,
             Err(err) => return Err(err),
             Ok(st) => {
-                if st.st_mode & libc::S_IFMT as u32 != libc::S_IFLNK as u32 {
+                if st.st_mode & S_IFMT != S_IFLNK {
                     path = newpath;
                     continue;
                 }
@@ -554,15 +571,15 @@ impl StatResult {
     }
 
     fn fmt(&self) -> u32 {
-        self.st_mode & libc::S_IFMT as u32
+        self.st_mode & S_IFMT
     }
 
     pub fn is_dir(&self) -> bool {
-        self.fmt() == libc::S_IFDIR as u32
+        self.fmt() == S_IFDIR
     }
 
     pub fn is_link(&self) -> bool {
-        self.fmt() == libc::S_IFLNK as u32
+        self.fmt() == S_IFLNK
     }
 
     /// `genericpath.samestat`.
@@ -657,6 +674,8 @@ pub struct StatvfsResult {
 
 /// `os.statvfs(path)`: on macOS from `statfs(2)`, `f_bsize` its `f_iosize` (`os_statvfs_impl`,
 /// `_pystatvfs_fromstructstatfs`).
+// The field types differ per platform.
+#[allow(clippy::unnecessary_cast)]
 pub fn statvfs(path: &[u8]) -> Result<StatvfsResult, Error> {
     let c = cpath("statvfs", path)?;
     #[cfg(target_os = "macos")]
@@ -758,13 +777,13 @@ impl DirEntry {
         if self.d_type != libc::DT_UNKNOWN {
             Ok(self.d_type == libc::DT_LNK)
         } else {
-            self.test_mode(false, libc::S_IFLNK as u32)
+            self.test_mode(false, S_IFLNK)
         }
     }
 
     /// `DirEntry.is_dir(follow_symlinks=...)`.
     pub fn is_dir(&mut self, follow_symlinks: bool) -> Result<bool, Error> {
-        self.test_mode(follow_symlinks, libc::S_IFDIR as u32)
+        self.test_mode(follow_symlinks, S_IFDIR)
     }
 
     /// `DirEntry_test_mode`.
@@ -776,11 +795,11 @@ impl DirEntry {
                 // If file doesn't exist (anymore), then return False
                 Err(Error::Os(err)) if err.is_file_not_found() => Ok(false),
                 Err(err) => Err(err),
-                Ok(st) => Ok(st.st_mode & libc::S_IFMT as u32 == mode_bits),
+                Ok(st) => Ok(st.st_mode & S_IFMT == mode_bits),
             }
         } else if is_symlink {
             Ok(false)
-        } else if mode_bits == libc::S_IFDIR as u32 {
+        } else if mode_bits == S_IFDIR {
             Ok(self.d_type == libc::DT_DIR)
         } else {
             Ok(self.d_type == libc::DT_REG)
