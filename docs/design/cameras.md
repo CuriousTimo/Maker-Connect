@@ -17,11 +17,11 @@ flowchart LR
   usbcam["USB webcam, UVC MJPEG"]
   agent["Agent: nokhwa capture, mjpeg2jpeg adds DHT"]
   hub["Hub module cameras: one session per camera, GOP since last key frame"]
-  browser["Browser: go2rtc player, MSE"]
+  browser["Browser: go2rtc player, MSE or mjpeg"]
   rtspcam -->|"RTSP over TCP, retina"| hub
   usbcam --> agent
-  agent -->|"frames, OQ-9"| hub
-  hub -->|"WebSocket: init, fragments"| browser
+  agent -->|"snapshots /c/snapshot; live /c/stream"| hub
+  hub -->|"WebSocket: init, fragments (RTSP); JPEG frames (USB)"| browser
 ```
 
 ### Why FFmpeg's filter, not PrusaLink
@@ -49,10 +49,25 @@ not used for cameras at all (owner, 2026-11-16)
   password never comes back in a page and is never logged.
 - A camera's session starts when it is added or saved and stops when it is removed.
 
+## USB cameras: snapshots, then live view
+
+Owner, 2026-11-20: "eerst wat prusa heeft. daarna de live stream . alleen als iemand kijkt"; "in de
+camera settings een keuze tussen prusa mode / live" ([OQ-9](risks-and-open.md#oq-9-how-usb-camera-video-reaches-the-hub)).
+
+1. **Snapshots** go by the SDK's own camera protocol, unchanged: `POST /p/camera`, then `PUT /c/snapshot`
+   with `Fingerprint` and `Token`, at the SDK's trigger schemes
+   ([prusa-sdk-extension.md](prusa-sdk-extension.md#part-5-a-usb-camera)).
+2. **Live view** is the extension's part 5. The agent uploads `POST /c/stream` in go2rtc's pushed-MJPEG
+   format only between `START_CAMERA_STREAM` and `STOP_CAMERA_STREAM`, which the hub sends for the first
+   viewer and after the last one. The hub hands the frames to the browser in go2rtc's WebSocket
+   `mjpeg` mode (go2rtc v1.9.15 `internal/mjpeg/mjpeg.go:193-216`, `www/video-rtc.js:384-392`,
+   `:632-638`), on the same player and `/api/v1/cameras/{id}/ws` as a network camera. Nothing is decoded or
+   re-encoded.
+3. **Per camera, a setting:** Prusa mode (snapshots only) or live (snapshots plus live view).
+
 ## Not in this design yet
 
-Live USB video to the browser ([OQ-9](risks-and-open.md#oq-9-how-usb-camera-video-reaches-the-hub)),
-a USB camera's identity across replugs ([OQ-15](risks-and-open.md#oq-15-device-identity-across-replugs-and-agents)),
-ONVIF discovery and `GetStreamUri`, sub streams, reconnecting, sessions only while someone watches,
+A USB camera's identity across replugs ([OQ-15](risks-and-open.md#oq-15-device-identity-across-replugs-and-agents)),
+ONVIF discovery and `GetStreamUri`, sub streams, reconnecting, network-camera sessions only while someone watches,
 HTTPS, per-layer snapshots, privacy (who may watch, logging, notices; the microphone is never opened),
 WebRTC on a fat hub, cameras outside the hub's LAN.

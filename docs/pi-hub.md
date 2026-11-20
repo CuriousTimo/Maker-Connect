@@ -26,7 +26,8 @@ docker run -d --name maker-connect-db --restart unless-stopped \
 
 Then, once, as the database's superuser: the hub's roles and the restore template
 ([scripts/db-roles.sql](../scripts/db-roles.sql); the hub logs in as `maker_connect_hub`, which owns
-nothing and may only `SET ROLE`; the tables belong to `maker_connect_owner`, which has no login here),
+nothing and may only `SET ROLE`; the tables belong to `maker_connect_owner`, which has no password here: TimescaleDB needs it to have
+LOGIN for a hypertable's background jobs, but without a password nobody logs in as it over the network),
 and the database, owned by `maker_connect_owner`, with TimescaleDB in it:
 
 ```sh
@@ -63,7 +64,7 @@ Docker socket is root on the Pi, and the hub faces the network).
 ## The hub
 
 The hub's user and folder `/var/lib/maker-connect/`: the binary, `pg17/` (the client above), and the
-folders the hub makes beside `--db maker-connect.db`: `maker-connect-files/`, `-downloads/` and
+folders the hub makes beside `--db maker-connect.db`: `maker-connect-files/` and
 `-dumps/` (0700; dumps 0600, the last 7 of each kind kept). The address of the database is in
 `/etc/maker-connect/hub.env` (mode 0600, root's: systemd reads it), never on a command line:
 `DATABASE_URL=postgres://maker_connect_hub:…@127.0.0.1:5432/maker_connect`.

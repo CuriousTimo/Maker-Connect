@@ -4,12 +4,10 @@
   // Tabs by purpose; a tab may show more than one section. Old addresses still lead there.
   // The tabs (Prusa Connect's printer page, laid out our way): Now, Queue, Controls, Files,
   // Cameras, Machine, History, Advanced.
-  const TABS = { now: ["overview"], queue: ["queue", "jobs"], controls: ["control", "bedlevel"], files: ["usb", "sd"], cameras: ["camera"], machine: ["settings"], history: ["telemetry"], advanced: ["terminal"] };
-  const OLD = { overview: "now", data: "now", control: "controls", jobs: "queue", telemetry: "history", terminal: "advanced", bedmesh: "controls", bedlevel: "controls", usb: "files", sd: "files", camera: "cameras", settings: "machine" };
+  const TABS = { now: ["overview"], queue: ["queue", "jobs"], controls: ["control", "bedlevel"], files: ["usb"], cameras: ["camera"], machine: ["settings"], history: ["telemetry"], advanced: ["terminal"] };
+  const OLD = { overview: "now", data: "now", control: "controls", jobs: "queue", telemetry: "history", terminal: "advanced", bedmesh: "controls", bedlevel: "controls", usb: "files", camera: "cameras", settings: "machine" };
   // Set below for a Prusa on its own Connect: opens its USB stick when its tab is shown.
   let usbOpen = null;
-  // Set below for a printer with its own SD card behind an agent.
-  let sdOpen = null;
   function show() {
     const asked = location.hash.slice(1);
     const id = TABS[asked] ? asked : OLD[asked] || "now";
@@ -24,7 +22,7 @@
     ticker();
     if (id === "history") draw();
     if (id === "advanced") drawMesh();
-    if (id === "files") { usbOpen?.(); sdOpen?.(); }
+    if (id === "files") usbOpen?.();
     // A tab is a page of its own: from the top, not where the browser jumped to its id.
     scrollTo(0, 0);
   }
@@ -430,43 +428,6 @@
     }
   }
 
-  // A printer's own SD card, through its agent (crate::sd_card): its files, as it lists them,
-  // each printed from the card; asked again quickly while the printer answers.
-  {
-    const sd = document.querySelector("[data-sd]");
-    if (sd) {
-      const list = sd.querySelector("[data-sd-list]");
-      const status = sd.querySelector("[data-sd-status]");
-      const size = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} kB`);
-      const date = (t) => (t ? new Date(t * 1000).toLocaleDateString() : "");
-      let timer = null;
-      async function load() {
-        clearTimeout(timer);
-        let r;
-        try { r = await (await fetch(`../api/machines/${ID}/sd`)).json(); } catch { status.textContent = "The hub does not answer."; return; }
-        if (r.unavailable) { status.textContent = ""; list.innerHTML = `<p class="empty">${esc(r.unavailable)}</p>`; return; }
-        const files = r.files || [];
-        status.textContent = !r.online ? "The printer is offline: this is what it said last." : r.asking ? "Asking the printer…" : `${files.length} ${files.length === 1 ? "file" : "files"} to print.`;
-        list.innerHTML = files.length
-          ? files.map((f) => `<div class="usb-item"><div class="usb-pic"><span>G-code</span></div><div class="usb-text"><b title="${esc(f.path)}">${f.folder ? `${esc(f.folder)} / ` : ""}${esc(f.name)}</b><small>${size(f.size)}${f.modified ? ` · ${date(f.modified)}` : ""}</small></div><div class="usb-actions"><button type="button" data-sd-print="${esc(f.path)}" data-name="${esc(f.name)}">Print</button></div></div>`).join("")
-          : `<p class="empty">${r.asking ? "Waiting for the printer…" : r.at ? "No G-code on the card." : "Nothing yet: the printer lists its card when it is idle."}</p>`;
-        if (r.online && r.asking) timer = setTimeout(load, 1500);
-      }
-      sd.addEventListener("click", async (event) => {
-        if (event.target.closest("[data-sd-refresh]")) { load(); return; }
-        const print = event.target.closest("[data-sd-print]");
-        if (!print) return;
-        if (!(await ask(`Print ${print.dataset.name} from its SD card now? Check the bed is clear.`, { ok: "Print" }))) return;
-        const r = await fetch(`../machines/${ID}/sd/print`, {
-          method: "POST", body: new URLSearchParams({ path: print.dataset.sdPrint }), headers: { "x-requested-with": "fetch" },
-        });
-        toast(r.ok ? `Asked to print ${print.dataset.name}` : `Not printed: ${await r.text()}`, r.ok ? "ok" : "bad");
-      });
-      sdOpen = load;
-      if (["#files", "#sd"].includes(location.hash)) load();
-    }
-  }
-
   addEventListener("resize", () => { draw(); drawMesh(); });
   addEventListener("hashchange", show);
   // The browser scrolls to the tab's id once the page has loaded: back to the top.
@@ -627,7 +588,7 @@
     }
     // Out of use, a print on the bed: drawn again when either changes.
     // The question on its screen, with its buttons, pressed from here (POST answer: a Prusa
-    // on Connect gets DIALOG_ACTION, an agent's printer M876).
+    // on Connect gets DIALOG_ACTION).
     const question = document.querySelector("[data-question]");
     const questionKey = JSON.stringify([m.online && m.asking, m.online && m.buttons]);
     if (question && question.dataset.key !== questionKey) {
@@ -990,9 +951,9 @@
     for (const el of document.querySelectorAll("[data-job]")) el.hidden = !job;
     for (const el of document.querySelectorAll("[data-job-only]")) el.hidden = !job;
     const stopHint = document.querySelector("[data-laser-stop]");
-    if (stopHint) stopHint.hidden = !laser || !!job;
-    // A laser's Stop (a soft reset) is there with no job too.
-    for (const el of document.querySelectorAll("[data-job-actions]")) el.hidden = !job && !laser;
+    if (stopHint) stopHint.hidden = !laser || !job;
+    // Only while a job runs: with no job or a loaded one the hub has nothing to stop.
+    for (const el of document.querySelectorAll("[data-job-actions]")) el.hidden = !job;
     const none = document.querySelector("[data-no-job]");
     if (none) none.hidden = !!job || loaded;
     // An interrupted job that can start again where it stopped.
@@ -1009,7 +970,7 @@
     if (own && thumb) thumb.hidden = true;
     jobState = job?.state ?? "";
     for (const button of document.querySelectorAll("[data-job-actions] button")) {
-      const can = { pause: job?.state === "printing", resume: job?.state === "paused", stop: job ? job.state !== "stopping" : laser };
+      const can = { pause: job?.state === "printing", resume: job?.state === "paused", stop: !!job && job.state !== "stopping" };
       button.hidden = !can[button.value];
       // Pressed and waiting: done once the printer says another state.
       if (button.dataset.waitFrom != null && button.dataset.waitFrom !== jobState) jobButtonBack(button);
@@ -1060,20 +1021,6 @@
         else if (!jobState) same.forEach(jobButtonBack);
       } catch {
         back("The hub does not answer.");
-      }
-    });
-  }
-  // HS6: the emergency stop asks once, then goes to the hub at once.
-  for (const form of document.querySelectorAll("[data-emergency]")) {
-    const url = new URL(form.getAttribute("action"), location.href);
-    form.querySelector("button").addEventListener("click", async (event) => {
-      event.preventDefault();
-      if (!(await ask("Emergency stop?", { ok: "Emergency stop", danger: true }))) return;
-      try {
-        const r = await fetch(url, { method: "POST" });
-        if (!r.ok) toast(`Not done: ${await r.text()}`, "bad");
-      } catch {
-        toast("The hub does not answer.", "bad");
       }
     });
   }

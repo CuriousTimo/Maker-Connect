@@ -1,10 +1,9 @@
 //! # Maker Connect hub
 //!
-//! The website and the API the agents report to. One binary with one SQLite file and no
+//! The website and the API machines report to. One binary with one SQLite file and no
 //! other services, so it runs on a Pi, a NAS, an old laptop or in Docker; everything
 //! belongs to a space ([`store`]), so the same software could serve many makerspaces.
 //!
-//! - `POST` [`maker_connect_protocol::REGISTER`], [`maker_connect_protocol::TELEMETRY`]: the agents ([`maker_connect_protocol`]).
 //! - `GET /`: the machines of the space, live; `POST /pair`: add a machine with its code.
 //! - `GET /api/machines`: the same list as JSON; `GET /api/machines/stream`: that list
 //!   again on every change, as server-sent events, for the page.
@@ -29,7 +28,6 @@ pub mod cameras;
 pub mod codes;
 pub mod commands;
 pub mod devices;
-pub mod downloads;
 pub mod farm;
 pub mod files;
 pub mod gcode;
@@ -45,17 +43,14 @@ pub mod spoolmandb;
 pub mod stock;
 pub mod store;
 pub mod updates;
-pub mod usbcam;
 pub mod web;
 
 pub use store::Store;
 
 pub(crate) use devices::legacy_gcode::{
-    JOG_FEEDS, JOG_STEPS, action, grbl_action, jog_command, probe_gcode, prusa_mk3_machine,
+    action, grbl_action, jog_command, probe_gcode, prusa_mk3_machine,
 };
-pub use devices::{
-    printer_files, prusa_connect, sd_card, simplyprint, virtual_grbl, virtual_machines,
-};
+pub use devices::{printer_files, prusa_connect, simplyprint, virtual_grbl, virtual_machines};
 pub(crate) use link::{agent_job, agent_of, peer_address};
 pub use pages::{
     access_page, add_machine_page, files_page, label_page, machine_page, now_page,

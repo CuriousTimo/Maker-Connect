@@ -4,9 +4,12 @@
 --   psql -v ON_ERROR_STOP=1 -v hub_password=… [-v owner_password=…] -f scripts/db-roles.sql
 --
 -- maker_connect_owner  owns the databases and every table; the migrations and the backup tools
---                      (pg_dump/pg_restore/psql, crate::backup) run under it. NOLOGIN, unless
---                      owner_password is given: the tests' own login (scripts/dev-db.sh, CI), which
---                      makes and migrates their databases.
+--                      (pg_dump/pg_restore/psql, crate::backup) run under it. LOGIN, because
+--                      TimescaleDB runs a hypertable's background jobs as its owner and refuses an
+--                      owner without it ("Hypertable owner must have LOGIN permission to run
+--                      background tasks", ts_bgw_job_validate_job_owner). No password, so nobody
+--                      logs in as it over the network, unless owner_password is given: the tests'
+--                      own login (scripts/dev-db.sh, CI), which makes and migrates their databases.
 -- maker_connect_app    request work, one space per transaction: row-level security holds.
 -- maker_connect_admin  what crosses spaces by nature: BYPASSRLS.
 -- maker_connect_hub    the hub's login: no superuser, owner of nothing, no privilege of its own. It is a
@@ -23,7 +26,7 @@ SELECT NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'maker_connect_owner') A
 \if :make
 CREATE ROLE maker_connect_owner;
 \endif
-ALTER ROLE maker_connect_owner NOSUPERUSER CREATEDB NOCREATEROLE NOBYPASSRLS INHERIT NOLOGIN;
+ALTER ROLE maker_connect_owner NOSUPERUSER CREATEDB NOCREATEROLE NOBYPASSRLS INHERIT LOGIN;
 -- Renaming or dropping a database (a restore, crate::backup) ends the hub's sessions on it first.
 GRANT pg_signal_backend TO maker_connect_owner;
 
@@ -49,7 +52,9 @@ GRANT maker_connect_owner, maker_connect_app, maker_connect_admin TO maker_conne
     WITH INHERIT FALSE, SET TRUE;
 
 \if :{?owner_password}
-ALTER ROLE maker_connect_owner LOGIN PASSWORD :'owner_password';
+ALTER ROLE maker_connect_owner PASSWORD :'owner_password';
+\else
+ALTER ROLE maker_connect_owner PASSWORD NULL;
 \endif
 
 -- The restore template (the design's storage-ops.md, OQ-33): a restore (crate::backup) fills a fresh

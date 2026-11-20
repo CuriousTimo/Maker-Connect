@@ -16,7 +16,7 @@ macro_rules! machine_select {
                  profile, profile_chosen, link, details, mesh, media, powered_by,
                  power_channel::bigint AS power_channel, reached_through, agent, peer, out_of_use,
                  unix_seconds(out_of_use_at) AS out_of_use_at, laser_w, labels, induction_required, ppe,
-                 usb_print_by, agent_update_to, farm, sheet
+                 usb_print_by, farm, sheet
              FROM machines ",
             $tail
         )
@@ -53,7 +53,6 @@ pub(crate) struct MachineRow {
     pub induction_required: i32,
     pub ppe: Option<String>,
     pub usb_print_by: Option<String>,
-    pub agent_update_to: Option<String>,
     pub farm: bool,
     pub sheet: Option<String>,
 }
@@ -98,8 +97,6 @@ impl MachineRow {
             reached_through: self.reached_through,
             agent: self.agent.and_then(|a| serde_json::from_str(&a).ok()),
             peer: self.peer,
-            agent_update: None,
-            agent_update_to: self.agent_update_to,
             out_of_use: self.out_of_use.map(|reason| OutOfUse {
                 reason,
                 since: self.out_of_use_at.unwrap_or(0),
@@ -185,15 +182,13 @@ impl Store {
         Ok(claimed)
     }
 
-    /// A new agent: its machine, not yet in a space, with a token and a pairing code.
-    pub async fn register(&self, agent: &Register) -> sqlx::Result<(String, String, String)> {
-        self.register_linked(agent, "agent").await
-    }
-
-    /// A new machine that reaches the hub by `link` (see [`Machine::link`]).
+    /// A new machine that reaches the hub by `link` (see [`Machine::link`]), not yet in a space,
+    /// with a token and a pairing code: `name`, `kind`, and how it says it connects (`agent_version`).
     pub async fn register_linked(
         &self,
-        agent: &Register,
+        name: &str,
+        kind: MachineKind,
+        agent_version: &str,
         link: &str,
     ) -> sqlx::Result<(String, String, String)> {
         let (id, token, code) = new_identity(link);
@@ -202,9 +197,9 @@ impl Store {
             "INSERT INTO machines (id, name, kind, agent_version, token, pairing_code, registered_at, link, induction_required)
              VALUES ($1, $2, $3, $4, $5, $6, at_unix($7), $8, 1)",
             id,
-            agent.name,
-            serde_json::to_string(&agent.kind).unwrap_or_default(),
-            agent.agent_version,
+            name,
+            serde_json::to_string(&kind).unwrap_or_default(),
+            agent_version,
             token,
             code,
             now(),
@@ -222,7 +217,7 @@ impl Store {
     async fn add_in_space(
         &self,
         space: i64,
-        agent: &Register,
+        (name, kind, agent_version): (&str, MachineKind, &str),
         link: &str,
         profile: Option<&str>,
     ) -> sqlx::Result<String> {
@@ -235,9 +230,9 @@ impl Store {
         )
         .bind(&id)
         .bind(space)
-        .bind(&agent.name)
-        .bind(serde_json::to_string(&agent.kind).unwrap_or_default())
-        .bind(&agent.agent_version)
+        .bind(name)
+        .bind(serde_json::to_string(&kind).unwrap_or_default())
+        .bind(agent_version)
         .bind(&token)
         .bind(now())
         .bind(link)
@@ -286,12 +281,11 @@ impl Store {
     ) -> sqlx::Result<String> {
         self.add_in_space(
             space,
-            &Register {
-                protocol: maker_connect_protocol::VERSION,
-                name: format!("Virtual {}", profile.model),
-                kind: profile.kind,
-                agent_version: "simulated in the hub".to_owned(),
-            },
+            (
+                &format!("Virtual {}", profile.model),
+                profile.kind,
+                "simulated in the hub",
+            ),
             "virtual",
             Some(&profile.id),
         )
@@ -303,12 +297,7 @@ impl Store {
     pub async fn add_moonraker(&self, space: i64, name: &str) -> sqlx::Result<String> {
         self.add_in_space(
             space,
-            &Register {
-                protocol: maker_connect_protocol::VERSION,
-                name: name.to_owned(),
-                kind: MachineKind::Fdm,
-                agent_version: "Moonraker".to_owned(),
-            },
+            (name, MachineKind::Fdm, "Moonraker"),
             "simplyprint",
             None,
         )
@@ -922,12 +911,7 @@ impl Store {
     ) -> (i64, String, String) {
         let space = self.default_space().await.unwrap().0;
         let (id, token, code) = self
-            .register(&maker_connect_protocol::Register {
-                protocol: maker_connect_protocol::VERSION,
-                name: name.into(),
-                kind,
-                agent_version: "0.2.0".into(),
-            })
+            .register_linked(name, kind, "0.2.0", "virtual")
             .await
             .unwrap();
         self.pair(space, &code).await.unwrap();

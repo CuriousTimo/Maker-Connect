@@ -52,19 +52,6 @@ impl Legacy {
         self.changed();
     }
 
-    /// The agent build the Downloads page offers: its commit and when it was built, from
-    /// `.build` beside the downloads (written by `scripts/build-downloads.sh`).
-    pub fn offered_build(&self) -> Option<OfferedBuild> {
-        let text = std::fs::read_to_string(self.downloads_dir.join(".build")).ok()?;
-        let mut lines = text.lines().map(|l| l.trim().to_owned());
-        let commit = lines.next().filter(|c| !c.is_empty())?;
-        Some(OfferedBuild {
-            commit,
-            built: lines.next().unwrap_or_default(),
-            version: lines.next().filter(|v| !v.is_empty()),
-        })
-    }
-
     /// Machines from their rows, with what the hub's memory adds; `space`: what the space's
     /// modules say of each, by machine id, read before ([`Completion`]).
     pub(crate) fn complete_machines(
@@ -80,7 +67,6 @@ impl Legacy {
         } = space;
         let now = now();
         let mut machines: Vec<Machine> = rows.into_iter().map(|r| r.into_machine(now)).collect();
-        let offered = self.offered_build();
         for machine in &mut machines {
             machine.loaded = loaded.get(&machine.id).cloned();
             if machine.kind == MachineKind::Fdm {
@@ -95,16 +81,6 @@ impl Legacy {
                     .filter(|(_, dialog)| dialog.is_some())
                     .map(|(buttons, _)| buttons.clone())
                     .unwrap_or_default();
-                // An agent's printer asks through its report.
-                if let Some(prompt) = machine
-                    .telemetry
-                    .as_ref()
-                    .and_then(|t| t.prompt.as_ref())
-                    .filter(|_| machine.online)
-                {
-                    machine.asking = Some((prompt.text.clone(), prompt.text.clone()));
-                    machine.buttons = prompt.buttons.clone();
-                }
                 machine.queue_held = if machine.job.is_some() {
                     None
                 } else {
@@ -122,12 +98,6 @@ impl Legacy {
                 machine.usb_print_by = None;
                 machine.farm = false;
                 machine.sheet = None;
-            }
-            // An agent from before builds were named is behind any build on offer.
-            if let (Some(offered), Some(agent)) = (&offered, machine.agent.as_ref())
-                && agent.build.as_ref() != Some(&offered.commit)
-            {
-                machine.agent_update = Some(format!("{} ({})", offered.commit, offered.built));
             }
             machine.job = jobs.active_job(&machine.id);
             machine.laser_framed = machine.job.as_ref().is_some_and(|j| {

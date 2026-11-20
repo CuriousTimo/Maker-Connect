@@ -1,7 +1,4 @@
-use crate::{
-    JOG_FEEDS, JOG_STEPS, Store, action, failed, grbl_action, jog_command, probe_gcode, profiles,
-    store,
-};
+use crate::{Store, action, failed, grbl_action, jog_command, probe_gcode, profiles, store};
 use axum::{
     Form,
     extract::State,
@@ -77,169 +74,6 @@ pub(crate) const PREHEAT_PRESETS: [(&str, f64, f64); 10] = [
     ("PVB", 215.0, 75.0),
     ("PA", 285.0, 100.0),
 ];
-
-/// The commands the website offers: a label and its G-code. Moves are relative, 10 mm.
-/// A button of the website for a machine behind an agent, as typed commands (exactly the
-/// controls the pages offer, owner's approval O8). Its step and speed from the page's lists
-/// (`JOG_STEPS`, `JOG_FEEDS`), the preheat temperatures the page's own: limits of the page,
-/// not of the wire.
-fn agent_actions(
-    form: &CommandForm,
-    machine: &store::Machine,
-) -> Result<Vec<(String, protocol::Action)>, String> {
-    use protocol::{Action, Axis, Heater};
-    let one = |label: &str, action: Action| Ok(vec![(label.to_owned(), action)]);
-    let step = form.step.unwrap_or(10.0);
-    if !JOG_STEPS.contains(&step) {
-        return Err("Move: no such step".to_owned());
-    }
-    if form.feed.is_some_and(|f| !JOG_FEEDS.contains(&f)) {
-        return Err("Move: no such speed".to_owned());
-    }
-    let jog = |label: String, x: Option<f64>, y: Option<f64>, z: Option<f64>| {
-        Ok(vec![(
-            label,
-            Action::Jog {
-                x,
-                y,
-                z,
-                feed: form.feed,
-            },
-        )])
-    };
-    let heat = |label: &str, nozzle: f64, bed: f64| {
-        Ok(vec![
-            (
-                label.to_owned(),
-                Action::Temperature {
-                    heater: Heater::Nozzle,
-                    celsius: nozzle,
-                },
-            ),
-            (
-                label.to_owned(),
-                Action::Temperature {
-                    heater: Heater::Bed,
-                    celsius: bed,
-                },
-            ),
-        ])
-    };
-    let spool = (
-        machine
-            .loaded
-            .as_ref()
-            .and_then(|l| l.nozzle_c)
-            .map(|c| c as f32),
-        machine
-            .loaded
-            .as_ref()
-            .and_then(|l| l.bed_c)
-            .map(|c| c as f32),
-    );
-    match form.action.as_str() {
-        // B5: OctoPrint's panel has two Home buttons, X/Y and Z (`control.jinja2:71,85`); the one
-        // button of the other machines is all three axes (K5).
-        "home" => one(
-            "Home",
-            Action::Home {
-                axes: vec![Axis::X, Axis::Y, Axis::Z],
-            },
-        ),
-        "home-xy" => one(
-            "Home X/Y",
-            Action::Home {
-                axes: vec![Axis::X, Axis::Y],
-            },
-        ),
-        "home-z" => one(
-            "Home Z",
-            Action::Home {
-                axes: vec![Axis::Z],
-            },
-        ),
-        "x+" => jog(format!("X +{step} mm"), Some(step), None, None),
-        "x-" => jog(format!("X −{step} mm"), Some(-step), None, None),
-        "y+" => jog(format!("Y +{step} mm"), None, Some(step), None),
-        "y-" => jog(format!("Y −{step} mm"), None, Some(-step), None),
-        "z+" => jog(format!("Z +{step} mm"), None, None, Some(step)),
-        "z-" => jog(format!("Z −{step} mm"), None, None, Some(-step)),
-        jog_pad if jog_pad.starts_with("jog:") => {
-            let dir = |t: &str| match t {
-                "-1" => Some(-1.0),
-                "0" => Some(0.0),
-                "1" => Some(1.0),
-                _ => None,
-            };
-            // `jog:<x>:<y>`, or `jog:0:0:<z>` (a printer's pad: Z on its own).
-            let parts: Vec<&str> = jog_pad["jog:".len()..].split(':').collect();
-            let (x, y, z) = match parts[..] {
-                [x, y] => (dir(x), dir(y), Some(0.0)),
-                ["0", "0", z] => (Some(0.0), Some(0.0), dir(z)),
-                _ => (None, None, None),
-            };
-            let (Some(x), Some(y), Some(z)) = (x, y, z) else {
-                return Err("Move: no such direction".to_owned());
-            };
-            let some = |d: f64| (d != 0.0).then_some(d * step);
-            jog(format!("Move {step} mm"), some(x), some(y), some(z))
-        }
-        "extrude" => one("Extrude 10 mm", Action::Extrude { mm: 10.0 }),
-        "retract" => one("Retract 10 mm", Action::Extrude { mm: -10.0 }),
-        "set-speed" => one(
-            "Speed",
-            Action::Speed {
-                percent: form.speed.ok_or("Speed: how much?")?.round() as u16,
-            },
-        ),
-        "set-flow" => one(
-            "Flow",
-            Action::Flow {
-                percent: form.flow.ok_or("Flow: how much?")?.round() as u16,
-            },
-        ),
-        "set-nozzle" => one(
-            "Nozzle",
-            Action::Temperature {
-                heater: Heater::Nozzle,
-                celsius: form.nozzle.ok_or("Nozzle: how hot?")?,
-            },
-        ),
-        "set-bed" => one(
-            "Bed",
-            Action::Temperature {
-                heater: Heater::Bed,
-                celsius: form.bed.ok_or("Bed: how hot?")?,
-            },
-        ),
-        "preheat-pla" => heat("Preheat PLA (215/60 °C)", 215.0, 60.0),
-        "preheat-petg" => heat("Preheat PETG (230/85 °C)", 230.0, 85.0),
-        "cooldown" => heat("Cool down", 0.0, 0.0),
-        "fan-on" => one("Print fan on", Action::Fan { on: true }),
-        "fan-off" => one("Print fan off", Action::Fan { on: false }),
-        "motors-off" => one("Motors off", Action::MotorsOff),
-        "load-filament" => one(
-            "Load filament",
-            Action::LoadFilament {
-                nozzle_c: spool.0,
-                bed_c: spool.1,
-            },
-        ),
-        "unload-filament" => one(
-            "Unload filament",
-            Action::UnloadFilament {
-                nozzle_c: spool.0,
-                bed_c: spool.1,
-            },
-        ),
-        "probe-bed" => one("Probe the bed", Action::ProbeBed),
-        "unlock" => one("Unlock", Action::Unlock),
-        "set-origin" => one("Set origin here", Action::SetOrigin),
-        "go-origin" => one("Go to origin", Action::GoOrigin),
-        "settings" => one("Read settings", Action::ReadSettings),
-        _ => Err("no such command".to_owned()),
-    }
-}
 
 #[derive(serde::Deserialize, Default)]
 pub(crate) struct CommandForm {
@@ -357,69 +191,6 @@ fn typed_gcode(text: &str) -> Result<(String, String), &'static str> {
     Ok((label, text.to_owned()))
 }
 
-/// HS6 (ours, in our UI): what the machine page's emergency-stop button does for a machine; the
-/// reference of each is in `docs/briefs/hs6-emergency-stop.md`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EmergencyStop {
-    /// An agent machine on the Marlin/OctoPrint port: the typed `M112`, which OctoPrint's comm
-    /// turns into its own emergency stop (`util/comm.py:5524`, `:5487-5522`).
-    TypedM112,
-    /// A laser: LaserFoundry's own Stop, `Link::stop` (`ui-egui/src/panels.rs:774-775`), a soft
-    /// reset. LaserFoundry has no other stop.
-    LaserStop,
-}
-
-/// The emergency stop a machine has, if any. A label printer has none, and neither has a Prusa on
-/// Buddy (`docs/briefs/hs6-emergency-stop.md`); the hub's own machines (built-in Connect,
-/// SimplyPrint, Klipper) have none here.
-pub fn emergency_stop_of(machine: &store::Machine) -> Option<EmergencyStop> {
-    use protocol::MachineKind;
-    if machine.kind == MachineKind::Laser {
-        return Some(EmergencyStop::LaserStop);
-    }
-    store::on_marlin_port(machine).then_some(EmergencyStop::TypedM112)
-}
-
-/// The machine page's emergency-stop button.
-pub(crate) async fn emergency_stop(
-    access: crate::access::Access,
-    State(shared): State<Store>,
-    axum::extract::Path(id): axum::extract::Path<String>,
-) -> Response {
-    let space = access.space;
-    let machine = match shared.machine(space, &id).await {
-        Ok(Some(machine)) => machine,
-        Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
-        Err(error) => return failed(error),
-    };
-    // Stopping never waits for PPE (`safety.rs`), and needs 'use' on the machine, as Stop does.
-    match emergency_stop_of(&machine) {
-        None => (StatusCode::CONFLICT, "this machine has no emergency stop").into_response(),
-        Some(EmergencyStop::TypedM112) => {
-            let queued = shared.lock().unwrap().queue_action(
-                Some(machine.link.as_str()),
-                &id,
-                "Emergency stop",
-                &protocol::Action::Gcode {
-                    text: "M112".to_owned(),
-                },
-            );
-            match queued {
-                Some(_) => StatusCode::NO_CONTENT.into_response(),
-                None => (
-                    StatusCode::NOT_FOUND,
-                    "no such machine, or it takes no commands",
-                )
-                    .into_response(),
-            }
-        }
-        // The laser's Stop, the same route as its Stop button.
-        Some(EmergencyStop::LaserStop) => {
-            crate::files::stop_job(access, State(shared), axum::extract::Path(id)).await
-        }
-    }
-}
-
 /// Why typed G-code to a laser is refused (our text).
 pub(crate) const LASER_NO_GCODE: &str =
     "a laser takes no typed G-code: only Start burn switches it on";
@@ -460,43 +231,6 @@ pub(crate) async fn command(
     if !off && let Err(refused) = crate::safety::check_ppe(&store, &ppe_checks, &access, &id) {
         return *refused;
     }
-    // B3: nothing here refuses a command for a machine behind an agent because of what it is doing
-    // (not while it prints, say): the machine's port refuses as its reference does. Permissions and
-    // PPE (above) are about people, and stay.
-    // A machine behind an agent: typed commands, the bytes made by its port (the hub makes no
-    // G-code for it, owner 2026-11-12).
-    if let Ok(Some(machine)) = machine_now()
-        && machine.link == "agent"
-    {
-        let actions = if form.gcode.trim().is_empty() {
-            agent_actions(&form, &machine)
-        } else {
-            typed_gcode(&form.gcode)
-                .map(|(label, text)| vec![(label, protocol::Action::Gcode { text })])
-                .map_err(|why| why.to_string())
-        };
-        let actions = match actions {
-            Ok(actions) => actions,
-            Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
-        };
-        for (label, action) in &actions {
-            match store.queue_action(link, &id, label, action) {
-                Some(_) => {}
-                None => {
-                    return (
-                        StatusCode::NOT_FOUND,
-                        "no such machine, or it takes no commands",
-                    )
-                        .into_response();
-                }
-            }
-        }
-        return if headers.contains_key("x-requested-with") {
-            StatusCode::NO_CONTENT.into_response()
-        } else {
-            Redirect::to(&format!("/machines/{id}#control")).into_response()
-        };
-    }
     if !form.gcode.trim().is_empty() {
         let (label, gcode) = match typed_gcode(&form.gcode) {
             Ok(typed) => typed,
@@ -523,8 +257,6 @@ pub(crate) async fn command(
     };
     let owned = |(l, g): (&str, &str)| (l.to_owned(), g.to_owned());
     let is_grbl = grbl();
-    // Machines behind an agent took the branch above; these are the hub's own (built-in
-    // Connect, SimplyPrint, virtual), until they get the hub's internal agent.
     let found = if form.action.starts_with("jog") {
         jog_command(
             &form.action,
@@ -621,7 +353,7 @@ pub(crate) async fn command(
 mod tests {
     use super::*;
 
-    use crate::link::tests::{call, json};
+    use crate::link::tests::call;
 
     /// Controls' Preheat buttons and the legacy G-code follow PREHEAT_PRESETS (one list).
     #[test]
@@ -636,9 +368,6 @@ mod tests {
 
     use axum::body::Body;
     use axum::http::Request;
-    use maker_connect_protocol::{
-        MachineKind, MachineState, Register, Registered, Telemetry, TelemetryReply,
-    };
 
     /// Typed temperatures: whole degrees, up to the profile's maximum, 0 is off.
     #[test]
@@ -708,6 +437,7 @@ mod tests {
         assert!(sent(151.0).unwrap().is_err(), "M221 above 150 %");
     }
 
+    /// Typed G-code is tidied and kept short enough for every machine.
     #[test]
     fn typed_gcode_is_checked() {
         assert_eq!(
@@ -719,346 +449,16 @@ mod tests {
         assert!(typed_gcode("M117 \u{7}").is_err());
     }
 
-    /// Typed G-code is tidied and kept short enough for every machine.
-    /// A machine behind an agent gets typed commands (`Action`), one at a time as it answers
-    /// each, never G-code made by the hub; its SD tab says it is not available yet.
-    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
-    #[cfg_attr(
-        not(feature = "pg-tests"),
-        ignore = "needs Postgres: the pg-tests feature"
-    )]
-    async fn an_agents_machine_gets_typed_commands(pool: sqlx::PgPool) {
-        let store = crate::store::Store::for_test(&pool).await;
-        let app = crate::auth::signed_in_app(store.clone()).await;
-        let agent = crate::app(store.clone());
-        let register = Register {
-            protocol: protocol::VERSION,
-            name: "Printer".into(),
-            kind: MachineKind::Fdm,
-            agent_version: "0.2.0".into(),
-        };
-        let (_, body) = call(
-            &agent,
-            json(
-                protocol::REGISTER,
-                None,
-                serde_json::to_string(&register).unwrap(),
-            ),
-        )
-        .await;
-        let registered: Registered = serde_json::from_str(&body).unwrap();
-        let id = registered.machine_id.clone();
-        {
-            let space = store.default_space().await.unwrap().0;
-            store.pair(space, &registered.pairing_code).await.unwrap();
-        }
-        crate::auth::tester_may_operate(&store, &id).await;
-        let press = |body: &str| {
-            Request::post(format!("/machines/{id}/command"))
-                .header("content-type", "application/x-www-form-urlencoded")
-                .header("x-requested-with", "fetch")
-                .body(Body::from(body.to_owned()))
-                .unwrap()
-        };
-        for body in [
-            "action=home",
-            "action=x%2B&step=1&feed=1500",
-            "action=preheat-pla",
-            "gcode=M105",
-        ] {
-            let (status, why) = call(&app, press(body)).await;
-            assert_eq!(status, StatusCode::NO_CONTENT, "{body}: {why}");
-        }
-        let (status, _) = call(&app, press("action=x%2B&step=7")).await;
-        assert_eq!(
-            status,
-            StatusCode::BAD_REQUEST,
-            "a step not on the page's list"
-        );
-        // Reported idle, answering each command as it comes: the commands, in order.
-        let mut got = Vec::new();
-        let mut done = Vec::new();
-        for _ in 0..8 {
-            let telemetry = Telemetry {
-                state: MachineState::Idle,
-                done: std::mem::take(&mut done),
-                ..Telemetry::default()
-            };
-            let (_, body) = call(
-                &agent,
-                json(
-                    protocol::TELEMETRY,
-                    Some(&registered.token),
-                    serde_json::to_string(&telemetry).unwrap(),
-                ),
-            )
-            .await;
-            let reply: TelemetryReply = serde_json::from_str(&body).unwrap();
-            for command in reply.commands {
-                done.push(protocol::CommandDone {
-                    id: command.id,
-                    ok: true,
-                    reason: None,
-                    output: Vec::new(),
-                });
-                got.push(command.action);
-            }
-        }
-        use protocol::{Action, Axis, Heater};
-        assert_eq!(
-            got,
-            [
-                Action::Home {
-                    axes: vec![Axis::X, Axis::Y, Axis::Z]
-                },
-                Action::Jog {
-                    x: Some(1.0),
-                    y: None,
-                    z: None,
-                    feed: Some(1500.0)
-                },
-                Action::Temperature {
-                    heater: Heater::Nozzle,
-                    celsius: 215.0
-                },
-                Action::Temperature {
-                    heater: Heater::Bed,
-                    celsius: 60.0
-                },
-                Action::Gcode {
-                    text: "M105".into()
-                },
-            ]
-        );
-        let (_, sd) = call(
-            &app,
-            Request::get(format!("/api/machines/{id}/sd"))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-        assert!(sd.contains(crate::sd_card::NOT_YET), "{sd}");
-    }
-
-    /// B3: the hub does not hold or refuse commands for a machine behind an agent because of what it
-    /// does (busy, running a job, waiting for someone): it queues them, one at a time, so typed G-code
-    /// such as `M112` reaches the port at once (B7). B5: the two Home buttons of OctoPrint's panel.
-    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
-    #[cfg_attr(
-        not(feature = "pg-tests"),
-        ignore = "needs Postgres: the pg-tests feature"
-    )]
-    async fn b3_b5_an_agents_machine_gets_every_command_whatever_it_is_doing(pool: sqlx::PgPool) {
-        let store = crate::store::Store::for_test(&pool).await;
-        let app = crate::auth::signed_in_app(store.clone()).await;
-        let agent = crate::app(store.clone());
-        let register = Register {
-            protocol: protocol::VERSION,
-            name: "Printer".into(),
-            kind: MachineKind::Fdm,
-            agent_version: "0.2.0".into(),
-        };
-        let (_, body) = call(
-            &agent,
-            json(
-                protocol::REGISTER,
-                None,
-                serde_json::to_string(&register).unwrap(),
-            ),
-        )
-        .await;
-        let registered: Registered = serde_json::from_str(&body).unwrap();
-        let id = registered.machine_id.clone();
-        {
-            let space = store.default_space().await.unwrap().0;
-            store.pair(space, &registered.pairing_code).await.unwrap();
-        }
-        crate::auth::tester_may_operate(&store, &id).await;
-        let press = |body: &str| {
-            Request::post(format!("/machines/{id}/command"))
-                .header("content-type", "application/x-www-form-urlencoded")
-                .header("x-requested-with", "fetch")
-                .body(Body::from(body.to_owned()))
-                .unwrap()
-        };
-        // what the page refused while it printed: typed G-code, the fan, Z, homing, extruding
-        for body in [
-            "gcode=M112",
-            "action=fan-on",
-            "action=z%2B&step=1",
-            "action=home-xy",
-            "action=home-z",
-            "action=home",
-            "action=extrude",
-        ] {
-            let (status, why) = call(&app, press(body)).await;
-            assert_eq!(status, StatusCode::NO_CONTENT, "{body}: {why}");
-        }
-        use protocol::{Action, Axis};
-        let mut got = Vec::new();
-        let mut done = Vec::new();
-        // busy with a job, then waiting for someone (Attention): commands go out in both
-        for round in 0..16 {
-            let telemetry = Telemetry {
-                state: if round < 8 {
-                    MachineState::Busy
-                } else {
-                    MachineState::Attention
-                },
-                job_id: (round < 8).then_some(7),
-                done: std::mem::take(&mut done),
-                ..Telemetry::default()
-            };
-            let (_, body) = call(
-                &agent,
-                json(
-                    protocol::TELEMETRY,
-                    Some(&registered.token),
-                    serde_json::to_string(&telemetry).unwrap(),
-                ),
-            )
-            .await;
-            let reply: TelemetryReply = serde_json::from_str(&body).unwrap();
-            for command in reply.commands {
-                done.push(protocol::CommandDone {
-                    id: command.id,
-                    ok: true,
-                    reason: None,
-                    output: Vec::new(),
-                });
-                got.push((round, command.action));
-            }
-        }
-        let actions: Vec<Action> = got.iter().map(|(_, a)| a.clone()).collect();
-        assert_eq!(
-            actions,
-            [
-                Action::Gcode {
-                    text: "M112".into()
-                },
-                Action::Fan { on: true },
-                Action::Jog {
-                    x: None,
-                    y: None,
-                    z: Some(1.0),
-                    feed: None
-                },
-                Action::Home {
-                    axes: vec![Axis::X, Axis::Y]
-                },
-                Action::Home {
-                    axes: vec![Axis::Z]
-                },
-                Action::Home {
-                    axes: vec![Axis::X, Axis::Y, Axis::Z]
-                },
-                Action::Extrude { mm: 10.0 },
-            ]
-        );
-        assert!(got.iter().any(|(round, _)| *round < 8), "while it was busy");
-        // A command for a machine that waits for someone goes too.
-        let (status, why) = call(&app, press("gcode=M105")).await;
-        assert_eq!(status, StatusCode::NO_CONTENT, "{why}");
-        let telemetry = Telemetry {
-            state: MachineState::Attention,
-            ..Telemetry::default()
-        };
-        let (_, body) = call(
-            &agent,
-            json(
-                protocol::TELEMETRY,
-                Some(&registered.token),
-                serde_json::to_string(&telemetry).unwrap(),
-            ),
-        )
-        .await;
-        let reply: TelemetryReply = serde_json::from_str(&body).unwrap();
-        assert_eq!(reply.commands.len(), 1, "{body}");
-    }
-
-    /// HS6: an agent machine of each kind, registered, paired, with a first report (so it is online).
-    async fn agent_of(
-        store: &crate::Store,
-        kind: MachineKind,
-        profile: Option<&str>,
-    ) -> (String, String) {
-        let agent = crate::app(store.clone());
-        let register = Register {
-            protocol: protocol::VERSION,
-            name: "m".into(),
-            kind,
-            agent_version: "0.2.0".into(),
-        };
-        let (_, body) = call(
-            &agent,
-            json(
-                protocol::REGISTER,
-                None,
-                serde_json::to_string(&register).unwrap(),
-            ),
-        )
-        .await;
-        let registered: Registered = serde_json::from_str(&body).unwrap();
+    /// A machine the signed-in tester may use (not operate): a virtual machine of `profile`, idle.
+    async fn usable(store: &crate::Store, profile: &str) -> String {
+        let (space, id, _) = store.add_test_machine(profile, None).await;
         let user = store.user_id("tester").await.unwrap().unwrap();
-        let space = store.default_space().await.unwrap().0;
-        store.pair(space, &registered.pairing_code).await.unwrap();
-        // 'use' only, not 'operate': whoever may use the machine may press the emergency stop (a
-        // grant names the machine in its space: after pairing).
         store
-            .set_grant(
-                space,
-                &registered.machine_id,
-                user,
-                crate::access::Level::Use,
-                user,
-                None,
-            )
+            .set_grant(space, &id, user, crate::access::Level::Use, user, None)
             .await
             .unwrap();
-        if profile.is_some() {
-            store
-                .set_profile(space, &registered.machine_id, profile)
-                .await
-                .unwrap();
-        }
-        let telemetry = Telemetry {
-            state: MachineState::Idle,
-            ..Telemetry::default()
-        };
-        call(
-            &agent,
-            json(
-                protocol::TELEMETRY,
-                Some(&registered.token),
-                serde_json::to_string(&telemetry).unwrap(),
-            ),
-        )
-        .await;
-        (registered.machine_id, registered.token)
-    }
-
-    /// HS6: the commands the agent is given on its next report.
-    async fn given(store: &crate::Store, token: &str) -> Vec<protocol::Action> {
-        let agent = crate::app(store.clone());
-        let telemetry = Telemetry {
-            state: MachineState::Idle,
-            ..Telemetry::default()
-        };
-        let (_, body) = call(
-            &agent,
-            json(
-                protocol::TELEMETRY,
-                Some(token),
-                serde_json::to_string(&telemetry).unwrap(),
-            ),
-        )
-        .await;
-        serde_json::from_str::<TelemetryReply>(&body)
-            .unwrap()
-            .commands
-            .into_iter()
-            .map(|c| c.action)
-            .collect()
+        store.idle_test_machine(&id).await;
+        id
     }
 
     /// The control rule (ui.md): without 'operate' the page shows no button that sends a command
@@ -1071,7 +471,7 @@ mod tests {
     async fn without_operate_the_controls_are_hidden(pool: sqlx::PgPool) {
         let store = crate::store::Store::for_test(&pool).await;
         let app = crate::auth::signed_in_app(store.clone()).await;
-        let (id, _) = agent_of(&store, MachineKind::Fdm, None).await;
+        let id = usable(&store, "prusa/mk3s").await;
         let page = || {
             Request::get(format!("/machines/{id}"))
                 .body(Body::empty())
@@ -1103,7 +503,7 @@ mod tests {
     async fn a_laser_takes_no_typed_gcode(pool: sqlx::PgPool) {
         let store = crate::store::Store::for_test(&pool).await;
         let app = crate::auth::signed_in_app(store.clone()).await;
-        let (laser, token) = agent_of(&store, MachineKind::Laser, None).await;
+        let laser = usable(&store, "ortur/lm2-pro-s2").await;
         let user = store.user_id("tester").await.unwrap().unwrap();
         let space = store.default_space().await.unwrap().0;
         store
@@ -1126,7 +526,10 @@ mod tests {
             assert_eq!(status, StatusCode::BAD_REQUEST, "{gcode}");
             assert_eq!(why, LASER_NO_GCODE);
         }
-        assert!(given(&store, &token).await.is_empty(), "nothing sent");
+        assert!(
+            store.lock().unwrap().open_commands(&laser).is_empty(),
+            "nothing sent"
+        );
         let page = call(
             &app,
             Request::get(format!("/machines/{laser}"))
@@ -1140,84 +543,22 @@ mod tests {
         assert!(page.contains("<h4>Coordinates</h4>") && page.contains(r#"class="ctl-cols""#));
         assert!(page.contains(r#"value="set-origin""#) && page.contains(r#"value="jog:1:1""#));
         assert!(page.contains(r#"data-live="pos_x""#), "X in the head");
-        assert!(
-            page.contains(">Emergency stop (soft reset)</button>"),
-            "its Stop on Now"
-        );
-    }
-
-    /// HS6: the button's route, per kind: a Marlin machine is sent exactly the typed `M112` (the path
-    /// `b3_b5_...` shows for the terminal), a laser is sent LaserFoundry's Stop (`JobControl::Stop`, the
-    /// route of its Stop button); a label printer, a Prusa (Buddy) and a machine whose profile is not
-    /// Marlin are refused and are sent nothing. The page shows the button for the first two only.
-    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
-    #[cfg_attr(
-        not(feature = "pg-tests"),
-        ignore = "needs Postgres: the pg-tests feature"
-    )]
-    async fn hs6_the_emergency_stop_is_each_kinds_own(pool: sqlx::PgPool) {
-        let store = crate::store::Store::for_test(&pool).await;
-        let app = crate::auth::signed_in_app(store.clone()).await;
-        let press = |id: &str| {
-            Request::post(format!("/machines/{id}/emergency-stop"))
-                .body(Body::empty())
-                .unwrap()
-        };
-        let page = |id: &str| {
-            Request::get(format!("/machines/{id}"))
-                .body(Body::empty())
-                .unwrap()
-        };
-
-        // a Marlin agent machine: the typed M112, and nothing else
-        let (marlin, token) = agent_of(&store, MachineKind::Fdm, None).await;
-        let (status, why) = call(&app, press(&marlin)).await;
-        assert_eq!(status, StatusCode::NO_CONTENT, "{why}");
-        assert_eq!(
-            given(&store, &token).await,
-            [protocol::Action::Gcode {
-                text: "M112".into()
-            }]
-        );
-        assert!(call(&app, page(&marlin)).await.1.contains("emergency-stop"));
-        // with 'use' alone, the terminal is refused: the button is a stop, which 'use' allows
-        let typed = Request::post(format!("/machines/{marlin}/command"))
-            .header("content-type", "application/x-www-form-urlencoded")
-            .body(Body::from("gcode=M105"))
+        // Idle: nothing to stop (control_job answers 404), so no Stop and no hint.
+        let actions = page
+            .split(r#"<form class="job-actions""#)
+            .nth(1)
+            .unwrap()
+            .split('>')
+            .next()
             .unwrap();
-        assert_eq!(call(&app, typed).await.0, StatusCode::FORBIDDEN);
-
-        // a laser: LaserFoundry's Stop, to the agent as a job control
-        let (laser, _) = agent_of(&store, MachineKind::Laser, None).await;
-        let (status, why) = call(&app, press(&laser)).await;
-        assert_eq!(status, StatusCode::NO_CONTENT, "{why}");
-        assert!(matches!(
-            store.lock().unwrap().own_job_control.remove(&laser),
-            Some(protocol::JobControl::Stop)
-        ));
-        // its page: one button, its Stop named the emergency stop, no second form
-        let page_of_laser = call(&app, page(&laser)).await.1;
-        assert!(!page_of_laser.contains("emergency-stop"), "not shown twice");
-        assert!(page_of_laser.contains(">Emergency stop (soft reset)</button>"));
-
-        // none: a label printer, a Prusa on Buddy, a profile that is not Marlin
-        for (kind, profile) in [
-            (MachineKind::Label, None),
-            (MachineKind::Fdm, Some("prusa/mini")),
-            (MachineKind::Fdm, Some("prusa/mk4s")),
-        ] {
-            let (id, token) = agent_of(&store, kind, profile).await;
-            let (status, why) = call(&app, press(&id)).await;
-            assert_eq!(status, StatusCode::CONFLICT, "{kind:?} {profile:?}: {why}");
-            assert!(
-                given(&store, &token).await.is_empty(),
-                "{kind:?} {profile:?}: nothing sent"
-            );
-            assert!(store.lock().unwrap().own_job_control.remove(&id).is_none());
-            assert!(
-                !call(&app, page(&id)).await.1.contains("emergency-stop"),
-                "{kind:?} {profile:?}"
-            );
-        }
+        assert!(actions.contains("hidden"), "no Stop for an idle laser");
+        let hint = page
+            .split("data-laser-stop")
+            .nth(1)
+            .unwrap()
+            .split('>')
+            .next()
+            .unwrap();
+        assert!(hint.contains("hidden"), "no Stop hint for an idle laser");
     }
 }

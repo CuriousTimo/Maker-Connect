@@ -114,7 +114,7 @@ pub fn render(
     let kind = profile.map_or(machine.kind.label(), |p| p.model.as_str());
     let link = match machine.link.as_str() {
         "virtual" => "Virtual, in the hub",
-        _ => "Maker Connect agent",
+        other => other,
     };
     let id = escape(&machine.id);
     // A LabelWriter takes a roll of die-cut labels; a LabelManager a cassette of tape.

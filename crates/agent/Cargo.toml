@@ -4,23 +4,3 @@ description = "Maker Connect's module next to a machine: drives it and reports t
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-
-[dependencies]
-maker-connect-engine = { path = "../engine" }
-maker-connect-protocol = { version = "0.2.0", path = "../protocol" }
-maker-connect-update = { path = "../update" }
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.154"
-# Without libudev: on Linux the ports are read from /sys, so the agent cross-builds for a Pi
-# (an Orange Pi, a Raspberry Pi) with no Linux libraries at hand.
-serialport = { version = "4", default-features = false }
-# SIGTERM (systemd stopping it): already in the build through serialport.
-libc = "0.2"
-toml = "1.1.8"
-ureq = { version = "2", features = ["json"] }
-# USB webcams (docs/plans/cameras.md, "USB webcams"; owner: nokhwa on every OS): V4L2, Media Foundation,
-# AVFoundation; no decoding (`default-features = false`).
-nokhwa = { version = "=0.10.11", default-features = false, features = ["input-native"] }
-
-[dev-dependencies]
-jpeg-encoder = "0.6"

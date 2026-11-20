@@ -117,7 +117,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         "prusa-connect" => "Built-in Prusa Connect",
         "virtual" => "Virtual, in the hub",
         "simplyprint" => "Klipper, through Moonraker",
-        _ => "Maker Connect agent",
+        other => other,
     };
     let laser = machine.kind == MachineKind::Laser;
     let subtitle = if machine.name.to_lowercase().contains(&kind.to_lowercase()) {
@@ -239,8 +239,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         } else {
             no_operate(machine, extra)
         },
-        usb_tab = if machine.link == "prusa-connect" || (machine.link == "agent" && heats(machine))
-        {
+        usb_tab = if machine.link == "prusa-connect" {
             r##"<a href="#files" role="tab">Files</a>
     "##
         } else {
@@ -248,8 +247,6 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         },
         usb = if machine.link == "prusa-connect" {
             USB_TAB
-        } else if machine.link == "agent" && heats(machine) {
-            SD_TAB
         } else {
             ""
         },
@@ -471,15 +468,6 @@ fn head(
         subtitle = escape(subtitle),
     )
 }
-
-/// A printer's own SD card, through its agent (crate::sd_card), filled by the page's script.
-const SD_TAB: &str = r#"<section class="tab" id="sd" role="tabpanel" hidden>
-  <div class="card usb" data-sd>
-    <div class="card-head"><div><h3>SD card</h3><p class="card-sub" data-sd-status></p></div><button type="button" class="ghost" data-sd-refresh>Read again</button></div>
-    <div class="usb-list" data-sd-list><p class="empty">Asking the printer…</p></div>
-    <p class="hint">What is on the printer's own SD card, as it lists it. A print from the card runs on the printer by itself: pause and stop it here like any job.</p>
-  </div>
-</section>"#;
 
 /// A Prusa's USB stick (on its own Connect), filled by the page's script.
 const USB_TAB: &str = r#"<section class="tab" id="usb" role="tabpanel" hidden>
@@ -995,24 +983,6 @@ fn loaded_card(machine: &Machine, extra: &Extra) -> String {
     )
 }
 
-/// HS6 (ours): the emergency-stop button of the machines that have one, with what it does.
-fn emergency_form(machine: &Machine) -> String {
-    use crate::commands::{EmergencyStop, emergency_stop_of};
-    let what = match emergency_stop_of(machine) {
-        Some(EmergencyStop::TypedM112) => {
-            "Sends M112, OctoPrint's emergency stop: the printer halts and its connection closes. Switch it off and on again afterwards."
-        }
-        // A laser's emergency stop is its Stop (LaserFoundry has one stop): that button is
-        // named so in the job card, not shown twice (owner, 2026-11-17).
-        Some(EmergencyStop::LaserStop) => return String::new(),
-        None => return String::new(),
-    };
-    format!(
-        r#"<form class="emergency" data-emergency action="{id}/emergency-stop" method="post"><button class="danger">Emergency stop</button> <span class="hint">{what}</span></form>"#,
-        id = escape(&machine.id),
-    )
-}
-
 /// The job card: the file, how far, how long, and pause, resume, stop.
 fn job_card(machine: &Machine) -> String {
     let job = machine.job.as_ref();
@@ -1063,14 +1033,12 @@ fn job_card(machine: &Machine) -> String {
     <button name="action" value="stop" class="danger">{stop_label}</button>
   </form>
   <p class="empty no-job" data-no-job{shown}>{no_job}</p>
-  <p class="hint" data-laser-stop{stop_hint_hidden}>Emergency stop halts the laser at once (LaserFoundry's Stop, a soft reset): motion stops and the laser goes off, also while it frames.</p>
-  {emergency}
+  <p class="hint" data-laser-stop{stop_hint_hidden}>Emergency stop halts the laser at once (LaserFoundry's Stop, a soft reset): motion stops and the laser goes off.</p>
   <div class="resume" data-resume{resume_hidden}>
     <p><b>Interrupted:</b> <span data-live="resume_name">{resume_name}</span> ({resume_why}). It can start again from line <b data-live="resume_line">{resume_line}</b>, a little before where it stopped; the head goes there with the laser off first.</p>
     <form data-restart action="{id}/job"><button name="action" value="restart">Start again from there</button></form>
   </div>
 </div>"#,
-        emergency = emergency_form(machine),
         // Its state only: the file is in the card itself.
         state = escape(note.split(" · ").next().unwrap_or_default()),
         left = escape(&left),
@@ -1080,12 +1048,12 @@ fn job_card(machine: &Machine) -> String {
             r#"No job. <a href="../files">Print a file</a> on this machine."#
         },
         hidden = if running { "" } else { " hidden" },
-        // A laser's Stop (a soft reset) stays also with no job.
-        actions_hidden = if running || laser { "" } else { " hidden" },
+        // Only while a job runs: with no job or a loaded one the hub has nothing to stop.
+        actions_hidden = if running { "" } else { " hidden" },
         // A loaded job is shown in its own card above, so no "nothing loaded" here.
         shown = if running || loaded { " hidden" } else { "" },
         only_hidden = if running { "" } else { " hidden" },
-        stop_hint_hidden = if laser && !running { "" } else { " hidden" },
+        stop_hint_hidden = if laser && running { "" } else { " hidden" },
         stop_label = if laser {
             "Emergency stop (soft reset)"
         } else {
@@ -1594,9 +1562,7 @@ fn filament_card(machine: &Machine, operate: bool) -> String {
             )
         },
     );
-    // A plain Marlin printer through an agent: no load or unload (OctoPrint, its port's
-    // reference, has no such control), only the spool.
-    if plain_marlin(machine) || !operate {
+    if !operate {
         return card(
             "Filament",
             "The spool on it, from Materials",
@@ -1819,8 +1785,8 @@ fn now(machine: &Machine, profile: Option<&Profile>, extra: &Extra) -> String {
 }
 
 /// A laser's job on Now (laser.html): its loaded job and the steps to burn it, above the job
-/// card, which is always there: it carries the laser's Stop (a soft reset, also with no job) and
-/// shows a job's progress live once it burns.
+/// card, which is always there: it carries the laser's Stop (a soft reset, only while a job runs)
+/// and shows a job's progress live once it burns.
 fn laser_job(machine: &Machine, extra: &Extra) -> String {
     format!(
         r#"<div class="stack">{}{}</div>"#,
@@ -1878,18 +1844,6 @@ fn command_item(command: &store::Command) -> String {
             .map(|r| format!(" <small>{}</small>", escape(r)))
             .unwrap_or_default()
     )
-}
-
-/// A plain Marlin printer through an agent: OctoPrint's ways (not Prusa's MK3 family, not GRBL).
-pub(crate) fn plain_marlin(machine: &Machine) -> bool {
-    machine.link == "agent"
-        && !crate::prusa_mk3_machine(machine)
-        && machine
-            .profile
-            .as_deref()
-            .and_then(crate::profiles::find)
-            .and_then(|p| p.firmware.as_deref())
-            != Some("grbl")
 }
 
 /// `refused`: the notice shown instead of the buttons without 'operate' ([`no_operate`]).
@@ -1963,16 +1917,7 @@ fn control(
         format!(r#"<button name="action" value="{action}">{text}</button>"#)
     };
     let fdm = heats(machine);
-    // B5: OctoPrint's control panel has two Home buttons, X/Y and Z (`control.jinja2:71,85`).
-    let home = if plain_marlin(machine) {
-        format!(
-            r#"<div class="jog-homes">{}{}</div>"#,
-            button("home-xy", "Home X/Y"),
-            button("home-z", "Home Z")
-        )
-    } else {
-        button("home", "Home all")
-    };
+    let home = button("home", "Home all");
     if fdm {
         return printer_controls(machine, profile, t, loaded, &xyz, &gauge, &home, &button);
     }
@@ -2387,15 +2332,15 @@ fn controller(machine: &Machine, operate: bool) -> String {
     )
 }
 
-/// How a device reaches the hub, the same card for every kind: the way (an agent, its own
-/// firmware, simulated), the agent's computer as it tells, the address its reports come
+/// How a device reaches the hub, the same card for every kind: the way (its own firmware,
+/// Moonraker, simulated), the computer it runs on as it tells, the address its reports come
 /// from, and when the last came.
 fn connection(machine: &Machine) -> String {
     let way = match machine.link.as_str() {
         "prusa-connect" => "Its own firmware (Prusa Connect)",
         "virtual" => "Virtual: simulated in the hub",
         "simplyprint" => "Moonraker, by itself (its SimplyPrint component)",
-        _ => "Maker Connect agent",
+        other => other,
     };
     let agent = machine.agent.as_ref();
     let system = agent.map(|a| {
@@ -2416,20 +2361,11 @@ fn connection(machine: &Machine) -> String {
         row("Connected by", Some(way.to_owned())),
         row(
             "Agent version",
-            agent
-                .map(|a| match (&a.build, &a.built) {
-                    (Some(build), Some(built)) => format!("{} · build {build}, {built}", a.version),
-                    (Some(build), None) => format!("{} · build {build}", a.version),
-                    _ => format!("{} (an agent from before builds were named)", a.version),
-                })
-                .or_else(|| (machine.link == "agent").then(|| machine.agent_version.clone())),
-        ),
-        row(
-            "Update",
-            machine
-                .agent_update
-                .as_ref()
-                .map(|b| format!("build {b} is on the Downloads page")),
+            agent.map(|a| match (&a.build, &a.built) {
+                (Some(build), Some(built)) => format!("{} · build {build}, {built}", a.version),
+                (Some(build), None) => format!("{} · build {build}", a.version),
+                _ => format!("{} (an agent from before builds were named)", a.version),
+            }),
         ),
         row("Computer", agent.and_then(|a| a.hostname.clone())),
         row("System", system),
@@ -2453,44 +2389,8 @@ url: ws://…/simplyprint/{token}</pre><p class="hint" data-moonraker-local hidd
     card(
         "Connection",
         "How it reaches the hub",
-        &format!("<dl>{rows}</dl>{}{moonraker}", agent_update(machine)),
+        &format!("<dl>{rows}</dl>{moonraker}"),
     )
-}
-
-/// Updating a machine's agent (crate::updates): how the last went, and one asked for. No button: an
-/// agent hosts machines of several spaces, its update is the instance admin's (design
-/// decisions/20261119-agent-update-by-instance-admin.md).
-fn agent_update(machine: &Machine) -> String {
-    let Some(agent) = machine.agent.as_ref().filter(|_| machine.link == "agent") else {
-        return String::new();
-    };
-    let mut html = String::from("<h4>Updates</h4>");
-    if let Some(o) = &agent.last_update {
-        let when = ago((crate::store::now() - o.at).max(0));
-        html += &if o.ok {
-            format!(
-                r#"<p class="hint">Updated from {} to {}, {when}: it works.</p>"#,
-                escape(&o.from),
-                escape(&o.to)
-            )
-        } else {
-            format!(
-                r#"<p class="hint bad">The update to {} did not work, {when}: {}. It stayed on {}.</p>"#,
-                escape(&o.to),
-                escape(&o.note),
-                escape(&o.from)
-            )
-        };
-    }
-    if !agent.can_update {
-        html += r#"<p class="hint">This agent is from before 0.2.0-beta.2 and cannot update itself. Install the new agent by hand once (Downloads); from then on whoever runs the server updates it from there.</p>"#;
-    } else if let Some(to) = &machine.agent_update_to {
-        html += &format!(
-            r#"<p class="hint">Asked to update to {}: it does so once nothing runs on the machine, and goes back by itself if the new one does not reach the hub.</p>"#,
-            escape(to.trim_start_matches("agent-"))
-        );
-    }
-    html
 }
 
 pub(crate) fn settings(
@@ -2843,35 +2743,6 @@ mod tests {
         );
     }
 
-    /// B5: a plain Marlin machine behind an agent (OctoPrint's ways) has OctoPrint's two Home buttons,
-    /// X/Y and Z (`control.jinja2:71,85`); a printer on Prusa's MK3 ways keeps its one.
-    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
-    #[cfg_attr(
-        not(feature = "pg-tests"),
-        ignore = "needs Postgres: the pg-tests feature"
-    )]
-    async fn b5_a_plain_marlin_machine_has_two_home_buttons(pool: sqlx::PgPool) {
-        let store = store::Store::for_test(&pool).await;
-        let fdm = maker_connect_protocol::MachineKind::Fdm;
-        let (space, ender, _) = store.register_test_machine("Ender", fdm).await;
-        let marlin = store.machine(space, &ender).await.unwrap().unwrap();
-        let page = control(&marlin, None, "", true, "");
-        assert!(
-            page.contains(r#"value="home-xy""#) && page.contains(r#"value="home-z""#),
-            "{page}"
-        );
-        assert!(!page.contains(r#"value="home""#), "{page}");
-        // a Prusa MK3 (its firmware says so) keeps one button
-        let (_, mk3, _) = store.register_test_machine("MK3", fdm).await;
-        let mut mk3 = store.machine(space, &mk3).await.unwrap().unwrap();
-        mk3.profile = Some("prusa/mk3s".to_owned());
-        let page = control(&mk3, profiles::find("prusa/mk3s"), "", true, "");
-        assert!(
-            page.contains(r#"value="home""#) && !page.contains("home-xy"),
-            "{page}"
-        );
-    }
-
     /// A command's outcome is words on its own filled block (`.badge.finished`, `.badge.rejected`):
     /// no rule outside the job lists recolours a badge's words without its block, which left them
     /// in the block's own colour (green on green in the dark theme).
@@ -2962,5 +2833,56 @@ mod tests {
             assert!(card.contains(r#"value="stop""#));
             assert!(card.contains("a print the printer runs itself"));
         }
+    }
+
+    /// A laser's Stop (a soft reset) and its hint are there only while a job runs: with no
+    /// job the hub answers 404 and with a loaded one 409 (files.rs control_job).
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_laser_has_stop_only_while_a_job_runs(pool: sqlx::PgPool) {
+        let store = store::Store::for_test(&pool).await;
+        let (space, laser, _) = store.add_test_machine("ortur/lm2-pro-s2", None).await;
+        let mut machine = store.machine(space, &laser).await.unwrap().unwrap();
+        let shown = |machine: &Machine| {
+            let card = job_card(machine);
+            let tag = |at: &str| {
+                card.split(at)
+                    .nth(1)
+                    .unwrap()
+                    .split('>')
+                    .next()
+                    .unwrap()
+                    .to_owned()
+            };
+            (
+                !tag("<form class=\"job-actions\"").contains("hidden"),
+                !tag("data-laser-stop").contains("hidden"),
+            )
+        };
+        assert_eq!(shown(&machine), (false, false), "idle: no Stop, no hint");
+        let job = |state| store::Job {
+            id: 1,
+            machine_id: laser.clone(),
+            file_id: "f".into(),
+            file_name: "sign.gcode".into(),
+            state,
+            created_at: 0,
+            started_at: None,
+            ended_at: None,
+            reason: None,
+            from_line: None,
+            restart_line: None,
+            by: None,
+        };
+        machine.job = Some(job(store::JobState::Loaded));
+        assert_eq!(shown(&machine), (false, false), "loaded: no Stop, no hint");
+        machine.job = Some(job(store::JobState::Printing));
+        assert_eq!(shown(&machine), (true, true), "running: Stop and hint");
+        let card = job_card(&machine);
+        assert!(card.contains(">Emergency stop (soft reset)</button>"));
+        assert!(!card.contains("also while it frames"));
     }
 }

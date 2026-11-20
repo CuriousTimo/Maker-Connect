@@ -1,6 +1,6 @@
 //! Add machine: pairing by the code the machine shows (docs/design/ui.md "Add machine",
 //! mockup docs/design/ui/mockups/add-machine.html). Per kind: a printer with built-in Connect
-//! gets the Buddy INI with this hub's address; a machine on USB goes through the agent.
+//! gets the Buddy INI with this hub's address; a network camera is added in Space → Cameras.
 //! The code goes to `POST /pair` (crate::link::pair); staff only (crate::access).
 
 use crate::access::Access;
@@ -89,7 +89,7 @@ async fn page(access: Access, State(store): State<Store>, headers: HeaderMap) ->
 {header}
 <main id="main" tabindex="-1">
 <div class="head"><h1>Add machine</h1></div>
-<div class="tabs" role="tablist" data-tabs aria-label="What are you adding?"><a href="#k-connect" role="tab" id="t-k-connect" aria-controls="k-connect">A printer with built-in Connect</a><a href="#k-usb" role="tab" id="t-k-usb" aria-controls="k-usb">A machine on USB</a><a href="#k-cam" role="tab" id="t-k-cam" aria-controls="k-cam">A network camera</a></div>
+<div class="tabs" role="tablist" data-tabs aria-label="What are you adding?"><a href="#k-connect" role="tab" id="t-k-connect" aria-controls="k-connect">A printer with built-in Connect</a><a href="#k-cam" role="tab" id="t-k-cam" aria-controls="k-cam">A network camera</a></div>
 
 <section id="k-connect" role="tabpanel" aria-labelledby="t-k-connect">
 <ol class="steps">
@@ -106,21 +106,8 @@ async fn page(access: Access, State(store): State<Store>, headers: HeaderMap) ->
 </ol>
 </section>
 
-<section id="k-usb" role="tabpanel" aria-labelledby="t-k-usb" hidden>
-<ol class="steps">
-<li class="done"><h3>What are you adding?</h3><p>A machine on USB: a 3D printer, a laser, a tape or label printer, a scale or a USB camera, through the agent on a computer beside it.</p></li>
-<li class="now"><h3>Start the agent beside it</h3>
-<p>On the computer the machine is plugged into, download the agent for that computer from <a href="../downloads">Downloads</a> and start it against this hub. It then shows a code.</p>
-</li>
-<li><h3>Enter the code it shows</h3>
-{pair_usb}
-</li>
-<li><h3>Then: who may use it</h3><p>Set who may use it in <a href="../space/permissions">Space → Permissions</a>.</p></li>
-</ol>
-</section>
-
 <section id="k-cam" role="tabpanel" aria-labelledby="t-k-cam" hidden>
-<div class="card"><p>A network camera (RTSP) has no code: add it in <a href="../space#cameras">Space → Cameras</a>. A USB camera comes through the agent: pick <a href="#k-usb">A machine on USB</a>.</p></div>
+<div class="card"><p>A network camera (RTSP) has no code: add it in <a href="../space#cameras">Space → Cameras</a>.</p></div>
 </section>
 </main>
 <script>
@@ -135,7 +122,7 @@ for (const form of document.querySelectorAll("form[data-pair]")) form.addEventLi
     out.innerHTML = `<div class="banner ok"><span><b>${{escapeHtml(m.name)}} is added</b> and reports to the hub. Its first values come in now.</span><span class="fw"><a class="btn small" href="${{encodeURIComponent(m.id)}}">Open ${{escapeHtml(m.name)}}</a></span></div>`;
     form.reset();
   }} else if (r.status === 404) {{
-    out.innerHTML = '<div class="banner bad"><span><b>That code is not waiting here.</b> It may have expired: the printer or the agent shows a new one; enter that one.</span></div>';
+    out.innerHTML = '<div class="banner bad"><span><b>That code is not waiting here.</b> It may have expired: the printer shows a new one; enter that one.</span></div>';
   }} else {{
     out.innerHTML = `<div class="banner bad"><span><b>Not added:</b> ${{escapeHtml(await r.text())}}</span></div>`;
   }}
@@ -146,7 +133,6 @@ for (const form of document.querySelectorAll("form[data-pair]")) form.addEventLi
         title = escape(&name),
         header = header(&name, "../", "machines/add"),
         pair_connect = pair("connect"),
-        pair_usb = pair("usb"),
         ini = escape(&ini),
     ))
     .into_response()
