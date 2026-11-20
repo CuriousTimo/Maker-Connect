@@ -467,6 +467,17 @@ fn take_in(
             *field = v;
         }
     };
+    // A label printer (the agent's DYMO, docs/design/wire.md "The first device"): whether a
+    // cassette is in, its charge and its status bytes, as the agent reads them.
+    if let Some(v) = report.get("media_loaded") {
+        t.cassette = v.as_bool();
+    }
+    if let Some(v) = report.get("battery_percent") {
+        t.battery_percent = v.as_u64().map(|b| b.min(100) as u8);
+    }
+    if let Some(v) = report.get("raw_status") {
+        t.raw_status = v.as_str().map(str::to_owned);
+    }
     // The state comes in every frame (`render.cpp:303`).
     t.state = match report["state"].as_str().unwrap_or("") {
         "PRINTING" | "BUSY" => MachineState::Busy,
@@ -651,6 +662,11 @@ async fn telemetry(
     // Buddy's `httpc.cpp:218`).
     let model = header(&headers, "user-agent-printer");
     let job_id = report["job_id"].as_u64();
+    // A printer runs Prusa's firmware; any other kind on this protocol is our agent.
+    let agent = matches!(
+        store.machine_by_token(token).await,
+        Ok(Some((m, _))) if m.kind != MachineKind::Fdm
+    );
     let telemetry = {
         let mut store = store.lock().unwrap();
         let file = store.printing_file.get(token).cloned();
@@ -659,7 +675,13 @@ async fn telemetry(
         let mut telemetry = take_in(&report, last, session, model);
         // Every request says the firmware's version; none said, none shown (as before).
         let version = header(&headers, "user-agent-version");
-        telemetry.firmware = (!version.is_empty()).then(|| format!("Prusa firmware {version}"));
+        telemetry.firmware = (!version.is_empty()).then(|| {
+            if agent {
+                format!("Maker Connect agent {version}")
+            } else {
+                format!("Prusa firmware {version}")
+            }
+        });
         // The file it prints, as its JOB_INFO said for this print (not the last report's, which
         // may be the print before).
         if let Some(job) = telemetry.job.as_mut() {

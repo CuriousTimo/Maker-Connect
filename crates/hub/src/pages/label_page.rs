@@ -114,6 +114,7 @@ pub fn render(
     let kind = profile.map_or(machine.kind.label(), |p| p.model.as_str());
     let link = match machine.link.as_str() {
         "virtual" => "Virtual, in the hub",
+        "prusa-connect" => "Maker Connect agent (Prusa Connect protocol)",
         other => other,
     };
     let id = escape(&machine.id);

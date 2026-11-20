@@ -213,7 +213,8 @@ fn label_check(
             media.length_mm.unwrap_or_default()
         ));
     }
-    if machine.link != "virtual" {
+    // The agent's DYMO takes its labels over the Prusa Connect protocol (link `prusa-connect`).
+    if !matches!(machine.link.as_str(), "virtual" | "prusa-connect") {
         return Err("this machine takes no labels from here".to_owned());
     }
     if !machine.online {

@@ -2337,6 +2337,9 @@ fn controller(machine: &Machine, operate: bool) -> String {
 /// from, and when the last came.
 fn connection(machine: &Machine) -> String {
     let way = match machine.link.as_str() {
+        "prusa-connect" if machine.kind != MachineKind::Fdm => {
+            "Maker Connect agent (Prusa Connect protocol)"
+        }
         "prusa-connect" => "Its own firmware (Prusa Connect)",
         "virtual" => "Virtual: simulated in the hub",
         "simplyprint" => "Moonraker, by itself (its SimplyPrint component)",
