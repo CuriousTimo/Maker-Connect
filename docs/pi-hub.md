@@ -26,7 +26,8 @@ docker run -d --name maker-connect-db --restart unless-stopped \
 
 Then, once, as the database's superuser: the hub's roles and the restore template
 ([scripts/db-roles.sql](../scripts/db-roles.sql); the hub logs in as `maker_connect_hub`, which owns
-nothing and may only `SET ROLE`; the tables belong to `maker_connect_owner`, which has no login here),
+nothing and may only `SET ROLE`; the tables belong to `maker_connect_owner`, which has no password here: TimescaleDB needs it to have
+LOGIN for a hypertable's background jobs, but without a password nobody logs in as it over the network),
 and the database, owned by `maker_connect_owner`, with TimescaleDB in it:
 
 ```sh
