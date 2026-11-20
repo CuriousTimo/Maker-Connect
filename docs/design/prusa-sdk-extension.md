@@ -117,7 +117,7 @@ width. The SDK's handler reads only `path`, `hash`, `team_id`, `printing` and `s
 ## Part 3: label printers on DYMO's CUPS driver (`dymo.labelwriter-450`, `dymo.labelwriter-320`)
 
 The reference is DYMO's own CUPS driver 1.4.0 (`reference/dymo-cups-drivers-1.4.0`, filter `raster2dymolw`),
-the same for the 3xx and the 4xx. The `Open/Default` lines of `ppd/lw450.ppd` and `ppd/lw320.ppd` are
+used for both the 450 and the 320; other 3xx and 4xx models have PPDs whose options differ, checked when each is ported. The `Open/Default` lines of `ppd/lw450.ppd` and `ppd/lw320.ppd` are
 identical ([device map](../plans/hub-core-v2-device-map.md) §3). It is a stack apart from the tape printer
 of part 2. Driver paths below are under its `src/` unless a PPD.
 
