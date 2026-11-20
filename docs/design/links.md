@@ -13,7 +13,7 @@ is, and which reference it follows. Flows over these links are in [flows.md](flo
 | L3 | Hub → browser | WebSocket: binary fMP4 fragments for a network camera (MSE), JPEG frames for a USB camera (go2rtc's `mjpeg` mode) | `/api/v1/cameras/{id}/ws` | session cookie; `device.view` on the camera checked before the upgrade | go2rtc v1.9.15 `internal/mp4/ws.go`, `www/video-rtc.js` | cameras.md |
 | L4 | External app → hub | HTTP | `/api/v1/*` | `Authorization: Bearer mct_…`: an API token, stored hashed, with scopes, expiry, last use and the person's generation | ours | plan §2.6, §2.8 |
 | L5 | Spoolman client → hub | HTTP + WebSocket | `/spoolman/api/v1/*` | open: [OQ-7](risks-and-open.md#oq-7-how-spoolman-clients-authenticate) | Spoolman `eccb05e` with base path `/spoolman` | plan §2.8 |
-| L6 | Each device on an agent → hub, as a Prusa Connect printer | HTTP to register; then one WebSocket per device, JSON text frames up (telemetry, events), `J`/`G`/`F` frames down; ping and pong | `/p/register`, `/p/ws` | `Code` header while registering; then `Fingerprint` and `Token` headers on the upgrade, no subprotocol ([wire.md](wire.md#the-websocket)) | Prusa-Connect-SDK-Printer `websockets` @ `c0d7d233` (client, ported), PrusaLink `websockets` @ `171148ce` (its use); server answers read in `reference/prusa-connect` `internal/connector/xbuddy` ([decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)) | owner ruling 2026-11-19 |
+| L6 | Each device on an agent → hub, as a Prusa Connect printer | HTTP to register; then one WebSocket per device, JSON text frames up (telemetry, events), `J`/`G`/`F` frames down; ping and pong | `/p/register`, `/p/ws`; a file the device downloads, `/p/teams/{team_id}/files/{hash}/raw` | `Code` header while registering; then `Fingerprint` and `Token` headers on the upgrade and on a download, no subprotocol ([wire.md](wire.md#the-websocket)) | Prusa-Connect-SDK-Printer `websockets` @ `c0d7d233` (client, ported), PrusaLink `websockets` @ `171148ce` (its use); server answers read in `reference/prusa-connect` `internal/connector/xbuddy` ([decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)) | owner ruling 2026-11-19 |
 | L7 | (not used) | folded into L6: commands travel on the device's WebSocket | | | | |
 | L8 | (not used) | folded into L6: a device registers over `/p/register`; a person enters its code in Space | | | | |
 | L9 | (not used) | our file and update routes are gone; files come with the drivers as the SDK fetches them, the agent's update is [OQ-46](risks-and-open.md#oq-46-how-the-agents-own-update-reaches-it) | | | | |
@@ -54,6 +54,7 @@ flowchart LR
   app -->|"L4 Bearer mct_"| hub
   spool -->|"L5"| hub
   agent <-->|"L6 /p/register, /p/ws per device"| hub
+  agent -->|"L10 /p/camera, /c/snapshot, /c/stream"| hub
   xl -->|"L11 /p/ws"| hub
   hub -->|"L12 RTSP"| cam
   hub -->|"L14 login role"| db

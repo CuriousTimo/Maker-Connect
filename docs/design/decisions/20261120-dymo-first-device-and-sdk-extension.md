@@ -17,8 +17,7 @@ telemetry keys and no label job in that protocol.
   [audit](../../audits/dymo-labelmanager.md), adapter `crates/engine/src/device/labelmanager.rs`). The step
   is "the v2 agent with its settings page, plus the DYMO PnP as its first device, registered and paired
   over the SDK protocol". There is no test device and the agent is not itself a device.
-- **OQ-48, direction.** The owner: "we hadden er in v1 al wat voor verzonnen. maar beter is om het
-  Prusa-protocol aan te vullen hiervoor". A device that is not a Prusa uses the Prusa Connect protocol
+- **OQ-48, direction.** The owner: "… beter is om het Prusa-protocol aan te vullen hiervoor". A device that is not a Prusa uses the Prusa Connect protocol
   plus additions on top of it, not a link of our own. The additions are kept apart as a proposed SDK
   extension ([prusa-sdk-extension.md](../prusa-sdk-extension.md)): additive, ignored by a peer that does
   not know them, and minimal.
@@ -30,7 +29,8 @@ telemetry keys and no label job in that protocol.
 - **Written as a proposal Prusa could adopt.** No prefix on the names; the SDK's naming (upper-case
   commands, snake_case keys). The owner: "eerst werkend met de DYMO en niet zelf Prusa benaderen nu".
 - **The protocol's own words first**, additions only where nothing existing means the same.
-- **Three devices:** the DYMO PnP (owner: "akkoord"), the GRBL laser ("we hebben dus ook een extension
+- **Four devices:** the DYMO PnP (owner: "akkoord"), the LabelWriter 450 and 320 on DYMO's CUPS driver
+  (owner: "akkoord op beide"), the GRBL laser ("we hebben dus ook een extension
   nodig voor de laser"), the USB camera's live view ("we willen live beeld en hebben daar een
   uitbreiding voor nodig").
 - **Laser:** GRBL's state mapped onto the SDK's states, with `Door` and `Sleep` as `ATTENTION`, and GRBL's

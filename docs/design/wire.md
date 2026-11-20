@@ -219,14 +219,17 @@ rest is choosing values the protocol already has, all **ours**:
 - **State:** the port's idle is `IDLE` and its busy is `PRINTING` (`port.rs:138`, `:179`;
   `const.py:24-34`).
 - **A label print** comes as `START_CONNECT_DOWNLOAD` with `printing: true` and `tape_size_mm`. The download's end is
-  the SDK's own `TRANSFER_FINISHED` (`download.py:363-368`); then the port prints the label. A label that
+  the SDK's own `TRANSFER_FINISHED` (`download.py:363-368`); then the port prints the label. The file lands in the storage the device attaches with `Printer.attach`
+  (`__init__.py:888-904`), which `path` must point into (`download.py:314-334`). A label that
   fails is reported as a `STATE_CHANGED` event with state `ERROR` and the port's reason in `reason`
   (`models.py:148-163`), and then `IDLE`.
 - **Gone and back:** while the port says the printer is gone, the agent sends nothing for it, so its
   socket ends and the hub sees it as away, as it sees any printer that went away (`inbound.go:18-35`).
   When it is back, telemetry dials again.
-- **Pause, resume, dialogs:** there is no handler, so the SDK answers `REJECTED` "Not Implemented"
+- **Pause and resume:** there is no handler, so the SDK answers `REJECTED` "Not Implemented"
   (`command.py:184-186`).
+- **Dialogs:** `DIALOG_ACTION` is the SDK's own handler (`__init__.py:156`, `:519-524`): `FINISHED`, or
+  `FAILED` "Command error" without kwargs. The device raises no dialogs.
 
 ## Removed
 

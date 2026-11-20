@@ -39,17 +39,23 @@ This page proposes exactly those additions, for four kinds of device:
   (prusa-connect `inbound.go:148`).
 - **Ignored by a peer that does not know it.** The SDK reads only the kwargs it names
   (`__init__.py:436-483`). Connect maps only the telemetry keys it knows and drops the rest
-  (prusa-connect `internal/connector/xbuddy/inbound.go:146-159`, `:273-299`). A command a printer has
-  no handler for is answered `REJECTED` "Not Implemented" by the SDK itself (`command.py:184-186`). A
-  Prusa printer never sends an addition, so it is unaffected.
+  (prusa-connect `internal/connector/xbuddy/inbound.go:146-159`, `:273-299`). A command the SDK does
+  not know is answered `REJECTED` "Unknown command" by the SDK itself (`command.py:181-183`); a known one
+  with no handler, `REJECTED` "Not Implemented" (`:184-186`). A Prusa printer never sends an addition, so
+  it is unaffected.
 
 ## Part 1: device types
 
 - **Purpose:** to say what a device is, so the server picks its capabilities.
 - **Shape:** a string `vendor-or-firmware.model`, lower case, in the registration body's
   `printer_type` (`__init__.py:733-738`) and in the `User-Agent-Printer` header of every request and of
-  the upgrade (`:281`). In `INFO`, `type`, `version` and `subversion` are `null`, which is what the SDK
-  already sends for a printer without a type (`:397-400`).
+  the upgrade (`:281`).
+- **The SDK change it needs:** one, in `get_info`. A string in `Printer.type` already counts as set
+  (`is_initialised` asks only that it is not `None`, `__init__.py:264-271`) and is sent as is by `str()`
+  in the registration and the header (`:281`, `:736`). But `get_info` reads `self.__type.value`
+  (`:397-398`), so `SEND_INFO` would end `FAILED` "Command error" (`command.py:192-198`). The extension has
+  `get_info` send `type`, `version` and `subversion` as `null` for a string type, the values it sends
+  when no type is set (`__init__.py:399-400`).
 
   | Type | Device |
   |---|---|
@@ -61,10 +67,8 @@ This page proposes exactly those additions, for four kinds of device:
 - **Why the protocol cannot carry it:** `printer_type` is `PrinterType`, an enum of Prusa models written
   as `a.b.c` numbers (`const.py:47-60`). A number for another device could collide with a model Prusa
   numbers later.
-- **Compatibility:** Prusa printers send only `a.b.c` values. A Connect that does not know the string
-  takes the model from the header (`xbuddy.go:816-829`) and, not knowing it, holds the device to its
-  driver baseline, the floor "a device of an unknown model is held to" (`verbs.go:115-119`). It never
-  misreads it as a Prusa.
+- **Compatibility:** Prusa printers send only `a.b.c` values. A Connect reads the model from the header
+  (`xbuddy.go:816-829`). The string is not an `a.b.c` value, so it cannot be read as a Prusa model.
 
 A further LabelWriter model takes the same form, `dymo.labelwriter-<model>`, when it is ported. DYMO's
 driver has a PPD per model (`ppd/lw300.ppd` … `ppd/lw450tt.ppd`).
@@ -81,9 +85,11 @@ A camera needs no type: it registers through the camera protocol (part 5).
 
 ### States
 
-The protocol's own: `IDLE` and `PRINTING` (`const.py:24-34`). A failed label is the transfer's or the
-state's own event, with `reason`. Pause, resume and dialogs are answered `REJECTED` "Not Implemented" by
-the SDK itself, because the device has no handler for them (`command.py:184-186`).
+The protocol's own: `IDLE` and `PRINTING` (`const.py:24-34`). A label that fails is a
+`STATE_CHANGED` event with state `ERROR` and the reason in `reason` (`models.py:148-163`), then `IDLE`.
+Pause and resume are answered `REJECTED` "Not Implemented" by the SDK itself, because the device has no
+handler for them (`command.py:184-186`). `DIALOG_ACTION` is the SDK's own handler (`__init__.py:156`,
+`:519-524`); the device raises no dialogs.
 
 ### Telemetry keys
 
@@ -106,6 +112,10 @@ battery or raw status bytes (`inbound.go:146-159`).
 A label is Connect's own "download and print". The server sends `START_CONNECT_DOWNLOAD` with `path`,
 `hash`, `team_id` and `printing: true` (`__init__.py:457-483`). The file is a PNG fetched from
 `/p/teams/{team_id}/files/{hash}/raw` with the device's headers (`:468`; `download.py:399-413`).
+
+The file lands in a storage the device attaches with the SDK's own `Printer.attach`: a folder, as a
+`LOCAL` storage (`__init__.py:888-904`). `path` must point into it, or the download ends `FAILED`
+(`download.py:314-334`). The storage's name and folder are ours.
 
 The addition is one kwarg, `tape_size_mm`: an integer, one of `19`, `12`, `9` or `6`, default `12`.
 That is labelle's own name, values and default (labelle `5e8f1e5` `lib/devices/dymo_labeler.py:243-257`;
@@ -297,4 +307,4 @@ In between, snapshots go on as before.
 plus live view.
 
 **Compatibility:** a Connect that does not know `/c/stream` answers it with an error. A printer that does
-not know the commands answers them `REJECTED` "Not Implemented".
+not know the commands answers them `REJECTED` "Unknown command" (`command.py:181-183`).

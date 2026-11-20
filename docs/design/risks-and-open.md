@@ -409,8 +409,8 @@ the probe out. **Recommendation:** (a): the client stays PrusaLink's to the lett
 `printer_type` and `User-Agent-Printer` are the SDK's `PrinterType`, which knows only Prusa models
 (`const.py:47-60`); the hub reads the model from that header (`internal/connector/xbuddy/xbuddy.go:816-829`).
 **Direction decided** (owner, 2026-11-20, [decision](decisions/20261120-dymo-first-device-and-sdk-extension.md)): the Prusa protocol is extended with additions on
-top of it, kept in [prusa-sdk-extension.md](prusa-sdk-extension.md). It holds the DYMO PnP, the GRBL laser and the
-USB camera's live view (owner, 2026-11-20); a further device adds its own in its step.
+top of it, kept in [prusa-sdk-extension.md](prusa-sdk-extension.md). It holds the DYMO PnP, the LabelWriter 450 and
+320, the GRBL laser and the USB camera's live view (owner, 2026-11-20); a further device adds its own in its step.
 
 ### OQ-49: Registering in an agent without drivers
 

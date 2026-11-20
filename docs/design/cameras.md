@@ -17,11 +17,11 @@ flowchart LR
   usbcam["USB webcam, UVC MJPEG"]
   agent["Agent: nokhwa capture, mjpeg2jpeg adds DHT"]
   hub["Hub module cameras: one session per camera, GOP since last key frame"]
-  browser["Browser: go2rtc player, MSE"]
+  browser["Browser: go2rtc player, MSE or mjpeg"]
   rtspcam -->|"RTSP over TCP, retina"| hub
   usbcam --> agent
   agent -->|"snapshots /c/snapshot; live /c/stream"| hub
-  hub -->|"WebSocket: init, fragments"| browser
+  hub -->|"WebSocket: init, fragments (RTSP); JPEG frames (USB)"| browser
 ```
 
 ### Why FFmpeg's filter, not PrusaLink
@@ -61,7 +61,7 @@ camera settings een keuze tussen prusa mode / live" ([OQ-9](risks-and-open.md#oq
    format only between `START_CAMERA_STREAM` and `STOP_CAMERA_STREAM`, which the hub sends for the first
    viewer and after the last one. The hub hands the frames to the browser in go2rtc's WebSocket
    `mjpeg` mode (go2rtc v1.9.15 `internal/mjpeg/mjpeg.go:193-216`, `www/video-rtc.js:384-392`,
-   `:632-638`), on the same player and `/cameras/{id}/ws` as a network camera. Nothing is decoded or
+   `:632-638`), on the same player and `/api/v1/cameras/{id}/ws` as a network camera. Nothing is decoded or
    re-encoded.
 3. **Per camera, a setting:** Prusa mode (snapshots only) or live (snapshots plus live view).
 
