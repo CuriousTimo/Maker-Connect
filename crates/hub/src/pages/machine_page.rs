@@ -82,6 +82,8 @@ pub struct Extra {
     pub may_operate: bool,
     /// When they asked the staff for permission, while nobody answered.
     pub asked: Option<i64>,
+    /// When they asked the staff to operate it, while nobody answered.
+    pub asked_operate: Option<i64>,
     /// Until when they confirmed having and wearing its PPE (crate::safety).
     pub ppe_until: Option<i64>,
     /// Whether the space asks for PPE before use.
@@ -218,14 +220,15 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
             machine,
             profile,
             &loaded_card(machine, extra),
-            extra.may_operate
+            extra.may_operate,
+            &no_operate(machine, extra),
         ),
         telemetry = telemetry_tab(machine),
         settings = settings(machine, &extra.move_to, extra.ppe_checks, extra.may_operate),
         terminal = if extra.may_operate || !store::takes_commands(&machine.link) {
             terminal(machine)
         } else {
-            no_operate(machine)
+            no_operate(machine, extra)
         },
         usb_tab = if machine.link == "prusa-connect" || (machine.link == "agent" && heats(machine))
         {
@@ -1424,11 +1427,29 @@ fn upkeep_card(machine: &Machine, manage: bool) -> String {
 }
 
 /// Where the controls would be, for someone without 'operate' on this machine (ui.md, the
-/// control rule): one notice of what they may not do and who gives it, no buttons that would be
-/// refused. Asking for 'operate' from the page is not built: the request asks for 'use' only.
-fn no_operate(machine: &Machine) -> String {
+/// control rule and Ask for permission): one notice of what they may not do, no buttons that
+/// would be refused; for who may use it, Ask for permission (a request for 'operate'), or when
+/// they asked. Who may not use it asks for that first, in the notice above the tabs.
+fn no_operate(machine: &Machine, extra: &Extra) -> String {
+    let ask = if !extra.may_use {
+        String::new()
+    } else {
+        match extra.asked_operate {
+            Some(at) => format!(
+                "<small>Asked on {}.</small>",
+                crate::spoolman::iso(at)
+                    .chars()
+                    .take(10)
+                    .collect::<String>()
+            ),
+            None => format!(
+                r#"<form method="post" action="{}/ask" data-async data-then="reload" data-done="Asked"><input type="hidden" name="level" value="operate"><button>Ask for permission</button></form>"#,
+                escape(&machine.id)
+            ),
+        }
+    };
     format!(
-        r##"<div class="notices"><div class="notice before-use"><span><b>You may not move, heat or send G-code to {}.</b> That takes 'operate' permission on it ('use' is jobs only). The space's staff give it in <a href="../space#members">Space → Members</a>.</span></div></div>"##,
+        r##"<div class="notices"><div class="notice before-use"><span><b>You may not move, heat or send G-code to {}.</b> That takes 'operate' permission on it ('use' is jobs only); the space's staff give it.</span>{ask}</div></div>"##,
         escape(&machine.name)
     )
 }
@@ -1812,7 +1833,14 @@ pub(crate) fn plain_marlin(machine: &Machine) -> bool {
             != Some("grbl")
 }
 
-fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str, operate: bool) -> String {
+/// `refused`: the notice shown instead of the buttons without 'operate' ([`no_operate`]).
+fn control(
+    machine: &Machine,
+    profile: Option<&Profile>,
+    loaded: &str,
+    operate: bool,
+    refused: &str,
+) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
     let position = t.and_then(|t| t.position_mm);
     // X and Y not told now (a Prusa printing tells only Z): "–", not the last ones told.
@@ -1858,8 +1886,7 @@ fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str, operate: 
     // Without 'operate': where the head is, and one notice; no button that would be refused.
     if !operate && store::takes_commands(&machine.link) {
         return format!(
-            r#"{}<div class="grid-control">{bed}<div class="stack">{loaded}</div></div>"#,
-            no_operate(machine)
+            r#"{refused}<div class="grid-control">{bed}<div class="stack">{loaded}</div></div>"#
         );
     }
     if !store::takes_commands(&machine.link) {
@@ -2738,7 +2765,7 @@ mod tests {
         let fdm = maker_connect_protocol::MachineKind::Fdm;
         let (space, ender, _) = store.register_test_machine("Ender", fdm).await;
         let marlin = store.machine(space, &ender).await.unwrap().unwrap();
-        let page = control(&marlin, None, "", true);
+        let page = control(&marlin, None, "", true, "");
         assert!(
             page.contains(r#"value="home-xy""#) && page.contains(r#"value="home-z""#),
             "{page}"
@@ -2748,7 +2775,7 @@ mod tests {
         let (_, mk3, _) = store.register_test_machine("MK3", fdm).await;
         let mut mk3 = store.machine(space, &mk3).await.unwrap().unwrap();
         mk3.profile = Some("prusa/mk3s".to_owned());
-        let page = control(&mk3, profiles::find("prusa/mk3s"), "", true);
+        let page = control(&mk3, profiles::find("prusa/mk3s"), "", true, "");
         assert!(
             page.contains(r#"value="home""#) && !page.contains("home-xy"),
             "{page}"

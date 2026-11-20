@@ -569,19 +569,26 @@ impl Store {
 
     // ---- requests ----------------------------------------------------------------------------------
 
-    /// Someone asks the staff for permission on a machine: false when they asked already and nobody
-    /// answered yet.
-    pub async fn ask_permission(&self, space: i64, user: i64, machine: &str) -> sqlx::Result<bool> {
-        if self.asked(space, user, machine).await?.is_some() {
+    /// Someone asks the staff for `level` (use or operate) on a machine: false when they asked for
+    /// it already and nobody answered yet.
+    pub async fn ask_permission(
+        &self,
+        space: i64,
+        user: i64,
+        machine: &str,
+        level: Level,
+    ) -> sqlx::Result<bool> {
+        if self.asked(space, user, machine, level).await?.is_some() {
             return Ok(false);
         }
         let mut tx = self.pg().space(space).await?;
         sqlx::query!(
-            "INSERT INTO access_requests (space_id, user_id, machine_id, asked_at) VALUES ($1, $2, $3, at_unix($4))",
+            "INSERT INTO access_requests (space_id, user_id, machine_id, asked_at, level) VALUES ($1, $2, $3, at_unix($4), $5)",
             space,
             user,
             machine,
-            now()
+            now(),
+            level.as_str()
         )
         .execute(&mut *tx)
         .await?;
@@ -589,15 +596,22 @@ impl Store {
         Ok(true)
     }
 
-    /// When someone asked for a machine of the space, while nobody answered.
-    pub async fn asked(&self, space: i64, user: i64, machine: &str) -> sqlx::Result<Option<i64>> {
+    /// When someone asked for `level` on a machine of the space, while nobody answered.
+    pub async fn asked(
+        &self,
+        space: i64,
+        user: i64,
+        machine: &str,
+        level: Level,
+    ) -> sqlx::Result<Option<i64>> {
         let mut tx = self.pg().space(space).await?;
         let at = sqlx::query_scalar!(
             r#"SELECT unix_seconds(asked_at) AS "at!" FROM access_requests
-               WHERE user_id = $1 AND machine_id = $2 AND state = 'open'
+               WHERE user_id = $1 AND machine_id = $2 AND level = $3 AND state = 'open'
                ORDER BY id LIMIT 1"#,
             user,
-            machine
+            machine,
+            level.as_str()
         )
         .fetch_optional(&mut *tx)
         .await?;
@@ -609,7 +623,7 @@ impl Store {
     pub async fn requests(&self, space: i64) -> Result<Vec<AskedFor>, BoxError> {
         let mut tx = self.pg().space(space).await?;
         let rows = sqlx::query!(
-            r#"SELECT r.id, r.user_id, u.display_name, r.machine_id, unix_seconds(r.asked_at) AS "asked_at!"
+            r#"SELECT r.id, r.user_id, u.display_name, r.machine_id, r.level, unix_seconds(r.asked_at) AS "asked_at!"
                FROM access_requests r JOIN users u ON u.id = r.user_id
                WHERE r.space_id = $1 AND r.state = 'open' ORDER BY r.asked_at, r.id"#,
             space
@@ -631,13 +645,14 @@ impl Store {
                 training: machine.induction_required == 2,
                 machine: machine.name.clone(),
                 machine_id: r.machine_id,
+                level: Level::parse(&r.level).unwrap_or(Level::Use),
                 asked_at: r.asked_at,
             });
         }
         Ok(out)
     }
 
-    /// Answers a request: given (`use` on the machine) or declined. The request, if it was open and of
+    /// Answers a request: given (its level on the machine) or declined. The request, if it was open and of
     /// the space.
     pub async fn answer_request(
         &self,
@@ -656,7 +671,7 @@ impl Store {
                 space,
                 &request.machine_id,
                 request.user_id,
-                Level::Use,
+                request.level,
                 by,
                 None,
             )

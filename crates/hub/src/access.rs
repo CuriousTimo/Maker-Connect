@@ -1135,6 +1135,8 @@ pub struct AskedFor {
     pub machine_id: String,
     pub machine: String,
     pub training: bool,
+    /// What they ask for: use or operate.
+    pub level: Level,
     pub asked_at: i64,
 }
 
@@ -1717,6 +1719,42 @@ mod tests {
             w.post(&mia, &ask, "").await.0,
             StatusCode::CONFLICT,
             "she may use it now"
+        );
+        // Using is not operating: Controls asks for 'operate' (once); Give gives that.
+        let page = w.get(&mia, &format!("/machines/{p4}")).await.1;
+        assert!(
+            page.contains(r#"<input type="hidden" name="level" value="operate"><button>Ask for permission</button>"#),
+            "Controls offers to ask"
+        );
+        assert_eq!(
+            w.post(&mia, &ask, "level=run").await.0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            w.post(&mia, &ask, "level=operate").await.0,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            w.post(&mia, &ask, "level=operate").await.0,
+            StatusCode::NO_CONTENT
+        );
+        let asked = w.store.requests(space).await.unwrap();
+        assert_eq!(asked.len(), 1, "asked once");
+        assert_eq!(asked[0].level, Level::Operate);
+        let page = w.get(&mia, &format!("/machines/{p4}")).await.1;
+        assert!(
+            !page.contains(r#"value="operate"><button>"#),
+            "asked: no button"
+        );
+        let (_, page) = w.get(&adam, "/space/permissions").await;
+        assert!(page.contains("asks to operate"), "the staff see it");
+        let give = format!("/permissions/requests/{}/give", asked[0].id);
+        assert_eq!(w.post(&adam, &give, "").await.0, StatusCode::NO_CONTENT);
+        assert_eq!(level(&p4).await, Level::Operate);
+        assert_eq!(
+            w.post(&mia, &ask, "level=operate").await.0,
+            StatusCode::CONFLICT,
+            "she may operate it now"
         );
         // Someone else's space's group: not found.
         let other = {

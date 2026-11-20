@@ -572,7 +572,12 @@ pub(crate) async fn machine_page(
         Err(error) => return failed(error),
     };
     let asked = store
-        .asked(access.space, access.user_id, &id)
+        .asked(access.space, access.user_id, &id, access::Level::Use)
+        .await
+        .ok()
+        .flatten();
+    let asked_operate = store
+        .asked(access.space, access.user_id, &id, access::Level::Operate)
         .await
         .ok()
         .flatten();
@@ -619,6 +624,7 @@ pub(crate) async fn machine_page(
                 me: access.user_id,
                 staff: access.role >= access::Role::Admin,
                 asked,
+                asked_operate,
                 ppe_until: store.ppe_until(access.user_id, &machine.id),
                 ppe_checks,
                 may_use: store

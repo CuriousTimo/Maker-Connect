@@ -344,6 +344,11 @@ reads `0 g`. A **Mine** filter needs an owner on a spool and is not shown until 
   member's own requests and their states are listed under My permissions
   (`GET /api/v1/access-requests/mine`, decided journal:UI-DESIGN:0009 #5). Control and Files stay
   hidden while not granted.
+- **Operate:** on a machine they may use but not operate, Controls is that one banner ("You may not
+  move, heat or send G-code to Printer-3") with **Ask for permission**, a request for `operate`
+  (`{device_id, level: "operate"}`); its pending state the same. A request names its level (`use`
+  or `operate`); the staff see "asks for permission" or "asks to operate", and **Give** gives that
+  level on that machine.
 - **Admin:** the machine's page shows "Ravi asked … Review in Space"; there is **no grant button on a
   machine's page**.
 

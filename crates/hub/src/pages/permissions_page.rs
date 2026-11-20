@@ -206,7 +206,7 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
             )
         })
         .collect();
-    // What people asked the staff for: give (use, on that machine) or decline.
+    // What people asked the staff for: give (what they asked, on that machine) or decline.
     let asked = if admin {
         store.requests(space).await?
     } else {
@@ -222,15 +222,19 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
                     r#"<tr><td><b>{who}</b></td><td>{machine}</td><td><small>{what}</small></td><td class="since"><small>{at}</small></td><td class="mx-more"><form method="post" action="permissions/requests/{id}/give" data-async data-then="reload" data-done="Given"><span class="fw"><button class="btn small">{give}</button></span></form> <form method="post" action="permissions/requests/{id}/decline" data-async data-then="reload" data-done="Declined"><span class="fw"><button class="btn small ghost">Decline</button></span></form></td></tr>"#,
                     who = escape(&r.who),
                     machine = escape(&r.machine),
-                    what = if r.training { "asks for a training" } else { "asks for permission" },
+                    what = match (r.level, r.training) {
+                        (Level::Operate, _) => "asks to operate",
+                        (_, true) => "asks for a training",
+                        _ => "asks for permission",
+                    },
                     at = day(r.asked_at),
                     id = r.id,
-                    give = if r.training { "Trained: give it" } else { "Give" },
+                    give = if r.training && r.level == Level::Use { "Trained: give it" } else { "Give" },
                 )
             })
             .collect();
         format!(
-            r#"<section class="section asked"><h3>Asked for <span class="tag">{n}</span></h3><p class="muted">People who may not use a machine yet asked the staff. Give is "use" on that machine; more under Permissions….</p><div class="table-wrap"><table><tbody>{rows}</tbody></table></div></section>"#,
+            r#"<section class="section asked"><h3>Asked for <span class="tag">{n}</span></h3><p class="muted">People asked the staff to use a machine, or to operate one (move, heat, G-code). Give is what they asked for, on that machine; more under Permissions….</p><div class="table-wrap"><table><tbody>{rows}</tbody></table></div></section>"#,
             n = asked.len()
         )
     };
@@ -549,23 +553,44 @@ async fn ungrant(
 
 // ---- machine groups ------------------------------------------------------------------------
 
-/// Someone asks the staff for permission (or a training) on a machine they may not use.
-async fn ask(access: Access, State(store): State<Store>, Path(machine): Path<String>) -> Response {
+#[derive(Deserialize)]
+struct AskForm {
+    /// `operate`: to move, heat and send G-code too; else `use`.
+    #[serde(default)]
+    level: Option<String>,
+}
+
+/// Someone asks the staff for permission (or a training) on a machine they may not use, or to
+/// operate one they may only use (ui.md, Ask for permission).
+async fn ask(
+    access: Access,
+    State(store): State<Store>,
+    Path(machine): Path<String>,
+    Form(form): Form<AskForm>,
+) -> Response {
+    let level = match form.level.as_deref() {
+        None | Some("use") => Level::Use,
+        Some("operate") => Level::Operate,
+        Some(_) => return (StatusCode::BAD_REQUEST, "use or operate").into_response(),
+    };
     let grants = match store.grants_of(&access).await {
         Ok(grants) => grants,
         Err(error) => return failed(error),
     };
-    let may = store
-        .lock()
-        .unwrap()
-        .may(&access, &machine, Level::Use, &grants);
+    let may = store.lock().unwrap().may(&access, &machine, level, &grants);
     match may {
         None => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
-        Some(true) => return (StatusCode::CONFLICT, "you may use it already").into_response(),
+        Some(true) => {
+            return (
+                StatusCode::CONFLICT,
+                format!("you may {} it already", level.as_str()),
+            )
+                .into_response();
+        }
         Some(false) => {}
     }
     match store
-        .ask_permission(access.space, access.user_id, &machine)
+        .ask_permission(access.space, access.user_id, &machine, level)
         .await
     {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
@@ -573,7 +598,7 @@ async fn ask(access: Access, State(store): State<Store>, Path(machine): Path<Str
     }
 }
 
-/// The staff answer a request: `give` (use, on that machine) or `decline`.
+/// The staff answer a request: `give` (what was asked, on that machine) or `decline`.
 async fn answer(
     access: Access,
     State(store): State<Store>,
@@ -589,10 +614,10 @@ async fn answer(
         .await;
     match answered {
         Ok(Some(r)) => {
-            let what = if r.training {
-                "a training"
-            } else {
-                "permission"
+            let what = match (r.level, r.training) {
+                (Level::Operate, _) => "operate",
+                (_, true) => "a training",
+                _ => "permission",
             };
             let _ = store
                 .audit(
