@@ -327,7 +327,7 @@ low, a type, a brand, a location) over a table with **one row per material** (co
 type, its spools and how many are on a printer, what is left with a bar), each with **Assign…** (a
 spool of it onto a printer, a dialog) and **+ Spool**; its spools open under the row.
 **Low** means one thing: less than 15 % of a spool or a material left, the mark the bar already
-had (ours, UI only). A material's own minimum ("Keep at least") reads *below its minimum*, never
+had (ours, UI only; owner, 2026-11-20: "15 % is goed"). A material's own minimum ("Keep at least") reads *below its minimum*, never
 "low". Assign offers the printers a spool fits, as moving a spool already does (filament to a 3D
 printer, tape and labels to a label printer); laser materials are not assigned.
 Tabs: Filament, Tapes, Label rolls, Laser materials, Locations. Tape cassettes and label
