@@ -255,13 +255,18 @@ async fn update_hub(access: Access, State(store): State<Store>) -> Response {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    // The update tests run on Unix (a release archive is a tar of a program); the key is for all.
+    #[cfg(unix)]
     use super::*;
+    #[cfg(unix)]
     use base64::Engine;
     use ring::signature::KeyPair;
     use std::sync::LazyLock;
 
     pub(crate) struct TestKey {
-        pub pair: ring::signature::Ed25519KeyPair,
+        /// Signs the test releases (the hub's own update tests, Unix only).
+        #[cfg(unix)]
+        pair: ring::signature::Ed25519KeyPair,
         pub public: Vec<u8>,
     }
 
@@ -271,11 +276,16 @@ pub(crate) mod tests {
         let pkcs8 = ring::signature::Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
         let pair = ring::signature::Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
         let public = pair.public_key().as_ref().to_vec();
-        TestKey { pair, public }
+        TestKey {
+            #[cfg(unix)]
+            pair,
+            public,
+        }
     });
 
     /// A release as GitHub lists it, served by a small server of the test's own.
-    pub(crate) async fn releases(files: Vec<(&'static str, &'static str, Vec<u8>)>) -> String {
+    #[cfg(unix)]
+    async fn releases(files: Vec<(&'static str, &'static str, Vec<u8>)>) -> String {
         // (tag, name, bytes); every tag gets its SHA256SUMS and signature.
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
