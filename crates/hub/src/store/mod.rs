@@ -371,7 +371,7 @@ pub struct OwnPrint {
     pub percent: u64,
 }
 
-/// One point of a machine's temperature history.
+/// One point of a machine's history: the values of one time (crate::store::history).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Sample {
     /// Unix seconds.
@@ -385,10 +385,9 @@ pub struct Sample {
     pub hotend_fan: Option<u32>,
 }
 
-/// A machine's temperatures are kept every this many seconds, for this long: in memory,
-/// so a restart starts the graphs afresh.
-const SAMPLE_SECONDS: i64 = 2;
-pub const HISTORY_SECONDS: i64 = 30 * 60;
+/// What a machine's page shows of its history: the last 2 hours, as Prusa Connect's History tab
+/// (reference/prusa-connect frontend printer-detail.svelte `HISTORY_WINDOW_HOURS`).
+pub const HISTORY_SECONDS: i64 = 2 * 3600;
 /// Commands shown per machine.
 const COMMANDS_KEPT: usize = 40;
 /// Lines of a command's output kept.
@@ -697,8 +696,8 @@ pub struct Legacy {
     /// HS7b: lasers on which a Set origin was done since the hub started.
     pub(crate) laser_origin_set: std::collections::HashSet<String>,
     next_command: u32,
-    /// Temperature history per machine id, oldest first.
-    history: std::collections::HashMap<String, std::collections::VecDeque<Sample>>,
+    /// Per machine id, when its history last got a sample (crate::store::history).
+    last_sample: std::collections::HashMap<String, i64>,
     /// A signal whenever a machine changes, for the pages that show them live.
     changes: tokio::sync::broadcast::Sender<()>,
 }
@@ -844,7 +843,7 @@ impl Legacy {
             laser_origin_set: Default::default(),
             // Ids that do not repeat soon after a restart, as a printer may remember the last.
             next_command: (now() % 1_000_000_000) as u32,
-            history: Default::default(),
+            last_sample: Default::default(),
             changes: tokio::sync::broadcast::channel(16).0,
         };
         Ok(store)

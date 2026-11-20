@@ -1,131 +1,60 @@
-  // The app's shell, on every page: the sidebar (pages, machines live, counts), the dialog
-  // to add a machine, toasts, forms saved in the background, and the ⌘K palette.
-  const ROOT = document.querySelector(".sidebar").dataset.root;
+  // The app's shell, on every page (docs/design/ui.md): the theme switch, the navigation by the
+  // person's role, the machines in the sidebar (live), the phone's More menu, the confirm
+  // dialog, the toast, and forms saved in the background.
+  const ROOT = document.querySelector(".side").dataset.root;
   const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-  // Who is signed in, at the foot of the sidebar, with Sign out. A request of this site that
-  // finds the session gone (it ran out, or was ended elsewhere) sends the page to sign in.
-  {
-    const plain = window.fetch.bind(window);
-    window.fetch = async (...args) => {
-      const response = await plain(...args);
-      if (response.status === 401 && new URL(response.url, location.href).origin === location.origin) {
-        location.href = `/login?next=${encodeURIComponent(location.pathname + location.search)}`;
-      }
-      return response;
-    };
-    // Who, in which space; a click lists the spaces to go to (by organisation), and signs out.
-    const foot = document.createElement("details");
-    foot.className = "side-user";
-    foot.innerHTML = `<summary><span class="who"><b data-me-name></b><small data-me-space></small></span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></summary><div class="side-menu"><div data-me-spaces></div><a href="/space#members">Members and invites</a><a href="/space#general">Your account</a><a href="/downloads">Downloads: the agent</a><a href="/about">About</a><small>Look</small><div class="theme-pick" role="group" aria-label="Look"><button type="button" data-theme-pick="system">System</button><button type="button" data-theme-pick="light">Light</button><button type="button" data-theme-pick="dark">Dark</button></div><form method="post" action="/logout"><button type="submit">Sign out</button></form></div>`;
-    document.querySelector("[data-top-right]").append(foot);
-    // The menu closes again: a click elsewhere, Esc, or a choice in it.
-    document.addEventListener("click", (e) => { if (foot.open && !foot.contains(e.target)) foot.open = false; });
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && foot.open) { foot.open = false; foot.querySelector("summary").focus(); } });
-    foot.querySelector(".side-menu").addEventListener("click", (e) => { if (e.target.closest("a")) foot.open = false; });
-    // Light, dark, or as the system says; remembered in this browser only.
-    const theme = () => { try { return localStorage.getItem("theme") || "system"; } catch { return "system"; } };
-    const showTheme = () => foot.querySelectorAll("[data-theme-pick]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themePick === theme())));
-    foot.querySelectorAll("[data-theme-pick]").forEach((b) => b.addEventListener("click", () => {
-      const t = b.dataset.themePick;
-      try { if (t === "system") localStorage.removeItem("theme"); else localStorage.setItem("theme", t); } catch {}
-      if (t === "system") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
-      showTheme();
-    }));
-    showTheme();
-    plain("/api/me").then((r) => (r.ok ? r.json() : null)).then((me) => {
-      if (!me) return;
-      foot.querySelector("[data-me-name]").textContent = me.display_name;
-      foot.querySelector("[data-me-space]").textContent = me.space ? me.space.name : "no space";
-      foot.title = `${me.display_name} (${me.name})${me.space ? ` in ${me.space.name}, ${me.space.role}` : ""}`;
-      const list = foot.querySelector("[data-me-spaces]");
-      let org = null;
-      for (const s of me.spaces || []) {
-        if (s.organisation !== org) {
-          org = s.organisation;
-          const head = document.createElement("small");
-          head.textContent = org;
-          list.append(head);
-        }
-        const b = document.createElement("button");
-        b.type = "button";
-        b.textContent = s.name;
-        if (me.space && s.id === me.space.id) b.setAttribute("aria-current", "true");
-        b.addEventListener("click", async () => {
-          const r = await plain("/spaces/switch", { method: "POST", body: new URLSearchParams({ space: s.id }), headers: { "x-requested-with": "fetch" } });
-          if (r.ok) location.href = "/";
-        });
-        list.append(b);
-      }
-    });
-  }
+  // A request of this site that finds the session gone (it ran out, or was ended elsewhere)
+  // sends the page to sign in.
+  const plainFetch = window.fetch.bind(window);
+  window.fetch = async (...args) => {
+    const response = await plainFetch(...args);
+    if (response.status === 401 && new URL(response.url, location.href).origin === location.origin) {
+      location.href = `/login?next=${encodeURIComponent(location.pathname + location.search)}`;
+    }
+    return response;
+  };
 
-  // The dialog to add a machine, as a wizard: how it connects, then its steps. Opened from
-  // any [data-add-open], and at #add.
+  // Who is signed in, in which space and role; the links the role may see; the spaces to go to.
+  // The navigation follows the role from /api/me; the hub refuses the pages and calls anyway.
+  plainFetch("/api/me").then((r) => (r.ok ? r.json() : null)).then((me) => {
+    if (!me) return;
+    const role = me.space ? me.space.role : null;
+    const staff = role === "admin" || role === "owner";
+    const allowed = { staff, member: !!role && !staff, instance: !!me.instance_admin };
+    for (const el of document.querySelectorAll("[data-gate]")) el.hidden = !allowed[el.dataset.gate];
+    const who = document.querySelector("[data-me-who]");
+    who.textContent = `${me.display_name}${role ? ` · ${role}` : ""}`;
+    const list = document.querySelector("[data-me-spaces]");
+    const spaces = me.spaces || [];
+    if (spaces.length < 2) return;
+    let org = null;
+    for (const s of spaces) {
+      if (s.organisation !== org) {
+        org = s.organisation;
+        const g = document.createElement("div");
+        g.className = "group";
+        g.textContent = org;
+        list.append(g);
+      }
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "side-link";
+      b.textContent = s.name;
+      if (me.space && s.id === me.space.id) b.setAttribute("aria-current", "true");
+      b.addEventListener("click", async () => {
+        const r = await plainFetch("/spaces/switch", { method: "POST", body: new URLSearchParams({ space: s.id }), headers: { "x-requested-with": "fetch" } });
+        if (r.ok) location.href = "/";
+      });
+      list.append(b);
+    }
+  });
+
+  // The phone's More menu closes on Escape and on a click outside.
   {
-    const dialog = document.getElementById("add-dialog");
-    const back = dialog.querySelector("[data-wizard-back]");
-    let waiting = null;
-    function step(name) {
-      for (const s of dialog.querySelectorAll("[data-step]")) s.hidden = s.dataset.step !== name;
-      back.hidden = name === "start";
-      if (waiting && name !== "klipper-conf") { clearInterval(waiting); waiting = null; }
-      dialog.querySelector(`[data-step="${name}"] input`)?.focus();
-    }
-    const open = (at = "start") => { step(at); if (!dialog.open) dialog.showModal(); };
-    document.addEventListener("click", (event) => {
-      if (event.target.closest("[data-add-open]")) { event.preventDefault(); open(); }
-      if (event.target.closest("[data-add-close]") || event.target === dialog) dialog.close();
-    });
-    dialog.addEventListener("click", (event) => {
-      const go = event.target.closest("[data-go]");
-      if (go) step(go.dataset.go);
-    });
-    back.addEventListener("click", () => step("start"));
-    dialog.addEventListener("close", () => { if (waiting) { clearInterval(waiting); waiting = null; } });
-    // This hub's address, as the machine must reach it.
-    const local = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
-    const port = location.port || (location.protocol === "https:" ? "443" : "80");
-    dialog.querySelector("[data-prusa-ini]").textContent = `[service::connect]\nhostname = ${local ? "<this computer's address>" : location.hostname}\nport = ${port}\ntls = false`;
-    // A code: added, then the list shows it.
-    for (const form of dialog.querySelectorAll("[data-pair-form]")) form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const note = form.parentElement.querySelector("[data-pair-note]");
-      const response = await fetch(form.getAttribute("action"), { method: "POST", body: new URLSearchParams(new FormData(form)), headers: { "x-requested-with": "fetch" } });
-      if (response.ok) { dialog.close(); toast("Machine added"); location.href = ROOT || "./"; }
-      else note.textContent = response.status === 404 ? "No machine waits with that code." : `Not added: ${await response.text()}`;
-    });
-    // A printer on Klipper: made, its lines shown, then it is waited for.
-    dialog.querySelector("[data-klipper-form]").addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const form = event.target;
-      const response = await fetch(form.getAttribute("action"), { method: "POST", body: new URLSearchParams(new FormData(form)), headers: { "x-requested-with": "fetch" } });
-      if (!response.ok) { toast(`Not added: ${await response.text()}`, "bad"); return; }
-      const { id, token } = await response.json();
-      dialog.querySelector("[data-klipper-conf]").textContent = `[simplyprint]\nurl: ws://${location.host}/simplyprint/${token}`;
-      dialog.querySelector("[data-local-warning]").hidden = !local;
-      dialog.querySelector("[data-klipper-page]").href = `${ROOT}machines/${encodeURIComponent(id)}`;
-      const wait = dialog.querySelector("[data-klipper-wait]");
-      wait.classList.remove("done");
-      wait.lastChild.textContent = "Waiting for it to connect…";
-      step("klipper-conf");
-      waiting = setInterval(async () => {
-        try {
-          const machines = await (await fetch(`${ROOT}api/machines`)).json();
-          if (machines.find((m) => m.id === id)?.online) {
-            clearInterval(waiting); waiting = null;
-            wait.classList.add("done");
-            wait.lastChild.textContent = "Connected.";
-          }
-        } catch (error) { /* tried again */ }
-      }, 2000);
-      form.reset();
-    });
-    if (location.search.includes("unknown-code")) {
-      open("code");
-      dialog.querySelector("[data-add-note]").textContent = "No machine waits with that code.";
-    }
-    if (location.hash === "#add") open();
+    const more = document.querySelector(".more-menu");
+    document.addEventListener("click", (e) => { if (more.open && !more.contains(e.target)) more.open = false; });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && more.open) { more.open = false; more.querySelector("summary").focus(); } });
   }
 
   // How a machine's state is shown, the same on every page. A machine that waits for
@@ -156,10 +85,10 @@
     if (!c) return "";
     const ok = c.state === "finished";
     const how = ok ? "is done: how many came off good?" : `${c.state === "failed" ? "failed" : "was stopped"}: did any come off good?`;
-    return `<div class="notice confirm"><span><b>${escapeHtml(c.file_name)}</b>${c.part ? ` for <b>${escapeHtml(c.part)}</b>${c.project ? ` (${escapeHtml(c.project)})` : ""}` : ""} ${how}</span>
-      <form data-confirm action="${prefix}${encodeURIComponent(m.id)}/ready"><input type="hidden" name="job" value="${c.job}">
-        <label>Good <input name="good" type="number" min="0" max="10000" value="${ok ? c.per_plate : 0}" aria-label="Parts that came off good"> / ${c.per_plate}</label>
-        <button>Set ready</button><button class="danger" formaction="${prefix}${encodeURIComponent(m.id)}/bad">Bad print</button></form></div>`;
+    return `<div class="banner ok"><span><b>${escapeHtml(c.file_name)}</b>${c.part ? ` for <b>${escapeHtml(c.part)}</b>${c.project ? ` (${escapeHtml(c.project)})` : ""}` : ""} ${how}</span>
+      <form class="row btns" data-confirm action="${prefix}${encodeURIComponent(m.id)}/ready"><input type="hidden" name="job" value="${c.job}">
+        <label class="field">Good <input name="good" type="number" min="0" max="10000" value="${ok ? c.per_plate : 0}" aria-label="Parts that came off good"> / ${c.per_plate}</label>
+        <span class="fw"><button class="btn primary">Set ready</button></span><span class="fw"><button class="btn danger" formaction="${prefix}${encodeURIComponent(m.id)}/bad">Bad print</button></span></form></div>`;
   }
   document.addEventListener("submit", async (event) => {
     const form = event.target;
@@ -207,124 +136,57 @@
     }
     return { pct, eta, text: eta ? `${pct} % · ${eta}` : `${pct} %`, style: `--pct:${pct}%` };
   }
-  // A state badge: busy with a known progress fills in two blues, with "42 % · 10:35".
+  // The state chip (ui.md "States and colour"): one list of states, the word always written.
+  const ST = { idle: "idle", busy: "busy", paused: "warn", attention: "warn", cooling: "idle", loaded: "idle", error: "bad", offline: "off", disconnected: "off", out: "off" };
+  const stClass = (cls) => `st ${ST[cls] || "unk"}`;
   function stateBadge(m, tag = "div") {
     const s = shownState(m), p = s.cls === "busy" ? progressOf(m) : null;
-    return p
-      ? `<${tag} class="state busy pct" style="${p.style}" title="${escapeHtml(`${p.pct} % done${p.eta ? `, ends ${p.eta}` : ""}`)}">${escapeHtml(p.text)}</${tag}>`
-      : `<${tag} class="state ${escapeHtml(s.cls)}">${escapeHtml(s.text)}</${tag}>`;
+    const text = p ? p.text : s.text;
+    return `<${tag} class="${stClass(s.cls)}"${s.title ? ` title="${escapeHtml(s.title)}"` : ""}>${escapeHtml(text)}</${tag}>`;
   }
 
-  // Puts a machine's state in every [data-live="state"], and its colour on the badges; a
-  // badge that changes colour pulses once.
+  // Puts a machine's state in every [data-live="state"]; a state chip takes its state's class.
   function showState(m) {
     const shown = shownState(m);
     const p = shown.cls === "busy" ? progressOf(m) : null;
     for (const el of document.querySelectorAll('[data-live="state"]')) {
       el.textContent = p ? p.text : shown.text;
       el.title = shown.title || "";
-      if (el.classList.contains("state")) {
-        el.style.cssText = p ? p.style : "";
-        const next = `state ${shown.cls}${p ? " pct" : ""}`;
-        if (el.className.replace(" pulse", "") !== next) {
-          el.className = next;
-          void el.offsetWidth;
-          el.classList.add("pulse");
-        }
-      }
+      if (el.classList.contains("st") || el.classList.contains("state")) el.className = stClass(shown.cls);
     }
   }
 
-  // The machines in the sidebar, live: each with its state as a dot, and what it does.
-  let knownMachines = [];
+  // The machines in the sidebar, live: each with its state in words (never colour alone).
   let fed = false;
   function summarise(machines) {
     fed = true;
-    knownMachines = machines;
-    const count = {
-      machines: machines.length,
-      online: machines.filter((m) => m.online).length,
-      busy: machines.filter((m) => m.online && m.telemetry && m.telemetry.state === "busy").length,
-      attention: machines.filter((m) => ["attention", "error"].includes(shownState(m).cls)).length,
-    };
-    for (const el of document.querySelectorAll("[data-sum]")) el.textContent = count[el.dataset.sum];
-    const attention = document.querySelector("[data-attention-count]");
-    if (attention) attention.hidden = !count.attention;
     const here = location.pathname.split("/").pop();
     const order = ["fdm", "laser", "cnc", "cutter", "label", "paper", "scale", "other"];
     const sorted = [...machines].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind) || a.name.localeCompare(b.name));
     const side = document.querySelector("[data-side-machines]");
+    if (!side) return;
     side.innerHTML = sorted.length ? sorted.map((m) => {
       const s = shownState(m);
       const p = s.cls === "busy" ? progressOf(m) : null;
-      const pct = p ? p.pct : null;
-      const sub = p ? p.text : s.cls === "idle" ? "" : s.text;
-      return `<a href="${ROOT}machines/${encodeURIComponent(m.id)}" data-mid="${escapeHtml(m.id)}" data-kind="${escapeHtml(m.kind)}"${m.id === here ? ' aria-current="page"' : ""} title="${escapeHtml(`${m.name}: ${s.text}${s.title ? ` — ${s.title}` : ""}`)}">
-        <i class="dot ${s.cls}"></i><span class="side-name">${escapeHtml(m.name)}</span>${sub ? `<small class="${s.cls}">${escapeHtml(sub)}</small>` : ""}
-        ${pct != null ? `<span class="side-progress"><i style="width:${pct}%"></i></span>` : ""}
-      </a>`;
-    }).join("") : `<p class="side-empty">None yet</p>`;
+      const sub = p ? `${p.pct} %` : s.text.toLowerCase();
+      return `<a href="${ROOT}machines/${encodeURIComponent(m.id)}"${m.id === here ? ' aria-current="page"' : ""}><span>${escapeHtml(m.name)}</span><small class="num">${escapeHtml(sub)}</small></a>`;
+    }).join("") : `<small class="muted">None yet</small>`;
   }
-  // A file from the Files page dropped on a machine here: printed now, or into its queue.
-  {
-    const side = document.querySelector("[data-side-machines]");
-    const target = (e) => e.dataTransfer?.types.includes("application/x-maker-file") && e.target.closest("a[data-mid]");
-    side.addEventListener("dragover", (e) => {
-      const a = target(e);
-      if (!a) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "copy";
-      for (const x of side.querySelectorAll(".drop")) if (x !== a) x.classList.remove("drop");
-      a.classList.add("drop");
-    });
-    side.addEventListener("dragleave", (e) => e.target.closest?.("a[data-mid]")?.classList.remove("drop"));
-    side.addEventListener("drop", async (e) => {
-      const a = target(e);
-      if (!a) return;
-      e.preventDefault();
-      a.classList.remove("drop");
-      document.body.classList.remove("dragging-file");
-      const file = e.dataTransfer.getData("application/x-maker-file");
-      const name = a.querySelector(".side-name")?.textContent || "the machine";
-      const send = (replace) => fetch(`${ROOT}files/${encodeURIComponent(file)}/print`, { method: "POST", body: new URLSearchParams({ machine: a.dataset.mid, ...(replace ? { replace: "true" } : {}) }), headers: { "x-requested-with": "fetch" } });
-      let r = await send(false);
-      // A laser with a job loaded: replaced only after the person confirms (HS7b).
-      if (r.status === 409 && r.headers.get("content-type")?.includes("json")) {
-        const { confirm } = await r.json();
-        if (!(await ask(confirm, { ok: "Replace" }))) return;
-        r = await send(true);
-      }
-      const loaded = r.status === 200 && r.headers.get("content-type")?.includes("json") ? (await r.clone().json()).loaded : null;
-      if (loaded) toast(`Loaded on ${name}: frame it and press Start burn at the laser`);
-      else if (r.status === 202) {
-        const { queued } = await r.json();
-        toast(`In the queue of ${name}: ${queued === 1 ? "next" : `number ${queued}`}`);
-      } else if (r.ok) toast(`Printing on ${name}`);
-      else toast(`Not on ${name}: ${await r.text()}`, "bad");
-    });
-  }
-
-  function live(on) {
-    const dot = document.querySelector("[data-live-dot]");
-    dot.classList.toggle("on", on);
-    dot.title = on ? "Live updates" : "Reconnecting…";
-  }
-  // A page without a live list of its own (downloads) still keeps the sidebar current.
+  // A page without a live list of its own keeps the sidebar current from the machines' stream.
   setTimeout(() => {
-    if (fed) return;
-    const poll = () => fetch(`${ROOT}api/machines`).then((r) => r.json()).then((m) => { summarise(m); live(true); }).catch(() => live(false));
-    poll();
-    setInterval(poll, 10000);
+    if (fed || !document.querySelector("[data-side-machines]")) return;
+    const stream = new EventSource(`${ROOT}api/machines/stream`);
+    stream.onmessage = (e) => { try { summarise(JSON.parse(e.data)); } catch { /* not a list */ } };
   }, 1500);
 
-  // A question before something is done, in the middle of the page (not the browser's own
-  // box at the top): resolves true when its button is pressed, false on Cancel, Escape or a
-  // click beside it. `ok` names the button ("Print", "Stop"); `danger` makes it red.
+  // A question before something is done that cannot be taken back (ui.md "Ask first"): resolves
+  // true when its button is pressed, false on Cancel, Escape or a click beside it. `ok` names
+  // the button ("Stop the print"); `danger` makes it the danger button.
   function ask(text, { ok = "OK", danger = false } = {}) {
     return new Promise((resolve) => {
       const dialog = document.createElement("dialog");
-      dialog.className = "ask";
-      dialog.innerHTML = `<p></p><div class="ask-buttons"><button type="button" class="ghost" value="no">Cancel</button><button type="button" class="${danger ? "danger" : ""}" value="yes"></button></div>`;
+      dialog.setAttribute("aria-label", "Confirm");
+      dialog.innerHTML = `<p></p><div class="acts"><span class="fw"><button type="button" class="btn ghost" value="no">Cancel</button></span><span class="fw"><button type="button" class="btn ${danger ? "danger" : "primary"}" value="yes"></button></span></div>`;
       dialog.querySelector("p").textContent = text;
       dialog.querySelector('[value="yes"]').textContent = ok;
       let answer = false;
@@ -340,15 +202,15 @@
     });
   }
 
-  // A short message in the corner, instead of a page that reloads.
+  // A short message (the toast), instead of a page that reloads; read out politely.
+  let toastTimer = null;
   function toast(text, kind = "ok") {
-    const box = document.querySelector("[data-toasts]");
-    const el = document.createElement("div");
-    el.className = `toast ${kind}`;
-    el.textContent = text;
-    box.append(el);
-    setTimeout(() => el.classList.add("gone"), 2600);
-    setTimeout(() => el.remove(), 3000);
+    const box = document.querySelector("[data-toast]");
+    box.textContent = text;
+    box.dataset.kind = kind;
+    box.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { box.hidden = true; }, kind === "bad" ? 6000 : 3000);
   }
 
   // Forms marked data-async are saved in the background: a toast says how it went; the page
@@ -378,79 +240,10 @@
   document.addEventListener("saved", (event) => {
     if (!event.target.matches("[data-rename]")) return;
     const name = event.target.querySelector("input[name=name]").value.trim();
-    const title = document.querySelector(".title h2");
+    const title = document.querySelector(".title h1, .title h2");
     if (title) title.textContent = name;
     document.title = `${name} · Maker Connect`;
   });
-
-  // The palette: ⌘K (or Ctrl-K) to go to a machine, a file or a page by typing.
-  {
-    const palette = document.querySelector("[data-palette]");
-    const input = document.querySelector("[data-palette-input]");
-    const results = document.querySelector("[data-palette-results]");
-    let files = null, items = [], chosen = 0;
-    const pages = [
-      { label: "Now", hint: "page", href: ROOT },
-      { label: "Machines", hint: "page", href: `${ROOT}machines` },
-      { label: "Projects", hint: "page", href: `${ROOT}projects` },
-      { label: "Files", hint: "page", href: `${ROOT}files` },
-      { label: "Prepare", hint: "page: laser design", href: `${ROOT}prepare` },
-      { label: "Materials", hint: "page", href: `${ROOT}stock` },
-      { label: "Space", hint: "page", href: `${ROOT}space` },
-      { label: "Members and invites", hint: "space", href: `${ROOT}space#members` },
-      { label: "Permissions", hint: "space: machine groups, who may use which machine", href: `${ROOT}space#permissions` },
-      { label: "Access", hint: "space: doors, badges (planned)", href: `${ROOT}space#access` },
-      { label: "General", hint: "space: organisation, your account", href: `${ROOT}space#general` },
-      { label: "API tokens", hint: "space", href: `${ROOT}space#tokens` },
-      { label: "Audit log", hint: "space", href: `${ROOT}space#audit` },
-      { label: "Downloads", hint: "page", href: `${ROOT}downloads` },
-      { label: "Add a machine", hint: "action", run: () => document.querySelector("[data-add-open]").click() },
-    ];
-    function fill() {
-      const words = input.value.trim().toLowerCase();
-      const all = [
-        ...knownMachines.map((m) => ({ label: m.name, hint: shownState(m).text, href: `${ROOT}machines/${encodeURIComponent(m.id)}`, dot: shownState(m).cls })),
-        ...pages,
-        ...(files || []).map((f) => ({ label: f.name, hint: "file", href: `${ROOT}files#file=${encodeURIComponent(f.id)}` })),
-      ];
-      items = all.filter((i) => !words || i.label.toLowerCase().includes(words)).slice(0, 12);
-      chosen = Math.min(chosen, Math.max(items.length - 1, 0));
-      results.innerHTML = items.length
-        ? items.map((i, n) => `<li role="option" data-n="${n}" aria-selected="${n === chosen}">${i.dot ? `<i class="dot ${i.dot}"></i>` : ""}<span>${escapeHtml(i.label)}</span><small>${escapeHtml(i.hint)}</small></li>`).join("")
-        : '<li class="none">Nothing found</li>';
-    }
-    function go(item) {
-      if (!item) return;
-      palette.close();
-      if (item.run) item.run();
-      else location.href = item.href;
-    }
-    function open() {
-      input.value = "";
-      chosen = 0;
-      fill();
-      palette.showModal();
-      input.focus();
-      if (!files) fetch(`${ROOT}api/files`).then((r) => r.json()).then((f) => { files = f; fill(); }).catch(() => {});
-    }
-    document.querySelector("[data-palette-open]").addEventListener("click", open);
-    input.addEventListener("input", () => { chosen = 0; fill(); });
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "ArrowDown") { chosen = Math.min(chosen + 1, items.length - 1); fill(); event.preventDefault(); }
-      if (event.key === "ArrowUp") { chosen = Math.max(chosen - 1, 0); fill(); event.preventDefault(); }
-      if (event.key === "Enter") { go(items[chosen]); event.preventDefault(); }
-    });
-    results.addEventListener("click", (event) => go(items[event.target.closest("[data-n]")?.dataset.n]));
-    palette.addEventListener("click", (event) => { if (event.target === palette) palette.close(); });
-    document.addEventListener("keydown", (event) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); palette.open ? palette.close() : open(); }
-      // "/" puts the cursor in the page's search, where it has one.
-      if (event.key === "/" && !event.target.closest("input, textarea, select")) {
-        const search = document.querySelector("[data-search]");
-        if (search) { event.preventDefault(); search.focus(); }
-      }
-    });
-  }
 
   // The machine picker: every machine profile known (hundreds), found by typing a brand or
   // a model, narrowed by kind; each with its drawing and its size. In the add dialog it
@@ -561,4 +354,40 @@
     } };
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountAll);
     else mountAll();
+  }
+  // Tabs: the design's pattern (docs/design/ui/mockups/mc.js): role=tab, aria-controls, arrow
+  // keys, roving tabindex; the hash picks the tab. Only a tablist with data-tabs.
+  {
+    const tabsOf = (list) => [...list.querySelectorAll('[role="tab"]')].filter((t) => t.getClientRects().length > 0);
+    const select = (list, tab, focus) => {
+      for (const t of list.querySelectorAll('[role="tab"]')) {
+        const on = t === tab, p = document.getElementById(t.getAttribute("aria-controls"));
+        t.setAttribute("aria-selected", String(on)); t.tabIndex = on ? 0 : -1; if (p) p.hidden = !on;
+      }
+      if (focus) tab.focus();
+    };
+    const tabsAll = () => {
+      const h = location.hash.slice(1);
+      for (const list of document.querySelectorAll('[role="tablist"][data-tabs]')) {
+        const ts = tabsOf(list); if (!ts.length) continue;
+        let pick = ts.find((t) => t.getAttribute("aria-controls") === h);
+        if (!pick) { const p = h && document.getElementById(h); if (p) pick = ts.find((t) => document.getElementById(t.getAttribute("aria-controls"))?.contains(p)); }
+        select(list, pick || ts.find((t) => t.getAttribute("aria-selected") === "true") || ts[0], false);
+      }
+    };
+    document.addEventListener("click", (e) => {
+      const t = e.target.closest('[data-tabs] [role="tab"]');
+      if (!t) return;
+      e.preventDefault(); select(t.closest('[role="tablist"]'), t, true); history.replaceState(null, "", "#" + t.getAttribute("aria-controls"));
+    });
+    document.addEventListener("keydown", (e) => {
+      const t = e.target.closest && e.target.closest('[data-tabs] [role="tab"]');
+      if (!t) return;
+      const list = t.closest('[role="tablist"]'), ts = tabsOf(list), i = ts.indexOf(t);
+      const n = { ArrowRight: ts[(i + 1) % ts.length], ArrowLeft: ts[(i - 1 + ts.length) % ts.length], Home: ts[0], End: ts[ts.length - 1] }[e.key];
+      if (n) { e.preventDefault(); select(list, n, true); history.replaceState(null, "", "#" + n.getAttribute("aria-controls")); }
+    });
+    window.addEventListener("hashchange", tabsAll);
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", tabsAll);
+    else tabsAll();
   }

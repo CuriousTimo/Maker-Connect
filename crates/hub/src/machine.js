@@ -2,22 +2,29 @@
   // its table), and every [data-live] value kept live from the server-sent events.
   const ID = document.querySelector("main").dataset.id;
   // Tabs by purpose; a tab may show more than one section. Old addresses still lead there.
-  const TABS = { overview: ["overview"], queue: ["queue"], telemetry: ["telemetry"], control: ["control"], terminal: ["terminal"], bedmesh: ["bedlevel"], usb: ["usb"], sd: ["sd"], camera: ["camera"], settings: ["settings"] };
-  const OLD = { data: "telemetry", bedlevel: "bedmesh" };
+  // The tabs (Prusa Connect's printer page, laid out our way): Now, Queue, Controls, Files,
+  // Cameras, Machine, History, Advanced.
+  const TABS = { now: ["overview"], queue: ["queue", "jobs"], controls: ["control", "bedlevel"], files: ["usb", "sd"], cameras: ["camera"], machine: ["settings"], history: ["telemetry"], advanced: ["terminal"] };
+  const OLD = { overview: "now", data: "now", control: "controls", jobs: "queue", telemetry: "history", terminal: "advanced", bedmesh: "controls", bedlevel: "controls", usb: "files", sd: "files", camera: "cameras", settings: "machine" };
   // Set below for a Prusa on its own Connect: opens its USB stick when its tab is shown.
   let usbOpen = null;
   // Set below for a printer with its own SD card behind an agent.
   let sdOpen = null;
   function show() {
     const asked = location.hash.slice(1);
-    const id = TABS[asked] ? asked : OLD[asked] || "overview";
+    const id = TABS[asked] ? asked : OLD[asked] || "now";
     for (const tab of document.querySelectorAll(".tab")) tab.hidden = !TABS[id].includes(tab.id);
+    // A camera streams only while its tab is shown.
+    for (const player of document.querySelectorAll("iframe[data-src]")) {
+      const shown = !player.closest(".tab").hidden;
+      if (shown && player.getAttribute("src") !== player.dataset.src) player.src = player.dataset.src;
+      if (!shown && player.hasAttribute("src")) player.removeAttribute("src");
+    }
     for (const a of document.querySelectorAll(".tabs a")) a.setAttribute("aria-selected", a.hash === "#" + id);
     ticker();
-    if (id === "telemetry") draw();
-    if (id === "bedmesh") drawMesh();
-    if (id === "usb") usbOpen?.();
-    if (id === "sd") sdOpen?.();
+    if (id === "history") draw();
+    if (id === "advanced") drawMesh();
+    if (id === "files") { usbOpen?.(); sdOpen?.(); }
     // A tab is a page of its own: from the top, not where the browser jumped to its id.
     scrollTo(0, 0);
   }
@@ -50,7 +57,14 @@
           body: sent,
           headers: { "x-requested-with": "fetch" },
         });
-        if (status) status.textContent = response.ok ? "" : `Not sent: ${await response.text()}`;
+        const refused = response.ok ? "" : `Not sent: ${await response.text()}`;
+        if (status) status.textContent = refused;
+        // A head's temperature menu closes once a value is sent; a refusal is told.
+        const menu = form.closest("details.temp-pick");
+        if (menu) {
+          menu.open = false;
+          if (refused) alert(refused);
+        }
       } catch (error) {
         if (status) status.textContent = `Not sent: ${error.message}`;
       } finally {
@@ -73,7 +87,7 @@
   // The arrow keys move the pad's head once it has focus: a move at a time (a key held down
   // does not pile them up), Home on the Home key.
   for (const pad of document.querySelectorAll("[data-jogpad]")) {
-    const keys = { ArrowUp: "jog:0:1", ArrowDown: "jog:0:-1", ArrowLeft: "jog:-1:0", ArrowRight: "jog:1:0", Home: "home" };
+    const keys = { ArrowUp: "jog:0:1", ArrowDown: "jog:0:-1", ArrowLeft: "jog:-1:0", ArrowRight: "jog:1:0", PageUp: "jog:0:0:1", PageDown: "jog:0:0:-1", Home: "home" };
     pad.addEventListener("keydown", (event) => {
       const action = keys[event.key];
       if (!action || event.target.matches("select")) return;
@@ -106,6 +120,11 @@
   }
 
   // How a heater is doing, as the page says it on the server too.
+  // A head chip's target (machine_page.rs target_note): " / 215" while one is set.
+  function targetNote(target) {
+    return target > 0 ? ` / ${target.toFixed(0)}` : "";
+  }
+
   function heatNote(now, target) {
     if (now == null) return "not reported";
     if (target > 0) {
@@ -117,13 +136,14 @@
     return now > 40 ? `${told} · ▼ cooling` : told;
   }
 
-  // The temperatures over the last half hour: nozzle and bed, their targets dashed.
-  const SPAN = 30 * 60;
+  // The temperatures over the last 2 hours: nozzle and bed, their targets dashed.
+  // The last 2 hours, as Prusa Connect's History tab (printer-detail.svelte HISTORY_WINDOW_HOURS).
+  const SPAN = 2 * 3600;
   const chart = document.getElementById("chart");
   const tip = document.getElementById("tip");
   let samples = [];
   const degrees = (v) => (v == null ? "–" : `${v.toFixed(1)} °C`);
-  // The fans over the same half hour: their speeds, where the machine tells them.
+  // The fans over the same 2 hours: their speeds, where the machine tells them.
   const fanChart = document.getElementById("fanchart");
   function drawFans() {
     if (!fanChart) return;
@@ -141,9 +161,9 @@
       svg += `<line class="grid" x1="${m.l}" x2="${w - m.r}" y1="${y(v)}" y2="${y(v)}"/>`;
       svg += `<text class="axis" x="${m.l - 10}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
     }
-    for (const ago of [30, 20, 10, 0]) {
-      const anchor = ago === 30 ? "start" : ago ? "middle" : "end";
-      svg += `<text class="axis" x="${x(now - ago * 60)}" y="${h - 6}" text-anchor="${anchor}">${ago ? `−${ago} min` : "now"}</text>`;
+    for (const ago of [120, 60, 0]) {
+      const anchor = ago === 120 ? "start" : ago ? "middle" : "end";
+      svg += `<text class="axis" x="${x(now - ago * 60)}" y="${h - 6}" text-anchor="${anchor}">${ago ? `−${ago / 60} h` : "now"}</text>`;
     }
     const path = (key) => {
       let d = "", pen = "M";
@@ -216,9 +236,10 @@
       svg += `<line class="grid" x1="${m.l}" x2="${w - m.r}" y1="${y(v)}" y2="${y(v)}"/>`;
       svg += `<text class="axis" x="${m.l - 10}" y="${y(v) + 4}" text-anchor="end">${v}°</text>`;
     }
-    for (const ago of [30, 25, 20, 15, 10, 5, 0]) {
-      const anchor = ago === 30 ? "start" : ago ? "middle" : "end";
-      svg += `<text class="axis" x="${x(now - ago * 60)}" y="${h - 6}" text-anchor="${anchor}">${ago ? `−${ago} min` : "now"}</text>`;
+    for (const ago of [120, 90, 60, 30, 0]) {
+      const anchor = ago === 120 ? "start" : ago ? "middle" : "end";
+      const label = ago % 60 ? `−${ago} min` : `−${ago / 60} h`;
+      svg += `<text class="axis" x="${x(now - ago * 60)}" y="${h - 6}" text-anchor="${anchor}">${ago ? label : "now"}</text>`;
     }
     const path = (key) => {
       let d = "", pen = "M";
@@ -442,7 +463,7 @@
         toast(r.ok ? `Asked to print ${print.dataset.name}` : `Not printed: ${await r.text()}`, r.ok ? "ok" : "bad");
       });
       sdOpen = load;
-      if (location.hash === "#sd") load();
+      if (["#files", "#sd"].includes(location.hash)) load();
     }
   }
 
@@ -488,6 +509,11 @@
       const mine = it.by_user === ME, change = mayChange(it);
       return `<li${change ? ' draggable="true"' : ""} data-qid="${it.id}" data-mine="${mine}" class="${mine ? "mine" : ""}${change ? "" : " fixed"}"><span class="q-grip" aria-hidden="true">${change ? "⠿" : ""}</span><span class="q-n">${i + 1}</span>${it.thumbnail ? `<img src="../files/${encodeURIComponent(it.file_id)}/thumbnail.png" alt="">` : '<span class="q-img"></span>'}<span class="q-name"><b title="${escapeHtml(it.file_name)}">${escapeHtml(it.file_name)}</b><small>${mine ? '<span class="q-mine">yours</span> · ' : ""}${escapeHtml(facts)}${it.problem ? ` · <span class="q-problem">${escapeHtml(it.problem)}</span>` : ""}</small></span>${m.kind === "laser" && change ? `<button type="button" class="ghost q-load" data-qload="${it.id}" data-file="${escapeHtml(it.file_id)}" title="Load it on the laser (HS7b: a laser takes one loaded job, no queue)">Load</button>` : ""}${change ? `<button type="button" class="q-x" data-qremove="${it.id}" title="Take out of the queue" aria-label="Take out of the queue">×</button>` : "<span></span>"}</li>`;
     }).join("");
+    // The Now tab's short list: the first few, as machine_page.rs `now` draws them.
+    const nowQueue = document.querySelector("[data-now-queue]");
+    if (nowQueue) nowQueue.innerHTML = q.length
+      ? q.slice(0, 3).map((it, i) => `<li><span class="q-n">${i + 1}</span><span class="q-name"><b>${escapeHtml(it.file_name)}</b><small>${escapeHtml(it.by || "")}</small></span></li>`).join("")
+      : '<li class="empty">Nothing waits.</li>';
   }
   if (queueList) {
     queueList.addEventListener("dragstart", (e) => {
@@ -564,6 +590,8 @@
     const values = {
       nozzle_n: fixed(t.nozzle_c),
       nozzle_note: heatNote(t.nozzle_c, t.nozzle_target_c),
+      nozzle_t: targetNote(t.nozzle_target_c),
+      bed_t: targetNote(t.bed_target_c),
       bed_n: fixed(t.bed_c),
       bed_note: heatNote(t.bed_c, t.bed_target_c),
       chamber_n: fixed(t.chamber_c),

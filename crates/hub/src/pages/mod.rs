@@ -1,4 +1,5 @@
 pub mod access_page;
+pub mod add_machine_page;
 pub mod files_page;
 pub mod label_page;
 pub mod labelwriter_page;

@@ -7,3 +7,11 @@ members = ["crates/protocol", "crates/engine", "crates/agent", "crates/label", "
 version = "0.2.0"
 edition = "2024"
 license = "AGPL-3.0-only"
+
+# Argon2id is slow on purpose, and unoptimised it is ~100x slower: the tests make thousands of
+# accounts (the routes snapshot alone, one hub per path and method). Only these crates are built
+# optimised in dev and test builds; what they compute is the same.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3

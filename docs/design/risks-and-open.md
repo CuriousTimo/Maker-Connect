@@ -11,7 +11,7 @@ becomes a decision record.
 | R-1 | The admin pool (BYPASSRLS) used where a space transaction should be: RLS is then no second wall | The allowlist of [database.md](database.md#roles-and-pools) and a test that extracts every admin-pool call from the source |
 | R-2 | The hub's login escapes RLS | The login is neither superuser nor owner, `NOINHERIT`, no privileges of its own; `RESET ROLE` reads nothing (a test). **What stays:** the login may `SET ROLE maker_connect_owner` (the owner bypasses RLS without `FORCE ROW LEVEL SECURITY`, and `FORCE` breaks `pg_dump`'s `COPY`) or `SET ROLE maker_connect_admin`, and any role may `SET app.space_id`. RLS guards against our own query forgetting the space filter, not against a compromised process or an injected statement. Guards: sqlx's checked, parameterised queries only; a source test, `no_role_switch_outside_the_pool_module`, fails on `SET ROLE`, `RESET ROLE`, `set_config` or `app.space_id` in any source file but the pool module ([decision](decisions/20261119-database-roles.md), [OQ-8](#oq-8-one-login-role-or-one-per-pool)) |
 | R-3 | Tokens in URLs end up in logs and browser history | What the request log redacts is [OQ-31](#oq-31-log-redaction-and-urls-a-device-hands-the-hub); Spoolman's case is [OQ-7](#oq-7-how-spoolman-clients-authenticate); `/f/{iv}/raw` is Buddy's own (the key is not in the URL) |
-| R-4 | A TimescaleDB restore without a superuser (the template database, `--role=maker_connect_owner`) is unproven | Prove it in the store CI job before step 3 calls history done; else the restore step needs the operator |
+| R-4 | A TimescaleDB restore without a superuser (the template database, `--role=maker_connect_owner`) is unproven | Proven for everything but the history: hypertables and continuous aggregates need TimescaleDB's catalog, the superuser's. The dumps leave the history out and a restore makes it again, empty ([decision](decisions/20261120-history-not-in-dumps.md)); `backup::tests` prove it with the server's own client tools |
 | R-5 | Big rebuild while features exist: behaviour lost silently | Route and per-role snapshot rebuilt from actions in step 3; each module's tests ported, counted before and after (plan §4) |
 | R-6 | Reproducing Prusa's REST surface under OCL | [Decision](decisions/20261118-their-rest-surface-under-ocl.md): from running their server, never their spec text; the public question to Prusa is still to be asked |
 | R-7 | Their API is 0.x and moves daily | Pin a `reference/prusa-connect` commit per release of ours; the tracking test names each drift |
@@ -229,7 +229,7 @@ Retention periods are decided ([decision](decisions/20261118-retention-defaults.
 
 ### OQ-33: Restoring TimescaleDB without a superuser
 
-Options: (a) a template database with the extension, owned by `maker_connect_owner`, restored into with `--role`; (b) the operator restores with a superuser. **Recommendation:** (a), proven in the store CI job first ([R-4](#risks)).
+Options: (a) a template database with the extension, owned by `maker_connect_owner`, restored into with `--role`; (b) the operator restores with a superuser. **Recommendation:** (a), proven in the store CI job first ([R-4](#risks)). **Decided:** (a), with the history left out of the dumps and made again empty on a restore ([decision](decisions/20261120-history-not-in-dumps.md)).
 
 ### OQ-34: The order of the host-side checks
 

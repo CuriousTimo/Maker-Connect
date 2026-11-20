@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO access_requests (space_id, user_id, machine_id, asked_at, level) VALUES ($1, $2, $3, at_unix($4), $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a4a87f08555ed6934c4470a4bfc8bf84f2c7bc78e4c1de84270f2671d3d833ab"
+}

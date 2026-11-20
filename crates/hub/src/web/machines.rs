@@ -267,18 +267,28 @@ pub(crate) async fn remove(
     }
 }
 
+#[derive(serde::Deserialize)]
+pub(crate) struct HistoryQuery {
+    /// How far back, in seconds; the last 2 hours (HISTORY_SECONDS) when not said.
+    seconds: Option<i64>,
+}
+
+/// A machine's history from the database (crate::store::history): `?seconds=` back from now.
 pub(crate) async fn history(
     access: crate::access::Access,
     State(store): State<Store>,
     axum::extract::Path(id): axum::extract::Path<String>,
+    axum::extract::Query(query): axum::extract::Query<HistoryQuery>,
 ) -> Response {
-    let of_space = match store.link_of(access.space, &id).await {
-        Ok(link) => link.is_some(),
+    match store.link_of(access.space, &id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
-    };
-    match store.lock().unwrap().history(of_space, &id) {
-        Some(samples) => Json(samples).into_response(),
-        None => (StatusCode::NOT_FOUND, "no such machine").into_response(),
+    }
+    let seconds = query.seconds.unwrap_or(crate::store::HISTORY_SECONDS);
+    match store.history(access.space, &id, seconds).await {
+        Ok(samples) => Json(samples).into_response(),
+        Err(error) => failed(error),
     }
 }
 
@@ -562,7 +572,12 @@ pub(crate) async fn machine_page(
         Err(error) => return failed(error),
     };
     let asked = store
-        .asked(access.space, access.user_id, &id)
+        .asked(access.space, access.user_id, &id, access::Level::Use)
+        .await
+        .ok()
+        .flatten();
+    let asked_operate = store
+        .asked(access.space, access.user_id, &id, access::Level::Operate)
         .await
         .ok()
         .flatten();
@@ -576,34 +591,47 @@ pub(crate) async fn machine_page(
         .unwrap_or_default();
     let stats = store.job_stats(access.space, &id).await.unwrap_or_default();
     // The machine's Camera tab, read before the lock.
-    let camera_tab = match &found {
-        Ok((_, Some(machine))) => camera_tab(&store, &access, &machine.id, &grants).await,
-        _ => None,
+    let (camera_tab, camera_now) = match &found {
+        Ok((_, Some(machine))) => camera_tab(&store, &access, &machine.id, &grants)
+            .await
+            .unzip(),
+        _ => (None, None),
     };
     let store = store.lock().unwrap();
     match found {
         Ok((space, Some(machine))) if machine.kind == protocol::MachineKind::Label => {
             let move_to = move_targets(&access, &spaces);
+            let may_operate = store
+                .may(&access, &machine.id, access::Level::Operate, &grants)
+                .unwrap_or(false);
             // HS2: a LabelWriter has its own page; a LabelManager the label page.
             let profile = machine.profile.as_deref().and_then(profiles::find);
             if profile.is_some_and(|p| p.firmware.as_deref() == Some("dymo-lw")) {
                 return Html(crate::pages::labelwriter_page::render(
-                    &space, &machine, &move_to,
+                    &space,
+                    &machine,
+                    &move_to,
+                    may_operate,
                 ))
                 .into_response();
             }
-            Html(label_page::render(&space, &machine, &move_to)).into_response()
+            Html(label_page::render(&space, &machine, &move_to, may_operate)).into_response()
         }
         Ok((space, Some(machine))) => {
             let extra = machine_page::Extra {
                 camera_tab,
+                camera_now,
                 me: access.user_id,
                 staff: access.role >= access::Role::Admin,
                 asked,
+                asked_operate,
                 ppe_until: store.ppe_until(access.user_id, &machine.id),
                 ppe_checks,
                 may_use: store
                     .may(&access, &machine.id, access::Level::Use, &grants)
+                    .unwrap_or(false),
+                may_operate: store
+                    .may(&access, &machine.id, access::Level::Operate, &grants)
                     .unwrap_or(false),
                 move_to: move_targets(&access, &spaces),
                 manage: store
@@ -627,7 +655,7 @@ async fn camera_tab(
     access: &crate::access::Access,
     machine: &str,
     grants: &access::Grants,
-) -> Option<String> {
+) -> Option<(String, String)> {
     #[cfg(feature = "cameras")]
     return crate::cameras::page::machine_tab(store, access, machine, grants).await;
     #[cfg(not(feature = "cameras"))]

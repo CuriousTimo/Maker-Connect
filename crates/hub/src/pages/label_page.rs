@@ -101,7 +101,13 @@ fn media_swatches(profile: Option<&Profile>, chosen: Option<&str>) -> String {
     out
 }
 
-pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> String {
+/// `may_operate`: may this person operate it ('operate', crate::access), as the machine page.
+pub fn render(
+    space: &str,
+    machine: &Machine,
+    move_to: &[(String, String)],
+    may_operate: bool,
+) -> String {
     let profile = machine.profile.as_deref().and_then(profiles::find);
     let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
     let (state, state_class) = machine_page::shown_state(machine);
@@ -151,7 +157,7 @@ pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> S
 </head>
 <body>
 {header}
-<main class="wide" data-id="{id}">
+<main id="main" tabindex="-1" class="wide" data-id="{id}">
   <div class="title">
     <h2>{name}</h2>
     <span class="state {state_class}" data-live="state">{state}</span>
@@ -191,13 +197,13 @@ pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> S
           </select></label>
           <label class="field code-data"><span>What it encodes</span><input data-code-data maxlength="400" placeholder="The text, when empty" autocomplete="off"><small data-code-note></small></label>
           <div class="field wide-field"><span>Drawing</span>
-            <div class="drawing-row"><input type="file" accept=".svg,image/svg+xml,image/png" data-drawing aria-label="Add an SVG drawing"><button type="button" class="ghost" data-drawing-remove hidden>Remove</button></div>
+            <div class="drawing-row"><input type="file" accept=".svg,image/svg+xml,image/png" data-drawing aria-label="Add an SVG drawing"><span class="fw"><button type="button" class="btn ghost" data-drawing-remove hidden>Remove</button></span></div>
             <small>An SVG (or PNG), placed before the text at the {medium}'s height</small></div>
         </div>
         <h4>Preview</h4>
         <div class="preview-wrap"><canvas data-preview aria-label="The label as it will print"></canvas></div>
         <p class="preview-note" data-preview-note></p>
-        <div class="print-row"><button type="button" data-print>Print</button><span data-print-status role="status"></span></div>
+        <div class="print-row"><span class="fw"><button class="btn primary" type="button" data-print>Print</button></span><span data-print-status role="status"></span></div>
         <details class="svg-source"><summary>The label's SVG</summary><pre data-svg></pre></details>
       </div>
       <div class="stack">
@@ -251,7 +257,7 @@ pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> S
             .as_ref()
             .map_or("–".to_owned(), |j| escape(&j.file_name)),
         tape = tape_json(profile, machine),
-        settings = machine_page::settings(machine, move_to, false),
+        settings = machine_page::settings(machine, move_to, false, may_operate),
         overview = machine_page::overview(machine, profile, ""),
         no_profile = if profile.is_none() {
             machine_page::no_profile_notice()

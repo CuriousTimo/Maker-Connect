@@ -360,6 +360,9 @@ pub(crate) async fn agent_job(
 #[derive(serde::Deserialize)]
 pub(crate) struct PairForm {
     code: String,
+    /// The name it gets here; empty or absent: the name it registered with.
+    #[serde(default)]
+    name: String,
 }
 
 pub(crate) async fn pair(
@@ -368,10 +371,22 @@ pub(crate) async fn pair(
     headers: HeaderMap,
     Form(form): Form<PairForm>,
 ) -> Response {
-    let paired = store.pair(access.space, &form.code).await;
+    let mut paired = store.pair(access.space, &form.code).await;
+    let wanted = form.name.trim();
+    if let Ok(Some((id, name))) = &mut paired
+        && !wanted.is_empty()
+        && wanted != name
+    {
+        match store.rename(access.space, id, wanted).await {
+            Ok(_) => *name = wanted.to_owned(),
+            Err(error) => return failed(error),
+        }
+    }
     let fetched = headers.contains_key("x-requested-with");
     match paired {
-        Ok(Some(_)) if fetched => StatusCode::NO_CONTENT.into_response(),
+        Ok(Some((id, name))) if fetched => {
+            axum::Json(serde_json::json!({ "id": id, "name": name })).into_response()
+        }
         Ok(None) if fetched => {
             (StatusCode::NOT_FOUND, "no machine waits with that code").into_response()
         }
@@ -719,7 +734,7 @@ pub(crate) mod tests {
             machine_page::shown_state(&machine),
             ("no cassette".to_owned(), "attention".to_owned())
         );
-        let page = label_page::render("My space", &machine, &[]);
+        let page = label_page::render("My space", &machine, &[], false);
         assert!(page.contains(r#"class="state attention""#));
     }
 

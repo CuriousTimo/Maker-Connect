@@ -270,24 +270,24 @@ async fn page(
   .builds > .build {{ margin-bottom: 16px; }}
   /* Every card in a row shares its rows (subgrid): head, version, button, how, command,
      copy; so the buttons line up whatever the texts above them. */
-  .build {{ position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; display: grid; grid-template-rows: subgrid; grid-row: span 6; gap: 12px; align-content: start; min-width: 0; }}
+  .build {{ position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 0; padding: 20px 22px; display: grid; grid-template-rows: subgrid; grid-row: span 6; gap: 12px; align-content: start; min-width: 0; }}
   .build pre {{ align-self: stretch; }}
   .build .copy {{ justify-self: start; align-self: start; }}
-  .build.mine {{ border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }}
+  .build.mine {{ border-color: var(--accent-text); box-shadow: 0 0 0 1px var(--accent-text); }}
   /* The same height in every card, so the buttons under it line up. */
   .build-head {{ display: flex; align-items: center; gap: 14px; }}
   .build-head h3 {{ margin: 0; font-size: 18px; }}
   .build-head p {{ margin: 2px 0 0; color: var(--muted); font-size: 14px; }}
-  .os-icon {{ width: 48px; height: 48px; flex: none; display: grid; place-items: center; border-radius: 12px; background: var(--bg); color: var(--ink); }}
+  .os-icon {{ width: 48px; height: 48px; flex: none; display: grid; place-items: center; border-radius: 0; background: var(--bg); color: var(--ink); }}
   .os-icon svg {{ width: 30px; height: 30px; }}
   .os-icon.windows {{ color: #2f7fd1; }}
-  .yours {{ position: absolute; top: -11px; right: 16px; white-space: nowrap; background: var(--card) !important; border: 1px solid var(--accent); padding: 2px 8px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 15%, transparent); font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--accent); }}
-  .get {{ display: flex; justify-content: space-between; align-items: baseline; padding: 10px 14px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; text-decoration: none; }}
+  .yours {{ position: absolute; top: -11px; right: 16px; white-space: nowrap; background: var(--surface) !important; border: 1px solid var(--accent-text); padding: 2px 8px; border-radius: 0; background: color-mix(in srgb, var(--accent) 15%, transparent); font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--accent-text); }}
+  .get {{ display: flex; justify-content: space-between; align-items: baseline; padding: 10px 14px; border-radius: 0; background: var(--accent); color: var(--on-accent); font-weight: 600; text-decoration: none; }}
   .get small {{ font-weight: 400; opacity: .85; }}
   .release {{ margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
   .release b {{ color: var(--ink); }}
   .how {{ margin: 0; color: var(--muted); font-size: 14px; }}
-  .build pre {{ margin: 0; padding: 10px 12px; background: var(--bg); border-radius: 8px; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }}
+  .build pre {{ margin: 0; padding: 10px 12px; background: var(--bg); border-radius: 0; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }}
   .copy {{ justify-self: start; padding: 5px 12px; font-size: 13px; background: transparent; color: var(--ink); border: 1px solid var(--line); }}
   .others-title {{ font-size: 15px; color: var(--muted); }}
   .others {{ list-style: none; padding: 0; }}
@@ -297,7 +297,7 @@ async fn page(
 </head>
 <body>
 {header}
-<main>
+<main id="main" tabindex="-1">
   <h2>Downloads</h2>
   <p class="intro">The agent, for the computer next to a machine: it drives the machine and reports to this hub. It shows a code; enter it with the ＋ next to "Machines" in the sidebar. With <code>--save</code> it keeps its options in <code>maker-connect-agent.toml</code>, so the next time a plain <code>run</code> (or a double-click on Windows) is enough.</p>
   {local_note}

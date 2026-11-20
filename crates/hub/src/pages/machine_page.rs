@@ -10,6 +10,18 @@ use maker_connect_protocol::MachineKind;
 const MACHINE_STYLE: &str = include_str!("../machine.css");
 const MACHINE_SCRIPT: &str = include_str!("../machine.js");
 
+/// The design's badge class for a state class: as shell.js `ST`.
+fn st_class(cls: &str) -> &'static str {
+    match cls {
+        "idle" | "cooling" | "loaded" => "idle",
+        "busy" => "busy",
+        "paused" | "attention" => "warn",
+        "error" => "bad",
+        "offline" | "disconnected" | "out" => "off",
+        _ => "unk",
+    }
+}
+
 /// How a machine's state is shown, and its badge's class: as the pages' `shownState` does.
 /// A machine that is ready but waits for something (no cassette) shows that as a notice.
 pub(crate) fn shown_state(machine: &Machine) -> (String, String) {
@@ -56,6 +68,8 @@ pub(crate) fn shown_state(machine: &Machine) -> (String, String) {
 pub struct Extra {
     /// Its Camera tab (crate::cameras): the cameras on it the person may watch.
     pub camera_tab: Option<String>,
+    /// Its first camera, for the Now tab beside this print.
+    pub camera_now: Option<String>,
     /// Who looks at it, and whether they are staff (admin, owner): they may change
     /// everyone's prints in its queue; others only their own (crate::queue).
     pub me: i64,
@@ -63,8 +77,13 @@ pub struct Extra {
     pub manage: bool,
     /// Whether the person may use it (jobs and more): by permission, whatever their role.
     pub may_use: bool,
+    /// May they move, heat and send G-code ('operate', crate::access): without it the controls
+    /// that send commands are hidden, and one notice says so (ui.md, the control rule).
+    pub may_operate: bool,
     /// When they asked the staff for permission, while nobody answered.
     pub asked: Option<i64>,
+    /// When they asked the staff to operate it, while nobody answered.
+    pub asked_operate: Option<i64>,
     /// Until when they confirmed having and wearing its PPE (crate::safety).
     pub ppe_until: Option<i64>,
     /// Whether the space asks for PPE before use.
@@ -92,12 +111,19 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         .flatten();
     let profile = found.or(told.as_ref());
     let (state, state_class) = shown_state(machine);
+    let state_class = st_class(&state_class);
     let kind = profile.map_or(machine.kind.label(), |p| p.model.as_str());
     let link = match machine.link.as_str() {
         "prusa-connect" => "Built-in Prusa Connect",
         "virtual" => "Virtual, in the hub",
         "simplyprint" => "Klipper, through Moonraker",
         _ => "Maker Connect agent",
+    };
+    let laser = machine.kind == MachineKind::Laser;
+    let subtitle = if machine.name.to_lowercase().contains(&kind.to_lowercase()) {
+        link.to_owned()
+    } else {
+        format!("{kind} · {link}")
     };
     format!(
         r##"<!doctype html>
@@ -112,26 +138,25 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
 </head>
 <body>
 {header}
-<main class="wide" data-id="{id}" data-me="{me}" data-staff="{staff}">
-  <div class="title">
-    <h2>{name}</h2>
-    <span class="state {state_class}" data-live="state">{state}</span>
-  </div>
-  <p class="subtitle">{subtitle}</p>
+<main id="main" tabindex="-1" class="wide" data-id="{id}" data-me="{me}" data-staff="{staff}">
+  <p class="crumbs"><a href="../machines">Machines</a> › {name}</p>
+{head}
   {labels}
   {no_use}<div class="notices" data-notices>{notices}</div><div class="notices" data-question></div>
   <nav class="tabs" role="tablist">
-    <a href="#overview" role="tab">Overview</a>
-    {queue_tab}<a href="#telemetry" role="tab">Telemetry</a>
-    <a href="#control" role="tab">Control</a>
-    <a href="#terminal" role="tab">Terminal</a>
-    {mesh_tab}{usb_tab}{camera_link}<a href="#settings" role="tab">Settings</a>
-  </nav>
+    <a href="#now" role="tab">Now</a>
+    {queue_tab}<a href="#controls" role="tab">Controls</a>
+    {usb_tab}{camera_link}<a href="#machine" role="tab">Machine</a>
+    <a href="#history" role="tab">History</a>
+    {advanced_tab}</nav>
   <section class="tab" id="overview" role="tabpanel">
 {overview}
   </section>
   <section class="tab" id="queue" role="tabpanel" hidden>
 {queue}
+  </section>
+  <section class="tab" id="jobs" role="tabpanel" hidden>
+{jobs}
   </section>
   <section class="tab" id="control" role="tabpanel" hidden>
 {control}
@@ -158,39 +183,65 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
         name = escape(&machine.name),
         header = crate::header(space, "../", "machines"),
         id = escape(&machine.id),
-        state = escape(&state),
-        notices = notices(machine),
-        me = extra.me,
-        staff = extra.staff,
-        queue = queue_card(machine),
+        head = head(
+            machine,
+            profile,
+            &state,
+            state_class,
+            &subtitle,
+            extra.may_operate
+        ),
         queue_tab = if machine.kind == maker_connect_protocol::MachineKind::Label {
             ""
         } else {
             r##"<a href="#queue" role="tab">Queue <small class="tab-count" data-queue-count></small></a>
     "##
         },
+        notices = notices(machine),
+        me = extra.me,
+        staff = extra.staff,
+        queue = if machine.kind == maker_connect_protocol::MachineKind::Label {
+            String::new()
+        } else {
+            queue_card(machine)
+        },
         no_use = before_use(machine, extra),
-        overview = overview(machine, profile, &jobs_card(machine, extra)),
-        subtitle = escape(
-            &if machine.name.to_lowercase().contains(&kind.to_lowercase()) {
-                link.to_owned()
-            } else {
-                format!("{kind} · {link}")
-            }
-        ),
+        overview = if heats(machine) || laser {
+            now(machine, profile, extra)
+        } else {
+            overview(machine, profile, "")
+        },
+        jobs = jobs_card(machine, extra),
         labels = labels_line(machine, extra.manage),
-        filament = filament_card(machine),
+        filament = filament_card(machine, extra.may_operate),
         sheet = sheet_card(machine),
         upkeep = upkeep_card(machine, extra.manage),
-        control = control(machine, profile, &loaded_card(machine, extra)),
+        control = control(
+            machine,
+            profile,
+            &loaded_card(machine, extra),
+            extra.may_operate,
+            &no_operate(machine, extra),
+        ),
         telemetry = telemetry_tab(machine),
-        settings = settings(machine, &extra.move_to, extra.ppe_checks),
-        terminal = terminal(machine),
-        usb_tab = if machine.link == "prusa-connect" {
-            r##"<a href="#usb" role="tab">USB</a>
-    "##
-        } else if machine.link == "agent" && heats(machine) {
-            r##"<a href="#sd" role="tab">SD card</a>
+        settings = settings(machine, &extra.move_to, extra.ppe_checks, extra.may_operate),
+        // A laser has no console (decision 20261119-no-raw-gcode-on-a-laser): no Advanced tab.
+        advanced_tab = if laser {
+            ""
+        } else {
+            r##"<a href="#advanced" role="tab">Advanced</a>
+  "##
+        },
+        terminal = if laser {
+            String::new()
+        } else if extra.may_operate || !store::takes_commands(&machine.link) {
+            terminal(machine)
+        } else {
+            no_operate(machine, extra)
+        },
+        usb_tab = if machine.link == "prusa-connect" || (machine.link == "agent" && heats(machine))
+        {
+            r##"<a href="#files" role="tab">Files</a>
     "##
         } else {
             ""
@@ -203,7 +254,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
             ""
         },
         camera_link = if extra.camera_tab.is_some() {
-            r##"<a href="#camera" role="tab">Camera</a>
+            r##"<a href="#cameras" role="tab">Cameras</a>
     "##
         } else {
             ""
@@ -218,22 +269,206 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
             ),
             None => String::new(),
         },
-        mesh_tab = if heats(machine) {
-            r##"<a href="#bedmesh" role="tab">Bed mesh</a>
-    "##
-        } else {
-            ""
-        },
         bed_level = if heats(machine) {
             format!(
                 r#"<section class="tab" id="bedlevel" role="tabpanel" hidden>
 {}
   </section>"#,
-                bed_level(machine, profile)
+                bed_level(machine, profile, extra.may_operate)
             )
         } else {
             String::new()
         },
+    )
+}
+
+/// The head's and the machine list's icons (ui.md "Head", "The card"): our own drawings.
+const ICON_NOZZLE: &str = r#"<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3h10v6H5zM7 9h6l-2 5H9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 14v3" stroke="currentColor" stroke-width="1.6"/></svg>"#;
+const ICON_BED: &str = r#"<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 15h14" stroke="currentColor" stroke-width="1.8"/><path d="M6 12c-1-1.5 1-2.5 0-4M10 12c-1-1.5 1-2.5 0-4M14 12c-1-1.5 1-2.5 0-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>"#;
+const ICON_SPEED: &str = r#"<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 14a6.5 6.5 0 0 1 13 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M10 14l3.5-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>"#;
+const ICON_FLOW: &str = r#"<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3c3 4 5 6.5 5 9a5 5 0 0 1-10 0c0-2.5 2-5 5-9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>"#;
+
+/// The page's head (Prusa Connect's printer head, our own build): the machine's picture; its
+/// name, state and a pencil to rename it; what it is, its firmware and its material; for a
+/// printer a row of live chips (nozzle, bed, speed, flow); and Set ready on the right.
+fn head(
+    machine: &Machine,
+    profile: Option<&Profile>,
+    state: &str,
+    state_class: &str,
+    subtitle: &str,
+    may_operate: bool,
+) -> String {
+    let t = machine.telemetry.as_ref().filter(|_| machine.online);
+    // Who may operate a machine that takes commands sets a heater from its value (Prusa Connect's
+    // head): Off, the firmware's preheat presets, a value of one's own; up to the profile's maximum.
+    let settable = may_operate && t.is_some() && crate::store::takes_commands(&machine.link);
+    let menu = |key: &str, max: f64, pick: PresetColumn, now: f64| {
+        let item = |text: &str, celsius: f64| {
+            format!(
+                r#"<span class="heat-set"><input type="hidden" name="{key}" value="{celsius:.0}"><button name="action" value="set-{key}">{text}</button></span>"#
+            )
+        };
+        let mut items = item("Off", 0.0);
+        for preset in crate::commands::PREHEAT_PRESETS
+            .iter()
+            .filter(|p| pick(p) <= max)
+        {
+            items.push_str(&item(
+                &format!("{} <span>{:.0} °C</span>", preset.0, pick(preset)),
+                pick(preset),
+            ));
+        }
+        format!(
+            r#"<form class="command temp-menu" method="post" action="{id}/command">{items}<label class="heat-set">Other <input type="number" name="{key}" min="0" max="{max:.0}" step="1" value="{now:.0}" inputmode="numeric"> °C <button name="action" value="set-{key}" class="btn small">Set</button></label></form>"#,
+            id = escape(&machine.id),
+        )
+    };
+    let picture = profile
+        .and_then(Profile::image)
+        .or_else(|| profiles::generic_image(machine.kind))
+        .unwrap_or(r#"<div class="no-picture">No picture</div>"#);
+    // printer.html: one muted line, what it is and its firmware.
+    let firmware = t
+        .and_then(|t| t.firmware.clone())
+        .or_else(|| machine.details.as_ref().and_then(|d| d.firmware.clone()))
+        .map(|v| format!(r#" · <span data-live="firmware">{}</span>"#, escape(&v)))
+        .unwrap_or_default();
+    let material = if heats(machine) {
+        let (swatch, what) = match &machine.loaded {
+            Some(l) => (
+                l.color
+                    .as_deref()
+                    .filter(|c| {
+                        c.starts_with('#')
+                            && c.len() <= 9
+                            && c[1..].chars().all(|ch| ch.is_ascii_hexdigit())
+                    })
+                    .map(str::to_owned),
+                escape(&l.material.clone().unwrap_or_else(|| l.name.clone())),
+            ),
+            None => (
+                None,
+                format!(
+                    r#"<span data-live="material">{}</span>"#,
+                    escape(
+                        &t.and_then(|t| t.material.clone())
+                            .or_else(|| machine.details.as_ref().and_then(|d| d.material.clone()))
+                            .unwrap_or_else(|| "None set".to_owned())
+                    )
+                ),
+            ),
+        };
+        format!(
+            r#"<a class="st val" href="../stock" aria-label="Material" title="Set a spool in Materials"><span class="swatch" style="background:{}"></span>{what}<span aria-hidden="true">▾</span></a>"#,
+            swatch.as_deref().unwrap_or("transparent")
+        )
+    } else {
+        String::new()
+    };
+    let chips = if heats(machine) {
+        // printer.html: "Nozzle 215 °C / 215", the target only while one is set.
+        let heat = |label: &str,
+                    key: &str,
+                    icon: &str,
+                    now: Option<f32>,
+                    target: Option<f32>,
+                    on: Option<bool>| {
+            let value = format!(
+                r#"{icon}<b><span data-live="{key}_n">{}</span> °C</b><span data-live="{key}_t">{}</span>{}"#,
+                escape(&now.map_or("–".to_owned(), |v| format!("{v:.1}"))),
+                target_note(target),
+                flame(key, on),
+            );
+            if !settable {
+                return format!(
+                    r#"<span class="st val" title="{label}" aria-label="{label}">{value}</span>"#
+                );
+            }
+            let (max, pick, fallback): (f64, PresetColumn, f64) = if key == "bed" {
+                (
+                    profile.and_then(|p| p.max_bed_c).unwrap_or(100.0),
+                    |p| p.2,
+                    60.0,
+                )
+            } else {
+                (
+                    profile.and_then(|p| p.max_nozzle_c).unwrap_or(260.0),
+                    |p| p.1,
+                    215.0,
+                )
+            };
+            let now = target.filter(|v| *v > 0.0).map_or(fallback, f64::from);
+            format!(
+                r#"<details class="temp-pick"><summary class="st val" title="{label}: set its temperature" aria-label="{label}: set its temperature">{value} <span aria-hidden="true">▾</span></summary>{}</details>"#,
+                menu(key, max, pick, now)
+            )
+        };
+        let pct = |label: &str, key: &str, icon: &str, v: Option<f32>| {
+            format!(
+                r#"<span class="st val" title="{label}" aria-label="{label}">{icon}<b data-live="{key}">{}</b></span>"#,
+                v.map_or("–".to_owned(), |v| format!("{v} %"))
+            )
+        };
+        format!(
+            "{}{}{}{}",
+            heat(
+                "Nozzle",
+                "nozzle",
+                ICON_NOZZLE,
+                t.and_then(|t| t.nozzle_c),
+                t.and_then(|t| t.nozzle_target_c),
+                t.and_then(|t| t.nozzle_heating),
+            ),
+            heat(
+                "Bed",
+                "bed",
+                ICON_BED,
+                t.and_then(|t| t.bed_c),
+                t.and_then(|t| t.bed_target_c),
+                t.and_then(|t| t.bed_heating),
+            ),
+            pct(
+                "Speed",
+                "speed",
+                ICON_SPEED,
+                t.and_then(|t| t.speed_percent)
+            ),
+            pct("Flow", "flow", ICON_FLOW, t.and_then(|t| t.flow_percent)),
+        )
+    } else if machine.kind == MachineKind::Laser {
+        laser_chips(machine, profile)
+    } else {
+        String::new()
+    };
+    // Set ready (Prusa Connect's head button): the print is taken off the bed, so the next
+    // job may start; once ready, it can be taken back. Greyed out while there is nothing to say.
+    let id = escape(&machine.id);
+    let ready = if machine.kind == MachineKind::Scale {
+        String::new()
+    } else if machine.on_bed.is_some() {
+        format!(
+            r#"<form method="post" action="{id}/taken" data-async data-done="Ready" data-then="reload"><button class="ghost">Set ready</button></form>"#
+        )
+    } else if machine.ready.is_some() && machine.job.is_none() {
+        format!(
+            r#"<form method="post" action="{id}/not-ready" data-async data-done="Not ready" data-then="reload"><button class="ghost">Ready · undo</button></form>"#
+        )
+    } else {
+        r#"<button class="ghost" disabled title="Ready once a finished print is taken off">Set ready</button>"#.to_owned()
+    };
+    format!(
+        r##"<div class="mhead">
+    <div class="mhead-pic picture">{picture}</div>
+    <div class="mhead-main">
+      <div class="mhead-title"><h1>{name}</h1><span class="st {state_class}" data-live="state">{state}</span>{chips}{material}<a class="rename" href="#machine" title="Rename" aria-label="Rename"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></a></div>
+      <p class="muted">{subtitle}{firmware}</p>
+    </div>
+    <div class="mhead-act">{ready}</div>
+  </div>"##,
+        name = escape(&machine.name),
+        state = escape(state),
+        subtitle = escape(subtitle),
     )
 }
 
@@ -345,7 +580,7 @@ fn notices(machine: &Machine) -> String {
 }
 
 /// The bed level tab: the last mesh as numbers, and as a surface, a map and a table.
-fn bed_level(machine: &Machine, profile: Option<&Profile>) -> String {
+fn bed_level(machine: &Machine, profile: Option<&Profile>, operate: bool) -> String {
     let mesh = machine.mesh.as_ref();
     let range = mesh.and_then(|m| {
         maker_connect_protocol::Mesh {
@@ -390,7 +625,7 @@ fn bed_level(machine: &Machine, profile: Option<&Profile>) -> String {
         }),
     );
     let probe = match crate::probe_gcode(machine) {
-        Ok(_) if store::takes_commands(&machine.link) => format!(
+        Ok(_) if store::takes_commands(&machine.link) && operate => format!(
             r#"<form class="command" method="post" action="{}/command"><button name="action" value="probe-bed">Probe bed</button></form>"#,
             escape(&machine.id)
         ),
@@ -484,7 +719,40 @@ fn battery_tile(percent: Option<u8>) -> String {
     )
 }
 
-/// How a heater is doing, as the tiles say it (the script says it the same way).
+/// A laser's head chips (laser.html): X and Y where the controller says the head is, live, and
+/// the laser's optical power (as said under Machine, else its profile's).
+fn laser_chips(machine: &Machine, profile: Option<&Profile>) -> String {
+    let t = machine.telemetry.as_ref().filter(|_| machine.online);
+    let axis = |name: &str, key: &str, what: &str, i: usize| {
+        format!(
+            r#"<span class="st val" title="{name}, {what}" aria-label="{name}"><small>{name}</small><b data-live="{key}">{}</b> mm</span>"#,
+            t.and_then(|t| t.position_mm)
+                .filter(|_| !t.is_some_and(|t| t.only_z))
+                .map_or("–".to_owned(), |p| format!("{:.1}", p[i]))
+        )
+    };
+    let power = machine
+        .laser_w
+        .or(profile.and_then(|p| p.laser_w))
+        .map_or(String::new(), |w| {
+            format!(
+                r#"<span class="st val" title="Optical power" aria-label="Laser"><small>Laser</small><b>{w} W</b></span>"#
+            )
+        });
+    axis("X", "pos_x", "from the left", 0) + &axis("Y", "pos_y", "from the front", 1) + &power
+}
+
+/// Which of a preset's temperatures a heater takes (its nozzle's or its bed's).
+type PresetColumn = fn(&(&str, f64, f64)) -> f64;
+
+/// A head chip's target: " / 215" while one is set (printer.html), else nothing.
+fn target_note(target: Option<f32>) -> String {
+    match target {
+        Some(target) if target > 0.0 => format!(" / {target:.0}"),
+        _ => String::new(),
+    }
+}
+
 /// A heater's line under its temperature: what it heats to, and how it is getting there.
 /// (Whether it has power now is the flame beside its name.) As the page's script says it.
 fn heat_note(now: Option<f32>, target: Option<f32>) -> String {
@@ -506,20 +774,6 @@ fn heat_note(now: Option<f32>, target: Option<f32>) -> String {
         None if now > 40.0 => "no target told · ▼ cooling".to_owned(),
         None => "no target told".to_owned(),
     }
-}
-
-/// A tile with the loaded spool's colour as a spool beside its name, as Materials shows it.
-fn with_swatch(tile: String, color: Option<&str>) -> String {
-    let Some(color) = color.filter(|c| {
-        c.starts_with('#') && c.len() <= 9 && c[1..].chars().all(|ch| ch.is_ascii_hexdigit())
-    }) else {
-        return tile;
-    };
-    tile.replacen(
-        r#"<div class="label">Spool</div>"#,
-        &format!(r#"<div class="label heat-label">Spool<span class="spool-swatch" style="--c:{color}" role="img" aria-label="its colour"></span></div>"#),
-        1,
-    )
 }
 
 /// A heater's tile: its temperature, a flame beside its name while it has power (outlined
@@ -779,7 +1033,7 @@ fn job_card(machine: &Machine) -> String {
     });
     format!(
         r#"<div class="card job-card">
-  <div class="card-head"><div class="card-title"><h3>Job</h3><p class="card-sub" data-live="job_state">{state}</p></div><span class="corner" data-live="job_eta">{left}</span></div>
+  <div class="card-head"><div class="card-title"><h3>This print</h3><p class="card-sub" data-live="job_state">{state}</p></div><span class="corner" data-live="job_eta">{left}</span></div>
   <div class="job" data-job{hidden}>
     {thumbnail}
     <div class="job-main">
@@ -919,7 +1173,8 @@ fn profile_name(machine: &Machine, p: &Profile) -> String {
 
 /// Everything known of what the machine is: its profile's facts, and what it told about
 /// itself (over Prusa Connect, or through its agent). For Settings.
-fn machine_facts(machine: &Machine, profile: Option<&Profile>) -> String {
+/// What it is (from its profile) and what it told about itself: the Machine tab's Details.
+fn machine_facts(machine: &Machine, profile: Option<&Profile>) -> (String, String) {
     let t = machine.telemetry.as_ref();
     let details = machine.details.clone().unwrap_or_default();
     let identity = t.and_then(|t| t.identity.as_ref());
@@ -999,7 +1254,7 @@ fn machine_facts(machine: &Machine, profile: Option<&Profile>) -> String {
         ),
     ]
     .concat();
-    from_profile + &told
+    (from_profile, told)
 }
 
 /// A row the script keeps live; `–` while unknown.
@@ -1066,7 +1321,7 @@ fn queue_card(machine: &Machine) -> String {
         )
     };
     card(
-        "Queue",
+        &format!("Queue on {}", escape(&machine.name)),
         sub,
         &format!(
             r#"<p class="notice q-held" data-queue-held hidden><span>The last job <b data-held-why></b>: nothing starts until the bed is clear. Is it?</span><button type="button" data-bed-clear>Bed clear: go on</button></p><ol class="queue" data-queue></ol><p class="empty" data-queue-empty>{empty}</p>"#
@@ -1139,7 +1394,7 @@ fn jobs_card(machine: &Machine, extra: &Extra) -> String {
         })
         .collect();
     card(
-        "Jobs",
+        "History",
         "What ran on it, newest first",
         &format!(
             r#"{numbers}<ol class="job-history">{}</ol>"#,
@@ -1201,6 +1456,34 @@ fn upkeep_card(machine: &Machine, manage: bool) -> String {
             _ => "Cleaning and checking: every so many hours",
         },
         &format!(r#"<p>{state}</p>{forms}"#),
+    )
+}
+
+/// Where the controls would be, for someone without 'operate' on this machine (ui.md, the
+/// control rule and Ask for permission): one notice of what they may not do, no buttons that
+/// would be refused; for who may use it, Ask for permission (a request for 'operate'), or when
+/// they asked. Who may not use it asks for that first, in the notice above the tabs.
+fn no_operate(machine: &Machine, extra: &Extra) -> String {
+    let ask = if !extra.may_use {
+        String::new()
+    } else {
+        match extra.asked_operate {
+            Some(at) => format!(
+                "<small>Asked on {}.</small>",
+                crate::spoolman::iso(at)
+                    .chars()
+                    .take(10)
+                    .collect::<String>()
+            ),
+            None => format!(
+                r#"<form method="post" action="{}/ask" data-async data-then="reload" data-done="Asked"><input type="hidden" name="level" value="operate"><button>Ask for permission</button></form>"#,
+                escape(&machine.id)
+            ),
+        }
+    };
+    format!(
+        r##"<div class="notices"><div class="notice before-use"><span><b>You may not move, heat or send G-code to {}.</b> That takes 'operate' permission on it ('use' is jobs only); the space's staff give it.</span>{ask}</div></div>"##,
+        escape(&machine.name)
     )
 }
 
@@ -1283,7 +1566,7 @@ fn sheet_card(machine: &Machine) -> String {
 
 /// A 3D printer's filament: the spool loaded (from Materials), and loading or unloading it,
 /// hot to that spool's temperature first.
-fn filament_card(machine: &Machine) -> String {
+fn filament_card(machine: &Machine, operate: bool) -> String {
     if machine.kind != MachineKind::Fdm || !store::takes_commands(&machine.link) {
         return String::new();
     }
@@ -1302,7 +1585,7 @@ fn filament_card(machine: &Machine) -> String {
     );
     // A plain Marlin printer through an agent: no load or unload (OctoPrint, its port's
     // reference, has no such control), only the spool.
-    if plain_marlin(machine) {
+    if plain_marlin(machine) || !operate {
         return card(
             "Filament",
             "The spool on it, from Materials",
@@ -1389,47 +1672,9 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
             String::new(),
         )
     } else if heats(machine) {
-        heater_tiles(machine)
-            + &match &machine.loaded {
-                // The spool from Materials: what is left, and which it is.
-                Some(l) => with_swatch(
-                    tile(
-                        "Spool",
-                        "none",
-                        Some(if l.unit == "m" {
-                            format!("{:.1}", l.amount)
-                        } else {
-                            format!("{:.0}", l.amount)
-                        }),
-                        &format!("{} left", l.unit),
-                        "none",
-                        {
-                            let what = match &l.material {
-                                Some(m) => format!("{} · {} · {m}", l.item, l.name),
-                                None => format!("{} · {}", l.item, l.name),
-                            };
-                            // Where it feeds from: a dry box and its slot.
-                            match (&l.place, l.slot) {
-                                (Some(p), Some(n)) => format!("{what} · from {p}, slot {n}"),
-                                (Some(p), None) => format!("{what} · from {p}"),
-                                _ => what,
-                            }
-                        },
-                    ),
-                    l.color.as_deref(),
-                ),
-                None => tile(
-                    "Material",
-                    "material",
-                    material,
-                    "",
-                    "none",
-                    profile
-                        .and_then(|p| p.nozzle_mm)
-                        .map_or(String::new(), |n| format!("{n} mm nozzle")),
-                ),
-            }
-            + &job_tile(machine)
+        // The material and the job have cards of their own (printer.html): the heaters here.
+        let _ = material;
+        heater_tiles(machine) + &fan_tiles(machine)
     } else {
         position_tiles(machine)
             + &tile(
@@ -1447,7 +1692,6 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
                     "optical power".to_owned()
                 },
             )
-            + &job_tile(machine)
     };
     let picture = profile
         .and_then(Profile::image)
@@ -1468,22 +1712,130 @@ pub(crate) fn overview(machine: &Machine, profile: Option<&Profile>, side: &str)
         .concat(),
         None => "<dt>Profile</dt><dd>Not known yet: choose one under Settings</dd>".to_owned(),
     };
-    let _ = label;
-    format!(
-        r#"{}<div class="tiles">{tiles}</div>
-<div class="grid-2">{}{side}</div>"#,
-        if profile.is_none() {
-            no_profile_notice()
-        } else {
-            String::new()
-        },
-        card(
-            "Machine",
-            "",
-            &format!(
-                r#"<div class="machine-card"><div class="picture">{picture}</div><dl>{facts}</dl></div>"#
-            )
+    let machine_card = card(
+        "Machine",
+        "",
+        &format!(
+            r#"<div class="machine-card"><div class="picture">{picture}</div><dl class="kv">{facts}</dl></div>"#
         ),
+    );
+    let notice = if profile.is_none() {
+        no_profile_notice()
+    } else {
+        String::new()
+    };
+    // A label printer or a scale: its tiles and the machine, as before.
+    if label || machine.kind == MachineKind::Scale {
+        return format!(
+            r#"{notice}<div class="tiles">{tiles}</div>
+<div class="grid-2">{machine_card}{side}</div>"#
+        );
+    }
+    // printer.html: This print and Live on the left; the material, what is next, the machine
+    // on the right.
+    let side_cards = next_card(machine);
+    format!(
+        r#"{notice}<div class="cols"><div class="stack">{job}<div class="card"><h3>Live</h3><div class="tiles">{tiles}</div></div></div><div class="stack">{side_cards}{machine_card}{side}</div></div>"#,
+        job = job_card(machine),
+    )
+}
+
+/// A printer's Now tab (printer.html "Now"): its camera beside this print; what waits in its
+/// queue (kept live by machine.js) beside what ran last.
+fn now(machine: &Machine, profile: Option<&Profile>, extra: &Extra) -> String {
+    let notice = if profile.is_none() {
+        no_profile_notice()
+    } else {
+        String::new()
+    };
+    let camera = extra.camera_now.clone().unwrap_or_else(|| {
+        r##"<div class="card now-cam"><h3>Camera</h3><p class="empty">No camera on it. Cameras are linked to a machine in <a href="../space#cameras">Space → Cameras</a>.</p></div>"##.to_owned()
+    });
+    let queue = if machine.queue.is_empty() {
+        r#"<li class="empty">Nothing waits.</li>"#.to_owned()
+    } else {
+        machine
+            .queue
+            .iter()
+            .take(NOW_QUEUE)
+            .enumerate()
+            .map(|(i, q)| {
+                format!(
+                    r#"<li><span class="q-n">{}</span><span class="q-name"><b>{}</b><small>{}</small></span></li>"#,
+                    i + 1,
+                    escape(&q.file_name),
+                    escape(q.by.as_deref().unwrap_or(""))
+                )
+            })
+            .collect()
+    };
+    let recent: String = extra
+        .jobs
+        .iter()
+        .take(NOW_RECENT)
+        .map(|j| {
+            let state = j.state.name();
+            format!(
+                r#"<li><span class="j-name" title="{name}">{name}</span><b class="badge {state}">{state}</b><small>{when}{by}</small></li>"#,
+                name = escape(&j.file_name),
+                when = crate::spoolman::iso(j.created_at)
+                    .replace('T', " ")
+                    .chars()
+                    .take(16)
+                    .collect::<String>(),
+                by = j
+                    .by
+                    .as_deref()
+                    .map(|b| format!(" · {}", escape(b)))
+                    .unwrap_or_default(),
+            )
+        })
+        .collect();
+    format!(
+        r##"{notice}<div class="now-row">{camera}{job}</div>
+<div class="now-row"><div class="card"><div class="card-head"><h3>Next in its queue</h3><a href="#queue">The whole queue</a></div><ol class="now-queue" data-now-queue>{queue}</ol></div><div class="card"><div class="card-head"><h3>Recent jobs</h3><a href="#queue">All jobs</a></div><ol class="job-history">{recent}</ol></div></div>"##,
+        job = if machine.kind == MachineKind::Laser {
+            laser_job(machine, extra)
+        } else {
+            job_card(machine)
+        },
+        recent = if recent.is_empty() {
+            r#"<li class="empty">None yet</li>"#.to_owned()
+        } else {
+            recent
+        },
+    )
+}
+
+/// A laser's job on Now (laser.html): its loaded job and the steps to burn it, above the job
+/// card, which is always there: it carries the laser's Stop (a soft reset, also with no job) and
+/// shows a job's progress live once it burns.
+fn laser_job(machine: &Machine, extra: &Extra) -> String {
+    format!(
+        r#"<div class="stack">{}{}</div>"#,
+        loaded_card(machine, extra),
+        job_card(machine)
+    )
+}
+
+/// How many of its queue and its last jobs the Now tab lists (the Queue tab has them all).
+const NOW_QUEUE: usize = 3;
+const NOW_RECENT: usize = 5;
+
+/// What starts next here (printer.html "Next in its queue").
+fn next_card(machine: &Machine) -> String {
+    let next = match machine.queue.first() {
+        Some(q) => format!(
+            "<p>{}{}</p>",
+            escape(&q.file_name),
+            q.by.as_deref()
+                .map_or(String::new(), |b| format!(" · {}", escape(b)))
+        ),
+        None => r#"<p class="muted">Nothing waits.</p>"#.to_owned(),
+    };
+    format!(
+        r##"<div class="card"><h3>Next in its queue</h3>{next}<p><a href="#queue">All jobs on {}</a></p></div>"##,
+        escape(&machine.name)
     )
 }
 
@@ -1529,7 +1881,14 @@ pub(crate) fn plain_marlin(machine: &Machine) -> bool {
             != Some("grbl")
 }
 
-fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str) -> String {
+/// `refused`: the notice shown instead of the buttons without 'operate' ([`no_operate`]).
+fn control(
+    machine: &Machine,
+    profile: Option<&Profile>,
+    loaded: &str,
+    operate: bool,
+    refused: &str,
+) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
     let position = t.and_then(|t| t.position_mm);
     // X and Y not told now (a Prusa printing tells only Z): "–", not the last ones told.
@@ -1572,6 +1931,12 @@ fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str) -> String
             },
         ),
     );
+    // Without 'operate': where the head is, and one notice; no button that would be refused.
+    if !operate && store::takes_commands(&machine.link) {
+        return format!(
+            r#"{refused}<div class="grid-control">{bed}<div class="stack">{loaded}</div></div>"#
+        );
+    }
     if !store::takes_commands(&machine.link) {
         return format!(
             r#"<div class="grid-control">{bed}{}</div>"#,
@@ -1585,14 +1950,6 @@ fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str) -> String
     let button = |action: &str, text: &str| {
         format!(r#"<button name="action" value="{action}">{text}</button>"#)
     };
-    let axis = |name: &str| {
-        let lower = name.to_lowercase();
-        format!(
-            "<span>{name}</span>{}{}",
-            button(&format!("{lower}-"), "−10"),
-            button(&format!("{lower}+"), "+10")
-        )
-    };
     let fdm = heats(machine);
     // B5: OctoPrint's control panel has two Home buttons, X/Y and Z (`control.jinja2:71,85`).
     let home = if plain_marlin(machine) {
@@ -1604,70 +1961,139 @@ fn control(machine: &Machine, profile: Option<&Profile>, loaded: &str) -> String
     } else {
         button("home", "Home all")
     };
-    let mut controls = if fdm {
-        format!(
-            r#"<h4>Move</h4><div class="jog">{}{}{}{}</div><p class="hint">10 mm from where the head is. Home first.</p>"#,
-            home,
-            axis("X"),
-            axis("Y"),
-            axis("Z")
-        )
-    } else {
-        jog_pad()
-    };
     if fdm {
-        controls += &format!(
-            r#"<h4>Heat</h4><div class="buttons">{}{}{}</div>{}<h4>Fan and motors</h4><div class="buttons">{}{}{}</div>"#,
-            button("preheat-pla", "Preheat PLA"),
-            button("preheat-petg", "Preheat PETG"),
-            button("cooldown", "Cool down"),
-            heat_inputs(t, profile) + &factor_inputs(t),
-            // Prusa's MK3 family: no fan control, as PrusaLink has none.
-            if crate::prusa_mk3_machine(machine) {
-                String::new()
-            } else {
-                button("fan-on", "Print fan on")
-            },
-            if crate::prusa_mk3_machine(machine) {
-                String::new()
-            } else {
-                button("fan-off", "Print fan off")
-            },
-            button("motors-off", "Motors off"),
-        );
-        controls += &format!(
-            r#"<h4>Extruder</h4><div class="buttons">{}{}</div><p class="hint">10 mm at a time; the nozzle must be hot (the printer refuses a cold extrusion).</p>"#,
-            button("extrude", "Extrude 10 mm"),
-            button("retract", "Retract 10 mm"),
-        );
-    } else {
-        controls += &format!(
-            r#"<h4>Origin</h4><div class="buttons">{}{}</div><p class="hint">A job starts from its origin. Move the head to the corner of what you work on, then set it; the machine forgets it when it restarts.</p><h4>Machine</h4><div class="buttons">{}</div><p class="hint">Unlock after an alarm ($X).</p>"#,
-            button("set-origin", "Set origin here"),
-            button("go-origin", "Go to origin"),
-            button("unlock", "Unlock")
-        );
+        return printer_controls(machine, profile, t, loaded, &xyz, &gauge, &home, &button);
     }
-    let form = format!(
-        r#"<form class="command" method="post" action="{}/command">{controls}</form><p class="note" data-command-status role="status"></p>"#,
-        escape(&machine.id)
+    // laser.html: one card in two columns, as a printer's; the loaded job below.
+    let area = profile.map_or(
+        r#"<p class="empty">Choose a profile under Machine to see the work area.</p>"#.to_owned(),
+        |p| {
+            format!(
+                r#"<div class="bed-row">{}{gauge}</div>"#,
+                profiles::bed_svg(p)
+            )
+        },
+    );
+    let left = format!(
+        r#"<h4>Coordinates</h4><div class="xyz">{xyz}</div>{area}{}"#,
+        jog_pad()
+    );
+    // Read settings: what its controller reported is under Machine (the Controller card).
+    let read = if t.is_some_and(|t| t.grbl.is_some()) {
+        button("settings", "Read settings")
+    } else {
+        String::new()
+    };
+    let right = format!(
+        r#"<h4>Origin</h4><div class="buttons">{}{}</div><p class="hint">A job starts from its origin. Move the head to the corner of what you work on, then set it; the machine forgets it when it restarts.</p><h4>Machine</h4><div class="buttons">{}{read}</div><p class="hint">Unlock after an alarm ($X). A laser has no console: nothing but Start burn switches the laser on.</p>"#,
+        button("set-origin", "Set origin here"),
+        button("go-origin", "Go to origin"),
+        button("unlock", "Unlock"),
     );
     format!(
-        r#"<div class="grid-control">{bed}<div class="stack">{loaded}{}{}{}</div></div>"#,
-        job_card(machine),
+        r#"{}<div class="grid-2 control-below">{loaded}</div>"#,
         card(
-            "Control",
-            "Sent one at a time; each shows below how it went",
-            &form
-        ),
-        card(
-            "Commands",
-            "",
+            "Controls",
+            "Sent one at a time; History lists how each went",
             &format!(
-                r#"<ol class="commands" data-commands>{}</ol>"#,
-                commands(machine)
+                r#"<form class="command" method="post" action="{}/command"><div class="ctl-cols"><div>{left}</div><div>{right}</div></div></form><p class="note" data-command-status role="status"></p>"#,
+                escape(&machine.id)
             )
+        ),
+    )
+}
+
+/// A printer's Controls (Prusa Connect's layout, our own build): one card, moving, the
+/// extruder and the fan on the left; temperatures, speed and flow on the right. One form, so
+/// each button sends its own action as before. Below it the spool; what was sent is under History.
+#[allow(clippy::too_many_arguments)]
+fn printer_controls(
+    machine: &Machine,
+    profile: Option<&Profile>,
+    t: Option<&maker_connect_protocol::Telemetry>,
+    loaded: &str,
+    xyz: &str,
+    gauge: &str,
+    home: &str,
+    button: &dyn Fn(&str, &str) -> String,
+) -> String {
+    let bed = profile.map_or(
+        r#"<p class="empty">Choose a profile under Machine to see the bed.</p>"#.to_owned(),
+        |p| {
+            format!(
+                r#"<div class="bed-row">{}{gauge}</div>"#,
+                profiles::bed_svg(p)
+            )
+        },
+    );
+    // Prusa's MK3 family: no fan control, as PrusaLink has none.
+    let fan = if crate::prusa_mk3_machine(machine) {
+        String::new()
+    } else {
+        format!(
+            r#"<h4>Print fan</h4><div class="buttons">{}{}</div>"#,
+            button("fan-on", "On"),
+            button("fan-off", "Off")
         )
+    };
+    let pad = printer_pad();
+    let left = format!(
+        r#"<h4>Coordinates</h4><div class="xyz">{xyz}</div>{bed}{pad}<div class="buttons">{home}{}</div><h4>Extruder</h4><div class="buttons">{}{}</div><p class="hint">10 mm at a time; the nozzle must be hot (the printer refuses a cold extrusion).</p>{fan}"#,
+        button("motors-off", "Motors off"),
+        button("extrude", "Extrude 10 mm"),
+        button("retract", "Retract 10 mm"),
+    );
+    let right = format!(
+        r#"<h4>Temperatures</h4><div class="buttons">{}{}{}</div>{}{}"#,
+        button("preheat-pla", "Preheat PLA"),
+        button("preheat-petg", "Preheat PETG"),
+        button("cooldown", "Cool down"),
+        heat_inputs(t, profile),
+        factor_inputs(t),
+    );
+    format!(
+        r#"{}<div class="grid-2 control-below">{loaded}</div>"#,
+        card(
+            "Controls",
+            "Sent one at a time; History lists how each went",
+            &format!(
+                r#"<form class="command" method="post" action="{}/command"><div class="ctl-cols"><div>{left}</div><div>{right}</div></div></form><p class="note" data-command-status role="status"></p>"#,
+                escape(&machine.id)
+            )
+        ),
+    )
+}
+
+/// A printer's arrow pad (Prusa Connect's Controls, our own build): X and Y in a cross, Z up
+/// and down beside it, by the step chosen (0.1, 1 or 10 mm); the arrow keys move X and Y, Page
+/// Up and Page Down Z (machine.js). Sent as `jog:<x>:<y>` and `jog:0:0:<z>` (crate::commands).
+fn printer_pad() -> String {
+    let arrow = |action: &str, text: &str, what: &str| {
+        format!(
+            r#"<button name="action" value="{action}" title="Move {what}" aria-label="Move {what}">{text}</button>"#
+        )
+    };
+    let steps: String = [(0.1, "0.1"), (1.0, "1"), (10.0, "10")]
+        .iter()
+        .map(|(v, t)| {
+            format!(
+                r#"<label><input type="radio" name="step" value="{v}"{}><span>{t}</span></label>"#,
+                if *v == 1.0 { " checked" } else { "" }
+            )
+        })
+        .collect();
+    format!(
+        r#"<div class="jogpad printer-pad" tabindex="0" data-jogpad aria-label="Move the head: the arrow keys move X and Y, Page Up and Page Down Z, by the step">
+  <div class="jog-steps" role="radiogroup" aria-label="Step in mm"><small>Step</small>{steps}<small>mm</small></div>
+  <div class="pad-row"><div class="jog-grid"><span></span>{}<span></span>{}<span class="pad-xy">X/Y</span>{}<span></span>{}<span></span></div>
+  <div class="jog-grid jog-z">{}<span class="pad-xy">Z</span>{}</div></div>
+</div>"#,
+        arrow("jog:0:1", "↑", "back (Y+)"),
+        arrow("jog:-1:0", "←", "left (X−)"),
+        arrow("jog:1:0", "→", "right (X+)"),
+        arrow("jog:0:-1", "↓", "to the front (Y−)"),
+        arrow("jog:0:0:1", "↑", "up (Z+)"),
+        arrow("jog:0:0:-1", "↓", "down (Z−)"),
     )
 }
 
@@ -1761,27 +2187,10 @@ fn terminal(machine: &Machine) -> String {
     )
 }
 
-fn telemetry_tab(machine: &Machine) -> String {
+/// A printer's fans, as tiles (printer.html "Live").
+fn fan_tiles(machine: &Machine) -> String {
     let t = machine.telemetry.as_ref().filter(|_| machine.online);
     let rpm = |v: Option<u32>| v.map(|v| v.to_string());
-    let percent = |v: Option<f32>| v.map(|v| format!("{v} %"));
-    let motion = [
-        live_row(
-            "Position",
-            "position",
-            t.and_then(|t| t.position_mm)
-                .map(|[x, y, z]| format!("{x:.1} · {y:.1} · {z:.1} mm")),
-        ),
-        live_row("Speed", "speed", percent(t.and_then(|t| t.speed_percent))),
-    ]
-    .concat();
-    if !heats(machine) {
-        return format!(
-            r#"<div class="tiles">{}</div><div class="grid-2">{}</div>"#,
-            position_tiles(machine),
-            card("Motion", "", &format!("<dl>{motion}</dl>"))
-        );
-    }
     // Where a printer tells its fans only while it prints, that is said while none is told.
     let fan_note = |rpm: Option<u32>| {
         if rpm.is_some() {
@@ -1790,7 +2199,7 @@ fn telemetry_tab(machine: &Machine) -> String {
             "reported while printing".to_owned()
         }
     };
-    let fans = tile(
+    tile(
         "Print fan",
         "print_fan_n",
         rpm(t.and_then(|t| t.print_fan_rpm)),
@@ -1804,7 +2213,42 @@ fn telemetry_tab(machine: &Machine) -> String {
         "rpm",
         "none",
         fan_note(t.and_then(|t| t.hotend_fan_rpm)),
-    );
+    )
+}
+
+fn telemetry_tab(machine: &Machine) -> String {
+    let t = machine.telemetry.as_ref().filter(|_| machine.online);
+    // What was sent from the hub, and how it went (Prusa Connect's History tab).
+    let sent = if store::takes_commands(&machine.link) {
+        card(
+            "Commands",
+            "Sent from here, newest last; each with how it went",
+            &format!(
+                r#"<ol class="commands" data-commands>{}</ol>"#,
+                commands(machine)
+            ),
+        )
+    } else {
+        String::new()
+    };
+    let percent = |v: Option<f32>| v.map(|v| format!("{v} %"));
+    let motion = [
+        live_row(
+            "Position",
+            "position",
+            t.and_then(|t| t.position_mm)
+                .map(|[x, y, z]| format!("{x:.1} · {y:.1} · {z:.1} mm")),
+        ),
+        live_row("Speed", "speed", percent(t.and_then(|t| t.speed_percent))),
+    ]
+    .concat();
+    if !heats(machine) {
+        return format!(
+            r#"<div class="tiles">{}</div><div class="grid-2">{}</div>{sent}"#,
+            position_tiles(machine),
+            card("Motion", "", &format!(r#"<dl class="kv">{motion}</dl>"#))
+        );
+    }
     let printing = [
         live_row("Flow", "flow", percent(t.and_then(|t| t.flow_percent))),
         live_row("Material", "material", t.and_then(|t| t.material.clone())),
@@ -1827,33 +2271,36 @@ fn telemetry_tab(machine: &Machine) -> String {
     .concat();
     let chart = r#"<div class="card chart-card">
   <div class="card-head">
-    <div><h3>Temperatures</h3><p class="card-sub">The last 30 minutes, live · targets dashed</p></div>
+    <div><h3>Temperatures</h3><p class="card-sub">The last 2 hours, live · targets dashed</p></div>
     <button type="button" class="ghost" data-table-toggle aria-pressed="false">Table</button>
   </div>
   <div class="legend"><span><i class="key key-nozzle"></i>Nozzle</span><span><i class="key key-bed"></i>Bed</span><span><i class="key key-target"></i>Target</span></div>
   <div class="plot">
-    <svg id="chart" role="img" aria-label="Nozzle and bed temperature over the last 30 minutes"></svg>
+    <svg id="chart" role="img" aria-label="Nozzle and bed temperature over the last 2 hours"></svg>
     <div id="tip" class="tip" hidden></div>
   </div>
   <div class="table-wrap" data-table hidden></div>
 </div>
 <div class="card chart-card">
   <div class="card-head">
-    <div><h3>Fans</h3><p class="card-sub">The last 30 minutes, live · where the machine tells them</p></div>
+    <div><h3>Fans</h3><p class="card-sub">The last 2 hours, live · where the machine tells them</p></div>
   </div>
   <div class="legend"><span><i class="key key-print-fan"></i>Print fan</span><span><i class="key key-hotend-fan"></i>Hotend fan</span></div>
   <div class="plot">
-    <svg id="fanchart" role="img" aria-label="Print fan and hotend fan speed over the last 30 minutes"></svg>
+    <svg id="fanchart" role="img" aria-label="Print fan and hotend fan speed over the last 2 hours"></svg>
     <div id="fantip" class="tip" hidden></div>
   </div>
 </div>"#;
     format!(
-        r#"<div class="tiles">{}{fans}</div>
-{chart}
-<div class="grid-2">{}{}</div>"#,
-        heater_tiles(machine),
-        card("Motion", "", &format!("<dl>{motion}</dl>")),
-        card("Printing", "", &format!("<dl>{printing}</dl>")),
+        // The heaters' and fans' tiles are in Overview's Live card.
+        r#"{chart}
+<div class="grid-2">{}{}</div>{sent}"#,
+        card("Motion", "", &format!(r#"<dl class="kv">{motion}</dl>"#)),
+        card(
+            "Printing",
+            "",
+            &format!(r#"<dl class="kv">{printing}</dl>"#)
+        ),
     )
 }
 
@@ -1863,7 +2310,7 @@ fn gigabytes(bytes: u64) -> String {
 }
 
 /// A GRBL machine's own settings (`$$`), and what in them matters before a job.
-fn controller(machine: &Machine) -> String {
+fn controller(machine: &Machine, operate: bool) -> String {
     let Some(grbl) = machine.telemetry.as_ref().and_then(|t| t.grbl.as_ref()) else {
         return String::new();
     };
@@ -1901,7 +2348,7 @@ fn controller(machine: &Machine) -> String {
         .iter()
         .map(|n| format!(r#"<p class="note">{}</p>"#, escape(n)))
         .collect();
-    let read = if store::takes_commands(&machine.link) {
+    let read = if store::takes_commands(&machine.link) && operate {
         format!(
             r#"<form class="command" method="post" action="{}/command"><button name="action" value="settings" class="ghost">Read them again</button></form><p class="note" data-command-status role="status"></p>"#,
             escape(&machine.id)
@@ -2026,6 +2473,7 @@ pub(crate) fn settings(
     machine: &Machine,
     move_to: &[(String, String)],
     ppe_checks: bool,
+    operate: bool,
 ) -> String {
     let details = machine.details.clone().unwrap_or_default();
     // The profile: chosen from all the machines known, by searching (the shell's picker).
@@ -2226,22 +2674,36 @@ pub(crate) fn settings(
     ]
     .concat();
     let mut info = connection(machine);
-    info += &controller(machine);
-    if !about.is_empty() {
-        info += &card(
-            "Machine",
-            "Its profile, and what it told about itself",
-            &format!("<dl>{about}</dl>"),
-        );
-    }
+    info += &controller(machine, operate);
     if !storage.is_empty() {
         info += &card("Storage", "", &format!("<dl>{storage}</dl>"));
     }
     if !network.is_empty() {
         info += &card("Network", "", &format!("<dl>{network}</dl>"));
     }
+    // Details first (Prusa Connect's Printer tab, our own build): what it is beside what it told.
+    let (spec, told) = about;
+    let column = |title: &str, rows: &str| {
+        format!(
+            r#"<div><h4>{title}</h4>{}</div>"#,
+            if rows.is_empty() {
+                r#"<p class="empty">Not known yet.</p>"#.to_owned()
+            } else {
+                format!(r#"<dl class="kv">{rows}</dl>"#)
+            }
+        )
+    };
+    let details = card(
+        "Details",
+        "Its profile, and what it told about itself",
+        &format!(
+            r#"<div class="ctl-cols">{}{}</div>"#,
+            column("Specification", &spec),
+            column("This machine", &told)
+        ),
+    );
     format!(
-        r#"<div class="grid-settings">{}<div class="stack">{info}</div></div>"#,
+        r#"{details}<div class="grid-settings">{}<div class="stack">{info}</div></div>"#,
         card("Settings", "", &forms)
     )
 }
@@ -2290,7 +2752,7 @@ fn jog_pad() -> String {
         })
         .collect();
     format!(
-        r#"<h4>Move</h4><div class="jogpad" tabindex="0" data-jogpad aria-label="Move the head: arrow keys move by the step">
+        r#"<div class="jogpad" tabindex="0" data-jogpad aria-label="Move the head: arrow keys move by the step">
   <div class="jog-grid">{pad}</div>
   <div class="jog-settings"><div class="jog-steps" role="radiogroup" aria-label="Step in mm">{steps}<small>mm</small></div>
     <label class="jog-speed">Speed <select name="feed"><option value="600">slow</option><option value="1500">medium</option><option value="3000" selected>normal</option><option value="6000">fast</option></select></label></div>
@@ -2369,7 +2831,7 @@ mod tests {
         let fdm = maker_connect_protocol::MachineKind::Fdm;
         let (space, ender, _) = store.register_test_machine("Ender", fdm).await;
         let marlin = store.machine(space, &ender).await.unwrap().unwrap();
-        let page = control(&marlin, None, "");
+        let page = control(&marlin, None, "", true, "");
         assert!(
             page.contains(r#"value="home-xy""#) && page.contains(r#"value="home-z""#),
             "{page}"
@@ -2379,7 +2841,7 @@ mod tests {
         let (_, mk3, _) = store.register_test_machine("MK3", fdm).await;
         let mut mk3 = store.machine(space, &mk3).await.unwrap().unwrap();
         mk3.profile = Some("prusa/mk3s".to_owned());
-        let page = control(&mk3, profiles::find("prusa/mk3s"), "");
+        let page = control(&mk3, profiles::find("prusa/mk3s"), "", true, "");
         assert!(
             page.contains(r#"value="home""#) && !page.contains("home-xy"),
             "{page}"

@@ -39,14 +39,21 @@ pub(crate) fn jog_command(
         "1" => Some(1.0),
         _ => None,
     };
-    let (x, y) = action.strip_prefix("jog:")?.split_once(':')?;
-    let (x, y) = (dir(x)?, dir(y)?);
-    if (x, y) == (0.0, 0.0) {
+    // `jog:<x>:<y>`, or `jog:0:0:<z>` (a printer's pad: Z on its own, at the speed its Z
+    // buttons always had, F600).
+    let parts: Vec<&str> = action.strip_prefix("jog:")?.split(':').collect();
+    let (x, y, z) = match parts[..] {
+        [x, y] => (dir(x)?, dir(y)?, 0.0),
+        ["0", "0", z] if !grbl => (0.0, 0.0, dir(z)?),
+        _ => return None,
+    };
+    if (x, y, z) == (0.0, 0.0, 0.0) {
         return None;
     }
+    let feed = if z != 0.0 { 600.0 } else { feed };
     let mut axes = String::new();
     let mut label = String::from("Move");
-    for (name, d) in [("X", x), ("Y", y)] {
+    for (name, d) in [("X", x), ("Y", y), ("Z", z)] {
         if d != 0.0 {
             axes += &format!(" {name}{}", d * step);
             label += &format!(" {name}{}{step}", if d > 0.0 { "+" } else { "−" });
@@ -87,7 +94,7 @@ pub(crate) fn action(name: &str) -> Option<(&'static str, &'static str)> {
         "z+" => ("Z +10 mm", "G91\nG1 Z10 F600\nG90"),
         "z-" => ("Z −10 mm", "G91\nG1 Z-10 F600\nG90"),
         "preheat-pla" => ("Preheat PLA (215/60 °C)", "M104 S215\nM140 S60"),
-        "preheat-petg" => ("Preheat PETG (240/80 °C)", "M104 S240\nM140 S80"),
+        "preheat-petg" => ("Preheat PETG (230/85 °C)", "M104 S230\nM140 S85"),
         "cooldown" => ("Cool down", "M104 S0\nM140 S0"),
         "unlock" => ("Unlock", "$X"),
         "fan-on" => ("Print fan on", "M106 S255"),
@@ -155,6 +162,16 @@ mod tests {
         );
         assert_eq!(jog_command("jog-z:1", 10.0, 3000.0, true), None, "no Z");
         assert_eq!(jog_command("jog:0:0", 10.0, 3000.0, true), None);
+        // A printer's Z, at F600 whatever the speed; not on GRBL.
+        assert_eq!(
+            jog_command("jog:0:0:-1", 0.1, 3000.0, false),
+            Some((
+                "Move Z−0.1 mm".to_owned(),
+                "G91\nG1 Z-0.1 F600\nG90".to_owned()
+            ))
+        );
+        assert_eq!(jog_command("jog:0:0:1", 1.0, 3000.0, true), None);
+        assert_eq!(jog_command("jog:1:0:1", 1.0, 3000.0, false), None);
         assert_eq!(jog_command("jog:2:0", 10.0, 3000.0, true), None);
         assert_eq!(
             jog_command("jog:1:0", 500.0, 3000.0, true),

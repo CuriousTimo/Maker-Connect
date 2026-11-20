@@ -77,8 +77,7 @@ pub const HUB_LOGIN: &str = "maker_connect_hub";
 
 /// Why a query crosses spaces: the admin-pool allowlist of design database.md (plan §2.6, completed
 /// there; ADR 20261119-database-roles), by its numbers. Everything else runs in its space's transaction
-/// ([`Pg::space`]). The fourth, writers that span spaces (the history subscriber, the command sweep),
-/// comes with them (step 3).
+/// ([`Pg::space`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Bypass {
     /// 1. Before the space is known: a device's registration is inserted (code, secret), and a
@@ -93,6 +92,9 @@ pub(crate) enum Bypass {
     /// 3. Instance admin: only for a user with `instance_admin`: the instance's own settings and
     ///    views, what spans tenants, moving a device to another space.
     InstanceAdmin,
+    /// 4. Writers that span spaces: the history writer (`sample`, `gap`; crate::store::history),
+    ///    which has no app-role grant on those tables (decisions/20261120-history-views-not-rls.md).
+    Writer,
     /// 5. Background tasks listing their work: which spaces and devices have work; each unit of work
     ///    then runs on the app pool in its space.
     TaskList,
@@ -336,6 +338,7 @@ mod tests {
                         "Bypass::Secret" => "1",
                         "Bypass::SignIn" => "2",
                         "Bypass::InstanceAdmin" => "3",
+                        "Bypass::Writer" => "4",
                         "Bypass::TaskList" => "5",
                         "Bypass::Me" => "6",
                         _ => "no Bypass",

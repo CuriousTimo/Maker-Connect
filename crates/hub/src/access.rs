@@ -150,6 +150,8 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ("*", "/login", Need::Public, None),
     ("*", "/setup", Need::Public, None),
     ("*", "/logo.svg", Need::Public, None),
+    ("*", "/logo-large.svg", Need::Public, None),
+    ("*", "/logo-large-dark.svg", Need::Public, None),
     ("*", maker_connect_protocol::REGISTER, Need::Public, None),
     ("*", maker_connect_protocol::TELEMETRY, Need::Public, None),
     // A USB camera's frame: the agent's token, checked by the route (crate::usbcam).
@@ -278,6 +280,7 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ),
     ("GET", "/api/space/audit", Need::Role(Role::Admin), None),
     // Machines.
+    ("GET", "/machines/add", Need::Role(Role::Admin), None),
     (
         "POST",
         "/pair",
@@ -1132,6 +1135,8 @@ pub struct AskedFor {
     pub machine_id: String,
     pub machine: String,
     pub training: bool,
+    /// What they ask for: use or operate.
+    pub level: Level,
     pub asked_at: i64,
 }
 
@@ -1571,7 +1576,7 @@ mod tests {
             "managing: yes"
         );
         assert_eq!(
-            w.post(&adam, &format!("/machines/{laser}/command"), "gcode=G0")
+            w.post(&adam, &format!("/machines/{laser}/command"), "action=home")
                 .await
                 .0,
             StatusCode::FORBIDDEN,
@@ -1605,9 +1610,9 @@ mod tests {
             Level::Use,
             "closed again: through the group Printers"
         );
-        // In the Space page's Members tab: an admin sees everyone's permissions, with a
-        // Permissions… window per person; a member sees only their own, without it.
-        let (status, page) = w.get(&adam, "/space").await;
+        // On Space → Permissions: an admin sees everyone's permissions, with a Permissions…
+        // window per person; a member sees only their own (My permissions), without it.
+        let (status, page) = w.get(&adam, "/space/permissions").await;
         assert_eq!(status, StatusCode::OK);
         assert!(
             page.contains(&format!(
@@ -1623,7 +1628,9 @@ mod tests {
             page.contains(&format!(r#"data-open-perm="{mia_id}""#)),
             "her window"
         );
-        assert!(page.contains(r#"data-panel="permissions""#));
+        assert!(
+            page.contains(r#"<a href="/space/permissions" aria-current="page">Permissions</a>"#)
+        );
         let (status, page) = w.get(&mia, "/space").await;
         assert_eq!(status, StatusCode::OK);
         assert!(
@@ -1693,7 +1700,7 @@ mod tests {
         let asked = w.store.requests(space).await.unwrap();
         assert_eq!(asked.len(), 1, "asked once");
         assert!(asked[0].training);
-        let (_, page) = w.get(&adam, "/space").await;
+        let (_, page) = w.get(&adam, "/space/permissions").await;
         assert!(page.contains("asks for a training"), "the staff see it");
         let give = format!("/permissions/requests/{}/give", asked[0].id);
         assert_eq!(
@@ -1712,6 +1719,42 @@ mod tests {
             w.post(&mia, &ask, "").await.0,
             StatusCode::CONFLICT,
             "she may use it now"
+        );
+        // Using is not operating: Controls asks for 'operate' (once); Give gives that.
+        let page = w.get(&mia, &format!("/machines/{p4}")).await.1;
+        assert!(
+            page.contains(r#"<input type="hidden" name="level" value="operate"><button>Ask for permission</button>"#),
+            "Controls offers to ask"
+        );
+        assert_eq!(
+            w.post(&mia, &ask, "level=run").await.0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            w.post(&mia, &ask, "level=operate").await.0,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            w.post(&mia, &ask, "level=operate").await.0,
+            StatusCode::NO_CONTENT
+        );
+        let asked = w.store.requests(space).await.unwrap();
+        assert_eq!(asked.len(), 1, "asked once");
+        assert_eq!(asked[0].level, Level::Operate);
+        let page = w.get(&mia, &format!("/machines/{p4}")).await.1;
+        assert!(
+            !page.contains(r#"value="operate"><button>"#),
+            "asked: no button"
+        );
+        let (_, page) = w.get(&adam, "/space/permissions").await;
+        assert!(page.contains("asks to operate"), "the staff see it");
+        let give = format!("/permissions/requests/{}/give", asked[0].id);
+        assert_eq!(w.post(&adam, &give, "").await.0, StatusCode::NO_CONTENT);
+        assert_eq!(level(&p4).await, Level::Operate);
+        assert_eq!(
+            w.post(&mia, &ask, "level=operate").await.0,
+            StatusCode::CONFLICT,
+            "she may operate it now"
         );
         // Someone else's space's group: not found.
         let other = {
@@ -2274,7 +2317,7 @@ mod tests {
         let command = format!("/machines/{laser}/command");
         let media = format!("/machines/{laser}/job");
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::FORBIDDEN
         );
         assert_eq!(
@@ -2289,7 +2332,7 @@ mod tests {
             StatusCode::NO_CONTENT
         );
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::FORBIDDEN,
             "use is not operate"
         );
@@ -2306,7 +2349,7 @@ mod tests {
         // A laser in a space that asks for PPE: first the glasses (crate::safety). Switching
         // off never waits for them. (A space that does not ask: no glasses needed.)
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::NO_CONTENT,
             "not asked: on"
         );
@@ -2320,7 +2363,7 @@ mod tests {
             StatusCode::NO_CONTENT
         );
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::PRECONDITION_REQUIRED
         );
         assert_ne!(
@@ -2339,7 +2382,7 @@ mod tests {
             StatusCode::OK
         );
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::NO_CONTENT
         );
         // Its manager says it needs safety glasses and hearing protection: asked again, and
@@ -2355,7 +2398,7 @@ mod tests {
             StatusCode::NO_CONTENT
         );
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::PRECONDITION_REQUIRED
         );
         assert_eq!(
@@ -2370,7 +2413,7 @@ mod tests {
             StatusCode::OK
         );
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::NO_CONTENT
         );
         // Until a day long gone: ended.
@@ -2385,7 +2428,7 @@ mod tests {
             StatusCode::NO_CONTENT
         );
         assert_eq!(
-            w.post(&mia, &command, "gcode=G0").await.0,
+            w.post(&mia, &command, "action=home").await.0,
             StatusCode::FORBIDDEN
         );
         // Members may not give inductions.
@@ -2865,6 +2908,32 @@ mod tests {
         // The status of each method on each path, for no session and for each role.
         text.push_str("# status: method path, then none guest member admin owner\n");
         let skipped = [(Method::POST, "/agents/update")];
+        // A new hub: the store emptied again, its owner and organisation, and a session for
+        // no one and for each role.
+        async fn new_hub(pool: &sqlx::PgPool) -> (World, Vec<Option<String>>) {
+            let store = Store::fresh_for_test(pool).await;
+            let w = World {
+                app: crate::app(store.clone()),
+                store,
+            };
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            let (org, _) = w
+                .store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
+                .unwrap();
+            let mut cookies: Vec<Option<String>> = vec![None];
+            for role in [Role::Guest, Role::Member, Role::Admin, Role::Owner] {
+                let name = role.as_str();
+                cookies.push(Some(w.person(name, Some((org, role)), None).await.1));
+            }
+            (w, cookies)
+        }
+        let mut fresh: Option<(World, Vec<Option<String>>)> = None;
         for path in &paths {
             let mut address = String::new();
             let mut rest = path.as_str();
@@ -2886,27 +2955,14 @@ mod tests {
                 Method::PATCH,
                 Method::DELETE,
             ] {
-                // A new hub for each call (the database emptied again).
-                let store = Store::fresh_for_test(&pool).await;
-                let w = World {
-                    app: crate::app(store.clone()),
-                    store,
-                };
-                let owner = w
-                    .store
-                    .create_user("olga", "Olga", "x", false)
-                    .await
-                    .unwrap();
-                let (org, _) = w
-                    .store
-                    .create_organisation("Fablab", "Werkplaats", owner)
-                    .await
-                    .unwrap();
-                let mut cookies: Vec<Option<String>> = vec![None];
-                for role in [Role::Guest, Role::Member, Role::Admin, Role::Owner] {
-                    let name = role.as_str();
-                    cookies.push(Some(w.person(name, Some((org, role)), None).await.1));
+                // Every line starts on a new hub (the database emptied again). A line whose
+                // calls were all refused before a handler ran (401, 403, 405) leaves the hub as
+                // it was, so the next line keeps it.
+                if fresh.is_none() {
+                    fresh = Some(new_hub(&pool).await);
                 }
+                let (w, cookies) = fresh.as_ref().unwrap();
+                let mut keep = true;
                 let needed = need(&method, path);
                 let mut line = format!("{method} {path} =>");
                 for (i, cookie) in cookies.iter().enumerate() {
@@ -2932,7 +2988,12 @@ mod tests {
                         .oneshot(request.body(Body::empty()).unwrap())
                         .await
                         .unwrap();
-                    let _ = write!(line, " {}", response.status().as_u16());
+                    let status = response.status().as_u16();
+                    keep &= matches!(status, 401 | 403 | 405);
+                    let _ = write!(line, " {status}");
+                }
+                if !keep {
+                    fresh = None;
                 }
                 text.push_str(&line);
                 text.push('\n');

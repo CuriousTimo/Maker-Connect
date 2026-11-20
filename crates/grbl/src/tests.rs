@@ -309,7 +309,13 @@ fn a_job_is_refused_when_laser_mode_is_off() {
     let mut sim = quick();
     sim.set_setting(32, "0");
     let mut run = Run::new(GrblMachine::new(Box::new(sim)));
-    run.until("the settings", |r| r.telemetry.grbl.is_some());
+    // `$32` itself, not the first of the settings (`$0` comes long before it).
+    run.until("$32", |r| {
+        r.telemetry
+            .grbl
+            .as_ref()
+            .is_some_and(|g| g.laser_mode.is_some())
+    });
     let why = run
         .machine
         .start(1, "a", "G1 X1 F100\n".into(), None)

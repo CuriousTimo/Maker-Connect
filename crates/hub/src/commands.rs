@@ -62,6 +62,22 @@ fn refused_now(
     None
 }
 
+/// The preheat presets (material, nozzle °C, bed °C): one list for the head's menu and Controls'
+/// Preheat buttons. Prusa Connect's `PREHEAT_PRESETS` (packages/svelte/src/domain/preheat.ts
+/// @2e8c62b), the firmware's own list.
+pub(crate) const PREHEAT_PRESETS: [(&str, f64, f64); 10] = [
+    ("PLA", 215.0, 60.0),
+    ("PETG", 230.0, 85.0),
+    ("ASA", 260.0, 100.0),
+    ("ABS", 255.0, 100.0),
+    ("PC", 275.0, 100.0),
+    ("FLEX", 240.0, 50.0),
+    ("HIPS", 220.0, 100.0),
+    ("PP", 240.0, 100.0),
+    ("PVB", 215.0, 75.0),
+    ("PA", 285.0, 100.0),
+];
+
 /// The commands the website offers: a label and its G-code. Moves are relative, 10 mm.
 /// A button of the website for a machine behind an agent, as typed commands (exactly the
 /// controls the pages offer, owner's approval O8). Its step and speed from the page's lists
@@ -155,15 +171,18 @@ fn agent_actions(
                 "1" => Some(1.0),
                 _ => None,
             };
-            let (x, y) = jog_pad["jog:".len()..]
-                .split_once(':')
-                .ok_or("Move: no such direction")?;
-            let (x, y) = (
-                dir(x).ok_or("Move: no such direction")?,
-                dir(y).ok_or("Move: no such direction")?,
-            );
+            // `jog:<x>:<y>`, or `jog:0:0:<z>` (a printer's pad: Z on its own).
+            let parts: Vec<&str> = jog_pad["jog:".len()..].split(':').collect();
+            let (x, y, z) = match parts[..] {
+                [x, y] => (dir(x), dir(y), Some(0.0)),
+                ["0", "0", z] => (Some(0.0), Some(0.0), dir(z)),
+                _ => (None, None, None),
+            };
+            let (Some(x), Some(y), Some(z)) = (x, y, z) else {
+                return Err("Move: no such direction".to_owned());
+            };
             let some = |d: f64| (d != 0.0).then_some(d * step);
-            jog(format!("Move {step} mm"), some(x), some(y), None)
+            jog(format!("Move {step} mm"), some(x), some(y), some(z))
         }
         "extrude" => one("Extrude 10 mm", Action::Extrude { mm: 10.0 }),
         "retract" => one("Retract 10 mm", Action::Extrude { mm: -10.0 }),
@@ -194,7 +213,7 @@ fn agent_actions(
             },
         ),
         "preheat-pla" => heat("Preheat PLA (215/60 °C)", 215.0, 60.0),
-        "preheat-petg" => heat("Preheat PETG (240/80 °C)", 240.0, 80.0),
+        "preheat-petg" => heat("Preheat PETG (230/85 °C)", 230.0, 85.0),
         "cooldown" => heat("Cool down", 0.0, 0.0),
         "fan-on" => one("Print fan on", Action::Fan { on: true }),
         "fan-off" => one("Print fan off", Action::Fan { on: false }),
@@ -401,6 +420,10 @@ pub(crate) async fn emergency_stop(
     }
 }
 
+/// Why typed G-code to a laser is refused (our text).
+pub(crate) const LASER_NO_GCODE: &str =
+    "a laser takes no typed G-code: only Start burn switches it on";
+
 pub(crate) async fn command(
     access: crate::access::Access,
     State(store): State<Store>,
@@ -422,6 +445,14 @@ pub(crate) async fn command(
         .and_then(|m| m.as_ref())
         .map(|m| m.link.clone());
     let link = link.as_deref();
+    // A laser takes no typed G-code: a line could switch it on without a frame, PPE or a person's
+    // Start (docs/design/decisions/20261119-no-raw-gcode-on-a-laser.md).
+    if !form.gcode.trim().is_empty()
+        && let Ok(Some(machine)) = &found_machine
+        && machine.kind == protocol::MachineKind::Laser
+    {
+        return (StatusCode::BAD_REQUEST, LASER_NO_GCODE).into_response();
+    }
     let mut store = store.lock().unwrap();
     // Switching things off never waits for PPE; everything else does.
     let off = form.gcode.trim().is_empty()
@@ -589,7 +620,19 @@ pub(crate) async fn command(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::link::tests::{call, json};
+
+    /// Controls' Preheat buttons and the legacy G-code follow PREHEAT_PRESETS (one list).
+    #[test]
+    fn the_preheat_buttons_are_the_presets() {
+        for (action, material) in [("preheat-pla", "PLA"), ("preheat-petg", "PETG")] {
+            let (_, nozzle, bed) = PREHEAT_PRESETS.iter().find(|p| p.0 == material).unwrap();
+            let (label, gcode) = crate::devices::legacy_gcode::action(action).unwrap();
+            assert_eq!(gcode, format!("M104 S{nozzle}\nM140 S{bed}"), "{action}");
+            assert!(label.contains(&format!("({nozzle}/{bed} °C)")), "{label}");
+        }
+    }
 
     use axum::body::Body;
     use axum::http::Request;
@@ -1016,6 +1059,91 @@ mod tests {
             .into_iter()
             .map(|c| c.action)
             .collect()
+    }
+
+    /// The control rule (ui.md): without 'operate' the page shows no button that sends a command
+    /// (pad, terminal, probe), one notice instead; with it, the pad is there.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn without_operate_the_controls_are_hidden(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (id, _) = agent_of(&store, MachineKind::Fdm, None).await;
+        let page = || {
+            Request::get(format!("/machines/{id}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+        let html = call(&app, page()).await.1;
+        assert!(
+            html.contains("You may not move, heat or send G-code"),
+            "{html}"
+        );
+        for sends in [r#"value="jog:0:1""#, "data-gcode ", r#"value="probe-bed""#] {
+            assert!(!html.contains(sends), "{sends} shown without operate");
+        }
+        crate::auth::tester_may_operate(&store, &id).await;
+        let html = call(&app, page()).await.1;
+        assert!(!html.contains("You may not move, heat or send G-code"));
+        assert!(html.contains(r#"value="jog:0:1""#));
+        assert!(html.contains(r#"value="jog:0:0:-1""#));
+    }
+
+    /// A laser takes no typed G-code, also for whoever may operate it (decision
+    /// 20261119-no-raw-gcode-on-a-laser); its page has no terminal and no Advanced tab, and its
+    /// Controls are one card (laser.html): Coordinates with the pad, Origin and Machine.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_laser_takes_no_typed_gcode(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (laser, token) = agent_of(&store, MachineKind::Laser, None).await;
+        let user = store.user_id("tester").await.unwrap().unwrap();
+        let space = store.default_space().await.unwrap().0;
+        store
+            .set_grant(
+                space,
+                &laser,
+                user,
+                crate::access::Level::Operate,
+                user,
+                None,
+            )
+            .await
+            .unwrap();
+        for gcode in ["M3 S1000", "M105"] {
+            let typed = Request::post(format!("/machines/{laser}/command"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("gcode={gcode}")))
+                .unwrap();
+            let (status, why) = call(&app, typed).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{gcode}");
+            assert_eq!(why, LASER_NO_GCODE);
+        }
+        assert!(given(&store, &token).await.is_empty(), "nothing sent");
+        let page = call(
+            &app,
+            Request::get(format!("/machines/{laser}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .1;
+        assert!(!page.contains(r#"<pre class="terminal""#), "no terminal");
+        assert!(!page.contains(r##"href="#advanced""##), "no Advanced tab");
+        assert!(page.contains("<h4>Coordinates</h4>") && page.contains(r#"class="ctl-cols""#));
+        assert!(page.contains(r#"value="set-origin""#) && page.contains(r#"value="jog:1:1""#));
+        assert!(page.contains(r#"data-live="pos_x""#), "X in the head");
+        assert!(
+            page.contains(">Emergency stop (soft reset)</button>"),
+            "its Stop on Now"
+        );
     }
 
     /// HS6: the button's route, per kind: a Marlin machine is sent exactly the typed `M112` (the path

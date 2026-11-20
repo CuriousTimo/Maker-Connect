@@ -2,6 +2,7 @@
 /
 /about
 /about/update
+/account
 /account/password
 /agents/update
 /api/agent/v1/files/{id}
@@ -109,10 +110,13 @@
 /laser-design/
 /laser-design/{*file}
 /login
+/logo-large-dark.svg
+/logo-large.svg
 /logo.svg
 /logout
 /machines
 /machines/
+/machines/add
 /machines/{id}
 /machines/{id}/access
 /machines/{id}/agent/update
@@ -154,6 +158,7 @@
 /p/events
 /p/register
 /p/telemetry
+/p/ws
 /pair
 /path
 /permissions/groups
@@ -182,6 +187,7 @@
 /space/safety
 /space/tokens
 /space/tokens/{id}/revoke
+/space/{tab}
 /spaces
 /spaces/switch
 /spool/show/{id}
@@ -195,6 +201,8 @@
 ("*", "/login", Public, None)
 ("*", "/setup", Public, None)
 ("*", "/logo.svg", Public, None)
+("*", "/logo-large.svg", Public, None)
+("*", "/logo-large-dark.svg", Public, None)
 ("*", "/api/agent/v1/register", Public, None)
 ("*", "/api/agent/v1/telemetry", Public, None)
 ("*", "/api/agent/v1/cameras/{index}/frame", Public, None)
@@ -203,6 +211,7 @@
 ("*", "/p/register", Public, None)
 ("*", "/p/telemetry", Public, None)
 ("*", "/p/events", Public, None)
+("*", "/p/ws", Public, None)
 ("GET", "/f/{iv}/raw", Public, None)
 ("*", "/simplyprint/{token}", Public, None)
 ("*", "/simplyprint/{token}/jobs/{job}/file", Public, None)
@@ -224,8 +233,8 @@
 ("POST", "/instance/open-spaces", InstanceAdmin, None)
 ("GET", "/api/update", InstanceAdmin, None)
 ("POST", "/about/update", InstanceAdmin, None)
-("POST", "/machines/{id}/agent/update", Machine(Manage), None)
-("POST", "/agents/update", Role(Admin), None)
+("POST", "/machines/{id}/agent/update", InstanceAdmin, None)
+("POST", "/agents/update", InstanceAdmin, None)
 ("GET", "/api/agent/v1/update/{tag}/{file}", Public, None)
 ("POST", "/space/name", Role(Admin), Some("renamed the space"))
 ("POST", "/organisation/name", Role(Admin), Some("renamed the organisation"))
@@ -236,13 +245,14 @@
 ("POST", "/space/tokens", Role(Admin), Some("made an API token"))
 ("POST", "/space/tokens/{id}/revoke", Role(Admin), Some("revoked an API token"))
 ("GET", "/api/space/audit", Role(Admin), None)
+("GET", "/machines/add", Role(Admin), None)
 ("POST", "/pair", Role(Admin), Some("added a machine"))
 ("POST", "/virtual", Role(Admin), Some("added a virtual machine"))
 ("POST", "/klipper", Role(Admin), Some("added a Klipper printer"))
 ("POST", "/machines/{id}/profile", Machine(Manage), Some("chose the profile of"))
 ("POST", "/machines/{id}/name", Machine(Manage), Some("renamed"))
 ("POST", "/machines/{id}/labels", Machine(Manage), Some("labelled"))
-("POST", "/machines/{id}/move", Machine(Manage), None)
+("POST", "/machines/{id}/move", InstanceAdmin, None)
 ("POST", "/machines/{id}/remove", Machine(Manage), Some("removed"))
 ("POST", "/machines/{id}/out-of-use", Machine(Manage), Some("changed whether in use"))
 ("POST", "/machines/{id}/access", Machine(Manage), Some("changed who may use"))
@@ -364,13 +374,18 @@ POST /about/update => 401 403 403 403 403
 PUT /about/update => 401 403 403 403 403
 PATCH /about/update => 401 403 403 403 403
 DELETE /about/update => 401 403 403 403 403
+GET /account => 401 200 200 200 200
+POST /account => 401 403 403 403 403
+PUT /account => 401 403 403 403 403
+PATCH /account => 401 403 403 403 403
+DELETE /account => 401 403 403 403 403
 GET /account/password => 401 405 405 405 405
 POST /account/password => 401 415 415 415 415
 PUT /account/password => 401 403 403 403 403
 PATCH /account/password => 401 403 403 403 403
 DELETE /account/password => 401 403 403 403 403
 GET /agents/update => 401 405 405 405 405
-POST /agents/update => 401 403 403 not-called not-called
+POST /agents/update => 401 403 403 403 403
 PUT /agents/update => 401 403 403 403 403
 PATCH /agents/update => 401 403 403 403 403
 DELETE /agents/update => 401 403 403 403 403
@@ -899,6 +914,16 @@ POST /login => 415 415 415 415 415
 PUT /login => 405 405 405 405 405
 PATCH /login => 405 405 405 405 405
 DELETE /login => 405 405 405 405 405
+GET /logo-large-dark.svg => 200 200 200 200 200
+POST /logo-large-dark.svg => 405 405 405 405 405
+PUT /logo-large-dark.svg => 405 405 405 405 405
+PATCH /logo-large-dark.svg => 405 405 405 405 405
+DELETE /logo-large-dark.svg => 405 405 405 405 405
+GET /logo-large.svg => 200 200 200 200 200
+POST /logo-large.svg => 405 405 405 405 405
+PUT /logo-large.svg => 405 405 405 405 405
+PATCH /logo-large.svg => 405 405 405 405 405
+DELETE /logo-large.svg => 405 405 405 405 405
 GET /logo.svg => 200 200 200 200 200
 POST /logo.svg => 405 405 405 405 405
 PUT /logo.svg => 405 405 405 405 405
@@ -919,6 +944,11 @@ POST /machines/ => 401 403 403 403 403
 PUT /machines/ => 401 403 403 403 403
 PATCH /machines/ => 401 403 403 403 403
 DELETE /machines/ => 401 403 403 403 403
+GET /machines/add => 401 403 403 200 200
+POST /machines/add => 401 403 403 403 403
+PUT /machines/add => 401 403 403 403 403
+PATCH /machines/add => 401 403 403 403 403
+DELETE /machines/add => 401 403 403 403 403
 GET /machines/{id} => 401 404 404 404 404
 POST /machines/{id} => 401 403 403 403 403
 PUT /machines/{id} => 401 403 403 403 403
@@ -930,7 +960,7 @@ PUT /machines/{id}/access => 401 403 403 403 403
 PATCH /machines/{id}/access => 401 403 403 403 403
 DELETE /machines/{id}/access => 401 403 403 403 403
 GET /machines/{id}/agent/update => 401 405 405 405 405
-POST /machines/{id}/agent/update => 401 404 404 404 404
+POST /machines/{id}/agent/update => 401 403 403 403 403
 PUT /machines/{id}/agent/update => 401 403 403 403 403
 PATCH /machines/{id}/agent/update => 401 403 403 403 403
 DELETE /machines/{id}/agent/update => 401 403 403 403 403
@@ -995,7 +1025,7 @@ PUT /machines/{id}/media => 401 403 403 403 403
 PATCH /machines/{id}/media => 401 403 403 403 403
 DELETE /machines/{id}/media => 401 403 403 403 403
 GET /machines/{id}/move => 401 405 405 405 405
-POST /machines/{id}/move => 401 404 404 404 404
+POST /machines/{id}/move => 401 403 403 403 403
 PUT /machines/{id}/move => 401 403 403 403 403
 PATCH /machines/{id}/move => 401 403 403 403 403
 DELETE /machines/{id}/move => 401 403 403 403 403
@@ -1124,6 +1154,11 @@ POST /p/telemetry => 400 400 400 400 400
 PUT /p/telemetry => 405 405 405 405 405
 PATCH /p/telemetry => 405 405 405 405 405
 DELETE /p/telemetry => 405 405 405 405 405
+GET /p/ws => 400 400 400 400 400
+POST /p/ws => 405 405 405 405 405
+PUT /p/ws => 405 405 405 405 405
+PATCH /p/ws => 405 405 405 405 405
+DELETE /p/ws => 405 405 405 405 405
 GET /pair => 401 405 405 405 405
 POST /pair => 401 403 403 415 415
 PUT /pair => 401 403 403 403 403
@@ -1254,7 +1289,7 @@ POST /space/safety => 401 403 403 415 415
 PUT /space/safety => 401 403 403 403 403
 PATCH /space/safety => 401 403 403 403 403
 DELETE /space/safety => 401 403 403 403 403
-GET /space/tokens => 401 405 405 405 405
+GET /space/tokens => 401 403 403 200 200
 POST /space/tokens => 401 403 403 415 415
 PUT /space/tokens => 401 403 403 403 403
 PATCH /space/tokens => 401 403 403 403 403
@@ -1264,6 +1299,11 @@ POST /space/tokens/{id}/revoke => 401 403 403 404 404
 PUT /space/tokens/{id}/revoke => 401 403 403 403 403
 PATCH /space/tokens/{id}/revoke => 401 403 403 403 403
 DELETE /space/tokens/{id}/revoke => 401 403 403 403 403
+GET /space/{tab} => 401 404 404 404 404
+POST /space/{tab} => 401 403 403 403 403
+PUT /space/{tab} => 401 403 403 403 403
+PATCH /space/{tab} => 401 403 403 403 403
+DELETE /space/{tab} => 401 403 403 403 403
 GET /spaces => 401 405 405 405 405
 POST /spaces => 401 415 415 415 415
 PUT /spaces => 401 403 403 403 403
@@ -1310,16 +1350,18 @@ PUT /welcome => 401 403 403 403 403
 PATCH /welcome => 401 403 403 403 403
 DELETE /welcome => 401 403 403 403 403
 # embedded
-header 1b28d8a9145b01bf6e985471a6fa67a94d1d42e3400a609ce0d4436969ef4cf6
-files.css 17d5527d43531fdfc90dc3e03d113a5511e1db013d0ee59af235a3f6c8c25763
+header d0f93d4187616815e0408042e03fbcb30bab293c19a5f98a72ec1b2502fd165c
+files.css dcd93251794ba443091f0adc652e98842ec61049844f90ab07592de304138158
 files.js dc5a452f14d09b597c27ddaa74e677a9e3ee57abf768f36297cce5fe1c2f13ad
-label.css e32ee3ebd76835d9948b905134a5884689b283aaa6b463c00f4eaa396a055190
+label.css f9a5b385a814d5b7049176e7ac481f9553e4671487a22fece0616874e2d9e207
 label.js 0f57b55158405485bb1b8dbf6465e55f882378f66c3055c547acc473984ec060
-labelwriter.css aea17f612004e966533a1bfec175f79cb69f3627978721c41f262da8201f2a02
+labelwriter.css d13fba33faa7673612b492e4046b7b1629e95ee99f8e853142ef7bf5d325e6dc
 labelwriter.js db2346bc9f66818a8ed4772689c5e656111d6d4bf8d008dc6a7d1056080f9460
-library.css d93f42def74db14b4c32803e9221d5f4cc8b9ea0680bdbee1d8e9b50d74b53b0
-library.js b253c00a5c0343614ff3c0a67c9266099f361b15a4ae44c65ab08cff83486c07
-machine.css 58de8ce8bceaa04127d4aacbaea9ae51bd06914ffa1cd52a0aa6385074e83987
-machine.js 2e236c56e2720ecffecfe2bd9bea5a61735b21653b7e0b4422fe7a2279082a80
-shell.js 1439aea21d512bf80d5892eecbf218ae322036f2a7cd7fbf9945e2b5e34e78fe
+library.css 589961a7065efff38168ff267ad49fe2396aa8dbd4060ed62b44f4bd30f943fd
+library.js 5d6862caee23b47a5bac714c11db8fce72285e11414cacd462fde263d78947ad
+machine.css 13195d9381a83c71e2d679486d5b64a1ac7618b646c6bb2705cdf2d5570ec66d
+machine.js 38ffe57bfe6b3be83c5c6ae1bdc591695aa35352fdf9b024f510711ec37b0884
+mc.css 2f6213936ee8b52ac673ffc4533db4a765028fe69727542ebff8997ed03c779c
+shell.js 6c03350c18dfe71b8c46d3053adf487ff503ebc4d147d3b598cfb9fef79f1e58
+theme.js 0dc06d091c3bfb6e62df270e28bf92587ddab81d5aa453e30419c6e41c4729a6
 video-rtc.js d48ce627baf7c341a92c0f5844a3c546431f9db873ff21489671aba2ecfe64fb

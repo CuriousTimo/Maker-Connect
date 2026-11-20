@@ -109,7 +109,7 @@ the navigation follows the person's actions from `GET /api/v1/me`, not the role'
 | Sign in | name and password; the invite page; first-run setup | `POST /api/v1/session`, `/api/v1/invites/accept`, `/setup` | | `signin.html`, `invite.html`, `setup.html` |
 | Now | the space at a glance; the wall screen | devices, jobs, queue, events | | `now.html`, `wall.html` |
 | Machines | the device list | `GET /api/v1/devices`, events | | `machines.html` |
-| Machine | one device: tabs per subject (overview, control, files, jobs, camera, settings) | device, commands, history, transfers | | `printer.html` |
+| Machine | one device: a head (picture, name, state, live chips, Set ready) and tabs per subject (Now, Queue, Controls, Files, Cameras, Machine, History, Advanced) | device, commands, history, transfers | | `printer.html` |
 | Start a print | the "print on this machine" sheet | files, `transfers`, `queue` | | `print-start.html` |
 | Laser | a laser's page: the loaded job, frame, place, PPE, Start burn | device, commands, `ppe`, `jobs` | HS7b | `laser.html` |
 | Tape printer, label printer | one page per kind, never shared | device, commands | #6 | `label-tape.html`, `label-labels.html` |
@@ -160,24 +160,47 @@ registry; a state that does not accept the verb disables it with the reason.
   (`core.command.pause_print`, `job.control`, a real command button, UT-13); waiting for a sign-off →
   Set Ready; free printer → Print (opens Start a print); laser → Go to the laser (never a start);
   tape or label printer → Print. A laser with a job loaded shows the tag *Job loaded*, not a state.
+- **The card** (owner, 2026-11-20: "neem die van prusa als voorbeeld"; after Prusa Connect's printer
+  card, in our own drawing and words): the machine's picture (its profile's drawing, else its kind's),
+  its model small over its name, its state on the right; the job line (file and %, its bar, time left;
+  else "No print running"); for a 3D printer three boxes: nozzle and bed (now / target, the target
+  only while one is set) and the material (swatch and name, "–" without); a message with its tag when
+  something needs someone or is wrong; then the actions.
 - **States:** a card offline has a dashed outline (the state list's rule, UT-36) and shows its last
   report's time; values are unknown, not the last ones shown as current.
 
 ### A machine's page (3D printer)
 
-Tabs: Overview, Control, Files, Jobs, Camera, Settings; a tab is shown only when the device has its
-subject (Files only for a device with storage; Camera only with a linked camera the person may view).
-Whether the wiki's **Data** tab (temperatures over time, the bed mesh) joins them is an open point
-below.
+Laid out after Prusa Connect's printer page, the online one's head and the local one's tabs, in our own
+code and words (owner, 2026-11-20: "layout grotendeels van Prusa Connect local", then "Mengen";
+journal:HUB-FINISH:0006). This replaces the six tabs of UI-2.
+
+**Head**, above the tabs on every tab: the machine's picture; on one line its name, its state and, for a
+printer, its live values in the state's own small
+style (owner, 2026-11-20: "inline met idle in dezelfde stijl", "met icons"), each with its icon and its
+name as label, a flame beside a heater while it heats; for who may operate it, nozzle and bed open a menu to set
+them as Prusa Connect's head does (Off, the firmware's preheat presets PLA … PA, a value of one's own): nozzle and bed (temperature / target,
+the target only while one is set), speed %, flow % and its material (the spool from Materials, else what
+the printer says; a link to Materials until assigning is built there), and at its far right a pencil to
+rename it (to the Machine tab); below one muted line: what it is
+and how it is connected, its firmware. On the right **Set ready**: enabled while a finished print is on the bed (the print is taken),
+then *Ready · undo* until a job starts; otherwise disabled with its reason (the control rule).
+
+Tabs: Now, Queue, Controls, Files, Cameras, Machine, History, Advanced; a tab is shown only when the
+device has its subject (Queue not for a label printer; Files only for a device with storage; Cameras
+only with a linked camera the person may view). Old addresses (`#overview`, `#control`, `#jobs`,
+`#camera`, `#settings`, `#telemetry`, `#terminal`, `#bedlevel`) lead to their new tab.
 
 | Tab | User | Admin |
 |---|---|---|
-| Overview | this print (file, by whom, progress, time left and the clock), live values, the loaded spool, the next queue item | the same |
-| Control | the declared verbs they hold, enabled when the state accepts them | the same, with their own actions |
+| Now | the printer's question and its buttons; the camera beside this print (file, by whom, progress, time left and the clock); the queue's next items beside the recent jobs | the same |
+| Queue | the device's queue (move and take out own items), its past jobs | every queue item |
+| Controls | the declared verbs they hold, enabled when the state accepts them, one card: moving and tools left, temperatures, speed, flow and nozzles right; below it the bed level (Probe bed and the mesh, as Prusa Connect's Utilities → Calibration; owner, 2026-11-20) | the same, with their own actions |
 | Files | files on the device; Print… | plus Delete (`core.command.delete_file`, `job.control`) |
-| Jobs | the device's queue (move and take out own items), history | every queue item |
-| Camera | the linked camera (`device.view`) | the same; managing is in Space → Cameras |
-| Settings | read only: name, model, firmware label, serial, connection; "changed by the space's staff" | name and labels, induction, PPE list (`PATCH /api/v1/devices/{id}`, `device.manage`); Retire with a reason (`DELETE`, history stays) |
+| Cameras | the linked camera (`device.view`) | the same; managing is in Space → Cameras |
+| Machine | first **Details** in two columns, Specification (from its profile) and This machine (what it told); then read only: name, model, firmware label, serial, connection; "changed by the space's staff" | name and labels, induction, PPE list (`PATCH /api/v1/devices/{id}`, `device.manage`); Retire with a reason (`DELETE`, history stays) |
+| History | temperatures and fans over the last 2 hours (Prusa Connect's span); the commands sent from the hub and how each went | the same |
+| Advanced | the terminal (holder only, UT-03) | the same |
 
 Control tab, a 3D printer (verbs of the `marlin` registry; the `prusa` kind uses the same
 `core.command.*` names where its driver declares them):
@@ -222,8 +245,13 @@ and *Add to the queue* becomes the primary button.
 
 ### The laser
 
-One tab, **Job**, carries the laser flow as numbered steps; Control (jog, home, unlock, set origin, go
-to origin, read settings), Camera and Settings follow. The flow is the owner's HS7b and the device
+A laser's page has a printer's layout (printer.html, laser.html): the head with X, Y and the laser's
+power as chips, and the tabs Now, Queue, Controls, Cameras, Machine and History (no Files, no
+Advanced: a laser has no console). **Now** carries the laser flow as numbered steps in the **Loaded
+job** card, beside the camera, and below them what waits in its queue beside its last jobs; while it
+burns, the card is the job's progress. **Controls** is one card in two columns: Coordinates (X and Y,
+the work area, the pad with its step and speed, Home) and Origin and Machine (set origin, go to origin,
+unlock, read settings); the Loaded job card below it. The flow is the owner's HS7b and the device
 contract's laser rule; the order is the owner's "prepares, frames, PPE, presses Start" and flows.md §4
 (origin, then frame), decided in journal:UI-DESIGN:0011 Q2 (UT-08):
 
@@ -247,10 +275,10 @@ contract's laser rule; the order is the owner's "prepares, frames, PPE, presses 
 the top bar on every tab, so it never scrolls away (UT-01). The queue never starts a laser; a token
 never does.
 
-The Job tab's states (UT-02, from GRBL's states and the job flow; the device's state is said in
+The Loaded job card's states (UT-02, from GRBL's states and the job flow; the device's state is said in
 words):
 
-| State | What the Job tab shows |
+| State | What the Loaded job card shows |
 |---|---|
 | Ready | the five steps, the current one marked |
 | Burning (GRBL `RUN`) | progress, time left and the clock, who started it; Pause; "stay at the laser"; steps 1-4 closed: the running job cannot be taken off, placed again or framed |
@@ -293,7 +321,16 @@ same print page; Settings is read only for a member.
 
 ### Materials and a spool
 
-Tabs: Spools, Filaments, Tapes, Label rolls, Laser materials, Locations. Tape cassettes and label
+After Prusa Connect online's Materials (owner, journal:HUB-FINISH:0006; materials.html): the stock in
+kg and spools on top; **Filament** is one card with search, sort and filter chips (all, on a printer,
+low, a type, a brand, a location) over a table with **one row per material** (colour, name, brand,
+type, its spools and how many are on a printer, what is left with a bar), each with **Assign…** (a
+spool of it onto a printer, a dialog) and **+ Spool**; its spools open under the row.
+**Low** means one thing: less than 15 % of a spool or a material left, the mark the bar already
+had (ours, UI only; owner, 2026-11-20: "15 % is goed"). A material's own minimum ("Keep at least") reads *below its minimum*, never
+"low". Assign offers the printers a spool fits, as moving a spool already does (filament to a 3D
+printer, tape and labels to a label printer); laser materials are not assigned.
+Tabs: Filament, Tapes, Label rolls, Laser materials, Locations. Tape cassettes and label
 rolls are two tabs, as the two stacks are apart (decided, journal:UI-DESIGN:0011 Q4; UT-38). Data is
 Spoolman's (`/spoolman/api/v1`).
 
@@ -321,6 +358,11 @@ reads `0 g`. A **Mine** filter needs an owner on a spool and is not shown until 
   member's own requests and their states are listed under My permissions
   (`GET /api/v1/access-requests/mine`, decided journal:UI-DESIGN:0009 #5). Control and Files stay
   hidden while not granted.
+- **Operate:** on a machine they may use but not operate, Controls is that one banner ("You may not
+  move, heat or send G-code to Printer-3") with **Ask for permission**, a request for `operate`
+  (`{device_id, level: "operate"}`); its pending state the same. A request names its level (`use`
+  or `operate`); the staff see "asks for permission" or "asks to operate", and **Give** gives that
+  level on that machine.
 - **Admin:** the machine's page shows "Ravi asked … Review in Space"; there is **no grant button on a
   machine's page**.
 
@@ -613,7 +655,7 @@ tags without the dot, never a state's chip or colour. The kind of a machine is a
 | # | Point | State |
 |---|---|---|
 | UI-1 | A member reading their own requests and withdrawing one | decided (journal:UI-DESIGN:0009 #5): `GET /api/v1/access-requests/mine`, `DELETE /api/v1/access-requests/{id}` in [api.md](api.md) |
-| UI-2 | The machine's tabs: six against the wiki's five with **Data** | decided (0009 #1): the six, plus Data only for a device with history |
+| UI-2 | The machine's tabs: six against the wiki's five with **Data** | decided again by the owner (2026-11-20, journal:HUB-FINISH:0006): Prusa Connect's layout, eight tabs and a head with live chips ([A machine's page](#a-machines-page-3d-printer)) |
 | UI-3 | The laser hand-off when a job is loaded | decided (0009 #3): sending asks to replace the loaded job |
 | UI-4 | The wall screen | decided (0009 #4): read only, no buttons. Open: which session the screen keeps |
 | UI-5 | "Mine" for spools needs an owner on a spool ([OQ-14](risks-and-open.md#oq-14-tables-of-materials-items-and-labels)) | open; the filter is not shown meanwhile |

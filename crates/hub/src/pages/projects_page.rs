@@ -34,7 +34,7 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 </head>
 <body>
 {header}
-<main>
+<main id="main" tabindex="-1">
   <div class="p-head">
     <div><h2>Projects</h2><p class="intro">Parts to make, many machines making them: a free machine that suits a part takes its next plate; someone confirms what came off the bed.</p></div>
     <form class="p-new" data-new-project><input name="name" required maxlength="80" placeholder="Brackets for the hall" aria-label="Name of a new project"><button>New project</button></form>
@@ -69,35 +69,35 @@ const PROJECTS_STYLE: &str = r#"
   .p-head h2 { margin: 0 0 4px; }
   .intro { color: var(--muted); margin: 0; max-width: 640px; font-size: 14px; }
   .p-new { margin: 0; }
-  .project { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px; margin-bottom: 14px; }
+  .project { background: var(--surface); border: 1px solid var(--line); border-radius: 0; padding: 16px 20px; margin-bottom: 14px; }
   .project.draft, .project.done { opacity: .85; }
   .project-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .project-head h3 { margin: 0; font-size: 18px; }
-  .p-state { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 2px 8px; border-radius: 5px; color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--line); }
-  .p-state.active { background: var(--accent); color: #fff; box-shadow: none; }
-  .p-state.paused { color: var(--warn); box-shadow: inset 0 0 0 1.5px var(--warn); }
+  .p-state { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 2px 8px; border-radius: 0; color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--line); }
+  .p-state.active { background: var(--accent); color: var(--on-accent); box-shadow: none; }
+  .p-state.paused { color: var(--st-warn); box-shadow: inset 0 0 0 1.5px var(--st-warn); }
   .p-actions { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
   .p-actions button, .part-tools button, .pf button { padding: 4px 10px; font-size: 13px; }
   .ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
-  .danger { background: transparent; color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 40%, transparent); }
+  .danger { background: transparent; color: var(--st-bad); border: 1px solid color-mix(in srgb, var(--st-bad) 40%, transparent); }
   .part { padding: 12px 0; border-top: 1px solid var(--line); }
   .part:first-of-type { margin-top: 12px; }
   .part-line { display: flex; align-items: baseline; gap: 10px; }
   .part-line b { font-size: 15px; }
   .part-count { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--muted); }
   .part-count b { color: var(--ink); }
-  .part-count .under { color: var(--accent); }
-  .p-bar { display: flex; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 6px 0; }
+  .part-count .under { color: var(--accent-text); }
+  .p-bar { display: flex; height: 8px; border-radius: 0; background: var(--line); overflow: hidden; margin: 6px 0; }
   .p-bar i { display: block; height: 100%; }
   .p-bar .made { background: var(--accent); }
   .p-bar .under { background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--accent) 55%, transparent) 0 6px, color-mix(in srgb, var(--accent) 30%, transparent) 6px 12px); }
-  .part-why { margin: 2px 0 6px; font-size: 13px; color: var(--warn); }
+  .part-why { margin: 2px 0 6px; font-size: 13px; color: var(--st-warn); }
   .pfs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-  .pf { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; }
+  .pf { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border: 1px solid var(--line); border-radius: 0; font-size: 13px; }
   .pf small { color: var(--muted); }
   .pf button { background: none; color: var(--muted); padding: 0 6px; font-size: 15px; }
   .part-tools { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
-  .part-tools details summary { cursor: pointer; color: var(--muted); font-size: 13px; list-style: none; padding: 3px 8px; border: 1px dashed var(--line); border-radius: 6px; }
+  .part-tools details summary { cursor: pointer; color: var(--muted); font-size: 13px; list-style: none; padding: 3px 8px; border: 1px dashed var(--line); border-radius: 0; }
   .part-tools details summary::-webkit-details-marker { display: none; }
   .part-tools form { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 8px 0 0; }
   .part-tools select, .part-tools input { font-size: 13px; padding: 5px 8px; }
@@ -107,12 +107,12 @@ const PROJECTS_STYLE: &str = r#"
   .tl { margin-top: 12px; display: grid; grid-template-columns: minmax(90px, 160px) minmax(0, 1fr); gap: 6px 12px; align-items: center; }
   .tl-name { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tl-name small { display: block; color: var(--muted); font-size: 12px; }
-  .tl-track { position: relative; height: 30px; background: color-mix(in srgb, var(--line) 45%, transparent); border-radius: 6px; overflow: hidden; }
+  .tl-track { position: relative; height: 30px; background: color-mix(in srgb, var(--line) 45%, transparent); border-radius: 0; overflow: hidden; }
   .tl-track.off { background: repeating-linear-gradient(-45deg, transparent 0 6px, color-mix(in srgb, var(--line) 60%, transparent) 6px 12px); }
-  .tl-b { position: absolute; top: 3px; bottom: 3px; border-radius: 4px; font-size: 11px; line-height: 24px; padding: 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 3px; box-sizing: border-box; }
-  .tl-b.running { background: var(--busy); color: #fff; }
-  .tl-b.planned { background: color-mix(in srgb, var(--accent) 22%, var(--card)); color: var(--ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
-  .tl-name small.tl-waits { color: var(--warn); }
+  .tl-b { position: absolute; top: 3px; bottom: 3px; border-radius: 0; font-size: 11px; line-height: 24px; padding: 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 3px; box-sizing: border-box; }
+  .tl-b.running { background: var(--st-info); color: #fff; }
+  .tl-b.planned { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); color: var(--ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-text) 45%, transparent); }
+  .tl-name small.tl-waits { color: var(--st-warn); }
   .tl-now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ink); opacity: .35; }
   .tl-note { position: absolute; left: 8px; top: 0; line-height: 30px; font-size: 12px; color: var(--muted); }
   .tl-axis { grid-column: 2; position: relative; height: 16px; font-size: 11px; color: var(--muted); }
@@ -121,13 +121,13 @@ const PROJECTS_STYLE: &str = r#"
   .p-machines { margin-top: 26px; }
   .p-machines h3 { margin: 0 0 4px; }
   .p-machine-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-  .p-machine { display: inline-flex; gap: 8px; align-items: center; padding: 6px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; }
-  .p-machine.on { border-color: var(--accent); }
+  .p-machine { display: inline-flex; gap: 8px; align-items: center; padding: 6px 12px; border: 1px solid var(--line); border-radius: 0; font-size: 14px; }
+  .p-machine.on { border-color: var(--accent-text); }
   .p-dialog { width: min(560px, calc(100vw - 32px)); }
   .ledger { list-style: none; margin: 0; padding: 0; }
   .ledger li { display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 2px 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; }
   .ledger .d { font-weight: 700; font-variant-numeric: tabular-nums; }
-  .ledger .d.minus { color: var(--bad); } .ledger .d.plus { color: var(--accent); }
+  .ledger .d.minus { color: var(--st-bad); } .ledger .d.plus { color: var(--accent-text); }
   .ledger small { grid-column: 2; color: var(--muted); }
 "#;
 

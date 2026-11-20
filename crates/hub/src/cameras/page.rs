@@ -19,7 +19,8 @@ use serde::Deserialize;
 const VIDEO_RTC: &str = include_str!("video-rtc.js");
 
 /// One camera's MSE player: go2rtc's `VideoRTC` element, used as go2rtc's `video-stream.js`
-/// uses it (defined as a custom element), in its `mse` mode, its `src` the camera's websocket.
+/// uses it (a subclass defined as a custom element), in its `mse` mode, its `src` the camera's
+/// websocket. Our UI's choice (owner, 2026-11-20): the video without the browser's controls.
 const LIVE: &str = r#"<!doctype html>
 <html>
 <head>
@@ -27,7 +28,13 @@ const LIVE: &str = r#"<!doctype html>
 <style>html, body { margin: 0; height: 100%; background: #000; } video-rtc { display: block; height: 100%; }</style>
 <script type="module">
 import {VideoRTC} from "../video-rtc.js";
-customElements.define("video-rtc", VideoRTC);
+class Player extends VideoRTC {
+    oninit() {
+        super.oninit();
+        this.video.controls = false;
+    }
+}
+customElements.define("video-rtc", Player);
 const player = document.createElement("video-rtc");
 player.mode = "mse";
 document.body.appendChild(player);
@@ -155,10 +162,10 @@ async fn camera_page(access: Access, State(store): State<Store>, Path(id): Path<
 </head>
 <body>
 {header}
-<main>
+<main id="main" tabindex="-1">
   <h2>{name}</h2>
   <p class="cam-intro">{watches} · <a href="../cameras">All cameras</a></p>
-  <iframe class="cam-player" src="{id}/live" title="{name}" allow="picture-in-picture"></iframe>
+  {status}<iframe class="cam-player" src="{id}/live" title="{name}" allow="picture-in-picture"></iframe>
 </main>
 </body>
 </html>"##,
@@ -166,6 +173,7 @@ async fn camera_page(access: Access, State(store): State<Store>, Path(id): Path<
         title = escape(&space),
         header = header(&space, "../", "cameras"),
         id = camera.id,
+        status = status_note(camera.id),
     ))
     .into_response()
 }
@@ -191,10 +199,11 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
         .filter(|c| store.may_view_camera(&access, c, &grants))
     {
         rows.push_str(&format!(
-            r#"<li class="cam"><a href="cameras/{id}"><b>{name}</b></a><small>{watches}</small></li>"#,
+            r#"<li class="cam"><a href="cameras/{id}"><b>{name}</b></a><small>{watches}</small>{status}</li>"#,
             id = camera.id,
             name = escape(&camera.name),
             watches = watches(camera, &machines),
+            status = status_note(camera.id),
         ));
     }
     if rows.is_empty() {
@@ -219,7 +228,7 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
 </head>
 <body>
 {header}
-<main>
+<main id="main" tabindex="-1">
   <h2>Cameras</h2>
   <p class="cam-intro">A camera on a machine is seen by whoever may see the machine; a room camera from the role it is set to{manage}.</p>
   <ul class="cams">{rows}</ul>
@@ -230,6 +239,23 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
         header = header(&space, "", "cameras"),
     ))
     .into_response()
+}
+
+/// Why a camera does not play, as one line on its pages ([`super::status`]); nothing while it
+/// plays or connects.
+fn status_note(id: i64) -> String {
+    match super::status(id) {
+        // While it connects: nothing either, its player starts once it plays.
+        super::Status::Playing | super::Status::Connecting => String::new(),
+        super::Status::Failed(problem) => format!(
+            r#"<p class="cam-status bad" role="status">Not playing: {}</p>"#,
+            escape(&problem)
+        ),
+        super::Status::Off => {
+            r#"<p class="cam-status bad" role="status">Not playing: the hub has not started it.</p>"#
+                .to_owned()
+        }
+    }
 }
 
 /// What a camera watches, for a list.
@@ -258,10 +284,11 @@ pub(crate) async fn space_tab(
     let mut rows = String::new();
     for camera in &cameras {
         rows.push_str(&format!(
-            r#"<li class="cam"><a href="cameras/{id}"><b>{name}</b></a><small>{watches}</small>{edit}</li>"#,
+            r#"<li class="cam"><a href="cameras/{id}"><b>{name}</b></a><small>{watches}</small>{status}{edit}</li>"#,
             id = camera.id,
             name = escape(&camera.name),
             watches = watches(camera, machines),
+            status = status_note(camera.id),
             edit = edit_form(camera, machines),
         ));
     }
@@ -441,38 +468,53 @@ async fn remove(
     }
 }
 
-/// The Camera tab of a machine's page: its cameras that `access` may watch.
+/// The Cameras tab of a machine's page, and the first camera for its Now tab: its cameras
+/// that `access` may watch. Each player loads only while its tab is shown (machine.js, `data-src`).
 pub(crate) async fn machine_tab(
     store: &Store,
     access: &Access,
     machine: &str,
     grants: &crate::access::Grants,
-) -> Option<String> {
+) -> Option<(String, String)> {
     let cameras = store.cameras(access.space).await.unwrap_or_default();
     let cameras = store
         .lock()
         .unwrap()
         .machine_cameras(access, machine, grants, cameras);
-    if cameras.is_empty() {
-        return None;
-    }
+    let player = |id: i64, name: &str| {
+        format!(
+            r#"<iframe class="cam-player" data-src="../cameras/{id}/live" title="{name}" allow="picture-in-picture"></iframe>"#,
+            name = escape(name),
+        )
+    };
+    let first = cameras.first()?;
     let mut out = String::new();
     for camera in &cameras {
         out.push_str(&format!(
-            r#"<h3><a href="../cameras/{id}">{name}</a></h3><iframe class="cam-player" src="../cameras/{id}/live" title="{name}" loading="lazy" allow="picture-in-picture"></iframe>"#,
+            r#"<h3><a href="../cameras/{id}">{name}</a></h3>{}{}"#,
+            status_note(camera.id),
+            player(camera.id, &camera.name),
             id = camera.id,
             name = escape(&camera.name),
         ));
     }
-    Some(out)
+    let preview = format!(
+        r##"<div class="card now-cam"><div class="card-head"><h3><a href="#cameras">{name}</a></h3></div>{}{}</div>"##,
+        status_note(first.id),
+        player(first.id, &first.name),
+        name = escape(&first.name),
+    );
+    Some((out, preview))
 }
 
 pub(crate) const CAMERAS_STYLE: &str = r#"
   .cam-intro { color: var(--muted); margin: 0 0 12px; max-width: 640px; font-size: 14px; }
   .cams { list-style: none; padding: 0; margin: 0 0 20px; display: grid; gap: 10px; }
-  .cam { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; display: grid; gap: 4px; }
+  .cam { background: var(--surface); border: 1px solid var(--line); border-radius: 0; padding: 12px 16px; display: grid; gap: 4px; }
   .cam small { color: var(--muted); }
   .cam-edit form, .cam-add form { display: grid; gap: 8px; max-width: 520px; margin-top: 8px; }
   .cam-edit label, .cam-add label { display: grid; gap: 4px; font-size: 14px; }
-  .cam-player { width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 12px; background: #000; }
+  .cam-status { margin: 0 0 8px; font-size: 14px; color: var(--muted); }
+  .cam-status.bad { color: var(--st-bad); }
+  .cam-player { width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 0; background: #000; }
 "#;

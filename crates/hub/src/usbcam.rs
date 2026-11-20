@@ -176,7 +176,7 @@ const PAGE: &str = r##"<!doctype html>
 </head>
 <body>
 {header}
-<main>
+<main id="main" tabindex="-1">
   <h2>USB cameras (test)</h2>
   <p>The latest frame of each camera an agent sends; reloaded when a new one comes. Nothing is kept on disk.</p>
   <div class="usbcam" id="cams"><p id="none">No frame yet.</p></div>

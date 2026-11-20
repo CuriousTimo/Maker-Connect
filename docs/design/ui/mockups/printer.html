@@ -8,6 +8,7 @@
 <script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
 </head>
 <body data-view="user">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="i-nozzle" viewBox="0 0 20 20"><path d="M5 3h10v6H5zM7 9h6l-2 5H9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 14v3" stroke="currentColor" stroke-width="1.6"/></symbol><symbol id="i-bed" viewBox="0 0 20 20"><path d="M3 15h14" stroke="currentColor" stroke-width="1.8"/><path d="M6 12c-1-1.5 1-2.5 0-4M10 12c-1-1.5 1-2.5 0-4M14 12c-1-1.5 1-2.5 0-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol><symbol id="i-speed" viewBox="0 0 20 20"><path d="M3.5 14a6.5 6.5 0 0 1 13 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M10 14l3.5-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol><symbol id="i-flow" viewBox="0 0 20 20"><path d="M10 3c3 4 5 6.5 5 9a5 5 0 0 1-10 0c0-2.5 2-5 5-9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol><symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 2.5c.6 3.2 2.6 4.9 4.2 6.9 1.4 1.8 2.3 3.6 2.3 5.8A6.5 6.5 0 0 1 12 21.7a6.5 6.5 0 0 1-6.5-6.5c0-2.3 1-4.2 2.6-5.7.2 1.6.9 2.8 2.1 3.5-.4-3.9.5-7.3 1.8-10.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol></svg>
 <a class="skip" href="#main">Skip to content</a>
 <header class="top">
   <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
@@ -46,34 +47,30 @@
 <main id="main" tabindex="-1">
 
 <p class="crumbs"><a href="machines.html">Machines</a> › MINI-1</p>
-<div class="head"><h1>MINI-1</h1><span class="st busy">Printing 62 %</span><div class="actions"><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Paused at 15:50.">Pause</button></span><span class="status" aria-live="polite"></span></span></div></div>
-<p class="muted" style="margin-top:-8px">3D printer · built-in Connect · labels: <span class="tag">Room 2</span></p>
+<div class="mhead card"><div class="mhead-pic"><div class="empty">picture</div></div>
+<div><div class="head"><h1>MINI-1</h1><span class="st busy">Printing 62 %</span><details class="temp-pick"><summary class="st val" title="Nozzle: set its temperature" aria-label="Nozzle: set its temperature"><svg class="ico" aria-hidden="true"><use href="#i-nozzle"/></svg><b>215 °C</b> / 215<svg class="ico flame-on" aria-label="Heating" role="img"><use href="#i-flame"/></svg> ▾</summary><div class="temp-menu" data-only="admin instance"><button type="button">Off</button><button type="button">PLA <span>215 °C</span></button><button type="button">PETG <span>230 °C</span></button><button type="button">ASA <span>260 °C</span></button><button type="button">ABS <span>255 °C</span></button><button type="button">PC <span>275 °C</span></button><button type="button">FLEX <span>240 °C</span></button><button type="button">HIPS <span>220 °C</span></button><button type="button">PP <span>240 °C</span></button><button type="button">PVB <span>215 °C</span></button><button type="button">PA <span>285 °C</span></button><label>Other <input type="number" min="0" max="280" value="215"> °C <button type="button" class="btn small">Set</button></label></div></details><span class="st val" title="Bed" aria-label="Bed"><svg class="ico" aria-hidden="true"><use href="#i-bed"/></svg><b>60 °C</b> / 60</span><span class="st val" title="Speed" aria-label="Speed"><svg class="ico" aria-hidden="true"><use href="#i-speed"/></svg><b>100 %</b></span><span class="st val" title="Flow" aria-label="Flow"><svg class="ico" aria-hidden="true"><use href="#i-flow"/></svg><b>95 %</b></span><a class="st val" href="materials.html" aria-label="Material"><span class="swatch" style="background:#93A682"></span>Spool #12 · PLA Sage ▾</a><span class="rename" data-only="admin instance"><span class="fw"><a class="btn small ghost" href="#machine" aria-label="Rename MINI-1">✎</a></span></span></div>
+<p class="muted">MINI · built-in Connect · firmware 6.3.0 · labels: <span class="tag">Room 2</span></p></div>
+<div><span class="ctl"><span class="fw"><button class="btn ghost" type="button" aria-disabled="true" aria-describedby="why-ready">Set ready</button></span><span class="why" id="why-ready">Ready once a finished print is taken off the bed.</span></span></div></div>
 <p class="note-role" data-only="user"><b>As a member (Sam):</b> on MINI-1 you may start, pause and stop jobs, but not move or heat it (sample data). What you may not do is hidden, with one banner on Control.</p>
 <p class="note-role" data-only="admin instance"><b>As an admin or owner:</b> you hold every non-damaging action on MINI-1. You rename, label, set its PPE and retire it here; permissions are granted in Space.</p>
 <div class="tabs" role="tablist" aria-label="MINI-1">
-<a href="#overview" role="tab" id="t-overview" aria-controls="overview">Overview</a><a href="#control" role="tab" id="t-control" aria-controls="control">Control</a><a href="#files" role="tab" id="t-files" aria-controls="files">Files</a><a href="#jobs" role="tab" id="t-jobs" aria-controls="jobs">Jobs <small>&nbsp;2</small></a><a href="#camera" role="tab" id="t-camera" aria-controls="camera">Camera</a><a href="#settings" role="tab" id="t-settings" aria-controls="settings">Settings</a>
+<a href="#now" role="tab" id="t-now" aria-controls="now">Now</a><a href="#queue" role="tab" id="t-queue" aria-controls="queue">Queue <small>&nbsp;2</small></a><a href="#controls" role="tab" id="t-controls" aria-controls="controls">Controls</a><a href="#files" role="tab" id="t-files" aria-controls="files">Files</a><a href="#cameras" role="tab" id="t-cameras" aria-controls="cameras">Cameras</a><a href="#machine" role="tab" id="t-machine" aria-controls="machine">Machine</a><a href="#history" role="tab" id="t-history" aria-controls="history">History</a><a href="#advanced" role="tab" id="t-advanced" aria-controls="advanced">Advanced</a>
 </div>
 
-<section id="overview" role="tabpanel" aria-labelledby="t-overview">
-<div class="cols"><div>
+<section id="now" role="tabpanel" aria-labelledby="t-now">
+<div class="cols-even">
+<div class="preview cam"><span class="feed" aria-hidden="true">camera picture</span><div class="cam-bar"><b>Cam-MINI-1</b><span class="live">LIVE</span></div></div>
 <div class="card"><h2>This print</h2>
 <p><b>bracket-v3.bgcode</b> · started by Sam at 14:25</p>
 <div class="bar" role="img" aria-label="62 percent"><i style="width:62%"></i></div>
 <p class="num" style="margin-top:var(--s-2)"><b>45 min left · done 16:35</b> · layer 88 / 142</p>
 <div class="row btns"><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Paused at 15:50.">Pause</button></span><span class="status" aria-live="polite"></span></span><span class="fw"><button class="btn danger" type="button" data-dialog="confirm-stop">Stop…</button></span></div>
 <span class="anno">core.command.pause_print, stop_print · job.control</span>
+</div></div>
+<div class="cols-even" style="margin-top:var(--s-4)">
+<div class="card"><h2>Next in its queue</h2><ul class="list"><li><div class="grow"><b>1 · badge-round × 4</b><br><small>Sam · PLA · 1 h 05 min</small></div></li><li><div class="grow"><b>2 · clip-set</b><br><small>Noor · PETG · 40 min</small></div></li></ul><p><a href="#queue">The whole queue</a></p></div>
+<div class="card"><h2>Recent jobs</h2><ul class="list"><li><div class="grow"><b>bracket-v2</b><br><small>Sam · 18 Nov 21:40 · 2 h 10 min</small></div><span class="out">Done · good</span></li><li><div class="grow"><b>gear-test</b><br><small>Ravi · 18 Nov 17:02 · 55 min</small></div><span class="out">Stopped</span></li></ul><p><a href="#queue">All jobs</a></p></div>
 </div>
-<div class="card"><h2>Live</h2><div class="tiles">
-<div class="tile"><span>Nozzle</span><b class="num">215 °C</b><small> / 215</small></div>
-<div class="tile"><span>Bed</span><b class="num">60 °C</b><small> / 60</small></div>
-<div class="tile"><span>Speed</span><b class="num">100 %</b></div>
-<div class="tile"><span>Z</span><b class="num">12.40 mm</b></div>
-<div class="tile"><span>Print fan</span><b><span class="unknown">unknown</span></b><small> not reported</small></div>
-</div></div>
-</div><div>
-<div class="card"><h2>Material</h2><p><span class="swatch" style="background:#93A682"></span> <a href="spool.html">Spool #12 · PLA Sage</a></p><dl class="kv"><dt>Left</dt><dd class="num">640 g (weighed 18 Nov)</dd><dt>Nozzle</dt><dd>205–225 °C</dd></dl></div>
-<div class="card"><h2>Next in its queue</h2><p>badge-round × 4 · Sam</p><p><a href="#jobs">All jobs on MINI-1</a></p></div>
-</div></div>
 <details class="card" style="margin-top:var(--s-4)"><summary><b>This page when the hub cannot be reached</b></summary>
 <div class="banner bad" style="margin-top:var(--s-3)"><span><b>The hub cannot be reached</b> (last answer 15:52). What you see is from then. Pause and Stop cannot reach MINI-1 from this page: use the printer's own screen. The page tries again by itself.</span></div>
 <p><span class="ctl"><span class="fw"><button class="btn" type="button" aria-disabled="true" aria-describedby="why-1">Pause</button></span><span class="why" id="why-1">Cannot reach MINI-1: use the printer's own screen.</span></span></p>
@@ -81,31 +78,35 @@
 </details>
 </section>
 
-<section id="control" role="tabpanel" aria-labelledby="t-control" hidden>
+<section id="controls" role="tabpanel" aria-labelledby="t-controls" hidden>
 <div class="banner info" data-only="user"><span><b>You may not move or heat MINI-1.</b> The staff grant that in Space.</span><span class="fw"><a class="btn small" href="ask-permission.html">Ask for permission</a></span></div>
-<div class="grid">
-<div class="card" data-only="admin instance"><h2>Move</h2>
-<div class="jog" role="group" aria-label="Jog">
+<div class="card"><h2>Controls</h2>
+<div class="ctl-cols">
+<div data-only="admin instance"><h3>Coordinates</h3>
+<div class="row" role="radiogroup" aria-label="Step in mm"><small>Step</small><span class="chip" aria-pressed="false">0.1</span><span class="chip" aria-pressed="true">1</span><span class="chip" aria-pressed="false">10</span><small>mm</small></div>
+<div class="row" style="align-items:flex-start"><div class="jog" role="group" aria-label="Move X and Y">
 <span></span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="Y plus" aria-describedby="why-move">▲</button></span><span></span>
-<span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="X minus" aria-describedby="why-move">◀</button></span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="Home X and Y" aria-describedby="why-move">⌂</button></span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="X plus" aria-describedby="why-move">▶</button></span>
+<span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="X minus" aria-describedby="why-move">◀</button></span><span class="muted">X/Y</span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="X plus" aria-describedby="why-move">▶</button></span>
 <span></span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="Y minus" aria-describedby="why-move">▼</button></span><span></span>
-</div>
+</div><div class="jog" role="group" aria-label="Move Z" style="grid-template-columns:auto"><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="Z plus" aria-describedby="why-move">▲</button></span><span class="muted">Z</span><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-label="Z minus" aria-describedby="why-move">▼</button></span></div></div>
+<p><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-describedby="why-move">Home</button></span></p>
 <span class="why" id="why-move">Not while printing: moving works when MINI-1 is ready or paused.</span>
 <p style="margin-top:var(--s-3)"><span class="ctl"><span class="fw"><button class="btn" aria-disabled="true" type="button" aria-describedby="why-2">Motors off</button></span><span class="why" id="why-2">Not while printing.</span></span></p>
 <span class="anno">core.command.move, home, disable_steppers · device.move · accepted in OPERATIONAL, PAUSED</span>
 </div>
-<div class="card" data-only="admin instance"><h2>Heat</h2>
+<div><div data-only="admin instance"><h3>Temperatures</h3>
 <div class="row"><label class="field">Nozzle °C<input inputmode="numeric" value="215"></label><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Nozzle target 215 °C.">Set</button></span><span class="status" aria-live="polite"></span></span></div>
 <div class="row"><label class="field">Bed °C<input inputmode="numeric" value="60"></label><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Bed target 60 °C.">Set</button></span><span class="status" aria-live="polite"></span></span></div>
 <span class="anno">set_nozzle_temperature, set_bed_temperature · device.heat; bounds from the verb's declared arguments, none of the page's own</span>
 </div>
-<div class="card"><h2>Speed and flow</h2>
+<h3>Speed and flow</h3>
 <div class="row"><label class="field">Speed %<input inputmode="numeric" value="100"></label><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="ok" data-settled="Speed 100 %.">Set</button></span><span class="status" aria-live="polite"></span></span></div>
 <div class="row"><label class="field">Flow %<input inputmode="numeric" value="100"></label><span class="ctl"><span class="fw"><button class="btn" type="button" data-cmd="unknown" data-settled="Outcome unknown: the hub restarted before MINI-1 answered. It was not sent again; check the printer.">Set</button></span><span class="status" aria-live="polite"></span></span></div>
 <span class="anno">core.command.set_speed, set_flow · job.control</span>
 </div>
-</div>
+</div></div>
 <p style="margin-top:var(--s-3)"><small>Each control shows because MINI-1 declared it; it works only when MINI-1's state accepts it and you hold the right. A terminal shows only on a printer that declares one, and only to a person granted raw G-code by name.</small></p>
+<div class="card"><h2>Bed level</h2><p class="muted">Calibration, as Prusa Connect's Utilities: measure the bed, then its mesh.</p><span class="fw"><button class="btn small" type="button">Probe bed</button></span><div class="empty">the bed mesh as a surface, a map or a table</div></div>
 </section>
 
 <section id="files" role="tabpanel" aria-labelledby="t-files" hidden>
@@ -117,7 +118,7 @@
 <div class="card"><h2>From the hub's files</h2><p><span class="fw"><a class="btn" href="print-start.html">Print a hub file on MINI-1</a></span></p><span class="anno">POST /api/v1/devices/{id}/transfers {print_after: true}</span></div>
 </section>
 
-<section id="jobs" role="tabpanel" aria-labelledby="t-jobs" hidden>
+<section id="queue" role="tabpanel" aria-labelledby="t-queue" hidden>
 <div class="card"><h2>Queue on MINI-1</h2>
 <ul class="list">
 <li><div class="grow"><b>1 · badge-round × 4</b><br><small>Sam · PLA · 1 h 05 min · starts when MINI-1 is free and its bed is clear</small></div><span class="fw"><button class="btn small" type="button">Move up</button></span><span class="fw"><button class="btn small ghost" type="button" data-undo="badge-round taken out of MINI-1's queue.">Take out</button></span></li>
@@ -133,14 +134,14 @@
 <p><small>"Outcome unknown": the hub did not see the end, so it does not say good or failed. Outcomes are tags, not machine states.</small> <span class="anno">GET /api/v1/jobs?device= · jobs.outcome done, stopped, failed</span></p></div>
 </section>
 
-<section id="camera" role="tabpanel" aria-labelledby="t-camera" hidden>
+<section id="cameras" role="tabpanel" aria-labelledby="t-cameras" hidden>
 <div class="card"><h2>Cam-MINI-1</h2>
 <div class="preview cam"><span class="feed" aria-hidden="true">camera picture</span><div class="cam-bar"><b>Cam-MINI-1</b><span class="live">LIVE</span></div></div>
 <p style="margin-top:var(--s-2)"><small>Whoever may view MINI-1 may view its camera. Cameras are managed in Space → Cameras.</small> <span class="anno">/api/v1/cameras/{id}/ws · device.view, checked before the upgrade</span></p></div>
 </section>
 
-<section id="settings" role="tabpanel" aria-labelledby="t-settings" hidden>
-<div class="card"><h2>The machine</h2><dl class="kv"><dt>Name</dt><dd>MINI-1</dd><dt>Model</dt><dd>MINI (from the printer)</dd><dt>Firmware</dt><dd>6.3.0 (as the printer reports it)</dd><dt>Serial</dt><dd>SN-0000-1234</dd><dt>Connection</dt><dd>Built-in Connect, online</dd></dl></div>
+<section id="machine" role="tabpanel" aria-labelledby="t-machine" hidden>
+<div class="card"><h2>Details</h2><div class="ctl-cols"><div><h3>Specification</h3><dl class="kv"><dt>Model</dt><dd>Original Prusa MINI</dd><dt>Build volume</dt><dd>180 × 180 × 180 mm</dd><dt>Nozzle size</dt><dd>0.4 mm</dd></dl></div><div><h3>This machine</h3><dl class="kv"><dt>Name</dt><dd>MINI-1</dd><dt>Firmware</dt><dd>6.3.0 (as the printer reports it)</dd><dt>Serial</dt><dd>SN-0000-1234</dd><dt>Connection</dt><dd>Built-in Connect, online</dd></dl></div></div></div>
 <div class="card" data-only="guest user"><p>A machine's settings are changed by the space's staff.</p></div>
 <div data-only="admin instance">
 <div class="card"><h2>Name and labels</h2><div class="row"><label class="field">Name<input value="MINI-1"></label><label class="field">Labels<input value="Room 2"></label><span class="fw"><button class="btn" type="button">Save</button></span></div><span class="anno">PATCH /api/v1/devices/{id} · device.manage</span></div>
@@ -153,6 +154,14 @@
 <dialog id="confirm-delete" aria-labelledby="cd-h"><h2 id="cd-h">Delete hook-small.bgcode from MINI-1?</h2><p>It is removed from the printer's USB stick.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep it</button></span><span class="fw"><button class="btn danger" value="yes">Delete</button></span></form></dialog>
 <dialog id="confirm-retire" aria-labelledby="cr-h"><h2 id="cr-h">Retire MINI-1?</h2><label class="field">Reason<input value="Sold"></label><p><small>It leaves the list; its jobs and history stay.</small></p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep it</button></span><span class="fw"><button class="btn danger" value="yes">Retire</button></span></form></dialog>
 
+<section id="history" role="tabpanel" aria-labelledby="t-history" hidden>
+<div class="card"><h2>Temperatures, last 2 hours</h2><div class="empty">nozzle, bed and fans over time</div><span class="anno">GET /api/v1/devices/{id}/history · device.view</span></div>
+<div class="card"><h2>Commands</h2><ul class="list"><li><div class="grow"><b>Nozzle to 215 °C</b><br><small>Noor · 15:31</small></div><span class="out">done</span></li></ul><span class="anno">what was sent from the hub, and how it went</span></div>
+</section>
+
+<section id="advanced" role="tabpanel" aria-labelledby="t-advanced" hidden>
+<div class="card" data-only="admin instance"><h2>Terminal</h2><div class="empty">sent commands and the printer's answers</div></div>
+</section>
 </main>
 <nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="host admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>

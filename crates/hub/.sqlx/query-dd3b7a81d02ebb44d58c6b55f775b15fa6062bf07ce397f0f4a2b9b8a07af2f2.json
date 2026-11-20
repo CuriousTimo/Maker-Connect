@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT r.id, r.user_id, u.display_name, r.machine_id, unix_seconds(r.asked_at) AS \"asked_at!\"\n               FROM access_requests r JOIN users u ON u.id = r.user_id\n               WHERE r.space_id = $1 AND r.state = 'open' ORDER BY r.asked_at, r.id",
+  "query": "SELECT r.id, r.user_id, u.display_name, r.machine_id, r.level, unix_seconds(r.asked_at) AS \"asked_at!\"\n               FROM access_requests r JOIN users u ON u.id = r.user_id\n               WHERE r.space_id = $1 AND r.state = 'open' ORDER BY r.asked_at, r.id",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,17 @@
       },
       {
         "ordinal": 4,
+        "name": "level",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "access_requests",
+            "name": "level"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "asked_at!",
         "type_info": "Int8",
         "origin": "Expression"
@@ -64,8 +75,9 @@
       false,
       false,
       false,
+      false,
       null
     ]
   },
-  "hash": "1b0deed5c8e5820bc0a2b509c413a344dc9ea4e4e478e53d9bf319a37432a81e"
+  "hash": "dd3b7a81d02ebb44d58c6b55f775b15fa6062bf07ce397f0f4a2b9b8a07af2f2"
 }

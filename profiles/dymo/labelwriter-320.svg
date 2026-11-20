@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of a DYMO LabelWriter 320">
+  <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
+  <ellipse cx="80" cy="140" rx="56" ry="6" fill="#d3d0c8"/>
+  <!-- the label coming up out of the top -->
+  <rect x="58" y="16" width="44" height="30" rx="1.5" fill="#fff"/>
+  <path d="M64 24h22M64 30h30M64 36h18" stroke="#8d949a" stroke-width="2" stroke-linecap="round"/>
+  <!-- the dark base, flaring out at the bottom -->
+  <path d="M40 96h80l5 36q1 4-3 4H38q-4 0-3-4z" fill="#2b3142"/>
+  <!-- the silver shell, a dome over the roll -->
+  <path d="M40 118V54q0-22 22-22h36q22 0 22 22v64q0 4-4 4H44q-4 0-4-4z" fill="#c9c7bf"/>
+  <!-- the smoked window in the top, and the slot the label comes out of -->
+  <path d="M50 70V50q0-10 10-10h40q10 0 10 10v20z" fill="#4a4d55"/>
+  <rect x="56" y="40" width="48" height="4" rx="1" fill="#2f3033"/>
+  <!-- the front panel: the green light and the feed button -->
+  <path d="M50 78h60l-6 38H56z" fill="#b4b2aa"/>
+  <circle cx="80" cy="96" r="2.4" fill="#7ccf3a"/>
+  <rect x="75" y="104" width="10" height="10" rx="3" fill="#5a5b60"/>
+</svg>

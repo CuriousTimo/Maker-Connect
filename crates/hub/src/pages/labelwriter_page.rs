@@ -94,7 +94,13 @@ fn roll_list(profile: Option<&Profile>, chosen: Option<&str>) -> String {
     out
 }
 
-pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> String {
+/// `may_operate`: may this person operate it ('operate', crate::access), as the machine page.
+pub fn render(
+    space: &str,
+    machine: &Machine,
+    move_to: &[(String, String)],
+    may_operate: bool,
+) -> String {
     let profile = machine.profile.as_deref().and_then(profiles::find);
     let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
     let (state, state_class) = machine_page::shown_state(machine);
@@ -118,7 +124,7 @@ pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> S
 </head>
 <body>
 {header}
-<main class="wide" data-id="{id}">
+<main id="main" tabindex="-1" class="wide" data-id="{id}">
   <div class="title">
     <h2>{name}</h2>
     <span class="state {state_class}" data-live="state">{state}</span>
@@ -165,7 +171,7 @@ pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> S
           </select></label>
           <label class="field wide" data-code-field hidden><span>What it encodes</span><input data-code-data maxlength="400" placeholder="The text, when empty" autocomplete="off"><small data-code-note></small></label>
         </div>
-        <div class="lw-print"><label><span>Copies</span><input type="number" data-copies min="1" max="50" value="1"></label><button type="button" data-print>Print</button><span data-print-status role="status"></span></div>
+        <div class="lw-print"><label><span>Copies</span><input type="number" data-copies min="1" max="50" value="1"></label><span class="fw"><button class="btn primary" type="button" data-print>Print</button></span><span data-print-status role="status"></span></div>
       </div>
       <div class="stack">
         <div class="card">
@@ -216,7 +222,7 @@ pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> S
             .map_or("–".to_owned(), |j| escape(&j.file_name)),
         rolls = roll_list(profile, machine.media.as_deref()),
         roll = roll_json(profile, machine),
-        settings = machine_page::settings(machine, move_to, false),
+        settings = machine_page::settings(machine, move_to, false, may_operate),
         overview = machine_page::overview(machine, profile, ""),
     )
 }

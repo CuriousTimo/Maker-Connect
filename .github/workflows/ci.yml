@@ -145,7 +145,9 @@ jobs:
       - name: Store tests
         env:
           PRUSA_SDK_PYTHON: ${{ runner.temp }}/sdk-venv/bin/python
-        run: cargo test -p maker-connect-hub --locked --features pg-tests
+        # With the cameras (the .67 build): it must build, and the routes' snapshot (tests/routes.txt)
+        # runs only in this build.
+        run: cargo test -p maker-connect-hub --locked --features pg-tests,cameras
 
       # `.sqlx/` must match the queries: checked against a database with every migration applied.
       - name: Query cache current

@@ -47,7 +47,7 @@ impl Legacy {
     /// A machine removed ([`Store::remove_machine`]): what the hub keeps of it in memory goes.
     pub(crate) fn forget_machine(&mut self, machine: &str) {
         self.commands.remove(machine);
-        self.history.remove(machine);
+        self.last_sample.remove(machine);
         self.changed();
     }
 

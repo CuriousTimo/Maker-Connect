@@ -256,6 +256,23 @@ thead th { border-top: 0; color: var(--muted); font-weight: 600; font-size: var(
 .st.wait { --m: var(--st-wait); --bc: var(--st-wait); }
 .st.warn { --m: var(--st-warn); --bc: var(--st-warn); }
 .st.bad { --m: var(--st-bad); --bc: var(--st-bad); }
+.st.val { --m: none; color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; text-decoration: none; }
+.st.val::before { content: none; }
+.st.val b { font-weight: 700; }
+.st.val .ico { width: 14px; height: 14px; flex: none; color: var(--muted); }
+.st.val .flame-on, .st.val .flame[data-on=true] { color: var(--flame, #d9692b); }
+/* A heater's value in the head: a menu to set it (Prusa Connect's head: Off, the firmware's preheat
+   presets, a value of one's own) for who may operate the machine */
+.temp-pick { position: relative; display: inline-block; }
+.temp-pick > summary { list-style: none; cursor: pointer; }
+.temp-pick > summary::-webkit-details-marker { display: none; }
+.temp-menu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 190px; display: grid; padding: var(--s-1); background: var(--surface); border: 1px solid var(--line-strong); box-shadow: 0 6px 18px rgb(0 0 0 / .18); }
+.temp-menu button:not(.btn) { display: flex; justify-content: space-between; gap: var(--s-3); padding: 6px var(--s-2); border: 0; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.temp-menu button:not(.btn):hover, .temp-menu button:not(.btn):focus-visible { background: var(--tint-chip); }
+.temp-menu button span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.temp-menu label { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2); border-top: 1px solid var(--line); font-size: var(--fs-1); }
+.temp-menu input { width: 64px; }
+.st.val .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--line); }
 .st.off { --m: transparent; --ring: repeating-linear-gradient(135deg, var(--bc) 0 3px, transparent 3px 6px); color: var(--muted); }
 .st.off::before { border: 2px solid var(--st-off); }
 .st.unk { --m: transparent; --ring: repeating-linear-gradient(135deg, var(--bc) 0 3px, transparent 3px 6px); }
@@ -299,12 +316,27 @@ thead th { border-top: 0; color: var(--muted); font-weight: 600; font-size: var(
 .cell.busy { --m: var(--accent); border-color: var(--accent); color: var(--on-accent); } .cell.wait { --m: var(--st-wait); border-color: var(--st-wait); color: var(--on-strong); } .cell.warn { --m: var(--st-warn); border-color: var(--st-warn); color: var(--on-strong); } .cell.bad { --m: var(--st-bad); border-color: var(--st-bad); color: var(--on-strong); } .cell.off { background: transparent; border-style: dashed; }
 .clock { font-size: var(--fs-5); font-weight: 700; font-variant-numeric: tabular-nums; }
 
-/* Machine card */
-.mcard { display: grid; gap: var(--s-2); }
-.mcard .top-line { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
-.mcard .top-line a { font-weight: 700; color: var(--ink); text-decoration: none; font-size: var(--fs-3); }
-.mcard .top-line a:hover { text-decoration: underline; }
-.mcard .acts { display: flex; gap: var(--s-2); flex-wrap: wrap; margin-top: var(--s-1); }
+/* Machine card (after Prusa Connect's printer card, our own drawing): picture, model over name, state;
+   the job and its bar; nozzle, bed, material; a message when something is wrong; the actions */
+.mcard { display: grid; gap: var(--s-3); align-content: start; }
+.mc-head { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center; }
+.mc-pic { width: 56px; height: 56px; display: grid; place-items: center; }
+.mc-pic img, .mc-pic svg { width: 100%; height: 100%; object-fit: contain; }
+.mc-pic .empty { padding: 0; font-size: var(--fs-1); }
+.mc-name { display: grid; min-width: 0; }
+.mc-name small { color: var(--muted); font-size: var(--fs-1); }
+.mc-name a { font-weight: 700; color: var(--ink); text-decoration: none; font-size: var(--fs-3); overflow-wrap: anywhere; }
+.mc-name a:hover { text-decoration: underline; }
+.mc-job { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s-2); min-width: 0; }
+.mc-job > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-vals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-2); }
+.mc-vals > span { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 36px; padding: 0 4px; border: 1px solid var(--line); font-variant-numeric: tabular-nums; font-size: var(--fs-1); white-space: nowrap; overflow: hidden; }
+.mc-vals .ico { width: 16px; height: 16px; flex: none; color: var(--muted); }
+.mc-vals .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--line); flex: none; }
+.mc-msg { margin: 0; display: flex; gap: var(--s-2); align-items: baseline; }
+.tag.warn { background: var(--st-warn); color: var(--on-strong); }
+.tag.bad { background: var(--st-bad); color: var(--on-strong); }
+.mcard .acts { display: flex; gap: var(--s-2); flex-wrap: wrap; }
 .kind { font-size: var(--fs-1); color: var(--muted); }
 .chips { display: flex; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-4); }
 .chip { display: inline-flex; align-items: center; gap: 6px; min-height: var(--tap); padding: 0 var(--s-3); border: 1px solid transparent; background: var(--tint-chip); color: var(--ink); font: 600 var(--fs-2) var(--font); text-decoration: none; cursor: pointer; }
@@ -315,7 +347,7 @@ thead th { border-top: 0; color: var(--muted); font-weight: 600; font-size: var(
 /* Jog pad, tiles */
 .tiles { display: grid; gap: var(--s-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr)); }
 .tile { --bc: var(--line); padding: var(--s-3); }
-.tile span { display: block; font-size: var(--fs-1); color: var(--muted); }
+.tile > span { display: block; font-size: var(--fs-1); color: var(--muted); }
 .tile b { font-size: var(--fs-4); font-variant-numeric: tabular-nums; }
 .jog { display: grid; grid-template-columns: repeat(3, var(--tap)); gap: var(--s-2); }
 .jog .btn { padding: 0; }
@@ -385,3 +417,15 @@ dialog .acts, .dialog-mock .acts { display: flex; flex-wrap: wrap; gap: var(--s-
 .cam-bar .live::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--st-bad); }
 .preview { aspect-ratio: 16 / 10; background: var(--surface-2); border: 1px solid var(--line); display: grid; place-items: center; color: var(--muted); font-size: var(--fs-2); }
 .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--line-strong); vertical-align: -2px; }
+
+/* A machine's head (Prusa Connect's layout, owner 2026-11-20): picture, name and state, facts, live chips, Set ready. */
+.mhead { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: var(--s-4); align-items: start; }
+.mhead .row { gap: var(--s-2); }
+.mhead .head .rename { margin-left: auto; }
+.cols-even { display: grid; gap: var(--s-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+.cols-even > .card + .card { margin-top: 0; }
+@media (max-width: 699px) { .mhead { grid-template-columns: 72px minmax(0, 1fr); } .mhead > :last-child { grid-column: 1 / -1; } }
+/* Controls (Prusa Connect's layout): one card, moving left, temperatures, speed and flow right. */
+.ctl-cols { display: grid; gap: var(--s-5); grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+.ctl-cols h3 { margin-top: 0; }
+.mhead .row > .chip { flex: 0 0 auto; }
