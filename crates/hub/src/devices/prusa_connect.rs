@@ -991,13 +991,17 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
             if let Some(state) = state {
                 let reason = event["reason"].as_str().map(str::to_owned);
                 println!("command {id}: {name} {}", reason.as_deref().unwrap_or(""));
-                store.command_went(
-                    caller.as_ref(),
-                    id as u32,
-                    state,
-                    reason.clone(),
-                    Vec::new(),
-                );
+                // What the printer answered a G-code (extension part 9, `gcode.output`).
+                let output = event["data"]["gcode_output"]
+                    .as_array()
+                    .map(|lines| {
+                        lines
+                            .iter()
+                            .filter_map(|l| l.as_str().map(str::to_owned))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                store.command_went(caller.as_ref(), id as u32, state, reason.clone(), output);
                 // A label's command refused fails it; its answer only says the download started.
                 if state == CommandState::Rejected
                     && let Some(job) = store.label_jobs.remove(&(id as u32))

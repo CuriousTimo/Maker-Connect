@@ -409,6 +409,7 @@ was, so a side may know both.
 | `door.lock` | Part 7: `lock_count`, `locks` and `OPEN_LOCK` |
 | `scale.telemetry` | Part 8: its three telemetry keys |
 | `marlin.fdm` | Part 9: the type, and the states of OctoPrint's serial layer |
+| `gcode.output` | Part 9: `gcode_output` on a `GCODE` command's `FINISHED` |
 
 **Whether they fit** (the same rule on both sides; shown, nothing refused: owner 2026-11-21):
 - a name in the device's `extensions` that is not in the server's: **the agent is newer than the
@@ -632,6 +633,24 @@ Left without a handler, so the SDK answers them `REJECTED` "Not Implemented" (`c
 `LOAD_FILAMENT` and `UNLOAD_FILAMENT` (a Prusa's own menus), `RESET_PRINTER` (PrusaLink's line reset of
 a Prusa's board), `SET_PRINTER_READY` and `CANCEL_PRINTER_READY`.
 
+### What the printer answered: `gcode_output` on `FINISHED`
+
+PrusaLink sends a `GCODE` command's lines and answers `FINISHED` with nothing of what the printer said
+(`command_handlers.py:332-385`, `prusa_link.py:545-552`); Buddy's `FINISHED` carries no data either
+(`render.cpp`). A server with a terminal shows the answer (an `M115`'s firmware name and Cap lines, an
+M503's settings). One new event field:
+
+| Field | Of | Type | Value |
+|---|---|---|---|
+| `gcode_output` | `FINISHED` of `GCODE`, in `data` | list of strings | the lines the printer sent while the command's lines were sent and acknowledged, in order, without the line ends, as the port collects them (OctoPrint's terminal log, `port.rs` M4) |
+
+Left out when the printer sent nothing; a server that does not know it drops it (below). A `FAILED` or `REJECTED` stays the SDK's: its `reason` says why.
+
+**Compatibility:** the SDK passes an event's `data` as it is (`__init__.py` `event_cb`); Connect reads
+only the fields it names of an event and drops the rest. A server without this part sees the SDK's
+`FINISHED`; an agent without it sends no `gcode_output`, and the terminal shows only that the command
+finished.
+
 ### Storages
 
 As PrusaLink's: the agent's folder as a `LOCAL` storage, and the printer's SD card as `SD_CARD`
@@ -735,4 +754,5 @@ was looked for under another name.
 | `LOCK_RESTING` | value | machine_reason | 7 | as `NO_SUCH_LOCK` |
 | `EXPIRED` | value | machine_reason | 7 | as `NO_SUCH_LOCK` |
 | `NO_TIME` | value | machine_reason | 7 | as `NO_SUCH_LOCK` |
+| `gcode_output` | event-field | FINISHED | 9 | SDK `Event` and `event_cb` (`__init__.py`, `models.py`), PrusaLink `ExecuteGcode` (`command_handlers.py`): no lines back; Buddy `FINISHED` (`render.cpp`): no data |
 | `machine_type` | info | | 9 | SDK `get_info` (`__init__.py`: `type`, a Prusa's code), Buddy `INFO` (`render.cpp`: `printer_type`), PrusaLink (`printer_polling.py`: `M862.2`): no model name |

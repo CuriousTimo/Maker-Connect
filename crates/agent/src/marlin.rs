@@ -327,7 +327,18 @@ fn execute_gcode(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
             now.value()
         )));
     }
-    run(agent, cmd.command_id(), Action::Gcode { text: gcode })
+    let output = run(agent, cmd.command_id(), Action::Gcode { text: gcode })?;
+    Ok(gcode_finish(output))
+}
+
+/// `FINISHED` with what the printer answered, `gcode_output` in its `data` (extension part 9,
+/// `gcode.output`); the SDK's own `FINISHED` when it answered nothing.
+fn gcode_finish(output: Vec<String>) -> Finish {
+    let mut finish = Finish::new(Source::Connect);
+    if !output.is_empty() {
+        finish.kwargs.insert("gcode_output".into(), output.into());
+    }
+    finish
 }
 
 /// `SetValue` (`command_handlers.py:395-449`): the checks but the ranges (part 9: PrusaLink's are
@@ -383,12 +394,13 @@ fn set_value(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
             celsius: value as f64,
         },
     };
-    run(agent, cmd.command_id(), action)
+    run(agent, cmd.command_id(), action)?;
+    Ok(Finish::new(Source::Connect))
 }
 
 /// An `Action` to the port, waited for as PrusaLink's `do_command` waits
-/// (`command_queue.py:69-90`); the port's reason as the failure.
-fn run(agent: &Agent, command_id: i64, action: Action) -> Result<Finish, HandlerError> {
+/// (`command_queue.py:69-90`); the port's reason as the failure. What the printer said meanwhile.
+fn run(agent: &Agent, command_id: i64, action: Action) -> Result<Vec<String>, HandlerError> {
     let Some(id) = *agent.dymo.lock().unwrap() else {
         return Err(failed("the Marlin module is off"));
     };
@@ -413,7 +425,7 @@ fn run(agent: &Agent, command_id: i64, action: Action) -> Result<Finish, Handler
             let done = report.done[i].clone();
             let _ = agent.engine.lock().unwrap().reported(id, i + 1, 0);
             return if done.ok {
-                Ok(Finish::new(Source::Connect))
+                Ok(done.output)
             } else {
                 Err(failed(done.reason.as_deref().unwrap_or("failed")))
             };
@@ -425,6 +437,23 @@ fn run(agent: &Agent, command_id: i64, action: Action) -> Result<Finish, Handler
 mod tests {
     use super::*;
     use crate::Kind;
+
+    /// A G-code's answer goes in `FINISHED`'s `data` as `gcode_output` (part 9); none, none.
+    #[test]
+    fn a_gcode_finishes_with_what_the_printer_answered() {
+        let lines = vec![
+            "FIRMWARE_NAME:Marlin 2.0.9.3 MACHINE_TYPE:AtomX MK3".to_owned(),
+            "Cap:EEPROM:1".to_owned(),
+            "ok".to_owned(),
+        ];
+        let finish = gcode_finish(lines.clone());
+        assert_eq!(finish.source, Source::Connect);
+        assert_eq!(
+            finish.kwargs.get("gcode_output"),
+            Some(&serde_json::json!(lines))
+        );
+        assert!(gcode_finish(Vec::new()).kwargs.is_empty());
+    }
 
     #[test]
     fn the_states_of_part_9() {

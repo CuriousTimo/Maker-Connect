@@ -105,7 +105,7 @@ impl Kind {
                 "label.stop",
                 "agent.id",
             ],
-            Kind::Marlin => &["type.string", "agent.id", "marlin.fdm"],
+            Kind::Marlin => &["type.string", "agent.id", "marlin.fdm", "gcode.output"],
         }
     }
 

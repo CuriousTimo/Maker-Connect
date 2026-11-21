@@ -2259,6 +2259,74 @@ mod flow {
         assert_eq!(profile().await.as_deref(), Some("creality/cr-10"));
     }
 
+    /// What a Marlin printer answered a G-code reaches the terminal: `gcode_output` in its
+    /// `FINISHED` (extension part 9, `gcode.output`) is the command's output.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_marlin_answer_reaches_the_terminal(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (_, headers, _) = call(
+            &app,
+            Request::post("/p/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"sn":"MC00112233445566AA","fingerprint":"fp","printer_type":"marlin.fdm","firmware":"0.3.0"}"#,
+                ))
+                .unwrap(),
+        )
+        .await;
+        let code = headers["code"].to_str().unwrap().to_owned();
+        let space = store.default_space().await.unwrap().0;
+        store.pair(space, &code).await.unwrap();
+        let (_, headers, _) = call(
+            &app,
+            Request::get("/p/register")
+                .header("Code", &code)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let token = headers["token"].to_str().unwrap().to_owned();
+        let id = store.machines(space).await.unwrap()[0].id.clone();
+        let link = store.link_of(space, &id).await.unwrap();
+        let command = store
+            .lock()
+            .unwrap()
+            .queue_command(link.as_deref(), &id, "Terminal", "M115")
+            .unwrap();
+        let (_, headers, _) = call(
+            &app,
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .body(Body::from(r#"{"state":"IDLE"}"#))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(headers["command-id"], command.to_string().as_str());
+        let answer = [
+            "FIRMWARE_NAME:Marlin 2.0.9.3 (Nov 21 2026) MACHINE_TYPE:AtomX MK3",
+            "Cap:EEPROM:1",
+            "ok",
+        ];
+        let finished = Request::post("/p/events")
+            .header("Token", &token)
+            .body(Body::from(
+                json!({"event": "FINISHED", "command_id": command, "state": "IDLE",
+                    "data": {"gcode_output": answer}})
+                .to_string(),
+            ))
+            .unwrap();
+        assert_eq!(call(&app, finished).await.0, StatusCode::NO_CONTENT);
+        let machine = store.machine(space, &id).await.unwrap().unwrap();
+        let done = machine.commands.iter().find(|c| c.id == command).unwrap();
+        assert_eq!(done.state, crate::store::CommandState::Finished);
+        assert_eq!(done.output, answer);
+    }
+
     /// A MINI, as it talks: its stick looked through (with a file's picture), a file
     /// printed from it, and a file of the space sent to it (encrypted, fetched in two
     /// goes), printed, and its job followed to the end.
