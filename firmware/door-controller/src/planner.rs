@@ -138,6 +138,8 @@ pub enum ActionResult {
 pub enum BackgroundResult {
     Success,
     Failure,
+    /// Part 7: past `expires_at` (or no clock) when the pulse was due.
+    Expired,
 }
 
 /// Buddy's `Tracked` (`changes.hpp:8-34`).
@@ -169,8 +171,8 @@ impl Tracked {
     }
 }
 
-/// `buddy::ExponentialBackoff<Duration, COOLDOWN_BASE, COOLDOWN_MAX>` (`planner.hpp:146`). Its header is
-/// not in `reference/buddy-6.4.0`; doubling from base to max is an assumption (open question).
+/// The wait after a failure, from `COOLDOWN_BASE` to `COOLDOWN_MAX` (Buddy's bounds, `planner.hpp:139-146`).
+/// Doubling between them is our choice: it is the board's own retry, not something on the wire.
 #[derive(Default)]
 struct Cooldown {
     failures: u32,
@@ -207,6 +209,7 @@ fn command_is_error_whitelisted(command: &Command) -> bool {
 struct BackgroundCommand {
     id: CommandId,
     lock: u32,
+    expires_at: u64,
 }
 
 pub struct Planner {
@@ -533,7 +536,11 @@ impl Planner {
                 self.planned_event = Some(Event::rejected_with(id, reason, code))
             }
             None => {
-                self.background_command = Some(BackgroundCommand { id, lock });
+                self.background_command = Some(BackgroundCommand {
+                    id,
+                    lock,
+                    expires_at,
+                });
                 self.planned_event = Some(Event::for_command(EventType::Accepted, id));
             }
         }
@@ -541,11 +548,16 @@ impl Planner {
 
     /// The step of the background command, as `background_cmd_step` would do it from `sleep.cpp:162-194`
     /// (`SubmitBackgroundCmd`): the pulse, then `background_done`. Returns whether the sleep wakes.
+    /// Part 7: `expires_at` is checked again just before the pulse. The pulse waits for `ACCEPTED` to be
+    /// sent, so a network that drops in between must not let the lock open late.
     pub fn run_background(&mut self, printer: &mut Printer) -> bool {
         let Some(cmd) = self.background_command.clone() else {
             return false;
         };
-        let result = if printer.open_lock(cmd.lock) {
+        let in_time = printer.unix_time().is_some_and(|now| now <= cmd.expires_at);
+        let result = if !in_time {
+            BackgroundResult::Expired
+        } else if printer.open_lock(cmd.lock) {
             BackgroundResult::Success
         } else {
             BackgroundResult::Failure
@@ -554,18 +566,20 @@ impl Planner {
         true
     }
 
-    /// `planner.cpp:1120-1133`
+    /// `planner.cpp:1120-1133`, with Part 7's late `EXPIRED`.
     fn background_done(&mut self, result: BackgroundResult) {
-        let ev_type = if result == BackgroundResult::Success {
-            EventType::Finished
-        } else {
-            EventType::Failed
+        let (event_type, reason, machine_reason) = match result {
+            BackgroundResult::Success => (EventType::Finished, None, MachineReason::None),
+            BackgroundResult::Failure => (EventType::Failed, None, MachineReason::None),
+            BackgroundResult::Expired => {
+                (EventType::Failed, Some("Expired"), MachineReason::Expired)
+            }
         };
         self.planned_event = Some(Event {
-            event_type: ev_type,
+            event_type,
             command_id: self.background_command_id(),
-            reason: None,
-            machine_reason: MachineReason::None,
+            reason,
+            machine_reason,
         });
         self.background_command = None;
     }

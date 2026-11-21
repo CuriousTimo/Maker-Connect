@@ -541,6 +541,8 @@ cabinet locks. The firmware is ours, in Rust (owner, 2026-11-21).
   attach (prusa-connect `internal/connector/xbuddy/link.go:327-353`, `xbuddy.go:793-804`). A lock must
   never open minutes later, when nobody stands there. The server sets `expires_at` a few seconds after
   the person pressed Open; a command that arrives late is refused, and the person presses again.
+  The board checks `expires_at` again just before the pulse: a command it took in time but could not
+  answer `ACCEPTED` for (the socket dropped) ends `FAILED` with `"Expired"` and `EXPIRED` when it is late.
 - **The server, too** (ours): sends `OPEN_LOCK` only to a device whose socket is up, and drops it from
   the queue when the socket goes.
 

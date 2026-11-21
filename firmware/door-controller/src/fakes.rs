@@ -135,6 +135,8 @@ pub struct FakeNet {
     pub sent: Vec<(WsSend, Vec<u8>)>,
     pub inbound: VecDeque<WsMessage>,
     pub invalidated: u32,
+    /// While true every text send fails (the network is down).
+    pub send_fails: bool,
 }
 
 impl FakeNet {
@@ -148,6 +150,7 @@ impl FakeNet {
             sent: vec![],
             inbound: VecDeque::new(),
             invalidated: 0,
+            send_fails: false,
         }
     }
     /// The server sends a `J` command with this id and JSON.
@@ -186,6 +189,10 @@ impl Net for FakeNet {
         self.upgrades.pop_front().unwrap_or(Ok(WsUpgrade::Switched))
     }
     fn ws_send(&mut self, kind: WsSend, data: &[u8]) -> Result<(), NetError> {
+        if self.send_fails && kind == WsSend::Text {
+            self.clock.advance(1000);
+            return Err(NetError::Network);
+        }
         self.sent.push((kind, data.to_vec()));
         Ok(())
     }

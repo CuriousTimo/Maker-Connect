@@ -456,3 +456,51 @@ fn a_refused_upgrade_is_dialled_again_with_a_cooldown() {
     r.command(3, json!({"command": "SEND_INFO"}));
     r.answer_for(3, "INFO");
 }
+
+#[test]
+fn an_accepted_open_lock_does_not_pulse_after_it_expired() {
+    // The command is taken, then the network drops for long before ACCEPTED is out (the board gives
+    // the event up). When it is back the command has expired: the lock must not open late.
+    let mut r = rig();
+    r.clock.set_unix(Some(1000));
+    r.settle();
+    r.open_lock(9, 0, 1005);
+    while !r.net.inbound.is_empty() {
+        r.step();
+    }
+    r.net.send_fails = true;
+    r.clock.set_unix(Some(2000));
+    r.steps(200);
+    r.net.send_fails = false;
+    r.steps(200);
+    assert!(
+        r.relays.pulses().is_empty(),
+        "pulsed late: {:?}",
+        r.relays.pulses()
+    );
+    // The board is not stuck on it: a new command in time runs.
+    r.open_lock(10, 0, 2005);
+    r.answer_for(10, "FINISHED");
+    assert_eq!(r.relays.pulses(), vec![(0, 500)]);
+}
+
+#[test]
+fn an_open_lock_late_after_a_short_drop_fails_expired() {
+    // A short drop: ACCEPTED goes out on a retry, but by then the command has expired.
+    let mut r = rig();
+    r.clock.set_unix(Some(1000));
+    r.settle();
+    r.open_lock(11, 0, 1005);
+    while !r.net.inbound.is_empty() {
+        r.step();
+    }
+    r.net.send_fails = true;
+    r.clock.set_unix(Some(2000));
+    r.steps(2);
+    r.net.send_fails = false;
+    r.answer_for(11, "ACCEPTED");
+    let failed = r.answer_for(11, "FAILED");
+    assert_eq!(failed["reason"], "Expired");
+    assert_eq!(failed["machine_reason"], "EXPIRED");
+    assert!(r.relays.pulses().is_empty());
+}
