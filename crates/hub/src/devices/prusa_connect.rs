@@ -220,6 +220,28 @@ pub(crate) fn marlin_agent(machine: &crate::store::Machine) -> bool {
         == Some(MARLIN_AGENT)
 }
 
+/// A GRBL laser's type on the agent (`docs/design/prusa-sdk-extension.md`, part 4).
+pub(crate) const LASER_AGENT: &str = "grbl.laser";
+
+/// Part 4's settings in a laser's `INFO`: `max_power` (`$30`), `laser_mode` (`$32`), `travel_x`,
+/// `travel_y`, `travel_z` (`$130`-`$132`); None when it told none of them.
+pub(crate) fn grbl_settings(info: &Value) -> Option<maker_connect_protocol::GrblSettings> {
+    let travel = match (
+        info["travel_x"].as_f64(),
+        info["travel_y"].as_f64(),
+        info["travel_z"].as_f64(),
+    ) {
+        (Some(x), Some(y), Some(z)) => Some([x, y, z]),
+        _ => None,
+    };
+    let s = maker_connect_protocol::GrblSettings {
+        laser_mode: info["laser_mode"].as_bool(),
+        max_power: info["max_power"].as_f64(),
+        travel_mm: travel,
+    };
+    (s != maker_connect_protocol::GrblSettings::default()).then_some(s)
+}
+
 /// The LabelWriter 450's profile (docs/design/wire.md, "The second device").
 const LABELWRITER_450: &str = "dymo/labelwriter-450";
 
@@ -483,8 +505,12 @@ async fn register(State(store): State<Store>, body: String) -> Response {
     // A Marlin printer on the agent (`docs/design/prusa-sdk-extension.md`, part 9): no profile
     // knows its model from the type; the space chooses one on its Machine tab.
     let marlin = identity.printer_type.as_deref() == Some(MARLIN_AGENT);
+    // A GRBL laser on the agent (part 4): a laser; no profile knows its model from the type.
+    let laser = identity.printer_type.as_deref() == Some(LASER_AGENT);
     let fallback = if marlin {
         "Marlin printer"
+    } else if laser {
+        "GRBL laser"
     } else {
         "Prusa printer"
     };
@@ -503,7 +529,11 @@ async fn register(State(store): State<Store>, body: String) -> Response {
         format!("{model} {tail}")
     };
     let firmware = text(&about, "firmware");
-    let kind = profile.map_or(MachineKind::Fdm, |p| p.kind);
+    let kind = match profile {
+        Some(p) => p.kind,
+        None if laser => MachineKind::Laser,
+        None => MachineKind::Fdm,
+    };
     let agent_version = if kind == MachineKind::Fdm && !marlin {
         format!("Prusa firmware {firmware} (built-in Connect)").replace("  ", " ")
     } else {
@@ -516,7 +546,7 @@ async fn register(State(store): State<Store>, body: String) -> Response {
         if let Some(profile) = profile {
             store.recognise(&token, &profile.id).await?;
         }
-        if marlin {
+        if marlin || laser {
             let details = Details {
                 serial: Some(serial.clone()).filter(|s| !s.is_empty()),
                 printer_type: identity.printer_type.clone(),
@@ -592,6 +622,10 @@ fn take_in(
     // reason of its last `STATE_CHANGED`, the PPD's own text, is its problem.
     if let Some(reason) = &session.label_reason {
         t.problem = reason.clone();
+    }
+    // A GRBL laser on the agent (part 4): its settings are in its `INFO`.
+    if let Some(grbl) = &session.grbl {
+        t.grbl = Some(grbl.clone());
     }
     // The state comes in every frame (`render.cpp:303`).
     t.state = match report["state"].as_str().unwrap_or("") {
@@ -1123,6 +1157,10 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
             .entry(caller.id.clone())
             .or_default()
             .info(&event["data"], header(&headers, "user-agent-printer"));
+        if header(&headers, "user-agent-printer") == LASER_AGENT {
+            let session = store.connect_tools.entry(caller.id.clone()).or_default();
+            session.grbl = grbl_settings(&event["data"]).or(session.grbl.take());
+        }
     }
     // Every event carries the machine's state, and a JOB_INFO the print's (`inbound.go:245-258`).
     if let Some(caller) = caller.as_ref() {
@@ -2055,6 +2093,80 @@ mod tests {
             next().await,
             "GOT M115",
             "the G-code reached the SDK over /p/ws"
+        );
+    }
+
+    /// A GRBL laser's settings (part 4) from its `INFO`; none when it told none.
+    #[test]
+    fn a_lasers_settings_from_its_info() {
+        let s = grbl_settings(
+            &json!({"type": "grbl.laser", "max_power": 1000, "laser_mode": true,
+            "travel_x": 400.0, "travel_y": 430.0, "travel_z": 0.0}),
+        )
+        .unwrap();
+        assert_eq!(s.max_power, Some(1000.0));
+        assert_eq!(s.laser_mode, Some(true));
+        assert_eq!(s.travel_mm, Some([400.0, 430.0, 0.0]));
+        assert_eq!(grbl_settings(&json!({"type": "grbl.laser"})), None);
+    }
+
+    /// A laser's frame: its state and machine position; its settings from the session (`INFO`).
+    #[test]
+    fn a_lasers_telemetry_is_taken_in() {
+        let mut laser = Printer::new("grbl.laser");
+        laser.session.grbl = grbl_settings(&json!({"max_power": 1000, "laser_mode": true}));
+        let t = laser.frame(
+            json!({"state": "IDLE", "axis_x": 12.5, "axis_y": 40.0, "machine_state": "Idle"}),
+        );
+        assert_eq!(t.state, MachineState::Idle);
+        assert_eq!(
+            t.position_mm.map(|p| [p[0], p[1]]),
+            Some([Some(12.5), Some(40.0)])
+        );
+        assert_eq!(t.grbl.as_ref().and_then(|g| g.max_power), Some(1000.0));
+        let t = laser.frame(json!({"state": "ATTENTION", "machine_state": "Door"}));
+        assert_eq!(t.state, MachineState::Attention);
+        assert_eq!(
+            t.position_mm.map(|p| [p[0], p[1]]),
+            Some([Some(12.5), Some(40.0)]),
+            "kept"
+        );
+    }
+
+    /// A GRBL laser on the agent (part 4) registers as `grbl.laser`: a laser, named "GRBL laser"
+    /// and the end of its serial, its type kept in its details.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_laser_on_the_agent_registers_as_a_laser(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (status, headers) = call(
+            &app,
+            Request::post("/p/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"sn":"MC00112233445566BB","fingerprint":"fp","printer_type":"grbl.laser","firmware":"0.3.0"}"#,
+                ))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let code = headers["code"].to_str().unwrap().to_owned();
+        let space = store.default_space().await.unwrap().0;
+        assert!(store.pair(space, &code).await.unwrap().is_some());
+        let laser = store.machines(space).await.unwrap()[0].clone();
+        assert_eq!(laser.kind, MachineKind::Laser);
+        assert_eq!(laser.name, "GRBL laser 66BB");
+        assert_eq!(laser.profile, None);
+        assert_eq!(
+            laser
+                .details
+                .as_ref()
+                .and_then(|d| d.printer_type.as_deref()),
+            Some(LASER_AGENT)
         );
     }
 

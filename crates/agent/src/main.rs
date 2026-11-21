@@ -16,10 +16,14 @@
 #[cfg(unix)]
 use maker_connect_engine::Order;
 use maker_connect_engine::{
-    Engine, MachineId, Port, ports::dymo_cups::LabelWriter450, ports::labelle::DymoPnp,
+    Engine, MachineId, Port,
+    ports::dymo_cups::LabelWriter450,
+    ports::labelle::DymoPnp,
+    ports::laserfoundry::port::{LaserFoundryPort, MachineStateHook},
     ports::octoprint::port::OctoPrintPort,
 };
 
+mod laser;
 mod marlin;
 mod serial_ports;
 #[cfg(unix)]
@@ -58,10 +62,12 @@ enum Kind {
     Lw450,
     /// A Marlin printer, not a Prusa (`docs/design/prusa-sdk-extension.md`, part 9).
     Marlin,
+    /// A GRBL laser (`docs/design/prusa-sdk-extension.md`, part 4).
+    Laser,
 }
 
 impl Kind {
-    const ALL: [Kind; 3] = [Kind::Pnp, Kind::Lw450, Kind::Marlin];
+    const ALL: [Kind; 4] = [Kind::Pnp, Kind::Lw450, Kind::Marlin, Kind::Laser];
 
     /// Its type on the wire (`docs/design/prusa-sdk-extension.md`, parts 2 and 3).
     fn printer_type(self) -> &'static str {
@@ -69,6 +75,7 @@ impl Kind {
             Kind::Pnp => "dymo.labelmanager-pnp",
             Kind::Lw450 => "dymo.labelwriter-450",
             Kind::Marlin => "marlin.fdm",
+            Kind::Laser => "grbl.laser",
         }
     }
 
@@ -78,6 +85,7 @@ impl Kind {
             Kind::Pnp => "dymo",
             Kind::Lw450 => "labelwriter-450",
             Kind::Marlin => "marlin",
+            Kind::Laser => "laser",
         }
     }
 
@@ -86,6 +94,7 @@ impl Kind {
             Kind::Pnp => "DYMO LabelManager PnP",
             Kind::Lw450 => "DYMO LabelWriter 450",
             Kind::Marlin => "Marlin printer",
+            Kind::Laser => "GRBL laser",
         }
     }
 
@@ -106,11 +115,20 @@ impl Kind {
                 "agent.id",
             ],
             Kind::Marlin => &["type.string", "agent.id", "marlin.fdm", "gcode.output"],
+            // #163: reporting only; `grbl.commands` comes with the commands (#164).
+            Kind::Laser => &["type.string", "agent.id", "grbl.telemetry"],
         }
     }
 
-    /// The device's port; none for a Marlin whose chosen USB device is not there now.
-    fn port(self, s: &Settings) -> Option<Box<dyn Port>> {
+    /// Whether it is on a serial port the agent's page chooses (its connection form).
+    fn serial(self) -> bool {
+        matches!(self, Kind::Marlin | Kind::Laser)
+    }
+
+    /// The device's port; none for a Marlin or a laser whose chosen USB device is not there
+    /// now, or a laser with no port chosen (LaserFoundry has no AUTO: its port is required, G14).
+    /// `hook` is told a laser's GRBL state (part 4's `machine_state`).
+    fn port(self, s: &Settings, hook: MachineStateHook) -> Option<Box<dyn Port>> {
         Some(match self {
             Kind::Pnp => Box::new(DymoPnp::new()),
             Kind::Lw450 => Box::new(LabelWriter450::new()),
@@ -120,6 +138,11 @@ impl Kind {
                 marlin_port_name(s)?,
                 (s.baudrate != 0).then_some(s.baudrate),
             )),
+            // LaserFoundry's baud rate (`DEFAULT_BAUD`): its connection panel has no choice.
+            Kind::Laser => Box::new(
+                LaserFoundryPort::new(Some(marlin_port_name(s)??), None)
+                    .with_machine_state_hook(hook),
+            ),
         })
     }
 }
@@ -345,6 +368,10 @@ struct Agent {
     dialling: Mutex<()>,
     /// What a Marlin printer's M115 said, in `INFO` (part 9 of the extension).
     firmware: Mutex<Option<marlin::Firmware>>,
+    /// A laser's GRBL state by LaserFoundry's name, as its port last told it (part 4).
+    machine_state: Arc<Mutex<Option<&'static str>>>,
+    /// What a laser said of itself, in `INFO` (part 4).
+    laser: Mutex<laser::Known>,
     #[cfg(unix)]
     transfer: Arc<Transfer>,
     #[cfg(unix)]
@@ -396,6 +423,8 @@ impl Agent {
             queue: Mutex::new(Default::default()),
             dialling: Mutex::new(()),
             firmware: Mutex::new(None),
+            machine_state: Arc::new(Mutex::new(None)),
+            laser: Mutex::new(laser::Known::default()),
             #[cfg(unix)]
             transfer: Arc::new(Transfer::new()),
             #[cfg(unix)]
@@ -454,7 +483,9 @@ impl Agent {
     fn module_on(&self) {
         let mut dymo = self.dymo.lock().unwrap();
         if dymo.is_none() {
-            match self.kind.port(&self.settings()) {
+            let told = self.machine_state.clone();
+            let hook: MachineStateHook = Arc::new(move |state| *told.lock().unwrap() = state);
+            match self.kind.port(&self.settings(), hook) {
                 Some(port) => *dymo = Some(self.engine.lock().unwrap().add(port)),
                 None => log::warn!("{}: {NOT_THERE}", self.kind.title()),
             }
@@ -465,6 +496,8 @@ impl Agent {
         if let Some(id) = self.dymo.lock().unwrap().take() {
             let _ = self.engine.lock().unwrap().remove(id);
         }
+        // Part 4: `Unknown` until the next status report.
+        *self.machine_state.lock().unwrap() = None;
         // The socket is set up once (`setup_link`) and kept: the next send dials it again.
         if let Some(ws) = self.ws.lock().unwrap().clone() {
             ws.disconnect();
@@ -612,8 +645,11 @@ fn setup_link(agent: &Arc<Agent>) {
     if agent.kind == Kind::Marlin {
         marlin::setup(agent, &command);
     }
+    // A laser takes no download yet (#163): its jobs come with #164.
     #[cfg(unix)]
-    setup_download(agent, &command, event_cb);
+    if agent.kind != Kind::Laser {
+        setup_download(agent, &command, event_cb);
+    }
     let incoming = command.clone();
     let ws = Arc::new(PrinterWs::new(Arc::new(move |message: String| {
         handle_ws_message(&incoming, &message)
@@ -653,7 +689,7 @@ fn setup_download(agent: &Arc<Agent>, command: &Command, event_cb: EventCallback
     let mut storage_dict = std::collections::HashMap::new();
     let storage = match agent.kind {
         Kind::Marlin => marlin::STORAGE,
-        Kind::Pnp | Kind::Lw450 => "labels",
+        Kind::Pnp | Kind::Lw450 | Kind::Laser => "labels",
     };
     storage_dict.insert(
         storage.to_owned(),
@@ -798,6 +834,7 @@ fn send_info(agent: &Agent) -> Finish {
     let mut finish = Finish::new(Source::Connect);
     finish.event = Some(consts::Event::Info);
     let known = agent.firmware.lock().unwrap().clone().unwrap_or_default();
+    let laser = agent.laser.lock().unwrap().clone();
     let kwargs: Kwargs = json!({
         "type": agent.kind.printer_type(),
         // The SDK's "Printer firmware version" (`__init__.py:88`): a Marlin's M115 name (part 9);
@@ -816,6 +853,10 @@ fn send_info(agent: &Agent) -> Finish {
     .unwrap()
     .clone();
     finish.kwargs = kwargs;
+    // Part 4: the laser's settings.
+    if agent.kind == Kind::Laser {
+        laser::info(&mut finish.kwargs, laser.settings.as_ref());
+    }
     // Part 9: what the printer answered M115, once it did.
     if let Some(info) = known.info {
         finish.kwargs.insert("firmware_info".into(), info.into());
@@ -891,7 +932,7 @@ fn start_connect_download(agent: &Agent, cmd: &Command) -> Result<Finish, Handle
     let media = match agent.kind {
         Kind::Pnp => (kwargs["tape_size_mm"].as_u64().map(|t| t as u32), None),
         Kind::Lw450 => (None, kwargs["page_size"].as_str().map(str::to_owned)),
-        Kind::Marlin => (None, None),
+        Kind::Marlin | Kind::Laser => (None, None),
     };
     let mgr = agent
         .download
@@ -1106,6 +1147,9 @@ fn current_state(agent: &Agent) -> State {
     if agent.kind == Kind::Marlin {
         return marlin::state(agent, report.as_ref());
     }
+    if agent.kind == Kind::Laser {
+        return laser::state(agent, report.as_ref());
+    }
     if agent.printing.load(Ordering::SeqCst) {
         return match (agent.kind, report) {
             (Kind::Lw450, Some(r)) => lw450_state(&r.telemetry),
@@ -1156,7 +1200,7 @@ fn link_loop(agent: &Arc<Agent>) {
         };
         let Some(id) = *agent.dymo.lock().unwrap() else {
             agent.hub_seen(false);
-            agent.set_status(if s.on && agent.kind == Kind::Marlin {
+            agent.set_status(if s.on && agent.kind.serial() {
                 NOT_THERE
             } else {
                 "the module is off"
@@ -1176,6 +1220,10 @@ fn link_loop(agent: &Arc<Agent>) {
         if agent.kind == Kind::Marlin {
             if marlin::present(&report) {
                 marlin::tick(agent, &report);
+            }
+        } else if agent.kind == Kind::Laser {
+            if laser::present(&report) {
+                laser::tick(agent, &report);
             }
         } else if let Some(job) = label
             && let Some(end) = report.job_ends.iter().find(|e| e.id == job).cloned()
@@ -1198,6 +1246,7 @@ fn link_loop(agent: &Arc<Agent>) {
         // Gone: nothing is sent, the socket ends and the hub sees it away (`wire.md`).
         let gone = match agent.kind {
             Kind::Marlin => !marlin::present(&report),
+            Kind::Laser => !laser::present(&report),
             Kind::Pnp | Kind::Lw450 => !report.connected,
         };
         if gone {
@@ -1225,6 +1274,9 @@ fn link_loop(agent: &Arc<Agent>) {
             Kind::Pnp => dymo_telemetry(&report.telemetry),
             Kind::Lw450 => Kwargs::new(),
             Kind::Marlin => marlin::telemetry(&report.telemetry),
+            Kind::Laser => {
+                laser::telemetry(&report.telemetry, *agent.machine_state.lock().unwrap())
+            }
         };
         if let Some(cmd) = agent.command.lock().unwrap().as_ref()
             && cmd.state().is_some()
@@ -1525,7 +1577,7 @@ fn card_live(agent: &Agent) -> CardLive {
         (None, Some(last)) => format!("not connected · last contact {} ago", ago(last)),
         (None, None) => "not connected".to_owned(),
     };
-    let open = agent.kind == Kind::Marlin && marlin_open(agent, &s);
+    let open = agent.kind.serial() && marlin_open(agent, &s);
     CardLive {
         state,
         class,
@@ -1567,9 +1619,10 @@ fn device_card(agent: &Agent) -> String {
         Kind::Pnp => "Tape printer · USB",
         Kind::Lw450 => "Label printer · USB",
         Kind::Marlin => "3D printer · USB",
+        Kind::Laser => "Laser · USB",
     };
     // a Marlin: its connection form above the buttons; Disconnect among them
-    let (connection, disconnect) = if agent.kind == Kind::Marlin {
+    let (connection, disconnect) = if agent.kind.serial() {
         connection_form(agent, &s)
     } else {
         (String::new(), String::new())
@@ -1583,7 +1636,7 @@ fn device_card(agent: &Agent) -> String {
         off = if on { "" } else { " is-off" },
         title = agent.kind.title(),
         device = agent.kind.folder(),
-        toggle_form = if agent.kind == Kind::Marlin {
+        toggle_form = if agent.kind.serial() {
             disconnect
         } else {
             format!(
@@ -1606,7 +1659,10 @@ fn marlin_open(agent: &Agent, s: &Settings) -> bool {
         .lock()
         .unwrap()
         .and_then(|id| agent.engine.lock().unwrap().report(id).ok())
-        .is_some_and(|r| marlin::present(&r))
+        .is_some_and(|r| match agent.kind {
+            Kind::Laser => laser::present(&r),
+            _ => marlin::present(&r),
+        })
 }
 
 /// A Marlin's connection, as OctoPrint's Connection panel has it (`sidebar/connection.jinja2`):
@@ -1641,7 +1697,14 @@ fn connection_form(agent: &Agent, s: &Settings) -> (String, String) {
         Some(u) => serial_ports::find(&listed, &u).map(|l| l.name.clone()),
         None => Some(s.serial_port.clone()).filter(|p| listed.iter().any(|l| l.name == *p)),
     };
-    let mut ports = vec![option("AUTO", "AUTO", s.serial_port.is_empty())];
+    // A laser as LaserFoundry's connection panel (`ui-egui/src/panels.rs:616-646`): the serial
+    // ports, no AUTO and no baud rate (it opens at `DEFAULT_BAUD`, `apps/laserfoundry/src/host.rs`).
+    let laser = agent.kind == Kind::Laser;
+    let mut ports = if laser {
+        Vec::new()
+    } else {
+        vec![option("AUTO", "AUTO", s.serial_port.is_empty())]
+    };
     if !s.serial_port.is_empty() && chosen.is_none() {
         // Connect with it: the same device again, once it is back
         ports.push(option(
@@ -1665,10 +1728,17 @@ fn connection_form(agent: &Agent, s: &Settings) -> (String, String) {
     let form = format!(
         r#"<form method=post action=/connection class=row><input type=hidden name=device value="{device}"><input type=hidden name=action value=connect>
 <label class=field style="flex:1 1 100%;min-width:0;grid-template-columns:minmax(0,1fr)">Serial port<select name=port>{ports}</select></label>
-<label class=field style="flex:0 1 9rem">Baud rate<select name=baudrate>{rates}</select></label>
-<span class=fw><button class="btn primary">Connect</button></span></form>"#,
+{rates}<span class=fw><button class="btn primary">Connect</button></span></form>"#,
         ports = ports.concat(),
-        rates = rates.concat(),
+        rates = if laser {
+            String::new()
+        } else {
+            format!(
+                r#"<label class=field style="flex:0 1 9rem">Baud rate<select name=baudrate>{}</select></label>
+"#,
+                rates.concat()
+            )
+        },
     );
     (form, String::new())
 }
@@ -2185,6 +2255,7 @@ mod tests {
                 ("dymo", "dymo.labelmanager-pnp"),
                 ("labelwriter-450", "dymo.labelwriter-450"),
                 ("marlin", "marlin.fdm"),
+                ("laser", "grbl.laser"),
             ]
         );
     }

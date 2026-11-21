@@ -84,6 +84,9 @@ pub(crate) struct Session {
     /// text (docs/design/prusa-sdk-extension.md, part 3), shown as its problem; None for any other
     /// machine, whose problem this leaves alone.
     pub(crate) label_reason: Option<Option<String>>,
+    /// A GRBL laser on the agent: its settings as its last `INFO` gave them
+    /// (docs/design/prusa-sdk-extension.md, part 4); None for any other machine.
+    pub(crate) grbl: Option<maker_connect_protocol::GrblSettings>,
     /// What the server's connector keeps per session about the print (`crate::devices::connect_job`).
     pub(crate) job: crate::devices::connect_job::Job,
 }
