@@ -19,10 +19,11 @@ fn rig_with(store: FakeStore) -> Rig {
     let clock = FakeClock::default();
     let relays = FakeRelays::new(&clock);
     let inputs = FakeInputs::new(vec![
-        Some(DoorState::Closed),
-        Some(DoorState::Closed),
-        None,
-        Some(DoorState::Open),
+        DoorState::Closed,
+        DoorState::Closed,
+        // No switch wired: the input reads open.
+        DoorState::Open,
+        DoorState::Open,
     ]);
     let net = FakeNet::new(&clock);
     let mut printer = Printer::new(
@@ -243,7 +244,7 @@ fn telemetry_has_locks_in_lock_order() {
         json!([
             {"lock": 0, "door": "closed", "resting_s": 0},
             {"lock": 1, "door": "closed", "resting_s": 0},
-            {"lock": 2, "door": null, "resting_s": 0},
+            {"lock": 2, "door": "open", "resting_s": 0},
             {"lock": 3, "door": "open", "resting_s": 0}
         ])
     );
@@ -256,7 +257,7 @@ fn a_door_change_sends_telemetry_at_once() {
     r.settle();
     let before = r.frames().len();
     let t0 = r.clock.now_ms();
-    r.inputs.set(1, Some(DoorState::Open));
+    r.inputs.set(1, DoorState::Open);
     r.until("telemetry with the open door", |f| {
         f.len() > before && f[before..].iter().any(|v| v["locks"][1]["door"] == "open")
     });
@@ -522,6 +523,11 @@ fn an_input_that_reads_again_clears_the_error_a_relay_does_not() {
     r.settle();
     r.inputs.set_fail(true);
     r.until("error", |f| f.iter().any(|v| v["state"] == "ERROR"));
+    // An input that cannot be read is null, only then.
+    r.until("null door", |f| {
+        f.iter()
+            .any(|v| v["state"] == "ERROR" && v["locks"][0]["door"].is_null())
+    });
     r.inputs.set_fail(false);
     r.open_lock(1, 0, 1005);
     r.answer_for(1, "FINISHED");

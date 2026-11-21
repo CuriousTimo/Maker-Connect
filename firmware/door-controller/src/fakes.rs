@@ -78,23 +78,23 @@ impl Relays for FakeRelays {
 }
 
 #[derive(Clone)]
-pub struct FakeInputs(Rc<RefCell<Vec<Option<DoorState>>>>, Rc<RefCell<bool>>);
+pub struct FakeInputs(Rc<RefCell<Vec<DoorState>>>, Rc<RefCell<bool>>);
 
 impl FakeInputs {
-    pub fn new(doors: Vec<Option<DoorState>>) -> FakeInputs {
+    pub fn new(doors: Vec<DoorState>) -> FakeInputs {
         FakeInputs(Rc::new(RefCell::new(doors)), Rc::default())
     }
     /// While true every read fails (the expander does not answer).
     pub fn set_fail(&self, fail: bool) {
         *self.1.borrow_mut() = fail;
     }
-    pub fn set(&self, lock: usize, door: Option<DoorState>) {
+    pub fn set(&self, lock: usize, door: DoorState) {
         self.0.borrow_mut()[lock] = door;
     }
 }
 
 impl Inputs for FakeInputs {
-    fn read_door(&mut self, lock: u32) -> Result<Option<DoorState>, HwError> {
+    fn read_door(&mut self, lock: u32) -> Result<DoorState, HwError> {
         if *self.1.borrow() {
             return Err(HwError);
         }

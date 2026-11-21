@@ -514,12 +514,15 @@ cabinet locks. The firmware is ours, in Rust (owner, 2026-11-21).
   | Key | Type | Meaning |
   |---|---|---|
   | `lock` | integer | its number, from 0 |
-  | `door` | `"open"`, `"closed"` or `null` | the door's switch, read on its input; `null` when the lock has no switch wired |
+  | `door` | `"open"`, `"closed"` or `null` | what the lock's input reads; `null` only when the input cannot be read (the state is then `ERROR`) |
   | `resting_s` | integer | seconds until it may be opened again (0: it may) |
 
 - **When:** at the protocol's pace, and at once when a door's switch changes. The server keeps the
   changes: the log of when each door opened and closed. A door change is not an event of its own: the
   telemetry says it, as a printer's telemetry says a temperature.
+- **Doors without a switch:** the board cannot tell an input with no switch wired from an open door; both
+  read `"open"`. The hub keeps, per lock, whether a switch is fitted (ours, in the hub's UI, with the
+  lock's name and who may open it) and ignores `door` for a lock without one. The board has no settings.
 
 ### Opening a lock
 

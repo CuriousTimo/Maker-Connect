@@ -19,8 +19,9 @@ pub trait Relays {
 
 /// The doors' switches.
 pub trait Inputs {
-    /// `Ok(None)`: the lock has no switch wired (Part 7: `door` is `null`).
-    fn read_door(&mut self, lock: u32) -> Result<Option<DoorState>, HwError>;
+    /// What the input reads. An input with no switch wired reads `Open`; the hub knows which locks have
+    /// a switch (Part 7), the board does not.
+    fn read_door(&mut self, lock: u32) -> Result<DoorState, HwError>;
 }
 
 /// The clock. Buddy's `now()`/`sleep_raw()` (`sleep.cpp:252-258`) are `now_ms`/`sleep_ms`.

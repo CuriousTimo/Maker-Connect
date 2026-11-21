@@ -48,6 +48,7 @@ pub struct Config {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LockParams {
     pub lock: u32,
+    /// `None` only when the input could not be read (the device is then `ERROR`).
     pub door: Option<DoorState>,
     pub resting_s: u32,
 }
@@ -194,7 +195,7 @@ impl Printer {
         let mut input_fault = false;
         for lock in 0..self.lock_count {
             let door = match self.inputs.read_door(lock) {
-                Ok(d) => d,
+                Ok(d) => Some(d),
                 Err(_) => {
                     input_fault = true;
                     None
