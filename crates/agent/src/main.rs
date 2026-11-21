@@ -43,7 +43,7 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// The devices this agent carries (`docs/design/wire.md`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,6 +237,15 @@ struct Agent {
     last_state: Mutex<Option<State>>,
     /// The label being printed: its job (the download's command) and file.
     label: Mutex<Option<(i64, PathBuf)>>,
+    /// Its link to the hub as the page shows it (ours, UI only).
+    hub: Mutex<HubLink>,
+}
+
+/// Since when the hub takes this device's telemetry, and when it last did.
+#[derive(Default, Clone, Copy)]
+struct HubLink {
+    since: Option<Instant>,
+    last: Option<Instant>,
 }
 
 impl Agent {
@@ -247,6 +256,43 @@ impl Agent {
 
     fn settings(&self) -> Settings {
         self.settings.lock().unwrap().clone()
+    }
+
+    fn new(kind: Kind, dir: PathBuf, settings: Settings, engine: Arc<Mutex<Engine>>) -> Agent {
+        Agent {
+            kind,
+            dir,
+            settings: Mutex::new(settings),
+            code: Mutex::new(None),
+            status: Mutex::new("starting".into()),
+            engine,
+            dymo: Mutex::new(None),
+            printing: AtomicBool::new(false),
+            ws: Mutex::new(None),
+            command: Mutex::new(None),
+            event_cb: Mutex::new(None),
+            #[cfg(unix)]
+            transfer: Arc::new(Transfer::new()),
+            #[cfg(unix)]
+            download: Mutex::new(None),
+            #[cfg(unix)]
+            media: Mutex::new(Default::default()),
+            last_state: Mutex::new(None),
+            hub: Mutex::new(HubLink::default()),
+            label: Mutex::new(None),
+        }
+    }
+
+    /// Whether the last send to the hub went through.
+    fn hub_seen(&self, sent: bool) {
+        let mut hub = self.hub.lock().unwrap();
+        if sent {
+            let now = Instant::now();
+            hub.since.get_or_insert(now);
+            hub.last = Some(now);
+        } else {
+            hub.since = None;
+        }
     }
 
     fn set_status(&self, status: impl Into<String>) {
@@ -356,29 +402,7 @@ fn main() {
     let devices: Vec<Arc<Agent>> = Kind::ALL
         .into_iter()
         .zip(loaded)
-        .map(|(kind, (dir, settings))| {
-            Arc::new(Agent {
-                kind,
-                dir,
-                settings: Mutex::new(settings),
-                code: Mutex::new(None),
-                status: Mutex::new("starting".into()),
-                engine: engine.clone(),
-                dymo: Mutex::new(None),
-                printing: AtomicBool::new(false),
-                ws: Mutex::new(None),
-                command: Mutex::new(None),
-                event_cb: Mutex::new(None),
-                #[cfg(unix)]
-                transfer: Arc::new(Transfer::new()),
-                #[cfg(unix)]
-                download: Mutex::new(None),
-                #[cfg(unix)]
-                media: Mutex::new(Default::default()),
-                last_state: Mutex::new(None),
-                label: Mutex::new(None),
-            })
-        })
+        .map(|(kind, (dir, settings))| Arc::new(Agent::new(kind, dir, settings, engine.clone())))
         .collect();
     for agent in &devices {
         setup_link(agent);
@@ -908,14 +932,17 @@ fn link_loop(agent: &Arc<Agent>) {
         std::thread::sleep(Duration::from_secs(1));
         let s = agent.settings();
         let Some(server) = s.server() else {
+            agent.hub_seen(false);
             agent.set_status("no hub address");
             continue;
         };
         let Some(id) = *agent.dymo.lock().unwrap() else {
+            agent.hub_seen(false);
             agent.set_status("the module is off");
             continue;
         };
         if s.token.is_empty() {
+            agent.hub_seen(false);
             register(agent, &server, &s);
             continue;
         }
@@ -943,6 +970,7 @@ fn link_loop(agent: &Arc<Agent>) {
         }
         // Gone: nothing is sent, the socket ends and the hub sees it away (`wire.md`).
         if !report.connected {
+            agent.hub_seen(false);
             agent.set_status(format!("the {} is not connected", agent.kind.title()));
             if let Some(ws) = agent.ws.lock().unwrap().clone()
                 && ws.connected()
@@ -965,7 +993,9 @@ fn link_loop(agent: &Arc<Agent>) {
         }
         let telemetry =
             maker_connect_sdk::models::Telemetry::new(current_state(agent), None, kwargs);
-        if agent.send(&telemetry.to_payload()) {
+        let sent = agent.send(&telemetry.to_payload());
+        agent.hub_seen(sent);
+        if sent {
             agent.set_status("linked to the hub");
         } else {
             agent.set_status("the hub cannot be reached");
@@ -1132,7 +1162,7 @@ fn web(devices: &[Arc<Agent>], listen: &str) {
             continue;
         }
         let html = if path == "/about" {
-            about_page()
+            about_page(devices)
         } else {
             page(devices)
         };
@@ -1150,81 +1180,160 @@ fn esc(t: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// One device's card; whether the page should look again soon (a registration in progress).
+/// One device's card (mockup `docs/design/ui/mockups/agent.html`); whether the page should look
+/// again soon (a registration in progress).
 fn device_card(agent: &Agent) -> (String, bool) {
     let s = agent.settings();
     let status = agent.status.lock().unwrap().clone();
     let code = agent.code.lock().unwrap().clone();
-    let registration = if !s.token.is_empty() {
-        "registered".to_owned()
+    let registered = if !s.token.is_empty() {
+        "yes".to_owned()
     } else if let Some(code) = &code {
         format!("in progress: code {code}")
     } else {
-        "not registered".to_owned()
+        "no".to_owned()
     };
     let on = s.on;
     let linked = !s.token.is_empty() && on;
+    let link = *agent.hub.lock().unwrap();
     let (state, state_class) = if !on {
-        ("off", "idle")
-    } else if linked {
-        ("linked", "wait")
+        ("Off", "idle")
+    } else if !linked {
+        ("Not registered", "warn")
+    } else if link.since.is_some() {
+        ("Connected", "wait")
     } else {
-        ("not linked", "warn")
+        ("Not connected", "warn")
+    };
+    let ago = |t: Instant| maker_connect_system::duration(t.elapsed().as_secs());
+    let hub = match (link.since, link.last) {
+        (Some(since), _) => format!("connected for {} · last contact now", ago(since)),
+        (None, Some(last)) => format!("not connected · last contact {} ago", ago(last)),
+        (None, None) => "not connected".to_owned(),
     };
     let code_block = match (s.token.is_empty(), code) {
         (true, Some(code)) => format!(
-            "<p class=muted>Enter this code on the hub: Space, add a machine.</p><p class=code>{}</p>",
+            "<p>Enter this code on the hub: Space, Add machine.</p><p class=code>{}</p>",
             esc(&code)
         ),
         _ => String::new(),
     };
+    let what = match agent.kind {
+        Kind::Pnp => "Tape printer · USB",
+        Kind::Lw450 => "Label printer · USB",
+    };
     let card = format!(
-        r#"<section class="card{off}"><div class=head><h2 style="margin:0">{title}</h2><span class="st {state_class}">{state}</span></div>
-{code_block}<dl class=kv><dt>Module</dt><dd>{module}</dd><dt>Registration</dt><dd>{registration}</dd><dt>Link</dt><dd>{status}</dd></dl>
+        r#"<div class="card{off}"><div class=head><h2>{title}</h2><span class="st {state_class}">{state}</span></div>
+<p class=muted>{what}</p>{code_block}
+<dl class=kv><dt>Hub</dt><dd>{hub}</dd><dt>Printer</dt><dd>{status}</dd><dt>Registered</dt><dd>{registered}</dd></dl>
 <div class="row btns"><form method=post action=/module><input type=hidden name=device value="{device}"><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form>
-<form method=post action=/reset><input type=hidden name=device value="{device}"><span class=fw><button class="btn ghost">Reset registration</button></span></form></div></section>"#,
+<form method=post action=/reset onsubmit="return confirm('Reset the registration of the {title}? It forgets its token: it is no longer known at the hub until it is added again with a new code.')"><input type=hidden name=device value="{device}"><span class=fw><button class="btn ghost">Reset registration…</button></span></form></div></div>"#,
         off = if on { "" } else { " is-off" },
         title = agent.kind.title(),
         device = agent.kind.folder(),
         toggle = if on { "0" } else { "1" },
         toggle_class = if on { "" } else { " primary" },
         button = if on { "Turn off" } else { "Turn on" },
-        module = if on { "on" } else { "off" },
         status = esc(&status),
+        registered = esc(&registered),
     );
     (card, on && !linked)
 }
 
-/// The agent's page around `main`: header, the tabs (Devices, About), the house style.
-fn layout(tab: &str, refresh: bool, main: &str) -> String {
-    let tabs: String = [("/", "Devices"), ("/about", "About")]
+/// The link to the hub over all devices: how many of those that are on and registered it
+/// takes telemetry from now, of how many.
+fn hub_link(devices: &[Arc<Agent>]) -> (usize, usize) {
+    let linked: Vec<_> = devices
         .iter()
-        .map(|(href, name)| {
-            let current = if *name == tab {
-                r#" aria-current="page""#
-            } else {
-                ""
-            };
-            format!(r#"<a href="{href}"{current}>{name}</a>"#)
+        .filter(|d| {
+            let s = d.settings();
+            s.on && !s.token.is_empty()
         })
         .collect();
+    let connected = linked
+        .iter()
+        .filter(|d| d.hub.lock().unwrap().since.is_some())
+        .count();
+    (connected, linked.len())
+}
+
+/// The agent's page around `main` (mockup `docs/design/ui/mockups/agent.html`): the header, the
+/// agent's head with its link to the hub, a banner when the hub cannot be reached, the tabs
+/// (Devices, About); the hub's stylesheet and components only.
+fn layout(devices: &[Arc<Agent>], tab: &str, refresh: bool, main: &str) -> String {
+    let tabs: String = [
+        ("/", "Devices", Some(devices.len())),
+        ("/about", "About", None),
+    ]
+    .iter()
+    .map(|(href, name, count)| {
+        let current = if *name == tab {
+            r#" aria-current="page""#
+        } else {
+            ""
+        };
+        let count = count.map_or(String::new(), |n| format!("<small>&nbsp;{n}</small>"));
+        format!(r#"<a href="{href}"{current}>{name}{count}</a>"#)
+    })
+    .collect();
+    let s = devices[0].settings();
+    let (connected, linked) = hub_link(devices);
+    let (state, class) = match (connected, linked) {
+        (_, 0) => ("No device linked".to_owned(), "idle"),
+        (c, n) if c == n => ("Connected to the hub".to_owned(), "wait"),
+        (0, _) => ("Not connected to the hub".to_owned(), "bad"),
+        (c, n) => (format!("{c} of {n} connected to the hub"), "warn"),
+    };
+    let banner = match s.server() {
+        None => r#"<div class="banner warn"><span><b>No hub address.</b> Set it under Hub, on Devices.</span></div>"#.to_owned(),
+        Some(server) if linked > 0 && connected == 0 => format!(
+            r#"<div class="banner bad"><span><b>The hub cannot be reached</b> at {}. The devices keep their state; a label already sent finishes. The agent tries again by itself.</span></div>"#,
+            esc(&server)
+        ),
+        Some(_) => String::new(),
+    };
+    let computer = maker_connect_system::computer();
+    let host = computer.host.clone().unwrap_or_default();
+    let mut what = vec![];
+    if !host.is_empty() {
+        what.push(esc(&host));
+    }
+    what.push(format!(
+        "{}, {}",
+        std::env::consts::OS,
+        computer.architecture
+    ));
+    what.push(format!(
+        "{} device{}",
+        devices.len(),
+        if devices.len() == 1 { "" } else { "s" }
+    ));
+    what.push(format!("release {}", esc(VERSION)));
     format!(
-        r#"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+        r##"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 {refresh}<title>Maker Connect agent</title><link rel=icon href="data:image/svg+xml,{icon}"><style>{CSS}
 .code{{font:700 var(--fs-6)/1 var(--mono);letter-spacing:.12em;color:var(--accent-text);margin:var(--s-2) 0 var(--s-3)}}
-.brand .mark svg{{width:100%;height:100%;display:block}} .card form{{margin:0}} .card .row.btns{{margin-top:var(--s-3)}}</style></head><body>
-<header class=top><span class=brand><span class=mark>{MARK}</span><span class=where><b>Maker Connect agent</b><small>{VERSION}</small></span></span></header>
-<main class=bare>
-<div class=head><h1>This agent</h1></div>
-<nav class=tabs>{tabs}</nav>
+.brand .mark svg{{width:100%;height:100%;display:block}} .card form{{margin:0}} .card .row.btns{{margin-top:var(--s-3)}} .row.btns>form{{flex:0 0 auto}}</style></head><body>
+<a class=skip href="#main">Skip to content</a>
+<header class=top><span class=brand><span class=mark aria-hidden=true>{MARK}</span><span class=where><b>Maker Connect agent</b><small>{where_}</small></span></span></header>
+<main id=main tabindex=-1 class=solo>
+{banner}<div class=card><div class=head><h1>This agent</h1><span class="st {class}">{state}</span></div>
+<p class=muted>{what}</p></div>
+<nav class=tabs aria-label="This agent">{tabs}</nav>
 {main}
-</main></body></html>"#,
+</main></body></html>"##,
         refresh = if refresh {
             "<meta http-equiv=refresh content=5>"
         } else {
             ""
         },
         icon = MARK.replace('#', "%23").replace('"', "'").replace('\n', ""),
+        where_ = if host.is_empty() {
+            esc(VERSION)
+        } else {
+            format!("{} · {}", esc(&host), esc(VERSION))
+        },
+        what = what.join(" · "),
     )
 }
 
@@ -1232,13 +1341,27 @@ fn page(devices: &[Arc<Agent>]) -> String {
     // The hub's address is the same in every device's settings file (the form writes all).
     let s = devices[0].settings();
     let (cards, refresh): (Vec<String>, Vec<bool>) = devices.iter().map(|d| device_card(d)).unzip();
+    let (connected, linked) = hub_link(devices);
+    let (hub_state, hub_class) = match (connected, linked) {
+        (_, 0) => ("No device linked", "idle"),
+        (c, n) if c == n => ("Connected", "wait"),
+        (0, _) => ("Not connected", "bad"),
+        _ => ("Partly connected", "warn"),
+    };
+    let address = s.server().map_or("not set".to_owned(), |a| esc(&a));
     let main = format!(
-        r#"<section class=card><h2>Hub</h2><form method=post action=/hub>
-<div class=row><label class=field>Address <input name=hostname value="{host}" placeholder="192.168.60.67"></label>
-<label class=field style="flex:0 1 7rem">Port <input name=port inputmode=numeric value="{port}" placeholder="8460"></label></div>
+        r#"<div class=cols><div>
+{cards}
+</div><div>
+<div class=card><div class=head><h2>Hub</h2><span class="st {hub_class}">{hub_state}</span></div>
+<dl class=kv><dt>Address</dt><dd>{address}</dd><dt>Devices</dt><dd>{connected} of {linked} connected</dd></dl>
+<details{open} style="margin-top:var(--s-3)"><summary>Change the address</summary><form method=post action=/hub style="margin-top:var(--s-3)">
+<div class=row><label class=field>Address<input name=hostname value="{host}" placeholder="192.168.60.67"></label>
+<label class=field style="flex:0 1 7rem">Port<input name=port inputmode=numeric value="{port}" placeholder="8460"></label></div>
 <label class=check><input type=checkbox name=tls {tls}> TLS</label>
-<div class="row btns"><span class=fw><button class="btn primary">Save</button></span></div></form></section>
-{cards}"#,
+<div class="row btns"><span class=fw><button class="btn primary">Save</button></span></div></form></details></div>
+</div></div>"#,
+        open = if s.server().is_none() { " open" } else { "" },
         host = esc(&s.hostname),
         port = if s.port == 0 {
             String::new()
@@ -1248,47 +1371,53 @@ fn page(devices: &[Arc<Agent>]) -> String {
         tls = if s.tls { "checked" } else { "" },
         cards = cards.join("\n"),
     );
-    layout("Devices", refresh.iter().any(|r| *r), &main)
+    layout(devices, "Devices", refresh.iter().any(|r| *r), &main)
 }
 
-/// The About tab: this agent and the computer it runs on, as the hub's About page shows its own
-/// (crate `maker-connect-system`; ours, UI only). What a system does not tell is left out.
-fn about_page() -> String {
+/// The About tab (mockup `agent.html#about`): the agent, its load, the computer; the same rows as
+/// the hub's About (crate `maker-connect-system`; ours, UI only). What a system does not tell
+/// is left out.
+fn about_page(devices: &[Arc<Agent>]) -> String {
     let (computer, load, me) = (
         maker_connect_system::computer(),
         maker_connect_system::load(),
         maker_connect_system::process(),
     );
-    let row =
-        |label: &str, value: String| format!("<tr><th>{label}</th><td>{}</td></tr>", esc(&value));
-    let mut rows = row("Release", VERSION.to_owned());
-    rows += &maker_connect_system::computer_rows(&computer)
-        .into_iter()
-        .map(|(label, value)| row(label, value))
-        .collect::<String>();
-    if let Some(up) = load.up {
-        rows += &row("Computer up", maker_connect_system::duration(up));
-    }
+    let kv = |rows: Vec<(&str, String)>| -> String {
+        rows.into_iter()
+            .map(|(k, v)| format!("<dt>{k}</dt><dd>{}</dd>", esc(&v)))
+            .collect()
+    };
+    let mut agent = vec![("Release", VERSION.to_owned())];
     if let Some(running) = me.running {
-        rows += &row("Agent up", maker_connect_system::duration(running));
+        agent.push(("Agent up", maker_connect_system::duration(running)));
     }
     if let Some(memory) = me.memory {
-        rows += &row("Agent memory", maker_connect_system::bytes(memory));
+        agent.push(("Agent memory", maker_connect_system::bytes(memory)));
     }
-    let load_rows: String = maker_connect_system::load_rows(&load)
-        .into_iter()
-        .map(|(label, value)| row(label, value))
-        .collect();
-    let load_section = if load_rows.is_empty() {
+    let mut system = maker_connect_system::computer_rows(&computer);
+    if let Some(up) = load.up {
+        system.push(("Computer up", maker_connect_system::duration(up)));
+    }
+    let load_rows = maker_connect_system::load_rows(&load);
+    let load_card = if load_rows.is_empty() {
         String::new()
     } else {
-        format!("<section><h3>Load</h3><table>{load_rows}</table></section>")
+        format!(
+            "<div class=card><h2>Load</h2><dl class=kv>{}</dl></div>",
+            kv(load_rows)
+        )
     };
     let main = format!(
-        r#"<div class=about><section><h3>This agent</h3><table>{rows}</table></section>
-{load_section}</div>"#
+        r#"<div class=cols-even>
+<div class=card><h2>This agent</h2><dl class=kv>{agent}</dl></div>
+{load_card}
+<div class=card><h2>Computer</h2><dl class=kv>{system}</dl></div>
+</div>"#,
+        agent = kv(agent),
+        system = kv(system),
     );
-    layout("About", false, &main)
+    layout(devices, "About", false, &main)
 }
 
 /// The hub's stylesheet and logo mark, so the agent's page is in the house style.
@@ -1530,5 +1659,39 @@ mod tests {
         assert_eq!(form["hostname"], "hub one");
         assert_eq!(form["port"], "8460");
         assert_eq!(form["x"], "<&>");
+    }
+
+    /// #69: a device's card says whether the hub takes its telemetry, and since when.
+    #[test]
+    fn the_card_says_the_link_to_the_hub() {
+        let dir = std::env::temp_dir().join(format!("mc-agent-card-{}", std::process::id()));
+        let mut settings = Settings::load(&dir, Kind::Lw450.printer_type());
+        settings.token = "t".into();
+        settings.on = true;
+        let agent = Agent::new(
+            Kind::Lw450,
+            dir,
+            settings,
+            Arc::new(Mutex::new(Engine::new())),
+        );
+        let card = device_card(&agent).0;
+        assert!(card.contains(">Not connected</span>"), "{card}");
+        assert!(
+            card.contains("<dt>Hub</dt><dd>not connected</dd>"),
+            "{card}"
+        );
+        agent.hub_seen(true);
+        let card = device_card(&agent).0;
+        assert!(card.contains(">Connected</span>"), "{card}");
+        assert!(
+            card.contains("<dt>Hub</dt><dd>connected for 0 min · last contact now</dd>"),
+            "{card}"
+        );
+        agent.hub_seen(false);
+        let card = device_card(&agent).0;
+        assert!(
+            card.contains("<dt>Hub</dt><dd>not connected · last contact 0 min ago</dd>"),
+            "{card}"
+        );
     }
 }

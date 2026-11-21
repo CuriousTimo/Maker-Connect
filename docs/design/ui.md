@@ -122,6 +122,7 @@ the navigation follows the person's actions from `GET /api/v1/me`, not the role'
 | Materials and stock | Spoolman's data with our UI; tapes and filaments apart; laser materials | Spoolman tables, locations, items | #10 | `materials.html`, `spool.html` |
 | Cameras | watching: the space's cameras, the player | cameras, `/ws` | #5 | `state-error.html` |
 | Space | tabs: General, Area rights, Members (with invites), Permissions (grants, requests, machine groups), API tokens, Audit log, Cameras (manage), Access (doors) | space endpoints | | `space-members.html`, `space-permissions.html`, `space-settings.html` |
+| The agent's page | on the agent's computer (:8470), no sign-in: Devices (each device, its link to the hub, registration by code; the hub's address) and About (the agent, the computer, its load); the hub's components only | the agent itself | #67 | `agent.html` |
 | Instance | organisations and spaces; moving a device; the hub's update | `GET /api/v1/instance/spaces`, `/api/v1/update` | | `instance.html` |
 | About | build, update, last update's outcome, dumps | `/api/v1/update` | | on `instance.html` |
 

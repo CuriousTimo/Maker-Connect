@@ -2360,15 +2360,38 @@ fn connection(machine: &Machine) -> String {
         Some(s) => ago(s),
         None => "Never".to_owned(),
     };
+    // An agent on the Prusa Connect protocol says its release in every request
+    // (`User-Agent-Version`), kept as the firmware: "Maker Connect agent v0.3.0-v2ui.9".
+    let agent_release = machine
+        .telemetry
+        .as_ref()
+        .and_then(|t| t.firmware.as_deref())
+        .and_then(|f| f.strip_prefix("Maker Connect agent "))
+        .map(str::to_owned);
     let rows = [
         row("Connected by", Some(way.to_owned())),
         row(
+            "State",
+            Some(
+                if machine.online {
+                    "Connected"
+                } else {
+                    "Not connected"
+                }
+                .to_owned(),
+            ),
+        ),
+        row(
             "Agent version",
-            agent.map(|a| match (&a.build, &a.built) {
-                (Some(build), Some(built)) => format!("{} · build {build}, {built}", a.version),
-                (Some(build), None) => format!("{} · build {build}", a.version),
-                _ => format!("{} (an agent from before builds were named)", a.version),
-            }),
+            agent
+                .map(|a| match (&a.build, &a.built) {
+                    (Some(build), Some(built)) => {
+                        format!("{} · build {build}, {built}", a.version)
+                    }
+                    (Some(build), None) => format!("{} · build {build}", a.version),
+                    _ => format!("{} (an agent from before builds were named)", a.version),
+                })
+                .or(agent_release),
         ),
         row("Computer", agent.and_then(|a| a.hostname.clone())),
         row("System", system),
@@ -2701,6 +2724,41 @@ mod tests {
         assert_eq!(heat_note(None, None), "not reported");
         assert!(flame("bed", Some(true)).contains(r#"data-on="true""#));
         assert!(flame("bed", None).contains(r#"data-on="""#));
+    }
+
+    /// #65: a device on an agent shows the agent's release (its `User-Agent-Version`, kept as
+    /// the firmware) and whether it is connected now.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_device_on_an_agent_shows_its_release_and_state(pool: sqlx::PgPool) {
+        let store = store::Store::for_test(&pool).await;
+        let (space, id, token) = store
+            .register_test_machine("LW450", maker_connect_protocol::MachineKind::Label)
+            .await;
+        let report = maker_connect_protocol::Telemetry {
+            state: maker_connect_protocol::MachineState::Idle,
+            firmware: Some("Maker Connect agent v0.3.0-v2ui.9".into()),
+            ..Default::default()
+        };
+        store.report(&token, &report).await.unwrap();
+        let machine = store.machine(space, &id).await.unwrap().unwrap();
+        let card = connection(&machine);
+        assert!(
+            card.contains("<dt>Agent version</dt><dd>v0.3.0-v2ui.9</dd>"),
+            "{card}"
+        );
+        let state = if machine.online {
+            "Connected"
+        } else {
+            "Not connected"
+        };
+        assert!(
+            card.contains(&format!("<dt>State</dt><dd>{state}</dd>")),
+            "{card}"
+        );
     }
 
     /// Step 3e, E11: a scale's page has one live line, status then weight and unit, as the scale says them.

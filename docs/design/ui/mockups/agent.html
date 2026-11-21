@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <span class="brand"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect agent</b><small>orangepipc · v0.3.0</small></span></span>
+  <span class="spacer"></span>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
+</header>
+<main id="main" tabindex="-1" class="solo">
+<p class="anno">The agent's own page, on the computer beside the machines (:8470); no sign-in, no sidebar: it has two subjects. The hub's mc.css and components only (ui.md "The visual system"); the hub's page leads.</p>
+
+<div class="card"><div class="head"><h1>This agent</h1><span class="st wait">Connected to the hub</span></div>
+<p class="muted">orangepipc · Linux, arm · 2 devices · release v0.3.0</p></div>
+
+<div class="tabs" role="tablist" aria-label="This agent">
+<a href="#devices" role="tab" id="t-devices" aria-controls="devices">Devices <small>&nbsp;2</small></a><a href="#about" role="tab" id="t-about" aria-controls="about">About</a>
+</div>
+
+<section id="devices" role="tabpanel" aria-labelledby="t-devices">
+<div class="cols">
+<div>
+<div class="card"><div class="head"><h2>DYMO LabelWriter 450</h2><span class="st wait">Connected</span></div>
+<p class="muted">Label printer · USB · in the hub as Labels-1</p>
+<dl class="kv"><dt>Hub</dt><dd>connected for 2 h 5 min · last contact now</dd><dt>Printer</dt><dd>ready</dd><dt>Registered</dt><dd>yes</dd></dl>
+<div class="row btns"><span class="fw"><button class="btn" type="button">Turn off</button></span><span class="fw"><button class="btn ghost" type="button" data-dialog="confirm-reset">Reset registration…</button></span></div>
+<span class="anno">the agent's own state: its socket to the hub (`/p/ws`), when telemetry last went through</span></div>
+
+<div class="card"><div class="head"><h2>DYMO LabelManager PnP</h2><span class="st warn">Not connected</span></div>
+<p class="muted">Tape printer · USB · in the hub as Tape-1</p>
+<div class="banner warn"><span><b>The PnP is not plugged in.</b> Plug it in at this computer; the agent finds it by itself.</span></div>
+<dl class="kv"><dt>Hub</dt><dd>not connected · last contact 14:02</dd><dt>Printer</dt><dd>not found on USB</dd><dt>Registered</dt><dd>yes</dd></dl>
+<div class="row btns"><span class="fw"><button class="btn" type="button">Turn off</button></span><span class="fw"><button class="btn ghost" type="button" data-dialog="confirm-reset">Reset registration…</button></span></div></div>
+
+<div class="card"><div class="head"><h2>A new device</h2><span class="st warn">Not registered</span></div>
+<p class="muted">Label printer · USB</p>
+<p>Enter this code on the hub: Space, Add machine.</p>
+<p class="code num" style="font:700 var(--fs-6)/1 var(--mono);letter-spacing:.12em;color:var(--accent-text)">48213</p>
+<span class="anno">registration by code (`/p/register`), as Add machine has it</span></div>
+</div>
+
+<div>
+<div class="card"><div class="head"><h2>Hub</h2><span class="st wait">Connected</span></div>
+<dl class="kv"><dt>Address</dt><dd>192.168.60.67:8460</dd><dt>Devices</dt><dd>1 of 2 connected</dd><dt>Release</dt><dd>hub-v0.3.0</dd></dl>
+<details style="margin-top:var(--s-3)"><summary>Change the address</summary>
+<div class="row" style="margin-top:var(--s-3)"><label class="field">Address<input value="192.168.60.67"></label><label class="field" style="flex:0 1 7rem">Port<input inputmode="numeric" value="8460"></label></div>
+<label class="check"><input type="checkbox"> TLS</label>
+<div class="row btns"><span class="fw"><button class="btn primary" type="button">Save</button></span></div></details>
+<span class="anno">Release: what the hub says of itself (D-A, #51: not on the wire yet)</span></div>
+
+<div class="card"><h2>When the hub cannot be reached</h2>
+<div class="banner bad"><span><b>The hub cannot be reached</b> at 192.168.60.67:8460 (last contact 15:52). The devices keep their state; a label already sent finishes. The agent tries again by itself.</span></div>
+<span class="anno">shown above the tabs instead of the head's pill when no device's socket is up</span></div>
+
+<div class="card"><h2>When this agent does not fit the hub</h2>
+<div class="banner warn"><span><b>This agent is newer than the hub.</b> The hub does not know <code>label.page_size@2</code>: labels print with the old page sizes. Everything else works.</span></div>
+<span class="anno">D-A (#50): a warning only, nothing is refused (owner 2026-11-21)</span></div>
+</div>
+</div>
+</section>
+
+<section id="about" role="tabpanel" aria-labelledby="t-about" hidden>
+<div class="cols-even">
+<div class="card"><h2>This agent</h2><dl class="kv"><dt>Release</dt><dd>v0.3.0</dd><dt>Agent up</dt><dd>2 h 5 min</dd><dt>Agent memory</dt><dd>4 MB</dd></dl>
+<div class="row btns"><span class="fw"><button class="btn" type="button" aria-disabled="true" aria-describedby="why-update">Update…</button></span><span class="why" id="why-update">Releases that fit the hub are offered here (D-B, #59).</span></div></div>
+<div class="card"><h2>Load</h2><dl class="kv"><dt>Load</dt><dd class="num">1.53 · 0.88 · 1.01 <small>(1, 5, 15 min)</small></dd><dt>Temperature</dt><dd class="num">37.5 °C</dd><dt>Memory in use</dt><dd class="num">424 MB of 992 MB (42 %)</dd></dl>
+<span class="anno">crate maker-connect-system (sysinfo); the hub's About shows the same rows</span></div>
+<div class="card"><h2>Computer</h2><dl class="kv"><dt>System</dt><dd>Linux (Debian GNU/Linux 11)</dd><dt>Kernel</dt><dd>Linux 6.18.44-current-sunxi</dd><dt>Computer</dt><dd>Xunlong Orange Pi PC</dd><dt>Processor</dt><dd>Cortex-A7, 4 cores</dd><dt>Architecture</dt><dd>arm</dd><dt>Memory</dt><dd>992 MB</dd><dt>Host name</dt><dd>orangepipc</dd><dt>Computer up</dt><dd>15 h 47 min</dd></dl></div>
+</div>
+</section>
+</main>
+<dialog id="confirm-reset" aria-labelledby="cr-h"><h2 id="cr-h">Reset the registration of the LabelWriter 450?</h2><p>It forgets its token: it is no longer Labels-1 at the hub until it is added again with a new code. Its jobs stay at the hub.</p><form method="dialog" class="acts"><span class="fw"><button class="btn" value="no">Keep it</button></span><span class="fw"><button class="btn danger" value="yes">Reset</button></span></form></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
+</body>
+</html>
