@@ -264,6 +264,7 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ("GET", "/api/space/audit", Need::Role(Role::Admin), None),
     // Machines.
     ("GET", "/machines/add", Need::Role(Role::Admin), None),
+    ("GET", "/downloads/{name}", Need::Role(Role::Admin), None),
     (
         "POST",
         "/pair",

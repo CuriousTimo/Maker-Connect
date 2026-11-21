@@ -377,8 +377,11 @@ shows, with the name here → `POST /api/v1/devices/pair` `{code, name}` (`devic
 (flows.md §1), then *paired* with a link to the machine; 4 "who may use it": a link to Space →
 Permissions. Only kinds of the [device contract](device-contract.md#kinds) are offered.
 
-**Today** the hub offers no "A machine on USB" kind: it was the v1 agent link's, which was removed;
-the step returns with the v2 agent ([links.md](links.md)).
+**A machine on USB:** the picker offers the agent builds in the hub's downloads folder (beside its
+database, [storage-ops.md](storage-ops.md); named as `scripts/build-release.sh` names them), served at
+`downloads/{name}` (`devices.manage`); the start command is a plain run; then the agent's own page
+(:8470) takes this hub's address, from the page's `Host`, and shows the code. Without a build in the
+folder, the step says so.
 
 - **Errors** (shown only when they happen): "That code is not waiting here. It may have expired: the
   device shows a new one."; "The machine did not collect its token" (added, not reported yet).

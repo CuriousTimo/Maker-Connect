@@ -88,6 +88,7 @@
 /cameras/{id}/live
 /cameras/{id}/remove
 /cameras/{id}/ws
+/downloads/{name}
 /f/{iv}/raw
 /files
 /files/{id}/download
@@ -229,6 +230,7 @@
 ("POST", "/space/tokens/{id}/revoke", Role(Admin), Some("revoked an API token"))
 ("GET", "/api/space/audit", Role(Admin), None)
 ("GET", "/machines/add", Role(Admin), None)
+("GET", "/downloads/{name}", Role(Admin), None)
 ("POST", "/pair", Role(Admin), Some("added a machine"))
 ("POST", "/virtual", Role(Admin), Some("added a virtual machine"))
 ("POST", "/klipper", Role(Admin), Some("added a Klipper printer"))
@@ -781,6 +783,11 @@ POST /cameras/{id}/ws => 401 403 403 403 403
 PUT /cameras/{id}/ws => 401 403 403 403 403
 PATCH /cameras/{id}/ws => 401 403 403 403 403
 DELETE /cameras/{id}/ws => 401 403 403 403 403
+GET /downloads/{name} => 401 403 403 404 404
+POST /downloads/{name} => 401 403 403 403 403
+PUT /downloads/{name} => 401 403 403 403 403
+PATCH /downloads/{name} => 401 403 403 403 403
+DELETE /downloads/{name} => 401 403 403 403 403
 GET /f/{iv}/raw => 404 404 404 404 404
 POST /f/{iv}/raw => 403 403 403 403 403
 PUT /f/{iv}/raw => 403 403 403 403 403

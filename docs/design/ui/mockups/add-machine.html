@@ -78,13 +78,14 @@ tls = false</pre>
 <ol class="steps">
 <li class="done"><h3>What are you adding?</h3><p>A machine on USB: a 3D printer, a laser, a tape or label printer, a scale or a USB camera, through the agent on a computer beside it.</p></li>
 <li class="now"><h3>Start the agent beside it</h3>
-<p>On the computer the machine is plugged into, download the agent for that computer and start it against this hub. It then shows a code.</p>
-<div class="row"><label class="field">That computer<select><option>Linux, Raspberry Pi (aarch64)</option><option>Linux (x86_64)</option><option>macOS (aarch64)</option><option>Windows (x86_64)</option></select></label><span class="fw"><a class="btn" href="#k-usb">Download the agent</a></span></div>
+<p>On the computer the machine is plugged into, download the agent for that computer and start it.</p>
+<div class="row"><label class="field">That computer<select><option>Linux, Raspberry Pi (aarch64)</option><option>Linux (x86_64)</option><option>Linux, Raspberry Pi Zero (armv6)</option><option>macOS (Apple silicon)</option></select></label><span class="fw"><a class="btn" href="#k-usb">Download the agent</a></span></div>
 <pre>chmod +x maker-connect-agent-linux-aarch64
-sudo usermod -aG dialout $USER   # once: serial ports, then log in again
-./maker-connect-agent-linux-aarch64 run --hub http://192.168.1.20:8080 --name "My machine" --save</pre>
+./maker-connect-agent-linux-aarch64</pre>
 <span class="fw"><button class="btn small" type="button">Copy</button></span>
-<span class="anno">today's downloads page and start command (crates/hub/src/downloads.rs:114); the v2 agent's own command follows its step</span>
+<p>Then open the agent's page on that computer, <code>http://&lt;that computer&gt;:8470</code>: under <b>Hub</b>, enter this hub's address <code>192.168.1.20</code>, port <code>8460</code>, and save; turn on the machine's device. It then shows a code.</p>
+<p><small>No agent build is on this hub yet? Put the builds in the hub's downloads folder (beside its database), or take them from the project's releases.</small></p>
+<span class="anno">the builds offered are the files in the downloads folder (`maker-connect-agent-&lt;os&gt;-&lt;arch&gt;`, scripts/build-release.sh), served at downloads/{name} · devices.manage; the hub's address is the page's own Host</span>
 </li>
 <li><h3>Enter the code it shows</h3>
 <div class="row"><label class="field">Code<input value="" placeholder="from the agent" autocomplete="off" class="num" style="letter-spacing:.2em;text-transform:uppercase"></label><label class="field">Name here<input value="Laser-B"></label><span class="fw"><button class="btn primary" type="button" data-goto="k-after">Add</button></span></div>
