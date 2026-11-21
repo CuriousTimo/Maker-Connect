@@ -117,7 +117,7 @@ PrusaLink** (the SDK's own consumer), listed for the owner's approval:
 | The registration code | memory only; lost at a restart | `__init__.py:117`, `:756` |
 | Reset of a registration | the token set to `""` and the file written | `prusa/link/web/connection.py:136-150` |
 | The agent's id (**ours**, [extension part 6a](prusa-sdk-extension.md#6a-who-the-agent-is-and-what-each-side-knows)) | `agent.ini` in the agent's state folder, `[agent] id`: 32 hex digits made at random on the first start, kept across re-registrations; sent as `agent_id` in every device's `INFO` | PrusaLink has none: one PrusaLink is one printer |
-| The Marlin printer's serial port and baud rate | `agent.ini`, `[printer] port, baudrate`; either left out is OctoPrint's auto | PrusaLink: `prusalink.ini`, `[printer] port, baudrate` |
+| The Marlin printer's serial port and baud rate (**ours**) | the device's settings file, `[connection] port, baudrate` (empty and 0: AUTO), chosen on the agent's page as OctoPrint's Connection panel has it | OctoPrint: `config.yaml`, `serial.port`, `serial.baudrate` |
 
 **Ours:** where the files lie (one folder per device under the agent's state folder, each with its
 `prusa_printer_settings.ini`); one hub address entered once for all devices and written into each file

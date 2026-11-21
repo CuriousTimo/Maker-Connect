@@ -16,6 +16,9 @@ ureq = "2"
 sha2 = "0.10"
 tiny_http = "0.12"
 log = "0.4"
+# The serial ports for a Marlin and the USB device behind each (`serial_ports.rs`).
+serialport = { version = "4", default-features = false, features = ["usbportinfo-location", "usbportinfo-interface"] }
+nusb = "0.2"
 
 # The SDK's download (Unix only, as its storage): repr() of a str, for the errors the SDK sends as
 # `repr(err)`.

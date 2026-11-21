@@ -21,6 +21,7 @@ use maker_connect_engine::{
 };
 
 mod marlin;
+mod serial_ports;
 #[cfg(unix)]
 use maker_connect_gcode_metadata::py::repr_str;
 #[cfg(unix)]
@@ -108,17 +109,36 @@ impl Kind {
         }
     }
 
-    fn port(self) -> Box<dyn Port> {
-        match self {
+    /// The device's port; none for a Marlin whose chosen USB device is not there now.
+    fn port(self, s: &Settings) -> Option<Box<dyn Port>> {
+        Some(match self {
             Kind::Pnp => Box::new(DymoPnp::new()),
             Kind::Lw450 => Box::new(LabelWriter450::new()),
-            // `[printer] port, baudrate` in `agent.ini`; with none OctoPrint finds the printer
-            // itself (`port: None`, auto).
-            Kind::Marlin => {
-                let (port, baudrate) = MARLIN_SERIAL.get().cloned().unwrap_or_default();
-                Box::new(OctoPrintPort::new(port, baudrate))
-            }
-        }
+            // The port and baud rate chosen on the agent's page; AUTO is OctoPrint's own
+            // detection (`None`). A USB port is opened under the name its device has now.
+            Kind::Marlin => Box::new(OctoPrintPort::new(
+                marlin_port_name(s)?,
+                (s.baudrate != 0).then_some(s.baudrate),
+            )),
+        })
+    }
+}
+
+/// A Marlin's chosen USB device is not plugged in, or cannot be told from another of its kind.
+const NOT_THERE: &str = "the chosen serial port is not there: choose it and connect";
+
+/// The connection form's value for "the chosen port that is not there": keep it.
+const KEEP: &str = "KEEP";
+
+/// The name to open a Marlin's port by: AUTO (`None` inside), the chosen USB device's name now,
+/// or a port that is not USB by its name. `None` outside: the USB device is not there.
+fn marlin_port_name(s: &Settings) -> Option<Option<String>> {
+    if s.serial_port.is_empty() {
+        return Some(None);
+    }
+    match serial_ports::UsbId::from_setting(&s.usb) {
+        Some(usb) => serial_ports::find(&serial_ports::list(), &usb).map(|l| Some(l.name.clone())),
+        None => Some(Some(s.serial_port.clone())),
     }
 }
 
@@ -132,7 +152,8 @@ const VERSION: &str = match option_env!("MAKER_CONNECT_RELEASE") {
 
 /// The device's settings file, as PrusaLink's `prusa_printer_settings.ini` (`wire.md`, "What the
 /// agent keeps"): `[service::connect] hostname, tls, port, token`, `[printer] type, serial`, and
-/// ours: `[module] on`.
+/// ours: `[module] on` and, for a Marlin, `[connection] port, baudrate` as chosen on the
+/// agent's page (empty and 0: AUTO).
 #[derive(Debug, Clone, Default)]
 struct Settings {
     printer_type: &'static str,
@@ -142,6 +163,10 @@ struct Settings {
     token: String,
     serial: String,
     on: bool,
+    serial_port: String,
+    baudrate: u32,
+    /// the USB device behind `serial_port` (`serial_ports::UsbId`), to find it again by
+    usb: String,
 }
 
 impl Settings {
@@ -174,6 +199,9 @@ impl Settings {
                 ("service::connect", "token") => s.token = v,
                 ("printer", "serial") => s.serial = v,
                 ("module", "on") => s.on = v == "True",
+                ("connection", "port") => s.serial_port = v,
+                ("connection", "baudrate") => s.baudrate = v.parse().unwrap_or(0),
+                ("connection", "usb") => s.usb = v,
                 _ => {}
             }
         }
@@ -196,6 +224,13 @@ impl Settings {
             self.token,
             py(self.on)
         );
+        let mut text = text;
+        if !self.serial_port.is_empty() || self.baudrate != 0 {
+            text += &format!(
+                "\n[connection]\nport = {}\nbaudrate = {}\nusb = {}\n",
+                self.serial_port, self.baudrate, self.usb
+            );
+        }
         let path = Self::path(dir);
         let _ = std::fs::create_dir_all(path.parent().unwrap());
         let _ = std::fs::write(&path, text);
@@ -281,34 +316,6 @@ fn load_agent_id(dir: &Path) -> String {
         log::warn!("{}: {e}", path.display());
     }
     id
-}
-
-/// The Marlin printer's serial port and baud rate: `[printer] port, baudrate` in `agent.ini`, as
-/// PrusaLink keeps them in `prusalink.ini` (`[printer] port, baudrate`). Either left out is
-/// OctoPrint's auto (`None`).
-static MARLIN_SERIAL: std::sync::OnceLock<(Option<String>, Option<u32>)> =
-    std::sync::OnceLock::new();
-
-fn load_marlin_serial(dir: &Path) -> (Option<String>, Option<u32>) {
-    let text = std::fs::read_to_string(dir.join("agent.ini")).unwrap_or_default();
-    let mut section = "";
-    let (mut port, mut baudrate) = (None, None);
-    for line in text.lines() {
-        let line = line.trim();
-        if line.starts_with('[') {
-            section = line.trim_matches(['[', ']']);
-        } else if let Some((key, value)) = line.split_once('=')
-            && section == "printer"
-        {
-            let value = value.trim();
-            match key.trim() {
-                "port" if !value.is_empty() => port = Some(value.to_owned()),
-                "baudrate" => baudrate = value.parse().ok(),
-                _ => {}
-            }
-        }
-    }
-    (port, baudrate)
 }
 
 /// A print's tape (`tape_size_mm`) or page (`page_size`).
@@ -447,7 +454,10 @@ impl Agent {
     fn module_on(&self) {
         let mut dymo = self.dymo.lock().unwrap();
         if dymo.is_none() {
-            *dymo = Some(self.engine.lock().unwrap().add(self.kind.port()));
+            match self.kind.port(&self.settings()) {
+                Some(port) => *dymo = Some(self.engine.lock().unwrap().add(port)),
+                None => log::warn!("{}: {NOT_THERE}", self.kind.title()),
+            }
         }
     }
 
@@ -455,7 +465,8 @@ impl Agent {
         if let Some(id) = self.dymo.lock().unwrap().take() {
             let _ = self.engine.lock().unwrap().remove(id);
         }
-        if let Some(ws) = self.ws.lock().unwrap().take() {
+        // The socket is set up once (`setup_link`) and kept: the next send dials it again.
+        if let Some(ws) = self.ws.lock().unwrap().clone() {
             ws.disconnect();
         }
     }
@@ -510,7 +521,6 @@ fn main() {
         }
     }
     AGENT_ID.get_or_init(|| load_agent_id(&dir));
-    MARLIN_SERIAL.get_or_init(|| load_marlin_serial(&dir));
     let engine = Arc::new(Mutex::new(Engine::new()));
     let mut loaded: Vec<(PathBuf, Settings)> = Kind::ALL
         .into_iter()
@@ -1140,7 +1150,11 @@ fn link_loop(agent: &Arc<Agent>) {
         };
         let Some(id) = *agent.dymo.lock().unwrap() else {
             agent.hub_seen(false);
-            agent.set_status("the module is off");
+            agent.set_status(if s.on && agent.kind == Kind::Marlin {
+                NOT_THERE
+            } else {
+                "the module is off"
+            });
             continue;
         };
         if s.token.is_empty() {
@@ -1182,7 +1196,17 @@ fn link_loop(agent: &Arc<Agent>) {
         };
         if gone {
             agent.hub_seen(false);
-            agent.set_status(format!("the {} is not connected", agent.kind.title()));
+            let status = format!("the {} is not connected", agent.kind.title());
+            if *agent.status.lock().unwrap() != status {
+                // why: the port's state and its text (OctoPrint's `getStateString`)
+                log::warn!(
+                    "{}: {:?} {:?}",
+                    status,
+                    report.telemetry.comm_state,
+                    report.telemetry.problem
+                );
+            }
+            agent.set_status(status);
             if let Some(ws) = agent.ws.lock().unwrap().clone()
                 && ws.connected()
             {
@@ -1347,6 +1371,41 @@ fn web(devices: &[Arc<Agent>], listen: &str) {
                         agent.module_off();
                     }
                 }
+                // A Marlin's connection (OctoPrint's Connection panel, `connection.py`): the port
+                // and baud rate are kept; Connect starts the port anew with them, also after the
+                // printer's connection closed; Disconnect stops it, as Turn off does.
+                ("/connection", Some(agent)) => {
+                    let connect = form.get("action").is_some_and(|a| a == "connect");
+                    {
+                        let mut s = agent.settings.lock().unwrap();
+                        if connect && form.get("port").is_some_and(|p| p == KEEP) {
+                            // the chosen device again (its settings stay)
+                        } else if connect {
+                            s.serial_port = form
+                                .get("port")
+                                .filter(|p| p.as_str() != "AUTO")
+                                .cloned()
+                                .unwrap_or_default();
+                            // the USB device behind the name, to find it by after a restart
+                            s.usb = serial_ports::list()
+                                .into_iter()
+                                .find(|l| l.name == s.serial_port)
+                                .and_then(|l| l.usb)
+                                .map(|u| u.to_setting())
+                                .unwrap_or_default();
+                            s.baudrate = form
+                                .get("baudrate")
+                                .and_then(|b| b.parse().ok())
+                                .unwrap_or(0);
+                        }
+                        s.on = connect;
+                        s.save(&agent.dir);
+                    }
+                    agent.module_off();
+                    if connect {
+                        agent.module_on();
+                    }
+                }
                 ("/reset", Some(agent)) => {
                     let mut s = agent.settings.lock().unwrap();
                     s.token.clear();
@@ -1426,22 +1485,107 @@ fn device_card(agent: &Agent) -> (String, bool) {
         Kind::Lw450 => "Label printer · USB",
         Kind::Marlin => "3D printer · USB",
     };
+    // a Marlin: its connection form above the buttons; Disconnect among them
+    let (connection, disconnect) = if agent.kind == Kind::Marlin {
+        connection_form(agent, &s)
+    } else {
+        (String::new(), String::new())
+    };
     let card = format!(
         r#"<div class="card{off}"><div class=head><h2>{title}</h2><span class="st {state_class}">{state}</span></div>
 <p class=muted>{what}</p>{code_block}
 <dl class=kv><dt>Hub</dt><dd>{hub}</dd><dt>Printer</dt><dd>{status}</dd><dt>Registered</dt><dd>{registered}</dd></dl>
-<div class="row btns"><form method=post action=/module><input type=hidden name=device value="{device}"><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form>
+{connection}<div class="row btns">{toggle_form}
 <form method=post action=/reset onsubmit="return confirm('Reset the registration of the {title}? It forgets its token: it is no longer known at the hub until it is added again with a new code.')"><input type=hidden name=device value="{device}"><span class=fw><button class="btn ghost">Reset registration…</button></span></form></div></div>"#,
         off = if on { "" } else { " is-off" },
         title = agent.kind.title(),
         device = agent.kind.folder(),
-        toggle = if on { "0" } else { "1" },
-        toggle_class = if on { "" } else { " primary" },
-        button = if on { "Turn off" } else { "Turn on" },
+        toggle_form = if agent.kind == Kind::Marlin {
+            disconnect
+        } else {
+            format!(
+                r#"<form method=post action=/module><input type=hidden name=device value="{device}"><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form>"#,
+                device = agent.kind.folder(),
+                toggle = if on { "0" } else { "1" },
+                toggle_class = if on { "" } else { " primary" },
+                button = if on { "Turn off" } else { "Turn on" },
+            )
+        },
         status = esc(&status),
         registered = esc(&registered),
     );
     (card, on && !linked)
+}
+
+/// A Marlin's connection, as OctoPrint's Connection panel has it (`sidebar/connection.jinja2`):
+/// the serial port (AUTO first, then the ports with their USB device, `serial_ports`) and the
+/// baud rate (AUTO, then `baudrateList`), chosen while it is not connected; then Connect, or
+/// Disconnect while it is. The form to go above the card's buttons, and the button to go among
+/// them.
+fn connection_form(agent: &Agent, s: &Settings) -> (String, String) {
+    use maker_connect_engine::ports::octoprint::comm::baudrate_list;
+    let open = s.on
+        && agent
+            .dymo
+            .lock()
+            .unwrap()
+            .and_then(|id| agent.engine.lock().unwrap().report(id).ok())
+            .is_some_and(|r| marlin::present(&r));
+    let device = agent.kind.folder();
+    if open {
+        return (
+            String::new(),
+            format!(
+                r#"<form method=post action=/connection><input type=hidden name=device value="{device}"><input type=hidden name=action value=disconnect><span class=fw><button class=btn>Disconnect</button></span></form>"#
+            ),
+        );
+    }
+    let option = |value: &str, text: &str, chosen: bool| {
+        format!(
+            "<option value=\"{}\"{}>{}</option>",
+            esc(value),
+            if chosen { " selected" } else { "" },
+            esc(text)
+        )
+    };
+    let listed = serial_ports::list();
+    // the chosen one: its USB device under the name it has now, else its name
+    // the chosen one: its USB device under the name it has now, else a port by its name;
+    // never another device that has its old name now
+    let chosen = match serial_ports::UsbId::from_setting(&s.usb) {
+        Some(u) => serial_ports::find(&listed, &u).map(|l| l.name.clone()),
+        None => Some(s.serial_port.clone()).filter(|p| listed.iter().any(|l| l.name == *p)),
+    };
+    let mut ports = vec![option("AUTO", "AUTO", s.serial_port.is_empty())];
+    if !s.serial_port.is_empty() && chosen.is_none() {
+        // Connect with it: the same device again, once it is back
+        ports.push(option(
+            KEEP,
+            &format!("{} (not there)", s.serial_port),
+            true,
+        ));
+    }
+    let chosen = chosen.unwrap_or_default();
+    ports.extend(
+        listed
+            .iter()
+            .map(|l| option(&l.name, &l.label, l.name == chosen)),
+    );
+    let mut rates = vec![option("0", "AUTO", s.baudrate == 0)];
+    rates.extend(
+        baudrate_list(None)
+            .iter()
+            .map(|b| option(&b.to_string(), &b.to_string(), *b == i64::from(s.baudrate))),
+    );
+    let form = format!(
+        r#"<form method=post action=/connection class=row><input type=hidden name=device value="{device}"><input type=hidden name=action value=connect>
+<label class=field style="flex:1 1 100%;min-width:0;grid-template-columns:minmax(0,1fr)">Serial port<select name=port>{ports}</select></label>
+<label class=field style="flex:0 1 9rem">Baud rate<select name=baudrate>{rates}</select></label>
+<span class=fw><button class="btn primary">Connect</button></span></form>"#,
+        ports = ports.concat(),
+        rates = rates.concat(),
+    );
+    (form, String::new())
 }
 
 /// The link to the hub over all devices: how many of those that are on and registered it
@@ -1710,22 +1854,30 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// The Marlin's port and baud rate come from `agent.ini` `[printer]`; left out, they are auto.
+    /// A Marlin's connection as chosen on the page is kept in `[connection]`; AUTO is empty and 0.
     #[test]
-    fn the_marlin_serial_is_read_from_agent_ini() {
-        let root = dir();
-        assert_eq!(load_marlin_serial(&root), (None, None));
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(
-            root.join("agent.ini"),
-            "[agent]\nid = 00\nport = /dev/nope\n\n[printer]\nport = /dev/ttyUSB4\nbaudrate = 250000\n",
-        )
-        .unwrap();
-        assert_eq!(
-            load_marlin_serial(&root),
-            (Some("/dev/ttyUSB4".to_owned()), Some(250000))
+    fn the_marlin_connection_is_kept() {
+        let dir = dir();
+        let marlin = Kind::Marlin.printer_type();
+        let mut s = Settings::load(&dir, marlin);
+        assert_eq!((s.serial_port.as_str(), s.baudrate), ("", 0), "AUTO");
+        s.serial_port = "/dev/ttyUSB4".into();
+        s.baudrate = 250000;
+        s.usb = "1a86:7523 if=0 at=8-1.3".into();
+        s.save(&dir);
+        assert!(
+            std::fs::read_to_string(Settings::path(&dir))
+                .unwrap()
+                .ends_with(
+                    "\n[connection]\nport = /dev/ttyUSB4\nbaudrate = 250000\nusb = 1a86:7523 if=0 at=8-1.3\n"
+                )
         );
-        let _ = std::fs::remove_dir_all(&root);
+        let back = Settings::load(&dir, marlin);
+        assert_eq!(
+            (back.serial_port.as_str(), back.baudrate, back.usb.as_str()),
+            ("/dev/ttyUSB4", 250000, "1a86:7523 if=0 at=8-1.3")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A device with no hub address gets the one another device has; one with an address keeps it.
@@ -1771,6 +1923,7 @@ mod tests {
             token: "t0k3n".into(),
             serial: "MC0011223344556677".into(),
             on: true,
+            ..Settings::default()
         };
         s.save(&dir);
         assert_eq!(
@@ -1905,6 +2058,25 @@ mod tests {
 
     /// The SDK's queue (`__init__.py:319-339`, `858-905`): an event waits in it while there is no
     /// socket, and goes in its turn; with no token or no server it is skipped.
+    /// Turned off and on again (Turn off, Disconnect, Connect), a device keeps its socket: the
+    /// next send dials it again.
+    #[test]
+    fn a_device_turned_off_and_on_keeps_its_socket() {
+        let dir = std::env::temp_dir().join(format!("mc-agent-onoff-{}", std::process::id()));
+        let agent = Arc::new(Agent::new(
+            Kind::Pnp,
+            dir.clone(),
+            Settings::load(&dir, Kind::Pnp.printer_type()),
+            Arc::new(Mutex::new(Engine::new())),
+        ));
+        setup_link(&agent);
+        let ws = agent.ws.lock().unwrap().clone().expect("set up");
+        agent.module_off();
+        let kept = agent.ws.lock().unwrap().clone().expect("kept");
+        assert!(Arc::ptr_eq(&ws, &kept));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn an_event_waits_for_the_socket() {
         let dir = std::env::temp_dir().join(format!("mc-agent-queue-{}", std::process::id()));
