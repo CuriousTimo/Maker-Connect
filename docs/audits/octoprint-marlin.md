@@ -2,7 +2,7 @@
 
 **The one reference:** OctoPrint **1.11.8** (AGPL-3.0), commit `42be740`, in `reference/OctoPrint-1.11.8`.
 Ours: `crates/engine/src/ports/octoprint/`, the port of its `util/comm.py`, `printer/standard.py` and the rest
-(`docs/plans/agent-engine.md`, Step 3a), with the top edge `port.rs` (`OctoPrintPort`, the engine's `Port`).
+(`docs/archive/plans/agent-engine.md`, Step 3a), with the top edge `port.rs` (`OctoPrintPort`, the engine's `Port`).
 
 **The test device is OctoPrint's own:** `plugins/virtual_printer/virtual.py` (`VirtualPrinter`; `write`
 :2136, `readline` :2170), run unchanged in Python. Nothing of it is ported to Rust: both sides talk to the
@@ -175,7 +175,7 @@ two scenarios the reference does not reproduce, so that the test stays honest; t
   The writes are identical in all runs (`N0 M110 N0*125` ×4, `N1 M115*39`, `M112`, `N2 M112*35`, `N3 M104 T0 S0*34`, `N4 M140 S0*97`);
   ours reads the echo in 5 of 5 runs and writes the same.
 
-**The thread start (ours, approved: `docs/plans/agent-engine.md`, "the five questions", decision 1).** CPython's `Thread.start()` waits on
+**The thread start (ours, approved: `docs/archive/plans/agent-engine.md`, "the five questions", decision 1).** CPython's `Thread.start()` waits on
 `_started` (`threading.py:956-982`, `:982`), which the new thread sets in `_bootstrap_inner` (`:1028-1044`, `:1033`); holding the GIL it runs
 on until it first blocks, so `start()` effectively returns after that. The GIL is not ported. `py_threading.rs: Thread::start` returns when
 the new thread reaches its first blocking point (an `Event`/`Condition` wait, a lock acquire that has to wait, `Queue.get`/a blocking `put`,

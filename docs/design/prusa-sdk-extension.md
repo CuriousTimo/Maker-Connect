@@ -137,7 +137,7 @@ Added to the telemetry object (`models.py:171-195`), and left out when unknown:
 These are **not** the reference driver's: labelle `5e8f1e5` does not interpret these bytes
 (`dymo_labeler.py:234`). They are what the owner saw on his PnP, an approved exception (owner,
 2026-11-16; `crates/engine/src/ports/labelle/port.rs:91-103`,
-[device map](../plans/hub-core-v2-device-map.md), the label printer's other options, item 3). Connect's telemetry has no key for a cassette, a
+[device map](../archive/plans/hub-core-v2-device-map.md), the label printer's other options, item 3). Connect's telemetry has no key for a cassette, a
 battery or raw status bytes (`inbound.go:146-159`).
 
 ### Printing a label: `tape_size_mm`
@@ -153,7 +153,7 @@ into the storage; otherwise `to_os_path` raises (`download.py:302`, `:314-334`) 
 
 The addition is one kwarg, `tape_size_mm`: an integer, one of `19`, `12`, `9` or `6`, default `12`.
 That is labelle's own name, values and default (labelle `5e8f1e5` `lib/devices/dymo_labeler.py:243-257`;
-[device map](../plans/hub-core-v2-device-map.md) row 1 of the label verbs). A Connect
+[device map](../archive/plans/hub-core-v2-device-map.md) row 1 of the label verbs). A Connect
 print takes its settings from the G-code file. A PNG has none, and no Connect command carries a tape
 width. The SDK's handler reads only `path`, `hash`, `team_id`, `printing` and `selecting`
 (`__init__.py:467-477`), so it ignores the kwarg.
@@ -162,7 +162,7 @@ width. The SDK's handler reads only `path`, `hash`, `team_id`, `printing` and `s
 
 The reference is DYMO's own CUPS driver 1.4.0 (`reference/dymo-cups-drivers-1.4.0`, filter `raster2dymolw`),
 used for both the 450 and the 320; other 3xx and 4xx models have PPDs whose options differ, checked when each is ported. The `Open/Default` lines of `ppd/lw450.ppd` and `ppd/lw320.ppd` are
-identical ([device map](../plans/hub-core-v2-device-map.md) §3). It is a stack apart from the tape printer
+identical ([device map](../archive/plans/hub-core-v2-device-map.md) §3). It is a stack apart from the tape printer
 of part 2. Driver paths below are under its `src/` unless a PPD.
 
 ### States
@@ -289,7 +289,7 @@ These are general machine-motion commands, not laser-only. A CNC router needs th
 
 The bounds of `JOG` and the default of `FRAME` are LaserFoundry's: its `link.rs:26-27`, and its
 `job.frame` (`crates/gcode/src/lib.rs:92`, default `:416`; see
-[the device map](../plans/hub-core-v2-device-map.md)). Each command is answered with the protocol's own flow: `ACCEPTED`,
+[the device map](../archive/plans/hub-core-v2-device-map.md)). Each command is answered with the protocol's own flow: `ACCEPTED`,
 then `FINISHED` or `REJECTED` with a `reason`.
 
 ### Who may start the beam

@@ -12,7 +12,7 @@ Read first, every time:
 - **Which tree:** the OctoPrint reference is `reference/OctoPrint-1.11.8` (the release, decided D2).
   `reference/OctoPrint` is a newer checkout (there `util/comm.py` is a shim); never cite it.
 - `CLAUDE.md` (the binding rules);
-- `docs/plans/agent-engine.md` (the design, its requirements R1–R7, its phases and decisions);
+- `docs/archive/plans/agent-engine.md` (the design, its requirements R1–R7, its phases and decisions);
 - what you were given: the step that is about to start, or the work done and the report about it.
   Look at the actual diff or files (`git diff`, `git status`); do not trust the summary.
 

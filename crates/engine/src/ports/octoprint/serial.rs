@@ -3,7 +3,7 @@
 //! BufferedReadlineWrapper` (OctoPrint 1.11.8, AGPL-3.0, Copyright (C) 2013 David Braam, Gina
 //! Häußge & others).
 //!
-//! pyserial is stood for by the `serialport` crate (owner's approval M5, `docs/plans/agent-engine.md`):
+//! pyserial is stood for by the `serialport` crate (owner's approval M5, `docs/archive/plans/agent-engine.md`):
 //! the crate opens and configures the port (raw 8N1 termios, baud rate, parity, DTR, the
 //! exclusive lock); the rest of `serial.serialposix.Serial` that the comm layer reads through
 //! (`read` with its abort pipe, `cancel_read`, `cancel_write`, `in_waiting`, `close`, the

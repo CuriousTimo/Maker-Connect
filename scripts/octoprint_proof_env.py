@@ -22,7 +22,7 @@ OCTOPRINT_SRC = os.path.join(ROOT, "reference", "OctoPrint-1.11.8", "src")
 sys.path.insert(0, OCTOPRINT_SRC)
 
 # The two plugins of the Rust port's top edge: the test device and the prompt plugin
-# (docs/plans/agent-engine.md, step 3a); every other bundled plugin is disabled.
+# (docs/archive/plans/agent-engine.md, step 3a); every other bundled plugin is disabled.
 ENABLED_PLUGINS = ("virtual_printer", "action_command_prompt")
 
 def merge(base, extra):

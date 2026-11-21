@@ -1,4 +1,4 @@
-//! Backups of the database (docs/plans/hub-core-v2.md §2.7, "Pi deployment"): `pg_dump` every night
+//! Backups of the database (docs/archive/plans/hub-core-v2.md §2.7, "Pi deployment"): `pg_dump` every night
 //! into a folder beside the files folder (`maker-connect-dumps/` beside `maker-connect-files/`), and
 //! before a self-update ([`crate::updates`]), so a new build that does not stay up goes back together
 //! with the database as it was.

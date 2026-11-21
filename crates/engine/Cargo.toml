@@ -5,7 +5,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-# HS1 (`docs/briefs/hs1-lw450-geometry.md`): `devices` (default) holds every port and every device
+# HS1 (`docs/archive/briefs/hs1-lw450-geometry.md`): `devices` (default) holds every port and every device
 # or heavy dependency. Without it the engine is its core and the ports' geometry
 # (`ports::geometry`, over the 450's pure PPD code), for the hub.
 [features]

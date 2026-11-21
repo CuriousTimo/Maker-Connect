@@ -13,7 +13,7 @@ name = "maker-connect-hub"
 path = "src/main.rs"
 
 [features]
-# Network cameras over RTSP, the module `cameras` (docs/plans/cameras.md, "Network cameras").
+# Network cameras over RTSP, the module `cameras` (docs/archive/plans/cameras.md, "Network cameras").
 cameras = ["dep:retina", "dep:bytes", "dep:sha1", "dep:percent-encoding"]
 
 # HS13: the LaserFoundry web fork, packed gzip into the binary. Needs `crates/hub/laser-design/`, made by
@@ -53,7 +53,7 @@ flate2 = "1"
 tar = { version = "0.4", default-features = false }
 rand = "0.8"
 # Transitional (hub core v2 step 2, lanes 1-4): modules not yet on Postgres keep SQLite; gone in lane 4.
-# The store (docs/plans/hub-core-v2.md §2.7): Postgres only, rustls, checked queries with the `.sqlx/` cache.
+# The store (docs/archive/plans/hub-core-v2.md §2.7): Postgres only, rustls, checked queries with the `.sqlx/` cache.
 sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "macros"] }
 serde = { version = "1.0.229", features = ["derive"] }
 # The hub chooses: Spoolman answers in its models' field order, so JSON objects keep their
@@ -63,7 +63,7 @@ tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "s
 toml = "1.1.8"
 # Only for its Layer trait: the API token in an address is read before routing.
 tower = { version = "0.5.3", default-features = false }
-# Network cameras (docs/plans/cameras.md): retina, the reference, at the version of reference/retina (2b6b7fe).
+# Network cameras (docs/archive/plans/cameras.md): retina, the reference, at the version of reference/retina (2b6b7fe).
 retina = { version = "=0.4.22", optional = true }
 bytes = { version = "1", optional = true }
 # ONVIF (cameras/onvif.rs): go2rtc's client uses regexp, crypto/sha1 and net/url; and

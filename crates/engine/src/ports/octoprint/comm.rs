@@ -2348,7 +2348,7 @@ impl Deref for SendQueueMarker {
 //     (command, command_type, tags). JSON cannot tell a top-level tuple from a list: it is a list.
 // 32. Serial writing (comm.py:5036): `SerialTransport::write` is pyserial 3.5 `Serial.write` (serialposix.py:612 ff.,
 //     with `Timeout` :618 and `write_timeout`) in serial.rs, beside `read` (the Section H decision extended, same
-//     reference, OURS: docs/plans/agent-engine.md); it returns `Option<i64>` (`None`: an object that returns no int).
+//     reference, OURS: docs/archive/plans/agent-engine.md); it returns `Option<i64>` (`None`: an object that returns no int).
 //     `self._serial.write` reads `_serial` each time: a `None` set by another thread is the `AttributeError`.
 //     `str.encode(self._serial_encoding, errors="replace")` is `encode_serial_text` (ascii, utf-8, latin-1; any
 //     other codec `unimplemented!`). `Drop` (`__del__`, difference 6) has no `Arc`, so `close()` there is
@@ -3712,7 +3712,7 @@ pub struct SDFileData {
 ///
 /// "/dev" is scanned for `regex_serial_devices` (the Windows registry branch is not ported).
 pub fn serial_list() -> Vec<String> {
-    // OURS (docs/plans/agent-engine.md, Section H): under `cfg(test)` the scanned directory is a temp
+    // OURS (docs/archive/plans/agent-engine.md, Section H): under `cfg(test)` the scanned directory is a temp
     // directory, never the real `/dev`
     #[cfg(test)]
     return serial_list_in(&test_serial_dir());

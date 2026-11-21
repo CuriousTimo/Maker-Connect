@@ -1,4 +1,4 @@
-//! Network cameras (ONVIF/RTSP), straight to the hub: the module `cameras` (docs/plans/cameras.md,
+//! Network cameras (ONVIF/RTSP), straight to the hub: the module `cameras` (docs/archive/plans/cameras.md,
 //! "Network cameras"). Here: the cameras' sessions and video; [`store`]: the table and who may
 //! watch; [`page`]: the pages, the player and the video route.
 //!

@@ -767,7 +767,7 @@ async fn telemetry(
         return failed(error);
     }
     // A printer not seen for longer than ONLINE_SECONDS: what it was given and had not
-    // answered failed, before this report is taken in (K18 (b), `docs/plans/agent-engine.md`).
+    // answered failed, before this report is taken in (K18 (b), `docs/archive/plans/agent-engine.md`).
     let caller = match store.caller(token).await {
         Ok(Some(caller)) => caller,
         // An unknown token: refused, and nothing of it kept (no session).

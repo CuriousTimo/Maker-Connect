@@ -1,4 +1,4 @@
-//! The cameras of a space (docs/plans/cameras.md, "Step 2, the module `cameras`"): one table on
+//! The cameras of a space (docs/archive/plans/cameras.md, "Step 2, the module `cameras`"): one table on
 //! Postgres (`migrations/`), every query in the space's transaction ([`Work`]). The password is kept
 //! as the machines' tokens are (plain, owner 2026-11-16); it is never sent back in a page and never
 //! logged.

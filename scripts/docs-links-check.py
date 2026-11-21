@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Every document named in the repository exists.
 
-Reads every tracked text file (and the untracked docs/plans/mk3-port-plan.md) and checks:
+Reads every tracked text file (and the untracked docs/archive/plans/mk3-port-plan.md) and checks:
   - each `docs/<path>.md` or `.html` named anywhere exists;
   - each relative Markdown link `](x.md)` in a file under docs/ resolves from that file's folder;
   - each `briefs/<name>.md` / `audits/<name>.md` / `plans/…` named inside docs/ exists under docs/.
@@ -19,7 +19,7 @@ LINK = re.compile(r"\]\(([^)#:\s]+\.md)(?:#[^)]*)?\)")
 
 def files():
     out = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split("\n")
-    extra = ["docs/plans/mk3-port-plan.md"]
+    extra = ["docs/archive/plans/mk3-port-plan.md"]
     return [f for f in out + extra if f and os.path.isfile(os.path.join(ROOT, f))]
 
 

@@ -1,7 +1,7 @@
-//! The port's top edge (`docs/plans/agent-engine.md`, Step 3d): the engine's [`Port`] for `--mode grbl`,
+//! The port's top edge (`docs/archive/plans/agent-engine.md`, Step 3d): the engine's [`Port`] for `--mode grbl`,
 //! over [`GrblMachine`] (`crates/grbl`, LaserFoundry v0.5.0). It gives LaserFoundry's `Link` its
 //! orders and tells the engine what it reports; nothing goes to the machine that LaserFoundry's
-//! `Link` does not send. **All of it is ours** (G1 and on), as `docs/plans/agent-engine.md` lists:
+//! `Link` does not send. **All of it is ours** (G1 and on), as `docs/archive/plans/agent-engine.md` lists:
 //!
 //! - G1: an `Action` is the `Link` call the LaserFoundry app makes for the same control:
 //!   Unlock `Link::unlock` (`control_box.rs:160`), SetOrigin `set_zero` (:163), GoOrigin

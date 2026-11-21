@@ -2,7 +2,7 @@
 //! `docs/registries/` are generated from them ([`render_docs`]) and a test fails when they drift
 //! (`tests/registry_docs.rs`; `MC_WRITE_REGISTRIES=1` writes them).
 //!
-//! The verbs and state sets are the rows of `docs/plans/hub-core-v2-device-map.md` (GitHub #14),
+//! The verbs and state sets are the rows of `docs/archive/plans/hub-core-v2-device-map.md` (GitHub #14),
 //! with the owner's answers of 2026-11-18 applied: each row names its reference's own call or state
 //! (file:line; `OP/` = `reference/OctoPrint-1.11.8/src/octoprint/`, `LF/` = LaserFoundry v0.5.0
 //! `61febdb`, read with `git show v0.5.0:<path>`). A row the map marks "not checked" is not here.
@@ -1270,7 +1270,7 @@ mod tests {
 
     #[test]
     fn the_device_map_counts() {
-        // docs/plans/hub-core-v2-device-map.md, counts table, owner's answers applied; rows the map
+        // docs/archive/plans/hub-core-v2-device-map.md, counts table, owner's answers applied; rows the map
         // marks "not checked" (Marlin dialog_action, DYMO cancel) are not declared
         let of = |kind: &str| {
             CAPABILITY_VERBS

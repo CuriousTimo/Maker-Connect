@@ -5,7 +5,7 @@ firmware = "dymo-lw"   # DYMO's LabelWriter raster protocol, over USB (printer c
 dpi = 300
 head_dots = 672        # 56 mm; a narrower label runs at one side of the head
 
-# The labels come from the port (HS1, `docs/briefs/hs1-lw450-geometry.md`): every `PageSize`
+# The labels come from the port (HS1, `docs/archive/briefs/hs1-lw450-geometry.md`): every `PageSize`
 # choice of DYMO's PPD for the 450 (dymo-cups-drivers 1.4.0, `lw450.ppd`), with its own name and
 # size (`maker_connect_engine::ports::geometry::lw450`). The printer cannot tell which roll is in:
 # the owner chooses.

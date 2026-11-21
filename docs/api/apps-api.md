@@ -171,7 +171,7 @@ This can be done as a plugin, or as a merge request to their repository.
 
 ## The page the hub serves itself (not part of v1)
 
-The hub serves its own copy of the LaserFoundry browser version at `/laser-design/` (`docs/briefs/hs13-laserfoundry-web.md`).
+The hub serves its own copy of the LaserFoundry browser version at `/laser-design/` (`docs/archive/briefs/hs13-laserfoundry-web.md`).
 That page does not use the API above: it is on the hub's own origin, so it signs in with the person's **session cookie** (a
 browser session, which v1 never accepts), and it can replace a loaded laser job only after the person confirms, which a token may
 not do. It uses these routes of the hub's own, all with the cookie:

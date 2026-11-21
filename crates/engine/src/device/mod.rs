@@ -1,5 +1,5 @@
-//! The device contract's adapters (`docs/plans/hub-core-v2.md` §2.1, §3 step 1; GitHub #14): each
-//! port behind a contract [`Driver`] and [`Session`], as `docs/plans/hub-core-v2-device-map.md` maps
+//! The device contract's adapters (`docs/archive/plans/hub-core-v2.md` §2.1, §3 step 1; GitHub #14): each
+//! port behind a contract [`Driver`] and [`Session`], as `docs/archive/plans/hub-core-v2-device-map.md` maps
 //! it. **All of it is ours**, and none of it reaches a machine: a command becomes the [`Order`] the
 //! port already takes, and what the port tells ([`Event`]) becomes state patches and outcomes. What
 //! goes on the wire is still only the port's, made by its reference's code, unchanged.

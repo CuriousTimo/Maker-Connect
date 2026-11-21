@@ -1,7 +1,7 @@
 # MK3: PrusaLink's websockets branch as the reference
 
 Date: 2026-11-19  
-Status: accepted; places #4; moves the pin of [mk3-port-plan.md](../../plans/mk3-port-plan.md) §1  
+Status: accepted; places #4; moves the pin of [mk3-port-plan.md](../../archive/plans/mk3-port-plan.md) §1  
 Decided by: owner ("dit is toch de referentie die we zochten voor websocket voor de mk3 in onze agent")
 
 ## Context
@@ -37,4 +37,4 @@ PrusaLink now has that WebSocket on a branch Prusa maintains:
 ## Where it shows
 
 [README.md](../README.md) (#4 row), [links.md](../links.md), [risks-and-open.md](../risks-and-open.md),
-[mk3-port-plan.md](../../plans/mk3-port-plan.md) §1 and §3.4.
+[mk3-port-plan.md](../../archive/plans/mk3-port-plan.md) §1 and §3.4.

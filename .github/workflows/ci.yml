@@ -81,7 +81,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # The store's tests on Postgres (docs/plans/hub-core-v2.md §2.7), in a job of their own on Linux, the one
+  # The store's tests on Postgres (docs/archive/plans/hub-core-v2.md §2.7), in a job of their own on Linux, the one
   # runner with service containers (journal:V2-STORE-1:0008); the matrix above leaves them ignored.
   store:
     name: store (Postgres)

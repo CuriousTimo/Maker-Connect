@@ -7,7 +7,7 @@
 //! LaserFoundry's app (`crates/ui-egui/src/lib.rs`, v0.5.0) a host without its window needs: the
 //! link logic of `poll_link` (:1379-1410) and `reconnect_tick` (:1347-1377), and the refusals of
 //! `start_job_with` (:1221-1251). Each is marked with its file and line in LaserFoundry; what is
-//! ours is listed in `docs/plans/agent-engine.md`, "Step 3d: the laser" (G1 and on).
+//! ours is listed in `docs/archive/plans/agent-engine.md`, "Step 3d: the laser" (G1 and on).
 //!
 //! Nothing here waits for the machine: a command is handed to the `Link` and answered later,
 //! from the snapshot's console, as [`GrblMachine::report`] keeps reading it.

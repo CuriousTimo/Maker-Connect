@@ -1,4 +1,4 @@
-//! The ports (`docs/plans/agent-engine.md`, step 3): each a port of one reference, the only code that
+//! The ports (`docs/archive/plans/agent-engine.md`, step 3): each a port of one reference, the only code that
 //! talks to its device.
 
 /// DYMO Connect's catalogue of the 450's rolls (HS2b): generated data, no device code.

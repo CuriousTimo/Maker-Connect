@@ -1,5 +1,5 @@
-//! The ports' geometry for the hub (HS1, `docs/briefs/hs1-lw450-geometry.md`; B8 in
-//! `docs/plans/agent-engine.md`: "the hub takes each printer's geometry from its port's ported constants").
+//! The ports' geometry for the hub (HS1, `docs/archive/briefs/hs1-lw450-geometry.md`; B8 in
+//! `docs/archive/plans/agent-engine.md`: "the hub takes each printer's geometry from its port's ported constants").
 //! Built without the `devices` feature, so the hub can depend on it without the device crates.
 //! Ours, thin: every value comes from the ported code beside it, nothing is computed here on its own.
 

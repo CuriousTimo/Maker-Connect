@@ -7,7 +7,7 @@
 (`resume_from`, `frame`), used as libraries by `crates/grbl`, and the link logic of its app
 (`crates/ui-egui/src/lib.rs`), ported in `crates/grbl/src/lib.rs`. Ours: `crates/grbl` (the
 machine) and `crates/engine/src/ports/laserfoundry/` (the engine's port for `--mode grbl`),
-`docs/plans/agent-engine.md`, Step 3d (G1 to G16, "ours").
+`docs/archive/plans/agent-engine.md`, Step 3d (G1 to G16, "ours").
 
 LaserFoundry is an owner exception to "no one-person projects" (2026-11-15): where it falls short,
 the fix is proposed upstream (Step 3d), not put in our code. The owner's rule that a laser never
@@ -80,7 +80,7 @@ LaserFoundry's app, and the test of the port's side (`crates/grbl/src/tests.rs`,
 | Job end, restart line | `record_job_position` (`lib.rs:1291-1328`), `Restart::place_in_design` (:105-115), `restart_line` | `an_interrupted_job_starts_again` (restart line in the file's numbering, the second job runs to the end) | ported formula (`file_line` re-implements `place_in_design`); **not compared** with the app's, only bounded (2 to 400) |
 | `from_line` 1 | `start_from_line` rebuilds with `resume_from` for any line | `a_start_from_line_one_is_rebuilt_like_any_other` | **same call; not compared by a run of both** (the bytes after it are those of `resume_from`) |
 
-## 4. Where ours is not LaserFoundry's (the list, `docs/plans/agent-engine.md` G1 to G16)
+## 4. Where ours is not LaserFoundry's (the list, `docs/archive/plans/agent-engine.md` G1 to G16)
 
 Command answers come from the snapshot's console and the port reads it every 20 ms (G7, G9, G15);
 FDM actions, a Z jog and a frame without a file fail loudly (G2, G4); the report's texts and

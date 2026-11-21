@@ -4,7 +4,7 @@
 combine with our AGPL-3.0) at commit `9ed1cb55a2dfd0daeb41548031a49ab756cb9114`, in `reference/usbscale`
 (`usbscale.c` sha256 `18360242a32d9f0555b4670477c6dc0df8c92fb4532d877e3144727d7682eb5f`). Ours:
 `crates/engine/src/ports/usbscale/`, a port of `UNITS`, `print_scale_data` and the read path of `main`
-(`docs/plans/agent-engine.md`, Step 3e). Checked against HID Usage Tables 1.6 ch. 33 and HID POS 1.02 section 6.2.4
+(`docs/archive/plans/agent-engine.md`, Step 3e). Checked against HID Usage Tables 1.6 ch. 33 and HID POS 1.02 section 6.2.4
 (`reference/hid-usage-tables/`), which are used only to verify, never as a second source.
 
 Proof: `scripts/usbscale-audit-check.py` cuts usbscale's own `print_scale_data` and `UNITS` out of

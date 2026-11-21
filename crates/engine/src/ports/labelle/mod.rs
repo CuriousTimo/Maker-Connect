@@ -1,4 +1,4 @@
-//! The DYMO LabelManager PnP's port (`docs/plans/agent-engine.md`, Step 3b): a port of **labelle**
+//! The DYMO LabelManager PnP's port (`docs/archive/plans/agent-engine.md`, Step 3b): a port of **labelle**
 //! (github.com/labelle-org/labelle, Apache-2.0, commit `5e8f1e5d4f2f4447c8827df96c174812275d678f`,
 //! in `reference/labelle`). Its source files, one Rust file each, function by function:
 //!

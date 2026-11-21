@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Takes the DYMO LabelWriter references out of DYMO Connect for Desktop's macOS installer, without
-installing it (docs/briefs/hs2b-dymo-connect-catalog.md; owner, 2026-11-17: "niet installeren").
+installing it (docs/archive/briefs/hs2b-dymo-connect-catalog.md; owner, 2026-11-17: "niet installeren").
 
   dymo-connect-extract.py PKG
 

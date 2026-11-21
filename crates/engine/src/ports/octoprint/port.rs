@@ -1,6 +1,6 @@
 //! The top edge of the Marlin port (`--mode marlin`): the [`Port`] that gives OctoPrint's ported code
 //! (`standard.rs`, `comm.rs`, ...) its orders and tells the engine what it reports. OURS, every piece
-//! of it, as `docs/plans/agent-engine.md` decided it (O1-O8, S1-S5, M1-M5, B1-B9, Sections G-J); what it
+//! of it, as `docs/archive/plans/agent-engine.md` decided it (O1-O8, S1-S5, M1-M5, B1-B9, Sections G-J); what it
 //! decided nothing about is listed below as K-items, "to approve (proxy)". Nothing of ours reaches the
 //! printer: each byte comes from the ported OctoPrint code.
 //!

@@ -381,7 +381,7 @@ Options were: (a) the `prusa` port also ports the SDK's WebSocket side and talks
 does; (b) it stops at the SDK's `Printer` and goes over our own agent link.
 
 **Decided:** (a), by the owner's ruling that every device on the agent talks the Prusa Connect printer
-protocol (2026-11-19, [decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)). [mk3-port-plan.md](../plans/mk3-port-plan.md) §3.4 still says otherwise and
+protocol (2026-11-19, [decision](decisions/20261120-agent-link-is-prusa-connect-protocol.md)). [mk3-port-plan.md](../archive/plans/mk3-port-plan.md) §3.4 still says otherwise and
 is brought in line with the MK3 step.
 
 ### OQ-46: How the agent's own update reaches it

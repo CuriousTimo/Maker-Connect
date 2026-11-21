@@ -5,7 +5,7 @@
 //! `GetProfileLevelID`, `JoinNALU`) and the start-of-access-unit part of `pkg/h264/rtp.go`
 //! `RTPDepay` (`start_of_access_unit`).
 //!
-//! Where the camera side is retina's (docs/plans/cameras.md, "Where the two stacks meet"): the frame
+//! Where the camera side is retina's (docs/archive/plans/cameras.md, "Where the two stacks meet"): the frame
 //! (AVC, length-prefixed NAL units), its 32-bit RTP timestamp, SPS/PPS from retina's `avcC`
 //! through `decode_config`, width and height from retina (go2rtc decodes them from the SPS).
 //! go2rtc's `GetProfileLevelID` reads the SPS from the SDP's `sprop-parameter-sets`; here the

@@ -1,7 +1,7 @@
 //! The DYMO LabelManager tape widths the hub needs (the PnP and its kin).
 //!
 //! The printer's code is not here: the LabelManager PnP is printed by its own port,
-//! `crates/engine/src/ports/labelle/` (a port of labelle, `docs/plans/agent-engine.md`, Step 3b).
+//! `crates/engine/src/ports/labelle/` (a port of labelle, `docs/archive/plans/agent-engine.md`, Step 3b).
 //! What stays is what the hub reads, the dots across a tape: labelle's `SUPPORTED_TAPE_SIZES_MM`
 //! and `DymoLabelerFunctions.height_px` (`dymo_labeler.py:73`, `:77`: `int(8 * tape_size_mm / 12)`
 //! bytes of 8 dots), the same numbers as the port's `DymoLabeler::height_px`. Open: the hub

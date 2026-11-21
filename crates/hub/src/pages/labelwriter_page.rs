@@ -1,4 +1,4 @@
-//! A DYMO LabelWriter's page (HS2, `docs/briefs/hs2-lw450-label-page.md`): its own page, apart from
+//! A DYMO LabelWriter's page (HS2, `docs/archive/briefs/hs2-lw450-label-page.md`): its own page, apart from
 //! the LabelManager's (`label_page.rs`), as the design the owner reviewed (2026-11-17,
 //! <https://claude.ai/artifact/8BJZKGpNjQzwJsJ6GPNSWU>). Ours, UI only.
 //!

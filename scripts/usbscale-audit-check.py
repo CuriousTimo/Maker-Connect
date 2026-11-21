@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The DYMO scale port's mechanical check (docs/audits/usbscale.md, docs/plans/agent-engine.md Step 3e).
+"""The DYMO scale port's mechanical check (docs/audits/usbscale.md, docs/archive/plans/agent-engine.md Step 3e).
 
 It takes usbscale's own `print_scale_data` and `UNITS` out of reference/usbscale/usbscale.c
 (commit 9ed1cb55a2dfd0daeb41548031a49ab756cb9114) as text, compiles them with a small harness, and

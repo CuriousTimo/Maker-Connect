@@ -1,4 +1,4 @@
-//! Maker Connect's device contract (hub core v2, `docs/plans/hub-core-v2.md` §2.1, §2.10, step 1).
+//! Maker Connect's device contract (hub core v2, `docs/archive/plans/hub-core-v2.md` §2.1, §2.10, step 1).
 //!
 //! Every machine is a device: an [`Identity`], an enabled [`CapabilitySet`] with an [`Epoch`], a
 //! declared [`StateSet`], a [`StateTree`] changed by [`Patch`]es, and [`Command`]s answered by an
@@ -14,7 +14,7 @@
 //! reference has no call for is not declared. Our own limits sit in host-side validation.
 //!
 //! The registries ([`registry`]) hold the agent ports' verbs and state sets
-//! (`docs/plans/hub-core-v2-device-map.md`) and the fault codes the validator needs; test fixture
+//! (`docs/archive/plans/hub-core-v2-device-map.md`) and the fault codes the validator needs; test fixture
 //! rows and the fixture device (`fixture`) exist only under `cfg(test)`. The conformance kit
 //! ([`conformance`]) does no I/O of its own.
 

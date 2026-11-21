@@ -4,7 +4,7 @@
 //! Named after the stdlib source; written with `std::sync::{Mutex, Condvar}` and `std::thread`.
 //! Python's locks do not poison: a poisoned `std` mutex is used as it is.
 //!
-//! **OURS, approved (docs/plans/agent-engine.md, "the five questions", decision 1): `Thread::start` under the GIL.**
+//! **OURS, approved (docs/archive/plans/agent-engine.md, "the five questions", decision 1): `Thread::start` under the GIL.**
 //! CPython's `Thread.start()` (`threading.py:956-982`) waits on `self._started` (`:982`); the new thread
 //! (`_bootstrap_inner`, `:1028-1044`) sets it (`:1033`) and, holding the GIL, runs on until it first
 //! blocks (or ends) before the starting thread gets the GIL back. That "the starter continues only

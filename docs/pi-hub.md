@@ -3,7 +3,7 @@
 How the hub runs on the test Pi (an Orange Pi PC, armv7, 1 GB): the database in TimescaleDB's container,
 the hub native as a system service under a user of its own, `maker-connect`, which is not in the
 `docker` group (the hub gets no Docker rights: anyone with the Docker socket is root on the Pi, and the
-hub faces the network). Design: [plans/hub-core-v2.md](plans/hub-core-v2.md) §2.7 "Pi deployment";
+hub faces the network). Design: [plans/hub-core-v2.md](archive/plans/hub-core-v2.md) §2.7 "Pi deployment";
 the database's roles: the design's database.md, "Roles and pools".
 
 ## The database

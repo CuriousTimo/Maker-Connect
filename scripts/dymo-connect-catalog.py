@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The LabelWriter 450's rolls from DYMO Connect's own catalogue (docs/briefs/hs2b-dymo-connect-catalog.md).
+"""The LabelWriter 450's rolls from DYMO Connect's own catalogue (docs/archive/briefs/hs2b-dymo-connect-catalog.md).
 
   gen    writes crates/engine/src/ports/dymo_connect_lw450.rs from
          reference/dymo-connect-1.6.4.18/catalog/{SKUs,Labels,SkuLinks}.xml and the 450's PPD

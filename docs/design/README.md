@@ -6,10 +6,10 @@ code as it stands (owner, 2026-11-19, [decision](decisions/20261119-design-doc-f
 plans leave something undecided, it is not filled in here: it is an open question in
 [risks-and-open.md](risks-and-open.md).
 
-Sources: [plans/hub-core-v2.md](../plans/hub-core-v2.md) (the design, "plan" below, `§` = its sections),
-[plans/hub-core-v2-device-map.md](../plans/hub-core-v2-device-map.md) (each port on the contract),
-[plans/hub-modules.md](../plans/hub-modules.md), [plans/hub-side.md](../plans/hub-side.md),
-[plans/agent-engine.md](../plans/agent-engine.md), [plans/cameras.md](../plans/cameras.md), the
+Sources: [plans/hub-core-v2.md](../archive/plans/hub-core-v2.md) (the design, "plan" below, `§` = its sections),
+[plans/hub-core-v2-device-map.md](../archive/plans/hub-core-v2-device-map.md) (each port on the contract),
+[plans/hub-modules.md](../archive/plans/hub-modules.md), [plans/hub-side.md](../archive/plans/hub-side.md),
+[plans/agent-engine.md](../archive/plans/agent-engine.md), [plans/cameras.md](../archive/plans/cameras.md), the
 generated registries in [registries/](../registries/), the project rules in `CLAUDE.md` and the
 owner's decisions in [decisions/](decisions/).
 

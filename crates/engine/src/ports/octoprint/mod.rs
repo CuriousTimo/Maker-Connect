@@ -1,5 +1,5 @@
 //! The Marlin port: OctoPrint 1.11.8 (`reference/OctoPrint-1.11.8`, commit `42be740`), translated
-//! file by file (`docs/plans/agent-engine.md`, step 3a).
+//! file by file (`docs/archive/plans/agent-engine.md`, step 3a).
 //!
 //! OctoPrint is Copyright (C) 2013 David Braam, Gina Häußge & others, released under the terms of
 //! the GNU Affero General Public License v3 (as Maker Connect is). Each file here names the

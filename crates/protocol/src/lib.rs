@@ -258,7 +258,7 @@ pub struct Telemetry {
     /// to the protocol's state (`docs/design/prusa-sdk-extension.md`, part 9).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comm_state: Option<String>,
-    /// A scale's reading, as the scale says it (`ports/usbscale`, docs/plans/agent-engine.md Step 3e).
+    /// A scale's reading, as the scale says it (`ports/usbscale`, docs/archive/plans/agent-engine.md Step 3e).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale: Option<ScaleReading>,
     /// The agent itself: where it runs.

@@ -2807,7 +2807,7 @@ mod tests {
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
         not(all(feature = "cameras", feature = "pg-tests")),
-        ignore = "the snapshot is of the build with all modules (docs/plans/hub-modules.md), on Postgres"
+        ignore = "the snapshot is of the build with all modules (docs/archive/plans/hub-modules.md), on Postgres"
     )]
     async fn the_routes_are_as_checked_in(pool: sqlx::PgPool) {
         use sha2::{Digest, Sha256};

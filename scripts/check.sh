@@ -91,7 +91,7 @@ python3 -I scripts/marlin-audit-check.py 2>&1 | grep -E "named tests that do not
 if [ -f crates/agent/src/lcd.rs ]; then
     python3 -I scripts/prusalink-audit-check.py 2>&1 | grep -E "not proven|OPEN" | sed 's/^/   prusalink audit: /' | head -5
 else
-    echo "   prusalink audit: checks the agent before the engine restart (2026-11-13); stale until the MK3 port (docs/plans/mk3-port-plan.md)"
+    echo "   prusalink audit: checks the agent before the engine restart (2026-11-13); stale until the MK3 port (docs/archive/plans/mk3-port-plan.md)"
 fi
 
 if [ ${#failed[@]} -eq 0 ]; then

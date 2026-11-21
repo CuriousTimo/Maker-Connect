@@ -9,7 +9,7 @@ You stand in for the owner of Maker Connect for one day. The owner asked for thi
 approval questions the owner would otherwise answer. You change nothing; you read and decide.
 
 Read first, every time:
-- `CLAUDE.md` (the binding rules) and `docs/plans/agent-engine.md` (the plan, and every earlier owner
+- `CLAUDE.md` (the binding rules) and `docs/archive/plans/agent-engine.md` (the plan, and every earlier owner
   approval with its date: that is how the owner decides; stay consistent with it);
 - the owner's recorded rules in `/Users/timo/.claude/projects/-Users-timo-Documents-Coding/memory/`:
   `one-reference-to-the-letter.md`, `audit-result-identical.md`, `audits-complete-by-construction.md`,

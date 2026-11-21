@@ -16,12 +16,12 @@ that it could one day be hosted for many makerspaces at once.
 A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 
 <p align="center">
-  <img src="docs/screenshots/machines.png" alt="The machines of a space, grouped by kind: three Prusa printers (a MINI printing a Benchy), a laser with a job loaded, and two DYMO label printers, each with what it does now and its state" width="860">
+  <img src="docs/screenshots/machines.png" alt="The machines of a space, grouped by kind: an AtomX MK3 on the agent and a Prusa MINI on built-in Connect, and two DYMO label printers, each with what it does now and its state" width="860">
 </p>
 
 | | |
 |---|---|
-| ![A printer's control tab: the bed with the head where it is, X, Y and Z, the job with its thumbnail and progress, and the controls](docs/screenshots/control.png) | ![A printer's telemetry: nozzle, bed and fan tiles, and the temperatures of the last half hour](docs/screenshots/telemetry.png) |
+| ![A printer's Controls tab: the bed with the head where it is, X, Y and Z, temperatures, speed and flow](docs/screenshots/control.png) | ![A printer's History tab: what ran on it and its temperatures over time](docs/screenshots/telemetry.png) |
 | **Control**: the bed with the head where it is, the job, moves, heating, the fan | **Telemetry**: temperatures and fans, live, with a table view |
 | ![The bed mesh as a surface to turn, with its range, lowest and highest point](docs/screenshots/bed-level.png) | ![The files page: filters by type and machine, labels and G-code with their pictures, where each was printed](docs/screenshots/files.png) |
 | **Bed level**: the mesh as a surface, a map and a table | **Files**: sorted and filtered by type and machine, where each was printed, removed many at once |
@@ -31,7 +31,7 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 | **A laser's Control**: the loaded job is framed, then started by a person at the laser (Start burn); the emergency stop; the jog pad | **Materials**: spools grouped by filament, what is left of each, the chosen one in its inspector; Spoolman's API speaks here too |
 | ![Prepare: the laser design tool, which opens in a new tab](docs/screenshots/prepare.png) | ![The LabelWriter 450's label tab: DYMO's S0722530 roll, two labels side by side on one page, with what the PPD says about it](docs/screenshots/labelwriter.png) |
 | **Prepare**: the tools that make the work; today laser design (LaserFoundry in the browser) | **LabelWriter 450**: the label drawn on the roll loaded, from DYMO Connect's catalogue |
-| ![The Now page: three printers busy with their progress and finish time, who started each job, and the whole fleet by kind](docs/screenshots/now.png) | ![A printer's queue: two Benchies waiting, whose they are and when each starts](docs/screenshots/queue.png) |
+| ![The Now page: what is busy, free and needs someone, what ends next, and the whole fleet by kind](docs/screenshots/now.png) | ![A printer's Queue tab: what waits for it, next first](docs/screenshots/queue.png) |
 | **Now**: what runs, what needs someone, what ends next and who started it, the fleet by kind; also as a wall screen | **Queue**: per machine, next first; it starts by itself once the bed is clear; drag your own prints, staff move any |
 | ![Space → Members: the members with their roles, and a matrix of who may use which machine group](docs/screenshots/permissions.png) | ![The About page: release and build, system, processor and memory, and Updates saying this is the newest release](docs/screenshots/about.png) |
 | **Members and permissions**: roles, and who may use or operate which machine group, in one matrix | **About**: what runs where, and **Updates** with a way back, from signed releases |
@@ -43,28 +43,35 @@ translations of that reference, file by file, and each is proved against the ref
 (the audits in [docs/audits](docs/audits/README.md), each with a checker script and a test per
 row). What a port does not know, it does not guess.
 
-The agent's link to the hub is being rebuilt (agent link v2, [docs/design/wire.md](docs/design/wire.md));
-the old link is gone, with no fallback. Until the new one lands, the machines below that go
-*through the agent* do not reach the hub: their ports work and are proved, the hub shows them once
-the agent connects again.
+**One protocol for every device.** Every machine talks to the hub the way a Prusa printer talks
+to Prusa Connect: the printer side of the [Prusa Connect SDK](https://github.com/prusa3d/Prusa-Connect-SDK-Printer)
+(its `websockets` branch), registration with a code over `/p/register`, then telemetry, events
+and commands over the WebSocket `/p/ws`. A Prusa MINI does it with its own firmware; the agent
+does it for the machines beside it, a port of the SDK itself. What the SDK has no word for (a
+label printer, a laser, a Marlin printer's M115) is an extension written down part by part in
+[docs/design/prusa-sdk-extension.md](docs/design/prusa-sdk-extension.md).
 
 - **Machines report themselves.** An agent next to a machine, or the machine's own firmware,
   connects to the hub: no port to open where the machine stands. Add one with the code it
   shows. Every page updates live (server-sent events).
-- **A Prusa MINI needs no agent.** Its firmware speaks Prusa Connect; the hub speaks the
-  printer side of that protocol, checked row by row against Buddy 6.3.0 (commands, events,
-  states, dialog answers, registration). Tried on a real MINI (firmware 6.3.0).
-- **Printers on Marlin** through the agent (`mode = "marlin"`): a port of **OctoPrint
-  1.11.8**'s serial layer, proved against OctoPrint itself on its own virtual printer (the
-  same bytes in 22 of 24 scenarios; the other two differ between OctoPrint's own runs). Files
-  print as jobs, with pause, resume and stop. Not yet tried on a real printer.
-- **Lasers (GRBL)** through the agent (`mode = "grbl"`), a port of
-  [LaserFoundry](https://github.com/StitchFoundry/laserfoundry) (v0.5.0): homing, the jog pad,
-  Set origin and Go to origin, Frame. **A laser never starts by itself**: a file sent to a laser
-  is *loaded*, framed at the laser (after every Set origin it is framed again), and started
-  only by a person there with **Start burn** (permission to operate it, safety glasses
-  confirmed, laser mode on). Its Stop is LaserFoundry's soft reset. Tried on a real Ortur Laser
-  Master 2 Pro S2: homing, jogging, origin and framing (no burning yet).
+- **A Prusa MINI needs no agent.** Its firmware (Buddy 6.4 and later) connects to the hub over
+  Prusa Connect's WebSocket; the hub is the server side of that, after Prusa's own self-hosted
+  Prusa Connect. Tried on a real MINI (Buddy 8.0.2): registering, the machine page, moves,
+  heating, printing.
+- **Printers on Marlin** through the agent: a port of **OctoPrint 1.11.8**'s serial layer,
+  proved against OctoPrint itself on its own virtual printer (the same bytes in 22 of 24
+  scenarios; the other two differ between OctoPrint's own runs). Files print as jobs from the
+  agent's storage, with pause, resume and stop; the terminal shows what the printer answers.
+  The printer names itself with M115, so a stock printer gets its profile by itself. **Probe
+  bed** measures the bed and draws the mesh as OctoPrint's Bed Level Visualizer reads it (17 of
+  17 cases identical). Tried on a real printer: an AtomX MK3 on Marlin 2.1.2.10.
+- **Lasers (GRBL)**: a port of [LaserFoundry](https://github.com/StitchFoundry/laserfoundry)
+  (v0.5.0): homing, the jog pad, Set origin and Go to origin, Frame. **A laser never starts by
+  itself**: a file sent to a laser is *loaded*, framed at the laser (after every Set origin it
+  is framed again), and started only by a person there with **Start burn** (permission to
+  operate it, safety glasses confirmed, laser mode on). Its Stop is LaserFoundry's soft reset.
+  The port is proved and was tried on a real Ortur Laser Master 2 Pro S2 (homing, jogging,
+  origin, framing; no burning yet); on the agent it is still to come (issue #89).
 - **Prepare: making the work.** A part of its own for the tools that turn an idea into a job
   file; what they make goes to Files, and from there to a machine. Today **laser design** in the
   browser: the hub serves our fork of LaserFoundry's web version (built without Web Serial);
@@ -74,11 +81,12 @@ the agent connects again.
   [labelle](https://github.com/labelle-org/labelle) does it, and the **DYMO LabelWriter 450**
   (die-cut labels) through a port of **DYMO's own CUPS driver** with the rolls and label
   shapes of DYMO Connect's catalogue. A label printer's page draws the label at the size of
-  what is loaded, with QR codes and barcodes. Both printed on the real printers (the 450 on
-  S0722530, two labels side by side).
-- **Cameras**: network cameras (RTSP/ONVIF) straight to the hub, live in the browser (go2rtc's
-  way, checked frame by frame), linked to a machine or a room; and USB webcams through the
-  agent (nokhwa; a Logitech C270 on an Orange Pi).
+  what is loaded, with QR codes and barcodes. Both print through the agent on the real
+  printers (the 450 on S0722530, two labels side by side).
+- **Cameras**: network cameras (RTSP) straight to the hub, live in the browser (go2rtc's way,
+  checked frame by frame), linked to a machine or a room; an `onvif://` address is resolved to
+  the camera's RTSP stream as go2rtc does it. USB webcams through the agent are still to come
+  (issue #5).
 - **Materials, compatible with [Spoolman](https://github.com/Donkie/Spoolman)**: its model
   (vendors, filaments, spools) and its API at `/api/v1`, measured request by request against
   real Spoolman, so Moonraker's `[spoolman]`, OctoPrint's Spoolman plugin, Mainsail, Fluidd and
@@ -88,36 +96,34 @@ the agent connects again.
   wrote and offers only the machines it fits (and says why not, also when you lack
   permission). Printers have a queue that starts by itself once the bed is clear; lasers take
   one loaded job, no queue.
-- **Machine pages**: Overview, Control, Terminal, Telemetry, Bed level, Settings, a Camera
-  tab; a state badge that says what it does (printing, loaded, cooling, take the print).
+- **Machine pages**, laid out after Prusa Connect: a head with live chips (nozzle, bed, speed,
+  flow) and **Set ready**; tabs Now, Queue, Controls, Files, Cameras, Machine, History, and
+  Advanced (terminal, bed level); a state that says what it does (printing, loaded, cooling,
+  take the print).
 - **331 machine profiles of 99 brands** (3D printers mostly from Marlin's and Klipper's configurations, lasers from LaserFoundry's own preset list), listed in the wiki's [Supported Machines](https://github.com/CuriousTimo/Maker-Connect/wiki/Supported-Machines).
 - **Updates with a way back**: signed releases, a trial on a copy of the database, and back by
   itself if the new build does not confirm.
-- **Virtual machines** for every profile, to try everything without a machine.
 
 ## Supported devices
 
 | Devices | How they connect | The one reference | On real hardware |
 |---|---|---|---|
-| **Prusa MINI** (Buddy firmware) | Its own firmware speaks Prusa Connect to the hub: no agent | Buddy 6.3.0 | Yes: a MINI on firmware 6.3.0 |
-| **3D printers on Marlin** | Agent, USB serial, `mode = "marlin"` (Linux and macOS; not yet Windows) | OctoPrint 1.11.8 | Not yet: proved against OctoPrint on its virtual printer |
-| **Prusa MK3S, MK2.5S** (8-bit firmware) | Agent, USB or an MK3S's RPi port | PrusaLink (the port is planned: [docs/plans/mk3-port-plan.md](docs/plans/mk3-port-plan.md)) | Not yet |
-| **3D printers on Klipper** | Moonraker connects by itself: no agent | Moonraker | Not yet |
-| **Lasers on GRBL**: Ortur, Creality Falcon, Sculpfun, xTool, … | Agent, USB serial, `mode = "grbl"` | LaserFoundry v0.5.0 | Yes: an Ortur Laser Master 2 Pro S2 (motion and framing; no burning yet) |
-| **DYMO LabelManager PnP** (tape) | Agent, USB HID, `mode = "dymo-pnp"`: no driver | labelle | Yes |
-| **DYMO LabelWriter 450** (labels) | Agent, USB, `mode = "labelwriter-450"`: no driver | DYMO's CUPS driver 1.4.0, DYMO Connect's catalogue | Yes |
-| **DYMO M-series scale** (weight) | Agent, USB HID, `mode = "dymo-scale"` | usbscale | Not yet |
+| **Prusa MINI** (Buddy 6.4 and later) | Its own firmware, Prusa Connect's WebSocket: no agent | Buddy 6.4.0, Prusa's self-hosted Prusa Connect | Yes: a MINI on Buddy 8.0.2 |
+| **3D printers on Marlin** | Agent, USB serial (Linux and macOS; Windows later) | OctoPrint 1.11.8; Bed Level Visualizer 1.1.2 for the mesh | Yes: an AtomX MK3 on Marlin 2.1.2.10 |
+| **DYMO LabelManager PnP** (tape) | Agent, USB HID: no driver | labelle | Yes |
+| **DYMO LabelWriter 450** (labels) | Agent, USB: no driver | DYMO's CUPS driver 1.4.0, DYMO Connect's catalogue | Yes |
 | **Network cameras** (RTSP, ONVIF) | Straight to the hub | retina, go2rtc | Yes: an LSC Smart Connect camera |
-| **USB webcams** | Agent, `mode = "cameras"` | nokhwa, FFmpeg's `mjpeg2jpeg` | Yes: a Logitech C270 |
-| **A virtual one of every profile** | Simulated in the hub | – | – |
+
+Ported and proved, not yet on the agent: **lasers on GRBL** (LaserFoundry v0.5.0, issue #89),
+**DYMO M-series scales** (usbscale, #129), **USB webcams** (nokhwa, #5). Still to port: the
+**Prusa MK3S and MK2.5S** (PrusaLink, #78). **Klipper** through Moonraker connects by itself,
+not yet checked against Moonraker nor tried on a real printer (#9).
 
 | The agent runs on | Build | On real hardware |
 |---|---|---|
-| macOS, Apple silicon | `macos-aarch64` | Yes |
-| Windows 10/11, x64 (not yet for Marlin printers) | `windows-x86_64.exe` | Yes |
-| Linux ARM64: Orange Pi Zero3, Raspberry Pi 4 and 5 | `linux-aarch64` | Not yet |
-| Linux ARM 32-bit: a Raspberry Pi on a 32-bit OS, Orange Pi PC | `linux-armv6` | Yes: a Pi Zero 2 W, an Orange Pi PC |
-| Linux x86-64: a PC, a NAS | `linux-x86_64` | Not yet |
+| Linux ARM64: Raspberry Pi 4 and 5, Orange Pi Zero3 | `linux-aarch64` | Yes: a Raspberry Pi |
+| macOS, Apple silicon | `macos-aarch64` | Builds; Windows and macOS are tried again before the first v2 release (#141) |
+| Windows 10/11, x64 | `windows-x86_64.exe` | Not yet for v2 (#141) |
 
 Every machine with a profile, by brand: the wiki's
 [Supported Machines](https://github.com/CuriousTimo/Maker-Connect/wiki/Supported-Machines).
@@ -157,11 +163,19 @@ From the source:
 cargo run -p maker-connect-hub                 # http://localhost:8460
 ```
 
-Then the ＋ next to "Machines" in the sidebar (or ⌘K, *Add a machine*), "A virtual one", and pick a printer, a laser or a label printer. A Prusa
-with built-in Connect is added with the code it shows (Add machine); machines through the agent
-wait for its new hub link (above). [Getting Started](https://github.com/CuriousTimo/Maker-Connect/wiki/Getting-Started)
+Then **Add machine** (the ＋ next to "Machines" in the sidebar). A Prusa with built-in Connect
+gets a settings file for its USB stick with this hub's address, then you enter the code it shows.
+A machine on USB gets the agent:
+
+```sh
+./maker-connect-agent                          # its page: http://<this computer>:8470
+```
+
+On the agent's page, give the hub's address and switch on the device that is plugged in (a DYMO
+LabelManager PnP, a LabelWriter 450, a Marlin printer with its serial port): it shows a code,
+which you enter on the hub's Add machine page. [Getting Started](https://github.com/CuriousTimo/Maker-Connect/wiki/Getting-Started)
 in the wiki goes through it, [The Agent](https://github.com/CuriousTimo/Maker-Connect/wiki/The-Agent)
-has its options and its config file.
+has the rest.
 
 ## Wiki
 
@@ -175,8 +189,12 @@ roadmap.
 | Part | What |
 |---|---|
 | **hub** (`crates/hub`) | The website and the API: one binary over a Postgres database, uploaded files on disk. Every record belongs to a space |
-| **agent** (`crates/agent`) | Next to a machine: reports to the hub and runs one of the engine's ports for its machine |
+| **agent** (`crates/agent`) | Next to machines: one program for several devices, each linked to the hub as its own Prusa Connect printer, each running one of the engine's ports; a small page of its own (`:8470`) |
+| **connect-sdk** (`crates/connect-sdk`) | A port of Prusa-Connect-SDK-Printer (`websockets` branch, `c0d7d233`): registration, the WebSocket, telemetry, events, commands, downloads |
+| **gcode-metadata**, **inotify-simple** | Ports of what the SDK uses: prusa3d/gcode-metadata (`7d8f25d`), inotify_simple 1.3.5 |
 | **engine** (`crates/engine`) | The ports, one per device, each a translation of its one reference (OctoPrint, labelle, DYMO's CUPS driver, LaserFoundry, usbscale) |
+| **device** (`crates/device`) | The device contract: identity, capabilities, states, commands and results |
+| **system** (`crates/system`) | What the computer a hub or an agent runs on is, for the About pages |
 | **grbl** (`crates/grbl`) | GRBL machines (lasers), on LaserFoundry's `laserfoundry-device` and `laserfoundry-gcode`; used by the agent and by the hub's virtual lasers |
 | **label** (`crates/label`) | Labels as rasters (PNG in, dots out), and the DYMO LabelManager's protocol over USB HID |
 | **protocol** (`crates/protocol`) | What agents and the hub say to each other |
@@ -230,9 +248,10 @@ waits in Files with its machine chosen; nothing starts by itself.
 
 ## Not yet
 
-Printing a file on a real Marlin printer, burning on a real laser, the MK3 port of PrusaLink,
-Klipper on real hardware, the Buddy telemetry fields (the audit's open rows), and Buddy
-firmware 6.4 and later (it needs Prusa Connect's WebSocket). Values marked `# check` in the
+Lasers, scales and USB webcams on the agent; burning on a real laser; the MK3 port of
+PrusaLink; Klipper on real hardware; the agent on Windows and macOS for v2; the Buddy telemetry
+fields (the audit's open rows). The open work, in order: the
+[roadmap](https://github.com/CuriousTimo/Maker-Connect/issues/144). Values marked `# check` in the
 profiles are not yet confirmed on the machines.
 
 **Safety:** a laser and a heated printer can start a fire. Frame a laser job, wear the
@@ -253,10 +272,17 @@ head: home first, and keep hands out of the work area.
 - [nokhwa](https://github.com/l1npengtul/nokhwa) (Apache-2.0) for USB webcams, and FFmpeg's
   `mjpeg2jpeg` (LGPL-2.1 or later) for their missing Huffman tables.
 - [OctoPrint](https://github.com/OctoPrint/OctoPrint) (AGPL-3.0): its serial layer is ported
-  for Marlin printers; its Bed Level Visualizer plugin (MIT) for the mesh formats.
-- Prusa-Firmware-Buddy (GPL-3.0 code) and Prusa-Firmware: read to learn the Prusa Connect
-  protocol and the printers' replies. Prusa Link and the Prusa Connect SDK ("Freeware") were
-  read to understand, never copied. Notes: [docs/archive/printer-protocols.md](docs/archive/printer-protocols.md).
+  for Marlin printers.
+- The [Prusa Connect SDK](https://github.com/prusa3d/Prusa-Connect-SDK-Printer) (printer side,
+  "Freeware" in its `setup.py`) and [PrusaLink](https://github.com/prusa3d/Prusa-Link): the
+  agent's link to the hub is a port of the SDK, with PrusaLink as the example of using it.
+  Prusa-Firmware-Buddy (GPL-3.0 code) and Prusa's self-hosted Prusa Connect: read for the
+  protocol's both sides (the Connect server is read, not ported).
+- [gcode-metadata](https://github.com/prusa3d/gcode-metadata) (LGPL-2.0 or later) and
+  [inotify_simple](https://github.com/chrisjbillington/inotify_simple) (BSD-2-Clause): ported,
+  as the SDK uses them.
+- [OctoPrint-BedLevelVisualizer](https://github.com/jneilliii/OctoPrint-BedLevelVisualizer)
+  1.1.2: its reading of a printer's mesh, ported for Probe bed.
 - [thermal-label](https://thermal-label.github.io/) (MIT): the DYMO LabelManager's protocol and
   its media list; [labelle](https://github.com/labelle-org/labelle) (Apache-2.0) for the same
   protocol in practice. Notes: [docs/api/integrations.md](docs/api/integrations.md).

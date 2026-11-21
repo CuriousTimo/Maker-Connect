@@ -15,7 +15,7 @@
 //!
 //! Script templating (`_init_script_templating` `:814`, `_get_script_template` `:944`,
 //! `listScripts` `:2106`, `loadScript` `:2115`): Jinja2 is replaced by `minijinja` (owner's
-//! approval, M5 in `docs/plans/agent-engine.md`). `scripts_expected.json`, written by `scripts/octoprint-scripts-check.py` from the
+//! approval, M5 in `docs/archive/plans/agent-engine.md`). `scripts_expected.json`, written by `scripts/octoprint-scripts-check.py` from the
 //! real OctoPrint 1.11.8 `Settings`, is compared byte for byte in the tests. What differs:
 //! - `FilteredFileSystemLoader(getBaseFolder("scripts"))` reads user script files from OctoPrint's
 //!   basedir; we have defaults only and no basedir, so it finds nothing (no folder is invented).

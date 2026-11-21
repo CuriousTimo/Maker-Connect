@@ -521,7 +521,7 @@ impl JobState {
     }
 }
 
-/// The store: a cloneable handle on the database (docs/plans/hub-core-v2.md §2.7), the change bus,
+/// The store: a cloneable handle on the database (docs/archive/plans/hub-core-v2.md §2.7), the change bus,
 /// and what is kept in memory on purpose (each behind its own small lock).
 ///
 /// The folders and what is kept in memory are in [`Legacy`], reached with [`Store::lock`].

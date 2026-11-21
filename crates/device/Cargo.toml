@@ -1,6 +1,6 @@
 [package]
 name = "maker-connect-device"
-description = "Maker Connect's device contract (hub core v2, docs/plans/hub-core-v2.md §2.1, §2.10): identity, capabilities, state sets, state tree patches, commands and results, host-side validation, the registries and the conformance kit."
+description = "Maker Connect's device contract (hub core v2, docs/archive/plans/hub-core-v2.md §2.1, §2.10): identity, capabilities, state sets, state tree patches, commands and results, host-side validation, the registries and the conformance kit."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

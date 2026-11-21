@@ -1,4 +1,4 @@
--- The hub's database roles (docs/plans/hub-core-v2.md §2.6; crate::store::pg), once per Postgres server, run
+-- The hub's database roles (docs/archive/plans/hub-core-v2.md §2.6; crate::store::pg), once per Postgres server, run
 -- by a superuser. Safe to run again (it sets each role as below, and the password when given).
 --
 --   psql -v ON_ERROR_STOP=1 -v hub_password=… [-v owner_password=…] -f scripts/db-roles.sql

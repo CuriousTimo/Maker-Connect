@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The hub's development database, on demand (never a background service on the Mac): Postgres with
-# TimescaleDB in a container, the image the plan names (docs/plans/hub-core-v2.md §2.7).
+# TimescaleDB in a container, the image the plan names (docs/archive/plans/hub-core-v2.md §2.7).
 #
 #   scripts/dev-db.sh up        start Colima (if it is not running) and the container, the hub's roles
 #                               (scripts/db-roles.sql) and the tests' database; prints DATABASE_URL: the

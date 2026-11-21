@@ -1,4 +1,4 @@
-//! The store on Postgres (docs/plans/hub-core-v2.md §2.7): one migrator assembled from every module's
+//! The store on Postgres (docs/archive/plans/hub-core-v2.md §2.7): one migrator assembled from every module's
 //! `migrations/` folder, and two pools, one per database role (§2.6, tenancy):
 //!
 //! - **app** (`maker_connect_app`, no BYPASSRLS, not the tables' owner): request work, in a transaction

@@ -1,4 +1,4 @@
-//! HS13: the LaserFoundry web fork, served by the hub (docs/briefs/hs13-laserfoundry-web.md).
+//! HS13: the LaserFoundry web fork, served by the hub (docs/archive/briefs/hs13-laserfoundry-web.md).
 //!
 //! The fork (`apps/laserfoundry-web` of our LaserFoundry fork, built without Web Serial by
 //! `scripts/laserfoundry-web.sh`) is packed gzip into the binary (feature `laser-design`) and served from the hub's own
