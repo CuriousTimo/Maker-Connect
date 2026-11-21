@@ -2,7 +2,10 @@
 //! port ([`LabelWriter450`] over nusb), as the agent runs it, without the hub. Ours, test tooling only:
 //! what goes to the printer is the port's (page, `raster2dymolw`, the `usb` backend).
 //!
-//! `lw450_print LENGTH_MM WIDTH_DOTS HEIGHT_DOTS`
+//! `lw450_print LENGTH_MM WIDTH_DOTS HEIGHT_DOTS [PNG PAGESIZE]`
+//!
+//! With PNG and PAGESIZE: that picture is printed instead, as a job naming that `PageSize` (as the hub's
+//! job does), e.g. a ruler to measure where the page falls on a roll.
 //!
 //! Draws a test picture of WIDTH × HEIGHT dots (a frame, a diagonal, a black block), prints it as a label
 //! LENGTH_MM long, and prints every event of the port. With the wrong size the port says which size the
@@ -56,8 +59,8 @@ fn main() {
         }
         return;
     }
-    if args.len() != 3 {
-        eprintln!("usage: lw450_print LENGTH_MM WIDTH_DOTS HEIGHT_DOTS");
+    if args.len() != 3 && args.len() != 5 {
+        eprintln!("usage: lw450_print LENGTH_MM WIDTH_DOTS HEIGHT_DOTS [PNG PAGESIZE]");
         std::process::exit(2);
     }
     let length_mm: u32 = args[0].parse().expect("LENGTH_MM");
@@ -66,8 +69,13 @@ fn main() {
         args[2].parse().expect("HEIGHT_DOTS"),
     );
 
-    let file = std::env::temp_dir().join("lw450_print.png");
-    write_png(&file, w, h, &test_picture(w, h));
+    let (file, page_size) = if args.len() == 5 {
+        (std::path::PathBuf::from(&args[3]), Some(args[4].clone()))
+    } else {
+        let file = std::env::temp_dir().join("lw450_print.png");
+        write_png(&file, w, h, &test_picture(w, h));
+        (file, None)
+    };
     let size = std::fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
 
     let (order_tx, order_rx) = mpsc::channel();
@@ -82,7 +90,7 @@ fn main() {
         from_line: None,
         tape_mm: None,
         label_length_mm: Some(length_mm),
-        page_size: None,
+        page_size,
     };
     order_tx
         .send(Order::Job { order, file })
