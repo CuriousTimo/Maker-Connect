@@ -457,7 +457,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's console line; refused while a job runs (link.rs:169,277).",
     ),
-    // LF/crates/device/src/link.rs:197 `Link::jog`; app panels.rs:888
+    // LF/crates/device/src/link.rs:205 `Link::jog`; app panels.rs:888
     row(
         LASER_JOG,
         &[
@@ -479,7 +479,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's jog: `$J=G91 G21 X.. Y.. F..`.",
     ),
-    // LF/crates/device/src/link.rs:228 `Link::home` (`$H`); control_box.rs:158, panels.rs:922
+    // LF/crates/device/src/link.rs:236 `Link::home` (`$H`); control_box.rs:158, panels.rs:922
     row(
         LASER_HOME,
         &[],
@@ -487,7 +487,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's Home: `$H`, one homing cycle.",
     ),
-    // LF/crates/device/src/link.rs:236 `Link::unlock` (`$X`); control_box.rs:160-161, panels.rs:925
+    // LF/crates/device/src/link.rs:244 `Link::unlock` (`$X`); control_box.rs:160-161, panels.rs:925
     row(
         LASER_UNLOCK,
         &[],
@@ -495,7 +495,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's Unlock: `$X`.",
     ),
-    // LF/crates/device/src/link.rs:244 `Link::set_zero` (`G92 X0 Y0`); control_box.rs:164
+    // LF/crates/device/src/link.rs:252 `Link::set_zero` (`G92 X0 Y0`); control_box.rs:164
     row(
         LASER_SET_ORIGIN,
         &[],
@@ -503,7 +503,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's Set origin: `G92 X0 Y0`.",
     ),
-    // LF/crates/device/src/link.rs:249 `Link::go_to_zero` (`G90 G0 X0 Y0`); control_box.rs:167
+    // LF/crates/device/src/link.rs:257 `Link::go_to_zero` (`G90 G0 X0 Y0`); control_box.rs:167
     row(
         LASER_GO_ORIGIN,
         &[],
@@ -533,7 +533,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's Frame: `gcode::frame` over the design's bounds, run as a job.",
     ),
-    // LF/crates/ui-egui/src/lib.rs:1238-1268 `start_job_with` -> LF/crates/device/src/link.rs:256 `Link::start_job`
+    // LF/crates/ui-egui/src/lib.rs:1238-1268 `start_job_with` -> LF/crates/device/src/link.rs:264 `Link::start_job`
     VerbEntry {
         name: LASER_START,
         args: &[
@@ -550,7 +550,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         kinds: LASER,
         doc: "LaserFoundry's Start. A person's own session only (hub-core-v2.md §2.1).",
     },
-    // LF/crates/device/src/link.rs:261 `Link::pause`; control_box.rs:144, panels.rs:842
+    // LF/crates/device/src/link.rs:269 `Link::pause`; control_box.rs:144, panels.rs:842
     row(
         LASER_PAUSE,
         &[],
@@ -558,7 +558,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's Pause.",
     ),
-    // LF/crates/device/src/link.rs:265 `Link::resume`; control_box.rs:141, panels.rs:839
+    // LF/crates/device/src/link.rs:273 `Link::resume`; control_box.rs:141, panels.rs:839
     row(
         LASER_RESUME,
         &[],
@@ -566,7 +566,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's Resume.",
     ),
-    // LF/crates/device/src/link.rs:271 `Link::stop` (soft reset, laser off); control_box.rs:147-149
+    // LF/crates/device/src/link.rs:279 `Link::stop` (soft reset, laser off); control_box.rs:147-149
     row(
         LASER_STOP,
         &[],
@@ -591,7 +591,7 @@ macro_rules! marlin_operational {
     };
 }
 
-/// Every LaserFoundry verb but Start: `Link` refuses them only while a job runs (link.rs:283), and
+/// Every LaserFoundry verb but Start: `Link` refuses them only while a job runs (link.rs:291), and
 /// the app's state rules are about the job, not the machine state (device map §4.2).
 macro_rules! laser_any_state {
     ($($more:expr),*) => {
@@ -728,7 +728,7 @@ pub static STATE_SETS: &[StateSet] = &[
     },
     // LF/crates/device/src/status.rs:3-14 `MachineState` at v0.6.0 (the map's :35-46 is not where it is),
     // from the `?` status report. Start only in
-    // Idle or Unknown (`not_ready` LF/crates/ui-egui/src/lib.rs:1537-1549).
+    // Idle or Unknown (`not_ready` LF/crates/ui-egui/src/lib.rs:1539-1551).
     StateSet {
         kind: KIND_GRBL,
         states: &[

@@ -244,7 +244,7 @@ impl GrblMachine {
             return Err("Not connected".to_owned());
         };
         if self.job.is_some() {
-            // `crates/device/src/link.rs:54` and `:283-284`, `LinkError::Busy`, `require_idle`: the link's own words. It reads
+            // `crates/device/src/link.rs:54` and `:291-292`, `LinkError::Busy`, `require_idle`: the link's own words. It reads
             // its snapshot for this, which says so only once its thread took the job up.
             return Err("a job is running; stop it first".to_owned());
         }
@@ -364,10 +364,10 @@ impl GrblMachine {
             return Err("Connect to a machine (or the simulator) first".to_owned());
         };
         if self.job.is_some() {
-            // `crates/device/src/link.rs:54` and `:283-284`, `LinkError::Busy`, `require_idle`: the link's own words.
+            // `crates/device/src/link.rs:54` and `:291-292`, `LinkError::Busy`, `require_idle`: the link's own words.
             return Err("a job is running; stop it first".to_owned());
         }
-        // `ui-egui/src/lib.rs:1249-1253` and `:1537-1549`
+        // `ui-egui/src/lib.rs:1249-1253` and `:1539-1551`
         if let Some(why) = self
             .snap
             .as_ref()
@@ -476,7 +476,7 @@ impl GrblMachine {
         }
     }
 
-    /// `ui-egui` `poll_link` (:1396-1427), then what the hub is told: the commands answered, the
+    /// `ui-egui` `poll_link` (:1396-1429), then what the hub is told: the commands answered, the
     /// job ended, and what the machine is doing.
     pub fn report(&mut self) -> Update {
         self.reconnect_tick();
@@ -487,9 +487,12 @@ impl GrblMachine {
             let snap = link.snapshot();
             if snap.connected {
                 if !self.settings_asked && snap.status.is_some() {
-                    // Once the controller answers, learn its settings: a job is refused when
-                    // laser mode is off.
+                    // Once the controller answers, learn its settings (a job is refused when
+                    // laser mode is off) and, from its build info, the size of its RX buffer.
                     self.settings_asked = true;
+                    if link.request_build_info().is_ok() {
+                        self.outstanding.push_back(Outstanding::new(None, 1, None));
+                    }
                     if link.request_settings().is_ok() {
                         self.outstanding.push_back(Outstanding::new(None, 1, None));
                     }
@@ -763,7 +766,7 @@ pub fn state_name(state: Grbl) -> &'static str {
     }
 }
 
-/// `ui-egui/src/lib.rs:1537-1549` `not_ready`: why a job cannot start while the controller
+/// `ui-egui/src/lib.rs:1539-1551` `not_ready`: why a job cannot start while the controller
 /// reports `state` (`None` when it can).
 fn not_ready(state: Grbl) -> Option<&'static str> {
     Some(match state {

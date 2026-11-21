@@ -167,11 +167,14 @@ fn direct(steps: &[Step], restart: Option<usize>) -> Outcome {
             inner: sim(),
             wire: wire.clone(),
         }));
-        // `ui-egui/src/lib.rs:1418-1422`: the settings once the first status report is in.
+        // `ui-egui/src/lib.rs:1418-1424`: the build info and the settings once the first status report is in.
         wait("a status", || link.snapshot().status.is_some());
+        link.request_build_info().unwrap();
         link.request_settings().unwrap();
         wait("the settings", || link.snapshot().settings.len() > 20);
-        wait("the settings answer", || answers(&link.snapshot()) >= 1);
+        wait("the build info and settings answers", || {
+            answers(&link.snapshot()) >= 2
+        });
         let command = |f: &dyn Fn(&Link) -> Result<(), laserfoundry_device::LinkError>| {
             let before = answers(&link.snapshot());
             f(&link).unwrap();
@@ -508,9 +511,9 @@ fn same(name: &str, steps: Vec<Step>) -> (Wire, Wire) {
 }
 
 #[test]
-fn connecting_sends_only_the_settings() {
+fn connecting_sends_the_build_info_and_the_settings() {
     let (reference, ours) = same("connect", vec![]);
-    assert_eq!(reference.tokens, ["$$"]);
+    assert_eq!(reference.tokens, ["$I", "$$"]);
     assert_eq!(ours.tokens, reference.tokens);
 }
 
@@ -559,7 +562,7 @@ fn a_job_to_the_end_sends_the_same_bytes() {
     let program = job_program(150);
     let (reference, ours) = same("job", vec![Step::Job(program)]);
     assert_eq!(ours.tokens, reference.tokens);
-    assert_eq!(reference.tokens.len(), 1 + 150);
+    assert_eq!(reference.tokens.len(), 2 + 150);
 }
 
 #[test]
@@ -587,9 +590,13 @@ fn pause_resume_and_stop_send_the_same_realtime_bytes() {
         (
             "pause and resume",
             Step::PauseResume(program.clone()),
-            vec!["$$", "<21>", "<7e>"],
+            vec!["$I", "$$", "<21>", "<7e>"],
         ),
-        ("stop", Step::Stop(program.clone()), vec!["$$", "<18>"]),
+        (
+            "stop",
+            Step::Stop(program.clone()),
+            vec!["$I", "$$", "<18>"],
+        ),
     ] {
         let reference = direct(&[step.clone()], None);
         let ours = ours(&[step], None);
@@ -625,7 +632,7 @@ fn a_restart_from_a_line_sends_the_same_bytes() {
         let at = wire.tokens.iter().position(|t| t == "<18>").unwrap();
         let second: Vec<&str> = wire.tokens[at + 1..].iter().map(String::as_str).collect();
         assert_eq!(second, rebuilt, "{name}: the second job");
-        assert_eq!(wire.tokens[0], "$$");
+        assert_eq!(wire.tokens[..2], ["$I", "$$"]);
     }
     // The line the port gives the hub is the app's own working out of it.
     let ours_line = ours.restart_line.expect("a line");

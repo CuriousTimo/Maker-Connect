@@ -138,7 +138,7 @@ fn a_command_is_not_waited_for() {
     });
 }
 
-/// LaserFoundry sends no `$I`, and asks `$$` only once the first status report has come.
+/// LaserFoundry asks `$I` then `$$`, once each, only once the first status report has come.
 #[test]
 fn only_laserfoundrys_bytes_at_connect() {
     let wire = Arc::new(Mutex::new(Vec::new()));
@@ -148,9 +148,14 @@ fn only_laserfoundrys_bytes_at_connect() {
     })));
     run.until("the settings", |r| r.telemetry.grbl.is_some());
     let sent = String::from_utf8(wire.lock().unwrap().clone()).unwrap();
-    assert!(!sent.contains("$I"), "{sent:?}");
-    let (status, settings) = (sent.find('?').unwrap(), sent.find("$$\n").unwrap());
-    assert!(status < settings, "`$$` before the first status: {sent:?}");
+    let status = sent.find('?').unwrap();
+    let build_info = sent.find("$I\n").unwrap();
+    let settings = sent.find("$$\n").unwrap();
+    assert!(
+        status < build_info && build_info < settings,
+        "`$I` then `$$`, after the first status: {sent:?}"
+    );
+    assert_eq!(sent.matches("$I\n").count(), 1, "{sent:?}");
     assert_eq!(sent.matches("$$\n").count(), 1, "{sent:?}");
 }
 

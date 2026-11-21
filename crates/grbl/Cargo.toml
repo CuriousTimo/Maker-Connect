@@ -11,9 +11,10 @@ serial = ["laserfoundry-device/serial"]
 
 [dependencies]
 maker-connect-protocol = { path = "../protocol" }
-# LaserFoundry (MIT OR Apache-2.0), pinned to its v0.6.0 release (8f07f98).
-laserfoundry-device = { git = "https://github.com/Stitchwright/laserfoundry", rev = "8f07f98dc5338f0d43df98f08ae6391896e5f96f" }
-laserfoundry-gcode = { git = "https://github.com/Stitchwright/laserfoundry", rev = "8f07f98dc5338f0d43df98f08ae6391896e5f96f" }
+# LaserFoundry (MIT OR Apache-2.0): its v0.6.0 release (8f07f98) plus the fork branch grbl-rx-buffer
+# (81854b5, CuriousTimo/laserfoundry: the RX buffer from `$I`, #168), offered upstream in #169.
+laserfoundry-device = { git = "https://github.com/CuriousTimo/laserfoundry", rev = "81854b56e3b837b2adb749796f831925b79c51ca" }
+laserfoundry-gcode = { git = "https://github.com/CuriousTimo/laserfoundry", rev = "81854b56e3b837b2adb749796f831925b79c51ca" }
 # The machine and the frame's bounds (`gcode::frame`'s arguments), as the app builds them.
-laserfoundry-doc = { git = "https://github.com/Stitchwright/laserfoundry", rev = "8f07f98dc5338f0d43df98f08ae6391896e5f96f" }
-laserfoundry-geom = { git = "https://github.com/Stitchwright/laserfoundry", rev = "8f07f98dc5338f0d43df98f08ae6391896e5f96f" }
+laserfoundry-doc = { git = "https://github.com/CuriousTimo/laserfoundry", rev = "81854b56e3b837b2adb749796f831925b79c51ca" }
+laserfoundry-geom = { git = "https://github.com/CuriousTimo/laserfoundry", rev = "81854b56e3b837b2adb749796f831925b79c51ca" }

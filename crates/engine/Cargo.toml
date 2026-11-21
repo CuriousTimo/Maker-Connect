@@ -56,7 +56,7 @@ hidapi = { version = "2.6.7", optional = true }
 # The laser port's proof drives LaserFoundry's own `Link` and `gcode::frame` beside it
 # (`ports/laserfoundry/proof.rs`); the same release `crates/grbl` is pinned to.
 [dev-dependencies]
-laserfoundry-device = { git = "https://github.com/Stitchwright/laserfoundry", rev = "8f07f98dc5338f0d43df98f08ae6391896e5f96f" }
-laserfoundry-gcode = { git = "https://github.com/Stitchwright/laserfoundry", rev = "8f07f98dc5338f0d43df98f08ae6391896e5f96f" }
-laserfoundry-doc = { git = "https://github.com/Stitchwright/laserfoundry", rev = "8f07f98dc5338f0d43df98f08ae6391896e5f96f" }
-laserfoundry-geom = { git = "https://github.com/Stitchwright/laserfoundry", rev = "8f07f98dc5338f0d43df98f08ae6391896e5f96f" }
+laserfoundry-device = { git = "https://github.com/CuriousTimo/laserfoundry", rev = "81854b56e3b837b2adb749796f831925b79c51ca" }
+laserfoundry-gcode = { git = "https://github.com/CuriousTimo/laserfoundry", rev = "81854b56e3b837b2adb749796f831925b79c51ca" }
+laserfoundry-doc = { git = "https://github.com/CuriousTimo/laserfoundry", rev = "81854b56e3b837b2adb749796f831925b79c51ca" }
+laserfoundry-geom = { git = "https://github.com/CuriousTimo/laserfoundry", rev = "81854b56e3b837b2adb749796f831925b79c51ca" }
