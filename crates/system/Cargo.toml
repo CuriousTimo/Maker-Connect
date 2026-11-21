@@ -1,0 +1,9 @@
+[package]
+name = "maker-connect-system"
+description = "What the computer a hub or an agent runs on is, and what it does now (for the About pages)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sysinfo = { version = "0.40", default-features = false, features = ["system", "component"] }

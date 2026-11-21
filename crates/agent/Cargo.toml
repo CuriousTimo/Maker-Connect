@@ -9,6 +9,7 @@ license.workspace = true
 maker-connect-sdk = { path = "../connect-sdk" }
 maker-connect-engine = { path = "../engine" }
 maker-connect-protocol = { path = "../protocol" }
+maker-connect-system = { path = "../system" }
 serde_json = { version = "1", features = ["preserve_order"] }
 ureq = "2"
 sha2 = "0.10"

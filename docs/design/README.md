@@ -44,6 +44,7 @@ owner's decisions in [decisions/](decisions/).
 | `crates/engine` | The engine and the ports, each to the letter of one reference | [device-contract.md](device-contract.md) |
 | `crates/protocol` | The agent wire types (link v2) | [wire.md](wire.md) |
 | `crates/update` | Signed self-update with trial and the way back | [storage-ops.md](storage-ops.md) |
+| `crates/system` | The computer a hub or an agent runs on, and its load, for both About pages | [ui.md](ui.md) |
 | `docs/registries/` | Generated from `crates/device/src/registry.rs` | [device-contract.md](device-contract.md), [authz.md](authz.md) |
 | `docs/api/openapi.json` | Generated from the Rust code (utoipa), checked in | [api.md](api.md) |
 | a `CHANGES.md` in `docs/api/` (made with the first breaking change) | One line per breaking API change | [api.md](api.md) |

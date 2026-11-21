@@ -14,8 +14,6 @@
 //! device's module on or off, its registration code and its link's state.
 
 #[cfg(unix)]
-mod about;
-
 use maker_connect_engine::Order;
 use maker_connect_engine::{
     Engine, MachineId, Port, ports::dymo_cups::LabelWriter450, ports::labelle::DymoPnp,
@@ -91,7 +89,12 @@ impl Kind {
 }
 
 const SDK_VERSION: &str = "0.9.0dev0";
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The build this agent is: a release's tag (`scripts/build-release.sh` sets
+/// `MAKER_CONNECT_RELEASE`), or the crate's version. The page, `--version` and the hub see it.
+const VERSION: &str = match option_env!("MAKER_CONNECT_RELEASE") {
+    Some(tag) => tag,
+    None => env!("CARGO_PKG_VERSION"),
+};
 
 /// The device's settings file, as PrusaLink's `prusa_printer_settings.ini` (`wire.md`, "What the
 /// agent keeps"): `[service::connect] hostname, tls, port, token`, `[printer] type, serial`, and
@@ -1248,22 +1251,42 @@ fn page(devices: &[Arc<Agent>]) -> String {
     layout("Devices", refresh.iter().any(|r| *r), &main)
 }
 
-/// The About tab: this agent and the computer it runs on, read from Linux's `/proc` and `/sys`
-/// (ours, UI only); what cannot be read is left out.
+/// The About tab: this agent and the computer it runs on, as the hub's About page shows its own
+/// (crate `maker-connect-system`; ours, UI only). What a system does not tell is left out.
 fn about_page() -> String {
-    let rows = |pairs: Vec<(&str, String)>| -> String {
-        pairs
-            .into_iter()
-            .map(|(k, v)| format!("<dt>{k}</dt><dd>{}</dd>", esc(&v)))
-            .collect()
+    let (computer, load, me) = (
+        maker_connect_system::computer(),
+        maker_connect_system::load(),
+        maker_connect_system::process(),
+    );
+    let row =
+        |label: &str, value: String| format!("<tr><th>{label}</th><td>{}</td></tr>", esc(&value));
+    let mut rows = row("Release", VERSION.to_owned());
+    rows += &maker_connect_system::computer_rows(&computer)
+        .into_iter()
+        .map(|(label, value)| row(label, value))
+        .collect::<String>();
+    if let Some(up) = load.up {
+        rows += &row("Computer up", maker_connect_system::duration(up));
+    }
+    if let Some(running) = me.running {
+        rows += &row("Agent up", maker_connect_system::duration(running));
+    }
+    if let Some(memory) = me.memory {
+        rows += &row("Agent memory", maker_connect_system::bytes(memory));
+    }
+    let load_rows: String = maker_connect_system::load_rows(&load)
+        .into_iter()
+        .map(|(label, value)| row(label, value))
+        .collect();
+    let load_section = if load_rows.is_empty() {
+        String::new()
+    } else {
+        format!("<section><h3>Load</h3><table>{load_rows}</table></section>")
     };
     let main = format!(
-        r#"<section class=card><h2>Agent</h2><dl class=kv>{agent}</dl></section>
-<section class=card><h2>System</h2><dl class=kv>{system}</dl></section>
-<section class=card><h2>Load</h2><dl class=kv>{load}</dl></section>"#,
-        agent = rows(about::agent()),
-        system = rows(about::system()),
-        load = rows(about::load()),
+        r#"<div class=about><section><h3>This agent</h3><table>{rows}</table></section>
+{load_section}</div>"#
     );
     layout("About", false, &main)
 }

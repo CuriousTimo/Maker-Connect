@@ -23,117 +23,7 @@ pub fn routes() -> Router<Store> {
     Router::new().route("/about", get(page))
 }
 
-/// What a command prints, trimmed; nothing when it does not run.
-fn output(program: &str, args: &[&str]) -> Option<String> {
-    let out = std::process::Command::new(program)
-        .args(args)
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&out.stdout).trim().to_owned();
-    (out.status.success() && !text.is_empty()).then_some(text)
-}
-
-/// A value from a `key: value` (or `key=value`) file such as /proc/cpuinfo or /etc/os-release.
-fn field(text: &str, key: &str) -> Option<String> {
-    text.lines()
-        .find_map(|line| {
-            let (k, v) = line.split_once([':', '='])?;
-            (k.trim() == key).then(|| v.trim().trim_matches('"').to_owned())
-        })
-        .filter(|v| !v.is_empty())
-}
-
-fn read(path: &str) -> Option<String> {
-    std::fs::read_to_string(path).ok()
-}
-
-/// What the server runs on, as far as this system says.
-#[derive(Debug, Default)]
-struct System {
-    /// The distribution or system: `Armbian 23.8.1 Bullseye`, `macOS 15.1`.
-    system: Option<String>,
-    kernel: Option<String>,
-    /// The board or computer: `Xunlong Orange Pi PC`, `MacBookPro18,3`.
-    board: Option<String>,
-    cpu: Option<String>,
-    cores: Option<usize>,
-    /// Bytes.
-    memory: Option<u64>,
-    memory_free: Option<u64>,
-    /// Seconds since the computer started.
-    up: Option<u64>,
-}
-
-fn system() -> System {
-    let mut s = System {
-        cores: std::thread::available_parallelism().ok().map(|n| n.get()),
-        ..System::default()
-    };
-    match std::env::consts::OS {
-        "linux" => {
-            s.system = read("/etc/os-release").and_then(|t| field(&t, "PRETTY_NAME"));
-            s.kernel = read("/proc/sys/kernel/osrelease").map(|k| k.trim().to_owned());
-            s.board = read("/proc/device-tree/model")
-                .map(|m| m.trim_end_matches('\0').trim().to_owned())
-                .filter(|m| !m.is_empty());
-            let cpuinfo = read("/proc/cpuinfo").unwrap_or_default();
-            s.cpu = field(&cpuinfo, "model name").or_else(|| field(&cpuinfo, "Hardware"));
-            let meminfo = read("/proc/meminfo").unwrap_or_default();
-            let kib = |key| {
-                field(&meminfo, key)
-                    .and_then(|v| v.split_whitespace().next()?.parse::<u64>().ok())
-                    .map(|k| k * 1024)
-            };
-            s.memory = kib("MemTotal");
-            s.memory_free = kib("MemAvailable");
-            s.up = read("/proc/uptime")
-                .and_then(|u| u.split_whitespace().next()?.parse::<f64>().ok())
-                .map(|u| u as u64);
-        }
-        "macos" => {
-            s.system = output("sw_vers", &["-productVersion"]).map(|v| format!("macOS {v}"));
-            s.kernel = output("uname", &["-r"]).map(|k| format!("Darwin {k}"));
-            s.board = output("sysctl", &["-n", "hw.model"]);
-            s.cpu = output("sysctl", &["-n", "machdep.cpu.brand_string"]);
-            s.memory = output("sysctl", &["-n", "hw.memsize"]).and_then(|m| m.parse().ok());
-            s.up = output("sysctl", &["-n", "kern.boottime"])
-                .and_then(|b| {
-                    b.split("sec = ")
-                        .nth(1)?
-                        .split(',')
-                        .next()?
-                        .trim()
-                        .parse::<i64>()
-                        .ok()
-                })
-                .map(|boot| (crate::store::now() - boot).max(0) as u64);
-        }
-        "windows" => {
-            s.system = Some("Windows".to_owned());
-            s.cpu = std::env::var("PROCESSOR_IDENTIFIER").ok();
-        }
-        _ => {}
-    }
-    s
-}
-
-fn bytes(n: u64) -> String {
-    match n {
-        n if n >= 1 << 30 => format!("{:.1} GB", n as f64 / (1u64 << 30) as f64),
-        n if n >= 1 << 20 => format!("{:.0} MB", n as f64 / (1u64 << 20) as f64),
-        n => format!("{:.0} kB", n as f64 / 1024.0),
-    }
-}
-
-/// `3 d 4 h`, `5 h 12 min`, `40 min`.
-fn duration(seconds: u64) -> String {
-    let (d, h, m) = (seconds / 86_400, seconds / 3600 % 24, seconds / 60 % 60);
-    match (d, h) {
-        (0, 0) => format!("{m} min"),
-        (0, _) => format!("{h} h {m} min"),
-        _ => format!("{d} d {h} h"),
-    }
-}
+use maker_connect_system::{bytes, duration};
 
 /// A row of a table, when there is something to say.
 fn row(label: &str, value: Option<String>) -> String {
@@ -153,9 +43,14 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
         .await
         .ok()
         .map(|n| bytes(n as u64));
-    let s = tokio::task::spawn_blocking(system)
-        .await
-        .unwrap_or_default();
+    let (computer, load) = tokio::task::spawn_blocking(|| {
+        (
+            maker_connect_system::computer(),
+            maker_connect_system::load(),
+        )
+    })
+    .await
+    .unwrap_or_default();
     let commit = env!("MC_COMMIT");
     let commit_link = if commit.ends_with("-dirty") || commit == "unknown" {
         escape(commit)
@@ -171,31 +66,29 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
     } else {
         format!("{} (built from the source)", escape(release))
     };
-    let memory = s.memory.map(|total| match s.memory_free {
-        Some(free) => format!("{} ({} free)", bytes(total), bytes(free)),
-        None => bytes(total),
-    });
     let started = STARTED.get().copied().unwrap_or_else(crate::store::now);
     let server_up = (crate::store::now() - started).max(0) as u64;
-    let rows = [
-        row("System", s.system),
-        row("Kernel", s.kernel),
-        row("Computer", s.board),
-        row(
-            "Processor",
-            match (s.cpu, s.cores) {
-                (Some(cpu), Some(n)) => Some(format!("{cpu}, {n} cores")),
-                (None, Some(n)) => Some(format!("{n} cores")),
-                (cpu, None) => cpu,
-            },
-        ),
-        row("Architecture", Some(std::env::consts::ARCH.to_owned())),
-        row("Memory", memory),
-        row("Computer up", s.up.map(duration)),
+    let mut rows: String = maker_connect_system::computer_rows(&computer)
+        .into_iter()
+        .map(|(label, value)| row(label, Some(value)))
+        .collect();
+    rows += &[
+        row("Computer up", load.up.map(duration)),
         row("Server up", Some(duration(server_up))),
         row("Database", database_size),
     ]
     .concat();
+    let load_rows: String = maker_connect_system::load_rows(&load)
+        .into_iter()
+        .map(|(label, value)| row(label, Some(value)))
+        .collect();
+    let load_section = if load_rows.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<section>\n    <h3>Load</h3>\n    <table>\n      {load_rows}\n    </table>\n  </section>"
+        )
+    };
     Html(format!(
         r##"<!doctype html>
 <html lang="en">
@@ -206,19 +99,6 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 <link rel="icon" href="logo.svg" type="image/svg+xml">
 <style>
 {STYLE}
-  .about {{ max-width: 760px; }}
-  .about .lead {{ color: var(--muted); }}
-  .about section {{ background: var(--surface); border: 1px solid var(--line); border-radius: 0; padding: 18px 22px; margin: 16px 0; }}
-  .about h3 {{ margin: 0 0 10px; font-size: 16px; }}
-  .about table {{ border-collapse: collapse; width: 100%; }}
-  .about th {{ text-align: left; font-weight: 500; color: var(--muted); padding: 5px 16px 5px 0; width: 34%; vertical-align: top; }}
-  .about td {{ padding: 5px 0; overflow-wrap: anywhere; }}
-  .about .links {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }}
-  .about .links a {{ display: block; padding: 10px 14px; border: 1px solid var(--line); border-radius: 0; text-decoration: none; color: var(--ink); }}
-  .about .links a small {{ display: block; color: var(--muted); }}
-  .about p {{ margin: 0 0 8px; }}
-  .about .notes {{ max-height: 220px; overflow: auto; background: var(--bg); border-radius: 0; padding: 10px 12px; font-size: 13px; white-space: pre-wrap; }}
-  .about .bad {{ color: var(--bad, #c0392b); }}
 </style>
 </head>
 <body>
@@ -234,6 +114,7 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
       {rows}
     </table>
   </section>
+  {load_section}
   {updates}
   <section>
     <h3>Links</h3>
@@ -328,26 +209,6 @@ const UPDATES: &str = r#"<section data-updates>
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn fields_and_sizes_read_plainly() {
-        let os = "NAME=\"Armbian\"\nPRETTY_NAME=\"Armbian 23.8.1 bullseye\"\n";
-        assert_eq!(
-            field(os, "PRETTY_NAME").as_deref(),
-            Some("Armbian 23.8.1 bullseye")
-        );
-        let cpu = "processor\t: 0\nmodel name\t: ARMv7 Processor rev 5 (v7l)\nHardware\t: Allwinner sun8i Family\n";
-        assert_eq!(
-            field(cpu, "model name").as_deref(),
-            Some("ARMv7 Processor rev 5 (v7l)")
-        );
-        assert_eq!(bytes(1 << 30), "1.0 GB");
-        assert_eq!(duration(3 * 86_400 + 4 * 3600), "3 d 4 h");
-        assert_eq!(duration(40 * 60), "40 min");
-        assert!(system().cores.is_some());
-    }
-
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
         not(feature = "pg-tests"),
@@ -373,5 +234,6 @@ mod tests {
             page.contains("AGPL-3.0") && page.contains("/wiki") && page.contains("losse-eindj.es")
         );
         assert!(page.contains(env!("MC_COMMIT")));
+        assert!(page.contains("<h3>Load</h3>") && page.contains("Memory in use"));
     }
 }

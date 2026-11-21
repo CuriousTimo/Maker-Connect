@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/protocol", "crates/engine", "crates/agent", "crates/label", "crates/import",
     "crates/grbl", "crates/hub", "crates/update", "crates/device", "crates/connect-sdk",
-    "crates/gcode-metadata", "crates/inotify-simple"]
+    "crates/gcode-metadata", "crates/inotify-simple", "crates/system"]
 
 [workspace.package]
 version = "0.2.0"
