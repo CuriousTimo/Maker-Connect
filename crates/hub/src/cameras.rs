@@ -38,6 +38,7 @@
 
 pub mod iso;
 pub mod mp4;
+pub mod onvif;
 pub mod page;
 pub mod store;
 
@@ -191,8 +192,50 @@ async fn receive_frames(
     Ok(())
 }
 
+/// An `onvif://user:pass@host:port[?subtype=N]` address (go2rtc's scheme, [`onvif`]) is turned into
+/// the camera's RTSP address by `GetCapabilities`, `GetProfiles` and `GetStreamUri`; any other
+/// address is used as it is. The user and password of the camera's form go into the address when it
+/// has none (go2rtc takes them from the address only); in the answer they are split off again for
+/// the RTSP client, which takes them as credentials (retina refuses them in the URL).
+async fn resolved(source: &Source) -> Result<Source, String> {
+    if source.url.scheme() != "onvif" {
+        return Ok(Source {
+            url: source.url.clone(),
+            username: source.username.clone(),
+            password: source.password.clone(),
+        });
+    }
+    let mut address = source.url.clone();
+    if address.username().is_empty()
+        && address.password().is_none()
+        && let Some(username) = source.username.as_deref().filter(|u| !u.is_empty())
+    {
+        let _ = address.set_username(username);
+        let _ = address.set_password(source.password.as_deref().filter(|p| !p.is_empty()));
+    }
+    let rtsp = tokio::task::spawn_blocking(move || onvif::resolve(address.as_str()))
+        .await
+        .map_err(|e| e.to_string())??;
+    let mut url: url::Url = rtsp.parse().map_err(|e: url::ParseError| e.to_string())?;
+    let decode = |s: &str| {
+        percent_encoding::percent_decode_str(s)
+            .decode_utf8_lossy()
+            .into_owned()
+    };
+    let username = (!url.username().is_empty()).then(|| decode(url.username()));
+    let password = url.password().map(decode);
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+    Ok(Source {
+        url,
+        username: username.or_else(|| source.username.clone()),
+        password: password.or_else(|| source.password.clone()),
+    })
+}
+
 /// The example's `run`, up to serving: describe, pick the video stream, set up, play.
 async fn open(source: &Source) -> Result<retina::client::Demuxed, Box<dyn std::error::Error>> {
+    let source = &resolved(source).await?;
     let creds = match (source.username.clone(), source.password.clone()) {
         (Some(username), password) => Some(retina::client::Credentials {
             username,
@@ -569,6 +612,85 @@ mod tests {
         assert_eq!(
             shown_error(&"401 for admin:s3cret", &source),
             "401 for admin:…"
+        );
+    }
+
+    /// `resolved`: another address unchanged; an onvif address resolved through a stand-in camera
+    /// (the ONVIF fixtures' answers), the credentials taken from the address or else the form, and
+    /// split off the RTSP address again.
+    #[tokio::test]
+    async fn resolved_addresses() {
+        let source = |url: &str, user: Option<&str>, pass: Option<&str>| Source {
+            url: url.parse().unwrap(),
+            username: user.map(str::to_owned),
+            password: pass.map(str::to_owned),
+        };
+        let rtsp = "rtsp://192.168.1.123:554/cam?channel=1&subtype=1";
+
+        let r = resolved(&source("rtsp://a:b@10.0.0.9/x", Some("u"), Some("p")))
+            .await
+            .unwrap();
+        assert_eq!(
+            (r.url.as_str(), r.username.as_deref(), r.password.as_deref()),
+            ("rtsp://a:b@10.0.0.9/x", Some("u"), Some("p"))
+        );
+
+        // User in the address: sent to the camera, and the RTSP credentials (go2rtc copies the
+        // address's user into an answer without one, `client.go:85-87`).
+        let (host, rx) = onvif::tests::camera();
+        let r = resolved(&source(
+            &format!("onvif://admin:s3cret@{host}"),
+            Some("form"),
+            Some("f"),
+        ))
+        .await
+        .unwrap();
+        assert_eq!(
+            (r.url.as_str(), r.username.as_deref(), r.password.as_deref()),
+            (rtsp, Some("admin"), Some("s3cret"))
+        );
+        assert!(
+            rx.recv()
+                .unwrap()
+                .contains("<wsse:Username>admin</wsse:Username>")
+        );
+
+        // No user in the address: the form's, a character that needs encoding included.
+        let (host, rx) = onvif::tests::camera();
+        let r = resolved(&source(
+            &format!("onvif://{host}"),
+            Some("form"),
+            Some("p@ss:w/rd"),
+        ))
+        .await
+        .unwrap();
+        assert_eq!(
+            (r.url.as_str(), r.username.as_deref(), r.password.as_deref()),
+            (rtsp, Some("form"), Some("p@ss:w/rd"))
+        );
+        assert!(
+            rx.recv()
+                .unwrap()
+                .contains("<wsse:Username>form</wsse:Username>")
+        );
+
+        // No user anywhere: no UsernameToken, no credentials.
+        let (host, rx) = onvif::tests::camera();
+        let r = resolved(&source(&format!("onvif://{host}"), None, None))
+            .await
+            .unwrap();
+        assert_eq!((r.url.as_str(), r.username, r.password), (rtsp, None, None));
+        assert!(!rx.recv().unwrap().contains("UsernameToken"));
+
+        // No camera: an error, not a panic.
+        let dead = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        assert!(
+            resolved(&source(&format!("onvif://{dead}"), None, None))
+                .await
+                .is_err()
         );
     }
 }

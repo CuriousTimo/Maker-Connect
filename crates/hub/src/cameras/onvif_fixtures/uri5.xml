@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope ...>
+   <SOAP-ENV:Header></SOAP-ENV:Header>
+   <SOAP-ENV:Body>
+	   <MC1:GetStreamUriResponse>
+		   <MC1:MediaUri>
+			   <MC2:Uri>
+					rtsp://192.168.5.53:8090/profile1=r
+				</MC2:Uri>
+		   </MC1:MediaUri>
+	   </MC1:GetStreamUriResponse>
+   </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
