@@ -1,0 +1,12 @@
+[package]
+name = "door-controller"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+description = "Mockup of the Maker Connect door-controller firmware (extension part 7), host-built, hardware behind traits"
+
+# Not a member of the root workspace (see `exclude` there): the ESP32 binding comes later.
+[workspace]
+
+[dependencies]
+serde_json = "1"

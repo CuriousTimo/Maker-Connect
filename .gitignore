@@ -21,3 +21,4 @@ __pycache__/
 
 # HS13: the LaserFoundry web fork, built by scripts/laserfoundry-web.sh (gzip, embedded with the `laser-design` feature)
 /crates/hub/laser-design/
+/firmware/*/target
