@@ -1,4 +1,4 @@
-reference/
+/reference
 /target
 .DS_Store
 # Local data of the cloud and the agent
