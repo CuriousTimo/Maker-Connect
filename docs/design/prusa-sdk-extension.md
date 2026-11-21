@@ -20,11 +20,12 @@ What it lacks is small:
 - a few commands;
 - live video.
 
-This page proposes exactly those additions, for four kinds of device:
+This page proposes exactly those additions, for five kinds of device:
 - a tape label printer (DYMO LabelManager PnP);
 - label printers on DYMO's CUPS driver (LabelWriter 3xx and 4xx);
 - a laser cutter running GRBL;
-- a USB camera with live view.
+- a USB camera with live view;
+- a door controller with electric locks (part 7).
 
 And one for the program that hosts such devices (part 6): which devices belong to one agent, and
 whether that agent and the server know the same additions.
@@ -46,7 +47,7 @@ Each part is written in the design step of its deliverable. Every such step carr
 | to come | a Marlin printer: its type and what it sends | to write | #83 |
 | to come | a scale: its type and telemetry | to write | #130 |
 | to come | the bed mesh: telemetry and a command to measure | to write | #107 |
-| to come | a door controller: its type, states and `OPEN_LOCK` | to write | #121 |
+| 7 | a door controller: its type, `locks` and `OPEN_LOCK` | written | #121 |
 | maybe | the print's place in its file (the G-code viewer) | to look at | #112 |
 | maybe | a layer change for timelapses (likely there already) | to look at | #116 |
 
@@ -387,6 +388,7 @@ was, so a side may know both.
 | `camera.stream` | Part 5: `/c/stream` and its two commands |
 | `agent.id` | Part 6a: `agent_id` |
 | `server.info` | Part 6a: `features` and `SET_SERVER_INFO` |
+| `door.lock` | Part 7: `lock_count`, `locks` and `OPEN_LOCK` |
 
 **Whether they fit** (the same rule on both sides; shown, nothing refused: owner 2026-11-21):
 - a name in the device's `features` that is not in the server's: **the agent is newer than the
@@ -410,3 +412,86 @@ is that addition's own compatibility rule above (an unknown kwarg ignored, an un
   (prusa-connect `internal/connector/xbuddy/files.go:388-393`, unmarshalled at `:406`; Go's
   `json.Unmarshal` drops unknown keys).
 - An SDK without the command answers it `REJECTED` "Unknown command" (`command.py:181-183`).
+
+## Part 7: a door controller (`maker-connect.door-controller`)
+
+A board beside a cabinet with a few small electric locks, each opened from the server for whoever may
+open it. The first is a Kincony KC868-A6 (ESP32, relays and opto inputs) with four SARY XG-07C-12V
+cabinet locks. The firmware is ours, in Rust (owner, 2026-11-21).
+
+### The link: Buddy's Connect client, ported
+
+- **The board talks to the server itself**, without an agent, as a Buddy printer does: registration by
+  code over HTTP, then one WebSocket. Its client is Buddy 6.4.0's own, `src/connect/`, ported to Rust
+  function by function: registration (`registrator.cpp`), the WebSocket and its commands (`connect.cpp`,
+  `command.cpp`, `planner.cpp`), what it sends (`render.cpp`), TLS (`tls/`). On the wire it is a Buddy
+  6.4.0 printer in every respect, except the additions below.
+- **What Buddy has and the board leaves out:** files and storages, transfers, print jobs, G-code, the
+  printer's own states beyond those named here. `INFO` carries no `storages`.
+
+### The type and `INFO`
+
+- **Type:** `maker-connect.door-controller` (part 1's form). The board is not in the type: another
+  board running the same firmware is the same kind of device.
+- **New `INFO` kwargs:**
+
+  | Kwarg | Type | Meaning |
+  |---|---|---|
+  | `lock_count` | integer | how many locks the board drives, numbered from 0 |
+  | `features` | array of strings | part 6a; for this part `door.lock` |
+
+  `agent_id` (part 6a) is not sent: the board is not hosted by an agent.
+
+### States and telemetry
+
+- **The device's state:** `IDLE`; `BUSY` while a lock's pulse runs; `ERROR` with a reason when the
+  firmware finds a fault it can name (a relay or input that does not answer). Nothing else of the
+  printer states is used.
+- **New telemetry key `locks`:** an array, one object per lock, in lock order:
+
+  | Key | Type | Meaning |
+  |---|---|---|
+  | `lock` | integer | its number, from 0 |
+  | `door` | `"open"`, `"closed"` or `null` | the door's switch, read on its input; `null` when the lock has no switch wired |
+  | `resting_s` | integer | seconds until it may be opened again (0: it may) |
+
+- **When:** at the protocol's pace, and at once when a door's switch changes. The server keeps the
+  changes: the log of when each door opened and closed. A door change is not an event of its own: the
+  telemetry says it, as a printer's telemetry says a temperature.
+
+### Opening a lock
+
+| Command | Does | Kwargs |
+|---|---|---|
+| `OPEN_LOCK` | one pulse on that lock's relay; `FINISHED` when the pulse has ended | `lock`: its number; `expires_at`: Unix seconds, after which the command must not run |
+
+- **The pulse** is the lock's own limit (its datasheet): at most 0.5 s, then at least 10 s of rest, about
+  2 A. The firmware keeps both; nothing the server sends lengthens the pulse or shortens the rest.
+- **Refused** (`REJECTED` with the reason): `"No such lock"`; `"Lock resting"` within the rest;
+  `"Expired"` when the board's clock is past `expires_at`; `"No time"` while the board's clock is not set
+  (SNTP), since then `expires_at` cannot be checked.
+- **Why `expires_at`:** Connect keeps a device's queue while its socket is away and drains it on the next
+  attach (prusa-connect `internal/connector/xbuddy/link.go:327-353`, `xbuddy.go:793-804`). A lock must
+  never open minutes later, when nobody stands there. The server sets `expires_at` a few seconds after
+  the person pressed Open; a command that arrives late is refused, and the person presses again.
+- **The server, too** (ours): sends `OPEN_LOCK` only to a device whose socket is up, and drops it from
+  the queue when the socket goes.
+
+### Without the server: fail-secure
+
+- **No server, no opening** (owner, 2026-11-21): the board has no local way to open a lock, no button,
+  no page that opens. Its own page shows its state only.
+- **No power:** the XG-07C opens on a pulse and stays locked without power, so a power cut leaves every
+  lock shut.
+- **A door that is open** stays as it is: the board cannot close a door, only a lock that is pushed shut.
+
+### Updating the firmware
+
+By part 6b (`UPGRADE` with a release), the same way as the agent: a signed release, checked by the
+board before it starts it (Secure Boot v2 on the ESP32).
+
+### Compatibility
+
+- Connect would read the board as an unknown printer type (part 1) and ignore `locks` and `lock_count`.
+- A server without this part never sends `OPEN_LOCK`; the board then only reports its doors.
+- A board that does not know `OPEN_LOCK` answers `REJECTED` "Unknown command", as Buddy does.
