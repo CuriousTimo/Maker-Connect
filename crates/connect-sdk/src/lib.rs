@@ -5,7 +5,7 @@
 //! on GitHub ("Freeware" in its `setup.py`); the owner decided to port it (2026-11-12).
 //!
 //! Ported: `const`, `clock`, `util`, `errors`, `conditions`, `models`, `command`, `ws`,
-//! `fileinfo` and `download` (with [`pyos`], the CPython os calls they stand on). Not ported:
+//! `fileinfo` and `download` (with `pyos`, the CPython os calls they stand on). Not ported:
 //! the Printer core (`__init__.py`), `files` and the camera modules.
 
 pub mod clock;
