@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [features]
 # Network cameras over RTSP, the module `cameras` (docs/plans/cameras.md, "Network cameras").
-cameras = ["dep:retina", "dep:bytes", "dep:regex", "dep:sha1", "dep:percent-encoding"]
+cameras = ["dep:retina", "dep:bytes", "dep:sha1", "dep:percent-encoding"]
 
 # HS13: the LaserFoundry web fork, packed gzip into the binary. Needs `crates/hub/laser-design/`, made by
 # `scripts/laserfoundry-web.sh`; without the feature the hub builds and serves "not built in" there.
@@ -66,8 +66,9 @@ tower = { version = "0.5.3", default-features = false }
 # Network cameras (docs/plans/cameras.md): retina, the reference, at the version of reference/retina (2b6b7fe).
 retina = { version = "=0.4.22", optional = true }
 bytes = { version = "1", optional = true }
-# ONVIF (cameras/onvif.rs): go2rtc's client uses regexp, crypto/sha1 and net/url.
-regex = { version = "1", optional = true }
+# ONVIF (cameras/onvif.rs): go2rtc's client uses regexp, crypto/sha1 and net/url; and
+# OctoPrint-BedLevelVisualizer's regexes (devices/bed_level_visualizer.rs).
+regex = "1"
 sha1 = { version = "0.10", optional = true }
 percent-encoding = { version = "2", optional = true }
 url = "2"

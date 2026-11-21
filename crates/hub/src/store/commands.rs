@@ -306,6 +306,15 @@ impl Legacy {
         }
     }
 
+    /// What a machine's command was asked as ("Probe the bed"), while it is listed.
+    pub(crate) fn command_label(&self, machine: &str, id: u32) -> Option<&str> {
+        self.commands
+            .get(machine)?
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.label.as_str())
+    }
+
     /// HS7b: the file a laser last framed completely, since its last Set origin (none after one).
     pub fn laser_framed_file(&self, machine: &str) -> Option<&str> {
         self.laser_framed.get(machine).map(String::as_str)

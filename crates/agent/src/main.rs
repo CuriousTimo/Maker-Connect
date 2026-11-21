@@ -343,8 +343,8 @@ struct Agent {
     /// Held while the socket is checked and dialled: the queue's sender and the link loop's
     /// telemetry share one socket, as the SDK's one loop does.
     dialling: Mutex<()>,
-    /// A Marlin printer's M115 `MACHINE_TYPE`, in `INFO` (part 9 of the extension).
-    machine_type: Mutex<Option<String>>,
+    /// What a Marlin printer's M115 said, in `INFO` (part 9 of the extension).
+    firmware: Mutex<Option<marlin::Firmware>>,
     #[cfg(unix)]
     transfer: Arc<Transfer>,
     #[cfg(unix)]
@@ -395,7 +395,7 @@ impl Agent {
             event_cb: Mutex::new(None),
             queue: Mutex::new(Default::default()),
             dialling: Mutex::new(()),
-            machine_type: Mutex::new(None),
+            firmware: Mutex::new(None),
             #[cfg(unix)]
             transfer: Arc::new(Transfer::new()),
             #[cfg(unix)]
@@ -797,9 +797,12 @@ fn send_info(agent: &Agent) -> Finish {
     let s = agent.settings();
     let mut finish = Finish::new(Source::Connect);
     finish.event = Some(consts::Event::Info);
+    let known = agent.firmware.lock().unwrap().clone().unwrap_or_default();
     let kwargs: Kwargs = json!({
         "type": agent.kind.printer_type(),
-        "firmware": VERSION,
+        // The SDK's "Printer firmware version" (`__init__.py:88`): a Marlin's M115 name (part 9);
+        // a device the agent cannot ask, the agent's.
+        "firmware": known.name.as_deref().unwrap_or(VERSION),
         "sdk": SDK_VERSION,
         "sn": s.serial,
         "fingerprint": s.fingerprint(),
@@ -813,11 +816,14 @@ fn send_info(agent: &Agent) -> Finish {
     .unwrap()
     .clone();
     finish.kwargs = kwargs;
-    // Part 9: the model, once the printer answered M115.
-    if let Some(machine_type) = agent.machine_type.lock().unwrap().clone() {
+    // Part 9: what the printer answered M115, once it did.
+    if let Some(info) = known.info {
+        finish.kwargs.insert("firmware_info".into(), info.into());
+    }
+    if let Some(caps) = known.capabilities {
         finish
             .kwargs
-            .insert("machine_type".into(), machine_type.into());
+            .insert("firmware_capabilities".into(), caps.into());
     }
     finish
 }
@@ -1423,6 +1429,11 @@ fn web(devices: &[Arc<Agent>], listen: &str) {
             let _ = request.respond(response);
             continue;
         }
+        if path == "/events" {
+            let devices = devices.to_vec();
+            std::thread::spawn(move || events(&devices, request.into_writer()));
+            continue;
+        }
         let html = if path == "/about" {
             about_page(devices)
         } else {
@@ -1436,17 +1447,59 @@ fn web(devices: &[Arc<Agent>], listen: &str) {
     }
 }
 
+/// `/events` (server-sent events, ours): the page's live part each second it changes, a comment
+/// every 15 s to keep the connection; ends when the page goes.
+fn events(devices: &[Arc<Agent>], mut out: Box<dyn std::io::Write + Send>) {
+    let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
+    if out
+        .write_all(head.as_bytes())
+        .and_then(|_| out.flush())
+        .is_err()
+    {
+        return;
+    }
+    let (mut last, mut quiet) = (String::new(), 0);
+    loop {
+        let now = live(devices);
+        let sent = if now != last {
+            quiet = 0;
+            write!(out, "data: {now}\n\n")
+        } else if quiet >= 15 {
+            quiet = 0;
+            out.write_all(b": keep-alive\n\n")
+        } else {
+            quiet += 1;
+            Ok(())
+        };
+        if sent.and_then(|_| out.flush()).is_err() {
+            return;
+        }
+        last = now;
+        std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
 fn esc(t: &str) -> String {
     t.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('"', "&quot;")
 }
 
-/// One device's card (mockup `docs/design/ui/mockups/agent.html`); whether the page should look
-/// again soon (a registration in progress).
-fn device_card(agent: &Agent) -> (String, bool) {
+/// What a device's card shows that changes by itself (ours, the agent's page only): the page
+/// renders it, and `/events` sends it again whenever it changes.
+struct CardLive {
+    state: &'static str,
+    class: &'static str,
+    hub: String,
+    status: String,
+    registered: String,
+    /// what the card is built of (on, registered, its code, a Marlin's connection): when it
+    /// changes, the page is loaded again rather than patched
+    shape: String,
+}
+
+fn card_live(agent: &Agent) -> CardLive {
     let s = agent.settings();
-    let status = agent.status.lock().unwrap().clone();
     let code = agent.code.lock().unwrap().clone();
     let registered = if !s.token.is_empty() {
         "yes".to_owned()
@@ -1455,10 +1508,9 @@ fn device_card(agent: &Agent) -> (String, bool) {
     } else {
         "no".to_owned()
     };
-    let on = s.on;
-    let linked = !s.token.is_empty() && on;
+    let linked = !s.token.is_empty() && s.on;
     let link = *agent.hub.lock().unwrap();
-    let (state, state_class) = if !on {
+    let (state, class) = if !s.on {
         ("Off", "idle")
     } else if !linked {
         ("Not registered", "warn")
@@ -1473,6 +1525,37 @@ fn device_card(agent: &Agent) -> (String, bool) {
         (None, Some(last)) => format!("not connected · last contact {} ago", ago(last)),
         (None, None) => "not connected".to_owned(),
     };
+    let open = agent.kind == Kind::Marlin && marlin_open(agent, &s);
+    CardLive {
+        state,
+        class,
+        hub,
+        status: agent.status.lock().unwrap().clone(),
+        registered,
+        shape: format!(
+            "{}:{}:{}:{}:{}",
+            agent.kind.folder(),
+            s.on,
+            s.token.is_empty(),
+            code.unwrap_or_default(),
+            open
+        ),
+    }
+}
+
+/// One device's card (mockup `docs/design/ui/mockups/agent.html`).
+fn device_card(agent: &Agent) -> String {
+    let s = agent.settings();
+    let code = agent.code.lock().unwrap().clone();
+    let on = s.on;
+    let live = card_live(agent);
+    let (state, state_class, hub, status, registered) = (
+        live.state,
+        live.class,
+        live.hub,
+        live.status,
+        live.registered,
+    );
     let code_block = match (s.token.is_empty(), code) {
         (true, Some(code)) => format!(
             "<p>Enter this code on the hub: Space, Add machine.</p><p class=code>{}</p>",
@@ -1491,10 +1574,10 @@ fn device_card(agent: &Agent) -> (String, bool) {
     } else {
         (String::new(), String::new())
     };
-    let card = format!(
-        r#"<div class="card{off}"><div class=head><h2>{title}</h2><span class="st {state_class}">{state}</span></div>
+    format!(
+        r#"<div class="card{off}"><div class=head><h2>{title}</h2><span class="st {state_class}" data-live="{device}.state">{state}</span></div>
 <p class=muted>{what}</p>{code_block}
-<dl class=kv><dt>Hub</dt><dd>{hub}</dd><dt>Printer</dt><dd>{status}</dd><dt>Registered</dt><dd>{registered}</dd></dl>
+<dl class=kv><dt>Hub</dt><dd data-live="{device}.hub">{hub}</dd><dt>Printer</dt><dd data-live="{device}.status">{status}</dd><dt>Registered</dt><dd data-live="{device}.registered">{registered}</dd></dl>
 {connection}<div class="row btns">{toggle_form}
 <form method=post action=/reset onsubmit="return confirm('Reset the registration of the {title}? It forgets its token: it is no longer known at the hub until it is added again with a new code.')"><input type=hidden name=device value="{device}"><span class=fw><button class="btn ghost">Reset registration…</button></span></form></div></div>"#,
         off = if on { "" } else { " is-off" },
@@ -1513,8 +1596,17 @@ fn device_card(agent: &Agent) -> (String, bool) {
         },
         status = esc(&status),
         registered = esc(&registered),
-    );
-    (card, on && !linked)
+    )
+}
+
+/// Whether a Marlin's port is open and the printer there (Disconnect, not the form).
+fn marlin_open(agent: &Agent, s: &Settings) -> bool {
+    s.on && agent
+        .dymo
+        .lock()
+        .unwrap()
+        .and_then(|id| agent.engine.lock().unwrap().report(id).ok())
+        .is_some_and(|r| marlin::present(&r))
 }
 
 /// A Marlin's connection, as OctoPrint's Connection panel has it (`sidebar/connection.jinja2`):
@@ -1524,15 +1616,8 @@ fn device_card(agent: &Agent) -> (String, bool) {
 /// them.
 fn connection_form(agent: &Agent, s: &Settings) -> (String, String) {
     use maker_connect_engine::ports::octoprint::comm::baudrate_list;
-    let open = s.on
-        && agent
-            .dymo
-            .lock()
-            .unwrap()
-            .and_then(|id| agent.engine.lock().unwrap().report(id).ok())
-            .is_some_and(|r| marlin::present(&r));
     let device = agent.kind.folder();
-    if open {
+    if marlin_open(agent, s) {
         return (
             String::new(),
             format!(
@@ -1605,10 +1690,90 @@ fn hub_link(devices: &[Arc<Agent>]) -> (usize, usize) {
     (connected, linked.len())
 }
 
+/// The agent head's pill: the link to the hub over all devices.
+fn agent_state(devices: &[Arc<Agent>]) -> (String, &'static str) {
+    match hub_link(devices) {
+        (_, 0) => ("No device linked".to_owned(), "idle"),
+        (c, n) if c == n => ("Connected to the hub".to_owned(), "wait"),
+        (0, _) => ("Not connected to the hub".to_owned(), "bad"),
+        (c, n) => (format!("{c} of {n} connected to the hub"), "warn"),
+    }
+}
+
+/// The Hub card's pill.
+fn hub_state(devices: &[Arc<Agent>]) -> (&'static str, &'static str) {
+    match hub_link(devices) {
+        (_, 0) => ("No device linked", "idle"),
+        (c, n) if c == n => ("Connected", "wait"),
+        (0, _) => ("Not connected", "bad"),
+        _ => ("Partly connected", "warn"),
+    }
+}
+
+/// The Hub card's Devices row.
+fn hub_devices(devices: &[Arc<Agent>]) -> String {
+    let (connected, linked) = hub_link(devices);
+    format!("{connected} of {linked} connected")
+}
+
+/// The banner above the agent's head: its kind (part of the page's shape) and its HTML.
+fn banner(devices: &[Arc<Agent>]) -> (&'static str, String) {
+    let (connected, linked) = hub_link(devices);
+    match devices[0].settings().server() {
+        None => ("address", r#"<div class="banner warn"><span><b>No hub address.</b> Set it under Hub, on Devices.</span></div>"#.to_owned()),
+        Some(server) if linked > 0 && connected == 0 => ("unreachable", format!(
+            r#"<div class="banner bad"><span><b>The hub cannot be reached</b> at {}. The devices keep their state; a label already sent finishes. The agent tries again by itself.</span></div>"#,
+            esc(&server)
+        )),
+        Some(_) => ("", String::new()),
+    }
+}
+
+/// What the page is built of (each card's shape, the banner): when `/events` sends another, the
+/// page is loaded again rather than patched.
+fn shape(devices: &[Arc<Agent>]) -> String {
+    let mut parts: Vec<String> = devices.iter().map(|d| card_live(d).shape).collect();
+    parts.push(banner(devices).0.to_owned());
+    parts.join("|")
+}
+
+/// What `/events` sends: the page's shape and the text (and a pill's class) of each
+/// `data-live` element.
+fn live(devices: &[Arc<Agent>]) -> String {
+    let mut live = serde_json::Map::new();
+    for d in devices {
+        let c = card_live(d);
+        let f = d.kind.folder();
+        live.insert(
+            format!("{f}.state"),
+            serde_json::json!({"text": c.state, "class": c.class}),
+        );
+        live.insert(format!("{f}.hub"), c.hub.into());
+        live.insert(format!("{f}.status"), c.status.into());
+        live.insert(format!("{f}.registered"), c.registered.into());
+    }
+    let (text, class) = agent_state(devices);
+    live.insert(
+        "agent.state".into(),
+        serde_json::json!({"text": text, "class": class}),
+    );
+    let (text, class) = hub_state(devices);
+    live.insert(
+        "hub.state".into(),
+        serde_json::json!({"text": text, "class": class}),
+    );
+    live.insert("hub.devices".into(), hub_devices(devices).into());
+    serde_json::json!({"shape": shape(devices), "live": live}).to_string()
+}
+
+/// The page's live part (ours): `/events` patches the `data-live` elements; another shape
+/// loads the page again (a choice being made in a form is kept while only text changes).
+const LIVE_JS: &str = r#"(()=>{const shape=document.body.dataset.shape;const es=new EventSource("/events");es.onmessage=m=>{const d=JSON.parse(m.data);if(d.shape!==shape){es.close();location.reload();return}for(const[k,v]of Object.entries(d.live)){const el=document.querySelector('[data-live="'+k+'"]');if(!el)continue;if(typeof v==="string"){el.textContent=v}else{el.textContent=v.text;el.className="st "+v.class}}}})();"#;
+
 /// The agent's page around `main` (mockup `docs/design/ui/mockups/agent.html`): the header, the
 /// agent's head with its link to the hub, a banner when the hub cannot be reached, the tabs
 /// (Devices, About); the hub's stylesheet and components only.
-fn layout(devices: &[Arc<Agent>], tab: &str, refresh: bool, main: &str) -> String {
+fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
     let tabs: String = [
         ("/", "Devices", Some(devices.len())),
         ("/about", "About", None),
@@ -1624,22 +1789,8 @@ fn layout(devices: &[Arc<Agent>], tab: &str, refresh: bool, main: &str) -> Strin
         format!(r#"<a href="{href}"{current}>{name}{count}</a>"#)
     })
     .collect();
-    let s = devices[0].settings();
-    let (connected, linked) = hub_link(devices);
-    let (state, class) = match (connected, linked) {
-        (_, 0) => ("No device linked".to_owned(), "idle"),
-        (c, n) if c == n => ("Connected to the hub".to_owned(), "wait"),
-        (0, _) => ("Not connected to the hub".to_owned(), "bad"),
-        (c, n) => (format!("{c} of {n} connected to the hub"), "warn"),
-    };
-    let banner = match s.server() {
-        None => r#"<div class="banner warn"><span><b>No hub address.</b> Set it under Hub, on Devices.</span></div>"#.to_owned(),
-        Some(server) if linked > 0 && connected == 0 => format!(
-            r#"<div class="banner bad"><span><b>The hub cannot be reached</b> at {}. The devices keep their state; a label already sent finishes. The agent tries again by itself.</span></div>"#,
-            esc(&server)
-        ),
-        Some(_) => String::new(),
-    };
+    let (state, class) = agent_state(devices);
+    let banner = banner(devices).1;
     let computer = maker_connect_system::computer();
     let host = computer.host.clone().unwrap_or_default();
     let mut what = vec![];
@@ -1659,22 +1810,18 @@ fn layout(devices: &[Arc<Agent>], tab: &str, refresh: bool, main: &str) -> Strin
     what.push(format!("release {}", esc(VERSION)));
     format!(
         r##"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-{refresh}{THEME_FIRST}<title>Maker Connect agent</title><link rel=icon href="data:image/svg+xml,{icon}"><style>{CSS}
+{THEME_FIRST}<title>Maker Connect agent</title><link rel=icon href="data:image/svg+xml,{icon}"><style>{CSS}
 .code{{font:700 var(--fs-6)/1 var(--mono);letter-spacing:.12em;color:var(--accent-text);margin:var(--s-2) 0 var(--s-3)}}
-.brand .mark svg{{width:100%;height:100%;display:block}} .card form{{margin:0}} .card .row.btns{{margin-top:var(--s-3)}} .row.btns>form{{flex:0 0 auto}}</style></head><body>
+.brand .mark svg{{width:100%;height:100%;display:block}} .card form{{margin:0}} .card .row.btns{{margin-top:var(--s-3)}} .row.btns>form{{flex:0 0 auto}}</style></head><body data-shape="{shape}">
 <a class=skip href="#main">Skip to content</a>
 <header class=top><span class=brand><span class=mark aria-hidden=true>{MARK}</span><span class=where><b>Maker Connect agent</b><small>{where_}</small></span></span><span class=spacer></span><span class=fw><button type=button class=theme data-theme-btn aria-label="Theme: Auto">Auto</button></span></header>
 <main id=main tabindex=-1 class=solo>
-{banner}<div class=card><div class=head><h1>This agent</h1><span class="st {class}">{state}</span></div>
+{banner}<div class=card><div class=head><h1>This agent</h1><span class="st {class}" data-live="agent.state">{state}</span></div>
 <p class=muted>{what}</p></div>
 <nav class=tabs aria-label="This agent">{tabs}</nav>
 {main}
-</main><script>{THEME_SWITCH}</script></body></html>"##,
-        refresh = if refresh {
-            "<meta http-equiv=refresh content=5>"
-        } else {
-            ""
-        },
+</main><script>{THEME_SWITCH}</script><script>{LIVE_JS}</script></body></html>"##,
+        shape = esc(&shape(devices)),
         icon = MARK.replace('#', "%23").replace('"', "'").replace('\n', ""),
         where_ = if host.is_empty() {
             esc(VERSION)
@@ -1688,21 +1835,16 @@ fn layout(devices: &[Arc<Agent>], tab: &str, refresh: bool, main: &str) -> Strin
 fn page(devices: &[Arc<Agent>]) -> String {
     // The hub's address is the same in every device's settings file (the form writes all).
     let s = devices[0].settings();
-    let (cards, refresh): (Vec<String>, Vec<bool>) = devices.iter().map(|d| device_card(d)).unzip();
-    let (connected, linked) = hub_link(devices);
-    let (hub_state, hub_class) = match (connected, linked) {
-        (_, 0) => ("No device linked", "idle"),
-        (c, n) if c == n => ("Connected", "wait"),
-        (0, _) => ("Not connected", "bad"),
-        _ => ("Partly connected", "warn"),
-    };
+    let cards: Vec<String> = devices.iter().map(|d| device_card(d)).collect();
+    let (hub_state, hub_class) = hub_state(devices);
+    let devices_text = hub_devices(devices);
     let address = s.server().map_or("not set".to_owned(), |a| esc(&a));
     let main = format!(
         r#"<div class=cols><div>
 {cards}
 </div><div>
-<div class=card><div class=head><h2>Hub</h2><span class="st {hub_class}">{hub_state}</span></div>
-<dl class=kv><dt>Address</dt><dd>{address}</dd><dt>Devices</dt><dd>{connected} of {linked} connected</dd></dl>
+<div class=card><div class=head><h2>Hub</h2><span class="st {hub_class}" data-live="hub.state">{hub_state}</span></div>
+<dl class=kv><dt>Address</dt><dd>{address}</dd><dt>Devices</dt><dd data-live="hub.devices">{devices_text}</dd></dl>
 <details{open} style="margin-top:var(--s-3)"><summary>Change the address</summary><form method=post action=/hub style="margin-top:var(--s-3)">
 <div class=row><label class=field>Address<input name=hostname value="{host}" placeholder="192.168.60.67"></label>
 <label class=field style="flex:0 1 7rem">Port<input name=port inputmode=numeric value="{port}" placeholder="8460"></label></div>
@@ -1719,7 +1861,7 @@ fn page(devices: &[Arc<Agent>]) -> String {
         tls = if s.tls { "checked" } else { "" },
         cards = cards.join("\n"),
     );
-    layout(devices, "Devices", refresh.iter().any(|r| *r), &main)
+    layout(devices, "Devices", &main)
 }
 
 /// The About tab (mockup `agent.html#about`): the agent, its load, the computer; the same rows as
@@ -1765,7 +1907,7 @@ fn about_page(devices: &[Arc<Agent>]) -> String {
         agent = kv(agent),
         system = kv(system),
     );
-    layout(devices, "About", false, &main)
+    layout(devices, "About", &main)
 }
 
 /// The hub's stylesheet and logo mark, so the agent's page is in the house style.
@@ -2139,27 +2281,48 @@ mod tests {
             settings,
             Arc::new(Mutex::new(Engine::new())),
         );
-        let card = device_card(&agent).0;
+        let card = device_card(&agent);
         assert!(card.contains(">Not connected</span>"), "{card}");
         assert!(
-            card.contains("<dt>Hub</dt><dd>not connected</dd>"),
+            card.contains("<dt>Hub</dt><dd data-live=\"labelwriter-450.hub\">not connected</dd>"),
             "{card}"
         );
         agent.hub_seen(true);
-        let card = device_card(&agent).0;
+        let card = device_card(&agent);
         assert!(card.contains(">Connected</span>"), "{card}");
         assert!(
-            card.contains("<dt>Hub</dt><dd>connected for 0 min · last contact now</dd>"),
+            card.contains("<dt>Hub</dt><dd data-live=\"labelwriter-450.hub\">connected for 0 min · last contact now</dd>"),
             "{card}"
         );
         agent.hub_seen(false);
-        let card = device_card(&agent).0;
+        let card = device_card(&agent);
         assert!(
-            card.contains("<dt>Hub</dt><dd>not connected · last contact 0 min ago</dd>"),
+            card.contains("<dt>Hub</dt><dd data-live=\"labelwriter-450.hub\">not connected · last contact 0 min ago</dd>"),
             "{card}"
         );
+        // `/events`: the same text, and the page's shape; the shape changes with the card's
+        // make-up (here: turned off), not with its text.
+        let agent = Arc::new(agent);
+        let devices = [agent.clone()];
+        let now: serde_json::Value = serde_json::from_str(&live(&devices)).unwrap();
+        assert_eq!(
+            now["live"]["labelwriter-450.hub"],
+            "not connected · last contact 0 min ago"
+        );
+        assert_eq!(now["live"]["labelwriter-450.state"]["class"], "warn");
+        assert_eq!(now["live"]["hub.devices"], "0 of 1 connected");
+        let before = now["shape"].clone();
+        agent.hub_seen(true);
+        let now: serde_json::Value = serde_json::from_str(&live(&devices)).unwrap();
+        assert_eq!(now["shape"], before);
+        agent.settings.lock().unwrap().on = false;
+        let now: serde_json::Value = serde_json::from_str(&live(&devices)).unwrap();
+        assert_ne!(now["shape"], before);
+        agent.settings.lock().unwrap().on = true;
         // The hub's theme switch, the same button and script.
-        let page = page(&[Arc::new(agent)]);
+        let page = page(&devices);
+        assert!(page.contains(r#"<body data-shape=""#) && page.contains(LIVE_JS));
+        assert!(!page.contains("http-equiv=refresh"));
         assert!(
             page.contains(r#"class=theme data-theme-btn aria-label="Theme: Auto">Auto</button>"#)
         );

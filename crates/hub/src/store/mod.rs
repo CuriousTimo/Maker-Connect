@@ -201,6 +201,8 @@ pub struct Machine {
     pub moonraker_token: Option<String>,
     /// A laser's optical power, as its owner says: its module (a profile names one).
     pub laser_w: Option<f64>,
+    /// A Marlin printer's bed (X, Y, Z mm) as its space says it, for a profile from its firmware.
+    pub bed_mm: Option<[f64; 3]>,
     /// Labels its owners gave it (`MK4-BL`, `Room 2`): to find it, filter on, group by.
     pub labels: Vec<String>,
     /// Only who has permission may use it (crate::access).
@@ -305,6 +307,28 @@ pub struct Details {
     /// The additions this device uses (`extensions`, part 6a); none said is empty.
     #[serde(default)]
     pub extensions: Vec<String>,
+    /// The release of the agent that hosts it, as its `INFO` request said it (`User-Agent-Version`,
+    /// part 6a); `firmware` is the device's own where the agent reads one (a Marlin's, part 9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_release: Option<String>,
+    /// A Marlin printer's `M115` answer, its first line's keys and values (`firmware_info`,
+    /// `docs/design/prusa-sdk-extension.md` part 9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub firmware_info: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Its `Cap:` lines, each supported or not (`firmware_capabilities`, part 9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub firmware_capabilities: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+impl Details {
+    /// Whether the printer said it can do this (`Cap:<name>:1`, part 9).
+    pub fn can(&self, capability: &str) -> bool {
+        self.firmware_capabilities
+            .as_ref()
+            .and_then(|caps| caps.get(capability))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+    }
 }
 
 /// Somewhere the machine keeps files: a USB stick, an SD card.
@@ -696,6 +720,10 @@ pub struct Legacy {
     pub(crate) laser_framed: std::collections::HashMap<String, String>,
     /// HS7b: lasers on which a Set origin was done since the hub started.
     pub(crate) laser_origin_set: std::collections::HashSet<String>,
+    /// OctoPrint-BedLevelVisualizer's state per Marlin printer, by machine id, while the hub runs
+    /// (crate::devices::bed_level_visualizer, #107).
+    pub(crate) bed_level_visualizers:
+        std::collections::HashMap<String, crate::devices::bed_level_visualizer::Blv>,
     next_command: u32,
     /// Per machine id, when its history last got a sample (crate::store::history).
     last_sample: std::collections::HashMap<String, i64>,
@@ -833,6 +861,7 @@ impl Legacy {
             own_prints: Default::default(),
             laser_framed: Default::default(),
             laser_origin_set: Default::default(),
+            bed_level_visualizers: Default::default(),
             // Ids that do not repeat soon after a restart, as a printer may remember the last.
             next_command: (now() % 1_000_000_000) as u32,
             last_sample: Default::default(),

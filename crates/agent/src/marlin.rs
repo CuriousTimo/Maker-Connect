@@ -64,17 +64,27 @@ pub(crate) fn state(agent: &Agent, report: Option<&Report>) -> State {
     }
 }
 
+/// What the printer said to M115, as the port has it (part 9: `firmware`, `firmware_info`,
+/// `firmware_capabilities` in `INFO`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Firmware {
+    pub name: Option<String>,
+    pub info: Option<serde_json::Map<String, serde_json::Value>>,
+    pub capabilities: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
 /// Once a second, from the link loop: a print's end, and when it is held no longer; then a
 /// `STATE_CHANGED` when the state is another than the last one said.
 pub(crate) fn tick(agent: &Agent, report: &Report) {
-    // Part 9: its M115 `MACHINE_TYPE` in `INFO`, sent again when it changed.
-    let machine_type = report
-        .telemetry
-        .identity
-        .as_ref()
-        .and_then(|i| i.machine_type.clone());
-    if machine_type.is_some() && *agent.machine_type.lock().unwrap() != machine_type {
-        *agent.machine_type.lock().unwrap() = machine_type;
+    // Part 9: its M115 answer in `INFO`, sent again when it changed.
+    let identity = report.telemetry.identity.as_ref();
+    let firmware = Firmware {
+        name: report.telemetry.firmware.clone(),
+        info: identity.and_then(|i| i.firmware_info.clone()),
+        capabilities: identity.and_then(|i| i.firmware_capabilities.clone()),
+    };
+    if firmware.name.is_some() && agent.firmware.lock().unwrap().as_ref() != Some(&firmware) {
+        *agent.firmware.lock().unwrap() = Some(firmware);
         crate::info_changed(agent);
     }
     let job = agent.label.lock().unwrap().as_ref().map(|(job, _)| *job);
@@ -437,6 +447,7 @@ fn run(agent: &Agent, command_id: i64, action: Action) -> Result<Vec<String>, Ha
 mod tests {
     use super::*;
     use crate::Kind;
+    use serde_json::json;
 
     /// A G-code's answer goes in `FINISHED`'s `data` as `gcode_output` (part 9); none, none.
     #[test]
@@ -593,10 +604,10 @@ mod tests {
         assert!(!present(&r));
     }
 
-    /// Part 9: M115's `MACHINE_TYPE` in `INFO`, which goes again when it changed
+    /// Part 9: what M115 said in `INFO`, which goes again when it changed
     /// (`_send_info_if_changed`, `printer_polling.py:1078-1083`), and only then.
     #[test]
-    fn its_machine_type_in_info() {
+    fn its_firmware_in_info() {
         let a = agent();
         let sent = Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen = sent.clone();
@@ -605,27 +616,42 @@ mod tests {
                 seen.lock().unwrap().push((event, source, kwargs));
             });
         *a.event_cb.lock().unwrap() = Some(cb);
-        let named = |name: Option<&str>| {
+        let said = |caps: Option<Value>| {
             let mut r = report("STATE_OPERATIONAL", vec![]);
-            r.telemetry.identity = name.map(|n| maker_connect_protocol::Identity {
-                machine_type: Some(n.into()),
+            r.telemetry.firmware = Some("Marlin 2.0.9.3".into());
+            r.telemetry.identity = Some(maker_connect_protocol::Identity {
+                firmware_info: json!({"MACHINE_TYPE": "Crearibo CR10"})
+                    .as_object()
+                    .cloned(),
+                firmware_capabilities: caps.and_then(|c| c.as_object().cloned()),
                 ..Default::default()
             });
             r
         };
-        tick(&a, &named(None));
-        assert!(!crate::send_info(&a).kwargs.contains_key("machine_type"));
-        tick(&a, &named(Some("Crearibo CR10")));
-        tick(&a, &named(Some("Crearibo CR10")));
+        let info = crate::send_info(&a).kwargs;
+        assert_eq!(info["firmware"], crate::VERSION);
+        assert!(!info.contains_key("firmware_info") && !info.contains_key("firmware_capabilities"));
+        tick(&a, &report("STATE_OPERATIONAL", vec![]));
+        tick(&a, &said(None));
+        tick(&a, &said(None));
+        tick(&a, &said(Some(json!({"AUTOLEVEL": true}))));
         let infos: Vec<_> = sent
             .lock()
             .unwrap()
             .iter()
             .filter(|(e, ..)| *e == consts::Event::Info)
-            .map(|(_, source, kwargs)| (*source, kwargs["machine_type"].clone()))
+            .map(|(_, source, kwargs)| (*source, kwargs.get("firmware_capabilities").cloned()))
             .collect();
-        assert_eq!(infos, [(Source::Connect, "Crearibo CR10".into())]);
-        assert_eq!(crate::send_info(&a).kwargs["machine_type"], "Crearibo CR10");
+        assert_eq!(
+            infos,
+            [
+                (Source::Connect, None),
+                (Source::Connect, Some(json!({"AUTOLEVEL": true})))
+            ]
+        );
+        let info = crate::send_info(&a).kwargs;
+        assert_eq!(info["firmware"], "Marlin 2.0.9.3");
+        assert_eq!(info["firmware_info"]["MACHINE_TYPE"], "Crearibo CR10");
     }
 
     #[test]

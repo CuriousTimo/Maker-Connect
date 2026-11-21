@@ -222,15 +222,27 @@ Control tab, a 3D printer (verbs of the `marlin` registry; the `prusa` kind uses
 the same page as a Prusa on its Connect, but:
 - **Head and Machine tab:** it is connected through the "Maker Connect agent", not "Built-in
   Prusa Connect".
-- **Its model:** it gets a profile when the name it gives to `M115` (`machine_type` in `INFO`,
-  part 9) is the name of exactly one profile. A custom build, Marlin's default "3D Printer", or a
+- **Its model:** it gets a profile when the name it gives to `M115` (`MACHINE_TYPE` of
+  `firmware_info` in `INFO`, part 9) is the name of exactly one profile. A custom build, Marlin's default "3D Printer", or a
   name that several models share gets none, and the space chooses one on the Machine tab. A
-  profile chosen there stays.
+  profile chosen there stays. Until then it has one "From its firmware (M115)", as a laser's
+  from its controller: its `MACHINE_TYPE` and extruders; no bed, which M115 does not say.
 - **Files:** the tab shows the agent's storage (`/gcodes`) instead of the USB stick. The printer's
   SD card joins it as `SD_CARD` once the agent has it (part 9, Storages), as PrusaLink has an MK3's.
+- **This machine (Machine tab):** what its `M115` said (part 9): the firmware (`firmware`), each
+  field of `firmware_info`, and each capability of `firmware_capabilities` as supported or not.
+- **Bed level:** the tab only when its capabilities say `LEVELING_DATA`, *Probe bed* only with
+  `AUTOLEVEL` too; none before the printer answered. The mesh is read from what *Probe bed*'s
+  `GCODE` answered (`gcode_output`): each line through OctoPrint-BedLevelVisualizer's
+  `process_gcode`, ported (`devices/bed_level_visualizer.rs`, docs/audits/bed-level-visualizer.md),
+  as BLV reads its own *Update Mesh*'s answer (#107).
 - **Controls:** speed, flow and the nozzle and bed targets go as the SDK's `SET_VALUE`, which
   PrusaLink takes while printing; G-code it refuses then. *Mesh bed leveling* stays, since
-  Marlin's `G29` measures the bed as an MK3's `G80` does.
+  Marlin's `G29` measures the bed as an MK3's `G80` does. Firmware whose M115 says
+  `Cap:AUTOREPORT_POS:0` (built without Marlin's `AUTO_REPORT_POSITION`) tells where the head is
+  only to an `M114`, since OctoPrint sends `M154` only to firmware with it: Coordinates then say
+  "Last read (M114)", and a **Read position** button sends `M114` when a person presses it (no
+  polling of ours).
 
 Bounds of a number come from the verb's declared argument (kind, unit, bounds); the page adds none
 of its own (for a Prusa printer the firmware's limits rule, owner 2026-11-09).

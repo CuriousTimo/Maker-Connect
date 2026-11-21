@@ -230,9 +230,12 @@ struct Inner {
     emergency: bool,
     /// K8
     refusal: Option<String>,
-    /// `MACHINE_TYPE` of the printer's M115 answer, as comm hands it to `on_comm_firmware_info`
-    /// (comm.py:5761; OctoPrint keeps it as `Printer.firmware_info`, standard.py:1915)
-    machine_type: Option<String>,
+    /// The printer's M115 answer, as comm hands it to `on_comm_firmware_info` (comm.py:5761;
+    /// OctoPrint keeps it as `Printer.firmware_info`, standard.py:1915-1916): its name and data
+    firmware: Option<(String, serde_json::Map<String, Value>)>,
+    /// Its `Cap:` lines, as comm hands them to the `capability_report` hook once the report
+    /// ended (comm.py:2655-2672)
+    capabilities: Option<serde_json::Map<String, Value>>,
     last: Option<Telemetry>,
 }
 
@@ -361,6 +364,20 @@ impl Edge {
             });
             manager.register_hook(hook, IDENTIFIER, handler);
         }
+        // comm's `capability_report` (comm.py:2668-2672): `hook(comm, copy(_firmware_capabilities))`
+        let me = self.clone();
+        let report: HookFn = Arc::new(move |args: &[Value]| {
+            if let Some(caps) = args.last().and_then(Value::as_object) {
+                lock(&me.inner).capabilities = Some(caps.clone());
+                me.publish();
+            }
+            Value::Null
+        });
+        manager.register_hook(
+            "octoprint.comm.protocol.firmware.capability_report",
+            IDENTIFIER,
+            report,
+        );
         let me = self.clone();
         let receiver: MessageReceiver = Arc::new(move |plugin, data| {
             if plugin == super::action_command_prompt::IDENTIFIER {
@@ -433,14 +450,19 @@ impl Edge {
         }
         t.position_mm = inner.position.map(|p| p.map(Some));
         t.sd_card = inner.sd_ready;
-        t.identity =
-            inner
-                .machine_type
-                .clone()
-                .map(|machine_type| maker_connect_protocol::Identity {
-                    machine_type: Some(machine_type),
-                    ..Default::default()
-                });
+        t.firmware = inner.firmware.as_ref().map(|(name, _)| name.clone());
+        t.identity = inner
+            .firmware
+            .as_ref()
+            .map(|(_, data)| maker_connect_protocol::Identity {
+                machine_type: data
+                    .get("MACHINE_TYPE")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                firmware_info: Some(data.clone()),
+                firmware_capabilities: inner.capabilities.clone(),
+                ..Default::default()
+            });
         if let Some(job) = &inner.job {
             t.job = Some(JobProgress {
                 file: job.name.clone(),
@@ -1093,8 +1115,12 @@ impl MachineComPrintCallback for Edge {
         }
     }
 
-    fn on_comm_firmware_info(&self, _firmware_name: &str, firmware_data: &PyDict<String>) {
-        lock(&self.inner).machine_type = firmware_data.get("MACHINE_TYPE").cloned();
+    fn on_comm_firmware_info(&self, firmware_name: &str, firmware_data: &PyDict<String>) {
+        let data = firmware_data
+            .iter()
+            .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+            .collect();
+        lock(&self.inner).firmware = Some((firmware_name.to_owned(), data));
         self.publish();
     }
 
@@ -1263,10 +1289,14 @@ mod tests {
         let Ok(Event::Telemetry(t)) = rx.try_recv() else {
             panic!("no report");
         };
+        assert_eq!(t.firmware.as_deref(), Some("Marlin"));
+        let identity = t.identity.unwrap();
+        assert_eq!(identity.machine_type.as_deref(), Some("Crearibo CR10"));
         assert_eq!(
-            t.identity.and_then(|i| i.machine_type).as_deref(),
-            Some("Crearibo CR10")
+            identity.firmware_info.unwrap()["PROTOCOL_VERSION"],
+            json!("1.0")
         );
+        assert_eq!(identity.firmware_capabilities, None);
     }
 
     /// The page's numbers are JSON numbers: whole ones are Python `int`s (`S215`, not `S215.0`)
@@ -1402,7 +1432,7 @@ mod tests {
                 std::thread::sleep(delay);
                 let answer = match text.split_whitespace().next().unwrap_or("") {
                     "M105" => "ok T:21.0 /0.0 B:20.0 /0.0 @:0 B@:0".to_string(),
-                    "M115" => "FIRMWARE_NAME:Marlin 2.1.2 (fake) PROTOCOL_VERSION:1.0 MACHINE_TYPE:AtomX MK3 EXTRUDER_COUNT:1\nCap:PROMPT_SUPPORT:1\nok".to_string(),
+                    "M115" => "FIRMWARE_NAME:Marlin 2.1.2 (fake) PROTOCOL_VERSION:1.0 MACHINE_TYPE:AtomX MK3 EXTRUDER_COUNT:1\nCap:PROMPT_SUPPORT:1\nCap:AUTOLEVEL:0\nok".to_string(),
                     "M114" => "X:10.00 Y:20.00 Z:0.30 E:0.00 Count X:800 Y:1600 Z:120\nok".to_string(),
                     "M21" => "echo:SD card ok\nok".to_string(),
                     "M20" => "Begin file list\nBENCHY.GCO 1234\nEnd file list\nok".to_string(),
@@ -1535,16 +1565,28 @@ mod tests {
             report.telemetry.comm_state.as_deref()
         );
         // part 9: its M115 `MACHINE_TYPE`, through `Printer` (comm's callback) to the top edge
+        // and its Cap lines once the report ended (comm.py:2655-2672)
         let report = until(&engine, id, "MACHINE_TYPE", |r| {
-            r.telemetry.identity.is_some()
+            r.telemetry
+                .identity
+                .as_ref()
+                .is_some_and(|i| i.firmware_capabilities.is_some())
         });
         assert_eq!(
-            Some("AtomX MK3"),
-            report
-                .telemetry
-                .identity
-                .and_then(|i| i.machine_type)
-                .as_deref()
+            report.telemetry.firmware.as_deref(),
+            Some("Marlin 2.1.2 (fake)")
+        );
+        let identity = report.telemetry.identity.unwrap();
+        assert_eq!(Some("AtomX MK3"), identity.machine_type.as_deref());
+        assert_eq!(
+            identity.firmware_info.unwrap()["EXTRUDER_COUNT"],
+            json!("1")
+        );
+        assert_eq!(
+            identity.firmware_capabilities,
+            json!({"PROMPT_SUPPORT": true, "AUTOLEVEL": false})
+                .as_object()
+                .cloned()
         );
 
         // M1 + M4: a Home XY sends what `home(["x","y"])` sends, done after the `ok`s

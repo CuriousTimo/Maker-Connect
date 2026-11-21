@@ -1,3 +1,4 @@
+pub(crate) mod bed_level_visualizer;
 #[cfg(test)]
 mod buddy_audit;
 pub(crate) mod connect_job;

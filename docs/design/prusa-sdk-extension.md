@@ -607,7 +607,7 @@ without this part shows an `IDLE` device.
 
 ## Part 9: a Marlin printer (`marlin.fdm`)
 
-An FDM printer on Marlin that is not a Prusa, on the agent's USB. Nothing is added but the type (part 1) and its model in `INFO` (below):
+An FDM printer on Marlin that is not a Prusa, on the agent's USB. Added: the type (part 1), what its firmware says of itself in `INFO`, and what the printer answered a `GCODE` (below):
 PrusaLink is itself a host of a Marlin printer on the SDK, so it is the reference for what goes over the
 protocol; OctoPrint 1.11.8 is the reference for every byte to the printer (its serial layer, ported:
 `crates/engine/src/ports/octoprint`, [audit](../audits/octoprint-marlin.md)). An SDK command becomes the
@@ -656,17 +656,26 @@ finished.
 As PrusaLink's: the agent's folder as a `LOCAL` storage, and the printer's SD card as `SD_CARD`
 (Prusa-Link `prusa_link.py:945`), listed by the port (`SdList`, OctoPrint's `M20`).
 
-### Its model: `machine_type` in `INFO`
+### Its firmware: `firmware`, `firmware_info` and `firmware_capabilities` in `INFO`
 
-A Prusa says its model by its type (`printer_type`, Buddy `render.cpp:390`; PrusaLink by `M862.2`); a
-Marlin printer has no such code, only the name it answers to `M115`. One new `INFO` kwarg:
+A Prusa says its model by its type (`printer_type`, Buddy `render.cpp:390`; PrusaLink by `M862.2`) and
+its firmware's version by the SDK's own `firmware` (`__init__.py:88`, "Printer firmware version",
+filled by PrusaLink from the printer's answer, `printer_polling.py:530-533`, `:931`). A Marlin printer
+has no type code; it says what it is and what it can do in its `M115` answer, which OctoPrint keeps
+(`comm.py:2865-2990`, `:2811-2814`). The SDK's key, as the SDK means it, and two new `INFO` kwargs:
 
 | Kwarg | Type | Value |
 |---|---|---|
-| `machine_type` | string | `MACHINE_TYPE` of the printer's `M115` answer, as OctoPrint keeps it (`firmware_info`, `standard.py:1915`); left out until the printer answered |
+| `firmware` | string | the SDK's own: the firmware's name as OctoPrint makes it of `M115` (`FIRMWARE_NAME`, or `NAME` and `VER`, `comm.py:2873-2898`), e.g. `Marlin 2.0.9.3 (Github)` |
+| `firmware_info` | object | every key and value of the `M115` answer's first line, as OctoPrint keeps it (`Printer.firmware_info["data"]`, `standard.py:1915-1916`, of `parse_firmware_line`): `MACHINE_TYPE`, `EXTRUDER_COUNT`, `SOURCE_CODE_URL`, … |
+| `firmware_capabilities` | object | each `Cap:` line as OctoPrint keeps it (`_firmware_capabilities`, `comm.py:2811-2814`, of `parse_capability_line`, `:6593-6627`): the name in upper case, `true` for `1`, `false` for `0`, e.g. `{"AUTOLEVEL": true, "LEVELING_DATA": true}` |
 
-The server finds the model's profile by it. When the printer answers after the first `INFO`, the agent
-sends `INFO` again, as PrusaLink does when its printer info changes (`printer_polling.py:1078-1083`).
+Each is left out until the printer answered; `firmware_capabilities` once its report ended (the first
+line after the `Cap:` lines, `comm.py:2655-2660`). The server finds the model's profile by
+`firmware_info`'s `MACHINE_TYPE`, and shows a printer's bed mesh and its *Probe bed* only when
+`AUTOLEVEL` and `LEVELING_DATA` say so (`M115.cpp:172-182`, Marlin at the commit of the port's audit).
+When the printer answers after the first `INFO`, the agent sends `INFO` again, as PrusaLink does when its
+printer info changes (`printer_polling.py:1078-1083`).
 
 ### Telemetry
 
@@ -755,4 +764,5 @@ was looked for under another name.
 | `EXPIRED` | value | machine_reason | 7 | as `NO_SUCH_LOCK` |
 | `NO_TIME` | value | machine_reason | 7 | as `NO_SUCH_LOCK` |
 | `gcode_output` | event-field | FINISHED | 9 | SDK `Event` and `event_cb` (`__init__.py`, `models.py`), PrusaLink `ExecuteGcode` (`command_handlers.py`): no lines back; Buddy `FINISHED` (`render.cpp`): no data |
-| `machine_type` | info | | 9 | SDK `get_info` (`__init__.py`: `type`, a Prusa's code), Buddy `INFO` (`render.cpp`: `printer_type`), PrusaLink (`printer_polling.py`: `M862.2`): no model name |
+| `firmware_info` | info | | 9 | SDK `get_info` (`__init__.py`: `type`, a Prusa's code; `firmware`, a version only), Buddy `INFO` (`render.cpp`: `printer_type`), PrusaLink (`printer_polling.py`: `M862.2`): no model name, no M115 fields |
+| `firmware_capabilities` | info | | 9 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`), PrusaLink (`printer_polling.py`): nothing of what a firmware can do; Connect `capabilities` (`link.go`) is the server's own set, not the printer's |

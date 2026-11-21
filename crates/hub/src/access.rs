@@ -392,6 +392,12 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ),
     (
         "POST",
+        "/machines/{id}/bed",
+        Need::Machine(Level::Manage),
+        Some("set the bed size of"),
+    ),
+    (
+        "POST",
         "/machines/{id}/command",
         Need::Machine(Level::Operate),
         Some("sent a command to"),

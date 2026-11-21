@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE machines SET bed_mm = $1 WHERE id = $2 AND space_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "25970c7b91995adfd2539673a888c9659fca7a63dd73d3e52f79fe79035a38d2"
+}

@@ -157,6 +157,26 @@ impl Store {
             .await
     }
 
+    /// A bed mesh the hub read from a machine's answer (crate::devices::bed_level_visualizer):
+    /// kept as its last, measured now.
+    pub async fn set_mesh(&self, token: &str, rows: Vec<Vec<Option<f32>>>) -> Result<(), BoxError> {
+        let stored = StoredMesh {
+            rows,
+            taken_at: now(),
+        };
+        let mut tx = self.pg().admin(Bypass::Secret).begin().await?;
+        sqlx::query!(
+            "UPDATE machines SET mesh = $1 WHERE token = $2",
+            serde_json::to_string(&stored).unwrap_or_default(),
+            token
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        self.changed();
+        Ok(())
+    }
+
     /// An agent's report: kept as the machine's last. Returns the machine's space id if it is
     /// paired (`Some(None)` while it is not), or None when the token is unknown.
     pub async fn report(

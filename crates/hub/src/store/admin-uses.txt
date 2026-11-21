@@ -36,6 +36,7 @@ devices/printer_files.rs transfer 1 transfer address (iv): its machine and space
 farm.rs dispatch 5 the farm dispatcher: which spaces have work
 store/agents.rs placed 1 agent token: its machine and space
 store/agents.rs report 1 agent token: its machine's last report
+store/agents.rs set_mesh 1 agent token: the bed mesh its Probe bed answer gave
 store/pg_jobs.rs printing_anywhere 3 the About page and self-update: whether anything prints anywhere
 store/pg_machines.rs agents 3 the Instance page: every agent and its devices, over all spaces
 store/pg_machines.rs knows 1 device token: known or not

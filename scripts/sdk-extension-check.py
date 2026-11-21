@@ -60,7 +60,14 @@ WORDS = {
     "UNITS": "usbscale's table of unit names (usbscale.c:93-107)",
     "M115": "the firmware report OctoPrint asks a Marlin printer for (OctoPrint-1.11.8 comm.py)",
     "MACHINE_TYPE": "a field of a Marlin printer's M115 answer (Marlin gcode/host/M115.cpp)",
-    "firmware_info": "OctoPrint's Printer.firmware_info, the parsed M115 answer (printer/standard.py:196)",
+    "FIRMWARE_NAME": "a field of a Marlin printer's M115 answer (Marlin gcode/host/M115.cpp)",
+    "EXTRUDER_COUNT": "a field of a Marlin printer's M115 answer (Marlin gcode/host/M115.cpp)",
+    "SOURCE_CODE_URL": "a field of a Marlin printer's M115 answer (Marlin gcode/host/M115.cpp)",
+    "NAME": "a field of a firmware's M115 answer OctoPrint reads beside VER (util/comm.py:2873-2898)",
+    "AUTOLEVEL": "a Cap: line of a Marlin printer's M115 answer (Marlin gcode/host/M115.cpp:173)",
+    "LEVELING_DATA": "a Cap: line of a Marlin printer's M115 answer (Marlin gcode/host/M115.cpp:182)",
+    "parse_firmware_line": "OctoPrint's parser of the M115 answer (util/comm.py)",
+    "parse_capability_line": "OctoPrint's parser of a Cap: line (util/comm.py:6593)",
 }
 
 def device_words():

@@ -2235,12 +2235,12 @@ mod flow {
             .await;
         }
 
-        // Its model by its M115 name in INFO (extension part 9, `machine_type`): a custom
+        // Its model by its M115 name in INFO (extension part 9, `firmware_info`): a custom
         // build (the owner's Crearibo) and an old Creality's (OctoPrint's test, comm.rs) find
         // none; a model's own name finds its profile; a profile the space chose stays.
         let info = |name: &str| {
             event(json!({"event": "INFO", "state": "IDLE", "data": {
-                "type": "marlin.fdm", "sn": "MC00112233445566AA", "machine_type": name}}))
+                "type": "marlin.fdm", "sn": "MC00112233445566AA", "firmware_info": {"MACHINE_TYPE": name}}}))
         };
         let profile = || async { store.machine(space, &id).await.unwrap().unwrap().profile };
         for none in ["Crearibo CR10", "www.cxsw3d.com"] {
@@ -2257,6 +2257,73 @@ mod flow {
         );
         call(&app, info("Ender-5 Pro")).await;
         assert_eq!(profile().await.as_deref(), Some("creality/cr-10"));
+
+        // Its Cap lines (part 9, `firmware_capabilities`): the bed mesh and Probe bed only when
+        // it says it keeps a mesh and measures (ui.md "Bed level").
+        let machine = || async { store.machine(space, &id).await.unwrap().unwrap() };
+        let page =
+            |m: &crate::store::Machine| crate::pages::machine_page::settings(m, &[], false, true);
+        assert!(crate::probe_gcode(&machine().await).is_err());
+        // Its caps not told yet: no "Last read" (nothing says it does not report).
+        assert!(!crate::pages::machine_page::reads_position(
+            &machine().await
+        ));
+        assert!(!crate::pages::machine_page::shows_bed_mesh(
+            &machine().await
+        ));
+        call(&app, event(json!({"event": "INFO", "state": "IDLE", "data": {
+            "type": "marlin.fdm", "sn": "MC00112233445566AA", "firmware": "Marlin 2.0.9.3",
+            "firmware_info": {"MACHINE_TYPE": "AtomX MK3", "EXTRUDER_COUNT": "1"},
+            "firmware_capabilities": {"AUTOLEVEL": true, "LEVELING_DATA": true, "AUTOREPORT_POS": false, "EEPROM": false}}})))
+        .await;
+        let m = machine().await;
+        assert!(crate::pages::machine_page::shows_bed_mesh(&m));
+        // Built without AUTO_REPORT_POSITION: X, Y and Z are its last M114's, read on a press.
+        assert!(crate::pages::machine_page::reads_position(&m));
+        assert_eq!(
+            crate::devices::legacy_gcode::action("read-position"),
+            Some(("Read position", "M114"))
+        );
+        assert_eq!(
+            crate::probe_gcode(&m).map(|(_, gcode)| gcode),
+            Ok("G28\nG29\nM420 V")
+        );
+        let page = page(&m);
+        assert!(!page.contains("<dt>Serial number</dt>"), "{page}");
+        for told in [
+            "<dt>Firmware</dt><dd>Marlin 2.0.9.3</dd>",
+            "<dt>MACHINE_TYPE</dt><dd>AtomX MK3</dd>",
+            "<dt>Supports</dt><dd>AUTOLEVEL, LEVELING_DATA</dd>",
+            "<dt>Does not support</dt><dd>AUTOREPORT_POS, EEPROM</dd>",
+            // the agent's `sn` with the connection, not as the printer's
+            "<dt>Serial (made by the agent)</dt><dd>MC00112233445566AA</dd>",
+        ] {
+            assert!(page.contains(told), "{told}");
+        }
+        // No profile of that name (the space chose none): one from its firmware, as a laser's
+        // from its controller; M115 does not say the bed's size.
+        assert!(store.set_profile(space, &id, None).await.unwrap());
+        let m = machine().await;
+        assert_eq!(m.profile, None);
+        let page = crate::pages::machine_page::settings(&m, &[], false, true);
+        for shown in [
+            "<b> AtomX MK3</b>",
+            "From its firmware (M115)",
+            "<dt>Extruders</dt><dd>1</dd>",
+        ] {
+            assert!(page.contains(shown), "{shown}: {page}");
+        }
+        assert!(!page.contains("0 × 0"));
+        assert!(page.contains(r#"action="{id}/bed""#.replace("{id}", &m.id).as_str()));
+        // Its bed as the space says it: the profile from its firmware has it then.
+        assert!(
+            store
+                .set_bed_mm(space, &id, Some([235.0, 235.0, 250.0]))
+                .await
+                .unwrap()
+        );
+        let page = crate::pages::machine_page::settings(&machine().await, &[], false, true);
+        assert!(page.contains("235 × 235 × 250 mm"), "{page}");
     }
 
     /// What a Marlin printer answered a G-code reaches the terminal: `gcode_output` in its
@@ -2325,6 +2392,65 @@ mod flow {
         let done = machine.commands.iter().find(|c| c.id == command).unwrap();
         assert_eq!(done.state, crate::store::CommandState::Finished);
         assert_eq!(done.output, answer);
+        // A G-code's answer fills no mesh (a `M420 V` typed in the terminal neither, as in
+        // OctoPrint); Probe bed's does: its lines through BedLevelVisualizer (#107).
+        assert!(machine.mesh.is_none());
+        let probe = store
+            .lock()
+            .unwrap()
+            .queue_command(
+                link.as_deref(),
+                &id,
+                crate::devices::legacy_gcode::PROBE_LABEL,
+                "G28\nG29\nM420 V",
+            )
+            .unwrap();
+        let (_, headers, _) = call(
+            &app,
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .body(Body::from(r#"{"state":"IDLE"}"#))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(headers["command-id"], probe.to_string().as_str());
+        let answer = [
+            "ok",
+            "Bilinear Leveling Grid:",
+            "      0      1      2      3",
+            " 0 +0.648 +0.151 +0.232 +0.080",
+            " 1 +0.629 +0.210 +0.250 +0.131",
+            " 2 +0.631 +0.184 +0.142 -0.049",
+            " 3 +0.725 +0.085 -0.133 -0.336",
+            "ok",
+            "echo:Bed Leveling ON",
+            "ok",
+        ];
+        let finished = Request::post("/p/events")
+            .header("Token", &token)
+            .body(Body::from(
+                json!({"event": "FINISHED", "command_id": probe, "state": "IDLE",
+                    "data": {"gcode_output": answer}})
+                .to_string(),
+            ))
+            .unwrap();
+        assert_eq!(call(&app, finished).await.0, StatusCode::NO_CONTENT);
+        let mesh = store
+            .machine(space, &id)
+            .await
+            .unwrap()
+            .unwrap()
+            .mesh
+            .unwrap();
+        assert_eq!(
+            mesh.rows,
+            vec![
+                vec![Some(0.648), Some(0.151), Some(0.232), Some(0.080)],
+                vec![Some(0.629), Some(0.210), Some(0.250), Some(0.131)],
+                vec![Some(0.631), Some(0.184), Some(0.142), Some(-0.049)],
+                vec![Some(0.725), Some(0.085), Some(-0.133), Some(-0.336)],
+            ]
+        );
     }
 
     /// A MINI, as it talks: its stick looked through (with a file's picture), a file

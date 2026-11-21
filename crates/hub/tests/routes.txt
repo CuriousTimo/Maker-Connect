@@ -116,6 +116,7 @@
 /machines/{id}/answer
 /machines/{id}/ask
 /machines/{id}/bad
+/machines/{id}/bed
 /machines/{id}/command
 /machines/{id}/farm
 /machines/{id}/grants
@@ -253,6 +254,7 @@
 ("POST", "/machines/{id}/grants", Machine(Manage), Some("gave permission on"))
 ("POST", "/machines/{id}/grants/{user}/remove", Machine(Manage), Some("took permission away on"))
 ("POST", "/machines/{id}/laser", Machine(Manage), Some("set the laser module of"))
+("POST", "/machines/{id}/bed", Machine(Manage), Some("set the bed size of"))
 ("POST", "/machines/{id}/command", Machine(Operate), Some("sent a command to"))
 ("POST", "/machines/{id}/job", Machine(Use), Some("paused, resumed or stopped the job on"))
 ("POST", "/machines/{id}/start-burn", Machine(Operate), Some("started the burn on"))
@@ -923,6 +925,11 @@ POST /machines/{id}/bad => 401 404 404 404 404
 PUT /machines/{id}/bad => 401 403 403 403 403
 PATCH /machines/{id}/bad => 401 403 403 403 403
 DELETE /machines/{id}/bad => 401 403 403 403 403
+GET /machines/{id}/bed => 401 405 405 405 405
+POST /machines/{id}/bed => 401 404 404 404 404
+PUT /machines/{id}/bed => 401 403 403 403 403
+PATCH /machines/{id}/bed => 401 403 403 403 403
+DELETE /machines/{id}/bed => 401 403 403 403 403
 GET /machines/{id}/command => 401 405 405 405 405
 POST /machines/{id}/command => 401 404 404 404 404
 PUT /machines/{id}/command => 401 403 403 403 403
@@ -1284,7 +1291,7 @@ labelwriter.js 004bd133a281066dcef1a57b11a906eb4110b460d8c7722af790ee0e6dd0e8ad
 library.css 589961a7065efff38168ff267ad49fe2396aa8dbd4060ed62b44f4bd30f943fd
 library.js 5d6862caee23b47a5bac714c11db8fce72285e11414cacd462fde263d78947ad
 machine.css fbcee568d6bade8ec7784a2533a49e0931bbc410bd22a58654dca47311f6ceff
-machine.js d5b56f3516e9abecdb2780b0d35803f6302d4d24f185c2ea2d69ab405d55501c
+machine.js 802dff19e9e13f3ffa75dd449020bee24f70515e37e2fdc4b89e5c8cd1692eac
 mc.css 041729b5c1193d44aa909abbcea735193125f14a78b1c918e97bffdcf22f9673
 shell.js 6c03350c18dfe71b8c46d3053adf487ff503ebc4d147d3b598cfb9fef79f1e58
 theme.js 0dc06d091c3bfb6e62df270e28bf92587ddab81d5aa453e30419c6e41c4729a6

@@ -402,6 +402,48 @@ pub(crate) async fn laser_power(
     }
 }
 
+#[derive(serde::Deserialize)]
+pub(crate) struct BedForm {
+    /// Millimetres; all three empty: not known.
+    #[serde(default)]
+    x: String,
+    #[serde(default)]
+    y: String,
+    #[serde(default)]
+    z: String,
+}
+
+/// A Marlin printer's bed, as its space says it (a profile from its firmware: M115 does not say it).
+pub(crate) async fn bed_size(
+    access: crate::access::Access,
+    State(store): State<Store>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<BedForm>,
+) -> Response {
+    let fields = [&form.x, &form.y, &form.z].map(|f| f.trim().replace(',', "."));
+    let bed = if fields.iter().all(String::is_empty) {
+        None
+    } else {
+        let mut mm = [0.0; 3];
+        for (i, field) in fields.iter().enumerate() {
+            match field.parse::<f64>() {
+                Ok(v) if (1.0..=2000.0).contains(&v) => mm[i] = v,
+                _ => {
+                    return (StatusCode::BAD_REQUEST, "bed size: 1 to 2000 mm each")
+                        .into_response();
+                }
+            }
+        }
+        Some(mm)
+    };
+    match store.set_bed_mm(access.space, &id, bed).await {
+        Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
+        Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
+        Err(error) => failed(error),
+    }
+}
+
 /// Someone took the finished print off the bed: the machine can take the next job.
 pub(crate) async fn taken(
     access: crate::access::Access,

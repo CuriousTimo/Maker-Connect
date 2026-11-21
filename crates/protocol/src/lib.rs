@@ -328,6 +328,14 @@ pub struct Identity {
     /// Its MMU's firmware, where one is connected ("3.0.3+896"; Prusa's MK3: `M707`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mmu_firmware: Option<String>,
+    /// A Marlin printer's `M115` answer, its first line's keys and values, as OctoPrint keeps it
+    /// (`Printer.firmware_info["data"]`; extension part 9, `firmware_info`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub firmware_info: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Its `Cap:` lines, as OctoPrint keeps them (`_firmware_capabilities`; part 9,
+    /// `firmware_capabilities`), once the report ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub firmware_capabilities: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// A file for the machine to run (`download`: where the file is), streamed to the machine.

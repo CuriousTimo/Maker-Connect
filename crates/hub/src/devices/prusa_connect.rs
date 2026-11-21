@@ -743,6 +743,11 @@ pub(crate) fn to_details(info: &Value) -> Details {
                     .collect()
             })
             .unwrap_or_default(),
+        // Set from the request's header by the caller (part 6a).
+        agent_release: None,
+        // Part 9: what a Marlin printer answered M115.
+        firmware_info: info["firmware_info"].as_object().cloned(),
+        firmware_capabilities: info["firmware_capabilities"].as_object().cloned(),
     }
 }
 
@@ -957,6 +962,7 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
         Ok(Some((m, _))) if m.kind == MachineKind::Label
     );
     let mut ended_label = None;
+    let mut mesh = None;
     {
         let mut store = shared.lock().unwrap();
         // A label printer's reason, the PPD's text, when a `STATE_CHANGED` carries one (part 3);
@@ -992,7 +998,7 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
                 let reason = event["reason"].as_str().map(str::to_owned);
                 println!("command {id}: {name} {}", reason.as_deref().unwrap_or(""));
                 // What the printer answered a G-code (extension part 9, `gcode.output`).
-                let output = event["data"]["gcode_output"]
+                let output: Vec<String> = event["data"]["gcode_output"]
                     .as_array()
                     .map(|lines| {
                         lines
@@ -1001,6 +1007,24 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
                             .collect()
                     })
                     .unwrap_or_default();
+                // Probe bed's answer: each line through BedLevelVisualizer, as its Update Mesh
+                // (#107; docs/audits/bed-level-visualizer.md), the mesh kept when one completes.
+                if state == CommandState::Finished
+                    && let Some(caller) = caller.as_ref()
+                    && store.command_label(&caller.id, id as u32)
+                        == Some(crate::devices::legacy_gcode::PROBE_LABEL)
+                {
+                    let blv = store
+                        .bed_level_visualizers
+                        .entry(caller.id.clone())
+                        .or_default();
+                    blv.enable_mesh_collection();
+                    for line in &output {
+                        if let Some(rows) = blv.process_gcode(line) {
+                            mesh = Some(rows);
+                        }
+                    }
+                }
                 store.command_went(caller.as_ref(), id as u32, state, reason.clone(), output);
                 // A label's command refused fails it; its answer only says the download started.
                 if state == CommandState::Rejected
@@ -1071,6 +1095,12 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
             _ => {}
         }
     }
+    // The mesh Probe bed's answer gave.
+    if let Some(rows) = mesh
+        && let Err(error) = shared.set_mesh(token, rows).await
+    {
+        return failed(error);
+    }
     // A label printed, or not.
     if let Some((job, state, reason)) = ended_label
         && let Err(error) = shared
@@ -1107,9 +1137,11 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
     let known = match name.as_str() {
         "INFO" => {
             // A Marlin printer's model, by the M115 name it gives (extension part 9,
-            // `machine_type`): a profile only when exactly one is named so.
+            // `MACHINE_TYPE` of `firmware_info`): a profile only when exactly one is named so.
             let identity = Identity {
-                machine_type: event["data"]["machine_type"].as_str().map(str::to_owned),
+                machine_type: event["data"]["firmware_info"]["MACHINE_TYPE"]
+                    .as_str()
+                    .map(str::to_owned),
                 ..Identity::default()
             };
             if let Some(profile) = crate::profiles::detect(&identity)
@@ -1117,7 +1149,12 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
             {
                 eprintln!("prusa-connect: the profile of {}: {error}", profile.id);
             }
-            shared.set_details(token, &to_details(&event["data"])).await
+            let mut details = to_details(&event["data"]);
+            // Part 6a: the agent's release is its `User-Agent-Version`, not `firmware`.
+            details.agent_release = Some(header(&headers, "user-agent-version"))
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned);
+            shared.set_details(token, &details).await
         }
         _ => shared.knows(token).await,
     };

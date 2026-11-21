@@ -194,11 +194,15 @@ mod tests {
         use maker_connect_protocol::MachineKind;
         let store = Store::for_test(&pool).await;
         let id = "0123456789abcdef0123456789abcdef";
+        // A Marlin's `firmware` is its own (part 9): the release is the request's
+        // `User-Agent-Version`, kept beside it (part 6a).
         let info = |extensions: serde_json::Value| {
-            crate::devices::prusa_connect::to_details(&serde_json::json!({
-                "firmware": "v0.3.0", "agent_id": id, "extensions": extensions,
+            let mut details = crate::devices::prusa_connect::to_details(&serde_json::json!({
+                "firmware": "Marlin 2.0.9.3", "agent_id": id, "extensions": extensions,
                 "network_info": {"hostname": "orangepipc"},
-            }))
+            }));
+            details.agent_release = Some("v0.3.0".to_owned());
+            details
         };
         let (_, lw, lw_token) = store
             .register_test_machine("LW450", MachineKind::Label)

@@ -15,7 +15,7 @@ macro_rules! machine_select {
             "SELECT id, space_id, name, kind, agent_version, token, unix_seconds(last_seen) AS last_seen, telemetry,
                  profile, profile_chosen, link, details, mesh, media, powered_by,
                  power_channel::bigint AS power_channel, reached_through, agent, peer, out_of_use,
-                 unix_seconds(out_of_use_at) AS out_of_use_at, laser_w, labels, induction_required, ppe,
+                 unix_seconds(out_of_use_at) AS out_of_use_at, laser_w, bed_mm, labels, induction_required, ppe,
                  usb_print_by, farm, sheet
              FROM machines ",
             $tail
@@ -48,6 +48,7 @@ pub(crate) struct MachineRow {
     pub out_of_use: Option<String>,
     pub out_of_use_at: Option<i64>,
     pub laser_w: Option<f64>,
+    pub bed_mm: Option<String>,
     pub labels: Option<String>,
     /// 0: open to every member; 1: needs permission; 2: needs training (crate::access).
     pub induction_required: i32,
@@ -140,6 +141,7 @@ impl MachineRow {
             moonraker_token: (self.link == "simplyprint").then_some(self.token),
             link: self.link,
             laser_w: self.laser_w,
+            bed_mm: self.bed_mm.and_then(|b| serde_json::from_str(&b).ok()),
             labels: self
                 .labels
                 .and_then(|l| serde_json::from_str(&l).ok())
@@ -226,7 +228,8 @@ impl Store {
                 seen_seconds_ago: seen,
                 extensions: details.extensions.clone(),
             };
-            let release = details.firmware.clone();
+            // Part 6a: the agent's own release (`User-Agent-Version`), not the device's firmware.
+            let release = details.agent_release.clone();
             let computer = details.network.as_ref().and_then(|n| n.hostname.clone());
             match agents.iter_mut().find(|a| a.id == agent_id) {
                 Some(agent) => {
@@ -824,6 +827,30 @@ impl Store {
         Ok(kind
             .and_then(|k| serde_json::from_str::<MachineKind>(&k).ok())
             .is_some_and(|k| k == MachineKind::Laser))
+    }
+
+    /// A Marlin printer's bed as its space says it (None: not known). Returns whether the machine
+    /// is in the space.
+    pub async fn set_bed_mm(
+        &self,
+        space: i64,
+        machine: &str,
+        bed: Option<[f64; 3]>,
+    ) -> sqlx::Result<bool> {
+        let bed = bed.map(|b| serde_json::to_string(&b).unwrap_or_default());
+        let mut tx = self.pg().space(space).await?;
+        let n = sqlx::query!(
+            "UPDATE machines SET bed_mm = $1 WHERE id = $2 AND space_id = $3",
+            bed,
+            machine,
+            space
+        )
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        tx.commit().await?;
+        self.changed();
+        Ok(n > 0)
     }
 
     /// A laser's optical power as its owner says (None: the profile's). Returns whether the machine

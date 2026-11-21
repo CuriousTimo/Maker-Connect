@@ -124,6 +124,22 @@ pub fn from_controller(kind: MachineKind, travel_mm: [f64; 3]) -> Profile {
     }
 }
 
+/// A profile from what a Marlin printer's firmware says of itself (its `M115` answer,
+/// `firmware_info`, extension part 9), for one without a profile, as [`from_controller`] for a
+/// laser: its name and its extruders. M115 says nothing of the bed, so no build volume.
+pub fn from_firmware(info: &serde_json::Map<String, serde_json::Value>) -> Profile {
+    let field = |key: &str| info.get(key).and_then(serde_json::Value::as_str);
+    let mut profile = from_controller(MachineKind::Fdm, [0.0; 3]);
+    profile.model = field("MACHINE_TYPE")
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("From its firmware")
+        .to_owned();
+    profile.firmware = Some("marlin".to_owned());
+    profile.extruders = field("EXTRUDER_COUNT").and_then(|n| n.trim().parse().ok());
+    profile
+}
+
 /// The drawing of a kind of machine, for one without a profile yet: a 3D printer, a laser,
 /// a CNC machine.
 pub fn generic_image(kind: MachineKind) -> Option<&'static str> {

@@ -98,17 +98,26 @@ pub struct Extra {
     pub laser_origin_set: bool,
 }
 
+/// A machine without a profile: one from what it says of itself. A laser: its work area from
+/// its controller; a Marlin printer on the agent: what its firmware says (M115, extension part 9).
+fn told_profile(machine: &Machine) -> Option<Profile> {
+    if crate::prusa_connect::marlin_agent(machine) {
+        let info = machine.details.as_ref()?.firmware_info.as_ref()?;
+        let mut profile = profiles::from_firmware(info);
+        // M115 does not say the bed: the space's, when it said it (Settings, Profile).
+        if let Some(bed) = machine.bed_mm {
+            profile.build_volume_mm = bed;
+        }
+        return Some(profile);
+    }
+    let travel = machine.telemetry.as_ref()?.grbl.as_ref()?.travel_mm?;
+    Some(profiles::from_controller(machine.kind, travel))
+}
+
 /// The whole page.
 pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
     let found = machine.profile.as_deref().and_then(profiles::find);
-    // A laser without a profile: its work area from what its controller says.
-    let told = found
-        .is_none()
-        .then(|| {
-            let travel = machine.telemetry.as_ref()?.grbl.as_ref()?.travel_mm?;
-            Some(profiles::from_controller(machine.kind, travel))
-        })
-        .flatten();
+    let told = found.is_none().then(|| told_profile(machine)).flatten();
     let profile = found.or(told.as_ref());
     let (state, state_class) = shown_state(machine);
     let state_class = st_class(&state_class);
@@ -639,7 +648,10 @@ fn bed_level(machine: &Machine, profile: Option<&Profile>, operate: bool) -> Str
         Ok(_) => String::new(),
         Err(why) => format!(r#"<p class="card-sub">{}</p>"#, escape(why)),
     };
-    let [width, depth, _] = profile.map_or([200.0; 3], |p| p.build_volume_mm);
+    let [width, depth, _] = profile
+        .map(|p| p.build_volume_mm)
+        .filter(|v| v[0] > 0.0)
+        .unwrap_or([200.0; 3]);
     let data = serde_json::to_string(&mesh).unwrap_or_else(|_| "null".to_owned());
     format!(
         r#"<div class="tiles">{tiles}</div>
@@ -695,7 +707,15 @@ fn heats(machine: &Machine) -> bool {
 /// nor in its events), and Prusa's server keeps none (`reference/prusa-connect`
 /// `internal/connector/xbuddy/inbound.go:136-159`, the telemetry it keeps). Ours: hiding the
 /// section (the server has no page to hide it on).
-fn shows_bed_mesh(machine: &Machine) -> bool {
+pub(crate) fn shows_bed_mesh(machine: &Machine) -> bool {
+    if crate::prusa_connect::marlin_agent(machine) {
+        // A Marlin printer on the agent: when its M115 says it keeps a mesh (`Cap:LEVELING_DATA`,
+        // extension part 9; ui.md "Bed level").
+        return machine
+            .details
+            .as_ref()
+            .is_some_and(|d| d.can("LEVELING_DATA"));
+    }
     heats(machine) && machine.link != "prusa-connect"
 }
 
@@ -1188,7 +1208,7 @@ fn machine_facts(machine: &Machine, profile: Option<&Profile>) -> (String, Strin
                 } else {
                     "Work area"
                 },
-                Some(p.size()),
+                (label || p.build_volume_mm[0] > 0.0).then(|| p.size()),
             ),
             row("Resolution", p.dpi.map(|d| format!("{d} dpi"))),
             row("Nozzle size", p.nozzle_mm.map(|n| format!("{n} mm"))),
@@ -1216,11 +1236,13 @@ fn machine_facts(machine: &Machine, profile: Option<&Profile>) -> (String, Strin
         ),
         // As the printer says it (a Prusa on Connect: its INFO; Prusa's MK3 through an agent:
         // PRUSA SN, M862.1 Q, its MMU's M707, its EEPROM's counters).
+        // A device on the agent: its `sn` is the agent's, shown with the connection.
         row(
             "Serial number",
             details
                 .serial
                 .clone()
+                .filter(|_| !on_agent(machine))
                 .or_else(|| identity.and_then(|i| i.serial.clone())),
         ),
         row("Printer type", details.printer_type.clone()),
@@ -1251,8 +1273,32 @@ fn machine_facts(machine: &Machine, profile: Option<&Profile>) -> (String, Strin
                 .and_then(|t| t.raw_status.clone()),
         ),
     ]
-    .concat();
+    .concat()
+        + &m115(&details);
     (from_profile, told)
+}
+
+/// What a Marlin printer answered M115 (extension part 9): each field of its first line as it
+/// gave it, then its `Cap:` lines, those it supports and those it does not.
+fn m115(details: &store::Details) -> String {
+    let fields: String = details
+        .firmware_info
+        .iter()
+        .flatten()
+        // the key is the printer's: escaped, as `row` escapes the value
+        .map(|(key, value)| row(&escape(key), value.as_str().map(str::to_owned)))
+        .collect();
+    let caps = |on: bool| {
+        let names: Vec<&str> = details
+            .firmware_capabilities
+            .iter()
+            .flatten()
+            .filter(|(_, v)| v.as_bool() == Some(on))
+            .map(|(k, _)| k.as_str())
+            .collect();
+        (!names.is_empty()).then(|| names.join(", "))
+    };
+    fields + &row("Supports", caps(true)) + &row("Does not support", caps(false))
 }
 
 /// A row the script keeps live; `–` while unknown.
@@ -1885,6 +1931,13 @@ fn control(
                 .map_or("–".to_owned(), |v| format!("{v:.1}"))
         )
     };
+    // Firmware that does not report the head by itself: the numbers are the last M114's.
+    let read = reads_position(machine);
+    let note = if read {
+        r#"<p class="hint" data-position-note>Last read (M114): this firmware does not report where the head is by itself (<code>Cap:AUTOREPORT_POS:0</code>).</p>"#
+    } else {
+        ""
+    };
     let xyz = axis("X", "pos_x", 0)
         + &axis("Y", "pos_y", 1)
         + &if z_max > 0.0 {
@@ -1906,15 +1959,19 @@ fn control(
     let bed = card(
         if heats(machine) { "Bed" } else { "Work area" },
         "The head where the machine says it is, live",
-        &profile.map_or(
-            r#"<p class="empty">Choose a profile under Settings to see the bed.</p>"#.to_owned(),
-            |p| {
-                format!(
-                    r#"<div class="xyz">{xyz}</div><div class="bed-row">{}{gauge}</div>"#,
-                    profiles::bed_svg(p)
-                )
-            },
-        ),
+        &profile
+            // a profile from its firmware knows no bed (M115 does not say it)
+            .filter(|p| p.build_volume_mm[0] > 0.0)
+            .map_or(
+                r#"<p class="empty">Choose a profile under Settings to see the bed.</p>"#
+                    .to_owned(),
+                |p| {
+                    format!(
+                        r#"<div class="xyz">{xyz}</div>{note}<div class="bed-row">{}{gauge}</div>"#,
+                        profiles::bed_svg(p)
+                    )
+                },
+            ),
     );
     // Without 'operate': where the head is, and one notice; no button that would be refused.
     if !operate && store::takes_commands(&machine.link) {
@@ -1936,20 +1993,29 @@ fn control(
         format!(r#"<button name="action" value="{action}">{text}</button>"#)
     };
     let fdm = heats(machine);
-    let home = button("home", "Home all");
+    let mut home = button("home", "Home all");
+    if read {
+        home += &button("read-position", "Read position");
+    }
     if fdm {
-        return printer_controls(machine, profile, t, loaded, &xyz, &gauge, &home, &button);
+        return printer_controls(
+            machine, profile, t, loaded, &xyz, note, &gauge, &home, &button,
+        );
     }
     // laser.html: one card in two columns, as a printer's; the loaded job below.
-    let area = profile.map_or(
-        r#"<p class="empty">Choose a profile under Machine to see the work area.</p>"#.to_owned(),
-        |p| {
-            format!(
-                r#"<div class="bed-row">{}{gauge}</div>"#,
-                profiles::bed_svg(p)
-            )
-        },
-    );
+    let area = profile
+        // a profile from its firmware knows no bed (M115 does not say it)
+        .filter(|p| p.build_volume_mm[0] > 0.0)
+        .map_or(
+            r#"<p class="empty">Choose a profile under Machine to see the work area.</p>"#
+                .to_owned(),
+            |p| {
+                format!(
+                    r#"<div class="bed-row">{}{gauge}</div>"#,
+                    profiles::bed_svg(p)
+                )
+            },
+        );
     let left = format!(
         r#"<h4>Coordinates</h4><div class="xyz">{xyz}</div>{area}{}"#,
         jog_pad()
@@ -1989,19 +2055,23 @@ fn printer_controls(
     t: Option<&maker_connect_protocol::Telemetry>,
     loaded: &str,
     xyz: &str,
+    note: &str,
     gauge: &str,
     home: &str,
     button: &dyn Fn(&str, &str) -> String,
 ) -> String {
-    let bed = profile.map_or(
-        r#"<p class="empty">Choose a profile under Machine to see the bed.</p>"#.to_owned(),
-        |p| {
-            format!(
-                r#"<div class="bed-row">{}{gauge}</div>"#,
-                profiles::bed_svg(p)
-            )
-        },
-    );
+    let bed = profile
+        // a profile from its firmware knows no bed (M115 does not say it)
+        .filter(|p| p.build_volume_mm[0] > 0.0)
+        .map_or(
+            r#"<p class="empty">Choose a profile under Machine to see the bed.</p>"#.to_owned(),
+            |p| {
+                format!(
+                    r#"<div class="bed-row">{}{gauge}</div>"#,
+                    profiles::bed_svg(p)
+                )
+            },
+        );
     // Prusa's MK3 family: no fan control, as PrusaLink has none.
     let fan = if crate::prusa_mk3_machine(machine) {
         String::new()
@@ -2024,7 +2094,7 @@ fn printer_controls(
         String::new()
     };
     let left = format!(
-        r#"<h4>Coordinates</h4><div class="xyz">{xyz}</div>{bed}{pad}<div class="buttons">{home}{level}{}</div><h4>Extruder</h4><div class="buttons">{}{}</div><p class="hint">10 mm at a time; the nozzle must be hot (the printer refuses a cold extrusion).</p>{fan}"#,
+        r#"<h4>Coordinates</h4><div class="xyz">{xyz}</div>{note}{bed}{pad}<div class="buttons">{home}{level}{}</div><h4>Extruder</h4><div class="buttons">{}{}</div><p class="hint">10 mm at a time; the nozzle must be hot (the printer refuses a cold extrusion).</p>{fan}"#,
         button("motors-off", "Motors off"),
         button("extrude", "Extrude 10 mm"),
         button("retract", "Retract 10 mm"),
@@ -2354,13 +2424,29 @@ fn controller(machine: &Machine, operate: bool) -> String {
 /// How a device reaches the hub, the same card for every kind: the way (its own firmware,
 /// Moonraker, simulated), the computer it runs on as it tells, the address its reports come
 /// from, and when the last came.
+/// Whether a device on the Prusa Connect protocol is one of the agent's (a label printer, a
+/// scale, a Marlin printer), not a Prusa's own firmware.
+/// A Marlin printer on the agent whose M115 says it does not report the head by itself
+/// (`Cap:AUTOREPORT_POS:0`, Marlin's `AUTO_REPORT_POSITION` left out): X, Y and Z are what its
+/// last M114 answered, and Controls offers to read them (ui.md "Controls").
+pub(crate) fn reads_position(machine: &Machine) -> bool {
+    crate::prusa_connect::marlin_agent(machine)
+        && machine.details.as_ref().is_some_and(|d| {
+            d.firmware_capabilities
+                .as_ref()
+                .is_some_and(|caps| caps.get("AUTOREPORT_POS").is_some())
+                && !d.can("AUTOREPORT_POS")
+        })
+}
+
+fn on_agent(machine: &Machine) -> bool {
+    machine.link == "prusa-connect"
+        && (machine.kind != MachineKind::Fdm || crate::prusa_connect::marlin_agent(machine))
+}
+
 fn connection(machine: &Machine) -> String {
     let way = match machine.link.as_str() {
-        "prusa-connect"
-            if machine.kind != MachineKind::Fdm || crate::prusa_connect::marlin_agent(machine) =>
-        {
-            "Maker Connect agent (Prusa Connect protocol)"
-        }
+        "prusa-connect" if on_agent(machine) => "Maker Connect agent (Prusa Connect protocol)",
         "prusa-connect" => "Its own firmware (Prusa Connect)",
         "virtual" => "Virtual: simulated in the hub",
         "simplyprint" => "Moonraker, by itself (its SimplyPrint component)",
@@ -2414,6 +2500,16 @@ fn connection(machine: &Machine) -> String {
                 })
                 .or(agent_release),
         ),
+        // The SDK's `sn`, which the agent makes for a device that has none to say (wire.md):
+        // the hub's, to tell devices apart; not the machine's (a Marlin's own is M115's `UUID`).
+        row(
+            "Serial (made by the agent)",
+            machine
+                .details
+                .as_ref()
+                .and_then(|d| d.serial.clone())
+                .filter(|_| on_agent(machine)),
+        ),
         row("Computer", agent.and_then(|a| a.hostname.clone())),
         row("System", system),
         row("Its address", agent.and_then(|a| a.address.clone())),
@@ -2456,13 +2552,19 @@ pub(crate) fn settings(
     let id = escape(&machine.id);
     let name = escape(&machine.name);
     // The profile now, plainly: its drawing, name, size, and whether chosen or recognised.
-    let current = match machine.profile.as_deref().and_then(profiles::find) {
+    let found = machine.profile.as_deref().and_then(profiles::find);
+    let told = found.is_none().then(|| told_profile(machine)).flatten();
+    let current = match found.or(told.as_ref()) {
         Some(p) => format!(
             r#"<div class="current-profile"><div class="current-picture">{picture}</div><div><b>{brand} {model}</b><small>{size}{firmware}</small><span class="profile-how">{how}</span></div></div>"#,
             picture = p.image().unwrap_or(""),
             brand = escape(&p.brand),
             model = escape(&p.model),
-            size = escape(&p.size()),
+            size = if p.kind == MachineKind::Label || p.build_volume_mm[0] > 0.0 {
+                escape(&p.size())
+            } else {
+                "Its bed size is not known: fill it in below, or choose a profile".to_owned()
+            },
             firmware = p
                 .firmware_version
                 .as_deref()
@@ -2477,7 +2579,11 @@ pub(crate) fn settings(
                     format!(" · {} {}", escape(&named), escape(v))
                 })
                 .unwrap_or_default(),
-            how = if machine.profile_chosen {
+            how = if found.is_none() && crate::prusa_connect::marlin_agent(machine) {
+                "From its firmware (M115)"
+            } else if found.is_none() {
+                "From its controller"
+            } else if machine.profile_chosen {
                 "Chosen here"
             } else {
                 "Recognised from what it says"
@@ -2601,12 +2707,25 @@ pub(crate) fn settings(
                 .collect::<String>(),
         )
     };
+    // A profile from its firmware (M115 does not say the bed): its size, as the space says it.
+    let bed = if found.is_none() && told.is_some() && crate::prusa_connect::marlin_agent(machine) {
+        let [x, y, z] = machine
+            .bed_mm
+            .map_or([String::new(), String::new(), String::new()], |b| {
+                b.map(|v| v.to_string())
+            });
+        format!(
+            r#"<form method="post" action="{id}/bed" data-async data-done="Saved" data-then="reload" class="bed-size"><label>X <input name="x" inputmode="decimal" value="{x}" placeholder="220" aria-label="Bed width X in mm" style="width:5em"></label> <label>Y <input name="y" inputmode="decimal" value="{y}" placeholder="220" aria-label="Bed depth Y in mm" style="width:5em"></label> <label>Z <input name="z" inputmode="decimal" value="{z}" placeholder="250" aria-label="Height Z in mm" style="width:5em"></label> <small>mm</small> <button class="ghost">Save</button></form><p class="hint">Its bed size: its firmware does not say it. X0 Y0 is the front left corner.</p>"#
+        )
+    } else {
+        String::new()
+    };
     let forms = format!(
         r#"<h4>Name</h4>
 <form method="post" action="{id}/name" data-async data-done="Renamed" data-rename><input name="name" value="{name}" aria-label="Name" maxlength="60" required><button>Rename</button></form>
 <h4>Profile</h4>
 {current}
-<details class="change-profile"><summary class="ghost-button">Change profile</summary>
+{bed}<details class="change-profile"><summary class="ghost-button">Change profile</summary>
 <div class="picker in-card" data-picker data-action="{id}/profile" data-selected="{chosen}" data-auto="{auto}" data-kind="{own_kind}"></div>
 </details>
 {laser}<h4>In use</h4>
@@ -2619,7 +2738,7 @@ pub(crate) fn settings(
             .and_then(|v| v.as_str().map(str::to_owned))
             .unwrap_or_default(),
     );
-    let about = machine_facts(machine, machine.profile.as_deref().and_then(profiles::find));
+    let about = machine_facts(machine, found.or(told.as_ref()));
     let storage: String = details
         .storages
         .iter()

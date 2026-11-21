@@ -1,7 +1,7 @@
 use crate::commands::command;
 use crate::link::pair;
 use crate::web::machines::{
-    add_klipper, add_virtual, answer, choose_media, choose_profile, history, laser_power,
+    add_klipper, add_virtual, answer, bed_size, choose_media, choose_profile, history, laser_power,
     machine_page, machine_stream, machines, move_machine, not_ready, out_of_use, page,
     profile_image, profile_list, remove, rename, set_labels, taken,
 };
@@ -42,6 +42,7 @@ pub fn app(store: Store) -> Router {
         .route("/machines/{id}/not-ready", post(not_ready))
         .route("/machines/{id}/answer", post(answer))
         .route("/machines/{id}/laser", post(laser_power))
+        .route("/machines/{id}/bed", post(bed_size))
         .route("/api/machines/{id}/history", get(history))
         .route("/api/profiles", get(profile_list))
         .route("/profiles/{brand}/{file}", get(profile_image))

@@ -100,6 +100,9 @@ pub(crate) fn action(name: &str) -> Option<(&'static str, &'static str)> {
         "fan-on" => ("Print fan on", "M106 S255"),
         "fan-off" => ("Print fan off", "M107"),
         "motors-off" => ("Motors off", "M18"),
+        // Where the head is, when a person asks: firmware without `Cap:AUTOREPORT_POS` tells it
+        // only to an M114 (OctoPrint sends M154 only to firmware with it, comm.py; part 9).
+        "read-position" => ("Read position", "M114"),
         // As PrusaLink extrudes (web/controls.py): relative E, at its E feed (100 mm/min).
         "extrude" => ("Extrude 10 mm", "M83\nG1 F100 E10"),
         "retract" => ("Retract 10 mm", "M83\nG1 F100 E-10"),
@@ -110,7 +113,7 @@ pub(crate) fn action(name: &str) -> Option<(&'static str, &'static str)> {
 }
 
 /// The label of measuring the bed where the mesh comes back to the page.
-const PROBE_LABEL: &str = "Probe the bed";
+pub(crate) const PROBE_LABEL: &str = "Probe the bed";
 
 /// Prusa Connect's `core.command.mesh_bed_leveling`, as Prusa's server sends it to a printer on
 /// Buddy (`reference/prusa-connect` `internal/connector/xbuddy/verbs.go:41`, `:303-308`: a G-code
@@ -140,6 +143,16 @@ pub(crate) fn probe_gcode(
     // Klipper measures with BED_MESH_CALIBRATE; Moonraker sends the mesh by itself.
     if machine.link == "simplyprint" {
         return Ok((PROBE_LABEL, "G28\nBED_MESH_CALIBRATE"));
+    }
+    // A Marlin printer on the agent (extension part 9): as a Marlin below, when its M115 says it
+    // measures (`Cap:AUTOLEVEL`) and keeps a mesh (`Cap:LEVELING_DATA`, ui.md "Bed level").
+    if crate::prusa_connect::marlin_agent(machine) {
+        let can = |cap: &str| machine.details.as_ref().is_some_and(|d| d.can(cap));
+        return if can("AUTOLEVEL") && can("LEVELING_DATA") {
+            Ok((PROBE_LABEL, "G28\nG29\nM420 V"))
+        } else {
+            Err("Its firmware does not say it measures the bed (M115: AUTOLEVEL, LEVELING_DATA)")
+        };
     }
     if machine.link == "prusa-connect" {
         return Ok(MESH_BED_LEVELING);

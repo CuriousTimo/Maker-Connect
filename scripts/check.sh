@@ -65,7 +65,7 @@ BEFORE=$(shasum $FIXTURES)
 
 # Audits that must hold: every row the checker can prove, proven.
 for c in buddy-audit-check klipper-audit-check labelle-port-check dymo-labelwriter-450-check \
-         spoolman-audit-check usbscale-audit-check sdk-extension-check; do
+         spoolman-audit-check usbscale-audit-check sdk-extension-check bed-level-visualizer-check; do
     step "$c" quiet python3 -I "scripts/$c.py"
 done
 step "laser profiles = LaserFoundry's presets" quiet python3 -I scripts/laserfoundry-presets.py check
