@@ -29,6 +29,27 @@ This page proposes exactly those additions, for four kinds of device:
 And one for the program that hosts such devices (part 6): which devices belong to one agent, and
 whether that agent and the server know the same additions.
 
+## The parts and their issues
+
+Each part is written in the design step of its deliverable. Every such step carries the label
+`sdk-extension`, so that the parts still to write can be taken up together.
+
+| Part | For | State | Issue |
+|---|---|---|---|
+| 1 | what a device is (a string `printer_type`) | written | |
+| 2 | the DYMO LabelManager PnP | written | |
+| 3 | label printers on DYMO's CUPS driver; the LabelWriter 320's type | written; the 320 to add | #25 |
+| 4 | a laser cutter on GRBL | written | #89 |
+| 5 | a USB camera with live view | written | #5 |
+| 6a | who the agent is, and what each side knows | written | #51 |
+| 6b | updating the agent (`UPGRADE` with a release) | to write | #56 |
+| to come | a Marlin printer: its type and what it sends | to write | #83 |
+| to come | a scale: its type and telemetry | to write | #130 |
+| to come | the bed mesh: telemetry and a command to measure | to write | #107 |
+| to come | a door controller: its type, states and `OPEN_LOCK` | to write | #121 |
+| maybe | the print's place in its file (the G-code viewer) | to look at | #112 |
+| maybe | a layer change for timelapses (likely there already) | to look at | #116 |
+
 ## Rules for every addition
 
 - **Additive only.** No existing field, header, frame or command changes its meaning. An addition is a
