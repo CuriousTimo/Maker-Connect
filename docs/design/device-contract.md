@@ -145,7 +145,7 @@ GRBL's ten (`IDLE` … `UNKNOWN`).
 |---|---|---|---|---|
 | `marlin` (3D printer) | Prusa Connect's `core.command.*` names where the meaning is the same, else `mc.printer.*` | OctoPrint's 16 comm states, as they are; mapped to Prusa Connect names only in the API layer | agent, OctoPrint port | OctoPrint 1.11.8 `42be740` |
 | `prusa` (3D printer) | the 3D-printer verbs of the `buddy-ws` dialect's baseline | Buddy's | hub, driver `prusa-buddy`, dialect `buddy-ws` | Buddy 6.4+ |
-| `grbl` (laser) | `mc.laser.*` (11: no raw G-code, [decision](decisions/20261119-no-raw-gcode-on-a-laser.md)) | GRBL's 10 machine states | agent, LaserFoundry port | LaserFoundry v0.5.0 `61febdb` |
+| `grbl` (laser) | `mc.laser.*` (11: no raw G-code, [decision](decisions/20261119-no-raw-gcode-on-a-laser.md)) | GRBL's 10 machine states | agent, LaserFoundry port | LaserFoundry v0.6.0 `8f07f98` |
 | `labelmanager` (tape) | `mc.label.print` | `DISCONNECTED`, `IDLE`, `BUSY` (ours, approved) | agent, labelle port | labelle `5e8f1e5` |
 | `labelwriter` (labels) | `mc.label.print` | `IDLE`, `PRINTING`, `OUT_OF_PAPER`, `ERROR` | agent, DYMO CUPS port | DYMO CUPS driver 1.4.0 |
 | `scale` | none (state only: weight, stable) | usbscale's 8 + unknown | agent, usbscale port | usbscale `9ed1cb5` |

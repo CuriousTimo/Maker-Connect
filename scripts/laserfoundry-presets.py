@@ -20,7 +20,8 @@ PROFILES = os.path.join(ROOT, "profiles")
 BRAND_DIR = {"xTool": "xtool", "Creality": "creality", "Ortur": "ortur", "Sculpfun": "sculpfun",
              "AtomStack": "atomstack", "TwoTrees": "two-trees", "NEJE": "neje", "Longer": "longer"}
 # Presets that are a profile the hub already had under another file name (kept, so machines keep it).
-KEEP_ID = {"Ortur Laser Master 3 (10W module)": "lm3", "Creality Falcon2 22W": "falcon2-22w"}
+KEEP_ID = {"Ortur Laser Master 3 (10W module)": "lm3", "Creality Falcon2 22W": "falcon2-22w",
+           "Ortur Laser Master 2 Pro S2 (10W module)": "lm2-pro-s2"}
 
 
 def presets_file():

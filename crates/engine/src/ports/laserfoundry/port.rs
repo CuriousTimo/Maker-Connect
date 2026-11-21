@@ -1,27 +1,27 @@
 //! The port's top edge (`docs/archive/plans/agent-engine.md`, Step 3d): the engine's [`Port`] for `--mode grbl`,
-//! over [`GrblMachine`] (`crates/grbl`, LaserFoundry v0.5.0). It gives LaserFoundry's `Link` its
+//! over [`GrblMachine`] (`crates/grbl`, LaserFoundry v0.6.0). It gives LaserFoundry's `Link` its
 //! orders and tells the engine what it reports; nothing goes to the machine that LaserFoundry's
 //! `Link` does not send. **All of it is ours** (G1 and on), as `docs/archive/plans/agent-engine.md` lists:
 //!
 //! - G1: an `Action` is the `Link` call the LaserFoundry app makes for the same control:
 //!   Unlock `Link::unlock` (`control_box.rs:160`), SetOrigin `set_zero` (:163), GoOrigin
 //!   `go_to_zero` (:166), Home `home` (:157), ReadSettings `request_settings`
-//!   (`settings_ui.rs:60`), Jog `jog(dx, dy, feed)` (`panels.rs:813`), typed G-code
-//!   `send_line` (`panels.rs:865`), one call per line.
+//!   (`settings_ui.rs:60`), Jog `jog(dx, dy, feed)` (`panels.rs:888`), typed G-code
+//!   `send_line` (`panels.rs:949`), one call per line.
 //! - G2: FDM actions, a jog with Z, and Home's axes: LaserFoundry has one homing cycle (`$H`)
 //!   and no Z jog; the others fail "LaserFoundry has no such control".
 //! - G3: `Link::stop`, a soft reset, is LaserFoundry's Stop button and is a job control here.
 //! - G4: `Frame { download }` gets, from the agent's link, the local path of the file it fetched
 //!   (B2 fetch); the port reads the file's extent (G16) and runs `GrblMachine::frame` on it
-//!   (`gcode::frame` as a job, `panels.rs:734-740`). A path that is not a readable file fails.
-//! - G5: a job is `GrblMachine::start`; `from_line` is `start_from_line` (`ui-egui` :1258-1266) with
+//!   (`gcode::frame` as a job, `panels.rs:804-810`). A path that is not a readable file fails.
+//! - G5: a job is `GrblMachine::start`; `from_line` is `start_from_line` (`ui-egui` :1275-1283) with
 //!   `resume_from`; the line to start again from is `restart_line`, in the design's numbering
 //!   (`Restart::place_in_design`).
 //! - G6: pause, resume and stop are `Link::pause`, `resume`, `stop`; a refusal is the report's
 //!   `problem` until the next order. An answer to a question fails the same way: LaserFoundry
 //!   asks none.
 //! - G7: the port reads the snapshot every 100 ms (`TICK`), as LaserFoundry's app does for a
-//!   threaded link (`ui-egui/src/lib.rs:1384`): no byte goes to the machine for it (the 200 ms
+//!   threaded link (`ui-egui/src/lib.rs:1401`): no byte goes to the machine for it (the 200 ms
 //!   `?` poll is the `Link`'s).
 //! - G8: telemetry is the snapshot's: the state, the machine position (not a work position), the
 //!   progress (the time left is a figure for the hub's UI only, `crates/grbl` `telemetry`; it is
@@ -46,7 +46,7 @@
 //!   is required: without it the machine does not open, loudly.
 //!
 //! Not covered: the app's confirmation of a start from the head's position or a user origin
-//! (`lib.rs:1250`; a program file has no origin setting, the person frames and starts at the
+//! (`lib.rs:1267`; a program file has no origin setting, the person frames and starts at the
 //! machine); Marlin and Smoothieware lasers; a Z axis.
 
 use crate::{Event, Order, Port};
@@ -62,7 +62,7 @@ pub const NO_SUCH_CONTROL: &str = "LaserFoundry has no such control";
 pub const NO_FRAME_FILE: &str = "LaserFoundry frames a file: this command has none";
 /// G6: the problem shown when an answer arrives.
 pub const NO_QUESTION: &str = "LaserFoundry asks no question to answer";
-/// G7: how often the port looks at what the link has heard (`ui-egui/src/lib.rs:1384`).
+/// G7: how often the port looks at what the link has heard (`ui-egui/src/lib.rs:1401`).
 pub const TICK: Duration = Duration::from_millis(100);
 
 /// How the port gets its machine.

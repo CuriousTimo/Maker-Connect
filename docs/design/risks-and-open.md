@@ -456,4 +456,4 @@ We follow each reference at a pinned commit; an unmerged upstream pull request i
 | prusa3d/Prusa-Link#1002 WebSocket, #154 multiple instances, #1039 and #943 systemd user units | open | #154 is our #12's question on their side; our agents run as `systemd --user` units; the hub is a system unit ([architecture.md](architecture.md#deployment)) |
 | prusa3d/Prusa-Link PR #1062: Huffman tables for UVC MJPEG | open | not our reference: FFmpeg's `mjpeg2jpeg` is ([cameras.md](cameras.md)) |
 | prusa3d/Prusa-Error-Codes PRs #203, #195, #98 | open | [OQ-25](#oq-25-showing-prusa-error-codes) |
-| StitchFoundry/laserfoundry PRs #137, #138 | merged | our laser reference stays LaserFoundry v0.5.0 `61febdb` until re-pinned; the `maker-connect` fork follows upstream by sync merges |
+| StitchFoundry/laserfoundry PRs #137, #138 | merged | our laser stack is pinned to LaserFoundry v0.6.0 `8f07f98`; the `maker-connect` fork follows upstream by sync merges |

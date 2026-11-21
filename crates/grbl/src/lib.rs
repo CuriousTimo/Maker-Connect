@@ -1,12 +1,12 @@
 //! A GRBL machine (a laser) on the agent's serial port, through LaserFoundry's
-//! `laserfoundry-device` and `laserfoundry-gcode` (v0.5.0, 61febdb; MIT OR Apache-2.0). Its
+//! `laserfoundry-device` and `laserfoundry-gcode` (v0.6.0, 8f07f98; MIT OR Apache-2.0). Its
 //! `Link` keeps the connection on a thread of its own, asks the status every 200 ms, streams a
 //! job by GRBL's character counting, and stops by a soft reset, which switches the laser off.
 //!
 //! **Only LaserFoundry's behaviour goes on the wire.** What this crate adds is the part of
-//! LaserFoundry's app (`crates/ui-egui/src/lib.rs`, v0.5.0) a host without its window needs: the
-//! link logic of `poll_link` (:1379-1410) and `reconnect_tick` (:1347-1377), and the refusals of
-//! `start_job_with` (:1221-1251). Each is marked with its file and line in LaserFoundry; what is
+//! LaserFoundry's app (`crates/ui-egui/src/lib.rs`, v0.6.0) a host without its window needs: the
+//! link logic of `poll_link` (:1396-1427) and `reconnect_tick` (:1364-1394), and the refusals of
+//! `start_job_with` (:1238-1268). Each is marked with its file and line in LaserFoundry; what is
 //! ours is listed in `docs/archive/plans/agent-engine.md`, "Step 3d: the laser" (G1 and on).
 //!
 //! Nothing here waits for the machine: a command is handed to the `Link` and answered later,
@@ -23,17 +23,17 @@ use maker_connect_protocol::{
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
 
-/// `ui-egui/src/lib.rs:82`: attempts made to get a lost serial connection back before giving up.
+/// `ui-egui/src/lib.rs:84`: attempts made to get a lost serial connection back before giving up.
 pub const RECONNECT_ATTEMPTS: u32 = 8;
-/// `ui-egui/src/lib.rs:84`: the longest wait between attempts.
+/// `ui-egui/src/lib.rs:86`: the longest wait between attempts.
 pub const RECONNECT_MAX_WAIT: Duration = Duration::from_secs(30);
-/// `ui-egui/src/lib.rs:457`: `reconnect_wait`, the first wait; each attempt doubles it.
+/// `ui-egui/src/lib.rs:476`: `reconnect_wait`, the first wait; each attempt doubles it.
 pub const RECONNECT_WAIT: Duration = Duration::from_secs(2);
-/// `ui-egui/src/lib.rs:413`: `jog_feed`, the feed of a jog the page chose none for, mm/min.
+/// `ui-egui/src/lib.rs:430`: `jog_feed`, the feed of a jog the page chose none for, mm/min.
 pub const JOG_FEED: f64 = 3000.0;
 /// `crates/engine/src/cmd/job.rs:241`: `frame_speed`, mm/min.
 pub const FRAME_SPEED: f64 = 3000.0;
-/// `ui-egui/src/lib.rs:416`: `frame_power`, percent: the beam is off.
+/// `ui-egui/src/lib.rs:433`: `frame_power`, percent: the beam is off.
 pub const FRAME_POWER: f64 = 0.0;
 /// `crates/device/src/serial.rs:9`: `DEFAULT_BAUD`.
 #[cfg(feature = "serial")]
@@ -59,7 +59,7 @@ pub enum Command {
     Jog(f64, f64, f64),
     /// `Link::jog_to(x, y, feed)`: to a place, in machine coordinates (the hub's virtual lasers).
     JogTo(f64, f64, f64),
-    /// `Link::send_line`: a line as typed (the app's console, `panels.rs:865`).
+    /// `Link::send_line`: a line as typed (the app's console, `panels.rs:949`).
     Line(String),
 }
 
@@ -125,7 +125,7 @@ impl Outstanding {
     }
 }
 
-/// A lost connection being retried (`ui-egui/src/lib.rs:87`).
+/// A lost connection being retried (`ui-egui/src/lib.rs:89`).
 struct Reconnect {
     attempts: u32,
     next: Instant,
@@ -139,11 +139,11 @@ pub struct GrblMachine {
     /// `ui-egui` `target`: a serial port to open again; none for a simulator.
     reopen: Option<Reopen>,
     reconnect: Option<Reconnect>,
-    /// `ui-egui` `auto_reconnect` (:455), true.
+    /// `ui-egui` `auto_reconnect` (:474), true.
     auto_reconnect: bool,
-    /// `ui-egui` `reconnect_wait` (:457).
+    /// `ui-egui` `reconnect_wait` (:476).
     reconnect_wait: Duration,
-    /// `ui-egui` `settings_asked` (:262).
+    /// `ui-egui` `settings_asked` (:274).
     settings_asked: bool,
     /// What is said about the connection, in the app's words (`ui-egui` `status`).
     problem: Option<String>,
@@ -184,14 +184,14 @@ impl GrblMachine {
     }
 
     /// A machine on a serial target: opened already, and opened again as
-    /// `ui-egui/src/lib.rs:1347-1377` does after a lost connection.
+    /// `ui-egui/src/lib.rs:1364-1394` does after a lost connection.
     pub fn with_reopen(first: Box<dyn Transport + Send>, reopen: Reopen) -> Self {
         Self::with(Some(first), Some(reopen))
     }
 
     fn with(first: Option<Box<dyn Transport + Send>>, reopen: Option<Reopen>) -> Self {
         GrblMachine {
-            // `ui-egui/src/lib.rs:1177`: `Link::connect_with(t, Protocol::Grbl)`, which is `Link::connect`.
+            // `ui-egui/src/lib.rs:1194`: `Link::connect_with(t, Protocol::Grbl)`, which is `Link::connect`.
             link: first.map(Link::connect),
             snap: None,
             reopen,
@@ -234,17 +234,17 @@ impl GrblMachine {
         self.job.is_some()
     }
 
-    /// `ui-egui` `link_do` (:1331): runs `Link` calls and hands back a refusal as its text. The
+    /// `ui-egui` `link_do` (:1348): runs `Link` calls and hands back a refusal as its text. The
     /// answers come later, in [`Update::done`]. Lines the link refuses after others went are
     /// reported once those are answered; a command that sends no line (an empty one) is done
     /// at once.
     pub fn submit(&mut self, commands: &[Command]) -> Result<Ticket, String> {
         let Some(link) = &self.link else {
-            // `ui-egui/src/lib.rs:1333` (`link_do`)
+            // `ui-egui/src/lib.rs:1350` (`link_do`)
             return Err("Not connected".to_owned());
         };
         if self.job.is_some() {
-            // `crates/device/src/link.rs:54` and `:277-278`, `LinkError::Busy`, `require_idle`: the link's own words. It reads
+            // `crates/device/src/link.rs:54` and `:283-284`, `LinkError::Busy`, `require_idle`: the link's own words. It reads
             // its snapshot for this, which says so only once its thread took the job up.
             return Err("a job is running; stop it first".to_owned());
         }
@@ -283,7 +283,7 @@ impl GrblMachine {
         Ok(ticket)
     }
 
-    /// Starts a job as `ui-egui` `start_job_with` (:1221-1251) does: the refusals, then the
+    /// Starts a job as `ui-egui` `start_job_with` (:1238-1268) does: the refusals, then the
     /// program handed to the link; from a 1-based line of it when given, rebuilt by `resume_from`
     /// (`start_from_line`, :1258-1266) so the head first goes there with the beam off.
     pub fn start(
@@ -304,7 +304,7 @@ impl GrblMachine {
         self.begin(Some(id), None, name, streamed, restart)
     }
 
-    /// `crates/engine/src/cmd/job.rs:245` `frame` and `ui-egui/src/panels.rs:734-740`
+    /// `crates/engine/src/cmd/job.rs:245` `frame` and `ui-egui/src/panels.rs:804-810`
     /// `frame_action`: the outline of `bounds` (`x0, y0, x1, y1`, mm) as
     /// `laserfoundry_gcode::frame` writes it, run as a job through the same refusals as Start.
     /// Answered in [`Update::done`] when the frame ends.
@@ -360,14 +360,14 @@ impl GrblMachine {
         restart: Option<(String, usize)>,
     ) -> Result<(), String> {
         let Some(link) = &self.link else {
-            // `ui-egui/src/lib.rs:1222-1224`
+            // `ui-egui/src/lib.rs:1239-1241`
             return Err("Connect to a machine (or the simulator) first".to_owned());
         };
         if self.job.is_some() {
-            // `crates/device/src/link.rs:54` and `:277-278`, `LinkError::Busy`, `require_idle`: the link's own words.
+            // `crates/device/src/link.rs:54` and `:283-284`, `LinkError::Busy`, `require_idle`: the link's own words.
             return Err("a job is running; stop it first".to_owned());
         }
-        // `ui-egui/src/lib.rs:1232-1236` and `:1520-1532`
+        // `ui-egui/src/lib.rs:1249-1253` and `:1537-1549`
         if let Some(why) = self
             .snap
             .as_ref()
@@ -376,7 +376,7 @@ impl GrblMachine {
         {
             return Err(why.to_owned());
         }
-        // `ui-egui/src/lib.rs:1239-1246` and `settings_ui.rs:26-31`
+        // `ui-egui/src/lib.rs:1256-1263` and `settings_ui.rs:26-31`
         if self
             .snap
             .as_ref()
@@ -403,7 +403,7 @@ impl GrblMachine {
         Ok(())
     }
 
-    /// Pause, resume or stop, as the app's buttons do (`panels.rs:766-776`): `Link::pause`,
+    /// Pause, resume or stop, as the app's buttons do (`panels.rs:836-846`): `Link::pause`,
     /// `Link::resume`, `Link::stop` (a soft reset, which the app offers with or without a job).
     pub fn control(&mut self, control: JobControl) -> Result<(), String> {
         let Some(link) = &self.link else {
@@ -440,7 +440,7 @@ impl GrblMachine {
         result.map_err(|e| e.to_string())
     }
 
-    /// `ui-egui` `reconnect_tick` (:1347-1377). A reconnected machine is idle: a job that was
+    /// `ui-egui` `reconnect_tick` (:1364-1394). A reconnected machine is idle: a job that was
     /// running is never resumed.
     fn reconnect_tick(&mut self) {
         let Some(state) = &self.reconnect else { return };
@@ -476,7 +476,7 @@ impl GrblMachine {
         }
     }
 
-    /// `ui-egui` `poll_link` (:1379-1410), then what the hub is told: the commands answered, the
+    /// `ui-egui` `poll_link` (:1396-1427), then what the hub is told: the commands answered, the
     /// job ended, and what the machine is doing.
     pub fn report(&mut self) -> Update {
         self.reconnect_tick();
@@ -522,7 +522,7 @@ impl GrblMachine {
                 }
                 self.snap = Some(snap);
             } else {
-                // `ui-egui/src/lib.rs:1387-1400`
+                // `ui-egui/src/lib.rs:1404-1417`
                 let had_job = matches!(
                     snap.job,
                     JobState::Running | JobState::Paused | JobState::Finished(Err(_))
@@ -638,7 +638,7 @@ impl GrblMachine {
     }
 
     /// The end of a job as the hub is told it; a frame answers its command instead.
-    /// `ui-egui` `record_job_position` (:1291-1328) is where the app works out the line to
+    /// `ui-egui` `record_job_position` (:1308-1345) is where the app works out the line to
     /// start again from.
     fn end(&self, job: &Running, snap: &Snapshot, done: &mut Vec<Done>) -> Option<JobEnd> {
         let result = match &snap.job {
@@ -717,14 +717,14 @@ impl GrblMachine {
     }
 }
 
-/// `ui-egui/src/lib.rs:1371`: the wait after `attempts` failed attempts, doubling, at most
+/// `ui-egui/src/lib.rs:1388`: the wait after `attempts` failed attempts, doubling, at most
 /// [`RECONNECT_MAX_WAIT`].
 fn wait_after(first: Duration, attempts: u32) -> Duration {
     (first * 2u32.saturating_pow(attempts)).min(RECONNECT_MAX_WAIT)
 }
 
 impl Running {
-    /// `ui-egui` `record_job_position` (:1291-1328) and `Restart::place_in_design` (:105-115):
+    /// `ui-egui` `record_job_position` (:1308-1345) and `Restart::place_in_design` (:107-117):
     /// the 1-based line to start again from after `acknowledged` lines of the stream were
     /// acknowledged, in the design's program when the stream was rebuilt from a line.
     fn file_line(&self, acknowledged: usize) -> u64 {
@@ -763,7 +763,7 @@ pub fn state_name(state: Grbl) -> &'static str {
     }
 }
 
-/// `ui-egui/src/lib.rs:1520-1532` `not_ready`: why a job cannot start while the controller
+/// `ui-egui/src/lib.rs:1537-1549` `not_ready`: why a job cannot start while the controller
 /// reports `state` (`None` when it can).
 fn not_ready(state: Grbl) -> Option<&'static str> {
     Some(match state {

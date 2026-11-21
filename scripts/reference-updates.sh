@@ -9,7 +9,7 @@ set -u
 REFS=(
   "reference/OctoPrint-1.11.8|1.11.8|tags:1.11.*|src/octoprint/util/comm.py src/octoprint/printer/standard.py src/octoprint/printer/profile.py src/octoprint/settings/__init__.py src/octoprint/schema/config src/octoprint/events.py src/octoprint/util/__init__.py src/octoprint/util/files.py src/octoprint/util/text.py src/octoprint/filemanager/__init__.py src/octoprint/plugins/action_command_prompt src/octoprint/server/api/printer.py src/octoprint/server/api/job.py src/octoprint/server/api/files.py src/octoprint/plugins/virtual_printer"
   "reference/labelle|5e8f1e5|origin/main|src/labelle/lib/devices src/labelle/lib/constants.py src/labelle/lib/utils.py src/labelle/lib/render_engines src/labelle/cli/cli.py"
-  "reference/laserfoundry|v0.5.0|tags:v*|crates/device crates/gcode crates/ui-egui/src/lib.rs crates/ui-egui/src/settings_ui.rs"
+  "reference/laserfoundry|v0.6.0|tags:v*|crates/device crates/gcode crates/ui-egui/src/lib.rs crates/ui-egui/src/settings_ui.rs"
 )
 # Not git checkouts here (copies of single files): check their newer patch releases by hand.
 COPIES="reference/cpython-3.13 (CPython 3.13.x), reference/pillow-12.3.0 (Pillow 12.x), pyserial 3.5 and pyusb 1.3.1 in the venvs"

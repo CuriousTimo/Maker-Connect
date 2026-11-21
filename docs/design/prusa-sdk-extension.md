@@ -201,7 +201,7 @@ is the server's data (DYMO Connect's roll catalogue), not part of the protocol.
 
 ## Part 4: a GRBL laser cutter (`grbl.laser`)
 
-The reference for the machine side is LaserFoundry v0.5.0 `61febdb`
+The reference for the machine side is LaserFoundry v0.6.0 `8f07f98`
 ([device-contract.md](device-contract.md#kinds)). A laser offers no raw G-code: nothing but a start can
 switch the beam on ([decision](decisions/20261119-no-raw-gcode-on-a-laser.md)).
 

@@ -1,4 +1,4 @@
-//! The GRBL laser port (LaserFoundry v0.5.0, `ports/laserfoundry`) behind the contract: device map §4.
+//! The GRBL laser port (LaserFoundry v0.6.0, `ports/laserfoundry`) behind the contract: device map §4.
 //!
 //! The state is LaserFoundry's `MachineState` (`crates/device/src/status.rs:3-14`), from
 //! [`LaserFoundryPort::with_machine_state_hook`]. `mc.laser.start` is person-only in the registry: the
@@ -121,7 +121,7 @@ impl Mapping for Grbl {
     fn identity(&self) -> Identity {
         Identity {
             vendor: String::new(),
-            model: "GRBL (LaserFoundry v0.5.0)".into(),
+            model: "GRBL (LaserFoundry v0.6.0)".into(),
             firmware: FirmwareLabel::default(),
             serial: String::new(),
             unit_uid: String::new(),

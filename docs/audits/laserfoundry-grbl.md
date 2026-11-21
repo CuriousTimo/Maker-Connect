@@ -1,7 +1,7 @@
 # GRBL lasers: our port against LaserFoundry
 
 **The one reference:** LaserFoundry (github.com/Stitchwright/laserfoundry, MIT OR Apache-2.0) at
-**v0.5.0**, commit `61febdb` (`61febdb5d18f08f299f8501e44656da047a2ab09`), in `reference/laserfoundry`
+**v0.6.0**, commit `8f07f98` (`8f07f98dc5338f0d43df98f08ae6391896e5f96f`), in `reference/laserfoundry`
 (read and run in a separate `git worktree` at the tag; the checkout is not moved). Its crates:
 `laserfoundry-device` (`Link`, `SimulatedGrbl`, `restart_line`) and `laserfoundry-gcode`
 (`resume_from`, `frame`), used as libraries by `crates/grbl`, and the link logic of its app
@@ -16,11 +16,11 @@ job it is given, and after a reconnect nothing.
 
 ## 1. LaserFoundry's own tests, run
 
-`cargo test -p laserfoundry-device -p laserfoundry-gcode` at v0.5.0, in the worktree:
-**71 and 49 tests pass** (the `Link`'s, the stream's character counting, `resume_from`, `restart_line`,
-`frame`). The app's own `cargo test -p laserfoundry-ui-egui`: **292 pass**, among them its three
-reconnect tests (`tests.rs:2592-2704`) and its laser-mode and not-ready refusals (`tests.rs:1784`,
-`:1801`), which `crates/grbl/src/tests.rs` repeats on the port's side (section 3).
+`cargo test -p laserfoundry-device -p laserfoundry-gcode` at v0.6.0, in the worktree:
+**72 and 49 tests pass** (the `Link`'s, the stream's character counting, `resume_from`, `restart_line`,
+`frame`). The app's own `cargo test -p laserfoundry-ui-egui`: **308 pass**, among them its three
+reconnect tests (`tests.rs:2634-2746`) and its laser-mode and not-ready refusals (`tests.rs:1821`,
+`:1838`), which `crates/grbl/src/tests.rs` repeats on the port's side (section 3).
 
 ## 2. The bytes: the reference's `Link` against our port
 
@@ -29,10 +29,10 @@ behind a recorder that keeps every byte written to it, driven twice per scenario
 fresh connection:
 
 - **the reference:** `Link::connect`, then the calls LaserFoundry's app makes in the order it makes
-  them (the file and line of each call is a comment at its step in `proof.rs`: `lib.rs:1177` connect,
-  `:1401-1405` the settings after the first status, `control_box.rs:157-166` and `panels.rs:813-865`
-  the controls, `panels.rs:734-740` and `crates/gcode/src/lib.rs:92` the frame, `panels.rs:766-776`
-  pause, resume and stop, `lib.rs:1258-1266` and `:1291-1328` start again from a line); not a
+  them (the file and line of each call is a comment at its step in `proof.rs`: `lib.rs:1194` connect,
+  `:1418-1422` the settings after the first status, `control_box.rs:157-166` and `panels.rs:888-949`
+  the controls, `panels.rs:804-810` and `crates/gcode/src/lib.rs:96` the frame, `panels.rs:836-846`
+  pause, resume and stop, `lib.rs:1275-1283` and `:1308-1345` start again from a line); not a
   script of ours;
 - **ours:** the same scenario as orders to the engine's port (`Order::Command`, `Order::Job`,
   `Order::Control`), on the same simulator and recorder.
@@ -42,7 +42,7 @@ The bytes are cut into tokens: each line, and each real-time byte (`!` `<21>`, `
 not compared: how many there are depends on how long a scenario takes (in these runs 1 each, 7
 in the pause and resume run, on both sides). Where a pause or a stop falls among a job's lines
 depends on timing: both sides give the order 400 ms after the job starts (the app calls `Link::stop` and
-`pause` as the button is pressed, `panels.rs:766-776`, `control_box.rs:141-149`; the port acts on an
+`pause` as the button is pressed, `panels.rs:836-846`, `control_box.rs:141-149`; the port acts on an
 order the moment it arrives, the 100 ms tick only reads the snapshot, G7). In six runs each, stop
 fell after 114 to 139 lines on the reference and 131 to 141 on ours, pause after 139 to 142 lines on
 the reference and 140 to 142 on ours: the reference varies as much from run to run as the two sides
@@ -70,14 +70,14 @@ both must be the program's, in order, each once.
 Not bytes: what the host does with the connection and the refusals. Each row names the case in
 LaserFoundry's app, and the test of the port's side (`crates/grbl/src/tests.rs`, unless noted).
 
-| Item | LaserFoundry (v0.5.0) | Ours | Result |
+| Item | LaserFoundry (v0.6.0) | Ours | Result |
 |---|---|---|---|
-| Lost connection, serial target | `reconnect_tick` and `poll_link` (`lib.rs:1347-1410`): `RECONNECT_ATTEMPTS` 8 (:82), `RECONNECT_MAX_WAIT` 30 s (:84), `reconnect_wait` 2 s (:457), doubling (:1371); test `a_lost_connection_is_retried_until_it_comes_back_and_nothing_resumes` (`tests.rs:2663-2673`): 3 opens, nothing runs after | `a_lost_connection_is_reopened_and_nothing_resumes`: 3 opens, no job resumes; `the_reconnect_waits_double_up_to_thirty_seconds`: 4, 8, 16, 30, 30, 30, 30 s | **same cases, same numbers; not compared by a run of both** (the reference's test is its app's window, not a script a host can run) |
-| Giving up | test `it_gives_up_after_the_attempt_limit...` (:2676): 8 opens, "Could not reconnect" | `it_gives_up_after_eight_attempts`: 8 opens, "Could not reconnect: gone" | **same case; not compared by a run of both** |
-| No retry for a simulator, or with the switch off | test `the_switch_turns_it_off_and_the_simulator_never_retries` (:2690) | `a_lost_connection_is_not_retried_when_it_is_switched_off`, `a_command_owed_an_answer_fails_when_the_connection_is_lost` | **same case; not compared by a run of both** |
-| `$$` once, after the first status; no `$I` | `lib.rs:1401-1405`, `settings_asked` | `only_laserfoundrys_bytes_at_connect` (section 2) | **identical** |
-| Job refused: no link, not idle, laser mode off | `start_job_with` (`lib.rs:1221-1251`), `not_ready` (:1520-1532), `settings_ui.rs:26-31`; tests `tests.rs:1784`, `:1801` | `a_job_is_refused_when_laser_mode_is_off`, `a_job_is_refused_while_the_machine_is_not_idle` (all eight states, the app's texts) | **same refusals and texts; not compared by a run of both** |
-| Job end, restart line | `record_job_position` (`lib.rs:1291-1328`), `Restart::place_in_design` (:105-115), `restart_line` | `an_interrupted_job_starts_again` (restart line in the file's numbering, the second job runs to the end) | ported formula (`file_line` re-implements `place_in_design`); **not compared** with the app's, only bounded (2 to 400) |
+| Lost connection, serial target | `reconnect_tick` and `poll_link` (`lib.rs:1364-1427`): `RECONNECT_ATTEMPTS` 8 (:84), `RECONNECT_MAX_WAIT` 30 s (:86), `reconnect_wait` 2 s (:476), doubling (:1388); test `a_lost_connection_is_retried_until_it_comes_back_and_nothing_resumes` (`tests.rs:2705-2715`): 3 opens, nothing runs after | `a_lost_connection_is_reopened_and_nothing_resumes`: 3 opens, no job resumes; `the_reconnect_waits_double_up_to_thirty_seconds`: 4, 8, 16, 30, 30, 30, 30 s | **same cases, same numbers; not compared by a run of both** (the reference's test is its app's window, not a script a host can run) |
+| Giving up | test `it_gives_up_after_the_attempt_limit...` (:2718): 8 opens, "Could not reconnect" | `it_gives_up_after_eight_attempts`: 8 opens, "Could not reconnect: gone" | **same case; not compared by a run of both** |
+| No retry for a simulator, or with the switch off | test `the_switch_turns_it_off_and_the_simulator_never_retries` (:2732) | `a_lost_connection_is_not_retried_when_it_is_switched_off`, `a_command_owed_an_answer_fails_when_the_connection_is_lost` | **same case; not compared by a run of both** |
+| `$$` once, after the first status; no `$I` | `lib.rs:1418-1422`, `settings_asked` | `only_laserfoundrys_bytes_at_connect` (section 2) | **identical** |
+| Job refused: no link, not idle, laser mode off | `start_job_with` (`lib.rs:1238-1268`), `not_ready` (:1537-1549), `settings_ui.rs:26-31`; tests `tests.rs:1821`, `:1838` | `a_job_is_refused_when_laser_mode_is_off`, `a_job_is_refused_while_the_machine_is_not_idle` (all eight states, the app's texts) | **same refusals and texts; not compared by a run of both** |
+| Job end, restart line | `record_job_position` (`lib.rs:1308-1345`), `Restart::place_in_design` (:107-117), `restart_line` | `an_interrupted_job_starts_again` (restart line in the file's numbering, the second job runs to the end) | ported formula (`file_line` re-implements `place_in_design`); **not compared** with the app's, only bounded (2 to 400) |
 | `from_line` 1 | `start_from_line` rebuilds with `resume_from` for any line | `a_start_from_line_one_is_rebuilt_like_any_other` | **same call; not compared by a run of both** (the bytes after it are those of `resume_from`) |
 
 ## 4. Where ours is not LaserFoundry's (the list, `docs/archive/plans/agent-engine.md` G1 to G16)
@@ -93,9 +93,9 @@ of these changes a byte on the wire (section 2).
 - **A real laser, a real serial port:** `laserfoundry_device::serial::SerialTransport` is LaserFoundry's
   and is used as it is; nothing here ran against a controller. The simulator is LaserFoundry's own
   (`sim.rs`): it has no greeting, no limit switches, no real timing, and answers one line at a time.
-- **The app's confirmation of a start from the head's position or a user origin** (`lib.rs:1250`): a
+- **The app's confirmation of a start from the head's position or a user origin** (`lib.rs:1267`): a
   program file carries no origin setting; the person frames and starts at the machine.
-- **`link.protocol() != link_protocol()`** (`lib.rs:1227`): the protocol is fixed.
+- **`link.protocol() != link_protocol()`** (`lib.rs:1244`): the protocol is fixed.
 - **Marlin and Smoothieware lasers**: closed. `--mode grbl` on a Smoothieware machine is untried.
 - **The frame through the agent** (G4): the link's fetch of the file (`link.rs` tests) and the port's
   frame of a local file (`ports::laserfoundry::tests`) are tested, and `GrblMachine::frame` is proven
@@ -104,6 +104,8 @@ of these changes a byte on the wire (section 2).
   real cable's errors are what `SerialTransport` returns.
 - **Console limit** (G15): more than 500 console lines between two looks of the port.
 - **The `?` polls**: counted, not compared (section 2).
+- **Hold-to-jog** (`Link::jog_cancel`, the jog-cancel byte `0x85`, `crates/device/src/link.rs:211-215`; the app's
+  "Hold to jog" box, off by default, `ui-egui/src/panels.rs:875-878`): not ported; the port's jog is the step jog.
 - **A reconnect on a machine that was homing or running a job** when the cable came out: the machine
   keeps its state; what the port reports after it is the first status.
 - **The hub's laser checks** (`files.rs` `laser_check`, `fit`, PPE): ours, in the UI (B3), not on the wire.

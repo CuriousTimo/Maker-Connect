@@ -40,7 +40,7 @@ libc = { version = "0.2", optional = true }
 png = { version = "0.17", optional = true }
 nusb = { version = "0.2", optional = true }
 
-# The laser port (`ports/laserfoundry/`, step 3d): `crates/grbl`, which is LaserFoundry v0.5.0's
+# The laser port (`ports/laserfoundry/`, step 3d): `crates/grbl`, which is LaserFoundry v0.6.0's
 # device and G-code crates and the link logic of its app. `serial` for LaserFoundry's own serial transport.
 maker-connect-grbl = { path = "../grbl", features = ["serial"], optional = true }
 
@@ -56,7 +56,7 @@ hidapi = { version = "2.6.7", optional = true }
 # The laser port's proof drives LaserFoundry's own `Link` and `gcode::frame` beside it
 # (`ports/laserfoundry/proof.rs`); the same release `crates/grbl` is pinned to.
 [dev-dependencies]
-laserfoundry-device = { git = "https://github.com/Stitchwright/laserfoundry", rev = "61febdb5d18f08f299f8501e44656da047a2ab09" }
-laserfoundry-gcode = { git = "https://github.com/Stitchwright/laserfoundry", rev = "61febdb5d18f08f299f8501e44656da047a2ab09" }
-laserfoundry-doc = { git = "https://github.com/Stitchwright/laserfoundry", rev = "61febdb5d18f08f299f8501e44656da047a2ab09" }
-laserfoundry-geom = { git = "https://github.com/Stitchwright/laserfoundry", rev = "61febdb5d18f08f299f8501e44656da047a2ab09" }
+laserfoundry-device = { git = "https://github.com/Stitchwright/laserfoundry", rev = "8f07f98dc5338f0d43df98f08ae6391896e5f96f" }
+laserfoundry-gcode = { git = "https://github.com/Stitchwright/laserfoundry", rev = "8f07f98dc5338f0d43df98f08ae6391896e5f96f" }
+laserfoundry-doc = { git = "https://github.com/Stitchwright/laserfoundry", rev = "8f07f98dc5338f0d43df98f08ae6391896e5f96f" }
+laserfoundry-geom = { git = "https://github.com/Stitchwright/laserfoundry", rev = "8f07f98dc5338f0d43df98f08ae6391896e5f96f" }

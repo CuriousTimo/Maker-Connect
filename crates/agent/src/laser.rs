@@ -1,5 +1,5 @@
 //! A GRBL laser on the agent's USB (`docs/design/prusa-sdk-extension.md`, part 4): the LaserFoundry
-//! port (`maker_connect_engine::ports::laserfoundry`, LaserFoundry v0.5.0 `61febdb`) hosted on the
+//! port (`maker_connect_engine::ports::laserfoundry`, LaserFoundry v0.6.0 `8f07f98`) hosted on the
 //! SDK as the Marlin is.
 //!
 //! Reporting only (#163): its states, telemetry and settings in `INFO` (`grbl.telemetry`). It has

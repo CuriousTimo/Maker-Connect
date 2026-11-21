@@ -66,7 +66,7 @@ label printer, a laser, a Marlin printer's M115) is an extension written down pa
   bed** measures the bed and draws the mesh as OctoPrint's Bed Level Visualizer reads it (17 of
   17 cases identical). Tried on a real printer: an AtomX MK3 on Marlin 2.1.2.10.
 - **Lasers (GRBL)**: a port of [LaserFoundry](https://github.com/StitchFoundry/laserfoundry)
-  (v0.5.0): homing, the jog pad, Set origin and Go to origin, Frame. **A laser never starts by
+  (v0.6.0): homing, the jog pad, Set origin and Go to origin, Frame. **A laser never starts by
   itself**: a file sent to a laser is *loaded*, framed at the laser (after every Set origin it
   is framed again), and started only by a person there with **Start burn** (permission to
   operate it, safety glasses confirmed, laser mode on). Its Stop is LaserFoundry's soft reset.
@@ -114,7 +114,7 @@ label printer, a laser, a Marlin printer's M115) is an extension written down pa
 | **DYMO LabelWriter 450** (labels) | Agent, USB: no driver | DYMO's CUPS driver 1.4.0, DYMO Connect's catalogue | Yes |
 | **Network cameras** (RTSP, ONVIF) | Straight to the hub | retina, go2rtc | Yes: an LSC Smart Connect camera |
 
-Ported and proved, not yet on the agent: **lasers on GRBL** (LaserFoundry v0.5.0, issue #89),
+Ported and proved, not yet on the agent: **lasers on GRBL** (LaserFoundry v0.6.0, issue #89),
 **DYMO M-series scales** (usbscale, #129), **USB webcams** (nokhwa, #5). Still to port: the
 **Prusa MK3S and MK2.5S** (PrusaLink, #78). **Klipper** through Moonraker connects by itself,
 not yet checked against Moonraker nor tried on a real printer (#9).

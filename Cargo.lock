@@ -1326,8 +1326,8 @@ dependencies = [
 
 [[package]]
 name = "laserfoundry-device"
-version = "0.5.0"
-source = "git+https://github.com/Stitchwright/laserfoundry?rev=61febdb5d18f08f299f8501e44656da047a2ab09#61febdb5d18f08f299f8501e44656da047a2ab09"
+version = "0.6.0"
+source = "git+https://github.com/Stitchwright/laserfoundry?rev=8f07f98dc5338f0d43df98f08ae6391896e5f96f#8f07f98dc5338f0d43df98f08ae6391896e5f96f"
 dependencies = [
  "log",
  "serialport",
@@ -1337,8 +1337,8 @@ dependencies = [
 
 [[package]]
 name = "laserfoundry-doc"
-version = "0.5.0"
-source = "git+https://github.com/Stitchwright/laserfoundry?rev=61febdb5d18f08f299f8501e44656da047a2ab09#61febdb5d18f08f299f8501e44656da047a2ab09"
+version = "0.6.0"
+source = "git+https://github.com/Stitchwright/laserfoundry?rev=8f07f98dc5338f0d43df98f08ae6391896e5f96f#8f07f98dc5338f0d43df98f08ae6391896e5f96f"
 dependencies = [
  "kurbo",
  "laserfoundry-geom",
@@ -1347,8 +1347,8 @@ dependencies = [
 
 [[package]]
 name = "laserfoundry-gcode"
-version = "0.5.0"
-source = "git+https://github.com/Stitchwright/laserfoundry?rev=61febdb5d18f08f299f8501e44656da047a2ab09#61febdb5d18f08f299f8501e44656da047a2ab09"
+version = "0.6.0"
+source = "git+https://github.com/Stitchwright/laserfoundry?rev=8f07f98dc5338f0d43df98f08ae6391896e5f96f#8f07f98dc5338f0d43df98f08ae6391896e5f96f"
 dependencies = [
  "laserfoundry-doc",
  "laserfoundry-geom",
@@ -1358,8 +1358,8 @@ dependencies = [
 
 [[package]]
 name = "laserfoundry-geom"
-version = "0.5.0"
-source = "git+https://github.com/Stitchwright/laserfoundry?rev=61febdb5d18f08f299f8501e44656da047a2ab09#61febdb5d18f08f299f8501e44656da047a2ab09"
+version = "0.6.0"
+source = "git+https://github.com/Stitchwright/laserfoundry?rev=8f07f98dc5338f0d43df98f08ae6391896e5f96f#8f07f98dc5338f0d43df98f08ae6391896e5f96f"
 dependencies = [
  "kurbo",
  "serde",
@@ -1368,8 +1368,8 @@ dependencies = [
 
 [[package]]
 name = "laserfoundry-pathops"
-version = "0.5.0"
-source = "git+https://github.com/Stitchwright/laserfoundry?rev=61febdb5d18f08f299f8501e44656da047a2ab09#61febdb5d18f08f299f8501e44656da047a2ab09"
+version = "0.6.0"
+source = "git+https://github.com/Stitchwright/laserfoundry?rev=8f07f98dc5338f0d43df98f08ae6391896e5f96f#8f07f98dc5338f0d43df98f08ae6391896e5f96f"
 dependencies = [
  "i_overlay",
  "laserfoundry-geom",
@@ -1378,8 +1378,8 @@ dependencies = [
 
 [[package]]
 name = "laserfoundry-toolpath"
-version = "0.5.0"
-source = "git+https://github.com/Stitchwright/laserfoundry?rev=61febdb5d18f08f299f8501e44656da047a2ab09#61febdb5d18f08f299f8501e44656da047a2ab09"
+version = "0.6.0"
+source = "git+https://github.com/Stitchwright/laserfoundry?rev=8f07f98dc5338f0d43df98f08ae6391896e5f96f#8f07f98dc5338f0d43df98f08ae6391896e5f96f"
 dependencies = [
  "kurbo",
  "laserfoundry-doc",

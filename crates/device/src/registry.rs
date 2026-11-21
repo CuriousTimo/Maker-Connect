@@ -4,8 +4,8 @@
 //!
 //! The verbs and state sets are the rows of `docs/archive/plans/hub-core-v2-device-map.md` (GitHub #14),
 //! with the owner's answers of 2026-11-18 applied: each row names its reference's own call or state
-//! (file:line; `OP/` = `reference/OctoPrint-1.11.8/src/octoprint/`, `LF/` = LaserFoundry v0.5.0
-//! `61febdb`, read with `git show v0.5.0:<path>`). A row the map marks "not checked" is not here.
+//! (file:line; `OP/` = `reference/OctoPrint-1.11.8/src/octoprint/`, `LF/` = LaserFoundry v0.6.0
+//! `8f07f98`, read with `git show v0.6.0:<path>`). A row the map marks "not checked" is not here.
 //! Argument bounds are per device, in its capability set (the adapter's baseline), never here.
 //!
 //! Actions are the names of hub-core-v2.md §2.6; which verb needs which and the presets are step 3's
@@ -77,7 +77,7 @@ pub const KIND_MARLIN: &str = "marlin";
 pub const KIND_LABELMANAGER: &str = "labelmanager";
 /// A DYMO LabelWriter 450 or 320 through DYMO's CUPS driver 1.4.0.
 pub const KIND_LABELWRITER: &str = "labelwriter";
-/// A GRBL laser through LaserFoundry v0.5.0 (`--mode grbl`).
+/// A GRBL laser through LaserFoundry v0.6.0 (`--mode grbl`).
 pub const KIND_GRBL: &str = "grbl";
 /// A DYMO M-series scale through usbscale (`--mode dymo-scale`).
 pub const KIND_SCALE: &str = "scale";
@@ -443,8 +443,8 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         kinds: &[KIND_LABELMANAGER, KIND_LABELWRITER],
         doc: "Prints one label as the reference's own print run does.",
     },
-    // ---- GRBL lasers through LaserFoundry v0.5.0 (device map §4.1) ----
-    // LF/crates/device/src/link.rs:161 `Link::send_line`; app panels.rs:865
+    // ---- GRBL lasers through LaserFoundry v0.6.0 (device map §4.1) ----
+    // LF/crates/device/src/link.rs:161 `Link::send_line`; app panels.rs:949
     row(
         LASER_GCODE,
         &[arg(
@@ -457,7 +457,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's console line; refused while a job runs (link.rs:169,277).",
     ),
-    // LF/crates/device/src/link.rs:197 `Link::jog`; app panels.rs:813
+    // LF/crates/device/src/link.rs:197 `Link::jog`; app panels.rs:888
     row(
         LASER_JOG,
         &[
@@ -479,7 +479,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's jog: `$J=G91 G21 X.. Y.. F..`.",
     ),
-    // LF/crates/device/src/link.rs:222 `Link::home` (`$H`); control_box.rs:158, panels.rs:838
+    // LF/crates/device/src/link.rs:228 `Link::home` (`$H`); control_box.rs:158, panels.rs:922
     row(
         LASER_HOME,
         &[],
@@ -487,7 +487,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's Home: `$H`, one homing cycle.",
     ),
-    // LF/crates/device/src/link.rs:230 `Link::unlock` (`$X`); control_box.rs:160-161, panels.rs:841
+    // LF/crates/device/src/link.rs:236 `Link::unlock` (`$X`); control_box.rs:160-161, panels.rs:925
     row(
         LASER_UNLOCK,
         &[],
@@ -495,7 +495,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's Unlock: `$X`.",
     ),
-    // LF/crates/device/src/link.rs:238 `Link::set_zero` (`G92 X0 Y0`); control_box.rs:164
+    // LF/crates/device/src/link.rs:244 `Link::set_zero` (`G92 X0 Y0`); control_box.rs:164
     row(
         LASER_SET_ORIGIN,
         &[],
@@ -503,7 +503,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's Set origin: `G92 X0 Y0`.",
     ),
-    // LF/crates/device/src/link.rs:243 `Link::go_to_zero` (`G90 G0 X0 Y0`); control_box.rs:167
+    // LF/crates/device/src/link.rs:249 `Link::go_to_zero` (`G90 G0 X0 Y0`); control_box.rs:167
     row(
         LASER_GO_ORIGIN,
         &[],
@@ -519,7 +519,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's settings read: `$$`.",
     ),
-    // LF app `frame_action` panels.rs:734-740 -> `job.frame` -> LF/crates/gcode/src/lib.rs:92 `gcode::frame`
+    // LF app `frame_action` panels.rs:804-810 -> `job.frame` -> LF/crates/gcode/src/lib.rs:96 `gcode::frame`
     //   (the design's bounds; owner, 2026-11-18: no fixed 3000 mm/min, no file-extent frame)
     row(
         LASER_FRAME,
@@ -527,13 +527,13 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
             "power",
             Kind::Number,
             PERCENT,
-            "0 to 100 (panels.rs:778), default 0: the beam off (lib.rs:416).",
+            "0 to 100 (panels.rs:848), default 0: the beam off (lib.rs:433).",
         )],
         ACT_MOVE,
         LASER,
         "LaserFoundry's Frame: `gcode::frame` over the design's bounds, run as a job.",
     ),
-    // LF/crates/ui-egui/src/lib.rs:1221-1251 `start_job_with` -> LF/crates/device/src/link.rs:250 `Link::start_job`
+    // LF/crates/ui-egui/src/lib.rs:1238-1268 `start_job_with` -> LF/crates/device/src/link.rs:256 `Link::start_job`
     VerbEntry {
         name: LASER_START,
         args: &[
@@ -542,7 +542,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
                 "from_line",
                 Kind::Integer,
                 None,
-                "1-based line to start from (`start_from_line`, lib.rs:1258-1266).",
+                "1-based line to start from (`start_from_line`, lib.rs:1275-1283).",
             ),
         ],
         action: ACT_LASER_START,
@@ -550,7 +550,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         kinds: LASER,
         doc: "LaserFoundry's Start. A person's own session only (hub-core-v2.md §2.1).",
     },
-    // LF/crates/device/src/link.rs:255 `Link::pause`; control_box.rs:144, panels.rs:772
+    // LF/crates/device/src/link.rs:261 `Link::pause`; control_box.rs:144, panels.rs:842
     row(
         LASER_PAUSE,
         &[],
@@ -558,7 +558,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's Pause.",
     ),
-    // LF/crates/device/src/link.rs:259 `Link::resume`; control_box.rs:141, panels.rs:769
+    // LF/crates/device/src/link.rs:265 `Link::resume`; control_box.rs:141, panels.rs:839
     row(
         LASER_RESUME,
         &[],
@@ -566,7 +566,7 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         LASER,
         "LaserFoundry's Resume.",
     ),
-    // LF/crates/device/src/link.rs:265 `Link::stop` (soft reset, laser off); control_box.rs:147-149
+    // LF/crates/device/src/link.rs:271 `Link::stop` (soft reset, laser off); control_box.rs:147-149
     row(
         LASER_STOP,
         &[],
@@ -591,7 +591,7 @@ macro_rules! marlin_operational {
     };
 }
 
-/// Every LaserFoundry verb but Start: `Link` refuses them only while a job runs (link.rs:277), and
+/// Every LaserFoundry verb but Start: `Link` refuses them only while a job runs (link.rs:283), and
 /// the app's state rules are about the job, not the machine state (device map §4.2).
 macro_rules! laser_any_state {
     ($($more:expr),*) => {
@@ -726,9 +726,9 @@ pub static STATE_SETS: &[StateSet] = &[
         ],
         transitions: &[],
     },
-    // LF/crates/device/src/status.rs:3-14 `MachineState` at v0.5.0 (the map's :35-46 is not where it is),
+    // LF/crates/device/src/status.rs:3-14 `MachineState` at v0.6.0 (the map's :35-46 is not where it is),
     // from the `?` status report. Start only in
-    // Idle or Unknown (`not_ready` LF/crates/ui-egui/src/lib.rs:1520-1532).
+    // Idle or Unknown (`not_ready` LF/crates/ui-egui/src/lib.rs:1537-1549).
     StateSet {
         kind: KIND_GRBL,
         states: &[

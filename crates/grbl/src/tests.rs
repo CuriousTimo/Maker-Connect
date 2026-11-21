@@ -541,7 +541,7 @@ fn a_frame_runs_as_a_job_and_answers_its_command() {
     assert!(run.machine.frame([10.0, 10.0, 300.0, 20.0]).is_err());
 }
 
-/// The waits as `ui-egui/src/lib.rs:1366` makes them.
+/// The waits as `ui-egui/src/lib.rs:1383` makes them.
 #[test]
 fn the_reconnect_waits_double_up_to_thirty_seconds() {
     let waits: Vec<u64> = (1..RECONNECT_ATTEMPTS)
@@ -696,7 +696,7 @@ fn new_console_lines() {
     );
 }
 
-/// `auto_reconnect` off (`ui-egui/src/tests.rs:2691`): a lost connection is only said.
+/// `auto_reconnect` off (`ui-egui/src/tests.rs:2733`): a lost connection is only said.
 #[test]
 fn a_lost_connection_is_not_retried_when_it_is_switched_off() {
     let unplugged = Arc::new(AtomicBool::new(false));

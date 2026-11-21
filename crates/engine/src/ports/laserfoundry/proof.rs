@@ -70,7 +70,7 @@ fn tokens(bytes: &[u8]) -> Wire {
 
 /// When a scenario presses Stop or Pause, from the job's start, and how long a pause lasts, the same
 /// on both sides: the order is given at that moment (LaserFoundry's app calls `Link::stop` and
-/// `pause` as the button is pressed, `panels.rs:766-776`, `control_box.rs:141-149`), not when a
+/// `pause` as the button is pressed, `panels.rs:836-846`, `control_box.rs:141-149`), not when a
 /// look at the progress notices something.
 const HOLD: Duration = Duration::from_millis(400);
 const PAUSED: Duration = Duration::from_millis(300);
@@ -80,7 +80,7 @@ const PAUSED: Duration = Duration::from_millis(300);
 const RESTART_STOP_AFTER: usize = 40;
 
 /// The reference's side looks at its link every 100 ms, as LaserFoundry's app does for a threaded
-/// link (`ui-egui/src/lib.rs:1384`), the cadence of the port (G7).
+/// link (`ui-egui/src/lib.rs:1401`), the cadence of the port (G7).
 const LOOK: Duration = Duration::from_millis(100);
 
 fn wait(what: &str, ready: impl FnMut() -> bool) {
@@ -162,12 +162,12 @@ fn direct(steps: &[Step], restart: Option<usize>) -> Outcome {
     let wire = Arc::new(Mutex::new(Vec::new()));
     let mut out = Outcome::default();
     {
-        // `ui-egui/src/lib.rs:1177`
+        // `ui-egui/src/lib.rs:1194`
         let link = Link::connect(Box::new(Recorder {
             inner: sim(),
             wire: wire.clone(),
         }));
-        // `ui-egui/src/lib.rs:1401-1405`: the settings once the first status report is in.
+        // `ui-egui/src/lib.rs:1418-1422`: the settings once the first status report is in.
         wait("a status", || link.snapshot().status.is_some());
         link.request_settings().unwrap();
         wait("the settings", || link.snapshot().settings.len() > 20);
@@ -179,31 +179,31 @@ fn direct(steps: &[Step], restart: Option<usize>) -> Outcome {
         };
         for step in steps {
             match step {
-                // `control_box.rs:157`, `panels.rs:838`
+                // `control_box.rs:157`, `panels.rs:922`
                 Step::Home => command(&|l| l.home()),
-                // `control_box.rs:160`, `panels.rs:841`
+                // `control_box.rs:160`, `panels.rs:925`
                 Step::Unlock => command(&|l| l.unlock()),
-                // `panels.rs:813`
+                // `panels.rs:888`
                 Step::Jog(dx, dy, feed) => command(&|l| l.jog(*dx, *dy, *feed)),
-                // `control_box.rs:163`, `panels.rs:844`
+                // `control_box.rs:163`, `panels.rs:928`
                 Step::SetOrigin => command(&|l| l.set_zero()),
-                // `control_box.rs:166`, `panels.rs:847`
+                // `control_box.rs:166`, `panels.rs:931`
                 Step::GoOrigin => command(&|l| l.go_to_zero()),
                 // `settings_ui.rs:60`
                 Step::ReadSettings => command(&|l| l.request_settings()),
-                // `panels.rs:865`
+                // `panels.rs:949`
                 Step::Line(line) => command(&|l| l.send_line(line)),
-                // `ui-egui/src/lib.rs:1270-1273`, `begin_job`
+                // `ui-egui/src/lib.rs:1287-1290`, `begin_job`
                 Step::Job(program) => {
                     link.start_job(program.clone()).unwrap();
                     wait("the end", || finished(&link.snapshot()));
                 }
-                // `panels.rs:734-740`, `frame_action`: `gcode::frame`, then `start_job`
+                // `panels.rs:804-810`, `frame_action`: `gcode::frame`, then `start_job`
                 Step::Frame(bounds) => {
                     link.start_job(frame_program(*bounds)).unwrap();
                     wait("the end", || finished(&link.snapshot()));
                 }
-                // `panels.rs:766-776`
+                // `panels.rs:836-846`
                 Step::PauseResume(program) => {
                     link.start_job(program.clone()).unwrap();
                     std::thread::sleep(HOLD);
@@ -218,7 +218,7 @@ fn direct(steps: &[Step], restart: Option<usize>) -> Outcome {
                     link.stop().unwrap();
                     wait("the end", || finished(&link.snapshot()));
                 }
-                // `ui-egui/src/lib.rs:1258-1266` `start_from_line`, `:1291-1328` `record_job_position`
+                // `ui-egui/src/lib.rs:1275-1283` `start_from_line`, `:1308-1345` `record_job_position`
                 Step::Restart(program) => {
                     link.start_job(program.clone()).unwrap();
                     // Stop past LaserFoundry's 20 lines of restart margin (`RESTART_BACKUP_LINES`),
