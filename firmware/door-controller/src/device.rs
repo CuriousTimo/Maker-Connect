@@ -89,7 +89,11 @@ pub struct Printer {
     config: Config,
     config_changed: bool,
     rest_until: Vec<Option<u32>>,
-    fault: bool,
+    /// A relay that did not answer: `ERROR` until the board restarts (a relay that fails once cannot be
+    /// trusted to open or to stay off).
+    relay_fault: bool,
+    /// An input that did not answer on the last read: `ERROR` until all inputs read again.
+    input_fault: bool,
 }
 
 impl Printer {
@@ -117,7 +121,8 @@ impl Printer {
             config: Config { token },
             config_changed: false,
             rest_until: vec![None; lock_count as usize],
-            fault: false,
+            relay_fault: false,
+            input_fault: false,
         }
     }
 
@@ -165,7 +170,7 @@ impl Printer {
     }
 
     pub fn is_in_error(&self) -> bool {
-        self.fault
+        self.relay_fault || self.input_fault
     }
 
     /// Seconds until the lock may be opened again, rounded up; 0 when it may.
@@ -186,11 +191,12 @@ impl Printer {
 
     pub fn params(&mut self, busy: bool) -> Params {
         let mut locks = Vec::new();
+        let mut input_fault = false;
         for lock in 0..self.lock_count {
             let door = match self.inputs.read_door(lock) {
                 Ok(d) => d,
                 Err(_) => {
-                    self.fault = true;
+                    input_fault = true;
                     None
                 }
             };
@@ -200,7 +206,8 @@ impl Printer {
                 resting_s: self.resting_s(lock),
             });
         }
-        let state = if self.fault {
+        self.input_fault = input_fault;
+        let state = if self.is_in_error() {
             DeviceState::Error
         } else if busy {
             DeviceState::Busy
@@ -214,7 +221,7 @@ impl Printer {
     /// Nothing the server sends changes either value.
     pub fn open_lock(&mut self, lock: u32) -> bool {
         if self.relays.pulse(lock, LOCK_PULSE_MAX_MS).is_err() {
-            self.fault = true;
+            self.relay_fault = true;
             return false;
         }
         let end = self.clock.now_ms();

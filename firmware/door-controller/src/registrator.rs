@@ -16,6 +16,9 @@ pub const POLL_INTERVAL_MS: u32 = 5 * 1000;
 pub const CODE_SIZE: usize = 25;
 /// registrator.hpp:45
 pub const STARTING_RETRIES: u8 = 3;
+/// Ours: Buddy stops after its retries and the person starts again on the screen. The door controller
+/// has no screen, so after this pause it starts again with a new code.
+pub const RESTART_AFTER_MS: u32 = 60 * 1000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Status {
@@ -166,7 +169,16 @@ impl Registrator {
                     _ => self.bail(net, OnlineError::Server, None),
                 }
             }
-            Status::Done | Status::Error => CommResult::Nothing,
+            Status::Error if since_last >= RESTART_AFTER_MS => {
+                self.code.clear();
+                self.status = Status::Init;
+                self.retries_left = STARTING_RETRIES;
+                CommResult::Nothing
+            }
+            Status::Done | Status::Error => {
+                printer.sleep(SLEEP_MAX_MS);
+                CommResult::Nothing
+            }
         }
     }
 }

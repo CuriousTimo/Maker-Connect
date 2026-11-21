@@ -484,7 +484,9 @@ cabinet locks. The firmware is ours, in Rust (owner, 2026-11-21).
   code over HTTP, then one WebSocket. Its client is Buddy 6.4.0's own, `src/connect/`, ported to Rust
   function by function: registration (`registrator.cpp`), the WebSocket and its commands (`connect.cpp`,
   `command.cpp`, `planner.cpp`), what it sends (`render.cpp`), TLS (`tls/`). On the wire it is a Buddy
-  6.4.0 printer in every respect, except the additions below.
+  6.4.0 printer in every respect, except the additions below. One difference off the wire: where Buddy
+  stops registering after its retries (the person starts again on the screen), the board, which has no
+  screen, starts again with a new code after a minute.
 - **What Buddy has and the board leaves out:** files and storages, transfers, print jobs, G-code, the
   printer's own states beyond those named here. `INFO` carries no `storages`.
 
@@ -504,8 +506,9 @@ cabinet locks. The firmware is ours, in Rust (owner, 2026-11-21).
 ### States and telemetry
 
 - **The device's state:** `IDLE`; `BUSY` while a lock's pulse runs; `ERROR` with a reason when the
-  firmware finds a fault it can name (a relay or input that does not answer). Nothing else of the
-  printer states is used.
+  firmware finds a fault it can name (a relay or input that does not answer). A relay's fault holds until
+  the board restarts; an input's clears when all inputs read again. Nothing else of the printer states
+  is used.
 - **New telemetry key `locks`:** an array, one object per lock, in lock order:
 
   | Key | Type | Meaning |

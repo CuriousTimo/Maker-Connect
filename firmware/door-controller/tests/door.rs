@@ -180,17 +180,27 @@ fn registration_by_code() {
 }
 
 #[test]
-fn registration_gives_up_after_three_failures() {
+fn registration_stops_after_three_failures_and_starts_again_after_a_minute() {
     let mut r = rig_with(FakeStore::default());
     r.client.request_registration();
     for _ in 0..1000 {
+        if r.net.http_log.len() == 3 {
+            break;
+        }
         r.step();
     }
+    assert_eq!(r.net.http_log.len(), 3);
+    // Quiet within the minute (the board sleeps 125 ms a step).
+    r.steps(100);
     assert_eq!(
         r.client.last_known_status,
         ConnectionStatus::RegistrationError
     );
     assert_eq!(r.net.http_log.len(), 3);
+    // After the minute: a new POST /p/register.
+    r.steps(1000);
+    assert!(r.net.http_log.len() > 3);
+    assert_eq!(r.net.http_log[3].0, Method::Post);
 }
 
 #[test]
@@ -503,4 +513,27 @@ fn an_open_lock_late_after_a_short_drop_fails_expired() {
     assert_eq!(failed["reason"], "Expired");
     assert_eq!(failed["machine_reason"], "EXPIRED");
     assert!(r.relays.pulses().is_empty());
+}
+
+#[test]
+fn an_input_that_reads_again_clears_the_error_a_relay_does_not() {
+    let mut r = rig();
+    r.clock.set_unix(Some(1000));
+    r.settle();
+    r.inputs.set_fail(true);
+    r.until("error", |f| f.iter().any(|v| v["state"] == "ERROR"));
+    r.inputs.set_fail(false);
+    r.open_lock(1, 0, 1005);
+    r.answer_for(1, "FINISHED");
+    assert_eq!(r.relays.pulses(), vec![(0, 500)]);
+    // A relay that failed keeps the board in ERROR.
+    r.relays.set_fail(true);
+    r.open_lock(2, 1, 1005);
+    r.answer_for(2, "FAILED");
+    r.relays.set_fail(false);
+    r.open_lock(3, 1, 1005);
+    assert_eq!(
+        r.answer_for(3, "REJECTED")["reason"],
+        "Won't accept commands in error state"
+    );
 }
