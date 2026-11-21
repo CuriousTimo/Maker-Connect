@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
-    <img src="assets/logo.svg" alt="Maker Connect: an M drawn as one toolpath, with dots for the machines it connects" width="420">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-v2-dark.svg">
+    <img src="assets/logo-v2.svg" alt="Maker Connect: the house mark, MC on a square in the house colour with one corner cut off, beside the name" width="420">
   </picture>
 </p>
 
