@@ -75,10 +75,11 @@ impl Legacy {
             .collect();
         for machine in &mut machines {
             machine.loaded = loaded.get(&machine.id).cloned();
+            // Every machine's queue (a label printer's too; a laser never has one, HS7b).
+            machine.queue = queues.remove(&machine.id).unwrap_or_default();
             if machine.kind == MachineKind::Fdm {
                 machine.on_bed = jobs.on_bed(&machine.id);
                 machine.ready = jobs.ready_after(&machine.id);
-                machine.queue = queues.remove(&machine.id).unwrap_or_default();
                 machine.asking = self.asking.get(&machine.id).cloned();
                 // Only with a dialog the printer named: DIALOG_ACTION needs its `dialog_id`.
                 machine.buttons = self

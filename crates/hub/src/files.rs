@@ -59,6 +59,12 @@ pub fn fit(file: &StoredFile, machine: &Machine) -> Result<Option<String>, Strin
     if !machine.online {
         return Err("offline".to_owned());
     }
+    // A label printer with a problem (no tape, out of labels): its label waits in the queue.
+    if machine.kind == maker_connect_protocol::MachineKind::Label
+        && let Some(problem) = machine.telemetry.as_ref().and_then(|t| t.problem.as_ref())
+    {
+        return Err(problem.clone());
+    }
     if machine.on_bed.is_some() {
         return Err("a print is still on the bed: take it off first".to_owned());
     }
@@ -121,7 +127,7 @@ pub fn suits(file: &StoredFile, machine: &Machine) -> Result<Option<String>, Str
     Ok(warning)
 }
 
-/// HS2: whether a page fits a LabelWriter now: the PNG must be exactly the loaded roll's page
+/// HS2: whether a page is for this LabelWriter (whether it is free is `fit`'s): the PNG must be exactly the loaded roll's page
 /// as its port gives it (`ports::geometry::lw450`: width across the head, `cupsWidth` ×
 /// `cupsHeight`); the job then says the roll's length (`label_length_mm`).
 fn labelwriter_check(
@@ -136,15 +142,6 @@ fn labelwriter_check(
     // The agent's LabelWriter takes its labels over the Prusa Connect protocol (link `prusa-connect`).
     if !matches!(machine.link.as_str(), "virtual" | "prusa-connect") {
         return Err("this machine takes no labels from here".to_owned());
-    }
-    if !machine.online {
-        return Err("offline".to_owned());
-    }
-    if let Some(problem) = machine.telemetry.as_ref().and_then(|t| t.problem.as_ref()) {
-        return Err(problem.clone());
-    }
-    if let Some(job) = &machine.job {
-        return Err(format!("busy with {}", job.file_name));
     }
     Ok(None)
 }
@@ -217,15 +214,6 @@ fn label_check(
     // The agent's DYMO takes its labels over the Prusa Connect protocol (link `prusa-connect`).
     if !matches!(machine.link.as_str(), "virtual" | "prusa-connect") {
         return Err("this machine takes no labels from here".to_owned());
-    }
-    if !machine.online {
-        return Err("offline".to_owned());
-    }
-    if let Some(problem) = machine.telemetry.as_ref().and_then(|t| t.problem.as_ref()) {
-        return Err(problem.clone());
-    }
-    if let Some(job) = &machine.job {
-        return Err(format!("busy with {}", job.file_name));
     }
     Ok(None)
 }
@@ -1657,6 +1645,26 @@ mod tests {
         );
         // HS2b (W2b): the job names the roll's page, as CUPS's `-o PageSize=<name>`
         assert_eq!(order.page_size.as_deref(), Some(page.name));
+
+        // Busy: a second label waits in its queue (202, its place), and starts by itself once
+        // the first has printed.
+        let (status, body) = call(&app, print(&fits)).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&body).unwrap()["queued"],
+            1
+        );
+        let space = store.default_space().await.unwrap().0;
+        let first = store.active_job(space, &writer).await.unwrap().unwrap();
+        assert_eq!(store.start_queued().await.unwrap(), 0, "waits while busy");
+        store
+            .set_job(space, first.id, crate::store::JobState::Finished, None)
+            .await
+            .unwrap();
+        assert_eq!(store.start_queued().await.unwrap(), 1);
+        let second = store.active_job(space, &writer).await.unwrap().unwrap();
+        assert_ne!(second.id, first.id);
+        assert!(store.queue_of(space, &writer).await.unwrap().is_empty());
     }
 
     /// HS2: every die-cut roll of the 450 takes a page of its own raster and no other.

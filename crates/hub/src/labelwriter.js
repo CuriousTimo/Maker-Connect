@@ -314,7 +314,11 @@
         headers: { "x-requested-with": "fetch" },
       });
       if (!printed.ok) throw new Error(await printed.text());
-      printStatus.textContent = n > 1 ? `Sent to the printer (${n} copies, the rest queued)` : "Sent to the printer";
+      // 202: the printer is busy, or others wait: into its queue, at this place.
+      const queued = printed.status === 202 ? (await printed.json()).queued : null;
+      printStatus.textContent = queued
+        ? `The printer is busy: in its queue, number ${queued}`
+        : n > 1 ? `Sent to the printer (${n} copies, the rest queued)` : "Sent to the printer";
     } catch (error) {
       printStatus.textContent = `Not printed: ${error.message}`;
     } finally {
