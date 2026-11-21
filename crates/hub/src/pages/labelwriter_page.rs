@@ -46,6 +46,10 @@ pub(crate) fn roll_json(profile: Option<&Profile>, machine: &Machine) -> String 
     .replace('<', "\\u003c")
 }
 
+/// The number on the box where it is not DYMO's catalogue SKU: S0722530 is sold as 11353 (owner's
+/// order, 2026-11-21; DYMO's page for S0722530 in its `SkuLinks`: "12 mm x 24 mm").
+const BOX_NUMBERS: &[(&str, &str)] = &[("S0722530", "11353")];
+
 /// The rolls the printer takes, each a button of the media form; the search box filters them.
 fn roll_list(profile: Option<&Profile>, chosen: Option<&str>) -> String {
     let Some(profile) = profile else {
@@ -61,20 +65,26 @@ fn roll_list(profile: Option<&Profile>, chosen: Option<&str>) -> String {
         let k = 40.0 / pw.max(pl);
         let (sw, sh) = ((pw * k).round().max(6.0), (pl * k).round().max(6.0));
         let n = roll.cells.len();
+        let box_number = BOX_NUMBERS
+            .iter()
+            .find(|(sku, _)| *sku == roll.roll.sku)
+            .map(|(_, number)| *number);
         out += &format!(
-            r#"<button name="media" value="{id}" class="roll" aria-pressed="{pressed}" data-search="{search}"><span class="roll-shape"><span style="width: {sw}px; height: {sh}px">{split}</span></span><span class="roll-text"><b>{id}</b> {name}<small>{w} × {l} mm{up} · {paper}</small></span></button>"#,
+            r#"<button name="media" value="{id}" class="roll" aria-pressed="{pressed}" data-search="{search}"><span class="roll-shape"><span style="width: {sw}px; height: {sh}px">{split}</span></span><span class="roll-text"><b>{id}</b>{box_number} {name}<small>{w} × {l} mm{up} · {paper}</small></span></button>"#,
             id = escape(&media.id),
             pressed = chosen == Some(media.id.as_str()),
             search = escape(
                 &format!(
-                    "{} {} {} {}",
+                    "{} {} {} {} {}",
                     roll.roll.sku,
+                    box_number.unwrap_or(""),
                     roll.roll.name.unwrap_or(""),
                     roll.roll.paper,
                     roll.roll.search
                 )
                 .to_lowercase()
             ),
+            box_number = box_number.map_or(String::new(), |b| format!(" ({b})")),
             name = escape(roll.roll.name.unwrap_or("")),
             w = roll.page.width_mm,
             l = roll.page.length_mm,
@@ -225,4 +235,20 @@ pub fn render(
         settings = machine_page::settings(machine, move_to, false, may_operate),
         overview = machine_page::overview(machine, profile, ""),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    /// The roll is found by the number on its box (11353) as well as by DYMO's SKU.
+    #[test]
+    fn a_roll_is_found_by_its_box_number() {
+        let list = super::roll_list(crate::profiles::find("dymo/labelwriter-450"), None);
+        let button = list
+            .split("<button")
+            .find(|b| b.contains(r#"value="S0722530""#))
+            .unwrap();
+        assert!(button.contains("<b>S0722530</b> (11353)"), "{button}");
+        let search = button.split("data-search=\"").nth(1).unwrap();
+        assert!(search.starts_with("s0722530 11353 "), "{search}");
+    }
 }

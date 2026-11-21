@@ -175,13 +175,15 @@
     return { svg, warning: c.warning };
   }
 
-  // The page as SVG at its raster's size, its content centred in each label DYMO Connect's catalogue
-  // puts on the page (HS2b; cells in the raster's dots), clipped to the page; then the owner's shift.
+  // The page as SVG at its raster's size, its content centred on each label DYMO Connect's catalogue
+  // puts on the page (HS2b; cells in the raster's dots); then the owner's shift. A label reaching past
+  // the page keeps its centre: the content's box is the largest one around that centre on the page.
   function labelCells() {
     const [W, H] = roll.dots;
     return (roll.cells || [[0, 0, W, H]]).map(([x, y, w, h]) => {
-      const x0 = Math.max(0, x), y0 = Math.max(0, y), x1 = Math.min(W, x + w), y1 = Math.min(H, y + h);
-      return [Math.round(x0), Math.round(y0), Math.max(0, Math.round(x1 - x0)), Math.max(0, Math.round(y1 - y0))];
+      const cx = x + w / 2, cy = y + h / 2;
+      const hw = Math.max(0, Math.min(cx, W - cx, w / 2)), hh = Math.max(0, Math.min(cy, H - cy, h / 2));
+      return [Math.round(cx - hw), Math.round(cy - hh), Math.round(2 * hw), Math.round(2 * hh)];
     });
   }
   const wordsFor = (i) => (i === 0 || settings.both === "same" ? text.value : text2.value);
