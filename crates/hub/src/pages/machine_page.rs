@@ -646,7 +646,7 @@ fn bed_level(machine: &Machine, profile: Option<&Profile>, operate: bool) -> Str
 }
 
 /// "12 s ago", "5 min ago", "3 h ago", "2 days ago".
-fn ago(seconds: i64) -> String {
+pub(crate) fn ago(seconds: i64) -> String {
     match seconds {
         s if s < 60 => format!("{s} s ago"),
         s if s < 3600 => format!("{} min ago", s / 60),

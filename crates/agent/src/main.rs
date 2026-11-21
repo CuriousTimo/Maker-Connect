@@ -80,6 +80,25 @@ impl Kind {
         }
     }
 
+    /// The additions of `docs/design/prusa-sdk-extension.md` this device uses (part 6a's names).
+    fn features(self) -> &'static [&'static str] {
+        match self {
+            Kind::Pnp => &[
+                "type.string",
+                "pnp.telemetry",
+                "label.tape_size_mm",
+                "agent.id",
+            ],
+            Kind::Lw450 => &[
+                "type.string",
+                "cups.state_reason",
+                "label.page_size",
+                "label.stop",
+                "agent.id",
+            ],
+        }
+    }
+
     fn port(self) -> Box<dyn Port> {
         match self {
             Kind::Pnp => Box::new(DymoPnp::new()),
@@ -193,17 +212,63 @@ impl Settings {
     }
 }
 
-/// A serial drawn once (the port reads none; `wire.md`).
-fn random_serial() -> String {
-    let mut bytes = [0u8; 8];
+/// Random bytes, from the system.
+fn random_bytes<const N: usize>() -> [u8; N] {
+    let mut bytes = [0u8; N];
     if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
         use std::io::Read;
         let _ = f.read_exact(&mut bytes);
     }
+    bytes
+}
+
+/// A serial drawn once (the port reads none; `wire.md`).
+fn random_serial() -> String {
     format!(
         "MC{}",
-        bytes.iter().map(|b| format!("{b:02X}")).collect::<String>()
+        random_bytes::<8>()
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect::<String>()
     )
+}
+
+/// The agent's id (`docs/design/prusa-sdk-extension.md` part 6a, `wire.md` "What the agent
+/// keeps"): `[agent] id` in `agent.ini` in the agent's folder, 32 lower-case hex digits drawn on
+/// the first start and kept; the same for all its devices.
+static AGENT_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+fn load_agent_id(dir: &Path) -> String {
+    let path = dir.join("agent.ini");
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut section = "";
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            section = line.trim_matches(['[', ']']);
+        } else if let Some((key, value)) = line.split_once('=')
+            && section == "agent"
+            && key.trim() == "id"
+        {
+            let value = value.trim();
+            if value.len() == 32
+                && value
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+            {
+                return value.to_owned();
+            }
+        }
+    }
+    let id: String = random_bytes::<16>()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let _ = std::fs::create_dir_all(dir);
+    if let Err(e) = std::fs::write(&path, format!("[agent]\nid = {id}\n")) {
+        log::warn!("{}: {e}", path.display());
+    }
+    id
 }
 
 /// A print's tape (`tape_size_mm`) or page (`page_size`).
@@ -389,6 +454,7 @@ fn main() {
             _ => {}
         }
     }
+    AGENT_ID.get_or_init(|| load_agent_id(&dir));
     let engine = Arc::new(Mutex::new(Engine::new()));
     let mut loaded: Vec<(PathBuf, Settings)> = Kind::ALL
         .into_iter()
@@ -626,6 +692,11 @@ fn send_info(agent: &Agent) -> Finish {
         "sdk": SDK_VERSION,
         "sn": s.serial,
         "fingerprint": s.fingerprint(),
+        // As PrusaLink fills it (`printer_polling.py:501-506`), as far as the agent knows it.
+        "network_info": {"hostname": maker_connect_system::computer().host},
+        // Part 6a of the extension.
+        "agent_id": AGENT_ID.get().cloned().unwrap_or_default(),
+        "features": agent.kind.features(),
     })
     .as_object()
     .unwrap()
@@ -1311,17 +1382,17 @@ fn layout(devices: &[Arc<Agent>], tab: &str, refresh: bool, main: &str) -> Strin
     what.push(format!("release {}", esc(VERSION)));
     format!(
         r##"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-{refresh}<title>Maker Connect agent</title><link rel=icon href="data:image/svg+xml,{icon}"><style>{CSS}
+{refresh}{THEME_FIRST}<title>Maker Connect agent</title><link rel=icon href="data:image/svg+xml,{icon}"><style>{CSS}
 .code{{font:700 var(--fs-6)/1 var(--mono);letter-spacing:.12em;color:var(--accent-text);margin:var(--s-2) 0 var(--s-3)}}
 .brand .mark svg{{width:100%;height:100%;display:block}} .card form{{margin:0}} .card .row.btns{{margin-top:var(--s-3)}} .row.btns>form{{flex:0 0 auto}}</style></head><body>
 <a class=skip href="#main">Skip to content</a>
-<header class=top><span class=brand><span class=mark aria-hidden=true>{MARK}</span><span class=where><b>Maker Connect agent</b><small>{where_}</small></span></span></header>
+<header class=top><span class=brand><span class=mark aria-hidden=true>{MARK}</span><span class=where><b>Maker Connect agent</b><small>{where_}</small></span></span><span class=spacer></span><span class=fw><button type=button class=theme data-theme-btn aria-label="Theme: Auto">Auto</button></span></header>
 <main id=main tabindex=-1 class=solo>
 {banner}<div class=card><div class=head><h1>This agent</h1><span class="st {class}">{state}</span></div>
 <p class=muted>{what}</p></div>
 <nav class=tabs aria-label="This agent">{tabs}</nav>
 {main}
-</main></body></html>"##,
+</main><script>{THEME_SWITCH}</script></body></html>"##,
         refresh = if refresh {
             "<meta http-equiv=refresh content=5>"
         } else {
@@ -1423,6 +1494,10 @@ fn about_page(devices: &[Arc<Agent>]) -> String {
 /// The hub's stylesheet and logo mark, so the agent's page is in the house style.
 const CSS: &str = include_str!("../../hub/src/web/mc.css");
 const MARK: &str = include_str!("../../../assets/logo-v2-mark.svg");
+/// The hub's theme switch (Auto, Light, Dark), as its pages have it (`crates/hub/src/web/shell.rs`):
+/// the choice before the first paint, and the button's script.
+const THEME_FIRST: &str = r#"<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>"#;
+const THEME_SWITCH: &str = include_str!("../../hub/src/theme.js");
 
 fn parse_form(body: &str) -> std::collections::HashMap<String, String> {
     body.split('&')
@@ -1479,6 +1554,27 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         dir
+    }
+
+    /// The agent's id is drawn once, kept in `agent.ini`, and drawn anew only when it is not one.
+    #[test]
+    fn the_agent_id_is_kept() {
+        let root = dir();
+        let id = load_agent_id(&root);
+        assert_eq!(id.len(), 32);
+        assert!(
+            id.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("agent.ini")).unwrap(),
+            format!("[agent]\nid = {id}\n")
+        );
+        assert_eq!(load_agent_id(&root), id);
+        std::fs::write(root.join("agent.ini"), "[agent]\nid = nope\n").unwrap();
+        let new = load_agent_id(&root);
+        assert!(new != id && new.len() == 32);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// A device with no hub address gets the one another device has; one with an address keeps it.
@@ -1693,5 +1789,11 @@ mod tests {
             card.contains("<dt>Hub</dt><dd>not connected · last contact 0 min ago</dd>"),
             "{card}"
         );
+        // The hub's theme switch, the same button and script.
+        let page = page(&[Arc::new(agent)]);
+        assert!(
+            page.contains(r#"class=theme data-theme-btn aria-label="Theme: Auto">Auto</button>"#)
+        );
+        assert!(page.contains(THEME_SWITCH) && page.contains("localStorage.getItem(\"mc-theme\")"));
     }
 }

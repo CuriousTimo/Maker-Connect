@@ -97,6 +97,7 @@ impl<'a> Chrome<'a> {
                 "",
             ),
             item("", "space", "Space", "space", "staff", ""),
+            item("", "instance", "Instance", "instance", "instance", ""),
             item("", "about", "About", "about", "instance", ""),
         ];
         let bottom = nav

@@ -31,6 +31,7 @@ pub mod devices;
 pub mod farm;
 pub mod files;
 pub mod gcode;
+pub mod instance;
 pub mod laser_design;
 pub mod link;
 pub mod pages;

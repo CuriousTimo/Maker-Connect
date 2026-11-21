@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod machines;
 
 mod pg_machines;
-pub use pg_machines::MoveRefused;
+pub use pg_machines::{AgentDevice, AgentOfHub, MoveRefused};
 
 mod pg_files;
 // Jobs on Postgres (lane 3b).
@@ -298,6 +298,13 @@ pub struct Details {
     #[serde(default)]
     pub storages: Vec<Storage>,
     pub network: Option<Network>,
+    /// The agent that hosts this device (`agent_id`, `docs/design/prusa-sdk-extension.md` part 6a):
+    /// none for a Prusa, or an agent from before 6a.
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    /// The additions this device uses (`features`, part 6a); none said is empty.
+    #[serde(default)]
+    pub features: Vec<String>,
 }
 
 /// Somewhere the machine keeps files: a USB stick, an SD card.

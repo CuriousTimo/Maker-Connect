@@ -46,11 +46,20 @@
 <main id="main" tabindex="-1">
 
 <div class="head"><h1>Instance</h1></div>
-<p class="note-role" data-only="instance"><b>As Ada (instance admin):</b> this hub's organisations, spaces and update. Being instance admin is a flag on the account, not a role in a space.</p>
+<p class="note-role" data-only="instance"><b>As Ada (instance admin):</b> this hub's agents, organisations, spaces and update. Being instance admin is a flag on the account, not a role in a space.</p>
 <p class="note-role" data-only="admin"><b>As an admin (Noor):</b> a space admin who is not an instance admin gets the refused page below.</p>
 <div data-only="guest user admin"><div class="empty"><div class="big" aria-hidden="true">⌀</div><h2>This page is for the hub's instance admins</h2><p>It lists every organisation and space on this hub, and updates the hub.</p><p><span class="fw"><a class="btn" href="now.html" data-guest>Back to Now</a></span></p></div>
 <p style="margin-top:var(--s-3)"><small>The hub refuses the page's calls too; the navigation never offers it.</small></p></div>
 <div data-only="instance">
+<div class="card"><div class="head"><h2>Agents</h2><span class="muted">2 agents · 3 devices</span></div>
+<p class="muted">Each agent is a computer beside the machines, running the Maker Connect agent; its devices are grouped by the id the agent sends.</p>
+<div class="table-wrap dense"><table><thead><tr><th>Agent</th><th>Release</th><th>State</th><th>Last seen</th><th>Devices</th></tr></thead><tbody>
+<tr><td><b>orangepipc</b><br><small class="muted">id 3f9a…c21e</small></td><td>v0.3.0</td><td><span class="st wait">Connected</span></td><td>now</td><td><a href="printer.html">Labels-1</a> <small>(Workshop North)</small><br><a href="printer.html">Tape-1</a> <small>(Workshop North, not connected)</small></td></tr>
+<tr><td><b>garage-pi</b><br><small class="muted">id 81d0…4b77</small></td><td>v0.2.4</td><td><span class="st warn">Not connected</span></td><td>3 days ago</td><td><a href="printer.html">Labels-2</a> <small>(Garage)</small></td></tr>
+</tbody></table></div>
+<p><small>An agent from before agents sent their id is not listed here; its devices are on their own pages.</small></p>
+<span class="anno">GET /api/v1/instance/agents · instance.admin · grouped by `agent_id` (prusa-sdk-extension.md 6a); whether it fits the hub: D-A (#52); its update: D-B</span></div>
+
 <div class="cols"><div>
 <div class="card"><h2>Organisations and spaces</h2>
 <div class="table-wrap dense"><table><thead><tr><th>Organisation</th><th>Space</th></tr></thead><tbody>

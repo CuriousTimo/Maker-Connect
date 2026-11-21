@@ -57,6 +57,33 @@ pub(crate) struct MachineRow {
     pub sheet: Option<String>,
 }
 
+/// An agent as the hub knows it from its devices (`Store::agents`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AgentOfHub {
+    /// Its `agent_id`.
+    pub id: String,
+    /// Its release, as its last-seen device's `INFO` said (`firmware`).
+    pub release: Option<String>,
+    /// Its computer's name (`network_info.hostname`).
+    pub computer: Option<String>,
+    /// Whether any of its devices is connected.
+    pub online: bool,
+    pub seen_seconds_ago: Option<i64>,
+    pub devices: Vec<AgentDevice>,
+}
+
+/// A device of an agent, in whichever space it is.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AgentDevice {
+    pub id: String,
+    pub name: String,
+    /// The space's name; none while it waits to be added.
+    pub space: Option<String>,
+    pub online: bool,
+    pub seen_seconds_ago: Option<i64>,
+    pub features: Vec<String>,
+}
+
 impl MachineRow {
     /// The machine as far as its own row tells; [`Legacy::complete_machines`] adds the rest.
     /// `attached`: a `/p/ws` socket of it is open ([`Legacy::attached`]).
@@ -162,6 +189,72 @@ impl Store {
         .rows_affected();
         self.changed();
         Ok(n > 0)
+    }
+
+    /// Every agent and its devices, over all spaces (the Instance page, instance admins only):
+    /// devices grouped by the `agent_id` their `INFO` carried (`docs/design/prusa-sdk-extension.md`
+    /// part 6a), the agent seen most recently first. A device without one is not listed.
+    pub async fn agents(&self) -> sqlx::Result<Vec<AgentOfHub>> {
+        // id, name, space, last seen, details.
+        type Row = (String, String, Option<String>, Option<i64>, Option<String>);
+        let rows: Vec<Row> = sqlx::query_as(
+            "SELECT m.id, m.name, s.name, unix_seconds(m.last_seen), m.details
+                 FROM machines m LEFT JOIN spaces s ON s.id = m.space_id
+                 WHERE m.details IS NOT NULL
+                 ORDER BY m.name COLLATE \"C\"",
+        )
+        .fetch_all(self.pg().admin(Bypass::InstanceAdmin))
+        .await?;
+        let now = now();
+        let attached = self.lock().unwrap().attached.clone();
+        let mut agents: Vec<AgentOfHub> = Vec::new();
+        for (id, name, space, last_seen, details) in rows {
+            let Some(details) = details.and_then(|d| serde_json::from_str::<Details>(&d).ok())
+            else {
+                continue;
+            };
+            let Some(agent_id) = details.agent_id.clone() else {
+                continue;
+            };
+            let seen = last_seen.map(|t| (now - t).max(0));
+            let online = attached.contains_key(&id) || seen.is_some_and(|s| s <= ONLINE_SECONDS);
+            let device = AgentDevice {
+                id,
+                name,
+                space,
+                online,
+                seen_seconds_ago: seen,
+                features: details.features.clone(),
+            };
+            let release = details.firmware.clone();
+            let computer = details.network.as_ref().and_then(|n| n.hostname.clone());
+            match agents.iter_mut().find(|a| a.id == agent_id) {
+                Some(agent) => {
+                    // The device seen last says what the agent is now.
+                    if seen.is_some()
+                        && agent
+                            .seen_seconds_ago
+                            .is_none_or(|s| seen.is_some_and(|d| d < s))
+                    {
+                        agent.seen_seconds_ago = seen;
+                        agent.release = release.or(agent.release.take());
+                        agent.computer = computer.or(agent.computer.take());
+                    }
+                    agent.online |= online;
+                    agent.devices.push(device);
+                }
+                None => agents.push(AgentOfHub {
+                    id: agent_id,
+                    release,
+                    computer,
+                    online,
+                    seen_seconds_ago: seen,
+                    devices: vec![device],
+                }),
+            }
+        }
+        agents.sort_by_key(|a| a.seen_seconds_ago.unwrap_or(i64::MAX));
+        Ok(agents)
     }
 
     /// Puts the machine waiting with this pairing code in the space: its (id, name); None for an

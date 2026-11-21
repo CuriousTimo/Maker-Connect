@@ -64,6 +64,7 @@
 /api/v1/filament/{id}/tag/{uid}
 /api/v1/health
 /api/v1/info
+/api/v1/instance/agents
 /api/v1/location
 /api/v1/location/{*name}
 /api/v1/lot-number
@@ -94,6 +95,7 @@
 /files/{id}/print
 /files/{id}/remove
 /files/{id}/thumbnail.png
+/instance
 /instance/open-spaces
 /invite/{token}
 /klipper
@@ -213,6 +215,8 @@
 ("POST", "/spaces", Signed, None)
 ("POST", "/account/password", Signed, None)
 ("POST", "/instance/open-spaces", InstanceAdmin, None)
+("GET", "/instance", InstanceAdmin, None)
+("GET", "/api/v1/instance/agents", InstanceAdmin, None)
 ("GET", "/api/update", InstanceAdmin, None)
 ("POST", "/about/update", InstanceAdmin, None)
 ("POST", "/space/name", Role(Admin), Some("renamed the space"))
@@ -657,6 +661,11 @@ POST /api/v1/info => 401 403 403 403 403
 PUT /api/v1/info => 401 403 403 403 403
 PATCH /api/v1/info => 401 403 403 403 403
 DELETE /api/v1/info => 401 403 403 403 403
+GET /api/v1/instance/agents => 401 403 403 403 403
+POST /api/v1/instance/agents => 401 403 403 403 403
+PUT /api/v1/instance/agents => 401 403 403 403 403
+PATCH /api/v1/instance/agents => 401 403 403 403 403
+DELETE /api/v1/instance/agents => 401 403 403 403 403
 GET /api/v1/location => 401 200 200 200 200
 POST /api/v1/location => 401 403 403 403 403
 PUT /api/v1/location => 401 403 403 403 403
@@ -807,6 +816,11 @@ POST /files/{id}/thumbnail.png => 401 403 403 403 403
 PUT /files/{id}/thumbnail.png => 401 403 403 403 403
 PATCH /files/{id}/thumbnail.png => 401 403 403 403 403
 DELETE /files/{id}/thumbnail.png => 401 403 403 403 403
+GET /instance => 401 403 403 403 403
+POST /instance => 401 403 403 403 403
+PUT /instance => 401 403 403 403 403
+PATCH /instance => 401 403 403 403 403
+DELETE /instance => 401 403 403 403 403
 GET /instance/open-spaces => 401 405 405 405 405
 POST /instance/open-spaces => 401 403 403 403 403
 PUT /instance/open-spaces => 401 403 403 403 403
@@ -1253,7 +1267,7 @@ PUT /welcome => 401 403 403 403 403
 PATCH /welcome => 401 403 403 403 403
 DELETE /welcome => 401 403 403 403 403
 # embedded
-header 8d5a86f661c53d5d9c2a987bc2a2f3acfd95e2e163aa2b18344201ea0573f383
+header 6d4916bed543c44723b5aba68cac18c2b5a931e95d244b63fdd337ddf59ebe96
 files.css dcd93251794ba443091f0adc652e98842ec61049844f90ab07592de304138158
 files.js dc5a452f14d09b597c27ddaa74e677a9e3ee57abf768f36297cce5fe1c2f13ad
 label.css f76ca53a91ce777ac5e19cf8b0394a65f04ae1c37e7404f3f4dc634b0c0b69b7

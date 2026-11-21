@@ -37,6 +37,7 @@ farm.rs dispatch 5 the farm dispatcher: which spaces have work
 store/agents.rs placed 1 agent token: its machine and space
 store/agents.rs report 1 agent token: its machine's last report
 store/pg_jobs.rs printing_anywhere 3 the About page and self-update: whether anything prints anywhere
+store/pg_machines.rs agents 3 the Instance page: every agent and its devices, over all spaces
 store/pg_machines.rs knows 1 device token: known or not
 store/pg_machines.rs last_telemetry 1 device token: its machine's last report
 store/pg_machines.rs set_details 1 device token: what the device tells about itself

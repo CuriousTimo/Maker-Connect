@@ -707,6 +707,22 @@ pub(crate) fn to_details(info: &Value) -> Details {
             wifi_mac: some(&network["wifi_mac"]),
             wifi_ssid: some(&network["wifi_ssid"]),
         }),
+        // Part 6a of the extension: 32 lower-case hex digits, or not the agent's id.
+        agent_id: some(&info["agent_id"]).filter(|id| {
+            id.len() == 32
+                && id
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+        }),
+        features: info["features"]
+            .as_array()
+            .map(|names| {
+                names
+                    .iter()
+                    .filter_map(|n| n.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default(),
     }
 }
 

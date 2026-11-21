@@ -55,6 +55,7 @@ pub fn app(store: Store) -> Router {
         .merge(files::routes())
         .merge(updates::routes())
         .merge(about::routes())
+        .merge(crate::instance::routes())
         .merge(codes::routes())
         .merge(stock::routes())
         .route("/files", get(files_page::page))
