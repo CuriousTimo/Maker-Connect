@@ -2227,6 +2227,14 @@ mod tests {
                 .await
                 .unwrap();
             let file = store.file(space, f).await.unwrap().unwrap();
+            if f == "w1" {
+                // The print button's check: a page of the loaded roll suits it, online and idle.
+                let _ = app.clone().oneshot(idle()).await.unwrap();
+                let mut page_file = file.clone();
+                page_file.meta.png_dots = Some(page.dots);
+                let machine = store.machines(space).await.unwrap()[0].clone();
+                assert_eq!(crate::files::suits(&page_file, &machine), Ok(None));
+            }
             let job = store
                 .add_job(
                     space,

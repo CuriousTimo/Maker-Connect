@@ -339,11 +339,19 @@ fn main() {
         }
     }
     let engine = Arc::new(Mutex::new(Engine::new()));
-    let devices: Vec<Arc<Agent>> = Kind::ALL
+    let mut loaded: Vec<(PathBuf, Settings)> = Kind::ALL
         .into_iter()
         .map(|kind| {
             let dir = dir.join(kind.folder());
             let settings = Settings::load(&dir, kind.printer_type());
+            (dir, settings)
+        })
+        .collect();
+    share_hub(&mut loaded);
+    let devices: Vec<Arc<Agent>> = Kind::ALL
+        .into_iter()
+        .zip(loaded)
+        .map(|(kind, (dir, settings))| {
             Arc::new(Agent {
                 kind,
                 dir,
@@ -1038,6 +1046,24 @@ fn register(agent: &Agent, server: &str, s: &Settings) {
     }
 }
 
+/// One hub for the agent (the page's Hub form writes every device's file): a device without an
+/// address, such as one added in a newer version, gets the address the others have.
+fn share_hub(devices: &mut [(PathBuf, Settings)]) {
+    let Some((hostname, port, tls)) = devices
+        .iter()
+        .find(|(_, s)| !s.hostname.is_empty())
+        .map(|(_, s)| (s.hostname.clone(), s.port, s.tls))
+    else {
+        return;
+    };
+    for (dir, s) in devices.iter_mut().filter(|(_, s)| s.hostname.is_empty()) {
+        s.hostname = hostname.clone();
+        s.port = port;
+        s.tls = tls;
+        s.save(dir);
+    }
+}
+
 /// The agent's page.
 fn web(devices: &[Arc<Agent>], listen: &str) {
     let server = tiny_http::Server::http(listen).expect("listen");
@@ -1246,6 +1272,32 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         dir
+    }
+
+    /// A device with no hub address gets the one another device has; one with an address keeps it.
+    #[test]
+    fn a_new_device_takes_the_agents_hub() {
+        let root = dir();
+        let pnp = Kind::Pnp.printer_type();
+        let lw = Kind::ALL
+            .iter()
+            .find(|k| **k != Kind::Pnp)
+            .unwrap()
+            .printer_type();
+        let mut linked = Settings::load(&root.join("a"), pnp);
+        linked.hostname = "192.168.60.67".into();
+        linked.port = 8460;
+        let mut devices = vec![
+            (root.join("a"), linked),
+            (root.join("b"), Settings::load(&root.join("b"), lw)),
+        ];
+        share_hub(&mut devices);
+        let back = Settings::load(&root.join("b"), lw);
+        assert_eq!(
+            (back.hostname.as_str(), back.port, back.tls),
+            ("192.168.60.67", 8460, false)
+        );
+        assert!(back.token.is_empty(), "registers itself");
     }
 
     /// The settings file is PrusaLink's `prusa_printer_settings.ini` as configparser writes it

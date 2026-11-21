@@ -133,7 +133,8 @@ fn labelwriter_check(
         return Err("not a label".to_owned());
     };
     labelwriter_fits([w, h], profile, machine.media.as_deref())?;
-    if machine.link != "virtual" {
+    // The agent's LabelWriter takes its labels over the Prusa Connect protocol (link `prusa-connect`).
+    if !matches!(machine.link.as_str(), "virtual" | "prusa-connect") {
         return Err("this machine takes no labels from here".to_owned());
     }
     if !machine.online {
