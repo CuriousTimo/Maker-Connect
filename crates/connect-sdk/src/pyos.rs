@@ -1,12 +1,13 @@
-//! The `os`, `os.path` and `shutil` functions `files.py` and `fileinfo.py` stand on, ported from
+//! The `os`, `os.path` and `shutil` functions `files.py`, `fileinfo.py` and `download.py` stand on, ported from
 //! CPython 3.13.12 (`reference/cpython-3.13`, PSF licence):
 //!
 //! * `os.path` (`posixpath.py`, `genericpath.py`): [`join`], [`split`], [`normpath`] (the C
 //!   `os._path_normpath`, `Python/fileutils.c` `_Py_normpath_and_size` and `_Py_skiproot`),
 //!   [`abspath`], [`realpath`] (`strict=False`, the SDK's), [`relpath`], [`commonpath`],
-//!   [`exists`], [`lexists`], [`isdir`], [`islink`];
+//!   [`exists`], [`lexists`], [`isdir`], [`islink`], [`isabs`], [`basename`], [`dirname`];
 //! * `os` (`Lib/os.py`, `Modules/posixmodule.c`): [`getcwd`], [`stat`], [`lstat`], [`access`],
-//!   [`statvfs`], [`unlink`], [`rmdir`], [`scandir`] and its [`DirEntry`], [`walk`];
+//!   [`statvfs`], [`unlink`], [`remove`], [`rmdir`], [`mkdir`], [`makedirs`], [`rename`], [`scandir`]
+//!   and its [`DirEntry`], [`walk`];
 //! * `shutil.rmtree` (`Lib/shutil.py`, its `_rmtree_safe_fd`, as on Linux and macOS) with the
 //!   SDK's arguments: [`rmtree`];
 //! * the `OSError` these raise (`Objects/exceptions.c`): [`OsError`], its class by `errno` and
@@ -42,6 +43,8 @@ pub struct OsError {
     /// `strerror`, or the message when `errno` is `None`.
     pub strerror: String,
     pub filename: Option<Filename>,
+    /// The second path of a two-path call (`os.rename`'s `dst`, `path_error2`).
+    pub filename2: Option<Filename>,
 }
 
 /// An exception of these functions: an `OSError` (or a subclass), or a `ValueError`.
@@ -72,6 +75,7 @@ impl OsError {
             errno: Some(errno),
             strerror,
             filename,
+            filename2: None,
         }
     }
 
@@ -89,6 +93,44 @@ impl OsError {
             errno: None,
             strerror: message.to_string(),
             filename: None,
+            filename2: None,
+        }
+    }
+
+    /// The `OSError` of a failed `open(file, ...)` (`Modules/_io/fileio.c`
+    /// `PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, nameobj)`) or of Rust's `std` on a
+    /// named file: its `errno`, `strerror` and that `filename`.
+    pub fn from_io_with_filename(err: &std::io::Error, filename: &[u8]) -> OsError {
+        let mut os = OsError::from_io(err);
+        if os.errno.is_some() {
+            os.filename = Some(Filename::Path(filename.to_vec()));
+        }
+        os
+    }
+
+    /// `str(err)` (`OSError_str`, POSIX): `[Errno n] strerror: 'filename'` (`-> 'filename2'`),
+    /// `[Errno n] strerror` without a filename, the message alone (`BaseException_str` of one
+    /// argument) without an `errno`.
+    pub fn str(&self) -> String {
+        let name = |f: &Filename| match f {
+            // `os.fsdecode`; a path that is not UTF-8 is not covered (U+FFFD per bad byte).
+            Filename::Path(p) => repr_str(&String::from_utf8_lossy(p)),
+            Filename::Fd(fd) => fd.to_string(),
+        };
+        let Some(errno) = self.errno else {
+            return self.strerror.clone();
+        };
+        match (&self.filename, &self.filename2) {
+            (Some(f), Some(f2)) => {
+                format!(
+                    "[Errno {errno}] {}: {} -> {}",
+                    self.strerror,
+                    name(f),
+                    name(f2)
+                )
+            }
+            (Some(f), None) => format!("[Errno {errno}] {}: {}", self.strerror, name(f)),
+            _ => format!("[Errno {errno}] {}", self.strerror),
         }
     }
 
@@ -523,6 +565,28 @@ pub fn commonpath(paths: &[&[u8]]) -> Result<Vec<u8>, Error> {
     Ok(out)
 }
 
+/// `posixpath.isabs(s)`.
+pub fn isabs(s: &str) -> bool {
+    s.starts_with('/')
+}
+
+/// `posixpath.basename(p)`.
+pub fn basename(p: &str) -> &str {
+    let i = p.rfind('/').map_or(0, |i| i + 1);
+    &p[i..]
+}
+
+/// `posixpath.dirname(p)`.
+pub fn dirname(p: &str) -> &str {
+    let i = p.rfind('/').map_or(0, |i| i + 1);
+    let head = &p[..i];
+    if !head.is_empty() && head.bytes().any(|c| c != SEP) {
+        head.trim_end_matches('/')
+    } else {
+        head
+    }
+}
+
 /// `genericpath.exists(path)`: `os.stat`, any `OSError` or `ValueError` is `False`.
 pub fn exists(path: &[u8]) -> bool {
     stat(path).is_ok()
@@ -714,6 +778,65 @@ pub fn unlink(path: &[u8]) -> Result<(), Error> {
     // SAFETY: a NUL-terminated path.
     if unsafe { libc::unlink(c.as_ptr()) } != 0 {
         return Err(OsError::last(Some(Filename::Path(path.to_vec()))).into());
+    }
+    Ok(())
+}
+
+/// `os.remove(path)`: the same as `os.unlink` (`os_remove_impl`), named `remove`.
+pub fn remove(path: &[u8]) -> Result<(), Error> {
+    let c = cpath("remove", path)?;
+    // SAFETY: a NUL-terminated path.
+    if unsafe { libc::unlink(c.as_ptr()) } != 0 {
+        return Err(OsError::last(Some(Filename::Path(path.to_vec()))).into());
+    }
+    Ok(())
+}
+
+/// `os.mkdir(path, mode)`.
+pub fn mkdir(path: &[u8], mode: u32) -> Result<(), Error> {
+    let c = cpath("mkdir", path)?;
+    // SAFETY: a NUL-terminated path.
+    if unsafe { libc::mkdir(c.as_ptr(), mode as libc::mode_t) } != 0 {
+        return Err(OsError::last(Some(Filename::Path(path.to_vec()))).into());
+    }
+    Ok(())
+}
+
+/// `os.makedirs(name, mode=0o777, exist_ok=False)` (`Lib/os.py`).
+pub fn makedirs(name: &[u8], exist_ok: bool) -> Result<(), Error> {
+    let (mut head, mut tail) = split(name);
+    if tail.is_empty() {
+        (head, tail) = split(&head);
+    }
+    if !head.is_empty() && !tail.is_empty() && !exists(&head) {
+        match makedirs(&head, exist_ok) {
+            // Defeats race condition when another thread created the path
+            Err(Error::Os(err)) if err.errno == Some(libc::EEXIST) => {}
+            other => other?,
+        }
+        if tail == b"." {
+            return Ok(());
+        }
+    }
+    match mkdir(name, 0o777) {
+        // Cannot rely on checking for EEXIST, since the operating system could give priority
+        // to other errors like EACCES or EROFS
+        Err(Error::Os(_)) if exist_ok && isdir(name) => Ok(()),
+        other => other,
+    }
+}
+
+/// `os.rename(src, dst)` (`internal_rename`): a failure names both (`path_error2`).
+pub fn rename(src: &[u8], dst: &[u8]) -> Result<(), Error> {
+    let s = CString::new(src)
+        .map_err(|_| Error::Value("rename: embedded null character in src".into()))?;
+    let d = CString::new(dst)
+        .map_err(|_| Error::Value("rename: embedded null character in dst".into()))?;
+    // SAFETY: NUL-terminated paths.
+    if unsafe { libc::rename(s.as_ptr(), d.as_ptr()) } != 0 {
+        let mut err = OsError::last(Some(Filename::Path(src.to_vec())));
+        err.filename2 = Some(Filename::Path(dst.to_vec()));
+        return Err(err.into());
     }
     Ok(())
 }

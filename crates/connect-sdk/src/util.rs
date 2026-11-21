@@ -303,6 +303,92 @@ impl Session {
     }
 }
 
+/// A `requests.Response` of `stream=True`: its status and headers, the body read as it is
+/// iterated (`iter_content`), decoded as `requests` decodes it (`gzip` by ureq, `deflate` as
+/// urllib3's `DeflateDecoder`).
+pub struct StreamResponse {
+    pub status_code: u16,
+    pub headers: Vec<(String, String)>,
+    body: Box<dyn std::io::Read + Send>,
+}
+
+impl StreamResponse {
+    /// `res.headers.get(name)`: case-insensitive.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+
+    /// The next chunk of `iter_content(chunk_size)`: urllib3's `stream(amt)` reads `amt`
+    /// decoded bytes, fewer only at the end; `None` at the end.
+    pub fn next_chunk(&mut self, chunk_size: usize) -> Option<Result<Vec<u8>, RequestError>> {
+        let mut chunk = vec![0u8; chunk_size];
+        let mut filled = 0;
+        while filled < chunk_size {
+            match self.body.read(&mut chunk[filled..]) {
+                Ok(0) => break,
+                Ok(n) => filled += n,
+                Err(err) if err.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(err) => return Some(Err(io_error(&err))),
+            }
+        }
+        if filled == 0 {
+            return None;
+        }
+        chunk.truncate(filled);
+        Some(Ok(chunk))
+    }
+}
+
+impl Session {
+    /// `requests.get(url, stream=True, headers=headers, timeout=CONNECTION_TIMEOUT)`: a new
+    /// `Session` for the call, as `requests.get` makes one.
+    pub fn get_stream(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+    ) -> Result<StreamResponse, RequestError> {
+        let mut request = self.agent.request("GET", url);
+        for (name, value) in DEFAULT_HEADERS {
+            request = request.set(name, value);
+        }
+        for (name, value) in headers {
+            request = request.set(name, value);
+        }
+        let response = match request.call() {
+            Ok(response) | Err(ureq::Error::Status(_, response)) => response,
+            Err(ureq::Error::Transport(transport)) => return Err(transport_error(&transport)),
+        };
+        let status_code = response.status();
+        let headers: Vec<(String, String)> = response
+            .headers_names()
+            .into_iter()
+            .filter_map(|name| {
+                let value = response.header(&name)?.to_owned();
+                Some((name, value))
+            })
+            .collect();
+        let deflate = response
+            .header("Content-Encoding")
+            .is_some_and(|e| e.eq_ignore_ascii_case("deflate"));
+        let mut body: Box<dyn std::io::Read + Send> = Box::new(response.into_reader());
+        if deflate {
+            let mut raw = Vec::new();
+            std::io::Read::read_to_end(&mut body, &mut raw).map_err(|err| io_error(&err))?;
+            body = Box::new(std::io::Cursor::new(
+                inflate(&raw).map_err(|err| io_error(&err))?,
+            ));
+        }
+        Ok(StreamResponse {
+            status_code,
+            headers,
+            body,
+        })
+    }
+}
+
 impl Default for Session {
     fn default() -> Session {
         Session::new()

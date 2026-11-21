@@ -2,7 +2,7 @@
 //! `tests/fileinfo_scenario.py` runs the reference and prints what it gave; this test runs ours
 //! the same way and wants the same.
 //!
-//! The Python, with the SDK (04c5bd5) and gcode-metadata (7d8f25d) installed, on CPython
+//! The Python, with the SDK (c0d7d233) and gcode-metadata (7d8f25d) installed, on CPython
 //! 3.13.12: `FILEINFO_PYTHON`, else `reference/.venv-connect-sdk-313`; gcode-metadata's test
 //! files: `FILEINFO_GCODES`, else `reference/gcode-metadata/tests/gcodes`. Without them it says
 //! so and passes.

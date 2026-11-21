@@ -4,16 +4,32 @@
 //! port, `maker_connect_engine::ports::labelle`), linked to the hub over the Prusa Connect printer
 //! protocol as an SDK printer (`docs/design/wire.md`, "The first device"): registration with a code
 //! over `/p/register`, then `/p/ws` with telemetry, events and commands (`maker_connect_sdk`).
-//! A label comes as `START_CONNECT_DOWNLOAD` with `printing` and `tape_size_mm`.
+//! A label comes as `START_CONNECT_DOWNLOAD` with `printing` and `tape_size_mm`: the SDK's
+//! download (`maker_connect_sdk::download`) fetches it in its own thread, then the port prints it.
 //!
 //! A small page on the agent (`--listen`, default `0.0.0.0:8470`): the hub's address, the DYMO
 //! module on or off, the registration code and the link's state.
 
-use maker_connect_engine::{Engine, MachineId, Order, ports::labelle::DymoPnp};
-use maker_connect_protocol::{JobOrder, MachineState};
+#[cfg(unix)]
+use maker_connect_engine::Order;
+use maker_connect_engine::{Engine, MachineId, ports::labelle::DymoPnp};
+#[cfg(unix)]
+use maker_connect_gcode_metadata::py::repr_str;
+#[cfg(unix)]
+use maker_connect_protocol::JobOrder;
+use maker_connect_protocol::MachineState;
 use maker_connect_sdk::command::{Command, CommandHandler, Finish, HandlerError};
+#[cfg(unix)]
+use maker_connect_sdk::consts::TransferType;
 use maker_connect_sdk::consts::{self, Source, State};
+#[cfg(unix)]
+use maker_connect_sdk::download::{
+    ConnDetailsCallback, DownloadFinishedCallback, DownloadMgr, Filesystem, PrintedFileCallback,
+    Storage, Transfer,
+};
 use maker_connect_sdk::models::{EventCallback, Kwargs};
+#[cfg(unix)]
+use maker_connect_sdk::util::{py_float_repr, py_truthy};
 use maker_connect_sdk::ws::PrinterWs;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -141,9 +157,24 @@ struct Agent {
     printing: AtomicBool,
     ws: Mutex<Option<Arc<PrinterWs>>>,
     command: Mutex<Option<Arc<Command>>>,
+    event_cb: Mutex<Option<EventCallback>>,
+    #[cfg(unix)]
+    transfer: Arc<Transfer>,
+    #[cfg(unix)]
+    download: Mutex<Option<Arc<DownloadMgr>>>,
+    /// The tape each download's print is for, by its command (`tape_size_mm`).
+    #[cfg(unix)]
+    tapes: Mutex<std::collections::HashMap<i64, Option<u32>>>,
+    /// The label being printed: its job (the download's command) and file.
+    label: Mutex<Option<(i64, PathBuf)>>,
 }
 
 impl Agent {
+    #[cfg(unix)]
+    fn transfer(&self) -> Arc<Transfer> {
+        self.transfer.clone()
+    }
+
     fn settings(&self) -> Settings {
         self.settings.lock().unwrap().clone()
     }
@@ -253,6 +284,14 @@ fn main() {
         printing: AtomicBool::new(false),
         ws: Mutex::new(None),
         command: Mutex::new(None),
+        event_cb: Mutex::new(None),
+        #[cfg(unix)]
+        transfer: Arc::new(Transfer::new()),
+        #[cfg(unix)]
+        download: Mutex::new(None),
+        #[cfg(unix)]
+        tapes: Mutex::new(Default::default()),
+        label: Mutex::new(None),
     });
     setup_link(&agent);
     if settings.on {
@@ -273,6 +312,8 @@ fn setup_link(agent: &Arc<Agent>) {
         if events.settings().token.is_empty() {
             return;
         }
+        let mut kwargs = kwargs;
+        event_transfer_id(&events, &mut kwargs);
         let e = maker_connect_sdk::models::Event::new(event, source, ts, command_id, kwargs);
         let mut payload = e.to_payload();
         if let Value::Object(map) = &mut payload
@@ -282,13 +323,13 @@ fn setup_link(agent: &Arc<Agent>) {
         }
         events.send(&payload);
     });
-    let command = Arc::new(Command::new(event_cb));
+    *agent.event_cb.lock().unwrap() = Some(event_cb.clone());
+    let command = Arc::new(Command::new(event_cb.clone()));
     let me = agent.clone();
     let info: CommandHandler = Arc::new(move |_| Ok(send_info(&me)));
     command.set_handler(consts::Command::SendInfo, info);
-    let me = agent.clone();
-    let download: CommandHandler = Arc::new(move |cmd| print_label(&me, cmd));
-    command.set_handler(consts::Command::StartConnectDownload, download);
+    #[cfg(unix)]
+    setup_download(agent, &command, event_cb);
     let incoming = command.clone();
     let ws = Arc::new(PrinterWs::new(Arc::new(move |message: String| {
         handle_ws_message(&incoming, &message)
@@ -302,6 +343,118 @@ fn setup_link(agent: &Arc<Agent>) {
             command.run();
         }
     });
+}
+
+/// The download handlers and manager (`__init__.py:149-154`, `:168-174`), the manager's loop in
+/// a thread of its own as PrusaLink runs it (`sdk_augmentation/printer.py:40`, `:205-208`). Its
+/// one storage is the labels' folder (ours: `files.py` is not ported, see
+/// `maker_connect_sdk::download`). Unix only, as the SDK's storage (`wire.md`).
+#[cfg(unix)]
+fn setup_download(agent: &Arc<Agent>, command: &Command, event_cb: EventCallback) {
+    let me = agent.clone();
+    let download: CommandHandler = Arc::new(move |cmd| start_connect_download(&me, cmd));
+    command.set_handler(consts::Command::StartConnectDownload, download);
+    let me = agent.clone();
+    let stop: CommandHandler = Arc::new(move |cmd| transfer_stop(&me, cmd));
+    command.set_handler(consts::Command::StopTransfer, stop);
+    let me = agent.clone();
+    let info: CommandHandler = Arc::new(move |cmd| transfer_info(&me, cmd));
+    command.set_handler(consts::Command::SendTransferInfo, info);
+
+    let mut storage_dict = std::collections::HashMap::new();
+    storage_dict.insert(
+        "labels".to_owned(),
+        Storage {
+            path_storage: agent
+                .dir
+                .join("dymo")
+                .join("labels")
+                .to_string_lossy()
+                .into_owned(),
+        },
+    );
+    let me = agent.clone();
+    let conn_details: ConnDetailsCallback =
+        Arc::new(move || (me.settings().server(), me.headers(true)));
+    let me = agent.clone();
+    let printed_file: PrintedFileCallback = Arc::new(move || {
+        me.label
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|(_, file)| file.to_string_lossy().into_owned())
+    });
+    let me = agent.clone();
+    let finished: DownloadFinishedCallback = Arc::new(move |t| label_downloaded(&me, t));
+    let mgr = Arc::new(DownloadMgr::new(
+        Filesystem {
+            sep: "/".into(),
+            storage_dict,
+        },
+        agent.transfer(),
+        conn_details,
+        event_cb,
+        printed_file,
+        finished,
+    ));
+    *agent.download.lock().unwrap() = Some(mgr.clone());
+    std::thread::spawn(move || mgr.run_loop());
+}
+
+/// `if self.transfer.in_progress and self.transfer.start_ts: kwargs['transfer_id'] = ...`
+/// (`event_cb`, `__init__.py:331-332`).
+#[cfg(unix)]
+fn event_transfer_id(agent: &Agent, kwargs: &mut Kwargs) {
+    let transfer = agent.transfer();
+    let (in_progress, start_ts, transfer_id) = {
+        let d = transfer.data();
+        (
+            d.type_ != TransferType::NoTransfer,
+            d.start_ts,
+            d.transfer_id,
+        )
+    };
+    if in_progress && start_ts != 0.0 {
+        kwargs.insert("transfer_id".into(), transfer_id.into());
+    }
+}
+
+#[cfg(not(unix))]
+fn event_transfer_id(_agent: &Agent, _kwargs: &mut Kwargs) {}
+
+/// The transfer's telemetry (`telemetry`, `__init__.py:355-360`); `false` when it raises (a
+/// `progress` of size 0), which leaves the telemetry out.
+#[cfg(unix)]
+fn telemetry_transfer(agent: &Agent, kwargs: &mut Kwargs) -> bool {
+    let transfer = agent.transfer();
+    let (in_progress, start_ts, transfer_id) = {
+        let d = transfer.data();
+        (
+            d.type_ != TransferType::NoTransfer,
+            d.start_ts,
+            d.transfer_id,
+        )
+    };
+    if !(in_progress && start_ts != 0.0) {
+        return true;
+    }
+    let (Ok(progress), Ok(remaining)) = (transfer.progress(), transfer.time_remaining()) else {
+        return false;
+    };
+    kwargs.insert("transfer_id".into(), transfer_id.into());
+    kwargs.insert("transfer_progress".into(), progress.into());
+    kwargs.insert("transfer_time_remaining".into(), remaining.into());
+    kwargs.insert("transfer_transferred".into(), transfer.transferred().into());
+    kwargs.insert(
+        "time_transferring".into(),
+        transfer.time_transferring().into(),
+    );
+    true
+}
+
+#[cfg(not(unix))]
+fn telemetry_transfer(_agent: &Agent, _kwargs: &mut Kwargs) -> bool {
+    true
 }
 
 /// `handle_ws_message` (`__init__.py:640-724`).
@@ -370,90 +523,231 @@ fn send_info(agent: &Agent) -> Finish {
     finish
 }
 
-/// START_CONNECT_DOWNLOAD with `printing`: fetch the label from the hub
-/// (`/p/teams/{team_id}/files/{hash}/raw`, `__init__.py:468`) and print it with the tape the hub
-/// names.
-fn print_label(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
-    let kwargs = cmd
-        .kwargs()
-        .ok_or_else(|| HandlerError::Failed("START_CONNECT_DOWNLOAD requires kwargs".into()))?;
-    let server = agent
-        .settings()
-        .server()
-        .ok_or_else(|| HandlerError::Failed("Printer.server must be set!".into()))?;
-    let team = &kwargs["team_id"];
-    let hash = kwargs["hash"].as_str().unwrap_or("");
-    let url = format!("{server}/p/teams/{team}/files/{hash}/raw");
-    let id = agent
-        .dymo
+#[cfg(unix)]
+/// `start_connect_download` (`__init__.py:457-483` at c0d7d233): the download goes to the
+/// download loop; the command ends with what `DownloadMgr.start` gave. The tape the hub names
+/// (`tape_size_mm`, the extension's) is kept for the print.
+fn start_connect_download(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
+    let name = consts::Command::StartConnectDownload;
+    let failed = |e: String| HandlerError::Failed(e);
+    let kwargs = cmd.kwargs().filter(py_truthy).ok_or_else(|| {
+        failed(value_error(&format!(
+            "Command.{} requires kwargs",
+            name.value()
+        )))
+    })?;
+
+    let Some(server) = agent.settings().server() else {
+        return Err(failed("RuntimeError('Printer.server must be set!')".into()));
+    };
+
+    let missing = |key: &str| {
+        failed(value_error(&format!(
+            "Command.{} requires kwarg {}.",
+            name.value(),
+            repr_str(key)
+        )))
+    };
+    let arg = |key: &str| kwargs.get(key).ok_or_else(|| missing(key));
+    // "/p/teams/{team_id}/files/{hash}/raw".format(**caller.kwargs)
+    let uri = format!(
+        "/p/teams/{}/files/{}/raw",
+        py_str(arg("team_id")?),
+        py_str(arg("hash")?)
+    );
+    let path = arg("path")?;
+    let Some(path) = path.as_str() else {
+        return Err(failed(format!(
+            "TypeError('expected str, bytes or os.PathLike object, not {}')",
+            py_type(path)
+        )));
+    };
+    let printing = kwargs.get("printing").is_some_and(py_truthy);
+    let selecting = kwargs.get("selecting").is_some_and(py_truthy);
+    let hash = py_str(arg("hash")?);
+    let team_id = arg("team_id")?.clone();
+    let tape = kwargs["tape_size_mm"].as_u64().map(|t| t as u32);
+    let mgr = agent
+        .download
         .lock()
         .unwrap()
-        .ok_or_else(|| HandlerError::Rejected("the DYMO module is off".into()))?;
+        .clone()
+        .expect("the download manager");
+    let mut retval = mgr
+        .start(
+            TransferType::FromConnect,
+            path,
+            Some(&format!("{server}{uri}")),
+            Some(printing),
+            Some(selecting),
+            Some(cmd.command_id()),
+            Some(&hash),
+            Some(team_id),
+        )
+        .map_err(|err| failed(err.repr()))?;
+    if retval.event != Some(consts::Event::Rejected) {
+        agent.tapes.lock().unwrap().insert(cmd.command_id(), tape);
+    }
+    retval.source = Source::Connect;
+    Ok(retval)
+}
+
+#[cfg(unix)]
+/// `transfer_stop` (`__init__.py:485-492`).
+fn transfer_stop(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
+    let transfer = agent.transfer();
+    if let Some(id) = cmd.kwargs().and_then(|k| k.get("transfer_id").cloned())
+        && py_truthy(&id)
+        && !same_transfer(&id, &transfer)
+    {
+        return Err(HandlerError::Failed(
+            "RuntimeError('Wrong transfer_id')".into(),
+        ));
+    }
+    transfer.stop();
+    Ok(Finish::new(Source::Connect))
+}
+
+#[cfg(unix)]
+/// `transfer_info` (`__init__.py:494-503`).
+fn transfer_info(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
+    let transfer = agent.transfer();
+    if let Some(id) = cmd.kwargs().and_then(|k| k.get("transfer_id").cloned())
+        && py_truthy(&id)
+        && !same_transfer(&id, &transfer)
+    {
+        return Err(HandlerError::Failed(
+            "CommandFailed('Not current transfer.')".into(),
+        ));
+    }
+    let info = transfer
+        .to_dict()
+        .map_err(|err| HandlerError::Failed(err.repr()))?;
+    Ok(Finish {
+        source: Source::Connect,
+        event: Some(consts::Event::TransferInfo),
+        kwargs: info,
+    })
+}
+
+#[cfg(unix)]
+/// `transfer_id == self.transfer.transfer_id`, Python's `==` of a JSON number and an int.
+fn same_transfer(id: &Value, transfer: &Transfer) -> bool {
+    match (id.as_f64(), transfer.data().transfer_id) {
+        (Some(id), Some(current)) => id == f64::from(current),
+        _ => false,
+    }
+}
+
+#[cfg(unix)]
+/// `repr(ValueError(message))`
+fn value_error(message: &str) -> String {
+    format!("ValueError({})", repr_str(message))
+}
+
+#[cfg(unix)]
+/// `str(value)` of a JSON value, as `str.format` writes it.
+fn py_str(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        Value::Null => "None".into(),
+        Value::Bool(b) => if *b { "True" } else { "False" }.into(),
+        Value::Number(n) if n.is_f64() => py_float_repr(n.as_f64().unwrap_or(0.0)),
+        other => other.to_string(),
+    }
+}
+
+#[cfg(unix)]
+/// The Python type name of a JSON value.
+fn py_type(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "NoneType",
+        Value::Bool(_) => "bool",
+        Value::Number(n) if n.is_f64() => "float",
+        Value::Number(_) => "int",
+        Value::String(_) => "str",
+        Value::Array(_) => "list",
+        Value::Object(_) => "dict",
+    }
+}
+
+#[cfg(unix)]
+/// `download_finished_cb(transfer)`, as PrusaLink's (`prusa_link.py:519-540`) starts the print of
+/// a download with `to_print`: the label goes to the DYMO port (ours: the port in place of
+/// PrusaLink's `StartPrint`), its state `PRINTING` as `set_state` says it.
+fn label_downloaded(agent: &Agent, transfer: &Transfer) {
+    let d = transfer.data().clone();
+    let tape = d
+        .start_cmd_id
+        .and_then(|id| agent.tapes.lock().unwrap().remove(&id))
+        .flatten();
+    if d.to_print != Some(true) {
+        return;
+    }
+    let (Some(job), Some(file)) = (d.start_cmd_id, d.os_path.clone()) else {
+        return;
+    };
+    let file = PathBuf::from(file);
+    let Some(id) = *agent.dymo.lock().unwrap() else {
+        set_state(agent, State::Error, Some("the DYMO module is off"));
+        set_state(agent, State::Idle, None);
+        return;
+    };
+    let order = JobOrder {
+        id: job,
+        name: d.path.clone().unwrap_or_default(),
+        download: d.url.clone().unwrap_or_default(),
+        size: std::fs::metadata(&file).map_or(0, |m| m.len()),
+        from_line: None,
+        tape_mm: tape,
+        label_length_mm: None,
+        page_size: None,
+    };
     agent.printing.store(true, Ordering::SeqCst);
-    let result = (|| {
-        let mut request = ureq::get(&url);
-        for (k, v) in agent.headers(true) {
-            if let Some(v) = v {
-                request = request.set(&k, &v);
-            }
-        }
-        let response = request
-            .call()
-            .map_err(|e| HandlerError::Failed(format!("download: {e}")))?;
-        let mut bytes = Vec::new();
-        use std::io::Read;
-        response
-            .into_reader()
-            .read_to_end(&mut bytes)
-            .map_err(|e| HandlerError::Failed(format!("download: {e}")))?;
-        let labels = agent.dir.join("dymo").join("labels");
-        let _ = std::fs::create_dir_all(&labels);
-        let file = labels.join(format!("{}.png", cmd.command_id()));
-        std::fs::write(&file, &bytes).map_err(|e| HandlerError::Failed(e.to_string()))?;
-        let job = cmd.command_id();
-        let order = JobOrder {
-            id: job,
-            name: kwargs["path"].as_str().unwrap_or("label.png").to_owned(),
-            download: url.clone(),
-            size: bytes.len() as u64,
-            from_line: None,
-            tape_mm: kwargs["tape_size_mm"].as_u64().map(|t| t as u32),
-            label_length_mm: None,
-            page_size: None,
-        };
-        let engine = agent.engine.lock().unwrap();
-        engine
-            .send(
-                id,
-                Order::Job {
-                    order,
-                    file: file.clone(),
-                },
-            )
-            .map_err(|_| HandlerError::Failed("the DYMO port has ended".into()))?;
-        drop(engine);
-        loop {
-            std::thread::sleep(Duration::from_millis(200));
-            let engine = agent.engine.lock().unwrap();
-            let report = engine
-                .report(id)
-                .map_err(|_| HandlerError::Failed("the DYMO port has ended".into()))?;
-            if let Some(end) = report.job_ends.iter().find(|e| e.id == job).cloned() {
-                let _ = engine.reported(id, report.done.len(), report.job_ends.len());
-                let _ = std::fs::remove_file(&file);
-                return if end.ok {
-                    Ok(Finish::new(Source::Connect))
-                } else {
-                    Err(HandlerError::Failed(
-                        end.reason
-                            .unwrap_or_else(|| "the label did not print".into()),
-                    ))
-                };
-            }
-        }
-    })();
+    *agent.label.lock().unwrap() = Some((job, file.clone()));
+    set_state(agent, State::Printing, None);
+    let sent = agent
+        .engine
+        .lock()
+        .unwrap()
+        .send(id, Order::Job { order, file });
+    if sent.is_err() {
+        label_ended(agent, false, Some("the DYMO port has ended".into()));
+    }
+}
+
+/// A label printed, or not: the file goes, the state is `ERROR` with the port's reason when it
+/// failed, then `IDLE` (`docs/design/wire.md`, "The first device").
+fn label_ended(agent: &Agent, ok: bool, reason: Option<String>) {
+    if let Some((_, file)) = agent.label.lock().unwrap().take() {
+        let _ = std::fs::remove_file(file);
+    }
     agent.printing.store(false, Ordering::SeqCst);
-    result
+    if !ok {
+        let reason = reason.unwrap_or_else(|| "the label did not print".into());
+        set_state(agent, State::Error, Some(&reason));
+    }
+    set_state(agent, State::Idle, None);
+}
+
+/// `set_state(state, source, **kwargs)` (`__init__.py`): the `STATE_CHANGED` event. The source
+/// is ours: the device.
+fn set_state(agent: &Agent, state: State, reason: Option<&str>) {
+    let Some(event_cb) = agent.event_cb.lock().unwrap().clone() else {
+        return;
+    };
+    let mut kwargs = Kwargs::new();
+    kwargs.insert("state".into(), state.value().into());
+    if let Some(reason) = reason {
+        kwargs.insert("reason".into(), reason.into());
+    }
+    event_cb(
+        consts::Event::StateChanged,
+        Source::Firmware,
+        None,
+        None,
+        kwargs,
+    );
 }
 
 fn current_state(agent: &Agent) -> State {
@@ -490,6 +784,18 @@ fn link_loop(agent: &Arc<Agent>) {
             Ok(r) => r,
             Err(_) => continue,
         };
+        let label = agent.label.lock().unwrap().as_ref().map(|(job, _)| *job);
+        if let Some(job) = label
+            && let Some(end) = report.job_ends.iter().find(|e| e.id == job).cloned()
+        {
+            let _ =
+                agent
+                    .engine
+                    .lock()
+                    .unwrap()
+                    .reported(id, report.done.len(), report.job_ends.len());
+            label_ended(agent, end.ok, end.reason);
+        }
         // Gone: nothing is sent, the socket ends and the hub sees it away (`wire.md`).
         if !report.connected {
             agent.set_status("the DYMO is not connected");
@@ -505,6 +811,9 @@ fn link_loop(agent: &Arc<Agent>) {
             && cmd.state().is_some()
         {
             kwargs.insert("command_id".into(), cmd.command_id().into());
+        }
+        if !telemetry_transfer(agent, &mut kwargs) {
+            continue;
         }
         let telemetry =
             maker_connect_sdk::models::Telemetry::new(current_state(agent), None, kwargs);

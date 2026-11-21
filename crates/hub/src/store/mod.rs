@@ -79,6 +79,16 @@ impl<'a> StartedBy<'a> {
     }
 }
 
+/// A label job sent to a label printer as START_CONNECT_DOWNLOAD: its space, job and printer
+/// (by token), and whether its TRANSFER_FINISHED came.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LabelJob {
+    pub space: i64,
+    pub job: i64,
+    pub token: String,
+    pub downloaded: bool,
+}
+
 /// A bed mesh as the hub keeps it: the machine's last, and when it came.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StoredMesh {
@@ -662,8 +672,9 @@ pub struct Legacy {
     /// `Session.Connected`, `:466-471`), whatever it last sent (Buddy's websocket telemetry comes
     /// every 15 s when nothing changes, `planner.cpp:97-99`).
     pub(crate) attached: std::collections::HashMap<String, usize>,
-    /// A label printer's START_CONNECT_DOWNLOAD in flight, by command id: its space and job.
-    pub(crate) label_jobs: std::collections::HashMap<u32, (i64, i64)>,
+    /// A label printer's START_CONNECT_DOWNLOAD in flight, by command id, until the label printed
+    /// or failed (docs/design/wire.md, "When the hub calls a label printed").
+    pub(crate) label_jobs: std::collections::HashMap<u32, LabelJob>,
     /// The print each Prusa on Connect was last asked about (SEND_JOB_INFO), by token: once.
     pub(crate) job_info_asked: std::collections::HashMap<String, u64>,
     /// Prints a machine runs itself (from its USB stick or SD card, or started at its

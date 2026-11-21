@@ -4,14 +4,16 @@
 //! commit `c0d7d233`, ported file by file (`prusa/connect/printer/*.py`). The SDK has no licence
 //! on GitHub ("Freeware" in its `setup.py`); the owner decided to port it (2026-11-12).
 //!
-//! Step A1: `const`, `clock`, `util`, `errors`, `conditions`, `models`, `command` and `ws`. The
-//! Printer core (`__init__.py`), `files` and `download` follow; the camera modules are not
-//! ported.
+//! Ported: `const`, `clock`, `util`, `errors`, `conditions`, `models`, `command`, `ws`,
+//! `fileinfo` and `download` (with [`pyos`], the CPython os calls they stand on). Not ported:
+//! the Printer core (`__init__.py`), `files` and the camera modules.
 
 pub mod clock;
 pub mod command;
 pub mod conditions;
 pub mod consts;
+#[cfg(unix)]
+pub mod download;
 pub mod errors;
 #[cfg(unix)]
 pub mod fileinfo;

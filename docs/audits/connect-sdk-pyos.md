@@ -42,8 +42,10 @@ wants CPython 3.13.12 (`PYOS_PYTHON`, else `reference/.venv-connect-sdk-313`); w
 - `rmtree` with `ignore_errors`, `onerror`, `onexc` or `dir_fd`, and `_rmtree_unsafe` (platforms
   without the fd functions): not ported. `os.close` failing while `rmtree` closes its fds, and
   `EINTR`: ported, not run.
-- `str(err)` of an `OSError` (`OSError_str`, with its filename): not ported; the SDK sends
-  `repr(err)`.
+- The calls `download.py` added: `isabs`, `basename`, `dirname`, `remove`, `mkdir`, `makedirs`,
+  `rename`, and `str(err)` of an `OSError` (`OSError_str`, with `filename2`, which `download.py`'s
+  loop sends as `reason`). This checker does not run them; they are compared only through
+  `download.py`'s steps ([connect-sdk-download.md](connect-sdk-download.md)).
 - A `str` path with lone surrogates other than `surrogateescape`'s, and non-UTF-8 names in the
   tree: the tree has none (macOS refuses them); on bytes the functions act on `/` and `.` only.
 - `getcwd` failing (the cwd removed): ported by `std::env::current_dir`, not run.

@@ -1,4 +1,4 @@
-"""What the SDK's fileinfo.py (04c5bd5, with gcode-metadata 7d8f25d) gives, for
+"""What the SDK's fileinfo.py (c0d7d233, with gcode-metadata 7d8f25d) gives, for
 `tests/fileinfo_reference.rs` to compare with ours (`src/fileinfo.rs`).
 
     python -I fileinfo_scenario.py build-shared D GCODES   the tree read by both (D)

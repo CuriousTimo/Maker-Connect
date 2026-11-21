@@ -1470,6 +1470,7 @@ version = "0.2.0"
 dependencies = [
  "log",
  "maker-connect-engine",
+ "maker-connect-gcode-metadata",
  "maker-connect-protocol",
  "maker-connect-sdk",
  "serde_json",

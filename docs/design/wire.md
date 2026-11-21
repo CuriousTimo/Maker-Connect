@@ -224,6 +224,18 @@ rest is choosing values the protocol already has, all **ours**:
   ends `FAILED` "Command error" (`download.py:302`, `:314-334`; `command.py:192-198`). A label that
   fails is reported as a `STATE_CHANGED` event with state `ERROR` and the port's reason in `reason`
   (`models.py:148-163`), and then `IDLE`.
+- **Who runs the download.** The SDK has no runner for `DownloadMgr.loop`; the agent runs it in a
+  thread of its own and sets `printed_file_cb` and `download_finished_cb` as PrusaLink, the SDK's own
+  consumer, does (`prusa/link/sdk_augmentation/printer.py:40`, `:205-208`;
+  `prusa/link/printer_adapter/prusa_link.py:519-540`) (owner, 2026-11-21: kept).
+- **When the hub calls a label printed** (ours, owner 2026-11-21). The command's own answer
+  (`TRANSFER_INFO`, `__init__.py:443-490` returning `download_mgr.start`) only says the download
+  started, so it does not end the label job. `TRANSFER_ABORTED` or `TRANSFER_STOPPED` fails it, with
+  the event's name as the reason. After `TRANSFER_FINISHED` the job is printed at the next
+  `STATE_CHANGED` event with state `IDLE`, with no `ERROR` before it; a `STATE_CHANGED` `ERROR` fails
+  it, with its `reason`. Telemetry's `state` does not count: it may still say `IDLE` from before the
+  label started. While a label job is open, no other one goes out to that printer (owner, 2026-11-21:
+  kept).
 - **Gone and back:** while the port says the printer is gone, the agent sends nothing for it, so its
   socket ends and the hub sees it as away, as it sees any printer that went away (`inbound.go:18-35`).
   When it is back, telemetry dials again.

@@ -1,7 +1,7 @@
 # The SDK's fileinfo.py: our port against the reference
 
-**The reference:** the Connect SDK's `prusa/connect/printer/fileinfo.py` at `04c5bd5`
-(`reference/Prusa-Connect-SDK-Printer`; "Freeware" in its `setup.py`, ported on the owner's decision of 2026-11-12), with gcode-metadata at `7d8f25d` (what it
+**The reference:** the Connect SDK's `prusa/connect/printer/fileinfo.py` at `c0d7d233`
+(branch `websockets`, the SDK the agent follows: `docs/design/wire.md`; `reference/Prusa-Connect-SDK-Printer`; "Freeware" in its `setup.py`, ported on the owner's decision of 2026-11-12), with gcode-metadata at `7d8f25d` (what it
 calls for a file's details), on CPython 3.13.12.
 
 **Ours:** `crates/connect-sdk/src/fileinfo.rs` (Unix only, as `crate::pyos`), on our ports of
@@ -32,12 +32,12 @@ SDK is installed in CI only).
 
 | # | What | Result |
 |---|---|---|
-| 1 | `get_type_by_name` on 18 names (cases, `.hex`, no extension, `.gcode` alone, `.bgcode`, `.sl1`, `""`, `İ`, `K` (Kelvin sign), `é`), as file and as folder | not yet run |
-| 2 | `is_inside` of 14 paths (each entry of a storage with symlinks inside, outside, dangling and back in; a missing path; `..` out; through a link) against 4 storages (the storage, with `/`, by a symlink, another folder) | not yet run |
-| 3 | `folder_info` of 6 folders (the root, nested, empty, a link inside, a link back), the storage named by its symlink, a folder of 20,001 items (`Oversized command`), one of 20,000 plus a hidden file, a file, a missing path (`File not found`) | not yet run |
-| 4 | `file_info` of 17 files: gcode-metadata's 8 FDM test files, a small, an empty, a binary and an upper-case `.GCO` G-code, `.hex`, `.txt`, a read-only file, a file without permissions, a `.g` in a subfolder; each twice (the second from the cache written by the first) | not yet run |
-| 5 | `file_info` of a removed file (another file's stat), and the cache files left in the folder | not yet run |
-| 6 | Rows 1 to 5 on Linux, CPython 3.13.12 | **not yet run**: CI only (job `store`) |
+| 1 | `get_type_by_name` on 18 names (cases, `.hex`, no extension, `.gcode` alone, `.bgcode`, `.sl1`, `""`, `İ`, `K` (Kelvin sign), `é`), as file and as folder | the same |
+| 2 | `is_inside` of 14 paths (each entry of a storage with symlinks inside, outside, dangling and back in; a missing path; `..` out; through a link) against 4 storages (the storage, with `/`, by a symlink, another folder) | the same |
+| 3 | `folder_info` of 6 folders (the root, nested, empty, a link inside, a link back), the storage named by its symlink, a folder of 20,001 items (`Oversized command`), one of 20,000 plus a hidden file, a file, a missing path (`File not found`) | the same |
+| 4 | `file_info` of 17 files: gcode-metadata's 8 FDM test files, a small, an empty, a binary and an upper-case `.GCO` G-code, `.hex`, `.txt`, a read-only file, a file without permissions, a `.g` in a subfolder; each twice (the second from the cache written by the first) | the same |
+| 5 | `file_info` of a removed file (another file's stat), and the cache files left in the folder | the same |
+| 6 | Rows 1 to 5 on Linux, CPython 3.13.12 | **the same**: CI job `store`, run 44821375959 on `68f4f8f` (2026-11-20), with the SDK at `04c5bd5`, whose `fileinfo.py` is the same as `c0d7d233`'s (`git diff 04c5bd5 c0d7d233 -- prusa/connect/printer/fileinfo.py` is empty) |
 
 On macOS, the scenario was only run with stand-ins for the SDK's imports `requests` and
 `mypy_extensions` (not installed; owner, 2026-11-20): all 49 steps the same. That run does not

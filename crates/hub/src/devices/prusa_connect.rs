@@ -139,15 +139,21 @@ async fn raw_file(
 
 /// A label printer on the protocol (the agent's DYMO): a job waiting for it goes out as
 /// START_CONNECT_DOWNLOAD with `printing` and `tape_size_mm` (docs/design/wire.md, "The first
-/// device"), when it is idle and nothing else is in flight.
+/// device"), when it is idle, nothing else is in flight and no label of it is still open
+/// ("When the hub calls a label printed").
 async fn label_job(
     store: &Store,
     token: &str,
     machine: &crate::store::Machine,
     space: i64,
 ) -> Result<(), crate::store::BoxError> {
-    if !store.lock().unwrap().open_commands(&machine.id).is_empty() {
-        return Ok(());
+    {
+        let store = store.lock().unwrap();
+        if !store.open_commands(&machine.id).is_empty()
+            || store.label_jobs.values().any(|j| j.token == token)
+        {
+            return Ok(());
+        }
     }
     let of = crate::agent_of(store, token).await?;
     let report = Telemetry {
@@ -177,7 +183,15 @@ async fn label_job(
         &command,
         false,
     ) {
-        legacy.label_jobs.insert(id, (space, order.id));
+        legacy.label_jobs.insert(
+            id,
+            crate::store::LabelJob {
+                space,
+                job: order.id,
+                token: token.to_owned(),
+                downloaded: false,
+            },
+        );
     }
     Ok(())
 }
@@ -854,24 +868,64 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
                     reason.clone(),
                     Vec::new(),
                 );
-                if let Some(job) = store.label_jobs.remove(&(id as u32)) {
-                    ended_label = Some((job, state, reason));
+                // A label's command refused fails it; its answer only says the download started.
+                if state == CommandState::Rejected
+                    && let Some(job) = store.label_jobs.remove(&(id as u32))
+                {
+                    ended_label = Some((
+                        job,
+                        crate::store::JobState::Failed,
+                        Some(reason.unwrap_or_else(|| "the label printer refused it".to_owned())),
+                    ));
                 }
             }
         }
+        // A label's download, and then its printer's state (docs/design/wire.md, "When the hub
+        // calls a label printed").
+        let of_transfer = event["data"]["start_cmd_id"]
+            .as_u64()
+            .map(|id| id as u32)
+            .filter(|id| store.label_jobs.get(id).is_some_and(|j| j.token == token));
+        let downloaded = store
+            .label_jobs
+            .iter()
+            .find(|(_, j)| j.token == token && j.downloaded)
+            .map(|(id, _)| *id);
+        match (name.as_str(), of_transfer, downloaded) {
+            ("TRANSFER_FINISHED", Some(id), _) => {
+                if let Some(job) = store.label_jobs.get_mut(&id) {
+                    job.downloaded = true;
+                }
+            }
+            ("TRANSFER_ABORTED" | "TRANSFER_STOPPED", Some(id), _) => {
+                if let Some(job) = store.label_jobs.remove(&id) {
+                    ended_label = Some((job, crate::store::JobState::Failed, Some(name.clone())));
+                }
+            }
+            ("STATE_CHANGED", _, Some(id)) => match event["state"].as_str() {
+                Some("ERROR") => {
+                    if let Some(job) = store.label_jobs.remove(&id) {
+                        let reason = event["reason"].as_str().map(str::to_owned);
+                        ended_label = Some((job, crate::store::JobState::Failed, reason));
+                    }
+                }
+                Some("IDLE") => {
+                    if let Some(job) = store.label_jobs.remove(&id) {
+                        ended_label = Some((job, crate::store::JobState::Finished, None));
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
     }
     // A label printed, or not.
-    if let Some(((space, job), state, reason)) = ended_label {
-        let (state, reason) = match state {
-            CommandState::Finished => (crate::store::JobState::Finished, None),
-            _ => (
-                crate::store::JobState::Failed,
-                Some(reason.unwrap_or_else(|| "the label printer refused it".to_owned())),
-            ),
-        };
-        if let Err(error) = shared.set_job(space, job, state, reason.as_deref()).await {
-            return failed(error);
-        }
+    if let Some((job, state, reason)) = ended_label
+        && let Err(error) = shared
+            .set_job(job.space, job.job, state, reason.as_deref())
+            .await
+    {
+        return failed(error);
     }
     // Files on its stick, and transfers to it.
     if let Err(error) = crate::printer_files::on_event(&shared, token, &name, &event).await {
@@ -1806,7 +1860,9 @@ mod tests {
     /// registers as `dymo.labelmanager-pnp` and is a label printer; its cassette, charge and
     /// status bytes are kept; a label job goes out, when it is idle, as START_CONNECT_DOWNLOAD
     /// with `printing` and `tape_size_mm`; the file comes from `/p/teams/{team}/files/{hash}/raw`
-    /// with its token only; FINISHED ends the job, FAILED fails it with the agent's reason.
+    /// with its token only. The command's answer does not end the job, and no other label goes
+    /// out while it is open; after TRANSFER_FINISHED a STATE_CHANGED IDLE ends it, an ERROR before
+    /// it fails it with its reason; TRANSFER_ABORTED and a refused command fail it.
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
         not(feature = "pg-tests"),
@@ -1845,7 +1901,7 @@ mod tests {
         assert_eq!(dymo.profile.as_deref(), Some("dymo/labelmanager-pnp"));
 
         let png = b"\x89PNG label".to_vec();
-        for f in ["l1", "l2"] {
+        for f in ["l1", "l2", "l3", "l4"] {
             std::fs::write(store.file_path(f), &png).unwrap();
             store
                 .add_file(
@@ -1881,9 +1937,38 @@ mod tests {
         );
 
         let mut ends = Vec::new();
-        for (f, event) in [
-            ("l1", r#""event":"FINISHED""#),
-            ("l2", r#""event":"FAILED","reason":"no cassette""#),
+        for (f, events) in [
+            (
+                "l1",
+                &[
+                    r#""event":"TRANSFER_INFO","command_id":{sent}"#,
+                    r#""event":"TRANSFER_FINISHED","data":{"start_cmd_id":{sent}}"#,
+                    r#""event":"STATE_CHANGED","state":"PRINTING""#,
+                    r#""event":"STATE_CHANGED","state":"IDLE""#,
+                ][..],
+            ),
+            (
+                "l2",
+                &[
+                    r#""event":"TRANSFER_INFO","command_id":{sent}"#,
+                    r#""event":"TRANSFER_FINISHED","data":{"start_cmd_id":{sent}}"#,
+                    r#""event":"STATE_CHANGED","state":"PRINTING""#,
+                    r#""event":"STATE_CHANGED","state":"ERROR","reason":"no cassette""#,
+                ][..],
+            ),
+            (
+                "l3",
+                &[
+                    r#""event":"TRANSFER_INFO","command_id":{sent}"#,
+                    r#""event":"TRANSFER_ABORTED","reason":"404","data":{"start_cmd_id":{sent}}"#,
+                ][..],
+            ),
+            (
+                "l4",
+                &[
+                    r#""event":"REJECTED","command_id":{sent},"reason":"Another command is running""#,
+                ][..],
+            ),
         ] {
             let file = store.file(space, f).await.unwrap().unwrap();
             let job = store
@@ -1935,13 +2020,30 @@ mod tests {
             assert_eq!(body.as_ref(), png.as_slice());
             assert_eq!(call(&app, raw("nope")).await.0, StatusCode::FORBIDDEN);
 
-            let end = Request::post("/p/events")
-                .header("Token", &token)
-                .body(Body::from(format!(
-                    r#"{{{event},"command_id":{sent},"source":"CONNECT","state":"IDLE"}}"#
-                )))
-                .unwrap();
-            assert_eq!(call(&app, end).await.0, StatusCode::NO_CONTENT);
+            let (last, before) = events.split_last().unwrap();
+            let send = |event: &str| {
+                Request::post("/p/events")
+                    .header("Token", &token)
+                    .body(Body::from(format!(
+                        "{{{},\"source\":\"CONNECT\"}}",
+                        event.replace("{sent}", &sent.to_string())
+                    )))
+                    .unwrap()
+            };
+            for event in before {
+                assert_eq!(call(&app, send(event)).await.0, StatusCode::NO_CONTENT);
+                let state = store.job(space, job).await.unwrap().unwrap().state;
+                assert!(
+                    !matches!(state, JobState::Finished | JobState::Failed),
+                    "{f}: still open after {event}"
+                );
+                assert_eq!(
+                    call(&app, idle()).await.0,
+                    StatusCode::NO_CONTENT,
+                    "{f}: no other label while it is open"
+                );
+            }
+            assert_eq!(call(&app, send(last)).await.0, StatusCode::NO_CONTENT);
             let job = store.job(space, job).await.unwrap().unwrap();
             ends.push((job.state, job.reason));
         }
@@ -1949,7 +2051,12 @@ mod tests {
             ends,
             vec![
                 (JobState::Finished, None),
-                (JobState::Failed, Some("no cassette".to_owned()))
+                (JobState::Failed, Some("no cassette".to_owned())),
+                (JobState::Failed, Some("TRANSFER_ABORTED".to_owned())),
+                (
+                    JobState::Failed,
+                    Some("Another command is running".to_owned())
+                ),
             ]
         );
     }

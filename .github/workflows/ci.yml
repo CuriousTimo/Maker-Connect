@@ -170,24 +170,34 @@ jobs:
           PYOS_PYTHON: ${{ steps.cpython.outputs.python-path }}
         run: cargo test -p maker-connect-sdk --test pyos_reference --locked
 
-      # The reference of crates/connect-sdk/src/fileinfo.rs: the SDK's fileinfo.py (the checkout
-      # above) with gcode-metadata at the port's commit, on CPython 3.13.12; gcode-metadata's
-      # test files are the scenario's print files.
+      # The reference of crates/connect-sdk (fileinfo.rs, download.rs): the SDK at c0d7d233
+      # (branch `websockets`, docs/design/wire.md; not the checkout above) with gcode-metadata at
+      # the port's commit, on CPython 3.13.12; gcode-metadata's test files are the scenario's
+      # print files.
       - name: SDK and gcode-metadata on CPython 3.13.12
         run: |
+          git init -q "$RUNNER_TEMP/prusa-sdk-ref"
+          git -C "$RUNNER_TEMP/prusa-sdk-ref" fetch -q --depth 1 \
+            https://github.com/prusa3d/Prusa-Connect-SDK-Printer.git c0d7d233d4ce2081e6c020d2e98fb92ad9b51521
+          git -C "$RUNNER_TEMP/prusa-sdk-ref" checkout -q FETCH_HEAD
           git init -q "$RUNNER_TEMP/gcode-metadata"
           git -C "$RUNNER_TEMP/gcode-metadata" fetch -q --depth 1 \
             https://github.com/prusa3d/gcode-metadata.git 7d8f25dfa21b1a1d61cc2a0ee70cb00281a80e7f
           git -C "$RUNNER_TEMP/gcode-metadata" checkout -q FETCH_HEAD
           "${{ steps.cpython.outputs.python-path }}" -m venv "$RUNNER_TEMP/sdk-313"
           "$RUNNER_TEMP/sdk-313/bin/pip" install -q "$RUNNER_TEMP/gcode-metadata"
-          "$RUNNER_TEMP/sdk-313/bin/pip" install -q -e "$RUNNER_TEMP/prusa-sdk"
+          "$RUNNER_TEMP/sdk-313/bin/pip" install -q -e "$RUNNER_TEMP/prusa-sdk-ref"
 
       - name: fileinfo.py against the reference
         env:
           FILEINFO_PYTHON: ${{ runner.temp }}/sdk-313/bin/python
           FILEINFO_GCODES: ${{ runner.temp }}/gcode-metadata/tests/gcodes
         run: cargo test -p maker-connect-sdk --test fileinfo_reference --locked
+
+      - name: download.py against the reference
+        env:
+          DOWNLOAD_PYTHON: ${{ runner.temp }}/sdk-313/bin/python
+        run: cargo test -p maker-connect-sdk --test download_reference --locked
 
       # `.sqlx/` must match the queries: checked against a database with every migration applied.
       - name: Query cache current
