@@ -26,6 +26,9 @@ This page proposes exactly those additions, for four kinds of device:
 - a laser cutter running GRBL;
 - a USB camera with live view.
 
+And one for the program that hosts such devices (part 6): which devices belong to one agent, and
+whether that agent and the server know the same additions.
+
 ## Rules for every addition
 
 - **Additive only.** No existing field, header, frame or command changes its meaning. An addition is a
@@ -309,3 +312,80 @@ plus live view.
 
 **Compatibility:** a Connect that does not know `/c/stream` answers it with an error. A printer that does
 not know the commands answers them `REJECTED` "Unknown command" (`command.py:181-183`).
+
+## Part 6: the agent and the server
+
+One agent hosts several devices, each a printer of its own on the protocol: its own registration,
+token and WebSocket (wire.md). The protocol has no idea of a host: nothing says that the LabelWriter
+and the PnP run in the same program, and nothing says which of the additions above either side knows.
+Part 6a adds both. Part 6b (updating an agent) follows, [#56](https://github.com/CuriousTimo/Maker-Connect/issues/56).
+
+### 6a. Who the agent is, and what each side knows
+
+**What already says it, unchanged:**
+- **The agent's release:** `User-Agent-Version` on every request and the upgrade
+  (`__init__.py:282`), and `firmware` in `INFO` (`:409`). Shown, never compared: a release name says
+  nothing of what a build can do.
+- **The computer:** `network_info` in `INFO` (`:411`), as PrusaLink fills it (`hostname`, `lan_ipv4`,
+  …; Prusa-Link `prusa/link/printer_adapter/printer_polling.py:110-112`, `:501-506`).
+
+**Two new `INFO` kwargs** (in the answer to `SEND_INFO`, which the server sends 100 ms after every
+attach, wire.md "The WebSocket"):
+
+| Kwarg | Type | Meaning |
+|---|---|---|
+| `agent_id` | string, 32 lower-case hex digits | the agent that hosts this device: made once at random by the agent and kept in its folder (`agent.ini`, `[agent] id`), the same for all its devices, never changed by a re-registration |
+| `features` | array of strings | the additions of this page that this device uses, by the names below |
+
+Not the hostname and not the fingerprint: two agents can share a hostname, a hostname changes, and
+the SDK's fingerprint is per printer (`__init__.py:415`).
+
+**One new command, server to device:**
+
+| Command | Does | Kwargs |
+|---|---|---|
+| `SET_SERVER_INFO` | tells the device what the server is and knows; the device answers `FINISHED` | `release`: the server's release, shown only; `features`: array, the names the server knows; `wants`: array, the names the server needs from a device of this type |
+
+The server sends it after an `INFO` that had `features`, and only then: a Prusa printer never sends
+`features`, so it never gets the command. A device keeps the last one until its socket drops.
+
+**The names.** One per addition, in the order of this page. A change that a peer of the old meaning
+cannot read gets a new name with `@` and a number (`label.page_size@2`); the old name then stays as it
+was, so a side may know both.
+
+| Name | The addition |
+|---|---|
+| `type.string` | Part 1: a string `printer_type`, and `get_info`'s `null` type |
+| `pnp.telemetry` | Part 2: its states and telemetry keys |
+| `label.tape_size_mm` | Part 2: `tape_size_mm` on a download |
+| `cups.state_reason` | Part 3: its states and `state_reason` |
+| `label.page_size` | Part 3: `page_size` on a download |
+| `label.stop` | Part 3: stopping a label |
+| `grbl.telemetry` | Part 4: its states and telemetry keys |
+| `grbl.commands` | Part 4: the new commands |
+| `camera.stream` | Part 5: `/c/stream` and its two commands |
+| `agent.id` | Part 6a: `agent_id` |
+| `server.info` | Part 6a: `features` and `SET_SERVER_INFO` |
+
+**Whether they fit** (the same rule on both sides; shown, nothing refused: owner 2026-11-21):
+- a name in the device's `features` that is not in the server's: **the agent is newer than the
+  server** for that addition, "the hub does not know `label.page_size@2`";
+- a name in the server's `wants` that is not in the device's `features`: **the agent is older**
+  for it, "the agent does not have `cups.state_reason`";
+- neither: they fit, whatever their releases are. A newer agent that adds nothing this device uses
+  fits an older server.
+
+Each side shows it where its people look (ours, UI only): the server on the device's page, the agent
+on that device's card. The device keeps working; what it does with an addition the other side lacks
+is that addition's own compatibility rule above (an unknown kwarg ignored, an unknown command
+`REJECTED`).
+
+**Compatibility:**
+- An agent without 6a sends no `features`: the server sends no `SET_SERVER_INFO` and shows "the agent
+  does not say what it knows" beside its release.
+- A server without 6a ignores both kwargs and never sends the command: the agent shows "the hub does
+  not say what it knows" and nothing more.
+- Connect ignores the two kwargs: it reads only the `INFO` fields it names, `storages` and `firmware`
+  (prusa-connect `internal/connector/xbuddy/files.go:388-393`, unmarshalled at `:406`; Go's
+  `json.Unmarshal` drops unknown keys).
+- An SDK without the command answers it `REJECTED` "Unknown command" (`command.py:181-183`).

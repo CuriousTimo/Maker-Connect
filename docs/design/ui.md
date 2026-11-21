@@ -459,8 +459,9 @@ offline), Edit, Show live (the test after saving) and Remove…; Add a network c
 
 ### Instance (instance admin)
 
-Organisations and their spaces (`GET /api/v1/instance/spaces`, `instance.admin`); every agent with its
-version, last seen and devices, and its update ([decision](decisions/20261119-agent-update-by-instance-admin.md)); the hub's update
+Organisations and their spaces (`GET /api/v1/instance/spaces`, `instance.admin`); every agent (its devices grouped by
+`agent_id`, [extension part 6a](prusa-sdk-extension.md#6a-who-the-agent-is-and-what-each-side-knows)) with its release, computer, connection, last seen, devices and whether it fits
+the hub, and its update ([decision](decisions/20261119-agent-update-by-instance-admin.md)); the hub's update
 (`GET`, `POST /api/v1/update`) with a confirm that says a dump comes first and what the way back
 loses, and its outcomes on About: in progress, done, rolled back, refused (UT-29, flows.md §8);
 moving a device to another space ([decision](decisions/20261119-device-move.md)): a confirm that
