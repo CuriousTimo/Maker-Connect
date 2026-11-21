@@ -14,6 +14,8 @@
 //! device's module on or off, its registration code and its link's state.
 
 #[cfg(unix)]
+mod about;
+
 use maker_connect_engine::Order;
 use maker_connect_engine::{
     Engine, MachineId, Port, ports::dymo_cups::LabelWriter450, ports::labelle::DymoPnp,
@@ -1126,7 +1128,11 @@ fn web(devices: &[Arc<Agent>], listen: &str) {
             let _ = request.respond(response);
             continue;
         }
-        let html = page(devices);
+        let html = if path == "/about" {
+            about_page()
+        } else {
+            page(devices)
+        };
         let response = tiny_http::Response::from_string(html).with_header(
             tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
                 .unwrap(),
@@ -1186,10 +1192,19 @@ fn device_card(agent: &Agent) -> (String, bool) {
     (card, on && !linked)
 }
 
-fn page(devices: &[Arc<Agent>]) -> String {
-    // The hub's address is the same in every device's settings file (the form writes all).
-    let s = devices[0].settings();
-    let (cards, refresh): (Vec<String>, Vec<bool>) = devices.iter().map(|d| device_card(d)).unzip();
+/// The agent's page around `main`: header, the tabs (Devices, About), the house style.
+fn layout(tab: &str, refresh: bool, main: &str) -> String {
+    let tabs: String = [("/", "Devices"), ("/about", "About")]
+        .iter()
+        .map(|(href, name)| {
+            let current = if *name == tab {
+                r#" aria-current="page""#
+            } else {
+                ""
+            };
+            format!(r#"<a href="{href}"{current}>{name}</a>"#)
+        })
+        .collect();
     format!(
         r#"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 {refresh}<title>Maker Connect agent</title><link rel=icon href="data:image/svg+xml,{icon}"><style>{CSS}
@@ -1198,19 +1213,29 @@ fn page(devices: &[Arc<Agent>]) -> String {
 <header class=top><span class=brand><span class=mark>{MARK}</span><span class=where><b>Maker Connect agent</b><small>{VERSION}</small></span></span></header>
 <main class=bare>
 <div class=head><h1>This agent</h1></div>
-<section class=card><h2>Hub</h2><form method=post action=/hub>
-<div class=row><label class=field>Address <input name=hostname value="{host}" placeholder="192.168.60.67"></label>
-<label class=field style="flex:0 1 7rem">Port <input name=port inputmode=numeric value="{port}" placeholder="8460"></label></div>
-<label class=check><input type=checkbox name=tls {tls}> TLS</label>
-<div class="row btns"><span class=fw><button class="btn primary">Save</button></span></div></form></section>
-{cards}
+<nav class=tabs>{tabs}</nav>
+{main}
 </main></body></html>"#,
-        refresh = if refresh.iter().any(|r| *r) {
+        refresh = if refresh {
             "<meta http-equiv=refresh content=5>"
         } else {
             ""
         },
         icon = MARK.replace('#', "%23").replace('"', "'").replace('\n', ""),
+    )
+}
+
+fn page(devices: &[Arc<Agent>]) -> String {
+    // The hub's address is the same in every device's settings file (the form writes all).
+    let s = devices[0].settings();
+    let (cards, refresh): (Vec<String>, Vec<bool>) = devices.iter().map(|d| device_card(d)).unzip();
+    let main = format!(
+        r#"<section class=card><h2>Hub</h2><form method=post action=/hub>
+<div class=row><label class=field>Address <input name=hostname value="{host}" placeholder="192.168.60.67"></label>
+<label class=field style="flex:0 1 7rem">Port <input name=port inputmode=numeric value="{port}" placeholder="8460"></label></div>
+<label class=check><input type=checkbox name=tls {tls}> TLS</label>
+<div class="row btns"><span class=fw><button class="btn primary">Save</button></span></div></form></section>
+{cards}"#,
         host = esc(&s.hostname),
         port = if s.port == 0 {
             String::new()
@@ -1219,7 +1244,28 @@ fn page(devices: &[Arc<Agent>]) -> String {
         },
         tls = if s.tls { "checked" } else { "" },
         cards = cards.join("\n"),
-    )
+    );
+    layout("Devices", refresh.iter().any(|r| *r), &main)
+}
+
+/// The About tab: this agent and the computer it runs on, read from Linux's `/proc` and `/sys`
+/// (ours, UI only); what cannot be read is left out.
+fn about_page() -> String {
+    let rows = |pairs: Vec<(&str, String)>| -> String {
+        pairs
+            .into_iter()
+            .map(|(k, v)| format!("<dt>{k}</dt><dd>{}</dd>", esc(&v)))
+            .collect()
+    };
+    let main = format!(
+        r#"<section class=card><h2>Agent</h2><dl class=kv>{agent}</dl></section>
+<section class=card><h2>System</h2><dl class=kv>{system}</dl></section>
+<section class=card><h2>Load</h2><dl class=kv>{load}</dl></section>"#,
+        agent = rows(about::agent()),
+        system = rows(about::system()),
+        load = rows(about::load()),
+    );
+    layout("About", false, &main)
 }
 
 /// The hub's stylesheet and logo mark, so the agent's page is in the house style.
