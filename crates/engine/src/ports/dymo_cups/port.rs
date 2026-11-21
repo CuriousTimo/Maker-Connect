@@ -70,10 +70,21 @@ struct Seen {
 
 impl Seen {
     fn telemetry(&self, state: MachineState, problem: Option<&str>) -> Event {
+        self.telemetry_with(state, problem, None)
+    }
+
+    /// W7, with the driver's `STATE:` keyword as it wrote it (`state_reason`).
+    fn telemetry_with(
+        &self,
+        state: MachineState,
+        problem: Option<&str>,
+        keyword: Option<&str>,
+    ) -> Event {
         Event::Telemetry(Box::new(Telemetry {
             state,
             raw_status: self.raw_status.clone(),
             problem: problem.map(str::to_owned),
+            state_reason: keyword.map(str::to_owned),
             ..Telemetry::default()
         }))
     }
@@ -344,13 +355,22 @@ fn print_job(
     let tel_events = events.clone();
     let tel_raw = raw.clone();
     let tel_seen = seen.clone();
+    // The last `STATE:` keyword stays the printer's state until the next one (a status read between
+    // them does not change it).
+    let tel_kw: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
     stderr::start(Some(Box::new(move |line: &str| {
+        let problem = |kw: &Option<String>| kw.as_deref().and_then(reason_text);
         if let Some(rest) = line.strip_prefix("STATE: ") {
             let kw = rest.trim_end();
-            let problem = if kw == "none" { None } else { reason_text(kw) };
+            *tel_kw.borrow_mut() = (kw != "none").then(|| kw.to_owned());
+            let keyword = tel_kw.borrow().clone();
             let mut s = tel_seen.clone();
             s.raw_status = tel_raw.borrow().clone();
-            let _ = tel_events.send(s.telemetry(MachineState::Busy, problem));
+            let _ = tel_events.send(s.telemetry_with(
+                MachineState::Busy,
+                problem(&keyword),
+                keyword.as_deref(),
+            ));
         } else if let Some(rest) = line.strip_prefix(READ_DATA_LINE) {
             // "<n> bytes <first byte in hex>"
             if let Some(hex) = rest.trim_end().rsplit(' ').next() {
@@ -359,7 +379,12 @@ fn print_job(
                     *tel_raw.borrow_mut() = Some(v.clone());
                     let mut s = tel_seen.clone();
                     s.raw_status = Some(v);
-                    let _ = tel_events.send(s.telemetry(MachineState::Busy, None));
+                    let keyword = tel_kw.borrow().clone();
+                    let _ = tel_events.send(s.telemetry_with(
+                        MachineState::Busy,
+                        problem(&keyword),
+                        keyword.as_deref(),
+                    ));
                 }
             }
         }

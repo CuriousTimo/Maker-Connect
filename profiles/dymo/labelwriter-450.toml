@@ -13,3 +13,4 @@ media_from_port = "lw450"
 
 [detect]
 machine_type = "DYMO LabelWriter 450"   # as the agent reports it, from the USB product id
+printer_type = "dymo.labelwriter-450"   # its type over the Prusa Connect protocol (docs/design/wire.md)

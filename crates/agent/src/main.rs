@@ -1,24 +1,31 @@
 //! # Maker Connect agent
 //!
-//! The module next to a machine. One device in this step: the DYMO LabelManager PnP (labelle's
-//! port, `maker_connect_engine::ports::labelle`), linked to the hub over the Prusa Connect printer
-//! protocol as an SDK printer (`docs/design/wire.md`, "The first device"): registration with a code
-//! over `/p/register`, then `/p/ws` with telemetry, events and commands (`maker_connect_sdk`).
-//! A label comes as `START_CONNECT_DOWNLOAD` with `printing` and `tape_size_mm`: the SDK's
-//! download (`maker_connect_sdk::download`) fetches it in its own thread, then the port prints it.
+//! The module next to a machine. Two devices in this step, each its own SDK printer with its own
+//! settings file, registration and socket (`docs/design/wire.md`, "The unit: one printer per
+//! device"): the DYMO LabelManager PnP (labelle's port, `maker_connect_engine::ports::labelle`;
+//! "The first device") and the DYMO LabelWriter 450 (DYMO's CUPS driver,
+//! `maker_connect_engine::ports::dymo_cups`; "The second device"). Each is linked to the hub over
+//! the Prusa Connect printer protocol: registration with a code over `/p/register`, then `/p/ws`
+//! with telemetry, events and commands (`maker_connect_sdk`). A label comes as
+//! `START_CONNECT_DOWNLOAD` with `printing` and `tape_size_mm` or `page_size`: the SDK's download
+//! (`maker_connect_sdk::download`) fetches it in its own thread, then the port prints it.
 //!
-//! A small page on the agent (`--listen`, default `0.0.0.0:8470`): the hub's address, the DYMO
-//! module on or off, the registration code and the link's state.
+//! A small page on the agent (`--listen`, default `0.0.0.0:8470`): the hub's address, each
+//! device's module on or off, its registration code and its link's state.
 
 #[cfg(unix)]
 use maker_connect_engine::Order;
-use maker_connect_engine::{Engine, MachineId, ports::labelle::DymoPnp};
+use maker_connect_engine::{
+    Engine, MachineId, Port, ports::dymo_cups::LabelWriter450, ports::labelle::DymoPnp,
+};
 #[cfg(unix)]
 use maker_connect_gcode_metadata::py::repr_str;
 #[cfg(unix)]
 use maker_connect_protocol::JobOrder;
 use maker_connect_protocol::MachineState;
-use maker_connect_sdk::command::{Command, CommandHandler, Finish, HandlerError};
+#[cfg(unix)]
+use maker_connect_sdk::command::HandlerError;
+use maker_connect_sdk::command::{Command, CommandHandler, Finish};
 #[cfg(unix)]
 use maker_connect_sdk::consts::TransferType;
 use maker_connect_sdk::consts::{self, Source, State};
@@ -38,7 +45,49 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-const PRINTER_TYPE: &str = "dymo.labelmanager-pnp";
+/// The devices this agent carries (`docs/design/wire.md`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// The DYMO LabelManager PnP ("The first device").
+    Pnp,
+    /// The DYMO LabelWriter 450 ("The second device").
+    Lw450,
+}
+
+impl Kind {
+    const ALL: [Kind; 2] = [Kind::Pnp, Kind::Lw450];
+
+    /// Its type on the wire (`docs/design/prusa-sdk-extension.md`, parts 2 and 3).
+    fn printer_type(self) -> &'static str {
+        match self {
+            Kind::Pnp => "dymo.labelmanager-pnp",
+            Kind::Lw450 => "dymo.labelwriter-450",
+        }
+    }
+
+    /// Its folder under the agent's: its settings file and its labels' storage.
+    fn folder(self) -> &'static str {
+        match self {
+            Kind::Pnp => "dymo",
+            Kind::Lw450 => "labelwriter-450",
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Kind::Pnp => "DYMO LabelManager PnP",
+            Kind::Lw450 => "DYMO LabelWriter 450",
+        }
+    }
+
+    fn port(self) -> Box<dyn Port> {
+        match self {
+            Kind::Pnp => Box::new(DymoPnp::new()),
+            Kind::Lw450 => Box::new(LabelWriter450::new()),
+        }
+    }
+}
+
 const SDK_VERSION: &str = "0.9.0dev0";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -47,6 +96,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// ours: `[module] on`.
 #[derive(Debug, Clone, Default)]
 struct Settings {
+    printer_type: &'static str,
     hostname: String,
     tls: bool,
     port: u16,
@@ -56,12 +106,16 @@ struct Settings {
 }
 
 impl Settings {
+    /// In the device's own folder.
     fn path(dir: &Path) -> PathBuf {
-        dir.join("dymo").join("prusa_printer_settings.ini")
+        dir.join("prusa_printer_settings.ini")
     }
 
-    fn load(dir: &Path) -> Settings {
-        let mut s = Settings::default();
+    fn load(dir: &Path, printer_type: &'static str) -> Settings {
+        let mut s = Settings {
+            printer_type,
+            ..Settings::default()
+        };
         let text = std::fs::read_to_string(Self::path(dir)).unwrap_or_default();
         let mut section = String::new();
         for line in text.lines() {
@@ -94,7 +148,8 @@ impl Settings {
     fn save(&self, dir: &Path) {
         let py = |b: bool| if b { "True" } else { "False" };
         let text = format!(
-            "[printer]\ntype = {PRINTER_TYPE}\nserial = {}\n\n[service::connect]\nhostname = {}\ntls = {}\nport = {}\ntoken = {}\n\n[module]\non = {}\n",
+            "[printer]\ntype = {}\nserial = {}\n\n[service::connect]\nhostname = {}\ntls = {}\nport = {}\ntoken = {}\n\n[module]\non = {}\n",
+            self.printer_type,
             self.serial,
             self.hostname,
             py(self.tls),
@@ -146,13 +201,20 @@ fn random_serial() -> String {
     )
 }
 
-/// What the page shows and the link shares.
+/// A print's tape (`tape_size_mm`) or page (`page_size`).
+#[cfg(unix)]
+type Media = (Option<u32>, Option<String>);
+
+/// One device: what the page shows and its link shares.
 struct Agent {
+    kind: Kind,
+    /// Its own folder (`Kind::folder`).
     dir: PathBuf,
     settings: Mutex<Settings>,
     code: Mutex<Option<String>>,
     status: Mutex<String>,
-    engine: Mutex<Engine>,
+    /// The agent's one engine, shared by its devices.
+    engine: Arc<Mutex<Engine>>,
     dymo: Mutex<Option<MachineId>>,
     printing: AtomicBool,
     ws: Mutex<Option<Arc<PrinterWs>>>,
@@ -162,9 +224,12 @@ struct Agent {
     transfer: Arc<Transfer>,
     #[cfg(unix)]
     download: Mutex<Option<Arc<DownloadMgr>>>,
-    /// The tape each download's print is for, by its command (`tape_size_mm`).
+    /// The tape or page each download's print is for, by its command (`tape_size_mm`,
+    /// `page_size`).
     #[cfg(unix)]
-    tapes: Mutex<std::collections::HashMap<i64, Option<u32>>>,
+    media: Mutex<std::collections::HashMap<i64, Media>>,
+    /// The state the last `STATE_CHANGED` said.
+    last_state: Mutex<Option<State>>,
     /// The label being printed: its job (the download's command) and file.
     label: Mutex<Option<(i64, PathBuf)>>,
 }
@@ -198,7 +263,7 @@ impl Agent {
             ),
             (
                 "User-Agent-Printer".to_owned(),
-                Some(PRINTER_TYPE.to_owned()),
+                Some(self.kind.printer_type().to_owned()),
             ),
             ("User-Agent-Version".to_owned(), Some(VERSION.to_owned())),
         ];
@@ -208,11 +273,11 @@ impl Agent {
         h
     }
 
-    /// Turn the DYMO module on: its port in the engine.
+    /// Turn the device's module on: its port in the engine.
     fn module_on(&self) {
         let mut dymo = self.dymo.lock().unwrap();
         if dymo.is_none() {
-            *dymo = Some(self.engine.lock().unwrap().add(Box::new(DymoPnp::new())));
+            *dymo = Some(self.engine.lock().unwrap().add(self.kind.port()));
         }
     }
 
@@ -273,36 +338,45 @@ fn main() {
             _ => {}
         }
     }
-    let settings = Settings::load(&dir);
-    let agent = Arc::new(Agent {
-        dir,
-        settings: Mutex::new(settings.clone()),
-        code: Mutex::new(None),
-        status: Mutex::new("starting".into()),
-        engine: Mutex::new(Engine::new()),
-        dymo: Mutex::new(None),
-        printing: AtomicBool::new(false),
-        ws: Mutex::new(None),
-        command: Mutex::new(None),
-        event_cb: Mutex::new(None),
-        #[cfg(unix)]
-        transfer: Arc::new(Transfer::new()),
-        #[cfg(unix)]
-        download: Mutex::new(None),
-        #[cfg(unix)]
-        tapes: Mutex::new(Default::default()),
-        label: Mutex::new(None),
-    });
-    setup_link(&agent);
-    if settings.on {
-        agent.module_on();
-    }
-    {
+    let engine = Arc::new(Mutex::new(Engine::new()));
+    let devices: Vec<Arc<Agent>> = Kind::ALL
+        .into_iter()
+        .map(|kind| {
+            let dir = dir.join(kind.folder());
+            let settings = Settings::load(&dir, kind.printer_type());
+            Arc::new(Agent {
+                kind,
+                dir,
+                settings: Mutex::new(settings),
+                code: Mutex::new(None),
+                status: Mutex::new("starting".into()),
+                engine: engine.clone(),
+                dymo: Mutex::new(None),
+                printing: AtomicBool::new(false),
+                ws: Mutex::new(None),
+                command: Mutex::new(None),
+                event_cb: Mutex::new(None),
+                #[cfg(unix)]
+                transfer: Arc::new(Transfer::new()),
+                #[cfg(unix)]
+                download: Mutex::new(None),
+                #[cfg(unix)]
+                media: Mutex::new(Default::default()),
+                last_state: Mutex::new(None),
+                label: Mutex::new(None),
+            })
+        })
+        .collect();
+    for agent in &devices {
+        setup_link(agent);
+        if agent.settings().on {
+            agent.module_on();
+        }
         let agent = agent.clone();
         std::thread::spawn(move || link_loop(&agent));
     }
     println!("maker-connect-agent {VERSION} on http://{listen}");
-    web(&agent, &listen);
+    web(&devices, &listen);
 }
 
 /// The SDK's command and socket, with this device's handlers.
@@ -360,17 +434,17 @@ fn setup_download(agent: &Arc<Agent>, command: &Command, event_cb: EventCallback
     let me = agent.clone();
     let info: CommandHandler = Arc::new(move |cmd| transfer_info(&me, cmd));
     command.set_handler(consts::Command::SendTransferInfo, info);
+    if agent.kind == Kind::Lw450 {
+        let me = agent.clone();
+        let stop: CommandHandler = Arc::new(move |_| stop_print(&me));
+        command.set_handler(consts::Command::StopPrint, stop);
+    }
 
     let mut storage_dict = std::collections::HashMap::new();
     storage_dict.insert(
         "labels".to_owned(),
         Storage {
-            path_storage: agent
-                .dir
-                .join("dymo")
-                .join("labels")
-                .to_string_lossy()
-                .into_owned(),
+            path_storage: agent.dir.join("labels").to_string_lossy().into_owned(),
         },
     );
     let me = agent.clone();
@@ -510,7 +584,7 @@ fn send_info(agent: &Agent) -> Finish {
     let mut finish = Finish::new(Source::Connect);
     finish.event = Some(consts::Event::Info);
     let kwargs: Kwargs = json!({
-        "type": PRINTER_TYPE,
+        "type": agent.kind.printer_type(),
         "firmware": VERSION,
         "sdk": SDK_VERSION,
         "sn": s.serial,
@@ -566,7 +640,11 @@ fn start_connect_download(agent: &Agent, cmd: &Command) -> Result<Finish, Handle
     let selecting = kwargs.get("selecting").is_some_and(py_truthy);
     let hash = py_str(arg("hash")?);
     let team_id = arg("team_id")?.clone();
-    let tape = kwargs["tape_size_mm"].as_u64().map(|t| t as u32);
+    // The extension's kwarg of each device (parts 2 and 3).
+    let media = match agent.kind {
+        Kind::Pnp => (kwargs["tape_size_mm"].as_u64().map(|t| t as u32), None),
+        Kind::Lw450 => (None, kwargs["page_size"].as_str().map(str::to_owned)),
+    };
     let mgr = agent
         .download
         .lock()
@@ -586,7 +664,7 @@ fn start_connect_download(agent: &Agent, cmd: &Command) -> Result<Finish, Handle
         )
         .map_err(|err| failed(err.repr()))?;
     if retval.event != Some(consts::Event::Rejected) {
-        agent.tapes.lock().unwrap().insert(cmd.command_id(), tape);
+        agent.media.lock().unwrap().insert(cmd.command_id(), media);
     }
     retval.source = Source::Connect;
     Ok(retval)
@@ -677,10 +755,10 @@ fn py_type(value: &Value) -> &'static str {
 /// PrusaLink's `StartPrint`), its state `PRINTING` as `set_state` says it.
 fn label_downloaded(agent: &Agent, transfer: &Transfer) {
     let d = transfer.data().clone();
-    let tape = d
+    let (tape, page_size) = d
         .start_cmd_id
-        .and_then(|id| agent.tapes.lock().unwrap().remove(&id))
-        .flatten();
+        .and_then(|id| agent.media.lock().unwrap().remove(&id))
+        .unwrap_or_default();
     if d.to_print != Some(true) {
         return;
     }
@@ -701,7 +779,7 @@ fn label_downloaded(agent: &Agent, transfer: &Transfer) {
         from_line: None,
         tape_mm: tape,
         label_length_mm: None,
-        page_size: None,
+        page_size,
     };
     agent.printing.store(true, Ordering::SeqCst);
     *agent.label.lock().unwrap() = Some((job, file.clone()));
@@ -718,11 +796,18 @@ fn label_downloaded(agent: &Agent, transfer: &Transfer) {
 
 /// A label printed, or not: the file goes, the state is `ERROR` with the port's reason when it
 /// failed, then `IDLE` (`docs/design/wire.md`, "The first device").
+///
+/// A job that printed ended in the driver's `PRINTING` (the LabelWriter's driver ends a job only
+/// once the printer is ready again): when the last `STATE_CHANGED` said otherwise, that comes
+/// first (`docs/design/wire.md`, "The second device").
 fn label_ended(agent: &Agent, ok: bool, reason: Option<String>) {
     if let Some((_, file)) = agent.label.lock().unwrap().take() {
         let _ = std::fs::remove_file(file);
     }
     agent.printing.store(false, Ordering::SeqCst);
+    if ok && *agent.last_state.lock().unwrap() != Some(State::Printing) {
+        set_state(agent, State::Printing, None);
+    }
     if !ok {
         let reason = reason.unwrap_or_else(|| "the label did not print".into());
         set_state(agent, State::Error, Some(&reason));
@@ -733,6 +818,7 @@ fn label_ended(agent: &Agent, ok: bool, reason: Option<String>) {
 /// `set_state(state, source, **kwargs)` (`__init__.py`): the `STATE_CHANGED` event. The source
 /// is ours: the device.
 fn set_state(agent: &Agent, state: State, reason: Option<&str>) {
+    *agent.last_state.lock().unwrap() = Some(state);
     let Some(event_cb) = agent.event_cb.lock().unwrap().clone() else {
         return;
     };
@@ -751,16 +837,47 @@ fn set_state(agent: &Agent, state: State, reason: Option<&str>) {
 }
 
 fn current_state(agent: &Agent) -> State {
+    let report = agent
+        .dymo
+        .lock()
+        .unwrap()
+        .and_then(|id| agent.engine.lock().unwrap().report(id).ok());
     if agent.printing.load(Ordering::SeqCst) {
-        return State::Printing;
+        return match (agent.kind, report) {
+            (Kind::Lw450, Some(r)) => lw450_state(&r.telemetry),
+            _ => State::Printing,
+        };
     }
-    let Some(id) = *agent.dymo.lock().unwrap() else {
-        return State::Idle;
-    };
-    match agent.engine.lock().unwrap().report(id) {
-        Ok(r) if r.telemetry.state == MachineState::Busy => State::Printing,
+    match report {
+        Some(r) if r.telemetry.state == MachineState::Busy => State::Printing,
         _ => State::Idle,
     }
+}
+
+/// The LabelWriter's state during a job: the driver's job state by its `STATE:` keyword
+/// (`docs/design/prusa-sdk-extension.md`, part 3; driver `src/common/CupsPrintEnvironment.cpp:159-194`):
+/// `jsPaperOut` `ATTENTION`, `jsError` `ERROR`, otherwise `PRINTING`.
+fn lw450_state(t: &maker_connect_protocol::Telemetry) -> State {
+    match t.state_reason.as_deref() {
+        Some("com.dymo.out-of-paper-error") => State::Attention,
+        Some("com.dymo.general-error") => State::Error,
+        _ => State::Printing,
+    }
+}
+
+#[cfg(unix)]
+/// `STOP_PRINT` on the LabelWriter (`docs/design/prusa-sdk-extension.md`, part 3): the port's Stop,
+/// a CUPS cancel. The job's end comes from the port.
+fn stop_print(agent: &Agent) -> Result<Finish, HandlerError> {
+    let id = *agent.dymo.lock().unwrap();
+    if let Some(id) = id {
+        let _ = agent
+            .engine
+            .lock()
+            .unwrap()
+            .send(id, Order::Control(maker_connect_protocol::JobControl::Stop));
+    }
+    Ok(Finish::new(Source::Connect))
 }
 
 /// Registration, then telemetry once a second while the DYMO is there.
@@ -773,7 +890,7 @@ fn link_loop(agent: &Arc<Agent>) {
             continue;
         };
         let Some(id) = *agent.dymo.lock().unwrap() else {
-            agent.set_status("the DYMO module is off");
+            agent.set_status("the module is off");
             continue;
         };
         if s.token.is_empty() {
@@ -795,10 +912,16 @@ fn link_loop(agent: &Arc<Agent>) {
                     .unwrap()
                     .reported(id, report.done.len(), report.job_ends.len());
             label_ended(agent, end.ok, end.reason);
+        } else if label.is_some() && agent.kind == Kind::Lw450 {
+            // The driver's job state as it changes, each change a `STATE_CHANGED` (`set_state`).
+            let state = lw450_state(&report.telemetry);
+            if *agent.last_state.lock().unwrap() != Some(state) {
+                set_state(agent, state, report.telemetry.problem.as_deref());
+            }
         }
         // Gone: nothing is sent, the socket ends and the hub sees it away (`wire.md`).
         if !report.connected {
-            agent.set_status("the DYMO is not connected");
+            agent.set_status(format!("the {} is not connected", agent.kind.title()));
             if let Some(ws) = agent.ws.lock().unwrap().clone()
                 && ws.connected()
             {
@@ -806,7 +929,10 @@ fn link_loop(agent: &Arc<Agent>) {
             }
             continue;
         }
-        let mut kwargs = dymo_telemetry(&report.telemetry);
+        let mut kwargs = match agent.kind {
+            Kind::Pnp => dymo_telemetry(&report.telemetry),
+            Kind::Lw450 => lw450_telemetry(&report.telemetry),
+        };
         if let Some(cmd) = agent.command.lock().unwrap().as_ref()
             && cmd.state().is_some()
         {
@@ -842,6 +968,16 @@ fn dymo_telemetry(t: &maker_connect_protocol::Telemetry) -> Kwargs {
     kwargs
 }
 
+/// The LabelWriter's telemetry key (`docs/design/prusa-sdk-extension.md`, part 3): the driver's
+/// `STATE:` keyword, left out while it reports none.
+fn lw450_telemetry(t: &maker_connect_protocol::Telemetry) -> Kwargs {
+    let mut kwargs = Kwargs::new();
+    if let Some(r) = &t.state_reason {
+        kwargs.insert("state_reason".into(), r.clone().into());
+    }
+    kwargs
+}
+
 /// `register` and the poll (`__init__.py:726-757`, `:823-882`).
 fn register(agent: &Agent, server: &str, s: &Settings) {
     let code = agent.code.lock().unwrap().clone();
@@ -850,7 +986,7 @@ fn register(agent: &Agent, server: &str, s: &Settings) {
             let body = json!({
                 "sn": s.serial,
                 "fingerprint": s.fingerprint(),
-                "printer_type": PRINTER_TYPE,
+                "printer_type": agent.kind.printer_type(),
                 "firmware": VERSION,
             });
             let mut request = ureq::post(&format!("{server}/p/register"))
@@ -903,7 +1039,7 @@ fn register(agent: &Agent, server: &str, s: &Settings) {
 }
 
 /// The agent's page.
-fn web(agent: &Arc<Agent>, listen: &str) {
+fn web(devices: &[Arc<Agent>], listen: &str) {
     let server = tiny_http::Server::http(listen).expect("listen");
     for mut request in server.incoming_requests() {
         let path = request.url().to_owned();
@@ -911,15 +1047,21 @@ fn web(agent: &Arc<Agent>, listen: &str) {
             let mut body = String::new();
             let _ = request.as_reader().read_to_string(&mut body);
             let form = parse_form(&body);
-            match path.as_str() {
-                "/hub" => {
-                    let mut s = agent.settings.lock().unwrap();
-                    s.hostname = form.get("hostname").cloned().unwrap_or_default();
-                    s.port = form.get("port").and_then(|p| p.parse().ok()).unwrap_or(0);
-                    s.tls = form.contains_key("tls");
-                    s.save(&agent.dir);
+            let device = form
+                .get("device")
+                .and_then(|f| devices.iter().find(|d| d.kind.folder() == f));
+            match (path.as_str(), device) {
+                // One hub for the agent: each device's settings file gets its address.
+                ("/hub", _) => {
+                    for agent in devices {
+                        let mut s = agent.settings.lock().unwrap();
+                        s.hostname = form.get("hostname").cloned().unwrap_or_default();
+                        s.port = form.get("port").and_then(|p| p.parse().ok()).unwrap_or(0);
+                        s.tls = form.contains_key("tls");
+                        s.save(&agent.dir);
+                    }
                 }
-                "/module" => {
+                ("/module", Some(agent)) => {
                     let on = form.get("on").is_some_and(|v| v == "1");
                     {
                         let mut s = agent.settings.lock().unwrap();
@@ -932,7 +1074,7 @@ fn web(agent: &Arc<Agent>, listen: &str) {
                         agent.module_off();
                     }
                 }
-                "/reset" => {
+                ("/reset", Some(agent)) => {
                     let mut s = agent.settings.lock().unwrap();
                     s.token.clear();
                     s.save(&agent.dir);
@@ -949,7 +1091,7 @@ fn web(agent: &Arc<Agent>, listen: &str) {
             let _ = request.respond(response);
             continue;
         }
-        let html = page(agent);
+        let html = page(devices);
         let response = tiny_http::Response::from_string(html).with_header(
             tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
                 .unwrap(),
@@ -958,22 +1100,25 @@ fn web(agent: &Arc<Agent>, listen: &str) {
     }
 }
 
-fn page(agent: &Agent) -> String {
+fn esc(t: &str) -> String {
+    t.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('"', "&quot;")
+}
+
+/// One device's card; whether the page should look again soon (a registration in progress).
+fn device_card(agent: &Agent) -> (String, bool) {
     let s = agent.settings();
     let status = agent.status.lock().unwrap().clone();
+    let code = agent.code.lock().unwrap().clone();
     let registration = if !s.token.is_empty() {
         "registered".to_owned()
-    } else if let Some(code) = agent.code.lock().unwrap().clone() {
+    } else if let Some(code) = &code {
         format!("in progress: code {code}")
     } else {
         "not registered".to_owned()
     };
     let on = s.on;
-    let esc = |t: &str| {
-        t.replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('"', "&quot;")
-    };
     let linked = !s.token.is_empty() && on;
     let (state, state_class) = if !on {
         ("off", "idle")
@@ -982,6 +1127,34 @@ fn page(agent: &Agent) -> String {
     } else {
         ("not linked", "warn")
     };
+    let code_block = match (s.token.is_empty(), code) {
+        (true, Some(code)) => format!(
+            "<p class=muted>Enter this code on the hub: Space, add a machine.</p><p class=code>{}</p>",
+            esc(&code)
+        ),
+        _ => String::new(),
+    };
+    let card = format!(
+        r#"<section class="card{off}"><div class=head><h2 style="margin:0">{title}</h2><span class="st {state_class}">{state}</span></div>
+{code_block}<dl class=kv><dt>Module</dt><dd>{module}</dd><dt>Registration</dt><dd>{registration}</dd><dt>Link</dt><dd>{status}</dd></dl>
+<div class="row btns"><form method=post action=/module><input type=hidden name=device value="{device}"><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form>
+<form method=post action=/reset><input type=hidden name=device value="{device}"><span class=fw><button class="btn ghost">Reset registration</button></span></form></div></section>"#,
+        off = if on { "" } else { " is-off" },
+        title = agent.kind.title(),
+        device = agent.kind.folder(),
+        toggle = if on { "0" } else { "1" },
+        toggle_class = if on { "" } else { " primary" },
+        button = if on { "Turn off" } else { "Turn on" },
+        module = if on { "on" } else { "off" },
+        status = esc(&status),
+    );
+    (card, on && !linked)
+}
+
+fn page(devices: &[Arc<Agent>]) -> String {
+    // The hub's address is the same in every device's settings file (the form writes all).
+    let s = devices[0].settings();
+    let (cards, refresh): (Vec<String>, Vec<bool>) = devices.iter().map(|d| device_card(d)).unzip();
     format!(
         r#"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 {refresh}<title>Maker Connect agent</title><link rel=icon href="data:image/svg+xml,{icon}"><style>{CSS}
@@ -995,15 +1168,12 @@ fn page(agent: &Agent) -> String {
 <label class=field style="flex:0 1 7rem">Port <input name=port inputmode=numeric value="{port}" placeholder="8460"></label></div>
 <label class=check><input type=checkbox name=tls {tls}> TLS</label>
 <div class="row btns"><span class=fw><button class="btn primary">Save</button></span></div></form></section>
-<section class="card{off}"><div class=head><h2 style="margin:0">DYMO LabelManager PnP</h2><span class="st {state_class}">{state}</span></div>
-{code_block}<dl class=kv><dt>Module</dt><dd>{module}</dd><dt>Registration</dt><dd>{registration}</dd><dt>Link</dt><dd>{status}</dd></dl>
-<div class="row btns"><form method=post action=/module><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form>
-<form method=post action=/reset><span class=fw><button class="btn ghost">Reset registration</button></span></form></div></section>
+{cards}
 </main></body></html>"#,
-        refresh = if linked || !on {
-            ""
-        } else {
+        refresh = if refresh.iter().any(|r| *r) {
             "<meta http-equiv=refresh content=5>"
+        } else {
+            ""
         },
         icon = MARK.replace('#', "%23").replace('"', "'").replace('\n', ""),
         host = esc(&s.hostname),
@@ -1013,19 +1183,7 @@ fn page(agent: &Agent) -> String {
             s.port.to_string()
         },
         tls = if s.tls { "checked" } else { "" },
-        off = if on { "" } else { " is-off" },
-        code_block = match (s.token.is_empty(), agent.code.lock().unwrap().clone()) {
-            (true, Some(code)) => format!(
-                "<p class=muted>Enter this code on the hub: Space, add a machine.</p><p class=code>{}</p>",
-                esc(&code)
-            ),
-            _ => String::new(),
-        },
-        toggle = if on { "0" } else { "1" },
-        toggle_class = if on { "" } else { " primary" },
-        button = if on { "Turn off" } else { "Turn on" },
-        module = if on { "on" } else { "off" },
-        status = esc(&status),
+        cards = cards.join("\n"),
     )
 }
 
@@ -1095,10 +1253,12 @@ mod tests {
     #[test]
     fn the_settings_file_as_prusalink_keeps_it() {
         let dir = dir();
-        let drawn = Settings::load(&dir);
+        let pnp = Kind::Pnp.printer_type();
+        let drawn = Settings::load(&dir, pnp);
         assert!(drawn.serial.starts_with("MC") && drawn.serial.len() == 18);
-        assert_eq!(Settings::load(&dir).serial, drawn.serial, "drawn once");
+        assert_eq!(Settings::load(&dir, pnp).serial, drawn.serial, "drawn once");
         let s = Settings {
+            printer_type: pnp,
             hostname: "192.168.60.67".into(),
             tls: false,
             port: 8460,
@@ -1113,7 +1273,7 @@ mod tests {
              [service::connect]\nhostname = 192.168.60.67\ntls = False\nport = 8460\ntoken = t0k3n\n\n\
              [module]\non = True\n"
         );
-        let back = Settings::load(&dir);
+        let back = Settings::load(&dir, pnp);
         assert_eq!(
             (
                 back.hostname.as_str(),
@@ -1195,6 +1355,42 @@ mod tests {
             json!({"media_loaded": true, "battery_percent": 80, "raw_status": "00 00"})
         );
         assert!(dymo_telemetry(&maker_connect_protocol::Telemetry::default()).is_empty());
+    }
+
+    /// The LabelWriter during a job: its state by the driver's keyword (part 3), and the keyword
+    /// as `state_reason`, left out while the driver reports none.
+    #[test]
+    fn the_labelwriter_tells_the_drivers_state() {
+        let t = |kw: Option<&str>| maker_connect_protocol::Telemetry {
+            state_reason: kw.map(str::to_owned),
+            ..Default::default()
+        };
+        assert_eq!(
+            lw450_state(&t(Some("com.dymo.out-of-paper-error"))),
+            State::Attention
+        );
+        assert_eq!(
+            lw450_state(&t(Some("com.dymo.general-error"))),
+            State::Error
+        );
+        assert_eq!(lw450_state(&t(None)), State::Printing);
+        assert_eq!(
+            Value::Object(lw450_telemetry(&t(Some("com.dymo.general-error")))),
+            json!({"state_reason": "com.dymo.general-error"})
+        );
+        assert!(lw450_telemetry(&t(None)).is_empty());
+    }
+
+    /// Each device its own folder and type: the PnP keeps `dymo/`.
+    #[test]
+    fn each_device_its_own_settings_file() {
+        assert_eq!(
+            Kind::ALL.map(|k| (k.folder(), k.printer_type())),
+            [
+                ("dymo", "dymo.labelmanager-pnp"),
+                ("labelwriter-450", "dymo.labelwriter-450")
+            ]
+        );
     }
 
     /// A form as the page posts it, `+` and `%XX` decoded.

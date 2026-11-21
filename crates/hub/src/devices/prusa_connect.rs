@@ -168,13 +168,22 @@ async fn label_job(
         .trim_start_matches("/files/")
         .trim_end_matches("/download")
         .to_owned();
-    let command = serde_json::json!({"command": "START_CONNECT_DOWNLOAD", "kwargs": {
+    let mut kwargs = serde_json::json!({
         "path": format!("/labels/{}.png", order.id),
         "team_id": space,
         "hash": hash,
         "printing": true,
-        "tape_size_mm": order.tape_mm,
-    }});
+    });
+    // The tape printer's `tape_size_mm`, the CUPS driver's `page_size` (the roll set as loaded;
+    // none: the PPD's default), docs/design/prusa-sdk-extension.md parts 2 and 3.
+    if machine.profile.as_deref() == Some(LABELWRITER_450) {
+        if let Some(page_size) = &order.page_size {
+            kwargs["page_size"] = page_size.clone().into();
+        }
+    } else {
+        kwargs["tape_size_mm"] = order.tape_mm.into();
+    }
+    let command = serde_json::json!({"command": "START_CONNECT_DOWNLOAD", "kwargs": kwargs});
     let mut legacy = store.lock().unwrap();
     if let Some(id) = legacy.queue_connect_command(
         Some(&machine.link),
@@ -190,8 +199,54 @@ async fn label_job(
                 job: order.id,
                 token: token.to_owned(),
                 downloaded: false,
+                error: None,
+                stop_sent: false,
             },
         );
+    }
+    Ok(())
+}
+
+/// The LabelWriter 450's profile (docs/design/wire.md, "The second device").
+const LABELWRITER_450: &str = "dymo/labelwriter-450";
+
+/// A label job a person stopped: `STOP_TRANSFER` while it downloads, `STOP_PRINT` once it prints
+/// (docs/design/wire.md, "The second device"), once.
+async fn stop_label(
+    store: &Store,
+    token: &str,
+    machine: &crate::store::Machine,
+) -> Result<(), crate::store::BoxError> {
+    let open = {
+        let store = store.lock().unwrap();
+        store
+            .label_jobs
+            .iter()
+            .find(|(_, j)| j.token == token && !j.stop_sent)
+            .map(|(id, j)| (*id, j.clone()))
+    };
+    let Some((id, job)) = open else {
+        return Ok(());
+    };
+    let state = store.job(job.space, job.job).await?.map(|j| j.state);
+    if state != Some(crate::store::JobState::Stopping) {
+        return Ok(());
+    }
+    let command = if job.downloaded {
+        serde_json::json!({"command": "STOP_PRINT"})
+    } else {
+        serde_json::json!({"command": "STOP_TRANSFER"})
+    };
+    let mut legacy = store.lock().unwrap();
+    legacy.queue_connect_command(
+        Some(&machine.link),
+        &machine.id,
+        "Stop the label",
+        &command,
+        false,
+    );
+    if let Some(job) = legacy.label_jobs.get_mut(&id) {
+        job.stop_sent = true;
     }
     Ok(())
 }
@@ -504,6 +559,21 @@ fn take_in(
     if let Some(v) = report.get("raw_status") {
         t.raw_status = v.as_str().map(str::to_owned);
     }
+    // A label printer on DYMO's CUPS driver (docs/design/prusa-sdk-extension.md, part 3): the
+    // driver's `STATE:` keyword, left out when it reports none; shown as the PPD's own text.
+    let had_reason = t.state_reason.is_some();
+    t.state_reason = report
+        .get("state_reason")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    if let Some(keyword) = t.state_reason.as_deref() {
+        t.problem = maker_connect_engine::ports::dymo_cups::cups::ppd_lw450::REASONS
+            .iter()
+            .find(|(k, _, _)| *k == keyword)
+            .map(|(_, text, _)| (*text).to_owned());
+    } else if had_reason {
+        t.problem = None;
+    }
     // The state comes in every frame (`render.cpp:303`).
     t.state = match report["state"].as_str().unwrap_or("") {
         "PRINTING" | "BUSY" => MachineState::Busy,
@@ -766,6 +836,12 @@ async fn telemetry(
         _ => None,
     };
     if let Ok(Some(_)) = reported
+        && let Some((machine, _)) = label.as_ref()
+        && let Err(error) = stop_label(&store, token, machine).await
+    {
+        return failed(error);
+    }
+    if let Ok(Some(_)) = reported
         && let Some((machine, space)) = label.as_ref()
         && report["state"].as_str() == Some("IDLE")
         && let Err(error) = label_job(&store, token, machine, *space).await
@@ -899,22 +975,40 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
             }
             ("TRANSFER_ABORTED" | "TRANSFER_STOPPED", Some(id), _) => {
                 if let Some(job) = store.label_jobs.remove(&id) {
-                    ended_label = Some((job, crate::store::JobState::Failed, Some(name.clone())));
+                    ended_label = Some(if job.stop_sent && name == "TRANSFER_STOPPED" {
+                        (job, crate::store::JobState::Stopped, None)
+                    } else {
+                        (job, crate::store::JobState::Failed, Some(name.clone()))
+                    });
                 }
             }
+            // An `ERROR` fails it only when `IDLE` comes next: the CUPS driver waits and prints
+            // again after one (docs/design/wire.md, "The second device").
             ("STATE_CHANGED", _, Some(id)) => match event["state"].as_str() {
                 Some("ERROR") => {
-                    if let Some(job) = store.label_jobs.remove(&id) {
-                        let reason = event["reason"].as_str().map(str::to_owned);
-                        ended_label = Some((job, crate::store::JobState::Failed, reason));
+                    if let Some(job) = store.label_jobs.get_mut(&id) {
+                        job.error = Some(event["reason"].as_str().unwrap_or("").to_owned());
                     }
                 }
                 Some("IDLE") => {
                     if let Some(job) = store.label_jobs.remove(&id) {
-                        ended_label = Some((job, crate::store::JobState::Finished, None));
+                        let ended = match (&job.error, job.stop_sent) {
+                            (Some(_), true) => (crate::store::JobState::Stopped, None),
+                            (Some(reason), false) => (
+                                crate::store::JobState::Failed,
+                                (!reason.is_empty()).then(|| reason.clone()),
+                            ),
+                            (None, _) => (crate::store::JobState::Finished, None),
+                        };
+                        ended_label = Some((job, ended.0, ended.1));
                     }
                 }
-                _ => {}
+                Some(_) => {
+                    if let Some(job) = store.label_jobs.get_mut(&id) {
+                        job.error = None;
+                    }
+                }
+                None => {}
             },
             _ => {}
         }
@@ -1861,8 +1955,8 @@ mod tests {
     /// status bytes are kept; a label job goes out, when it is idle, as START_CONNECT_DOWNLOAD
     /// with `printing` and `tape_size_mm`; the file comes from `/p/teams/{team}/files/{hash}/raw`
     /// with its token only. The command's answer does not end the job, and no other label goes
-    /// out while it is open; after TRANSFER_FINISHED a STATE_CHANGED IDLE ends it, an ERROR before
-    /// it fails it with its reason; TRANSFER_ABORTED and a refused command fail it.
+    /// out while it is open; after TRANSFER_FINISHED a STATE_CHANGED IDLE ends it, an ERROR directly
+    /// before it fails it with its reason; TRANSFER_ABORTED and a refused command fail it.
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
         not(feature = "pg-tests"),
@@ -1954,6 +2048,7 @@ mod tests {
                     r#""event":"TRANSFER_FINISHED","data":{"start_cmd_id":{sent}}"#,
                     r#""event":"STATE_CHANGED","state":"PRINTING""#,
                     r#""event":"STATE_CHANGED","state":"ERROR","reason":"no cassette""#,
+                    r#""event":"STATE_CHANGED","state":"IDLE""#,
                 ][..],
             ),
             (
@@ -2058,6 +2153,192 @@ mod tests {
                     Some("Another command is running".to_owned())
                 ),
             ]
+        );
+    }
+
+    /// The DYMO LabelWriter 450 on the agent (docs/design/wire.md, "The second device"): it
+    /// registers as `dymo.labelwriter-450`; a label goes out with the loaded roll's `page_size`;
+    /// `state_reason` shows as the PPD's text; an ERROR followed by PRINTING does not fail the
+    /// label; a person's stop goes out as STOP_PRINT once it prints and ends the job Stopped.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_labelwriter_450_on_the_agent_prints_a_label(pool: sqlx::PgPool) {
+        use crate::store::{JobState, StartedBy};
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (status, headers) = call(
+            &app,
+            Request::post("/p/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"sn":"MC8899AABBCCDDEEFF","fingerprint":"fp","printer_type":"dymo.labelwriter-450","firmware":"0.3.0"}"#,
+                ))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let code = headers["code"].to_str().unwrap().to_owned();
+        let space = store.default_space().await.unwrap().0;
+        assert!(store.pair(space, &code).await.unwrap().is_some());
+        let (_, headers) = call(
+            &app,
+            Request::get("/p/register")
+                .header("Code", &code)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let token = headers["token"].to_str().unwrap().to_owned();
+        let lw = store.machines(space).await.unwrap()[0].clone();
+        assert_eq!(lw.kind, MachineKind::Label);
+        assert_eq!(lw.profile.as_deref(), Some("dymo/labelwriter-450"));
+        let profile = crate::profiles::find("dymo/labelwriter-450").unwrap();
+        let roll = profile.media[0].clone();
+        let page = crate::profiles::labelwriter_page(Some(profile), &roll.id).unwrap();
+        assert!(
+            store
+                .set_media(space, &lw.id, Some(&roll.id))
+                .await
+                .unwrap()
+        );
+
+        let png = b"\x89PNG label".to_vec();
+        let telemetry = |body: &'static str| {
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .body(Body::from(body))
+                .unwrap()
+        };
+        let idle = || telemetry(r#"{"state":"IDLE"}"#);
+        let mut ends = Vec::new();
+        for (f, stop) in [("w1", false), ("w2", true)] {
+            std::fs::write(store.file_path(f), &png).unwrap();
+            store
+                .add_file(
+                    space,
+                    f,
+                    &format!("{f}.png"),
+                    png.len() as u64,
+                    &Default::default(),
+                )
+                .await
+                .unwrap();
+            let file = store.file(space, f).await.unwrap().unwrap();
+            let job = store
+                .add_job(
+                    space,
+                    &lw.id,
+                    &file,
+                    None,
+                    StartedBy::Auto { by: Some("test") },
+                )
+                .await
+                .unwrap()
+                .unwrap();
+            let answer = app.clone().oneshot(idle()).await.unwrap();
+            assert_eq!(answer.status(), StatusCode::OK);
+            let sent: u32 = answer.headers()["command-id"]
+                .to_str()
+                .unwrap()
+                .parse()
+                .unwrap();
+            let frame = command_of(answer).await.expect("a command");
+            let command: Value = serde_json::from_str(&frame[9..]).unwrap();
+            assert_eq!(
+                command,
+                json!({"command": "START_CONNECT_DOWNLOAD", "kwargs": {
+                    "path": format!("/labels/{job}.png"),
+                    "team_id": space,
+                    "hash": f,
+                    "printing": true,
+                    "page_size": page.name,
+                }})
+            );
+            let send = |event: String| {
+                Request::post("/p/events")
+                    .header("Token", &token)
+                    .body(Body::from(format!(
+                        "{{{},\"source\":\"CONNECT\"}}",
+                        event.replace("{sent}", &sent.to_string())
+                    )))
+                    .unwrap()
+            };
+            for event in [
+                r#""event":"TRANSFER_INFO","command_id":{sent}"#,
+                r#""event":"TRANSFER_FINISHED","data":{"start_cmd_id":{sent}}"#,
+                r#""event":"STATE_CHANGED","state":"PRINTING""#,
+                r#""event":"STATE_CHANGED","state":"ERROR","reason":"General print error.""#,
+            ] {
+                assert_eq!(
+                    call(&app, send(event.into())).await.0,
+                    StatusCode::NO_CONTENT
+                );
+            }
+            // out of labels while it waits: the PPD's text
+            assert_eq!(
+                call(
+                    &app,
+                    telemetry(
+                        r#"{"state":"ATTENTION","state_reason":"com.dymo.out-of-paper-error"}"#
+                    )
+                )
+                .await
+                .0,
+                StatusCode::NO_CONTENT
+            );
+            let t = store.machines(space).await.unwrap()[0]
+                .telemetry
+                .clone()
+                .unwrap();
+            assert_eq!(
+                (t.state_reason.as_deref(), t.problem.as_deref()),
+                (Some("com.dymo.out-of-paper-error"), Some("Out of labels."))
+            );
+            if stop {
+                store
+                    .set_job(space, job, JobState::Stopping, None)
+                    .await
+                    .unwrap();
+                let answer = app.clone().oneshot(idle()).await.unwrap();
+                assert_eq!(answer.status(), StatusCode::OK);
+                let frame = command_of(answer).await.expect("the stop");
+                let command: Value = serde_json::from_str(&frame[9..]).unwrap();
+                assert_eq!(command, json!({"command": "STOP_PRINT"}));
+                for event in [
+                    r#""event":"STATE_CHANGED","state":"ERROR","reason":"stopped""#,
+                    r#""event":"STATE_CHANGED","state":"IDLE""#,
+                ] {
+                    assert_eq!(
+                        call(&app, send(event.into())).await.0,
+                        StatusCode::NO_CONTENT
+                    );
+                }
+            } else {
+                for event in [
+                    r#""event":"STATE_CHANGED","state":"PRINTING""#,
+                    r#""event":"STATE_CHANGED","state":"IDLE""#,
+                ] {
+                    assert_eq!(
+                        call(&app, send(event.into())).await.0,
+                        StatusCode::NO_CONTENT
+                    );
+                }
+            }
+            assert_eq!(call(&app, idle()).await.0, StatusCode::NO_CONTENT);
+            let t = store.machines(space).await.unwrap()[0]
+                .telemetry
+                .clone()
+                .unwrap();
+            assert_eq!((t.state_reason, t.problem), (None, None), "cleared");
+            let job = store.job(space, job).await.unwrap().unwrap();
+            ends.push((job.state, job.reason));
+        }
+        assert_eq!(
+            ends,
+            vec![(JobState::Finished, None), (JobState::Stopped, None)]
         );
     }
 }

@@ -80,13 +80,17 @@ impl<'a> StartedBy<'a> {
 }
 
 /// A label job sent to a label printer as START_CONNECT_DOWNLOAD: its space, job and printer
-/// (by token), and whether its TRANSFER_FINISHED came.
+/// (by token), whether its TRANSFER_FINISHED came, the reason of an `ERROR` that is the printer's
+/// state now, and whether a stop went out (docs/design/wire.md, "When the hub calls a label
+/// printed").
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LabelJob {
     pub space: i64,
     pub job: i64,
     pub token: String,
     pub downloaded: bool,
+    pub error: Option<String>,
+    pub stop_sent: bool,
 }
 
 /// A bed mesh as the hub keeps it: the machine's last, and when it came.

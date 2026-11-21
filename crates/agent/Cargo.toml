@@ -7,8 +7,6 @@ license.workspace = true
 
 [dependencies]
 maker-connect-sdk = { path = "../connect-sdk" }
-# repr() of a str, for the errors the SDK sends as `repr(err)`
-maker-connect-gcode-metadata = { path = "../gcode-metadata" }
 maker-connect-engine = { path = "../engine" }
 maker-connect-protocol = { path = "../protocol" }
 serde_json = { version = "1", features = ["preserve_order"] }
@@ -16,3 +14,8 @@ ureq = "2"
 sha2 = "0.10"
 tiny_http = "0.12"
 log = "0.4"
+
+# The SDK's download (Unix only, as its storage): repr() of a str, for the errors the SDK sends as
+# `repr(err)`.
+[target.'cfg(unix)'.dependencies]
+maker-connect-gcode-metadata = { path = "../gcode-metadata" }

@@ -32,9 +32,9 @@ installed in CI only).
 
 | # | What | Result |
 |---|---|---|
-| 1 | `start` without the loop, 14 paths: no leading `/`, a storage alone, an unknown storage, a storage with no path, `..`, `#` and `?` in the name, a name of 256 bytes (`é` × 125 + `.gcode`), one of 249 bytes with no extension, a folder of 256 bytes (ASCII and `é`), a storage path ending in `/`, `//` and `/./` | not yet run |
-| 2 | Downloads, 26 steps: from Connect with its token; another server (`User-Agent` only); no server; the server in upper case; `text/plain`; a 404; `text/html`; a charset; an upper-case type; no content type; an empty file; chunked with no length; gzip; deflate; into new folders, an existing folder and a file where a folder is wanted; stopped at the first chunk; onto the file being printed; from the web; a transfer type the loop leaves alone; a second `start` while one runs; an unreachable server; an invalid storage in the loop, after a good one, and again | not yet run |
-| 3 | Rows 1 and 2 on Linux, CPython 3.13.12 | **not yet run**: CI only (job `store`) |
+| 1 | `start` without the loop, 14 paths: no leading `/`, a storage alone, an unknown storage, a storage with no path, `..`, `#` and `?` in the name, a name of 256 bytes (`é` × 125 + `.gcode`), one of 249 bytes with no extension, a folder of 256 bytes (ASCII and `é`), a storage path ending in `/`, `//` and `/./` | the same |
+| 2 | Downloads, 26 steps: from Connect with its token; another server (`User-Agent` only); no server; the server in upper case; `text/plain`; a 404; `text/html`; a charset; an upper-case type; no content type; an empty file; chunked with no length; gzip; deflate; into new folders, an existing folder and a file where a folder is wanted; stopped at the first chunk; onto the file being printed; from the web; a transfer type the loop leaves alone; a second `start` while one runs; an unreachable server; an invalid storage in the loop, after a good one, and again | the same |
+| 3 | Rows 1 and 2 on Linux, CPython 3.13.12 | **the same**: CI job `store`, run 44884275794 on `8c97e2c` (2026-11-21), with the known difference and the one reason not compared below |
 
 On macOS, the scenario was only run with stand-ins for the SDK's imports (not installed; owner,
 2026-11-20): all 40 steps the same, with gzip and "unreachable" taken as under "Not covered". That run does not count for

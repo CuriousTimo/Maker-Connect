@@ -232,8 +232,8 @@ rest is choosing values the protocol already has, all **ours**:
   (`TRANSFER_INFO`, `__init__.py:443-490` returning `download_mgr.start`) only says the download
   started, so it does not end the label job. `TRANSFER_ABORTED` or `TRANSFER_STOPPED` fails it, with
   the event's name as the reason. After `TRANSFER_FINISHED` the job is printed at the next
-  `STATE_CHANGED` event with state `IDLE`, with no `ERROR` before it; a `STATE_CHANGED` `ERROR` fails
-  it, with its `reason`. Telemetry's `state` does not count: it may still say `IDLE` from before the
+  `STATE_CHANGED` event with state `IDLE` whose state before it was not `ERROR`; an `ERROR` directly
+  before that `IDLE` fails it, with the `ERROR`'s `reason` (see the LabelWriter 450 below for why). Telemetry's `state` does not count: it may still say `IDLE` from before the
   label started. While a label job is open, no other one goes out to that printer (owner, 2026-11-21:
   kept).
 - **Gone and back:** while the port says the printer is gone, the agent sends nothing for it, so its
@@ -243,6 +243,43 @@ rest is choosing values the protocol already has, all **ours**:
   (`command.py:184-186`).
 - **Dialogs:** `DIALOG_ACTION` is the SDK's own handler (`__init__.py:156`, `:519-524`): `FINISHED`, or
   `FAILED` "Command error" without kwargs. The device raises no dialogs.
+
+## The second device: DYMO LabelWriter 450
+
+Approved by the owner (2026-11-21). Its port is DYMO's CUPS driver 1.4.0, already ported and
+audited (`crates/engine/src/ports/dymo_cups`, [audit](../audits/dymo-labelwriter-450.md)). On the wire it is an
+SDK `Printer` with the additions of the [extension, part 3](prusa-sdk-extension.md#part-3-label-printers-on-dymos-cups-driver-dymolabelwriter-450-dymolabelwriter-320):
+its type `dymo.labelwriter-450`, the telemetry key `state_reason` and the kwarg `page_size`. A stack apart
+from the LabelManager PnP: nothing of one is used for the other. The rest, all **ours**:
+
+- **Beside the PnP in one agent.** Each device is its own `Printer` with its own settings file, as above
+  ("The unit"): the PnP's in `dymo/`, the 450's in `labelwriter-450/`, each with its own `labels/` storage.
+  The agent's page shows both modules, each on or off, with its own registration.
+- **Serial and fingerprint:** as the PnP's (the port reads no serial either).
+- **State:** no job `IDLE`; a job `PRINTING`; during a job the driver's job state as part 3 has it:
+  `jsPaperOut` (`STATE: com.dymo.out-of-paper-error`) `ATTENTION`, `jsError` (`STATE: com.dymo.general-error`)
+  `ERROR`, `jsOK` (`STATE: none`) `PRINTING` again (driver `src/common/CupsPrintEnvironment.cpp:159-194`,
+  `src/lw/LabelWriterLanguageMonitor.cpp:260-271`). Each change is a `STATE_CHANGED` event, as the SDK's
+  `set_state` sends one; telemetry's `state` is the same. `state_reason` is the keyword, left out after
+  `none`.
+  Also ours (owner, 2026-11-21): an `ATTENTION` or `ERROR` during a job carries the PPD's own text
+  for the keyword in `reason` (`lw450.ppd:47-55`, as the port shows it in `problem`). The last `STATE:`
+  keyword holds through the status read that comes before each `STATE:` line (while it waits, the
+  driver reads the status, then writes `STATE:`, `LabelWriterLanguageMonitor.cpp:229-258`). A label that printed after an `ERROR` or `ATTENTION` first reports `PRINTING`
+  again, the driver's state at the end (it ends a job only once the printer is ready), then `IDLE`. A
+  label that failed reports `ERROR` with the port's reason, even when an `ERROR` came before, then `IDLE`.
+
+- **A label print** comes as the PnP's, with `page_size` in place of `tape_size_mm`: the `PageSize` choice of
+  the roll the owner set as loaded (the profile's media, from the PPD, `profiles/dymo/labelwriter-450.toml`);
+  none set: no `page_size`, so the PPD's default.
+- **When the hub calls a label printed:** as the PnP's, with one change for both devices. The driver does
+  not end a job at `jsError` or `jsPaperOut`: it waits until the printer is ready and prints the label again
+  (`src/lw/LabelWriterLanguageMonitor.cpp:229-258`, `CheckStatusAndReprint`). So an `ERROR` fails the job only
+  when the next state is `IDLE`; an `ERROR` followed by `PRINTING` does not. On the PnP, whose agent sends
+  `ERROR` only when the label failed and then `IDLE`, nothing changes.
+- **Stopping a label:** when a person stops the label job, the hub sends `STOP_PRINT` (part 3); the agent
+  gives the port its Stop, which ends the filter as a CUPS cancel. The job then ends `Stopped`, not
+  `Failed`. A stop while the label still downloads is `STOP_TRANSFER`, as Connect sends it.
 
 ## Removed
 

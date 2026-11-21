@@ -1034,17 +1034,29 @@ mod top_edge {
         // wait for the problem to show
         let mut problem = None;
         let mut raw = None;
+        let mut keyword = None;
         for _ in 0..200 {
             if let Event::Telemetry(t) = erx.recv_timeout(Duration::from_secs(60)).unwrap() {
                 if t.problem.is_some() {
                     problem = t.problem;
                     raw = t.raw_status;
+                    keyword = t.state_reason;
                     break;
                 }
             }
         }
         assert_eq!(problem.as_deref(), Some("Out of labels."));
         assert_eq!(raw.as_deref(), Some("a0"));
+        assert_eq!(keyword.as_deref(), Some("com.dymo.out-of-paper-error"));
+        // the status reads while it waits keep the keyword (the next `STATE:` changes it)
+        for _ in 0..5 {
+            if let Event::Telemetry(t) = erx.recv_timeout(Duration::from_secs(60)).unwrap() {
+                assert_eq!(
+                    t.state_reason.as_deref(),
+                    Some("com.dymo.out-of-paper-error")
+                );
+            }
+        }
         otx.send(Order::Control(JobControl::Stop)).unwrap();
         let (end, _) = until_job_end(&erx);
         assert!(!end.ok && end.stopped);

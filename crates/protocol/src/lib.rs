@@ -249,6 +249,10 @@ pub struct Telemetry {
     /// in full (a DYMO's eight bytes), to find out what the rest says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw_status: Option<String>,
+    /// A label printer on DYMO's CUPS driver: the driver's own `STATE:` keyword during a job,
+    /// unchanged (`com.dymo.out-of-paper-error`); none after `STATE: none`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_reason: Option<String>,
     /// A scale's reading, as the scale says it (`ports/usbscale`, docs/plans/agent-engine.md Step 3e).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale: Option<ScaleReading>,
