@@ -218,6 +218,16 @@ Control tab, a 3D printer (verbs of the `marlin` registry; the `prusa` kind uses
 | Terminal | `mc.printer.gcode` | `device.gcode` (by name) | as declared |
 | Refresh the SD list | `mc.printer.sd_list` | `device.view` | `OPERATIONAL`, `TRANSFERING_FILE` |
 
+**A Marlin printer on the agent** (`marlin.fdm`, docs/design/prusa-sdk-extension.md part 9) has
+the same page as a Prusa on its Connect, but:
+- **Head and Machine tab:** it is connected through the "Maker Connect agent", not "Built-in
+  Prusa Connect".
+- **Files:** the tab shows the agent's storage (`/gcodes`) instead of the USB stick. The printer's
+  SD card joins it as `SD_CARD` once the agent has it (part 9, Storages), as PrusaLink has an MK3's.
+- **Controls:** speed, flow and the nozzle and bed targets go as the SDK's `SET_VALUE`, which
+  PrusaLink takes while printing; G-code it refuses then. *Mesh bed leveling* stays, since
+  Marlin's `G29` measures the bed as an MK3's `G80` does.
+
 Bounds of a number come from the verb's declared argument (kind, unit, bounds); the page adds none
 of its own (for a Prusa printer the firmware's limits rule, owner 2026-11-09).
 

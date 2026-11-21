@@ -435,7 +435,8 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Machine(Level::Use),
         Some("said what is loaded in"),
     ),
-    // A Prusa's USB stick (crate::printer_files).
+    // A printer's storage on its Connect: a Prusa's USB stick, a Marlin agent's storage
+    // (crate::printer_files).
     (
         "GET",
         "/api/machines/{id}/usb",
@@ -452,25 +453,25 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         "POST",
         "/machines/{id}/usb/print",
         Need::Machine(Level::Use),
-        Some("printed from the USB stick of"),
+        Some("printed from the storage of"),
     ),
     (
         "POST",
         "/machines/{id}/usb/delete",
         Need::Machine(Level::Use),
-        Some("deleted from the USB stick of"),
+        Some("deleted from the storage of"),
     ),
     (
         "POST",
         "/machines/{id}/usb/folder",
         Need::Machine(Level::Use),
-        Some("made a folder on the USB stick of"),
+        Some("made a folder on the storage of"),
     ),
     (
         "POST",
         "/machines/{id}/usb/send",
         Need::Machine(Level::Use),
-        Some("sent a file to the USB stick of"),
+        Some("sent a file to the storage of"),
     ),
     // The farm (crate::farm): projects and parts are work; confirming a plate is using the
     // machine; a machine joins the queue by who manages it; a count corrected by an admin.

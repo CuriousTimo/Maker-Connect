@@ -66,10 +66,10 @@ pub fn for_the_log(body: &str) -> String {
     }
 }
 
-/// A path on the stick: under `/usb`, no `..`, not too long.
-fn usb_path(path: &str) -> Option<String> {
+/// A path on the printer's storage: under its root (`storage_root`), no `..`, not too long.
+fn storage_path(path: &str, root: &str) -> Option<String> {
     let path = path.trim().trim_end_matches('/');
-    let ok = (path == "/usb" || path.starts_with("/usb/"))
+    let ok = (path == root || path.strip_prefix(root).is_some_and(|r| r.starts_with('/')))
         && path.len() <= 200
         && !path.split('/').any(|p| p == ".." || p == ".")
         && !path.contains(['\\', '\0', '\n', '"']);
@@ -78,7 +78,7 @@ fn usb_path(path: &str) -> Option<String> {
 
 fn parent(path: &str) -> &str {
     match path.rfind('/') {
-        Some(0) | None => "/usb",
+        Some(0) | None => path,
         Some(i) => &path[..i],
     }
 }
@@ -419,9 +419,10 @@ impl Store {
         let Some(file) = self.file(old.space, &old.file).await? else {
             return Ok(false);
         };
-        let mut taken = names_in(self, old.space, machine, "/usb").await;
+        let root = storage_root(self, old.space, machine).await?;
+        let mut taken = names_in(self, old.space, machine, root).await;
         taken.push(old.path.rsplit('/').next().unwrap_or("").to_owned());
-        let path = format!("/usb/{}", stick_name(&file.name, &taken));
+        let path = format!("{root}/{}", stick_name(&file.name, &taken));
         let fresh = self
             .create_transfer(old.space, machine, &file.id, file.size, &path, Some(job))
             .await?;
@@ -569,20 +570,41 @@ impl Store {
         transfer: &Transfer,
         name: &str,
     ) -> Result<Option<u32>, BoxError> {
-        let command = json!({
-            "command": "START_ENCRYPTED_DOWNLOAD",
-            "kwargs": {
-                "path": transfer.path,
-                "key": transfer.key,
-                "iv": transfer.iv,
-                "orig_size": transfer.size,
-            }
-        });
+        let marlin = self
+            .machine(transfer.space, &transfer.machine)
+            .await?
+            .is_some_and(|m| crate::prusa_connect::marlin_agent(&m));
+        // The agent's SDK has no encrypted download: the file is fetched as the SDK fetches one
+        // (`__init__.py:457-483`, `/p/teams/{team_id}/files/{hash}/raw`), into its storage,
+        // `printing` off: the print starts by `START_PRINT` once it is there, as a stick's.
+        let (command, what) = if marlin {
+            let command = json!({
+                "command": "START_CONNECT_DOWNLOAD",
+                "kwargs": {
+                    "path": transfer.path,
+                    "team_id": transfer.space,
+                    "hash": transfer.file,
+                    "printing": false,
+                }
+            });
+            (command, format!("Send {name} to the printer"))
+        } else {
+            let command = json!({
+                "command": "START_ENCRYPTED_DOWNLOAD",
+                "kwargs": {
+                    "path": transfer.path,
+                    "key": transfer.key,
+                    "iv": transfer.iv,
+                    "orig_size": transfer.size,
+                }
+            });
+            (command, format!("Send {name} to the USB stick"))
+        };
         let link = self.link_of(transfer.space, &transfer.machine).await?;
         let id = self.lock().unwrap().queue_connect_command(
             link.as_deref(),
             &transfer.machine,
-            &format!("Send {name} to the USB stick"),
+            &what,
             &command,
             false,
         );
@@ -591,6 +613,25 @@ impl Store {
                 .await?;
         }
         Ok(id)
+    }
+}
+
+/// Where a job's file goes on the printer: a Marlin printer's agent storage (part 9; its name,
+/// `gcodes`, is the agent's), a Prusa's USB stick.
+async fn storage_root(store: &Store, space: i64, machine: &str) -> Result<&'static str, BoxError> {
+    Ok(store
+        .machine(space, machine)
+        .await?
+        .as_ref()
+        .map_or("/usb", root_of))
+}
+
+/// The root of a printer's storage on its Connect (see `storage_root`).
+pub(crate) fn root_of(machine: &crate::store::Machine) -> &'static str {
+    if crate::prusa_connect::marlin_agent(machine) {
+        "/gcodes"
+    } else {
+        "/usb"
     }
 }
 
@@ -755,7 +796,8 @@ pub async fn on_event(
             store.changed();
         }
         "FILE_INFO" => {
-            if let Some(path) = data["path"].as_str().and_then(usb_path) {
+            let root = storage_root(store, space, &machine).await?;
+            if let Some(path) = data["path"].as_str().and_then(|p| storage_path(p, root)) {
                 store.set_printer_file(space, &machine, &path, data).await?;
                 // A folder: its files' details and pictures are read ahead, one by one.
                 if data["children"].is_array() {
@@ -787,7 +829,11 @@ pub async fn on_event(
             if data["rescan"].as_bool() == Some(true) {
                 store.forget_printer_stick(space, &machine).await?;
             }
-            if let Some(path) = data["old_path"].as_str().and_then(usb_path) {
+            let root = storage_root(store, space, &machine).await?;
+            if let Some(path) = data["old_path"]
+                .as_str()
+                .and_then(|p| storage_path(p, root))
+            {
                 // Gone at once from its folder's listing: not shown until the folder is
                 // read again.
                 store.drop_printer_path(space, &machine, &path).await?;
@@ -948,6 +994,7 @@ async fn prefetch(
     listing: &Value,
 ) -> Result<(), BoxError> {
     let link = store.link_of(space, machine).await?;
+    let root = storage_root(store, space, machine).await?;
     let children = listing["children"].as_array().cloned().unwrap_or_default();
     let mut asked = 0;
     for child in children
@@ -958,7 +1005,7 @@ async fn prefetch(
             continue;
         };
         let path = format!("{folder}/{name}");
-        if usb_path(&path).is_none() {
+        if storage_path(&path, root).is_none() {
             continue;
         }
         let (entry, when) = store.printer_file(space, machine, &path).await?;
@@ -1094,8 +1141,9 @@ pub async fn on_report(
                     .await?;
                 return Ok(());
             }
-            let taken = names_in(store, space, &machine, "/usb").await;
-            let path = format!("/usb/{}", stick_name(&file.name, &taken));
+            let root = storage_root(store, space, &machine).await?;
+            let taken = names_in(store, space, &machine, root).await;
+            let path = format!("{root}/{}", stick_name(&file.name, &taken));
             let transfer = store
                 .create_transfer(space, &machine, &file.id, file.size, &path, Some(job.id))
                 .await?;
@@ -1216,8 +1264,16 @@ async fn look(
     Path(machine): Path<String>,
     Query(query): Query<PathQuery>,
 ) -> Response {
-    let Some(path) = usb_path(query.path.as_deref().unwrap_or("/usb")) else {
-        return (StatusCode::BAD_REQUEST, "a path on the stick, under /usb").into_response();
+    let root = match storage_root(&store, access.space, &machine).await {
+        Ok(root) => root,
+        Err(error) => return failed(error),
+    };
+    let Some(path) = storage_path(query.path.as_deref().unwrap_or(root), root) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("a path on the printer, under {root}"),
+        )
+            .into_response();
     };
     let printer = match connect_printer(&store, &access, &machine).await {
         Ok(p) => p,
@@ -1230,7 +1286,7 @@ async fn look(
     let folder = entry
         .as_ref()
         .is_none_or(|(d, _)| d["children"].is_array() || d["type"] == "FOLDER");
-    let fresh = if folder || path == "/usb" {
+    let fresh = if folder || path == root {
         entry
             .as_ref()
             .is_some_and(|(_, at)| now() - at < FOLDER_FRESH_SECONDS)
@@ -1320,7 +1376,11 @@ async fn preview(
     Path(machine): Path<String>,
     Query(query): Query<PathQuery>,
 ) -> Response {
-    let Some(path) = query.path.as_deref().and_then(usb_path) else {
+    let root = match storage_root(&store, access.space, &machine).await {
+        Ok(root) => root,
+        Err(error) => return failed(error),
+    };
+    let Some(path) = query.path.as_deref().and_then(|p| storage_path(p, root)) else {
         return StatusCode::BAD_REQUEST.into_response();
     };
     if let Err(r) = connect_printer(&store, &access, &machine).await {
@@ -1399,7 +1459,11 @@ async fn print(
     Path(machine): Path<String>,
     Form(form): Form<PathForm>,
 ) -> Response {
-    let Some(path) = usb_path(&form.path).filter(|p| p != "/usb") else {
+    let root = match storage_root(&store, access.space, &machine).await {
+        Ok(root) => root,
+        Err(error) => return failed(error),
+    };
+    let Some(path) = storage_path(&form.path, root).filter(|p| p != root) else {
         return (StatusCode::BAD_REQUEST, "a file on the stick").into_response();
     };
     {
@@ -1446,7 +1510,11 @@ async fn delete(
     Path(machine): Path<String>,
     Form(form): Form<PathForm>,
 ) -> Response {
-    let Some(path) = usb_path(&form.path).filter(|p| p != "/usb") else {
+    let root = match storage_root(&store, access.space, &machine).await {
+        Ok(root) => root,
+        Err(error) => return failed(error),
+    };
+    let Some(path) = storage_path(&form.path, root).filter(|p| p != root) else {
         return (StatusCode::BAD_REQUEST, "a file or folder on the stick").into_response();
     };
     let folder = form.folder.is_some();
@@ -1492,7 +1560,11 @@ async fn new_folder(
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || " -_".contains(c));
-    let Some(folder) = usb_path(&form.path) else {
+    let root = match storage_root(&store, access.space, &machine).await {
+        Ok(root) => root,
+        Err(error) => return failed(error),
+    };
+    let Some(folder) = storage_path(&form.path, root) else {
         return (StatusCode::BAD_REQUEST, "a folder on the stick").into_response();
     };
     if !plain {
@@ -1536,7 +1608,11 @@ async fn send(
     if !printer.online {
         return (StatusCode::CONFLICT, "the printer is offline").into_response();
     }
-    let Some(folder) = usb_path(form.folder.as_deref().unwrap_or("/usb")) else {
+    let root = match storage_root(&store, access.space, &machine).await {
+        Ok(root) => root,
+        Err(error) => return failed(error),
+    };
+    let Some(folder) = storage_path(form.folder.as_deref().unwrap_or(root), root) else {
         return (StatusCode::BAD_REQUEST, "a folder on the stick").into_response();
     };
     let file = match store.file(access.space, &form.file).await {
@@ -1678,9 +1754,9 @@ mod tests {
 
     #[test]
     fn paths_stay_on_the_stick() {
-        assert_eq!(usb_path("/usb/").as_deref(), Some("/usb"));
+        assert_eq!(storage_path("/usb/", "/usb").as_deref(), Some("/usb"));
         assert_eq!(
-            usb_path("/usb/PARTS/A.GCO").as_deref(),
+            storage_path("/usb/PARTS/A.GCO", "/usb").as_deref(),
             Some("/usb/PARTS/A.GCO")
         );
         for bad in [
@@ -1692,7 +1768,7 @@ mod tests {
             "/usb/a\\b",
             "/usb/\"x",
         ] {
-            assert!(usb_path(bad).is_none(), "{bad}");
+            assert!(storage_path(bad, "/usb").is_none(), "{bad}");
         }
         assert_eq!(parent("/usb/a/b.gcode"), "/usb/a");
         assert_eq!(parent("/usb/b.gcode"), "/usb");
@@ -1930,6 +2006,214 @@ mod flow {
         let m = store.machine(space, &mini).await.unwrap().unwrap();
         let c = m.commands.iter().find(|c| c.id == busy).unwrap();
         assert_eq!(c.state, crate::store::CommandState::Accepted);
+    }
+
+    /// A Marlin printer on the agent (`docs/design/prusa-sdk-extension.md`, part 9): it registers
+    /// as `marlin.fdm`, is named a Marlin printer with no profile, and a job's file goes to the
+    /// agent's `gcodes` storage by the SDK's `START_CONNECT_DOWNLOAD` (`printing` off), fetched
+    /// with its token; then `START_PRINT`, and the job follows the printer's state.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_marlin_on_the_agent_prints_from_its_storage(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (status, headers, _) = call(
+            &app,
+            Request::post("/p/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"sn":"MC00112233445566AA","fingerprint":"fp","printer_type":"marlin.fdm","firmware":"0.3.0"}"#,
+                ))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let code = headers["code"].to_str().unwrap().to_owned();
+        let space = store.default_space().await.unwrap().0;
+        assert!(store.pair(space, &code).await.unwrap().is_some());
+        let (_, headers, _) = call(
+            &app,
+            Request::get("/p/register")
+                .header("Code", &code)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let token = headers["token"].to_str().unwrap().to_owned();
+        let printer = store.machines(space).await.unwrap()[0].clone();
+        assert_eq!(
+            (
+                printer.name.as_str(),
+                printer.kind,
+                printer.profile.as_deref()
+            ),
+            (
+                "Marlin printer 66AA",
+                maker_connect_protocol::MachineKind::Fdm,
+                None
+            )
+        );
+        assert!(printer.agent_version.starts_with("Maker Connect agent"));
+        assert!(crate::prusa_connect::marlin_agent(&printer));
+        let id = printer.id.clone();
+        crate::auth::tester_may_operate(&store, &id).await;
+        let report = |state: &str| {
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .body(Body::from(format!(r#"{{"state":"{state}"}}"#)))
+                .unwrap()
+        };
+        let event = |body: Value| {
+            Request::post("/p/events")
+                .header("Token", &token)
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        call(&app, report("IDLE")).await;
+        // Its INFO names the type as the SDK's `get_info` does (`type`): still a Marlin.
+        call(&app, event(json!({"event": "INFO", "state": "IDLE", "data": {"type": "marlin.fdm", "sn": "MC00112233445566AA", "firmware": "0.3.0"}}))).await;
+        assert!(crate::prusa_connect::marlin_agent(
+            &store.machine(space, &id).await.unwrap().unwrap()
+        ));
+
+        let gcode = b"G28\nG1 X10 Y10\n".to_vec();
+        let (status, _, body) = call(
+            &app,
+            Request::post("/api/files?name=Big%20part.gcode")
+                .body(Body::from(gcode.clone()))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let file = serde_json::from_slice::<Value>(&body).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let (status, _, body) = call(
+            &app,
+            Request::post(format!("/files/{file}/print"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(format!("machine={id}")))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::NO_CONTENT,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+        let (_, headers, body) = call(&app, report("IDLE")).await;
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"command": "START_CONNECT_DOWNLOAD", "kwargs": {
+                "path": "/gcodes/Big_part.gcode", "team_id": space, "hash": file, "printing": false,
+            }})
+        );
+        let download_id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
+        // Fetched as the SDK fetches it, with the printer's token.
+        let (status, _, bytes) = call(
+            &app,
+            Request::get(format!("/p/teams/{space}/files/{file}/raw"))
+                .header("Token", &token)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!((status, bytes), (StatusCode::OK, gcode));
+
+        call(&app, event(json!({"event": "TRANSFER_FINISHED", "state": "IDLE", "data": {"start_cmd_id": download_id}}))).await;
+        let (_, headers, body) = call(&app, report("IDLE")).await;
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"command": "START_PRINT", "kwargs": {"path": "/gcodes/Big_part.gcode"}})
+        );
+        let print_id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
+        call(
+            &app,
+            event(json!({"event": "FINISHED", "state": "PRINTING", "command_id": print_id})),
+        )
+        .await;
+        let job = || async { store.machine(space, &id).await.unwrap().unwrap().job };
+        let job_id = job().await.unwrap().id;
+        call(&app, report("PRINTING")).await;
+        assert_eq!(job().await.unwrap().state, JobState::Printing);
+        call(&app, report("FINISHED")).await;
+        assert!(job().await.is_none(), "ended");
+        assert_eq!(
+            store.job(space, job_id).await.unwrap().unwrap().state,
+            JobState::Finished
+        );
+
+        // Its page (docs/design/ui.md, "A Marlin printer on the agent"): through the agent,
+        // its storage in Files, Mesh bed leveling in Controls.
+        let (status, _, page) = call(
+            &app,
+            Request::get(format!("/machines/{id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let page = String::from_utf8_lossy(&page);
+        assert_eq!(status, StatusCode::OK);
+        for shown in [
+            "Maker Connect agent",
+            r#"data-usb-root="/gcodes""#,
+            "agent's storage",
+            crate::devices::legacy_gcode::MESH_BED_LEVELING.0,
+        ] {
+            assert!(page.contains(shown), "{shown}");
+        }
+        for not in [
+            "Built-in Prusa Connect",
+            "Its own firmware",
+            "data-usb-crumbs>USB stick",
+        ] {
+            assert!(!page.contains(not), "{not}");
+        }
+
+        // Speed, flow and the targets as the SDK's SET_VALUE, not G-code.
+        for (form, kwargs) in [
+            ("action=set-speed&speed=150", json!({"speed": 150})),
+            ("action=set-flow&flow=95", json!({"flow": 95})),
+            (
+                "action=set-nozzle&nozzle=212.6",
+                json!({"nozzle_temperature": 213}),
+            ),
+            ("action=set-bed&bed=0", json!({"bed_temperature": 0})),
+        ] {
+            let (status, _, body) = call(
+                &app,
+                Request::post(format!("/machines/{id}/command"))
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .header("x-requested-with", "fetch")
+                    .body(Body::from(form))
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::NO_CONTENT,
+                "{form}: {}",
+                String::from_utf8_lossy(&body)
+            );
+            let (_, headers, body) = call(&app, report("IDLE")).await;
+            assert_eq!(
+                serde_json::from_slice::<Value>(&body).unwrap(),
+                json!({"command": "SET_VALUE", "kwargs": kwargs}),
+                "{form}"
+            );
+            let cmd: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
+            call(
+                &app,
+                event(json!({"event": "FINISHED", "state": "IDLE", "command_id": cmd})),
+            )
+            .await;
+        }
     }
 
     /// A MINI, as it talks: its stick looked through (with a file's picture), a file

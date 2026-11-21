@@ -114,6 +114,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
     let state_class = st_class(&state_class);
     let kind = profile.map_or(machine.kind.label(), |p| p.model.as_str());
     let link = match machine.link.as_str() {
+        "prusa-connect" if crate::prusa_connect::marlin_agent(machine) => "Maker Connect agent",
         "prusa-connect" => "Built-in Prusa Connect",
         "virtual" => "Virtual, in the hub",
         "simplyprint" => "Klipper, through Moonraker",
@@ -246,9 +247,9 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
             ""
         },
         usb = if machine.link == "prusa-connect" {
-            USB_TAB
+            storage_tab(machine)
         } else {
-            ""
+            String::new()
         },
         camera_link = if extra.camera_tab.is_some() {
             r##"<a href="#cameras" role="tab">Cameras</a>
@@ -469,16 +470,34 @@ fn head(
     )
 }
 
-/// A Prusa's USB stick (on its own Connect), filled by the page's script.
+/// The printer's storage on its Connect, filled by the page's script: a Prusa's USB stick, a
+/// Marlin printer's agent storage (`docs/design/prusa-sdk-extension.md` part 9), the root
+/// `printer_files::storage_root` gives.
+fn storage_tab(machine: &Machine) -> String {
+    let root = crate::printer_files::root_of(machine);
+    // Buddy fetches it encrypted (START_ENCRYPTED_DOWNLOAD), the agent as the SDK does
+    // (START_CONNECT_DOWNLOAD).
+    let (name, how) = if crate::prusa_connect::marlin_agent(machine) {
+        ("agent's storage", "")
+    } else {
+        ("USB stick", ", encrypted")
+    };
+    USB_TAB
+        .replace("{root}", root)
+        .replace("{how}", how)
+        .replace("{name}", name)
+        .replace("{Name}", &(name[..1].to_uppercase() + &name[1..]))
+}
+
 const USB_TAB: &str = r#"<section class="tab" id="usb" role="tabpanel" hidden>
-  <div class="card usb" data-usb>
-    <div class="card-head"><div><h3 data-usb-crumbs>USB stick</h3><p class="card-sub" data-usb-status></p></div></div>
+  <div class="card usb" data-usb data-usb-root="{root}" data-usb-name="{name}">
+    <div class="card-head"><div><h3 data-usb-crumbs>{Name}</h3><p class="card-sub" data-usb-status></p></div></div>
     <div class="usb-tools">
       <form data-usb-send class="usb-send"><select data-usb-file aria-label="A file from Files"><option value="">A file from Files…</option></select><button>Send here</button></form>
       <form data-usb-folder class="usb-new"><input name="name" required maxlength="60" pattern="[A-Za-z0-9 _\-]+" placeholder="New folder" aria-label="Name of a new folder"><button class="ghost">Make</button></form>
     </div>
     <div class="usb-list" data-usb-list><p class="empty">Waiting for the printer…</p></div>
-    <p class="hint">Files come from the printer one by one, with the picture the slicer put in them. A file sent here is fetched by the printer itself, encrypted; printing a file from Files on this printer sends it here first.</p>
+    <p class="hint">Files come from the printer one by one, with the picture the slicer put in them. A file sent here is fetched by the printer itself{how}; printing a file from Files on this printer sends it here first.</p>
   </div>
 </section>"#;
 
@@ -2337,7 +2356,9 @@ fn controller(machine: &Machine, operate: bool) -> String {
 /// from, and when the last came.
 fn connection(machine: &Machine) -> String {
     let way = match machine.link.as_str() {
-        "prusa-connect" if machine.kind != MachineKind::Fdm => {
+        "prusa-connect"
+            if machine.kind != MachineKind::Fdm || crate::prusa_connect::marlin_agent(machine) =>
+        {
             "Maker Connect agent (Prusa Connect protocol)"
         }
         "prusa-connect" => "Its own firmware (Prusa Connect)",

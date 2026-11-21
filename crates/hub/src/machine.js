@@ -331,7 +331,10 @@
       });
       const size = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} kB`);
       const date = (t) => (t ? new Date(t * 1000).toLocaleDateString() : "");
-      let path = "/usb", timer = null, generation = 0;
+      // The printer's storage: its root and its name (a Prusa's USB stick, a Marlin printer's
+      // agent storage), from the page.
+      const ROOT = usb.dataset.usbRoot, NAME = usb.dataset.usbName;
+      let path = ROOT, timer = null, generation = 0;
 
       // One request a folder: its files with what is known of each (picture, time, material),
       // which the hub reads ahead from the printer; asked again quickly while some are to come.
@@ -352,7 +355,7 @@
         const parts = path.split("/").filter(Boolean);
         crumbs.innerHTML = parts.map((p, i) => {
           const to = "/" + parts.slice(0, i + 1).join("/");
-          return i === parts.length - 1 ? `<b>${esc(i ? p : "USB stick")}</b>` : `<button type="button" class="link" data-go="${esc(to)}">${esc(i ? p : "USB stick")}</button>`;
+          return i === parts.length - 1 ? `<b>${esc(i ? p : NAME)}</b>` : `<button type="button" class="link" data-go="${esc(to)}">${esc(i ? p : NAME)}</button>`;
         }).join(" / ");
         const children = r.data?.children;
         const files = children ? children.filter((c) => c.type === "PRINT_FILE").length : 0;
@@ -392,7 +395,7 @@
         }
         const del = event.target.closest("[data-delete]");
         if (del) {
-          if (!(await ask(`Delete ${del.dataset.name}${del.dataset.folder ? " and what is in it" : ""} from the USB stick?`, { ok: "Delete", danger: true }))) return;
+          if (!(await ask(`Delete ${del.dataset.name}${del.dataset.folder ? " and what is in it" : ""} from the ${NAME}?`, { ok: "Delete", danger: true }))) return;
           const fields = { path: del.dataset.delete };
           if (del.dataset.folder) fields.folder = "1";
           const r = await post("delete", fields);

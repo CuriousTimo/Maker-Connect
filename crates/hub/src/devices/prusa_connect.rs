@@ -207,6 +207,19 @@ async fn label_job(
     Ok(())
 }
 
+/// A Marlin printer's type on the agent (`docs/design/prusa-sdk-extension.md`, part 9).
+pub(crate) const MARLIN_AGENT: &str = "marlin.fdm";
+
+/// Whether a machine is a Marlin printer on the agent: its files go to the agent's `gcodes`
+/// storage by the SDK's `START_CONNECT_DOWNLOAD`, not to a stick by Buddy's encrypted download.
+pub(crate) fn marlin_agent(machine: &crate::store::Machine) -> bool {
+    machine
+        .details
+        .as_ref()
+        .and_then(|d| d.printer_type.as_deref())
+        == Some(MARLIN_AGENT)
+}
+
 /// The LabelWriter 450's profile (docs/design/wire.md, "The second device").
 const LABELWRITER_450: &str = "dymo/labelwriter-450";
 
@@ -467,7 +480,15 @@ async fn register(State(store): State<Store>, body: String) -> Response {
         ..Identity::default()
     };
     let profile = crate::profiles::detect(&identity);
-    let model = profile.map_or("Prusa printer", |p| p.model.as_str());
+    // A Marlin printer on the agent (`docs/design/prusa-sdk-extension.md`, part 9): no profile
+    // knows its model from the type; the space chooses one on its Machine tab.
+    let marlin = identity.printer_type.as_deref() == Some(MARLIN_AGENT);
+    let fallback = if marlin {
+        "Marlin printer"
+    } else {
+        "Prusa printer"
+    };
+    let model = profile.map_or(fallback, |p| p.model.as_str());
     let tail: String = serial
         .chars()
         .rev()
@@ -483,7 +504,7 @@ async fn register(State(store): State<Store>, body: String) -> Response {
     };
     let firmware = text(&about, "firmware");
     let kind = profile.map_or(MachineKind::Fdm, |p| p.kind);
-    let agent_version = if kind == MachineKind::Fdm {
+    let agent_version = if kind == MachineKind::Fdm && !marlin {
         format!("Prusa firmware {firmware} (built-in Connect)").replace("  ", " ")
     } else {
         format!("Maker Connect agent {firmware}")
@@ -494,6 +515,14 @@ async fn register(State(store): State<Store>, body: String) -> Response {
             .await?;
         if let Some(profile) = profile {
             store.recognise(&token, &profile.id).await?;
+        }
+        if marlin {
+            let details = Details {
+                serial: Some(serial.clone()).filter(|s| !s.is_empty()),
+                printer_type: identity.printer_type.clone(),
+                ..Details::default()
+            };
+            store.set_details(&token, &details).await?;
         }
         Ok((id, code))
     }
@@ -661,7 +690,8 @@ pub(crate) fn to_details(info: &Value) -> Details {
     let network = &info["network_info"];
     Details {
         serial: some(&info["sn"]),
-        printer_type: printer_type(&info["printer_type"]),
+        // Buddy's `printer_type`; the SDK's `get_info` names it `type` (the agent's devices).
+        printer_type: printer_type(&info["printer_type"]).or_else(|| printer_type(&info["type"])),
         firmware: some(&info["firmware"]),
         // Buddy 6.3.0 writes it at the top level of INFO (`render.cpp:352`).
         nozzle_mm: info["nozzle_diameter"].as_f64(),

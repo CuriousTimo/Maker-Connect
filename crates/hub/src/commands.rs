@@ -124,6 +124,20 @@ fn factor_command(
     )))
 }
 
+/// The SDK's SET_VALUE for a speed, flow or target that `factor_command` or `heat_command`
+/// made: the key PrusaLink's `SetValue` takes and the whole number of its `S`.
+fn set_value(action: &str, gcode: &str) -> Option<serde_json::Value> {
+    let key = match action {
+        "set-speed" => "speed",
+        "set-flow" => "flow",
+        "set-nozzle" => "nozzle_temperature",
+        "set-bed" => "bed_temperature",
+        _ => return None,
+    };
+    let value: i64 = gcode.split_once(" S")?.1.parse().ok()?;
+    Some(serde_json::json!({"command": "SET_VALUE", "kwargs": {key: value}}))
+}
+
 /// A temperature someone typed, as G-code: whole degrees from 0 (off) to the profile's
 /// maximum (or a safe one without a profile).
 fn heat_command(
@@ -334,7 +348,19 @@ pub(crate) async fn command(
     {
         return (StatusCode::CONFLICT, why).into_response();
     }
-    let queued = store.queue_command(link, &id, &label, &gcode);
+    // A Marlin printer on the agent takes no G-code while it prints (PrusaLink's rule,
+    // `prusa_link.py:545-552`): speed, flow and the targets go as the SDK's SET_VALUE
+    // (`command_handlers.py:395-415`; docs/design/prusa-sdk-extension.md part 9).
+    let set_value = match machine_now() {
+        Ok(Some(machine)) if crate::prusa_connect::marlin_agent(&machine) => {
+            set_value(&form.action, &gcode)
+        }
+        _ => None,
+    };
+    let queued = match set_value {
+        Some(command) => store.queue_connect_command(link, &id, &label, &command, false),
+        None => store.queue_command(link, &id, &label, &gcode),
+    };
     match queued {
         // The page sends it without leaving; a plain form comes back to the page.
         Some(_) if headers.contains_key("x-requested-with") => {
