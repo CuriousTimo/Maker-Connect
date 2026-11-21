@@ -33,7 +33,7 @@ A proof of concept, in Rust. Licence: [AGPL-3.0](LICENSE).
 | **Prepare**: the tools that make the work; today laser design (LaserFoundry in the browser) | **LabelWriter 450**: the label drawn on the roll loaded, from DYMO Connect's catalogue |
 | ![The Now page: what is busy, free and needs someone, what ends next, and the whole fleet by kind](docs/screenshots/now.png) | ![A printer's Queue tab: what waits for it, next first](docs/screenshots/queue.png) |
 | **Now**: what runs, what needs someone, what ends next and who started it, the fleet by kind; also as a wall screen | **Queue**: per machine, next first; it starts by itself once the bed is clear; drag your own prints, staff move any |
-| ![Space → Members: the members with their roles, and a matrix of who may use which machine group](docs/screenshots/permissions.png) | ![The About page: release and build, system, processor and memory, and Updates saying this is the newest release](docs/screenshots/about.png) |
+| ![Space → Permissions: who may use which machine group, and the machine groups with their machines](docs/screenshots/permissions.png) | ![The About page: release and build, system, processor and memory, and Updates saying this is the newest release](docs/screenshots/about.png) |
 | **Members and permissions**: roles, and who may use or operate which machine group, in one matrix | **About**: what runs where, and **Updates** with a way back, from signed releases |
 
 ## What works
