@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About · Maker Connect mockup</title>
+<link rel="stylesheet" href="mc.css">
+<script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body data-view="user">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="now.html"><span class="mark" aria-hidden="true">MC</span><span class="where"><b>Maker Connect</b><small>Workshop North</small></span></a>
+  <span class="spacer"></span>
+  <label class="viewas"><span class="lbl">View as</span><select data-view-select aria-label="View as (mockup only)"><option value="guest">Guest</option><option value="user">Member</option><option value="host">Host</option><option value="admin">Admin</option><option value="instance">Instance admin</option></select></label>
+  <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
+</header>
+<aside class="side" aria-label="Navigation"><nav aria-label="Pages">
+<a href="now.html">Now</a>
+<div class="group">Work</div>
+<a href="machines.html">Machines</a>
+<a href="state-loading.html">Jobs</a>
+<a href="farm.html">Queue and farm</a>
+<div class="group">Stock</div>
+<a href="files.html">Files</a>
+<a href="materials.html">Materials</a>
+<div class="group">Watch</div>
+<a href="state-error.html">Cameras</a>
+<div class="group">Machines</div><div class="machines">
+<a href="printer.html"><span>MINI-1</span><small class="num">62 %</small></a>
+<a href="now.html#needs"><span>MINI-2</span><small>needs someone</small></a>
+<a href="ask-permission.html"><span>Printer-3</span><small>free</small></a>
+<a href="state-unknown.html"><span>Printer-4</span><small>offline</small></a>
+<a href="laser.html"><span>Laser-A</span><small>job loaded</small></a>
+<a href="label-tape.html"><span>Tape-1</span><small>free</small></a>
+<a href="label-labels.html"><span>Labels-1</span><small>out of labels</small></a>
+</div>
+<div class="group" data-only="host admin instance">Manage</div>
+<a data-only="admin instance" href="add-machine.html">Add machine</a>
+<a data-only="host admin instance" href="space-members.html">Space</a>
+<a data-only="instance" href="instance.html" aria-current="page">Instance</a>
+<div class="user"><div class="group" data-only="guest">Eli · guest</div><div class="group" data-only="user">Sam · member</div><div class="group" data-only="admin">Noor · admin</div><div class="group" data-only="instance">Ada · owner, instance admin</div>
+<a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a>
+<a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div>
+</nav></aside>
+<main id="main" tabindex="-1">
+
+<div class="head"><h1>About Maker Connect</h1></div>
+<p class="muted">One self-hosted place for a maker's machines: 3D printers, lasers and label printers, with their materials.</p>
+<div class="cols-even">
+<div class="card"><h2>This hub</h2><dl class="kv"><dt>Release</dt><dd><a href="#">hub-v0.3.0</a></dd><dt>Build</dt><dd><a href="#">c47d900</a>, 21 Nov 15:30</dd><dt>Hub up</dt><dd>2 h 5 min</dd><dt>Database</dt><dd>38 MB</dd></dl>
+<span class="anno">the same rows as the agent's About ("This agent"); Database: pg_database_size</span></div>
+<div class="card"><h2>Load</h2><dl class="kv"><dt>Load</dt><dd class="num">0.41 · 0.37 · 0.30 <small>(1, 5, 15 min)</small></dd><dt>Temperature</dt><dd class="num">44.0 °C</dd><dt>Memory in use</dt><dd class="num">1.1 GB of 3.8 GB (29 %)</dd></dl>
+<span class="anno">crate maker-connect-system (sysinfo); not on Windows: the load average</span></div>
+<div class="card"><h2>Computer</h2><dl class="kv"><dt>System</dt><dd>Linux (Debian GNU/Linux 12)</dd><dt>Kernel</dt><dd>Linux 6.6.51</dd><dt>Computer</dt><dd>Raspberry Pi 4 Model B</dd><dt>Processor</dt><dd>Cortex-A72, 4 cores</dd><dt>Architecture</dt><dd>aarch64</dd><dt>Memory</dt><dd>3.8 GB</dd><dt>Host name</dt><dd>hub</dd><dt>Computer up</dt><dd>4 d 3 h</dd></dl></div>
+<div class="card" data-only="instance"><h2>Updates</h2><p>hub-v0.3.1 is out (this hub is hub-v0.3.0).</p>
+<p style="margin-top:var(--s-3)"><span class="fw"><button class="btn primary" type="button">Update to hub-v0.3.1</button></span></p>
+<p class="muted">Every release is checked against Maker Connect's signature before it is used. The database is backed up, and the new build is tried on a copy of it first. If the new build does not stay up, the old build and the backup come back by themselves.</p>
+<span class="anno">who runs the server only; the update's states: instance.html</span></div>
+<div class="card"><h2>Links</h2><ul class="list">
+<li><div class="grow"><a href="#">Manual</a><br><small>The wiki: getting started, the agent, every machine</small></div></li>
+<li><div class="grow"><a href="#">Source code</a><br><small>GitHub: CuriousTimo/Maker-Connect</small></div></li>
+<li><div class="grow"><a href="#">Releases</a><br><small>The server and the agent</small></div></li>
+<li><div class="grow"><a href="#">Report a problem</a><br><small>GitHub issues</small></div></li>
+<li><div class="grow"><a href="#">Losse-Eindj.es</a><br><small>Who makes it</small></div></li>
+</ul></div>
+<div class="card"><h2>Licence</h2>
+<p>Maker Connect is free software under the <a href="#">GNU Affero General Public License, version 3</a> (AGPL-3.0). You may use, study, change and share it. If you change it and let others use it over a network, offer them your source as well.</p>
+<p>It comes with no warranty. A laser and a heated printer can start a fire: stay with a running machine.</p>
+<p>With SpoolmanDB's filaments (MIT) and the printer profiles of PrusaSlicer's bundles.</p></div>
+</div>
+
+</main>
+<nav class="bottom" aria-label="Pages (phone)"><a href="now.html"><span class="ic" aria-hidden="true">◷</span>Now</a><a href="machines.html"><span class="ic" aria-hidden="true">▦</span>Machines</a><a href="files.html"><span class="ic" aria-hidden="true">▤</span>Files</a><a href="materials.html"><span class="ic" aria-hidden="true">◉</span>Materials</a><details class="more-menu"><summary><span class="ic" aria-hidden="true">≡</span>More</summary><div class="more"><a href="state-loading.html">Jobs</a><a href="farm.html">Queue and farm</a><a href="state-error.html">Cameras</a><a href="wall.html">Wall screen</a><a data-only="guest user" data-not="host" href="space-members.html#mine">My permissions</a><a data-only="admin instance" href="add-machine.html">Add machine</a><a data-only="host admin instance" href="space-members.html">Space</a><a data-only="instance" href="instance.html">Instance</a><a href="signin.html">Sign out</a><a href="index.html">All screens (mockup)</a></div></details></nav>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="mc.js"></script>
+</body>
+</html>

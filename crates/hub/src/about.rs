@@ -25,10 +25,10 @@ pub fn routes() -> Router<Store> {
 
 use maker_connect_system::{bytes, duration};
 
-/// A row of a table, when there is something to say.
+/// A row of a card's list (`dl.kv`), when there is something to say.
 fn row(label: &str, value: Option<String>) -> String {
     value.map_or(String::new(), |v| {
-        format!("<tr><th>{label}</th><td>{}</td></tr>", escape(&v))
+        format!("<dt>{label}</dt><dd>{}</dd>", escape(&v))
     })
 }
 
@@ -68,26 +68,25 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
     };
     let started = STARTED.get().copied().unwrap_or_else(crate::store::now);
     let server_up = (crate::store::now() - started).max(0) as u64;
-    let mut rows: String = maker_connect_system::computer_rows(&computer)
-        .into_iter()
-        .map(|(label, value)| row(label, Some(value)))
-        .collect();
-    rows += &[
-        row("Computer up", load.up.map(duration)),
-        row("Server up", Some(duration(server_up))),
+    // The cards of the agent's About (crates/agent `about_page`): this hub, its load, the computer.
+    let hub_rows = [
+        row("Hub up", Some(duration(server_up))),
         row("Database", database_size),
     ]
     .concat();
+    let mut computer_rows: String = maker_connect_system::computer_rows(&computer)
+        .into_iter()
+        .map(|(label, value)| row(label, Some(value)))
+        .collect();
+    computer_rows += &row("Computer up", load.up.map(duration));
     let load_rows: String = maker_connect_system::load_rows(&load)
         .into_iter()
         .map(|(label, value)| row(label, Some(value)))
         .collect();
-    let load_section = if load_rows.is_empty() {
+    let load_card = if load_rows.is_empty() {
         String::new()
     } else {
-        format!(
-            "<section>\n    <h3>Load</h3>\n    <table>\n      {load_rows}\n    </table>\n  </section>"
-        )
+        format!(r#"<div class="card"><h2>Load</h2><dl class="kv">{load_rows}</dl></div>"#)
     };
     Html(format!(
         r##"<!doctype html>
@@ -104,34 +103,26 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 <body>
 {header}
 <main id="main" tabindex="-1" class="about">
-  <h2>About Maker Connect</h2>
-  <p class="lead">One self-hosted place for a maker's machines: 3D printers, lasers and label printers, with their materials.</p>
-  <section>
-    <h3>This server</h3>
-    <table>
-      <tr><th>Release</th><td>{release_link}</td></tr>
-      <tr><th>Build</th><td>{commit_link}, {built}</td></tr>
-      {rows}
-    </table>
-  </section>
-  {load_section}
-  {updates}
-  <section>
-    <h3>Links</h3>
-    <div class="links">
-      <a href="{REPO}/wiki">Manual<small>The wiki: getting started, the agent, every machine</small></a>
-      <a href="{REPO}">Source code<small>GitHub: CuriousTimo/Maker-Connect</small></a>
-      <a href="{REPO}/releases">Releases<small>The server and the agent</small></a>
-      <a href="{REPO}/issues">Report a problem<small>GitHub issues</small></a>
-      <a href="https://losse-eindj.es">Losse-Eindj.es<small>Who makes it</small></a>
-    </div>
-  </section>
-  <section>
-    <h3>Licence</h3>
-    <p>Maker Connect is free software under the <a href="https://www.gnu.org/licenses/agpl-3.0.html">GNU Affero General Public License, version 3</a> (AGPL-3.0). You may use, study, change and share it. If you change it and let others use it over a network, offer them your source as well.</p>
-    <p>It comes with no warranty. A laser and a heated printer can start a fire: stay with a running machine.</p>
-    <p>With SpoolmanDB's filaments (MIT) and the printer profiles of PrusaSlicer's bundles.</p>
-  </section>
+<div class="head"><h1>About Maker Connect</h1></div>
+<p class="muted">One self-hosted place for a maker's machines: 3D printers, lasers and label printers, with their materials.</p>
+<div class="cols-even">
+<div class="card"><h2>This hub</h2><dl class="kv"><dt>Release</dt><dd>{release_link}</dd><dt>Build</dt><dd>{commit_link}, {built}</dd>{hub_rows}</dl></div>
+{load_card}
+<div class="card"><h2>Computer</h2><dl class="kv">{computer_rows}</dl></div>
+{updates}
+<div class="card"><h2>Links</h2><ul class="list">
+<li><div class="grow"><a href="{REPO}/wiki">Manual</a><br><small>The wiki: getting started, the agent, every machine</small></div></li>
+<li><div class="grow"><a href="{REPO}">Source code</a><br><small>GitHub: CuriousTimo/Maker-Connect</small></div></li>
+<li><div class="grow"><a href="{REPO}/releases">Releases</a><br><small>The server and the agent</small></div></li>
+<li><div class="grow"><a href="{REPO}/issues">Report a problem</a><br><small>GitHub issues</small></div></li>
+<li><div class="grow"><a href="https://losse-eindj.es">Losse-Eindj.es</a><br><small>Who makes it</small></div></li>
+</ul></div>
+<div class="card"><h2>Licence</h2>
+<p>Maker Connect is free software under the <a href="https://www.gnu.org/licenses/agpl-3.0.html">GNU Affero General Public License, version 3</a> (AGPL-3.0). You may use, study, change and share it. If you change it and let others use it over a network, offer them your source as well.</p>
+<p>It comes with no warranty. A laser and a heated printer can start a fire: stay with a running machine.</p>
+<p>With SpoolmanDB's filaments (MIT) and the printer profiles of PrusaSlicer's bundles.</p>
+</div>
+</div>
 </main>
 <script>
   fetch("api/machines").then((r) => r.json()).then(summarise).catch(() => {{}});
@@ -196,16 +187,16 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 }
 
 /// The Updates section, for who runs the server; the page's script fills it in.
-const UPDATES: &str = r#"<section data-updates>
-    <h3>Updates</h3>
+const UPDATES: &str = r#"<div class="card" data-updates>
+    <h2>Updates</h2>
     <p data-say>Looking for a newer release…</p>
     <p data-last hidden></p>
     <div class="notes" data-notes hidden></div>
     <p class="bad" data-printing hidden></p>
     <p data-windows hidden>On Windows, update by hand: stop the hub, unpack the new release over this one, and start it.</p>
     <button type="button" data-go hidden></button>
-    <p class="lead">Every release is checked against Maker Connect's signature before it is used. The database is backed up, and the new build is tried on a copy of it first. If the new build does not stay up, the old build and the backup come back by themselves.</p>
-  </section>"#;
+    <p class="muted">Every release is checked against Maker Connect's signature before it is used. The database is backed up, and the new build is tried on a copy of it first. If the new build does not stay up, the old build and the backup come back by themselves.</p>
+  </div>"#;
 
 #[cfg(test)]
 mod tests {
@@ -234,6 +225,7 @@ mod tests {
             page.contains("AGPL-3.0") && page.contains("/wiki") && page.contains("losse-eindj.es")
         );
         assert!(page.contains(env!("MC_COMMIT")));
-        assert!(page.contains("<h3>Load</h3>") && page.contains("Memory in use"));
+        assert!(page.contains("<h2>Load</h2>") && page.contains("Memory in use"));
+        assert!(page.contains(r#"<div class="card"><h2>This hub</h2>"#));
     }
 }
