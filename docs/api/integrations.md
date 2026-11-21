@@ -17,7 +17,7 @@ token: [apps-api.md](apps-api.md). The file waits in Files with the laser chosen
 laser frames and starts it. LaserFoundry's side (a plugin or a merge request to them) is still
 to do.
 
-[LaserFoundry](https://github.com/Stitchwright/laserfoundry) (MIT OR Apache-2.0, Rust 2024,
+[LaserFoundry](https://github.com/StitchFoundry/laserfoundry) (MIT OR Apache-2.0, Rust 2024,
 version 0.2.1, read at commit `3b9b9fa`, 2026-11-03): the user's choice to replace LightBurn. A
 clean-room, LightBurn-class laser application: layout, cut layers with speed, power, passes and
 fill, image dithering, nesting, a toolpath preview, GRBL G-code (and Marlin-laser and

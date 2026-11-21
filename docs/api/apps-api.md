@@ -1,7 +1,7 @@
 # The apps API: sending work to Maker Connect from another program
 
 For a program that makes the work: a laser program such as
-[LaserFoundry](https://github.com/Stitchwright/laserfoundry), a slicer, a script. The program
+[LaserFoundry](https://github.com/StitchFoundry/laserfoundry), a slicer, a script. The program
 sends a finished file to a space. The file then waits in that space's **Files**, with the
 machine it was made for already chosen. **Nothing starts by itself.** A laser job starts
 with someone at the laser, who frames it first.
