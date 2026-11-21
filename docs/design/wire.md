@@ -281,6 +281,13 @@ from the LabelManager PnP: nothing of one is used for the other. The rest, all *
   gives the port its Stop, which ends the filter as a CUPS cancel. The job then ends `Stopped`, not
   `Failed`. A stop while the label still downloads is `STOP_TRANSFER`, as Connect sends it.
 
+## A Marlin printer (extension part 9)
+
+Designed, not built ([#82](https://github.com/CuriousTimo/Maker-Connect/issues/82)). An SDK `Printer` of type
+`marlin.fdm` that uses the SDK as PrusaLink does: PrusaLink's handlers, storages and telemetry keys, as far
+as a plain Marlin has them; every byte to the printer is OctoPrint 1.11.8's, through the ported serial layer.
+Its commands, storages, telemetry and states: [part 9](prusa-sdk-extension.md#part-9-a-marlin-printer-marlinfdm).
+
 ## The agent and the hub (extension part 6a)
 
 Not the SDK's: [prusa-sdk-extension.md part 6a](prusa-sdk-extension.md#6a-who-the-agent-is-and-what-each-side-knows).

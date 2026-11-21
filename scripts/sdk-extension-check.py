@@ -60,6 +60,14 @@ WORDS = {
     "UNITS": "usbscale's table of unit names (usbscale.c:93-107)",
 }
 
+def device_words():
+    """Names of a device's own reference that the page cites, which are no protocol names: OctoPrint
+    1.11.8's comm states (`comm.py` `MachineCom.STATE_*`, part 9)."""
+    comm = os.path.join(ref_dir("OctoPrint-1.11.8"), "src", "octoprint", "util", "comm.py")
+    text = open(comm, encoding="utf-8").read()
+    return {n for n in re.findall(r"^\s+STATE_([A-Z_]+) = \d+", text, re.M)}
+
+
 KINDS = {"command", "telemetry", "info", "event-field", "endpoint", "kwarg", "sub-key", "value", "name"}
 
 
@@ -82,13 +90,13 @@ def ref_names(files):
     names = set()
     for text in files.values():
         names.update(re.findall(r"[\"']([A-Za-z_/][A-Za-z0-9_/.\-]*)[\"']", text))
-        names.update(re.findall(r"^\s+([A-Z][A-Z0-9_]+)\s*=", text, re.M))
+        names.update(re.findall(r"^\s*([A-Z][A-Z0-9_]+)\s*=", text, re.M))
         names.update(re.findall(r"\b(?:def|func|class)\s+(?:\([^)]*\)\s*)?(\w+)", text))
     return names
 
 
 def hits(files, name):
-    enum = r"|^\s+" + re.escape(name) + r"\s*=" if name.isupper() else ""  # an enum member is upper case
+    enum = r"|^\s*" + re.escape(name) + r"\s*=" if name.isupper() else ""  # an enum member is upper case
     pat = re.compile(r"[\"']" + re.escape(name) + r"[\"']" + enum, re.M)
     out = []
     for (label, path), text in files.items():
@@ -126,6 +134,7 @@ def main():
     rows, at = table_after(lines, "## Every addition")
     files = load_refs()
     known = ref_names(files)
+    words = set(WORDS) | device_words()
     errors = []
 
     declared = set()
@@ -156,12 +165,12 @@ def main():
     body = lines[:at]
     for n, l in enumerate(body, 1):
         for name in re.findall(r"`([A-Z][A-Z0-9_]{3,})`", l):
-            if name not in known and name not in declared and name not in WORDS:
+            if name not in known and name not in declared and name not in words:
                 errors.append(f"line {n}: `{name}` is no reference's name and not in Every addition")
         for name in re.findall(r"`([a-z][a-z0-9_]*)`", l):
             if re.fullmatch(r"[0-9a-f]{7,40}", name):
                 continue  # a commit
-            if name not in known and name not in declared and name not in WORDS:
+            if name not in known and name not in declared and name not in words:
                 errors.append(f"line {n}: `{name}` is no reference's name and not in Every addition")
 
     commits = ", ".join(f"{k} {v[1][:8]}" for k, v in REFS.items())

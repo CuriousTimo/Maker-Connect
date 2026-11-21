@@ -20,13 +20,14 @@ What it lacks is small:
 - a few commands;
 - live video.
 
-This page proposes exactly those additions, for six kinds of device:
+This page proposes exactly those additions, for seven kinds of device:
 - a tape label printer (DYMO LabelManager PnP);
 - label printers on DYMO's CUPS driver (LabelWriter 3xx and 4xx);
 - a laser cutter running GRBL;
 - a USB camera with live view;
 - a door controller with electric locks (part 7);
-- a DYMO M-series USB scale (part 8).
+- a DYMO M-series USB scale (part 8);
+- a Marlin printer that is not a Prusa (part 9).
 
 And one for the program that hosts such devices (part 6): which devices belong to one agent, and
 whether that agent and the server know the same additions.
@@ -47,7 +48,7 @@ for what the SDK and PrusaLink do not have already: the bed mesh (`mbl` in `INFO
 | 5 | a USB camera with live view | written | #5 |
 | 6a | who the agent is, and what each side knows | written | #51 |
 | 6b | updating the agent: the SDK's own `UPGRADE`, Connect's `path`; no addition | written | #56 |
-| to come | a Marlin printer: its type and what it sends | to write | #83 |
+| 9 | a Marlin printer: its type only; the rest is PrusaLink's use of the SDK | written | #83 |
 | 8 | a DYMO M-series scale: its type and three telemetry keys | written | #130 |
 | 7 | a door controller: its type, `locks` and `OPEN_LOCK` | written | #121 |
 | maybe | the print's place in its file (the G-code viewer), if the SDK has nothing for it | to look at | #112 |
@@ -93,6 +94,7 @@ for what the SDK and PrusaLink do not have already: the bed mesh (`mbl` in `INFO
   | `dymo.labelwriter-450` | DYMO LabelWriter 450 |
   | `dymo.labelwriter-320` | DYMO LabelWriter 320 |
   | `grbl.laser` | a laser cutter running GRBL. GRBL is the firmware; the vendor differs per machine |
+| `marlin.fdm` | an FDM printer running Marlin that is not a Prusa (part 9) |
 | `dymo.m-scale` | a DYMO M-series USB scale (M1, M2, M5, M10, M25): one type, as one port reads them all (part 8) |
 
 - **Why the protocol cannot carry it:** `printer_type` is `PrinterType`, an enum of Prusa models written
@@ -406,6 +408,7 @@ was, so a side may know both.
 | `server.info` | Part 6a: `extensions` and `SET_SERVER_INFO` |
 | `door.lock` | Part 7: `lock_count`, `locks` and `OPEN_LOCK` |
 | `scale.telemetry` | Part 8: its three telemetry keys |
+| `marlin.fdm` | Part 9: the type, and the states of OctoPrint's serial layer |
 
 **Whether they fit** (the same rule on both sides; shown, nothing refused: owner 2026-11-21):
 - a name in the device's `extensions` that is not in the server's: **the agent is newer than the
@@ -592,6 +595,68 @@ have none.
 
 Connect would read the scale as an unknown printer type (part 1) and drop the three keys. A server
 without this part shows an `IDLE` device.
+
+## Part 9: a Marlin printer (`marlin.fdm`)
+
+An FDM printer on Marlin that is not a Prusa, on the agent's USB. Nothing is added but the type (part 1):
+PrusaLink is itself a host of a Marlin printer on the SDK, so it is the reference for what goes over the
+protocol; OctoPrint 1.11.8 is the reference for every byte to the printer (its serial layer, ported:
+`crates/engine/src/ports/octoprint`, [audit](../audits/octoprint-marlin.md)). An SDK command becomes the
+port's `Action`, OctoPrint's own call (`port.rs:589-746`), never PrusaLink's G-code: PrusaLink speaks to
+a Prusa's firmware, OctoPrint to any Marlin.
+
+### Commands
+
+The handlers PrusaLink sets (Prusa-Link `prusa/link/printer_adapter/prusa_link.py:203-217`), as far as a
+plain Marlin has them:
+
+| SDK command | PrusaLink's kwargs | On the printer (the port, OctoPrint's call) |
+|---|---|---|
+| `START_PRINT` | `path` (`prusa_link.py:563-570`) | streams the file from the agent's storage, or prints it from the printer's SD card (`SdPrint`) |
+| `PAUSE_PRINT`, `RESUME_PRINT`, `STOP_PRINT` | none | `JobControl` `Pause`, `Resume`, `Stop` |
+| `GCODE` | `gcode` (`prusa_link.py:545-552`) | `Gcode`, sent as OctoPrint sends a command |
+| `SET_VALUE` | one of `speed`, `flow`, `nozzle_temperature`, `bed_temperature` (`command_handlers.py:395-415`) | `Speed`, `Flow`, `Temperature`; PrusaLink's ranges are the MK3's (`LimitsMK3`) and are not used: the ranges are the server's UI's (ours) |
+| `SEND_JOB_INFO`, `SEND_INFO`, `SEND_FILE_INFO`, `DELETE_FILE` | the SDK's | the SDK's own, over the storages below |
+| `START_CONNECT_DOWNLOAD` | the SDK's (`__init__.py:457-483`) | the file into the agent's `LOCAL` storage (part 2) |
+| `UPGRADE` | part 6b | the agent |
+
+Left without a handler, so the SDK answers them `REJECTED` "Not Implemented" (`command.py:184-186`):
+`LOAD_FILAMENT` and `UNLOAD_FILAMENT` (a Prusa's own menus), `RESET_PRINTER` (PrusaLink's line reset of
+a Prusa's board), `SET_PRINTER_READY` and `CANCEL_PRINTER_READY`.
+
+### Storages
+
+As PrusaLink's: the agent's folder as a `LOCAL` storage, and the printer's SD card as `SD_CARD`
+(Prusa-Link `prusa_link.py:945`), listed by the port (`SdList`, OctoPrint's `M20`).
+
+### Telemetry
+
+PrusaLink's own keys (Prusa-Link `printer_adapter/structures/model_classes.py:39-72`), those the port reads:
+`temp_nozzle`, `target_nozzle`, `temp_bed`, `target_bed` (`port.rs:407-410`), `axis_x`, `axis_y`, `axis_z`
+(the position OctoPrint last parsed, `:426`), `progress` and `time_printing` (the file's position and the
+time printed, `:429-440`). The others are left out, `time_remaining` too: the
+port has no estimate (`:440`), OctoPrint's estimator is not in its serial layer. `INFO` leaves out what only a Prusa has (`mbl`, `sheet_settings`, `mmu`);
+serial number and fingerprint are the agent's, as the PnP's (wire.md).
+
+### States
+
+| OctoPrint (`comm.py:445-460`) | Protocol `state` |
+|---|---|
+| `OPEN_SERIAL`, `DETECT_SERIAL`, `CONNECTING`, `TRANSFERING_FILE` | `BUSY` |
+| `OPERATIONAL` | `IDLE` |
+| `STARTING`, `PRINTING`, `RESUMING`, `FINISHING`, `CANCELLING` | `PRINTING` |
+| `PAUSING`, `PAUSED` | `PAUSED` |
+| `ERROR`, `CLOSED_WITH_ERROR` | `ERROR` |
+| `NONE`, `CLOSED` | none: the printer is gone, the socket ends, as the DYMO's (wire.md) |
+
+The mapping is this proposal's: OctoPrint's states have no SDK names. After a print, PrusaLink's own rule:
+`FINISHED`, or `STOPPED` when it was stopped, held until `PRINT_END_TIMEOUT` (11 s, Prusa-Link
+`prusa/link/const.py:100`) has passed and the printer confirms an instruction, then `IDLE`
+(`state_manager.py:721-749`).
+
+### Compatibility
+
+Connect reads `marlin.fdm` as an unknown printer type (part 1); everything else it reads as a printer's.
 
 ## Every addition
 
