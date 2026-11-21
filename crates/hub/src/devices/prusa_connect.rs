@@ -794,10 +794,11 @@ async fn telemetry(
     // Buddy's `httpc.cpp:218`).
     let model = header(&headers, "user-agent-printer");
     let job_id = report["job_id"].as_u64();
-    // A printer runs Prusa's firmware; any other kind on this protocol is our agent.
+    // A printer runs Prusa's firmware; any other kind on this protocol, and a Marlin printer
+    // (extension part 9), is our agent.
     let agent = matches!(
         store.machine_by_token(token).await,
-        Ok(Some((m, _))) if m.kind != MachineKind::Fdm
+        Ok(Some((m, _))) if m.kind != MachineKind::Fdm || marlin_agent(&m)
     );
     let telemetry = {
         let mut store = store.lock().unwrap();

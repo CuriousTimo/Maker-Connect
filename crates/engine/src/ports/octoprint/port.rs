@@ -1402,7 +1402,7 @@ mod tests {
                 std::thread::sleep(delay);
                 let answer = match text.split_whitespace().next().unwrap_or("") {
                     "M105" => "ok T:21.0 /0.0 B:20.0 /0.0 @:0 B@:0".to_string(),
-                    "M115" => "FIRMWARE_NAME:Marlin 2.1.2 (fake) PROTOCOL_VERSION:1.0\nCap:PROMPT_SUPPORT:1\nok".to_string(),
+                    "M115" => "FIRMWARE_NAME:Marlin 2.1.2 (fake) PROTOCOL_VERSION:1.0 MACHINE_TYPE:AtomX MK3 EXTRUDER_COUNT:1\nCap:PROMPT_SUPPORT:1\nok".to_string(),
                     "M114" => "X:10.00 Y:20.00 Z:0.30 E:0.00 Count X:800 Y:1600 Z:120\nok".to_string(),
                     "M21" => "echo:SD card ok\nok".to_string(),
                     "M20" => "Begin file list\nBENCHY.GCO 1234\nEnd file list\nok".to_string(),
@@ -1533,6 +1533,18 @@ mod tests {
         assert_eq!(
             Some("STATE_OPERATIONAL"),
             report.telemetry.comm_state.as_deref()
+        );
+        // part 9: its M115 `MACHINE_TYPE`, through `Printer` (comm's callback) to the top edge
+        let report = until(&engine, id, "MACHINE_TYPE", |r| {
+            r.telemetry.identity.is_some()
+        });
+        assert_eq!(
+            Some("AtomX MK3"),
+            report
+                .telemetry
+                .identity
+                .and_then(|i| i.machine_type)
+                .as_deref()
         );
 
         // M1 + M4: a Home XY sends what `home(["x","y"])` sends, done after the `ok`s

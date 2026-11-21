@@ -2214,6 +2214,9 @@ impl MachineComPrintCallback for Printer {
 
     /// `standard.py:1915 on_comm_firmware_info(firmware_name, firmware_data)`
     fn on_comm_firmware_info(&self, firmware_name: &str, firmware_data: &PyDict<String>) {
+        if let Some(edge) = self._top_edge.get() {
+            edge.on_comm_firmware_info(firmware_name, firmware_data);
+        }
         let data: Map<String, Value> = firmware_data
             .iter()
             .map(|(k, v)| (k.clone(), Value::String(v.clone())))

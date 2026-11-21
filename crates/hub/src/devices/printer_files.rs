@@ -2072,7 +2072,27 @@ mod flow {
                 .body(Body::from(body.to_string()))
                 .unwrap()
         };
-        call(&app, report("IDLE")).await;
+        call(
+            &app,
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .header("User-Agent-Version", "v0.3.0")
+                .body(Body::from(r#"{"state":"IDLE"}"#))
+                .unwrap(),
+        )
+        .await;
+        // The version it sends is the agent's, not a Prusa firmware's.
+        assert_eq!(
+            store
+                .machine(space, &id)
+                .await
+                .unwrap()
+                .unwrap()
+                .telemetry
+                .and_then(|t| t.firmware)
+                .as_deref(),
+            Some("Maker Connect agent v0.3.0")
+        );
         // Its INFO names the type as the SDK's `get_info` does (`type`): still a Marlin.
         call(&app, event(json!({"event": "INFO", "state": "IDLE", "data": {"type": "marlin.fdm", "sn": "MC00112233445566AA", "firmware": "0.3.0"}}))).await;
         assert!(crate::prusa_connect::marlin_agent(

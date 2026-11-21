@@ -112,8 +112,12 @@ impl Kind {
         match self {
             Kind::Pnp => Box::new(DymoPnp::new()),
             Kind::Lw450 => Box::new(LabelWriter450::new()),
-            // No serial port set: OctoPrint finds the printer itself (`port: None`, auto).
-            Kind::Marlin => Box::new(OctoPrintPort::new(None, None)),
+            // `[printer] port, baudrate` in `agent.ini`; with none OctoPrint finds the printer
+            // itself (`port: None`, auto).
+            Kind::Marlin => {
+                let (port, baudrate) = MARLIN_SERIAL.get().cloned().unwrap_or_default();
+                Box::new(OctoPrintPort::new(port, baudrate))
+            }
         }
     }
 }
@@ -279,6 +283,34 @@ fn load_agent_id(dir: &Path) -> String {
     id
 }
 
+/// The Marlin printer's serial port and baud rate: `[printer] port, baudrate` in `agent.ini`, as
+/// PrusaLink keeps them in `prusalink.ini` (`[printer] port, baudrate`). Either left out is
+/// OctoPrint's auto (`None`).
+static MARLIN_SERIAL: std::sync::OnceLock<(Option<String>, Option<u32>)> =
+    std::sync::OnceLock::new();
+
+fn load_marlin_serial(dir: &Path) -> (Option<String>, Option<u32>) {
+    let text = std::fs::read_to_string(dir.join("agent.ini")).unwrap_or_default();
+    let mut section = "";
+    let (mut port, mut baudrate) = (None, None);
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            section = line.trim_matches(['[', ']']);
+        } else if let Some((key, value)) = line.split_once('=')
+            && section == "printer"
+        {
+            let value = value.trim();
+            match key.trim() {
+                "port" if !value.is_empty() => port = Some(value.to_owned()),
+                "baudrate" => baudrate = value.parse().ok(),
+                _ => {}
+            }
+        }
+    }
+    (port, baudrate)
+}
+
 /// A print's tape (`tape_size_mm`) or page (`page_size`).
 #[cfg(unix)]
 type Media = (Option<u32>, Option<String>);
@@ -298,6 +330,12 @@ struct Agent {
     ws: Mutex<Option<Arc<PrinterWs>>>,
     command: Mutex<Option<Arc<Command>>>,
     event_cb: Mutex<Option<EventCallback>>,
+    /// The SDK's `queue` for events (`event_cb` puts, `loop_step` sends: `__init__.py:319-339`,
+    /// `858-905`), each as its payload. Telemetry is sent from the link loop, not queued.
+    queue: Mutex<std::collections::VecDeque<Value>>,
+    /// Held while the socket is checked and dialled: the queue's sender and the link loop's
+    /// telemetry share one socket, as the SDK's one loop does.
+    dialling: Mutex<()>,
     /// A Marlin printer's M115 `MACHINE_TYPE`, in `INFO` (part 9 of the extension).
     machine_type: Mutex<Option<String>>,
     #[cfg(unix)]
@@ -348,6 +386,8 @@ impl Agent {
             ws: Mutex::new(None),
             command: Mutex::new(None),
             event_cb: Mutex::new(None),
+            queue: Mutex::new(Default::default()),
+            dialling: Mutex::new(()),
             machine_type: Mutex::new(None),
             #[cfg(unix)]
             transfer: Arc::new(Transfer::new()),
@@ -436,6 +476,7 @@ impl Agent {
             return None;
         }
         let ws = self.ws.lock().unwrap().clone()?;
+        let _dialling = self.dialling.lock().unwrap();
         if !ws.connected() {
             let url = format!(
                 "{}/p/ws",
@@ -469,6 +510,7 @@ fn main() {
         }
     }
     AGENT_ID.get_or_init(|| load_agent_id(&dir));
+    MARLIN_SERIAL.get_or_init(|| load_marlin_serial(&dir));
     let engine = Arc::new(Mutex::new(Engine::new()));
     let mut loaded: Vec<(PathBuf, Settings)> = Kind::ALL
         .into_iter()
@@ -489,11 +531,48 @@ fn main() {
         if agent.settings().on {
             agent.module_on();
         }
+        let events = agent.clone();
+        std::thread::spawn(move || {
+            loop {
+                if !loop_step(&events) {
+                    std::thread::sleep(Duration::from_secs_f64(consts::TIMESTAMP_PRECISION));
+                }
+            }
+        });
         let agent = agent.clone();
         std::thread::spawn(move || link_loop(&agent));
     }
     println!("maker-connect-agent {VERSION} on http://{listen}");
     web(&devices, &listen);
+}
+
+/// The SDK's `loop_step` (`__init__.py:858-905`) for an event: the next one in the queue goes over
+/// the socket; with no socket to be had it is put back, kept for when the connection is back.
+/// No server or no token: skipped. Returns whether an item was taken (`queue.get`'s timeout is the
+/// caller's sleep).
+fn loop_step(agent: &Agent) -> bool {
+    let Some(item) = agent.queue.lock().unwrap().pop_front() else {
+        return false;
+    };
+    let s = agent.settings();
+    if s.server().is_none() {
+        log::warn!("Server is not set, skipping item: {item}");
+        return true;
+    }
+    if s.token.is_empty() {
+        log::warn!("No token, skipping item: {item}");
+        return true;
+    }
+    match agent.ensure_ws() {
+        Some(ws) if ws.connected() => {
+            ws.send(&item);
+        }
+        _ => {
+            agent.queue.lock().unwrap().push_back(item);
+            std::thread::sleep(Duration::from_secs_f64(consts::TIMESTAMP_PRECISION));
+        }
+    }
+    true
 }
 
 /// The SDK's command and socket, with this device's handlers.
@@ -512,7 +591,8 @@ fn setup_link(agent: &Arc<Agent>) {
         {
             map.insert("state".into(), current_state(&events).value().into());
         }
-        events.send(&payload);
+        // "Create event and push it to queue."
+        events.queue.lock().unwrap().push_back(payload);
     });
     *agent.event_cb.lock().unwrap() = Some(event_cb.clone());
     let command = Arc::new(Command::new(event_cb.clone()));
@@ -1630,6 +1710,24 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// The Marlin's port and baud rate come from `agent.ini` `[printer]`; left out, they are auto.
+    #[test]
+    fn the_marlin_serial_is_read_from_agent_ini() {
+        let root = dir();
+        assert_eq!(load_marlin_serial(&root), (None, None));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("agent.ini"),
+            "[agent]\nid = 00\nport = /dev/nope\n\n[printer]\nport = /dev/ttyUSB4\nbaudrate = 250000\n",
+        )
+        .unwrap();
+        assert_eq!(
+            load_marlin_serial(&root),
+            (Some("/dev/ttyUSB4".to_owned()), Some(250000))
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// A device with no hub address gets the one another device has; one with an address keeps it.
     #[test]
     fn a_new_device_takes_the_agents_hub() {
@@ -1803,6 +1901,57 @@ mod tests {
         assert_eq!(form["hostname"], "hub one");
         assert_eq!(form["port"], "8460");
         assert_eq!(form["x"], "<&>");
+    }
+
+    /// The SDK's queue (`__init__.py:319-339`, `858-905`): an event waits in it while there is no
+    /// socket, and goes in its turn; with no token or no server it is skipped.
+    #[test]
+    fn an_event_waits_for_the_socket() {
+        let dir = std::env::temp_dir().join(format!("mc-agent-queue-{}", std::process::id()));
+        let mut settings = Settings::load(&dir, Kind::Marlin.printer_type());
+        settings.hostname = "127.0.0.1".into();
+        settings.port = 8460;
+        settings.token = "t".into();
+        let agent = Arc::new(Agent::new(
+            Kind::Marlin,
+            dir.clone(),
+            settings,
+            Arc::new(Mutex::new(Engine::new())),
+        ));
+        assert!(!loop_step(&agent), "nothing queued");
+        agent
+            .queue
+            .lock()
+            .unwrap()
+            .push_back(json!({"event": "INFO"}));
+        agent
+            .queue
+            .lock()
+            .unwrap()
+            .push_back(json!({"event": "FINISHED"}));
+        // No socket yet: the first is put back, behind the second.
+        assert!(loop_step(&agent));
+        let names = |a: &Agent| -> Vec<String> {
+            a.queue
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|e| e["event"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        assert_eq!(names(&agent), ["FINISHED", "INFO"]);
+        // No token: skipped.
+        agent.settings.lock().unwrap().token.clear();
+        assert!(loop_step(&agent));
+        assert_eq!(names(&agent), ["INFO"]);
+        // `event_cb` puts into the queue (it sends nothing itself).
+        agent.settings.lock().unwrap().token = "t".into();
+        info_changed(&agent);
+        assert!(agent.event_cb.lock().unwrap().is_none(), "no link set up");
+        setup_link(&agent);
+        info_changed(&agent);
+        assert_eq!(names(&agent), ["INFO", "INFO"]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// #69: a device's card says whether the hub takes its telemetry, and since when.
