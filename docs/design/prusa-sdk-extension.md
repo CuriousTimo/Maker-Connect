@@ -33,26 +33,30 @@ whether that agent and the server know the same additions.
 ## The parts and their issues
 
 Each part is written in the design step of its deliverable. Every such step carries the label
-`sdk-extension`, so that the parts still to write can be taken up together.
+`sdk-extension`, so that the parts still to write can be taken up together. A part is written only
+for what the SDK and PrusaLink do not have already: the bed mesh (`mbl` in `INFO`, the event
+`MESH_BED_DATA`) and pictures per layer (the camera's layer triggers) are the SDK's, not parts here.
 
 | Part | For | State | Issue |
 |---|---|---|---|
 | 1 | what a device is (a string `printer_type`) | written | |
 | 2 | the DYMO LabelManager PnP | written | |
-| 3 | label printers on DYMO's CUPS driver; the LabelWriter 320's type | written; the 320 to add | #25 |
+| 3 | label printers on DYMO's CUPS driver (the 450 and the 320) | written | |
 | 4 | a laser cutter on GRBL | written | #89 |
 | 5 | a USB camera with live view | written | #5 |
 | 6a | who the agent is, and what each side knows | written | #51 |
-| 6b | updating the agent (`UPGRADE` with a release) | to write | #56 |
+| 6b | updating the agent: the SDK's own `UPGRADE`, at most a kwarg naming the release | to write | #56 |
 | to come | a Marlin printer: its type and what it sends | to write | #83 |
 | to come | a scale: its type and telemetry | to write | #130 |
-| to come | the bed mesh: telemetry and a command to measure | to write | #107 |
 | 7 | a door controller: its type, `locks` and `OPEN_LOCK` | written | #121 |
-| maybe | the print's place in its file (the G-code viewer) | to look at | #112 |
-| maybe | a layer change for timelapses (likely there already) | to look at | #116 |
+| maybe | the print's place in its file (the G-code viewer), if the SDK has nothing for it | to look at | #112 |
 
 ## Rules for every addition
 
+- **Searched first, and listed.** Before an addition is written, the SDK, PrusaLink, Buddy's Connect client
+  and Connect's printer side are searched for the same meaning (owner, 2026-11-21). Every addition is a row
+  of [Every addition](#every-addition), with what was searched; `scripts/sdk-extension-check.py` fails
+  on a name a reference has and on an addition missing from that table.
 - **Additive only.** No existing field, header, frame or command changes its meaning. An addition is a
   new value where the protocol has an open value, a new telemetry key, a new kwarg, a new command or a
   new endpoint.
@@ -170,13 +174,13 @@ The driver's job states are `common/PrinterDriver.h:54-66`. The 450's code sets 
 `jsError` (`lw/LabelWriterLanguageMonitor.cpp:261-271`). `IDLE` and `PRINTING` are this proposal's, as the
 driver has no idle state of its own (device map §3.2).
 
-### Telemetry key
+### The reason: the SDK's own
 
-| Key | Type | Value |
-|---|---|---|
-| `state_reason` | string | the driver's own CUPS `STATE:` keyword, unchanged, for example `com.dymo.out-of-paper-error` (`common/CupsPrintEnvironment.cpp:160-190`); left out while the driver reports none |
-
-Connect's telemetry has no key for a printer's state reason (`inbound.go:146-159`).
+No addition. The `STATE_CHANGED` event that enters `ATTENTION` or `ERROR` carries, in its `reason`
+(SDK `models.py:107-160`), the PPD's own text for the driver's CUPS `STATE:` keyword (`ppd/lw450.ppd:47-55`;
+the keywords `common/CupsPrintEnvironment.cpp:160-190`), as PrusaLink sends a readable reason with its own
+`ERROR` and `ATTENTION` (Prusa-Link `prusa/link/printer_adapter/state_manager.py:241`, `:383-387`). The
+text is the owner's choice over the bare keyword (2026-11-21, wire.md "The second device").
 
 ### Printing a label: `page_size`
 
@@ -234,16 +238,27 @@ The protocol's own keys, with their Connect meaning (`inbound.go:146-159`):
 | `progress` | the job's progress in percent |
 | `job_id` | the job, as for a print (`inbound.go:155`) |
 
-New keys:
+New key:
 
 | Key | Type | Value |
 |---|---|---|
 | `machine_state` | string | GRBL's state as it reports it: `Idle`, `Run`, `Hold`, `Jog`, `Alarm`, `Door`, `Check`, `Home`, `Sleep`, or `Unknown` |
+
+### The machine's settings: in `INFO`
+
+What a machine is, rather than what it does now, is in `INFO`: the SDK sends the MMU's `slots` and the
+`sheet_settings` there (`__init__.py:393-429`), Buddy 6.4.0 its `nozzle_diameter`
+(`src/connect/render.cpp:352`). Four new `INFO` kwargs, as the device read them from GRBL after
+connecting:
+
+| Kwarg | Type | Value |
+|---|---|---|
 | `max_power` | number | `$30`, the spindle/laser maximum |
 | `laser_mode` | boolean | `$32` |
 | `travel_x`, `travel_y`, `travel_z` | number, mm | `$130`, `$131`, `$132` |
 
-The four settings keys are sent as the device read them: after connecting, and after `READ_SETTINGS`.
+To read them again, the server sends the SDK's own `SEND_INFO` (`const.py:124`); the device reads the
+settings from GRBL and answers with `INFO`.
 
 ### Commands the protocol already has
 
@@ -267,7 +282,6 @@ These are general machine-motion commands, not laser-only. A CNC router needs th
 | `SET_ORIGIN` | makes the current position the job's origin | none |
 | `GO_TO_ORIGIN` | moves to the job's origin | none |
 | `FRAME` | traces the loaded job's bounds | `power`: percent 0-100, default 0 (beam off) |
-| `READ_SETTINGS` | reads the machine's settings again and sends them as telemetry | none |
 
 The bounds of `JOG` and the default of `FRAME` are LaserFoundry's: its `link.rs:26-27`, and its
 `job.frame` (`crates/gcode/src/lib.rs:92`, default `:416`; see
@@ -357,7 +371,7 @@ attach, wire.md "The WebSocket"):
 | Kwarg | Type | Meaning |
 |---|---|---|
 | `agent_id` | string, 32 lower-case hex digits | the agent that hosts this device: made once at random by the agent and kept in its folder (`agent.ini`, `[agent] id`), the same for all its devices, never changed by a re-registration |
-| `features` | array of strings | the additions of this page that this device uses, by the names below |
+| `extensions` | array of strings | the additions of this page that this device uses, by the names below |
 
 Not the hostname and not the fingerprint: two agents can share a hostname, a hostname changes, and
 the SDK's fingerprint is per printer (`__init__.py:415`).
@@ -366,10 +380,10 @@ the SDK's fingerprint is per printer (`__init__.py:415`).
 
 | Command | Does | Kwargs |
 |---|---|---|
-| `SET_SERVER_INFO` | tells the device what the server is and knows; the device answers `FINISHED` | `release`: the server's release, shown only; `features`: array, the names the server knows; `wants`: array, the names the server needs from a device of this type |
+| `SET_SERVER_INFO` | tells the device what the server is and knows; the device answers `FINISHED` | `release`: the server's release, shown only; `extensions`: array, the names the server knows; `wants`: array, the names the server needs from a device of this type |
 
-The server sends it after an `INFO` that had `features`, and only then: a Prusa printer never sends
-`features`, so it never gets the command. A device keeps the last one until its socket drops.
+The server sends it after an `INFO` that had `extensions`, and only then: a Prusa printer never sends
+`extensions`, so it never gets the command. A device keeps the last one until its socket drops.
 
 **The names.** One per addition, in the order of this page. A change that a peer of the old meaning
 cannot read gets a new name with `@` and a number (`label.page_size@2`); the old name then stays as it
@@ -380,21 +394,21 @@ was, so a side may know both.
 | `type.string` | Part 1: a string `printer_type`, and `get_info`'s `null` type |
 | `pnp.telemetry` | Part 2: its states and telemetry keys |
 | `label.tape_size_mm` | Part 2: `tape_size_mm` on a download |
-| `cups.state_reason` | Part 3: its states and `state_reason` |
+| `cups.states` | Part 3: its states, the PPD's text as the event's `reason` |
 | `label.page_size` | Part 3: `page_size` on a download |
 | `label.stop` | Part 3: stopping a label |
-| `grbl.telemetry` | Part 4: its states and telemetry keys |
+| `grbl.telemetry` | Part 4: its states, `machine_state` and the settings in `INFO` |
 | `grbl.commands` | Part 4: the new commands |
 | `camera.stream` | Part 5: `/c/stream` and its two commands |
 | `agent.id` | Part 6a: `agent_id` |
-| `server.info` | Part 6a: `features` and `SET_SERVER_INFO` |
+| `server.info` | Part 6a: `extensions` and `SET_SERVER_INFO` |
 | `door.lock` | Part 7: `lock_count`, `locks` and `OPEN_LOCK` |
 
 **Whether they fit** (the same rule on both sides; shown, nothing refused: owner 2026-11-21):
-- a name in the device's `features` that is not in the server's: **the agent is newer than the
+- a name in the device's `extensions` that is not in the server's: **the agent is newer than the
   server** for that addition, "the hub does not know `label.page_size@2`";
-- a name in the server's `wants` that is not in the device's `features`: **the agent is older**
-  for it, "the agent does not have `cups.state_reason`";
+- a name in the server's `wants` that is not in the device's `extensions`: **the agent is older**
+  for it, "the agent does not have `cups.states`";
 - neither: they fit, whatever their releases are. A newer agent that adds nothing this device uses
   fits an older server.
 
@@ -404,7 +418,7 @@ is that addition's own compatibility rule above (an unknown kwarg ignored, an un
 `REJECTED`).
 
 **Compatibility:**
-- An agent without 6a sends no `features`: the server sends no `SET_SERVER_INFO` and shows "the agent
+- An agent without 6a sends no `extensions`: the server sends no `SET_SERVER_INFO` and shows "the agent
   does not say what it knows" beside its release.
 - A server without 6a ignores both kwargs and never sends the command: the agent shows "the hub does
   not say what it knows" and nothing more.
@@ -438,7 +452,7 @@ cabinet locks. The firmware is ours, in Rust (owner, 2026-11-21).
   | Kwarg | Type | Meaning |
   |---|---|---|
   | `lock_count` | integer | how many locks the board drives, numbered from 0 |
-  | `features` | array of strings | part 6a; for this part `door.lock` |
+  | `extensions` | array of strings | part 6a; for this part `door.lock` |
 
   `agent_id` (part 6a) is not sent: the board is not hosted by an agent.
 
@@ -467,9 +481,17 @@ cabinet locks. The firmware is ours, in Rust (owner, 2026-11-21).
 
 - **The pulse** is the lock's own limit (its datasheet): at most 0.5 s, then at least 10 s of rest, about
   2 A. The firmware keeps both; nothing the server sends lengthens the pulse or shortens the rest.
-- **Refused** (`REJECTED` with the reason): `"No such lock"`; `"Lock resting"` within the rest;
-  `"Expired"` when the board's clock is past `expires_at`; `"No time"` while the board's clock is not set
-  (SNTP), since then `expires_at` cannot be checked.
+- **Refused** as Buddy refuses: `REJECTED` with the text in `reason` and a code in `machine_reason`
+  (Buddy 6.4.0 `src/connect/planner.cpp:813-871`, rendered at `render.cpp:334-335`; Buddy's own codes are
+  `TRANSFER_IN_PROGRESS`, `FILE_EXISTS`, `STORAGE_FAILURE`, `NETWORK_FAILURE` and `NOT_READY`,
+  `planner.cpp:293-310`). Four new codes:
+
+  | `machine_reason` | `reason` | When |
+  |---|---|---|
+  | `NO_SUCH_LOCK` | `"No such lock"` | `lock` is not below `lock_count` |
+  | `LOCK_RESTING` | `"Lock resting"` | within the lock's rest |
+  | `EXPIRED` | `"Expired"` | the board's clock is past `expires_at` |
+  | `NO_TIME` | `"No time"` | the board's clock is not set (SNTP), so `expires_at` cannot be checked |
 - **Why `expires_at`:** Connect keeps a device's queue while its socket is away and drains it on the next
   attach (prusa-connect `internal/connector/xbuddy/link.go:327-353`, `xbuddy.go:793-804`). A lock must
   never open minutes later, when nobody stands there. The server sets `expires_at` a few seconds after
@@ -495,3 +517,58 @@ board before it starts it (Secure Boot v2 on the ESP32).
 - Connect would read the board as an unknown printer type (part 1) and ignore `locks` and `lock_count`.
 - A server without this part never sends `OPEN_LOCK`; the board then only reports its doors.
 - A board that does not know `OPEN_LOCK` answers `REJECTED` "Unknown command", as Buddy does.
+
+## Every addition
+
+Every addition of this page, one row each, checked by `scripts/sdk-extension-check.py`. It fails on a name
+that the SDK, PrusaLink, Buddy's Connect client or Connect's printer side (at the commits of wire.md)
+already has, and on an addition named above but missing here. *Searched* says where the same meaning
+was looked for under another name.
+
+| Name | Kind | Of | Part | Searched |
+|---|---|---|---|---|
+| `printer_type` | value | registration | 1 | a string where the SDK has `PrinterType` (`const.py`); Buddy sends its own enum (`render.cpp`) |
+| `media_loaded` | telemetry | | 2 | SDK `Telemetry` (`models.py`), Buddy telemetry (`render.cpp`), Connect `telemetryPaths` (`inbound.go`): no cassette |
+| `battery_percent` | telemetry | | 2 | as `media_loaded`: no battery |
+| `raw_status` | telemetry | | 2 | as `media_loaded`: no raw status |
+| `tape_size_mm` | kwarg | START_CONNECT_DOWNLOAD | 2 | SDK `start_connect_download` (`__init__.py`), Buddy `command.cpp` kwargs: no media size |
+| `page_size` | kwarg | START_CONNECT_DOWNLOAD | 3 | as `tape_size_mm` |
+| `machine_state` | telemetry | | 4 | as `media_loaded`; the SDK's `State` (`const.py`) is required beside it |
+| `max_power` | info | | 4 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): limits of a printer only |
+| `laser_mode` | info | | 4 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): limits of a printer only |
+| `travel_x` | info | | 4 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): limits of a printer only |
+| `travel_y` | info | | 4 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): limits of a printer only |
+| `travel_z` | info | | 4 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): limits of a printer only |
+| `from_line` | kwarg | START_PRINT | 4 | PrusaLink `start_print` (`prusa_link.py`), Buddy `command.cpp`: `path`, `job_id`, `tool_mapping` only |
+| `HOME` | command | | 4 | SDK `Command` (`const.py`), Buddy `command.cpp`: no motion but `GCODE`, which a laser may not take |
+| `UNLOCK` | command | | 4 | as `HOME` |
+| `JOG` | command | | 4 | as `HOME` |
+| `x` | kwarg | JOG | 4 | a kwarg of a new command |
+| `y` | kwarg | JOG | 4 | a kwarg of a new command |
+| `feed` | kwarg | JOG | 4 | a kwarg of a new command |
+| `SET_ORIGIN` | command | | 4 | as `HOME` |
+| `GO_TO_ORIGIN` | command | | 4 | as `HOME` |
+| `FRAME` | command | | 4 | as `HOME` |
+| `power` | kwarg | FRAME | 4 | a kwarg of a new command |
+| `/c/stream` | endpoint | | 5 | SDK `camera.py`, `camera_controller.py`: `/c/snapshot` only; Connect's live view dials a declared camera, not the printer protocol |
+| `START_CAMERA_STREAM` | command | | 5 | SDK `Command` (`const.py`): no command reaches a camera |
+| `STOP_CAMERA_STREAM` | command | | 5 | as `START_CAMERA_STREAM` |
+| `camera_id` | kwarg | START_CAMERA_STREAM | 5 | the SDK's own name for a camera (`models.py`) |
+| `fps` | kwarg | START_CAMERA_STREAM | 5 | a kwarg of a new command |
+| `agent_id` | info | | 6a | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): `sn` and `fingerprint` are per printer |
+| `extensions` | info | | 6a | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): nothing says what a device knows; `features` is taken, a tool's own object in Connect (`tools.go`) |
+| `extensions` | kwarg | SET_SERVER_INFO | 6a | a kwarg of a new command |
+| `SET_SERVER_INFO` | command | | 6a | SDK `Command`, Buddy `command.cpp`: `SET_TOKEN` and `SET_VALUE` set one value, nothing of the server |
+| `release` | kwarg | SET_SERVER_INFO | 6a | a kwarg of a new command |
+| `wants` | kwarg | SET_SERVER_INFO | 6a | a kwarg of a new command |
+| `lock_count` | info | | 7 | SDK `get_info` (`__init__.py`): `slots`, a count of the MMU's, the same form; no locks |
+| `locks` | telemetry | | 7 | as `media_loaded` |
+| `lock` | sub-key | locks | 7 | inside a new key |
+| `door` | sub-key | locks | 7 | inside a new key |
+| `resting_s` | sub-key | locks | 7 | inside a new key |
+| `OPEN_LOCK` | command | | 7 | as `HOME` |
+| `expires_at` | kwarg | OPEN_LOCK | 7 | a kwarg of a new command |
+| `NO_SUCH_LOCK` | value | machine_reason | 7 | Buddy's `MachineReason` (`planner.hpp`): no lock codes |
+| `LOCK_RESTING` | value | machine_reason | 7 | as `NO_SUCH_LOCK` |
+| `EXPIRED` | value | machine_reason | 7 | as `NO_SUCH_LOCK` |
+| `NO_TIME` | value | machine_reason | 7 | as `NO_SUCH_LOCK` |

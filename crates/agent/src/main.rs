@@ -81,7 +81,7 @@ impl Kind {
     }
 
     /// The additions of `docs/design/prusa-sdk-extension.md` this device uses (part 6a's names).
-    fn features(self) -> &'static [&'static str] {
+    fn extensions(self) -> &'static [&'static str] {
         match self {
             Kind::Pnp => &[
                 "type.string",
@@ -91,7 +91,7 @@ impl Kind {
             ],
             Kind::Lw450 => &[
                 "type.string",
-                "cups.state_reason",
+                "cups.states",
                 "label.page_size",
                 "label.stop",
                 "agent.id",
@@ -696,7 +696,7 @@ fn send_info(agent: &Agent) -> Finish {
         "network_info": {"hostname": maker_connect_system::computer().host},
         // Part 6a of the extension.
         "agent_id": AGENT_ID.get().cloned().unwrap_or_default(),
-        "features": agent.kind.features(),
+        "extensions": agent.kind.extensions(),
     })
     .as_object()
     .unwrap()
@@ -1036,6 +1036,7 @@ fn link_loop(agent: &Arc<Agent>) {
             // The driver's job state as it changes, each change a `STATE_CHANGED` (`set_state`).
             let state = lw450_state(&report.telemetry);
             if *agent.last_state.lock().unwrap() != Some(state) {
+                // The PPD's own text for the driver's keyword as the event's `reason` (part 3).
                 set_state(agent, state, report.telemetry.problem.as_deref());
             }
         }
@@ -1050,9 +1051,10 @@ fn link_loop(agent: &Arc<Agent>) {
             }
             continue;
         }
+        // The LabelWriter adds no key: its reason is in its `STATE_CHANGED` (part 3).
         let mut kwargs = match agent.kind {
             Kind::Pnp => dymo_telemetry(&report.telemetry),
-            Kind::Lw450 => lw450_telemetry(&report.telemetry),
+            Kind::Lw450 => Kwargs::new(),
         };
         if let Some(cmd) = agent.command.lock().unwrap().as_ref()
             && cmd.state().is_some()
@@ -1087,16 +1089,6 @@ fn dymo_telemetry(t: &maker_connect_protocol::Telemetry) -> Kwargs {
     }
     if let Some(r) = &t.raw_status {
         kwargs.insert("raw_status".into(), r.clone().into());
-    }
-    kwargs
-}
-
-/// The LabelWriter's telemetry key (`docs/design/prusa-sdk-extension.md`, part 3): the driver's
-/// `STATE:` keyword, left out while it reports none.
-fn lw450_telemetry(t: &maker_connect_protocol::Telemetry) -> Kwargs {
-    let mut kwargs = Kwargs::new();
-    if let Some(r) = &t.state_reason {
-        kwargs.insert("state_reason".into(), r.clone().into());
     }
     kwargs
 }
@@ -1712,8 +1704,7 @@ mod tests {
         assert!(dymo_telemetry(&maker_connect_protocol::Telemetry::default()).is_empty());
     }
 
-    /// The LabelWriter during a job: its state by the driver's keyword (part 3), and the keyword
-    /// as `state_reason`, left out while the driver reports none.
+    /// The LabelWriter during a job: its state by the driver's keyword (part 3).
     #[test]
     fn the_labelwriter_tells_the_drivers_state() {
         let t = |kw: Option<&str>| maker_connect_protocol::Telemetry {
@@ -1729,11 +1720,6 @@ mod tests {
             State::Error
         );
         assert_eq!(lw450_state(&t(None)), State::Printing);
-        assert_eq!(
-            Value::Object(lw450_telemetry(&t(Some("com.dymo.general-error")))),
-            json!({"state_reason": "com.dymo.general-error"})
-        );
-        assert!(lw450_telemetry(&t(None)).is_empty());
     }
 
     /// Each device its own folder and type: the PnP keeps `dymo/`.

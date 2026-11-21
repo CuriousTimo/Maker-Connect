@@ -250,7 +250,7 @@ rest is choosing values the protocol already has, all **ours**:
 Approved by the owner (2026-11-21). Its port is DYMO's CUPS driver 1.4.0, already ported and
 audited (`crates/engine/src/ports/dymo_cups`, [audit](../audits/dymo-labelwriter-450.md)). On the wire it is an
 SDK `Printer` with the additions of the [extension, part 3](prusa-sdk-extension.md#part-3-label-printers-on-dymos-cups-driver-dymolabelwriter-450-dymolabelwriter-320):
-its type `dymo.labelwriter-450`, the telemetry key `state_reason` and the kwarg `page_size`. A stack apart
+its type `dymo.labelwriter-450` and the kwarg `page_size`; its reason is the SDK's own `reason` of `STATE_CHANGED`. A stack apart
 from the LabelManager PnP: nothing of one is used for the other. The rest, all **ours**:
 
 - **Beside the PnP in one agent.** Each device is its own `Printer` with its own settings file, as above
@@ -261,8 +261,7 @@ from the LabelManager PnP: nothing of one is used for the other. The rest, all *
   `jsPaperOut` (`STATE: com.dymo.out-of-paper-error`) `ATTENTION`, `jsError` (`STATE: com.dymo.general-error`)
   `ERROR`, `jsOK` (`STATE: none`) `PRINTING` again (driver `src/common/CupsPrintEnvironment.cpp:159-194`,
   `src/lw/LabelWriterLanguageMonitor.cpp:260-271`). Each change is a `STATE_CHANGED` event, as the SDK's
-  `set_state` sends one; telemetry's `state` is the same. `state_reason` is the keyword, left out after
-  `none`.
+  `set_state` sends one; telemetry's `state` is the same.
   Also ours (owner, 2026-11-21): an `ATTENTION` or `ERROR` during a job carries the PPD's own text
   for the keyword in `reason` (`lw450.ppd:47-55`, as the port shows it in `problem`). The last `STATE:`
   keyword holds through the status read that comes before each `STATE:` line (while it waits, the
@@ -286,9 +285,9 @@ from the LabelManager PnP: nothing of one is used for the other. The rest, all *
 
 Not the SDK's: [prusa-sdk-extension.md part 6a](prusa-sdk-extension.md#6a-who-the-agent-is-and-what-each-side-knows).
 In short: each device's `INFO` (the answer to the hub's `SEND_INFO` after every attach) carries
-`agent_id` and `features`; the hub answers a device that sent `features` with `SET_SERVER_INFO`
-(`release`, `features`, `wants`). The hub groups devices into agents by `agent_id` (Instance, ui.md);
-both sides show whether they fit, by features, never by release; nothing is refused.
+`agent_id` and `extensions`; the hub answers a device that sent `extensions` with `SET_SERVER_INFO`
+(`release`, `extensions`, `wants`). The hub groups devices into agents by `agent_id` (Instance, ui.md);
+both sides show whether they fit, by extensions, never by release; nothing is refused.
 
 ## Removed
 

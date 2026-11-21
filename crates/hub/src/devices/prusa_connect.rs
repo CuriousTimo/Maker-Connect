@@ -560,19 +560,9 @@ fn take_in(
         t.raw_status = v.as_str().map(str::to_owned);
     }
     // A label printer on DYMO's CUPS driver (docs/design/prusa-sdk-extension.md, part 3): the
-    // driver's `STATE:` keyword, left out when it reports none; shown as the PPD's own text.
-    let had_reason = t.state_reason.is_some();
-    t.state_reason = report
-        .get("state_reason")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
-    if let Some(keyword) = t.state_reason.as_deref() {
-        t.problem = maker_connect_engine::ports::dymo_cups::cups::ppd_lw450::REASONS
-            .iter()
-            .find(|(k, _, _)| *k == keyword)
-            .map(|(_, text, _)| (*text).to_owned());
-    } else if had_reason {
-        t.problem = None;
+    // reason of its last `STATE_CHANGED`, the PPD's own text, is its problem.
+    if let Some(reason) = &session.label_reason {
+        t.problem = reason.clone();
     }
     // The state comes in every frame (`render.cpp:303`).
     t.state = match report["state"].as_str().unwrap_or("") {
@@ -714,7 +704,7 @@ pub(crate) fn to_details(info: &Value) -> Details {
                     .chars()
                     .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
         }),
-        features: info["features"]
+        extensions: info["extensions"]
             .as_array()
             .map(|names| {
                 names
@@ -930,9 +920,26 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
         Ok(caller) => caller,
         Err(error) => return failed(error),
     };
+    // A label printer, whose `STATE_CHANGED` reason is its problem (part 3).
+    let label = matches!(
+        shared.machine_by_token(token).await,
+        Ok(Some((m, _))) if m.kind == MachineKind::Label
+    );
     let mut ended_label = None;
     {
         let mut store = shared.lock().unwrap();
+        // A label printer's reason, the PPD's text, when a `STATE_CHANGED` carries one (part 3);
+        // a state change without one clears it.
+        if name == "STATE_CHANGED"
+            && label
+            && let Some(caller) = caller.as_ref()
+        {
+            store
+                .connect_tools
+                .entry(caller.id.clone())
+                .or_default()
+                .label_reason = Some(event["reason"].as_str().map(str::to_owned));
+        }
         if let Some(id) = event["command_id"].as_u64() {
             let state = match name.as_str() {
                 "ACCEPTED" => Some(CommandState::Accepted),
@@ -2174,7 +2181,7 @@ mod tests {
 
     /// The DYMO LabelWriter 450 on the agent (docs/design/wire.md, "The second device"): it
     /// registers as `dymo.labelwriter-450`; a label goes out with the loaded roll's `page_size`;
-    /// `state_reason` shows as the PPD's text; an ERROR followed by PRINTING does not fail the
+    /// the `STATE_CHANGED` reason (the PPD's text) shows as its problem; an ERROR followed by PRINTING does not fail the
     /// label; a person's stop goes out as STOP_PRINT once it prints and ends the job Stopped.
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
@@ -2301,26 +2308,28 @@ mod tests {
                     StatusCode::NO_CONTENT
                 );
             }
-            // out of labels while it waits: the PPD's text
+            // out of labels while it waits: the PPD's text, as the event's reason
             assert_eq!(
                 call(
                     &app,
-                    telemetry(
-                        r#"{"state":"ATTENTION","state_reason":"com.dymo.out-of-paper-error"}"#
+                    send(
+                        r#""event":"STATE_CHANGED","state":"ATTENTION","reason":"Out of labels.""#
+                            .into()
                     )
                 )
                 .await
                 .0,
                 StatusCode::NO_CONTENT
             );
+            assert_eq!(
+                call(&app, telemetry(r#"{"state":"ATTENTION"}"#)).await.0,
+                StatusCode::NO_CONTENT
+            );
             let t = store.machines(space).await.unwrap()[0]
                 .telemetry
                 .clone()
                 .unwrap();
-            assert_eq!(
-                (t.state_reason.as_deref(), t.problem.as_deref()),
-                (Some("com.dymo.out-of-paper-error"), Some("Out of labels."))
-            );
+            assert_eq!(t.problem.as_deref(), Some("Out of labels."));
             if stop {
                 store
                     .set_job(space, job, JobState::Stopping, None)
@@ -2356,7 +2365,7 @@ mod tests {
                 .telemetry
                 .clone()
                 .unwrap();
-            assert_eq!((t.state_reason, t.problem), (None, None), "cleared");
+            assert_eq!(t.problem, None, "cleared");
             let job = store.job(space, job).await.unwrap().unwrap();
             ends.push((job.state, job.reason));
         }

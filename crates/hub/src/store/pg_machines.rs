@@ -81,7 +81,7 @@ pub struct AgentDevice {
     pub space: Option<String>,
     pub online: bool,
     pub seen_seconds_ago: Option<i64>,
-    pub features: Vec<String>,
+    pub extensions: Vec<String>,
 }
 
 impl MachineRow {
@@ -224,7 +224,7 @@ impl Store {
                 space,
                 online,
                 seen_seconds_ago: seen,
-                features: details.features.clone(),
+                extensions: details.extensions.clone(),
             };
             let release = details.firmware.clone();
             let computer = details.network.as_ref().and_then(|n| n.hostname.clone());

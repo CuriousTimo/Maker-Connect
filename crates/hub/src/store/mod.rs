@@ -302,9 +302,9 @@ pub struct Details {
     /// none for a Prusa, or an agent from before 6a.
     #[serde(default)]
     pub agent_id: Option<String>,
-    /// The additions this device uses (`features`, part 6a); none said is empty.
+    /// The additions this device uses (`extensions`, part 6a); none said is empty.
     #[serde(default)]
-    pub features: Vec<String>,
+    pub extensions: Vec<String>,
 }
 
 /// Somewhere the machine keeps files: a USB stick, an SD card.

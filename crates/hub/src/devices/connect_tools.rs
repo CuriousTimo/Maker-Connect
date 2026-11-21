@@ -80,6 +80,10 @@ pub(crate) struct Session {
     /// the hub's lock (ours: the server writes patches onto one tree; ours is the telemetry). None
     /// after a restart: the stored one then.
     pub(crate) last: Option<Telemetry>,
+    /// A label printer on DYMO's CUPS driver: the `reason` of its last `STATE_CHANGED`, the PPD's own
+    /// text (docs/design/prusa-sdk-extension.md, part 3), shown as its problem; None for any other
+    /// machine, whose problem this leaves alone.
+    pub(crate) label_reason: Option<Option<String>>,
     /// What the server's connector keeps per session about the print (`crate::devices::connect_job`).
     pub(crate) job: crate::devices::connect_job::Job,
 }

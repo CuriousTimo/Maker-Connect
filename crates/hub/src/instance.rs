@@ -170,7 +170,7 @@ mod tests {
                     space: Some("Workshop North".into()),
                     online,
                     seen_seconds_ago: Some(0),
-                    features: vec![],
+                    extensions: vec![],
                 },
                 AgentDevice {
                     id: "m2".into(),
@@ -178,7 +178,7 @@ mod tests {
                     space: None,
                     online: false,
                     seen_seconds_ago: None,
-                    features: vec![],
+                    extensions: vec![],
                 },
             ],
         }
@@ -194,9 +194,9 @@ mod tests {
         use maker_connect_protocol::MachineKind;
         let store = Store::for_test(&pool).await;
         let id = "0123456789abcdef0123456789abcdef";
-        let info = |features: serde_json::Value| {
+        let info = |extensions: serde_json::Value| {
             crate::devices::prusa_connect::to_details(&serde_json::json!({
-                "firmware": "v0.3.0", "agent_id": id, "features": features,
+                "firmware": "v0.3.0", "agent_id": id, "extensions": extensions,
                 "network_info": {"hostname": "orangepipc"},
             }))
         };
@@ -229,7 +229,7 @@ mod tests {
         assert_eq!(agent.computer.as_deref(), Some("orangepipc"));
         let ids: Vec<&str> = agent.devices.iter().map(|d| d.id.as_str()).collect();
         assert_eq!(ids, [lw.as_str(), pnp.as_str()]);
-        assert_eq!(agent.devices[0].features, ["label.page_size"]);
+        assert_eq!(agent.devices[0].extensions, ["label.page_size"]);
         assert!(agent.devices[0].space.is_some());
     }
 
