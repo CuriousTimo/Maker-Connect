@@ -1468,6 +1468,7 @@ dependencies = [
 name = "maker-connect-agent"
 version = "0.2.0"
 dependencies = [
+ "getrandom 0.2.17",
  "log",
  "maker-connect-engine",
  "maker-connect-gcode-metadata",
@@ -1613,6 +1614,7 @@ name = "maker-connect-sdk"
 version = "0.2.0"
 dependencies = [
  "flate2",
+ "getrandom 0.2.17",
  "libc",
  "log",
  "maker-connect-gcode-metadata",

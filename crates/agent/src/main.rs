@@ -212,13 +212,10 @@ impl Settings {
     }
 }
 
-/// Random bytes, from the system.
+/// Random bytes, from the system (`getrandom`: `/dev/urandom` on Unix, `BCryptGenRandom` on Windows).
 fn random_bytes<const N: usize>() -> [u8; N] {
     let mut bytes = [0u8; N];
-    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-        use std::io::Read;
-        let _ = f.read_exact(&mut bytes);
-    }
+    getrandom::getrandom(&mut bytes).expect("the system has no random source");
     bytes
 }
 

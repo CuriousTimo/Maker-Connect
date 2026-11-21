@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+getrandom = "0.2"
 maker-connect-sdk = { path = "../connect-sdk" }
 maker-connect-engine = { path = "../engine" }
 maker-connect-protocol = { path = "../protocol" }

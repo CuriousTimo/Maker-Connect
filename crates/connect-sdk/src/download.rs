@@ -133,10 +133,7 @@ pub fn foldername_too_long(path: &str) -> bool {
 pub fn generate_transfer_id() -> u32 {
     // randint(0, 2**32 - 1)
     let mut bytes = [0u8; 4];
-    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-        use std::io::Read;
-        let _ = f.read_exact(&mut bytes);
-    }
+    getrandom::getrandom(&mut bytes).expect("the system has no random source");
     u32::from_ne_bytes(bytes)
 }
 
