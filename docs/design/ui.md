@@ -222,6 +222,10 @@ Control tab, a 3D printer (verbs of the `marlin` registry; the `prusa` kind uses
 the same page as a Prusa on its Connect, but:
 - **Head and Machine tab:** it is connected through the "Maker Connect agent", not "Built-in
   Prusa Connect".
+- **Its model:** it gets a profile when the name it gives to `M115` (`machine_type` in `INFO`,
+  part 9) is the name of exactly one profile. A custom build, Marlin's default "3D Printer", or a
+  name that several models share gets none, and the space chooses one on the Machine tab. A
+  profile chosen there stays.
 - **Files:** the tab shows the agent's storage (`/gcodes`) instead of the USB stick. The printer's
   SD card joins it as `SD_CARD` once the agent has it (part 9, Storages), as PrusaLink has an MK3's.
 - **Controls:** speed, flow and the nozzle and bed targets go as the SDK's `SET_VALUE`, which

@@ -2214,6 +2214,29 @@ mod flow {
             )
             .await;
         }
+
+        // Its model by its M115 name in INFO (extension part 9, `machine_type`): a custom
+        // build (the owner's Crearibo) and an old Creality's (OctoPrint's test, comm.rs) find
+        // none; a model's own name finds its profile; a profile the space chose stays.
+        let info = |name: &str| {
+            event(json!({"event": "INFO", "state": "IDLE", "data": {
+                "type": "marlin.fdm", "sn": "MC00112233445566AA", "machine_type": name}}))
+        };
+        let profile = || async { store.machine(space, &id).await.unwrap().unwrap().profile };
+        for none in ["Crearibo CR10", "www.cxsw3d.com"] {
+            call(&app, info(none)).await;
+            assert_eq!(profile().await, None, "{none}");
+        }
+        call(&app, info("Ender-5 Pro")).await;
+        assert_eq!(profile().await.as_deref(), Some("creality/ender-5-pro"));
+        assert!(
+            store
+                .set_profile(space, &id, Some("creality/cr-10"))
+                .await
+                .unwrap()
+        );
+        call(&app, info("Ender-5 Pro")).await;
+        assert_eq!(profile().await.as_deref(), Some("creality/cr-10"));
     }
 
     /// A MINI, as it talks: its stick looked through (with a file's picture), a file

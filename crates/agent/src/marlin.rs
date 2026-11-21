@@ -67,6 +67,16 @@ pub(crate) fn state(agent: &Agent, report: Option<&Report>) -> State {
 /// Once a second, from the link loop: a print's end, and when it is held no longer; then a
 /// `STATE_CHANGED` when the state is another than the last one said.
 pub(crate) fn tick(agent: &Agent, report: &Report) {
+    // Part 9: its M115 `MACHINE_TYPE` in `INFO`, sent again when it changed.
+    let machine_type = report
+        .telemetry
+        .identity
+        .as_ref()
+        .and_then(|i| i.machine_type.clone());
+    if machine_type.is_some() && *agent.machine_type.lock().unwrap() != machine_type {
+        *agent.machine_type.lock().unwrap() = machine_type;
+        crate::info_changed(agent);
+    }
     let job = agent.label.lock().unwrap().as_ref().map(|(job, _)| *job);
     if let Some(job) = job
         && let Some(end) = report.job_ends.iter().find(|e| e.id == job).cloned()
@@ -552,6 +562,41 @@ mod tests {
         let mut r = report("STATE_OPERATIONAL", vec![]);
         r.connected = false;
         assert!(!present(&r));
+    }
+
+    /// Part 9: M115's `MACHINE_TYPE` in `INFO`, which goes again when it changed
+    /// (`_send_info_if_changed`, `printer_polling.py:1078-1083`), and only then.
+    #[test]
+    fn its_machine_type_in_info() {
+        let a = agent();
+        let sent = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = sent.clone();
+        let cb: maker_connect_sdk::models::EventCallback =
+            Arc::new(move |event, source, _, _, kwargs| {
+                seen.lock().unwrap().push((event, source, kwargs));
+            });
+        *a.event_cb.lock().unwrap() = Some(cb);
+        let named = |name: Option<&str>| {
+            let mut r = report("STATE_OPERATIONAL", vec![]);
+            r.telemetry.identity = name.map(|n| maker_connect_protocol::Identity {
+                machine_type: Some(n.into()),
+                ..Default::default()
+            });
+            r
+        };
+        tick(&a, &named(None));
+        assert!(!crate::send_info(&a).kwargs.contains_key("machine_type"));
+        tick(&a, &named(Some("Crearibo CR10")));
+        tick(&a, &named(Some("Crearibo CR10")));
+        let infos: Vec<_> = sent
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(e, ..)| *e == consts::Event::Info)
+            .map(|(_, source, kwargs)| (*source, kwargs["machine_type"].clone()))
+            .collect();
+        assert_eq!(infos, [(Source::Connect, "Crearibo CR10".into())]);
+        assert_eq!(crate::send_info(&a).kwargs["machine_type"], "Crearibo CR10");
     }
 
     #[test]

@@ -1100,7 +1100,20 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
             .event(&name, event["state"].as_str().unwrap_or(""), &event["data"]);
     }
     let known = match name.as_str() {
-        "INFO" => shared.set_details(token, &to_details(&event["data"])).await,
+        "INFO" => {
+            // A Marlin printer's model, by the M115 name it gives (extension part 9,
+            // `machine_type`): a profile only when exactly one is named so.
+            let identity = Identity {
+                machine_type: event["data"]["machine_type"].as_str().map(str::to_owned),
+                ..Identity::default()
+            };
+            if let Some(profile) = crate::profiles::detect(&identity)
+                && let Err(error) = shared.recognise(token, &profile.id).await
+            {
+                eprintln!("prusa-connect: the profile of {}: {error}", profile.id);
+            }
+            shared.set_details(token, &to_details(&event["data"])).await
+        }
         _ => shared.knows(token).await,
     };
     match known {

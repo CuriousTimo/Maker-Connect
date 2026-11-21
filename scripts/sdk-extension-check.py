@@ -58,6 +58,9 @@ WORDS = {
     "SHA256SUMS": "the checksum list of our releases (crates/update)",
     "print_scale_data": "usbscale's function that reads a scale's report (usbscale.c:380-456)",
     "UNITS": "usbscale's table of unit names (usbscale.c:93-107)",
+    "M115": "the firmware report OctoPrint asks a Marlin printer for (OctoPrint-1.11.8 comm.py)",
+    "MACHINE_TYPE": "a field of a Marlin printer's M115 answer (Marlin gcode/host/M115.cpp)",
+    "firmware_info": "OctoPrint's Printer.firmware_info, the parsed M115 answer (printer/standard.py:196)",
 }
 
 def device_words():

@@ -69,6 +69,7 @@ use super::comm::{MachineCom, MachineComPrintCallback, TempTuple};
 use super::events::{EventSink, Events, event_manager};
 use super::plugin::{HookFn, MessageReceiver, plugin_manager};
 use super::profile::PrinterProfileManager;
+use super::py_collections::PyDict;
 use super::standard::{LocalFileManager, Printer, PrinterError};
 use crate::{Event, Order, Port};
 use maker_connect_protocol::{
@@ -229,6 +230,9 @@ struct Inner {
     emergency: bool,
     /// K8
     refusal: Option<String>,
+    /// `MACHINE_TYPE` of the printer's M115 answer, as comm hands it to `on_comm_firmware_info`
+    /// (comm.py:5761; OctoPrint keeps it as `Printer.firmware_info`, standard.py:1915)
+    machine_type: Option<String>,
     last: Option<Telemetry>,
 }
 
@@ -429,6 +433,14 @@ impl Edge {
         }
         t.position_mm = inner.position.map(|p| p.map(Some));
         t.sd_card = inner.sd_ready;
+        t.identity =
+            inner
+                .machine_type
+                .clone()
+                .map(|machine_type| maker_connect_protocol::Identity {
+                    machine_type: Some(machine_type),
+                    ..Default::default()
+                });
         if let Some(job) = &inner.job {
             t.job = Some(JobProgress {
                 file: job.name.clone(),
@@ -1081,6 +1093,11 @@ impl MachineComPrintCallback for Edge {
         }
     }
 
+    fn on_comm_firmware_info(&self, _firmware_name: &str, firmware_data: &PyDict<String>) {
+        lock(&self.inner).machine_type = firmware_data.get("MACHINE_TYPE").cloned();
+        self.publish();
+    }
+
     fn on_comm_sd_state_change(&self, sd_ready: bool) {
         lock(&self.inner).sd_ready = Some(sd_ready);
         self.publish();
@@ -1231,6 +1248,25 @@ mod tests {
         ] {
             assert!(!plain(text), "{text}");
         }
+    }
+
+    /// M115's `MACHINE_TYPE`, as comm hands it on (`on_comm_firmware_info`, comm.py:5761), is the
+    /// report's identity (part 9 of the extension: the agent's `machine_type` in `INFO`)
+    #[test]
+    fn the_machine_type_of_m115_is_reported() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let edge = Edge::new(tx);
+        let mut data = PyDict::new();
+        data.insert("PROTOCOL_VERSION", "1.0".to_string());
+        data.insert("MACHINE_TYPE", "Crearibo CR10".to_string());
+        edge.on_comm_firmware_info("Marlin", &data);
+        let Ok(Event::Telemetry(t)) = rx.try_recv() else {
+            panic!("no report");
+        };
+        assert_eq!(
+            t.identity.and_then(|i| i.machine_type).as_deref(),
+            Some("Crearibo CR10")
+        );
     }
 
     /// The page's numbers are JSON numbers: whole ones are Python `int`s (`S215`, not `S215.0`)

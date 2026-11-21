@@ -298,6 +298,8 @@ struct Agent {
     ws: Mutex<Option<Arc<PrinterWs>>>,
     command: Mutex<Option<Arc<Command>>>,
     event_cb: Mutex<Option<EventCallback>>,
+    /// A Marlin printer's M115 `MACHINE_TYPE`, in `INFO` (part 9 of the extension).
+    machine_type: Mutex<Option<String>>,
     #[cfg(unix)]
     transfer: Arc<Transfer>,
     #[cfg(unix)]
@@ -346,6 +348,7 @@ impl Agent {
             ws: Mutex::new(None),
             command: Mutex::new(None),
             event_cb: Mutex::new(None),
+            machine_type: Mutex::new(None),
             #[cfg(unix)]
             transfer: Arc::new(Transfer::new()),
             #[cfg(unix)]
@@ -720,7 +723,29 @@ fn send_info(agent: &Agent) -> Finish {
     .unwrap()
     .clone();
     finish.kwargs = kwargs;
+    // Part 9: the model, once the printer answered M115.
+    if let Some(machine_type) = agent.machine_type.lock().unwrap().clone() {
+        finish
+            .kwargs
+            .insert("machine_type".into(), machine_type.into());
+    }
     finish
+}
+
+/// PrusaLink's `_send_info_if_changed` (`printer_polling.py:1078-1083`): `INFO` again, as
+/// `event_cb(**get_info())` sends it (source `CONNECT`, `__init__.py:409-411`).
+pub(crate) fn info_changed(agent: &Agent) {
+    let Some(event_cb) = agent.event_cb.lock().unwrap().clone() else {
+        return;
+    };
+    let info = send_info(agent);
+    event_cb(
+        consts::Event::Info,
+        Source::Connect,
+        None,
+        None,
+        info.kwargs,
+    );
 }
 
 #[cfg(unix)]

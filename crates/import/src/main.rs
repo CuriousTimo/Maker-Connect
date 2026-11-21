@@ -164,7 +164,9 @@ fn profile(examples: &Path, path: &Path, source: &str) -> Option<Profile> {
     let named = config
         .get("CUSTOM_MACHINE_NAME")
         .map(|n| n.trim_matches('"').trim().to_owned())
-        .filter(|n| !n.is_empty());
+        // Marlin's own name for a printer that sets none (`Marlin/src/inc/Version.h:76`,
+        // `MACHINE_NAME "3D Printer"`) names no model: a printer saying it is any printer.
+        .filter(|n| !n.is_empty() && n != MARLIN_DEFAULT_NAME);
     // The model: its folder under the brand (deeper folders are its variants: boards,
     // upgrades), without a board in its name.
     let model = without_board(parts.get(brand_at + 1)?);
@@ -221,6 +223,9 @@ fn profile(examples: &Path, path: &Path, source: &str) -> Option<Profile> {
         }),
     })
 }
+
+/// `MACHINE_NAME` when a configuration sets no `CUSTOM_MACHINE_NAME` (Marlin `Version.h:76`).
+const MARLIN_DEFAULT_NAME: &str = "3D Printer";
 
 fn run(repo: &Path, out: &Path) -> Result<(), String> {
     let examples = repo.join("config/examples");

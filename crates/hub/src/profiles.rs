@@ -318,11 +318,18 @@ pub fn detect(identity: &Identity) -> Option<&'static Profile> {
             .chain(&d.machine_types)
             .any(|t| t.eq_ignore_ascii_case(machine_type))
     };
-    detects()
-        .filter(|(p, d)| p.source.is_none() && named(d))
-        .chain(detects().filter(|(p, d)| p.source.is_some() && named(d)))
-        .map(|(profile, _)| profile)
-        .next()
+    // One profile by that name, or none: a name several models share ("Copymaster 3D" for its
+    // 300, 400 and 500) does not say which, so the space chooses on the Machine tab.
+    let only = |made: bool| {
+        let mut found = detects().filter(|(p, d)| p.source.is_none() == made && named(d));
+        let first = found.next();
+        match (first, found.next()) {
+            (Some((profile, _)), None) => Some(Some(profile)),
+            (Some(_), Some(_)) => Some(None),
+            (None, _) => None,
+        }
+    };
+    only(true).or_else(|| only(false)).flatten()
 }
 
 /// The bed, drawn to scale: the build plate with a grid every 10 mm, a stronger line and
@@ -513,6 +520,31 @@ mod tests {
             find("prusa/mini").unwrap().build_volume_mm,
             [180.0, 180.0, 180.0]
         );
+    }
+
+    /// A Marlin printer by its M115 `MACHINE_TYPE`: a model's own name finds it; Marlin's
+    /// default name, a name several models share and a custom printer's find none.
+    #[test]
+    fn a_marlin_printer_by_its_machine_type() {
+        let by = |name: &str| {
+            detect(&Identity {
+                machine_type: Some(name.to_owned()),
+                ..Identity::default()
+            })
+            .map(|p| p.id.as_str())
+        };
+        assert_eq!(by("Ender-5 Pro"), Some("creality/ender-5-pro"));
+        assert_eq!(by("ender-5 pro"), Some("creality/ender-5-pro"));
+        for none in [
+            "3D Printer",
+            "Copymaster 3D",
+            // The owner's own builds (CuriousTimo/Marlin, MyBuilds---*): no profile, chosen by hand.
+            "AtomX MK3",
+            "Prutender MK3s",
+            "Crearibo CR10",
+        ] {
+            assert_eq!(by(none), None, "{none}");
+        }
     }
 
     /// A MINI and an MK3S are recognised by their model code; a machine type alone is

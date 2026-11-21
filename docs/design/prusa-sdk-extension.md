@@ -606,7 +606,7 @@ without this part shows an `IDLE` device.
 
 ## Part 9: a Marlin printer (`marlin.fdm`)
 
-An FDM printer on Marlin that is not a Prusa, on the agent's USB. Nothing is added but the type (part 1):
+An FDM printer on Marlin that is not a Prusa, on the agent's USB. Nothing is added but the type (part 1) and its model in `INFO` (below):
 PrusaLink is itself a host of a Marlin printer on the SDK, so it is the reference for what goes over the
 protocol; OctoPrint 1.11.8 is the reference for every byte to the printer (its serial layer, ported:
 `crates/engine/src/ports/octoprint`, [audit](../audits/octoprint-marlin.md)). An SDK command becomes the
@@ -636,6 +636,18 @@ a Prusa's board), `SET_PRINTER_READY` and `CANCEL_PRINTER_READY`.
 
 As PrusaLink's: the agent's folder as a `LOCAL` storage, and the printer's SD card as `SD_CARD`
 (Prusa-Link `prusa_link.py:945`), listed by the port (`SdList`, OctoPrint's `M20`).
+
+### Its model: `machine_type` in `INFO`
+
+A Prusa says its model by its type (`printer_type`, Buddy `render.cpp:390`; PrusaLink by `M862.2`); a
+Marlin printer has no such code, only the name it answers to `M115`. One new `INFO` kwarg:
+
+| Kwarg | Type | Value |
+|---|---|---|
+| `machine_type` | string | `MACHINE_TYPE` of the printer's `M115` answer, as OctoPrint keeps it (`firmware_info`, `standard.py:1915`); left out until the printer answered |
+
+The server finds the model's profile by it. When the printer answers after the first `INFO`, the agent
+sends `INFO` again, as PrusaLink does when its printer info changes (`printer_polling.py:1078-1083`).
 
 ### Telemetry
 
@@ -723,3 +735,4 @@ was looked for under another name.
 | `LOCK_RESTING` | value | machine_reason | 7 | as `NO_SUCH_LOCK` |
 | `EXPIRED` | value | machine_reason | 7 | as `NO_SUCH_LOCK` |
 | `NO_TIME` | value | machine_reason | 7 | as `NO_SUCH_LOCK` |
+| `machine_type` | info | | 9 | SDK `get_info` (`__init__.py`: `type`, a Prusa's code), Buddy `INFO` (`render.cpp`: `printer_type`), PrusaLink (`printer_polling.py`: `M862.2`): no model name |
