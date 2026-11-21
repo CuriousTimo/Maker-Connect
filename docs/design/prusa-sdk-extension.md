@@ -20,12 +20,13 @@ What it lacks is small:
 - a few commands;
 - live video.
 
-This page proposes exactly those additions, for five kinds of device:
+This page proposes exactly those additions, for six kinds of device:
 - a tape label printer (DYMO LabelManager PnP);
 - label printers on DYMO's CUPS driver (LabelWriter 3xx and 4xx);
 - a laser cutter running GRBL;
 - a USB camera with live view;
-- a door controller with electric locks (part 7).
+- a door controller with electric locks (part 7);
+- a DYMO M-series USB scale (part 8).
 
 And one for the program that hosts such devices (part 6): which devices belong to one agent, and
 whether that agent and the server know the same additions.
@@ -45,9 +46,9 @@ for what the SDK and PrusaLink do not have already: the bed mesh (`mbl` in `INFO
 | 4 | a laser cutter on GRBL | written | #89 |
 | 5 | a USB camera with live view | written | #5 |
 | 6a | who the agent is, and what each side knows | written | #51 |
-| 6b | updating the agent: the SDK's own `UPGRADE`, at most a kwarg naming the release | to write | #56 |
+| 6b | updating the agent: the SDK's own `UPGRADE`, Connect's `path`; no addition | written | #56 |
 | to come | a Marlin printer: its type and what it sends | to write | #83 |
-| to come | a scale: its type and telemetry | to write | #130 |
+| 8 | a DYMO M-series scale: its type and three telemetry keys | written | #130 |
 | 7 | a door controller: its type, `locks` and `OPEN_LOCK` | written | #121 |
 | maybe | the print's place in its file (the G-code viewer), if the SDK has nothing for it | to look at | #112 |
 
@@ -92,6 +93,7 @@ for what the SDK and PrusaLink do not have already: the bed mesh (`mbl` in `INFO
   | `dymo.labelwriter-450` | DYMO LabelWriter 450 |
   | `dymo.labelwriter-320` | DYMO LabelWriter 320 |
   | `grbl.laser` | a laser cutter running GRBL. GRBL is the firmware; the vendor differs per machine |
+| `dymo.m-scale` | a DYMO M-series USB scale (M1, M2, M5, M10, M25): one type, as one port reads them all (part 8) |
 
 - **Why the protocol cannot carry it:** `printer_type` is `PrinterType`, an enum of Prusa models written
   as `a.b.c` numbers (`const.py:47-60`). A number for another device could collide with a model Prusa
@@ -354,7 +356,7 @@ not know the commands answers them `REJECTED` "Unknown command" (`command.py:181
 One agent hosts several devices, each a printer of its own on the protocol: its own registration,
 token and WebSocket (wire.md). The protocol has no idea of a host: nothing says that the LabelWriter
 and the PnP run in the same program, and nothing says which of the additions above either side knows.
-Part 6a adds both. Part 6b (updating an agent) follows, [#56](https://github.com/CuriousTimo/Maker-Connect/issues/56).
+Part 6a adds both. Part 6b says how an agent is updated, with nothing added.
 
 ### 6a. Who the agent is, and what each side knows
 
@@ -403,6 +405,7 @@ was, so a side may know both.
 | `agent.id` | Part 6a: `agent_id` |
 | `server.info` | Part 6a: `extensions` and `SET_SERVER_INFO` |
 | `door.lock` | Part 7: `lock_count`, `locks` and `OPEN_LOCK` |
+| `scale.telemetry` | Part 8: its three telemetry keys |
 
 **Whether they fit** (the same rule on both sides; shown, nothing refused: owner 2026-11-21):
 - a name in the device's `extensions` that is not in the server's: **the agent is newer than the
@@ -426,6 +429,45 @@ is that addition's own compatibility rule above (an unknown kwarg ignored, an un
   (prusa-connect `internal/connector/xbuddy/files.go:388-393`, unmarshalled at `:406`; Go's
   `json.Unmarshal` drops unknown keys).
 - An SDK without the command answers it `REJECTED` "Unknown command" (`command.py:181-183`).
+
+### 6b. Updating the agent: the SDK's own `UPGRADE`
+
+No addition: every piece below is the SDK's, PrusaLink's or Connect's.
+
+**The command.** `UPGRADE` (`const.py:141`), sent to any one of the agent's devices; it updates the
+agent, and so all its devices. The SDK has no handler of its own for it; PrusaLink sets one
+(Prusa-Link `prusa/link/printer_adapter/prusa_link.py:207`, `:600-605`).
+
+| `UPGRADE` | Whose form | What the agent does |
+|---|---|---|
+| no kwargs | PrusaLink's (`command_handlers.py:589-608`): it installs the newest release from its own source and restarts | takes the newest signed release from its own release host, as the hub's own update does (`crates/update`) |
+| `path` | Connect's (`internal/connector/xbuddy/verbs.go:265-280`): the image is a file already on the device's storage, named by its path; Connect never carries the image in the command | takes the release in that folder |
+
+**The release onto the agent, with `path`.** The server first puts the release on the agent with the
+SDK's own `START_CONNECT_DOWNLOAD`, `printing: false` (part 2: a `LOCAL` storage attached with
+`Printer.attach`), one download per file, into a folder named by the release's tag: the build for the
+agent's system, `SHA256SUMS` and `SHA256SUMS.sig`. `path` then names the build in that folder. As
+Buddy's image, the release is a file like any other until `UPGRADE` names it.
+
+**What the agent takes** (ours, the same rules as the hub's own update, `crates/update`): only a build
+whose `SHA256SUMS` is signed with the release key over its tag, the folder's name, and whose sum is on
+that list; then the trial, and the way back to the build before. A release that fails any of these ends
+the command `FAILED`, as PrusaLink's `CommandFailed` does ("No update available" when there is nothing
+newer, `command_handlers.py:597-598`): the SDK answers a handler's error `FAILED` "Command error" with the
+error itself (`command.py:192-198`). A build that passes restarts the agent, as PrusaLink restarts itself
+(`:601`); the new build's `INFO` says its release (`firmware`) and its `extensions` (6a).
+
+**When.** Only while the device it is sent to is `IDLE`, `READY`, `STOPPED` or `FINISHED`: Connect's
+guard for `UPGRADE`, START_PRINT's states (`internal/connector/xbuddy/states.go:55-60`). The server holds
+it to the other devices of the same agent too (ours: they stop with it).
+
+**Which release** (ours): the server offers only the agent builds it carries itself, those of its own
+release, so the agent and the server fit (6a) by construction. The agent's own page offers what its
+release host has, as PrusaLink's page asks its own source (Prusa-Link `prusa/link/web/main.py:669-701`,
+`:703-725`).
+
+**Compatibility:** an agent without 6b answers `UPGRADE` `REJECTED` "Not Implemented", having no handler
+(`command.py:184-186`). Connect sends `UPGRADE` with `path` as this part reads it.
 
 ## Part 7: a door controller (`maker-connect.door-controller`)
 
@@ -509,14 +551,47 @@ cabinet locks. The firmware is ours, in Rust (owner, 2026-11-21).
 
 ### Updating the firmware
 
-By part 6b (`UPGRADE` with a release), the same way as the agent: a signed release, checked by the
-board before it starts it (Secure Boot v2 on the ESP32).
+By part 6b, the same way as the agent: the release downloaded onto the board, then `UPGRADE` with its
+`path`; a signed release, checked by the board before it starts it (Secure Boot v2 on the ESP32).
 
 ### Compatibility
 
 - Connect would read the board as an unknown printer type (part 1) and ignore `locks` and `lock_count`.
 - A server without this part never sends `OPEN_LOCK`; the board then only reports its doors.
 - A board that does not know `OPEN_LOCK` answers `REJECTED` "Unknown command", as Buddy does.
+
+## Part 8: a USB scale (`dymo.m-scale`)
+
+A DYMO M-series scale on the agent's computer, its weight live to the server; read only, nothing is sent
+to the scale. The reference is usbscale `9ed1cb55`, already ported (`crates/engine/src/ports/usbscale`,
+[audit](../audits/usbscale.md)); its `print_scale_data` (`usbscale.c:380-456`) reads the scale's report
+as the USB-IF HID Point of Sale scale has it.
+
+### States
+
+`IDLE`, always: the scale has no state of its own beyond its report, and the port reports `Idle`
+(`crates/engine/src/ports/usbscale/port.rs:81-88`). What the scale says of its reading is in
+`scale_status`. Every printer command is answered as the SDK answers one with no handler (`REJECTED`
+"Not Implemented", `command.py:184-186`); `SEND_INFO` is the SDK's own.
+
+### Telemetry keys
+
+Added to the telemetry object, at the agent's pace, and left out while there is no reading:
+
+| Key | Type | Value |
+|---|---|---|
+| `weight` | number | the report's weight bytes times ten to its exponent, in the scale's own unit, as usbscale computes it (`usbscale.c:384-391`); not converted |
+| `weight_unit` | string | usbscale's name for the unit byte, from its `UNITS` (`usbscale.c:93-107`, for example "g" or "kg") |
+| `scale_status` | integer | the report's status byte as sent: `1` fault, `2` stable at zero, `3` in motion, `4` stable, `5` under zero, `6` over weight, `7` calibration needed, `8` re-zeroing needed (usbscale's cases, `usbscale.c:407-450`) |
+
+Connect's telemetry has no key for a weight that is read: its one weight is a material's
+(`actual_netto_full_weight`, `internal/connector/xbuddy/tools.go:511`), and the SDK's and Buddy 6.4.0's
+have none.
+
+### Compatibility
+
+Connect would read the scale as an unknown printer type (part 1) and drop the three keys. A server
+without this part shows an `IDLE` device.
 
 ## Every addition
 
@@ -568,6 +643,9 @@ was looked for under another name.
 | `resting_s` | sub-key | locks | 7 | inside a new key |
 | `OPEN_LOCK` | command | | 7 | as `HOME` |
 | `expires_at` | kwarg | OPEN_LOCK | 7 | a kwarg of a new command |
+| `weight` | telemetry | | 8 | SDK `Telemetry` (`models.py`), Buddy telemetry (`render.cpp`), Connect (`inbound.go`, `tools.go`): a material's weight only |
+| `weight_unit` | telemetry | | 8 | as `weight` |
+| `scale_status` | telemetry | | 8 | as `weight`; the SDK's `State` (`const.py`) is required beside it |
 | `NO_SUCH_LOCK` | value | machine_reason | 7 | Buddy's `MachineReason` (`planner.hpp`): no lock codes |
 | `LOCK_RESTING` | value | machine_reason | 7 | as `NO_SUCH_LOCK` |
 | `EXPIRED` | value | machine_reason | 7 | as `NO_SUCH_LOCK` |

@@ -51,10 +51,13 @@ REUSED = {
     ("kwarg", "path"): "START_PRINT's own kwarg, read by PrusaLink (prusa_link.py:563-570)",
 }
 
-# Lower-case names in backticks that are no addition and no name of the printer protocol.
+# Names in backticks that are no addition and no name of the printer protocol.
 WORDS = {
     "raster2dymolw": "DYMO's CUPS filter (dymo-cups-drivers-1.4.0)",
     "w167h288": "a PageSize choice of DYMO's ppd/lw450.ppd",
+    "SHA256SUMS": "the checksum list of our releases (crates/update)",
+    "print_scale_data": "usbscale's function that reads a scale's report (usbscale.c:380-456)",
+    "UNITS": "usbscale's table of unit names (usbscale.c:93-107)",
 }
 
 KINDS = {"command", "telemetry", "info", "event-field", "endpoint", "kwarg", "sub-key", "value", "name"}
@@ -153,7 +156,7 @@ def main():
     body = lines[:at]
     for n, l in enumerate(body, 1):
         for name in re.findall(r"`([A-Z][A-Z0-9_]{3,})`", l):
-            if name not in known and name not in declared:
+            if name not in known and name not in declared and name not in WORDS:
                 errors.append(f"line {n}: `{name}` is no reference's name and not in Every addition")
         for name in re.findall(r"`([a-z][a-z0-9_]*)`", l):
             if re.fullmatch(r"[0-9a-f]{7,40}", name):

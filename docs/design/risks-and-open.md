@@ -386,6 +386,8 @@ is brought in line with the MK3 step.
 
 ### OQ-46: How the agent's own update reaches it
 
+**Answered** (2026-11-21): [part 6b of the extension](prusa-sdk-extension.md#6b-updating-the-agent-the-sdks-own-upgrade): the SDK's `UPGRADE`, the release downloaded first and named by Connect's `path`, or with no kwargs the newest from the agent's own release host. The options below are kept as they were weighed.
+
 The `update` message and `GET /api/agent/v2/update/{tag}/{file}` were ours and are removed with our link.
 The SDK has no update of its host: `UPGRADE` is a printer command (`const.py:141`) with no handler of the
 SDK's own (`__init__.py:137-156`). Who may update stays the instance admin
