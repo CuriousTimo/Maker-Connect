@@ -6,8 +6,10 @@
 //! 10 s of one, as `run_forever` does, and does not reconnect by itself (`run_forever`'s
 //! `reconnect` is 0), so `Printer.ensure_ws_connected` reconnects on the next send.
 //!
-//! The socket is read with a short timeout so that `send` can take the lock in between; the
-//! timeout only paces this loop and never reaches the wire.
+//! The loop waits for data as websocket-client does (`select` on the socket, no lock held): on a
+//! clone of the TCP socket, with a short timeout that only paces the loop and never reaches the
+//! wire. Only when data has come does it take the socket's lock to read, so a `send` from another
+//! thread is never kept waiting by a reader holding the lock.
 //!
 //! websocket-client is the SDK's dependency (`requirements.txt`: `websocket-client>=1.6.0`), not
 //! part of the reference commit. What this module takes from it, all to be checked by running
@@ -50,7 +52,7 @@ pub const PING_INTERVAL: f64 = 30.0;
 pub const PING_TIMEOUT: f64 = 10.0;
 /// `WebSocket.close(timeout=3)`: how long a close waits for the server's close frame.
 const CLOSE_TIMEOUT: f64 = 3.0;
-/// How long one read waits before the loop lets a `send` in.
+/// How long the loop waits for data before it looks at its pings again.
 const POLL: Duration = Duration::from_millis(10);
 
 type Socket = WebSocket<MaybeTlsStream<TcpStream>>;
@@ -221,13 +223,31 @@ fn origin(request: &tungstenite::handshake::client::Request) -> Option<String> {
     }
 }
 
+fn tcp(socket: &Socket) -> Option<&TcpStream> {
+    match socket.get_ref() {
+        MaybeTlsStream::Plain(tcp) => Some(tcp),
+        MaybeTlsStream::Rustls(tls) => Some(&tls.sock),
+        _ => None,
+    }
+}
+
 fn set_read_timeout(socket: &Socket, timeout: Duration) {
-    let tcp = match socket.get_ref() {
-        MaybeTlsStream::Plain(tcp) => tcp,
-        MaybeTlsStream::Rustls(tls) => &tls.sock,
-        _ => return,
-    };
-    let _ = tcp.set_read_timeout(Some(timeout));
+    if let Some(tcp) = tcp(socket) {
+        let _ = tcp.set_read_timeout(Some(timeout));
+    }
+}
+
+/// Whether data (or the end of the stream) is there to read, waiting up to the socket's read
+/// timeout, without the socket's lock (websocket-client's `select`).
+fn readable(waiter: &TcpStream) -> bool {
+    let mut byte = [0u8; 1];
+    match waiter.peek(&mut byte) {
+        Ok(_) => true,
+        Err(err) => !matches!(
+            err.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ),
+    }
 }
 
 fn is_timeout(err: &tungstenite::Error) -> bool {
@@ -271,6 +291,12 @@ fn run_forever(
         Err(err) => return handle_error(shared, &err),
     };
     set_read_timeout(&socket, POLL);
+    // The loop waits for data on its own handle of the socket (`select`), not under the lock.
+    let waiter = match tcp(&socket).map(TcpStream::try_clone) {
+        Some(Ok(waiter)) => waiter,
+        Some(Err(err)) => return handle_error(shared, &err),
+        None => return handle_error(shared, &"unknown stream"),
+    };
     *shared.socket() = Some(socket);
     shared.connected.store(true, Ordering::SeqCst);
     // _handle_open
@@ -281,6 +307,8 @@ fn run_forever(
     let mut last_ping_tm = 0.0;
     let mut last_pong_tm = 0.0;
     let mut closing_since: Option<f64> = None;
+    // A message was read: more may already be in the reader's buffer, read on before waiting.
+    let mut more = false;
     loop {
         let now = clock::monotonic();
         if closing_since.is_none() && !shared.keep_running.load(Ordering::SeqCst) {
@@ -326,10 +354,14 @@ fn run_forever(
             }
         }
 
+        if !more && !readable(&waiter) {
+            continue;
+        }
         let read = match shared.socket().as_mut() {
             Some(socket) => socket.read(),
             None => break,
         };
+        more = read.is_ok();
         match read {
             Ok(Message::Text(text)) => {
                 let text = text.to_string();
@@ -439,6 +471,31 @@ mod tests {
             thread::sleep(Duration::from_millis(5));
         }
         false
+    }
+
+    /// Ours: a `send` from another thread is not kept waiting by the reading loop (it waits for
+    /// data without the socket's lock), with the server quiet: every send is quick, none waits
+    /// on the loop.
+    #[test]
+    fn a_send_is_not_kept_waiting_by_the_reader() {
+        let (url, accepted) = server();
+        let sock = PrinterWs::new(Arc::new(|_| {}));
+        sock.connect(&url, &[]);
+        let (_, _to_client, sent) = accepted.recv().unwrap();
+        let mut slowest = Duration::ZERO;
+        for i in 0..200 {
+            let start = std::time::Instant::now();
+            assert!(sock.send(&serde_json::json!({ "i": i })));
+            slowest = slowest.max(start.elapsed());
+        }
+        for _ in 0..200 {
+            sent.recv_timeout(Duration::from_secs(5)).unwrap();
+        }
+        assert!(
+            slowest < Duration::from_millis(5),
+            "a send waited {slowest:?}"
+        );
+        sock.disconnect();
     }
 
     /// `tests/test_ws.py` at `c0d7d233`. The SDK replaces `WebSocketApp` with a fake; these run

@@ -789,6 +789,7 @@ fn label_downloaded(agent: &Agent, transfer: &Transfer) {
         label_length_mm: None,
         page_size,
     };
+    log::info!("label {job}: downloaded, to the printer");
     agent.printing.store(true, Ordering::SeqCst);
     *agent.label.lock().unwrap() = Some((job, file.clone()));
     set_state(agent, State::Printing, None);
@@ -809,6 +810,14 @@ fn label_downloaded(agent: &Agent, transfer: &Transfer) {
 /// once the printer is ready again): when the last `STATE_CHANGED` said otherwise, that comes
 /// first (`docs/design/wire.md`, "The second device").
 fn label_ended(agent: &Agent, ok: bool, reason: Option<String>) {
+    log::info!(
+        "label ended: {}",
+        if ok {
+            "printed"
+        } else {
+            reason.as_deref().unwrap_or("failed")
+        }
+    );
     if let Some((_, file)) = agent.label.lock().unwrap().take() {
         let _ = std::fs::remove_file(file);
     }
