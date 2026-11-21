@@ -385,6 +385,10 @@ impl Edge {
         let mut t = Telemetry::default();
         let state = inner.state.unwrap_or(MachineCom::STATE_NONE);
         t.state = machine_state(state);
+        t.comm_state = MachineCom::STATE_NAMES
+            .iter()
+            .find(|(_, n)| *n == state)
+            .map(|(name, _)| (*name).to_owned());
         if !plain(&inner.state_text) && !inner.state_text.is_empty() {
             t.problem = Some(inner.state_text.clone());
         }
@@ -1489,6 +1493,11 @@ mod tests {
         assert_eq!(Some(20.0), report.telemetry.bed_c);
         assert_eq!(None, report.telemetry.problem, "Operational is plain");
         assert!(report.connected);
+        // comm's own state by name, for the agent's part 9 states
+        assert_eq!(
+            Some("STATE_OPERATIONAL"),
+            report.telemetry.comm_state.as_deref()
+        );
 
         // M1 + M4: a Home XY sends what `home(["x","y"])` sends, done after the `ok`s
         let done = command(
@@ -1931,8 +1940,16 @@ mod tests {
                 seen.iter().any(|x| x.contains(start) && x.ends_with(kind))
             };
             assert!(has("EventManager::new", "Condition wait"), "{seen:?}");
-            assert!(has("comm.rs:4267", "serial readline"), "{seen:?}");
-            assert!(seen.iter().any(|x| x.contains("comm.rs:4269")), "{seen:?}");
+            // the monitor and the sender, both started by `MachineCom::start` (by name: line
+            // numbers of our own file move)
+            assert!(has("MachineCom::start", "serial readline"), "{seen:?}");
+            assert_eq!(
+                seen.iter()
+                    .filter(|x| x.contains("MachineCom::start"))
+                    .count(),
+                2,
+                "{seen:?}"
+            );
             assert!(has("RepeatedTimer::start", "Condition wait"), "{seen:?}");
             assert!(has("ResettableTimer::start", "Condition wait"), "{seen:?}");
         }

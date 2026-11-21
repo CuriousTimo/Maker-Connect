@@ -253,6 +253,11 @@ pub struct Telemetry {
     /// unchanged (`com.dymo.out-of-paper-error`); none after `STATE: none`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state_reason: Option<String>,
+    /// A printer on OctoPrint's serial layer: its `MachineCom` state as `comm.py:445-460` names it
+    /// (`STATE_OPERATIONAL`), unchanged; [`Telemetry::state`] merges some of them. The agent maps it
+    /// to the protocol's state (`docs/design/prusa-sdk-extension.md`, part 9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comm_state: Option<String>,
     /// A scale's reading, as the scale says it (`ports/usbscale`, docs/plans/agent-engine.md Step 3e).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale: Option<ScaleReading>,

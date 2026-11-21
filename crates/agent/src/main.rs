@@ -17,7 +17,10 @@
 use maker_connect_engine::Order;
 use maker_connect_engine::{
     Engine, MachineId, Port, ports::dymo_cups::LabelWriter450, ports::labelle::DymoPnp,
+    ports::octoprint::port::OctoPrintPort,
 };
+
+mod marlin;
 #[cfg(unix)]
 use maker_connect_gcode_metadata::py::repr_str;
 #[cfg(unix)]
@@ -52,16 +55,19 @@ enum Kind {
     Pnp,
     /// The DYMO LabelWriter 450 ("The second device").
     Lw450,
+    /// A Marlin printer, not a Prusa (`docs/design/prusa-sdk-extension.md`, part 9).
+    Marlin,
 }
 
 impl Kind {
-    const ALL: [Kind; 2] = [Kind::Pnp, Kind::Lw450];
+    const ALL: [Kind; 3] = [Kind::Pnp, Kind::Lw450, Kind::Marlin];
 
     /// Its type on the wire (`docs/design/prusa-sdk-extension.md`, parts 2 and 3).
     fn printer_type(self) -> &'static str {
         match self {
             Kind::Pnp => "dymo.labelmanager-pnp",
             Kind::Lw450 => "dymo.labelwriter-450",
+            Kind::Marlin => "marlin.fdm",
         }
     }
 
@@ -70,6 +76,7 @@ impl Kind {
         match self {
             Kind::Pnp => "dymo",
             Kind::Lw450 => "labelwriter-450",
+            Kind::Marlin => "marlin",
         }
     }
 
@@ -77,6 +84,7 @@ impl Kind {
         match self {
             Kind::Pnp => "DYMO LabelManager PnP",
             Kind::Lw450 => "DYMO LabelWriter 450",
+            Kind::Marlin => "Marlin printer",
         }
     }
 
@@ -96,6 +104,7 @@ impl Kind {
                 "label.stop",
                 "agent.id",
             ],
+            Kind::Marlin => &["type.string", "agent.id", "marlin.fdm"],
         }
     }
 
@@ -103,6 +112,8 @@ impl Kind {
         match self {
             Kind::Pnp => Box::new(DymoPnp::new()),
             Kind::Lw450 => Box::new(LabelWriter450::new()),
+            // No serial port set: OctoPrint finds the printer itself (`port: None`, auto).
+            Kind::Marlin => Box::new(OctoPrintPort::new(None, None)),
         }
     }
 }
@@ -297,8 +308,10 @@ struct Agent {
     media: Mutex<std::collections::HashMap<i64, Media>>,
     /// The state the last `STATE_CHANGED` said.
     last_state: Mutex<Option<State>>,
-    /// The label being printed: its job (the download's command) and file.
+    /// The label being printed: its job (the download's command) and file. A Marlin's print.
     label: Mutex<Option<(i64, PathBuf)>>,
+    /// A Marlin's print that ended, `FINISHED` or `STOPPED`, and when (`marlin::tick`).
+    print_end: Mutex<Option<(State, Instant)>>,
     /// Its link to the hub as the page shows it (ours, UI only).
     hub: Mutex<HubLink>,
 }
@@ -342,6 +355,7 @@ impl Agent {
             last_state: Mutex::new(None),
             hub: Mutex::new(HubLink::default()),
             label: Mutex::new(None),
+            print_end: Mutex::new(None),
         }
     }
 
@@ -502,6 +516,9 @@ fn setup_link(agent: &Arc<Agent>) {
     let me = agent.clone();
     let info: CommandHandler = Arc::new(move |_| Ok(send_info(&me)));
     command.set_handler(consts::Command::SendInfo, info);
+    if agent.kind == Kind::Marlin {
+        marlin::setup(agent, &command);
+    }
     #[cfg(unix)]
     setup_download(agent, &command, event_cb);
     let incoming = command.clone();
@@ -541,10 +558,14 @@ fn setup_download(agent: &Arc<Agent>, command: &Command, event_cb: EventCallback
     }
 
     let mut storage_dict = std::collections::HashMap::new();
+    let storage = match agent.kind {
+        Kind::Marlin => marlin::STORAGE,
+        Kind::Pnp | Kind::Lw450 => "labels",
+    };
     storage_dict.insert(
-        "labels".to_owned(),
+        storage.to_owned(),
         Storage {
-            path_storage: agent.dir.join("labels").to_string_lossy().into_owned(),
+            path_storage: agent.dir.join(storage).to_string_lossy().into_owned(),
         },
     );
     let me = agent.clone();
@@ -749,6 +770,7 @@ fn start_connect_download(agent: &Agent, cmd: &Command) -> Result<Finish, Handle
     let media = match agent.kind {
         Kind::Pnp => (kwargs["tape_size_mm"].as_u64().map(|t| t as u32), None),
         Kind::Lw450 => (None, kwargs["page_size"].as_str().map(str::to_owned)),
+        Kind::Marlin => (None, None),
     };
     let mgr = agent
         .download
@@ -864,6 +886,10 @@ fn label_downloaded(agent: &Agent, transfer: &Transfer) {
         .start_cmd_id
         .and_then(|id| agent.media.lock().unwrap().remove(&id))
         .unwrap_or_default();
+    if agent.kind == Kind::Marlin {
+        marlin::downloaded(agent, transfer);
+        return;
+    }
     if d.to_print != Some(true) {
         return;
     }
@@ -956,6 +982,9 @@ fn current_state(agent: &Agent) -> State {
         .lock()
         .unwrap()
         .and_then(|id| agent.engine.lock().unwrap().report(id).ok());
+    if agent.kind == Kind::Marlin {
+        return marlin::state(agent, report.as_ref());
+    }
     if agent.printing.load(Ordering::SeqCst) {
         return match (agent.kind, report) {
             (Kind::Lw450, Some(r)) => lw450_state(&r.telemetry),
@@ -1019,7 +1048,11 @@ fn link_loop(agent: &Arc<Agent>) {
             Err(_) => continue,
         };
         let label = agent.label.lock().unwrap().as_ref().map(|(job, _)| *job);
-        if let Some(job) = label
+        if agent.kind == Kind::Marlin {
+            if marlin::present(&report) {
+                marlin::tick(agent, &report);
+            }
+        } else if let Some(job) = label
             && let Some(end) = report.job_ends.iter().find(|e| e.id == job).cloned()
         {
             let _ =
@@ -1038,7 +1071,11 @@ fn link_loop(agent: &Arc<Agent>) {
             }
         }
         // Gone: nothing is sent, the socket ends and the hub sees it away (`wire.md`).
-        if !report.connected {
+        let gone = match agent.kind {
+            Kind::Marlin => !marlin::present(&report),
+            Kind::Pnp | Kind::Lw450 => !report.connected,
+        };
+        if gone {
             agent.hub_seen(false);
             agent.set_status(format!("the {} is not connected", agent.kind.title()));
             if let Some(ws) = agent.ws.lock().unwrap().clone()
@@ -1052,6 +1089,7 @@ fn link_loop(agent: &Arc<Agent>) {
         let mut kwargs = match agent.kind {
             Kind::Pnp => dymo_telemetry(&report.telemetry),
             Kind::Lw450 => Kwargs::new(),
+            Kind::Marlin => marlin::telemetry(&report.telemetry),
         };
         if let Some(cmd) = agent.command.lock().unwrap().as_ref()
             && cmd.state().is_some()
@@ -1281,6 +1319,7 @@ fn device_card(agent: &Agent) -> (String, bool) {
     let what = match agent.kind {
         Kind::Pnp => "Tape printer · USB",
         Kind::Lw450 => "Label printer · USB",
+        Kind::Marlin => "3D printer · USB",
     };
     let card = format!(
         r#"<div class="card{off}"><div class=head><h2>{title}</h2><span class="st {state_class}">{state}</span></div>
@@ -1726,7 +1765,8 @@ mod tests {
             Kind::ALL.map(|k| (k.folder(), k.printer_type())),
             [
                 ("dymo", "dymo.labelmanager-pnp"),
-                ("labelwriter-450", "dymo.labelwriter-450")
+                ("labelwriter-450", "dymo.labelwriter-450"),
+                ("marlin", "marlin.fdm"),
             ]
         );
     }
