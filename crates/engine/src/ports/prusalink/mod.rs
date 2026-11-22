@@ -29,18 +29,34 @@ pub(crate) mod python {
 
     pub const COMMON: &str = include_str!("driver_common.py");
 
-    pub fn root() -> PathBuf {
+    fn repo() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
     }
 
-    /// `COMMON` and `driver` run with `stdin`; the one JSON line it prints
-    pub fn run(driver: &str, stdin: &serde_json::Value) -> serde_json::Value {
-        let root = root();
-        let python = root.join("reference/.venv-prusalink/bin/python");
+    fn var_or(var: &str, local: &str) -> PathBuf {
+        std::env::var_os(var)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| repo().join(local))
+    }
+
+    /// `COMMON` and `driver` run with `stdin`; the one JSON line it prints. As the SDK's reference
+    /// tests (crates/connect-sdk/tests/download_reference.rs): the Python with PrusaLink's
+    /// packages in `PRUSALINK_PYTHON`, PrusaLink's and the SDK's checkouts in `PRUSALINK_SRC` and
+    /// `PRUSALINK_SDK_SRC` (CI), else the local `reference/`; `None` (said on stderr) without
+    /// that Python, and the test passes.
+    pub fn run(driver: &str, stdin: &serde_json::Value) -> Option<serde_json::Value> {
+        let python = var_or("PRUSALINK_PYTHON", "reference/.venv-prusalink/bin/python");
+        if !python.exists() {
+            eprintln!("not compared: no Python at {python:?} (set PRUSALINK_PYTHON)");
+            return None;
+        }
+        let link = var_or("PRUSALINK_SRC", "reference/Prusa-Link");
+        let sdk = var_or("PRUSALINK_SDK_SRC", "reference/Prusa-Connect-SDK-Printer");
         let mut child = Command::new(&python)
             .args(["-I", "-W", "ignore", "-c"])
             .arg(format!("{COMMON}\n{driver}"))
-            .arg(&root)
+            .arg(&link)
+            .arg(&sdk)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -53,6 +69,6 @@ pub(crate) mod python {
             .unwrap();
         let out = child.wait_with_output().unwrap();
         assert!(out.status.success(), "the Python driver failed");
-        serde_json::from_slice(&out.stdout).expect("one JSON line")
+        Some(serde_json::from_slice(&out.stdout).expect("one JSON line"))
     }
 }

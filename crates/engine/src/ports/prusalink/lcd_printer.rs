@@ -1121,7 +1121,9 @@ mod tests {
     #[test]
     fn identical_to_prusalink() {
         let scenarios = scenarios();
-        let theirs = python::run(include_str!("driver_lcd.py"), &json!(scenarios));
+        let Some(theirs) = python::run(include_str!("driver_lcd.py"), &json!(scenarios)) else {
+            return;
+        };
         let mut lines = 0;
         for (i, scenario) in scenarios.iter().enumerate() {
             let ours = simulate(scenario, "PrusaLink", None);

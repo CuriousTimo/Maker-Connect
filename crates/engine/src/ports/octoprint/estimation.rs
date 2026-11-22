@@ -402,7 +402,7 @@ class S:
 m = types.ModuleType("octoprint"); ms = types.ModuleType("octoprint.settings")
 ms.settings = lambda: S(); m.settings = ms
 sys.modules["octoprint"] = m; sys.modules["octoprint.settings"] = ms
-spec = importlib.util.spec_from_file_location("estimation", root + "/reference/OctoPrint-1.11.8/src/octoprint/printer/estimation.py")
+spec = importlib.util.spec_from_file_location("estimation", root + "/src/octoprint/printer/estimation.py")
 est = importlib.util.module_from_spec(spec); spec.loader.exec_module(est)
 def dec(h): return None if h == "n" else struct.unpack(">d", bytes.fromhex(h))[0]
 def enc(x):
@@ -504,8 +504,20 @@ json.dump(out, sys.stdout)
 
     #[test]
     fn estimator_identical_to_python() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let python = root.join("reference/.venv-octoprint-313/bin/python");
+        // As the SDK's reference tests (crates/connect-sdk/tests/download_reference.rs): CPython
+        // 3.13 in `ESTIMATION_PYTHON` and OctoPrint 1.11.8's checkout in `ESTIMATION_OCTOPRINT` (CI),
+        // else the local `reference/`; without that Python it says so and passes.
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let python = std::env::var_os("ESTIMATION_PYTHON")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| repo.join("reference/.venv-octoprint-313/bin/python"));
+        let root = std::env::var_os("ESTIMATION_OCTOPRINT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| repo.join("reference/OctoPrint-1.11.8"));
+        if !python.exists() {
+            eprintln!("not compared: no Python at {python:?} (set ESTIMATION_PYTHON)");
+            return;
+        }
         let stats: [(Option<f64>, Option<&str>); 6] = [
             (None, None),
             (Some(8000.0), Some("average")),

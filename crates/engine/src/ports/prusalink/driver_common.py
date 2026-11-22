@@ -1,5 +1,5 @@
 # The start of every Python driver of the PrusaLink tests (run with `reference/.venv-prusalink/bin/python
-# -I -W ignore`, argv[1] = the repository's root): PrusaLink's own modules import packages of its
+# -I -W ignore` or $PRUSALINK_PYTHON, argv[1] = PrusaLink's checkout, argv[2] = the SDK's): PrusaLink's own modules import packages of its
 # device (prctl, pyudev, websocket, ...) that the test venv does not have and that none of the code the
 # tests run uses; they are stubbed, nothing else is.
 import importlib.abc
@@ -8,7 +8,7 @@ import json
 import sys
 from unittest.mock import MagicMock
 
-ROOT = sys.argv[1]
+LINK, SDK = sys.argv[1], sys.argv[2]
 STUB = {'prctl', 'pyudev', 'websocket', 'pyric', 'sdnotify', 'psutil'}
 
 
@@ -29,4 +29,4 @@ class _Stub(importlib.abc.MetaPathFinder, importlib.abc.Loader):
 
 
 sys.meta_path.append(_Stub())
-sys.path[:0] = [ROOT + '/reference/Prusa-Link', ROOT + '/reference/Prusa-Connect-SDK-Printer']
+sys.path[:0] = [LINK, SDK]

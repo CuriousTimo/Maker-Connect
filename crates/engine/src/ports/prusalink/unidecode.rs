@@ -70,7 +70,9 @@ mod tests {
             "emoji \u{1F600} and \u{e000} and \u{f0000}",
             "a\u{0080}b\u{00a0}c\u{2028}d",
         ];
-        let python = python::run(include_str!("driver_unidecode.py"), &json!(strings));
+        let Some(python) = python::run(include_str!("driver_unidecode.py"), &json!(strings)) else {
+            return;
+        };
         let mut md5 = Md5::new();
         for cp in 0..0x110000u32 {
             let Some(ch) = char::from_u32(cp) else {

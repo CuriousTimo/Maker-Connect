@@ -236,10 +236,12 @@ mod tests {
                 rounding.push((c, s));
             }
         }
-        let theirs = python::run(
+        let Some(theirs) = python::run(
             include_str!("driver_m73.py"),
             &json!({"files": paths, "rounding": rounding}),
-        );
+        ) else {
+            return;
+        };
 
         let mut moments = 0;
         for (i, (name, text)) in texts.iter().enumerate() {
