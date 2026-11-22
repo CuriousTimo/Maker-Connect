@@ -74,10 +74,12 @@ its findings.
 
 - **No pull requests** (owner, 2026-11-20: one person works here, not a team). Commit straight on
   `main` and push, only when the owner asks for a commit.
-- **Checks** (owner, 2026-11-20: the full gate every time costs too much time). Before a commit: a
-  quick check only: `cargo fmt --check`, `clippy -D warnings` and the tests of the crates changed, and
-  the audit check that belongs to the change. CI runs the rest on the push to `main`; when it is red,
-  fix it in one go. The full `scripts/check.sh` only before a build for a Pi or a release.
+- **Checks** (owner, 2026-11-20: the full gate every time costs too much time; 2026-11-23: no more
+  red CI runs). Before a commit: `scripts/quick-check.sh` (every step CI runs: fmt, clippy on macOS and
+  for Windows, rustdoc `-D warnings`, the tests of the crates changed and of those that depend on them,
+  the hub's with Postgres and `tests/routes.txt` when the hub is among them), and the audit check that
+  belongs to the change. When CI is red anyway, fix it in one go. The full `scripts/check.sh` only
+  before a build for a Pi or a release.
 - The release key (`~/.config/maker-connect/release-key.pk8`) is never in the repo; releases
   are signed. Test builds go only to the Pis, never as GitHub releases.
 - Answer the user's questions first, before carrying on with other work.

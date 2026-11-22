@@ -11,12 +11,12 @@
 //!
 //! Differences (all OURS):
 //!  1. Texts: "PrusaLink" is [`PRODUCT`] ("Maker Connect", the owner's decision, #189).
-//!  2. The registration code screen (#189, owner 2026-11-22): "Code: <code>" (Buddy
+//!  2. The registration code screen (#189, owner 2026-11-22): "Code: &lt;code&gt;" (Buddy
 //!     `src/gui/dialogs/DialogConnectReg.cpp:109`), shown while [`Inputs::registration_code`] is set,
 //!     with [`CODE_PRIORITY`]; PrusaLink has no such screen. When the code is gone, the screen is
 //!     disabled, with no message of its own (owner, 2026-11-23).
 //!  3. `unidecode`: [`super::unidecode::unidecode`].
-//!  4. `time()` and the thread: see above. `through_queue`/`add_event` put an [`Event`] on the queue
+//!  4. `time()` and the thread: see above. `through_queue`/`add_event` put an `Event` on the queue
 //!     (`add_event`), one handled per iteration as the thread does.
 //!  5. `self.model...` is [`Inputs`]; `COND_TRACKER.get_worst()` and `NET_TRACKER.is_tracked()` are
 //!     [`Inputs::error`] and [`Cond::net_tracked`] (the conditions of `conditions.py` and of the

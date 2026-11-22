@@ -3709,8 +3709,8 @@ pub struct SDFileData {
 /// comm.py:196 `serialList()`: the serial ports to try, the last used one first.
 ///
 /// On Windows (`os.name == "nt"`) the values of the registry key
-/// `HKEY_LOCAL_MACHINE\HARDWARE\DEVICEMAP\SERIALCOMM` ([`winreg_serialcomm`]); elsewhere "/dev" is
-/// scanned for `regex_serial_devices` ([`scan_dev`]).
+/// `HKEY_LOCAL_MACHINE\HARDWARE\DEVICEMAP\SERIALCOMM` (`winreg_serialcomm`, Windows only); elsewhere "/dev" is
+/// scanned for `regex_serial_devices` (`scan_dev`).
 pub fn serial_list() -> Vec<String> {
     // OURS (docs/archive/plans/agent-engine.md, Section H): under `cfg(test)` the scanned directory is a temp
     // directory, never the real `/dev`
