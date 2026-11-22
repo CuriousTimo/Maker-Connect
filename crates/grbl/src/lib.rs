@@ -1,18 +1,18 @@
 //! A GRBL machine (a laser) on the agent's serial port, through LaserFoundry's
-//! `laserfoundry-device` and `laserfoundry-gcode` (v0.6.0, 8f07f98; MIT OR Apache-2.0). Its
-//! `Link` keeps the connection on a thread of its own, asks the status every 200 ms, streams a
-//! job by GRBL's character counting, and stops by a soft reset, which switches the laser off.
+//! `laserfoundry-device` and `laserfoundry-gcode` (the fork rev pinned in `Cargo.toml`; MIT OR
+//! Apache-2.0).
 //!
-//! **Only LaserFoundry's behaviour goes on the wire.** What this crate adds is the part of
-//! LaserFoundry's app (`crates/ui-egui/src/lib.rs`, v0.6.0) a host without its window needs: the
-//! link logic of `poll_link` (:1396-1427) and `reconnect_tick` (:1364-1394), and the refusals of
-//! `start_job_with` (:1238-1268). Each is marked with its file and line in LaserFoundry; what is
-//! ours is listed in `docs/archive/plans/agent-engine.md`, "Step 3d: the laser" (G1 and on).
+//! **The reference is the gnea/grbl wiki** (`86e8ecd`) and the `doc/script/stream.py` it points to
+//! (gnea/grbl `bfb67f0`), and LaserFoundry where the wiki is silent (CLAUDE.md, *Lasers (GRBL)*).
+//! LaserFoundry is the library that sends it. This crate
+//! took over parts of LaserFoundry's app (`crates/ui-egui/src/lib.rs`, v0.6.0): `poll_link`
+//! (:1396-1427), `reconnect_tick` (:1364-1394) and the refusals of `start_job_with` (:1238-1268),
+//! each marked with its file and line.
 //!
 //! Nothing here waits for the machine: a command is handed to the `Link` and answered later,
 //! from the snapshot's console, as [`GrblMachine::report`] keeps reading it.
 
-/// LaserFoundry's in-memory GRBL: for tests, and behind the hub's virtual lasers.
+/// LaserFoundry's in-memory GRBL, for tests.
 pub use laserfoundry_device::SimulatedGrbl;
 use laserfoundry_device::{
     JobState, Link, MachineState as Grbl, Snapshot, Transport, restart_line,
@@ -57,8 +57,6 @@ pub enum Command {
     Settings,
     /// `Link::jog(dx, dy, feed)`.
     Jog(f64, f64, f64),
-    /// `Link::jog_to(x, y, feed)`: to a place, in machine coordinates (the hub's virtual lasers).
-    JogTo(f64, f64, f64),
     /// `Link::send_line`: a line as typed (the app's console, `panels.rs:949`).
     Line(String),
 }
@@ -264,7 +262,6 @@ impl GrblMachine {
                 Command::GoToZero => link.go_to_zero(),
                 Command::Settings => link.request_settings(),
                 Command::Jog(dx, dy, feed) => link.jog(*dx, *dy, *feed),
-                Command::JogTo(x, y, feed) => link.jog_to(*x, *y, *feed),
                 Command::Line(line) => link.send_line(line),
             };
             match result {
@@ -835,7 +832,7 @@ fn settings(snapshot: &Snapshot) -> Option<GrblSettings> {
     })
 }
 
-/// What a GRBL controller answered `$I` (extension part 4, "What the laser is").
+/// What a GRBL controller answered `$I` (extension part 4, *What the laser is*).
 #[derive(Debug, Clone, PartialEq)]
 struct BuildInfo {
     /// `[VER:]`'s build version and date, before its second `:` (`1.1f(ESP32).20210403`).
@@ -902,53 +899,6 @@ fn is_answer(line: &str) -> bool {
 /// loses the link's `< `.
 fn tidy(line: &str) -> String {
     line.strip_prefix("< ").unwrap_or(line).to_owned()
-}
-
-/// The commands of the hub's virtual lasers' G-code text (`crates/hub/src/devices/virtual_grbl.rs`,
-/// their own simulator thread, which still speaks G-code): each line is the `Link` call
-/// LaserFoundry has for it, anything else is typed as it is.
-pub fn commands_of(gcode: &str) -> Result<Vec<Command>, String> {
-    let mut commands = Vec::new();
-    for line in gcode.lines().map(str::trim).filter(|l| !l.is_empty()) {
-        let upper = line.to_ascii_uppercase();
-        commands.push(match upper.as_str() {
-            "$H" => Command::Home,
-            "$X" => Command::Unlock,
-            "$$" => Command::Settings,
-            "G92 X0 Y0" => Command::SetZero,
-            "G90 G0 X0 Y0" => Command::GoToZero,
-            _ if upper.starts_with("$J=") => match jog(&upper) {
-                Some(command) => command,
-                None => return Err(format!("not a jog this machine takes: {line}")),
-            },
-            _ => Command::Line(line.to_owned()),
-        });
-    }
-    Ok(commands)
-}
-
-/// `$J=G91 G21 X10 F3000` (by) or `$J=G90 G21 X20 Y30 F3000` (to); X and Y only.
-fn jog(line: &str) -> Option<Command> {
-    let words = line.strip_prefix("$J=")?;
-    let mut relative = false;
-    let (mut x, mut y, mut feed) = (None, None, None);
-    for word in words.split_whitespace() {
-        let (letter, value) = word.split_at(1);
-        match (letter, value) {
-            ("G", "91") => relative = true,
-            ("G", "90" | "21" | "53") => {}
-            ("X", v) => x = Some(v.parse::<f64>().ok().filter(|v| v.is_finite())?),
-            ("Y", v) => y = Some(v.parse::<f64>().ok().filter(|v| v.is_finite())?),
-            ("F", v) => feed = Some(v.parse::<f64>().ok().filter(|v| *v > 0.0)?),
-            _ => return None,
-        }
-    }
-    let feed = feed?;
-    if relative {
-        Some(Command::Jog(x.unwrap_or(0.0), y.unwrap_or(0.0), feed))
-    } else {
-        Some(Command::JogTo(x?, y?, feed))
-    }
 }
 
 #[cfg(test)]

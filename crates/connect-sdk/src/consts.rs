@@ -284,6 +284,14 @@ str_enum! {
         UnloadFilament = "UNLOAD_FILAMENT",
         SlotAction = "SLOT_ACTION",
         DialogAction = "DIALOG_ACTION",
+
+        // Not the SDK's: Maker Connect's extension, Part 4 (`grbl.commands`,
+        // docs/design/prusa-sdk-extension.md, "New commands").
+        Home = "HOME",
+        Unlock = "UNLOCK",
+        Jog = "JOG",
+        SetOrigin = "SET_ORIGIN",
+        GoToOrigin = "GO_TO_ORIGIN",
     }
 }
 
@@ -332,7 +340,8 @@ mod tests {
         for command in Command::ALL {
             assert_eq!(command.value().parse::<Command>(), Ok(*command));
         }
-        assert_eq!(Command::ALL.len(), 27);
+        // The SDK's 27, and Part 4's five.
+        assert_eq!(Command::ALL.len(), 32);
         assert_eq!(Event::ALL.len(), 17);
         assert_eq!(Source::ALL.len(), 10);
         assert_eq!(State::ALL.len(), 9);

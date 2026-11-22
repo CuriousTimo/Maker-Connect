@@ -145,14 +145,14 @@ GRBL's ten (`IDLE` … `UNKNOWN`).
 |---|---|---|---|---|
 | `marlin` (3D printer) | Prusa Connect's `core.command.*` names where the meaning is the same, else `mc.printer.*` | OctoPrint's 16 comm states, as they are; mapped to Prusa Connect names only in the API layer | agent, OctoPrint port | OctoPrint 1.11.8 `42be740` |
 | `prusa` (3D printer) | the 3D-printer verbs of the `buddy-ws` dialect's baseline | Buddy's | hub, driver `prusa-buddy`, dialect `buddy-ws` | Buddy 6.4+ |
-| `grbl` (laser) | `mc.laser.*` (11: no raw G-code, [decision](decisions/20261119-no-raw-gcode-on-a-laser.md)) | GRBL's 10 machine states | agent, LaserFoundry port | LaserFoundry v0.6.0 `8f07f98` |
+| `grbl` (laser) | `mc.laser.*` (11: no raw G-code, [decision](decisions/20261119-no-raw-gcode-on-a-laser.md)) | GRBL's 10 machine states | agent, LaserFoundry port | gnea/grbl wiki `86e8ecd` + `stream.py` (gnea/grbl `bfb67f0`); LaserFoundry is the library (CLAUDE.md, *Lasers (GRBL)*) |
 | `labelmanager` (tape) | `mc.label.print` | `DISCONNECTED`, `IDLE`, `BUSY` (ours, approved) | agent, labelle port | labelle `5e8f1e5` |
 | `labelwriter` (labels) | `mc.label.print` | `IDLE`, `PRINTING`, `OUT_OF_PAPER`, `ERROR` | agent, DYMO CUPS port | DYMO CUPS driver 1.4.0 |
 | `scale` | none (state only: weight, stable) | usbscale's 8 + unknown | agent, usbscale port | usbscale `9ed1cb5` |
 | `camera` | `mc.camera.snapshot`, `mc.camera.stream` | online, offline | hub (RTSP, retina), agent (USB, nokhwa) | retina 0.4.22, go2rtc v1.9.15, nokhwa 0.10.11 |
 
-The full verb and state tables are the generated registries; they show `mc.laser.gcode` (12 verbs)
-until the code follows the decision above, in the device step. The per-port mapping with every
+The full verb and state tables are the generated registries (the laser's 11 verbs, without
+`mc.laser.gcode`, as the decision above says). The per-port mapping with every
 citation is [plans/hub-core-v2-device-map.md](../archive/plans/hub-core-v2-device-map.md); its owner answers
 (fan and motors off declared with OctoPrint's template G-code; Marlin's 16 states as they are; the
 laser frame through LaserFoundry's `job.frame`; no scale `zero`; the DYMO Connect roll catalogue as data)

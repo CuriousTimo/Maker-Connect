@@ -2261,8 +2261,7 @@ mod flow {
         // Its Cap lines (part 9, `firmware_capabilities`): the bed mesh and Probe bed only when
         // it says it keeps a mesh and measures (ui.md "Bed level").
         let machine = || async { store.machine(space, &id).await.unwrap().unwrap() };
-        let page =
-            |m: &crate::store::Machine| crate::pages::machine_page::settings(m, &[], false, true);
+        let page = |m: &crate::store::Machine| crate::pages::machine_page::settings(m, &[], false);
         assert!(crate::probe_gcode(&machine().await).is_err());
         // Its caps not told yet: no "Last read" (nothing says it does not report).
         assert!(!crate::pages::machine_page::reads_position(
@@ -2305,7 +2304,7 @@ mod flow {
         assert!(store.set_profile(space, &id, None).await.unwrap());
         let m = machine().await;
         assert_eq!(m.profile, None);
-        let page = crate::pages::machine_page::settings(&m, &[], false, true);
+        let page = crate::pages::machine_page::settings(&m, &[], false);
         for shown in [
             "<b> AtomX MK3</b>",
             "From its firmware (M115)",
@@ -2322,7 +2321,7 @@ mod flow {
                 .await
                 .unwrap()
         );
-        let page = crate::pages::machine_page::settings(&machine().await, &[], false, true);
+        let page = crate::pages::machine_page::settings(&machine().await, &[], false);
         assert!(page.contains("235 × 235 × 250 mm"), "{page}");
     }
 

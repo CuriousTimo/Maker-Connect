@@ -1,18 +1,84 @@
-//! A GRBL laser on the agent's USB (`docs/design/prusa-sdk-extension.md`, part 4): the LaserFoundry
-//! port (`maker_connect_engine::ports::laserfoundry`, LaserFoundry v0.6.0 `8f07f98`) hosted on the
-//! SDK as the Marlin is.
+//! A GRBL laser on the agent's USB (`docs/design/prusa-sdk-extension.md`, part 4): the laser port
+//! (`maker_connect_engine::ports::laserfoundry`) hosted on the SDK as the Marlin is. What the laser
+//! is sent follows the gnea/grbl wiki `86e8ecd`, and LaserFoundry where the wiki is silent
+//! (CLAUDE.md, *Lasers (GRBL)*).
 //!
-//! Reporting only (#163): its states, telemetry and settings in `INFO` (`grbl.telemetry`). It has
-//! no handler but `SEND_INFO`, so the SDK rejects every other command, "Not Implemented"
-//! (`command.py` `__call__`; `crates/connect-sdk/src/command.rs`): nothing from the hub reaches
-//! the laser. Its commands are #164.
+//! Its states, telemetry and settings in `INFO` (`grbl.telemetry`), and Part 4's commands
+//! (`grbl.commands`): `HOME`, `UNLOCK`, `JOG`, `SET_ORIGIN` and `GO_TO_ORIGIN`, each the port's
+//! `Action` for LaserFoundry's `Link` call. Its jobs and `FRAME` are not here yet (#173, #172).
 
 use super::{Agent, set_state};
 use maker_connect_engine::Report;
-use maker_connect_protocol::{GrblSettings, MachineState};
-use maker_connect_sdk::consts::State;
+use maker_connect_protocol::{Action, GrblSettings, MachineState};
+use maker_connect_sdk::command::{Command, CommandHandler, Finish, HandlerError};
+use maker_connect_sdk::consts::{self, Source, State};
 use maker_connect_sdk::models::Kwargs;
 use serde_json::Value;
+use std::sync::Arc;
+
+/// Part 4's commands, set on the SDK as the Marlin's are (`marlin.rs` `setup`).
+pub(crate) fn setup(agent: &Arc<Agent>, command: &Command) {
+    for name in [
+        consts::Command::Home,
+        consts::Command::Unlock,
+        consts::Command::Jog,
+        consts::Command::SetOrigin,
+        consts::Command::GoToOrigin,
+    ] {
+        let me = agent.clone();
+        let h: CommandHandler = Arc::new(move |cmd| handle(&me, name, cmd));
+        command.set_handler(name, h);
+    }
+}
+
+/// Part 4: `FINISHED` once the laser is done, or `REJECTED` with the reason (GRBL's `error:`, or
+/// LaserFoundry's refusal).
+fn handle(agent: &Agent, name: consts::Command, cmd: &Command) -> Result<Finish, HandlerError> {
+    send(agent, cmd.command_id(), action(name, cmd)?).map(|_| Finish::new(Source::Connect))
+}
+
+/// Part 4's table: the command as the port's `Action`, which the port turns into the `Link` call
+/// (`ports/laserfoundry/port.rs` `commands_for`).
+fn action(name: consts::Command, cmd: &Command) -> Result<Action, HandlerError> {
+    Ok(match name {
+        consts::Command::Home => Action::Home { axes: Vec::new() },
+        consts::Command::Unlock => Action::Unlock,
+        consts::Command::Jog => {
+            let kwargs = cmd.kwargs();
+            // As the SDK reads a kwarg it needs (`command_handlers.py`), `KeyError` when it is not there.
+            let number = |key: &str| {
+                kwargs
+                    .as_ref()
+                    .and_then(|k| k.get(key))
+                    .and_then(Value::as_f64)
+                    .ok_or_else(|| HandlerError::Rejected(format!("KeyError('{key}')")))
+            };
+            Action::Jog {
+                x: Some(number("x")?),
+                y: Some(number("y")?),
+                z: None,
+                feed: Some(number("feed")?),
+            }
+        }
+        consts::Command::SetOrigin => Action::SetOrigin,
+        consts::Command::GoToOrigin => Action::GoOrigin,
+        other => {
+            return Err(HandlerError::Rejected(format!(
+                "{}: not a laser command",
+                other.value()
+            )));
+        }
+    })
+}
+
+/// The action to the laser's port, waited for: what the laser said, or why not.
+fn send(agent: &Agent, command_id: i64, action: Action) -> Result<Vec<String>, HandlerError> {
+    match crate::run_action(agent, command_id, action) {
+        Ok(done) => done.map_err(HandlerError::Rejected),
+        Err(crate::Gone::Off) => Err(HandlerError::Rejected("the laser module is off".into())),
+        Err(crate::Gone::Ended) => Err(HandlerError::Rejected("the laser port has ended".into())),
+    }
+}
 
 /// Part 4's table: GRBL's state, by LaserFoundry's name for it (`crates/grbl` `state_name`), as the
 /// protocol's `state`; `job` whether a job of the hub's runs. `None`: no status report yet
@@ -49,7 +115,7 @@ pub(crate) fn state(agent: &Agent, report: Option<&Report>) -> State {
 /// (part 4: the device read them from GRBL after connecting), then a `STATE_CHANGED` when the
 /// state is another than the last one said.
 pub(crate) fn tick(agent: &Agent, report: &Report) {
-    // Part 4, "What the laser is": its `$I` answer in `INFO` (`firmware`, `firmware_info`), once
+    // Part 4, *What the laser is*: its `$I` answer in `INFO` (`firmware`, `firmware_info`), once
     // it answered, sent again when it changed.
     if let Some(info) = report
         .telemetry
@@ -143,7 +209,108 @@ mod tests {
     use super::*;
     use maker_connect_protocol::{JobProgress, Telemetry};
 
-    /// Part 4, "What the laser is": the `$I` answer in `INFO` as `firmware` and `firmware_info`, once
+    /// Part 4's commands through the SDK to LaserFoundry's simulated GRBL: each `FINISHED`, and the
+    /// line the `Link` sent for it.
+    #[test]
+    fn the_commands_reach_the_laser() {
+        let (agent, cmd, sent) = laser();
+        let cases = [
+            ("HOME", None, "> $H"),
+            ("UNLOCK", None, "> $X"),
+            (
+                "JOG",
+                Some(serde_json::json!({"x": 5, "y": 0, "feed": 3000})),
+                "> $J=G91 G21 X5 F3000",
+            ),
+            ("SET_ORIGIN", None, "> G92 X0 Y0"),
+            ("GO_TO_ORIGIN", None, "> G90 G0 X0 Y0"),
+        ];
+        for (id, (name, kwargs, line)) in (1..).zip(cases) {
+            cmd.accept(id, name, None, kwargs.clone(), false);
+            cmd.run();
+            let last = sent.lock().unwrap().last().cloned().unwrap();
+            assert_eq!(
+                (last.0, last.2),
+                (consts::Event::Finished, Some(id)),
+                "{name}"
+            );
+            // The same command again, its output looked at.
+            cmd.accept(id + 100, name, None, kwargs, false);
+            let output = send(
+                &agent,
+                id + 100,
+                action(name.parse().unwrap(), &cmd).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                output.first().map(String::as_str),
+                Some(line),
+                "{name}: {output:?}"
+            );
+        }
+    }
+
+    /// A jog LaserFoundry refuses is `REJECTED` with its reason; a missing kwarg likewise.
+    #[test]
+    fn a_refused_or_incomplete_jog_is_rejected() {
+        let (_agent, cmd, sent) = laser();
+        cmd.accept(
+            1,
+            "JOG",
+            None,
+            Some(serde_json::json!({"x": 5000, "y": 0, "feed": 3000})),
+            false,
+        );
+        cmd.run();
+        let last = sent.lock().unwrap().last().cloned().unwrap();
+        assert_eq!((last.0, last.2), (consts::Event::Rejected, Some(1)));
+        // LaserFoundry's own text (`Link::jog`, its `MAX_JOG_MM` and feed bounds).
+        assert_eq!(
+            last.3.get("reason"),
+            Some(&Value::from(
+                "jog steps must be within ±1000 mm and feed within 1–30000 mm/min"
+            ))
+        );
+        cmd.accept(
+            2,
+            "JOG",
+            None,
+            Some(serde_json::json!({"x": 5, "y": 0})),
+            false,
+        );
+        cmd.run();
+        let last = sent.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(last.3.get("reason"), Some(&Value::from("KeyError('feed')")));
+    }
+
+    type Sent = Arc<std::sync::Mutex<Vec<(consts::Event, Source, Option<i64>, Kwargs)>>>;
+
+    /// An agent for a laser whose port drives LaserFoundry's simulated GRBL, its commands set.
+    fn laser() -> (Arc<Agent>, Command, Sent) {
+        use maker_connect_engine::ports::laserfoundry::port::LaserFoundryPort;
+        let dir = std::env::temp_dir().join(format!("mc-laser-{}", std::process::id()));
+        let engine = Arc::new(std::sync::Mutex::new(maker_connect_engine::Engine::new()));
+        let agent = Arc::new(Agent::new(
+            crate::Kind::Laser,
+            dir,
+            crate::Settings::default(),
+            engine.clone(),
+        ));
+        let mut sim = maker_connect_grbl::SimulatedGrbl::new();
+        sim.set_latency(std::time::Duration::from_millis(1));
+        let port =
+            LaserFoundryPort::with_machine(maker_connect_grbl::GrblMachine::new(Box::new(sim)));
+        *agent.dymo.lock().unwrap() = Some(engine.lock().unwrap().add(Box::new(port)));
+        let sent: Sent = Default::default();
+        let to = sent.clone();
+        let cmd = Command::new(Arc::new(move |event, source, _, id, kwargs| {
+            to.lock().unwrap().push((event, source, id, kwargs));
+        }));
+        setup(&agent, &cmd);
+        (agent, cmd, sent)
+    }
+
+    /// Part 4, *What the laser is*: the `$I` answer in `INFO` as `firmware` and `firmware_info`, once
     /// it answered, and `INFO` again only when it changed.
     #[test]
     fn its_build_info_in_info() {

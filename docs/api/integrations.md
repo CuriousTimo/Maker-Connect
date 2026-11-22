@@ -46,12 +46,12 @@ GRBL is not Marlin: flow control by character counting, no line numbers or check
 by the realtime `?`; realtime bytes outside the stream (`!` hold, `~` resume, Ctrl-X reset);
 `$H` homing, `$$` settings, `ALARM:N` after a limit or reset.
 
-**Built (2026-11-04):** the crate `maker-connect-grbl` (`crates/grbl`) wraps its `Link`, shared by
-the agent (with real serial ports) and the hub (virtual lasers):
+**Built (2026-11-04):** the crate `maker-connect-grbl` (`crates/grbl`) wraps its `Link`, used by
+the agent (with real serial ports):
 
 - GRBL recognised on the port by its greeting (or `$I`); commands (`$H`, `$X`, `$$`, any line)
   with their answers for the terminal;
-- jogs as GRBL's own `$J=` through the link's `jog` and `jog_to` (laser off, checked). The
+- jogs as GRBL's own `$J=` through the link's `jog` (laser off, checked). The
   website's jog pad (lasers, CNCs, plotters; printers keep their ±10 mm buttons) sends
   `jog:<x>:<y>` with a step of 0.1, 1, 10 or 50 mm and a speed of 600 to 6000 mm/min; the hub
   refuses anything else and turns it into `$J=G91 G21 X… Y… F…`;
@@ -66,7 +66,6 @@ the agent (with real serial ports) and the hub (virtual lasers):
 - starting again: an interrupted job says where it can start again (`restart_line`, a few lines
   back, in the file's numbering), and the new job starts there with `laserfoundry-gcode`'s
   `resume_from`, which first goes there with the beam off;
-- virtual lasers: `SimulatedGrbl` behind the same code, on a thread of their own in the hub.
 
 Tested against `SimulatedGrbl`; not yet on a real laser.
 

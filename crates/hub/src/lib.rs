@@ -49,9 +49,9 @@ pub mod web;
 pub use store::Store;
 
 pub(crate) use devices::legacy_gcode::{
-    action, grbl_action, jog_command, probe_gcode, prusa_mk3_machine,
+    action, jog_command, jog_move, probe_gcode, prusa_mk3_machine,
 };
-pub use devices::{printer_files, prusa_connect, simplyprint, virtual_grbl, virtual_machines};
+pub use devices::{printer_files, prusa_connect, simplyprint, virtual_machines};
 pub(crate) use link::{agent_job, agent_of, peer_address};
 pub use pages::{
     access_page, add_machine_page, files_page, label_page, machine_page, now_page,

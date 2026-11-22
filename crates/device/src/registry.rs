@@ -104,7 +104,6 @@ pub const DELETE_FILE: &str = "core.command.delete_file";
 
 pub const LABEL_PRINT: &str = "mc.label.print";
 
-pub const LASER_GCODE: &str = "mc.laser.gcode";
 pub const LASER_JOG: &str = "mc.laser.jog";
 pub const LASER_HOME: &str = "mc.laser.home";
 pub const LASER_UNLOCK: &str = "mc.laser.unlock";
@@ -444,19 +443,6 @@ pub static CAPABILITY_VERBS: &[VerbEntry] = &[
         doc: "Prints one label as the reference's own print run does.",
     },
     // ---- GRBL lasers through LaserFoundry v0.6.0 (device map §4.1) ----
-    // LF/crates/device/src/link.rs:161 `Link::send_line`; app panels.rs:949
-    row(
-        LASER_GCODE,
-        &[arg(
-            "line",
-            Kind::String,
-            None,
-            "One line, at most 79 bytes (stream.rs:10, link.rs:166).",
-        )],
-        ACT_GCODE,
-        LASER,
-        "LaserFoundry's console line; refused while a job runs (link.rs:169,277).",
-    ),
     // LF/crates/device/src/link.rs:205 `Link::jog`; app panels.rs:888
     row(
         LASER_JOG,
@@ -595,7 +581,7 @@ macro_rules! marlin_operational {
 /// the app's state rules are about the job, not the machine state (device map §4.2).
 macro_rules! laser_any_state {
     ($($more:expr),*) => {
-        &[LASER_GCODE, LASER_JOG, LASER_HOME, LASER_UNLOCK, LASER_SET_ORIGIN, LASER_GO_ORIGIN,
+        &[LASER_JOG, LASER_HOME, LASER_UNLOCK, LASER_SET_ORIGIN, LASER_GO_ORIGIN,
           LASER_READ_SETTINGS, LASER_FRAME, LASER_PAUSE, LASER_RESUME, LASER_STOP $(, $more)*]
     };
 }
@@ -1281,7 +1267,8 @@ mod tests {
         assert_eq!(of(KIND_MARLIN), 17);
         assert_eq!(of(KIND_LABELMANAGER), 1);
         assert_eq!(of(KIND_LABELWRITER), 1);
-        assert_eq!(of(KIND_GRBL), 12);
+        // 11: no raw G-code (docs/design/decisions/20261119-no-raw-gcode-on-a-laser.md)
+        assert_eq!(of(KIND_GRBL), 11);
         assert_eq!(of(KIND_SCALE), 0);
         let states = |kind: &str| state_set(kind).unwrap().states.len();
         assert_eq!(states(KIND_MARLIN), 16);

@@ -411,35 +411,12 @@ fn set_value(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
 /// An `Action` to the port, waited for as PrusaLink's `do_command` waits
 /// (`command_queue.py:69-90`); the port's reason as the failure. What the printer said meanwhile.
 fn run(agent: &Agent, command_id: i64, action: Action) -> Result<Vec<String>, HandlerError> {
-    let Some(id) = *agent.dymo.lock().unwrap() else {
-        return Err(failed("the Marlin module is off"));
-    };
-    let ended = || failed("Command has not been processed because the Marlin port has ended");
-    let order = command_id as u32;
-    agent
-        .engine
-        .lock()
-        .unwrap()
-        .send(id, Order::Command { id: order, action })
-        .map_err(|_| ended())?;
-    loop {
-        // Ours: how often the port's report is looked at, not on the wire.
-        std::thread::sleep(Duration::from_millis(100));
-        let report = agent
-            .engine
-            .lock()
-            .unwrap()
-            .report(id)
-            .map_err(|_| ended())?;
-        if let Some(i) = report.done.iter().position(|d| d.id == order) {
-            let done = report.done[i].clone();
-            let _ = agent.engine.lock().unwrap().reported(id, i + 1, 0);
-            return if done.ok {
-                Ok(done.output)
-            } else {
-                Err(failed(done.reason.as_deref().unwrap_or("failed")))
-            };
-        }
+    match crate::run_action(agent, command_id, action) {
+        Ok(done) => done.map_err(|reason| failed(&reason)),
+        Err(crate::Gone::Off) => Err(failed("the Marlin module is off")),
+        Err(crate::Gone::Ended) => Err(failed(
+            "Command has not been processed because the Marlin port has ended",
+        )),
     }
 }
 

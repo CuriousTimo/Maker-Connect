@@ -64,8 +64,8 @@ impl Run {
             .clone()
     }
 
-    fn send(&mut self, gcode: &str) -> Result<Vec<String>, String> {
-        let ticket = self.machine.submit(&commands_of(gcode)?)?;
+    fn send(&mut self, command: Command) -> Result<Vec<String>, String> {
+        let ticket = self.machine.submit(&[command])?;
         self.answer(ticket)
     }
 }
@@ -271,7 +271,7 @@ fn the_machines_error_is_the_commands_failure() {
     let mut sim = quick();
     sim.fail_on("G1");
     let mut run = Run::new(GrblMachine::new(Box::new(sim)));
-    let why = run.send("G1 X1").unwrap_err();
+    let why = run.send(Command::Line("G1 X1".into())).unwrap_err();
     assert!(why.starts_with("error:20"), "{why}");
     assert!(why.ends_with("(for: G1 X1)"), "{why}");
 }
@@ -425,7 +425,7 @@ fn a_job_is_refused_while_the_machine_is_not_idle() {
     let mut sim = quick();
     sim.alarm_after_last_line();
     let mut run = Run::new(GrblMachine::new(Box::new(sim)));
-    run.send("G0 X1").ok();
+    run.send(Command::Line("G0 X1".into())).ok();
     run.until("the alarm", |r| r.telemetry.state == MachineState::Error);
     let why = run
         .machine
@@ -448,47 +448,27 @@ fn settings_are_read_and_jogs_go_through() {
     assert_eq!(settings.laser_mode, Some(true));
     assert_eq!(settings.max_power, Some(1000.0));
     assert_eq!(settings.travel_mm, Some([200.0, 200.0, 200.0]));
-    run.send("$J=G90 G21 X20 Y30 F3000").unwrap();
-    run.send("$J=G91 G21 X5 F3000").unwrap();
+    run.send(Command::Jog(20.0, 30.0, 3000.0)).unwrap();
+    run.send(Command::Jog(5.0, 0.0, 3000.0)).unwrap();
     run.until("the head", |r| {
         r.telemetry.position_mm == Some([Some(25.0), Some(30.0), Some(0.0)])
     });
-    assert!(run.send("$J=G91 Z5 F100").is_err(), "X and Y only");
 }
 
 /// The origin set where the head is, moved away from, gone back to.
 #[test]
 fn the_origin_is_set_and_gone_back_to() {
     let mut run = Run::sim(1);
-    run.send("$J=G90 G21 X40 Y15 F3000").unwrap();
-    run.send("G92 X0 Y0").unwrap();
-    run.send("$J=G91 G21 X10 Y-5 F3000").unwrap();
+    run.send(Command::Jog(40.0, 15.0, 3000.0)).unwrap();
+    run.send(Command::SetZero).unwrap();
+    run.send(Command::Jog(10.0, -5.0, 3000.0)).unwrap();
     run.until("moved", |r| {
         r.telemetry.position_mm == Some([Some(50.0), Some(10.0), Some(0.0)])
     });
-    run.send("G90 G0 X0 Y0").unwrap();
+    run.send(Command::GoToZero).unwrap();
     run.until("back", |r| {
         r.telemetry.position_mm == Some([Some(40.0), Some(15.0), Some(0.0)])
     });
-}
-
-#[test]
-fn jogs_are_read() {
-    assert_eq!(
-        jog("$J=G91 G21 X10 F3000"),
-        Some(Command::Jog(10.0, 0.0, 3000.0))
-    );
-    assert_eq!(
-        jog("$J=G90 G21 X1 Y2 F600"),
-        Some(Command::JogTo(1.0, 2.0, 600.0))
-    );
-    assert_eq!(jog("$J=G90 X1 F600"), None, "to a place needs X and Y");
-    assert_eq!(jog("$J=G91 X1"), None, "a feed is needed");
-    assert_eq!(jog("$J=G91 XNaN F600"), None);
-    assert_eq!(
-        commands_of("$H\n\n$X").unwrap(),
-        [Command::Home, Command::Unlock]
-    );
 }
 
 /// A stopped job says where to start again, in the file's lines; started there, it runs to the end.
@@ -699,7 +679,7 @@ fn a_lost_connection_is_reopened_and_nothing_resumes() {
         r.telemetry.state == MachineState::Idle && r.telemetry.grbl.is_some()
     });
     assert_eq!(run.telemetry.job_id, None, "nothing resumes");
-    run.send("G0 X3").unwrap();
+    run.send(Command::Line("G0 X3".into())).unwrap();
 }
 
 /// A command whose answer was owed when the connection went fails.

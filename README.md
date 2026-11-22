@@ -195,7 +195,7 @@ roadmap.
 | **engine** (`crates/engine`) | The ports, one per device, each a translation of its one reference (OctoPrint, labelle, DYMO's CUPS driver, LaserFoundry, usbscale) |
 | **device** (`crates/device`) | The device contract: identity, capabilities, states, commands and results |
 | **system** (`crates/system`) | What the computer a hub or an agent runs on is, for the About pages |
-| **grbl** (`crates/grbl`) | GRBL machines (lasers), on LaserFoundry's `laserfoundry-device` and `laserfoundry-gcode`; used by the agent and by the hub's virtual lasers |
+| **grbl** (`crates/grbl`) | GRBL machines (lasers), on LaserFoundry's `laserfoundry-device` and `laserfoundry-gcode`; used by the agent |
 | **label** (`crates/label`) | Labels as rasters (PNG in, dots out), and the DYMO LabelManager's protocol over USB HID |
 | **protocol** (`crates/protocol`) | What agents and the hub say to each other |
 | **update** (`crates/update`) | Updating itself, for the hub and the agent: releases checked against the release key, a trial, and the way back; `examples/release-key.rs` makes the key and signs a release |

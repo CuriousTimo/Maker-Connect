@@ -53,16 +53,16 @@
 
 | State | Accepts | |
 |---|---|---|
-| `IDLE` | mc.laser.gcode, mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop, mc.laser.start | GRBL `Idle`. |
-| `RUN` | mc.laser.gcode, mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Run`. |
-| `HOLD` | mc.laser.gcode, mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Hold`. |
-| `JOG` | mc.laser.gcode, mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Jog`. |
-| `ALARM` | mc.laser.gcode, mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Alarm`. |
-| `DOOR` | mc.laser.gcode, mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Door`. |
-| `CHECK` | mc.laser.gcode, mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Check`. |
-| `HOME` | mc.laser.gcode, mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Home`. |
-| `SLEEP` | mc.laser.gcode, mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Sleep`. |
-| `UNKNOWN` | mc.laser.gcode, mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop, mc.laser.start | A status LaserFoundry does not know (`Unknown`). |
+| `IDLE` | mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop, mc.laser.start | GRBL `Idle`. |
+| `RUN` | mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Run`. |
+| `HOLD` | mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Hold`. |
+| `JOG` | mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Jog`. |
+| `ALARM` | mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Alarm`. |
+| `DOOR` | mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Door`. |
+| `CHECK` | mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Check`. |
+| `HOME` | mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Home`. |
+| `SLEEP` | mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop | GRBL `Sleep`. |
+| `UNKNOWN` | mc.laser.jog, mc.laser.home, mc.laser.unlock, mc.laser.set_origin, mc.laser.go_origin, mc.laser.read_settings, mc.laser.frame, mc.laser.pause, mc.laser.resume, mc.laser.stop, mc.laser.start | A status LaserFoundry does not know (`Unknown`). |
 
 | From | To | Verb |
 |---|---|---|

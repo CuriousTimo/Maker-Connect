@@ -31,6 +31,17 @@ B. **No fusing.** Each stack has exactly one reference. Flag any piece that come
    our old code. Flag it even when it is only "for comparison" or "to fill a gap". Name both
    sources.
 
+C. **Lasers (GRBL): the whole path, not only the step.** The reference is the gnea/grbl wiki
+   `86e8ecd` and `stream.py` `bfb67f0` (CLAUDE.md, "Lasers"). Whatever you were asked, check
+   everything that reaches the laser: Maker Connect's `crates/grbl`, `crates/engine` (ports and
+   device), the agent, *and the LaserFoundry library* it uses (the fork at the rev pinned in
+   `crates/engine/Cargo.toml`), plus every code comment that quotes the wiki. Run
+   `scripts/quote-check.py` and report its result. Any value, bound, time-out, retry, default,
+   refusal or state check that is neither quoted verbatim from the wiki/`stream.py` nor
+   LaserFoundry's own (at the pinned rev) is INVENTED. LaserFoundry's own choices where the wiki is
+   silent are fine (owner, 2026-11-22); where its code contradicts a quoted wiki text, report it as
+   a difference for the owner.
+
 Then answer each question with **yes / no / unclear**, and one line of evidence (file:line,
 quote, or command output):
 

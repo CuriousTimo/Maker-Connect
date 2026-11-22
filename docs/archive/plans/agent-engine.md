@@ -602,6 +602,12 @@ ported or audited reference.
 
 ### Step 3d: the laser (2026-11-15; ours below: to approve (proxy))
 
+> **Replaced as the reference (owner, 2026-11-21):** "gnea-wiki als referentie". The reference for
+> what a GRBL laser is sent is now the gnea/grbl wiki `86e8ecd` and its `stream.py` (gnea/grbl
+> `bfb67f0`), to the letter (CLAUDE.md, *Lasers (GRBL)*). LaserFoundry below is only the library. What
+> this step took from LaserFoundry and its app that the wiki does not have is being removed (#171).
+> The text below is the history of the step, not the rule.
+
 Reference: **LaserFoundry v0.5.0** (`61febdb`, `reference/laserfoundry`, MIT OR Apache-2.0; owner's exception of
 2026-11-15, see "Owner overrules the watchdog on LaserFoundry"): `laserfoundry-device` (`Link`, `SimulatedGrbl`,
 `restart_line`), `laserfoundry-gcode` (`resume_from`, `frame`), and the link logic of its app

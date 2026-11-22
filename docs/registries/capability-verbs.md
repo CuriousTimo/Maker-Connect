@@ -22,7 +22,6 @@
 | `mc.printer.sd_list` | - | `device.view` | no | marlin | OctoPrint's `printer/sd` `refresh`; the card's file names come back as the command's output. |
 | `core.command.delete_file` | `path` (string), `origin` (string) | `job.control` | no | marlin | OctoPrint's `files/sdcard/<path>` DELETE; refused for the file in use (files.py:1329-1330). |
 | `mc.label.print` | `picture` (string), `tape_size_mm` (integer, mm), `page_size` (string) | `job.start` | no | labelmanager, labelwriter | Prints one label as the reference's own print run does. |
-| `mc.laser.gcode` | `line` (string) | `device.gcode` | no | grbl | LaserFoundry's console line; refused while a job runs (link.rs:169,277). |
 | `mc.laser.jog` | `x` (number, mm), `y` (number, mm), `feed` (number, mm/min) | `device.move` | no | grbl | LaserFoundry's jog: `$J=G91 G21 X.. Y.. F..`. |
 | `mc.laser.home` | - | `device.move` | no | grbl | LaserFoundry's Home: `$H`, one homing cycle. |
 | `mc.laser.unlock` | - | `device.move` | no | grbl | LaserFoundry's Unlock: `$X`. |

@@ -40,8 +40,8 @@ libc = { version = "0.2", optional = true }
 png = { version = "0.17", optional = true }
 nusb = { version = "0.2", optional = true }
 
-# The laser port (`ports/laserfoundry/`, step 3d): `crates/grbl`, which is LaserFoundry v0.6.0's
-# device and G-code crates and the link logic of its app. `serial` for LaserFoundry's own serial transport.
+# The laser port (`ports/laserfoundry/`, step 3d): `crates/grbl`, over LaserFoundry's device and
+# G-code crates (the library; the reference is the gnea/grbl wiki, and LaserFoundry where it is silent, CLAUDE.md *Lasers (GRBL)*). `serial` for LaserFoundry's own serial transport.
 maker-connect-grbl = { path = "../grbl", features = ["serial"], optional = true }
 
 # The DYMO M-series scale port (`ports/usbscale/`, step 3e, E1): hidapi 2.6.7, the OS's own HID on

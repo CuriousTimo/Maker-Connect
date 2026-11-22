@@ -29,7 +29,6 @@ name = "mse_record"
 required-features = ["cameras"]
 
 [dependencies]
-maker-connect-grbl = { path = "../grbl" }
 maker-connect-label = { path = "../label" }
 # HS1: the ports' geometry only (`ports::geometry`); no device code (`default-features = false`).
 maker-connect-engine = { path = "../engine", default-features = false }

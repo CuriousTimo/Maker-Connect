@@ -234,7 +234,7 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
             &no_operate(machine, extra),
         ),
         telemetry = telemetry_tab(machine),
-        settings = settings(machine, &extra.move_to, extra.ppe_checks, extra.may_operate),
+        settings = settings(machine, &extra.move_to, extra.ppe_checks),
         // A laser has no console (decision 20261119-no-raw-gcode-on-a-laser): no Advanced tab.
         advanced_tab = if laser {
             ""
@@ -2020,14 +2020,8 @@ fn control(
         r#"<h4>Coordinates</h4><div class="xyz">{xyz}</div>{area}{}"#,
         jog_pad()
     );
-    // Read settings: what its controller reported is under Machine (the Controller card).
-    let read = if t.is_some_and(|t| t.grbl.is_some()) {
-        button("settings", "Read settings")
-    } else {
-        String::new()
-    };
     let right = format!(
-        r#"<h4>Origin</h4><div class="buttons">{}{}</div><p class="hint">A job starts from its origin. Move the head to the corner of what you work on, then set it; the machine forgets it when it restarts.</p><h4>Machine</h4><div class="buttons">{}{read}</div><p class="hint">Unlock after an alarm ($X). A laser has no console: nothing but Start burn switches the laser on.</p>"#,
+        r#"<h4>Origin</h4><div class="buttons">{}{}</div><p class="hint">A job starts from its origin. Move the head to the corner of what you work on, then set it; the machine forgets it when it restarts.</p><h4>Machine</h4><div class="buttons">{}</div><p class="hint">Unlock after an alarm ($X). A laser has no console: nothing but Start burn switches the laser on.</p>"#,
         button("set-origin", "Set origin here"),
         button("go-origin", "Go to origin"),
         button("unlock", "Unlock"),
@@ -2368,7 +2362,7 @@ fn gigabytes(bytes: u64) -> String {
 }
 
 /// A GRBL machine's own settings (`$$`), and what in them matters before a job.
-fn controller(machine: &Machine, operate: bool) -> String {
+fn controller(machine: &Machine) -> String {
     let Some(grbl) = machine.telemetry.as_ref().and_then(|t| t.grbl.as_ref()) else {
         return String::new();
     };
@@ -2406,18 +2400,10 @@ fn controller(machine: &Machine, operate: bool) -> String {
         .iter()
         .map(|n| format!(r#"<p class="note">{}</p>"#, escape(n)))
         .collect();
-    let read = if store::takes_commands(&machine.link) && operate {
-        format!(
-            r#"<form class="command" method="post" action="{}/command"><button name="action" value="settings" class="ghost">Read them again</button></form><p class="note" data-command-status role="status"></p>"#,
-            escape(&machine.id)
-        )
-    } else {
-        String::new()
-    };
     card(
         "Controller",
         "Its GRBL settings, as it reported them ($$)",
-        &format!("<dl>{rows}</dl>{notes}{read}"),
+        &format!("<dl>{rows}</dl>{notes}"),
     )
 }
 
@@ -2540,7 +2526,6 @@ pub(crate) fn settings(
     machine: &Machine,
     move_to: &[(String, String)],
     ppe_checks: bool,
-    operate: bool,
 ) -> String {
     let details = machine.details.clone().unwrap_or_default();
     // The profile: chosen from all the machines known, by searching (the shell's picker).
@@ -2764,7 +2749,7 @@ pub(crate) fn settings(
     ]
     .concat();
     let mut info = connection(machine);
-    info += &controller(machine, operate);
+    info += &controller(machine);
     if !storage.is_empty() {
         info += &card("Storage", "", &format!("<dl>{storage}</dl>"));
     }

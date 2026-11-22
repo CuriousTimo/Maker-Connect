@@ -634,21 +634,15 @@ pub(crate) async fn machine_page(
     match found {
         Ok((space, Some(machine))) if machine.kind == protocol::MachineKind::Label => {
             let move_to = move_targets(&access, &spaces);
-            let may_operate = store
-                .may(&access, &machine.id, access::Level::Operate, &grants)
-                .unwrap_or(false);
             // HS2: a LabelWriter has its own page; a LabelManager the label page.
             let profile = machine.profile.as_deref().and_then(profiles::find);
             if profile.is_some_and(|p| p.firmware.as_deref() == Some("dymo-lw")) {
                 return Html(crate::pages::labelwriter_page::render(
-                    &space,
-                    &machine,
-                    &move_to,
-                    may_operate,
+                    &space, &machine, &move_to,
                 ))
                 .into_response();
             }
-            Html(label_page::render(&space, &machine, &move_to, may_operate)).into_response()
+            Html(label_page::render(&space, &machine, &move_to)).into_response()
         }
         Ok((space, Some(machine))) => {
             let extra = machine_page::Extra {

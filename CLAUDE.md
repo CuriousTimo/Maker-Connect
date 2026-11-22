@@ -14,6 +14,11 @@ to tell it is not talking to that reference.
 - **NO fusing** of code or behaviour from different sources ("a bit from labelle, a bit
   from thermal-label, a bit of our own"). That is how the DYMO tape feeds, the invented
   battery voltage, and the Marlin/OctoPrint drift happened.
+- **NOTHING made up, anywhere in this project** (owner, 2026-11-22: "voor dit hele project is het
+  verboden om allerlei shit zelf te verzinnen. dit mag nooit meer gebeuren"). Also not in a library
+  we use, a doc, an answer to the owner or an idea: every claim about how a
+  device, program or protocol behaves carries the reference's verbatim quote and where it stands,
+  checked by `scripts/quote-check.py`, or it says "not checked".
 - **NO making things up**: no own timings, polling, padding, thresholds, retries, limits,
   "safety" checks or interpretations of unknown bytes in what goes to the device. If the
   reference does not do it, we do not do it. If we do not know what a byte means, we say
@@ -32,6 +37,27 @@ to tell it is not talking to that reference.
   side), never on the wire between agent/hub and the machine.
 - **Port, don't paraphrase** (owner, 2026-11-12): the reference's code is translated file by file and function by function, keeping its licence and naming it as the source (OctoPrint AGPL-3.0 and labelle Apache-2.0 fit our AGPL-3.0). Where a reference has no licence that allows it, ask the owner first. PrusaLink and its Connect SDK (no licence on GitHub, "Freeware" in `setup.py`): the owner decided to port them (2026-11-12).
 - When unsure: stop and ask, with the evidence. Don't guess and don't build on a guess.
+
+## Lasers (GRBL): the wiki, and LaserFoundry where the wiki is silent
+
+Owner, 2026-11-21/22: "gnea-wiki als referentie", "als de wiki zwijgt dan moeten wij dat niet zien als
+hun 60s is fout", "we volgen laserfoundry".
+
+- **The reference** is the gnea/grbl wiki at `86e8ecd` (github.com/gnea/grbl.wiki) and
+  `doc/script/stream.py` at gnea/grbl `bfb67f0`. LaserFoundry (our fork, at the rev pinned in
+  `crates/engine/Cargo.toml`) is the library that sends it. Where the Ortur (grblHAL) differs, only
+  what was measured on it counts, recorded in #165.
+- **Where the wiki is silent, LaserFoundry's own choice stays** (time-outs, jog and feed bounds, line
+  limits, reconnecting). Only where its code contradicts a wiki text, quoted, is it a difference, and
+  the owner decides. The one so far: Set origin `G92 X0 Y0`, kept ("we volgen laserfoundry", "dit
+  hoeft niet in EEPROM").
+- **Nothing of our own on top** ("volg de wiki en ga geen zaken zelf verzinnen of invullen"): no
+  defaults, fallbacks, bounds or state checks of ours in what goes to the laser. The hub's UI may
+  limit what a person can press; that is all.
+- **Nothing goes to StitchFoundry/laserfoundry** (no PR, issue or comment) unless the owner asks for
+  that one item. Fixes we need go into the fork only.
+- **Quotes are checked by a script, never by eye**: `scripts/quote-check.py` (laser code and Part 4 of
+  `docs/design/prusa-sdk-extension.md`), before every commit that touches them.
 
 ## The watchdog: `on-track`
 

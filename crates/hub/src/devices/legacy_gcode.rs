@@ -1,35 +1,25 @@
 use crate::{profiles, store};
 
-/// The same buttons on a GRBL machine: homing is `$H`, and moves are GRBL's own jogs (the
-/// laser stays off, and a jog can be cancelled). The origin of a job can be set where the
-/// head is (`G92 X0 Y0`, as LaserFoundry does it), and gone back to.
-pub(crate) fn grbl_action(name: &str) -> Option<(&'static str, &'static str)> {
-    Some(match name {
-        "home" => ("Home", "$H"),
-        "x+" => ("X +10 mm", "$J=G91 G21 X10 F3000"),
-        "x-" => ("X −10 mm", "$J=G91 G21 X-10 F3000"),
-        "y+" => ("Y +10 mm", "$J=G91 G21 Y10 F3000"),
-        "y-" => ("Y −10 mm", "$J=G91 G21 Y-10 F3000"),
-        "set-origin" => ("Set origin here", "G92 X0 Y0"),
-        "go-origin" => ("Go to origin", "G90 G0 X0 Y0"),
-        "settings" => ("Read settings", "$$"),
-        _ => return None,
-    })
-}
-
 /// The steps the jog pad offers (mm), and its speeds (mm/min): others are refused.
 pub(crate) const JOG_STEPS: [f64; 4] = [0.1, 1.0, 10.0, 50.0];
 pub(crate) const JOG_FEEDS: [f64; 4] = [600.0, 1500.0, 3000.0, 6000.0];
 
+/// A move of the jog pad as G-code (printers): a relative move. Its label and G-code.
+pub(crate) fn jog_command(action: &str, step: f64, feed: f64) -> Option<(String, String)> {
+    let (label, [x, y, z], feed) = jog_move(action, step, feed)?;
+    let mut axes = String::new();
+    for (name, mm) in [("X", x), ("Y", y), ("Z", z)] {
+        if mm != 0.0 {
+            axes += &format!(" {name}{mm}");
+        }
+    }
+    Some((label, format!("G91\nG1{axes} F{feed}\nG90")))
+}
+
 /// A move of the jog pad (lasers, CNCs, plotters: printers keep their buttons):
-/// `jog:<x>:<y>`, each -1, 0 or 1 (diagonals too), by a step and at a speed it offers. On
-/// GRBL a jog of its own (`$J=`, the laser off), else a relative move. Its label and G-code.
-pub(crate) fn jog_command(
-    action: &str,
-    step: f64,
-    feed: f64,
-    grbl: bool,
-) -> Option<(String, String)> {
+/// `jog:<x>:<y>`, each -1, 0 or 1 (diagonals too), or a printer's `jog:0:0:<z>`, by a step and
+/// at a speed it offers. Its label, the move in mm per axis, and the speed.
+pub(crate) fn jog_move(action: &str, step: f64, feed: f64) -> Option<(String, [f64; 3], f64)> {
     if !JOG_STEPS.contains(&step) || !JOG_FEEDS.contains(&feed) {
         return None;
     }
@@ -44,28 +34,21 @@ pub(crate) fn jog_command(
     let parts: Vec<&str> = action.strip_prefix("jog:")?.split(':').collect();
     let (x, y, z) = match parts[..] {
         [x, y] => (dir(x)?, dir(y)?, 0.0),
-        ["0", "0", z] if !grbl => (0.0, 0.0, dir(z)?),
+        ["0", "0", z] => (0.0, 0.0, dir(z)?),
         _ => return None,
     };
     if (x, y, z) == (0.0, 0.0, 0.0) {
         return None;
     }
     let feed = if z != 0.0 { 600.0 } else { feed };
-    let mut axes = String::new();
     let mut label = String::from("Move");
     for (name, d) in [("X", x), ("Y", y), ("Z", z)] {
         if d != 0.0 {
-            axes += &format!(" {name}{}", d * step);
             label += &format!(" {name}{}{step}", if d > 0.0 { "+" } else { "−" });
         }
     }
     label += " mm";
-    let gcode = if grbl {
-        format!("$J=G91 G21{axes} F{feed}")
-    } else {
-        format!("G91\nG1{axes} F{feed}\nG90")
-    };
-    Some((label, gcode))
+    Some((label, [x * step, y * step, z * step], feed))
 }
 
 /// The same, of a machine at hand.
@@ -96,7 +79,6 @@ pub(crate) fn action(name: &str) -> Option<(&'static str, &'static str)> {
         "preheat-pla" => ("Preheat PLA (215/60 °C)", "M104 S215\nM140 S60"),
         "preheat-petg" => ("Preheat PETG (230/85 °C)", "M104 S230\nM140 S85"),
         "cooldown" => ("Cool down", "M104 S0\nM140 S0"),
-        "unlock" => ("Unlock", "$X"),
         "fan-on" => ("Print fan on", "M106 S255"),
         "fan-off" => ("Print fan off", "M107"),
         "motors-off" => ("Motors off", "M18"),
@@ -182,44 +164,35 @@ pub(crate) fn probe_gcode(
 mod tests {
     use super::*;
 
-    /// The jog pad: diagonals, its steps and speeds only, GRBL's own jogs on a laser.
+    /// The jog pad: diagonals, its steps and speeds only; a printer's as G-code.
     #[test]
     fn the_jog_pad_moves_by_its_steps() {
         assert_eq!(
-            jog_command("jog:1:-1", 0.1, 600.0, true),
-            Some((
-                "Move X+0.1 Y−0.1 mm".to_owned(),
-                "$J=G91 G21 X0.1 Y-0.1 F600".to_owned()
-            ))
+            jog_move("jog:1:-1", 0.1, 600.0),
+            Some(("Move X+0.1 Y−0.1 mm".to_owned(), [0.1, -0.1, 0.0], 600.0))
         );
         assert_eq!(
-            jog_command("jog:-1:0", 50.0, 6000.0, false).unwrap().1,
+            jog_command("jog:-1:0", 50.0, 6000.0).unwrap().1,
             "G91\nG1 X-50 F6000\nG90"
         );
-        assert_eq!(jog_command("jog-z:1", 10.0, 3000.0, true), None, "no Z");
-        assert_eq!(jog_command("jog:0:0", 10.0, 3000.0, true), None);
-        // A printer's Z, at F600 whatever the speed; not on GRBL.
+        assert_eq!(jog_move("jog-z:1", 10.0, 3000.0), None, "no such move");
+        assert_eq!(jog_move("jog:0:0", 10.0, 3000.0), None);
+        // A printer's Z, at F600 whatever the speed.
         assert_eq!(
-            jog_command("jog:0:0:-1", 0.1, 3000.0, false),
+            jog_command("jog:0:0:-1", 0.1, 3000.0),
             Some((
                 "Move Z−0.1 mm".to_owned(),
                 "G91\nG1 Z-0.1 F600\nG90".to_owned()
             ))
         );
-        assert_eq!(jog_command("jog:0:0:1", 1.0, 3000.0, true), None);
-        assert_eq!(jog_command("jog:1:0:1", 1.0, 3000.0, false), None);
-        assert_eq!(jog_command("jog:2:0", 10.0, 3000.0, true), None);
+        assert_eq!(jog_move("jog:1:0:1", 1.0, 3000.0), None);
+        assert_eq!(jog_move("jog:2:0", 10.0, 3000.0), None);
         assert_eq!(
-            jog_command("jog:1:0", 500.0, 3000.0, true),
+            jog_move("jog:1:0", 500.0, 3000.0),
             None,
             "not a step offered"
         );
-        assert_eq!(
-            jog_command("jog:1:0", 10.0, 1e9, true),
-            None,
-            "not a speed offered"
-        );
-        assert_eq!(grbl_action("set-origin").unwrap().1, "G92 X0 Y0");
+        assert_eq!(jog_move("jog:1:0", 10.0, 1e9), None, "not a speed offered");
     }
 
     /// The move buttons send G91, a G1 move at a feed, then G90 again.

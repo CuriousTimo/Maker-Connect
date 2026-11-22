@@ -36,7 +36,6 @@ pub async fn run(store: Store) {
         };
         machines.retain(|id, _| list.iter().any(|(other, ..)| other == id));
         for (id, token, profile, space) in list {
-            // A GRBL profile: LaserFoundry's simulated GRBL, on a thread of its own.
             let found = profile.as_deref().and_then(profiles::find);
             if found.is_some_and(|p| p.kind == MachineKind::Label) {
                 let active = store.active_job(space, &id).await.ok().flatten();
@@ -47,11 +46,6 @@ pub async fn run(store: Store) {
                     let _ = store.set_job(space, job, state, reason.as_deref()).await;
                 }
                 let _ = store.report(&token, &telemetry).await;
-                continue;
-            }
-            if let Some(p) = found.filter(|p| p.firmware.as_deref() == Some("grbl")) {
-                let travel = [p.build_volume_mm[0], p.build_volume_mm[1]];
-                crate::virtual_grbl::ensure(&store, &id, &token, Some(travel));
                 continue;
             }
             let active = store.active_job(space, &id).await;

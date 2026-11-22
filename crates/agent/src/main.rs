@@ -115,8 +115,8 @@ impl Kind {
                 "agent.id",
             ],
             Kind::Marlin => &["type.string", "agent.id", "marlin.fdm", "gcode.output"],
-            // #163: reporting only; `grbl.commands` comes with the commands (#164).
-            Kind::Laser => &["type.string", "agent.id", "grbl.telemetry"],
+            // Part 4: its telemetry and its commands (#171).
+            Kind::Laser => &["type.string", "agent.id", "grbl.telemetry", "grbl.commands"],
         }
     }
 
@@ -645,6 +645,9 @@ fn setup_link(agent: &Arc<Agent>) {
     if agent.kind == Kind::Marlin {
         marlin::setup(agent, &command);
     }
+    if agent.kind == Kind::Laser {
+        laser::setup(agent, &command);
+    }
     // A laser takes no download yet (#163): its jobs come with #164.
     #[cfg(unix)]
     if agent.kind != Kind::Laser {
@@ -1115,6 +1118,53 @@ fn label_ended(agent: &Agent, ok: bool, reason: Option<String>) {
         set_state(agent, State::Error, Some(&reason));
     }
     set_state(agent, State::Idle, None);
+}
+
+/// Why an `Action` could not be handed to the device's port.
+pub(crate) enum Gone {
+    /// The device's module is off: no port.
+    Off,
+    /// Its port has ended.
+    Ended,
+}
+
+/// An `Action` to the device's port, waited for until the port says it is done (the Marlin's
+/// `run`, PrusaLink's `do_command`, `command_queue.py:69-90`): what the device said, or the port's
+/// reason.
+pub(crate) fn run_action(
+    agent: &Agent,
+    command_id: i64,
+    action: maker_connect_protocol::Action,
+) -> Result<Result<Vec<String>, String>, Gone> {
+    let Some(id) = *agent.dymo.lock().unwrap() else {
+        return Err(Gone::Off);
+    };
+    let order = command_id as u32;
+    agent
+        .engine
+        .lock()
+        .unwrap()
+        .send(id, Order::Command { id: order, action })
+        .map_err(|_| Gone::Ended)?;
+    loop {
+        // Ours: how often the port's report is looked at, not on the wire.
+        std::thread::sleep(Duration::from_millis(100));
+        let report = agent
+            .engine
+            .lock()
+            .unwrap()
+            .report(id)
+            .map_err(|_| Gone::Ended)?;
+        if let Some(i) = report.done.iter().position(|d| d.id == order) {
+            let done = report.done[i].clone();
+            let _ = agent.engine.lock().unwrap().reported(id, i + 1, 0);
+            return Ok(if done.ok {
+                Ok(done.output)
+            } else {
+                Err(done.reason.unwrap_or_else(|| "failed".to_owned()))
+            });
+        }
+    }
 }
 
 /// `set_state(state, source, **kwargs)` (`__init__.py`): the `STATE_CHANGED` event. The source

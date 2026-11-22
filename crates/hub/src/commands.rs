@@ -1,4 +1,4 @@
-use crate::{Store, action, failed, grbl_action, jog_command, probe_gcode, profiles, store};
+use crate::{Store, action, failed, jog_command, jog_move, probe_gcode, profiles, store};
 use axum::{
     Form,
     extract::State,
@@ -259,27 +259,21 @@ pub(crate) async fn command(
                 .into_response(),
         };
     }
-    // A GRBL machine homes with $H, not G28.
-    let grbl = || {
-        machine_now()
-            .ok()
-            .flatten()
-            .and_then(|m| m.profile)
-            .and_then(|p| profiles::find(&p))
-            .and_then(|p| p.firmware.as_deref())
-            == Some("grbl")
-    };
+    let step = form.step.unwrap_or(10.0);
+    let feed = form.feed.unwrap_or(3000.0);
+    // A laser on the agent: Part 4's commands, typed (docs/design/prusa-sdk-extension.md).
+    if let Ok(Some(machine)) = machine_now()
+        && crate::prusa_connect::laser_agent(&machine)
+    {
+        let Some((label, command)) = laser_command(&form.action, step, feed) else {
+            return (StatusCode::BAD_REQUEST, "no such command").into_response();
+        };
+        let queued = store.queue_connect_command(link, &id, &label, &command, false);
+        return queued_response(queued, &headers, &id);
+    }
     let owned = |(l, g): (&str, &str)| (l.to_owned(), g.to_owned());
-    let is_grbl = grbl();
     let found = if form.action.starts_with("jog") {
-        jog_command(
-            &form.action,
-            form.step.unwrap_or(10.0),
-            form.feed.unwrap_or(3000.0),
-            is_grbl,
-        )
-    } else if is_grbl && let Some(found) = grbl_action(&form.action) {
-        Some(owned(found))
+        jog_command(&form.action, step, feed)
     } else if let Some(found) = factor_command(&form.action, form.speed, form.flow) {
         match found {
             Ok(found) => Some(found),
@@ -361,6 +355,11 @@ pub(crate) async fn command(
         Some(command) => store.queue_connect_command(link, &id, &label, &command, false),
         None => store.queue_command(link, &id, &label, &gcode),
     };
+    queued_response(queued, &headers, &id)
+}
+
+/// The answer to a command queued (or not) from the website.
+fn queued_response(queued: Option<u32>, headers: &HeaderMap, id: &str) -> Response {
     match queued {
         // The page sends it without leaving; a plain form comes back to the page.
         Some(_) if headers.contains_key("x-requested-with") => {
@@ -375,11 +374,69 @@ pub(crate) async fn command(
     }
 }
 
+/// Part 4's commands for a laser on the agent: a button as the SDK command, and its label. A jog
+/// by the pad's steps and speeds only (`jog_move`: the hub's UI limits), X and Y only.
+fn laser_command(action: &str, step: f64, feed: f64) -> Option<(String, serde_json::Value)> {
+    let (label, name) = match action {
+        "home" => ("Home", "HOME"),
+        "unlock" => ("Unlock", "UNLOCK"),
+        "set-origin" => ("Set origin here", "SET_ORIGIN"),
+        "go-origin" => ("Go to origin", "GO_TO_ORIGIN"),
+        _ => {
+            let (label, [x, y, z], feed) = jog_move(action, step, feed)?;
+            if z != 0.0 {
+                return None;
+            }
+            let kwargs = serde_json::json!({"x": x, "y": y, "feed": feed});
+            return Some((
+                label,
+                serde_json::json!({"command": "JOG", "kwargs": kwargs}),
+            ));
+        }
+    };
+    Some((label.to_owned(), serde_json::json!({"command": name})))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use crate::link::tests::call;
+
+    /// A laser on the agent: its buttons as Part 4's commands; the pad's steps and speeds only,
+    /// no Z, nothing else.
+    #[test]
+    fn a_laser_on_the_agent_gets_part_4s_commands() {
+        let json = |a: &str| laser_command(a, 10.0, 3000.0).map(|(_, c)| c);
+        assert_eq!(json("home"), Some(serde_json::json!({"command": "HOME"})));
+        assert_eq!(
+            json("unlock"),
+            Some(serde_json::json!({"command": "UNLOCK"}))
+        );
+        assert_eq!(
+            json("set-origin"),
+            Some(serde_json::json!({"command": "SET_ORIGIN"}))
+        );
+        assert_eq!(
+            json("go-origin"),
+            Some(serde_json::json!({"command": "GO_TO_ORIGIN"}))
+        );
+        assert_eq!(
+            laser_command("jog:1:-1", 0.1, 600.0),
+            Some((
+                "Move X+0.1 Y−0.1 mm".to_owned(),
+                serde_json::json!({"command": "JOG", "kwargs": {"x": 0.1, "y": -0.1, "feed": 600.0}})
+            ))
+        );
+        assert_eq!(json("jog:0:0:1"), None, "no Z");
+        assert_eq!(
+            laser_command("jog:1:0", 500.0, 3000.0),
+            None,
+            "not a step offered"
+        );
+        assert_eq!(json("settings"), None, "no Read settings");
+        assert_eq!(json("cooldown"), None);
+    }
 
     /// Controls' Preheat buttons and the legacy G-code follow PREHEAT_PRESETS (one list).
     #[test]

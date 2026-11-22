@@ -201,9 +201,13 @@ is the server's data (DYMO Connect's roll catalogue), not part of the protocol.
 
 ## Part 4: a GRBL laser cutter (`grbl.laser`)
 
-The reference for the machine side is LaserFoundry v0.6.0 `8f07f98`
-([device-contract.md](device-contract.md#kinds)). A laser offers no raw G-code: nothing but a start can
-switch the beam on ([decision](decisions/20261119-no-raw-gcode-on-a-laser.md)).
+The reference for what the laser is sent is the gnea/grbl wiki, `Grbl-v1.1-Commands`,
+`Grbl-v1.1-Interface`, `Grbl-v1.1-Jogging` and `Grbl-v1.1-Laser-Mode` (github.com/gnea/grbl.wiki,
+`86e8ecd`), to the letter (owner, 2026-11-21). Where the Ortur (grblHAL, OLF 190) differs from the wiki,
+what was measured on it counts, recorded in #165. LaserFoundry (fork `grbl-rx-buffer` `fd87dc3`) is
+the library that sends it. Where the wiki is silent, LaserFoundry's own choice stays (owner,
+2026-11-22: "als de wiki zwijgt dan moeten wij dat niet zien als hun 60s is fout"). A laser offers no raw G-code: nothing but a start can switch the beam on
+([decision](decisions/20261119-no-raw-gcode-on-a-laser.md)).
 
 ### States
 
@@ -291,38 +295,63 @@ profiles have: the space picks the profile by hand, as now. The machine page sho
 
 ### Commands the protocol already has
 
-| Command | On a laser | Kwargs |
-|---|---|---|
-| `START_CONNECT_DOWNLOAD` | loads a job file onto the device; with `printing: false` only. A download never starts the laser | the SDK's (`__init__.py:457-483`) |
-| `START_PRINT` | starts the loaded job | `path`, as PrusaLink reads it (Prusa-Link `prusa/link/printer_adapter/prusa_link.py:563-570`), and the new kwarg `from_line`: an integer ≥ 1, to start from a line of the file |
-| `PAUSE_PRINT` | feed hold | none |
-| `RESUME_PRINT` | resumes a feed hold | none |
-| `STOP_PRINT` | stops the job | none |
+| Command | On a laser | Kwargs | What GRBL is sent |
+|---|---|---|---|
+| `START_CONNECT_DOWNLOAD` | loads a job file onto the device; with `printing: false` only. A download never starts the laser | the SDK's (`__init__.py:457-483`) | nothing |
+| `START_PRINT` | starts the loaded job | `path`, as PrusaLink reads it (Prusa-Link `prusa/link/printer_adapter/prusa_link.py:563-570`), and the new kwarg `from_line`: an integer ≥ 1, to start from a line of the file | the file's lines, by character counting (`Grbl-v1.1-Interface`, "Streaming Protocol: Character-Counting") against the RX buffer that `$I` reports (`[OPT:…,rx]`, "[VER:] and [OPT:]") |
+| `PAUSE_PRINT` | feed hold | none | `!` ("Places Grbl into a suspend or HOLD state", `Grbl-v1.1-Commands`) |
+| `RESUME_PRINT` | resumes a feed hold | none | `~` ("Resumes a feed hold", `Grbl-v1.1-Commands`) |
+| `STOP_PRINT` | stops the job | none | `0x18` ctrl-x ("Immediately halts and safely resets Grbl", `Grbl-v1.1-Commands`) |
 
 ### New commands
 
-These are general machine-motion commands, not laser-only. A CNC router needs the same ones.
+These are general machine-motion commands, not laser-only. A CNC router needs the same ones. A jog
+itself takes no `M` or `S` words ("All other g-codes, m-codes, and value words are not accepted in the
+jog command", `Grbl-v1.1-Commands`, `$J=line`), but it keeps the laser state in force before it ("The
+following jog motions will inherit and maintain the previous laser state", `Grbl-v1.1-Laser-Mode`). The
+device adds no check of its own before a jog (owner, 2026-11-22: "volg de wiki en ga niet zelf zaken
+verzinnen").
 
-| Command | Does | Kwargs |
-|---|---|---|
-| `HOME` | runs the machine's homing cycle | none |
-| `UNLOCK` | clears an alarm lock | none |
-| `JOG` | moves relative to the current position | `x`, `y`: mm, at most 1000 either way; `feed`: mm/min, 1 to 30000 |
-| `SET_ORIGIN` | makes the current position the job's origin | none |
-| `GO_TO_ORIGIN` | moves to the job's origin | none |
-| `FRAME` | traces the loaded job's bounds | `power`: percent 0-100, default 0 (beam off) |
+| Command | Does | Kwargs | What GRBL is sent |
+|---|---|---|---|
+| `HOME` | runs the machine's homing cycle | none | `$H` ("This command is the only way to perform the homing cycle in Grbl", `Grbl-v1.1-Commands`) |
+| `UNLOCK` | clears an alarm lock | none | `$X` ("'$X' kill alarm lock will override the locks", `Grbl-v1.1-Commands`) |
+| `JOG` | moves relative to the current position | `x`, `y`: mm; `feed`: mm/min | `$J=G91 G21 X<x> Y<y> F<feed>`, as LaserFoundry's `Link::jog` writes it: an axis left out when it is 0 (the wiki asks "One or more axis words with target value" and does not say whether a 0 is left out). "Jog executes based on current G20/G21 and G90/G91 g-code parser state. If one of the following optional words is passed, that state is overridden for one command only."; "F - Feed rate value … Each jog requires this value" (`Grbl-v1.1-Commands`, `$J=line`) |
+| `SET_ORIGIN` | makes the current position the job's origin | none | `G92 X0 Y0`, as LaserFoundry's `Link::set_zero` sends it (see below) |
+| `GO_TO_ORIGIN` | moves to the job's origin | none | `G90 G0 X0 Y0`, as LaserFoundry's `Link::go_to_zero` sends it (see below) |
+| `FRAME` | traces the loaded job's bounds | `feed`: mm/min; `power`: percent 0-100, default 0 (beam off) | one `$J=G90 G21 X<x> Y<y> F<feed>` per corner of the job's bounds, in work coordinates, back to the first corner. With `power` above 0, first `G1 M3 S<s>` (`S` the percent of `$30`) and after the last corner `M5` (see below) |
 
-The bounds of `JOG` and the default of `FRAME` are LaserFoundry's: its `link.rs:26-27`, and its
-`job.frame` (`crates/gcode/src/lib.rs:92`, default `:416`; see
-[the device map](../archive/plans/hub-core-v2-device-map.md)). Each command is answered with the protocol's own flow: `ACCEPTED`,
-then `FINISHED` or `REJECTED` with a `reason`.
+Where the wiki says nothing, the choice is ours, and marked so:
+- **`SET_ORIGIN` and `GO_TO_ORIGIN` as LaserFoundry does them.** The wiki has no command for either.
+  `G92` stands in the wiki as: a reset "clears `G92`'s by G-code standard, which some users still
+  incorrectly use to set their part zero" (`Grbl-v1.1-Interface`). The owner chose LaserFoundry's way
+  (2026-11-22: "we volgen laserfoundry", "dit hoeft niet in EEPROM. set 0 is voor iedere job anders").
+- **`FRAME` as jogs.** The wiki defines no frame. A jog
+  moves without changing the parser state ("Jogging does not alter the g-code parser state",
+  `Grbl-v1.1-Jogging`), "All jogging motion(s) may be cancelled at anytime" (`Grbl-v1.1-Jogging`), and
+  takes no `M` word ("All other g-codes, m-codes, and value words are not accepted in the jog
+  command", `Grbl-v1.1-Commands`). The feed is the hub's.
+- **`FRAME`'s `power`: a dot to see where the job lands.** `Grbl-v1.1-Laser-Mode`: "To have the
+  laser powered during a jog motion, first enable a valid motion mode and spindle state. The following
+  jog motions will inherit and maintain the previous laser state. … This ability is primarily to allow
+  turning on the laser on a _very low_ power to use the laser dot to jog and visibly locate the start
+  position of a job." So `G1 M3 S<s>` before the corners and `M5` after them. With `power` 0 none of
+  this is sent and the head moves with the beam off (owner, 2026-11-22: power back, default 0).
+- **The bounds of `JOG` and of every `feed`** (which steps, which speeds) are the hub's UI limits, not
+  part of the protocol: the hub offers only its own steps and speeds, and the device sends what it is
+  given. If GRBL refuses a line ("If soft-limits are enabled, any jog command that exceeds a
+  soft-limit will simply return an error", `Grbl-v1.1-Commands`), its `error:` is the `REJECTED` reason (ours: the
+  protocol's mapping; the wiki has only the `error:`).
+
+Every command is answered with the protocol's own flow: `ACCEPTED`, then `FINISHED` or `REJECTED` with
+a `reason`. GRBL's settings (`$$`) are read by `SEND_INFO` (above), not a command of their own.
 
 ### Who may start the beam
 
-`START_PRINT`, and `FRAME` with `power` above 0, switch the beam on. Whether a person is present is not
-something the protocol can carry: the SDK has no idea of who sent a command. The server decides it
-before sending. In our server, only a person's own session may send these, after framing the job and
-confirming eye protection.
+`START_PRINT`, and `FRAME` with `power` above 0, switch the beam on. Whether a person is present is not something the protocol can
+carry: the SDK has no idea of who sent a command. The server decides it before sending. In our server,
+only a person's own session may send these, after framing the job (for `START_PRINT`) and confirming eye
+protection.
 
 ## Part 5: a USB camera
 

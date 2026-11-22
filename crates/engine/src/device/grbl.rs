@@ -1,4 +1,6 @@
-//! The GRBL laser port (LaserFoundry v0.6.0, `ports/laserfoundry`) behind the contract: device map §4.
+//! The GRBL laser port (`ports/laserfoundry`) behind the contract: device map §4. The reference for
+//! what the laser is sent is the gnea/grbl wiki `86e8ecd`, and LaserFoundry where the wiki is silent
+//! (CLAUDE.md, *Lasers (GRBL)*).
 //!
 //! The state is LaserFoundry's `MachineState` (`crates/device/src/status.rs:3-14`), from
 //! [`LaserFoundryPort::with_machine_state_hook`]. `mc.laser.start` is person-only in the registry: the
@@ -76,11 +78,6 @@ pub fn baseline() -> CapabilitySet {
             .max_abs(1000.0)
     };
     CapabilitySet::new()
-        // `MAX_LINE_BYTES` stream.rs:10
-        .with(
-            LASER_GCODE,
-            Verb::new().arg("line", Arg::new(Kind::String).required().max_abs(79.0)),
-        )
         .with(
             LASER_JOG,
             Verb::new().arg("x", mm()).arg("y", mm()).arg(
@@ -130,9 +127,6 @@ impl Mapping for Grbl {
 
     fn plan(&self, cmd: &Command, job: i64) -> Result<Planned, String> {
         let action = match cmd.verb.as_str() {
-            LASER_GCODE => Action::Gcode {
-                text: needed(Ok(text(cmd, "line")), "line")?.to_owned(),
-            },
             LASER_JOG => Action::Jog {
                 x: Some(needed(number(cmd, "x"), "x")?),
                 y: Some(needed(number(cmd, "y"), "y")?),

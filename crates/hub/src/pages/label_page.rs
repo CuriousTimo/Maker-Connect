@@ -101,13 +101,7 @@ fn media_swatches(profile: Option<&Profile>, chosen: Option<&str>) -> String {
     out
 }
 
-/// `may_operate`: may this person operate it ('operate', crate::access), as the machine page.
-pub fn render(
-    space: &str,
-    machine: &Machine,
-    move_to: &[(String, String)],
-    may_operate: bool,
-) -> String {
+pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> String {
     let profile = machine.profile.as_deref().and_then(profiles::find);
     let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
     let (state, state_class) = machine_page::shown_state(machine);
@@ -258,7 +252,7 @@ pub fn render(
             .as_ref()
             .map_or("–".to_owned(), |j| escape(&j.file_name)),
         tape = tape_json(profile, machine),
-        settings = machine_page::settings(machine, move_to, false, may_operate),
+        settings = machine_page::settings(machine, move_to, false),
         overview = machine_page::overview(machine, profile, ""),
         no_profile = if profile.is_none() {
             machine_page::no_profile_notice()

@@ -223,6 +223,15 @@ pub(crate) fn marlin_agent(machine: &crate::store::Machine) -> bool {
 /// A GRBL laser's type on the agent (`docs/design/prusa-sdk-extension.md`, part 4).
 pub(crate) const LASER_AGENT: &str = "grbl.laser";
 
+/// Whether a machine is a GRBL laser on the agent: its controls go as Part 4's commands.
+pub(crate) fn laser_agent(machine: &crate::store::Machine) -> bool {
+    machine
+        .details
+        .as_ref()
+        .and_then(|d| d.printer_type.as_deref())
+        == Some(LASER_AGENT)
+}
+
 /// Part 4's settings in a laser's `INFO`: `max_power` (`$30`), `laser_mode` (`$32`), `travel_x`,
 /// `travel_y`, `travel_z` (`$130`-`$132`); None when it told none of them.
 pub(crate) fn grbl_settings(info: &Value) -> Option<maker_connect_protocol::GrblSettings> {
