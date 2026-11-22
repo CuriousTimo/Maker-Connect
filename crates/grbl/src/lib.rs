@@ -841,7 +841,7 @@ struct BuildInfo {
     info: serde_json::Map<String, serde_json::Value>,
 }
 
-/// The `$I` answer, as the gnea/grbl wiki has it (`Grbl-v1.1-Interface`, "[VER:] and [OPT:]"):
+/// The `$I` answer, as the gnea/grbl wiki has it (`Grbl-v1.1-Interface`, "\[VER:\] and \[OPT:\]"):
 /// "`[VER:]` contains build version info and build date", "a string may appear after the second
 /// `:` colon"; lines the wiki does not have (the Ortur's `[MODEL:]`, `[OLF:]`, #165) are kept
 /// the same way. Anything not in brackets (the echo, `ok`) is left out.

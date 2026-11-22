@@ -13,7 +13,6 @@
 //! A small page on the agent (`--listen`, default `0.0.0.0:8470`): the hub's address, each
 //! device's module on or off, its registration code and its link's state.
 
-#[cfg(unix)]
 use maker_connect_engine::Order;
 use maker_connect_engine::{
     Engine, MachineId, Port,
