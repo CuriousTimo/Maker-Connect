@@ -33,8 +33,11 @@ pub mod py_glob;
 pub mod py_percent;
 pub mod py_queue;
 pub mod py_threading;
-#[cfg(unix)]
 pub mod serial;
+#[cfg(unix)]
+pub mod serialposix;
+#[cfg(windows)]
+pub mod serialwin32;
 pub mod settings;
 pub mod standard;
 pub mod text;

@@ -26,9 +26,6 @@ pub fn get_os() -> &'static str {
 /// `platform/__init__.py:16 set_close_exec(handle)` (the `fcntl` variant, used where `fcntl` has
 /// `FD_CLOEXEC`): "Set ``close_exec`` flag on handle, if supported by the OS." `Err` is the
 /// `OSError` of a failed `fcntl`.
-///
-/// The Windows variant (:26, `SetHandleInformation`) is not ported: the engine is built for Unix
-/// systems only (`serial.rs`).
 #[cfg(unix)]
 pub fn set_close_exec(handle: std::os::fd::RawFd) -> Result<(), std::io::Error> {
     // SAFETY: fcntl on an integer descriptor with F_GETFD / F_SETFD reads and writes nothing else.
@@ -41,6 +38,22 @@ pub fn set_close_exec(handle: std::os::fd::RawFd) -> Result<(), std::io::Error> 
         if libc::fcntl(handle, libc::F_SETFD, flags) < 0 {
             return Err(std::io::Error::last_os_error());
         }
+    }
+    Ok(())
+}
+
+/// `platform/__init__.py:27 set_close_exec(handle)` (the `win32` variant): "Set ``close_exec``
+/// flag on handle, if supported by the OS." `SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0)`;
+/// `Err` is the `GetLastError()` that Python raises when it fails. The handle is an int, as Python
+/// passes it (`serial_obj._port_handle`).
+#[cfg(windows)]
+pub fn set_close_exec(handle: isize) -> Result<(), u32> {
+    use windows_sys::Win32::Foundation::{GetLastError, HANDLE_FLAG_INHERIT, SetHandleInformation};
+    // SAFETY: a plain call on a handle the caller owns.
+    let result = unsafe { SetHandleInformation(handle as _, HANDLE_FLAG_INHERIT, 0) };
+    if result == 0 {
+        // SAFETY: a plain call.
+        return Err(unsafe { GetLastError() });
     }
     Ok(())
 }

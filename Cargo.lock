@@ -1512,6 +1512,7 @@ dependencies = [
  "png",
  "serde_json",
  "serialport",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

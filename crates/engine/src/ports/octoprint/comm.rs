@@ -2367,14 +2367,12 @@ impl Deref for SendQueueMarker {
 
 #[allow(unused_imports)]
 use super::events::{Events, event_manager};
-#[cfg(unix)]
 use super::platform;
 use super::plugin::{Hooks, PluginManager, plugin_manager};
 use super::profile::PrinterProfileManager;
 use super::py_attr::Attr;
 use super::py_collections::{PyDeque, PyDict};
 use super::py_threading::{RLock, RuntimeError, Thread, Timer};
-#[cfg(unix)]
 use super::serial;
 use super::settings::{GetKwargs, Settings};
 use super::util::{
@@ -8950,7 +8948,6 @@ impl MachineCom {
     /// comm.py:3879 `default(_, p, b, timeout)`, the factory nested in `_open_serial`: "connect to
     /// regular serial port". `Ok(None)` is Python's `return None`; `Err` an exception that is no
     /// `serial.SerialException`.
-    #[cfg(unix)]
     fn _open_serial_default(
         &self,
         port: &str,
@@ -9001,10 +8998,18 @@ impl MachineCom {
         };
 
         // Set close_exec flag on serial handle, see #3212
+        #[cfg(unix)]
         if let Some(fd) = serial_obj.fd() {
             // posix
             platform::set_close_exec(fd)
                 .map_err(|e| SerialError::other("OSError", e.to_string()))?;
+        }
+        #[cfg(windows)]
+        if let Some(handle) = serial_obj.port_handle() {
+            // win32: `raise ctypes.GetLastError()` raises an int, which is a `TypeError`
+            platform::set_close_exec(handle as isize).map_err(|_| {
+                SerialError::other("TypeError", "exceptions must derive from BaseException")
+            })?;
         }
 
         let wrapper = Arc::new(serial::BufferedReadlineWrapper::new(serial_obj));
@@ -9022,17 +9027,6 @@ impl MachineCom {
         }
 
         Ok(Some(wrapper))
-    }
-
-    /// comm.py:3879 `default(...)` on a platform without `serial.rs` (Windows): not ported.
-    #[cfg(not(unix))]
-    fn _open_serial_default(
-        &self,
-        _port: &str,
-        _baudrate: i64,
-        _timeout: Option<f64>,
-    ) -> Result<Option<Arc<dyn SerialTransport>>, SerialError> {
-        unimplemented!("comm.py:3879 default serial factory: pyserial's Windows port is not ported")
     }
 
     /// comm.py:3981 `_recoverable_communication_errors`

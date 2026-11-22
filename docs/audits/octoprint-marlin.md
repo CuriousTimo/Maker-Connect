@@ -217,8 +217,9 @@ An `M109` pending when an `M112` is typed fails with the close, "the printer con
   the prompt as Attention), `CommandDone` and its output (M4, K11, K13), `JobEnd`, `Gone`/`Back` (K4), the refusals' texts
   (K2, K8). They are asserted by the port's own tests (`port.rs`), not compared with OctoPrint here.
 - **A real serial port.** Both sides talk to the virtual printer through an object, not a device: pyserial's
-  `Serial.read`/`write` and the `BufferedReadlineWrapper` (`serial.rs`, the `serialport` crate, `comm.py`'s workarounds
-  at :3900-3927) are not exercised. The real `/dev` scan and the baud-rate loop beyond its first candidate are not either
+  `Serial.read`/`write` and the `BufferedReadlineWrapper` (`serial.rs`; `serialposix.rs` on Unix with the `serialport`
+  crate, `serialwin32.rs` on Windows, a port of pyserial 3.5 `serialwin32.py`; `comm.py`'s workarounds at :3900-3927) are
+  not exercised; `serialwin32.rs`'s own tests (Windows CI) cover only what runs without a port. The real `/dev` scan and the baud-rate loop beyond its first candidate are not either
   (`connect_auto` finds one stand-in device and the first baud rate works).
 - **A real Marlin printer:** not tried (D11).
 - **Time.** The virtual printer's wall-clock behaviour is switched off (`sendWait`, the timed reports) and comm's own polls are
