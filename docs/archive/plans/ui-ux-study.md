@@ -4,16 +4,16 @@ Research, 2026-11-19 (lane UI-DESIGN, journal:UI-DESIGN:0004). It builds on
 [prusa-connect-ui-study.md](prusa-connect-ui-study.md), which compared our UI with Prusa Connect's
 app and set the states rules; that is not repeated here. This study takes **two viewpoints**, the
 ordinary user (a member) and the admin, through every part. The target design that follows from it is
-[design/ui.md](../design/ui.md); the clickable mockups are in `docs/design/ui/mockups/` (start at
+[design/ui.md](../../design/ui.md); the clickable mockups are in `docs/design/ui/mockups/` (start at
 `docs/design/ui/mockups/index.html`).
 
 Evidence for today's UI is `main` at `149b8b4` (`crates/hub/src`). Branch `v2-store` (`569240b`) has
 the same pages: its `crates/hub/src/web` differs from main only in the store plumbing (`Shared` →
 `Store`, sqlx tests in `web/router.rs`), so every finding below holds for both.
 
-Roles and actions come from [authz.md](../design/authz.md) and the
-[actions registry](../registries/actions.md); verbs from the
-[capability verbs registry](../registries/capability-verbs.md). Nothing here adds a role or an action.
+Roles and actions come from [authz.md](../../design/authz.md) and the
+[actions registry](../../registries/actions.md); verbs from the
+[capability verbs registry](../../registries/capability-verbs.md). Nothing here adds a role or an action.
 
 ## Method
 
@@ -49,7 +49,7 @@ Roles and actions come from [authz.md](../design/authz.md) and the
 
 - **Instance admin:** rare, technical; sees every organisation and space
   (`GET /api/v1/instance/spaces`), updates the hub, moves a device between spaces
-  ([decision](../design/decisions/20261119-device-move.md)). One small view.
+  ([decision](../../design/decisions/20261119-device-move.md)). One small view.
 - **The wall screen "Now"** is shared: a TV in the room, read from across it. It must work for both
   roles and leak nothing the signed-in session may not see.
 
@@ -76,10 +76,10 @@ Roles and actions come from [authz.md](../design/authz.md) and the
 
 | # | H | Finding | Evidence | Sev |
 |---|---|---|---|---|
-| A1 | H1, H5 | A request for permission is answered with one-click **Give**, which grants "use" on that machine without showing what "use" holds; v2's API separates the two (the request's state; the grant only through `/grants`). | `crates/hub/src/pages/permissions_page.rs:210-234`; [api.md](../design/api.md) `PATCH /api/v1/access-requests/{id}` | 2 |
-| A2 | H4 | A space admin can move a machine to another space from its Settings; the design makes moving an instance-admin action (allowlist #3). | `machine_page.rs:2176-2181`; [device-move decision](../design/decisions/20261119-device-move.md) | 2 |
+| A1 | H1, H5 | A request for permission is answered with one-click **Give**, which grants "use" on that machine without showing what "use" holds; v2's API separates the two (the request's state; the grant only through `/grants`). | `crates/hub/src/pages/permissions_page.rs:210-234`; [api.md](../../design/api.md) `PATCH /api/v1/access-requests/{id}` | 2 |
+| A2 | H4 | A space admin can move a machine to another space from its Settings; the design makes moving an instance-admin action (allowlist #3). | `machine_page.rs:2176-2181`; [device-move decision](../../design/decisions/20261119-device-move.md) | 2 |
 | A3 | H4, H8 | Colour by kind (`--fdm`, `--laser`, `--label` edges in the sidebar) competes with colour by state; the wiki's principle is "colour means look here" and one colour per state. | `web/shell.rs:220-222`, `:252` | 2 |
-| A4 | H2, H4 | The Add dialog offers Klipper and virtual machines, which are not kinds of the v2 device contract. | `web/shell.rs:58`, `:61`; [device-contract.md](../design/device-contract.md#kinds) | 2 |
+| A4 | H2, H4 | The Add dialog offers Klipper and virtual machines, which are not kinds of the v2 device contract. | `web/shell.rs:58`, `:61`; [device-contract.md](../../design/device-contract.md#kinds) | 2 |
 | A5 | S | Add by code: a wrong or expired code shows a note, but the dialog does not say the code expires or where a new one comes from. | `web/shell.rs:90-117` (`data-pair-note`) | 2 |
 | A6 | H8 | A machine's Settings tab carries daily and rare items together (profile, PPE list, upkeep, agent update, move). | `machine_page.rs:184-187`, `:2032-2255` | 2 |
 | A7 | H4 | Today's accent is the old green (`#2f7d6d` / `#5fbfa9`), not the house colour `#93A682`. | `web/shell.rs:208-210` | 1 |
@@ -146,7 +146,7 @@ everywhere), L (a new page or API).
 
 ## 5. What goes into the design
 
-All of section 4 is carried into [design/ui.md](../design/ui.md) as the target, with my own choices
+All of section 4 is carried into [design/ui.md](../../design/ui.md) as the target, with my own choices
 marked "proposal". The open points this study found (a member reading their own requests, the
 machine tabs against the wiki's Data tab, the laser hand-off when a job is already loaded, the wall
 screen's session, "my spools") are listed in ui.md under *Open points of the UI*.

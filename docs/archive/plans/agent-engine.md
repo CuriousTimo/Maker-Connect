@@ -4,7 +4,7 @@ Status: **v3, the owner's plan** (2026-11-12). Steps 1 and 2 may start; the Marl
 
 > **2026-11-18 (owner):** the hub core is being redesigned first ([hub-core-v2.md](hub-core-v2.md), after
 > [prusa-connect-study.md](prusa-connect-study.md) §7). Until that design is reviewed, no new phases here start.
-> The Marlin/OctoPrint port is frozen as is (no new audit rows); the MK3 PrusaLink port (#4) follows PrusaLink's `websockets` branch (2026-11-19, [decision](../design/decisions/20261119-mk3-reference-prusalink-websockets.md)).
+> The Marlin/OctoPrint port is frozen as is (no new audit rows); the MK3 PrusaLink port (#4) follows PrusaLink's `websockets` branch (2026-11-19, [decision](../../design/decisions/20261119-mk3-reference-prusalink-websockets.md)).
 
 ## Owner's decisions on the shape (2026-11-12)
 
@@ -303,7 +303,7 @@ shared code between them. They come after the OctoPrint port, one at a time.
 
 The owner: "los die negen beslispunten op en laat als nodig weer testen door de agents die daar
 verantwoordelijk voor zijn". Decided by Claude on the owner's request, checked by `owner-proxy`
-and `on-track`; marked **(Claude)** for the owner to review. Source: `docs/design-overview.html`,
+and `on-track`; marked **(Claude)** for the owner to review. Source: `docs/archive/design-overview-v1.html`,
 "Te beslissen".
 
 | # | Question | Decision (Claude) | When |
@@ -363,7 +363,7 @@ PnP -> follow the example" (labelle sends nothing while idle). Superseded by the
 **Section J, decided (proxy, 2026-11-15):** approved: `serde_json::Value` arguments in
 `standard.rs`, `LocalFileManager` (a stand-in; only event payloads differ), `Arc<Printer>` with a
 `Weak` self, `Arc` hook handlers (difference 34), plugin settings = defaults, the prompt answer as a
-string for a plain `{choice}`. To fix (brief `docs/briefs/section-j-fixes.md`): the `%`-formatting
+string for a plain `{choice}`. To fix (brief `docs/archive/briefs/section-j-fixes.md`): the `%`-formatting
 is ported from CPython 3.13 and proven; OctoPrint's `EventManager` queue and worker are ported.
 
 ### Step 3b: the DYMO PnP (2026-11-15; ours below: to approve (proxy))
@@ -441,7 +441,7 @@ New items, to approve (proxy); the list is also at the top of `port.rs`:
 | K15 | Under `cfg(test)`, `comm.rs`'s `_open_serial` opens a port name a test registered (`TEST_TRANSPORTS`) as that serial object: the tests' fake printer, in memory (a pseudo-terminal does not work on macOS: `serialport` sets the baud with `IOSSIOSPEED`) |
 | K16 | Texts and rules of ours, found by the watchdog, listed to approve: a PRINT_FAILED without an error says "OctoPrint: the print failed"; a file that cannot be linked says "could not give OctoPrint the file: <io error>"; a job still held when comm goes to CLOSED, CLOSED_WITH_ERROR or ERROR ends failed with `getErrorString` or the state text (the reference fails only a print that was PRINTING); Attention is not shown while Disconnected; a state `comm.py` does not have is Error; tools are numbered from 1 and `active` is `getCurrentTool`; whole numbers go to OctoPrint as Python ints (`S215`, as the web page's JSON gives them); the state text is `getStateString(state)` at the change; the job tags `source:api`, `api:job` are passed to `select_file` (ignored there as `**kwargs`) |
 | K17 | Open, for the owner: the hub's `typed_gcode` (existing, `crates/hub/src/commands.rs`) trims lines, drops blank ones and refuses more than 20 lines, 480 characters or non-ASCII before the port sees typed G-code, so it is ours on the way to the wire; K1 says "as typed". Not changed here. Also `Gone` fires on `Order::Close` too (comm goes CLOSED), not only on an unplug |
-| K18 | Ours, engine to hub, nothing on the wire to the device. (a) The Marlin port, on `Gone` and on `Order::Close`, sends `Done { ok: false, reason: "the printer connection closed" }` for every command still pending (with the lines it had received). (b) The hub gives every Queued command of a Marlin agent machine at once (`next_commands_for_agent`: the same order, someone's before the hub's own), with no gate and no 120 s; "a Marlin agent machine" is link `agent`, an FDM kind, `plain_marlin` (K5), and a profile that says Marlin or nothing (not Buddy, Klipper, the MK3 family or GRBL). Such a command is given up only on the port's failed Done or by the agent-gone rule: when the machine was last seen longer ago than `ONLINE_SECONDS` (10 s), checked on its next report before that report is taken in, its Sent and Accepted commands (not Queued) fail with "the agent was gone". (c) A Done that comes after that failure wins, as `command_went` overwrites: the printer's own result replaces the hub's guess (tested, also for a Done in the report that ends the gap). (d) HS4, the other agent ports (`docs/briefs/hs4-ports-fail-pending.md`): on `Order::Close` (and the laser also when its orders end) the DYMO PnP, LabelWriter 450 and laser ports fail every command still pending (a command waiting behind the Close, the 450's queue, the laser's unanswered tickets) with "the connection closed" (ours, approved by the owner 2026-11-17; the laser is not a printer). The hub's rule (b) then covers them: the machines it covers are the Marlin agent machines, label printers and lasers (agent link); Klipper and the MK3 family keep the gate and the 120 s (Buddy: see (f)). (e) Difference K18-1 (the agents' decision of 2026-11-15, for approval): comm's own lines after an emergency stop credit no pending command. `_trigger_emergency_stop` (comm.py:5487-5522, from `_gcode_M112_queuing` :5524 and from the error path :4110-4136) sends `M112`, `N<n> M112`, `M104 T<n> S0` and `M140 S0` through `_do_send_without_checksum` / `_do_increment_and_send_with_checksum` (:5017, :5036-5041): they log `Send: ...`, carry no tags and fire no `gcode.queuing`/`sent` hook, and comm then closes. The edge (`port.rs`) sets `emergency` when a `gcode.queuing` hook sees gcode `M112` (any tags; comm's gcode handler runs right after the hooks of that phase) or when `on_comm_error` says `consequence == "emergency"` (comm calls `_trigger_emergency_stop` right after); until `Gone`/`Back` the lines it receives are credited to nothing (no output line, no `ok`), so an `M109` pending when an `M112` is typed fails with the close, "the printer connection closed", never `ok` (`the_top_edge_on_a_fake_printer`). Crediting inside the port only, nothing on the wire. Other lines comm sends on its own (its temperature polls, say) are not changed by this. (f) A printer on the built-in Prusa Connect (link `prusa-connect`) has no 120 s either (Buddy has no time for a command, `planner.cpp:661`): its command stays pending until Buddy answers it (its `command_id` in telemetry keeps it Accepted; FINISHED, REJECTED or FAILED end it). Only when the printer was not seen for longer than `ONLINE_SECONDS`, checked on its next telemetry before that report is taken in, do its Sent and Accepted commands fail with "the printer was gone" (ours, nothing on the wire; a later answer from Buddy still wins as in (c)). Test `a_command_stays_pending_until_buddy_answers_it` |
+| K18 | Ours, engine to hub, nothing on the wire to the device. (a) The Marlin port, on `Gone` and on `Order::Close`, sends `Done { ok: false, reason: "the printer connection closed" }` for every command still pending (with the lines it had received). (b) The hub gives every Queued command of a Marlin agent machine at once (`next_commands_for_agent`: the same order, someone's before the hub's own), with no gate and no 120 s; "a Marlin agent machine" is link `agent`, an FDM kind, `plain_marlin` (K5), and a profile that says Marlin or nothing (not Buddy, Klipper, the MK3 family or GRBL). Such a command is given up only on the port's failed Done or by the agent-gone rule: when the machine was last seen longer ago than `ONLINE_SECONDS` (10 s), checked on its next report before that report is taken in, its Sent and Accepted commands (not Queued) fail with "the agent was gone". (c) A Done that comes after that failure wins, as `command_went` overwrites: the printer's own result replaces the hub's guess (tested, also for a Done in the report that ends the gap). (d) HS4, the other agent ports (`docs/archive/briefs/hs4-ports-fail-pending.md`): on `Order::Close` (and the laser also when its orders end) the DYMO PnP, LabelWriter 450 and laser ports fail every command still pending (a command waiting behind the Close, the 450's queue, the laser's unanswered tickets) with "the connection closed" (ours, approved by the owner 2026-11-17; the laser is not a printer). The hub's rule (b) then covers them: the machines it covers are the Marlin agent machines, label printers and lasers (agent link); Klipper and the MK3 family keep the gate and the 120 s (Buddy: see (f)). (e) Difference K18-1 (the agents' decision of 2026-11-15, for approval): comm's own lines after an emergency stop credit no pending command. `_trigger_emergency_stop` (comm.py:5487-5522, from `_gcode_M112_queuing` :5524 and from the error path :4110-4136) sends `M112`, `N<n> M112`, `M104 T<n> S0` and `M140 S0` through `_do_send_without_checksum` / `_do_increment_and_send_with_checksum` (:5017, :5036-5041): they log `Send: ...`, carry no tags and fire no `gcode.queuing`/`sent` hook, and comm then closes. The edge (`port.rs`) sets `emergency` when a `gcode.queuing` hook sees gcode `M112` (any tags; comm's gcode handler runs right after the hooks of that phase) or when `on_comm_error` says `consequence == "emergency"` (comm calls `_trigger_emergency_stop` right after); until `Gone`/`Back` the lines it receives are credited to nothing (no output line, no `ok`), so an `M109` pending when an `M112` is typed fails with the close, "the printer connection closed", never `ok` (`the_top_edge_on_a_fake_printer`). Crediting inside the port only, nothing on the wire. Other lines comm sends on its own (its temperature polls, say) are not changed by this. (f) A printer on the built-in Prusa Connect (link `prusa-connect`) has no 120 s either (Buddy has no time for a command, `planner.cpp:661`): its command stays pending until Buddy answers it (its `command_id` in telemetry keeps it Accepted; FINISHED, REJECTED or FAILED end it). Only when the printer was not seen for longer than `ONLINE_SECONDS`, checked on its next telemetry before that report is taken in, do its Sent and Accepted commands fail with "the printer was gone" (ours, nothing on the wire; a later answer from Buddy still wins as in (c)). Test `a_command_stays_pending_until_buddy_answers_it` |
 
 **Section K, decided (proxy, 2026-11-15):** K1–K16 approved (K16 item by item; the extra job
 failure on close/error and the report texts are listed as numbered differences; the job tags to
@@ -459,8 +459,8 @@ change together; old agents need not keep working.
 
 **Owner, 2026-11-19:** "geen oude v1 meer. er is toch niets en niemand actief": in v2 no v1 is
 kept anywhere, no fallback and no transition. The v1 routes this plan names (`/api/agent/v1/*`, the
-Apps API v1 and its extension) go with v2 ([wire.md](../design/wire.md) replaces the agent link;
-[overview.md](../design/overview.md#rules-every-part-obeys) rule 8).
+Apps API v1 and its extension) go with v2 ([wire.md](../../design/wire.md) replaces the agent link;
+[overview.md](../../design/overview.md#rules-every-part-obeys) rule 8).
 
 **D4 decided (owner, 2026-11-15):** the laser keeps LaserFoundry's GRBL (`laserfoundry-device`,
 `laserfoundry-gcode`, used by `crates/grbl`; the owner's choice of 2026-11-04): "we kunnen gewoon
@@ -563,7 +563,7 @@ the hub and a release check that no `requestPort`/`navigator.serial` is in the b
 (2) Served by the hub, same origin (works on an http LAN and offline; GitHub Pages fails on mixed
 content, its fixed CSP and local-network checks). (3) Built by our release script from a pinned
 fork commit at the same LaserFoundry tag as the agent's laser port, packed into the hub archive
-(covered by SHA256SUMS and the signature). (4) Apps API v1 stays (v2: removed, no v1 kept, [overview.md](../design/overview.md#rules-every-part-obeys) rule 8): the file lands in Files with the
+(covered by SHA256SUMS and the signature). (4) Apps API v1 stays (v2: removed, no v1 kept, [overview.md](../../design/overview.md#rules-every-part-obeys) rule 8): the file lands in Files with the
 laser chosen; a person frames and starts it ("Burn" to the queue would be a new safety decision and
 an API v2). (5) The fork sends LaserFoundry's own exporter output only, nothing of ours in the
 G-code. (6) The upstream merge request follows the MakerFoundry pattern (`crates/ai/src/maker_connect.rs`,
@@ -572,14 +572,14 @@ Addendum (architect): "Burn → the laser's queue" fits the 2026-11-06 rule only
 never starts a laser job by itself (`queue.rs` `start_queued` skips lasers); a person at the laser
 frames and presses Start on the machine page (operate + PPE, with a session; the app's token never
 starts anything); optionally the hub refuses Start unless that file was just framed on that
-machine. Apps API: a compatible v1 extension (v2: removed, no v1 kept, [overview.md](../design/overview.md#rules-every-part-obeys) rule 8) (`POST /api/apps/v1/machines/{id}/queue?file=<id>`,
+machine. Apps API: a compatible v1 extension (v2: removed, no v1 kept, [overview.md](../../design/overview.md#rules-every-part-obeys) rule 8) (`POST /api/apps/v1/machines/{id}/queue?file=<id>`,
 `queue_length`/`queue_held` per machine, `info.features: ["queue"]`), `docs/api/apps-api.md` changed in
 the same change.
 
 **Owner, 2026-11-15 — a laser never starts unattended:** "Laser is een machine waar je vanalles
 moet doen om het materiaal en printer eerst klaar te maken. outer dimensions wil bekijken enz enz.
 persoonlijke bescherming (bril) enz. dus nooit onbeheerd starten." "Burn" puts the file in the
-laser's queue (the architect's v1 extension, v2: removed, no v1 kept, [overview.md](../design/overview.md#rules-every-part-obeys) rule 8); the queue never starts a laser job by itself; a
+laser's queue (the architect's v1 extension, v2: removed, no v1 kept, [overview.md](../../design/overview.md#rules-every-part-obeys) rule 8); the queue never starts a laser job by itself; a
 person at the laser prepares the material and machine, frames to check the outer dimensions, meets
 the PPE check (glasses), and presses Start on the machine page.
 
@@ -685,7 +685,7 @@ the proxy recommends absent, Stop exists); G10 approved (no retry of a failed op
 "not covered"); G7 FIX: the port reads LaserFoundry's snapshot every 100 ms as its app does for a
 non-inline link (`ui-egui/src/lib.rs:1309`), and the proof's reference side uses the same cadence;
 G8 the time-left estimate only in the UI; the hub link fetches a command's file (Frame) with the B2
-fetch over the existing `/api/agent/v1/files/{id}`, authorised as B2 (v2: `GET /api/agent/v2/files/{id}`, [wire.md](../design/wire.md); no v1 kept). Upstream contributions:
+fetch over the existing `/api/agent/v1/files/{id}`, authorised as B2 (v2: `GET /api/agent/v2/files/{id}`, [wire.md](../../design/wire.md); no v1 kept). Upstream contributions:
 proposals only; sending them is the owner's.
 
 **Step 3c decided (proxy, 2026-11-15):** W6 approved (Stop = CUPS's cancel; write down that the

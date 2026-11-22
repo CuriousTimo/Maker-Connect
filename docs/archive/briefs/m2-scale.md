@@ -3,7 +3,7 @@
 Repo: /Users/timo/Documents/Coding/Maker-Connect (Rust; never commit; no hardware; no deploy).
 PATH: `export PATH=/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH`.
 
-Read first: `CLAUDE.md`; Step 3e at the end of `docs/plans/agent-engine.md` (the reference, E1-E11, the not-covered list:
+Read first: `CLAUDE.md`; Step 3e at the end of `docs/archive/plans/agent-engine.md` (the reference, E1-E11, the not-covered list:
 binding); `reference/usbscale/usbscale.c` (the whole read path 170-345 and `print_scale_data` 380-456);
 `reference/hid-usage-tables/hut1_6.txt` ch. 33 and `pos1_02.txt` §6.2.4 (to verify only). Look at how the labelle
 port is built (`crates/engine/src/ports/labelle/`, `crates/agent/src/{link,ports,main}.rs`) and do the same; do not

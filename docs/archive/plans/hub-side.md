@@ -6,7 +6,7 @@ proxy may not make.
 
 ## What it is
 
-From `docs/plans/agent-engine.md`: the MINI (Prusa Connect) and Klipper (Moonraker) connect to the hub
+From `docs/archive/plans/agent-engine.md`: the MINI (Prusa Connect) and Klipper (Moonraker) connect to the hub
 themselves. They get an **agent inside the hub**: the same engine (`crates/engine`) and the same
 kind of ports, run in the hub's process. The hub then makes no G-code for them either (D9):
 `jog_command`, `grbl_action` and `action()` in `crates/hub/src/devices/legacy_gcode.rs`, and the queued
@@ -82,7 +82,7 @@ approval, once H2/H3's mappings are known.
 
 ## The hub-side plan (draft for review, 2026-11-15)
 
-Everything left for the hub, collected from `docs/plans/agent-engine.md` and the audits, in a proposed
+Everything left for the hub, collected from `docs/archive/plans/agent-engine.md` and the audits, in a proposed
 order. Each item gets its own brief, vetted by the proxy and the watchdog before work starts.
 
 | # | Item | Why now / source | Reference | Status |
@@ -99,9 +99,9 @@ order. Each item gets its own brief, vetted by the proxy and the watchdog before
 | HS10 | MINI (H2): typed actions → Buddy 6.3.0's own menu G-code (owner's decision), via Prusa Connect; the hub's `M604`, load `M109`/`M701` with 215 °C, etc. go | D9 debt on the MINI | Buddy 6.3.0 | open |
 | HS11 | Klipper (H3): G-code reference still open for the owner | — | owner to choose | open |
 | HS12 | Spoolman audit (H4) | approved, waits for its turn | Spoolman eccb05e | audit built `8d6828a`; rows still open |
-| HS13 | LaserFoundry web fork, served by the hub: "Send to [laser name]" (owner, 2026-11-17) makes it that laser's loaded job (HS7b: one loaded job, no laser queue) (Apps API v1 extension; in v2 a call of `/api/v1`, no `/api/apps/v1` kept: [hub-core-v2.md](hub-core-v2.md) §2.8). Packed **gzip in the hub binary** (owner, 2026-11-17: "ja, gzip in de binary"; measured on LaserFoundry's own web build: wasm 11.8 MB, 3.8 MB gzip; the hub sends it with `Content-Encoding: gzip`) | after the laser port (done); brief `docs/briefs/hs13-laserfoundry-web.md`, `scripts/laserfoundry-web.sh`, `crates/hub/src/laser_design.rs` (feature `laser-design`); the fork: github.com/CuriousTimo/laserfoundry, branch `maker-connect` | LaserFoundry v0.5.0 (fork `38af2cd`) | built, our choices approved by the owner ("HS13 ok") |
+| HS13 | LaserFoundry web fork, served by the hub: "Send to [laser name]" (owner, 2026-11-17) makes it that laser's loaded job (HS7b: one loaded job, no laser queue) (Apps API v1 extension; in v2 a call of `/api/v1`, no `/api/apps/v1` kept: [hub-core-v2.md](hub-core-v2.md) §2.8). Packed **gzip in the hub binary** (owner, 2026-11-17: "ja, gzip in de binary"; measured on LaserFoundry's own web build: wasm 11.8 MB, 3.8 MB gzip; the hub sends it with `Content-Encoding: gzip`) | after the laser port (done); brief `docs/archive/briefs/hs13-laserfoundry-web.md`, `scripts/laserfoundry-web.sh`, `crates/hub/src/laser_design.rs` (feature `laser-design`); the fork: github.com/CuriousTimo/laserfoundry, branch `maker-connect` | LaserFoundry v0.5.0 (fork `38af2cd`) | built, our choices approved by the owner ("HS13 ok") |
 | HS15 | Buddy (MINI, 6.3.0) audit made mechanical, and the hub to the letter of it (D1-D10) | owner, 2026-11-17 | Buddy 6.3.0 | done `9f75435`, `96ba85b`; telemetry fields and metadata rows still UNCHECKED |
-| HS14 | Docs pass: `docs/design-overview.html`, `docs/audits/README.md`; `scripts/reference-updates.sh` for every reference (pin read from `Cargo.lock`) | decided (points 3, 4) | — | in progress (docs index 2026-11-17; `design-overview.html` and `reference-updates.sh` open) |
+| HS14 | Docs pass: `docs/archive/design-overview-v1.html`, `docs/audits/README.md`; `scripts/reference-updates.sh` for every reference (pin read from `Cargo.lock`) | decided (points 3, 4) | — | in progress (docs index 2026-11-17; `archive/design-overview-v1.html` and `reference-updates.sh` open) |
 
 Proposed order: HS14 (docs, small, makes the plan readable) → HS1 → HS2 → HS3 → HS7 (safety) →
 HS4 → HS6 → HS5 → HS8 → HS9 → HS10 → HS12 → HS13 → HS11 (when the owner picks).
@@ -161,7 +161,7 @@ the scale works.
 
 ## Cameras
 
-USB webcams and network cameras: `docs/plans/cameras.md`.
+USB webcams and network cameras: `docs/archive/plans/cameras.md`.
 
 ## On the list (owner, 2026-11-16; not started)
 

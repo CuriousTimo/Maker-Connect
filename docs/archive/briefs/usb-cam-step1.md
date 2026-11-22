@@ -1,13 +1,13 @@
 # Brief: USB webcams, step 1 (the proof)
 
-Row: `docs/plans/cameras.md`, "USB webcams", step 1. One camera (nokhwa index) on an agent, a JPEG every few
+Row: `docs/archive/plans/cameras.md`, "USB webcams", step 1. One camera (nokhwa index) on an agent, a JPEG every few
 seconds over the existing link, the hub keeps the latest in memory, an admin test page refreshed by SSE.
 Nothing here is the design of steps 2-5; where step 2 will take over it is said.
 
 ## What
 
 - Agent: `--camera <nokhwa index>` (config key `camera`), and `--mode cameras` for an agent with a camera and
-  no machine (docs/plans/cameras.md: "`--mode cameras` for an agent with cameras only"). Capture with nokhwa 0.10.11
+  no machine (docs/archive/plans/cameras.md: "`--mode cameras` for an agent with cameras only"). Capture with nokhwa 0.10.11
   (`default-features = false`, `input-native`), owner's exception, all OSes.
 - Wire: `POST /api/agent/v1/cameras/{index}/frame` (`protocol::CAMERA_FRAME`), body = one JPEG
   (`image/jpeg`), `Authorization: Bearer <the agent's token>`. An own route, not telemetry: telemetry is typed

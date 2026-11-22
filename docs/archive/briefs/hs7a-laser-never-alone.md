@@ -4,7 +4,7 @@ Repo: /Users/timo/Documents/Coding/Maker-Connect (Rust; git repo, never commit u
 hardware). PATH: `export PATH=/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH`. The owner
 released the hub side ("merge. dan de hub-kant", 2026-11-15); this is its first step.
 
-The owner's rule (memory `maker-connect-laser-never-unattended`; `docs/plans/agent-engine.md` "a laser
+The owner's rule (memory `maker-connect-laser-never-unattended`; `docs/archive/plans/agent-engine.md` "a laser
 never starts unattended"): a laser job is started only by a person. Nothing of this reaches the
 wire: `add_job` is the hub's own database insert.
 

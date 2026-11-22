@@ -3,8 +3,8 @@
 Repo: /Users/timo/Documents/Coding/Maker-Connect (Rust; git repo, never commit; no hardware).
 PATH: `export PATH=/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH`. The LabelWriter 450 agent may
 still be finishing in `ports/dymo_cups/` (its own target dir): don't touch it. Read `CLAUDE.md`, the
-end of `docs/plans/agent-engine.md` ("The five questions, decided by the agents", Section K incl. K18,
-K18-1), `docs/audits/octoprint-marlin.md`, `docs/briefs/section-l-proof.md`. Reference:
+end of `docs/archive/plans/agent-engine.md` ("The five questions, decided by the agents", Section K incl. K18,
+K18-1), `docs/audits/octoprint-marlin.md`, `docs/archive/briefs/section-l-proof.md`. Reference:
 `reference/OctoPrint-1.11.8`. Do these in order; one report at the end (stop early only if a step
 contradicts this brief).
 

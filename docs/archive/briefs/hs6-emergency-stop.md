@@ -1,6 +1,6 @@
 # Brief HS6: an emergency-stop button per kind on the machine page
 
-Row: `docs/plans/hub-side.md` HS6. The button, who may press it and its texts are **ours, in our UI**; what
+Row: `docs/archive/plans/hub-side.md` HS6. The button, who may press it and its texts are **ours, in our UI**; what
 each kind sends is its reference's own action, traced below. Nothing new goes on any wire.
 
 ## Who may press it

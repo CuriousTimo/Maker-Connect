@@ -7,7 +7,7 @@ command. Another agent runs the Marlin proof (tests and scripts under `crates/en
 `scripts/`, the `octoprint/` folder): never touch `crates/engine/src/ports/octoprint/` or
 `crates/engine/src/ports/labelle/`; in shared files (`crates/engine/Cargo.toml`,
 `crates/engine/src/ports/mod.rs`, `crates/agent/src/ports.rs`, `crates/agent/src/link.rs` `Mode`,
-`Cargo.lock`, `docs/plans/agent-engine.md`) only add lines (re-read before writing). The only audit files
+`Cargo.lock`, `docs/archive/plans/agent-engine.md`) only add lines (re-read before writing). The only audit files
 you write: the new `docs/audits/dymo-labelwriter-450.md` and row 7 of `docs/audits/README.md`
 (replace its "not chosen / fused" text with the current result only). If the engine crate
 fails to compile because of another folder, wait and retry; never fix it yourself.
@@ -18,7 +18,7 @@ driver 1.4.0** (official tarball from download.dymo.com, sha256
 `reference/dymo-cups-drivers-1.4.0`. Licence: GPL-2 "or any later version" (© Sanford L.P.), taken
 as GPL-3 so it combines with our AGPL-3.0: keep its copyright and licence notice in every ported
 file. Anything not traceable to a line of that driver (or the runtime named below) is marked
-"ours" and listed. Read `docs/plans/agent-engine.md`: the engine (O1–O8), the hub link (S1–S5), B2, B4,
+"ours" and listed. Read `docs/archive/plans/agent-engine.md`: the engine (O1–O8), the hub link (S1–S5), B2, B4,
 B8, the owner's notes that the PnP and the 450 are **completely separate stacks with no shared
 code**, and "Step 3b" (the PnP port) as the model of a top edge. **Never** use
 `thermal-label/labelwriter` (`reference/labelwriter`) or the old `crates/label/src/labelwriter.rs`
@@ -57,7 +57,7 @@ written for this port on its own (Step 3b is a model of the pattern only).
 No hardware in tests: under `cfg(test)` opening a real USB device panics (as section H's serial
 guard); a real print is the owner's later try (D11).
 
-## 2. The top edge (ours; "Step 3c: the LabelWriter 450" appended to `docs/plans/agent-engine.md`, items W1, W2…, "to approve (proxy)")
+## 2. The top edge (ours; "Step 3c: the LabelWriter 450" appended to `docs/archive/plans/agent-engine.md`, items W1, W2…, "to approve (proxy)")
 
 - `Order::Job { order, file }` (a PNG): the driver's print of that label; the label size from
   `JobOrder.label_length_mm` / the media the PPD names (never guessed; if the job gives none, the

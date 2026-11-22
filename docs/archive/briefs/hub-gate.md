@@ -6,7 +6,7 @@ PATH: `export PATH=/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH`;
 `crates/engine/src/ports/dymo_cups/`, the laser in `ports/laserfoundry/` and `crates/grbl`): don't
 touch those; in shared files only add lines, re-read before writing.
 
-Read `CLAUDE.md` and the end of `docs/plans/agent-engine.md`: "The four open points, decided" (1a), B3,
+Read `CLAUDE.md` and the end of `docs/archive/plans/agent-engine.md`: "The four open points, decided" (1a), B3,
 B7, K11. Implement exactly that, nothing else:
 
 1. **Hub.** Leave `next_command_of_any_kind` (`store.rs` ~1807) unchanged: Connect, SimplyPrint,
@@ -26,7 +26,7 @@ B7, K11. Implement exactly that, nothing else:
    write it down (`command_went`, `store.rs` ~1866, overwrites today).
 2. **The Marlin port** (`port.rs`): when comm closes (`Gone`) and on `Order::Close`, send
    `Done{ok:false}` for every command still pending, text "the printer connection closed" (ours).
-   One new K row (K18) in Section K of `docs/plans/agent-engine.md` for this and the hub rule above: "ours,
+   One new K row (K18) in Section K of `docs/archive/plans/agent-engine.md` for this and the hub rule above: "ours,
    engine↔hub, nothing on the wire to the device", the two texts, the agent-gone rule, the open item
    for the other ports. Change K11 to: agent Marlin machines are given up on the port's failed Done
    or the agent-gone rule; Buddy/Klipper and the other agent ports keep the 120 s.

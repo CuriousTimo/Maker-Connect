@@ -42,7 +42,7 @@ edge must fire it; tests using the global manager fire it under `cfg(test)`. The
 installs is called in the worker thread after the plugin handlers, inside `py_try` (ours; document
 it). Tests: a test-only bounded wait for the queue to drain (`_work` never calls `task_done`, so no
 `join()`); local test managers are shut down with SHUTDOWN; watch for cross-talk on the global
-manager. Correct the plan text (`docs/plans/agent-engine.md` ~186, "the event bus as a bus" not ported)
+manager. Correct the plan text (`docs/archive/plans/agent-engine.md` ~186, "the event bus as a bus" not ported)
 and the `events.rs` module doc: the dispatcher is now ported (only that line; append nothing else).
 
 ## 3. Two small ones

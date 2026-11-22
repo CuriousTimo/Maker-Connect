@@ -1,6 +1,6 @@
 # Cameras
 
-Cameras in general, nothing model-specific in code (owner, 2026-11-16; [plans/cameras.md](../archive/plans/cameras.md)).
+Cameras in general, nothing model-specific in code (owner, 2026-11-16; [archive/plans/cameras.md](../archive/plans/cameras.md)).
 A camera is a device of kind `camera`, linked to a machine or a room; it is never a machine in the
 machine list (#5). The hub on a Pi decodes and transcodes nothing.
 

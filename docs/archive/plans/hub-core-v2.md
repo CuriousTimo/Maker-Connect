@@ -78,7 +78,7 @@ result; `engine::Port` (`engine/src/lib.rs:83`) gains a contract adapter; `proto
 
 **Decision.** One driver `prusa-buddy`, inbound, hosted in the hub process, with one dialect `buddy-ws`;
 Buddy 6.3.0's HTTP dialect is not built (owner, journal:V2-DEVICES:0005; clean break, journal:DESIGN-WS:0005;
-[decision](../design/decisions/20261119-buddy-websocket-dialect-only.md)).
+[decision](../../design/decisions/20261119-buddy-websocket-dialect-only.md)).
 
 | Dialect | Wire | Reference (normative) | Server-side reference | Today |
 |---|---|---|---|---|
@@ -105,8 +105,8 @@ and message JSON are ours. Upstream items keep a sequence the hub acknowledges (
 on disk across reconnects, which absorbs HS5b); commands, jobs, answers and updates arrive on the same
 socket at once. Registration and file and update downloads stay HTTP. Browser live updates stay SSE
 (§2.4). Agent tokens: report and fetch only, stored hashed (today the machine token is plain text,
-`store/migrate.rs:85`). ([Decision](../design/decisions/20261119-agent-link-one-websocket.md),
-journal:DESIGN-WS:0001; the wire: [wire.md](../design/wire.md).)
+`store/migrate.rs:85`). ([Decision](../../design/decisions/20261119-agent-link-one-websocket.md),
+journal:DESIGN-WS:0001; the wire: [wire.md](../../design/wire.md).)
 
 Ports and their references are untouched; only the edge between engine and link changes. Their
 out-of-process wire (`D/plugin-wire-protocol.md`) is **not** built: the hub keeps a `Host` boundary
@@ -221,7 +221,7 @@ from that dump along with the old binary, so changes made after the update start
 keeps the last 7 dumps of each kind (nightly and pre-update) and deletes older ones; `--keep-dumps`
 changes the number (proxy, journal:V2-STORE-5:0021). The hub's client tools (`pg_dump`, `pg_restore`,
 `psql`) are of the server's version, on `PATH`: on Debian 11 armhf built from PostgreSQL's source; the
-hub gets no Docker rights (journal:V2-STORE-5:0014). How: [docs/pi-hub.md](../pi-hub.md).
+hub gets no Docker rights (journal:V2-STORE-5:0014). How: [docs/pi-hub.md](../../pi-hub.md).
 
 ### 2.8 API
 
@@ -298,12 +298,12 @@ with the API (step 6). Pages and JSON stay byte for byte as they are; timestamps
 **V2-DEVICES** (2026-11-19, journal:DESIGN-WS:0001, journal:V2-DEVICES:0005) takes steps 4 and 5 in this
 order: (1) the hub's device contract and agent link v2 (one WebSocket per agent); (2) agent v2 with
 several devices per agent and its settings page
-([decision](../design/decisions/20261119-agent-settings-page.md)); (3) the Buddy driver, websocket dialect
+([decision](../../design/decisions/20261119-agent-settings-page.md)); (3) the Buddy driver, websocket dialect
 only. The first agent v2 devices (owner): the DYMO LabelManager PnP (labelle stack, tape) and the DYMO
 LabelWriter 450 (DYMO CUPS stack, labels), kept as two separate stacks with no shared code.
 
 **Parked:** HS10 (MINI button G-code: owner's choice, lands in the driver after step 5); #2 waits for
-step 5 (the device model first); #4 MK3 PrusaLink HTTP port parked (MK3 to come over `/p/ws`, study §5b; 2026-11-19: no longer parked, ported from PrusaLink's `websockets` branch, [decision](../design/decisions/20261119-mk3-reference-prusalink-websockets.md));
+step 5 (the device model first); #4 MK3 PrusaLink HTTP port parked (MK3 to come over `/p/ws`, study §5b; 2026-11-19: no longer parked, ported from PrusaLink's `websockets` branch, [decision](../../design/decisions/20261119-mk3-reference-prusalink-websockets.md));
 Marlin/OctoPrint port frozen as is (only wrapped by the step 1 adapter); HS11 Klipper and the SimplyPrint
 route (`devices/simplyprint.rs`) frozen, Moonraker mapping later after their example; hosting their
 out-of-process drivers (not built until Prusa publishes the driver methods); modules out of process.

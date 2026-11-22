@@ -1,7 +1,7 @@
 # Hub core v2: each agent port mapped onto the device contract (research, GitHub #14)
 
 Status: research only, nothing built, nothing decided. Feeds the adapter lane after the contract crate
-(`docs/plans/hub-core-v2.md` §2.1). Rule used (§2.1): a capability verb maps to the reference's own call; a
+(`docs/archive/plans/hub-core-v2.md` §2.1). Rule used (§2.1): a capability verb maps to the reference's own call; a
 verb the reference has no call for is not declared. One reference per device (CLAUDE.md), the one its module
 header and audit name. "Not checked" means not verified. "Ours: profile" means a bound or default that is
 ours, not the reference's, and needs the owner's approval before it is declared. Nothing here is a guess:
@@ -48,7 +48,7 @@ OctoPrint's; where OctoPrint states a bound it is used, where it states none the
 | 8 | `core.command.set_speed` | `Printer.feed_rate` `standard.py:682` (M220); endpoint `printer.py:338-345` | `speed` percent. Reference: number, a float is multiplied by 100, minimum 1, no maximum (`standard.py:668-681`). Connect: integer 20..999. Bounds ours: profile. |
 | 9 | `core.command.set_flow` | `Printer.flow_rate` `standard.py:689` (M221); endpoint `printer.py:144-151` | `flow` percent, as row 8. |
 | 10 | `core.command.disable_steppers` | the control panel's "Motors off" button, `OP/templates/tabs/control.jinja2:82` (sends `M18` through `printer/command`, row 1) | no args. The reference has no API call, only the button: needs approval that a template button counts as "the reference's own call". Connect's `disable_steppers` sends `M84` (`PC/internal/connector/xbuddy/verbs.go:310`); that M18 and M84 mean the same: not checked. Refused unless operational and not printing is the button's rule (`control.jinja2:82`). |
-| 11 | `mc.printer.fan` | control panel "Fan on"/"Fan off", `control.jinja2:83-84` (`M106 S255`, `M106 S0`) | `on` boolean. Same caveat as row 10. Connect has no part-fan verb (only `set_chamber_fan_target`). Name = ours. Note: `docs/plans/agent-engine.md` M1 cites `control.jinja2:149-151` for these buttons; in this tree they are at `:82-84` (F2). |
+| 11 | `mc.printer.fan` | control panel "Fan on"/"Fan off", `control.jinja2:83-84` (`M106 S255`, `M106 S0`) | `on` boolean. Same caveat as row 10. Connect has no part-fan verb (only `set_chamber_fan_target`). Name = ours. Note: `docs/archive/plans/agent-engine.md` M1 cites `control.jinja2:149-151` for these buttons; in this tree they are at `:82-84` (F2). |
 | 12 | `core.command.start_print` | `select_file` `standard.py:696`, `start_print` `standard.py:765`; endpoints `OP/server/api/files.py:845-905` (select) and `job.py:32-38` (start) | `path` string required (Connect `capabilities.md:828-852`). OctoPrint selects by a name in ITS file manager (`files.py:140-144,171`, machinecode extension, `files.py:144`); our K6 hard link `job-<id>.d/<name>` (`port.rs:37-39`) is ours. `tool_mapping`: no reference call, not declared. Refused when already printing/paused (`job.py:33-37`), not operational (`job.py:16-17`), not ready (`files.py:150-154`). |
 | 13 | `core.command.pause_print` | `Printer.pause_print` `standard.py:792`; endpoint `job.py:46-60` | no args (OctoPrint's optional `action` toggle/pause/resume, `job.py:52-60`, is not used by the port). |
 | 14 | `core.command.resume_print` | `Printer.resume_print` `standard.py:808`; `job.py:57-58` | no args. OctoPrint's separate `restart` (start on a paused print, `job.py:39-45`) is not used. |
@@ -360,8 +360,8 @@ The status byte of the weigh report (`dat[1]`, `usbscale.c:381-382`), switch `:4
 ## 7. Findings (outside the rows)
 
 - F1. `reference/laserfoundry` is checked out at `3b9b9fa` on `main` (`Cargo.toml` version 0.2.1), NOT at the audited v0.5.0 commit `61febdb`: files such as `crates/ui-egui/src/control_box.rs` do not exist in the working tree. This spike read v0.5.0 through `git show v0.5.0:<path>`; the line numbers match the audit's. Whoever opens the folder sees the wrong tree.
-- F2. `docs/plans/agent-engine.md` M1 (and `docs/plans/hub-core-v2.md`) cite `control.jinja2:149-151` for the fan and motors buttons; in `reference/OctoPrint-1.11.8` they are at `control.jinja2:82-84`.
-- F3. `docs/plans/hub-core-v2.md:54` lists laser states "idle, framing, loaded, running, alarm"; the reference has the 10 GRBL machine states and 4 job states of 4.2.
+- F2. `docs/archive/plans/agent-engine.md` M1 (and `docs/archive/plans/hub-core-v2.md`) cite `control.jinja2:149-151` for the fan and motors buttons; in `reference/OctoPrint-1.11.8` they are at `control.jinja2:82-84`.
+- F3. `docs/archive/plans/hub-core-v2.md:54` lists laser states "idle, framing, loaded, running, alarm"; the reference has the 10 GRBL machine states and 4 job states of 4.2.
 - F4. The 450 audit calls the filter's reference CUPS v2.4.20; the CUPS-side cancel path (row 2 of §3.1) was not read in this spike.
 - F5. Prusa Connect names used: from `reference/prusa-connect` as it is on disk (an OCL tree: names and meanings only, no text copied).
 

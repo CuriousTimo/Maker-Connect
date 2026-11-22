@@ -12,7 +12,7 @@ Read `CLAUDE.md` first: PORT, don't paraphrase; invent nothing; ONE reference: *
 5e8f1e5** in `reference/labelle` (Apache-2.0; keep its licence notice, name it as source). Its
 runtime: pyusb (`reference/.venv-audit`, the version installed there) and Pillow only for what
 labelle calls of them. Anything not traceable to a labelle (or that runtime) line is marked
-"ours" and listed in the report. Read `docs/plans/agent-engine.md`: the engine (O1–O8), the hub link
+"ours" and listed in the report. Read `docs/archive/plans/agent-engine.md`: the engine (O1–O8), the hub link
 (S1–S5), decisions B1–B9 (B2 download, B4 `--mode`, B8 label stacks), and the owner's note that
 the PnP and the LabelWriter 450 are separate stacks with no shared code.
 
@@ -43,7 +43,7 @@ USB with `nusb` standing for pyusb (ours, the crate `crates/label` uses). Openin
 kernel-driver detach, the reads and writes, and release exactly as labelle does. **Nothing is sent
 while idle** (labelle sends nothing; the old idle status poll is not ported).
 
-## 2. The top edge (ours, including Pillow/pyusb as labelle's runtime, the `png`/`nusb` stand-ins and the texts; write it as "Step 3b: the DYMO PnP" in `docs/plans/agent-engine.md`, items L1, L2…, "to approve (proxy)")
+## 2. The top edge (ours, including Pillow/pyusb as labelle's runtime, the `png`/`nusb` stand-ins and the texts; write it as "Step 3b: the DYMO PnP" in `docs/archive/plans/agent-engine.md`, items L1, L2…, "to approve (proxy)")
 
 - Tape width: from `JobOrder.tape_mm` (already in the protocol). As labelle's
   `DymoLabeler.__init__` does, none is `DEFAULT_TAPE_SIZE_MM` (12); then labelle accepts only
@@ -98,9 +98,9 @@ in printer_files.rs, virtual_machines.rs, files.rs, gcode.rs: those stay. The ol
 
 ## 6. Shared files
 
-`crates/agent/src/ports.rs`, `docs/plans/agent-engine.md` and `Cargo.lock` are shared with the
+`crates/agent/src/ports.rs`, `docs/archive/plans/agent-engine.md` and `Cargo.lock` are shared with the
 OctoPrint agent: in `ports.rs` only add lines; append "Step 3b: the DYMO PnP" at the end of
-`docs/plans/agent-engine.md` and change nothing else there; new dependencies change `Cargo.lock`, so
+`docs/archive/plans/agent-engine.md` and change nothing else there; new dependencies change `Cargo.lock`, so
 re-read it before writing. Run the `on-track` watchdog (`.claude/agents/on-track.md`, as a
 general-purpose agent on model sonnet if you can spawn agents; else say so) before the report and
 put its verdict in the report.

@@ -1,8 +1,8 @@
 # Cameras: USB webcams through the agent, network cameras straight to the hub
 
-Moved out of `docs/plans/hub-side.md` (2026-11-17, docs housekeeping); the text below is unchanged.
+Moved out of `docs/archive/plans/hub-side.md` (2026-11-17, docs housekeeping); the text below is unchanged.
 State: network RTSP/ONVIF cameras to the hub are built (`09c8b75`, `8826fc6`); USB webcams step 1 is built and
-proven on the C270 (`89a8c4e`, brief `docs/briefs/usb-cam-step1.md`); steps 2-5 are open.
+proven on the C270 (`89a8c4e`, brief `docs/archive/briefs/usb-cam-step1.md`); steps 2-5 are open.
 
 ## USB webcams (owner, 2026-11-16; design, not started)
 

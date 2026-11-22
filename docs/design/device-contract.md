@@ -153,7 +153,7 @@ GRBL's ten (`IDLE` … `UNKNOWN`).
 
 The full verb and state tables are the generated registries (the laser's 11 verbs, without
 `mc.laser.gcode`, as the decision above says). The per-port mapping with every
-citation is [plans/hub-core-v2-device-map.md](../archive/plans/hub-core-v2-device-map.md); its owner answers
+citation is [archive/plans/hub-core-v2-device-map.md](../archive/plans/hub-core-v2-device-map.md); its owner answers
 (fan and motors off declared with OctoPrint's template G-code; Marlin's 16 states as they are; the
 laser frame through LaserFoundry's `job.frame`; no scale `zero`; the DYMO Connect roll catalogue as data)
 are part of this design.

@@ -6,11 +6,11 @@ deploy or touch hardware). PATH: `export PATH=/opt/homebrew/opt/rustup/bin:$HOME
 work at the same time (the Marlin proof: `crates/engine/src/ports/octoprint/` and its scripts; the
 LabelWriter 450: `crates/engine/src/ports/dymo_cups/`): never touch those folders or
 `ports/labelle/`; in shared files (`crates/engine/Cargo.toml`, `crates/engine/src/ports/mod.rs`,
-`crates/agent/src/ports.rs`, `crates/agent/src/link.rs` `Mode`, `Cargo.lock`, `docs/plans/agent-engine.md`, `scripts/reference-updates.sh`, `docs/audits/README.md`)
+`crates/agent/src/ports.rs`, `crates/agent/src/link.rs` `Mode`, `Cargo.lock`, `docs/archive/plans/agent-engine.md`, `scripts/reference-updates.sh`, `docs/audits/README.md`)
 only add lines and re-read before writing. If the engine crate fails to compile because of another
 folder, wait and retry; never fix it yourself.
 
-Read `CLAUDE.md`, then `docs/plans/agent-engine.md`: the engine (O1–O8), hub link (S1–S5), B2–B6, and at
+Read `CLAUDE.md`, then `docs/archive/plans/agent-engine.md`: the engine (O1–O8), hub link (S1–S5), B2–B6, and at
 the end "D4 decided", "Lasers, one stack" and "Owner overrules the watchdog on LaserFoundry": the
 one reference and library is **LaserFoundry** (`reference/laserfoundry`; crates `laserfoundry-device`
 and `laserfoundry-gcode`, MIT OR Apache-2.0). Where LaserFoundry falls short, the fix belongs
@@ -58,7 +58,7 @@ FDM actions (temperatures, fan, extrude, speed/flow, filament, SD): failed `Comm
 as its calls; `from_line` → LaserFoundry's `restart_line` + `resume_from`. Telemetry from its
 snapshot (state, position, progress, the settings `$30`/`$32`/`$130`–`$132` the hub uses); no
 polling of our own (LaserFoundry's own 200 ms status poll is theirs). Write "Step 3d: the laser"
-at the end of `docs/plans/agent-engine.md` with G1…; also list the hub's laser checks in `files.rs`
+at the end of `docs/archive/plans/agent-engine.md` with G1…; also list the hub's laser checks in `files.rs`
 (`laser_check`: `$32` off refused, travel, power range warning) as ours, in the UI, under B3.
 
 ## 4. Wiring

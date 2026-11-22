@@ -2,7 +2,7 @@
 
 Repo: /Users/timo/Documents/Coding/Maker-Connect (Rust; git repo, never commit unless told; no
 hardware). PATH: `export PATH=/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH`;
-`export CARGO_TARGET_DIR=target-split`. Read `docs/plans/hub-modules.md` (the approved design, HS0a and
+`export CARGO_TARGET_DIR=target-split`. Read `docs/archive/plans/hub-modules.md` (the approved design, HS0a and
 "Decided (proxy)") and follow its steps 0–12 exactly.
 
 **No other agent works on the hub now** (HS7a and the Spoolman audit are finished and committed,

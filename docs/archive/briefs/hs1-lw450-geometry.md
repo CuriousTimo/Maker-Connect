@@ -7,8 +7,8 @@ its first label on the Pi that day (`crates/engine/examples/lw450_print.rs`, 113
 
 Why: the hub's 450 media list (`profiles/dymo/labelwriter-450.toml`) is hand-picked (12 of the
 PPD's 61 `PageSize` choices, marked `# check`; 11353 was missing until the owner asked for it).
-B8 (`docs/plans/agent-engine.md`): the hub takes each printer's geometry from its port's ported
-constants. The reviewed plan (`docs/plans/hub-side.md`, 2026-11-15): engine Cargo features, the hub
+B8 (`docs/archive/plans/agent-engine.md`): the hub takes each printer's geometry from its port's ported
+constants. The reviewed plan (`docs/archive/plans/hub-side.md`, 2026-11-15): engine Cargo features, the hub
 depends on the engine with `default-features = false`, a small `ports::geometry` facade over
 ported code, a test that the hub has no `serialport`/`nusb`.
 

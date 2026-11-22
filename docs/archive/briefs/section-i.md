@@ -8,7 +8,7 @@ don't paraphrase; invent nothing; one reference: OctoPrint 1.11.8 in `reference/
 and pyserial 3.5 (`reference/.venv-octoprint/lib/python3.14/site-packages/serial/`). Anything not
 traceable to a source line is marked "ours" and listed in the report.
 
-Read `docs/plans/agent-engine.md` from "Approved as ours for `MachineCom`" to the end: all translation
+Read `docs/archive/plans/agent-engine.md` from "Approved as ours for `MachineCom`" to the end: all translation
 rules and decisions, including "Section G, decided (proxy)", "The nine design decisions" and the
 "Section H" paragraph. Apply them exactly. Read `crates/engine/src/ports/octoprint/comm.rs`
 (MachineCom, its numbered differences 1–27, its stubs) and the other files there; keep their style.

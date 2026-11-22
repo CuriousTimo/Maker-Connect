@@ -3,7 +3,7 @@
 The target UI, seen from two sides: the **user** (a member, at the machine, often on a phone) and the
 **admin** (a space admin or owner, at a desktop), with the instance admin as a small third view. The
 study behind it, with today's findings and the comparable apps, is
-[plans/ui-ux-study.md](../archive/plans/ui-ux-study.md). Clickable mockups of every screen in both roles:
+[archive/plans/ui-ux-study.md](../archive/plans/ui-ux-study.md). Clickable mockups of every screen in both roles:
 `docs/design/ui/mockups/index.html` (static HTML, one stylesheet, opens from disk).
 
 Choices of the UI designer that no ruling or reference made are marked **proposal**. Roles and

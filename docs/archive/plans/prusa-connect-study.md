@@ -195,7 +195,7 @@ Plan:
 
 Head still 2e8c62b (#23), release only 0.1.0-beta.1; 33 issues/PRs in two days, Prusa staff answer daily.
 - #9: PrusaLink gets a last update **on the WebSocket protocol**, so the MK3S will be supported (staff, no date).
-  → MK3 goes over `/p/ws` like Buddy; our #4 (MK3 PrusaLink HTTP port) stays parked. (2026-11-19: no longer parked; #4 follows PrusaLink's `websockets` branch, [decision](../design/decisions/20261119-mk3-reference-prusalink-websockets.md).)
+  → MK3 goes over `/p/ws` like Buddy; our #4 (MK3 PrusaLink HTTP port) stays parked. (2026-11-19: no longer parked; #4 follows PrusaLink's `websockets` branch, [decision](../../design/decisions/20261119-mk3-reference-prusalink-websockets.md).)
 - #24: **the next PrusaSlicer 3 alpha uploads to local Connect**. → An API-compatible hub gets PrusaSlicer upload
   for free. A community extension already speaks OctoPrint's upload API for PrusaSlicer 2.x (ZachGoldberg/connect-octoprint-upload).
 - #27: they announce `_prusalink._tcp` but `/api/version` is 404 (PrusaSlicer's PrusaLink host fails); open.
@@ -263,7 +263,7 @@ Head still 2e8c62b (#23), release only 0.1.0-beta.1; 33 issues/PRs in two days, 
 
 ## 7. Order (owner, 2026-11-18: "we gaan eerst hier aan de gang")
 
-1. **Now: the hub-core v2 design** (`docs/plans/hub-core-v2.md`), design only. Nothing below starts before the
+1. **Now: the hub-core v2 design** (`docs/archive/plans/hub-core-v2.md`), design only. Nothing below starts before the
    owner has reviewed it; the items below are chapters of that design, not separate work.
 2. Then build v2 in the order the design gives (device model, store on Postgres + Timescale, events, command
    records, API, UI).

@@ -28,6 +28,9 @@ def main():
     for f in files():
         if f.startswith(("reference/", "target/")):
             continue
+        # An applied migration never changes (sqlx keeps its checksum): a path named in it stays as written.
+        if "/migrations/" in f and f.endswith(".sql"):
+            continue
         try:
             text = open(os.path.join(ROOT, f), encoding="utf-8").read()
         except (UnicodeDecodeError, OSError):

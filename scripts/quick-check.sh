@@ -53,7 +53,7 @@ args=()
 for p in ${packages[@]+"${packages[@]}"}; do
     [ "$p" = maker-connect-hub ] && hub=1 || args+=(-p "$p")
 done
-[ ${#args[@]} -gt 0 ] && step "tests (${#args[@]} crates)" quiet cargo test --locked "${args[@]}"
+[ ${#args[@]} -gt 0 ] && step "tests ($((${#args[@]} / 2)) crates)" quiet cargo test --locked "${args[@]}"
 if [ $hub -eq 1 ]; then
     # As CI's job `store`: with Postgres and the cameras (the .67 build), which also checks tests/routes.txt.
     DEV_DB_WAS_UP=$(docker ps -q --filter "name=^mc-dev-db$" 2>/dev/null)
