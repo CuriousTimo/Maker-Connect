@@ -532,8 +532,6 @@
     if (before !== JSON.stringify(machines) && files.length) render();
     if (Date.now() - last > 5000) { last = Date.now(); refresh(); }
   };
-  stream.onopen = () => live(true);
-  stream.onerror = () => live(false);
   // The machines first, so the files show where they were printed by name.
   fetch("api/machines")
     .then((r) => r.json())

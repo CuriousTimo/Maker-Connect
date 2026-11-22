@@ -109,13 +109,13 @@ const NOW_STYLE: &str = r#"
   [data-wall] { background: transparent; color: var(--ink); border: 1px solid var(--line); }
   [data-wall]:hover { border-color: var(--muted); }
   .now-numbers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
-  .num { display: flex; align-items: baseline; gap: 12px; padding: 16px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 0; border-left-width: 4px; }
-  .num b { font-size: 46px; line-height: 1; font-variant-numeric: tabular-nums; }
-  .num span { color: var(--muted); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
-  .num.busy { border-left-color: var(--st-info); } .num.busy b { color: var(--st-info); }
-  .num.free { border-left-color: var(--accent-text); } .num.free b { color: var(--accent-text); }
-  .num.needs.some { border-left-color: var(--st-warn); } .num.needs.some b { color: var(--st-warn); }
-  .num.done b { color: var(--ink); }
+  .now-numbers .num { display: flex; align-items: baseline; gap: 12px; padding: 16px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 0; border-left-width: 4px; }
+  .now-numbers .num b { font-size: 46px; line-height: 1; font-variant-numeric: tabular-nums; }
+  .now-numbers .num span { color: var(--muted); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+  .now-numbers .num.busy { border-left-color: var(--st-info); } .now-numbers .num.busy b { color: var(--st-info); }
+  .now-numbers .num.free { border-left-color: var(--accent-text); } .now-numbers .num.free b { color: var(--accent-text); }
+  .now-numbers .num.needs.some { border-left-color: var(--st-warn); } .now-numbers .num.needs.some b { color: var(--st-warn); }
+  .now-numbers .num.done b { color: var(--ink); }
   .now-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-bottom: 12px; }
   .now-card { background: var(--surface); border: 1px solid var(--line); border-radius: 0; padding: 16px 20px; }
   .now-card h3 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
@@ -151,8 +151,8 @@ const NOW_STYLE: &str = r#"
   .fleet-row > b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cells { display: flex; flex-wrap: wrap; gap: 6px; }
   /* A name too long ends in "…": a block, not a grid, lets it. */
-  .cell { display: inline-block; box-sizing: border-box; line-height: 40px; text-align: center; vertical-align: top; width: 84px; height: 40px; border-radius: 0; font-size: 10px; color: var(--muted); background: var(--line); text-decoration: none; overflow: hidden; padding: 0 4px; text-overflow: ellipsis; white-space: nowrap; }
-  .legend .cell { width: 12px; height: 12px; line-height: 12px; border-radius: 0; margin: 0 4px 0 12px; vertical-align: -1px; }
+  .fleet-card .cell { display: inline-block; box-sizing: border-box; line-height: 40px; text-align: center; vertical-align: top; width: auto; min-width: 84px; max-width: 220px; height: 40px; border-radius: 0; font-size: 10px; color: var(--muted); background: var(--line); text-decoration: none; overflow: hidden; padding: 0 4px; text-overflow: ellipsis; white-space: nowrap; }
+  .fleet-card .legend .cell { min-width: 0; width: 12px; height: 12px; line-height: 12px; border-radius: 0; margin: 0 4px 0 12px; vertical-align: -1px; }
   .cell span, .cell small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cell.pct { line-height: 15px; padding-top: 5px; background: linear-gradient(to right, color-mix(in srgb, var(--st-info) 70%, var(--surface)) var(--pct), color-mix(in srgb, var(--st-info) 22%, var(--surface)) var(--pct)) !important; }
   .cell.pct small { font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -283,7 +283,5 @@ const NOW_SCRIPT: &str = r#"
       clearTimeout(soon);
       soon = setTimeout(projects, 1000);
     };
-    stream.onopen = () => live(true);
-    stream.onerror = () => live(false);
   })();
 "#;

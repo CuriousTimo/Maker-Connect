@@ -227,7 +227,7 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
                         (_, true) => "asks for a training",
                         _ => "asks for permission",
                     },
-                    at = day(r.asked_at),
+                    at = crate::space_page::local_day(r.asked_at),
                     id = r.id,
                     give = if r.training && r.level == Level::Use { "Trained: give it" } else { "Give" },
                 )

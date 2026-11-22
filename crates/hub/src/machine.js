@@ -21,7 +21,8 @@
     for (const a of document.querySelectorAll(".tabs a")) a.setAttribute("aria-selected", a.hash === "#" + id);
     ticker();
     if (id === "history") draw();
-    if (id === "advanced") drawMesh();
+    // The bed mesh is on Controls (#176): drawn when that tab shows, as a hidden canvas has no width.
+    if (id === "controls") drawMesh();
     if (id === "files") usbOpen?.();
     // A tab is a page of its own: from the top, not where the browser jumped to its id.
     scrollTo(0, 0);
@@ -440,8 +441,6 @@
   // Live: the machine's values again on every change (server-sent events).
   const fixed = (n, digits = 1) => (n == null ? null : n.toFixed(digits));
   const stream = new EventSource("../api/machines/stream");
-  stream.onopen = () => live(true);
-  stream.onerror = () => live(false);
   // The queue (crate::queue): from the live data, unless someone is dragging in it.
   const queueList = document.querySelector("[data-queue]");
   let dragged = null, shownQueue = "";

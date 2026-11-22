@@ -254,10 +254,10 @@
   .job[hidden], .job-actions[hidden], .no-job[hidden] { display: none; }
   .job-thumb { width: 96px; height: 72px; object-fit: contain; border-radius: 0; background: color-mix(in srgb, var(--line) 55%, var(--surface)); }
   .job-thumb[hidden] { display: block; visibility: hidden; }
-  .job-main b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job-main > b { display: block; overflow-wrap: anywhere; }
   .progress { height: 8px; margin: 10px 0; border-radius: 0; background: var(--line); overflow: hidden; }
   .progress i { display: block; height: 100%; background: var(--accent); border-radius: 0; transition: width 0.5s; }
-  .job-times { display: flex; gap: 22px; font-variant-numeric: tabular-nums; }
+  .job-times { display: flex; flex-wrap: wrap; gap: 8px 22px; font-variant-numeric: tabular-nums; }
   .job-times span { display: grid; }
   .job-times small { color: var(--muted); font-size: 12px; }
   .job-times b { font-size: 16px; }

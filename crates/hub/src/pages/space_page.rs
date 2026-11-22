@@ -46,6 +46,24 @@ pub(crate) fn day(at: i64) -> String {
     crate::spoolman::iso(at).chars().take(10).collect()
 }
 
+/// An instant shown to a person as a date in their own time zone (#159): the server writes the
+/// instant, the browser (`shell.js`) writes the viewer's local date; the UTC date stays as the
+/// text until it does.
+pub(crate) fn local_day(at: i64) -> String {
+    format!(
+        r#"<time datetime="{}" data-local="day">{}</time>"#,
+        crate::spoolman::iso(at),
+        day(at)
+    )
+}
+
+/// As [`local_day`], with the time to the minute.
+pub(crate) fn local_minute(at: i64) -> String {
+    let iso = crate::spoolman::iso(at);
+    let text: String = iso.replace('T', " ").chars().take(16).collect();
+    format!(r#"<time datetime="{iso}" data-local="minute">{text}</time>"#)
+}
+
 pub(crate) const SPACE_STYLE: &str = r#"
   .pchips { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
   .pchips li { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border: 1px solid var(--line); border-radius: 0; font-size: 13px; white-space: nowrap; }
@@ -237,7 +255,7 @@ async fn space_tab(
                 name = escape(&m.name),
                 org = layer("in the organisation", "organisation", m.org_role, org_admin),
                 own = layer("in this space", "space", m.space_role, true),
-                since = day(m.since),
+                since = local_day(m.since),
                 remove = if editable && !you {
                     format!(
                         r#"<form method="post" action="space/members/{id}/remove" data-async data-then="reload" data-done="Removed" data-confirm="Take {who} out of {what}?"><input type="hidden" name="scope" value="{scope}"><span class="fw"><button class="btn small danger">Remove</button></span></form>"#,
@@ -277,7 +295,7 @@ async fn space_tab(
                         escape(&name)
                     },
                     by = escape(&i.by),
-                    until = day(i.expires_at),
+                    until = local_day(i.expires_at),
                     id = i.id,
                 );
             }
@@ -320,10 +338,10 @@ async fn space_tab(
                     name = escape(&t.name),
                     r = t.role.as_str(),
                     by = escape(&t.by),
-                    made = day(t.created_at),
+                    made = local_day(t.created_at),
                     used = t
                         .last_used
-                        .map_or("never used".to_owned(), |u| format!("used {}", day(u))),
+                        .map_or("never used".to_owned(), |u| format!("used {}", local_day(u))),
                     id = t.id,
                 );
             }
@@ -350,14 +368,8 @@ async fn space_tab(
             let mut lines = String::new();
             for line in store.audit_log(space, 150).await? {
                 lines += &format!(
-                    r#"<li><time>{at}</time><b>{actor}</b> {action} {target}{detail}</li>"#,
-                    at = escape(
-                        &crate::spoolman::iso(line.at)
-                            .replace('T', " ")
-                            .chars()
-                            .take(16)
-                            .collect::<String>()
-                    ),
+                    r#"<li>{at}<b>{actor}</b> {action} {target}{detail}</li>"#,
+                    at = local_minute(line.at),
                     actor = escape(&line.actor),
                     action = escape(&line.action),
                     target = escape(&line.target),

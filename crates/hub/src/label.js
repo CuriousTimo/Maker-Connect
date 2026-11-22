@@ -328,8 +328,6 @@
     for (const el of document.querySelectorAll(`[data-live="${key}"]`)) el.textContent = value;
   };
   const stream = new EventSource("../api/machines/stream");
-  stream.onopen = () => live(true);
-  stream.onerror = () => live(false);
   stream.onmessage = (event) => {
     const machines = JSON.parse(event.data);
     summarise(machines);

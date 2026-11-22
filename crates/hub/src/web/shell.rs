@@ -329,8 +329,6 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
       render(machines);
       summarise(machines);
     };
-    stream.onopen = () => live(true);
-    stream.onerror = () => live(false);
   })();
 </script>
 </body>

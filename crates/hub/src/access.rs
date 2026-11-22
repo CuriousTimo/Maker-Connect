@@ -2718,6 +2718,33 @@ mod tests {
             .unwrap()
             .to_owned();
         assert!(token.starts_with(TOKEN_PREFIX));
+        // A token is no person: /api/me gives its name, its space and its role (#179).
+        let (status, me) = w
+            .send(
+                HttpRequest::get("/api/me")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{me}");
+        let me: serde_json::Value = serde_json::from_str(&me).unwrap();
+        assert_eq!(
+            me["name"], "token \"Voron\"",
+            "named as the audit log names it"
+        );
+        assert_eq!(
+            (
+                &me["space"]["id"],
+                &me["space"]["role"],
+                &me["instance_admin"]
+            ),
+            (
+                &serde_json::json!(space),
+                &serde_json::json!("member"),
+                &serde_json::json!(false)
+            )
+        );
         // Moonraker: the token in the address, Spoolman's path after it.
         let (status, spools) = w
             .send(

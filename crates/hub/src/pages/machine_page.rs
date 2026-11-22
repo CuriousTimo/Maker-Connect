@@ -1431,7 +1431,7 @@ fn jobs_card(machine: &Machine, extra: &Extra) -> String {
                 r#"<li><span class="j-name" title="{name}">{name}</span><b class="badge {state}">{state}</b><small>{when}{by}{took}{why}</small></li>"#,
                 name = escape(&j.file_name),
                 by = j.by.as_deref().map(|b| format!(" · {}", escape(b))).unwrap_or_default(),
-                when = crate::spoolman::iso(j.created_at).replace('T', " ").chars().take(16).collect::<String>(),
+                when = crate::space_page::local_minute(j.created_at),
                 took = if took.is_empty() { took } else { format!(" · {took}") },
                 why = j.reason.as_deref().map(|r| format!(" · {}", escape(r))).unwrap_or_default(),
             )
@@ -1514,10 +1514,7 @@ fn no_operate(machine: &Machine, extra: &Extra) -> String {
         match extra.asked_operate {
             Some(at) => format!(
                 "<small>Asked on {}.</small>",
-                crate::spoolman::iso(at)
-                    .chars()
-                    .take(10)
-                    .collect::<String>()
+                crate::space_page::local_day(at)
             ),
             None => format!(
                 r#"<form method="post" action="{}/ask" data-async data-then="reload" data-done="Asked"><input type="hidden" name="level" value="operate"><button>Ask for permission</button></form>"#,
@@ -1547,10 +1544,7 @@ fn before_use(machine: &Machine, extra: &Extra) -> String {
         let ask = match extra.asked {
             Some(at) => format!(
                 "<small>Asked on {}.</small>",
-                crate::spoolman::iso(at)
-                    .chars()
-                    .take(10)
-                    .collect::<String>()
+                crate::space_page::local_day(at)
             ),
             None => format!(
                 r#"<form method="post" action="{id}/ask" data-async data-then="reload" data-done="Asked"><button>{button}</button></form>"#
@@ -1820,11 +1814,7 @@ fn now(machine: &Machine, profile: Option<&Profile>, extra: &Extra) -> String {
             format!(
                 r#"<li><span class="j-name" title="{name}">{name}</span><b class="badge {state}">{state}</b><small>{when}{by}</small></li>"#,
                 name = escape(&j.file_name),
-                when = crate::spoolman::iso(j.created_at)
-                    .replace('T', " ")
-                    .chars()
-                    .take(16)
-                    .collect::<String>(),
+                when = crate::space_page::local_minute(j.created_at),
                 by = j
                     .by
                     .as_deref()
@@ -2211,7 +2201,9 @@ fn terminal(machine: &Machine) -> String {
             r#"<p class="empty">This machine takes no commands yet.</p>"#,
         );
     }
-    let sub = if machine.link == "prusa-connect" {
+    // A printer on the agent sends its answers back (`gcode_output`, extension part 9); a printer
+    // on its own firmware over Prusa Connect does not (#177).
+    let sub = if machine.link == "prusa-connect" && !on_agent(machine) {
         "G-code you send runs on the printer; over Prusa Connect its answers do not come back, only whether it ran"
     } else {
         "G-code you send, and what the machine answers"

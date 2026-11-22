@@ -269,7 +269,5 @@ const PROJECTS_SCRIPT: &str = r#"
     const stream = new EventSource("api/machines/stream");
     let soon = null;
     stream.onmessage = (event) => { summarise(JSON.parse(event.data)); clearTimeout(soon); soon = setTimeout(load, 800); };
-    stream.onopen = () => live(true);
-    stream.onerror = () => live(false);
   })();
 "#;

@@ -1278,8 +1278,6 @@
   ["spool", "filament", "vendor"].forEach(listen);
 
   const stream = new EventSource("api/machines/stream");
-  stream.onopen = () => live(true);
-  stream.onerror = () => live(false);
   stream.onmessage = (e) => {
     const all = JSON.parse(e.data);
     summarise(all);

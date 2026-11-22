@@ -50,6 +50,17 @@
     }
   });
 
+  // An instant the server wrote (<time data-local>) in the viewer's own time zone (#159). This
+  // script runs before the page's content, so once that is there.
+  document.addEventListener("DOMContentLoaded", () => {
+    for (const el of document.querySelectorAll("time[data-local]")) {
+      const at = new Date(el.dateTime);
+      if (isNaN(at)) continue;
+      const date = at.toLocaleDateString();
+      el.textContent = el.dataset.local === "minute" ? `${date} ${at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : date;
+    }
+  });
+
   // The phone's More menu closes on Escape and on a click outside.
   {
     const more = document.querySelector(".more-menu");

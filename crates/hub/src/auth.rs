@@ -522,12 +522,31 @@ async fn logout(
 }
 
 /// Who is signed in, the space they are in with their role, and the spaces they could
-/// go to: for the sidebar.
+/// go to: for the sidebar. An API token is no person: its name, its one space and its role
+/// (#179).
 async fn me(
     State(store): State<Store>,
-    Extension(signed): Extension<Signed>,
+    signed: Option<Extension<Signed>>,
     access: Option<Extension<crate::access::Access>>,
 ) -> Response {
+    let Some(Extension(signed)) = signed else {
+        let Some(Extension(a)) = access else {
+            return (StatusCode::UNAUTHORIZED, "sign in first").into_response();
+        };
+        return Json(serde_json::json!({
+            "name": a.actor,
+            "display_name": a.actor,
+            "instance_admin": false,
+            "space": {
+                "id": a.space,
+                "name": store.space_name(a.space).await.unwrap_or_default(),
+                "role": a.role,
+            },
+            "spaces": [],
+            "may_make_spaces": false,
+        }))
+        .into_response();
+    };
     let spaces = match store.spaces_of(signed.user_id).await {
         Ok(spaces) => spaces,
         Err(error) => return failed(error),

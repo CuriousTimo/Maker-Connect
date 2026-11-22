@@ -350,8 +350,6 @@
     for (const el of document.querySelectorAll(`[data-live="${key}"]`)) el.textContent = value;
   };
   const stream = new EventSource("../api/machines/stream");
-  stream.onopen = () => typeof live === "function" && live(true);
-  stream.onerror = () => typeof live === "function" && live(false);
   stream.onmessage = (event) => {
     const machines = JSON.parse(event.data);
     if (typeof summarise === "function") summarise(machines);
