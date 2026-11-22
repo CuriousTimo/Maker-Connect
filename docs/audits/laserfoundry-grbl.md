@@ -1,10 +1,10 @@
 # GRBL lasers: our port against LaserFoundry
 
 **The one reference:** LaserFoundry (github.com/StitchFoundry/laserfoundry, MIT OR Apache-2.0) at
-**v0.6.0** (`8f07f98`) plus two commits of ours on the fork branch `grbl-rx-buffer`, up to commit `fd87dc3`
-(`fd87dc3ee32674ee45a23e488e05969c301eb9f3`, github.com/CuriousTimo/laserfoundry): the RX buffer that
-`$I` reports, from the gnea/grbl wiki, and the lines that fit that buffer sent in one write (#168),
-offered upstream in #169. It is read and run in a separate
+**v0.6.0** (`8f07f98`) and upstream's `285ca61`, plus our commits on the fork branch `maker-connect-grbl`, up to
+commit `2f3f311` (`2f3f31176e35543da766707e467c3c0c43a3e19a`, github.com/CuriousTimo/laserfoundry): the RX buffer
+that `$I` reports, taken as the gnea/grbl wiki gives it, the lines that fit that buffer sent in one write (#168),
+and a fix to its app's setup tests. It is read and run in a separate
 `git worktree` at that commit; `reference/laserfoundry` is not moved. Its crates:
 `laserfoundry-device` (`Link`, `SimulatedGrbl`, `restart_line`) and `laserfoundry-gcode`
 (`resume_from`, `frame`), used as libraries by `crates/grbl`, and the link logic of its app
@@ -19,7 +19,7 @@ job it is given, and after a reconnect nothing.
 
 ## 1. LaserFoundry's own tests, run
 
-`cargo test -p laserfoundry-device -p laserfoundry-gcode` at `fd87dc3`, in the worktree:
+`cargo test -p laserfoundry-device -p laserfoundry-gcode` at `2f3f311`, in the worktree:
 **79 and 49 tests pass** (the `Link`'s, the stream's character counting, `resume_from`, `restart_line`,
 `frame`). The app's own `cargo test -p laserfoundry-ui-egui`: **308 pass**, among them its three
 reconnect tests (`tests.rs:2634-2746`) and its laser-mode and not-ready refusals (`tests.rs:1821`,

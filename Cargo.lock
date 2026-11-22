@@ -1327,7 +1327,7 @@ dependencies = [
 [[package]]
 name = "laserfoundry-device"
 version = "0.6.0"
-source = "git+https://github.com/CuriousTimo/laserfoundry?rev=fd87dc3ee32674ee45a23e488e05969c301eb9f3#fd87dc3ee32674ee45a23e488e05969c301eb9f3"
+source = "git+https://github.com/CuriousTimo/laserfoundry?rev=2f3f31176e35543da766707e467c3c0c43a3e19a#2f3f31176e35543da766707e467c3c0c43a3e19a"
 dependencies = [
  "log",
  "serialport",
@@ -1338,7 +1338,7 @@ dependencies = [
 [[package]]
 name = "laserfoundry-doc"
 version = "0.6.0"
-source = "git+https://github.com/CuriousTimo/laserfoundry?rev=fd87dc3ee32674ee45a23e488e05969c301eb9f3#fd87dc3ee32674ee45a23e488e05969c301eb9f3"
+source = "git+https://github.com/CuriousTimo/laserfoundry?rev=2f3f31176e35543da766707e467c3c0c43a3e19a#2f3f31176e35543da766707e467c3c0c43a3e19a"
 dependencies = [
  "kurbo",
  "laserfoundry-geom",
@@ -1348,7 +1348,7 @@ dependencies = [
 [[package]]
 name = "laserfoundry-gcode"
 version = "0.6.0"
-source = "git+https://github.com/CuriousTimo/laserfoundry?rev=fd87dc3ee32674ee45a23e488e05969c301eb9f3#fd87dc3ee32674ee45a23e488e05969c301eb9f3"
+source = "git+https://github.com/CuriousTimo/laserfoundry?rev=2f3f31176e35543da766707e467c3c0c43a3e19a#2f3f31176e35543da766707e467c3c0c43a3e19a"
 dependencies = [
  "laserfoundry-doc",
  "laserfoundry-geom",
@@ -1359,7 +1359,7 @@ dependencies = [
 [[package]]
 name = "laserfoundry-geom"
 version = "0.6.0"
-source = "git+https://github.com/CuriousTimo/laserfoundry?rev=fd87dc3ee32674ee45a23e488e05969c301eb9f3#fd87dc3ee32674ee45a23e488e05969c301eb9f3"
+source = "git+https://github.com/CuriousTimo/laserfoundry?rev=2f3f31176e35543da766707e467c3c0c43a3e19a#2f3f31176e35543da766707e467c3c0c43a3e19a"
 dependencies = [
  "kurbo",
  "serde",
@@ -1369,7 +1369,7 @@ dependencies = [
 [[package]]
 name = "laserfoundry-pathops"
 version = "0.6.0"
-source = "git+https://github.com/CuriousTimo/laserfoundry?rev=fd87dc3ee32674ee45a23e488e05969c301eb9f3#fd87dc3ee32674ee45a23e488e05969c301eb9f3"
+source = "git+https://github.com/CuriousTimo/laserfoundry?rev=2f3f31176e35543da766707e467c3c0c43a3e19a#2f3f31176e35543da766707e467c3c0c43a3e19a"
 dependencies = [
  "i_overlay",
  "laserfoundry-geom",
@@ -1379,7 +1379,7 @@ dependencies = [
 [[package]]
 name = "laserfoundry-toolpath"
 version = "0.6.0"
-source = "git+https://github.com/CuriousTimo/laserfoundry?rev=fd87dc3ee32674ee45a23e488e05969c301eb9f3#fd87dc3ee32674ee45a23e488e05969c301eb9f3"
+source = "git+https://github.com/CuriousTimo/laserfoundry?rev=2f3f31176e35543da766707e467c3c0c43a3e19a#2f3f31176e35543da766707e467c3c0c43a3e19a"
 dependencies = [
  "kurbo",
  "laserfoundry-doc",

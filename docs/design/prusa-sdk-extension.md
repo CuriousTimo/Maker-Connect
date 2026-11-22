@@ -204,7 +204,7 @@ is the server's data (DYMO Connect's roll catalogue), not part of the protocol.
 The reference for what the laser is sent is the gnea/grbl wiki, `Grbl-v1.1-Commands`,
 `Grbl-v1.1-Interface`, `Grbl-v1.1-Jogging` and `Grbl-v1.1-Laser-Mode` (github.com/gnea/grbl.wiki,
 `86e8ecd`), to the letter (owner, 2026-11-21). Where the Ortur (grblHAL, OLF 190) differs from the wiki,
-what was measured on it counts, recorded in #165. LaserFoundry (fork `grbl-rx-buffer` `fd87dc3`) is
+what was measured on it counts, recorded in #165. LaserFoundry (fork `maker-connect-grbl` `2f3f311`) is
 the library that sends it. Where the wiki is silent, LaserFoundry's own choice stays (owner,
 2026-11-22: "als de wiki zwijgt dan moeten wij dat niet zien als hun 60s is fout"). A laser offers no raw G-code: nothing but a start can switch the beam on
 ([decision](decisions/20261119-no-raw-gcode-on-a-laser.md)).
@@ -274,7 +274,7 @@ GRBL says what it is in its answer to `$I`, "View build info" (gnea/grbl wiki, `
 `[VER:]` "contains build version info and build date", and "a string may appear after the second `:`
 colon", which "a user via a `$I=line` command or OEM can place there"; `[OPT:]` follows
 (`Grbl-v1.1-Interface`, "[VER:] and [OPT:]"). The device sends `$I` once after connecting, with `$$`.
-That is ours: LaserFoundry's app asks it too since the fork's `grbl-rx-buffer`, for the RX buffer.
+That is ours: LaserFoundry's app asks it too since the fork's `maker-connect-grbl`, for the RX buffer.
 The Ortur LM2 Pro S2 (grblHAL, OLF 190) answers lines the wiki does not have, measured in #165:
 `[MODEL: Ortur Laser Master 2 Pro S2]`, `[OLF: 190]`, `[OLH: OLM_ESP_PRO_V1.2]`, `[DATE:…]`.
 As part 9 does with `M115`:
