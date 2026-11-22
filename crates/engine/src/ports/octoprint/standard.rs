@@ -31,19 +31,22 @@
 //!
 //! * Callbacks left out (UI only, they only feed `StateMonitor`, the log and message buffers or the
 //!   temperature history that the web page shows): `on_comm_log` (:1443), `on_comm_temperature_update`
-//!   (:1449), `on_comm_message` (:1549), `on_comm_progress` (:1556), `on_comm_sd_state_change` (:1576).
+//!   (:1449), `on_comm_message` (:1549), `on_comm_sd_state_change` (:1576). `on_comm_progress` (:1556) reaches the top edge and then
+//!   `trigger_progress_update` of the ported part of `StateMonitor` (below).
 //!   They only reach the port's top edge (`Printer::set_top_edge`, ours, `port.rs`); the other
 //!   callbacks that are ported reach it as well, before `Printer`'s own handling.
-//! * Not wire: `StateMonitor` (:1984), `DataHistory` (:2143), `_updateProgressData` (:1122),
-//!   `_updateProgressDataCallback` (:1140), `_updateResendDataCallback` (:1205), `_addTemperatureData`
+//! * `StateMonitor` (:1983) is ported only in its progress part, `ProgressMonitor` (its doc says which
+//!   methods and lines), with `_updateProgressData` (:1122), `_updateProgressDataCallback` (:1140),
+//!   `_create_estimator` (:183) and `printer/estimation.py` (`estimation.rs`). The `_lastProgressReport`
+//!   and progress plugin part of the callback is not.
+//! * Not wire: the rest of `StateMonitor`, `DataHistory` (:2143), `_updateResendDataCallback` (:1205), `_addTemperatureData`
 //!   (:1214), `_setOffsets` (:1090), `_addLog` (:1114), `_addMessage` (:1118), `_getStateFlags` (:1426),
 //!   `_sendInitialStateUpdate` (:1403), the callback registry (`register_callback` :206,
 //!   `unregister_callback` :213, `send_initial_callback` :220, `_sendAdd*Callbacks` :224-275,
 //!   `_get_additional_plugin_data` :276), `get_current_data` (:861), `get_current_job` (:864),
 //!   `get_current_temperatures` (:868), `get_temperature_history` (:888), `get_markings` (:762), the
 //!   `_on_event_*` handlers (:305-346: they only refresh the job data for the web page and add chart
-//!   markings), `_reportPrintProgressToPlugins` (:350), `_create_estimator` (:183) and the print time
-//!   estimators (`printer/estimation.py`), `log_lines` (:837), the analysis queue calls of
+//!   markings), `_reportPrintProgressToPlugins` (:350), `log_lines` (:837), the analysis queue calls of
 //!   `on_comm_state_change`, `get_file_position` (:752), `get_transport` (:435), `job_on_hold` (:447),
 //!   `set_job_on_hold` (:452), `fake_ack` (:457) (not in the plan's list), `set_temperature_offset`
 //!   (:640, decided: not ported).
@@ -72,7 +75,7 @@
 //! 5. Hooks (`octoprint.printer.handle_connect`, `octoprint.printer.sdcardupload`) are called with JSON
 //!    arguments and without the printer instance (comm.rs, difference 31); `sdcardupload` hooks need
 //!    callables as arguments, so a registered one is `unimplemented!` (no plugin registers one).
-//! 6. `Printer.__init__`'s `StateMonitor`, `DataHistory`, deques, estimator, callback list and
+//! 6. `Printer.__init__`'s `StateMonitor`, `DataHistory`, deques, callback list and
 //!    progress plugins are not created (see above); `_selectedFile` is a `SelectedFile` struct, guarded by
 //!    `_selectedFileMutex` (an `RLock`) as in Python.
 //! 7. `_payload_for_print_job_event` and the events' payloads are `serde_json` objects in Python's key
@@ -82,8 +85,11 @@
 //! 9. A threaded `finalize` / `log_print` (daemon threads, :1492, :1699, :1773) is a
 //!    `py_threading::Thread` with `daemon = true`.
 
-use super::comm::{MachineCom, MachineComPrintCallback, py_float_repr, py_int, py_truthy, py_try};
+use super::comm::{
+    MachineCom, MachineComPrintCallback, py_float_repr, py_int, py_truthy, py_try, time_monotonic,
+};
 use super::comm::{OSError, ValueError};
+use super::estimation::PrintTimeEstimator;
 use super::events::{Events, event_manager};
 use super::filemanager::{FileDestinations, valid_file_type};
 use super::files::get_dos_filename;
@@ -91,12 +97,13 @@ use super::plugin::{Hooks, plugin_manager};
 use super::profile::PrinterProfileManager;
 use super::py_attr::Attr;
 use super::py_collections::PyDict;
-use super::py_threading::{RLock, Thread};
+use super::py_threading::{Event, RLock, Thread, lock, time_sleep};
 use super::settings::settings;
 use fancy_regex::Regex;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, LazyLock, Weak};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 // ---------------------------------------------------------------------------------------------
 // printer/__init__.py
@@ -365,6 +372,150 @@ pub struct SelectedFile {
     pub user: Option<String>,
 }
 
+/// What `standard.py:1140 _updateProgressDataCallback` returns (`self._dict(completion=, filepos=,
+/// printTime=, printTimeLeft=, printTimeLeftOrigin=)`)
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ProgressData {
+    pub completion: Option<f64>,
+    pub filepos: Option<i64>,
+    pub print_time: Option<i64>,
+    pub print_time_left: Option<i64>,
+    pub print_time_left_origin: Option<String>,
+}
+
+/// The progress part of `standard.py:1983 StateMonitor` (`__init__` :1987-2010, `trigger_progress_update`
+/// :2076, `set_progress` :2081, `_work` :2099, and the progress half of `get_current_data` :2118):
+/// the `_progress_dirty` flag, `_change_event`, the `_last_update` spacing of `interval` seconds
+/// measured with `time.monotonic()`, and the worker thread. The rest of `StateMonitor` (state, job data,
+/// current z, offsets, resends, temperature, log and message sending, and what `_update_callback`
+/// sends to the web page's callbacks) is not ported, so the other `_change_event.set()` calls
+/// (`add_temperature` :2037, `add_log` :2041, `add_message` :2046, `set_current_z` :2050, `set_state`
+/// :2054, `set_job_data` :2059, `set_resends` :2090, `set_temp_offsets` :2096) do not wake the worker here;
+/// only a progress change does.
+///
+/// OURS: `_update_callback(data)` is a callback the port installs (`Printer::set_update_callback`),
+/// which republishes the telemetry; the worker stops when the printer is dropped (`stop`; Python's
+/// daemon thread lives to the end of the process); `_on_get_progress` is a closure.
+pub struct ProgressMonitor {
+    /// `self._interval`
+    _interval: f64,
+    /// `self._on_get_progress`
+    _on_get_progress: Box<dyn Fn() -> ProgressData + Send + Sync>,
+    /// `self._update_callback` (OURS, see above)
+    _update_callback: Attr<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// `self._progress` and `self._progress_dirty`, under `self._progress_lock`
+    _progress: Mutex<(Option<ProgressData>, bool)>,
+    /// `self._change_event`
+    _change_event: Event,
+    /// `self._last_update`
+    _last_update: Attr<f64>,
+    /// OURS: ends the worker
+    _stop: AtomicBool,
+}
+
+impl ProgressMonitor {
+    /// `StateMonitor.__init__(interval=.., on_get_progress=..)` with `self._worker.start()`
+    pub fn new(
+        interval: f64,
+        on_get_progress: Box<dyn Fn() -> ProgressData + Send + Sync>,
+    ) -> Arc<ProgressMonitor> {
+        let monitor = Arc::new(ProgressMonitor {
+            _interval: interval,
+            _on_get_progress: on_get_progress,
+            _update_callback: Attr::new(None),
+            _progress: Mutex::new((None, false)),
+            _change_event: Event::new(),
+            _last_update: Attr::new(time_monotonic()),
+            _stop: AtomicBool::new(false),
+        });
+        let worker = monitor.clone();
+        Self::spawn_worker(worker);
+        monitor
+    }
+
+    fn spawn_worker(monitor: Arc<ProgressMonitor>) {
+        let thread = Thread::new(true);
+        thread
+            .start(move || monitor._work())
+            .expect("a fresh thread starts");
+    }
+
+    /// OURS: what `_update_callback` does
+    pub fn set_update_callback(&self, callback: Arc<dyn Fn() + Send + Sync>) {
+        self._update_callback.set(Some(callback));
+    }
+
+    /// OURS: ends the worker
+    pub fn stop(&self) {
+        self._stop.store(true, Ordering::SeqCst);
+        self._change_event.set();
+    }
+
+    /// `self._progress` as it is now
+    pub fn progress(&self) -> Option<ProgressData> {
+        lock(&self._progress).0.clone()
+    }
+
+    /// `standard.py:2076 trigger_progress_update()`
+    pub fn trigger_progress_update(&self) {
+        let mut guard = lock(&self._progress);
+        guard.1 = true;
+        self._change_event.set();
+        drop(guard);
+    }
+
+    /// `standard.py:2081 set_progress(progress)`
+    pub fn set_progress(&self, progress: Option<ProgressData>) {
+        let mut guard = lock(&self._progress);
+        guard.1 = false;
+        guard.0 = progress;
+        self._change_event.set();
+        drop(guard);
+    }
+
+    /// `standard.py:2099 _work()`
+    fn _work(&self) {
+        loop {
+            self._change_event.wait(None);
+            if self._stop.load(Ordering::SeqCst) {
+                return;
+            }
+
+            let now = time_monotonic();
+            let delta = now - self._last_update.get();
+            let additional_wait_time = self._interval - delta;
+            if additional_wait_time > 0.0 {
+                time_sleep(additional_wait_time);
+            }
+
+            self.get_current_data();
+            if let Some(callback) = self._update_callback.get() {
+                callback();
+            }
+            self._last_update.set(time_monotonic());
+            self._change_event.clear();
+        }
+    }
+
+    /// `standard.py:2118 get_current_data()`, the progress half
+    fn get_current_data(&self) {
+        let mut guard = lock(&self._progress);
+        if guard.1 {
+            guard.0 = Some((self._on_get_progress)());
+            guard.1 = false;
+        }
+    }
+}
+
+/// Python `int(x)` of a float: truncates; `nan` and `inf` raise `ValueError`/`OverflowError`
+/// (a panic, as the port treats uncaught exceptions)
+fn py_int_of_float(x: f64) -> i64 {
+    if !x.is_finite() {
+        panic!("ValueError/OverflowError: cannot convert float {x} to integer");
+    }
+    x.trunc() as i64
+}
+
 /// `self._streamingFinishedCallback` / `_streamingFailedCallback`: `callback(remote, remote, FileDestinations.SDCARD)`
 pub type StreamingCallback = Arc<dyn Fn(&str, &str, &str) + Send + Sync>;
 
@@ -400,6 +551,10 @@ pub struct Printer {
     _selected_file_mutex: RLock,
     /// `self._selectedFile`
     _selected_file: Attr<Option<SelectedFile>>,
+    /// `self._estimator` (:99), made by `_create_estimator` (the factory is `PrintTimeEstimator`)
+    _estimator: Attr<Option<PrintTimeEstimator>>,
+    /// `self._stateMonitor`, its progress part (`ProgressMonitor`)
+    _state_monitor: Arc<ProgressMonitor>,
     /// `self.sd_card_upload_hooks`
     sd_card_upload_hooks: Hooks,
     /// `self._comm`
@@ -409,6 +564,13 @@ pub struct Printer {
     /// OURS (top edge): the port's own listener of the `MachineComPrintCallback` calls; this
     /// `Printer`, as comm's callback object, passes each call on to it (`port.rs`)
     _top_edge: Attr<Option<Arc<dyn MachineComPrintCallback>>>,
+}
+
+impl Drop for Printer {
+    /// OURS: ends the `ProgressMonitor` worker
+    fn drop(&mut self) {
+        self._state_monitor.stop();
+    }
 }
 
 impl Printer {
@@ -421,6 +583,15 @@ impl Printer {
     ) -> Arc<Printer> {
         Arc::new_cyclic(|weak| Printer {
             weak_self: weak.clone(),
+            // self._stateMonitor = StateMonitor(interval=0.5, ..., on_get_progress=self._updateProgressDataCallback)
+            _state_monitor: ProgressMonitor::new(0.5, {
+                let weak = weak.clone();
+                Box::new(move || {
+                    weak.upgrade()
+                        .map(|printer| printer._update_progress_data_callback())
+                        .unwrap_or_default()
+                })
+            }),
             _file_manager: file_manager,
             _printer_profile_manager: printer_profile_manager,
             _state: Attr::new(None),
@@ -435,6 +606,7 @@ impl Printer {
             _streaming_failed_callback: Attr::new(None),
             _selected_file_mutex: RLock::new(),
             _selected_file: Attr::new(None),
+            _estimator: Attr::new(None),
             // hook card upload
             sd_card_upload_hooks: plugin_manager().get_hooks("octoprint.printer.sdcardupload"),
             // comm
@@ -442,6 +614,115 @@ impl Printer {
             _handle_connect_hooks: plugin_manager().get_hooks("octoprint.printer.handle_connect"),
             _top_edge: Attr::new(None),
         })
+    }
+
+    /// OURS: the telemetry's last `self._stateMonitor` progress (`printTimeLeft` and the rest)
+    pub fn progress_data(&self) -> Option<ProgressData> {
+        self._state_monitor.progress()
+    }
+
+    /// OURS: what `StateMonitor._update_callback` is for the port (`ProgressMonitor`)
+    pub fn set_update_callback(&self, callback: Arc<dyn Fn() + Send + Sync>) {
+        self._state_monitor.set_update_callback(callback);
+    }
+
+    /// `standard.py:1122 _updateProgressData(completion=None, filepos=None, printTime=None,
+    /// printTimeLeft=None, printTimeLeftOrigin=None)`
+    pub fn _update_progress_data(
+        &self,
+        completion: Option<f64>,
+        filepos: Option<i64>,
+        print_time: Option<f64>,
+        print_time_left: Option<f64>,
+        print_time_left_origin: Option<String>,
+    ) {
+        self._state_monitor.set_progress(Some(ProgressData {
+            completion: completion.map(|c| py_int_of_float(c * 100.0) as f64),
+            filepos,
+            print_time: print_time.map(py_int_of_float),
+            print_time_left: print_time_left.map(py_int_of_float),
+            print_time_left_origin,
+        }));
+    }
+
+    /// `standard.py:183 _create_estimator(job_type=None)`
+    pub fn _create_estimator(&self, job_type: Option<&str>) {
+        let mut job_type = job_type;
+        if job_type.is_none() {
+            let _guard = self._selected_file_mutex.lock();
+            let Some(selected_file) = self._selected_file.get() else {
+                return;
+            };
+
+            if selected_file.sd {
+                job_type = Some("sdcard");
+            } else {
+                job_type = Some("local");
+            }
+        }
+
+        self._estimator.set(Some(PrintTimeEstimator::new(job_type)));
+    }
+
+    /// `standard.py:1140 _updateProgressDataCallback()`, what `ProgressMonitor` calls (`on_get_progress`). Not ported: `_lastProgressReport` and
+    /// `_reportPrintProgressToPlugins` (module doc). `estimatedPrintTime` of the selected file is
+    /// always `None` (module doc), so the statistical total is `None`.
+    pub fn _update_progress_data_callback(&self) -> ProgressData {
+        let comm = self._comm.get();
+        let (progress, filepos, print_time, cleaned_print_time) = match &comm {
+            None => (None, None, None, None),
+            Some(comm) => (
+                comm.get_print_progress(),
+                comm.get_print_filepos(),
+                comm.get_print_time(),
+                comm.get_cleaned_print_time(),
+            ),
+        };
+
+        let mut print_time_left: Option<f64> = None;
+        let mut print_time_left_origin: Option<String> = None;
+        if let Some(progress) = progress {
+            if progress == 0.0 {
+                print_time_left = None;
+                print_time_left_origin = None;
+            } else if progress == 1.0 {
+                print_time_left = Some(0.0);
+                print_time_left_origin = None;
+            } else {
+                let statistical_total_print_time: Option<f64> = None;
+                let statistical_total_print_time_type: Option<String> = None;
+                {
+                    let _guard = self._selected_file_mutex.lock();
+                    // self._selectedFile["estimatedPrintTime"] is None (module doc)
+                }
+
+                // estimator = self._estimator; if it is None nothing is estimated
+                let estimate = self._estimator.with_mut(|estimator| {
+                    estimator.as_mut().map(|estimator| {
+                        estimator.estimate(
+                            Some(progress),
+                            print_time,
+                            cleaned_print_time,
+                            statistical_total_print_time,
+                            statistical_total_print_time_type.as_deref(),
+                        )
+                    })
+                });
+                // except Exception: logged, printTimeLeft stays None
+                if let Some(Ok((left, origin))) = estimate {
+                    print_time_left = left;
+                    print_time_left_origin = origin;
+                }
+            }
+        }
+
+        ProgressData {
+            completion: progress.map(|p| p * 100.0),
+            filepos,
+            print_time: print_time.map(py_int_of_float),
+            print_time_left: print_time_left.map(py_int_of_float),
+            print_time_left_origin,
+        }
     }
 
     /// OURS: `self._comm`
@@ -1072,7 +1353,7 @@ impl Printer {
             user,
             Some(with_trigger(&tags, "trigger:printer.select_file")),
         )?;
-        // self._updateProgressData()
+        self._update_progress_data(None, None, None, None, None);
         self._set_current_z(None);
         Ok(())
     }
@@ -1088,7 +1369,7 @@ impl Printer {
 
         comm.expect("AttributeError: 'NoneType' object has no attribute 'unselectFile'")
             .unselect_file();
-        // self._updateProgressData()
+        self._update_progress_data(None, None, None, None, None);
         self._set_current_z(None);
     }
 
@@ -1115,7 +1396,8 @@ impl Printer {
 
         self._file_manager.delete_recovery_data();
 
-        // self._lastProgressReport = None; self._updateProgressData()
+        // self._lastProgressReport = None
+        self._update_progress_data(None, None, None, None, None);
         self._set_current_z(None);
         comm.start_print(
             pos,
@@ -1381,7 +1663,7 @@ impl Printer {
         path: &str,
         tags: Option<BTreeSet<String>>,
     ) -> Result<Option<String>, PrinterError> {
-        // self._create_estimator("stream")
+        self._create_estimator(Some("stream"));
         let comm = self
             ._comm
             .get()
@@ -1714,7 +1996,8 @@ impl Printer {
 
         self._set_current_z(None);
         self._set_job_data(None, None, false, None);
-        // self._updateProgressData(); self._stateMonitor.set_state(...)
+        self._update_progress_data(None, None, None, None, None);
+        // self._stateMonitor.set_state(...)
     }
 }
 
@@ -1755,6 +2038,7 @@ impl MachineComPrintCallback for Printer {
         if let Some(edge) = self._top_edge.get() {
             edge.on_comm_progress();
         }
+        self._state_monitor.trigger_progress_update();
     }
 
     /// `standard.py:1576 on_comm_sd_state_change(sdReady)`
@@ -1849,7 +2133,8 @@ impl MachineComPrintCallback for Printer {
                 self._set_job_data(None, None, false, None);
             }
 
-            // self._updateProgressData(); self._setOffsets(None); self._addTemperatureData()
+            self._update_progress_data(None, None, None, None, None);
+            // self._setOffsets(None); self._addTemperatureData()
             self._set_current_z(None);
             self._printer_profile_manager.deselect();
 
@@ -1936,7 +2221,8 @@ impl MachineComPrintCallback for Printer {
         }
 
         self._set_job_data(full_path, size, sd, user);
-        // self._stateMonitor.set_state(...); self._create_estimator()
+        // self._stateMonitor.set_state(...)
+        self._create_estimator(None);
 
         if self._print_after_select.get() {
             self._print_after_select.set(false);
@@ -1955,7 +2241,7 @@ impl MachineComPrintCallback for Printer {
         self._error_info.set(None);
 
         self._update_job_user(user); // the final job owner should always be whoever _started_ the job
-        // self._stateMonitor.trigger_progress_update()
+        self._state_monitor.trigger_progress_update();
         let payload =
             self._payload_for_print_job_event(None, None, None, user, None, None, None, user);
         if !payload.is_empty() {
@@ -1994,7 +2280,13 @@ impl MachineComPrintCallback for Printer {
                 Events::CHART_MARKED,
                 Some(json!({"type": "done", "label": "Done"})),
             );
-            // self._updateProgressData(completion=1.0, filepos=payload["size"], printTime=payload["time"], printTimeLeft=0)
+            self._update_progress_data(
+                Some(1.0),
+                payload.get("size").and_then(Value::as_i64),
+                payload.get("time").and_then(Value::as_f64),
+                Some(0.0),
+                None,
+            );
             // self._stateMonitor.set_state(...)
 
             event_manager().fire(Events::PRINT_DONE, Some(Value::Object(payload.clone())));
@@ -2020,8 +2312,10 @@ impl MachineComPrintCallback for Printer {
                         .unwrap_or(""),
                 );
             });
+        } else {
+            self._update_progress_data(None, None, None, None, None);
+            // self._stateMonitor.set_state(...)
         }
-        // else: self._updateProgressData(); self._stateMonitor.set_state(...)
     }
 
     /// `standard.py:1723 on_comm_print_job_cancelling(firmware_error=None, user=None)`
@@ -2045,7 +2339,7 @@ impl MachineComPrintCallback for Printer {
             edge.on_comm_print_job_cancelled(suppress_script, user);
         }
         self._set_current_z(None);
-        // self._updateProgressData()
+        self._update_progress_data(None, None, None, None, None);
 
         let comm = self._comm.get();
         let fileposition = comm.as_ref().and_then(|c| c.get_file_position());
@@ -2176,7 +2470,8 @@ impl MachineComPrintCallback for Printer {
         self._sd_streaming.set(true);
 
         self._set_job_data(Some(remote_filename), filesize, true, user);
-        // self._updateProgressData(completion=0.0, filepos=0, printTime=0); self._stateMonitor.set_state(...)
+        self._update_progress_data(Some(0.0), Some(0), Some(0.0), None, None);
+        // self._stateMonitor.set_state(...)
     }
 
     /// `standard.py:1868 on_comm_file_transfer_done(local_filename, remote_filename, elapsed, failed=False)`
@@ -2229,6 +2524,7 @@ impl MachineComPrintCallback for Printer {
 
 #[cfg(test)]
 mod tests {
+
     //! `tests/printer/test_script.py` ported (`ScriptsTestCase`, three tests), and OURS for the rest
     //! (OctoPrint 1.11.8 has no test of the other methods of `printer/standard.py`).
     //!
@@ -2239,6 +2535,63 @@ mod tests {
     //! script name that does not exist. What the commands are is read from the comm's command queue (the
     //! comm is put in the printing state, in which `sendCommand` queues a command).
     use super::*;
+
+    #[test]
+    fn progress_monitor_samples_once_per_dirty_progress_and_never_within_interval() {
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::{Arc, Mutex};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let times = Arc::new(Mutex::new(Vec::<f64>::new()));
+        let monitor = ProgressMonitor::new(0.5, {
+            let calls = calls.clone();
+            let times = times.clone();
+            Box::new(move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                times.lock().unwrap().push(time_monotonic());
+                ProgressData::default()
+            })
+        });
+        let wait_for = |n: usize| {
+            let start = time_monotonic();
+            while calls.load(Ordering::SeqCst) < n && time_monotonic() - start < 5.0 {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        };
+
+        // nothing dirty: nothing sampled, however long it runs and however `set_progress` is called
+        monitor.set_progress(None);
+        std::thread::sleep(std::time::Duration::from_millis(700));
+        assert_eq!(0, calls.load(Ordering::SeqCst));
+
+        // one trigger, one sample
+        monitor.trigger_progress_update();
+        wait_for(1);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert_eq!(1, calls.load(Ordering::SeqCst));
+
+        // many triggers inside the interval: still one sample, and not before 0.5 s have passed
+        for _ in 0..20 {
+            monitor.trigger_progress_update();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert_eq!(1, calls.load(Ordering::SeqCst));
+        wait_for(2);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert_eq!(2, calls.load(Ordering::SeqCst));
+
+        // set_progress clears the flag: a trigger followed by set_progress is not sampled
+        monitor.trigger_progress_update();
+        monitor.set_progress(None);
+        std::thread::sleep(std::time::Duration::from_millis(700));
+        let n = calls.load(Ordering::SeqCst);
+        assert!(n == 2 || n == 3, "{n}");
+
+        let times = times.lock().unwrap();
+        for pair in times.windows(2) {
+            assert!(pair[1] - pair[0] >= 0.5, "{pair:?}");
+        }
+        monitor.stop();
+    }
     use crate::ports::octoprint::events::Listener;
     use std::sync::Mutex;
 

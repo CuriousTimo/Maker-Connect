@@ -17,6 +17,7 @@
 pub mod action_command_prompt;
 pub mod api_printer;
 pub mod comm;
+pub mod estimation;
 pub mod events;
 pub mod filemanager;
 pub mod files;

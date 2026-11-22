@@ -44,7 +44,8 @@
 //! * K9: `problem` is `getStateString` unless it is `Offline`, `Operational`, `Printing` or `Paused`
 //!   (the plain text of Disconnected, Idle, Busy and Paused); an Error's text stays.
 //! * K10: progress `done`/`total` are the file position and the file's size in bytes, `elapsed_s` is
-//!   `getPrintTime`; no time left (OctoPrint's print time estimators are not ported). The position is
+//!   `getPrintTime`, `remaining_s` is `printTimeLeft` of `_updateProgressDataCallback` (`standard.py:1140`,
+//!   `estimation.py`, seconds; `None` when it has none). The position is
 //!   the last `PositionUpdate` with x, y and z. The tools are listed when there is more than one.
 //! * K11: a `CommandDone` of a command that sent no line is `ok` at once; of SdList it comes with the
 //!   card's file list (one line per file: its name), at once when no card is ready. A command whose
@@ -150,6 +151,11 @@ impl Port for OctoPrintPort {
         edge.install();
         event_manager().set_sink(edge.clone());
         printer.set_top_edge(edge.clone());
+        // StateMonitor's `_update_callback`: the telemetry is sent again when the progress was computed
+        printer.set_update_callback({
+            let edge = edge.clone();
+            Arc::new(move || edge.publish())
+        });
 
         edge.publish();
         printer.connect(self.port.clone(), self.baudrate, None);
@@ -402,6 +408,10 @@ impl Edge {
             let position = comm.get_file_position().map(|f| f.pos);
             (position, comm.get_print_time(), comm.get_current_tool())
         });
+        let remaining = self
+            .printer()
+            .and_then(|p| p.progress_data())
+            .map(|progress| progress.print_time_left);
         let mut inner = lock(&self.inner);
         let mut t = Telemetry::default();
         let state = inner.state.unwrap_or(MachineCom::STATE_NONE);
@@ -475,7 +485,7 @@ impl Edge {
                     .as_ref()
                     .and_then(|p| p.1)
                     .map(|s| s.max(0.0) as u64),
-                remaining_s: None,
+                remaining_s: remaining.flatten().map(|s| s.max(0) as u64),
             });
         }
         if inner.last.as_ref() != Some(&t) {

@@ -158,6 +158,10 @@ pub(crate) fn telemetry(t: &maker_connect_protocol::Telemetry) -> Kwargs {
         if let Some(s) = job.elapsed_s {
             kwargs.insert("time_printing".into(), s.into());
         }
+        // PrusaLink's `time_remaining` (int seconds): OctoPrint's `printTimeLeft`.
+        if let Some(s) = job.remaining_s {
+            kwargs.insert("time_remaining".into(), s.into());
+        }
     }
     kwargs
 }
@@ -489,14 +493,14 @@ mod tests {
                 done: 999,
                 total: 2000,
                 elapsed_s: Some(61),
-                remaining_s: None,
+                remaining_s: Some(1234),
             }),
             ..Default::default()
         };
         let kw = telemetry(&t);
         let want = serde_json::json!({
             "temp_nozzle": 210.5, "target_nozzle": 215.0, "temp_bed": 0.0,
-            "axis_x": 1.0, "axis_y": 2.5, "progress": 49, "time_printing": 61,
+            "axis_x": 1.0, "axis_y": 2.5, "progress": 49, "time_printing": 61, "time_remaining": 1234,
         });
         assert_eq!(Value::Object(kw), want);
         assert!(telemetry(&Default::default()).is_empty());
