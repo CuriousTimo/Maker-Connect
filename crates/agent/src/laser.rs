@@ -49,6 +49,27 @@ pub(crate) fn state(agent: &Agent, report: Option<&Report>) -> State {
 /// (part 4: the device read them from GRBL after connecting), then a `STATE_CHANGED` when the
 /// state is another than the last one said.
 pub(crate) fn tick(agent: &Agent, report: &Report) {
+    // Part 4, "What the laser is": its `$I` answer in `INFO` (`firmware`, `firmware_info`), once
+    // it answered, sent again when it changed.
+    if let Some(info) = report
+        .telemetry
+        .identity
+        .as_ref()
+        .and_then(|i| i.firmware_info.clone())
+    {
+        let firmware = crate::marlin::Firmware {
+            name: info
+                .contains_key("VER")
+                .then(|| report.telemetry.firmware.clone())
+                .flatten(),
+            info: Some(info),
+            capabilities: None,
+        };
+        if agent.firmware.lock().unwrap().as_ref() != Some(&firmware) {
+            *agent.firmware.lock().unwrap() = Some(firmware);
+            crate::info_changed(agent);
+        }
+    }
     let known = Known {
         settings: report.telemetry.grbl.clone(),
     };
@@ -121,6 +142,62 @@ pub(crate) fn telemetry(
 mod tests {
     use super::*;
     use maker_connect_protocol::{JobProgress, Telemetry};
+
+    /// Part 4, "What the laser is": the `$I` answer in `INFO` as `firmware` and `firmware_info`, once
+    /// it answered, and `INFO` again only when it changed.
+    #[test]
+    fn its_build_info_in_info() {
+        use maker_connect_sdk::consts::Event;
+        use std::sync::{Arc, Mutex};
+        let dir = std::env::temp_dir().join(format!("mc-laser-{}", std::process::id()));
+        let a = Agent::new(
+            crate::Kind::Laser,
+            dir,
+            crate::Settings::default(),
+            Arc::new(Mutex::new(maker_connect_engine::Engine::new())),
+        );
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let seen = sent.clone();
+        let cb: maker_connect_sdk::models::EventCallback =
+            Arc::new(move |event, _, _, _, kwargs| seen.lock().unwrap().push((event, kwargs)));
+        *a.event_cb.lock().unwrap() = Some(cb);
+        let report = |info: Option<Value>| Report {
+            telemetry: Telemetry {
+                firmware: Some(
+                    if info.is_some() {
+                        "1.1f(ESP32).20210403"
+                    } else {
+                        "GRBL"
+                    }
+                    .into(),
+                ),
+                identity: info.map(|i| maker_connect_protocol::Identity {
+                    firmware_info: i.as_object().cloned(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            connected: true,
+            ..Default::default()
+        };
+        let ortur = serde_json::json!({"MODEL": "Ortur Laser Master 2 Pro S2", "VER": "1.1f(ESP32).20210403:", "OPT": "VNMZHSL,35,7680,3"});
+        let info = crate::send_info(&a).kwargs;
+        assert!(!info.contains_key("firmware_info"));
+        tick(&a, &report(None));
+        tick(&a, &report(Some(ortur.clone())));
+        tick(&a, &report(Some(ortur.clone())));
+        let infos: Vec<_> = sent
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(e, _)| *e == Event::Info)
+            .map(|(_, k)| k.clone())
+            .collect();
+        assert_eq!(infos.len(), 1, "the build info's INFO, once: {infos:?}");
+        let info = crate::send_info(&a).kwargs;
+        assert_eq!(info["firmware"], "1.1f(ESP32).20210403");
+        assert_eq!(info["firmware_info"], ortur);
+    }
 
     /// Every row of part 4's state table.
     #[test]

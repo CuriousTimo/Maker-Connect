@@ -348,6 +348,24 @@ pub fn detect(identity: &Identity) -> Option<&'static Profile> {
     only(true).or_else(|| only(false)).flatten()
 }
 
+/// A laser by the `MODEL` of its `$I` answer (extension part 4, "What the laser is"; ours, as
+/// `MACHINE_TYPE` in part 9): the one laser profile whose brand and model, the part in brackets
+/// left off, are that name, case aside. None, or several: the space picks one by hand.
+pub fn detect_laser(model: &str) -> Option<&'static Profile> {
+    let model = model.trim();
+    let name = |p: &Profile| {
+        let base = p.model.split(" (").next().unwrap_or(&p.model).trim();
+        format!("{} {base}", p.brand.trim())
+    };
+    let mut found = all()
+        .iter()
+        .filter(|p| p.kind == MachineKind::Laser && name(p).eq_ignore_ascii_case(model));
+    match (found.next(), found.next()) {
+        (Some(profile), None) => Some(profile),
+        _ => None,
+    }
+}
+
 /// The bed, drawn to scale: the build plate with a grid every 10 mm, a stronger line and
 /// a label every 50 mm, and X0 Y0 marked. Millimetres are SVG units; Y runs up, as on the
 /// machine, so the front of the bed is at the bottom.
@@ -536,6 +554,26 @@ mod tests {
             find("prusa/mini").unwrap().build_volume_mm,
             [180.0, 180.0, 180.0]
         );
+    }
+
+    /// A laser by its `$I` `MODEL`: the Ortur's own answer (#165) finds its profile; a name no
+    /// profile has finds none.
+    #[test]
+    fn a_laser_by_its_model() {
+        let by = |name: &str| detect_laser(name).map(|p| p.id.as_str());
+        assert_eq!(by("Ortur Laser Master 2 Pro S2"), Some("ortur/lm2-pro-s2"));
+        assert_eq!(
+            by(" ortur laser master 2 pro s2 "),
+            Some("ortur/lm2-pro-s2")
+        );
+        for none in [
+            "",
+            "Ortur",
+            "Ortur Laser Master 2 Pro S2 (10W module)",
+            "Some Laser",
+        ] {
+            assert_eq!(by(none), None, "{none}");
+        }
     }
 
     /// A Marlin printer by its M115 `MACHINE_TYPE`: a model's own name finds it; Marlin's

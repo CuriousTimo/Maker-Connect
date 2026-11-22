@@ -1532,6 +1532,7 @@ dependencies = [
  "laserfoundry-gcode",
  "laserfoundry-geom",
  "maker-connect-protocol",
+ "serde_json",
 ]
 
 [[package]]

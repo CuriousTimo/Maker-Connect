@@ -176,6 +176,79 @@ fn the_settings_answer_is_nobodys_command() {
     assert_eq!(run.answer(ticket).unwrap(), ["> G0 X6", "ok"]);
 }
 
+/// Extension part 4, "What the laser is": the `$I` the link logic asks after the first status is
+/// the laser's `firmware` and `firmware_info`, and nobody's command.
+#[test]
+fn the_build_info_is_the_lasers_firmware() {
+    let mut run = Run::sim(1);
+    run.until("the build info", |r| r.telemetry.identity.is_some());
+    assert_eq!(run.telemetry.firmware.as_deref(), Some("1.1h.20190825"));
+    let info = run
+        .telemetry
+        .identity
+        .clone()
+        .unwrap()
+        .firmware_info
+        .unwrap();
+    assert_eq!(
+        info.get("VER").and_then(|v| v.as_str()),
+        Some("1.1h.20190825:")
+    );
+    assert!(
+        info.get("OPT")
+            .and_then(|v| v.as_str())
+            .is_some_and(|o| o.starts_with("V,15,"))
+    );
+    assert_eq!(info.len(), 2, "{info:?}");
+    let ticket = run
+        .machine
+        .submit(&[Command::Line("G0 X6".into())])
+        .unwrap();
+    assert_eq!(run.answer(ticket).unwrap(), ["> G0 X6", "ok"]);
+}
+
+/// The Ortur LM2 Pro S2's answer to `$I`, as it sent it on .67 (#165; its board serial left out):
+/// the wiki's `[VER:]` and `[OPT:]`, and its own lines kept the same way.
+#[test]
+fn the_orturs_build_info() {
+    let lines: Vec<String> = [
+        "> $I",
+        "[MODEL: Ortur Laser Master 2 Pro S2]",
+        "[OLF: 190]",
+        "[OLH: OLM_ESP_PRO_V1.2]",
+        "[DATE:15:24:15 - Oct 14 2022]",
+        "[VER:1.1f(ESP32).20210403:]",
+        "[OPT:VNMZHSL,35,7680,3]",
+        "ok",
+    ]
+    .map(String::from)
+    .into();
+    let b = build_info(&lines);
+    assert_eq!(b.firmware.as_deref(), Some("1.1f(ESP32).20210403"));
+    let get = |k: &str| b.info.get(k).and_then(|v| v.as_str());
+    assert_eq!(get("MODEL"), Some("Ortur Laser Master 2 Pro S2"));
+    assert_eq!(get("OLF"), Some("190"));
+    assert_eq!(get("OLH"), Some("OLM_ESP_PRO_V1.2"));
+    assert_eq!(get("DATE"), Some("15:24:15 - Oct 14 2022"));
+    assert_eq!(get("VER"), Some("1.1f(ESP32).20210403:"));
+    assert_eq!(get("OPT"), Some("VNMZHSL,35,7680,3"));
+    assert_eq!(b.info.len(), 6);
+    // The wiki's example with a stored string: the version is what comes before it.
+    let b = build_info(&["[VER:1.1d.20161014:Some string]".into()]);
+    assert_eq!(b.firmware.as_deref(), Some("1.1d.20161014"));
+}
+
+/// A controller that answers `$I` with an `error:` has neither `firmware_info` nor `$I`'s version.
+#[test]
+fn no_build_info_from_an_error() {
+    let mut sim = quick();
+    sim.fail_on("$I");
+    let mut run = Run::new(GrblMachine::new(Box::new(sim)));
+    run.until("the settings", |r| r.telemetry.grbl.is_some());
+    assert!(run.telemetry.identity.is_none());
+    assert_eq!(run.telemetry.firmware.as_deref(), Some("GRBL"));
+}
+
 /// A command with no answer fails; it never counts as done.
 #[test]
 fn a_command_without_an_answer_fails() {

@@ -11,6 +11,7 @@ serial = ["laserfoundry-device/serial"]
 
 [dependencies]
 maker-connect-protocol = { path = "../protocol" }
+serde_json = "1.0.154"
 # LaserFoundry (MIT OR Apache-2.0): its v0.6.0 release (8f07f98) plus the fork branch grbl-rx-buffer
 # (fd87dc3, CuriousTimo/laserfoundry: the RX buffer from `$I`, filled in one write, #168), offered upstream in #169.
 laserfoundry-device = { git = "https://github.com/CuriousTimo/laserfoundry", rev = "fd87dc3ee32674ee45a23e488e05969c301eb9f3" }

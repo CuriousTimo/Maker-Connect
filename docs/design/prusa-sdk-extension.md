@@ -264,6 +264,31 @@ connecting:
 To read them again, the server sends the SDK's own `SEND_INFO` (`const.py:124`); the device reads the
 settings from GRBL and answers with `INFO`.
 
+### What the laser is: `$I`, in `INFO`
+
+GRBL says what it is in its answer to `$I`, "View build info" (gnea/grbl wiki, `Grbl-v1.1-Commands`):
+`[VER:]` "contains build version info and build date", and "a string may appear after the second `:`
+colon", which "a user via a `$I=line` command or OEM can place there"; `[OPT:]` follows
+(`Grbl-v1.1-Interface`, "[VER:] and [OPT:]"). The device sends `$I` once after connecting, with `$$`.
+That is ours: LaserFoundry's app asks it too since the fork's `grbl-rx-buffer`, for the RX buffer.
+The Ortur LM2 Pro S2 (grblHAL, OLF 190) answers lines the wiki does not have, measured in #165:
+`[MODEL: Ortur Laser Master 2 Pro S2]`, `[OLF: 190]`, `[OLH: OLM_ESP_PRO_V1.2]`, `[DATE:…]`.
+As part 9 does with `M115`:
+
+| Kwarg | Type | Value |
+|---|---|---|
+| `firmware` | string | the SDK's own, "Printer firmware version" (`__init__.py:88`): `[VER:]`'s build version and date, as GRBL sends them, before the second `:`, e.g. `1.1f(ESP32).20210403` |
+| `firmware_info` | object | every `[KEY:value]` line of the `$I` answer up to its `ok`, the key as sent, the value as sent after the first `:` with the spaces around it left off, e.g. `{"VER": "1.1f(ESP32).20210403:", "OPT": "VNMZHSL,35,7680,3", "MODEL": "Ortur Laser Master 2 Pro S2", "OLF": "190", …}` |
+
+Both are left out until the laser answered. When it answers after the first `INFO`, the agent sends
+`INFO` again (as part 9). A controller that answers `$I` with an `error:` has neither.
+
+The server picks the laser's profile by `firmware_info`'s `MODEL` when exactly one profile's brand and
+model, the part in brackets left off, are that name, case aside (ours, as `MACHINE_TYPE` in part 9):
+`Ortur Laser Master 2 Pro S2` is `ortur/lm2-pro-s2`. No `MODEL`, or a name no profile or several
+profiles have: the space picks the profile by hand, as now. The machine page shows `firmware` and the
+`MODEL`.
+
 ### Commands the protocol already has
 
 | Command | On a laser | Kwargs |
@@ -723,6 +748,7 @@ was looked for under another name.
 | `page_size` | kwarg | START_CONNECT_DOWNLOAD | 3 | as `tape_size_mm` |
 | `machine_state` | telemetry | | 4 | as `media_loaded`; the SDK's `State` (`const.py`) is required beside it |
 | `max_power` | info | | 4 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): limits of a printer only |
+| `MODEL` | sub-key | `firmware_info` | 4 | not GRBL's (gnea/grbl wiki: `$I` has `[VER:]` and `[OPT:]` only) but the Ortur's, measured (#165); SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`), PrusaLink (`printer_polling.py`): no model name of a non-Prusa |
 | `laser_mode` | info | | 4 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): limits of a printer only |
 | `travel_x` | info | | 4 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): limits of a printer only |
 | `travel_y` | info | | 4 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): limits of a printer only |

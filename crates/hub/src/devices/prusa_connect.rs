@@ -1182,7 +1182,11 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
                     .map(str::to_owned),
                 ..Identity::default()
             };
-            if let Some(profile) = crate::profiles::detect(&identity)
+            // A laser's, by the `MODEL` of its `$I` answer (part 4, "What the laser is").
+            let laser = event["data"]["firmware_info"]["MODEL"]
+                .as_str()
+                .and_then(crate::profiles::detect_laser);
+            if let Some(profile) = crate::profiles::detect(&identity).or(laser)
                 && let Err(error) = shared.recognise(token, &profile.id).await
             {
                 eprintln!("prusa-connect: the profile of {}: {error}", profile.id);
@@ -2167,6 +2171,45 @@ mod tests {
                 .as_ref()
                 .and_then(|d| d.printer_type.as_deref()),
             Some(LASER_AGENT)
+        );
+
+        // Its profile by the `MODEL` of its `$I` answer in INFO (part 4, "What the laser is"):
+        // a name no profile has finds none; the Ortur's own answer (#165) finds its profile.
+        let (_, headers) = call(
+            &app,
+            Request::get("/p/register")
+                .header("Code", &code)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let token = headers["token"].to_str().unwrap().to_owned();
+        let info = |model: &str| {
+            Request::post("/p/events")
+                .header("Token", &token)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({"event": "INFO", "state": "IDLE", "data": {
+                        "type": "grbl.laser", "sn": "MC00112233445566BB",
+                        "firmware": "1.1f(ESP32).20210403",
+                        "firmware_info": {"MODEL": model, "VER": "1.1f(ESP32).20210403:", "OLF": "190"}}})
+                    .to_string(),
+                ))
+                .unwrap()
+        };
+        let profile = || async { store.machines(space).await.unwrap()[0].profile.clone() };
+        call(&app, info("Some Laser")).await;
+        assert_eq!(profile().await, None);
+        call(&app, info("Ortur Laser Master 2 Pro S2")).await;
+        assert_eq!(profile().await.as_deref(), Some("ortur/lm2-pro-s2"));
+        let details = store.machines(space).await.unwrap()[0]
+            .details
+            .clone()
+            .unwrap();
+        assert_eq!(details.firmware.as_deref(), Some("1.1f(ESP32).20210403"));
+        assert_eq!(
+            details.firmware_info.and_then(|i| i.get("OLF").cloned()),
+            Some(json!("190"))
         );
     }
 

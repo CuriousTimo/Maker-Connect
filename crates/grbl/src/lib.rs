@@ -18,7 +18,7 @@ use laserfoundry_device::{
     JobState, Link, MachineState as Grbl, Snapshot, Transport, restart_line,
 };
 use maker_connect_protocol::{
-    GrblSettings, JobControl, JobEnd, JobProgress, MachineState, Telemetry,
+    GrblSettings, Identity, JobControl, JobEnd, JobProgress, MachineState, Telemetry,
 };
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -108,6 +108,8 @@ struct Outstanding {
     failed: Option<String>,
     /// No answer will come (the connection or the controller went).
     dead: bool,
+    /// The link logic's `$I`: its answer is the laser's build info (extension part 4).
+    build_info: bool,
 }
 
 impl Outstanding {
@@ -121,6 +123,7 @@ impl Outstanding {
             output: Vec::new(),
             failed: None,
             dead: false,
+            build_info: false,
         }
     }
 }
@@ -152,6 +155,8 @@ pub struct GrblMachine {
     next_ticket: Ticket,
     job: Option<Running>,
     firmware: Option<String>,
+    /// What `$I` answered: its `[VER:]` version and every `[KEY:value]` line (extension part 4).
+    build_info: Option<BuildInfo>,
     gone: bool,
     back: bool,
 }
@@ -205,6 +210,7 @@ impl GrblMachine {
             next_ticket: 1,
             job: None,
             firmware: None,
+            build_info: None,
             gone: false,
             back: false,
         }
@@ -491,7 +497,9 @@ impl GrblMachine {
                     // laser mode is off) and, from its build info, the size of its RX buffer.
                     self.settings_asked = true;
                     if link.request_build_info().is_ok() {
-                        self.outstanding.push_back(Outstanding::new(None, 1, None));
+                        let mut asked = Outstanding::new(None, 1, None);
+                        asked.build_info = true;
+                        self.outstanding.push_back(asked);
                     }
                     if link.request_settings().is_ok() {
                         self.outstanding.push_back(Outstanding::new(None, 1, None));
@@ -624,6 +632,12 @@ impl GrblMachine {
         {
             over.extend(self.outstanding.pop_front());
         }
+        for o in &over {
+            if o.build_info && !o.dead && o.failed.is_none() {
+                // An `ok` with no line in brackets says nothing of the laser.
+                self.build_info = Some(build_info(&o.output)).filter(|b| !b.info.is_empty());
+            }
+        }
         over.into_iter()
             .filter_map(|o| {
                 let ticket = o.ticket?;
@@ -705,7 +719,16 @@ impl GrblMachine {
         Telemetry {
             state,
             grbl: snapshot.and_then(settings),
-            firmware: self.firmware.clone().or(Some("GRBL".to_owned())),
+            firmware: self
+                .build_info
+                .as_ref()
+                .and_then(|b| b.firmware.clone())
+                .or_else(|| self.firmware.clone())
+                .or(Some("GRBL".to_owned())),
+            identity: self.build_info.as_ref().map(|b| Identity {
+                firmware_info: Some(b.info.clone()),
+                ..Identity::default()
+            }),
             // Only a machine position: a work position shifts with the offset and cannot be
             // mapped onto the bed (`crates/device/src/status.rs`, `position_is_work`).
             position_mm: status
@@ -810,6 +833,42 @@ fn settings(snapshot: &Snapshot) -> Option<GrblSettings> {
         max_power: number(30),
         travel_mm: travel,
     })
+}
+
+/// What a GRBL controller answered `$I` (extension part 4, "What the laser is").
+#[derive(Debug, Clone, PartialEq)]
+struct BuildInfo {
+    /// `[VER:]`'s build version and date, before its second `:` (`1.1f(ESP32).20210403`).
+    firmware: Option<String>,
+    /// Every `[KEY:value]` line, the value after the first `:` without the spaces around it.
+    info: serde_json::Map<String, serde_json::Value>,
+}
+
+/// The `$I` answer, as the gnea/grbl wiki has it (`Grbl-v1.1-Interface`, "[VER:] and [OPT:]"):
+/// "`[VER:]` contains build version info and build date", "a string may appear after the second
+/// `:` colon"; lines the wiki does not have (the Ortur's `[MODEL:]`, `[OLF:]`, #165) are kept
+/// the same way. Anything not in brackets (the echo, `ok`) is left out.
+fn build_info(output: &[String]) -> BuildInfo {
+    let mut info = serde_json::Map::new();
+    for line in output {
+        let Some(inner) = line
+            .trim()
+            .strip_prefix('[')
+            .and_then(|l| l.strip_suffix(']'))
+        else {
+            continue;
+        };
+        let Some((key, value)) = inner.split_once(':') else {
+            continue;
+        };
+        info.insert(key.trim().to_owned(), value.trim().into());
+    }
+    let firmware = info
+        .get("VER")
+        .and_then(|v| v.as_str())
+        .map(|v| v.split(':').next().unwrap_or(v).to_owned())
+        .filter(|v| !v.is_empty());
+    BuildInfo { firmware, info }
 }
 
 /// GRBL's greeting, `Grbl 1.1f ['$' for help]`, as its firmware: `Grbl 1.1f`.
