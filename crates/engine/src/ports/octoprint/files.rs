@@ -88,7 +88,13 @@ pub fn m20_timestamp_to_unix_timestamp(timestamp: &str) -> Result<i64, ValueErro
     ))
 }
 
-#[cfg(unix)]
+/// `int(datetime.datetime.combine(d, t).timestamp())` (files.py:394-395) for a naive datetime with
+/// fold 0: CPython 3.13.12 `_datetimemodule.c:6626` `datetime_timestamp`, the naive branch
+/// (`local_to_seconds(...) - EPOCH_SECONDS`, microsecond 0).
+///
+/// Python raises OverflowError/OSError out of `local` when `localtime` fails; OctoPrint's
+/// `_validate_m20_timestamp` only catches ValueError, so it propagates. Here that is a panic with
+/// the same text. It cannot happen for M20 times: FAT years are 1980..=2107.
 fn naive_local_to_timestamp(
     year: i32,
     month: i32,
@@ -97,6 +103,139 @@ fn naive_local_to_timestamp(
     minute: i32,
     second: i32,
 ) -> i64 {
+    /// `_datetimemodule.c:6623` EPOCH_SECONDS
+    const EPOCH_SECONDS: i64 = 719163 * 24 * 60 * 60;
+    match local_to_seconds(year, month, day, hour, minute, second, 0) {
+        Ok(seconds) => seconds - EPOCH_SECONDS,
+        Err(e) => panic!("{e}"),
+    }
+}
+
+/// `_datetimemodule.c:5218` max_fold_seconds
+const MAX_FOLD_SECONDS: i64 = 24 * 3600;
+/// `_datetimemodule.c:5220` epoch: date(1970,1,1).toordinal() == 719163
+const EPOCH: i64 = 719163 * 24 * 60 * 60;
+
+/// `_datetimemodule.c:398` _days_before_month
+const DAYS_BEFORE_MONTH: [i64; 13] = [0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+
+/// `_datetimemodule.c` is_leap
+fn is_leap(year: i32) -> bool {
+    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+}
+
+/// `_datetimemodule.c:430` days_before_month
+fn days_before_month(year: i32, month: i32) -> i64 {
+    let mut days = DAYS_BEFORE_MONTH[month as usize];
+    if month > 2 && is_leap(year) {
+        days += 1;
+    }
+    days
+}
+
+/// `_datetimemodule.c:446` days_before_year
+fn days_before_year(year: i32) -> i64 {
+    let y = (year - 1) as i64;
+    y * 365 + y / 4 - y / 100 + y / 400
+}
+
+/// `_datetimemodule.c:550` ymd_to_ord
+fn ymd_to_ord(year: i32, month: i32, day: i32) -> i64 {
+    days_before_year(year) + days_before_month(year, month) + day as i64
+}
+
+/// `_datetimemodule.c:5223` utc_to_seconds
+fn utc_to_seconds(
+    year: i32,
+    month: i32,
+    day: i32,
+    hour: i32,
+    minute: i32,
+    second: i32,
+) -> Result<i64, String> {
+    // ymd_to_ord() doesn't support year <= 0; MINYEAR 1, MAXYEAR 9999
+    if !(1..=9999).contains(&year) {
+        return Err(format!("ValueError: year {year} is out of range"));
+    }
+    let ordinal = ymd_to_ord(year, month, day);
+    Ok(((ordinal * 24 + hour as i64) * 60 + minute as i64) * 60 + second as i64)
+}
+
+/// `_datetimemodule.c:5239` local
+fn local(u: i64) -> Result<i64, String> {
+    let t = u - EPOCH;
+    // `time_t t = u; if (t != u)`: time_t is 64-bit on every target we build for.
+    let local_time = pytime_localtime(t)?;
+    utc_to_seconds(
+        local_time.year,
+        local_time.mon + 1,
+        local_time.mday,
+        local_time.hour,
+        local_time.min,
+        local_time.sec,
+    )
+}
+
+/// `_datetimemodule.c:6576` local_to_seconds
+fn local_to_seconds(
+    year: i32,
+    month: i32,
+    day: i32,
+    hour: i32,
+    minute: i32,
+    second: i32,
+    fold: i32,
+) -> Result<i64, String> {
+    let t = utc_to_seconds(year, month, day, hour, minute, second)?;
+    // Our goal is to solve t = local(u) for u.
+    let lt = local(t)?;
+    let a = lt - t;
+    let u1 = t - a;
+    let t1 = local(u1)?;
+    let b;
+    if t1 == t {
+        // We found one solution, but it may not be the one we need. Look for an earlier
+        // solution (if `fold` is 0), or a later one (if `fold` is 1).
+        let u2 = if fold != 0 {
+            u1 + MAX_FOLD_SECONDS
+        } else {
+            u1 - MAX_FOLD_SECONDS
+        };
+        let lt = local(u2)?;
+        b = lt - u2;
+        if a == b {
+            return Ok(u1);
+        }
+    } else {
+        b = t1 - u1;
+        debug_assert!(a != b);
+    }
+    let u2 = t - b;
+    let t2 = local(u2)?;
+    if t2 == t {
+        return Ok(u2);
+    }
+    if t1 == t {
+        return Ok(u1);
+    }
+    // We have found both offsets a and b, but neither t - a nor t - b is a solution. This
+    // means t is in the gap.
+    Ok(if fold != 0 { u1.min(u2) } else { u1.max(u2) })
+}
+
+/// The `struct tm` fields `local` reads, with `tm_year + 1900` applied.
+struct LocalTime {
+    year: i32,
+    mon: i32,
+    mday: i32,
+    hour: i32,
+    min: i32,
+    sec: i32,
+}
+
+/// `pytime.c:1286` _PyTime_localtime, the `!MS_WINDOWS` branch: `localtime_r`.
+#[cfg(unix)]
+fn pytime_localtime(t: i64) -> Result<LocalTime, String> {
     use std::ffi::{c_char, c_int, c_long};
 
     #[repr(C)]
@@ -114,28 +253,93 @@ fn naive_local_to_timestamp(
         tm_zone: *const c_char,
     }
     unsafe extern "C" {
-        fn mktime(tm: *mut Tm) -> c_long;
+        fn localtime_r(t: *const i64, tm: *mut Tm) -> *mut Tm;
     }
     let mut tm = Tm {
-        tm_sec: second,
-        tm_min: minute,
-        tm_hour: hour,
-        tm_mday: day,
-        tm_mon: month - 1,
-        tm_year: year - 1900,
+        tm_sec: 0,
+        tm_min: 0,
+        tm_hour: 0,
+        tm_mday: 0,
+        tm_mon: 0,
+        tm_year: 0,
         tm_wday: 0,
         tm_yday: 0,
-        tm_isdst: -1,
+        tm_isdst: 0,
         tm_gmtoff: 0,
         tm_zone: std::ptr::null(),
     };
-    // SAFETY: `tm` is a fully initialised struct with the C library's `struct tm` layout.
-    unsafe { mktime(&mut tm) as i64 }
+    // SAFETY: `t` is a valid time_t (64-bit on our Unix targets) and `tm` has the C library's
+    // `struct tm` layout.
+    if unsafe { localtime_r(&t, &mut tm) }.is_null() {
+        // errno == 0 is set to EINVAL; PyErr_SetFromErrno(PyExc_OSError)
+        let errno = std::io::Error::last_os_error()
+            .raw_os_error()
+            .filter(|&e| e != 0)
+            .unwrap_or(22);
+        return Err(format!(
+            "OSError: {}",
+            std::io::Error::from_raw_os_error(errno)
+        ));
+    }
+    Ok(LocalTime {
+        year: tm.tm_year + 1900,
+        mon: tm.tm_mon,
+        mday: tm.tm_mday,
+        hour: tm.tm_hour,
+        min: tm.tm_min,
+        sec: tm.tm_sec,
+    })
 }
 
-#[cfg(not(unix))]
-fn naive_local_to_timestamp(_: i32, _: i32, _: i32, _: i32, _: i32, _: i32) -> i64 {
-    todo!("local time to unix timestamp is only implemented for unix targets")
+/// `pytime.c:1286` _PyTime_localtime, the `MS_WINDOWS` branch: `localtime_s`, which the CRT
+/// headers map to `_localtime64_s` (64-bit time_t).
+#[cfg(windows)]
+fn pytime_localtime(t: i64) -> Result<LocalTime, String> {
+    use std::ffi::c_int;
+
+    #[repr(C)]
+    struct Tm {
+        tm_sec: c_int,
+        tm_min: c_int,
+        tm_hour: c_int,
+        tm_mday: c_int,
+        tm_mon: c_int,
+        tm_year: c_int,
+        tm_wday: c_int,
+        tm_yday: c_int,
+        tm_isdst: c_int,
+    }
+    unsafe extern "C" {
+        fn _localtime64_s(tm: *mut Tm, t: *const i64) -> c_int;
+    }
+    let mut tm = Tm {
+        tm_sec: 0,
+        tm_min: 0,
+        tm_hour: 0,
+        tm_mday: 0,
+        tm_mon: 0,
+        tm_year: 0,
+        tm_wday: 0,
+        tm_yday: 0,
+        tm_isdst: 0,
+    };
+    // SAFETY: `tm` has the CRT's `struct tm` layout and `t` is a valid __time64_t.
+    let error = unsafe { _localtime64_s(&mut tm, &t) };
+    if error != 0 {
+        // errno = error; PyErr_SetFromErrno(PyExc_OSError)
+        return Err(format!(
+            "OSError: {}",
+            std::io::Error::from_raw_os_error(error)
+        ));
+    }
+    Ok(LocalTime {
+        year: tm.tm_year + 1900,
+        mon: tm.tm_mon,
+        mday: tm.tm_mday,
+        hour: tm.tm_hour,
+        min: tm.tm_min,
+        sec: tm.tm_sec,
+    })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -513,5 +717,50 @@ mod dos_filename_tests {
         assert_eq!(("x.tar", ".gz"), splitext("x.tar.gz"));
         assert_eq!("c", basename("a/b/c"));
         assert_eq!("", basename("a/b/"));
+    }
+}
+
+#[cfg(test)]
+mod local_time_tests {
+    use super::naive_local_to_timestamp;
+
+    /// Ours against CPython's own `int(datetime(...).timestamp())`, in the same process
+    /// environment (same TZ): the FAT range ends, after 2038, and the hours around the
+    /// spring-forward gap and the autumn fold in the EU and the US.
+    #[test]
+    fn naive_local_to_timestamp_is_pythons() {
+        let mut cases = vec![
+            (1980, 1, 1, 0, 0, 0),
+            (2107, 12, 31, 23, 59, 58),
+            (2040, 2, 29, 12, 0, 0),
+        ];
+        for (y, m, d) in [(2026, 3, 29), (2026, 10, 25), (2026, 3, 8), (2026, 11, 1)] {
+            for h in 0..5 {
+                for min in [0, 30, 59] {
+                    cases.push((y, m, d, h, min, 0));
+                }
+            }
+        }
+        let list: Vec<String> = cases.iter().map(|c| format!("{c:?}")).collect();
+        let script = format!(
+            "import datetime\nfor c in [{}]:\n    print(int(datetime.datetime(*c).timestamp()))\n",
+            list.join(", ")
+        );
+        let python = if cfg!(windows) { "python" } else { "python3" };
+        let out = std::process::Command::new(python)
+            .args(["-I", "-c", &script])
+            .output()
+            .expect("CPython on the test machine");
+        assert!(out.status.success(), "{out:?}");
+        let theirs: Vec<i64> = String::from_utf8(out.stdout)
+            .unwrap()
+            .lines()
+            .map(|l| l.trim().parse().unwrap())
+            .collect();
+        let ours: Vec<i64> = cases
+            .iter()
+            .map(|&(y, m, d, h, min, s)| naive_local_to_timestamp(y, m, d, h, min, s))
+            .collect();
+        assert_eq!(ours, theirs);
     }
 }

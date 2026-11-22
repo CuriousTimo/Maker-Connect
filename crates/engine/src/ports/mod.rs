@@ -14,4 +14,6 @@ pub mod laserfoundry;
 #[cfg(feature = "devices")]
 pub mod octoprint;
 #[cfg(feature = "devices")]
+pub mod prusalink;
+#[cfg(feature = "devices")]
 pub mod usbscale;

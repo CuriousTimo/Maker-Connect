@@ -1,0 +1,58 @@
+//! What PrusaLink shows and sends to a printer's screen, for a Marlin printer on the agent
+//! (#187, #189). The reference is PrusaLink (`reference/Prusa-Link`, commit
+//! `171148ce7dbc7f1fb0633ea519523f3258877e2e`), the maker's own software, files named in each module.
+//! PrusaLink has no licence on GitHub ("Freeware" in `setup.py`); the owner decided to port it
+//! (2026-11-12, CLAUDE.md).
+//!
+//! These are deliberate exceptions to "OctoPrint is the reference for a Marlin printer"
+//! (`docs/audits/octoprint-marlin.md`): OctoPrint sends no `M73` and no `M117` of its own.
+
+// Ported to the letter (CLAUDE.md, "port, don't paraphrase"): the reference's own structure is kept,
+// so clippy's style, complexity and performance rewrites are not applied here; its correctness
+// lints still hold.
+#![allow(clippy::style, clippy::complexity, clippy::perf)]
+
+pub mod carousel;
+pub mod lcd_printer;
+pub mod print_stats;
+pub mod unidecode;
+#[rustfmt::skip]
+mod unidecode_data;
+
+/// The tests run PrusaLink's own Python (`reference/.venv-prusalink`) on the same examples, as the
+/// estimator's test runs OctoPrint's.
+#[cfg(test)]
+pub(crate) mod python {
+    use std::io::Write;
+    use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
+
+    pub const COMMON: &str = include_str!("driver_common.py");
+
+    pub fn root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+    }
+
+    /// `COMMON` and `driver` run with `stdin`; the one JSON line it prints
+    pub fn run(driver: &str, stdin: &serde_json::Value) -> serde_json::Value {
+        let root = root();
+        let python = root.join("reference/.venv-prusalink/bin/python");
+        let mut child = Command::new(&python)
+            .args(["-I", "-W", "ignore", "-c"])
+            .arg(format!("{COMMON}\n{driver}"))
+            .arg(&root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|e| panic!("{}: {e}", python.display()));
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(stdin.to_string().as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success(), "the Python driver failed");
+        serde_json::from_slice(&out.stdout).expect("one JSON line")
+    }
+}

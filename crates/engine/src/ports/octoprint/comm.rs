@@ -3708,7 +3708,9 @@ pub struct SDFileData {
 
 /// comm.py:196 `serialList()`: the serial ports to try, the last used one first.
 ///
-/// "/dev" is scanned for `regex_serial_devices` (the Windows registry branch is not ported).
+/// On Windows (`os.name == "nt"`) the values of the registry key
+/// `HKEY_LOCAL_MACHINE\HARDWARE\DEVICEMAP\SERIALCOMM` ([`winreg_serialcomm`]); elsewhere "/dev" is
+/// scanned for `regex_serial_devices` ([`scan_dev`]).
 pub fn serial_list() -> Vec<String> {
     // OURS (docs/archive/plans/agent-engine.md, Section H): under `cfg(test)` the scanned directory is a temp
     // directory, never the real `/dev`
@@ -3760,23 +3762,19 @@ fn test_guard_open_serial(port: &str) {
 /// `serialList()` with the directory it scans (OURS: so that a test need not look at the real
 /// `/dev`; `serialList` itself passes `"/dev"`).
 fn serial_list_in(dev: &str) -> Vec<String> {
-    let mut candidates: Vec<String> = Vec::new();
-    if cfg!(windows) {
-        unimplemented!(
-            "comm.py:198 serialList: the Windows registry (winreg) branch is not ported"
-        );
-    } else {
-        // try: with os.scandir("/dev") as it: ... except Exception: logger.exception(...)
-        if let Ok(it) = std::fs::read_dir(dev) {
-            for entry in it {
-                let Ok(entry) = entry else { break };
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if re_match(&regex_serial_devices, &name).is_some() {
-                    candidates.push(entry.path().to_string_lossy().into_owned());
-                }
-            }
+    #[cfg(windows)]
+    let mut candidates: Vec<String> = {
+        let _ = dev;
+        // OURS (test guard, as `test_serial_dir` for "/dev"): under `cfg(test)` the real registry
+        // is not read, so no test finds a real port; `winreg_serialcomm` has its own test.
+        if cfg!(test) {
+            Vec::new()
+        } else {
+            winreg_serialcomm()
         }
-    }
+    };
+    #[cfg(not(windows))]
+    let mut candidates: Vec<String> = scan_dev(dev);
 
     // additional ports
     let additional_ports = settings().get(&["serial", "additionalPorts"]);
@@ -3843,6 +3841,104 @@ fn serial_list_in(dev: &str) -> Vec<String> {
         candidates.insert(0, prev);
     }
 
+    candidates
+}
+
+/// comm.py:211-220, the `else` branch of `serialList`: `os.scandir("/dev")`, the entries whose name
+/// matches `regex_serial_devices`, as `entry.path`; any error ends the scan (`except Exception`, logged).
+#[cfg_attr(windows, allow(dead_code))]
+fn scan_dev(dev: &str) -> Vec<String> {
+    let mut candidates: Vec<String> = Vec::new();
+    // try: with os.scandir("/dev") as it: ... except Exception: logger.exception(...)
+    if let Ok(it) = std::fs::read_dir(dev) {
+        for entry in it {
+            let Ok(entry) = entry else { break };
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if re_match(&regex_serial_devices, &name).is_some() {
+                candidates.push(entry.path().to_string_lossy().into_owned());
+            }
+        }
+    }
+    candidates
+}
+
+/// comm.py:198-208, the `os.name == "nt"` branch of `serialList`:
+///
+/// ```python
+/// key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, "HARDWARE\\DEVICEMAP\\SERIALCOMM")
+/// i = 0
+/// while True:
+///     candidates += [winreg.EnumValue(key, i)[1]]
+///     i += 1
+/// except Exception: pass
+/// ```
+///
+/// `winreg.OpenKey` opens with `KEY_READ`; `EnumValue(key, i)[1]` is the value's data, which for
+/// `REG_SZ`/`REG_EXPAND_SZ` is a `str` up to its first NUL (CPython `PC/winreg.c` `Reg2Py`). The first
+/// error, `ERROR_NO_MORE_ITEMS` at the end included, ends the list with what was read.
+///
+/// OURS: a value of another type would be an `int`, `bytes` or `list` in Python's list, which a list of
+/// port names cannot hold: it ends the list here (the device map holds `REG_SZ` port names). The key is
+/// closed at the end (Python leaves that to the garbage collector).
+#[cfg(windows)]
+pub fn winreg_serialcomm() -> Vec<String> {
+    use windows_sys::Win32::Foundation::ERROR_MORE_DATA;
+    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::System::Registry::{
+        HKEY, HKEY_LOCAL_MACHINE, KEY_READ, REG_EXPAND_SZ, REG_SZ, RegCloseKey, RegEnumValueW,
+        RegOpenKeyExW,
+    };
+    let mut candidates = Vec::new();
+    let path: Vec<u16> = "HARDWARE\\DEVICEMAP\\SERIALCOMM"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut key: HKEY = std::ptr::null_mut();
+    // SAFETY: `path` is NUL-terminated; `key` receives the opened key.
+    if unsafe { RegOpenKeyExW(HKEY_LOCAL_MACHINE, path.as_ptr(), 0, KEY_READ, &mut key) }
+        != ERROR_SUCCESS
+    {
+        return candidates;
+    }
+    let mut i: u32 = 0;
+    // value names are at most 16383 characters (the registry's limit)
+    let mut name = vec![0u16; 16384];
+    let mut data: Vec<u8> = vec![0u8; 256];
+    loop {
+        let mut name_len = name.len() as u32;
+        let mut data_len = data.len() as u32;
+        let mut kind: u32 = 0;
+        // SAFETY: the buffers and their lengths are what the call fills.
+        let rc = unsafe {
+            RegEnumValueW(
+                key,
+                i,
+                name.as_mut_ptr(),
+                &mut name_len,
+                std::ptr::null(),
+                &mut kind,
+                data.as_mut_ptr(),
+                &mut data_len,
+            )
+        };
+        if rc == ERROR_MORE_DATA {
+            // the data did not fit: grow to the size the call asked for and read this value again
+            data = vec![0u8; (data_len as usize).max(data.len() * 2)];
+            continue;
+        }
+        if rc != ERROR_SUCCESS || (kind != REG_SZ && kind != REG_EXPAND_SZ) {
+            break;
+        }
+        let wide: Vec<u16> = data[..data_len as usize]
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .take_while(|c| *c != 0)
+            .collect();
+        candidates.push(String::from_utf16_lossy(&wide));
+        i += 1;
+    }
+    // SAFETY: closing the key opened above.
+    unsafe { RegCloseKey(key) };
     candidates
 }
 
@@ -12213,10 +12309,6 @@ mod tests {
     /// `tests/util/test_comm.py:test__validate_m20_timestamp` (pytest, parametrized), all 5 cases
     #[test]
     #[allow(non_snake_case)] // the reference's name
-    #[cfg_attr(
-        windows,
-        ignore = "the Marlin port is Linux and macOS only for now: M20 timestamps: local time is ported for Unix only"
-    )]
     fn test__validate_m20_timestamp() {
         for (val, expected) in [
             ("aaa", false),
@@ -12231,10 +12323,6 @@ mod tests {
 
     /// `tests/util/test_comm.py:test_parse_file_list_line` (pytest, parametrized), all 13 cases
     #[test]
-    #[cfg_attr(
-        windows,
-        ignore = "the Marlin port is Linux and macOS only for now: M20 timestamps: local time is ported for Unix only"
-    )]
     fn test_parse_file_list_line() {
         use super::super::files::m20_timestamp_to_unix_timestamp;
         let ts = || Some(m20_timestamp_to_unix_timestamp("0x21bf7d").expect("a valid timestamp"));
@@ -12331,10 +12419,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        windows,
-        ignore = "the Marlin port is Linux and macOS only for now: M20 timestamps: local time is ported for Unix only"
-    )]
     fn m20_timestamp_validation() {
         assert!(!_validate_m20_timestamp("12345678"));
         assert!(!_validate_m20_timestamp("0x"));
@@ -12766,10 +12850,6 @@ mod machinecom_tests {
     /// attribute); `reassigned` attributes must be `Attr<..>` fields. Not ported (logging,
     /// difference 1): `_logger`, `_serialLogger`, `_phaseLogger`.
     #[test]
-    #[cfg_attr(
-        windows,
-        ignore = "the Marlin port is Linux and macOS only for now: opening a serial port: pyserial's Windows port is not ported"
-    )]
     fn machinecom_attrs_exist() {
         let src = include_str!("comm.rs");
         let st = src
@@ -14122,10 +14202,6 @@ mod section_g_tests {
     use super::*;
 
     #[test]
-    #[cfg_attr(
-        windows,
-        ignore = "the Marlin port is Linux and macOS only for now: opening a serial port: pyserial's Windows port is not ported"
-    )]
     fn ours_monitor_with_port_and_baudrate_opens_the_serial_port() {
         // a port that does not exist: `_open_serial` fails (the default factory returns `None`),
         // `_monitor` returns with the state of the opening still set
@@ -14965,10 +15041,6 @@ mod section_h_tests {
     }
 
     #[test]
-    #[cfg_attr(
-        windows,
-        ignore = "the Marlin port is Linux and macOS only for now: opening a serial port: pyserial's Windows port is not ported"
-    )]
     fn ours_perform_detection_step() {
         let none = "/dev/maker-connect-test-does-not-exist";
         // init with a port and a baud rate: one candidate; not in DETECT_SERIAL, so no step
@@ -15316,10 +15388,6 @@ mod section_h_tests {
     }
 
     #[test]
-    #[cfg_attr(
-        windows,
-        ignore = "the Marlin port is Linux and macOS only for now: opening a serial port: pyserial's Windows port is not ported"
-    )]
     fn ours_open_serial_of_a_missing_port() {
         let (c, rec) = new_comm(|_| {});
         let none = "/dev/maker-connect-test-does-not-exist";
@@ -15631,10 +15699,6 @@ mod section_h_tests {
     }
 
     #[test]
-    #[cfg_attr(
-        windows,
-        ignore = "the Marlin port is Linux and macOS only for now: serialList: its Windows registry branch is not ported"
-    )]
     fn ours_serial_list_and_baudrate_list() {
         let dir =
             std::env::temp_dir().join(format!("maker-connect-serial-list-{}", std::process::id()));
@@ -15654,7 +15718,8 @@ mod section_h_tests {
             std::fs::write(dir.join(f), b"").unwrap();
         }
         let d = dir.to_str().unwrap();
-        let mut got = serial_list_in(d);
+        // the "/dev" scan itself, on every platform; `serial_list_in` takes it only off Windows
+        let mut got = scan_dev(d);
         got.sort();
         let mut expected: Vec<String> = [
             "ttyUSB0",
@@ -15665,10 +15730,16 @@ mod section_h_tests {
             "rfcomm0",
         ]
         .iter()
-        .map(|f| format!("{d}/{f}"))
+        .map(|f| dir.join(f).to_string_lossy().into_owned())
         .collect();
         expected.sort();
         assert_eq!(expected, got);
+        #[cfg(not(windows))]
+        {
+            let mut listed = serial_list_in(d);
+            listed.sort();
+            assert_eq!(expected, listed);
+        }
         assert!(serial_list_in("/maker-connect-test-does-not-exist").is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
 
@@ -15680,6 +15751,26 @@ mod section_h_tests {
             vec![115200, 250000],
             baudrate_list(Some(vec![115200, 250000]))
         );
+    }
+
+    /// comm.py:198-208 run by CPython itself (`winreg`, the code of `serialList`'s `nt` branch) and
+    /// ours on the same machine's registry: the same port names in the same order.
+    #[cfg(windows)]
+    #[test]
+    fn winreg_serialcomm_is_pythons() {
+        let script = "import winreg\ncandidates = []\ntry:\n    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 'HARDWARE\\\\DEVICEMAP\\\\SERIALCOMM')\n    i = 0\n    while True:\n        candidates += [winreg.EnumValue(key, i)[1]]\n        i += 1\nexcept Exception:\n    pass\nprint('\\n'.join(candidates))\n";
+        let out = std::process::Command::new("python")
+            .args(["-I", "-c", script])
+            .output()
+            .expect("python (CPython with winreg) on the Windows test machine");
+        assert!(out.status.success(), "{out:?}");
+        let python: Vec<String> = String::from_utf8(out.stdout)
+            .unwrap()
+            .lines()
+            .map(|l| l.trim_end_matches('\r').to_string())
+            .filter(|l| !l.is_empty())
+            .collect();
+        assert_eq!(python, winreg_serialcomm());
     }
 
     #[test]
@@ -16320,10 +16411,6 @@ mod section_i_tests {
     }
 
     #[test]
-    #[cfg_attr(
-        windows,
-        ignore = "the Marlin port is Linux and macOS only for now: serialList: its Windows registry branch is not ported"
-    )]
     fn ours_the_test_guard_keeps_tests_off_the_real_devices() {
         // `serial_list()` scans a temp directory, not /dev
         assert!(serial_list().is_empty());
@@ -16333,6 +16420,8 @@ mod section_i_tests {
             "/dev/tty.usbmodem1",
             "/tmp/../dev/ttyUSB0",
             "relative",
+            "COM3",
+            "\\\\.\\COM3",
         ] {
             let c = MachineCom::new(None, None, None, None);
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

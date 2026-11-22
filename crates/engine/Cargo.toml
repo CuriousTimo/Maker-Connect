@@ -50,8 +50,8 @@ maker-connect-grbl = { path = "../grbl", features = ["serial"], optional = true 
 hidapi = { version = "2.6.7", default-features = false, features = ["linux-native-basic-udev"], optional = true }
 [target.'cfg(windows)'.dependencies]
 # pyserial 3.5 `serialwin32.py`'s ctypes calls (`win32.py`), for `ports/octoprint/serialwin32.rs`
-# and `util/platform`'s `SetHandleInformation` (#181).
-windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_Devices_Communication", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading", "Win32_System_SystemServices", "Win32_System_WindowsProgramming", "Win32_Security"] }
+# and `util/platform`'s `SetHandleInformation` (#181), `winreg` for `serialList` (#182).
+windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_Devices_Communication", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading", "Win32_System_SystemServices", "Win32_System_WindowsProgramming", "Win32_System_Registry", "Win32_Security"] }
 hidapi = { version = "2.6.7", default-features = false, features = ["windows-native"], optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 hidapi = { version = "2.6.7", optional = true }

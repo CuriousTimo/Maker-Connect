@@ -72,6 +72,7 @@ use super::plugin::{HookFn, MessageReceiver, plugin_manager};
 use super::profile::PrinterProfileManager;
 use super::py_collections::PyDict;
 use super::standard::{LocalFileManager, Printer, PrinterError};
+use crate::ports::prusalink::print_stats::{PrintStats, print_stats_command};
 use crate::{Event, Order, Port};
 use maker_connect_protocol::{
     Action, Axis, CommandDone, Heater, JobControl, JobEnd, JobOrder, JobProgress, MachineState,
@@ -255,6 +256,9 @@ struct Edge {
     receiver: Mutex<Option<MessageReceiver>>,
     /// The adapter's hook ([`CommStateHook`]), if any
     comm_state: Mutex<Option<CommStateHook>>,
+    /// #187: PrusaLink's print stats of the file being printed (`PrintStats` and `gcode_number`), for
+    /// the `M73` of `m73_before_file_line`; `None` when there is no job of ours
+    stats: Mutex<Option<PrintStats>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -329,6 +333,7 @@ impl Edge {
             inner: Mutex::new(Inner::default()),
             receiver: Mutex::new(None),
             comm_state: Mutex::new(None),
+            stats: Mutex::new(None),
         })
     }
 
@@ -359,6 +364,12 @@ impl Edge {
                     lock(&me.inner).emergency = true;
                 }
                 let tags = args.get(5).and_then(Value::as_array);
+                // #187: a line of the file about to be queued
+                if phase == "queuing"
+                    && tags.is_some_and(|t| t.iter().any(|t| t.as_str() == Some("source:file")))
+                {
+                    me.m73_before_file_line();
+                }
                 if let Some(tag) = tags.and_then(|t| {
                     t.iter()
                         .filter_map(Value::as_str)
@@ -495,6 +506,53 @@ impl Edge {
     }
 
     // ---- the terminal log, the hooks (M4) ----
+
+    /// #187, the owner's exception (`docs/audits/octoprint-marlin.md`, "M73"): OctoPrint sends no
+    /// `M73`; PrusaLink does, for a file without its own (`file_printer.py:261-286 print_gcode`).
+    /// Called for each line of the file comm is about to queue (comm's "queuing" phase, tag
+    /// `source:file`), which is where `print_gcode` is called for each G-code of the file. The line goes
+    /// to comm's command queue, which `_continue_sending` (comm.py:3528) serves before the file: the
+    /// place of PrusaLink's `to_front=True`. Only when M115 said `Cap:BUILD_PERCENT:1`
+    /// (`Marlin/src/gcode/host/M115.cpp:185`) and OctoPrint has its numbers.
+    fn m73_before_file_line(&self) {
+        let (send, build_percent) = {
+            let mut stats = lock(&self.stats);
+            let Some(stats) = stats.as_mut() else {
+                return;
+            };
+            let build_percent = lock(&self.inner)
+                .capabilities
+                .as_ref()
+                .and_then(|caps| caps.get("BUILD_PERCENT"))
+                .and_then(Value::as_bool)
+                == Some(true);
+            (stats.next_gcode(), build_percent)
+        };
+        if !send || !build_percent {
+            return;
+        }
+        let Some(printer) = self.printer() else {
+            return;
+        };
+        let Some(progress) = printer.progress_data() else {
+            return;
+        };
+        let Some(command) = print_stats_command(progress.completion, progress.print_time_left)
+        else {
+            return;
+        };
+        if let Some(comm) = printer.comm() {
+            comm.send_command(
+                super::comm::QueuedCommand::Command(command),
+                None,
+                false,
+                false,
+                false,
+                None,
+                None,
+            );
+        }
+    }
 
     fn line_phase(&self, phase: &str, tag: &str) {
         {
@@ -875,6 +933,8 @@ impl Edge {
                 .collect()
         };
         let path = linked.to_string_lossy().into_owned();
+        // #187: `print_stats.track_new_print(file_path)`; a file that is not UTF-8 gets no `M73`
+        *lock(&self.stats) = PrintStats::track_new_print(&linked).ok();
         let attempt = (|| -> Result<(), String> {
             // files.py, `select`
             api_printer::file_select(printer, &path).map_err(api_text)?;
@@ -969,6 +1029,7 @@ impl Edge {
         else {
             return;
         };
+        *lock(&self.stats) = None;
         let end = match (event, reason) {
             (Events::PRINT_DONE, _) => end(job.id, true, false, None),
             (_, Some("cancelled")) => end(job.id, false, true, None),
@@ -1330,6 +1391,8 @@ mod tests {
         closed: AtomicBool,
         /// the cable is pulled: reading fails, as pyserial's does
         unplugged: AtomicBool,
+        /// M115 says `Cap:BUILD_PERCENT:1`
+        build_percent: AtomicBool,
     }
 
     /// K18: every command still pending is given up on close (the `Order::Close` path calls this; the
@@ -1442,8 +1505,17 @@ mod tests {
                 std::thread::sleep(delay);
                 let answer = match text.split_whitespace().next().unwrap_or("") {
                     "M105" => "ok T:21.0 /0.0 B:20.0 /0.0 @:0 B@:0".to_string(),
-                    "M115" => "FIRMWARE_NAME:Marlin 2.1.2 (fake) PROTOCOL_VERSION:1.0 MACHINE_TYPE:AtomX MK3 EXTRUDER_COUNT:1\nCap:PROMPT_SUPPORT:1\nCap:AUTOLEVEL:0\nok".to_string(),
-                    "M114" => "X:10.00 Y:20.00 Z:0.30 E:0.00 Count X:800 Y:1600 Z:120\nok".to_string(),
+                    "M115" => format!(
+                        "FIRMWARE_NAME:Marlin 2.1.2 (fake) PROTOCOL_VERSION:1.0 MACHINE_TYPE:AtomX MK3 EXTRUDER_COUNT:1\nCap:PROMPT_SUPPORT:1\nCap:AUTOLEVEL:0\n{}ok",
+                        if self.build_percent.load(Ordering::SeqCst) {
+                            "Cap:BUILD_PERCENT:1\n"
+                        } else {
+                            ""
+                        }
+                    ),
+                    "M114" => {
+                        "X:10.00 Y:20.00 Z:0.30 E:0.00 Count X:800 Y:1600 Z:120\nok".to_string()
+                    }
                     "M21" => "echo:SD card ok\nok".to_string(),
                     "M20" => "Begin file list\nBENCHY.GCO 1234\nEnd file list\nok".to_string(),
                     "M112" | "M109" => String::new(),
@@ -1477,6 +1549,7 @@ mod tests {
                 slow: Mutex::new(Duration::ZERO),
                 closed: AtomicBool::new(false),
                 unplugged: AtomicBool::new(false),
+                build_percent: AtomicBool::new(false),
             });
             lock(&super::super::comm::TEST_TRANSPORTS).push((name, printer.clone()));
             printer
@@ -2104,5 +2177,106 @@ mod tests {
             done_of(&engine, id, 90)
         );
         engine.remove(id).unwrap();
+    }
+
+    /// #187: a print of `gcode` on a fake printer; what it received, in order
+    fn print_on_fake(build_percent: bool, gcode: &str) -> Vec<String> {
+        let printer = FakePrinter::new();
+        printer.build_percent.store(build_percent, Ordering::SeqCst);
+        let mut engine = Engine::new();
+        let id = engine.add(Box::new(OctoPrintPort::new(
+            Some(printer.name.clone()),
+            Some(115_200),
+        )));
+        until(&engine, id, "Idle with its capabilities", |r| {
+            r.telemetry.state == MachineState::Idle
+                && r.telemetry
+                    .identity
+                    .as_ref()
+                    .is_some_and(|i| i.firmware_capabilities.is_some())
+        });
+        let dir = std::env::temp_dir().join(format!("maker-connect-m73-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("job-42");
+        std::fs::write(&file, gcode).unwrap();
+        *lock(&printer.slow) = Duration::from_millis(3);
+        engine
+            .send(
+                id,
+                Order::Job {
+                    order: job_order(42, "benchy.gcode", gcode.len() as u64),
+                    file,
+                },
+            )
+            .unwrap();
+        until(&engine, id, "the job's end", |r| {
+            r.job_ends.iter().any(|e| e.id == 42)
+        });
+        let sent = printer.commands();
+        engine.remove(id).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        sent
+    }
+
+    fn x_lines(n: usize) -> String {
+        (0..n).map(|i| format!("G1 X{i}\n")).collect()
+    }
+
+    /// #187, the owner's exception: a Marlin that says `Cap:BUILD_PERCENT:1` gets PrusaLink's `M73`
+    /// (`file_printer.py:261-286`) every 100 lines of a file without its own, from OctoPrint's numbers
+    ///
+    /// Own process (`scripts/octoprint-own-process-tests.sh`).
+    #[test]
+    #[ignore = "own process: scripts/octoprint-own-process-tests.sh"]
+    fn m73_goes_to_a_printer_with_build_percent() {
+        let sent = print_on_fake(true, &x_lines(250));
+        let m73: Vec<&String> = sent.iter().filter(|c| c.starts_with("M73")).collect();
+        assert!(!m73.is_empty(), "no M73 in {sent:?}");
+        let re = |l: &str| {
+            let w: Vec<&str> = l.split(' ').collect();
+            w.len() == 7
+                && w[0] == "M73"
+                && w[1].starts_with('Q')
+                && w[2].starts_with('S')
+                && w[3] == "C-1"
+                && w[4].starts_with('P')
+                && w[5].starts_with('R')
+                && w[6] == "D-1"
+                && w[1][1..] == w[4][1..]
+                && w[2][1..] == w[5][1..]
+        };
+        assert!(m73.iter().all(|l| re(l)), "{m73:?}");
+        // each M73 comes after the line it was decided before (comm sends the file's line first, then
+        // the command queue): not before the 100th line of the file
+        let first = sent.iter().position(|c| c.starts_with("M73")).unwrap();
+        let before = sent[..first]
+            .iter()
+            .filter(|c| c.starts_with("G1 X"))
+            .count();
+        assert!(before >= 100, "{before}: {sent:?}");
+        eprintln!("M73 lines: {m73:?}; the first after {before} lines of the file");
+    }
+
+    /// #187: no `Cap:BUILD_PERCENT:1`, no M73 (OctoPrint's own behaviour)
+    #[test]
+    #[ignore = "own process: scripts/octoprint-own-process-tests.sh"]
+    fn m73_does_not_go_without_build_percent() {
+        let sent = print_on_fake(false, &x_lines(250));
+        assert!(sent.iter().any(|c| c == "G1 X249"), "{sent:?}");
+        assert!(!sent.iter().any(|c| c.starts_with("M73")), "{sent:?}");
+    }
+
+    /// #187: a file with its own M73 gets no more (`print_stats.py:45`)
+    #[test]
+    #[ignore = "own process: scripts/octoprint-own-process-tests.sh"]
+    fn m73_does_not_go_for_a_file_with_its_own() {
+        let gcode = format!("M73 P0 R9\n{}", x_lines(250));
+        let sent = print_on_fake(true, &gcode);
+        assert!(sent.iter().any(|c| c == "G1 X249"), "{sent:?}");
+        assert_eq!(
+            1,
+            sent.iter().filter(|c| c.starts_with("M73")).count(),
+            "{sent:?}"
+        );
     }
 }

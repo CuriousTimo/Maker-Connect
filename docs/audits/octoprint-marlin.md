@@ -208,6 +208,79 @@ tags; comm's `_gcode_M112_queuing` runs right after the hooks of that phase) or 
 An `M109` pending when an `M112` is typed fails with the close, "the printer connection closed", never `ok`
 (`the_top_edge_on_a_fake_printer`).
 
+## 2b. Deliberate exceptions: what PrusaLink shows on a Marlin printer's screen (#187, #189)
+
+**OctoPrint sends no `M73` and no `M117` of its own.** The comparison above (sections 1-2) is OctoPrint against ours and stays
+identical: OctoPrint's virtual printer never says `Cap:BUILD_PERCENT:1` (no hit in `reference/OctoPrint-1.11.8/src`), so the port
+sends no `M73` in any of its scenarios. What follows is PrusaLink's behaviour (`reference/Prusa-Link` @ `171148ce`) on a
+non-Prusa machine, by the owner's decision. The module is `crates/engine/src/ports/prusalink/`; every claim below about stock
+Marlin is from `reference/Marlin` @ `09787290`.
+
+### `M73`, built and wired (#187)
+
+Owner, 2026-11-22: "in deze specifieke geval is PrusaLink-gedrag op een niet-Prusa-machine acceptabel. het is namelijk een
+quality of life feature die verder weinig impact heeft." Conditions decided in the issue: only for `Cap:BUILD_PERCENT:1`; OctoPrint's
+numbers (#186) in PrusaLink's command at PrusaLink's moments; recorded here.
+
+| Item | PrusaLink | Ours | Result |
+|---|---|---|---|
+| The line | `util.py:187-196 get_print_stats_gcode`: `M73 Q.. S.. C-1 P.. R.. D-1`, normal and quiet the same (`file_printer.py:315-331`) | `print_stats.rs get_print_stats_gcode`, `print_stats_command` | identical (`print_stats::tests::identical_to_prusalink`: 130 rounding cases and 14 files, PrusaLink's own functions run) |
+| Which file | `print_stats.py:30-57 track_new_print`: no M73 of its own (`"M73" in gcode` after the comment is cut, `get_gcode`) | `PrintStats::track_new_print` | identical (same test; CR, CRLF, no last newline, unicode, a line that `unidecode` empties) |
+| The moments | `file_printer.py:261-286 print_gcode`, `:333-344 to_print_stats`: every `STATS_EVERY` = 100 G-code lines (`const.py:122`) and at `total - TAIL_COMMANDS` (10, `const.py:123`) | `PrintStats::next_gcode`, called for each line comm queues from the file (`port.rs m73_before_file_line`) | identical decisions (same test); differs in where the line goes, below |
+| The numbers | `print_stats.py:74-103 get_stats`: `round(fraction * 100)`, `round(sec_remaining / 60)` | OctoPrint's `completion` and `printTimeLeft` (#186), rounded the same way (Python's round half to even) | **differs, by decision** (owner: OctoPrint's numbers) |
+| Only with | a Prusa always knows `M73` | `Cap:BUILD_PERCENT:1` (`M115.cpp:185`, `ENABLED(SET_PROGRESS_PERCENT)`), read from comm's capability report | **differs, by decision** |
+
+**What else differs, and why.**
+
+1. *Where in the stream.* PrusaLink enqueues the M73 with `to_front=True` before the Nth line, and the printer gets it before that line. OctoPrint's
+   comm streams the file itself (`comm.py _send_from_job`, ours `comm.rs:9413`); the port is told of each line in comm's `queuing` phase (tag `source:file`),
+   when that line is already on its way, and sends the M73 through `sendCommand` (`comm.rs:5276`), which while printing puts it in comm's command queue,
+   served before the file at the next `_continue_sending` (`comm.rs:8323-8331`, `_send_from_command_queue` first). That is `to_front`'s place in OctoPrint,
+   one line later: the M73 follows the 100th line, it does not precede it. Seen on the fake printer (`m73_goes_to_a_printer_with_build_percent`).
+2. *Line numbers.* PrusaLink's M73 has no line number and checksum (`enqueue_instruction` without `to_checksum`); comm numbers and checksums every line it sends while printing, as it does for any command (OctoPrint's rule).
+3. *Counting.* PrusaLink counts the non-empty lines after `get_gcode` (comment cut, strip, `unidecode`); ours counts the lines comm queues from the file (OctoPrint's own reader and its `process_gcode_line`, not compared with `get_gcode`: no `unidecode`, and what it drops is not checked). Compared on the fake printer with plain lines only.
+4. *No number, no M73.* PrusaLink always has numbers. OctoPrint has `printTimeLeft` only once the progress is not 0 (`standard.py:1140`); the port reads the last published progress (`Printer.progress_data`, refreshed by the state monitor at most every 0.5 s). When `completion` or `printTimeLeft` is missing nothing is sent (the function's own default of -1 would be read by Marlin as a huge `R`, `parser.cpp:88-92`). In the fake printer's one-second print the first M73 therefore comes at line 200, not 100, and shows the snapshot of that moment.
+5. *The tail.* `get_stats` returns 100 percent at `gcode_number == total - 10` (`print_stats.py:100-101`); that is part of its numbers and is not applied.
+
+**What stock Marlin does with the letters Q, S, D** (the question of #187): nothing. `M73` reads `P`, `R` and `C` only (`gcode/lcd/M73.cpp:57-71`; the whole
+function exists only with `SET_PROGRESS_MANUALLY`, :25, off by default, `Configuration_adv.h:1797`). The parser records every letter A-Z with its value as a
+parameter and never rejects one (`gcode/parser.cpp:359-409`: `PARAM_OK` is `true`, or `A`-`Z` with `FASTER_GCODE_PARSER`; `string_arg` is only set for a letter without a value),
+so `Q`, `S`, `D` are parsed and not read. Harmless. One consequence of PrusaLink's `C-1`: only with `SET_INTERACTION_TIME` (off, `Configuration_adv.h:1801`) `M73.cpp:69-71`
+reads it, `dec_to_ulong("-1")` is `0xFFFFFFFF` (`parser.cpp:88-92`), `60 *` that wraps in 32 bits, and the interaction countdown shows nonsense. The `P` of ours is a whole percent
+(`value_byte`, `parser.h:283`, or `value_float` with `PROGRESS_SCALE` > 1, `M73.cpp:59-62`); `R` is minutes (`M73.cpp:66`, only with `SET_REMAINING_TIME`, on with `SET_PROGRESS_MANUALLY`, `Configuration_adv.h:1800`).
+
+### The printer's screen: built, not wired (#189)
+
+Owner, 2026-11-22: "We moeten dit ook doen. zowel op Prusa als op Marlin." Text "Maker Connect OK" where PrusaLink says "PrusaLink OK" (owner: "Maker Connect OK"); the registration code, "Is ook een quality of live. met verder weinig impact."
+
+Built: `carousel.rs` (`structures/carousel.py`), `lcd_printer.rs` (`lcd_printer.py`: every screen, priority, timing, the 19-character cutting and scrolling, the chimes as data, the progress graphic, the 42 easter egg), `unidecode.rs` (+ the package's tables, generated by
+`scripts/prusalink-unidecode-tables.py`, `--check` is green). **Result: identical** to PrusaLink's own `LCDPrinter` run on a fake clock with the product name "PrusaLink": the same `M117 ~text` and chime lines at the same moments, in the same order,
+in 76 scenarios (`lcd_printer::tests::identical_to_prusalink`: ready, idle, 42, printing with a semicolon and non-ASCII name, recovering, wizard with and without a printer number, recovery, firmware messages, host messages, 13 conditions with and without the network chime, during a print and not, uploads of every transfer type
+at 12 progress values, finished and stopped). `unidecode`: all code points identical (`unidecode::tests::identical_to_the_package`).
+**Differs, by decision:** the product name (`PRODUCT` = "Maker Connect"; "Maker Connect OK." and its 19-character lines, `maker_connect_ok`), and one more screen, the registration code "Code: <code>" (Buddy `src/gui/dialogs/DialogConnectReg.cpp:109`; `registration_code`, priority 40, `the_registration_code_screen`); when the code goes the screen is disabled, with no text of its own.
+
+**Not wired to the Marlin path.** Open checks of the issue, answered from Marlin's source:
+
+- *(a) Does M117 work?* There is no M115 capability for it: `M115.cpp:137-273` has no line for `HAS_STATUS_MESSAGE`. Without it `gcode.cpp:697` is `case 117: TERN_(HAS_STATUS_MESSAGE, M117()); break;`, which is a silent no-op and the `ok` still comes (`gcode.cpp:1218 queue.ok_to_send()`), so no reply tells the agent either (`M117.cpp:25`, `#if HAS_STATUS_MESSAGE`; `Conditionals-2-LCD.h:637` sets it with a wired LCD). **No reliable answer, so no M117 is sent to Marlin.**
+- *(b) M300.* With no beeper or speaker: `gcode.cpp:804-806`, `#if HAS_SOUND case 300`; `HAS_SOUND` needs a `BEEPER` pin or a buzzer panel (`Conditionals-5-post.h:3405-3419`, `M300.cpp:25`). Otherwise `default: parser.unknown_command_warning()` (`gcode.cpp:1210-1214`), which prints `echo:Unknown command: "M300 ..."` (`parser.cpp:453-455`, `language.h:143`), and the `ok` follows. Harmless but noisy; the chimes are data and not sent.
+- *(c) M79.* Stock Marlin has it only with `DGUS_LCD_UI_SERMOON_V1` or `CREALITY_RTS` (`gcode.cpp:582-584`), where it is Creality's cloud status (`gcode/stats/M79.cpp:34-39`: `S` is a cloud command number); otherwise the unknown-command echo. **No M79 on Marlin** (the owner's proposal; nothing is built for it).
+- *`M117 ~text`.* PrusaLink's text starts with `\x7E` (`lcd_printer.py:533`). On Marlin the `~` is not known to be anything but a character; not checked.
+
+**The screens and their inputs on our agent** (what exists, from the code):
+
+| Screen | Input | On the agent |
+|---|---|---|
+| print (file name) | job running, selected file | exists: `agent.label` and `agent.printing` (`marlin.rs:256-257`) |
+| recovery, "Preparing recovery" | `recovering`, `recovery_ready` | none: no power-panic recovery on Marlin (`from_line` is refused, `marlin.rs:251`) |
+| upload / sync bar, "Transfer finished/stopped" | `printer.transfer` | exists: the SDK port's `Transfer` (`crates/connect-sdk/src/download.rs`: `in_progress`, `progress`, `transferred`, `type_`, `size`) |
+| errors, "Errors resolved", "Please wait" | `COND_TRACKER.get_worst()` | the SDK port has the condition chain (`crates/connect-sdk/src/conditions.rs`: Internet, HTTP, Token, API); the agent does not set it (`main.rs` has no use of it); PrusaLink's own (ID, FW, SN, ... LAN, PHY, DEVICE) do not exist |
+| ready ("Ready to print" + IP) | state `READY` | none: part 9's states have no `READY` (`marlin.rs:32-45`) |
+| idle ("Maker Connect OK." + IP) | LAN, `local_ip`, `latest_telemetry.speed` | `local_ip`: not known to the agent; PrusaLink's way is `util.py:76-88` (UDP connect to 8.8.8.8:1, the socket's own address), ported as `lcd_printer::get_local_ip`, not called; `speed`: not in the telemetry (`marlin.rs:137-167`), so the 42 screen cannot show |
+| wizard ("Go: ip", "Setup completed") | `settings.is_wizard_needed()` | none: PrusaLink's web wizard |
+| printer number (`ip/3`) | `printer_number` | none |
+| registration code | `agent.code` | exists (`main.rs:1369-1419`, set from `/p/register`'s `Code` header at :1391, cleared at :1413 and :1419 when registered) |
+| firmware messages | the printer's `LCD status changed` line (`lcd_updated`, `regular_expressions.py:143`) | Prusa-Firmware only (`messages.cpp:425`); stock Marlin has no such line (no hit in `reference/Marlin/Marlin`): the screen then runs without that input |
+
 ## 3. Not covered
 
 - **The M2 actions** (load and unload filament, probe the bed, the laser actions, frame): OctoPrint has no such control and
@@ -221,7 +294,8 @@ An `M109` pending when an `M112` is typed fails with the close, "the printer con
   crate, `serialwin32.rs` on Windows, a port of pyserial 3.5 `serialwin32.py`; `comm.py`'s workarounds at :3900-3927) are
   not exercised; `serialwin32.rs`'s own tests (Windows CI) cover only what runs without a port. The real `/dev` scan and the baud-rate loop beyond its first candidate are not either
   (`connect_auto` finds one stand-in device and the first baud rate works).
-- **A real Marlin printer:** not tried (D11).
+- **A real Marlin printer:** not tried (D11), also not for the M73 of section 2b (`SET_PROGRESS_MANUALLY` firmware for the AtomX is #188).
+- **Section 2b:** the screen's `M117` traffic, its chimes, `M79` and the screens' inputs are not sent or wired; the counting of lines of OctoPrint's reader against `get_gcode` beyond plain lines; the M73 against a firmware with `SET_PROGRESS_MANUALLY`; Marlin's `M117` display (scrolling, the `~`).
 - **Time.** The virtual printer's wall-clock behaviour is switched off (`sendWait`, the timed reports) and comm's own polls are
   put off the clock (`serial.timeout.temperature`, `temperatureTargetSet`, `sdStatus`: 3600 s), so the temperature polling
   and comm's timeouts are not covered: the communication and `ok` timeouts, the resend-with-timeout, `M109`/`M190` heat-up
