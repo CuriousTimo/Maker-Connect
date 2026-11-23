@@ -1719,7 +1719,7 @@ fn device_card(agent: &Agent) -> String {
     };
     format!(
         r#"<div class="card{off}"><div class=head><h2>{title}</h2><span class="st {state_class}" data-live="{device}.state">{state}</span></div>
-<p class=muted>{what}</p>{code_block}
+<p class=muted>{what}</p><div>{code_block}</div>
 <dl class=kv><dt>Hub</dt><dd data-live="{device}.hub">{hub}</dd><dt>Printer</dt><dd data-live="{device}.status">{status}</dd>{port_row}<dt>Registered</dt><dd data-live="{device}.registered">{registered}</dd></dl>
 <form method=post action=/module id="module-{device}"{form_class}><input type=hidden name=device value="{device}"><input type=hidden name=on value="{toggle}">{fields}</form><div class="row btns"><span class=fw><button class="btn{toggle_class}" form="module-{device}">{button}</button></span>
 <form method=post action=/reset onsubmit="return confirm('Reset the registration of the {title}? It forgets its token: it is no longer known at the hub until it is added again with a new code.')"><input type=hidden name=device value="{device}"><span class=fw><button class="btn ghost">Reset registration…</button></span></form></div></div>"#,
@@ -1984,7 +1984,7 @@ fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
         r##"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 {THEME_FIRST}<title>Maker Connect agent</title><link rel=icon href="data:image/svg+xml,{icon}"><style>{CSS}
 .code{{font:700 var(--fs-6)/1 var(--mono);letter-spacing:.12em;color:var(--accent-text);margin:var(--s-2) 0 var(--s-3)}}
-.brand .mark svg{{width:100%;height:100%;display:block}} .card form{{margin:0}} .card form.row{{margin-top:var(--s-3)}} .solo-stack{{display:grid;gap:var(--s-4)}} .card .row.btns{{margin-top:var(--s-3)}} .row.btns>form{{flex:0 0 auto}}</style></head><body data-shape="{shape}">
+.brand .mark svg{{width:100%;height:100%;display:block}} .card form{{margin:0}} .devices>.card{{display:grid;grid-template-rows:subgrid;grid-row:span 6;row-gap:var(--s-2);align-content:start}} .devices>.card>.head{{margin:0}} .devices .row.btns{{margin-top:var(--s-2);align-self:end}} .devices dl.kv{{align-content:start;align-self:start}} .solo-stack{{display:grid;gap:var(--s-4)}} .card .row.btns{{margin-top:var(--s-3)}} .row.btns>form{{flex:0 0 auto}}</style></head><body data-shape="{shape}">
 <a class=skip href="#main">Skip to content</a>
 <header class=top><span class=brand><span class=mark aria-hidden=true>{MARK}</span><span class=where><b>Maker Connect agent</b><small>{where_}</small></span></span><span class=spacer></span><span class=fw><button type=button class=theme data-theme-btn aria-label="Theme: Auto">Auto</button></span></header>
 <main id=main tabindex=-1 class=solo>
@@ -2192,8 +2192,8 @@ fn deck_card(deck: &deck::Deck) -> String {
     let (state, class) = deck_state(deck);
     format!(
         r#"<div class="card{off}"><div class=head><h2>Stream Deck</h2><span class="st {class}" data-live="deck.state">{state}</span></div>
-<p class=muted>Quick management and overview · USB · on this agent only, not at the hub yet (idea, work in progress)</p>
-<dl class=kv><dt>Deck</dt><dd data-live="deck.status">{status}</dd><dt>Shows</dt><dd>this agent's devices, read only</dd></dl>
+<p class=muted>Quick management and overview · USB · on this agent only, not at the hub yet (idea, work in progress)</p><div></div>
+<dl class=kv><dt>Deck</dt><dd data-live="deck.status">{status}</dd><dt>Shows</dt><dd>this agent's devices, read only</dd></dl><div></div>
 <div class="row btns"><form method=post action=/deck><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form></div></div>"#,
         off = if on { "" } else { " is-off" },
         status = esc(&deck.status()),
@@ -2208,19 +2208,16 @@ fn devices_on(devices: &[Arc<Agent>]) -> usize {
     devices.iter().filter(|d| d.settings().on).count()
 }
 
-/// The Devices tab: a card per device, full width, one under the other (owner, 2026-11-23: the
-/// grid put the same things at different heights); the devices turned on first.
+/// The Devices tab: the cards as tiles, and the tiles in a row share their rows (subgrid): head,
+/// what, the code, the link, the serial port, the buttons; so the same things stand at the same
+/// height (owner, 2026-11-23: "allerlei info op verschillende hoogtes", "de tegels zijn juist
+/// goed").
 fn page(devices: &[Arc<Agent>]) -> String {
-    let (on, off): (Vec<_>, Vec<_>) = devices.iter().partition(|d| d.settings().on);
-    let mut cards: Vec<String> = on
-        .iter()
-        .chain(off.iter())
-        .map(|d| device_card(d))
-        .collect();
+    let mut cards: Vec<String> = devices.iter().map(|d| device_card(d)).collect();
     if let Some(deck) = DECK.get() {
         cards.push(deck_card(deck));
     }
-    let main = format!("<div class=solo-stack>\n{}\n</div>", cards.join("\n"));
+    let main = format!("<div class=\"grid devices\">\n{}\n</div>", cards.join("\n"));
     layout(devices, "Devices", &main)
 }
 
