@@ -1894,6 +1894,8 @@ dependencies = [
 name = "maker-connect-sdk"
 version = "0.2.0"
 dependencies = [
+ "base64 0.22.1",
+ "blake2",
  "flate2",
  "getrandom 0.2.17",
  "libc",

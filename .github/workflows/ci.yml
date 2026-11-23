@@ -200,6 +200,16 @@ jobs:
           DOWNLOAD_PYTHON: ${{ runner.temp }}/sdk-313/bin/python
         run: cargo test -p maker-connect-sdk --test download_reference --locked
 
+      # camera.py, camera_driver.py, camera_controller.py, camera_configurator.py (#206): a snapshot
+      # goes with requests' own User-Agent, so requests at the version the port names
+      # (src/camera.rs REQUESTS_USER_AGENT).
+      - name: The SDK's camera modules against the reference
+        env:
+          CAMERA_PYTHON: ${{ runner.temp }}/sdk-313/bin/python
+        run: |
+          "$RUNNER_TEMP/sdk-313/bin/pip" install -q requests==2.32.5
+          cargo test -p maker-connect-sdk --test camera_reference --locked
+
       # The engine's references (#186, #187, #189): OctoPrint 1.11.8's estimation.py (stdlib only) and
       # PrusaLink 171148ce with the SDK checked out above (04c5bd59), on CPython 3.13.12, with the
       # packages of the local reference/.venv-prusalink (reference-requirements.txt).

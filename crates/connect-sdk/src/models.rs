@@ -1,11 +1,11 @@
 //! Connect printer data models (`models.py`).
-//!
-//! `CameraRegister` belongs to the camera module, which step A does not port.
 
 use std::sync::Arc;
 
+use maker_connect_gcode_metadata::py::{Dict, PyErr, PyValue};
 use serde_json::{Map, Value};
 
+use crate::camera::{self, Camera};
 use crate::clock;
 use crate::consts::{self, Source, State};
 use crate::util::{RequestError, Response, RetryingSession, get_timestamp, py_truthy};
@@ -169,6 +169,31 @@ pub enum LoopObject {
     Register(Register),
     Event(Event),
     Telemetry(Telemetry),
+    CameraRegister(CameraRegister),
+}
+
+/// Why [`LoopObject::send`] did not send: `requests` failed, or the payload could not be made.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SendError {
+    Request(RequestError),
+    Payload(camera::Error),
+}
+
+impl std::fmt::Display for SendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SendError::Request(err) => write!(f, "{err}"),
+            SendError::Payload(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+impl std::error::Error for SendError {}
+
+impl From<RequestError> for SendError {
+    fn from(err: RequestError) -> SendError {
+        SendError::Request(err)
+    }
 }
 
 impl LoopObject {
@@ -177,13 +202,16 @@ impl LoopObject {
             LoopObject::Register(_) => "/p/register",
             LoopObject::Event(_) => "/p/events",
             LoopObject::Telemetry(_) => "/p/telemetry",
+            LoopObject::CameraRegister(_) => "/p/camera",
         }
     }
 
     pub fn method(&self) -> &'static str {
         match self {
             LoopObject::Register(_) => "GET",
-            LoopObject::Event(_) | LoopObject::Telemetry(_) => "POST",
+            LoopObject::Event(_) | LoopObject::Telemetry(_) | LoopObject::CameraRegister(_) => {
+                "POST"
+            }
         }
     }
 
@@ -196,16 +224,18 @@ impl LoopObject {
             LoopObject::Register(r) => r.timestamp,
             LoopObject::Event(e) => e.timestamp,
             LoopObject::Telemetry(t) => t.timestamp,
+            LoopObject::CameraRegister(c) => c.timestamp,
         }
     }
 
     /// By default, LoopObjects don't send any payload
-    pub fn to_payload(&self) -> Option<Value> {
-        match self {
+    pub fn to_payload(&self) -> Result<Option<Value>, camera::Error> {
+        Ok(match self {
             LoopObject::Register(_) => None,
             LoopObject::Event(e) => Some(e.to_payload()),
             LoopObject::Telemetry(t) => Some(t.to_payload()),
-        }
+            LoopObject::CameraRegister(c) => Some(c.to_payload()?),
+        })
     }
 
     /// A universal send function. Register needs an extra code in the headers, this adds it.
@@ -214,7 +244,7 @@ impl LoopObject {
         conn: &RetryingSession,
         server: &str,
         mut headers: Vec<(String, String)>,
-    ) -> Result<Response, RequestError> {
+    ) -> Result<Response, SendError> {
         if let LoopObject::Register(register) = self {
             set_header(&mut headers, "Code", &register.code);
         }
@@ -222,9 +252,10 @@ impl LoopObject {
             LoopObject::Register(_) => "Register",
             LoopObject::Event(_) => "Event",
             LoopObject::Telemetry(_) => "Telemetry",
+            LoopObject::CameraRegister(_) => "CameraRegister",
         };
         log::debug!("Sending {name}: {self:?}");
-        let payload = self.to_payload();
+        let payload = self.to_payload().map_err(SendError::Payload)?;
         let url = format!("{server}{}", self.endpoint());
         let res = conn.request(self.method(), &url, &headers, payload.as_ref())?;
         log::debug!("{name} response: {}", res.text);
@@ -238,6 +269,97 @@ pub fn set_header(headers: &mut Vec<(String, String)>, name: &str, value: &str) 
         Some(entry) => entry.1 = value.to_owned(),
         None => headers.push((name.to_owned(), value.to_owned())),
     }
+}
+
+/// A request to Connect to register the camera
+#[derive(Debug, Clone)]
+pub struct CameraRegister {
+    pub timestamp: f64,
+    pub camera: Arc<Camera>,
+}
+
+impl PartialEq for CameraRegister {
+    /// The same object
+    fn eq(&self, other: &CameraRegister) -> bool {
+        self.timestamp == other.timestamp && Arc::ptr_eq(&self.camera, &other.camera)
+    }
+}
+
+impl CameraRegister {
+    pub fn new(camera: Arc<Camera>) -> CameraRegister {
+        CameraRegister {
+            timestamp: get_timestamp(None),
+            camera,
+        }
+    }
+
+    /// Converts the camera to data for registration
+    pub fn to_payload(&self) -> Result<Value, camera::Error> {
+        let obj_config = self.camera.get_settings()?;
+        let mut config = Camera::json_from_settings(&obj_config)?;
+        config.set("camera_id", PyValue::Str(self.camera.camera_id()));
+        let available_resolutions: Vec<PyValue> = self
+            .camera
+            .available_resolutions()
+            .iter()
+            .map(|res| PyValue::Dict(res.to_dict()))
+            .collect();
+        let mut options = Dict::new();
+        options.set(
+            "available_resolutions",
+            PyValue::List(available_resolutions),
+        );
+        let capabilities: Vec<PyValue> = self
+            .camera
+            .capabilities()
+            .iter()
+            .map(|cap| PyValue::str(cap.value()))
+            .collect();
+
+        let mut data = Dict::new();
+        data.set("config", PyValue::Dict(config));
+        data.set("options", PyValue::Dict(options));
+        data.set("capabilities", PyValue::List(capabilities));
+        data.set("fingerprint", PyValue::Str(self.camera.fingerprint()));
+        Ok(py_to_json(&PyValue::Dict(data))?)
+    }
+}
+
+/// A Python value as `requests` puts it into JSON: `json.dumps(value, allow_nan=False)`.
+fn py_to_json(value: &PyValue) -> Result<Value, PyErr> {
+    Ok(match value {
+        PyValue::None => Value::Null,
+        PyValue::Bool(b) => Value::Bool(*b),
+        PyValue::Int(i) => match i.to_i64() {
+            Some(i) => Value::from(i),
+            None => {
+                return Err(camera::not_covered(format!(
+                    "the int {} in JSON",
+                    i.as_str()
+                )));
+            }
+        },
+        PyValue::Float(f) => match serde_json::Number::from_f64(*f) {
+            Some(n) => Value::Number(n),
+            None => {
+                return Err(PyErr::ValueError(format!(
+                    "Out of range float values are not JSON compliant: {}",
+                    crate::util::py_float_repr(*f)
+                )));
+            }
+        },
+        PyValue::Str(s) => Value::String(s.clone()),
+        PyValue::List(items) => {
+            Value::Array(items.iter().map(py_to_json).collect::<Result<_, _>>()?)
+        }
+        PyValue::Dict(dict) => {
+            let mut map = Map::new();
+            for (key, item) in dict.iter() {
+                map.insert(key.clone(), py_to_json(item)?);
+            }
+            Value::Object(map)
+        }
+    })
 }
 
 /// A model for type hinting the sheet settings list
@@ -342,7 +464,7 @@ mod tests {
             (object.endpoint(), object.method(), object.needs_token()),
             ("/p/register", "GET", false)
         );
-        assert_eq!(object.to_payload(), None);
+        assert_eq!(object.to_payload(), Ok(None));
 
         let mut headers = vec![("Code".to_owned(), "old".to_owned())];
         set_header(&mut headers, "Code", "abc");

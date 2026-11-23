@@ -1,7 +1,7 @@
 //! Constants and enums for Printer (`const.py`).
 //!
-//! The camera part of `const.py` (from `NotSupported` on) belongs to the camera module, which
-//! step A does not port.
+//! The camera part of `const.py` (from `NotSupported` on) is at the end of this file, beside the
+//! camera module (#206); its exceptions are [`CameraError`].
 
 use std::fmt;
 use std::str::FromStr;
@@ -331,6 +331,155 @@ str_enum! {
 /// Drop everything and execute these when they come
 pub const PRIORITY_COMMANDS: [Command; 1] = [Command::ResetPrinter];
 
+// --- Camera stuff ---
+
+/// The camera exceptions of `const.py`: `NotSupported`, `CameraBusy`, `DriverError`, `ConfigError`,
+/// `CameraAlreadyConnected`, `CameraNotFound`, `CameraNotDetected`, `ReadyTimeoutError`. The
+/// message is the argument the SDK raises them with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CameraError {
+    /// Exception for when a camera setting is not supported
+    NotSupported(String),
+    /// Exception for when the camera is busy and cannot do as told
+    CameraBusy(String),
+    /// Exception for when the driver errors out
+    DriverError(String),
+    /// Exception for when the config makes no sense
+    ConfigError(String),
+    /// Exception for an already existing camera
+    CameraAlreadyConnected(String),
+    /// Exception raised when we cannot find the camera
+    CameraNotFound(String),
+    /// Raised when trying to ad a camera only by its ID and it is not in the detected cameras
+    CameraNotDetected(String),
+    /// Raised when we time out waiting for a camera to become ready
+    ReadyTimeoutError(String),
+}
+
+impl CameraError {
+    /// The exception's class name.
+    pub fn name(&self) -> &'static str {
+        match self {
+            CameraError::NotSupported(_) => "NotSupported",
+            CameraError::CameraBusy(_) => "CameraBusy",
+            CameraError::DriverError(_) => "DriverError",
+            CameraError::ConfigError(_) => "ConfigError",
+            CameraError::CameraAlreadyConnected(_) => "CameraAlreadyConnected",
+            CameraError::CameraNotFound(_) => "CameraNotFound",
+            CameraError::CameraNotDetected(_) => "CameraNotDetected",
+            CameraError::ReadyTimeoutError(_) => "ReadyTimeoutError",
+        }
+    }
+}
+
+impl fmt::Display for CameraError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CameraError::NotSupported(m)
+            | CameraError::CameraBusy(m)
+            | CameraError::DriverError(m)
+            | CameraError::ConfigError(m)
+            | CameraError::CameraAlreadyConnected(m)
+            | CameraError::CameraNotFound(m)
+            | CameraError::CameraNotDetected(m)
+            | CameraError::ReadyTimeoutError(m) => f.write_str(m),
+        }
+    }
+}
+
+impl std::error::Error for CameraError {}
+
+/// These settings are always required to instance a camera (`ALWAYS_REQURIED`, the SDK's spelling).
+pub const ALWAYS_REQURIED: [(&str, &str); 2] = [
+    ("name", "The camera name. The more unique the better."),
+    ("driver", "Which driver to give this setting to"),
+];
+
+str_enum! {
+    /// Camera capabilities - like the ability to return photos taken
+    CapabilityType {
+        // Can trigger a camera
+        TriggerScheme = "trigger_scheme",
+        // Can get an image from a camera
+        Imaging = "imaging",
+        // Can set a resolution of a camera
+        Resolution = "resolution",
+        // Can rotate the image from a camera
+        Rotation = "rotation",
+        // Can change the exposure compensation of a camera
+        Exposure = "exposure",
+        // Can change the focal point
+        Focus = "focus",
+    }
+}
+
+impl CapabilityType {
+    /// `.name`
+    pub fn name(self) -> &'static str {
+        match self {
+            CapabilityType::TriggerScheme => "TRIGGER_SCHEME",
+            CapabilityType::Imaging => "IMAGING",
+            CapabilityType::Resolution => "RESOLUTION",
+            CapabilityType::Rotation => "ROTATION",
+            CapabilityType::Exposure => "EXPOSURE",
+            CapabilityType::Focus => "FOCUS",
+        }
+    }
+}
+
+str_enum! {
+    /// On which event to trigger a photo - Enum
+    TriggerScheme {
+        TenSec = "Every 10 seconds",
+        // Default
+        ThirtySec = "Every 30 seconds",
+        SixtySec = "Every 60 seconds",
+        EachLayer = "On layer change",
+        FifthLayer = "On every fifth layer change",
+        Manual = "Manual",
+    }
+}
+
+impl TriggerScheme {
+    /// `.name`
+    pub fn name(self) -> &'static str {
+        match self {
+            TriggerScheme::TenSec => "TEN_SEC",
+            TriggerScheme::ThirtySec => "THIRTY_SEC",
+            TriggerScheme::SixtySec => "SIXTY_SEC",
+            TriggerScheme::EachLayer => "EACH_LAYER",
+            TriggerScheme::FifthLayer => "FIFTH_LAYER",
+            TriggerScheme::Manual => "MANUAL",
+        }
+    }
+
+    /// `TriggerScheme[name]`; `None` where Python raises `KeyError`.
+    pub fn from_name(name: &str) -> Option<TriggerScheme> {
+        TriggerScheme::ALL
+            .iter()
+            .copied()
+            .find(|scheme| scheme.name() == name)
+    }
+}
+
+/// `TRIGGER_SCHEME_TO_SECONDS`, in its order.
+pub const TRIGGER_SCHEME_TO_SECONDS: [(TriggerScheme, u64); 3] = [
+    (TriggerScheme::TenSec, 10),
+    (TriggerScheme::ThirtySec, 30),
+    (TriggerScheme::SixtySec, 60),
+];
+
+/// The default values for camera settings if the camera does not supply its own ones
+/// (`DEFAULT_CAMERA_SETTINGS`): `trigger_scheme` [`TriggerScheme::ThirtySec`], `exposure` 0,
+/// `rotation` 0.
+pub const DEFAULT_TRIGGER_SCHEME: TriggerScheme = TriggerScheme::ThirtySec;
+pub const DEFAULT_EXPOSURE: i64 = 0;
+pub const DEFAULT_ROTATION: i64 = 0;
+
+/// `CameraConfigs = Dict[str, Dict[str, str]]`, in insertion order as a Python dict.
+pub type CameraConfig = Vec<(String, String)>;
+pub type CameraConfigs = Vec<(String, CameraConfig)>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,6 +494,17 @@ mod tests {
         assert_eq!(Event::ALL.len(), 17);
         assert_eq!(Source::ALL.len(), 10);
         assert_eq!(State::ALL.len(), 9);
+        assert_eq!(CapabilityType::ALL.len(), 6);
+        assert_eq!(TriggerScheme::ALL.len(), 6);
+    }
+
+    #[test]
+    fn trigger_scheme_name_and_value() {
+        for scheme in TriggerScheme::ALL {
+            assert_eq!(TriggerScheme::from_name(scheme.name()), Some(*scheme));
+        }
+        assert_eq!(TriggerScheme::from_name("Every 10 seconds"), None);
+        assert_eq!(TriggerScheme::ThirtySec.value(), "Every 30 seconds");
     }
 
     #[test]

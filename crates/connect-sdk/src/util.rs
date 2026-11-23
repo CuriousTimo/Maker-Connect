@@ -271,36 +271,101 @@ impl Session {
             }
             None => request.call(),
         };
-        let response = match result {
-            Ok(response) | Err(ureq::Error::Status(_, response)) => response,
-            Err(ureq::Error::Transport(transport)) => return Err(transport_error(&transport)),
-        };
-        let status_code = response.status();
-        let headers = response
-            .headers_names()
-            .into_iter()
-            .filter_map(|name| {
-                let value = response.header(&name)?.to_owned();
-                Some((name, value))
-            })
-            .collect();
-        let encoding = response
-            .header("Content-Encoding")
-            .map(str::to_ascii_lowercase);
-        let content_type = response.header("Content-Type").map(str::to_owned);
-        let mut body = Vec::new();
-        std::io::Read::read_to_end(&mut response.into_reader(), &mut body)
-            .map_err(|err| io_error(&err))?;
-        if encoding.as_deref() == Some("deflate") {
-            body = inflate(&body).map_err(|err| io_error(&err))?;
-        }
-        let text = decode_text(&body, content_type.as_deref());
-        Ok(Response {
-            status_code,
-            headers,
-            text,
-        })
+        read_response(result)
     }
+}
+
+/// The `requests.Response` of a call, read in full.
+fn read_response(result: Result<ureq::Response, ureq::Error>) -> Result<Response, RequestError> {
+    let response = match result {
+        Ok(response) | Err(ureq::Error::Status(_, response)) => response,
+        Err(ureq::Error::Transport(transport)) => return Err(transport_error(&transport)),
+    };
+    let status_code = response.status();
+    let headers = response
+        .headers_names()
+        .into_iter()
+        .filter_map(|name| {
+            let value = response.header(&name)?.to_owned();
+            Some((name, value))
+        })
+        .collect();
+    let encoding = response
+        .header("Content-Encoding")
+        .map(str::to_ascii_lowercase);
+    let content_type = response.header("Content-Type").map(str::to_owned);
+    let mut body = Vec::new();
+    std::io::Read::read_to_end(&mut response.into_reader(), &mut body)
+        .map_err(|err| io_error(&err))?;
+    if encoding.as_deref() == Some("deflate") {
+        body = inflate(&body).map_err(|err| io_error(&err))?;
+    }
+    let text = decode_text(&body, content_type.as_deref());
+    Ok(Response {
+        status_code,
+        headers,
+        text,
+    })
+}
+
+impl Session {
+    /// `Session.request(method, url, params=params, headers=headers, data=data,
+    /// timeout=CONNECTION_TIMEOUT)` with bytes or no `data`, for a caller that sets no
+    /// `User-Agent` of its own: `user_agent` is the one `requests` sends then. `params` go on
+    /// the URL as `urlencode` writes them (`quote_plus`); a bytes body goes as it is, with its
+    /// `Content-Length` and no `Content-Type` added.
+    pub fn request_data(
+        &self,
+        method: &str,
+        url: &str,
+        params: &[(String, String)],
+        user_agent: &str,
+        headers: &[(String, String)],
+        data: Option<&[u8]>,
+    ) -> Result<Response, RequestError> {
+        let mut full_url = url.to_owned();
+        if !params.is_empty() {
+            let query: Vec<String> = params
+                .iter()
+                .map(|(key, value)| format!("{}={}", quote_plus(key), quote_plus(value)))
+                .collect();
+            full_url.push(if url.contains('?') { '&' } else { '?' });
+            full_url.push_str(&query.join("&"));
+        }
+        let mut request = self.agent.request(method, &full_url);
+        request = request.set("User-Agent", user_agent);
+        for (name, value) in DEFAULT_HEADERS {
+            request = request.set(name, value);
+        }
+        for (name, value) in headers {
+            request = request.set(name, value);
+        }
+        let result = match data {
+            // `if data:` - empty bytes are no body
+            Some(data) if !data.is_empty() => request.send_bytes(data),
+            _ if method != "GET" && method != "HEAD" => request.set("Content-Length", "0").call(),
+            _ => request.call(),
+        };
+        read_response(result)
+    }
+}
+
+/// `urllib.parse.quote_plus(s)`: UTF-8, everything but letters, digits and `_.-~` as `%XX`, a
+/// space as `+`.
+fn quote_plus(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for byte in s.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'.' | b'-' | b'~' => {
+                out.push(char::from(byte));
+            }
+            b' ' => out.push('+'),
+            _ => {
+                let _ = write!(out, "%{byte:02X}");
+            }
+        }
+    }
+    out
 }
 
 /// A `requests.Response` of `stream=True`: its status and headers, the body read as it is
