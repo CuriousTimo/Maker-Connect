@@ -43,6 +43,7 @@ echo "crates to test: ${packages[*]+"${packages[*]}"}"
 
 fmt_check() { local n; n=$(cargo fmt --all -- --check 2>/dev/null | grep -c '^Diff in'); [ "$n" -eq 0 ] || { echo "   $n places differ from cargo fmt (run: cargo fmt --all)"; return 1; }; }
 step "fmt" fmt_check
+step "hardware page data" quiet python3 scripts/hardware-page.py --check
 step "clippy" quiet cargo clippy --workspace --all-targets --locked -- -D warnings
 step "clippy (Windows)" quiet env CC_x86_64_pc_windows_gnu="$PWD/scripts/zigcc-windows.sh" AR_x86_64_pc_windows_gnu="$PWD/scripts/zig-ar.sh" \
     cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings

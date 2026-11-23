@@ -1,0 +1,123 @@
+{
+  "about": "Which hardware Maker Connect works with, and how each claim is proved. Checked by scripts/hardware-page.py, which also writes the wiki page Hardware; maker-connect.xyz/hardware reads this file from GitHub. Statuses: verified (date, commit, what was done), same-driver (the reference's own source treats it the same; not tested), audit (an audit with result identical, waiting for hardware), planned (an issue).",
+  "groups": [
+    {
+      "name": "3D printers",
+      "rows": [
+        {
+          "model": "Prusa MINI",
+          "via": "Its own firmware (Buddy 8.0.2), Prusa Connect protocol",
+          "status": "verified",
+          "proof": { "date": "2026-11-21", "commit": "982b2fb", "how": "moving, heating and printing files from the hub" },
+          "note": "Full Buddy support is not finished (#87)."
+        },
+        {
+          "model": "AtomX MK3 (Marlin 2.1.2.10)",
+          "via": "Agent, USB serial",
+          "status": "verified",
+          "proof": { "date": "2026-11-23", "commit": "c117d75", "how": "a 20 mm test cube (dry-cube-20mm.gcode) run from the hub, with progress and time left on the printer's screen" },
+          "note": "The printer's own SD card is not supported yet (#84)."
+        },
+        {
+          "model": "Prusa MK3, MK3S, MK2.5S",
+          "via": "Agent, USB serial (a port of PrusaLink)",
+          "status": "planned",
+          "proof": { "issue": 78 }
+        },
+        {
+          "model": "Klipper printers",
+          "via": "Moonraker",
+          "status": "planned",
+          "proof": { "issue": 105 },
+          "note": "Tested against a simulated printer only."
+        }
+      ]
+    },
+    {
+      "name": "Label printers",
+      "rows": [
+        {
+          "model": "DYMO LabelManager PnP",
+          "via": "Agent, USB (tape)",
+          "status": "verified",
+          "proof": { "date": "2026-11-21", "commit": "982b2fb", "how": "tape printed from the hub" }
+        },
+        {
+          "model": "DYMO LabelMANAGER PC, LabelMANAGER PC II, LabelPoint 350, LabelManager 280",
+          "via": "Agent, USB (tape)",
+          "status": "same-driver",
+          "proof": { "source": "labelle 5e8f1e5, src/labelle/lib/constants.py:37-49", "as": "DYMO LabelManager PnP" }
+        },
+        {
+          "model": "DYMO LabelManager 420P, LabelManager Wireless PnP, MobileLabeler",
+          "via": "Agent, USB (tape)",
+          "status": "same-driver",
+          "proof": { "source": "labelle 5e8f1e5, src/labelle/lib/constants.py:37-49", "as": "DYMO LabelManager PnP" },
+          "note": "labelle itself calls these unconfirmed."
+        },
+        {
+          "model": "DYMO LabelWriter 450",
+          "via": "Agent, USB (labels)",
+          "status": "verified",
+          "proof": { "date": "2026-11-21", "commit": "982b2fb", "how": "labels printed from the hub, two side by side on an S0722530 roll" }
+        },
+        {
+          "model": "DYMO LabelWriter 450 Turbo, LabelWriter 450 DUO (labels)",
+          "via": "Agent, USB (labels)",
+          "status": "same-driver",
+          "proof": { "source": "dymo-cups-drivers 1.4.0, src/lw/raster2dymolw.cpp:92-98", "as": "DYMO LabelWriter 450" }
+        }
+      ]
+    },
+    {
+      "name": "Lasers",
+      "rows": [
+        {
+          "model": "Ortur Laser Master 2 Pro S2",
+          "via": "Agent, USB serial (GRBL, LaserFoundry)",
+          "status": "verified",
+          "proof": { "date": "2026-11-23", "commit": "132e4f8", "how": "homing, jogging, setting the origin and framing, with the laser off" },
+          "note": "Nothing engraved yet; a job is only ever started by someone at the laser."
+        },
+        {
+          "model": "Other GRBL 1.1 lasers",
+          "via": "Agent, USB serial (GRBL, LaserFoundry)",
+          "status": "same-driver",
+          "proof": { "source": "gnea/grbl wiki 86e8ecd; LaserFoundry v0.6.0 (8f07f98)", "as": "Ortur Laser Master 2 Pro S2" },
+          "note": "What was measured on the Ortur (grblHAL) is in #165."
+        }
+      ]
+    },
+    {
+      "name": "Cameras",
+      "rows": [
+        {
+          "model": "LSC Smart Connect indoor camera (Action), firmware 4.0.6",
+          "via": "Straight to the hub, RTSP and ONVIF",
+          "status": "verified",
+          "proof": { "date": "2026-11-17", "commit": "39e6e05", "how": "live view in the browser" },
+          "note": "Only after rooting it with the SD-card method; out of the box it has no RTSP."
+        },
+        {
+          "model": "Logitech C270 (USB webcam)",
+          "via": "Agent, USB",
+          "status": "verified",
+          "proof": { "date": "2026-11-23", "commit": "c117d75", "how": "a still every 30 seconds in Space → Cameras" },
+          "note": "Live view is to come (#96)."
+        }
+      ]
+    },
+    {
+      "name": "Scales",
+      "rows": [
+        {
+          "model": "DYMO M-series scales",
+          "via": "Agent, USB",
+          "status": "planned",
+          "proof": { "issue": 131 },
+          "note": "The driver is ported (usbscale); not on the agent yet."
+        }
+      ]
+    }
+  ]
+}

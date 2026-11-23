@@ -120,6 +120,8 @@ label printer, a laser, a Marlin printer's M115) is an extension written down pa
 
 ## Supported devices
 
+Per model, with its proof (verified on hardware, same driver but not tested, planned): [maker-connect.xyz/hardware](https://maker-connect.xyz/hardware/), made from [docs/hardware.json](docs/hardware.json).
+
 | Devices | How they connect | The one reference | On real hardware |
 |---|---|---|---|
 | **Prusa MINI** (Buddy 8.0.2) | Its own firmware, Prusa Connect's WebSocket: no agent | Buddy 8.0.2, Prusa's self-hosted Prusa Connect | Yes: a MINI on Buddy 8.0.2 |

@@ -53,6 +53,10 @@ jobs:
       - name: Cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Hardware page data (#209)
+        if: runner.os == 'Linux'
+        run: python3 scripts/hardware-page.py --check
+
       - name: Formatting
         run: cargo fmt --all -- --check
 
