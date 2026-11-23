@@ -5,6 +5,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Add machine · Maker Connect mockup</title>
 <link rel="stylesheet" href="mc.css">
+<style>
+/* #192: the agent's builds as v1's cards (the hub has the same rules on this page) */
+.grid.builds { row-gap: 0; }
+.builds > .build { margin-bottom: var(--s-4); }
+/* Every card in a row shares its rows (subgrid, as v1): head, button, how, command, copy;
+   so the buttons and texts line up whatever the texts above them. */
+.build { display: grid; grid-template-rows: subgrid; grid-row: span 5; gap: var(--s-3); align-content: start; position: relative; }
+.build > .fw { justify-self: start; align-self: start; }
+.build-head { display: flex; align-items: center; gap: var(--s-3); }
+.build-head h3 { margin: 0; }
+.build-head p { margin: 2px 0 0; }
+.os-icon { width: 48px; height: 48px; flex: none; display: grid; place-items: center; background: var(--bg); color: var(--ink); font-size: 11px; }
+.yours { margin-left: auto; color: var(--accent-text); }
+.build.mine { --bc: var(--accent-text); }
+.get { justify-content: space-between; }
+.get small { font-weight: 400; opacity: .85; }
+.build .how { margin: 0; }
+.build pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+</style>
 <script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
 </head>
 <body data-view="user">
@@ -79,13 +98,29 @@ tls = false</pre>
 <li class="done"><h3>What are you adding?</h3><p>A machine on USB: a 3D printer, a laser, a tape or label printer, a scale or a USB camera, through the agent on a computer beside it.</p></li>
 <li class="now"><h3>Start the agent beside it</h3>
 <p>On the computer the machine is plugged into, download the agent for that computer and start it.</p>
-<div class="row"><label class="field">That computer<select><option>Linux, Raspberry Pi (aarch64)</option><option>Linux (x86_64)</option><option>Linux, Raspberry Pi Zero (armv6)</option><option>macOS (Apple silicon)</option></select></label><span class="fw"><a class="btn" href="#k-usb">Download the agent</a></span></div>
-<pre>chmod +x maker-connect-agent-linux-aarch64
-./maker-connect-agent-linux-aarch64</pre>
-<span class="fw"><button class="btn small" type="button">Copy</button></span>
+<div class="grid builds">
+<article class="card build mine"><div class="build-head"><span class="os-icon macos">[macos]</span><div><h3>macOS</h3><p class="muted">Apple silicon (M1 and later)</p></div><span class="chip yours">Your system</span></div>
+<a class="btn primary get" href="#k-usb">Download <small>9.8 MB</small></a>
+<p class="muted how">Then, in a terminal, where you saved it:</p>
+<pre><code>chmod +x maker-connect-agent-macos-aarch64
+./maker-connect-agent-macos-aarch64</code></pre>
+<span class="fw"><button class="btn small" type="button">Copy</button></span></article>
+<article class="card build"><div class="build-head"><span class="os-icon linux">[linux]</span><div><h3>Linux ARM64</h3><p class="muted">Orange Pi Zero3, Raspberry Pi 4 and 5</p></div></div>
+<a class="btn primary get" href="#k-usb">Download <small>11.2 MB</small></a>
+<p class="muted how">Then, in a terminal, where you saved it:</p>
+<pre><code>chmod +x maker-connect-agent-linux-aarch64
+sudo usermod -aG dialout $USER   # once: serial ports, then log in again
+./maker-connect-agent-linux-aarch64</code></pre>
+<span class="fw"><button class="btn small" type="button">Copy</button></span></article>
+<article class="card build"><div class="build-head"><span class="os-icon windows">[windows]</span><div><h3>Windows</h3><p class="muted">64-bit (Intel, AMD)</p></div></div>
+<a class="btn primary get" href="#k-usb">Download <small>12.4 MB</small></a>
+<p class="muted how">Then, in PowerShell, where you saved it:</p>
+<pre><code>.\maker-connect-agent-windows-x86_64.exe</code></pre>
+<span class="fw"><button class="btn small" type="button">Copy</button></span></article>
+</div>
 <p>Then open the agent's page on that computer, <code>http://&lt;that computer&gt;:8470</code>: under <b>Hub</b>, enter this hub's address <code>192.168.1.20</code>, port <code>8460</code>, and save; turn on the machine's device. It then shows a code.</p>
 <p><small>No agent build is on this hub yet? Put the builds in the hub's downloads folder (beside its database), or take them from the project's releases.</small></p>
-<span class="anno">the builds offered are the files in the downloads folder (`maker-connect-agent-&lt;os&gt;-&lt;arch&gt;`, scripts/build-release.sh), served at downloads/{name} · devices.manage; the hub's address is the page's own Host</span>
+<span class="anno">v1's Downloads page as cards (#192): one per file in the downloads folder (`maker-connect-agent-&lt;os&gt;-&lt;arch&gt;`, scripts/build-release.sh), served at downloads/{name} · devices.manage; the visitor's system first and marked (user agent; Apple silicon on macOS); size from the file; Copy falls back to execCommand over plain http. No version line: v2 has no build stamp. The hub's address is the page's own Host</span>
 </li>
 <li><h3>Enter the code it shows</h3>
 <div class="row"><label class="field">Code<input value="" placeholder="from the agent" autocomplete="off" class="num" style="letter-spacing:.2em;text-transform:uppercase"></label><label class="field">Name here<input value="Laser-B"></label><span class="fw"><button class="btn primary" type="button" data-goto="k-after">Add</button></span></div>
