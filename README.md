@@ -97,8 +97,9 @@ label printer, a laser, a Marlin printer's M115) is an extension written down pa
   printers (the 450 on S0722530, two labels side by side).
 - **Cameras**: network cameras (RTSP) straight to the hub, live in the browser (go2rtc's way,
   checked frame by frame), linked to a machine or a room; an `onvif://` address is resolved to
-  the camera's RTSP stream as go2rtc does it. USB webcams through the agent are still to come
-  (issue #5).
+  the camera's RTSP stream as go2rtc does it. USB webcams on the agent (nokhwa) send a still
+  every 30 s by the Prusa Connect SDK's camera protocol, as PrusaLink does, and show up in
+  Space → Cameras like any other camera; their live view is still to come (#96).
 - **Materials, compatible with [Spoolman](https://github.com/Donkie/Spoolman)**: its model
   (vendors, filaments, spools) and its API at `/api/v1`, measured request by request against
   real Spoolman (69 of 376 requests identical so far; every difference is listed in the
@@ -126,9 +127,10 @@ label printer, a laser, a Marlin printer's M115) is an extension written down pa
 | **DYMO LabelManager PnP** (tape) | Agent, USB HID: no driver | labelle | Yes |
 | **DYMO LabelWriter 450** (labels) | Agent, USB: no driver | DYMO's CUPS driver 1.4.0, DYMO Connect's catalogue | Yes |
 | **Network cameras** (RTSP, ONVIF) | Straight to the hub | retina, go2rtc | Yes: an LSC Smart Connect camera |
+| **USB webcams** (stills; live view to come) | Agent, USB (V4L2 on Linux) | PrusaLink's camera driver and the Connect SDK's camera protocol; nokhwa for the capture | Yes: a Logitech C270 |
 
 Ported and proved, not yet on the agent: **lasers on GRBL** (LaserFoundry v0.6.0, issue #89),
-**DYMO M-series scales** (usbscale, #129), **USB webcams** (nokhwa, #5). Still to port: the
+**DYMO M-series scales** (usbscale, #129). Still to port: the
 **Prusa MK3S and MK2.5S** (PrusaLink, #78). **Klipper** through Moonraker connects by itself,
 not yet checked against Moonraker nor tried on a real printer (#9).
 
@@ -186,7 +188,9 @@ A machine on USB gets the agent:
 
 On the agent's page, give the hub's address and switch on the device that is plugged in (a DYMO
 LabelManager PnP, a LabelWriter 450, a Marlin printer with its serial port): it shows a code,
-which you enter on the hub's Add machine page. [Getting Started](https://github.com/CuriousTimo/Maker-Connect/wiki/Getting-Started)
+which you enter on the hub's Add machine page. USB webcams have a tab of their own, Cameras:
+switch it on and enter its code the same way; each webcam then appears in the hub under
+Space → Cameras, where you name it and link it to a machine or a room. [Getting Started](https://github.com/CuriousTimo/Maker-Connect/wiki/Getting-Started)
 in the wiki goes through it, [The Agent](https://github.com/CuriousTimo/Maker-Connect/wiki/The-Agent)
 has the rest.
 
@@ -293,7 +297,7 @@ Printers on the deck (idea) | The weigh station (idea)
   ([#78](https://github.com/CuriousTimo/Maker-Connect/issues/78)).
 - **DYMO scales**: the scale's port is written, not yet on the agent or in the hub
   ([#129](https://github.com/CuriousTimo/Maker-Connect/issues/129)).
-- **USB webcams** on the agent ([#5](https://github.com/CuriousTimo/Maker-Connect/issues/5)).
+- **Live view of USB webcams** on the agent ([#96](https://github.com/CuriousTimo/Maker-Connect/issues/96)).
 - **Klipper** on a real printer ([#105](https://github.com/CuriousTimo/Maker-Connect/issues/105)).
 - **The agent on Windows and macOS**: both run; a release for them, and what still differs, in
   [#141](https://github.com/CuriousTimo/Maker-Connect/issues/141).
