@@ -122,16 +122,25 @@ pub fn render(space: &str, machine: &Machine, extra: &Extra) -> String {
     let (state, state_class) = shown_state(machine);
     let state_class = st_class(&state_class);
     let kind = profile.map_or(machine.kind.label(), |p| p.model.as_str());
-    let link = match machine.link.as_str() {
-        "prusa-connect" if crate::prusa_connect::marlin_agent(machine) => "Maker Connect agent",
-        "prusa-connect" => "Built-in Prusa Connect",
-        "virtual" => "Virtual, in the hub",
-        "simplyprint" => "Klipper, through Moonraker",
-        other => other,
+    let link = link_label(machine);
+    // the agent's release ("Maker Connect agent v…") follows as the firmware: the way once
+    let shown_firmware = machine
+        .telemetry
+        .as_ref()
+        .and_then(|t| t.firmware.as_deref())
+        .or_else(|| machine.details.as_ref().and_then(|d| d.firmware.as_deref()));
+    let link = if on_agent(machine)
+        && shown_firmware.is_some_and(|f| f.starts_with("Maker Connect agent"))
+    {
+        ""
+    } else {
+        link
     };
     let laser = machine.kind == MachineKind::Laser;
     let subtitle = if machine.name.to_lowercase().contains(&kind.to_lowercase()) {
         link.to_owned()
+    } else if link.is_empty() {
+        kind.to_owned()
     } else {
         format!("{kind} · {link}")
     };
@@ -2419,6 +2428,18 @@ pub(crate) fn reads_position(machine: &Machine) -> bool {
                 .is_some_and(|caps| caps.get("AUTOREPORT_POS").is_some())
                 && !d.can("AUTOREPORT_POS")
         })
+}
+
+/// The way a device reaches the hub, under its name: a device on the agent is the agent's, whatever
+/// protocol it speaks (owner, 2026-11-23: "staat nog Prusa connect in").
+pub(crate) fn link_label(machine: &Machine) -> &str {
+    match machine.link.as_str() {
+        "prusa-connect" if on_agent(machine) => "Maker Connect agent",
+        "prusa-connect" => "Built-in Prusa Connect",
+        "virtual" => "Virtual, in the hub",
+        "simplyprint" => "Klipper, through Moonraker",
+        other => other,
+    }
 }
 
 fn on_agent(machine: &Machine) -> bool {

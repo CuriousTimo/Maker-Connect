@@ -109,10 +109,7 @@ pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> S
     let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
     let (state, state_class) = machine_page::shown_state(machine);
     let kind = profile.map_or(machine.kind.label(), |p| p.model.as_str());
-    let link = match machine.link.as_str() {
-        "virtual" => "Virtual, in the hub",
-        other => other,
-    };
+    let link = machine_page::link_label(machine);
     let id = escape(&machine.id);
     let count = profile.map_or(0, |p| p.media.len());
     format!(

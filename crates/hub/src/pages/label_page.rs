@@ -106,11 +106,7 @@ pub fn render(space: &str, machine: &Machine, move_to: &[(String, String)]) -> S
     let telemetry = machine.telemetry.as_ref().filter(|_| machine.online);
     let (state, state_class) = machine_page::shown_state(machine);
     let kind = profile.map_or(machine.kind.label(), |p| p.model.as_str());
-    let link = match machine.link.as_str() {
-        "virtual" => "Virtual, in the hub",
-        "prusa-connect" => "Maker Connect agent (Prusa Connect protocol)",
-        other => other,
-    };
+    let link = machine_page::link_label(machine);
     let id = escape(&machine.id);
     // A LabelWriter takes a roll of die-cut labels; a LabelManager a cassette of tape.
     let die_cut = profile.is_some_and(|p| p.firmware.as_deref() == Some("dymo-lw"));
