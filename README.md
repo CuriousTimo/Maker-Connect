@@ -54,6 +54,9 @@ label printer, a laser, a Marlin printer's M115) is an extension written down pa
 - **Machines report themselves.** An agent next to a machine, or the machine's own firmware,
   connects to the hub: no port to open where the machine stands. Add one with the code it
   shows. Every page updates live (server-sent events).
+- **One agent per computer** drives every device plugged into it, each with its own card on the
+  agent's page ([#12](https://github.com/CuriousTimo/Maker-Connect/issues/12)). Builds for Linux
+  (also a Raspberry Pi), macOS and Windows are offered on the hub's **Add machine** page.
 - **A Prusa MINI needs no agent.** Its firmware (Buddy 6.4 and later) connects to the hub over
   Prusa Connect's WebSocket; the hub is the server side of that, after Prusa's own self-hosted
   Prusa Connect. Tried on a real MINI (Buddy 8.0.2): registering, the machine page, moves,
@@ -61,7 +64,10 @@ label printer, a laser, a Marlin printer's M115) is an extension written down pa
 - **Printers on Marlin** through the agent: a port of **OctoPrint 1.11.8**'s serial layer,
   proved against OctoPrint itself on its own virtual printer (the same bytes in 22 of 24
   scenarios; the other two differ between OctoPrint's own runs). Files print as jobs from the
-  agent's storage, with pause, resume and stop; the terminal shows what the printer answers.
+  agent's storage, with pause, resume and stop (tried on Linux; on Windows the agent connects and
+  talks to the printer but cannot be sent a file yet,
+  [#184](https://github.com/CuriousTimo/Maker-Connect/issues/184)); the terminal shows what the
+  printer answers.
   The printer names itself with M115, so a stock printer gets its profile by itself. **Probe
   bed** measures the bed and draws the mesh as OctoPrint's Bed Level Visualizer reads it (17 of
   17 cases identical). Tried on a real printer: an AtomX MK3 on Marlin 2.1.2.10.
@@ -71,7 +77,9 @@ label printer, a laser, a Marlin printer's M115) is an extension written down pa
   is framed again), and started only by a person there with **Start burn** (permission to
   operate it, safety glasses confirmed, laser mode on). Its Stop is LaserFoundry's soft reset.
   The port is proved and was tried on a real Ortur Laser Master 2 Pro S2 (homing, jogging,
-  origin, framing; no burning yet); on the agent it is still to come (issue #89).
+  origin, framing; no burning yet). In v2 the laser is on the agent, reporting only so far
+  ([#163](https://github.com/CuriousTimo/Maker-Connect/issues/163)); its buttons and jobs through
+  the agent are next ([#164](https://github.com/CuriousTimo/Maker-Connect/issues/164)).
 - **Prepare: making the work.** A part of its own for the tools that turn an idea into a job
   file; what they make goes to Files, and from there to a machine. Today **laser design** in the
   browser: the hub serves our fork of LaserFoundry's web version (built without Web Serial);
@@ -89,8 +97,9 @@ label printer, a laser, a Marlin printer's M115) is an extension written down pa
   (issue #5).
 - **Materials, compatible with [Spoolman](https://github.com/Donkie/Spoolman)**: its model
   (vendors, filaments, spools) and its API at `/api/v1`, measured request by request against
-  real Spoolman, so Moonraker's `[spoolman]`, OctoPrint's Spoolman plugin, Mainsail, Fluidd and
-  scales use this hub as their Spoolman. A library of spools, a board of locations (dry boxes
+  real Spoolman (69 of 376 requests identical so far; every difference is listed in the
+  [audit](docs/audits/spoolman.md)), so that Moonraker's `[spoolman]`, OctoPrint's Spoolman
+  plugin, Mainsail, Fluidd and scales can use this hub as their Spoolman. A library of spools, a board of locations (dry boxes
   with slots), SpoolmanDB's thousands of filaments, label tapes, scanning and labels.
 - **Files, jobs and queues.** Drop G-code or a label on Files; the hub reads what the slicer
   wrote and offers only the machines it fits (and says why not, also when you lack
