@@ -59,6 +59,35 @@ hun 60s is fout", "we volgen laserfoundry".
 - **Quotes are checked by a script, never by eye**: `scripts/quote-check.py` (laser code and Part 4 of
   `docs/design/prusa-sdk-extension.md`), before every commit that touches them.
 
+## Stream Deck: our fork `deckhand`, an exception to "one reference"
+
+Owner, 2026-11-23: "Ik wil 1 standaard implementatie in rust die ik keer op keer kan blijven gebruiken in
+allerlei projecten", and "Het kan zijn dat wij hem moeten tweaken en aanpassen voor ons gebruik"
+([#190](https://github.com/CuriousTimo/Maker-Connect/issues/190)).
+
+- **The one reference** for the Elgato Stream Deck is **deckhand** (github.com/CuriousTimo/deckhand),
+  our fork of the Rust crate `elgato-streamdeck` (github.com/OpenActionAPI/rust-elgato-streamdeck, MPL-2.0;
+  no file carries the "Incompatible With Secondary Licenses" notice, so it may be combined with our
+  AGPL-3.0). It forked from upstream at `63770911` (v0.14.0). The same fork serves all the owner's projects.
+- **The exception, decided by the owner:** upstream's README says it is "Heavily based on
+  python-elgato-streamdeck ... and partially on rust-streamdeck", and it credits node-elgato-stream-deck
+  for some models. That is fusing, which the most important rule forbids for a reference. For the Stream
+  Deck the owner accepts it.
+- **Used as a dependency, not ported**, pinned to a commit of the fork's `curioustimo` branch:
+  `deckhand = { package = "elgato-streamdeck", git = "https://github.com/CuriousTimo/deckhand", rev = "<commit>" }`.
+  No copy of its code here, and no second source (python-elgato-streamdeck or others) changes what we
+  send; those may only be read to understand the crate.
+- **The fork's branches** (its `FORK.md`): `main` is an exact copy of upstream, fast-forwarded daily by its
+  `follow-upstream.yml`; `curioustimo` holds our changes. New upstream commits come as one pull request
+  `main` -> `curioustimo` with a build check; the owner merges it, then the pinned `rev` here is updated.
+- **Changes in the fork** only with the owner's approval, each listed with why in the fork's `FORK.md`
+  ("Changes against upstream"). A change to what goes to the device counts as a change on the wire: it
+  needs the owner's approval for that change, quoted in `FORK.md`. Offering one upstream is the owner's
+  decision too. MPL-2.0: changed files stay MPL-2.0 and are published in the fork.
+- **Nothing of our own on the wire** outside the fork: what goes to the device is what deckhand sends.
+  Our own choices (which keys, which images) are only in our UI, as everywhere else.
+- **A key is not an emergency stop**: stopping stays the machine's own button.
+
 ## The watchdog: `on-track`
 
 The owner wants a cheap, critical agent that keeps the work on track (`.claude/agents/on-track.md`,
