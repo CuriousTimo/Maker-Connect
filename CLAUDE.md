@@ -88,6 +88,18 @@ allerlei projecten", and "Het kan zijn dat wij hem moeten tweaken en aanpassen v
   Our own choices (which keys, which images) are only in our UI, as everywhere else.
 - **A key is not an emergency stop**: stopping stays the machine's own button.
 
+## WireGuard inside the agent: onetun, with boringtun as a dependency
+
+Owner, 2026-11-23 ([#194](https://github.com/CuriousTimo/Maker-Connect/issues/194)): boringtun as a
+dependency ("cloudflare ontwikkelt daar actief aan"), the glue ported from onetun.
+
+- **The one reference** is **onetun v0.3.10** (github.com/aramperes/onetun, `89c3b59`, MIT), ported file by
+  file into `crates/wireguard` with its licence (`LICENSE-onetun`); every change against it is listed at
+  the top of `crates/wireguard/src/lib.rs`.
+- **The exception, decided by the owner:** the WireGuard protocol itself, **boringtun** (Cloudflare,
+  BSD-3-Clause), is **used as a dependency, not ported**, pinned to `=0.7.1` in `crates/wireguard/Cargo.toml`
+  (onetun has 0.6.0; that newer version is change 1 in `lib.rs`). smoltcp is a dependency as in onetun.
+
 ## The watchdog: `on-track`
 
 The owner wants a cheap, critical agent that keeps the work on track (`.claude/agents/on-track.md`,
