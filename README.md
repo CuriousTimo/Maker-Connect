@@ -246,15 +246,16 @@ Programs that make the work (a laser program such as LaserFoundry, a slicer, a s
 finished files to a space with such a token: [docs/api/apps-api.md](docs/api/apps-api.md). The file
 waits in Files with its machine chosen; nothing starts by itself.
 
-## 💡 Idea, work in progress: a Stream Deck beside the machines
+## 💡 Idea, work in progress: a Stream Deck for quick management and overview
 
 > **Idea / WIP — not part of Maker Connect yet.** The pictures below are a demo with made-up data that
 > talks to no hub. Nothing here is released; plans and open questions are in
 > [#190](https://github.com/CuriousTimo/Maker-Connect/issues/190) and the wiki's
 > [Stream Deck](https://github.com/CuriousTimo/Maker-Connect/wiki/Design:-Stream-Deck) page.
 
-An Elgato Stream Deck beside the machines, through our fork [deckhand](https://github.com/CuriousTimo/deckhand):
-keys that show what the machines do and act on them where you stand; the lockers; and a weigh station
+An Elgato Stream Deck for quick management and overview, through our fork
+[deckhand](https://github.com/CuriousTimo/deckhand): keys that show at a glance what the machines do and
+let you act on them in one press; the lockers; and a weigh station
 at the desk that scans a spool, weighs it into Materials and books the filament used on the member's
 badge.
 
