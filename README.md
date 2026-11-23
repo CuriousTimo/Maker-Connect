@@ -265,10 +265,28 @@ Printers on the deck (idea) | The weigh station (idea)
 
 ## Not yet
 
-Lasers, scales and USB webcams on the agent; burning on a real laser; the MK3 port of
-PrusaLink; Klipper on real hardware; the agent on Windows and macOS for v2; the Buddy telemetry
-fields (the audit's open rows). The open work, in order: the
-[roadmap](https://github.com/CuriousTimo/Maker-Connect/issues/144). Values marked `# check` in the
+- **Lasers** are on the agent, reporting only: their buttons and jobs as typed commands
+  ([#164](https://github.com/CuriousTimo/Maker-Connect/issues/164)) and framing on a real laser
+  ([#91](https://github.com/CuriousTimo/Maker-Connect/issues/91)) are next; burning on a real laser is not done.
+- **Marlin printers** print through the agent on Linux (tried on the .67). On Windows the agent connects
+  and talks to the printer, but cannot be sent a file yet
+  ([#184](https://github.com/CuriousTimo/Maker-Connect/issues/184),
+  [#185](https://github.com/CuriousTimo/Maker-Connect/issues/185)); the printer's own SD card files are
+  not shown yet ([#84](https://github.com/CuriousTimo/Maker-Connect/issues/84)).
+- **Prusa MK3/MK3S** through the agent (PrusaLink ported): to come
+  ([#78](https://github.com/CuriousTimo/Maker-Connect/issues/78)).
+- **DYMO scales**: the scale's port is written, not yet on the agent or in the hub
+  ([#129](https://github.com/CuriousTimo/Maker-Connect/issues/129)).
+- **USB webcams** on the agent ([#5](https://github.com/CuriousTimo/Maker-Connect/issues/5)).
+- **Klipper** on a real printer ([#105](https://github.com/CuriousTimo/Maker-Connect/issues/105)).
+- **The agent on Windows and macOS**: both run; a release for them, and what still differs, in
+  [#141](https://github.com/CuriousTimo/Maker-Connect/issues/141).
+- **A USB device that goes away** (switched off, cable out) disappears from the hub instead of showing
+  an error, and does not come back by itself
+  ([#193](https://github.com/CuriousTimo/Maker-Connect/issues/193)).
+- The **Buddy** audit is still in progress (the MINI over Prusa Connect).
+
+The open work, in order: the [roadmap](https://github.com/CuriousTimo/Maker-Connect/issues/144). Values marked `# check` in the
 profiles are not yet confirmed on the machines.
 
 **Safety:** a laser and a heated printer can start a fire. Frame a laser job, wear the
