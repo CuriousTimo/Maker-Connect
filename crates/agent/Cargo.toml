@@ -32,7 +32,13 @@ base64 = "0.13"
 # text on the deck's keys, and the keys' pictures
 ab_glyph = { version = "0.2", features = ["variable-fonts"] }
 image = { version = "0.25", default-features = false }
+# USB webcams (`camera.rs`, #94; owner: nokhwa on every OS): V4L2, Media Foundation, AVFoundation; no
+# decoding (`default-features = false`); `camera-sync-impl` is nokhwa's own `unsafe impl Send for Camera`,
+# for the thread that reads it.
+nokhwa = { version = "=0.10.11", default-features = false, features = ["input-native", "camera-sync-impl"] }
 
 [dev-dependencies]
 # The laser's commands tested against LaserFoundry's simulated GRBL (`laser.rs`).
 maker-connect-grbl = { path = "../grbl" }
+# A JPEG as a UVC camera gives it, for the `mjpeg2jpeg` tests (`camera.rs`).
+jpeg-encoder = "0.6"

@@ -22,6 +22,9 @@ use maker_connect_engine::{
     ports::octoprint::port::{LcdInputs, OctoPrintPort},
 };
 
+// The nokhwa camera driver (#94) is not on the SDK's configurator yet: nothing calls it from `main`.
+#[allow(dead_code)]
+mod camera;
 mod deck;
 mod laser;
 mod marlin;
