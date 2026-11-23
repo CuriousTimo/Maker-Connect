@@ -25,6 +25,10 @@ maker-connect-gcode-metadata = { path = "../gcode-metadata" }
 # The Stream Deck (`deck.rs`, #190): deckhand, our fork of elgato-streamdeck (CLAUDE.md), without its
 # default hidapi backend, so the engine's hidapi backend per system is the only one (deckhand FORK.md).
 deckhand = { package = "elgato-streamdeck", git = "https://github.com/CuriousTimo/deckhand", rev = "ff550f1a9e0e68c7e9cf53f8c01a8ca14fdb878e", default-features = false }
+# WireGuard inside the agent (`wireguard.rs`, #194): boringtun + smoltcp, the glue ported from onetun
+maker-connect-wireguard = { path = "../wireguard" }
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
+base64 = "0.13"
 # text on the deck's keys, and the keys' pictures
 ab_glyph = { version = "0.2", features = ["variable-fonts"] }
 image = { version = "0.25", default-features = false }

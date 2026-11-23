@@ -1,0 +1,26 @@
+[package]
+name = "maker-connect-wireguard"
+description = "WireGuard inside the agent's process: boringtun and smoltcp, the glue ported from onetun v0.3.10 (#194)"
+version.workspace = true
+# onetun's edition (lib.rs, change 4)
+edition = "2021"
+license = "AGPL-3.0-only AND MIT"
+
+[dependencies]
+# The WireGuard protocol, as a dependency (owner, 2026-11-23, #194). BSD-3-Clause.
+boringtun = { version = "=0.7.1", default-features = false }
+# The TCP/IP stack inside the process, as onetun 0.3.10 has it (UDP's socket left out: lib.rs, change 2).
+smoltcp = { version = "0.12", default-features = false, features = ["std", "log", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp"] }
+# onetun 0.3.10's own dependencies for the ported files
+log = "0.4"
+anyhow = "1"
+tokio = { version = "1", features = ["rt", "sync", "io-util", "net", "time", "fs", "macros"] }
+futures = "0.3"
+rand = "0.8"
+nom = "7"
+async-trait = "0.1"
+bytes = "1"
+base64 = "0.13"
+async-recursion = "1.0"
+# forward boringtun's tracing events to log, as onetun
+tracing = { version = "0.1", default-features = false, features = ["log"] }

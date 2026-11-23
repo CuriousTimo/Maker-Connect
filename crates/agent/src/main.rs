@@ -26,6 +26,7 @@ mod deck;
 mod laser;
 mod marlin;
 mod serial_ports;
+mod wireguard;
 #[cfg(unix)]
 use maker_connect_gcode_metadata::py::repr_str;
 #[cfg(unix)]
@@ -270,6 +271,10 @@ impl Settings {
         if self.hostname.is_empty() {
             return None;
         }
+        // WireGuard (#194): while the tunnel runs, the hub is its local port
+        if let Some(local) = wireguard::local_hub() {
+            return Some(format!("http://{local}"));
+        }
         let protocol = if self.tls { "https" } else { "http" };
         Some(if self.port != 0 {
             format!("{protocol}://{}:{}", self.hostname, self.port)
@@ -309,6 +314,9 @@ fn random_serial() -> String {
 /// keeps"): `[agent] id` in `agent.ini` in the agent's folder, 32 lower-case hex digits drawn on
 /// the first start and kept; the same for all its devices.
 static AGENT_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// WireGuard inside the agent (`wireguard.rs`, #194): an optional tunnel to the hub.
+static WG: std::sync::OnceLock<Arc<wireguard::Wg>> = std::sync::OnceLock::new();
 
 /// The Stream Deck module (`deck.rs`; #190, idea, work in progress): local to the agent.
 static DECK: std::sync::OnceLock<Arc<deck::Deck>> = std::sync::OnceLock::new();
@@ -589,6 +597,12 @@ fn main() {
         });
         let agent = agent.clone();
         std::thread::spawn(move || link_loop(&agent));
+    }
+    let wg = WG
+        .get_or_init(|| Arc::new(wireguard::Wg::load(&dir)))
+        .clone();
+    if wg.settings().on {
+        wg.start(&hub_target(&devices));
     }
     let deck = DECK
         .get_or_init(|| Arc::new(deck::Deck::load(&dir)))
@@ -1477,6 +1491,12 @@ fn web(devices: &[Arc<Agent>], listen: &str) {
                     }
                 }
                 ("/module", Some(agent)) => set_module(agent, &form),
+                // WireGuard (#194): its fields while off, and Turn on / Turn off as every card's
+                ("/wireguard", _) => {
+                    if let Some(wg) = WG.get() {
+                        set_wireguard(wg, devices, &form);
+                    }
+                }
                 // the Stream Deck's Turn on / Turn off, as every card's (#191)
                 ("/deck", _) => {
                     if let Some(deck) = DECK.get() {
@@ -1856,6 +1876,9 @@ fn shape(devices: &[Arc<Agent>]) -> String {
     if let Some(deck) = DECK.get() {
         parts.push(format!("deck:{}", deck.on()));
     }
+    if let Some(wg) = WG.get() {
+        parts.push(format!("wg:{}", wg.settings().on));
+    }
     parts.join("|")
 }
 
@@ -1885,6 +1908,15 @@ fn live(devices: &[Arc<Agent>]) -> String {
         serde_json::json!({"text": text, "class": class}),
     );
     live.insert("hub.devices".into(), hub_devices(devices).into());
+    if let Some(wg) = WG.get() {
+        let (text, class) = wg_state(wg);
+        live.insert(
+            "wg.state".into(),
+            serde_json::json!({"text": text, "class": class}),
+        );
+        live.insert("wg.status".into(), wg.status().into());
+        live.insert("wg.numbers".into(), wg_numbers(wg).into());
+    }
     if let Some(deck) = DECK.get() {
         let (text, class) = deck_state(deck);
         live.insert(
@@ -1962,6 +1994,149 @@ fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
     )
 }
 
+/// The hub's address as the agent's page has it (`host:port`): the tunnel's far end (#194).
+fn hub_target(devices: &[Arc<Agent>]) -> String {
+    let s = devices[0].settings();
+    format!("{}:{}", s.hostname, if s.port == 0 { 80 } else { s.port })
+}
+
+/// `/wireguard`: `action=save` keeps the fields (while off); `on=1` / `on=0` turns it on or off.
+/// Either way every device's socket is closed, so it dials again through the tunnel or not.
+fn set_wireguard(
+    wg: &wireguard::Wg,
+    devices: &[Arc<Agent>],
+    form: &std::collections::HashMap<String, String>,
+) {
+    let mut s = wg.settings();
+    if form.get("action").is_some_and(|a| a == "save") {
+        let f = |k: &str| form.get(k).map(|v| v.trim().to_owned()).unwrap_or_default();
+        s.endpoint = f("endpoint");
+        s.peer_public_key = f("public_key");
+        s.address = f("address");
+        s.preshared_key = f("preshared_key");
+        s.keepalive = f("keepalive");
+        wg.save(s);
+        return;
+    }
+    let on = form.get("on").is_some_and(|v| v == "1");
+    s.on = on;
+    wg.save(s);
+    if on {
+        wg.start(&hub_target(devices));
+    } else {
+        wg.stop();
+    }
+    for d in devices {
+        if let Some(ws) = d.ws.lock().unwrap().clone() {
+            ws.disconnect();
+        }
+    }
+}
+
+/// The WireGuard card's pill (ours, the agent's page only).
+fn wg_state(wg: &wireguard::Wg) -> (&'static str, &'static str) {
+    let on = wg.settings().on;
+    let running = wireguard::local_hub().is_some();
+    let handshake = wg.numbers().and_then(|n| n.since_handshake);
+    match (on, running, handshake) {
+        (false, _, _) => ("Off", "idle"),
+        (true, true, Some(_)) => ("Connected", "wait"),
+        (true, true, None) => ("No handshake yet", "warn"),
+        (true, false, _) => ("Not running", "bad"),
+    }
+}
+
+/// The tunnel's numbers for the card: boringtun's `Tunn::stats`.
+fn wg_numbers(wg: &wireguard::Wg) -> String {
+    match wg.numbers() {
+        None => "—".into(),
+        Some(n) => format!(
+            "last handshake {} · {} sent · {} received",
+            n.since_handshake
+                .map_or("none yet".to_owned(), |d| format!("{} s ago", d.as_secs())),
+            wg_bytes(n.sent),
+            wg_bytes(n.received)
+        ),
+    }
+}
+
+fn wg_bytes(n: usize) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1} MB", n as f64 / 1e6)
+    } else if n >= 1000 {
+        format!("{:.1} kB", n as f64 / 1e3)
+    } else {
+        format!("{n} B")
+    }
+}
+
+/// The WireGuard card (#194): Turn on / Turn off as every card; the fields while off; this agent's
+/// public key to put in the server as a peer.
+fn wg_card(wg: &wireguard::Wg) -> String {
+    let s = wg.settings();
+    let on = s.on;
+    let (state, class) = wg_state(wg);
+    let field = |name: &str, label: &str, value: &str, hint: &str| {
+        format!(
+            r#"<label class=field>{label}<input name={name} value="{v}" placeholder="{hint}"{ro} autocomplete=off></label>"#,
+            v = esc(value),
+            ro = if on { " readonly" } else { "" },
+        )
+    };
+    let save = if on {
+        String::new()
+    } else {
+        r#"<div class="row btns"><span class=fw><button class=btn>Save</button></span></div>"#
+            .to_owned()
+    };
+    format!(
+        r#"<div class="card{off}"><div class=head><h2>WireGuard</h2><span class="st {class}" data-live="wg.state">{state}</span></div>
+<p class=muted>Reach the hub through a WireGuard tunnel of the agent's own, with no VPN app (#194). The hub's address on this page is then its address on the far side.</p>
+<dl class=kv><dt>Tunnel</dt><dd data-live="wg.status">{status}</dd><dt>Numbers</dt><dd data-live="wg.numbers">{numbers}</dd>
+<dt>This agent's public key</dt><dd><code id=wg-pub>{public}</code> <button type=button class="btn small" onclick="navigator.clipboard&amp;&amp;navigator.clipboard.writeText(document.getElementById('wg-pub').textContent);this.textContent='Copied'">Copy</button></dd></dl>
+<form method=post action=/wireguard><input type=hidden name=action value=save>
+<div class=row>{endpoint}{public_key}</div><div class=row>{address}{keepalive}</div><div class=row>{preshared}</div>{save}</form>
+<div class="row btns"><form method=post action=/wireguard><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form></div></div>"#,
+        off = if on { "" } else { " is-off" },
+        status = esc(&wg.status()),
+        numbers = esc(&wg_numbers(wg)),
+        public = esc(&s.public_key()),
+        endpoint = field(
+            "endpoint",
+            "Endpoint (the server)",
+            &s.endpoint,
+            "home.example.net:13231"
+        ),
+        public_key = field(
+            "public_key",
+            "The server's public key",
+            &s.peer_public_key,
+            "base64"
+        ),
+        address = field(
+            "address",
+            "This agent's tunnel address",
+            &s.address,
+            "10.10.10.2"
+        ),
+        keepalive = field(
+            "keepalive",
+            "Keepalive, seconds (optional)",
+            &s.keepalive,
+            "none"
+        ),
+        preshared = field(
+            "preshared_key",
+            "Pre-shared key (optional)",
+            &s.preshared_key,
+            "base64"
+        ),
+        toggle = if on { "0" } else { "1" },
+        toggle_class = if on { "" } else { " primary" },
+        button = if on { "Turn off" } else { "Turn on" },
+    )
+}
+
 /// What the Stream Deck shows: each device as its card on this page has it, the hub's link.
 fn deck_snapshot(devices: &[Arc<Agent>]) -> deck::Snapshot {
     let (hub_text, hub_class) = hub_state(devices);
@@ -2022,6 +2197,9 @@ fn page(devices: &[Arc<Agent>]) -> String {
     // The hub's address is the same in every device's settings file (the form writes all).
     let s = devices[0].settings();
     let mut cards: Vec<String> = devices.iter().map(|d| device_card(d)).collect();
+    if let Some(wg) = WG.get() {
+        cards.push(wg_card(wg));
+    }
     if let Some(deck) = DECK.get() {
         cards.push(deck_card(deck));
     }
