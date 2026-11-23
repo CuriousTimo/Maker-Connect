@@ -84,14 +84,14 @@
 .chip, .st, .out, .tag, .unknown { --cut: var(--cut-s); clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); }
 /* A shape with an outline is two layers: the outer one (border-box) in the outline colour --bc, the inner
    one (padding-box) in the fill --fill, its cut smaller by 0.5858 x the outline width, so the diagonal
-   edge is exactly as thick as the straight ones (the gradient's 225° line is the inner cut; its 1 px blend is
-   the anti-aliasing). A dashed outline sets --ring to a 135° stripe, which dashes the diagonal too. */
+   edge is exactly as thick as the straight ones (the gradient's 225° line is the inner cut; its 1 px blend
+   starts there, after the full outline, so the clip's own anti-aliasing on the outer edge does not thin it). A dashed outline sets --ring to a 135° stripe, which dashes the diagonal too. */
 .card, .stat, .tile, .steps > li, .banner, .table-wrap, dialog, .dialog-mock, .more, .stopbar, .empty, .preview.cam,
 .btn, .theme, .st, .out, .unknown, .chip[aria-pressed="true"] {
   --bw: 1px;
   border: var(--bw) solid transparent;
   background:
-    linear-gradient(225deg, transparent calc((var(--cut) - var(--bw) * .5858) * .7071 - .5px), var(--fill, var(--surface)) calc((var(--cut) - var(--bw) * .5858) * .7071 + .5px)) padding-box,
+    linear-gradient(225deg, transparent calc((var(--cut) - var(--bw) * .5858) * .7071), var(--fill, var(--surface)) calc((var(--cut) - var(--bw) * .5858) * .7071 + 1px)) padding-box,
     var(--ring, var(--bc, var(--line))) border-box;
 }
 /* The focus ring sits on a wrapper, since clip-path cuts off an outline on the control itself */

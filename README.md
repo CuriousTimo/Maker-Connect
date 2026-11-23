@@ -59,7 +59,7 @@ label printer, a laser, a Marlin printer's M115) is an extension written down pa
 - **One agent per computer** drives every device plugged into it, each with its own card on the
   agent's page ([#12](https://github.com/CuriousTimo/Maker-Connect/issues/12)). Builds for Linux
   (also a Raspberry Pi), macOS and Windows are offered on the hub's **Add machine** page.
-- **A Prusa MINI needs no agent.** Its firmware (Buddy 6.4 and later) connects to the hub over
+- **A Prusa MINI needs no agent.** Its firmware (Buddy 8.0.2, the current release) connects to the hub over
   Prusa Connect's WebSocket; the hub is the server side of that, after Prusa's own self-hosted
   Prusa Connect. Tried on a real MINI (Buddy 8.0.2): registering, the machine page, moves,
   heating, printing files sent from the hub. The files on its own USB stick: not yet
@@ -121,7 +121,7 @@ label printer, a laser, a Marlin printer's M115) is an extension written down pa
 
 | Devices | How they connect | The one reference | On real hardware |
 |---|---|---|---|
-| **Prusa MINI** (Buddy 6.4 and later) | Its own firmware, Prusa Connect's WebSocket: no agent | Buddy 6.4.0, Prusa's self-hosted Prusa Connect | Yes: a MINI on Buddy 8.0.2 |
+| **Prusa MINI** (Buddy 8.0.2) | Its own firmware, Prusa Connect's WebSocket: no agent | Buddy 8.0.2, Prusa's self-hosted Prusa Connect | Yes: a MINI on Buddy 8.0.2 |
 | **3D printers on Marlin** | Agent, USB serial (Linux and macOS; Windows later) | OctoPrint 1.11.8; Bed Level Visualizer 1.1.2 for the mesh | Yes: an AtomX MK3 on Marlin 2.1.2.10 |
 | **DYMO LabelManager PnP** (tape) | Agent, USB HID: no driver | labelle | Yes |
 | **DYMO LabelWriter 450** (labels) | Agent, USB: no driver | DYMO's CUPS driver 1.4.0, DYMO Connect's catalogue | Yes |

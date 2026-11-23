@@ -22,9 +22,11 @@ use maker_connect_engine::{
     ports::octoprint::port::OctoPrintPort,
 };
 
+mod deck;
 mod laser;
 mod marlin;
 mod serial_ports;
+mod wireguard;
 #[cfg(unix)]
 use maker_connect_gcode_metadata::py::repr_str;
 #[cfg(unix)]
@@ -146,10 +148,12 @@ impl Kind {
     }
 }
 
-/// A Marlin's chosen USB device is not plugged in, or cannot be told from another of its kind.
-const NOT_THERE: &str = "the chosen serial port is not there: choose it and connect";
+/// A Marlin's chosen USB device is not plugged in, or cannot be told from another of its kind
+/// (ours, the agent's page only).
+const NOT_THERE: &str =
+    "the chosen serial port is not there: plug it in, or turn off and choose it";
 
-/// The connection form's value for "the chosen port that is not there": keep it.
+/// The port field's value for "the chosen port that is not there": keep it.
 const KEEP: &str = "KEEP";
 
 /// The name to open a Marlin's port by: AUTO (`None` inside), the chosen USB device's name now,
@@ -267,6 +271,10 @@ impl Settings {
         if self.hostname.is_empty() {
             return None;
         }
+        // WireGuard (#194): while the tunnel runs, the hub is its local port
+        if let Some(local) = wireguard::local_hub() {
+            return Some(format!("http://{local}"));
+        }
         let protocol = if self.tls { "https" } else { "http" };
         Some(if self.port != 0 {
             format!("{protocol}://{}:{}", self.hostname, self.port)
@@ -306,6 +314,12 @@ fn random_serial() -> String {
 /// keeps"): `[agent] id` in `agent.ini` in the agent's folder, 32 lower-case hex digits drawn on
 /// the first start and kept; the same for all its devices.
 static AGENT_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// WireGuard inside the agent (`wireguard.rs`, #194): an optional tunnel to the hub.
+static WG: std::sync::OnceLock<Arc<wireguard::Wg>> = std::sync::OnceLock::new();
+
+/// The Stream Deck module (`deck.rs`; #190, idea, work in progress): local to the agent.
+static DECK: std::sync::OnceLock<Arc<deck::Deck>> = std::sync::OnceLock::new();
 
 fn load_agent_id(dir: &Path) -> String {
     let path = dir.join("agent.ini");
@@ -584,6 +598,17 @@ fn main() {
         let agent = agent.clone();
         std::thread::spawn(move || link_loop(&agent));
     }
+    let wg = WG
+        .get_or_init(|| Arc::new(wireguard::Wg::load(&dir)))
+        .clone();
+    if wg.settings().on {
+        wg.start(&hub_target(&devices));
+    }
+    let deck = DECK
+        .get_or_init(|| Arc::new(deck::Deck::load(&dir)))
+        .clone();
+    let shown = devices.clone();
+    std::thread::spawn(move || deck::run(deck, move || deck_snapshot(&shown)));
     println!("maker-connect-agent {VERSION} on http://{listen}");
     web(&devices, &listen);
 }
@@ -1465,52 +1490,17 @@ fn web(devices: &[Arc<Agent>], listen: &str) {
                         s.save(&agent.dir);
                     }
                 }
-                ("/module", Some(agent)) => {
-                    let on = form.get("on").is_some_and(|v| v == "1");
-                    {
-                        let mut s = agent.settings.lock().unwrap();
-                        s.on = on;
-                        s.save(&agent.dir);
-                    }
-                    if on {
-                        agent.module_on();
-                    } else {
-                        agent.module_off();
+                ("/module", Some(agent)) => set_module(agent, &form),
+                // WireGuard (#194): its fields while off, and Turn on / Turn off as every card's
+                ("/wireguard", _) => {
+                    if let Some(wg) = WG.get() {
+                        set_wireguard(wg, devices, &form);
                     }
                 }
-                // A Marlin's connection (OctoPrint's Connection panel, `connection.py`): the port
-                // and baud rate are kept; Connect starts the port anew with them, also after the
-                // printer's connection closed; Disconnect stops it, as Turn off does.
-                ("/connection", Some(agent)) => {
-                    let connect = form.get("action").is_some_and(|a| a == "connect");
-                    {
-                        let mut s = agent.settings.lock().unwrap();
-                        if connect && form.get("port").is_some_and(|p| p == KEEP) {
-                            // the chosen device again (its settings stay)
-                        } else if connect {
-                            s.serial_port = form
-                                .get("port")
-                                .filter(|p| p.as_str() != "AUTO")
-                                .cloned()
-                                .unwrap_or_default();
-                            // the USB device behind the name, to find it by after a restart
-                            s.usb = serial_ports::list()
-                                .into_iter()
-                                .find(|l| l.name == s.serial_port)
-                                .and_then(|l| l.usb)
-                                .map(|u| u.to_setting())
-                                .unwrap_or_default();
-                            s.baudrate = form
-                                .get("baudrate")
-                                .and_then(|b| b.parse().ok())
-                                .unwrap_or(0);
-                        }
-                        s.on = connect;
-                        s.save(&agent.dir);
-                    }
-                    agent.module_off();
-                    if connect {
-                        agent.module_on();
+                // the Stream Deck's Turn on / Turn off, as every card's (#191)
+                ("/deck", _) => {
+                    if let Some(deck) = DECK.get() {
+                        deck.set_on(form.get("on").is_some_and(|v| v == "1"));
                     }
                 }
                 ("/reset", Some(agent)) => {
@@ -1525,8 +1515,14 @@ fn web(devices: &[Arc<Agent>], listen: &str) {
                 }
                 _ => {}
             }
+            // back to the tab the form is on: Settings for the hub and WireGuard
+            let back: &[u8] = if matches!(path.as_str(), "/hub" | "/wireguard") {
+                b"/settings"
+            } else {
+                b"/"
+            };
             let response = tiny_http::Response::empty(303)
-                .with_header(tiny_http::Header::from_bytes(&b"Location"[..], &b"/"[..]).unwrap());
+                .with_header(tiny_http::Header::from_bytes(&b"Location"[..], back).unwrap());
             let _ = request.respond(response);
             continue;
         }
@@ -1537,6 +1533,8 @@ fn web(devices: &[Arc<Agent>], listen: &str) {
         }
         let html = if path == "/about" {
             about_page(devices)
+        } else if path == "/settings" {
+            settings_page(devices)
         } else {
             page(devices)
         };
@@ -1586,6 +1584,51 @@ fn esc(t: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// Turn on / Turn off (`/module`), the same on every device (#191). A Marlin's or a laser's Turn
+/// on carries its port and baud rate, chosen while it is off (OctoPrint's Connection panel,
+/// `connection.py`, with Connect as Turn on: owner, 2026-11-23, no Disconnect on the agent); its
+/// port opens with the module and closes with it.
+fn set_module(agent: &Agent, form: &std::collections::HashMap<String, String>) {
+    let on = form.get("on").is_some_and(|v| v == "1");
+    {
+        let mut s = agent.settings.lock().unwrap();
+        if on && agent.kind.serial() {
+            choose_port(&mut s, form);
+        }
+        s.on = on;
+        s.save(&agent.dir);
+    }
+    if on {
+        agent.module_on();
+    } else {
+        agent.module_off();
+    }
+}
+
+/// The port and baud rate of a Marlin's or a laser's Turn on: the chosen device again (`KEEP`,
+/// its settings stay), or the port picked, remembered by its USB device.
+fn choose_port(s: &mut Settings, form: &std::collections::HashMap<String, String>) {
+    if form.get("port").is_none_or(|p| p == KEEP) {
+        return;
+    }
+    s.serial_port = form
+        .get("port")
+        .filter(|p| p.as_str() != "AUTO")
+        .cloned()
+        .unwrap_or_default();
+    // the USB device behind the name, to find it by after a restart
+    s.usb = serial_ports::list()
+        .into_iter()
+        .find(|l| l.name == s.serial_port)
+        .and_then(|l| l.usb)
+        .map(|u| u.to_setting())
+        .unwrap_or_default();
+    s.baudrate = form
+        .get("baudrate")
+        .and_then(|b| b.parse().ok())
+        .unwrap_or(0);
+}
+
 /// What a device's card shows that changes by itself (ours, the agent's page only): the page
 /// renders it, and `/events` sends it again whenever it changes.
 struct CardLive {
@@ -1594,7 +1637,7 @@ struct CardLive {
     hub: String,
     status: String,
     registered: String,
-    /// what the card is built of (on, registered, its code, a Marlin's connection): when it
+    /// what the card is built of (on, registered, its code): when it
     /// changes, the page is loaded again rather than patched
     shape: String,
 }
@@ -1626,7 +1669,6 @@ fn card_live(agent: &Agent) -> CardLive {
         (None, Some(last)) => format!("not connected · last contact {} ago", ago(last)),
         (None, None) => "not connected".to_owned(),
     };
-    let open = agent.kind.serial() && marlin_open(agent, &s);
     CardLive {
         state,
         class,
@@ -1634,12 +1676,11 @@ fn card_live(agent: &Agent) -> CardLive {
         status: agent.status.lock().unwrap().clone(),
         registered,
         shape: format!(
-            "{}:{}:{}:{}:{}",
+            "{}:{}:{}:{}",
             agent.kind.folder(),
             s.on,
             s.token.is_empty(),
-            code.unwrap_or_default(),
-            open
+            code.unwrap_or_default()
         ),
     }
 }
@@ -1670,66 +1711,55 @@ fn device_card(agent: &Agent) -> String {
         Kind::Marlin => "3D printer · USB",
         Kind::Laser => "Laser · USB",
     };
-    // a Marlin: its connection form above the buttons; Disconnect among them
-    let (connection, disconnect) = if agent.kind.serial() {
-        connection_form(agent, &s)
-    } else {
-        (String::new(), String::new())
+    // a Marlin or a laser: its port chosen while off, in the Turn on form; shown while on (#191)
+    let (fields, port_row) = match (agent.kind.serial(), on) {
+        (true, false) => (port_fields(agent, &s), String::new()),
+        (true, true) => (String::new(), port_row(agent, &s)),
+        _ => (String::new(), String::new()),
     };
     format!(
         r#"<div class="card{off}"><div class=head><h2>{title}</h2><span class="st {state_class}" data-live="{device}.state">{state}</span></div>
-<p class=muted>{what}</p>{code_block}
-<dl class=kv><dt>Hub</dt><dd data-live="{device}.hub">{hub}</dd><dt>Printer</dt><dd data-live="{device}.status">{status}</dd><dt>Registered</dt><dd data-live="{device}.registered">{registered}</dd></dl>
-{connection}<div class="row btns">{toggle_form}
+<p class=muted>{what}</p><div>{code_block}</div>
+<dl class=kv><dt>Hub</dt><dd data-live="{device}.hub">{hub}</dd><dt>Printer</dt><dd data-live="{device}.status">{status}</dd>{port_row}<dt>Registered</dt><dd data-live="{device}.registered">{registered}</dd></dl>
+<form method=post action=/module id="module-{device}"{form_class}><input type=hidden name=device value="{device}"><input type=hidden name=on value="{toggle}">{fields}</form><div class="row btns"><span class=fw><button class="btn{toggle_class}" form="module-{device}">{button}</button></span>
 <form method=post action=/reset onsubmit="return confirm('Reset the registration of the {title}? It forgets its token: it is no longer known at the hub until it is added again with a new code.')"><input type=hidden name=device value="{device}"><span class=fw><button class="btn ghost">Reset registration…</button></span></form></div></div>"#,
         off = if on { "" } else { " is-off" },
         title = agent.kind.title(),
         device = agent.kind.folder(),
-        toggle_form = if agent.kind.serial() {
-            disconnect
-        } else {
-            format!(
-                r#"<form method=post action=/module><input type=hidden name=device value="{device}"><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form>"#,
-                device = agent.kind.folder(),
-                toggle = if on { "0" } else { "1" },
-                toggle_class = if on { "" } else { " primary" },
-                button = if on { "Turn off" } else { "Turn on" },
-            )
-        },
+        // Turn on / Turn off, the same on every device (#191)
+        form_class = if fields.is_empty() { "" } else { " class=row" },
+        toggle = if on { "0" } else { "1" },
+        toggle_class = if on { "" } else { " primary" },
+        button = if on { "Turn off" } else { "Turn on" },
         status = esc(&status),
         registered = esc(&registered),
     )
 }
 
-/// Whether a Marlin's port is open and the printer there (Disconnect, not the form).
-fn marlin_open(agent: &Agent, s: &Settings) -> bool {
-    s.on && agent
-        .dymo
-        .lock()
-        .unwrap()
-        .and_then(|id| agent.engine.lock().unwrap().report(id).ok())
-        .is_some_and(|r| match agent.kind {
-            Kind::Laser => laser::present(&r),
-            _ => marlin::present(&r),
-        })
+/// The port a Marlin or a laser was turned on with, while it is on (ours: the port chosen and,
+/// for a Marlin, the baud rate, AUTO when none).
+fn port_row(agent: &Agent, s: &Settings) -> String {
+    let port = if s.serial_port.is_empty() {
+        "AUTO".to_owned()
+    } else {
+        s.serial_port.clone()
+    };
+    let text = if agent.kind == Kind::Laser {
+        port
+    } else if s.baudrate == 0 {
+        format!("{port} · AUTO")
+    } else {
+        format!("{port} · {}", s.baudrate)
+    };
+    format!("<dt>Serial port</dt><dd>{}</dd>", esc(&text))
 }
 
-/// A Marlin's connection, as OctoPrint's Connection panel has it (`sidebar/connection.jinja2`):
-/// the serial port (AUTO first, then the ports with their USB device, `serial_ports`) and the
-/// baud rate (AUTO, then `baudrateList`), chosen while it is not connected; then Connect, or
-/// Disconnect while it is. The form to go above the card's buttons, and the button to go among
-/// them.
-fn connection_form(agent: &Agent, s: &Settings) -> (String, String) {
+/// A Marlin's port and baud rate as OctoPrint's Connection panel has them
+/// (`sidebar/connection.jinja2`): the serial port (AUTO first, then the ports with their USB
+/// device, `serial_ports`) and the baud rate (AUTO, then `baudrateList`), chosen while it is off;
+/// Turn on stands in for Connect (#191). The fields of the Turn on form.
+fn port_fields(agent: &Agent, s: &Settings) -> String {
     use maker_connect_engine::ports::octoprint::comm::baudrate_list;
-    let device = agent.kind.folder();
-    if marlin_open(agent, s) {
-        return (
-            String::new(),
-            format!(
-                r#"<form method=post action=/connection><input type=hidden name=device value="{device}"><input type=hidden name=action value=disconnect><span class=fw><button class=btn>Disconnect</button></span></form>"#
-            ),
-        );
-    }
     let option = |value: &str, text: &str, chosen: bool| {
         format!(
             "<option value=\"{}\"{}>{}</option>",
@@ -1774,10 +1804,9 @@ fn connection_form(agent: &Agent, s: &Settings) -> (String, String) {
             .iter()
             .map(|b| option(&b.to_string(), &b.to_string(), *b == i64::from(s.baudrate))),
     );
-    let form = format!(
-        r#"<form method=post action=/connection class=row><input type=hidden name=device value="{device}"><input type=hidden name=action value=connect>
-<label class=field style="flex:1 1 100%;min-width:0;grid-template-columns:minmax(0,1fr)">Serial port<select name=port>{ports}</select></label>
-{rates}<span class=fw><button class="btn primary">Connect</button></span></form>"#,
+    format!(
+        r#"<label class=field style="flex:1 1 18rem;min-width:0;grid-template-columns:minmax(0,1fr)">Serial port<select name=port>{ports}</select></label>
+{rates}"#,
         ports = ports.concat(),
         rates = if laser {
             String::new()
@@ -1788,8 +1817,7 @@ fn connection_form(agent: &Agent, s: &Settings) -> (String, String) {
                 rates.concat()
             )
         },
-    );
-    (form, String::new())
+    )
 }
 
 /// The link to the hub over all devices: how many of those that are on and registered it
@@ -1839,7 +1867,7 @@ fn hub_devices(devices: &[Arc<Agent>]) -> String {
 fn banner(devices: &[Arc<Agent>]) -> (&'static str, String) {
     let (connected, linked) = hub_link(devices);
     match devices[0].settings().server() {
-        None => ("address", r#"<div class="banner warn"><span><b>No hub address.</b> Set it under Hub, on Devices.</span></div>"#.to_owned()),
+        None => ("address", r#"<div class="banner warn"><span><b>No hub address.</b> Set it under Hub, on <a href=/settings>Settings</a>.</span></div>"#.to_owned()),
         Some(server) if linked > 0 && connected == 0 => ("unreachable", format!(
             r#"<div class="banner bad"><span><b>The hub cannot be reached</b> at {}. The devices keep their state; a label already sent finishes. The agent tries again by itself.</span></div>"#,
             esc(&server)
@@ -1853,6 +1881,16 @@ fn banner(devices: &[Arc<Agent>]) -> (&'static str, String) {
 fn shape(devices: &[Arc<Agent>]) -> String {
     let mut parts: Vec<String> = devices.iter().map(|d| card_live(d).shape).collect();
     parts.push(banner(devices).0.to_owned());
+    if let Some(deck) = DECK.get() {
+        parts.push(format!("deck:{}", deck.on()));
+    }
+    if let Some(wg) = WG.get() {
+        parts.push(format!(
+            "wg:{}:{}",
+            wg.settings().on,
+            wireguard::local_hub().is_some()
+        ));
+    }
     parts.join("|")
 }
 
@@ -1882,6 +1920,23 @@ fn live(devices: &[Arc<Agent>]) -> String {
         serde_json::json!({"text": text, "class": class}),
     );
     live.insert("hub.devices".into(), hub_devices(devices).into());
+    if let Some(wg) = WG.get() {
+        let (text, class) = wg_state(wg);
+        live.insert(
+            "wg.state".into(),
+            serde_json::json!({"text": text, "class": class}),
+        );
+        live.insert("wg.status".into(), wg.status().into());
+        live.insert("wg.numbers".into(), wg_numbers(wg).into());
+    }
+    if let Some(deck) = DECK.get() {
+        let (text, class) = deck_state(deck);
+        live.insert(
+            "deck.state".into(),
+            serde_json::json!({"text": text, "class": class}),
+        );
+        live.insert("deck.status".into(), deck.status().into());
+    }
     serde_json::json!({"shape": shape(devices), "live": live}).to_string()
 }
 
@@ -1894,7 +1949,9 @@ const LIVE_JS: &str = r#"(()=>{const shape=document.body.dataset.shape;const es=
 /// (Devices, About); the hub's stylesheet and components only.
 fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
     let tabs: String = [
-        ("/", "Devices", Some(devices.len())),
+        // the devices turned on (owner, 2026-11-23: only the Marlin hangs on it, not 4)
+        ("/", "Devices", Some(devices_on(devices))),
+        ("/settings", "Settings", None),
         ("/about", "About", None),
     ]
     .iter()
@@ -1922,25 +1979,33 @@ fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
         computer.architecture
     ));
     what.push(format!(
-        "{} device{}",
-        devices.len(),
-        if devices.len() == 1 { "" } else { "s" }
+        "{} of {} devices on",
+        devices_on(devices),
+        devices.len()
     ));
     what.push(format!("release {}", esc(VERSION)));
     format!(
         r##"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 {THEME_FIRST}<title>Maker Connect agent</title><link rel=icon href="data:image/svg+xml,{icon}"><style>{CSS}
 .code{{font:700 var(--fs-6)/1 var(--mono);letter-spacing:.12em;color:var(--accent-text);margin:var(--s-2) 0 var(--s-3)}}
-.brand .mark svg{{width:100%;height:100%;display:block}} .card form{{margin:0}} .card .row.btns{{margin-top:var(--s-3)}} .row.btns>form{{flex:0 0 auto}}</style></head><body data-shape="{shape}">
+.brand .mark svg{{width:100%;height:100%;display:block}} .card form{{margin:0}} .devices>.card{{display:grid;grid-template-rows:subgrid;grid-row:span 6;row-gap:var(--s-2);align-content:start}} .devices>.card>.head{{margin:0}} .devices .row.btns{{margin-top:var(--s-2);align-self:end}} .devices dl.kv{{align-content:start;align-self:start}} .solo-stack{{display:grid;gap:var(--s-4)}} .card .row.btns{{margin-top:var(--s-3)}} .row.btns>form{{flex:0 0 auto}}</style></head><body data-shape="{shape}">
 <a class=skip href="#main">Skip to content</a>
 <header class=top><span class=brand><span class=mark aria-hidden=true>{MARK}</span><span class=where><b>Maker Connect agent</b><small>{where_}</small></span></span><span class=spacer></span><span class=fw><button type=button class=theme data-theme-btn aria-label="Theme: Auto">Auto</button></span></header>
 <main id=main tabindex=-1 class=solo>
-{banner}<div class=card><div class=head><h1>This agent</h1><span class="st {class}" data-live="agent.state">{state}</span></div>
+{banner}<div class=card><div class=head><h1>This agent</h1><span class="st {class}" data-live="agent.state">{state}</span>{vpn}</div>
 <p class=muted>{what}</p></div>
 <nav class=tabs aria-label="This agent">{tabs}</nav>
 {main}
 </main><script>{THEME_SWITCH}</script><script>{LIVE_JS}</script></body></html>"##,
         shape = esc(&shape(devices)),
+        // through WireGuard (#194): a VPN mark beside the agent's state (owner, 2026-11-23)
+        vpn = if wireguard::local_hub().is_some() {
+            format!(
+                r#"<span class="st val" title="The hub is reached through this agent's WireGuard tunnel">{VPN_ICON}WireGuard</span>"#
+            )
+        } else {
+            String::new()
+        },
         icon = MARK.replace('#', "%23").replace('"', "'").replace('\n', ""),
         where_ = if host.is_empty() {
             esc(VERSION)
@@ -1951,17 +2016,256 @@ fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
     )
 }
 
+/// A shield with a keyhole: the VPN mark (ours, drawn for the agent's page; `currentColor`).
+const VPN_ICON: &str = r#"<svg class=ico viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1 2 3.2v4.1c0 3.5 2.5 6.6 6 7.7 3.5-1.1 6-4.2 6-7.7V3.2L8 1zm0 4.2a1.6 1.6 0 0 1 .8 3v2.4H7.2V8.2A1.6 1.6 0 0 1 8 5.2z"/></svg>"#;
+
+/// The hub's address as the agent's page has it (`host:port`): the tunnel's far end (#194).
+fn hub_target(devices: &[Arc<Agent>]) -> String {
+    let s = devices[0].settings();
+    format!("{}:{}", s.hostname, if s.port == 0 { 80 } else { s.port })
+}
+
+/// `/wireguard`: `action=save` keeps the fields (while off); `on=1` / `on=0` turns it on or off.
+/// Either way every device's socket is closed, so it dials again through the tunnel or not.
+fn set_wireguard(
+    wg: &wireguard::Wg,
+    devices: &[Arc<Agent>],
+    form: &std::collections::HashMap<String, String>,
+) {
+    let mut s = wg.settings();
+    if form.get("action").is_some_and(|a| a == "save") {
+        let f = |k: &str| form.get(k).map(|v| v.trim().to_owned()).unwrap_or_default();
+        s.endpoint = f("endpoint");
+        s.peer_public_key = f("public_key");
+        s.address = f("address");
+        s.preshared_key = f("preshared_key");
+        s.keepalive = f("keepalive");
+        wg.save(s);
+        return;
+    }
+    let on = form.get("on").is_some_and(|v| v == "1");
+    s.on = on;
+    wg.save(s);
+    if on {
+        wg.start(&hub_target(devices));
+    } else {
+        wg.stop();
+    }
+    for d in devices {
+        if let Some(ws) = d.ws.lock().unwrap().clone() {
+            ws.disconnect();
+        }
+    }
+}
+
+/// The WireGuard card's pill (ours, the agent's page only).
+fn wg_state(wg: &wireguard::Wg) -> (&'static str, &'static str) {
+    let on = wg.settings().on;
+    let running = wireguard::local_hub().is_some();
+    let handshake = wg.numbers().and_then(|n| n.since_handshake);
+    match (on, running, handshake) {
+        (false, _, _) => ("Off", "idle"),
+        (true, true, Some(_)) => ("Connected", "wait"),
+        (true, true, None) => ("No handshake yet", "warn"),
+        (true, false, _) => ("Not running", "bad"),
+    }
+}
+
+/// The tunnel's numbers for the card: boringtun's `Tunn::stats`.
+fn wg_numbers(wg: &wireguard::Wg) -> String {
+    match wg.numbers() {
+        None => "—".into(),
+        Some(n) => format!(
+            "last handshake {} · {} sent · {} received",
+            n.since_handshake
+                .map_or("none yet".to_owned(), |d| format!("{} s ago", d.as_secs())),
+            wg_bytes(n.sent),
+            wg_bytes(n.received)
+        ),
+    }
+}
+
+fn wg_bytes(n: usize) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1} MB", n as f64 / 1e6)
+    } else if n >= 1000 {
+        format!("{:.1} kB", n as f64 / 1e3)
+    } else {
+        format!("{n} B")
+    }
+}
+
+/// The WireGuard card (#194): Turn on / Turn off as every card; the fields while off; this agent's
+/// public key to put in the server as a peer.
+fn wg_card(wg: &wireguard::Wg) -> String {
+    let s = wg.settings();
+    let on = s.on;
+    let (state, class) = wg_state(wg);
+    let field = |name: &str, label: &str, value: &str, hint: &str| {
+        format!(
+            r#"<label class=field>{label}<input name={name} value="{v}" placeholder="{hint}"{ro} autocomplete=off></label>"#,
+            v = esc(value),
+            ro = if on { " readonly" } else { "" },
+        )
+    };
+    let save = if on {
+        String::new()
+    } else {
+        r#"<div class="row btns"><span class=fw><button class=btn>Save</button></span></div>"#
+            .to_owned()
+    };
+    format!(
+        r#"<div class="card{off}"><div class=head><h2>WireGuard</h2><span class="st {class}" data-live="wg.state">{state}</span></div>
+<p class=muted>Reach the hub through a WireGuard tunnel of the agent's own, with no VPN app (#194). The hub's address on this page is then its address on the far side.</p>
+<dl class=kv><dt>Tunnel</dt><dd data-live="wg.status">{status}</dd><dt>Numbers</dt><dd data-live="wg.numbers">{numbers}</dd>
+<dt>This agent's public key</dt><dd><code id=wg-pub>{public}</code> <button type=button class="btn small" onclick="navigator.clipboard&amp;&amp;navigator.clipboard.writeText(document.getElementById('wg-pub').textContent);this.textContent='Copied'">Copy</button></dd></dl>
+<form method=post action=/wireguard><input type=hidden name=action value=save>
+<div class=row>{endpoint}{public_key}</div><div class=row>{address}{keepalive}</div><div class=row>{preshared}</div>{save}</form>
+<div class="row btns"><form method=post action=/wireguard><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form></div></div>"#,
+        off = if on { "" } else { " is-off" },
+        status = esc(&wg.status()),
+        numbers = esc(&wg_numbers(wg)),
+        public = esc(&s.public_key()),
+        endpoint = field(
+            "endpoint",
+            "Endpoint (the server)",
+            &s.endpoint,
+            "home.example.net:13231"
+        ),
+        public_key = field(
+            "public_key",
+            "The server's public key",
+            &s.peer_public_key,
+            "base64"
+        ),
+        address = field(
+            "address",
+            "This agent's tunnel address",
+            &s.address,
+            "10.10.10.2"
+        ),
+        keepalive = field(
+            "keepalive",
+            "Keepalive, seconds (optional)",
+            &s.keepalive,
+            "none"
+        ),
+        preshared = field(
+            "preshared_key",
+            "Pre-shared key (optional)",
+            &s.preshared_key,
+            "base64"
+        ),
+        toggle = if on { "0" } else { "1" },
+        toggle_class = if on { "" } else { " primary" },
+        button = if on { "Turn off" } else { "Turn on" },
+    )
+}
+
+/// What the Stream Deck shows: each device as its card on this page has it, the hub's link.
+fn deck_snapshot(devices: &[Arc<Agent>]) -> deck::Snapshot {
+    let (hub_text, hub_class) = hub_state(devices);
+    deck::Snapshot {
+        host: maker_connect_system::computer().host.unwrap_or_default(),
+        devices: devices
+            .iter()
+            .map(|d| {
+                let c = card_live(d);
+                deck::DeviceSnap {
+                    short: match d.kind {
+                        Kind::Pnp => "PnP",
+                        Kind::Lw450 => "LW450",
+                        Kind::Marlin => "Marlin",
+                        Kind::Laser => "Laser",
+                    },
+                    title: d.kind.title(),
+                    state: c.state,
+                    class: c.class,
+                    status: c.status,
+                    hub: c.hub,
+                    registered: c.registered,
+                }
+            })
+            .collect(),
+        hub: (hub_text.to_owned(), hub_class, hub_devices(devices)),
+    }
+}
+
+/// The Stream Deck's pill (ours, the agent's page only).
+fn deck_state(deck: &deck::Deck) -> (&'static str, &'static str) {
+    match (deck.on(), deck.connected()) {
+        (false, _) => ("Off", "idle"),
+        (true, true) => ("Connected", "wait"),
+        (true, false) => ("Not connected", "warn"),
+    }
+}
+
+/// The Stream Deck's card: local to the agent, not at the hub (no registration, no code: part 10
+/// of the SDK extension is still to be written); Turn on / Turn off as every card (#191).
+fn deck_card(deck: &deck::Deck) -> String {
+    let on = deck.on();
+    let (state, class) = deck_state(deck);
+    format!(
+        r#"<div class="card{off}"><div class=head><h2>Stream Deck</h2><span class="st {class}" data-live="deck.state">{state}</span></div>
+<p class=muted>Quick management and overview · USB · on this agent only, not at the hub yet (idea, work in progress)</p><div></div>
+<dl class=kv><dt>Deck</dt><dd data-live="deck.status">{status}</dd><dt>Shows</dt><dd>this agent's devices, read only</dd></dl><div></div>
+<div class="row btns"><form method=post action=/deck><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form></div></div>"#,
+        off = if on { "" } else { " is-off" },
+        status = esc(&deck.status()),
+        toggle = if on { "0" } else { "1" },
+        toggle_class = if on { "" } else { " primary" },
+        button = if on { "Turn off" } else { "Turn on" },
+    )
+}
+
+/// How many of the agent's devices are turned on.
+fn devices_on(devices: &[Arc<Agent>]) -> usize {
+    devices.iter().filter(|d| d.settings().on).count()
+}
+
+/// The Devices tab: the cards as tiles, and the tiles in a row share their rows (subgrid): head,
+/// what, the code, the link, the serial port, the buttons; so the same things stand at the same
+/// height (owner, 2026-11-23: "allerlei info op verschillende hoogtes", "de tegels zijn juist
+/// goed").
 fn page(devices: &[Arc<Agent>]) -> String {
+    let mut cards: Vec<String> = devices.iter().map(|d| device_card(d)).collect();
+    if let Some(deck) = DECK.get() {
+        cards.push(deck_card(deck));
+    }
+    let main = format!("<div class=\"grid devices\">\n{}\n</div>", cards.join("\n"));
+    layout(devices, "Devices", &main)
+}
+
+/// The Settings tab (owner, 2026-11-23: "WireGuard en Hub IP horen in een eigen setting tab"): the
+/// hub's address, and WireGuard (#194).
+fn settings_page(devices: &[Arc<Agent>]) -> String {
     // The hub's address is the same in every device's settings file (the form writes all).
     let s = devices[0].settings();
-    let cards: Vec<String> = devices.iter().map(|d| device_card(d)).collect();
     let (hub_state, hub_class) = hub_state(devices);
     let devices_text = hub_devices(devices);
-    let address = s.server().map_or("not set".to_owned(), |a| esc(&a));
+    // the address as entered (not the tunnel's local port while WireGuard runs)
+    let address = if s.hostname.is_empty() {
+        "not set".to_owned()
+    } else {
+        let plain = format!(
+            "{}{}{}",
+            if s.tls { "https://" } else { "http://" },
+            esc(&s.hostname),
+            if s.port == 0 {
+                String::new()
+            } else {
+                format!(":{}", s.port)
+            }
+        );
+        if wireguard::local_hub().is_some() {
+            format!("{plain} · through WireGuard")
+        } else {
+            plain
+        }
+    };
+    let wg = WG.get().map(|wg| wg_card(wg)).unwrap_or_default();
     let main = format!(
-        r#"<div class=cols><div>
-{cards}
-</div><div>
+        r#"<div class=solo-stack>
 <div class=card><div class=head><h2>Hub</h2><span class="st {hub_class}" data-live="hub.state">{hub_state}</span></div>
 <dl class=kv><dt>Address</dt><dd>{address}</dd><dt>Devices</dt><dd data-live="hub.devices">{devices_text}</dd></dl>
 <details{open} style="margin-top:var(--s-3)"><summary>Change the address</summary><form method=post action=/hub style="margin-top:var(--s-3)">
@@ -1969,8 +2273,9 @@ fn page(devices: &[Arc<Agent>]) -> String {
 <label class=field style="flex:0 1 7rem">Port<input name=port inputmode=numeric value="{port}" placeholder="8460"></label></div>
 <label class=check><input type=checkbox name=tls {tls}> TLS</label>
 <div class="row btns"><span class=fw><button class="btn primary">Save</button></span></div></form></details></div>
-</div></div>"#,
-        open = if s.server().is_none() { " open" } else { "" },
+{wg}
+</div>"#,
+        open = if s.hostname.is_empty() { " open" } else { "" },
         host = esc(&s.hostname),
         port = if s.port == 0 {
             String::new()
@@ -1978,9 +2283,8 @@ fn page(devices: &[Arc<Agent>]) -> String {
             s.port.to_string()
         },
         tls = if s.tls { "checked" } else { "" },
-        cards = cards.join("\n"),
     );
-    layout(devices, "Devices", &main)
+    layout(devices, "Settings", &main)
 }
 
 /// The About tab (mockup `agent.html#about`): the agent, its load, the computer; the same rows as
@@ -2320,7 +2624,7 @@ mod tests {
 
     /// The SDK's queue (`__init__.py:319-339`, `858-905`): an event waits in it while there is no
     /// socket, and goes in its turn; with no token or no server it is skipped.
-    /// Turned off and on again (Turn off, Disconnect, Connect), a device keeps its socket: the
+    /// Turned off and on again (Turn off, Turn on), a device keeps its socket: the
     /// next send dials it again.
     #[test]
     fn a_device_turned_off_and_on_keeps_its_socket() {
@@ -2447,5 +2751,106 @@ mod tests {
             page.contains(r#"class=theme data-theme-btn aria-label="Theme: Auto">Auto</button>"#)
         );
         assert!(page.contains(THEME_SWITCH) && page.contains("localStorage.getItem(\"mc-theme\")"));
+    }
+
+    /// #191: Turn on / Turn off on every device's card, in the same place; a Marlin's or a laser's
+    /// port chosen in the Turn on form while it is off, shown while it is on; no Connect or
+    /// Disconnect.
+    #[test]
+    fn turn_on_and_off_on_every_card() {
+        for kind in Kind::ALL {
+            let dir = std::env::temp_dir().join(format!(
+                "mc-agent-toggle-{}-{}",
+                kind.folder(),
+                std::process::id()
+            ));
+            let agent = Agent::new(
+                kind,
+                dir.clone(),
+                Settings::load(&dir, kind.printer_type()),
+                Arc::new(Mutex::new(Engine::new())),
+            );
+            let device = kind.folder();
+            let card = device_card(&agent);
+            assert!(
+                card.contains(r#"<input type=hidden name=on value="1">"#),
+                "{card}"
+            );
+            assert!(
+                card.contains(&format!(
+                    r#"<button class="btn primary" form="module-{device}">Turn on</button>"#
+                )),
+                "{card}"
+            );
+            assert_eq!(card.contains("<select name=port>"), kind.serial(), "{card}");
+            assert!(
+                !card.contains("Connect<") && !card.contains("Disconnect"),
+                "{card}"
+            );
+            assert!(!card.contains("action=/connection"), "{card}");
+            // Turned on (a laser with no port chosen, a Marlin on AUTO: the test opens nothing
+            // when no port is there)
+            agent.settings.lock().unwrap().on = true;
+            let card = device_card(&agent);
+            assert!(
+                card.contains(&format!(
+                    r#"<button class="btn" form="module-{device}">Turn off</button>"#
+                )),
+                "{card}"
+            );
+            assert!(!card.contains("<select name=port>"), "{card}");
+            assert_eq!(
+                card.contains("<dt>Serial port</dt>"),
+                kind.serial(),
+                "{card}"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    /// #191: a Marlin's Turn on keeps the port and baud rate it carries; Turn off keeps them for the
+    /// next Turn on; `KEEP` keeps the chosen device.
+    #[test]
+    fn turn_on_carries_the_port() {
+        let dir = std::env::temp_dir().join(format!("mc-agent-port-{}", std::process::id()));
+        let mut s = Settings::load(&dir, Kind::Marlin.printer_type());
+        choose_port(
+            &mut s,
+            &parse_form("device=marlin&on=1&port=%2Fdev%2Fnot-there&baudrate=115200"),
+        );
+        assert_eq!(
+            (s.serial_port.as_str(), s.baudrate),
+            ("/dev/not-there", 115200)
+        );
+        choose_port(
+            &mut s,
+            &parse_form("device=marlin&on=1&port=KEEP&baudrate=250000"),
+        );
+        assert_eq!(
+            (s.serial_port.as_str(), s.baudrate),
+            ("/dev/not-there", 115200)
+        );
+        // Turn off carries no port: nothing changes
+        choose_port(&mut s, &parse_form("device=marlin&on=0"));
+        assert_eq!(
+            (s.serial_port.as_str(), s.baudrate),
+            ("/dev/not-there", 115200)
+        );
+        choose_port(
+            &mut s,
+            &parse_form("device=marlin&on=1&port=AUTO&baudrate=0"),
+        );
+        assert_eq!((s.serial_port.as_str(), s.baudrate), ("", 0));
+        let agent = Agent::new(
+            Kind::Marlin,
+            dir.clone(),
+            s,
+            Arc::new(Mutex::new(Engine::new())),
+        );
+        assert_eq!(
+            port_row(&agent, &agent.settings()),
+            "<dt>Serial port</dt><dd>AUTO · AUTO</dd>"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

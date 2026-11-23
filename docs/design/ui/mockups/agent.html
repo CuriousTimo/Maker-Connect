@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent · Maker Connect mockup</title>
 <link rel="stylesheet" href="mc.css">
+<style>
+/* as the agent's page: the tiles in a row share their rows (head, what, code, link, port, buttons);
+   a 7th row here only for the mockup's notes */
+.devices > .card { display: grid; grid-template-rows: subgrid; grid-row: span 7; row-gap: var(--s-2); align-content: start; }
+.devices > .card > .head { margin: 0; }
+.devices .row.btns { margin-top: var(--s-2); align-self: end; }
+.devices dl.kv { align-content: start; align-self: start; }
+.solo-stack { display: grid; gap: var(--s-4); }
+</style>
 <script>try{var t=localStorage.getItem("mc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>
 </head>
 <body>
@@ -15,60 +24,75 @@
   <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <main id="main" tabindex="-1" class="solo">
-<p class="anno">The agent's own page, on the computer beside the machines (:8470); no sign-in, no sidebar: it has two subjects. The hub's mc.css and components only (ui.md "The visual system"); the hub's page leads.</p>
+<p class="anno">The agent's own page, on the computer beside the machines (:8470); no sign-in, no sidebar; three tabs: Devices, Settings, About. The hub's mc.css and components only (ui.md "The visual system"); the hub's page leads.</p>
 
-<div class="card"><div class="head"><h1>This agent</h1><span class="st wait">Connected to the hub</span></div>
-<p class="muted">orangepipc · Linux, arm · 2 devices · release v0.3.0</p></div>
+<div class="card"><div class="head"><h1>This agent</h1><span class="st wait">Connected to the hub</span><span class="st val" title="The hub is reached through this agent's WireGuard tunnel"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1 2 3.2v4.1c0 3.5 2.5 6.6 6 7.7 3.5-1.1 6-4.2 6-7.7V3.2L8 1zm0 4.2a1.6 1.6 0 0 1 .8 3v2.4H7.2V8.2A1.6 1.6 0 0 1 8 5.2z"/></svg>WireGuard</span></div>
+<p class="muted">orangepipc · Linux, arm · 2 of 4 devices on · release v0.3.0</p>
+<span class="anno">the WireGuard mark only while the hub is reached through the agent's own tunnel (#194; owner 2026-11-23: "als het via een wireguard is -> this agent -> een VPN icon/logo"); "2 of 4 devices on": the devices turned on (owner: "er staat een aantal van 4. maar alleen de marlin printer hangt er aan")</span></div>
 
 <div class="tabs" role="tablist" aria-label="This agent">
-<a href="#devices" role="tab" id="t-devices" aria-controls="devices">Devices <small>&nbsp;2</small></a><a href="#about" role="tab" id="t-about" aria-controls="about">About</a>
+<a href="#devices" role="tab" id="t-devices" aria-controls="devices">Devices <small>&nbsp;2</small></a><a href="#settings" role="tab" id="t-settings" aria-controls="settings">Settings</a><a href="#about" role="tab" id="t-about" aria-controls="about">About</a>
 </div>
 
 <section id="devices" role="tabpanel" aria-labelledby="t-devices">
-<div class="cols">
-<div>
+<p class="anno">tiles, and the tiles in a row share their six rows (subgrid), empty where a tile has none, so the same things stand at the same height (owner 2026-11-23: "allerlei info op verschillende hoogtes", "de tegels zijn juist goed")</p>
+<div class="grid devices">
 <div class="card"><div class="head"><h2>DYMO LabelWriter 450</h2><span class="st wait">Connected</span></div>
-<p class="muted">Label printer · USB · in the hub as Labels-1</p>
-<dl class="kv"><dt>Hub</dt><dd>connected for 2 h 5 min · last contact now</dd><dt>Printer</dt><dd>ready</dd><dt>Registered</dt><dd>yes</dd></dl>
-<div class="row btns"><span class="fw"><button class="btn" type="button">Turn off</button></span><span class="fw"><button class="btn ghost" type="button" data-dialog="confirm-reset">Reset registration…</button></span></div>
-<span class="anno">the agent's own state: its socket to the hub (`/p/ws`), when telemetry last went through</span></div>
+<p class="muted">Label printer · USB · in the hub as Labels-1</p><div></div>
+<dl class="kv"><dt>Hub</dt><dd>connected for 2 h 5 min · last contact now</dd><dt>Printer</dt><dd>ready</dd><dt>Registered</dt><dd>yes</dd></dl><div></div>
+<div class="row btns"><span class="fw"><button class="btn" type="button">Turn off</button></span><span class="fw"><button class="btn ghost" type="button" data-dialog="confirm-reset">Reset registration…</button></span></div></div>
 
 <div class="card"><div class="head"><h2>DYMO LabelManager PnP</h2><span class="st warn">Not connected</span></div>
 <p class="muted">Tape printer · USB · in the hub as Tape-1</p>
-<div class="banner warn"><span><b>The PnP is not plugged in.</b> Plug it in at this computer; the agent finds it by itself.</span></div>
-<dl class="kv"><dt>Hub</dt><dd>not connected · last contact 14:02</dd><dt>Printer</dt><dd>not found on USB</dd><dt>Registered</dt><dd>yes</dd></dl>
+<div><div class="banner warn"><span><b>The PnP is not plugged in.</b> Plug it in at this computer; the agent finds it by itself.</span></div></div>
+<dl class="kv"><dt>Hub</dt><dd>not connected · last contact 14:02</dd><dt>Printer</dt><dd>not found on USB</dd><dt>Registered</dt><dd>yes</dd></dl><div></div>
 <div class="row btns"><span class="fw"><button class="btn" type="button">Turn off</button></span><span class="fw"><button class="btn ghost" type="button" data-dialog="confirm-reset">Reset registration…</button></span></div></div>
 
-<div class="card"><div class="head"><h2>Marlin printer</h2><span class="st warn">Not connected</span></div>
-<p class="muted">3D printer · USB · in the hub as AtomX</p>
-<dl class="kv"><dt>Hub</dt><dd>not connected · last contact 16:40</dd><dt>Printer</dt><dd>the Marlin printer is not connected</dd><dt>Registered</dt><dd>yes</dd></dl>
-<div class="row btns"><form class="row"><label class="field">Serial port<select><option>AUTO</option><option selected>/dev/ttyUSB4</option><option>/dev/ttyUSB0</option></select></label><label class="field" style="flex:0 1 9rem">Baud rate<select><option>AUTO</option><option selected>115200</option><option>250000</option></select></label><span class="fw"><button class="btn primary" type="button">Connect</button></span></form><span class="fw"><button class="btn ghost" type="button" data-dialog="confirm-reset">Reset registration…</button></span></div>
-<span class="anno">a Marlin: OctoPrint's Connection panel instead of Turn on/off (port AUTO + serialList, baud rate AUTO + baudrateList); kept per device; while connected only Disconnect. OctoPrint connects again only when asked: Connect, also after the connection closed</span></div>
+<div class="card is-off"><div class="head"><h2>Marlin printer</h2><span class="st idle">Off</span></div>
+<p class="muted">3D printer · USB · in the hub as AtomX</p><div></div>
+<dl class="kv"><dt>Hub</dt><dd>not connected · last contact 16:40</dd><dt>Printer</dt><dd>the module is off</dd><dt>Registered</dt><dd>yes</dd></dl>
+<form class="row"><label class="field" style="flex:1 1 18rem">Serial port<select><option>AUTO</option><option selected>/dev/ttyUSB4</option><option>/dev/ttyUSB0</option></select></label><label class="field" style="flex:0 1 9rem">Baud rate<select><option>AUTO</option><option selected>115200</option><option>250000</option></select></label></form>
+<div class="row btns"><span class="fw"><button class="btn primary" type="button">Turn on</button></span><span class="fw"><button class="btn ghost" type="button" data-dialog="confirm-reset">Reset registration…</button></span></div>
+<span class="anno">a Marlin or a laser: Turn on/off as every device (#191). While off, OctoPrint's Connection panel fields (port AUTO + serialList, baud rate AUTO + baudrateList; a laser: the ports only) go with Turn on, which stands in for Connect; no Disconnect (owner, 2026-11-23). While on, the card shows "Serial port /dev/ttyUSB4 · 115200" in its list and only Turn off. Kept per device</span></div>
 
 <div class="card"><div class="head"><h2>A new device</h2><span class="st warn">Not registered</span></div>
 <p class="muted">Label printer · USB</p>
-<p>Enter this code on the hub: Space, Add machine.</p>
-<p class="code num" style="font:700 var(--fs-6)/1 var(--mono);letter-spacing:.12em;color:var(--accent-text)">48213</p>
+<div><p>Enter this code on the hub: Space, Add machine.</p>
+<p class="code num" style="font:700 var(--fs-6)/1 var(--mono);letter-spacing:.12em;color:var(--accent-text)">48213</p></div>
+<dl class="kv"><dt>Hub</dt><dd>not connected</dd><dt>Printer</dt><dd>registering</dd><dt>Registered</dt><dd>in progress: code 48213</dd></dl><div></div>
+<div class="row btns"><span class="fw"><button class="btn" type="button">Turn off</button></span></div>
 <span class="anno">registration by code (`/p/register`), as Add machine has it</span></div>
 </div>
+</section>
 
-<div>
+<section id="settings" role="tabpanel" aria-labelledby="t-settings" hidden>
+<p class="anno">the hub's address and WireGuard on a tab of their own, WireGuard under the hub, both full width as This agent (owner 2026-11-23: "WireGuard en Hub IP horen in een eigen setting tab", "wireguard gewoon onder de hub settings niet naast", "volle breedte zoals agent")</p>
+<div class="solo-stack">
 <div class="card"><div class="head"><h2>Hub</h2><span class="st wait">Connected</span></div>
-<dl class="kv"><dt>Address</dt><dd>192.168.60.67:8460</dd><dt>Devices</dt><dd>1 of 2 connected</dd><dt>Release</dt><dd>hub-v0.3.0</dd></dl>
+<dl class="kv"><dt>Address</dt><dd>http://192.168.60.67:8460 · through WireGuard</dd><dt>Devices</dt><dd>1 of 2 connected</dd><dt>Release</dt><dd>hub-v0.3.0</dd></dl>
 <details style="margin-top:var(--s-3)"><summary>Change the address</summary>
 <div class="row" style="margin-top:var(--s-3)"><label class="field">Address<input value="192.168.60.67"></label><label class="field" style="flex:0 1 7rem">Port<input inputmode="numeric" value="8460"></label></div>
 <label class="check"><input type="checkbox"> TLS</label>
 <div class="row btns"><span class="fw"><button class="btn primary" type="button">Save</button></span></div></details>
-<span class="anno">Release: what the hub says of itself (D-A, #51: not on the wire yet)</span></div>
+<span class="anno">the address as entered (with WireGuard on: its address on the far side, an IP); Release: what the hub says of itself (D-A, #51: not on the wire yet)</span></div>
+
+<div class="card"><div class="head"><h2>WireGuard</h2><span class="st wait">Connected</span></div>
+<p class="muted">Reach the hub through a WireGuard tunnel of the agent's own, with no VPN app (#194). The hub's address on this page is then its address on the far side.</p>
+<dl class="kv"><dt>Tunnel</dt><dd>running: 127.0.0.1:18460 → 192.168.60.67:8460 through 203.0.113.7:13231</dd><dt>Numbers</dt><dd>last handshake 41 s ago · 29.6 kB sent · 22.5 kB received</dd>
+<dt>This agent's public key</dt><dd><code>EXAMPLEagentPublicKeyBase64xxxxxxxxxxxxxxx=</code> <span class="fw"><button class="btn small" type="button">Copy</button></span></dd></dl>
+<div class="row"><label class="field">Endpoint (the server)<input value="home.example.net:13231" readonly></label><label class="field">The server's public key<input value="EXAMPLEserverPublicKeyBase64xxxxxxxxxxxxxx=" readonly></label></div>
+<div class="row"><label class="field">This agent's tunnel address<input value="10.10.10.2" readonly></label><label class="field">Keepalive, seconds (optional)<input value="25" readonly></label></div>
+<div class="row"><label class="field">Pre-shared key (optional)<input placeholder="base64" readonly></label></div>
+<div class="row btns"><span class="fw"><button class="btn" type="button">Turn off</button></span></div>
+<span class="anno">#194: boringtun 0.7.1 + smoltcp, the glue ported from onetun v0.3.10; a local port (127.0.0.1:18460) forwarded to the hub's address; the fields read-only while on, Save while off; the pill: Off · No handshake yet · Connected · Not running; the numbers from boringtun's Tunn::stats. Ours, owner 2026-11-23 "akkoord met 1 t/m 7"</span></div>
 
 <div class="card"><h2>When the hub cannot be reached</h2>
 <div class="banner bad"><span><b>The hub cannot be reached</b> at 192.168.60.67:8460 (last contact 15:52). The devices keep their state; a label already sent finishes. The agent tries again by itself.</span></div>
-<span class="anno">shown above the tabs instead of the head's pill when no device's socket is up</span></div>
+<span class="anno">shown above the tabs instead of the head's pill when no device's socket is up; with no address: "No hub address. Set it under Hub, on Settings."</span></div>
 
 <div class="card"><h2>When this agent does not fit the hub</h2>
 <div class="banner warn"><span><b>This agent is newer than the hub.</b> The hub does not know <code>label.page_size@2</code>: labels print with the old page sizes. Everything else works.</span></div>
 <span class="anno">D-A (#50): a warning only, nothing is refused (owner 2026-11-21)</span></div>
-</div>
 </div>
 </section>
 
