@@ -1,0 +1,167 @@
+[
+{
+"scenario": "connect_auto",
+"writes": [
+"\n",
+"N0 M110 N0*125\n",
+"N0 M110 N0*125\n",
+"N1 M115*39\n",
+"N2 M21*18\n",
+"M20\n"
+],
+"reads": [
+"start\n",
+"Marlin: Virtual Marlin!\n",
+"\u00c2\u0080\n",
+"SD card ok\n",
+"ok",
+"ok",
+"FIRMWARE_NAME:Virtual Marlin 1.0 PROTOCOL_VERSION:1.0",
+"Cap:AUTOREPORT_TEMP:0",
+"Cap:AUTOREPORT_SD_STATUS:0",
+"Cap:AUTOREPORT_POS:0",
+"Cap:EMERGENCY_PARSER:1",
+"Cap:EXTENDED_M20:0",
+"Cap:LFN_WRITE:0",
+"ok",
+"SD card ok",
+"ok",
+"Begin file list",
+"End file list",
+"ok"
+],
+"error": null
+},
+{
+"scenario": "connect_auto",
+"writes": [
+"\n",
+"N0 M110 N0*125\n",
+"N0 M110 N0*125\n",
+"N1 M115*39\n",
+"M21\n",
+"M20\n"
+],
+"reads": [
+"start\n",
+"Marlin: Virtual Marlin!\n",
+"\u00c2\u0080\n",
+"SD card ok\n",
+"ok",
+"ok",
+"FIRMWARE_NAME:Virtual Marlin 1.0 PROTOCOL_VERSION:1.0",
+"Cap:AUTOREPORT_TEMP:0",
+"Cap:AUTOREPORT_SD_STATUS:0",
+"Cap:AUTOREPORT_POS:0",
+"Cap:EMERGENCY_PARSER:1",
+"Cap:EXTENDED_M20:0",
+"Cap:LFN_WRITE:0",
+"ok",
+"SD card ok",
+"ok",
+"Begin file list",
+"End file list",
+"ok"
+],
+"error": null
+},
+{
+"scenario": "connect_auto",
+"writes": [
+"\n",
+"N0 M110 N0*125\n",
+"N0 M110 N0*125\n",
+"N1 M115*39\n",
+"M21\n",
+"M20\n"
+],
+"reads": [
+"start\n",
+"Marlin: Virtual Marlin!\n",
+"\u00c2\u0080\n",
+"SD card ok\n",
+"ok",
+"ok",
+"FIRMWARE_NAME:Virtual Marlin 1.0 PROTOCOL_VERSION:1.0",
+"Cap:AUTOREPORT_TEMP:0",
+"Cap:AUTOREPORT_SD_STATUS:0",
+"Cap:AUTOREPORT_POS:0",
+"Cap:EMERGENCY_PARSER:1",
+"Cap:EXTENDED_M20:0",
+"Cap:LFN_WRITE:0",
+"ok",
+"SD card ok",
+"ok",
+"Begin file list",
+"End file list",
+"ok"
+],
+"error": null
+},
+{
+"scenario": "connect_auto",
+"writes": [
+"\n",
+"N0 M110 N0*125\n",
+"N0 M110 N0*125\n",
+"N1 M115*39\n",
+"N2 M21*18\n",
+"M20\n"
+],
+"reads": [
+"start\n",
+"Marlin: Virtual Marlin!\n",
+"\u00c2\u0080\n",
+"SD card ok\n",
+"ok",
+"ok",
+"FIRMWARE_NAME:Virtual Marlin 1.0 PROTOCOL_VERSION:1.0",
+"Cap:AUTOREPORT_TEMP:0",
+"Cap:AUTOREPORT_SD_STATUS:0",
+"Cap:AUTOREPORT_POS:0",
+"Cap:EMERGENCY_PARSER:1",
+"Cap:EXTENDED_M20:0",
+"Cap:LFN_WRITE:0",
+"ok",
+"SD card ok",
+"ok",
+"Begin file list",
+"End file list",
+"ok"
+],
+"error": null
+},
+{
+"scenario": "connect_auto",
+"writes": [
+"\n",
+"N0 M110 N0*125\n",
+"N0 M110 N0*125\n",
+"N1 M115*39\n",
+"M21\n",
+"M20\n"
+],
+"reads": [
+"start\n",
+"Marlin: Virtual Marlin!\n",
+"\u00c2\u0080\n",
+"SD card ok\n",
+"ok",
+"ok",
+"FIRMWARE_NAME:Virtual Marlin 1.0 PROTOCOL_VERSION:1.0",
+"Cap:AUTOREPORT_TEMP:0",
+"Cap:AUTOREPORT_SD_STATUS:0",
+"Cap:AUTOREPORT_POS:0",
+"Cap:EMERGENCY_PARSER:1",
+"Cap:EXTENDED_M20:0",
+"Cap:LFN_WRITE:0",
+"ok",
+"SD card ok",
+"ok",
+"Begin file list",
+"End file list",
+"ok"
+],
+"error": null
+}
+]

@@ -1,0 +1,152 @@
+{
+ "connect_given": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "connect_auto": {
+  "reproducible": false,
+  "writes_same": false,
+  "reads_same": true,
+  "errors": []
+ },
+ "home_xy": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "home_z": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "jog": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "extrude": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "temperature": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "fan": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "motors_off": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "speed_flow": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "gcode_single": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "gcode_several": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "print_small": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "print_pause_resume": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "print_cancel": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "resend": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "emergency_m112": {
+  "reproducible": false,
+  "writes_same": true,
+  "reads_same": false,
+  "errors": []
+ },
+ "prompt_answer": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "sd_list": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "sd_print": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": [
+   "timed out waiting for a line matching \"Done printing file\"",
+   "timed out waiting for a line matching \"Done printing file\"",
+   "timed out waiting for a line matching \"Done printing file\"",
+   "timed out waiting for a line matching \"Done printing file\"",
+   "timed out waiting for a line matching \"Done printing file\""
+  ]
+ },
+ "sd_delete": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "disconnect": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "sd_print_after_list": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ },
+ "sd_delete_after_list": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
+ }
+}

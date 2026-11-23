@@ -1,0 +1,35 @@
+{
+"scenario": "emergency_m112",
+"writes": [
+"N0 M110 N0*125\n",
+"N0 M110 N0*125\n",
+"N0 M110 N0*125\n",
+"N0 M110 N0*125\n",
+"N1 M115*39\n",
+"M112\n",
+"N2 M112*35\n",
+"N3 M104 T0 S0*34\n",
+"N4 M140 S0*97\n"
+],
+"reads": [
+"start\n",
+"Marlin: Virtual Marlin!\n",
+"\u00c2\u0080\n",
+"SD card ok\n",
+"ok",
+"ok",
+"ok",
+"ok",
+"FIRMWARE_NAME:Virtual Marlin 1.0 PROTOCOL_VERSION:1.0",
+"Cap:AUTOREPORT_TEMP:0",
+"Cap:AUTOREPORT_SD_STATUS:0",
+"Cap:AUTOREPORT_POS:0",
+"Cap:EMERGENCY_PARSER:1",
+"Cap:EXTENDED_M20:0",
+"Cap:LFN_WRITE:0",
+"ok",
+"echo:EMERGENCY SHUTDOWN DETECTED. KILLED."
+],
+"error": null,
+"reproducible": false
+}
