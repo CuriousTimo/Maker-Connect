@@ -38,7 +38,7 @@ pub struct WireGuardTunnel {
 
 impl WireGuardTunnel {
     /// boringtun's `Tunn::stats`: time since the last handshake, bytes sent, bytes received,
-    /// estimated loss, smoothed RTT in ms (lib.rs, change 5).
+    /// estimated loss, smoothed RTT in ms (lib.rs, change 4).
     pub async fn stats(&self) -> (Option<std::time::Duration>, usize, usize, f32, Option<u32>) {
         self.peer.lock().await.stats()
     }

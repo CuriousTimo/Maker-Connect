@@ -20,17 +20,23 @@
 //!    `is_file_insecurely_readable`).
 //! 3. `config.rs`: `parse_addr`, `parse_private_key`, `parse_public_key`, `parse_preshared_key`
 //!    and `DEFAULT_PORT_FORWARD_SOURCE` made `pub`, for the agent's settings (same code).
-//! 5. `start_tunnels` returns the WireGuard tunnel (onetun returns `()`), and `WireGuardTunnel`
+//! 4. `start_tunnels` returns the WireGuard tunnel (onetun returns `()`), and `WireGuardTunnel`
 //!    has `stats`, which only calls boringtun's `Tunn::stats` (`src/noise/mod.rs:577`): for the
 //!    agent's card. `config.rs` has `default_bind_addr`, the bind address onetun's `from_args`
 //!    picks when none is given (`config.rs:254-259`), as a function.
-//! 6. Edition 2021 as onetun; formatted with rustfmt (layout only); the lints onetun's own code
+//! 5. Edition 2021 as onetun; formatted with rustfmt (layout only); the lints onetun's own code
 //!    trips under our clippy are allowed at the top of this file, none of its code changed for them.
+//!
+//! 6. `Cargo.toml`: smoltcp without `socket-udp` (onetun has it, for the UDP forwarding left out in
+//!    change 2); the rest of its features as onetun's.
+//!
+//! Not on the agent's card, and why: the allowed IPs (the tunnel carries only onetun's one forward,
+//! to the hub's address) and the MTU (onetun's 1420).
 //!
 //! onetun's defaults hold: MTU 1420 (`config.rs:111`), keepalive only when set (`config.rs:24`),
 //! the endpoint's name resolved once when the tunnel starts (`parse_addr`).
 
-// onetun's own code, unchanged, under our lints (lib.rs, change 6)
+// onetun's own code, unchanged, under our lints (lib.rs, change 5)
 #![allow(clippy::useless_borrows_in_formatting)]
 
 #[macro_use]
@@ -58,7 +64,7 @@ pub mod wg;
 /// Starts the onetun tunnels in separate tokio tasks.
 ///
 /// Note: This future completes immediately.
-/// Returns the WireGuard tunnel, for its `stats` (lib.rs, change 5).
+/// Returns the WireGuard tunnel, for its `stats` (lib.rs, change 4).
 pub async fn start_tunnels(config: Config, bus: Bus) -> anyhow::Result<Arc<WireGuardTunnel>> {
     // Initialize the port pool for each protocol
     let tcp_port_pool = TcpPortPool::new();

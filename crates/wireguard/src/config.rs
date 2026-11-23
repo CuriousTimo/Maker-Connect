@@ -32,7 +32,7 @@ pub struct Config {
 // `Config::from_args` (onetun's command line, its `bin` feature) is left out (lib.rs, change 2).
 
 /// The bind address for the UDP socket when none is given: as onetun's `from_args`
-/// (`config.rs:254-259`), the IP version of the endpoint (lib.rs, change 5).
+/// (`config.rs:254-259`), the IP version of the endpoint (lib.rs, change 4).
 pub fn default_bind_addr(endpoint_addr: SocketAddr) -> anyhow::Result<SocketAddr> {
     Ok(match endpoint_addr {
         SocketAddr::V4(_) => parse_addr(Some("0.0.0.0:0"))?,
