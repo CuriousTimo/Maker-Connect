@@ -62,7 +62,9 @@ label printer, a laser, a Marlin printer's M115) is an extension written down pa
 - **A Prusa MINI needs no agent.** Its firmware (Buddy 6.4 and later) connects to the hub over
   Prusa Connect's WebSocket; the hub is the server side of that, after Prusa's own self-hosted
   Prusa Connect. Tried on a real MINI (Buddy 8.0.2): registering, the machine page, moves,
-  heating, printing files sent from the hub. The files on its own USB stick: not yet.
+  heating, printing files sent from the hub. The files on its own USB stick: not yet
+  ([#195](https://github.com/CuriousTimo/Maker-Connect/issues/195)); support for Buddy printers is not
+  finished ([#87](https://github.com/CuriousTimo/Maker-Connect/issues/87)).
 - **Printers on Marlin** through the agent: a port of **OctoPrint 1.11.8**'s serial layer,
   proved against OctoPrint itself on its own virtual printer (the same bytes in 22 of 24
   scenarios; the other two differ between OctoPrint's own runs). Files print as jobs from the
@@ -285,7 +287,8 @@ Printers on the deck (idea) | The weigh station (idea)
   [#185](https://github.com/CuriousTimo/Maker-Connect/issues/185)); the printer's own SD card files are
   not shown yet ([#84](https://github.com/CuriousTimo/Maker-Connect/issues/84)).
 - **Files on a printer's own storage**: a Prusa MINI's USB stick and a Marlin printer's SD card
-  are not shown or printed from yet (Marlin: [#84](https://github.com/CuriousTimo/Maker-Connect/issues/84)).
+  are not shown or printed from yet (MINI: [#195](https://github.com/CuriousTimo/Maker-Connect/issues/195),
+  Marlin: [#84](https://github.com/CuriousTimo/Maker-Connect/issues/84)).
 - **Prusa MK3/MK3S** through the agent (PrusaLink ported): to come
   ([#78](https://github.com/CuriousTimo/Maker-Connect/issues/78)).
 - **DYMO scales**: the scale's port is written, not yet on the agent or in the hub
@@ -297,7 +300,8 @@ Printers on the deck (idea) | The weigh station (idea)
 - **A USB device that goes away** (switched off, cable out) disappears from the hub instead of showing
   an error, and does not come back by itself
   ([#193](https://github.com/CuriousTimo/Maker-Connect/issues/193)).
-- The **Buddy** audit is still in progress (the MINI over Prusa Connect).
+- **Buddy printers** (MINI, MK4, XL): support is not finished, the audit is still in progress
+  ([#87](https://github.com/CuriousTimo/Maker-Connect/issues/87)).
 
 The open work, in order: the [roadmap](https://github.com/CuriousTimo/Maker-Connect/issues/144). Values marked `# check` in the
 profiles are not yet confirmed on the machines.
