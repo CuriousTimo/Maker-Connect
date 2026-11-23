@@ -587,6 +587,8 @@
       if (!(key in values)) continue;
       el.textContent = values[key] ?? "–";
       if (key === "state") el.className = `state ${values[key]}`;
+      // The speed and flow chips only while the machine tells them (machine_page.rs `pct`).
+      if ((key === "speed" || key === "flow") && el.parentElement?.classList.contains("val")) el.parentElement.hidden = values[key] == null;
     }
     // Out of use, a print on the bed: drawn again when either changes.
     // The question on its screen, with its buttons, pressed from here (POST answer: a Prusa

@@ -205,7 +205,13 @@ pub(crate) async fn pair(
     let fetched = headers.contains_key("x-requested-with");
     match paired {
         Ok(Some((id, name))) if fetched => {
-            axum::Json(serde_json::json!({ "id": id, "name": name })).into_response()
+            // An agent's cameras device is no machine: the page sends to Cameras (part 5).
+            let cameras = match store.kind_of(access.space, &id).await {
+                Ok(kind) => kind == Some(maker_connect_protocol::MachineKind::Cameras),
+                Err(error) => return failed(error),
+            };
+            axum::Json(serde_json::json!({ "id": id, "name": name, "cameras": cameras }))
+                .into_response()
         }
         Ok(None) if fetched => {
             (StatusCode::NOT_FOUND, "no machine waits with that code").into_response()

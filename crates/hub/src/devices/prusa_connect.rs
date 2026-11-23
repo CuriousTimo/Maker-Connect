@@ -223,6 +223,10 @@ pub(crate) fn marlin_agent(machine: &crate::store::Machine) -> bool {
 /// A GRBL laser's type on the agent (`docs/design/prusa-sdk-extension.md`, part 4).
 pub(crate) const LASER_AGENT: &str = "grbl.laser";
 
+/// The device that carries an agent's USB cameras (`docs/design/prusa-sdk-extension.md`, part 5):
+/// not a machine ([`MachineKind::Cameras`]).
+pub(crate) const CAMERAS_AGENT: &str = "maker-connect.cameras";
+
 /// Whether a machine is a GRBL laser on the agent: its controls go as Part 4's commands.
 pub(crate) fn laser_agent(machine: &crate::store::Machine) -> bool {
     machine
@@ -516,10 +520,14 @@ async fn register(State(store): State<Store>, body: String) -> Response {
     let marlin = identity.printer_type.as_deref() == Some(MARLIN_AGENT);
     // A GRBL laser on the agent (part 4): a laser; no profile knows its model from the type.
     let laser = identity.printer_type.as_deref() == Some(LASER_AGENT);
+    // An agent's cameras (part 5): a device, no machine.
+    let cameras = identity.printer_type.as_deref() == Some(CAMERAS_AGENT);
     let fallback = if marlin {
         "Marlin printer"
     } else if laser {
         "GRBL laser"
+    } else if cameras {
+        "Cameras"
     } else {
         "Prusa printer"
     };
@@ -541,6 +549,7 @@ async fn register(State(store): State<Store>, body: String) -> Response {
     let kind = match profile {
         Some(p) => p.kind,
         None if laser => MachineKind::Laser,
+        None if cameras => MachineKind::Cameras,
         None => MachineKind::Fdm,
     };
     let agent_version = if kind == MachineKind::Fdm && !marlin {
@@ -2144,6 +2153,62 @@ mod tests {
             Some([Some(12.5), Some(40.0)]),
             "kept"
         );
+    }
+
+    /// An agent's cameras device (part 5) registers as `maker-connect.cameras`: no machine. It pairs,
+    /// its token takes a camera's registration, and it is in no list of machines.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn an_agents_cameras_device_is_no_machine(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (status, headers) = call(
+            &app,
+            Request::post("/p/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"sn":"MC00112233445566CC","fingerprint":"fp","printer_type":"maker-connect.cameras","firmware":"0.3.0"}"#,
+                ))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let code = headers["code"].to_str().unwrap().to_owned();
+        let space = store.default_space().await.unwrap().0;
+        let (id, name) = store.pair(space, &code).await.unwrap().unwrap();
+        assert_eq!(name, "Cameras 66CC");
+        assert_eq!(
+            store.kind_of(space, &id).await.unwrap(),
+            Some(MachineKind::Cameras)
+        );
+        assert!(store.machines(space).await.unwrap().is_empty());
+        let (_, headers) = call(
+            &app,
+            Request::get("/p/register")
+                .header("Code", &code)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let token = headers["token"].to_str().unwrap().to_owned();
+        let (status, headers) = call(
+            &app,
+            Request::post("/p/camera")
+                .header("Token", &token)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({"fingerprint": "c8590ee0b141d78980f57878e22b507f16fdf0c62ac32fbfc496aa502899d85f",
+                        "config": {"name": "USB camera", "camera_id": "usb-1"}})
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(headers.contains_key("token"));
     }
 
     /// A GRBL laser on the agent (part 4) registers as `grbl.laser`: a laser, named "GRBL laser"

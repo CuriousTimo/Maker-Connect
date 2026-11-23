@@ -155,8 +155,11 @@ main:focus { outline: none; }
 .side a { display: flex; align-items: center; gap: var(--s-2); min-height: 40px; padding: 0 var(--s-3); color: var(--ink); text-decoration: none; font-size: var(--fs-2); font-weight: 600; }
 .side a:hover { background: var(--tint-hover); }
 .side a[aria-current="page"] { background: var(--tint-sel); box-shadow: inset 3px 0 0 var(--accent-text); }
-.side .machines a { font-weight: 400; justify-content: space-between; }
-.side .machines a small { font-size: var(--fs-1); }
+.side .machines a { font-weight: 400; justify-content: space-between; gap: var(--s-2); }
+.side .machines a small { font-size: var(--fs-1); white-space: nowrap; flex-shrink: 0; text-align: right; }
+/* A printing machine's row fills with its progress, the two blues of its cell on Now (shell.js `progressOf`). */
+.side .machines a.pct { background: linear-gradient(to right, color-mix(in srgb, var(--st-info) 70%, var(--surface)) var(--pct), color-mix(in srgb, var(--st-info) 22%, var(--surface)) var(--pct)); }
+.side .machines a.pct small { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
 .side .user { margin-top: var(--s-5); padding-top: var(--s-3); border-top: 1px solid var(--line); }
 
 main { margin-left: var(--side); padding: var(--s-5) var(--s-6) 64px; max-width: calc(1200px + var(--side)); }

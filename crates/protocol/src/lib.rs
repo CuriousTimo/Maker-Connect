@@ -20,6 +20,10 @@ pub enum MachineKind {
     /// A scale: it reports a weight, nothing more (DYMO's M-series).
     Scale,
     Other,
+    /// Not a machine: the device that carries an agent's USB cameras (`maker-connect.cameras`,
+    /// `docs/design/prusa-sdk-extension.md` part 5). The hub keeps it for its token, which the
+    /// cameras register with, and lists it among no machines: its cameras are in Space → Cameras.
+    Cameras,
 }
 
 impl MachineKind {
@@ -33,6 +37,7 @@ impl MachineKind {
             MachineKind::Paper => "Paper printer",
             MachineKind::Scale => "Scale",
             MachineKind::Other => "Machine",
+            MachineKind::Cameras => "Cameras",
         }
     }
 }

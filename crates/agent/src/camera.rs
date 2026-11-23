@@ -7,7 +7,8 @@
 //! `libavcodec/bsf/mjpeg2jpeg.c` (lines 36-142) with the tables of `libavcodec/jpegtabs.h` ([`tables`]),
 //! FFmpeg master `f1d4dd2bd0ace9263b590b1f3a500190b8687bef` (2026-11-17), Copyright (c) 2010 Adrian Daerr
 //! and Nicolas George, LGPL-2.1-or-later. Ours, and only ours (the brief names them): the requested
-//! format, [`jpeg_end`], [`has_dht`], reading the camera all the time.
+//! format, [`jpeg_end`], [`has_dht`], reading the camera all the time, waiting in `connect` for the first
+//! frame ([`Shared::first_frame`]).
 //!
 //! Ours (#93): the plaintext id of `_scan`, [`plaintext_id`]: name plus Linux `/dev/videoN`, macOS
 //! `uniqueID`, Windows symbolic link (nokhwa reads no USB serial). No resolution capability: v1 took
@@ -188,7 +189,99 @@ fn configs_from(infos: &[CameraInfo]) -> Result<CameraConfigs, PyErr> {
 
 /// `_scan`: returns the available USB cameras.
 fn scan() -> Result<CameraConfigs, PyErr> {
-    configs_from(&nokhwa::query(ApiBackend::Auto).map_err(nokhwa_error)?)
+    let mut infos = nokhwa::query(ApiBackend::Auto).map_err(nokhwa_error)?;
+    if cfg!(target_os = "linux") {
+        let mut kept = Vec::with_capacity(infos.len());
+        for info in infos {
+            let index = info.index().as_index().map_err(nokhwa_error)?;
+            if v4l2::is_a_capture_device(&format!("/dev/video{index}"))? {
+                kept.push(info);
+            }
+        }
+        infos = kept;
+    }
+    configs_from(&infos)
+}
+
+/// What `_scan` (`v4l2_driver.py:481-514`) skips before it names a camera: a device without
+/// `V4L2_CAP_VIDEO_CAPTURE` in its `capabilities` (`iter_video_capture_devices`, 213-219: a decoder such
+/// as `cedrus`), and one with no `VIDEO_CAPTURE` formats (`if not device.info.formats`, `read_info`
+/// 123-147: a UVC camera's metadata node). Without it, on .67 (Logitech C270, 2026-11-23), the metadata
+/// node and `cedrus` were opened beside the video node, failed, and the video node gave no frame.
+#[cfg(target_os = "linux")]
+mod v4l2 {
+    use maker_connect_gcode_metadata::py::PyErr;
+    use std::os::fd::AsRawFd;
+
+    /// `struct v4l2_capability` (`linux/videodev2.h`).
+    #[repr(C)]
+    struct Capability {
+        driver: [u8; 16],
+        card: [u8; 32],
+        bus_info: [u8; 32],
+        version: u32,
+        capabilities: u32,
+        device_caps: u32,
+        reserved: [u32; 3],
+    }
+
+    /// `struct v4l2_fmtdesc` (`linux/videodev2.h`).
+    #[repr(C)]
+    struct FmtDesc {
+        index: u32,
+        kind: u32,
+        flags: u32,
+        description: [u8; 32],
+        pixelformat: u32,
+        mbus_code: u32,
+        reserved: [u32; 3],
+    }
+
+    const V4L2_CAP_VIDEO_CAPTURE: u32 = 0x0000_0001;
+    const V4L2_BUF_TYPE_VIDEO_CAPTURE: u32 = 1;
+    /// `_IOR('V', 0, struct v4l2_capability)`.
+    const VIDIOC_QUERYCAP: libc::c_ulong = 0x8068_5600;
+    /// `_IOWR('V', 2, struct v4l2_fmtdesc)`.
+    const VIDIOC_ENUM_FMT: libc::c_ulong = 0xc040_5602;
+
+    fn os_error(path: &str, error: std::io::Error) -> PyErr {
+        PyErr::Other("OSError", format!("{path}: {error}"))
+    }
+
+    pub(super) fn is_a_capture_device(path: &str) -> Result<bool, PyErr> {
+        let file = std::fs::File::open(path).map_err(|e| os_error(path, e))?;
+        let fd = file.as_raw_fd();
+        // SAFETY: an all-zero `v4l2_capability` is valid; the kernel fills it.
+        let mut caps: Capability = unsafe { std::mem::zeroed() };
+        // SAFETY: `fd` is open, `caps` has the size `VIDIOC_QUERYCAP` encodes.
+        if unsafe { libc::ioctl(fd, VIDIOC_QUERYCAP as _, &mut caps) } < 0 {
+            return Err(os_error(path, std::io::Error::last_os_error()));
+        }
+        if caps.capabilities & V4L2_CAP_VIDEO_CAPTURE == 0 {
+            return Ok(false);
+        }
+        // SAFETY: as above, for `v4l2_fmtdesc`.
+        let mut fmt: FmtDesc = unsafe { std::mem::zeroed() };
+        fmt.kind = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        // SAFETY: `fd` is open, `fmt` has the size `VIDIOC_ENUM_FMT` encodes.
+        if unsafe { libc::ioctl(fd, VIDIOC_ENUM_FMT as _, &mut fmt) } == 0 {
+            return Ok(true);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::EINVAL) {
+            return Ok(false);
+        }
+        Err(os_error(path, error))
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+mod v4l2 {
+    use maker_connect_gcode_metadata::py::PyErr;
+
+    pub(super) fn is_a_capture_device(_path: &str) -> Result<bool, PyErr> {
+        Ok(true)
+    }
 }
 
 fn init(_state: &mut DriverState) -> Box<dyn DriverImpl> {
@@ -240,6 +333,36 @@ impl Shared {
         }
     }
 }
+
+impl Shared {
+    /// Ours (owner, 2026-11-23, "1, wachten op het eerste frame"): the first frame of a stream, or the
+    /// camera's error, or `TimeoutError` after `timeout`. A Logitech C270 on .67 gave its first frame
+    /// 1.8 to 3.5 s after the stream started, and the SDK's first photo right after `connect`
+    /// (`camera_configurator.py:350-352`) waits `CAMERA_WAIT_TIMEOUT` (3 s).
+    fn first_frame(&self, timeout: Duration) -> Result<(), PyErr> {
+        let deadline = Instant::now() + timeout;
+        let mut held = self.held.lock().unwrap();
+        loop {
+            if let Some(error) = &held.error {
+                return Err(PyErr::Other("OSError", error.clone()));
+            }
+            if held.seq > 0 {
+                return Ok(());
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(PyErr::Other(
+                    "TimeoutError",
+                    "The camera gave no first frame".into(),
+                ));
+            }
+            held = self.arrived.wait_timeout(held, left).unwrap().0;
+        }
+    }
+}
+
+/// Ours: how long `connect` waits for a camera's first frame (see [`Shared::first_frame`]).
+const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// One nokhwa capture of one camera: a thread reading it all the time, holding the newest frame.
 struct Capture {
@@ -318,7 +441,15 @@ impl DriverImpl for NokhwaDriver {
                 ),
             ));
         }
-        *self.capture.lock().unwrap() = Some(Capture::start(camera)?);
+        let capture = Capture::start(camera)?;
+        // ours: connected once the camera gives frames (Shared::first_frame)
+        if let Err(error) = capture.shared.first_frame(FIRST_FRAME_TIMEOUT) {
+            if let Err(stop) = capture.stop() {
+                log::error!("Camera {} could not be closed\n{stop}", driver.camera_id());
+            }
+            return Err(error);
+        }
+        *self.capture.lock().unwrap() = Some(capture);
         Ok(())
     }
 
@@ -465,6 +596,27 @@ mod tests {
             c
         }));
         assert!(CameraDriver::make_hash(&id).is_ok());
+    }
+
+    #[test]
+    fn first_frame_waits_for_the_first_and_times_out() {
+        let shared = Arc::new(Shared {
+            held: Mutex::new(Held::default()),
+            arrived: Condvar::new(),
+            stop: AtomicBool::new(false),
+        });
+        assert!(matches!(
+            shared.first_frame(Duration::from_millis(50)),
+            Err(PyErr::Other("TimeoutError", _))
+        ));
+        let writer = shared.clone();
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            writer.held.lock().unwrap().seq = 1;
+            writer.arrived.notify_all();
+        });
+        assert!(shared.first_frame(Duration::from_secs(5)).is_ok());
+        t.join().unwrap();
     }
 
     #[test]

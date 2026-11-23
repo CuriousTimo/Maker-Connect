@@ -413,7 +413,10 @@ fn head(
         };
         let pct = |label: &str, key: &str, icon: &str, v: Option<f32>| {
             format!(
-                r#"<span class="st val" title="{label}" aria-label="{label}">{icon}<b data-live="{key}">{}</b></span>"#,
+                // Hidden while the machine does not tell it (a Marlin: OctoPrint reads no M220/M221);
+                // machine.js shows it once it does.
+                r#"<span class="st val" title="{label}" aria-label="{label}"{}>{icon}<b data-live="{key}">{}</b></span>"#,
+                if v.is_none() { " hidden" } else { "" },
                 v.map_or("–".to_owned(), |v| format!("{v} %"))
             )
         };
@@ -2142,8 +2145,9 @@ fn printer_pad() -> String {
 fn factor_inputs(t: Option<&maker_connect_protocol::Telemetry>) -> String {
     let field = |name: &str, label: &str, value: Option<f32>, min: u32, max: u32| {
         format!(
-            r#"<label class="heat-set"><span>{label}</span><input type="number" name="{name}" value="{:.0}" min="{min}" max="{max}" step="1" inputmode="numeric" aria-label="{label} in percent"><small>%</small><button name="action" value="set-{name}" class="ghost">Set</button></label>"#,
-            value.unwrap_or(100.0)
+            r#"<label class="heat-set"><span>{label}</span><input type="number" name="{name}" value="{}" min="{min}" max="{max}" step="1" inputmode="numeric" aria-label="{label} in percent"><small>%</small><button name="action" value="set-{name}" class="ghost">Set</button></label>"#,
+            // Empty when the machine does not tell it: a 100 here would claim what is not known.
+            value.map_or(String::new(), |v| format!("{v:.0}"))
         )
     };
     format!(

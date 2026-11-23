@@ -37,6 +37,10 @@ image = { version = "0.25", default-features = false }
 # for the thread that reads it.
 nokhwa = { version = "=0.10.11", default-features = false, features = ["input-native", "camera-sync-impl"] }
 
+# `_scan`'s capture-device filter of PrusaLink's V4L2 driver (`VIDIOC_QUERYCAP`, `VIDIOC_ENUM_FMT`).
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 # The laser's commands tested against LaserFoundry's simulated GRBL (`laser.rs`).
 maker-connect-grbl = { path = "../grbl" }

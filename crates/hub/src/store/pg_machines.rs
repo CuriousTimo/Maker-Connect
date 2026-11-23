@@ -815,6 +815,11 @@ impl Store {
 
     /// Whether a machine is a laser (by its kind, without loading the whole machine).
     pub async fn is_laser(&self, space: i64, machine: &str) -> sqlx::Result<bool> {
+        Ok(self.kind_of(space, machine).await? == Some(MachineKind::Laser))
+    }
+
+    /// A machine's kind, without loading the whole machine; None when it is not in the space.
+    pub async fn kind_of(&self, space: i64, machine: &str) -> sqlx::Result<Option<MachineKind>> {
         let mut tx = self.pg().space(space).await?;
         let kind = sqlx::query_scalar!(
             "SELECT kind FROM machines WHERE id = $1 AND space_id = $2",
@@ -824,9 +829,7 @@ impl Store {
         .fetch_optional(&mut *tx)
         .await?;
         tx.commit().await?;
-        Ok(kind
-            .and_then(|k| serde_json::from_str::<MachineKind>(&k).ok())
-            .is_some_and(|k| k == MachineKind::Laser))
+        Ok(kind.and_then(|k| serde_json::from_str::<MachineKind>(&k).ok()))
     }
 
     /// A Marlin printer's bed as its space says it (None: not known). Returns whether the machine
@@ -916,8 +919,9 @@ impl Store {
         space: i64,
     ) -> Result<(Vec<Machine>, JobFacts), BoxError> {
         let mut tx = self.pg().space(space).await?;
+        // An agent's cameras device is no machine (`MachineKind::Cameras`): its cameras are listed.
         let rows: Vec<MachineRow> = sqlx::query_as(machine_select!(
-            "WHERE space_id = $1 ORDER BY name COLLATE \"C\""
+            "WHERE space_id = $1 AND kind <> '\"cameras\"' ORDER BY name COLLATE \"C\""
         ))
         .bind(space)
         .fetch_all(&mut *tx)

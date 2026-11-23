@@ -25,6 +25,7 @@ use maker_connect_engine::{
 // The nokhwa camera driver (#94) is not on the SDK's configurator yet: nothing calls it from `main`.
 #[allow(dead_code)]
 mod camera;
+mod cameras;
 mod deck;
 mod laser;
 mod marlin;
@@ -68,10 +69,18 @@ enum Kind {
     Marlin,
     /// A GRBL laser (`docs/design/prusa-sdk-extension.md`, part 4).
     Laser,
+    /// The agent's USB cameras (`docs/design/prusa-sdk-extension.md`, part 5, `maker-connect.cameras`).
+    Cameras,
 }
 
 impl Kind {
-    const ALL: [Kind; 4] = [Kind::Pnp, Kind::Lw450, Kind::Marlin, Kind::Laser];
+    const ALL: [Kind; 5] = [
+        Kind::Pnp,
+        Kind::Lw450,
+        Kind::Marlin,
+        Kind::Laser,
+        Kind::Cameras,
+    ];
 
     /// Its type on the wire (`docs/design/prusa-sdk-extension.md`, parts 2 and 3).
     fn printer_type(self) -> &'static str {
@@ -80,6 +89,7 @@ impl Kind {
             Kind::Lw450 => "dymo.labelwriter-450",
             Kind::Marlin => "marlin.fdm",
             Kind::Laser => "grbl.laser",
+            Kind::Cameras => "maker-connect.cameras",
         }
     }
 
@@ -90,15 +100,18 @@ impl Kind {
             Kind::Lw450 => "labelwriter-450",
             Kind::Marlin => "marlin",
             Kind::Laser => "laser",
+            Kind::Cameras => "cameras",
         }
     }
 
     fn title(self) -> &'static str {
         match self {
             Kind::Pnp => "DYMO LabelManager PnP",
-            Kind::Lw450 => "DYMO LabelWriter 450",
+            // Owner, 2026-11-23: the models it drives (#209); the wire type stays `dymo.labelwriter-450`.
+            Kind::Lw450 => "DYMO LabelWriter 450 · 450 Turbo · 450 DUO",
             Kind::Marlin => "Marlin printer",
             Kind::Laser => "GRBL laser",
+            Kind::Cameras => "Cameras",
         }
     }
 
@@ -121,6 +134,8 @@ impl Kind {
             Kind::Marlin => &["type.string", "agent.id", "marlin.fdm", "gcode.output"],
             // Part 4: its telemetry and its commands (#171).
             Kind::Laser => &["type.string", "agent.id", "grbl.telemetry", "grbl.commands"],
+            // Part 5: no telemetry keys and no commands of its own.
+            Kind::Cameras => &["type.string", "agent.id"],
         }
     }
 
@@ -151,6 +166,8 @@ impl Kind {
                 LaserFoundryPort::new(Some(marlin_port_name(s)??), None)
                     .with_machine_state_hook(hook),
             ),
+            // Part 5: its cameras are the SDK's, not a port of the engine (`cameras.rs`).
+            Kind::Cameras => return None,
         })
     }
 }
@@ -410,6 +427,8 @@ struct Agent {
     hub: Mutex<HubLink>,
     /// What a Marlin's screen shows (#189), kept by `marlin::show`.
     lcd: LcdInputs,
+    /// The cameras device's running cameras while its module is on (part 5, `cameras.rs`).
+    cameras: Mutex<Option<cameras::Cameras>>,
 }
 
 /// Since when the hub takes this device's telemetry, and when it last did.
@@ -458,6 +477,7 @@ impl Agent {
             label: Mutex::new(None),
             print_end: Mutex::new(None),
             lcd: Arc::new(Mutex::new(marlin::lcd_inputs())),
+            cameras: Mutex::new(None),
         }
     }
 
@@ -502,8 +522,23 @@ impl Agent {
         h
     }
 
-    /// Turn the device's module on: its port in the engine.
-    fn module_on(&self) {
+    /// Whether the device's module runs: its port in the engine, or the cameras device's cameras.
+    fn module_running(&self) -> bool {
+        match self.kind {
+            Kind::Cameras => self.cameras.lock().unwrap().is_some(),
+            _ => self.dymo.lock().unwrap().is_some(),
+        }
+    }
+
+    /// Turn the device's module on: its port in the engine; the cameras device's cameras.
+    fn module_on(self: &Arc<Self>) {
+        if self.kind == Kind::Cameras {
+            let mut cameras = self.cameras.lock().unwrap();
+            if cameras.is_none() {
+                *cameras = cameras::Cameras::start(self);
+            }
+            return;
+        }
         let mut dymo = self.dymo.lock().unwrap();
         if dymo.is_none() {
             let told = self.machine_state.clone();
@@ -516,6 +551,9 @@ impl Agent {
     }
 
     fn module_off(&self) {
+        if let Some(cameras) = self.cameras.lock().unwrap().take() {
+            cameras.stop();
+        }
         if let Some(id) = self.dymo.lock().unwrap().take() {
             let _ = self.engine.lock().unwrap().remove(id);
         }
@@ -684,7 +722,7 @@ fn setup_link(agent: &Arc<Agent>) {
     }
     // A laser takes no download yet (#163): its jobs come with #164.
     #[cfg(unix)]
-    if agent.kind != Kind::Laser {
+    if !matches!(agent.kind, Kind::Laser | Kind::Cameras) {
         setup_download(agent, &command, event_cb);
     }
     let incoming = command.clone();
@@ -727,6 +765,7 @@ fn setup_download(agent: &Arc<Agent>, command: &Command, event_cb: EventCallback
     let storage = match agent.kind {
         Kind::Marlin => marlin::STORAGE,
         Kind::Pnp | Kind::Lw450 | Kind::Laser => "labels",
+        Kind::Cameras => unreachable!("the cameras device takes no download (setup_link)"),
     };
     storage_dict.insert(
         storage.to_owned(),
@@ -969,7 +1008,7 @@ fn start_connect_download(agent: &Agent, cmd: &Command) -> Result<Finish, Handle
     let media = match agent.kind {
         Kind::Pnp => (kwargs["tape_size_mm"].as_u64().map(|t| t as u32), None),
         Kind::Lw450 => (None, kwargs["page_size"].as_str().map(str::to_owned)),
-        Kind::Marlin | Kind::Laser => (None, None),
+        Kind::Marlin | Kind::Laser | Kind::Cameras => (None, None),
     };
     let mgr = agent
         .download
@@ -1223,6 +1262,10 @@ fn set_state(agent: &Agent, state: State, reason: Option<&str>) {
 }
 
 fn current_state(agent: &Agent) -> State {
+    // Part 5: `IDLE` while its module is on; that state is ours, it prints nothing.
+    if agent.kind == Kind::Cameras {
+        return State::Idle;
+    }
     let report = agent
         .dymo
         .lock()
@@ -1272,6 +1315,35 @@ fn stop_print(agent: &Agent) -> Result<Finish, HandlerError> {
     Ok(Finish::new(Source::Connect))
 }
 
+/// The cameras device's turn of the link loop (part 5): registration, then `IDLE` with no keys of its
+/// own while its module is on. Its cameras register themselves (`cameras.rs`).
+fn cameras_link(agent: &Arc<Agent>, server: &str, s: &Settings) {
+    if !agent.module_running() {
+        agent.hub_seen(false);
+        agent.set_status("the module is off");
+        return;
+    }
+    if s.token.is_empty() {
+        agent.hub_seen(false);
+        register(agent, server, s);
+        return;
+    }
+    let mut kwargs = Kwargs::new();
+    if let Some(cmd) = agent.command.lock().unwrap().as_ref()
+        && cmd.state().is_some()
+    {
+        kwargs.insert("command_id".into(), cmd.command_id().into());
+    }
+    let telemetry = maker_connect_sdk::models::Telemetry::new(current_state(agent), None, kwargs);
+    let sent = agent.send(&telemetry.to_payload());
+    agent.hub_seen(sent);
+    agent.set_status(if sent {
+        "linked to the hub"
+    } else {
+        "the hub cannot be reached"
+    });
+}
+
 /// Registration, then telemetry once a second while the DYMO is there.
 fn link_loop(agent: &Arc<Agent>) {
     loop {
@@ -1284,6 +1356,10 @@ fn link_loop(agent: &Arc<Agent>) {
         };
         if agent.kind == Kind::Marlin {
             marlin::show(agent);
+        }
+        if agent.kind == Kind::Cameras {
+            cameras_link(agent, &server, &s);
+            continue;
         }
         let Some(id) = *agent.dymo.lock().unwrap() else {
             agent.hub_seen(false);
@@ -1335,6 +1411,7 @@ fn link_loop(agent: &Arc<Agent>) {
             Kind::Marlin => !marlin::present(&report),
             Kind::Laser => !laser::present(&report),
             Kind::Pnp | Kind::Lw450 => !report.connected,
+            Kind::Cameras => unreachable!("the cameras device has its own turn (cameras_link)"),
         };
         if gone {
             agent.hub_seen(false);
@@ -1364,6 +1441,7 @@ fn link_loop(agent: &Arc<Agent>) {
             Kind::Laser => {
                 laser::telemetry(&report.telemetry, *agent.machine_state.lock().unwrap())
             }
+            Kind::Cameras => unreachable!("the cameras device has its own turn (cameras_link)"),
         };
         if let Some(cmd) = agent.command.lock().unwrap().as_ref()
             && cmd.state().is_some()
@@ -1531,6 +1609,8 @@ fn web(devices: &[Arc<Agent>], listen: &str) {
             // back to the tab the form is on: Settings for the hub and WireGuard
             let back: &[u8] = if matches!(path.as_str(), "/hub" | "/wireguard") {
                 b"/settings"
+            } else if device.is_some_and(|d| d.kind == Kind::Cameras) {
+                b"/cameras"
             } else {
                 b"/"
             };
@@ -1546,6 +1626,8 @@ fn web(devices: &[Arc<Agent>], listen: &str) {
         }
         let html = if path == "/about" {
             about_page(devices)
+        } else if path == "/cameras" {
+            cameras_page(devices)
         } else if path == "/settings" {
             settings_page(devices)
         } else {
@@ -1601,7 +1683,7 @@ fn esc(t: &str) -> String {
 /// on carries its port and baud rate, chosen while it is off (OctoPrint's Connection panel,
 /// `connection.py`, with Connect as Turn on: owner, 2026-11-23, no Disconnect on the agent); its
 /// port opens with the module and closes with it.
-fn set_module(agent: &Agent, form: &std::collections::HashMap<String, String>) {
+fn set_module(agent: &Arc<Agent>, form: &std::collections::HashMap<String, String>) {
     let on = form.get("on").is_some_and(|v| v == "1");
     {
         let mut s = agent.settings.lock().unwrap();
@@ -1720,9 +1802,14 @@ fn device_card(agent: &Agent) -> String {
     };
     let what = match agent.kind {
         Kind::Pnp => "Tape printer · USB",
-        Kind::Lw450 => "Label printer · USB",
+        // dymo-cups-drivers 1.4.0: one driver class and the same PPD sizes for the three
+        // (`raster2dymolw.cpp:92-98`); only the 450 tested.
+        Kind::Lw450 => {
+            "Label printer · USB · Tested: 450. Same driver, not tested: 450 Turbo, 450 DUO (labels)"
+        }
         Kind::Marlin => "3D printer · USB",
         Kind::Laser => "Laser · USB",
+        Kind::Cameras => "Cameras · USB",
     };
     // a Marlin or a laser: its port chosen while off, in the Turn on form; shown while on (#191)
     let (fields, port_row) = match (agent.kind.serial(), on) {
@@ -1959,25 +2046,40 @@ const LIVE_JS: &str = r#"(()=>{const shape=document.body.dataset.shape;const es=
 
 /// The agent's page around `main` (mockup `docs/design/ui/mockups/agent.html`): the header, the
 /// agent's head with its link to the hub, a banner when the hub cannot be reached, the tabs
-/// (Devices, About); the hub's stylesheet and components only.
+/// (Devices, Cameras when the agent has the cameras device, Settings, About); the hub's stylesheet and
+/// components only.
 fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
-    let tabs: String = [
+    let mut tabs = vec![
         // the devices turned on (owner, 2026-11-23: only the Marlin hangs on it, not 4)
-        ("/", "Devices", Some(devices_on(devices))),
+        (
+            "/",
+            "Devices",
+            Some(
+                devices
+                    .iter()
+                    .filter(|d| d.kind != Kind::Cameras && d.settings().on)
+                    .count(),
+            ),
+        ),
         ("/settings", "Settings", None),
         ("/about", "About", None),
-    ]
-    .iter()
-    .map(|(href, name, count)| {
-        let current = if *name == tab {
-            r#" aria-current="page""#
-        } else {
-            ""
-        };
-        let count = count.map_or(String::new(), |n| format!("<small>&nbsp;{n}</small>"));
-        format!(r#"<a href="{href}"{current}>{name}{count}</a>"#)
-    })
-    .collect();
+    ];
+    // the cameras in a tab of their own (owner, 2026-11-23: "cameras horen in de agent in een eigen tab")
+    if devices.iter().any(|d| d.kind == Kind::Cameras) {
+        tabs.insert(1, ("/cameras", "Cameras", None));
+    }
+    let tabs: String = tabs
+        .iter()
+        .map(|(href, name, count)| {
+            let current = if *name == tab {
+                r#" aria-current="page""#
+            } else {
+                ""
+            };
+            let count = count.map_or(String::new(), |n| format!("<small>&nbsp;{n}</small>"));
+            format!(r#"<a href="{href}"{current}>{name}{count}</a>"#)
+        })
+        .collect();
     let (state, class) = agent_state(devices);
     let banner = banner(devices).1;
     let computer = maker_connect_system::computer();
@@ -2190,6 +2292,7 @@ fn deck_snapshot(devices: &[Arc<Agent>]) -> deck::Snapshot {
                         Kind::Lw450 => "LW450",
                         Kind::Marlin => "Marlin",
                         Kind::Laser => "Laser",
+                        Kind::Cameras => "Cams",
                     },
                     title: d.kind.title(),
                     state: c.state,
@@ -2241,12 +2344,30 @@ fn devices_on(devices: &[Arc<Agent>]) -> usize {
 /// height (owner, 2026-11-23: "allerlei info op verschillende hoogtes", "de tegels zijn juist
 /// goed").
 fn page(devices: &[Arc<Agent>]) -> String {
-    let mut cards: Vec<String> = devices.iter().map(|d| device_card(d)).collect();
+    let mut cards: Vec<String> = devices
+        .iter()
+        .filter(|d| d.kind != Kind::Cameras)
+        .map(|d| device_card(d))
+        .collect();
     if let Some(deck) = DECK.get() {
         cards.push(deck_card(deck));
     }
     let main = format!("<div class=\"grid devices\">\n{}\n</div>", cards.join("\n"));
     layout(devices, "Devices", &main)
+}
+
+/// The Cameras tab (owner, 2026-11-23: "cameras horen in de agent in een eigen tab"): the cameras
+/// device's card. A camera is set up in the hub (Space → Cameras), not here.
+fn cameras_page(devices: &[Arc<Agent>]) -> String {
+    let cards: String = devices
+        .iter()
+        .filter(|d| d.kind == Kind::Cameras)
+        .map(|d| device_card(d))
+        .collect();
+    let main = format!(
+        "<div class=\"grid devices\">\n{cards}\n</div>\n<p class=muted>A camera is set up in the hub, under Space → Cameras.</p>"
+    );
+    layout(devices, "Cameras", &main)
 }
 
 /// The Settings tab (owner, 2026-11-23: "WireGuard en Hub IP horen in een eigen setting tab"): the
@@ -2622,6 +2743,7 @@ mod tests {
                 ("labelwriter-450", "dymo.labelwriter-450"),
                 ("marlin", "marlin.fdm"),
                 ("laser", "grbl.laser"),
+                ("cameras", "maker-connect.cameras"),
             ]
         );
     }

@@ -381,7 +381,9 @@ for (const form of document.querySelectorAll("form[data-pair]")) form.addEventLi
   button.removeAttribute("aria-busy");
   if (r.ok) {{
     const m = await r.json();
-    out.innerHTML = `<div class="banner ok"><span><b>${{escapeHtml(m.name)}} is added</b> and reports to the hub. Its first values come in now.</span><span class="fw"><a class="btn small" href="${{encodeURIComponent(m.id)}}">Open ${{escapeHtml(m.name)}}</a></span></div>`;
+    out.innerHTML = m.cameras
+      ? `<div class="banner ok"><span><b>${{escapeHtml(m.name)}} is added.</b> Its cameras show up in Cameras, where you link each to a machine or a room.</span><span class="fw"><a class="btn small" href="../space/cameras">Open Cameras</a></span></div>`
+      : `<div class="banner ok"><span><b>${{escapeHtml(m.name)}} is added</b> and reports to the hub. Its first values come in now.</span><span class="fw"><a class="btn small" href="${{encodeURIComponent(m.id)}}">Open ${{escapeHtml(m.name)}}</a></span></div>`;
     form.reset();
   }} else if (r.status === 404) {{
     out.innerHTML = '<div class="banner bad"><span><b>That code is not waiting here.</b> It may have expired: the printer or the agent shows a new one; enter that one.</span></div>';

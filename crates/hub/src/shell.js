@@ -180,7 +180,7 @@
       const s = shownState(m);
       const p = s.cls === "busy" ? progressOf(m) : null;
       const sub = p ? `${p.pct} %` : s.text.toLowerCase();
-      return `<a href="${ROOT}machines/${encodeURIComponent(m.id)}"${m.id === here ? ' aria-current="page"' : ""}><span>${escapeHtml(m.name)}</span><small class="num">${escapeHtml(sub)}</small></a>`;
+      return `<a href="${ROOT}machines/${encodeURIComponent(m.id)}"${m.id === here ? ' aria-current="page"' : ""}${p ? ` class="pct" style="${p.style}"` : ""}><span>${escapeHtml(m.name)}</span><small class="num">${escapeHtml(sub)}</small></a>`;
     }).join("") : `<small class="muted">None yet</small>`;
   }
   // A page without a live list of its own keeps the sidebar current from the machines' stream.

@@ -93,11 +93,21 @@ pub(crate) struct CommandForm {
     nozzle: Option<f64>,
     #[serde(default)]
     bed: Option<f64>,
-    /// The speed and flow factors typed (%).
-    #[serde(default)]
+    /// The speed and flow factors typed (%); empty when the machine does not tell them and
+    /// nobody typed one (the form sends `speed=`, which must not refuse the form's other buttons).
+    #[serde(default, deserialize_with = "blank_is_none")]
     speed: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "blank_is_none")]
     flow: Option<f64>,
+}
+
+/// A number field of the form: empty (or only spaces) is `None`, else the number it holds.
+fn blank_is_none<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<f64>, D::Error> {
+    let text: Option<String> = serde::Deserialize::deserialize(d)?;
+    match text.as_deref().map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(n) => n.parse().map(Some).map_err(serde::de::Error::custom),
+    }
 }
 
 /// A speed or flow factor someone typed, as G-code: whole percents in a range a print
@@ -495,6 +505,31 @@ mod tests {
             Some(Err(_))
         ));
         assert_eq!(factor_command("set-bed", None, None), None);
+    }
+
+    /// An empty speed field (the machine does not tell it) does not refuse the form: its other
+    /// buttons still work, and Set on the empty field asks for a percentage.
+    #[tokio::test]
+    async fn an_empty_factor_field_is_none() {
+        use axum::extract::{Form, FromRequest};
+        let form = |body: &'static str| async move {
+            let request = axum::http::Request::post("/")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(axum::body::Body::from(body))
+                .unwrap();
+            Form::<CommandForm>::from_request(request, &())
+                .await
+                .map(|Form(f)| f)
+        };
+        let f = form("action=set-flow&speed=&flow=120").await.ok().unwrap();
+        assert_eq!((f.speed, f.flow), (None, Some(120.0)));
+        let f = form("action=cooldown&speed=+&flow=").await.ok().unwrap();
+        assert_eq!((f.speed, f.flow), (None, None));
+        assert!(form("action=set-speed&speed=fast").await.is_err());
+        assert!(matches!(
+            factor_command("set-speed", f.speed, f.flow),
+            Some(Err(_))
+        ));
     }
 
     /// "Set speed" sends M220 S with whole percents from 10 to 300.

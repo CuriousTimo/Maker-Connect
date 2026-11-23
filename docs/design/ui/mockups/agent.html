@@ -24,14 +24,14 @@
   <span class="fw"><button type="button" class="theme" data-theme-btn aria-label="Theme: Auto">Auto</button></span>
 </header>
 <main id="main" tabindex="-1" class="solo">
-<p class="anno">The agent's own page, on the computer beside the machines (:8470); no sign-in, no sidebar; three tabs: Devices, Settings, About. The hub's mc.css and components only (ui.md "The visual system"); the hub's page leads.</p>
+<p class="anno">The agent's own page, on the computer beside the machines (:8470); no sign-in, no sidebar; four tabs: Devices, Cameras (the cameras device's card; owner 2026-11-23: "cameras horen in de agent in een eigen tab"), Settings, About. The hub's mc.css and components only (ui.md "The visual system"); the hub's page leads.</p>
 
 <div class="card"><div class="head"><h1>This agent</h1><span class="st wait">Connected to the hub</span><span class="st val" title="The hub is reached through this agent's WireGuard tunnel"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1 2 3.2v4.1c0 3.5 2.5 6.6 6 7.7 3.5-1.1 6-4.2 6-7.7V3.2L8 1zm0 4.2a1.6 1.6 0 0 1 .8 3v2.4H7.2V8.2A1.6 1.6 0 0 1 8 5.2z"/></svg>WireGuard</span></div>
 <p class="muted">orangepipc · Linux, arm · 2 of 4 devices on · release v0.3.0</p>
 <span class="anno">the WireGuard mark only while the hub is reached through the agent's own tunnel (#194; owner 2026-11-23: "als het via een wireguard is -> this agent -> een VPN icon/logo"); "2 of 4 devices on": the devices turned on (owner: "er staat een aantal van 4. maar alleen de marlin printer hangt er aan")</span></div>
 
 <div class="tabs" role="tablist" aria-label="This agent">
-<a href="#devices" role="tab" id="t-devices" aria-controls="devices">Devices <small>&nbsp;2</small></a><a href="#settings" role="tab" id="t-settings" aria-controls="settings">Settings</a><a href="#about" role="tab" id="t-about" aria-controls="about">About</a>
+<a href="#devices" role="tab" id="t-devices" aria-controls="devices">Devices <small>&nbsp;2</small></a><a href="#cameras" role="tab" id="t-cameras" aria-controls="cameras">Cameras</a><a href="#settings" role="tab" id="t-settings" aria-controls="settings">Settings</a><a href="#about" role="tab" id="t-about" aria-controls="about">About</a>
 </div>
 
 <section id="devices" role="tabpanel" aria-labelledby="t-devices">
@@ -63,6 +63,17 @@
 <div class="row btns"><span class="fw"><button class="btn" type="button">Turn off</button></span></div>
 <span class="anno">registration by code (`/p/register`), as Add machine has it</span></div>
 </div>
+</section>
+
+<section id="cameras" role="tabpanel" aria-labelledby="t-cameras" hidden>
+<div class="grid devices">
+<div class="card"><div class="head"><h2>Cameras</h2><span class="st wait">Connected</span></div>
+<p class="muted">Cameras · USB</p><div></div>
+<dl class="kv"><dt>Hub</dt><dd>connected for 2 min · last contact now</dd><dt>Printer</dt><dd>linked to the hub</dd><dt>Registered</dt><dd>yes</dd></dl><div></div>
+<div class="row btns"><span class="fw"><button class="btn" type="button">Turn off</button></span><span class="fw"><button class="btn ghost" type="button">Reset registration…</button></span></div></div>
+</div>
+<p class="muted">A camera is set up in the hub, under Space → Cameras.</p>
+<span class="anno">only the cameras device's card; no camera settings on the agent (owner 2026-11-23: a camera is set up in the hub like any other camera)</span>
 </section>
 
 <section id="settings" role="tabpanel" aria-labelledby="t-settings" hidden>
