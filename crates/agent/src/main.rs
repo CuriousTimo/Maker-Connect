@@ -1515,8 +1515,14 @@ fn web(devices: &[Arc<Agent>], listen: &str) {
                 }
                 _ => {}
             }
+            // back to the tab the form is on: Settings for the hub and WireGuard
+            let back: &[u8] = if matches!(path.as_str(), "/hub" | "/wireguard") {
+                b"/settings"
+            } else {
+                b"/"
+            };
             let response = tiny_http::Response::empty(303)
-                .with_header(tiny_http::Header::from_bytes(&b"Location"[..], &b"/"[..]).unwrap());
+                .with_header(tiny_http::Header::from_bytes(&b"Location"[..], back).unwrap());
             let _ = request.respond(response);
             continue;
         }
@@ -1527,6 +1533,8 @@ fn web(devices: &[Arc<Agent>], listen: &str) {
         }
         let html = if path == "/about" {
             about_page(devices)
+        } else if path == "/settings" {
+            settings_page(devices)
         } else {
             page(devices)
         };
@@ -1938,6 +1946,7 @@ const LIVE_JS: &str = r#"(()=>{const shape=document.body.dataset.shape;const es=
 fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
     let tabs: String = [
         ("/", "Devices", Some(devices.len())),
+        ("/settings", "Settings", None),
         ("/about", "About", None),
     ]
     .iter()
@@ -2194,22 +2203,44 @@ fn deck_card(deck: &deck::Deck) -> String {
 }
 
 fn page(devices: &[Arc<Agent>]) -> String {
-    // The hub's address is the same in every device's settings file (the form writes all).
-    let s = devices[0].settings();
     let mut cards: Vec<String> = devices.iter().map(|d| device_card(d)).collect();
-    if let Some(wg) = WG.get() {
-        cards.push(wg_card(wg));
-    }
     if let Some(deck) = DECK.get() {
         cards.push(deck_card(deck));
     }
+    let main = format!("<div class=grid>\n{}\n</div>", cards.join("\n"));
+    layout(devices, "Devices", &main)
+}
+
+/// The Settings tab (owner, 2026-11-23: "WireGuard en Hub IP horen in een eigen setting tab"): the
+/// hub's address, and WireGuard (#194).
+fn settings_page(devices: &[Arc<Agent>]) -> String {
+    // The hub's address is the same in every device's settings file (the form writes all).
+    let s = devices[0].settings();
     let (hub_state, hub_class) = hub_state(devices);
     let devices_text = hub_devices(devices);
-    let address = s.server().map_or("not set".to_owned(), |a| esc(&a));
+    // the address as entered (not the tunnel's local port while WireGuard runs)
+    let address = if s.hostname.is_empty() {
+        "not set".to_owned()
+    } else {
+        let plain = format!(
+            "{}{}{}",
+            if s.tls { "https://" } else { "http://" },
+            esc(&s.hostname),
+            if s.port == 0 {
+                String::new()
+            } else {
+                format!(":{}", s.port)
+            }
+        );
+        if wireguard::local_hub().is_some() {
+            format!("{plain} · through WireGuard")
+        } else {
+            plain
+        }
+    };
+    let wg = WG.get().map(|wg| wg_card(wg)).unwrap_or_default();
     let main = format!(
         r#"<div class=cols><div>
-{cards}
-</div><div>
 <div class=card><div class=head><h2>Hub</h2><span class="st {hub_class}" data-live="hub.state">{hub_state}</span></div>
 <dl class=kv><dt>Address</dt><dd>{address}</dd><dt>Devices</dt><dd data-live="hub.devices">{devices_text}</dd></dl>
 <details{open} style="margin-top:var(--s-3)"><summary>Change the address</summary><form method=post action=/hub style="margin-top:var(--s-3)">
@@ -2217,8 +2248,10 @@ fn page(devices: &[Arc<Agent>]) -> String {
 <label class=field style="flex:0 1 7rem">Port<input name=port inputmode=numeric value="{port}" placeholder="8460"></label></div>
 <label class=check><input type=checkbox name=tls {tls}> TLS</label>
 <div class="row btns"><span class=fw><button class="btn primary">Save</button></span></div></form></details></div>
+</div><div>
+{wg}
 </div></div>"#,
-        open = if s.server().is_none() { " open" } else { "" },
+        open = if s.hostname.is_empty() { " open" } else { "" },
         host = esc(&s.hostname),
         port = if s.port == 0 {
             String::new()
@@ -2226,9 +2259,8 @@ fn page(devices: &[Arc<Agent>]) -> String {
             s.port.to_string()
         },
         tls = if s.tls { "checked" } else { "" },
-        cards = cards.join("\n"),
     );
-    layout(devices, "Devices", &main)
+    layout(devices, "Settings", &main)
 }
 
 /// The About tab (mockup `agent.html#about`): the agent, its load, the computer; the same rows as

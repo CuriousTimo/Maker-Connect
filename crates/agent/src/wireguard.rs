@@ -6,10 +6,12 @@
 //! the agent's page). While it runs, every device's hub address is that local port
 //! ([`local_hub`]), so the devices' HTTP and WebSocket go through the tunnel unchanged.
 //!
-//! Ours, the agent's UI and its own plumbing only (nothing on the wire beyond onetun's): the local
+//! Ours, the agent's UI and its own plumbing only (nothing on the wire beyond onetun's; owner,
+//! 2026-11-23: "akkoord met 1 t/m 7"): the local
 //! port `127.0.0.1:18460` (the issue's example); the settings file `wireguard/wireguard.ini`; the
 //! card; a thread with one current-thread tokio runtime per tunnel; the tunnel's numbers read once a
-//! second for the card. The agent's key pair is made once, from the system's random source
+//! second for the card; a hub address without a port taken as port 80, as elsewhere on the
+//! agent's page; a `/32` after the tunnel address left off. The agent's key pair is made once, from the system's random source
 //! (`getrandom`), and kept in that file; the private key is never shown.
 
 use maker_connect_wireguard::config::{
