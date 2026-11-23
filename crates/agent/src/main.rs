@@ -146,10 +146,12 @@ impl Kind {
     }
 }
 
-/// A Marlin's chosen USB device is not plugged in, or cannot be told from another of its kind.
-const NOT_THERE: &str = "the chosen serial port is not there: choose it and connect";
+/// A Marlin's chosen USB device is not plugged in, or cannot be told from another of its kind
+/// (ours, the agent's page only).
+const NOT_THERE: &str =
+    "the chosen serial port is not there: plug it in, or turn off and choose it";
 
-/// The connection form's value for "the chosen port that is not there": keep it.
+/// The port field's value for "the chosen port that is not there": keep it.
 const KEEP: &str = "KEEP";
 
 /// The name to open a Marlin's port by: AUTO (`None` inside), the chosen USB device's name now,
@@ -1465,54 +1467,7 @@ fn web(devices: &[Arc<Agent>], listen: &str) {
                         s.save(&agent.dir);
                     }
                 }
-                ("/module", Some(agent)) => {
-                    let on = form.get("on").is_some_and(|v| v == "1");
-                    {
-                        let mut s = agent.settings.lock().unwrap();
-                        s.on = on;
-                        s.save(&agent.dir);
-                    }
-                    if on {
-                        agent.module_on();
-                    } else {
-                        agent.module_off();
-                    }
-                }
-                // A Marlin's connection (OctoPrint's Connection panel, `connection.py`): the port
-                // and baud rate are kept; Connect starts the port anew with them, also after the
-                // printer's connection closed; Disconnect stops it, as Turn off does.
-                ("/connection", Some(agent)) => {
-                    let connect = form.get("action").is_some_and(|a| a == "connect");
-                    {
-                        let mut s = agent.settings.lock().unwrap();
-                        if connect && form.get("port").is_some_and(|p| p == KEEP) {
-                            // the chosen device again (its settings stay)
-                        } else if connect {
-                            s.serial_port = form
-                                .get("port")
-                                .filter(|p| p.as_str() != "AUTO")
-                                .cloned()
-                                .unwrap_or_default();
-                            // the USB device behind the name, to find it by after a restart
-                            s.usb = serial_ports::list()
-                                .into_iter()
-                                .find(|l| l.name == s.serial_port)
-                                .and_then(|l| l.usb)
-                                .map(|u| u.to_setting())
-                                .unwrap_or_default();
-                            s.baudrate = form
-                                .get("baudrate")
-                                .and_then(|b| b.parse().ok())
-                                .unwrap_or(0);
-                        }
-                        s.on = connect;
-                        s.save(&agent.dir);
-                    }
-                    agent.module_off();
-                    if connect {
-                        agent.module_on();
-                    }
-                }
+                ("/module", Some(agent)) => set_module(agent, &form),
                 ("/reset", Some(agent)) => {
                     let mut s = agent.settings.lock().unwrap();
                     s.token.clear();
@@ -1586,6 +1541,51 @@ fn esc(t: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// Turn on / Turn off (`/module`), the same on every device (#191). A Marlin's or a laser's Turn
+/// on carries its port and baud rate, chosen while it is off (OctoPrint's Connection panel,
+/// `connection.py`, with Connect as Turn on: owner, 2026-11-23, no Disconnect on the agent); its
+/// port opens with the module and closes with it.
+fn set_module(agent: &Agent, form: &std::collections::HashMap<String, String>) {
+    let on = form.get("on").is_some_and(|v| v == "1");
+    {
+        let mut s = agent.settings.lock().unwrap();
+        if on && agent.kind.serial() {
+            choose_port(&mut s, form);
+        }
+        s.on = on;
+        s.save(&agent.dir);
+    }
+    if on {
+        agent.module_on();
+    } else {
+        agent.module_off();
+    }
+}
+
+/// The port and baud rate of a Marlin's or a laser's Turn on: the chosen device again (`KEEP`,
+/// its settings stay), or the port picked, remembered by its USB device.
+fn choose_port(s: &mut Settings, form: &std::collections::HashMap<String, String>) {
+    if form.get("port").is_none_or(|p| p == KEEP) {
+        return;
+    }
+    s.serial_port = form
+        .get("port")
+        .filter(|p| p.as_str() != "AUTO")
+        .cloned()
+        .unwrap_or_default();
+    // the USB device behind the name, to find it by after a restart
+    s.usb = serial_ports::list()
+        .into_iter()
+        .find(|l| l.name == s.serial_port)
+        .and_then(|l| l.usb)
+        .map(|u| u.to_setting())
+        .unwrap_or_default();
+    s.baudrate = form
+        .get("baudrate")
+        .and_then(|b| b.parse().ok())
+        .unwrap_or(0);
+}
+
 /// What a device's card shows that changes by itself (ours, the agent's page only): the page
 /// renders it, and `/events` sends it again whenever it changes.
 struct CardLive {
@@ -1594,7 +1594,7 @@ struct CardLive {
     hub: String,
     status: String,
     registered: String,
-    /// what the card is built of (on, registered, its code, a Marlin's connection): when it
+    /// what the card is built of (on, registered, its code): when it
     /// changes, the page is loaded again rather than patched
     shape: String,
 }
@@ -1626,7 +1626,6 @@ fn card_live(agent: &Agent) -> CardLive {
         (None, Some(last)) => format!("not connected · last contact {} ago", ago(last)),
         (None, None) => "not connected".to_owned(),
     };
-    let open = agent.kind.serial() && marlin_open(agent, &s);
     CardLive {
         state,
         class,
@@ -1634,12 +1633,11 @@ fn card_live(agent: &Agent) -> CardLive {
         status: agent.status.lock().unwrap().clone(),
         registered,
         shape: format!(
-            "{}:{}:{}:{}:{}",
+            "{}:{}:{}:{}",
             agent.kind.folder(),
             s.on,
             s.token.is_empty(),
-            code.unwrap_or_default(),
-            open
+            code.unwrap_or_default()
         ),
     }
 }
@@ -1670,66 +1668,55 @@ fn device_card(agent: &Agent) -> String {
         Kind::Marlin => "3D printer · USB",
         Kind::Laser => "Laser · USB",
     };
-    // a Marlin: its connection form above the buttons; Disconnect among them
-    let (connection, disconnect) = if agent.kind.serial() {
-        connection_form(agent, &s)
-    } else {
-        (String::new(), String::new())
+    // a Marlin or a laser: its port chosen while off, in the Turn on form; shown while on (#191)
+    let (fields, port_row) = match (agent.kind.serial(), on) {
+        (true, false) => (port_fields(agent, &s), String::new()),
+        (true, true) => (String::new(), port_row(agent, &s)),
+        _ => (String::new(), String::new()),
     };
     format!(
         r#"<div class="card{off}"><div class=head><h2>{title}</h2><span class="st {state_class}" data-live="{device}.state">{state}</span></div>
 <p class=muted>{what}</p>{code_block}
-<dl class=kv><dt>Hub</dt><dd data-live="{device}.hub">{hub}</dd><dt>Printer</dt><dd data-live="{device}.status">{status}</dd><dt>Registered</dt><dd data-live="{device}.registered">{registered}</dd></dl>
-{connection}<div class="row btns">{toggle_form}
+<dl class=kv><dt>Hub</dt><dd data-live="{device}.hub">{hub}</dd><dt>Printer</dt><dd data-live="{device}.status">{status}</dd>{port_row}<dt>Registered</dt><dd data-live="{device}.registered">{registered}</dd></dl>
+<form method=post action=/module id="module-{device}"{form_class}><input type=hidden name=device value="{device}"><input type=hidden name=on value="{toggle}">{fields}</form><div class="row btns"><span class=fw><button class="btn{toggle_class}" form="module-{device}">{button}</button></span>
 <form method=post action=/reset onsubmit="return confirm('Reset the registration of the {title}? It forgets its token: it is no longer known at the hub until it is added again with a new code.')"><input type=hidden name=device value="{device}"><span class=fw><button class="btn ghost">Reset registration…</button></span></form></div></div>"#,
         off = if on { "" } else { " is-off" },
         title = agent.kind.title(),
         device = agent.kind.folder(),
-        toggle_form = if agent.kind.serial() {
-            disconnect
-        } else {
-            format!(
-                r#"<form method=post action=/module><input type=hidden name=device value="{device}"><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form>"#,
-                device = agent.kind.folder(),
-                toggle = if on { "0" } else { "1" },
-                toggle_class = if on { "" } else { " primary" },
-                button = if on { "Turn off" } else { "Turn on" },
-            )
-        },
+        // Turn on / Turn off, the same on every device (#191)
+        form_class = if fields.is_empty() { "" } else { " class=row" },
+        toggle = if on { "0" } else { "1" },
+        toggle_class = if on { "" } else { " primary" },
+        button = if on { "Turn off" } else { "Turn on" },
         status = esc(&status),
         registered = esc(&registered),
     )
 }
 
-/// Whether a Marlin's port is open and the printer there (Disconnect, not the form).
-fn marlin_open(agent: &Agent, s: &Settings) -> bool {
-    s.on && agent
-        .dymo
-        .lock()
-        .unwrap()
-        .and_then(|id| agent.engine.lock().unwrap().report(id).ok())
-        .is_some_and(|r| match agent.kind {
-            Kind::Laser => laser::present(&r),
-            _ => marlin::present(&r),
-        })
+/// The port a Marlin or a laser was turned on with, while it is on (ours: the port chosen and,
+/// for a Marlin, the baud rate, AUTO when none).
+fn port_row(agent: &Agent, s: &Settings) -> String {
+    let port = if s.serial_port.is_empty() {
+        "AUTO".to_owned()
+    } else {
+        s.serial_port.clone()
+    };
+    let text = if agent.kind == Kind::Laser {
+        port
+    } else if s.baudrate == 0 {
+        format!("{port} · AUTO")
+    } else {
+        format!("{port} · {}", s.baudrate)
+    };
+    format!("<dt>Serial port</dt><dd>{}</dd>", esc(&text))
 }
 
-/// A Marlin's connection, as OctoPrint's Connection panel has it (`sidebar/connection.jinja2`):
-/// the serial port (AUTO first, then the ports with their USB device, `serial_ports`) and the
-/// baud rate (AUTO, then `baudrateList`), chosen while it is not connected; then Connect, or
-/// Disconnect while it is. The form to go above the card's buttons, and the button to go among
-/// them.
-fn connection_form(agent: &Agent, s: &Settings) -> (String, String) {
+/// A Marlin's port and baud rate as OctoPrint's Connection panel has them
+/// (`sidebar/connection.jinja2`): the serial port (AUTO first, then the ports with their USB
+/// device, `serial_ports`) and the baud rate (AUTO, then `baudrateList`), chosen while it is off;
+/// Turn on stands in for Connect (#191). The fields of the Turn on form.
+fn port_fields(agent: &Agent, s: &Settings) -> String {
     use maker_connect_engine::ports::octoprint::comm::baudrate_list;
-    let device = agent.kind.folder();
-    if marlin_open(agent, s) {
-        return (
-            String::new(),
-            format!(
-                r#"<form method=post action=/connection><input type=hidden name=device value="{device}"><input type=hidden name=action value=disconnect><span class=fw><button class=btn>Disconnect</button></span></form>"#
-            ),
-        );
-    }
     let option = |value: &str, text: &str, chosen: bool| {
         format!(
             "<option value=\"{}\"{}>{}</option>",
@@ -1774,10 +1761,9 @@ fn connection_form(agent: &Agent, s: &Settings) -> (String, String) {
             .iter()
             .map(|b| option(&b.to_string(), &b.to_string(), *b == i64::from(s.baudrate))),
     );
-    let form = format!(
-        r#"<form method=post action=/connection class=row><input type=hidden name=device value="{device}"><input type=hidden name=action value=connect>
-<label class=field style="flex:1 1 100%;min-width:0;grid-template-columns:minmax(0,1fr)">Serial port<select name=port>{ports}</select></label>
-{rates}<span class=fw><button class="btn primary">Connect</button></span></form>"#,
+    format!(
+        r#"<label class=field style="flex:1 1 100%;min-width:0;grid-template-columns:minmax(0,1fr)">Serial port<select name=port>{ports}</select></label>
+{rates}"#,
         ports = ports.concat(),
         rates = if laser {
             String::new()
@@ -1788,8 +1774,7 @@ fn connection_form(agent: &Agent, s: &Settings) -> (String, String) {
                 rates.concat()
             )
         },
-    );
-    (form, String::new())
+    )
 }
 
 /// The link to the hub over all devices: how many of those that are on and registered it
@@ -2320,7 +2305,7 @@ mod tests {
 
     /// The SDK's queue (`__init__.py:319-339`, `858-905`): an event waits in it while there is no
     /// socket, and goes in its turn; with no token or no server it is skipped.
-    /// Turned off and on again (Turn off, Disconnect, Connect), a device keeps its socket: the
+    /// Turned off and on again (Turn off, Turn on), a device keeps its socket: the
     /// next send dials it again.
     #[test]
     fn a_device_turned_off_and_on_keeps_its_socket() {
@@ -2447,5 +2432,106 @@ mod tests {
             page.contains(r#"class=theme data-theme-btn aria-label="Theme: Auto">Auto</button>"#)
         );
         assert!(page.contains(THEME_SWITCH) && page.contains("localStorage.getItem(\"mc-theme\")"));
+    }
+
+    /// #191: Turn on / Turn off on every device's card, in the same place; a Marlin's or a laser's
+    /// port chosen in the Turn on form while it is off, shown while it is on; no Connect or
+    /// Disconnect.
+    #[test]
+    fn turn_on_and_off_on_every_card() {
+        for kind in Kind::ALL {
+            let dir = std::env::temp_dir().join(format!(
+                "mc-agent-toggle-{}-{}",
+                kind.folder(),
+                std::process::id()
+            ));
+            let agent = Agent::new(
+                kind,
+                dir.clone(),
+                Settings::load(&dir, kind.printer_type()),
+                Arc::new(Mutex::new(Engine::new())),
+            );
+            let device = kind.folder();
+            let card = device_card(&agent);
+            assert!(
+                card.contains(r#"<input type=hidden name=on value="1">"#),
+                "{card}"
+            );
+            assert!(
+                card.contains(&format!(
+                    r#"<button class="btn primary" form="module-{device}">Turn on</button>"#
+                )),
+                "{card}"
+            );
+            assert_eq!(card.contains("<select name=port>"), kind.serial(), "{card}");
+            assert!(
+                !card.contains("Connect<") && !card.contains("Disconnect"),
+                "{card}"
+            );
+            assert!(!card.contains("action=/connection"), "{card}");
+            // Turned on (a laser with no port chosen, a Marlin on AUTO: the test opens nothing
+            // when no port is there)
+            agent.settings.lock().unwrap().on = true;
+            let card = device_card(&agent);
+            assert!(
+                card.contains(&format!(
+                    r#"<button class="btn" form="module-{device}">Turn off</button>"#
+                )),
+                "{card}"
+            );
+            assert!(!card.contains("<select name=port>"), "{card}");
+            assert_eq!(
+                card.contains("<dt>Serial port</dt>"),
+                kind.serial(),
+                "{card}"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    /// #191: a Marlin's Turn on keeps the port and baud rate it carries; Turn off keeps them for the
+    /// next Turn on; `KEEP` keeps the chosen device.
+    #[test]
+    fn turn_on_carries_the_port() {
+        let dir = std::env::temp_dir().join(format!("mc-agent-port-{}", std::process::id()));
+        let mut s = Settings::load(&dir, Kind::Marlin.printer_type());
+        choose_port(
+            &mut s,
+            &parse_form("device=marlin&on=1&port=%2Fdev%2Fnot-there&baudrate=115200"),
+        );
+        assert_eq!(
+            (s.serial_port.as_str(), s.baudrate),
+            ("/dev/not-there", 115200)
+        );
+        choose_port(
+            &mut s,
+            &parse_form("device=marlin&on=1&port=KEEP&baudrate=250000"),
+        );
+        assert_eq!(
+            (s.serial_port.as_str(), s.baudrate),
+            ("/dev/not-there", 115200)
+        );
+        // Turn off carries no port: nothing changes
+        choose_port(&mut s, &parse_form("device=marlin&on=0"));
+        assert_eq!(
+            (s.serial_port.as_str(), s.baudrate),
+            ("/dev/not-there", 115200)
+        );
+        choose_port(
+            &mut s,
+            &parse_form("device=marlin&on=1&port=AUTO&baudrate=0"),
+        );
+        assert_eq!((s.serial_port.as_str(), s.baudrate), ("", 0));
+        let agent = Agent::new(
+            Kind::Marlin,
+            dir.clone(),
+            s,
+            Arc::new(Mutex::new(Engine::new())),
+        );
+        assert_eq!(
+            port_row(&agent, &agent.settings()),
+            "<dt>Serial port</dt><dd>AUTO · AUTO</dd>"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
