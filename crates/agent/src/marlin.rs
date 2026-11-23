@@ -8,6 +8,7 @@
 //! The states are part 9's mapping of OctoPrint's (`comm.py:445-460`).
 
 use super::{Agent, set_state};
+use maker_connect_engine::ports::prusalink::lcd_printer as lcd;
 use maker_connect_engine::{Order, Report};
 use maker_connect_gcode_metadata::py::repr_str;
 use maker_connect_protocol::{Action, Heater, JobControl, JobOrder};
@@ -130,6 +131,129 @@ pub(crate) fn tick(agent: &Agent, report: &Report) {
     let now = state(agent, Some(report));
     if *agent.last_state.lock().unwrap() != Some(now) {
         set_state(agent, now, report.telemetry.problem.as_deref());
+    }
+}
+
+/// #189: what the screen shows before anything is known: PrusaLink's model at its start.
+pub(crate) fn lcd_inputs() -> lcd::Inputs {
+    lcd::Inputs {
+        job_in_progress: false,
+        selected_file_path: None,
+        recovering: false,
+        recovery_ready: false,
+        state: lcd::State::Busy,
+        error: None,
+        lan: false,
+        wizard_needed: false,
+        network_error_chime: false,
+        local_ip: None,
+        speed: None,
+        transfer: lcd::Transfer {
+            in_progress: false,
+            progress: 0.0,
+            kind: lcd::TransferType::NoTransfer,
+            transferred: 0,
+            size: 0,
+        },
+        registration_code: None,
+    }
+}
+
+/// #189: the model `LCDPrinter` reads (`lcd_printer.py` `whats_going_on`), from what the agent
+/// knows, for the port's screen thread (`OctoPrintPort::with_lcd`). Each second, from the link loop.
+/// - `state`: the state the agent reports (`current_state`);
+/// - `job_in_progress`, `selected_file_path`: the print the agent runs (`label`);
+/// - `recovering`, `recovery_ready`: never (PrusaLink's power panic is the MK3's; not on Marlin);
+/// - `error`: the SDK's `COND_TRACKER.get_worst()` of the Connect chain (`conditions::CHAIN`);
+/// - `lan`, `local_ip`: PrusaLink's `get_local_ip` (`util.py:76`), `lan` = an IP was found (ours:
+///   PrusaLink's `LAN` condition is set by its IP updater, not ported);
+/// - `wizard_needed`, `network_error_chime`: never on Marlin (owner, 2026-11-23: no wizard, no chimes);
+/// - `speed`: the telemetry's M220 factor;
+/// - `transfer`: the SDK's transfer (a download to the printer);
+/// - `registration_code`: the code the hub waits for, while it does.
+pub(crate) fn show(agent: &Agent) {
+    let report = agent
+        .dymo
+        .lock()
+        .unwrap()
+        .and_then(|id| agent.engine.lock().unwrap().report(id).ok());
+    let local_ip = lcd::get_local_ip().ok();
+    let label = agent.label.lock().unwrap().clone();
+    let state = match crate::current_state(agent) {
+        State::Idle => lcd::State::Idle,
+        State::Busy => lcd::State::Busy,
+        State::Printing => lcd::State::Printing,
+        State::Paused => lcd::State::Paused,
+        State::Finished => lcd::State::Finished,
+        State::Stopped => lcd::State::Stopped,
+        State::Error => lcd::State::Error,
+        State::Attention => lcd::State::Attention,
+        State::Ready => lcd::State::Ready,
+    };
+    let error = maker_connect_sdk::conditions::CHAIN
+        .tracker
+        .get_worst()
+        .map(|c| match c.name().as_str() {
+            "Internet" => lcd::Cond::Internet,
+            "HTTP" => lcd::Cond::Http,
+            "Token" => lcd::Cond::Token,
+            "API" => lcd::Cond::Api,
+            _ => lcd::Cond::Other,
+        });
+    #[cfg(unix)]
+    let transfer = {
+        let t = agent.transfer();
+        let in_progress = t.in_progress();
+        let (kind, size) = {
+            let data = t.data();
+            (data.type_, data.size.unwrap_or(0))
+        };
+        lcd::Transfer {
+            in_progress,
+            progress: if in_progress {
+                t.progress().unwrap_or(0.0)
+            } else {
+                0.0
+            },
+            kind: transfer_type(kind),
+            transferred: t.transferred(),
+            size,
+        }
+    };
+    #[cfg(not(unix))]
+    let transfer = lcd_inputs().transfer;
+    let inputs = lcd::Inputs {
+        job_in_progress: label.is_some(),
+        selected_file_path: label.map(|(_, file)| file.to_string_lossy().into_owned()),
+        recovering: false,
+        recovery_ready: false,
+        state,
+        error,
+        lan: local_ip.is_some(),
+        wizard_needed: false,
+        network_error_chime: false,
+        local_ip,
+        speed: report
+            .and_then(|r| r.telemetry.speed_percent)
+            .map(|s| s.round() as i64),
+        transfer,
+        registration_code: agent.code.lock().unwrap().clone(),
+    };
+    *agent.lcd.lock().unwrap() = inputs;
+}
+
+#[cfg(unix)]
+fn transfer_type(t: consts::TransferType) -> lcd::TransferType {
+    use consts::TransferType as T;
+    match t {
+        T::NoTransfer => lcd::TransferType::NoTransfer,
+        T::FromWeb => lcd::TransferType::FromWeb,
+        T::FromConnect => lcd::TransferType::FromConnect,
+        T::FromPrinter => lcd::TransferType::FromPrinter,
+        T::FromSlicer => lcd::TransferType::FromSlicer,
+        T::FromClient => lcd::TransferType::FromClient,
+        T::ToConnect => lcd::TransferType::ToConnect,
+        T::ToClient => lcd::TransferType::ToClient,
     }
 }
 

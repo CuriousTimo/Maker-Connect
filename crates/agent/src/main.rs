@@ -19,7 +19,7 @@ use maker_connect_engine::{
     ports::dymo_cups::LabelWriter450,
     ports::labelle::DymoPnp,
     ports::laserfoundry::port::{LaserFoundryPort, MachineStateHook},
-    ports::octoprint::port::OctoPrintPort,
+    ports::octoprint::port::{LcdInputs, OctoPrintPort},
 };
 
 mod deck;
@@ -129,16 +129,20 @@ impl Kind {
     /// The device's port; none for a Marlin or a laser whose chosen USB device is not there
     /// now, or a laser with no port chosen (LaserFoundry has no AUTO: its port is required, G14).
     /// `hook` is told a laser's GRBL state (part 4's `machine_state`).
-    fn port(self, s: &Settings, hook: MachineStateHook) -> Option<Box<dyn Port>> {
+    /// `lcd` is what a Marlin's screen shows (#189, `marlin::show`).
+    fn port(self, s: &Settings, hook: MachineStateHook, lcd: LcdInputs) -> Option<Box<dyn Port>> {
         Some(match self {
             Kind::Pnp => Box::new(DymoPnp::new()),
             Kind::Lw450 => Box::new(LabelWriter450::new()),
             // The port and baud rate chosen on the agent's page; AUTO is OctoPrint's own
             // detection (`None`). A USB port is opened under the name its device has now.
-            Kind::Marlin => Box::new(OctoPrintPort::new(
-                marlin_port_name(s)?,
-                (s.baudrate != 0).then_some(s.baudrate),
-            )),
+            Kind::Marlin => Box::new(
+                OctoPrintPort::new(
+                    marlin_port_name(s)?,
+                    (s.baudrate != 0).then_some(s.baudrate),
+                )
+                .with_lcd(lcd),
+            ),
             // LaserFoundry's baud rate (`DEFAULT_BAUD`): its connection panel has no choice.
             Kind::Laser => Box::new(
                 LaserFoundryPort::new(Some(marlin_port_name(s)??), None)
@@ -401,6 +405,8 @@ struct Agent {
     print_end: Mutex<Option<(State, Instant)>>,
     /// Its link to the hub as the page shows it (ours, UI only).
     hub: Mutex<HubLink>,
+    /// What a Marlin's screen shows (#189), kept by `marlin::show`.
+    lcd: LcdInputs,
 }
 
 /// Since when the hub takes this device's telemetry, and when it last did.
@@ -448,6 +454,7 @@ impl Agent {
             hub: Mutex::new(HubLink::default()),
             label: Mutex::new(None),
             print_end: Mutex::new(None),
+            lcd: Arc::new(Mutex::new(marlin::lcd_inputs())),
         }
     }
 
@@ -498,7 +505,7 @@ impl Agent {
         if dymo.is_none() {
             let told = self.machine_state.clone();
             let hook: MachineStateHook = Arc::new(move |state| *told.lock().unwrap() = state);
-            match self.kind.port(&self.settings(), hook) {
+            match self.kind.port(&self.settings(), hook, self.lcd.clone()) {
                 Some(port) => *dymo = Some(self.engine.lock().unwrap().add(port)),
                 None => log::warn!("{}: {NOT_THERE}", self.kind.title()),
             }
@@ -1272,6 +1279,9 @@ fn link_loop(agent: &Arc<Agent>) {
             agent.set_status("no hub address");
             continue;
         };
+        if agent.kind == Kind::Marlin {
+            marlin::show(agent);
+        }
         let Some(id) = *agent.dymo.lock().unwrap() else {
             agent.hub_seen(false);
             agent.set_status(if s.on && agent.kind.serial() {

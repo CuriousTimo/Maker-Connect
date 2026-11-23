@@ -249,7 +249,7 @@ so `Q`, `S`, `D` are parsed and not read. Harmless. One consequence of PrusaLink
 reads it, `dec_to_ulong("-1")` is `0xFFFFFFFF` (`parser.cpp:88-92`), `60 *` that wraps in 32 bits, and the interaction countdown shows nonsense. The `P` of ours is a whole percent
 (`value_byte`, `parser.h:283`, or `value_float` with `PROGRESS_SCALE` > 1, `M73.cpp:59-62`); `R` is minutes (`M73.cpp:66`, only with `SET_REMAINING_TIME`, on with `SET_PROGRESS_MANUALLY`, `Configuration_adv.h:1800`).
 
-### The printer's screen: built, not wired (#189)
+### The printer's screen: built and wired (#189)
 
 Owner, 2026-11-22: "We moeten dit ook doen. zowel op Prusa als op Marlin." Text "Maker Connect OK" where PrusaLink says "PrusaLink OK" (owner: "Maker Connect OK"); the registration code, "Is ook een quality of live. met verder weinig impact."
 
@@ -259,26 +259,28 @@ in 76 scenarios (`lcd_printer::tests::identical_to_prusalink`: ready, idle, 42, 
 at 12 progress values, finished and stopped). `unidecode`: all code points identical (`unidecode::tests::identical_to_the_package`).
 **Differs, by decision:** the product name (`PRODUCT` = "Maker Connect"; "Maker Connect OK." and its 19-character lines, `maker_connect_ok`), and one more screen, the registration code "Code: <code>" (Buddy `src/gui/dialogs/DialogConnectReg.cpp:109`; `registration_code`, priority 40, `the_registration_code_screen`); when the code goes the screen is disabled, with no text of its own.
 
-**Not wired to the Marlin path.** Open checks of the issue, answered from Marlin's source:
+**Wired to the Marlin path** (`port.rs` `Lcd`, `OctoPrintPort::with_lcd`; the agent's inputs in `crates/agent/src/marlin.rs` `show`). Owner, 2026-11-23: M117 on Marlin yes; chimes "Nee, niet op Marlin"; screens "Alles, behalve de wizard". The checks of the issue, from Marlin's source:
 
-- *(a) Does M117 work?* There is no M115 capability for it: `M115.cpp:137-273` has no line for `HAS_STATUS_MESSAGE`. Without it `gcode.cpp:697` is `case 117: TERN_(HAS_STATUS_MESSAGE, M117()); break;`, which is a silent no-op and the `ok` still comes (`gcode.cpp:1218 queue.ok_to_send()`), so no reply tells the agent either (`M117.cpp:25`, `#if HAS_STATUS_MESSAGE`; `Conditionals-2-LCD.h:637` sets it with a wired LCD). **No reliable answer, so no M117 is sent to Marlin.**
-- *(b) M300.* With no beeper or speaker: `gcode.cpp:804-806`, `#if HAS_SOUND case 300`; `HAS_SOUND` needs a `BEEPER` pin or a buzzer panel (`Conditionals-5-post.h:3405-3419`, `M300.cpp:25`). Otherwise `default: parser.unknown_command_warning()` (`gcode.cpp:1210-1214`), which prints `echo:Unknown command: "M300 ..."` (`parser.cpp:453-455`, `language.h:143`), and the `ok` follows. Harmless but noisy; the chimes are data and not sent.
+- *(a) M117.* There is no M115 capability for it: `M115.cpp:137-273` has no line for `HAS_STATUS_MESSAGE`. Without it `gcode.cpp:697` is `case 117: TERN_(HAS_STATUS_MESSAGE, M117()); break;`, a silent no-op, and the `ok` still comes (`gcode.cpp:1218 queue.ok_to_send()`; the AtomX's 2.1.2.10: `gcode.cpp:681`). **So M117 is sent to every Marlin:** on a printer without a status display it does nothing.
+- *(b) M300.* With no beeper or speaker: `gcode.cpp:804-806`, `#if HAS_SOUND case 300`; `HAS_SOUND` needs a `BEEPER` pin or a buzzer panel (`Conditionals-5-post.h:3405-3419`, `M300.cpp:25`). Otherwise `default: parser.unknown_command_warning()` (`gcode.cpp:1210-1214`), which prints `echo:Unknown command: "M300 ..."` (`parser.cpp:453-455`, `language.h:143`), and the `ok` follows. M115 does not tell. **The chimes are not sent** (owner).
 - *(c) M79.* Stock Marlin has it only with `DGUS_LCD_UI_SERMOON_V1` or `CREALITY_RTS` (`gcode.cpp:582-584`), where it is Creality's cloud status (`gcode/stats/M79.cpp:34-39`: `S` is a cloud command number); otherwise the unknown-command echo. **No M79 on Marlin** (the owner's proposal; nothing is built for it).
 - *`M117 ~text`.* PrusaLink's text starts with `\x7E` (`lcd_printer.py:533`). On Marlin the `~` is not known to be anything but a character; not checked.
 
-**The screens and their inputs on our agent** (what exists, from the code):
+**Where it differs from PrusaLink's thread** (`port.rs` `Lcd`): its lines go through comm's `sendCommand`, as #187's `M73` (numbered and checksummed while printing); the thread starts when comm is first operational and sends nothing while it is not (PrusaLink's starts with its serial connection); nothing notifies its wait, so each wait is the whole interval. On the fake printer: `the_screen_shows_prusalinks_lines` ("Maker Connect started", "Code: ABC-123", "Maker Connect stopped", no `M300`). **Not tried on a real printer.**
+
+**The screens and their inputs on our agent** (`marlin::show`, each second from the link loop):
 
 | Screen | Input | On the agent |
 |---|---|---|
 | print (file name) | job running, selected file | exists: `agent.label` and `agent.printing` (`marlin.rs:256-257`) |
 | recovery, "Preparing recovery" | `recovering`, `recovery_ready` | none: no power-panic recovery on Marlin (`from_line` is refused, `marlin.rs:251`) |
-| upload / sync bar, "Transfer finished/stopped" | `printer.transfer` | exists: the SDK port's `Transfer` (`crates/connect-sdk/src/download.rs`: `in_progress`, `progress`, `transferred`, `type_`, `size`) |
-| errors, "Errors resolved", "Please wait" | `COND_TRACKER.get_worst()` | the SDK port has the condition chain (`crates/connect-sdk/src/conditions.rs`: Internet, HTTP, Token, API); the agent does not set it (`main.rs` has no use of it); PrusaLink's own (ID, FW, SN, ... LAN, PHY, DEVICE) do not exist |
+| upload / sync bar, "Transfer finished/stopped" | `printer.transfer` | wired: the SDK port's `Transfer` (`crates/connect-sdk/src/download.rs`: `in_progress`, `progress`, `transferred`, `type_`, `size`); Unix only, as the agent's downloads (#184) |
+| errors, "Errors resolved", "Please wait" | `COND_TRACKER.get_worst()` | the SDK port has the condition chain (`crates/connect-sdk/src/conditions.rs`: Internet, HTTP, Token, API); read with `CHAIN.tracker.get_worst()`, but nothing sets the chain yet, so the error screens do not show; PrusaLink's own (ID, FW, SN, ... LAN, PHY, DEVICE) do not exist |
 | ready ("Ready to print" + IP) | state `READY` | none: part 9's states have no `READY` (`marlin.rs:32-45`) |
-| idle ("Maker Connect OK." + IP) | LAN, `local_ip`, `latest_telemetry.speed` | `local_ip`: not known to the agent; PrusaLink's way is `util.py:76-88` (UDP connect to 8.8.8.8:1, the socket's own address), ported as `lcd_printer::get_local_ip`, not called; `speed`: not in the telemetry (`marlin.rs:137-167`), so the 42 screen cannot show |
+| idle ("Maker Connect OK." + IP) | LAN, `local_ip`, `latest_telemetry.speed` | `local_ip`: `lcd_printer::get_local_ip` (`util.py:76-88`), each second; `lan`: an IP was found (ours: PrusaLink's `LAN` condition comes from its IP updater, not ported); `speed`: the telemetry's `speed_percent` (M220) |
 | wizard ("Go: ip", "Setup completed") | `settings.is_wizard_needed()` | none: PrusaLink's web wizard |
 | printer number (`ip/3`) | `printer_number` | none |
-| registration code | `agent.code` | exists (`main.rs:1369-1419`, set from `/p/register`'s `Code` header at :1391, cleared at :1413 and :1419 when registered) |
+| registration code | `agent.code` | wired (`main.rs:1369-1419`, set from `/p/register`'s `Code` header at :1391, cleared at :1413 and :1419 when registered) |
 | firmware messages | the printer's `LCD status changed` line (`lcd_updated`, `regular_expressions.py:143`) | Prusa-Firmware only (`messages.cpp:425`); stock Marlin has no such line (no hit in `reference/Marlin/Marlin`): the screen then runs without that input |
 
 ## 3. Not covered

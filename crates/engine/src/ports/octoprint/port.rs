@@ -72,6 +72,7 @@ use super::plugin::{HookFn, MessageReceiver, plugin_manager};
 use super::profile::PrinterProfileManager;
 use super::py_collections::PyDict;
 use super::standard::{LocalFileManager, Printer, PrinterError};
+use crate::ports::prusalink::lcd_printer::{self, LCDPrinter, PRODUCT, Printed};
 use crate::ports::prusalink::print_stats::{PrintStats, print_stats_command};
 use crate::{Event, Order, Port};
 use maker_connect_protocol::{
@@ -107,7 +108,13 @@ pub struct OctoPrintPort {
     port: Option<String>,
     baudrate: Option<i64>,
     comm_state: Option<CommStateHook>,
+    lcd: Option<LcdInputs>,
 }
+
+/// #189, the owner's exception (`docs/audits/octoprint-marlin.md`, "The printer's screen"): what
+/// PrusaLink's `LCDPrinter` reads, kept up to date by the agent; with it the port shows PrusaLink's
+/// screens on the printer as `M117` (`ports::prusalink::lcd_printer`).
+pub type LcdInputs = Arc<Mutex<lcd_printer::Inputs>>;
 
 /// Told comm's state (`MachineCom.STATE_*`, `comm.py:445-460`) at each `on_comm_state_change`: the
 /// device contract's adapter (`crate::device::marlin`) reports OctoPrint's own state from it. Ours,
@@ -122,7 +129,14 @@ impl OctoPrintPort {
             port,
             baudrate: baudrate.map(i64::from),
             comm_state: None,
+            lcd: None,
         }
+    }
+
+    /// The same port, showing PrusaLink's screens from `inputs` (#189).
+    pub fn with_lcd(mut self, inputs: LcdInputs) -> OctoPrintPort {
+        self.lcd = Some(inputs);
+        self
     }
 
     /// The same port, telling `hook` each state comm changes to.
@@ -160,6 +174,10 @@ impl Port for OctoPrintPort {
 
         edge.publish();
         printer.connect(self.port.clone(), self.baudrate, None);
+        let lcd = self
+            .lcd
+            .clone()
+            .map(|inputs| Lcd::start(printer.clone(), inputs));
 
         for order in orders {
             match order {
@@ -171,12 +189,96 @@ impl Port for OctoPrintPort {
             }
         }
 
+        if let Some(lcd) = lcd {
+            lcd.stop();
+        }
         // K18
         edge.fail_pending();
         printer.disconnect();
         edge.uninstall();
         event_manager().fire(Events::SHUTDOWN, None);
         *lock(&edge.out) = None;
+    }
+}
+
+/// #189: PrusaLink's `LCDPrinter` thread (`lcd_printer.py:_lcd_printer`), its lines sent as comm's
+/// own commands, as the `M73` of #187. Differences (ours, the owner's for Marlin, 2026-11-23):
+/// - no chimes: the `M300` lines are not sent ("Nee, niet op Marlin": a Marlin without a buzzer
+///   answers `Unknown command`, `gcode/gcode.cpp:774-776`);
+/// - no wizard (`Inputs::wizard_needed` is never set on Marlin: "Alles, behalve de wizard");
+/// - the thread starts when comm is first operational, and sends nothing while it is not: PrusaLink
+///   starts with its serial connection, which here is comm's.
+struct Lcd {
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    thread: std::thread::JoinHandle<()>,
+}
+
+impl Lcd {
+    fn start(printer: Arc<Printer>, inputs: LcdInputs) -> Lcd {
+        use std::sync::atomic::Ordering;
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let thread = std::thread::spawn({
+            let stop = stop.clone();
+            move || {
+                let now = || {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs_f64())
+                        .unwrap_or(0.0)
+                };
+                let send = |printed: Printed| {
+                    if let Some(comm) = printer.comm() {
+                        comm.send_command(
+                            super::comm::QueuedCommand::Command(printed.m117),
+                            None,
+                            false,
+                            false,
+                            false,
+                            None,
+                            None,
+                        );
+                    }
+                };
+                // `self.notiff_event.wait(wait_for)`: nothing here notifies, so the wait is the
+                // whole interval; the stop is looked at every `QUIT_INTERVAL` of it
+                let wait = |seconds: f64| {
+                    let end = now() + seconds;
+                    while !stop.load(Ordering::SeqCst) && now() < end {
+                        std::thread::sleep(std::time::Duration::from_secs_f64(
+                            (end - now()).clamp(0.0, lcd_printer::QUIT_INTERVAL),
+                        ));
+                    }
+                };
+                let mut lcd: Option<LCDPrinter> = None;
+                while !stop.load(Ordering::SeqCst) {
+                    if !printer.is_operational() {
+                        wait(lcd_printer::QUIT_INTERVAL);
+                        continue;
+                    }
+                    let lcd = lcd.get_or_insert_with(|| {
+                        let mut lcd = LCDPrinter::new(None, PRODUCT, now());
+                        send(lcd.start(now()));
+                        lcd
+                    });
+                    let inputs = lock(&inputs).clone();
+                    if let Some(printed) = lcd.iteration(&inputs, now()) {
+                        send(printed);
+                    }
+                    wait(lcd.wait_interval(now()));
+                }
+                if let Some(mut lcd) = lcd
+                    && printer.is_operational()
+                {
+                    send(lcd.stop_line(now()));
+                }
+            }
+        });
+        Lcd { stop, thread }
+    }
+
+    fn stop(self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        let _ = self.thread.join();
     }
 }
 
@@ -2216,6 +2318,72 @@ mod tests {
         engine.remove(id).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
         sent
+    }
+
+    /// #189, the owner's exception: the port shows PrusaLink's screens on a Marlin as `M117`, from
+    /// the inputs the agent keeps ("Maker Connect started", the registration code, "stopped"), and no
+    /// chimes (`M300`).
+    ///
+    /// Own process (`scripts/octoprint-own-process-tests.sh`).
+    #[test]
+    #[ignore = "own process: scripts/octoprint-own-process-tests.sh"]
+    fn the_screen_shows_prusalinks_lines() {
+        use crate::ports::prusalink::lcd_printer as lcd;
+        let printer = FakePrinter::new();
+        let inputs: LcdInputs = Arc::new(Mutex::new(lcd::Inputs {
+            job_in_progress: false,
+            selected_file_path: None,
+            recovering: false,
+            recovery_ready: false,
+            state: lcd::State::Idle,
+            error: None,
+            lan: true,
+            wizard_needed: false,
+            network_error_chime: false,
+            local_ip: Some("192.0.2.7".into()),
+            speed: None,
+            transfer: lcd::Transfer {
+                in_progress: false,
+                progress: 0.0,
+                kind: lcd::TransferType::NoTransfer,
+                transferred: 0,
+                size: 0,
+            },
+            registration_code: Some("ABC-123".into()),
+        }));
+        let mut engine = Engine::new();
+        let id = engine.add(Box::new(
+            OctoPrintPort::new(Some(printer.name.clone()), Some(115_200)).with_lcd(inputs),
+        ));
+        until(&engine, id, "Idle", |r| {
+            r.telemetry.state == MachineState::Idle
+        });
+        let start = std::time::Instant::now();
+        while !printer
+            .commands()
+            .iter()
+            .any(|c| c.starts_with("M117 ~Code: ABC-123"))
+        {
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "no code screen in {:?}",
+                printer.commands()
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        engine.remove(id).unwrap();
+        let sent = printer.commands();
+        let m117: Vec<&String> = sent.iter().filter(|c| c.starts_with("M117")).collect();
+        eprintln!("M117 lines: {m117:?}");
+        assert_eq!(
+            m117.first().map(|s| s.as_str()),
+            Some("M117 ~Maker Connect started")
+        );
+        assert!(
+            m117.iter().any(|c| c.starts_with("M117 ~Code: ABC-123")),
+            "{m117:?}"
+        );
+        assert!(!sent.iter().any(|c| c.starts_with("M300")), "{sent:?}");
     }
 
     fn x_lines(n: usize) -> String {
