@@ -22,6 +22,7 @@ use maker_connect_engine::{
     ports::octoprint::port::OctoPrintPort,
 };
 
+mod deck;
 mod laser;
 mod marlin;
 mod serial_ports;
@@ -309,6 +310,9 @@ fn random_serial() -> String {
 /// the first start and kept; the same for all its devices.
 static AGENT_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
+/// The Stream Deck module (`deck.rs`; #190, idea, work in progress): local to the agent.
+static DECK: std::sync::OnceLock<Arc<deck::Deck>> = std::sync::OnceLock::new();
+
 fn load_agent_id(dir: &Path) -> String {
     let path = dir.join("agent.ini");
     let text = std::fs::read_to_string(&path).unwrap_or_default();
@@ -586,6 +590,11 @@ fn main() {
         let agent = agent.clone();
         std::thread::spawn(move || link_loop(&agent));
     }
+    let deck = DECK
+        .get_or_init(|| Arc::new(deck::Deck::load(&dir)))
+        .clone();
+    let shown = devices.clone();
+    std::thread::spawn(move || deck::run(deck, move || deck_snapshot(&shown)));
     println!("maker-connect-agent {VERSION} on http://{listen}");
     web(&devices, &listen);
 }
@@ -1468,6 +1477,12 @@ fn web(devices: &[Arc<Agent>], listen: &str) {
                     }
                 }
                 ("/module", Some(agent)) => set_module(agent, &form),
+                // the Stream Deck's Turn on / Turn off, as every card's (#191)
+                ("/deck", _) => {
+                    if let Some(deck) = DECK.get() {
+                        deck.set_on(form.get("on").is_some_and(|v| v == "1"));
+                    }
+                }
                 ("/reset", Some(agent)) => {
                     let mut s = agent.settings.lock().unwrap();
                     s.token.clear();
@@ -1838,6 +1853,9 @@ fn banner(devices: &[Arc<Agent>]) -> (&'static str, String) {
 fn shape(devices: &[Arc<Agent>]) -> String {
     let mut parts: Vec<String> = devices.iter().map(|d| card_live(d).shape).collect();
     parts.push(banner(devices).0.to_owned());
+    if let Some(deck) = DECK.get() {
+        parts.push(format!("deck:{}", deck.on()));
+    }
     parts.join("|")
 }
 
@@ -1867,6 +1885,14 @@ fn live(devices: &[Arc<Agent>]) -> String {
         serde_json::json!({"text": text, "class": class}),
     );
     live.insert("hub.devices".into(), hub_devices(devices).into());
+    if let Some(deck) = DECK.get() {
+        let (text, class) = deck_state(deck);
+        live.insert(
+            "deck.state".into(),
+            serde_json::json!({"text": text, "class": class}),
+        );
+        live.insert("deck.status".into(), deck.status().into());
+    }
     serde_json::json!({"shape": shape(devices), "live": live}).to_string()
 }
 
@@ -1936,10 +1962,69 @@ fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
     )
 }
 
+/// What the Stream Deck shows: each device as its card on this page has it, the hub's link.
+fn deck_snapshot(devices: &[Arc<Agent>]) -> deck::Snapshot {
+    let (hub_text, hub_class) = hub_state(devices);
+    deck::Snapshot {
+        host: maker_connect_system::computer().host.unwrap_or_default(),
+        devices: devices
+            .iter()
+            .map(|d| {
+                let c = card_live(d);
+                deck::DeviceSnap {
+                    short: match d.kind {
+                        Kind::Pnp => "PnP",
+                        Kind::Lw450 => "LW450",
+                        Kind::Marlin => "Marlin",
+                        Kind::Laser => "Laser",
+                    },
+                    title: d.kind.title(),
+                    state: c.state,
+                    class: c.class,
+                    status: c.status,
+                    hub: c.hub,
+                    registered: c.registered,
+                }
+            })
+            .collect(),
+        hub: (hub_text.to_owned(), hub_class, hub_devices(devices)),
+    }
+}
+
+/// The Stream Deck's pill (ours, the agent's page only).
+fn deck_state(deck: &deck::Deck) -> (&'static str, &'static str) {
+    match (deck.on(), deck.connected()) {
+        (false, _) => ("Off", "idle"),
+        (true, true) => ("Connected", "wait"),
+        (true, false) => ("Not connected", "warn"),
+    }
+}
+
+/// The Stream Deck's card: local to the agent, not at the hub (no registration, no code: part 10
+/// of the SDK extension is still to be written); Turn on / Turn off as every card (#191).
+fn deck_card(deck: &deck::Deck) -> String {
+    let on = deck.on();
+    let (state, class) = deck_state(deck);
+    format!(
+        r#"<div class="card{off}"><div class=head><h2>Stream Deck</h2><span class="st {class}" data-live="deck.state">{state}</span></div>
+<p class=muted>Quick management and overview · USB · on this agent only, not at the hub yet (idea, work in progress)</p>
+<dl class=kv><dt>Deck</dt><dd data-live="deck.status">{status}</dd><dt>Shows</dt><dd>this agent's devices, read only</dd></dl>
+<div class="row btns"><form method=post action=/deck><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form></div></div>"#,
+        off = if on { "" } else { " is-off" },
+        status = esc(&deck.status()),
+        toggle = if on { "0" } else { "1" },
+        toggle_class = if on { "" } else { " primary" },
+        button = if on { "Turn off" } else { "Turn on" },
+    )
+}
+
 fn page(devices: &[Arc<Agent>]) -> String {
     // The hub's address is the same in every device's settings file (the form writes all).
     let s = devices[0].settings();
-    let cards: Vec<String> = devices.iter().map(|d| device_card(d)).collect();
+    let mut cards: Vec<String> = devices.iter().map(|d| device_card(d)).collect();
+    if let Some(deck) = DECK.get() {
+        cards.push(deck_card(deck));
+    }
     let (hub_state, hub_class) = hub_state(devices);
     let devices_text = hub_devices(devices);
     let address = s.server().map_or("not set".to_owned(), |a| esc(&a));
