@@ -36,6 +36,7 @@
 //!   the two `debug!` lines and `next_frame_num` (only for them) are left out; the URL is
 //!   logged without user and password (the example logs no URL).
 
+pub mod agent;
 pub mod iso;
 pub mod mp4;
 pub mod onvif;
@@ -364,6 +365,11 @@ async fn reconnect(
 
 /// Starts a camera's session, ending the one it had (its viewers are closed).
 pub fn start(camera: &store::Camera) {
+    // A USB camera of an agent has no session of the hub's: its stills arrive by `PUT /c/snapshot`
+    // ([`agent`]).
+    if camera.source == "agent" {
+        return;
+    }
     let url = match camera.url.parse::<url::Url>() {
         Ok(url) => url,
         Err(error) => {
@@ -584,6 +590,8 @@ mod tests {
             machine_id: None,
             view_role: crate::access::Role::Member,
             created_at: 0,
+            fingerprint: None,
+            snapshot_at: None,
         }
     }
 

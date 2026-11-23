@@ -82,11 +82,13 @@
 /api/v1/tag/scan/{reader}
 /api/v1/vendor
 /api/v1/vendor/{id}
+/c/snapshot
 /cameras
 /cameras/video-rtc.js
 /cameras/{id}
 /cameras/{id}/live
 /cameras/{id}/remove
+/cameras/{id}/snapshot
 /cameras/{id}/ws
 /downloads/{name}
 /f/{iv}/raw
@@ -147,6 +149,7 @@
 /machines/{id}/usb/print
 /machines/{id}/usb/send
 /organisation/name
+/p/camera
 /p/events
 /p/register
 /p/teams/{team}/files/{hash}/raw
@@ -197,6 +200,8 @@
 ("*", "/p/telemetry", Public, None)
 ("*", "/p/events", Public, None)
 ("*", "/p/ws", Public, None)
+("*", "/p/camera", Public, None)
+("*", "/c/snapshot", Public, None)
 ("GET", "/p/teams/{team}/files/{hash}/raw", Public, None)
 ("GET", "/f/{iv}/raw", Public, None)
 ("*", "/simplyprint/{token}", Public, None)
@@ -336,6 +341,7 @@
 ("GET", "/cameras/{id}", Role(Guest), None)
 ("GET", "/cameras/{id}/live", Role(Guest), None)
 ("GET", "/cameras/{id}/ws", Role(Guest), None)
+("GET", "/cameras/{id}/snapshot", Role(Guest), None)
 ("POST", "/cameras", Role(Admin), Some("added a camera"))
 ("POST", "/cameras/{id}", Role(Admin), Some("changed a camera"))
 ("POST", "/cameras/{id}/remove", Role(Admin), Some("removed a camera"))
@@ -755,6 +761,11 @@ POST /api/v1/vendor/{id} => 401 403 403 403 403
 PUT /api/v1/vendor/{id} => 401 403 403 403 403
 PATCH /api/v1/vendor/{id} => 401 403 415 415 415
 DELETE /api/v1/vendor/{id} => 401 403 404 404 404
+GET /c/snapshot => 405 405 405 405 405
+POST /c/snapshot => 405 405 405 405 405
+PUT /c/snapshot => 401 401 401 401 401
+PATCH /c/snapshot => 405 405 405 405 405
+DELETE /c/snapshot => 405 405 405 405 405
 GET /cameras => 401 200 200 200 200
 POST /cameras => 401 403 403 415 415
 PUT /cameras => 401 403 403 403 403
@@ -780,6 +791,11 @@ POST /cameras/{id}/remove => 401 403 403 404 404
 PUT /cameras/{id}/remove => 401 403 403 403 403
 PATCH /cameras/{id}/remove => 401 403 403 403 403
 DELETE /cameras/{id}/remove => 401 403 403 403 403
+GET /cameras/{id}/snapshot => 401 404 404 404 404
+POST /cameras/{id}/snapshot => 401 403 403 403 403
+PUT /cameras/{id}/snapshot => 401 403 403 403 403
+PATCH /cameras/{id}/snapshot => 401 403 403 403 403
+DELETE /cameras/{id}/snapshot => 401 403 403 403 403
 GET /cameras/{id}/ws => 401 400 400 400 400
 POST /cameras/{id}/ws => 401 403 403 403 403
 PUT /cameras/{id}/ws => 401 403 403 403 403
@@ -1080,6 +1096,11 @@ POST /organisation/name => 401 403 403 415 415
 PUT /organisation/name => 401 403 403 403 403
 PATCH /organisation/name => 401 403 403 403 403
 DELETE /organisation/name => 401 403 403 403 403
+GET /p/camera => 405 405 405 405 405
+POST /p/camera => 401 401 401 401 401
+PUT /p/camera => 405 405 405 405 405
+PATCH /p/camera => 405 405 405 405 405
+DELETE /p/camera => 405 405 405 405 405
 GET /p/events => 405 405 405 405 405
 POST /p/events => 400 400 400 400 400
 PUT /p/events => 405 405 405 405 405

@@ -156,6 +156,10 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ("*", "/p/telemetry", Need::Public, None),
     ("*", "/p/events", Need::Public, None),
     ("*", "/p/ws", Need::Public, None),
+    // An agent's USB camera: registered with the printer's token (checked by the route), then its
+    // stills with the camera's own token and fingerprint (crate::cameras::agent).
+    ("*", "/p/camera", Need::Public, None),
+    ("*", "/c/snapshot", Need::Public, None),
     // The agent fetches a file to print with its Token (the route checks it is placed there).
     (
         "GET",
@@ -868,6 +872,12 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ("GET", "/cameras/{id}", Need::Role(Role::Guest), None),
     ("GET", "/cameras/{id}/live", Need::Role(Role::Guest), None),
     ("GET", "/cameras/{id}/ws", Need::Role(Role::Guest), None),
+    (
+        "GET",
+        "/cameras/{id}/snapshot",
+        Need::Role(Role::Guest),
+        None,
+    ),
     (
         "POST",
         "/cameras",

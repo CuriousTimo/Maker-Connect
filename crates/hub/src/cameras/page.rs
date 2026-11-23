@@ -44,7 +44,22 @@ player.src = location.pathname.replace(/\/live$/, "/ws");
 <body></body>
 </html>"#;
 
+/// An agent camera's player: its newest still.
+const STILL: &str = r#"<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>html, body { margin: 0; height: 100%; background: #000; } img { display: block; width: 100%; height: 100%; object-fit: contain; }</style>
+</head>
+<body><img src="snapshot" alt="">
+</body>
+</html>"#;
+
 pub fn routes() -> Router<Store> {
+    super::agent::routes().merge(shown_routes())
+}
+
+fn shown_routes() -> Router<Store> {
     Router::new()
         .route("/cameras", get(list).post(add))
         .route("/cameras/{id}", get(camera_page).post(change))
@@ -52,6 +67,30 @@ pub fn routes() -> Router<Store> {
         .route("/cameras/video-rtc.js", get(video_rtc))
         .route("/cameras/{id}/live", get(live))
         .route("/cameras/{id}/ws", get(mse))
+        .route("/cameras/{id}/snapshot", get(still))
+}
+
+/// An agent camera's newest still, as it was sent; for whoever may watch the camera.
+async fn still(access: Access, State(store): State<Store>, Path(id): Path<i64>) -> Response {
+    let grants = match store.grants_for(&access, crate::access::Level::View).await {
+        Ok(grants) => grants,
+        Err(error) => return failed(error),
+    };
+    if let Err(refused) = watchable(&store, &access, id, &grants).await {
+        return *refused;
+    }
+    match crate::stock::in_space!(&store, access.space, |w| w.snapshot(id)).await {
+        Ok(Some(jpeg)) => (
+            [
+                (http_header::CONTENT_TYPE, "image/jpeg"),
+                (http_header::CACHE_CONTROL, "no-store"),
+            ],
+            jpeg,
+        )
+            .into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "no picture yet").into_response(),
+        Err(error) => failed(error),
+    }
 }
 
 /// The camera, when `access` may watch it; else the answer.
@@ -93,6 +132,7 @@ async fn live(access: Access, State(store): State<Store>, Path(id): Path<i64>) -
         Err(error) => return failed(error),
     };
     match watchable(&store, &access, id, &grants).await {
+        Ok(camera) if camera.source == "agent" => Html(STILL).into_response(),
         Ok(_) => Html(LIVE).into_response(),
         Err(refused) => *refused,
     }
@@ -173,7 +213,7 @@ async fn camera_page(access: Access, State(store): State<Store>, Path(id): Path<
         title = escape(&space),
         header = header(&space, "../", "cameras"),
         id = camera.id,
-        status = status_note(camera.id),
+        status = status_note(&camera),
     ))
     .into_response()
 }
@@ -203,7 +243,7 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
             id = camera.id,
             name = escape(&camera.name),
             watches = watches(camera, &machines),
-            status = status_note(camera.id),
+            status = status_note(camera),
         ));
     }
     if rows.is_empty() {
@@ -243,8 +283,11 @@ async fn list(access: Access, State(store): State<Store>) -> Response {
 
 /// Why a camera does not play, as one line on its pages ([`super::status`]); nothing while it
 /// plays or connects.
-fn status_note(id: i64) -> String {
-    match super::status(id) {
+fn status_note(camera: &Camera) -> String {
+    if camera.source == "agent" {
+        return String::new();
+    }
+    match super::status(camera.id) {
         // While it connects: nothing either, its player starts once it plays.
         super::Status::Playing | super::Status::Connecting => String::new(),
         super::Status::Failed(problem) => format!(
@@ -260,12 +303,17 @@ fn status_note(id: i64) -> String {
 
 /// What a camera watches, for a list.
 fn watches(camera: &Camera, machines: &[crate::store::Machine]) -> String {
-    match &camera.machine_id {
+    let on = match &camera.machine_id {
         Some(m) => machines
             .iter()
             .find(|x| &x.id == m)
             .map_or_else(|| "its machine is gone".to_owned(), |x| escape(&x.name)),
         None => format!("room · from {}", camera.view_role.as_str()),
+    };
+    if camera.source == "agent" {
+        format!("USB camera on an agent · {on}")
+    } else {
+        on
     }
 }
 
@@ -288,7 +336,7 @@ pub(crate) async fn space_tab(
             id = camera.id,
             name = escape(&camera.name),
             watches = watches(camera, machines),
-            status = status_note(camera.id),
+            status = status_note(camera),
             edit = edit_form(camera, machines),
         ));
     }
@@ -298,7 +346,7 @@ pub(crate) async fn space_tab(
     format!(
         r#"<style>{CAMERAS_STYLE}</style>
 <section class="card"><h3>Cameras</h3>
-<p class="cam-intro">ONVIF/RTSP cameras on this hub's network. A camera on a machine is seen by whoever may see the machine; a room camera from the role set here. Watch them under <a href="cameras">Cameras</a>.</p>
+<p class="cam-intro">ONVIF/RTSP cameras on this hub's network; an agent's USB camera shows up here by itself. A camera on a machine is seen by whoever may see the machine; a room camera from the role set here. Watch them under <a href="cameras">Cameras</a>.</p>
 <ul class="cams">{rows}</ul>
 <div class="cam-add"><h3>Add a camera</h3>
 <form method="post" action="cameras">{fields}<button>Add</button></form></div></section>"#,
@@ -327,6 +375,20 @@ fn fields(camera: Option<&Camera>, machines: &[crate::store::Machine]) -> String
         ));
     }
     let role = camera.map_or(Role::Admin, |c| c.view_role);
+    let from_agent = camera.is_some_and(|c| c.source == "agent");
+    // An agent's camera has no address, user or password here: it sends its stills itself.
+    let connection = if from_agent {
+        String::new()
+    } else {
+        format!(
+            r#"<label>Address <input name="url" required placeholder="rtsp://192.168.1.20:554/stream" value="{url}"></label>
+<label>User <input name="username" autocomplete="off" value="{user}"></label>
+<label>Password <input name="password" type="password" autocomplete="new-password" placeholder="{pw_hint}"></label>"#,
+            url = escape(&value(|c| c.url.clone())),
+            user = escape(&value(|c| c.username.clone().unwrap_or_default())),
+            pw_hint = if camera.is_some() { "unchanged" } else { "" },
+        )
+    };
     let mut role_options = String::new();
     for r in [Role::Guest, Role::Member, Role::Admin, Role::Owner] {
         role_options.push_str(&format!(
@@ -337,15 +399,10 @@ fn fields(camera: Option<&Camera>, machines: &[crate::store::Machine]) -> String
     }
     format!(
         r#"<label>Name <input name="name" required maxlength="60" value="{name}"></label>
-<label>Address <input name="url" required placeholder="rtsp://192.168.1.20:554/stream" value="{url}"></label>
-<label>User <input name="username" autocomplete="off" value="{user}"></label>
-<label>Password <input name="password" type="password" autocomplete="new-password" placeholder="{pw_hint}"></label>
+{connection}
 <label>On machine <select name="machine">{machine_options}</select></label>
 <label>Room camera seen from <select name="view_role">{role_options}</select></label>"#,
         name = escape(&value(|c| c.name.clone())),
-        url = escape(&value(|c| c.url.clone())),
-        user = escape(&value(|c| c.username.clone().unwrap_or_default())),
-        pw_hint = if camera.is_some() { "unchanged" } else { "" },
     )
 }
 
@@ -362,6 +419,7 @@ fn edit_form(camera: &Camera, machines: &[crate::store::Machine]) -> String {
 #[derive(Deserialize)]
 struct Fields {
     name: String,
+    #[serde(default)]
     url: String,
     #[serde(default)]
     username: String,
@@ -374,6 +432,21 @@ struct Fields {
 }
 
 impl Fields {
+    /// What the admin sets on an agent's camera: its name, what it watches, who sees a room camera.
+    fn agent(self) -> Result<(String, Option<String>, Role), Box<Response>> {
+        let name = self.name.trim().to_owned();
+        if name.is_empty() {
+            return Err(Box::new(
+                (StatusCode::BAD_REQUEST, "a camera needs a name").into_response(),
+            ));
+        }
+        Ok((
+            name,
+            Some(self.machine).filter(|m| !m.is_empty()),
+            Role::parse(&self.view_role).unwrap_or(Role::Admin),
+        ))
+    }
+
     fn form(self) -> Result<CameraForm, Box<Response>> {
         let name = self.name.trim().to_owned();
         let url = self.url.trim().to_owned();
@@ -430,18 +503,39 @@ async fn change(
     headers: HeaderMap,
     Form(fields): Form<Fields>,
 ) -> Response {
-    let form = match fields.form() {
-        Ok(form) => form,
-        Err(refused) => return *refused,
+    let existing = match crate::stock::in_space!(&store, access.space, |w| w.camera(id)).await {
+        Ok(existing) => existing,
+        Err(error) => return failed(error),
     };
-    let changed = crate::stock::in_space!(&store, access.space, |w| async {
-        if w.change_camera(id, &form).await? {
-            w.camera(id).await
-        } else {
-            Ok(None)
-        }
-    })
-    .await;
+    let changed = if existing.is_some_and(|c| c.source == "agent") {
+        let (name, machine, role) = match fields.agent() {
+            Ok(set) => set,
+            Err(refused) => return *refused,
+        };
+        crate::stock::in_space!(&store, access.space, |w| async {
+            if w.change_agent_camera(id, &name, machine.as_deref(), role)
+                .await?
+            {
+                w.camera(id).await
+            } else {
+                Ok(None)
+            }
+        })
+        .await
+    } else {
+        let form = match fields.form() {
+            Ok(form) => form,
+            Err(refused) => return *refused,
+        };
+        crate::stock::in_space!(&store, access.space, |w| async {
+            if w.change_camera(id, &form).await? {
+                w.camera(id).await
+            } else {
+                Ok(None)
+            }
+        })
+        .await
+    };
     match changed {
         Ok(Some(camera)) => {
             super::start(&camera);
@@ -492,7 +586,7 @@ pub(crate) async fn machine_tab(
     for camera in &cameras {
         out.push_str(&format!(
             r#"<h3><a href="../cameras/{id}">{name}</a></h3>{}{}"#,
-            status_note(camera.id),
+            status_note(camera),
             player(camera.id, &camera.name),
             id = camera.id,
             name = escape(&camera.name),
@@ -500,7 +594,7 @@ pub(crate) async fn machine_tab(
     }
     let preview = format!(
         r##"<div class="card now-cam"><div class="card-head"><h3><a href="#cameras">{name}</a></h3></div>{}{}</div>"##,
-        status_note(first.id),
+        status_note(first),
         player(first.id, &first.name),
         name = escape(&first.name),
     );

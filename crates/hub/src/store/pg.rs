@@ -811,6 +811,7 @@ mod tests {
                 "access_requests",
                 "api_tokens",
                 "audit_log",
+                "camera_snapshots",
                 "cameras",
                 "extra_field",
                 "filament",

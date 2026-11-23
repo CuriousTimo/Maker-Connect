@@ -21,6 +21,10 @@ pub struct Camera {
     pub machine_id: Option<String>,
     pub view_role: Role,
     pub created_at: i64,
+    /// An agent camera's own fingerprint (`source` = `agent`); `None` for a network camera.
+    pub fingerprint: Option<String>,
+    /// When the newest still of an agent camera arrived.
+    pub snapshot_at: Option<i64>,
 }
 
 /// What a form gives: the password `None` keeps the one stored.
@@ -34,7 +38,7 @@ pub struct CameraForm {
 }
 
 const COLUMNS: &str = "id, space_id, name, source, url, username, password, machine_id, view_role,
-     unix_seconds(created_at)";
+     unix_seconds(created_at), fingerprint, unix_seconds(snapshot_at)";
 
 type Row = (
     i64,
@@ -47,10 +51,25 @@ type Row = (
     Option<String>,
     String,
     i64,
+    Option<String>,
+    Option<i64>,
 );
 
 fn camera(
-    (id, space_id, name, source, url, username, password, machine_id, role, created_at): Row,
+    (
+        id,
+        space_id,
+        name,
+        source,
+        url,
+        username,
+        password,
+        machine_id,
+        role,
+        created_at,
+        fingerprint,
+        snapshot_at,
+    ): Row,
 ) -> Camera {
     Camera {
         id,
@@ -63,6 +82,8 @@ fn camera(
         machine_id,
         view_role: Role::parse(&role).unwrap_or(Role::Admin),
         created_at,
+        fingerprint,
+        snapshot_at,
     }
 }
 
@@ -127,6 +148,88 @@ impl Work {
         Ok(changed > 0)
     }
 
+    /// A USB camera of an agent registers: one camera per `(space, fingerprint)`, a new token each
+    /// time. Returns its id.
+    pub async fn register_agent_camera(
+        &mut self,
+        fingerprint: &str,
+        name: &str,
+        token: &str,
+        registration: &str,
+    ) -> sqlx::Result<i64> {
+        sqlx::query_scalar(
+            "INSERT INTO cameras (space_id, name, source, url, view_role, created_at, fingerprint, token,
+                 registration)
+             VALUES ($1, $2, 'agent', '', 'admin', at_unix($3), $4, $5, $6)
+             ON CONFLICT (space_id, fingerprint) WHERE fingerprint IS NOT NULL
+             DO UPDATE SET token = EXCLUDED.token, registration = EXCLUDED.registration
+             RETURNING id",
+        )
+        .bind(self.space)
+        .bind(name)
+        .bind(now())
+        .bind(fingerprint)
+        .bind(token)
+        .bind(registration)
+        .fetch_one(self.c())
+        .await
+    }
+
+    /// What the admin sets on an agent camera: its name and what it watches. `false` when it is not
+    /// an agent camera of the space.
+    pub async fn change_agent_camera(
+        &mut self,
+        id: i64,
+        name: &str,
+        machine_id: Option<&str>,
+        view_role: Role,
+    ) -> sqlx::Result<bool> {
+        let changed = sqlx::query(
+            "UPDATE cameras SET name = $3, machine_id = $4, view_role = $5
+             WHERE space_id = $1 AND id = $2 AND source = 'agent'",
+        )
+        .bind(self.space)
+        .bind(id)
+        .bind(name)
+        .bind(machine_id)
+        .bind(view_role.as_str())
+        .execute(self.c())
+        .await?
+        .rows_affected();
+        Ok(changed > 0)
+    }
+
+    /// Keeps a still an agent camera sent as its newest; the bytes as they came.
+    pub async fn keep_snapshot(&mut self, id: i64, jpeg: &[u8]) -> sqlx::Result<()> {
+        sqlx::query(
+            "INSERT INTO camera_snapshots (camera_id, space_id, jpeg) VALUES ($2, $1, $3)
+             ON CONFLICT (camera_id) DO UPDATE SET jpeg = EXCLUDED.jpeg",
+        )
+        .bind(self.space)
+        .bind(id)
+        .bind(jpeg)
+        .execute(self.c())
+        .await?;
+        sqlx::query("UPDATE cameras SET snapshot_at = at_unix($3) WHERE space_id = $1 AND id = $2")
+            .bind(self.space)
+            .bind(id)
+            .bind(now())
+            .execute(self.c())
+            .await?;
+        Ok(())
+    }
+
+    /// The newest still of a camera, as it was sent.
+    pub async fn snapshot(&mut self, id: i64) -> sqlx::Result<Option<Vec<u8>>> {
+        sqlx::query_scalar(
+            "SELECT jpeg FROM camera_snapshots WHERE space_id = $1 AND camera_id = $2",
+        )
+        .bind(self.space)
+        .bind(id)
+        .fetch_optional(self.c())
+        .await
+    }
+
     /// Removes a camera; `false` when it is not in the space.
     pub async fn remove_camera(&mut self, id: i64) -> sqlx::Result<bool> {
         let removed = sqlx::query("DELETE FROM cameras WHERE space_id = $1 AND id = $2")
@@ -143,6 +246,18 @@ impl Store {
     /// A space's cameras, by name ([`Work::cameras`]).
     pub async fn cameras(&self, space: i64) -> sqlx::Result<Vec<Camera>> {
         crate::stock::in_space!(self, space, |w| w.cameras()).await
+    }
+
+    /// The camera a token belongs to, with the space and the fingerprint it registered with: what
+    /// `PUT /c/snapshot` is checked against.
+    pub(crate) async fn camera_by_token(
+        &self,
+        token: &str,
+    ) -> sqlx::Result<Option<(i64, i64, Option<String>)>> {
+        sqlx::query_as("SELECT id, space_id, fingerprint FROM cameras WHERE token = $1")
+            .bind(token)
+            .fetch_optional(self.pg().admin(Bypass::Secret))
+            .await
     }
 
     /// Every camera of every space (their sessions start with the hub): a background task lists its
