@@ -1805,7 +1805,7 @@ fn port_fields(agent: &Agent, s: &Settings) -> String {
             .map(|b| option(&b.to_string(), &b.to_string(), *b == i64::from(s.baudrate))),
     );
     format!(
-        r#"<label class=field style="flex:1 1 100%;min-width:0;grid-template-columns:minmax(0,1fr)">Serial port<select name=port>{ports}</select></label>
+        r#"<label class=field style="flex:1 1 18rem;min-width:0;grid-template-columns:minmax(0,1fr)">Serial port<select name=port>{ports}</select></label>
 {rates}"#,
         ports = ports.concat(),
         rates = if laser {
@@ -1945,7 +1945,8 @@ const LIVE_JS: &str = r#"(()=>{const shape=document.body.dataset.shape;const es=
 /// (Devices, About); the hub's stylesheet and components only.
 fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
     let tabs: String = [
-        ("/", "Devices", Some(devices.len())),
+        // the devices turned on (owner, 2026-11-23: only the Marlin hangs on it, not 4)
+        ("/", "Devices", Some(devices_on(devices))),
         ("/settings", "Settings", None),
         ("/about", "About", None),
     ]
@@ -1974,16 +1975,16 @@ fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
         computer.architecture
     ));
     what.push(format!(
-        "{} device{}",
-        devices.len(),
-        if devices.len() == 1 { "" } else { "s" }
+        "{} of {} devices on",
+        devices_on(devices),
+        devices.len()
     ));
     what.push(format!("release {}", esc(VERSION)));
     format!(
         r##"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 {THEME_FIRST}<title>Maker Connect agent</title><link rel=icon href="data:image/svg+xml,{icon}"><style>{CSS}
 .code{{font:700 var(--fs-6)/1 var(--mono);letter-spacing:.12em;color:var(--accent-text);margin:var(--s-2) 0 var(--s-3)}}
-.brand .mark svg{{width:100%;height:100%;display:block}} .card form{{margin:0}} .solo-stack{{display:grid;gap:var(--s-4)}} .card .row.btns{{margin-top:var(--s-3)}} .row.btns>form{{flex:0 0 auto}}</style></head><body data-shape="{shape}">
+.brand .mark svg{{width:100%;height:100%;display:block}} .card form{{margin:0}} .card form.row{{margin-top:var(--s-3)}} .solo-stack{{display:grid;gap:var(--s-4)}} .card .row.btns{{margin-top:var(--s-3)}} .row.btns>form{{flex:0 0 auto}}</style></head><body data-shape="{shape}">
 <a class=skip href="#main">Skip to content</a>
 <header class=top><span class=brand><span class=mark aria-hidden=true>{MARK}</span><span class=where><b>Maker Connect agent</b><small>{where_}</small></span></span><span class=spacer></span><span class=fw><button type=button class=theme data-theme-btn aria-label="Theme: Auto">Auto</button></span></header>
 <main id=main tabindex=-1 class=solo>
@@ -2202,12 +2203,24 @@ fn deck_card(deck: &deck::Deck) -> String {
     )
 }
 
+/// How many of the agent's devices are turned on.
+fn devices_on(devices: &[Arc<Agent>]) -> usize {
+    devices.iter().filter(|d| d.settings().on).count()
+}
+
+/// The Devices tab: a card per device, full width, one under the other (owner, 2026-11-23: the
+/// grid put the same things at different heights); the devices turned on first.
 fn page(devices: &[Arc<Agent>]) -> String {
-    let mut cards: Vec<String> = devices.iter().map(|d| device_card(d)).collect();
+    let (on, off): (Vec<_>, Vec<_>) = devices.iter().partition(|d| d.settings().on);
+    let mut cards: Vec<String> = on
+        .iter()
+        .chain(off.iter())
+        .map(|d| device_card(d))
+        .collect();
     if let Some(deck) = DECK.get() {
         cards.push(deck_card(deck));
     }
-    let main = format!("<div class=grid>\n{}\n</div>", cards.join("\n"));
+    let main = format!("<div class=solo-stack>\n{}\n</div>", cards.join("\n"));
     layout(devices, "Devices", &main)
 }
 
