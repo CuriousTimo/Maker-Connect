@@ -96,6 +96,7 @@ for what the SDK and PrusaLink do not have already: the bed mesh (`mbl` in `INFO
   | `grbl.laser` | a laser cutter running GRBL. GRBL is the firmware; the vendor differs per machine |
 | `marlin.fdm` | an FDM printer running Marlin that is not a Prusa (part 9) |
 | `dymo.m-scale` | a DYMO M-series USB scale (M1, M2, M5, M10, M25): one type, as one port reads them all (part 8) |
+| `maker-connect.cameras` | the device that carries an agent's USB cameras; not a machine (part 5) |
 
 - **Why the protocol cannot carry it:** `printer_type` is `PrinterType`, an enum of Prusa models written
   as `a.b.c` numbers (`const.py:47-60`). A number for another device could collide with a model Prusa
@@ -112,7 +113,8 @@ agent keeps it as `[printer] type` in the device's settings file, where PrusaLin
 (Prusa-Link `prusa/link/config.py:280-289`). PrusaLink itself reads its type from the printer and writes it
 there (`prusa/link/web/lib/wizard.py:188-191`); picking it on the page is ours.
 
-A camera needs no type: it registers through the camera protocol (part 5).
+A camera needs no type of its own: it registers through the camera protocol, under the device
+`maker-connect.cameras` (part 5).
 
 ## Part 2: a tape label printer (`dymo.labelmanager-pnp`)
 
@@ -375,6 +377,27 @@ registration (`__init__.py:855-859`).
   change, or manual (`const.py:246-253`).
 - **Settings:** resolution, rotation, exposure and focus, as capabilities (`const.py:237-242`).
 
+### The device that carries an agent's cameras (`maker-connect.cameras`)
+
+In the SDK a camera hangs under a printer: its registration is sent with the printer's own headers,
+including its token (`__init__.py:822-826`). The cameras of an agent therefore get a device of their own,
+the type `maker-connect.cameras` (Part 1's form; owner, 2026-11-23, asked under which token: "Eigen
+apparaat 'camera'"). It is a device of the agent like the others (Part 6): its own registration code,
+token and WebSocket, and its module is turned on or off on the agent's page. It holds the SDK's
+`CameraController` and `CameraConfigurator`, and it registers every camera that the configurator's
+auto-detect finds.
+
+- **What it reports:** `IDLE` while its module is on. That state is ours: it prints nothing. It has no
+  telemetry keys and no commands of its own.
+- **In the hub:** it is not a machine. Its cameras show up in Space → Cameras, and the link chosen there
+  decides what a camera is for (owner, 2026-11-23):
+  - **on a printer:** "dan kan timelapse en de hele truckendoos". That means the SDK's trigger schemes,
+    including the layer triggers.
+  - **a general camera:** "dan is het gewoon live beeld ergens in een ruimte".
+- **To look at:** how a camera on a printer gets that printer's layer changes. In the SDK the printer
+  calls `layer_trigger` on its own controller (`camera_controller.py`). Here the printer is another
+  device, of this agent or of another one.
+
 ### Live view: the server reads the camera's stream, as Prusa Connect Local does
 
 The SDK has snapshots only, and no command that reaches a camera (`const.py` `Command`). Prusa Connect
@@ -385,7 +408,8 @@ The stream is optional: an rtsp:// address is read as H.264 and served to a brow
 relay, and an http:// address is relayed as MJPEG. It is read only while somebody watches." Live view
 follows it (owner, 2026-11-23, [decision](decisions/20261123-usb-camera-live-view-pulled.md)).
 
-**The stream.** The agent serves each camera's MJPEG stream on its own page, in a Cameras tab, as Prusa's
+**The stream.** The agent serves each camera's MJPEG stream (no page of its own: a camera is set up in the hub,
+as a network camera; owner, 2026-11-23: "een camera is een camera"), as Prusa's
 ESP32-CAM firmware serves `/stream.mjpg` (Prusa-ESP32-Cam v1.1.3 `WebServer.cpp:1175`), and in its format
 (`WebStream.cpp:15-18`): `Content-Type: multipart/x-mixed-replace;boundary=` and the boundary, then per
 frame `\r\n--` boundary `\r\n`, `Content-Type`, `Content-Length`, an empty line and the JPEG. Prusa
@@ -396,8 +420,9 @@ camera feeds the stream and the snapshots: a USB camera can be opened once.
 **The address: `stream_url` in the registration.** The agent puts the stream's address in the `config` of
 `POST /p/camera`, beside the SDK's own `name`, `camera_id`, `token` and settings (`models.py:207-212`,
 `camera.py:522-531`). The name is Prusa Connect Local's option for the same thing (`generic.go`, option
-`stream_url`). A camera without it has snapshots only. So a camera switched on in the agent's Cameras tab
-shows up in the hub's cameras with no address typed in.
+`stream_url`). A camera without it has snapshots only. So a camera the agent finds (the SDK's auto-detect,
+`camera_configurator.py`) shows up in the hub's Space → Cameras with no address typed in; there it is named
+and linked to a machine or a room, as a network camera.
 
 **Reading it.** The hub opens the stream when the first viewer opens the camera and closes it after the
 last one, and hands it to the same player as a network camera. The hub dials the agent here: the one

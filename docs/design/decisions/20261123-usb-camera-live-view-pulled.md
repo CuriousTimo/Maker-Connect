@@ -40,3 +40,5 @@ apparaat belt de hub'. Mag dat?", the owner answered "Ja, ophalen".
 
 [prusa-sdk-extension.md](../prusa-sdk-extension.md#part-5-a-usb-camera), [cameras.md](../cameras.md),
 [links.md](../links.md) L10, [risks-and-open.md](../risks-and-open.md#oq-9-how-usb-camera-video-reaches-the-hub); #5, #96.
+
+**Changed 2026-11-23 (owner):** no Cameras tab on the agent: "een camera is een camera. dus we doen het niet anders dan de rtsp/onvif. hij verschijnt in .../space/cameras, daar bepalen we waar hij bij hoort". The agent registers what the SDK's auto-detect finds and serves the stream without a page.

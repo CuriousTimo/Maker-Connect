@@ -61,16 +61,17 @@ camera settings een keuze tussen prusa mode / live" ([OQ-9](risks-and-open.md#oq
 2. **Live view** as Prusa Connect Local's generic camera, "read only while somebody watches"
    (`reference/prusa-connect` `2e8c62b` `adapters/camera/generic/generic.go:37`; owner 2026-11-23,
    [decision](decisions/20261123-usb-camera-live-view-pulled.md)). The agent serves each camera's MJPEG
-   stream on its page, in the format of Prusa's ESP32-CAM firmware, and names its address `stream_url` in
+   stream, in the format of Prusa's ESP32-CAM firmware, and names its address `stream_url` in
    the camera's registration ([part 5](prusa-sdk-extension.md#part-5-a-usb-camera)). The hub reads it from
    the first viewer to the last and hands the frames to the browser in go2rtc's WebSocket `mjpeg` mode
    (go2rtc v1.9.15 `internal/mjpeg/mjpeg.go:193-216`, `www/video-rtc.js:384-392`, `:632-638`), on the same
    player and `/api/v1/cameras/{id}/ws` as a network camera. Nothing is decoded or re-encoded. Not through
    the agent's own WireGuard (onetun forwards outwards only): there a camera has snapshots only.
 3. **One capture per camera** feeds both the stream and the snapshots (a USB camera opens once).
-4. **On the agent:** a Cameras tab switches each camera on or off and picks it from nokhwa's list; a camera
-   switched on registers by the SDK and shows up in the hub's cameras. The tab is also where a camera
-   proxy (the agent as gateway for network cameras on its LAN) would go later.
+4. **Set up in the hub, not on the agent** (owner, 2026-11-23: "een camera is een camera. dus we doen het
+   niet anders dan de rtsp/onvif"): the agent registers each camera the SDK's auto-detect finds
+   (`camera_configurator.py`); it shows up in Space → Cameras, where it is named and linked to a machine or
+   a room. The agent has no camera page.
 5. **Per camera:** snapshots only, or snapshots plus live view (with or without `stream_url`).
 
 ## Not in this design yet
