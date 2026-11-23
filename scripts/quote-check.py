@@ -53,7 +53,7 @@ DEFAULT_FILES = [
 PART4 = ("docs/design/prusa-sdk-extension.md", "## Part 4", "## Part 5")
 
 QUOTE = re.compile(r"[\"“]([^\"”\n]+?)[\"”]")
-OTHER = re.compile(r"\b[\w-]+\.(rs|py|md|toml)\b|PrusaLink|\bSDK\b|\bBuddy\b|LaserFoundry")
+OTHER = re.compile(r"\b[\w-]+\.(rs|py|md|toml|go|cpp|c|h|js)\b|PrusaLink|\bSDK\b|\bBuddy\b|LaserFoundry")
 
 
 def norm(text):

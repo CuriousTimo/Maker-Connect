@@ -85,11 +85,11 @@ login; (c) three logins, one per pool, each with its own address variable. **Rec
 
 ### OQ-9: How USB camera video reaches the hub
 
-**Decided** (owner, 2026-11-20, [decision](decisions/20261120-dymo-first-device-and-sdk-extension.md)):
-first the SDK's own camera protocol (snapshots), then live view as the extension's part 5: a separate
-upload per camera, `POST /c/stream` in go2rtc's pushed-MJPEG format, started and stopped by
-`START_CAMERA_STREAM` and `STOP_CAMERA_STREAM`, only while someone watches. Each camera's settings choose
-snapshots alone or live view ([prusa-sdk-extension.md](prusa-sdk-extension.md#part-5-a-usb-camera)).
+**Decided** (owner, 2026-11-20, [decision](decisions/20261120-dymo-first-device-and-sdk-extension.md);
+live view changed 2026-11-23, [decision](decisions/20261123-usb-camera-live-view-pulled.md)): snapshots by
+the SDK's own camera protocol; live view as Prusa Connect Local's generic camera: the hub reads the agent's
+MJPEG stream, named by `stream_url` in the camera's registration, only while someone watches
+([prusa-sdk-extension.md](prusa-sdk-extension.md#part-5-a-usb-camera)).
 
 ### OQ-10: Door access link
 

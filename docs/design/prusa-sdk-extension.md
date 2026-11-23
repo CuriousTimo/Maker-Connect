@@ -375,37 +375,42 @@ registration (`__init__.py:855-859`).
   change, or manual (`const.py:246-253`).
 - **Settings:** resolution, rotation, exposure and focus, as capabilities (`const.py:237-242`).
 
-### Live view: one new endpoint and two new commands
+### Live view: the server reads the camera's stream, as Prusa Connect Local does
 
-The SDK has snapshots only, and no command that reaches a camera (`const.py` `Command`). Live view adds
-an upload stream and two commands to start and stop it.
+The SDK has snapshots only, and no command that reaches a camera (`const.py` `Command`). Prusa Connect
+Local (`reference/prusa-connect` `2e8c62b`) has live view for a camera that pushes its stills, its generic
+camera (`adapters/camera/generic/generic.go:34-37`): "The still images are the frames the device sends to
+PUT /api/v1/cameras/{camera}/snapshot, or, when snapshot_url is set, the image this server fetches from it.
+The stream is optional: an rtsp:// address is read as H.264 and served to a browser through the WebRTC
+relay, and an http:// address is relayed as MJPEG. It is read only while somebody watches." Live view
+follows it (owner, 2026-11-23, [decision](decisions/20261123-usb-camera-live-view-pulled.md)).
 
-**The stream.** `POST /c/stream`, HTTP like the rest of the camera protocol, with the same headers and
-`printer_uuid` as `/c/snapshot`. The
-body is go2rtc's own MJPEG stream, as go2rtc v1.9.15 `7c05066` writes it (`pkg/mjpeg/writer.go:9-27`):
-`Content-Type: multipart/x-mixed-replace; boundary=frame`, and per frame `--frame`, `Content-Type:
-image/jpeg`, `Content-Length`, an empty line, the JPEG and `\r\n`. It is also the format go2rtc takes as a
-pushed MJPEG source (`internal/mjpeg/mjpeg.go:173-191` `inputMjpeg`; the parser
-`pkg/mpjpeg/multipart.go:13-60`). The stream
-is its own connection, so video never delays telemetry, events or commands on the WebSocket.
+**The stream.** The agent serves each camera's MJPEG stream on its own page, in a Cameras tab, as Prusa's
+ESP32-CAM firmware serves `/stream.mjpg` (Prusa-ESP32-Cam v1.1.3 `WebServer.cpp:1175`), and in its format
+(`WebStream.cpp:15-18`): `Content-Type: multipart/x-mixed-replace;boundary=` and the boundary, then per
+frame `\r\n--` boundary `\r\n`, `Content-Type`, `Content-Length`, an empty line and the JPEG. Prusa
+Connect Local's MJPEG driver "fits the Prusa ESP32-CAM firmware" (`adapters/camera/mjpeg/mjpeg.go:5`).
+The path per camera is ours: the agent has several cameras where the ESP32-CAM has one. One capture per
+camera feeds the stream and the snapshots: a USB camera can be opened once.
 
-**The commands.** They go over the WebSocket of the device the camera belongs to. The camera itself
-registered over HTTP (`POST /p/camera`, `__init__.py:855-859`).
+**The address: `stream_url` in the registration.** The agent puts the stream's address in the `config` of
+`POST /p/camera`, beside the SDK's own `name`, `camera_id`, `token` and settings (`models.py:207-212`,
+`camera.py:522-531`). The name is Prusa Connect Local's option for the same thing (`generic.go`, option
+`stream_url`). A camera without it has snapshots only. So a camera switched on in the agent's Cameras tab
+shows up in the hub's cameras with no address typed in.
 
-| Command | Does | Kwargs |
-|---|---|---|
-| `START_CAMERA_STREAM` | opens the stream for that camera | `camera_id`; `fps`: the most frames per second to send, default 5 |
-| `STOP_CAMERA_STREAM` | ends it | `camera_id` |
+**Reading it.** The hub opens the stream when the first viewer opens the camera and closes it after the
+last one, and hands it to the same player as a network camera. The hub dials the agent here: the one
+exception to "the device dials the hub" (owner, 2026-11-23: "Ja, ophalen"). In between, snapshots go on as
+before.
 
-The server sends `START_CAMERA_STREAM` when the first viewer opens the camera, and
-`STOP_CAMERA_STREAM` when the last one leaves. When the server closes the upload, the stream ends too.
-In between, snapshots go on as before.
+**Not through the agent's own WireGuard.** The agent's WireGuard (onetun, `crates/wireguard`) forwards
+connections outwards only; its remote forwards are unused (`config.rs:17-18`). Behind it a camera has
+snapshots only. Live view works on the hub's LAN and through the system's own WireGuard (owner,
+2026-11-23: accepted for now).
 
-**Per camera, a choice.** A camera's settings choose between the SDK's snapshots alone and snapshots
-plus live view.
-
-**Compatibility:** a Connect that does not know `/c/stream` answers it with an error. A printer that does
-not know the commands answers them `REJECTED` "Unknown command" (`command.py:181-183`).
+**Compatibility:** Prusa's Connect ignores a key of `config` it does not know: not checked (its server
+side of `/p/camera` is not in `reference/prusa-connect`).
 
 ## Part 6: the agent and the server
 
@@ -457,7 +462,7 @@ was, so a side may know both.
 | `label.stop` | Part 3: stopping a label |
 | `grbl.telemetry` | Part 4: its states, `machine_state` and the settings in `INFO` |
 | `grbl.commands` | Part 4: the new commands |
-| `camera.stream` | Part 5: `/c/stream` and its two commands |
+| `camera.stream` | Part 5: `stream_url` in a camera's registration |
 | `agent.id` | Part 6a: `agent_id` |
 | `server.info` | Part 6a: `extensions` and `SET_SERVER_INFO` |
 | `door.lock` | Part 7: `lock_count`, `locks` and `OPEN_LOCK` |
@@ -793,11 +798,7 @@ was looked for under another name.
 | `GO_TO_ORIGIN` | command | | 4 | as `HOME` |
 | `FRAME` | command | | 4 | as `HOME` |
 | `power` | kwarg | FRAME | 4 | a kwarg of a new command |
-| `/c/stream` | endpoint | | 5 | SDK `camera.py`, `camera_controller.py`: `/c/snapshot` only; Connect's live view dials a declared camera, not the printer protocol |
-| `START_CAMERA_STREAM` | command | | 5 | SDK `Command` (`const.py`): no command reaches a camera |
-| `STOP_CAMERA_STREAM` | command | | 5 | as `START_CAMERA_STREAM` |
-| `camera_id` | kwarg | START_CAMERA_STREAM | 5 | the SDK's own name for a camera (`models.py`) |
-| `fps` | kwarg | START_CAMERA_STREAM | 5 | a kwarg of a new command |
+| `stream_url` | value | `config` of `/p/camera` | 5 | SDK `CameraRegister.to_payload` (`models.py`), `Camera.get_settings` (`camera.py`): no stream; the name is Prusa Connect Local's camera option (part 5) |
 | `agent_id` | info | | 6a | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): `sn` and `fingerprint` are per printer |
 | `extensions` | info | | 6a | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): nothing says what a device knows; `features` is taken, a tool's own object in Connect (`tools.go`) |
 | `extensions` | kwarg | SET_SERVER_INFO | 6a | a kwarg of a new command |

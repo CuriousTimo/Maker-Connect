@@ -20,7 +20,8 @@ flowchart LR
   browser["Browser: go2rtc player, MSE or mjpeg"]
   rtspcam -->|"RTSP over TCP, retina"| hub
   usbcam --> agent
-  agent -->|"snapshots /c/snapshot; live /c/stream"| hub
+  agent -->|"snapshots PUT /c/snapshot"| hub
+  hub -->|"live: GET the agent's MJPEG stream, only while watched"| agent
   hub -->|"WebSocket: init, fragments (RTSP); JPEG frames (USB)"| browser
 ```
 
@@ -57,13 +58,20 @@ camera settings een keuze tussen prusa mode / live" ([OQ-9](risks-and-open.md#oq
 1. **Snapshots** go by the SDK's own camera protocol, unchanged: `POST /p/camera`, then `PUT /c/snapshot`
    with `Fingerprint` and `Token`, at the SDK's trigger schemes
    ([prusa-sdk-extension.md](prusa-sdk-extension.md#part-5-a-usb-camera)).
-2. **Live view** is the extension's part 5. The agent uploads `POST /c/stream` in go2rtc's pushed-MJPEG
-   format only between `START_CAMERA_STREAM` and `STOP_CAMERA_STREAM`, which the hub sends for the first
-   viewer and after the last one. The hub hands the frames to the browser in go2rtc's WebSocket
-   `mjpeg` mode (go2rtc v1.9.15 `internal/mjpeg/mjpeg.go:193-216`, `www/video-rtc.js:384-392`,
-   `:632-638`), on the same player and `/api/v1/cameras/{id}/ws` as a network camera. Nothing is decoded or
-   re-encoded.
-3. **Per camera, a setting:** Prusa mode (snapshots only) or live (snapshots plus live view).
+2. **Live view** as Prusa Connect Local's generic camera, "read only while somebody watches"
+   (`reference/prusa-connect` `2e8c62b` `adapters/camera/generic/generic.go:37`; owner 2026-11-23,
+   [decision](decisions/20261123-usb-camera-live-view-pulled.md)). The agent serves each camera's MJPEG
+   stream on its page, in the format of Prusa's ESP32-CAM firmware, and names its address `stream_url` in
+   the camera's registration ([part 5](prusa-sdk-extension.md#part-5-a-usb-camera)). The hub reads it from
+   the first viewer to the last and hands the frames to the browser in go2rtc's WebSocket `mjpeg` mode
+   (go2rtc v1.9.15 `internal/mjpeg/mjpeg.go:193-216`, `www/video-rtc.js:384-392`, `:632-638`), on the same
+   player and `/api/v1/cameras/{id}/ws` as a network camera. Nothing is decoded or re-encoded. Not through
+   the agent's own WireGuard (onetun forwards outwards only): there a camera has snapshots only.
+3. **One capture per camera** feeds both the stream and the snapshots (a USB camera opens once).
+4. **On the agent:** a Cameras tab switches each camera on or off and picks it from nokhwa's list; a camera
+   switched on registers by the SDK and shows up in the hub's cameras. The tab is also where a camera
+   proxy (the agent as gateway for network cameras on its LAN) would go later.
+5. **Per camera:** snapshots only, or snapshots plus live view (with or without `stream_url`).
 
 ## Not in this design yet
 

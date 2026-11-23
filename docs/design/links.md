@@ -17,7 +17,7 @@ is, and which reference it follows. Flows over these links are in [flows.md](flo
 | L7 | (not used) | folded into L6: commands travel on the device's WebSocket | | | | |
 | L8 | (not used) | folded into L6: a device registers over `/p/register`; a person enters its code in Space | | | | |
 | L9 | (not used) | our file and update routes are gone; files come with the drivers as the SDK fetches them, the agent's update is [OQ-46](risks-and-open.md#oq-46-how-the-agents-own-update-reaches-it) | | | | |
-| L10 | USB camera on an agent → hub, as a Prusa Connect camera | HTTP only, not the WebSocket: register, then snapshots; live view as one long upload | `/p/camera` (register), `/c/snapshot` (`PUT`, JPEG), `/c/stream` (`POST`, MJPEG, only between `START_CAMERA_STREAM` and `STOP_CAMERA_STREAM` on the device's L6) | the printer's headers on `/p/camera`; then the camera's `Timestamp`, `Fingerprint` and `Token` headers | Prusa-Connect-SDK-Printer @ `c0d7d233` (`models.py:198-225`, `camera.py:31`, `:54-77`); `/c/stream` is the [proposed extension](prusa-sdk-extension.md#part-5-a-usb-camera), in go2rtc v1.9.15's MJPEG format; the hub's answers are ours | owner 2026-11-20, cameras.md |
+| L10 | USB camera on an agent → hub, as a Prusa Connect camera | HTTP only, not the WebSocket: register, then snapshots; live view read by the hub from the agent | `/p/camera` (register, `stream_url` in `config`), `/c/snapshot` (`PUT`, JPEG); live: the hub `GET`s the agent's MJPEG stream (ESP32-CAM format) only while someone watches | the printer's headers on `/p/camera`; then the camera's `Timestamp`, `Fingerprint` and `Token` headers | Prusa-Connect-SDK-Printer @ `c0d7d233` (`models.py:198-225`, `camera.py:31`, `:54-77`); live view as Prusa Connect Local `2e8c62b` `adapters/camera/generic/generic.go:37`; `stream_url` is the [proposed extension](prusa-sdk-extension.md#part-5-a-usb-camera); the hub's answers are ours | owner 2026-11-20, 2026-11-23, cameras.md |
 | L11 | Prusa printer, Buddy 6.4+ → hub | HTTP + WebSocket | `/p/register`, `/p/auth`, `/p/ws` | `Code` header while registering; then `Fingerprint` and `Token` headers on the upgrade, `Sec-WebSocket-Protocol: prusa-connect` (`reference/buddy-6.4.0` `src/connect/connect.cpp:151-189`); the only Buddy dialect ([decision](decisions/20261119-buddy-websocket-dialect-only.md)) | Buddy 6.4+; server side read in `reference/prusa-connect` `internal/connector/xbuddy` | plan §2.2 |
 | L12 | Hub → network camera | RTSP over TCP | the camera's stream URL | the camera's user and password, kept by the hub | retina `2b6b7fe` (0.4.22) | cameras.md |
 | L13 | Agent → device | USB HID, USB printer class, serial, CUPS | per port | none (local) | the port's one reference (device-contract.md) | `CLAUDE.md` |
@@ -54,7 +54,8 @@ flowchart LR
   app -->|"L4 Bearer mct_"| hub
   spool -->|"L5"| hub
   agent <-->|"L6 /p/register, /p/ws per device"| hub
-  agent -->|"L10 /p/camera, /c/snapshot, /c/stream"| hub
+  agent -->|"L10 /p/camera, /c/snapshot"| hub
+  hub -.->|"L10 live: the agent's MJPEG stream, while watched"| agent
   xl -->|"L11 /p/ws"| hub
   hub -->|"L12 RTSP"| cam
   hub -->|"L14 login role"| db
