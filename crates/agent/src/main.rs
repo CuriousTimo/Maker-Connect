@@ -1867,7 +1867,7 @@ fn hub_devices(devices: &[Arc<Agent>]) -> String {
 fn banner(devices: &[Arc<Agent>]) -> (&'static str, String) {
     let (connected, linked) = hub_link(devices);
     match devices[0].settings().server() {
-        None => ("address", r#"<div class="banner warn"><span><b>No hub address.</b> Set it under Hub, on Devices.</span></div>"#.to_owned()),
+        None => ("address", r#"<div class="banner warn"><span><b>No hub address.</b> Set it under Hub, on <a href=/settings>Settings</a>.</span></div>"#.to_owned()),
         Some(server) if linked > 0 && connected == 0 => ("unreachable", format!(
             r#"<div class="banner bad"><span><b>The hub cannot be reached</b> at {}. The devices keep their state; a label already sent finishes. The agent tries again by itself.</span></div>"#,
             esc(&server)
@@ -1983,7 +1983,7 @@ fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
         r##"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 {THEME_FIRST}<title>Maker Connect agent</title><link rel=icon href="data:image/svg+xml,{icon}"><style>{CSS}
 .code{{font:700 var(--fs-6)/1 var(--mono);letter-spacing:.12em;color:var(--accent-text);margin:var(--s-2) 0 var(--s-3)}}
-.brand .mark svg{{width:100%;height:100%;display:block}} .card form{{margin:0}} .card .row.btns{{margin-top:var(--s-3)}} .row.btns>form{{flex:0 0 auto}}</style></head><body data-shape="{shape}">
+.brand .mark svg{{width:100%;height:100%;display:block}} .card form{{margin:0}} .solo-stack{{display:grid;gap:var(--s-4);max-width:760px}} .card .row.btns{{margin-top:var(--s-3)}} .row.btns>form{{flex:0 0 auto}}</style></head><body data-shape="{shape}">
 <a class=skip href="#main">Skip to content</a>
 <header class=top><span class=brand><span class=mark aria-hidden=true>{MARK}</span><span class=where><b>Maker Connect agent</b><small>{where_}</small></span></span><span class=spacer></span><span class=fw><button type=button class=theme data-theme-btn aria-label="Theme: Auto">Auto</button></span></header>
 <main id=main tabindex=-1 class=solo>
@@ -2240,7 +2240,7 @@ fn settings_page(devices: &[Arc<Agent>]) -> String {
     };
     let wg = WG.get().map(|wg| wg_card(wg)).unwrap_or_default();
     let main = format!(
-        r#"<div class=cols><div>
+        r#"<div class=solo-stack>
 <div class=card><div class=head><h2>Hub</h2><span class="st {hub_class}" data-live="hub.state">{hub_state}</span></div>
 <dl class=kv><dt>Address</dt><dd>{address}</dd><dt>Devices</dt><dd data-live="hub.devices">{devices_text}</dd></dl>
 <details{open} style="margin-top:var(--s-3)"><summary>Change the address</summary><form method=post action=/hub style="margin-top:var(--s-3)">
@@ -2248,9 +2248,8 @@ fn settings_page(devices: &[Arc<Agent>]) -> String {
 <label class=field style="flex:0 1 7rem">Port<input name=port inputmode=numeric value="{port}" placeholder="8460"></label></div>
 <label class=check><input type=checkbox name=tls {tls}> TLS</label>
 <div class="row btns"><span class=fw><button class="btn primary">Save</button></span></div></form></details></div>
-</div><div>
 {wg}
-</div></div>"#,
+</div>"#,
         open = if s.hostname.is_empty() { " open" } else { "" },
         host = esc(&s.hostname),
         port = if s.port == 0 {
