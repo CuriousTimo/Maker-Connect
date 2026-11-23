@@ -7,6 +7,8 @@
 
 # Maker Connect
 
+**Website: [maker-connect.xyz](https://maker-connect.xyz)** · early beta: what works, what does not yet, and the roadmap.
+
 One place for all of a maker's machines: 3D printers, lasers, label printers, and later CNC
 machines and cutting plotters, each managed its own way today. Watch them live, control them,
 send them files, and see how their jobs go, from a website you host yourself (a Pi, Docker, an
