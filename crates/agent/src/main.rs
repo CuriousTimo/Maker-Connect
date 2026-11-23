@@ -1885,7 +1885,11 @@ fn shape(devices: &[Arc<Agent>]) -> String {
         parts.push(format!("deck:{}", deck.on()));
     }
     if let Some(wg) = WG.get() {
-        parts.push(format!("wg:{}", wg.settings().on));
+        parts.push(format!(
+            "wg:{}:{}",
+            wg.settings().on,
+            wireguard::local_hub().is_some()
+        ));
     }
     parts.join("|")
 }
@@ -1988,12 +1992,20 @@ fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
 <a class=skip href="#main">Skip to content</a>
 <header class=top><span class=brand><span class=mark aria-hidden=true>{MARK}</span><span class=where><b>Maker Connect agent</b><small>{where_}</small></span></span><span class=spacer></span><span class=fw><button type=button class=theme data-theme-btn aria-label="Theme: Auto">Auto</button></span></header>
 <main id=main tabindex=-1 class=solo>
-{banner}<div class=card><div class=head><h1>This agent</h1><span class="st {class}" data-live="agent.state">{state}</span></div>
+{banner}<div class=card><div class=head><h1>This agent</h1><span class="st {class}" data-live="agent.state">{state}</span>{vpn}</div>
 <p class=muted>{what}</p></div>
 <nav class=tabs aria-label="This agent">{tabs}</nav>
 {main}
 </main><script>{THEME_SWITCH}</script><script>{LIVE_JS}</script></body></html>"##,
         shape = esc(&shape(devices)),
+        // through WireGuard (#194): a VPN mark beside the agent's state (owner, 2026-11-23)
+        vpn = if wireguard::local_hub().is_some() {
+            format!(
+                r#"<span class="st val" title="The hub is reached through this agent's WireGuard tunnel">{VPN_ICON}WireGuard</span>"#
+            )
+        } else {
+            String::new()
+        },
         icon = MARK.replace('#', "%23").replace('"', "'").replace('\n', ""),
         where_ = if host.is_empty() {
             esc(VERSION)
@@ -2003,6 +2015,9 @@ fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
         what = what.join(" · "),
     )
 }
+
+/// A shield with a keyhole: the VPN mark (ours, drawn for the agent's page; `currentColor`).
+const VPN_ICON: &str = r#"<svg class=ico viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1 2 3.2v4.1c0 3.5 2.5 6.6 6 7.7 3.5-1.1 6-4.2 6-7.7V3.2L8 1zm0 4.2a1.6 1.6 0 0 1 .8 3v2.4H7.2V8.2A1.6 1.6 0 0 1 8 5.2z"/></svg>"#;
 
 /// The hub's address as the agent's page has it (`host:port`): the tunnel's far end (#194).
 fn hub_target(devices: &[Arc<Agent>]) -> String {
