@@ -59,9 +59,8 @@ move to 8.0.2 only once that code is checked against 8.0.2).
 - One commit per piece of work, on `main`. Push only when the owner says so. `git fetch` first: the owner works on two MacBooks.
 - **Before each commit:**
   - Run `scripts/quick-check.sh`; its hub tests need Postgres, see below.
-  - Run `python3 scripts/buddy-audit-check.py` after any change in `crates/hub/src/devices/*.rs`.
-  - Such a change shifts the hub lines the audit cites, so fix those citations.
-  - No tool for that is in the repo yet; it is done by hand.
+  - After any change in `crates/hub/src/` run `python3 scripts/buddy-audit-follow.py`. Such a change shifts the hub lines the audit cites, and the script moves those citations.
+  - Then run `python3 scripts/buddy-audit-check.py` and fix by hand what it still reports.
 
 ## Tools on the MacBooks
 
