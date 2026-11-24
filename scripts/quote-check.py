@@ -47,7 +47,6 @@ DEFAULT_FILES = [
     "crates/grbl/src/lib.rs",
     "crates/engine/src/ports/laserfoundry/port.rs",
     "crates/engine/src/ports/laserfoundry/mod.rs",
-    "crates/engine/src/device/grbl.rs",
     "crates/agent/src/laser.rs",
 ]
 PART4 = ("docs/design/prusa-sdk-extension.md", "## Part 4", "## Part 5")
