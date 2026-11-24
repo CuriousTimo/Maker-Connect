@@ -782,7 +782,12 @@ async fn buddy_takes_every_command_the_hub_sends(pool: sqlx::PgPool) {
     // command (command.cpp:203-205) and takes it as unknown: #212.
     assert_eq!(raw["command"], "START_ENCRYPTED_DOWNLOAD");
     assert_eq!(command.kind, "UnknownCommand", "{raw}");
-    mini.finished(cid).await;
+    // Buddy's answer to an unknown command: REJECTED "Unknown command" (planner.cpp:665-666).
+    assert_eq!(
+        mini.event(json!({"state": "IDLE", "command_id": cid, "event": "REJECTED", "reason": "Unknown command"}))
+            .await,
+        StatusCode::NO_CONTENT
+    );
 }
 
 /// `SET_PRINTER_READY` is sent by `farm.rs` as the literal `{"command": "SET_PRINTER_READY"}`
@@ -986,11 +991,11 @@ async fn the_events_buddy_sends_settle_commands(pool: sqlx::PgPool) {
 /// (planner.cpp:466-472 builds them with a transfer id and `start_cmd_id`, render.cpp:537-542
 /// puts it in `data`, :680 `transfer_id`): the hub settles the download command by
 /// `data.start_cmd_id`, and takes the others (no transfer of its own) without a change.
+///
+/// Switched off: it starts with the hub's START_ENCRYPTED_DOWNLOAD, which a MINI on Buddy 8.0.2
+/// (WEBSOCKET) does not have, so the download it follows never begins (#212).
 #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
-#[cfg_attr(
-    not(feature = "pg-tests"),
-    ignore = "needs Postgres: the pg-tests feature"
-)]
+#[ignore = "#212: a MINI on Buddy 8.0.2 has no START_ENCRYPTED_DOWNLOAD; back with the hub's new download"]
 async fn transfer_events_name_their_command_in_data(pool: sqlx::PgPool) {
     let mini = Mini::new(&pool).await;
     mini.report(r#"{"state":"IDLE"}"#).await;
@@ -1015,11 +1020,8 @@ async fn transfer_events_name_their_command_in_data(pool: sqlx::PgPool) {
         .await,
         StatusCode::OK
     );
-    let (cid, command, raw) = mini.takes("IDLE").await;
-    // The hub's download command, which a MINI on 8.0.2 does not have (#212); the transfer
-    // events below are what Buddy sends for a download it does take.
-    assert_eq!(raw["command"], "START_ENCRYPTED_DOWNLOAD");
-    assert_eq!(command.kind, "UnknownCommand");
+    let (cid, command, _) = mini.takes("IDLE").await;
+    assert_eq!(command.kind, "StartEncryptedDownload");
     // planner.cpp:787 answers it with TRANSFER_INFO (render.cpp:498).
     assert_eq!(
         mini.event(json!({"data": {"size": 600, "transferred": 0, "progress": 0.0, "time_remaining": 0, "time_transferring": 0, "path": "/usb/PART~1.GCO", "start_cmd_id": cid, "type": "FROM_CONNECT"},
