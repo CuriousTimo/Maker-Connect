@@ -364,6 +364,7 @@
         }).join(" / ");
         const children = r.data?.children;
         const files = children ? children.filter((c) => c.type === "PRINT_FILE").length : 0;
+        if (r.no_stick) { status.textContent = "No USB stick in the printer."; list.innerHTML = '<p class="empty">Put a USB stick in the printer to see its files.</p>'; return; }
         if (!r.online) status.textContent = "The printer is offline: this is what it said last.";
         else if (!children) status.textContent = r.asking ? "Asking the printer…" : "";
         else if (r.pending > 0) status.textContent = `Pictures and details: ${files - r.pending} of ${files}, the printer sends them one by one…`;

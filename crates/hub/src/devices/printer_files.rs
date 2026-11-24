@@ -1524,6 +1524,21 @@ async fn look(
         Ok(p) => p,
         Err(r) => return *r,
     };
+    // A Buddy printer says in its INFO whether a stick is in: `storages` with `/usb` or empty
+    // (`render.cpp:399-413`; sent again when the stick comes or goes, `connect/printer.cpp:255`,
+    // `planner.cpp:423-427`). No stick: said so, and nothing is asked (ours, the owner's UI,
+    // 2026-11-24: "ja, toon geen USB-stick op de Files-tab").
+    if !crate::prusa_connect::marlin_agent(&printer)
+        && printer
+            .details
+            .as_ref()
+            .is_some_and(|d| !d.storages.iter().any(|s| s.path == "/usb"))
+    {
+        return Json(
+            json!({"path": path, "data": null, "no_stick": true, "online": printer.online}),
+        )
+        .into_response();
+    }
     let (entry, asked) = match store.printer_file(access.space, &machine, &path).await {
         Ok(found) => found,
         Err(error) => return failed(error),
@@ -3282,6 +3297,68 @@ mod flow {
         let (_, command) = next().await;
         assert_eq!(command["kwargs"]["path"], "/usb/box.gcode");
         assert_eq!(job().await.map(|j| j.state), Some(JobState::Printing));
+    }
+
+    /// No stick in the MINI: its INFO lists no storage (`render.cpp:399-413`), so the Files tab
+    /// says so and nothing is asked; a stick put in sends INFO again with `/usb`
+    /// (`connect/printer.cpp:255`, `planner.cpp:423-427`), and the stick is read.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn no_stick_in_the_mini_is_said_on_its_files_tab(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (_, mini, token) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
+        crate::auth::tester_may_operate(&store, &mini).await;
+        let report = || {
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .body(Body::from(r#"{"state":"IDLE"}"#))
+                .unwrap()
+        };
+        let info = |storages: Value| {
+            Request::post("/p/events")
+                .header("Token", &token)
+                .body(Body::from(
+                    json!({"event": "INFO", "state": "IDLE", "data": {"firmware": "8.0.2+0.LOCAL",
+                        "printer_type": "2.1.0", "sn": "CZPX1234X017XC12345", "appendix": false,
+                        "fingerprint": "f", "transfer_paused": false, "storages": storages,
+                        "network_info": {"hostname": "mini"}, "tools": {}, "tool_count": 1}})
+                    .to_string(),
+                ))
+                .unwrap()
+        };
+        let look = || {
+            Request::get(format!("/api/machines/{mini}/usb?path=/usb"))
+                .body(Body::empty())
+                .unwrap()
+        };
+        call(&app, report()).await;
+        assert_eq!(call(&app, info(json!([]))).await.0, StatusCode::NO_CONTENT);
+        let (_, _, body) = call(&app, look()).await;
+        let answer: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(answer["no_stick"], true);
+        assert_eq!(
+            call(&app, report()).await.0,
+            StatusCode::NO_CONTENT,
+            "nothing asked"
+        );
+        // The stick put in.
+        let usb = json!([{"mountpoint": "/usb", "type": "USB", "read_only": false,
+            "free_space": 1000, "is_sfn": true}]);
+        assert_eq!(call(&app, info(usb)).await.0, StatusCode::NO_CONTENT);
+        let (_, _, body) = call(&app, look()).await;
+        let answer: Value = serde_json::from_slice(&body).unwrap();
+        assert!(answer.get("no_stick").is_none());
+        let (_, _, body) = call(&app, report()).await;
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"command": "SEND_FILE_INFO", "kwargs": {"path": "/usb"}})
+        );
     }
 
     /// The stick's answers settle a file that waits (owner, 2026-11-24, points 3 and 4): a

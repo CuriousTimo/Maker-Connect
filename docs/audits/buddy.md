@@ -37,15 +37,15 @@ row says OPEN, not identical.
 |---|---|---|---|---|
 | `CANCEL_OBJECT` | `command.cpp:193` |  | **not used by the hub** |  |
 | `CANCEL_PRINTER_READY` | `command.cpp:174` |  | **not used by the hub** |  |
-| `CREATE_FOLDER` | `command.cpp:178` | `devices/printer_files.rs:1827` | **identical**: taken as `CreateFolder` with `path` | `buddy_takes_every_command_the_hub_sends` |
-| `DELETE_FILE` | `command.cpp:176` | `devices/printer_files.rs:1791` | **identical**: taken as `DeleteFile` with `path` | `buddy_takes_every_command_the_hub_sends` |
-| `DELETE_FOLDER` | `command.cpp:177` | `devices/printer_files.rs:1789` | **identical**: taken as `DeleteFolder` with `path` | `buddy_takes_every_command_the_hub_sends` |
+| `CREATE_FOLDER` | `command.cpp:178` | `devices/printer_files.rs:1842` | **identical**: taken as `CreateFolder` with `path` | `buddy_takes_every_command_the_hub_sends` |
+| `DELETE_FILE` | `command.cpp:176` | `devices/printer_files.rs:1806` | **identical**: taken as `DeleteFile` with `path` | `buddy_takes_every_command_the_hub_sends` |
+| `DELETE_FOLDER` | `command.cpp:177` | `devices/printer_files.rs:1804` | **identical**: taken as `DeleteFolder` with `path` | `buddy_takes_every_command_the_hub_sends` |
 | `DIALOG_ACTION` | `command.cpp:191` | `web/machines.rs:507` | **identical**: taken as `DialogAction` with `dialog_id` and `button`; the hub offers the buttons only when the printer named a dialog, and refuses a press without one ("the printer named no dialog"), so it never sends one without `dialog_id` | `buddy_takes_every_command_the_hub_sends`, `a_dialog_answer_without_a_dialog_is_refused_by_the_hub` |
 | `PAUSE_PRINT` | `command.cpp:169` | `devices/printer_files.rs:1450` | **identical**: taken as `PausePrint` | `buddy_takes_every_command_the_hub_sends` |
 | `RESET` | `command.cpp:189` |  | **not used by the hub** |  |
 | `RESET_PRINTER` | `command.cpp:188` |  | **not used by the hub** |  |
 | `RESUME_PRINT` | `command.cpp:171` | `devices/printer_files.rs:1451` | **identical**: taken as `ResumePrint` | `buddy_takes_every_command_the_hub_sends` |
-| `SEND_FILE_INFO` | `command.cpp:167` | `devices/printer_files.rs:1224` `devices/printer_files.rs:1544` | **identical**: the body Buddy's port takes as `SendFileInfo` with its `path` | `buddy_takes_every_command_the_hub_sends` |
+| `SEND_FILE_INFO` | `command.cpp:167` | `devices/printer_files.rs:1224` `devices/printer_files.rs:1559` | **identical**: the body Buddy's port takes as `SendFileInfo` with its `path` | `buddy_takes_every_command_the_hub_sends` |
 | `SEND_INFO` | `command.cpp:165` |  | **not used by the hub** |  |
 | `SEND_JOB_INFO` | `command.cpp:166` | `devices/printer_files.rs:1293` | **identical**: taken as `SendJobInfo` with `job_id` | `buddy_takes_every_command_the_hub_sends` |
 | `SEND_STATE_INFO` | `command.cpp:190` |  | **not used by the hub** |  |
@@ -57,7 +57,7 @@ row says OPEN, not identical.
 | `START_CONNECT_DOWNLOAD` | `command.cpp:202` | `devices/printer_files.rs:710` | **identical**: taken as `StartInlineDownload` with `path`, `orig_size`, `team_id` and `hash` (`ARGS_INLINE_DOWN`, `command.cpp:98`); the label printer on the agent gets the SDK's own (`devices/prusa_connect.rs` `label_job`) | `buddy_takes_every_command_the_hub_sends` |
 | `START_ENCRYPTED_DOWNLOAD` | `command.cpp:204` |  | **not used by the hub**: in Buddy 8.0.2 only `#if !WEBSOCKET()` (`command.cpp:203-205`), and the MINI is built with WebSocket (`ProjectOptions.cmake:836`) |  |
 | `START_INLINE_DOWNLOAD` | `command.cpp:195` |  | **not used by the hub** |  |
-| `START_PRINT` | `command.cpp:172` | `devices/printer_files.rs:358` `devices/printer_files.rs:1738` | **identical**: taken as `StartPrint` with `path` (no `tool_mapping`: optional) | `buddy_takes_every_command_the_hub_sends` |
+| `START_PRINT` | `command.cpp:172` | `devices/printer_files.rs:358` `devices/printer_files.rs:1753` | **identical**: taken as `StartPrint` with `path` (no `tool_mapping`: optional) | `buddy_takes_every_command_the_hub_sends` |
 | `STOP_PRINT` | `command.cpp:170` | `devices/printer_files.rs:1452` | **identical**: taken as `StopPrint` | `buddy_takes_every_command_the_hub_sends` |
 | `STOP_TRANSFER` | `command.cpp:179` |  | **not used by the hub** for a Buddy printer: the hub sends it only to a label printer on the agent (`devices/prusa_connect.rs` `stop_label`) | `agent_names_never_go_to_a_buddy` |
 | `UNCANCEL_OBJECT` | `command.cpp:194` |  | **not used by the hub** |  |
@@ -83,9 +83,9 @@ row says OPEN, not identical.
 | `iv` | `command.cpp:434` |  | **not used by the hub**: `START_ENCRYPTED_DOWNLOAD` only, which the MINI on 8.0.2 does not have |  |
 | `job_id` | `command.cpp:289` | `devices/printer_files.rs:1293` | **identical**: a number that fits 16 bits (it is the printer's own `job_id`) | `buddy_takes_every_command_the_hub_sends` |
 | `key` | `command.cpp:432` |  | **not used by the hub**: as `iv` |  |
-| `kwargs` | `command.cpp:285` | `devices/printer_files.rs:1684` | **identical**: an object at depth 1 (`:265`) | `buddy_takes_every_command_the_hub_sends` |
+| `kwargs` | `command.cpp:285` | `devices/printer_files.rs:1699` | **identical**: an object at depth 1 (`:265`) | `buddy_takes_every_command_the_hub_sends` |
 | `orig_size` | `command.cpp:418` | `devices/printer_files.rs:713` | **identical**: a number that fits 32 bits | `buddy_takes_every_command_the_hub_sends` |
-| `path` | `command.cpp:291` | `devices/printer_files.rs:1635` | **identical**: a string; short names of the stick (`path_sfn` is the same argument). Buddy 8.0.2 breaks a command whose path is longer than `max_hybrid_path_length`, 270 bytes (`command.cpp:223-234`, `include/buddy/filename_defs.hpp:49`), which the end check names "Missing or broken parameters" (`:457-458`); the port does the same, and the printer's refusal ends the hub's job (REJECTED, `devices/printer_files.rs`) | `buddy_takes_every_command_the_hub_sends`, `the_port_refuses_what_command_cpp_refuses` |
+| `path` | `command.cpp:291` | `devices/printer_files.rs:1650` | **identical**: a string; short names of the stick (`path_sfn` is the same argument). Buddy 8.0.2 breaks a command whose path is longer than `max_hybrid_path_length`, 270 bytes (`command.cpp:223-234`, `include/buddy/filename_defs.hpp:49`), which the end check names "Missing or broken parameters" (`:457-458`); the port does the same, and the printer's refusal ends the hub's job (REJECTED, `devices/printer_files.rs`) | `buddy_takes_every_command_the_hub_sends`, `the_port_refuses_what_command_cpp_refuses` |
 | `path_sfn` | `command.cpp:291` |  | **not used by the hub** |  |
 | `port` | `command.cpp:415` |  | **not used by the hub** |  |
 | `team_id` | `command.cpp:423` | `devices/printer_files.rs:714` | **identical**: the printer's space, a number that fits 64 bits | `buddy_takes_every_command_the_hub_sends`, `transfer_events_name_their_command_in_data` |
