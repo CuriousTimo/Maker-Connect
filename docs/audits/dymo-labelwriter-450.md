@@ -51,61 +51,61 @@ in the port is in the script's list with its reason: nothing is left out unnamed
 |---|---|---|---|
 | `CLabelWriterDriver::CLabelWriterDriver` | `src/lw/LabelWriterDriver.cpp:35` | ported as `LabelWriterDriver::new` | ported |
 | `CLabelWriterDriver::~CLabelWriterDriver` | `src/lw/LabelWriterDriver.cpp:42` | not ported: nothing to do | not covered |
-| `CLabelWriterDriver::StartDoc` | `src/lw/LabelWriterDriver.cpp:47` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:370` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::EndDoc` | `src/lw/LabelWriterDriver.cpp:58` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:524` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::StartPage` | `src/lw/LabelWriterDriver.cpp:63` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:532` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::EndPage` | `src/lw/LabelWriterDriver.cpp:78` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:547` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SendNotCompressedData` | `src/lw/LabelWriterDriver.cpp:85` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:133` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SendCompressedData` | `src/lw/LabelWriterDriver.cpp:104` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:153` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::GetBlanks` | `src/lw/LabelWriterDriver.cpp:121` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:167` | ported (tested in section 2, proved in section 3) |
-| `GetBitValue` | `src/lw/LabelWriterDriver.cpp:155` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:386` | ported (tested in section 2, proved in section 3) |
-| `NextBit` | `src/lw/LabelWriterDriver.cpp:162` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:391` | ported (tested in section 2, proved in section 3) |
-| `GetCompressedSequenceValue` | `src/lw/LabelWriterDriver.cpp:177` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:401` | ported (tested in section 2, proved in section 3) |
-| `CompressData` | `src/lw/LabelWriterDriver.cpp:206` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:433` | ported (tested in section 2, proved in section 3) |
-| `ShiftDataRight` | `src/lw/LabelWriterDriver.cpp:225` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:454` | ported (tested in section 2, proved in section 3) |
-| `ShiftDataLeft` | `src/lw/LabelWriterDriver.cpp:244` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:480` | ported (tested in section 2, proved in section 3) |
-| `ShiftData` | `src/lw/LabelWriterDriver.cpp:262` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:504` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::ProcessRasterLine` | `src/lw/LabelWriterDriver.cpp:275` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:556` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SendCommand` | `src/lw/LabelWriterDriver.cpp:336` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:265` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SendCommand` | `src/lw/LabelWriterDriver.cpp:342` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:265` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::GetResolution` | `src/lw/LabelWriterDriver.cpp:348` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:204` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::GetDensity` | `src/lw/LabelWriterDriver.cpp:354` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:208` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::GetQuality` | `src/lw/LabelWriterDriver.cpp:360` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:212` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::GetPageHeight` | `src/lw/LabelWriterDriver.cpp:366` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:216` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::GetPaperType` | `src/lw/LabelWriterDriver.cpp:372` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:220` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SetResolution` | `src/lw/LabelWriterDriver.cpp:378` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:224` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SetDensity` | `src/lw/LabelWriterDriver.cpp:384` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:228` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SetQuality` | `src/lw/LabelWriterDriver.cpp:390` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:232` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SetPageHeight` | `src/lw/LabelWriterDriver.cpp:396` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:236` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SetPaperType` | `src/lw/LabelWriterDriver.cpp:402` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:240` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SetMaxPrintWidth` | `src/lw/LabelWriterDriver.cpp:408` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:244` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SetPageOffset` | `src/lw/LabelWriterDriver.cpp:414` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:248` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SendLineTab` | `src/lw/LabelWriterDriver.cpp:420` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:272` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SendDotTab` | `src/lw/LabelWriterDriver.cpp:430` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:278` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SendFormFeed` | `src/lw/LabelWriterDriver.cpp:439` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:284` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SendBytesPerLine` | `src/lw/LabelWriterDriver.cpp:447` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:289` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SendSkipLines` | `src/lw/LabelWriterDriver.cpp:456` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:295` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SendLabelLength` | `src/lw/LabelWriterDriver.cpp:481` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:311` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SendResolution` | `src/lw/LabelWriterDriver.cpp:491` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:317` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SendPrintDensity` | `src/lw/LabelWriterDriver.cpp:514` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:330` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SendPrintQuality` | `src/lw/LabelWriterDriver.cpp:531` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:341` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::GetResetCommand` | `src/lw/LabelWriterDriver.cpp:546` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:350` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::GetRequestStatusCommand` | `src/lw/LabelWriterDriver.cpp:552` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:355` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::GetEmptyLinesCount` | `src/lw/LabelWriterDriver.cpp:560` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:252` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver::SetEmptyLinesCount` | `src/lw/LabelWriterDriver.cpp:566` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:257` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::StartDoc` | `src/lw/LabelWriterDriver.cpp:47` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:371` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::EndDoc` | `src/lw/LabelWriterDriver.cpp:58` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:525` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::StartPage` | `src/lw/LabelWriterDriver.cpp:63` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:533` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::EndPage` | `src/lw/LabelWriterDriver.cpp:78` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:548` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SendNotCompressedData` | `src/lw/LabelWriterDriver.cpp:85` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:134` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SendCompressedData` | `src/lw/LabelWriterDriver.cpp:104` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:154` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::GetBlanks` | `src/lw/LabelWriterDriver.cpp:121` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:168` | ported (tested in section 2, proved in section 3) |
+| `GetBitValue` | `src/lw/LabelWriterDriver.cpp:155` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:387` | ported (tested in section 2, proved in section 3) |
+| `NextBit` | `src/lw/LabelWriterDriver.cpp:162` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:392` | ported (tested in section 2, proved in section 3) |
+| `GetCompressedSequenceValue` | `src/lw/LabelWriterDriver.cpp:177` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:402` | ported (tested in section 2, proved in section 3) |
+| `CompressData` | `src/lw/LabelWriterDriver.cpp:206` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:434` | ported (tested in section 2, proved in section 3) |
+| `ShiftDataRight` | `src/lw/LabelWriterDriver.cpp:225` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:455` | ported (tested in section 2, proved in section 3) |
+| `ShiftDataLeft` | `src/lw/LabelWriterDriver.cpp:244` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:481` | ported (tested in section 2, proved in section 3) |
+| `ShiftData` | `src/lw/LabelWriterDriver.cpp:262` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:505` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::ProcessRasterLine` | `src/lw/LabelWriterDriver.cpp:275` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:557` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SendCommand` | `src/lw/LabelWriterDriver.cpp:336` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:266` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SendCommand` | `src/lw/LabelWriterDriver.cpp:342` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:266` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::GetResolution` | `src/lw/LabelWriterDriver.cpp:348` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:205` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::GetDensity` | `src/lw/LabelWriterDriver.cpp:354` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:209` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::GetQuality` | `src/lw/LabelWriterDriver.cpp:360` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:213` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::GetPageHeight` | `src/lw/LabelWriterDriver.cpp:366` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:217` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::GetPaperType` | `src/lw/LabelWriterDriver.cpp:372` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:221` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SetResolution` | `src/lw/LabelWriterDriver.cpp:378` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:225` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SetDensity` | `src/lw/LabelWriterDriver.cpp:384` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:229` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SetQuality` | `src/lw/LabelWriterDriver.cpp:390` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:233` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SetPageHeight` | `src/lw/LabelWriterDriver.cpp:396` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:237` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SetPaperType` | `src/lw/LabelWriterDriver.cpp:402` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:241` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SetMaxPrintWidth` | `src/lw/LabelWriterDriver.cpp:408` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:245` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SetPageOffset` | `src/lw/LabelWriterDriver.cpp:414` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:249` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SendLineTab` | `src/lw/LabelWriterDriver.cpp:420` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:273` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SendDotTab` | `src/lw/LabelWriterDriver.cpp:430` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:279` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SendFormFeed` | `src/lw/LabelWriterDriver.cpp:439` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:285` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SendBytesPerLine` | `src/lw/LabelWriterDriver.cpp:447` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:290` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SendSkipLines` | `src/lw/LabelWriterDriver.cpp:456` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:296` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SendLabelLength` | `src/lw/LabelWriterDriver.cpp:481` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:312` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SendResolution` | `src/lw/LabelWriterDriver.cpp:491` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:318` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SendPrintDensity` | `src/lw/LabelWriterDriver.cpp:514` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:331` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SendPrintQuality` | `src/lw/LabelWriterDriver.cpp:531` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:342` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::GetResetCommand` | `src/lw/LabelWriterDriver.cpp:546` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:351` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::GetRequestStatusCommand` | `src/lw/LabelWriterDriver.cpp:552` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:356` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::GetEmptyLinesCount` | `src/lw/LabelWriterDriver.cpp:560` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:253` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver::SetEmptyLinesCount` | `src/lw/LabelWriterDriver.cpp:566` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:258` | ported (tested in section 2, proved in section 3) |
 | `CLabelWriterDriver400::CLabelWriterDriver400` | `src/lw/LabelWriterDriver.cpp:575` | ported as `LabelWriterDriver::new400` | ported |
 | `CLabelWriterDriver400::~CLabelWriterDriver400` | `src/lw/LabelWriterDriver.cpp:580` | not ported: nothing to do | not covered |
 | `CLabelWriterDriver400::StartDoc` | `src/lw/LabelWriterDriver.cpp:585` | ported as `LabelWriterDriver::start_doc` (calls the base, :584-588) | ported |
-| `CLabelWriterDriver400::EndDoc` | `src/lw/LabelWriterDriver.cpp:591` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:524` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver400::EndPage` | `src/lw/LabelWriterDriver.cpp:597` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:547` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver400::GetShortFormFeedCommand` | `src/lw/LabelWriterDriver.cpp:603` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:360` | ported (tested in section 2, proved in section 3) |
-| `CLabelWriterDriver400::SendShortFormFeed` | `src/lw/LabelWriterDriver.cpp:611` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:365` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver400::EndDoc` | `src/lw/LabelWriterDriver.cpp:591` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:525` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver400::EndPage` | `src/lw/LabelWriterDriver.cpp:597` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:548` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver400::GetShortFormFeedCommand` | `src/lw/LabelWriterDriver.cpp:603` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:361` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriver400::SendShortFormFeed` | `src/lw/LabelWriterDriver.cpp:611` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:366` | ported (tested in section 2, proved in section 3) |
 | `CLabelWriterDriverTwinTurbo::CLabelWriterDriverTwinTurbo` | `src/lw/LabelWriterDriver.cpp:622` | not ported: Twin Turbo (not a 450) | not covered |
 | `CLabelWriterDriverTwinTurbo::~CLabelWriterDriverTwinTurbo` | `src/lw/LabelWriterDriver.cpp:627` | not ported: Twin Turbo (not a 450) | not covered |
 | `CLabelWriterDriverTwinTurbo::StartDoc` | `src/lw/LabelWriterDriver.cpp:632` | not ported: Twin Turbo (not a 450) | not covered |
 | `CLabelWriterDriverTwinTurbo::GetRoll` | `src/lw/LabelWriterDriver.cpp:639` | not ported: Twin Turbo (not a 450) | not covered |
 | `CLabelWriterDriverTwinTurbo::SetRoll` | `src/lw/LabelWriterDriver.cpp:645` | not ported: Twin Turbo (not a 450) | not covered |
-| `CLabelWriterDriverTwinTurbo::GetRollSelectCommand` | `src/lw/LabelWriterDriver.cpp:651` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:76` | ported (tested in section 2, proved in section 3) |
+| `CLabelWriterDriverTwinTurbo::GetRollSelectCommand` | `src/lw/LabelWriterDriver.cpp:651` | `crates/engine/src/ports/dymo_cups/label_writer_driver.rs:77` | ported (tested in section 2, proved in section 3) |
 | `CLabelWriterDriverTwinTurbo::SendRollSelect` | `src/lw/LabelWriterDriver.cpp:666` | not ported: Twin Turbo (not a 450) | not covered |
 | `CLabelWriterLanguageMonitor::CLabelWriterLanguageMonitor` | `src/lw/LabelWriterLanguageMonitor.cpp:34` | ported as `LabelWriterLanguageMonitor::new` | ported |
 | `CLabelWriterLanguageMonitor::~CLabelWriterLanguageMonitor` | `src/lw/LabelWriterLanguageMonitor.cpp:39` | not ported: nothing to do | not covered |
@@ -131,10 +131,10 @@ in the port is in the script's list with its reason: nothing is left out unnamed
 | `CDriverInitializerLabelWriterTwinTurboWithLM::ProcessPPDOptions` | `src/lw/CupsFilterLabelWriter.cpp:139` | not ported: Twin Turbo (not a 450) | not covered |
 | `CDriverInitializerLabelWriterTwinTurboWithLM::ProcessPageOptions` | `src/lw/CupsFilterLabelWriter.cpp:146` | not ported: Twin Turbo (not a 450) | not covered |
 | `IsBackchannelSupported` | `src/lw/raster2dymolw.cpp:45` | `crates/engine/src/ports/dymo_cups/raster2dymolw.rs:10` | ported (tested in section 2, proved in section 3) |
-| `main` | `src/lw/raster2dymolw.cpp:56` | `crates/engine/src/ports/dymo_cups/raster2dymolw.rs:22` | ported (tested in section 2, proved in section 3) |
+| `main` | `src/lw/raster2dymolw.cpp:56` | `crates/engine/src/ports/dymo_cups/raster2dymolw.rs:23` | ported (tested in section 2, proved in section 3) |
 | `CCupsFilter::CCupsFilter` | `src/common/CupsFilter.h:60` | ported in `CupsFilter::new` | ported |
-| `CCupsFilter::Run` | `src/common/CupsFilter.h:69` | `crates/engine/src/ports/dymo_cups/cups_filter.rs:81` | ported (tested in section 2, proved in section 3) |
-| `CCupsFilter::InitDocument` | `src/common/CupsFilter.h:214` | `crates/engine/src/ports/dymo_cups/cups_filter.rs:223` | ported (tested in section 2, proved in section 3) |
+| `CCupsFilter::Run` | `src/common/CupsFilter.h:69` | `crates/engine/src/ports/dymo_cups/cups_filter.rs:85` | ported (tested in section 2, proved in section 3) |
+| `CCupsFilter::InitDocument` | `src/common/CupsFilter.h:214` | `crates/engine/src/ports/dymo_cups/cups_filter.rs:227` | ported (tested in section 2, proved in section 3) |
 | `CCupsPrintEnvironmentForDriver::CCupsPrintEnvironmentForDriver` | `src/common/CupsPrintEnvironment.cpp:31` | ported as `CupsPrintEnvironmentForDriver::new` | ported |
 | `CCupsPrintEnvironmentForDriver::~CCupsPrintEnvironmentForDriver` | `src/common/CupsPrintEnvironment.cpp:47` | not ported: closes the PRN file: Rust drops it | not covered |
 | `CCupsPrintEnvironmentForDriver::WriteData` | `src/common/CupsPrintEnvironment.cpp:55` | `crates/engine/src/ports/dymo_cups/cups_print_environment.rs:93` | ported (tested in section 2, proved in section 3) |
@@ -219,25 +219,25 @@ tests run on the real clock (`time(NULL)`, one second of status timeout), as the
 | `LabelWriterDriverTest::testContinuousPaper` | `src/lw/tests/TestLabelWriterDriver.cpp:164` | `driver_test_continuous_paper` (:245) | **passes** |
 | `LabelWriterDriverTest::test400EndPageEndDoc` | `src/lw/tests/TestLabelWriterDriver.cpp:195` | `driver_test_400_end_page_end_doc` (:265) | **passes** |
 | `LabelWriterDriverTest::testTwinTurboRoll` | `src/lw/tests/TestLabelWriterDriver.cpp:224` | not ported: Twin Turbo (not a 450): `CLabelWriterDriverTwinTurbo` is not ported | not covered |
-| `LabelWriterFilterTest::testDensity` | `src/lw/tests/TestLabelWriterFilter.cpp:57` | `filter_test_density` (:305) | **passes** |
-| `LabelWriterFilterTest::testQuality` | `src/lw/tests/TestLabelWriterFilter.cpp:77` | `filter_test_quality` (:326) | **passes** |
+| `LabelWriterFilterTest::testDensity` | `src/lw/tests/TestLabelWriterFilter.cpp:57` | `filter_test_density` (:337) | **passes** |
+| `LabelWriterFilterTest::testQuality` | `src/lw/tests/TestLabelWriterFilter.cpp:77` | `filter_test_quality` (:358) | **passes** |
 | `LabelWriterFilterTest::testRoll` | `src/lw/tests/TestLabelWriterFilter.cpp:89` | not ported: Twin Turbo (not a 450): `InputSlot` and the Twin Turbo initializer are not ported | not covered |
-| `LabelWriterLMTest::testGoodJob` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:51` | `lm_test_good_job` (:346) | **passes** |
-| `LabelWriterLMTest::testPaperOut` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:79` | `lm_test_paper_out` (:366) | **passes** |
-| `LabelWriterLMTest::testPaperOutAfterReprint` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:112` | `lm_test_paper_out_after_reprint` (:388) | **passes** |
-| `LabelWriterLMTest::testPollForPaperIn` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:147` | `lm_test_poll_for_paper_in` (:412) | **passes** |
-| `LabelWriterLMTest::testOneGoodPageOneNot` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:180` | `lm_test_one_good_page_one_not` (:434) | **passes** |
-| `LabelWriterLMTest::testRollSynchronize` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:220` | `lm_test_roll_synchronize` (:457) | **passes** |
-| `LabelWriterLMTest::testResetPrinter` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:243` | `lm_test_reset_printer` (:476) | **passes** |
-| `LabelWriterLMTest::testStatusReadFailed` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:257` | `lm_test_status_read_failed` (:491) | **passes** |
-| `LabelWriterLMTest::testContinuousPaper` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:289` | `lm_test_continuous_paper` (:514) | **passes** |
-| `LabelWriterLMTest::testRollChangedBit` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:322` | `lm_test_roll_changed_bit` (:538) | **passes** |
-| `ErrorDiffusionTest::testBlack` | `src/common/tests/TestErrorDiffusionHalftoning.cpp:44` | `halftone_test_black` (:581) | **passes** |
-| `ErrorDiffusionTest::testWhite` | `src/common/tests/TestErrorDiffusionHalftoning.cpp:73` | `halftone_test_white` (:587) | **passes** |
-| `ErrorDiffusionTest::testRed` | `src/common/tests/TestErrorDiffusionHalftoning.cpp:102` | `halftone_test_red` (:593) | **passes** |
-| `ErrorDiffusionTest::testGreen` | `src/common/tests/TestErrorDiffusionHalftoning.cpp:133` | `halftone_test_green` (:602) | **passes** |
-| `ErrorDiffusionTest::testBlue` | `src/common/tests/TestErrorDiffusionHalftoning.cpp:164` | `halftone_test_blue` (:611) | **passes** |
-| `NonLinearLaplacianTest::testBlock` | `src/common/tests/TestNLLHalftoning.cpp:44` | `nll_test_block` (:620) | **passes** |
+| `LabelWriterLMTest::testGoodJob` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:51` | `lm_test_good_job` (:378) | **passes** |
+| `LabelWriterLMTest::testPaperOut` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:79` | `lm_test_paper_out` (:398) | **passes** |
+| `LabelWriterLMTest::testPaperOutAfterReprint` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:112` | `lm_test_paper_out_after_reprint` (:420) | **passes** |
+| `LabelWriterLMTest::testPollForPaperIn` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:147` | `lm_test_poll_for_paper_in` (:444) | **passes** |
+| `LabelWriterLMTest::testOneGoodPageOneNot` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:180` | `lm_test_one_good_page_one_not` (:466) | **passes** |
+| `LabelWriterLMTest::testRollSynchronize` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:220` | `lm_test_roll_synchronize` (:489) | **passes** |
+| `LabelWriterLMTest::testResetPrinter` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:243` | `lm_test_reset_printer` (:508) | **passes** |
+| `LabelWriterLMTest::testStatusReadFailed` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:257` | `lm_test_status_read_failed` (:523) | **passes** |
+| `LabelWriterLMTest::testContinuousPaper` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:289` | `lm_test_continuous_paper` (:546) | **passes** |
+| `LabelWriterLMTest::testRollChangedBit` | `src/lw/tests/TestLabelWriterLanguageMonitor.cpp:322` | `lm_test_roll_changed_bit` (:570) | **passes** |
+| `ErrorDiffusionTest::testBlack` | `src/common/tests/TestErrorDiffusionHalftoning.cpp:44` | `halftone_test_black` (:613) | **passes** |
+| `ErrorDiffusionTest::testWhite` | `src/common/tests/TestErrorDiffusionHalftoning.cpp:73` | `halftone_test_white` (:619) | **passes** |
+| `ErrorDiffusionTest::testRed` | `src/common/tests/TestErrorDiffusionHalftoning.cpp:102` | `halftone_test_red` (:625) | **passes** |
+| `ErrorDiffusionTest::testGreen` | `src/common/tests/TestErrorDiffusionHalftoning.cpp:133` | `halftone_test_green` (:634) | **passes** |
+| `ErrorDiffusionTest::testBlue` | `src/common/tests/TestErrorDiffusionHalftoning.cpp:164` | `halftone_test_blue` (:643) | **passes** |
+| `NonLinearLaplacianTest::testBlock` | `src/common/tests/TestNLLHalftoning.cpp:44` | `nll_test_block` (:652) | **passes** |
 
 24 of 26 test cases ported (2 not covered).
 <!-- generated tests: end -->

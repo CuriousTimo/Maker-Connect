@@ -9,7 +9,7 @@
 
 use super::ppd::{Choice, OptionData, SizeData};
 
-/// `*ModelName` (lw450.ppd:42): what `raster2dymolw.cpp:78-98` matches.
+/// `*ModelName` (lw450.ppd:42): what `raster2dymolw.cpp:78-115` matches.
 pub const MODEL_NAME: &str = "DYMO LabelWriter 450";
 
 /// `*cupsIPPReason` (lw450.ppd:47-55): the reason keyword, its English text, its line.

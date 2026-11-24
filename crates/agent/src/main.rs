@@ -16,7 +16,7 @@
 use maker_connect_engine::Order;
 use maker_connect_engine::{
     Engine, MachineId, Port,
-    ports::dymo_cups::LabelWriter450,
+    ports::dymo_cups::{LabelWriter320, LabelWriter450},
     ports::labelle::DymoPnp,
     ports::laserfoundry::port::{LaserFoundryPort, MachineStateHook},
     ports::octoprint::port::{LcdInputs, OctoPrintPort},
@@ -66,6 +66,8 @@ enum Kind {
     Pnp,
     /// The DYMO LabelWriter 450 ("The second device").
     Lw450,
+    /// The DYMO LabelWriter 320: the 450's stack with the 320's PPD (#25).
+    Lw320,
     /// A Marlin printer, not a Prusa (`docs/design/prusa-sdk-extension.md`, part 9).
     Marlin,
     /// A GRBL laser (`docs/design/prusa-sdk-extension.md`, part 4).
@@ -75,9 +77,10 @@ enum Kind {
 }
 
 impl Kind {
-    const ALL: [Kind; 5] = [
+    const ALL: [Kind; 6] = [
         Kind::Pnp,
         Kind::Lw450,
+        Kind::Lw320,
         Kind::Marlin,
         Kind::Laser,
         Kind::Cameras,
@@ -88,6 +91,7 @@ impl Kind {
         match self {
             Kind::Pnp => "dymo.labelmanager-pnp",
             Kind::Lw450 => "dymo.labelwriter-450",
+            Kind::Lw320 => "dymo.labelwriter-320",
             Kind::Marlin => "marlin.fdm",
             Kind::Laser => "grbl.laser",
             Kind::Cameras => "maker-connect.cameras",
@@ -99,6 +103,7 @@ impl Kind {
         match self {
             Kind::Pnp => "dymo",
             Kind::Lw450 => "labelwriter-450",
+            Kind::Lw320 => "labelwriter-320",
             Kind::Marlin => "marlin",
             Kind::Laser => "laser",
             Kind::Cameras => "cameras",
@@ -110,6 +115,7 @@ impl Kind {
             Kind::Pnp => "DYMO LabelManager PnP",
             // Owner, 2026-11-23: the models it drives (#209); the wire type stays `dymo.labelwriter-450`.
             Kind::Lw450 => "DYMO LabelWriter 450 · 450 Turbo · 450 DUO",
+            Kind::Lw320 => "DYMO LabelWriter 320",
             Kind::Marlin => "Marlin printer",
             Kind::Laser => "GRBL laser",
             Kind::Cameras => "Cameras",
@@ -125,7 +131,7 @@ impl Kind {
                 "label.tape_size_mm",
                 "agent.id",
             ],
-            Kind::Lw450 => &[
+            Kind::Lw450 | Kind::Lw320 => &[
                 "type.string",
                 "cups.states",
                 "label.page_size",
@@ -138,6 +144,11 @@ impl Kind {
             // Part 5: no telemetry keys and no commands of its own.
             Kind::Cameras => &["type.string", "agent.id"],
         }
+    }
+
+    /// Whether it is a DYMO LabelWriter (the 450's stack).
+    fn labelwriter(self) -> bool {
+        matches!(self, Kind::Lw450 | Kind::Lw320)
     }
 
     /// Whether it is on a serial port the agent's page chooses (its connection form).
@@ -153,6 +164,7 @@ impl Kind {
         Some(match self {
             Kind::Pnp => Box::new(DymoPnp::new()),
             Kind::Lw450 => Box::new(LabelWriter450::new()),
+            Kind::Lw320 => Box::new(LabelWriter320::new()),
             // The port and baud rate chosen on the agent's page; AUTO is OctoPrint's own
             // detection (`None`). A USB port is opened under the name its device has now.
             Kind::Marlin => Box::new(
@@ -760,7 +772,7 @@ fn setup_download(agent: &Arc<Agent>, command: &Command, event_cb: EventCallback
     let me = agent.clone();
     let info: CommandHandler = Arc::new(move |cmd| transfer_info(&me, cmd));
     command.set_handler(consts::Command::SendTransferInfo, info);
-    if agent.kind == Kind::Lw450 {
+    if agent.kind.labelwriter() {
         let me = agent.clone();
         let stop: CommandHandler = Arc::new(move |_| stop_print(&me));
         command.set_handler(consts::Command::StopPrint, stop);
@@ -769,7 +781,7 @@ fn setup_download(agent: &Arc<Agent>, command: &Command, event_cb: EventCallback
     let mut storage_dict = std::collections::HashMap::new();
     let storage = match agent.kind {
         Kind::Marlin => marlin::STORAGE,
-        Kind::Pnp | Kind::Lw450 | Kind::Laser => "labels",
+        Kind::Pnp | Kind::Lw450 | Kind::Lw320 | Kind::Laser => "labels",
         Kind::Cameras => unreachable!("the cameras device takes no download (setup_link)"),
     };
     storage_dict.insert(
@@ -1012,7 +1024,7 @@ fn start_connect_download(agent: &Agent, cmd: &Command) -> Result<Finish, Handle
     // The extension's kwarg of each device (parts 2 and 3).
     let media = match agent.kind {
         Kind::Pnp => (kwargs["tape_size_mm"].as_u64().map(|t| t as u32), None),
-        Kind::Lw450 => (None, kwargs["page_size"].as_str().map(str::to_owned)),
+        Kind::Lw450 | Kind::Lw320 => (None, kwargs["page_size"].as_str().map(str::to_owned)),
         Kind::Marlin | Kind::Laser | Kind::Cameras => (None, None),
     };
     let mgr = agent
@@ -1299,7 +1311,7 @@ fn current_state(agent: &Agent) -> State {
     }
     if agent.printing.load(Ordering::SeqCst) {
         return match (agent.kind, report) {
-            (Kind::Lw450, Some(r)) => lw450_state(&r.telemetry),
+            (Kind::Lw450 | Kind::Lw320, Some(r)) => lw450_state(&r.telemetry),
             _ => State::Printing,
         };
     }
@@ -1418,7 +1430,7 @@ fn link_loop(agent: &Arc<Agent>) {
                     .unwrap()
                     .reported(id, report.done.len(), report.job_ends.len());
             label_ended(agent, end.ok, end.reason);
-        } else if label.is_some() && agent.kind == Kind::Lw450 {
+        } else if label.is_some() && agent.kind.labelwriter() {
             // The driver's job state as it changes, each change a `STATE_CHANGED` (`set_state`).
             let state = lw450_state(&report.telemetry);
             if *agent.last_state.lock().unwrap() != Some(state) {
@@ -1430,7 +1442,7 @@ fn link_loop(agent: &Arc<Agent>) {
         let gone = match agent.kind {
             Kind::Marlin => !marlin::present(&report),
             Kind::Laser => !laser::present(&report),
-            Kind::Pnp | Kind::Lw450 => !report.connected,
+            Kind::Pnp | Kind::Lw450 | Kind::Lw320 => !report.connected,
             Kind::Cameras => unreachable!("the cameras device has its own turn (cameras_link)"),
         };
         if gone {
@@ -1456,7 +1468,7 @@ fn link_loop(agent: &Arc<Agent>) {
         // The LabelWriter adds no key: its reason is in its `STATE_CHANGED` (part 3).
         let mut kwargs = match agent.kind {
             Kind::Pnp => dymo_telemetry(&report.telemetry),
-            Kind::Lw450 => Kwargs::new(),
+            Kind::Lw450 | Kind::Lw320 => Kwargs::new(),
             Kind::Marlin => marlin::telemetry(&report.telemetry),
             Kind::Laser => {
                 laser::telemetry(&report.telemetry, *agent.machine_state.lock().unwrap())
@@ -1834,6 +1846,7 @@ fn device_card(agent: &Agent) -> String {
         Kind::Lw450 => {
             "Label printer · USB · Tested: 450. Same driver, not tested: 450 Turbo, 450 DUO (labels)"
         }
+        Kind::Lw320 => "Label printer · USB · Not tried on a printer yet",
         Kind::Marlin => "3D printer · USB",
         Kind::Laser => "Laser · USB",
         Kind::Cameras => "Cameras · USB",
@@ -2317,6 +2330,7 @@ fn deck_snapshot(devices: &[Arc<Agent>]) -> deck::Snapshot {
                     short: match d.kind {
                         Kind::Pnp => "PnP",
                         Kind::Lw450 => "LW450",
+                        Kind::Lw320 => "LW320",
                         Kind::Marlin => "Marlin",
                         Kind::Laser => "Laser",
                         Kind::Cameras => "Cams",
@@ -2768,6 +2782,7 @@ mod tests {
             [
                 ("dymo", "dymo.labelmanager-pnp"),
                 ("labelwriter-450", "dymo.labelwriter-450"),
+                ("labelwriter-320", "dymo.labelwriter-320"),
                 ("marlin", "marlin.fdm"),
                 ("laser", "grbl.laser"),
                 ("cameras", "maker-connect.cameras"),

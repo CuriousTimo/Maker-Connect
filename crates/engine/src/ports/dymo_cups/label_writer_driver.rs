@@ -8,7 +8,8 @@
 // the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 //! `LabelWriterDriver.cpp`: the LabelWriter command set. `CLabelWriterDriver` and its derived
-//! `CLabelWriterDriver400` (what the filter uses for the 450, `raster2dymolw.cpp:92-103`) are one struct
+//! `CLabelWriterDriver400` (what the filter uses for the 450, `raster2dymolw.cpp:92-103`; `CLabelWriterDriver`
+//! is the 320's, :111-123) are one struct
 //! here, [`LabelWriterDriver`], with the class as its [`Class`]: the virtual `StartDoc`, `EndDoc` and
 //! `EndPage` are chosen by it. `CLabelWriterDriverTwinTurbo` is not ported (not a 450).
 

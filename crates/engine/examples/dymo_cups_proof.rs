@@ -3,7 +3,7 @@
 //! backend and writes what it writes, so the script can run DYMO's own `raster2dymolw` on the same page
 //! and compare. Not part of the agent.
 //!
-//! `dymo_cups_proof PNG LENGTH_MM|-|ps:PAGESIZE OPTIONS DEVICE_URI STATUS_HEX|- OUT_DIR`
+//! `dymo_cups_proof PNG LENGTH_MM|-|ps:PAGESIZE OPTIONS DEVICE_URI STATUS_HEX|- OUT_DIR [lw450|lw320]`
 
 use maker_connect_engine::ports::dymo_cups::cups::ppd::PpdFile;
 use maker_connect_engine::ports::dymo_cups::cups::usb_backend::BackChannel;
@@ -17,6 +17,7 @@ struct RecordingIo {
     stdout: Vec<u8>,
     back: Arc<BackChannel>,
     device_uri: Option<String>,
+    ppd: fn() -> PpdFile,
 }
 
 impl FilterIo for RecordingIo {
@@ -35,7 +36,7 @@ impl FilterIo for RecordingIo {
         }
     }
     fn ppd_open_file(&self) -> Option<PpdFile> {
-        Some(PpdFile::lw450())
+        Some((self.ppd)())
     }
     fn cancelled(&mut self) -> bool {
         false
@@ -51,10 +52,16 @@ fn main() {
         None if length == "-" => (None, None),
         None => (None, Some(length.parse::<u32>().unwrap())),
     };
+    // the PPD of the model the proof runs (`lw450`, or `lw320`)
+    let ppd: fn() -> PpdFile = match a.get(7).map(String::as_str) {
+        None | Some("lw450") => PpdFile::lw450,
+        Some("lw320") => PpdFile::lw320,
+        Some(other) => panic!("unknown model {other}"),
+    };
     let device_uri = if uri == "-" { None } else { Some(uri.clone()) };
 
     let picture = page::decode_png(std::path::Path::new(png)).unwrap();
-    let open = || Some(PpdFile::lw450());
+    let open = || Some(ppd());
     let page = match page::make_page(&picture, page_size, length_mm, options, &open) {
         Ok(p) => p,
         Err(why) => {
@@ -91,6 +98,7 @@ fn main() {
         stdout: Vec::new(),
         back,
         device_uri,
+        ppd,
     }));
     let shared: SharedIo = io.clone();
     stderr::start(None);

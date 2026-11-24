@@ -285,6 +285,38 @@ fn driver_test_400_end_page_end_doc() {
     assert_eq!(printer_commands, env.borrow().get_data());
 }
 
+/// The base class (the 320's, `raster2dymolw.cpp:111-123`): `CLabelWriterDriver::EndPage` is the form feed
+/// (`LabelWriterDriver.cpp:77-81`) and `EndDoc` sends nothing (:57-60); width 84 (:38).
+#[test]
+fn driver_test_base_end_page_end_doc() {
+    let env = Rc::new(RefCell::new(MockPrintEnvironment::default()));
+    let mut driver = LabelWriterDriver::new(env.clone());
+
+    driver.start_doc();
+    driver.start_page();
+    driver.end_page();
+    driver.start_page();
+    driver.end_page();
+    driver.end_doc();
+
+    let printer_commands = cat(&[
+        &reset(),
+        &[
+            ESC, b'Q', 0x00, 0x00, ESC, b'B', 0, ESC, b'h', ESC, b'e', ESC, b'L', 0x08, 0x00, ESC,
+            b'E', ESC, b'L', 0x08, 0x00, ESC, b'E',
+        ],
+    ]);
+    assert_eq!(printer_commands, env.borrow().get_data());
+}
+
+/// `raster2dymolw.cpp:78-123`: the class by the PPD's model name; the 320's is in neither list.
+#[test]
+fn the_320s_ppd_is_the_base_class() {
+    use super::cups::ppd::PpdFile;
+    assert_eq!(PpdFile::lw320().modelname, "DYMO LabelWriter 320");
+    assert_eq!(PpdFile::lw450().modelname, "DYMO LabelWriter 450");
+}
+
 // ---- TestLabelWriterFilter.cpp ------------------------------------------------------------------
 
 fn filter_driver() -> (
@@ -697,7 +729,9 @@ fn ppd_defaults_are_marked_as_cups_marks_them() {
 
 mod top_edge {
     use super::super::cups::usb_backend::{UsbError, UsbHost, UsbPrinterIo};
-    use super::super::port::{LabelWriter450, NO_JOB_CONTROL, NO_QUESTION, NO_SUCH_CONTROL};
+    use super::super::port::{
+        LabelWriter320, LabelWriter450, NO_JOB_CONTROL, NO_QUESTION, NO_SUCH_CONTROL,
+    };
     use crate::{Event, Order, Port};
     use maker_connect_protocol::{Action, JobControl, JobOrder, MachineState};
     use std::collections::VecDeque;
@@ -838,6 +872,20 @@ mod top_edge {
         (otx, erx, h)
     }
 
+    fn start_320(
+        host: Arc<BenchHost>,
+    ) -> (
+        std::sync::mpsc::Sender<Order>,
+        Receiver<Event>,
+        std::thread::JoinHandle<()>,
+    ) {
+        let (otx, orx) = channel();
+        let (etx, erx) = channel();
+        let port = Box::new(LabelWriter320::with_host(host));
+        let h = std::thread::spawn(move || port.run(orx, etx));
+        (otx, erx, h)
+    }
+
     fn until_job_end(erx: &Receiver<Event>) -> (maker_connect_protocol::JobEnd, Vec<Event>) {
         let mut seen = Vec::new();
         loop {
@@ -900,6 +948,38 @@ mod top_edge {
         // W5: idle again after it
         let last = erx.recv_timeout(Duration::from_secs(5));
         let _ = last;
+        otx.send(Order::Close).unwrap();
+        h.join().unwrap();
+    }
+
+    /// The 320: the printer is found by `DYMO` / `LabelWriter 320`, the filter takes `CLabelWriterDriver` by the
+    /// PPD's model name: the page ends with the form feed `ESC E` and the document with nothing, where the
+    /// 450's page ends with `ESC G` and its document with `ESC E`.
+    #[test]
+    fn a_job_on_the_320_prints_with_the_base_class() {
+        let (host, printer) = bench(&[], 0x02, 0);
+        let (otx, erx, h) = start_320(host.clone());
+        let file = png("job320", 271, 254);
+        otx.send(Order::Job {
+            order: job(7, Some(25)),
+            file,
+        })
+        .unwrap();
+        let (end, _seen) = until_job_end(&erx);
+        assert!(end.ok, "{end:?}");
+        assert_eq!(
+            host.asked.lock().unwrap()[0],
+            ("DYMO".to_owned(), "LabelWriter 320".to_owned())
+        );
+        let w = printer.written.lock().unwrap().clone();
+        // the page's form feed, then the monitor's status requests (`ESC A`, as many as it makes); no
+        // `ESC G` before the form feed
+        let mut end = w.len();
+        while w[..end].ends_with(&[0x1b, b'A']) {
+            end -= 2;
+        }
+        assert!(w[..end].ends_with(&[0x1b, b'E']));
+        assert!(!w[..end].ends_with(&[0x1b, b'G', 0x1b, b'E']));
         otx.send(Order::Close).unwrap();
         h.join().unwrap();
     }

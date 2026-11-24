@@ -10,16 +10,17 @@
 //! `IsBackchannelSupported` (:44-53) returns true, so the monitor with the back channel is the one used.
 //!
 //! `raster2dymolw.cpp`: `main` of the filter: which driver, initializer and monitor the PPD's model name
-//! takes. Only the plain LabelWriter 450's branch is here (:92-110, with `IsBackchannelSupported()`
-//! true, :44-53); the filter without a PPD (:60-75), the Twin Turbo (:78-91) and the other models
-//! (:111-123) are not ported.
+//! takes. The 400/450 branch (:92-110, `CLabelWriterDriver400`) and the last `else` (:111-123,
+//! `CLabelWriterDriver`, what the LabelWriter 320 takes), both with `IsBackchannelSupported()` true
+//! (:44-53), are here; the filter without a PPD (:60-75) and the Twin Turbo (:78-91) are not ported.
 
 use super::cups::raster::CupsRaster;
 use super::cups_filter::CupsFilter;
 use super::cups_print_environment::SharedIo;
+use super::label_writer_driver::Class;
 use super::stderr;
 
-/// `main(argc, argv)` (:55-125) for the 450: `argv` is as the scheduler passes it. Returns the exit status.
+/// `main(argc, argv)` (:55-125): `argv` is as the scheduler passes it. Returns the exit status.
 pub fn main(
     io: SharedIo,
     argv: &[String],
@@ -50,13 +51,16 @@ pub fn main(
         || m.eq_ignore_ascii_case("DYMO LabelWriter 450 DUO Label")
     {
         // :100-103 `IsBackchannelSupported()`
-        let mut filter = CupsFilter::new(io);
+        let mut filter = CupsFilter::new(io, Class::Driver400);
         let status = filter.run(argv, raster);
         *filter_out = Some(filter);
         status
     } else {
-        // :111-123 not ported
-        stderr::write("ERROR: the filter for this model is not ported\n");
-        1
+        // :111-123 `CCupsFilter<CLabelWriterDriver, CDriverInitializerLabelWriterWithLM,
+        // CLabelWriterLanguageMonitor>` (`IsBackchannelSupported()`, :113)
+        let mut filter = CupsFilter::new(io, Class::Driver);
+        let status = filter.run(argv, raster);
+        *filter_out = Some(filter);
+        status
     }
 }

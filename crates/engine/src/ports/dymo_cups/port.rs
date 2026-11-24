@@ -1,5 +1,5 @@
 //! The port's top edge (`docs/archive/plans/agent-engine.md`, Step 3c): the engine's [`Port`] for the DYMO LabelWriter 450
-//! over the driver beside it. **All of it is ours** (W1 to W10 there); the driver has no such part.
+//! and the LabelWriter 320 (the same stack, each with its own PPD) over the driver beside it. **All of it is ours** (W1 to W10 there); the driver has no such part.
 //!
 //! - A job is a PNG, made into the page CUPS would hand the filter ([`page`]) and printed by
 //!   `raster2dymolw`'s run ([`raster2dymolw::main`]), whose output goes to the `usb` backend
@@ -13,7 +13,7 @@
 use super::cups::ppd::PpdFile;
 use super::cups::usb_backend::{BackChannel, CUPS_BACKEND_OK, Pipe, UsbHost, print_device};
 use super::cups_print_environment::{Cancelled, FilterIo, READ_DATA_LINE, SharedIo};
-use super::{cups::ppd_lw450::REASONS, page, raster2dymolw, stderr};
+use super::{page, raster2dymolw, stderr};
 use crate::{Event, Order, Port};
 use maker_connect_protocol::{CommandDone, JobControl, JobEnd, JobOrder, MachineState, Telemetry};
 use std::cell::RefCell;
@@ -37,9 +37,66 @@ pub const DEVICE_URI: &str = "usb://DYMO/LabelWriter%20450";
 pub const MANUFACTURER: &str = "DYMO";
 pub const MODEL: &str = "LabelWriter 450";
 
+/// W4: `DEVICE_URI` of the LabelWriter 320, made as the 450's is from the IEEE-1284 manufacturer and model
+/// (`MFG:DYMO;MDL:LabelWriter 320`). The model is the PPD's `*ModelName` (`DYMO LabelWriter 320`) without
+/// the make, as the 450's is: NOT CHECKED ON THE UNIT (its device ID has not been read).
+pub const LW320_DEVICE_URI: &str = "usb://DYMO/LabelWriter%20320";
+pub const LW320_MODEL: &str = "LabelWriter 320";
+
+/// What differs between the models of the stack (ours): the device URI and the IEEE-1284 model the backend
+/// finds the printer by, the PPD (`ppdOpenFile`) and its reasons (`*cupsIPPReason`).
+struct Model {
+    device_uri: &'static str,
+    model: &'static str,
+    ppd: fn() -> PpdFile,
+    reasons: &'static [(&'static str, &'static str, u32)],
+}
+
+/// The plain LabelWriter 450 (`lw450.ppd`).
+static MODEL_450: Model = Model {
+    device_uri: DEVICE_URI,
+    model: MODEL,
+    ppd: PpdFile::lw450,
+    reasons: super::cups::ppd_lw450::REASONS,
+};
+
+/// The LabelWriter 320 (`lw320.ppd`).
+static MODEL_320: Model = Model {
+    device_uri: LW320_DEVICE_URI,
+    model: LW320_MODEL,
+    ppd: PpdFile::lw320,
+    reasons: super::cups::ppd_lw320::REASONS,
+};
+
 /// The port of the DYMO LabelWriter 450.
 pub struct LabelWriter450 {
     host: Arc<dyn UsbHost>,
+}
+
+/// The port of the DYMO LabelWriter 320: the 450's, with the 320's PPD (`CLabelWriterDriver` by its model
+/// name, `raster2dymolw.cpp:111-123`).
+pub struct LabelWriter320 {
+    host: Arc<dyn UsbHost>,
+}
+
+impl LabelWriter320 {
+    /// The port over nusb (the system's USB).
+    #[cfg(not(test))]
+    pub fn new() -> LabelWriter320 {
+        LabelWriter320::with_host(Arc::new(super::cups::usb_backend::NusbHost))
+    }
+
+    /// The port over another host of USB printers (the tests').
+    pub fn with_host(host: Arc<dyn UsbHost>) -> LabelWriter320 {
+        LabelWriter320 { host }
+    }
+}
+
+#[cfg(not(test))]
+impl Default for LabelWriter320 {
+    fn default() -> Self {
+        LabelWriter320::new()
+    }
 }
 
 impl LabelWriter450 {
@@ -90,9 +147,10 @@ impl Seen {
     }
 }
 
-/// W7: the PPD's own reason text (`lw450.ppd:47-55`) for a `STATE:` keyword.
-fn reason_text(keyword: &str) -> Option<&'static str> {
-    REASONS
+/// W7: the PPD's own reason text (`lw450.ppd:47-55`, `lw320.ppd:47-55`) for a `STATE:` keyword.
+fn reason_text(model: &Model, keyword: &str) -> Option<&'static str> {
+    model
+        .reasons
         .iter()
         .find(|(k, _, _)| *k == keyword)
         .map(|(_, t, _)| *t)
@@ -101,6 +159,7 @@ fn reason_text(keyword: &str) -> Option<&'static str> {
 /// The filter's process, as the scheduler runs it (ours): `write(1, ...)` is the backend's pipe, fd 3 the
 /// back channel, the environment is CUPS's.
 struct PortIo {
+    model: &'static Model,
     pipe: Arc<Pipe>,
     /// Ours (W6): set when a Stop comes, so that a backend still waiting for the printer ends.
     backend_stop: Arc<AtomicBool>,
@@ -150,13 +209,13 @@ impl FilterIo for PortIo {
 
     fn getenv(&self, name: &str) -> Option<String> {
         match name {
-            "DEVICE_URI" => Some(DEVICE_URI.to_owned()),
+            "DEVICE_URI" => Some(self.model.device_uri.to_owned()),
             _ => None,
         }
     }
 
     fn ppd_open_file(&self) -> Option<PpdFile> {
-        Some(PpdFile::lw450())
+        Some((self.model.ppd)())
     }
 
     fn cancelled(&mut self) -> bool {
@@ -190,6 +249,24 @@ fn first_error(lines: &[String]) -> Option<String> {
 
 impl Port for LabelWriter450 {
     fn run(self: Box<Self>, orders: Receiver<Order>, events: Sender<Event>) {
+        run_port(&self.host, &MODEL_450, orders, events)
+    }
+}
+
+impl Port for LabelWriter320 {
+    fn run(self: Box<Self>, orders: Receiver<Order>, events: Sender<Event>) {
+        run_port(&self.host, &MODEL_320, orders, events)
+    }
+}
+
+/// The port's loop for a model.
+fn run_port(
+    host: &Arc<dyn UsbHost>,
+    model: &'static Model,
+    orders: Receiver<Order>,
+    events: Sender<Event>,
+) {
+    {
         let orders = Rc::new(orders);
         let pending: Rc<RefCell<VecDeque<Order>>> = Rc::new(RefCell::new(VecDeque::new()));
         let mut seen = Seen::default();
@@ -218,7 +295,7 @@ impl Port for LabelWriter450 {
                 Order::Job { order, file } => {
                     let _ = events.send(seen.telemetry(MachineState::Busy, None));
                     let (outcome, raw) = print_job(
-                        &self.host, &order, &file, &orders, &pending, &events, &mut gone, &seen,
+                        host, model, &order, &file, &orders, &pending, &events, &mut gone, &seen,
                     );
                     if raw.is_some() {
                         seen.raw_status = raw;
@@ -276,6 +353,7 @@ impl Port for LabelWriter450 {
 #[allow(clippy::too_many_arguments)]
 fn print_job(
     host: &Arc<dyn UsbHost>,
+    model: &'static Model,
     order: &JobOrder,
     file: &std::path::Path,
     orders: &Rc<Receiver<Order>>,
@@ -289,7 +367,7 @@ fn print_job(
         Ok(p) => p,
         Err(why) => return (Outcome::Failed(why), None),
     };
-    let ppd_open = || Some(PpdFile::lw450());
+    let ppd_open = || Some((model.ppd)());
     let raster = match page::make_raster(
         &picture,
         order.page_size.as_deref(),
@@ -305,6 +383,7 @@ fn print_job(
     let pipe = Pipe::new();
     let backend_stop = Arc::new(AtomicBool::new(false));
     let io = Rc::new(RefCell::new(PortIo {
+        model,
         pipe: pipe.clone(),
         backend_stop: backend_stop.clone(),
         back_channel: back_channel.clone(),
@@ -331,7 +410,7 @@ fn print_job(
             let status = print_device(
                 &*host,
                 MANUFACTURER,
-                MODEL,
+                model.model,
                 &pipe,
                 bc,
                 &stop,
@@ -359,7 +438,7 @@ fn print_job(
     // them does not change it).
     let tel_kw: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
     stderr::start(Some(Box::new(move |line: &str| {
-        let problem = |kw: &Option<String>| kw.as_deref().and_then(reason_text);
+        let problem = |kw: &Option<String>| kw.as_deref().and_then(|k| reason_text(model, k));
         if let Some(rest) = line.strip_prefix("STATE: ") {
             let kw = rest.trim_end();
             *tel_kw.borrow_mut() = (kw != "none").then(|| kw.to_owned());
