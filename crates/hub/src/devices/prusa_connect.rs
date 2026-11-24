@@ -406,6 +406,11 @@ async fn link(
     use axum::extract::ws::Message;
     // Counted while the socket is open; online while it is heard (`Legacy::linked`, ours: what
     // the page shows).
+    // A command goes out as soon as it is queued (Buddy takes a command over the socket at any
+    // time, `connect.cpp:386-420`): the store's change signal wakes the link. Subscribed before
+    // the socket counts, so that what its start queues (a command sent again, `Attached::new`)
+    // wakes it.
+    let mut changes = store.subscribe();
     let (attached, machine_id) = match store.caller(&token).await {
         Ok(Some(caller)) => (
             Attached::new(&store, caller.id.clone(), order),
@@ -416,9 +421,6 @@ async fn link(
     // The downloads asked for on this socket: Buddy's `file_id` for each, and the file it is
     // (the `team_id` and `hash` of its first request, `inline_download.rs`).
     let mut downloads: std::collections::HashMap<u32, (i64, String)> = Default::default();
-    // A command goes out as soon as it is queued (Buddy takes a command over the socket at any
-    // time, `connect.cpp:386-420`): the store's change signal wakes the link.
-    let mut changes = store.subscribe();
     // When the page is told the printer went quiet ([`crate::store::SILENT_SECONDS`]); the
     // socket stays open, it only takes no command until the printer is heard again (D12).
     let quiet = std::time::Duration::from_secs(crate::store::SILENT_SECONDS as u64 + 1);
@@ -583,6 +585,10 @@ impl Attached {
             .unwrap_or(0)
             .max(order);
         legacy.newest_link.insert(machine.clone(), newest);
+        // What went into an older socket and was never answered goes again on this one (D12).
+        if link == newest {
+            legacy.send_unanswered_again(&machine);
+        }
         legacy.changed();
         drop(legacy);
         Self {

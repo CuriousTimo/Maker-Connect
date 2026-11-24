@@ -213,6 +213,25 @@ impl Legacy {
     }
 
     /// The next command, with whether it is a Connect (JSON) command.
+    /// A printer on Prusa Connect linked again over a new socket: a command it was sent and
+    /// never answered goes again, with the same id (owner, 2026-11-24: "ja, opnieuw sturen met
+    /// hetzelfde nummer"). Buddy is made for that (`planner.cpp:1093-1111`): the command it is
+    /// still carrying out it accepts again, the last one it carried out it refuses ("Won't execute
+    /// the same command multiple times"), one it never got it carries out. A command it accepted
+    /// stays as it is: it got there.
+    pub(crate) fn send_unanswered_again(&mut self, machine: &str) {
+        let mut again = false;
+        for c in self.commands.get_mut(machine).into_iter().flatten() {
+            if c.state == CommandState::Sent {
+                c.state = CommandState::Queued;
+                again = true;
+            }
+        }
+        if again {
+            self.changed();
+        }
+    }
+
     pub fn next_command_of_any_kind(
         &mut self,
         caller: Option<&Caller>,

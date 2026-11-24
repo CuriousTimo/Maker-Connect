@@ -3625,26 +3625,39 @@ mod flow {
             h.insert("Sec-WebSocket-Protocol", "prusa-connect".parse().unwrap());
             tokio_tungstenite::connect_async(request)
         };
-        let (mut old, _) = link().await.unwrap();
-        let (mut new, _) = link().await.unwrap();
-        // A command for the printer: it goes on the new socket (`G`, its id, the G-code).
-        let path = store.link_of(space, &mini).await.unwrap();
-        let queued =
-            store
-                .lock()
-                .unwrap()
-                .queue_command(path.as_deref(), &mini, "Fan", "M106 S255");
-        assert!(queued.is_some());
-        let got = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            loop {
-                if let Some(Ok(Ws::Text(text))) = new.next().await {
-                    return text.to_string();
+        // The next text frame on a socket.
+        async fn text(
+            ws: &mut (impl StreamExt<Item = Result<Ws, tokio_tungstenite::tungstenite::Error>> + Unpin),
+        ) -> String {
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    if let Some(Ok(Ws::Text(text))) = ws.next().await {
+                        return text.to_string();
+                    }
                 }
-            }
-        })
-        .await
-        .expect("the command on the new socket");
-        assert!(got.starts_with('G') && got.ends_with("M106 S255"), "{got}");
+            })
+            .await
+            .expect("a frame in time")
+        }
+        let (mut old, _) = link().await.unwrap();
+        // A command goes into the old socket, and no answer comes (the socket died).
+        let path = store.link_of(space, &mini).await.unwrap();
+        let fan = store
+            .lock()
+            .unwrap()
+            .queue_command(path.as_deref(), &mini, "Fan", "M106 S255")
+            .unwrap();
+        let lost = text(&mut old).await;
+        assert!(
+            lost.starts_with('G') && lost.ends_with("M106 S255"),
+            "{lost}"
+        );
+        // The printer links again: the unanswered command goes again, with the same id, on the
+        // new socket only (owner, 2026-11-24: "ja, opnieuw sturen met hetzelfde nummer").
+        let (mut new, _) = link().await.unwrap();
+        let again = text(&mut new).await;
+        assert_eq!(again, lost, "the same command, the same id");
+        assert_eq!(&again[1..9], format!("{fan:08x}"));
         // The old socket is closed by the hub: it ends (or says Close), and no command comes.
         let ended = tokio::time::timeout(std::time::Duration::from_secs(10), async {
             loop {
