@@ -509,9 +509,11 @@ and `segment` in `devices/prusa_connect.rs`.
 
 ## Not covered
 
-- The download is not yet tried on the MINI itself (#212).
+- The download (#212) and the USB stick (#195) are not yet tried on the MINI itself.
 - The telemetry's fields and the INFO event's data beyond what the tests above read; G-code metadata.
-- The G-code the hub sends as `text/x.gcode` (the MINI's menu G-code is HS10).
+- The G-code of the MINI's buttons is compared with what Prusa's own server sends (#203, closed:
+  close to it); Load/Unload filament differs and is #215. It is not checked against Buddy's own
+  screen menu (the earlier HS10 ruling, not followed).
 - D6 was decided against Buddy 6.3.0; its lines now point to 8.0.2, its decision is not checked again.
   The test's port of `parse_json_command` is 8.0.2's as the MINI is built (no tool mapping: #211).
 - Buddy's C++ is not run: every "identical" is against a port of its parser and fixtures written from its
