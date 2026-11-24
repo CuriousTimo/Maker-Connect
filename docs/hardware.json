@@ -66,6 +66,34 @@
           "via": "Agent, USB (labels)",
           "status": "same-driver",
           "proof": { "source": "dymo-cups-drivers 1.4.0, src/lw/raster2dymolw.cpp:92-98", "as": "DYMO LabelWriter 450" }
+        },
+        {
+          "model": "DYMO LabelWriter 400, LabelWriter 400 Turbo, LabelWriter DUO (labels)",
+          "via": "Agent, USB (labels)",
+          "status": "same-driver",
+          "proof": { "source": "dymo-cups-drivers 1.4.0, src/lw/raster2dymolw.cpp:92-98", "as": "DYMO LabelWriter 450" },
+          "note": "Their label sizes differ from the 450's: their own PPD data (DYMO Connect 1.6.4.18) is not in the agent yet."
+        },
+        {
+          "model": "DYMO LabelWriter 320, LabelWriter 330, LabelWriter 330 Turbo",
+          "via": "Agent, USB (labels)",
+          "status": "planned",
+          "proof": { "issue": 25 },
+          "note": "DYMO's filter drives them with its base class, not the 450's."
+        },
+        {
+          "model": "DYMO LabelWriter 4XL, LabelWriter 300, 310, 315, LabelWriter SE450",
+          "via": "Agent, USB (labels)",
+          "status": "planned",
+          "proof": { "issue": 216 },
+          "note": "Another print width than the 450's."
+        },
+        {
+          "model": "DYMO LabelWriter Twin Turbo, LabelWriter 450 Twin Turbo",
+          "via": "Agent, USB (labels)",
+          "status": "planned",
+          "proof": { "issue": 217 },
+          "note": "Two rolls."
         }
       ]
     },
