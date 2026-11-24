@@ -609,13 +609,13 @@ async fn registered(State(store): State<Store>, headers: HeaderMap) -> Response 
 /// - Each axis lands on `/axis/x|y|z` when carried (`inbound.go:150-152`): while it prints Buddy
 ///   tells only `axis_z` (`render.cpp:212-217`), so X and Y stay as told last, and unknown when
 ///   never told.
-/// - The tools, in whichever shape the frame has, are read onto the tool tree as the server reads
-///   them (`telemetrytools.go:101-144`; `crate::devices::connect_tools`).
+/// - The tools: a Buddy printer's as Buddy 8.0.2 writes them, a device on the agent's as
+///   PrusaLink sends them (`crate::devices::connect_tools`).
 fn take_in(
     report: &Value,
     last: Option<Telemetry>,
     session: &mut crate::devices::connect_tools::Session,
-    model: &str,
+    agent: bool,
 ) -> Telemetry {
     let mut t = last.unwrap_or_default();
     // A member the frame carries, as a number (a null: none).
@@ -713,7 +713,7 @@ fn take_in(
     } else if report.get("temp_bed").is_some() {
         t.chamber_c = None;
     }
-    session.telemetry(&mut t, report, model);
+    session.telemetry(&mut t, report, agent);
     session.job.telemetry(
         &mut t,
         report["job_id"].as_i64(),
@@ -868,9 +868,6 @@ async fn telemetry(
     } else {
         store.last_telemetry(token).await.ok().flatten()
     };
-    // The model, as the server reads it off the request (`identityOf`, `xbuddy.go:817-835`;
-    // Buddy's `httpc.cpp:218`).
-    let model = header(&headers, "user-agent-printer");
     let job_id = report["job_id"].as_u64();
     // A printer runs Prusa's firmware; any other kind on this protocol, and a Marlin printer
     // (extension part 9), is our agent.
@@ -883,7 +880,7 @@ async fn telemetry(
         let file = store.printing_file.get(token).cloned();
         let session = store.connect_tools.entry(machine).or_default();
         let last = session.last.take().or(stored);
-        let mut telemetry = take_in(&report, last, session, model);
+        let mut telemetry = take_in(&report, last, session, agent);
         // Every request says the firmware's version; none said, none shown (as before).
         let version = header(&headers, "user-agent-version");
         telemetry.firmware = (!version.is_empty()).then(|| {
@@ -1191,11 +1188,12 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
         && let Some(caller) = caller.as_ref()
     {
         let mut store = shared.lock().unwrap();
+        // Buddy 8.0.2 names the spool only in INFO (`render.cpp:493-531`): kept for the telemetry.
         store
             .connect_tools
             .entry(caller.id.clone())
             .or_default()
-            .info(&event["data"], header(&headers, "user-agent-printer"));
+            .material = to_details(&event["data"]).material;
         if header(&headers, "user-agent-printer") == LASER_AGENT {
             let session = store.connect_tools.entry(caller.id.clone()).or_default();
             session.grbl = grbl_settings(&event["data"]).or(session.grbl.take());
@@ -1255,7 +1253,7 @@ mod tests {
 
     use tower::ServiceExt;
 
-    use crate::devices::connect_tools::{MATERIAL, Session, normalize_material};
+    use crate::devices::connect_tools::{Session, normalize_material};
     use serde_json::json;
 
     /// One printer's frames, taken in one after the other in one session, as `telemetry` does;
@@ -1263,30 +1261,41 @@ mod tests {
     struct Printer {
         session: Session,
         last: Option<Telemetry>,
-        model: &'static str,
+        /// A device on the agent (PrusaLink's keys), not a Buddy printer.
+        agent: bool,
     }
 
     impl Printer {
-        fn new(model: &'static str) -> Self {
+        /// A Buddy printer (the model's name only tells the reader which).
+        fn new(_model: &'static str) -> Self {
             Self {
                 session: Session::default(),
                 last: None,
-                model,
+                agent: false,
+            }
+        }
+
+        /// A Marlin printer on the agent.
+        fn agent() -> Self {
+            Self {
+                agent: true,
+                ..Self::new("")
             }
         }
 
         fn frame(&mut self, report: Value) -> Telemetry {
-            let t = take_in(&report, self.last.take(), &mut self.session, self.model);
+            let t = take_in(&report, self.last.take(), &mut self.session, self.agent);
             self.last = Some(t.clone());
             t
         }
 
+        /// An INFO event: the spool it names, as the handler keeps it.
         fn info(&mut self, data: Value) {
-            self.session.info(&data, self.model);
+            self.session.material = to_details(&data).material;
         }
     }
 
-    /// A frame taken in over nothing before it, from a model the server has no figures for.
+    /// A Buddy printer's frame taken in over nothing before it.
     fn first(report: Value) -> Telemetry {
         Printer::new("").frame(report)
     }
@@ -1364,11 +1373,11 @@ mod tests {
     /// (`:178-192`), no X and Y while a job runs (`:212-216`), `axis_z` (`:217`), its one head as
     /// tool "0" (`:219-240`; one virtual tool, `iter_tool_count` `:1373-1387`) with a null
     /// `consumed_weight` (no ANFC on the MINI, `:276-282`), then `state` (`:303`). Each member is
-    /// read where Prusa Connect's server puts it: `telemetryPaths` (`inbound.go:146-159`) and the
-    /// tool's members (`treeTelemetryMembers`, `telemetrytools.go:55-66`); the hub keeps them as
+    /// read where Prusa Connect's server puts it: `telemetryPaths` (`inbound.go:146-159`); the
+    /// head as Buddy writes it (`devices/buddy_tools.rs`); the hub keeps them as
     /// numbers for its pages.
     #[test]
-    fn a_mini_on_8_0_2_is_read_as_the_server_reads_it() {
+    fn a_mini_on_8_0_2_is_read_as_buddy_writes_it() {
         let mut mini = Printer::new("MINI");
         let t = mini.frame(json!({
             "job_id": 41, "time_printing": 300, "time_remaining": 1200, "progress": 12,
@@ -1393,9 +1402,8 @@ mod tests {
             (Some(2520), Some(3010))
         );
         assert_eq!(t.state, MachineState::Busy);
-        // On the tool tree as the server keeps it: the head active (`telemetrytools.go:428`), a
-        // null consumed weight no member ("Any other null removes the path",
-        // `telemetrytools.go:55-60`).
+        // On the hub's tool tree as Buddy wrote the head (`render.cpp:229-240`); a null consumed
+        // weight (no ANFC on the MINI, `render.cpp:274-281`) is no member.
         let head = &t.tool_tree["0"];
         assert_eq!(head.get("active"), Some(&json!(true)));
         assert_eq!(head.get("nozzle_temp"), Some(&json!(214.6)));
@@ -1410,21 +1418,23 @@ mod tests {
     fn a_printing_mini_tells_z_and_keeps_the_rest() {
         let mut mini = Printer::new("MINI");
         let before = mini.frame(json!({
-            "state": "IDLE", "axis_x": 176.4, "axis_y": 24.1, "axis_z": 2.0, "temp_nozzle": 27.0
+            "state": "IDLE", "axis_x": 176.4, "axis_y": 24.1, "axis_z": 2.0,
+            "tools": {"0": {"type": "FFF_PRINT_HEAD", "active": true, "nozzle_temp": 27.0}}
         }));
         assert_eq!(before.position_mm, at(176.4, 24.1, 2.0));
         let full = mini.frame(json!({
-            "state": "PRINTING", "axis_z": 1.8, "fan_extruder": 2786, "fan_print": 2337,
-            "job_id": 29, "progress": 5
+            "state": "PRINTING", "axis_z": 1.8, "job_id": 29, "progress": 5
         }));
         assert_eq!(
             full.position_mm,
             at(176.4, 24.1, 1.8),
             "X and Y as told last"
         );
-        assert_eq!(full.nozzle_c, Some(27.0), "not in the frame: as told last");
-        // The fans at the top of a Buddy 6 frame are not read, as the server does not.
-        assert_eq!((full.print_fan_rpm, full.hotend_fan_rpm), (None, None));
+        assert_eq!(
+            full.nozzle_c,
+            Some(27.0),
+            "no tools in the frame: as told last"
+        );
         let short = mini.frame(json!({
             "state": "PRINTING", "job_id": 29, "progress": 6, "time_printing": 800
         }));
@@ -1466,35 +1476,6 @@ mod tests {
         let t = first(json!({"state": "PRINTING", "axis_z": 1.2}));
         assert_eq!(t.position_mm, Some([None, None, Some(1.2)]));
         assert_eq!(first(json!({"state": "IDLE"})).position_mm, None);
-    }
-
-    /// The one-path shape (no `tools`, no `slot`): a null `temp_nozzle` removes the head's nozzle
-    /// (`reportHead`, `telemetrytools.go:184-201`), and with the tree empty nothing of the frame
-    /// before is shown (its nozzle, target and fans).
-    #[test]
-    fn a_null_nozzle_on_the_one_path_shape_shows_none() {
-        let mut mini = Printer::new("");
-        let told = mini.frame(json!({
-            "state": "IDLE", "temp_nozzle": 215.0, "target_nozzle": 215.0
-        }));
-        assert_eq!(
-            (told.nozzle_c, told.nozzle_target_c),
-            (Some(215.0), Some(215.0))
-        );
-        let gone = mini.frame(json!({
-            "state": "IDLE", "temp_nozzle": null, "target_nozzle": null
-        }));
-        assert!(gone.tool_tree.is_empty(), "{:?}", gone.tool_tree);
-        assert_eq!(
-            (
-                gone.nozzle_c,
-                gone.nozzle_target_c,
-                gone.print_fan_rpm,
-                gone.hotend_fan_rpm,
-                gone.material.as_deref()
-            ),
-            (None, None, None, None, None)
-        );
     }
 
     /// A reader sees the kept job only while the print runs (`jobFacts.running`,
@@ -1588,8 +1569,8 @@ mod tests {
             reduced, full,
             "a Reduced frame changes nothing it leaves out"
         );
-        // Cooled down: the bed's target 0, the nozzle's null (off, `render.cpp:233-237`): 0 on the
-        // tree (`telemetrytools.go:453-454`).
+        // Cooled down: the bed's target 0, the nozzle's null: Buddy writes null only for a target
+        // of 0 (`render.cpp:233-237`).
         let cooled = mini.frame(json!({
             "temp_bed": 58.9, "target_bed": 0.0, "speed": 100, "flow": 95, "axis_z": 10.0,
             "tools": {"0": {"type": "FFF_PRINT_HEAD", "active": true, "nozzle_temp": 201.3,
@@ -1646,188 +1627,33 @@ mod tests {
         assert_eq!(mmu.nozzle_c, Some(215.0));
     }
 
-    /// A null head in Buddy 8's `tools` loses the readings this session wrote for it, and only
-    /// those (`staleReadings`, `telemetrytools.go:350-391`): its active member stays, and a head
-    /// whose readings came from before this session keeps them.
+    /// INFO's material before Buddy 8.0.2 (the fallback in `to_details`, owner 2026-11-24):
+    /// `"---"` (Buddy 6.3.0 `render.cpp:395`) and an empty name are no material; Buddy 8.0.2's
+    /// spool in INFO is what the page shows with the telemetry.
     #[test]
-    fn a_null_head_clears_only_what_it_wrote() {
-        let mut xl = Printer::new("XL");
-        xl.frame(json!({"state": "IDLE", "tools": {
-            "0": {"active": true, "nozzle_temp": 200.0, "nozzle_target_temp": 200},
-            "1": {"active": false, "nozzle_temp": 180.0, "nozzle_target_temp": 0,
-                "consumed_weight": 3.5}
-        }}));
-        let off = xl.frame(json!({"state": "IDLE", "tools": {
-            "0": {"active": true, "nozzle_temp": 201.0}, "1": null
-        }}));
-        assert_eq!(
-            off.tool_tree.get("1"),
-            Some(&serde_json::Map::from_iter([(
-                "active".to_owned(),
-                json!(false)
-            )])),
-            "its readings go, its active member stays"
-        );
-        assert_eq!(
-            off.tools
-                .iter()
-                .map(|h| (h.number, h.nozzle_c, h.nozzle_target_c))
-                .collect::<Vec<_>>(),
-            [(1, Some(201.0), Some(200.0)), (2, None, None)]
-        );
-        // A new session (the printer linked again) never wrote head 1's readings: a null leaves
-        // them.
-        let mut again = Printer::new("XL");
-        again.last = xl.last.clone().map(|mut t| {
-            t.tool_tree
-                .get_mut("1")
-                .unwrap()
-                .insert("nozzle_temp".to_owned(), json!(25.0));
-            t
-        });
-        let kept = again.frame(json!({"state": "IDLE", "tools": {"1": null}}));
-        assert_eq!(kept.tool_tree["1"]["nozzle_temp"], json!(25.0));
-    }
-
-    /// Buddy 6's `slot` block in front of an MMU (the layout from INFO's `mmu` block,
-    /// `tools.go:310-331`): entry `n` is slot `0.<n-1>` with its material; the nozzle and target at
-    /// the top are the one head's, its fans the selected entry's (`telemetrytools.go:146-158`,
-    /// `:242-257`); the material at the top of the frame is not read in this shape.
-    #[test]
-    fn a_slot_block_in_front_of_an_mmu() {
-        let mut mk4 = Printer::new("MK4");
-        mk4.info(json!({
-            "tools": {"1": {"material": "PLA"}, "2": {"material": "---"}, "3": {"material": "PETG"}},
-            "mmu": {"enabled": true, "version": "3.0.3"}, "slots": 3
-        }));
-        let frame = |active: u32| {
-            json!({
-                "state": "PRINTING", "temp_nozzle": 214.0, "target_nozzle": 215, "material": "ASA",
-                "slot": {"active": active, "state": 1, "command": "-",
-                    "1": {"material": "PLA", "temp": 214, "fan_print": 0, "fan_hotend": 6900},
-                    "2": {"material": "---", "temp": 214, "fan_print": 100, "fan_hotend": 7000},
-                    "3": {"material": "PETG", "temp": 214, "fan_print": 5200, "fan_hotend": 7100}}
-            })
-        };
-        let t = mk4.frame(frame(3));
-        assert!(t.tools.is_empty(), "one head");
-        assert_eq!((t.nozzle_c, t.nozzle_target_c), (Some(214.0), Some(215.0)));
-        assert_eq!(
-            (t.print_fan_rpm, t.hotend_fan_rpm),
-            (Some(5200), Some(7100))
-        );
-        assert_eq!(t.material.as_deref(), Some("PETG"), "the loaded slot's");
-        assert_eq!(
-            t.tool_tree["0.1"][MATERIAL],
-            json!(""),
-            "\"---\": no material"
-        );
-        assert!(
-            !t.tool_tree["0"].contains_key(MATERIAL),
-            "the top's material is not read"
-        );
-        let empty = mk4.frame(frame(2));
-        assert_eq!(empty.material, None, "\"---\" is no material");
-        assert_eq!(
-            (empty.print_fan_rpm, empty.hotend_fan_rpm),
-            (Some(100), Some(7000))
-        );
-        // Before any INFO, a model with one head reads the block as slots too
-        // (`currentLayout`, `telemetrytools.go:68-81`).
-        let t = Printer::new("MINI").frame(frame(1));
-        assert!(t.tools.is_empty());
-        assert_eq!(t.material.as_deref(), Some("PLA"));
-    }
-
-    /// Buddy 6's `slot` block on a toolchanger (an XL): entry `n` is head `n-1` with its
-    /// temperature and fans; only the target at the top is read, onto the picked head, and the
-    /// head it was on before loses it (`reportTopReadings`, `telemetrytools.go:146-182`).
-    #[test]
-    fn a_toolchangers_top_target_goes_to_the_picked_head() {
-        let mut xl = Printer::new("XL");
-        xl.info(json!({"tools": {"1": {"material": "PLA"}, "2": {"material": "PETG"}}}));
-        let frame = |active: u32, target: u32| {
-            json!({
-                "state": "PRINTING", "temp_nozzle": 999.0, "target_nozzle": target,
-                "slot": {"active": active,
-                    "1": {"material": "PLA", "temp": 200.0, "fan_print": 10, "fan_hotend": 20},
-                    "2": {"material": "PETG", "temp": 30.0, "fan_print": 30, "fan_hotend": 40}}
-            })
-        };
-        let heads = |t: &Telemetry| {
-            t.tools
-                .iter()
-                .map(|h| (h.number, h.nozzle_c, h.nozzle_target_c, h.active))
-                .collect::<Vec<_>>()
-        };
-        let one = xl.frame(frame(1, 210));
-        assert_eq!(
-            heads(&one),
-            [
-                (1, Some(200.0), Some(210.0), true),
-                (2, Some(30.0), None, false)
-            ]
-        );
-        assert_eq!(
-            one.nozzle_c,
-            Some(200.0),
-            "the top temp_nozzle is not read here"
-        );
-        assert_eq!(
-            (one.print_fan_rpm, one.hotend_fan_rpm),
-            (Some(10), Some(20))
-        );
-        assert_eq!(one.material.as_deref(), Some("PLA"));
-        let two = xl.frame(frame(2, 220));
-        assert_eq!(
-            heads(&two),
-            [
-                (1, Some(200.0), None, false),
-                (2, Some(30.0), Some(220.0), true)
-            ]
-        );
-        // None picked: the target says nothing of a head, and the last one loses it.
-        let none = xl.frame(frame(0, 0));
-        assert_eq!(
-            heads(&none),
-            [(1, Some(200.0), None, false), (2, Some(30.0), None, false)]
-        );
-        assert_eq!(
-            none.nozzle_c, None,
-            "no head picked, more than one: none at the top"
-        );
-    }
-
-    /// The firmware's material, normalized as the server does (`normalizeMaterial`,
-    /// `tools.go:612-626`): `"---"` and an empty name are no material.
-    #[test]
-    fn material_is_normalized_as_the_server_does() {
+    fn info_names_the_material_the_page_shows() {
         assert_eq!(normalize_material(&json!("---")), json!(""));
         assert_eq!(normalize_material(&json!("  ")), json!(""));
-        assert_eq!(normalize_material(&json!(" --- ")), json!(""));
         assert_eq!(normalize_material(&json!(null)), json!(""));
         assert_eq!(normalize_material(&json!("PLA")), json!("PLA"));
-        assert_eq!(normalize_material(&json!(5)), json!(5));
-        let mut mini = Printer::new("MINI");
-        assert_eq!(
-            mini.frame(json!({"state": "IDLE", "material": "PETG"}))
-                .material
-                .as_deref(),
-            Some("PETG")
-        );
-        assert_eq!(
-            mini.frame(json!({"state": "IDLE", "material": "---"}))
-                .material,
-            None
-        );
-        assert_eq!(
-            mini.frame(json!({"state": "IDLE", "material": ""}))
-                .material,
-            None
-        );
         let info =
             to_details(&json!({"tools": {"1": {"material": " "}, "2": {"material": "ASA"}}}));
         assert_eq!(info.material.as_deref(), Some("ASA"));
+        let mut mini = Printer::new("MINI");
+        mini.info(json!({"tools": {"0": {"type": "FFF_PRINT_HEAD",
+            "material_package_instance": {"class": "FFF", "package": {"class": "FFF",
+                "material": {"class": "FFF", "abbreviation": "PETG"}}}}}}));
+        let t = mini.frame(json!({"state": "IDLE",
+            "tools": {"0": {"type": "FFF_PRINT_HEAD", "active": true, "nozzle_temp": 24.0}}}));
+        assert_eq!(t.material.as_deref(), Some("PETG"));
+        mini.info(
+            json!({"tools": {"0": {"type": "FFF_PRINT_HEAD", "material_package_instance": null}}}),
+        );
+        assert_eq!(
+            mini.frame(json!({"state": "IDLE"})).material,
+            None,
+            "no spool"
+        );
     }
 
     /// A report with only the state keeps the temperatures of the one before.
@@ -1835,29 +1661,30 @@ mod tests {
     fn a_short_report_keeps_what_it_left_out() {
         let mut mini = Printer::new("MINI");
         mini.frame(
-            json!({"state":"IDLE","temp_nozzle":24,"temp_bed":23,"axis_x":1,"axis_y":2,"axis_z":3}),
+            json!({"state": "IDLE", "temp_bed": 23, "axis_x": 1, "axis_y": 2, "axis_z": 3,
+            "tools": {"0": {"type": "FFF_PRINT_HEAD", "active": true, "nozzle_temp": 24}}}),
         );
         let short = mini.frame(json!({"state": "IDLE"}));
         assert_eq!(short.nozzle_c, Some(24.0));
         assert_eq!(short.position_mm, at(1.0, 2.0, 3.0));
     }
 
-    /// Buddy 6.3.0's telemetry (render.cpp:129-257): flat values for the one head; its fans at
-    /// the top are not read, as the server reads only the nozzle and material there
-    /// (`telemetrytools.go:184-206`).
+    /// A Marlin printer on the agent: its head by PrusaLink's keys at the top of the frame
+    /// (`auto_telemetry.py:61-65`, `:93-98`), not by Buddy's tools object.
     #[test]
-    fn the_flat_keys_of_6_3_0_tell_the_heads_values() {
-        let t = Printer::new("MINI").frame(
+    fn the_agents_head_by_prusalinks_keys() {
+        let t = Printer::agent().frame(
             json!({"job_id":7,"time_printing":600,"time_remaining":900,"progress":40,
             "temp_nozzle":215.3,"temp_bed":60.1,"target_nozzle":215.0,"target_bed":60.0,
-            "speed":100,"flow":95,"material":"PETG","axis_z":1.20,
-            "fan_extruder":7100,"fan_print":5200,"filament":3.5,"state":"PRINTING"}),
+            "fan_hotend":7100,"fan_print":5200,"axis_z":1.20,"state":"PRINTING"}),
         );
         assert_eq!((t.nozzle_c, t.nozzle_target_c), (Some(215.3), Some(215.0)));
         assert_eq!((t.bed_c, t.bed_target_c), (Some(60.1), Some(60.0)));
-        assert_eq!((t.print_fan_rpm, t.hotend_fan_rpm), (None, None));
-        assert_eq!(t.flow_percent, Some(95.0));
-        assert_eq!(t.material.as_deref(), Some("PETG"));
+        assert_eq!(
+            (t.print_fan_rpm, t.hotend_fan_rpm),
+            (Some(5200), Some(7100))
+        );
+        assert!(t.tool_tree.is_empty());
         assert_eq!(t.job.map(|j| j.done), Some(40));
     }
 
@@ -1937,7 +1764,7 @@ mod tests {
                 .header("Fingerprint", "abc")
                 .header("User-Agent-Version", "6.3.0+0.LOCAL")
                 .body(Body::from(
-                    r#"{"state":"PRINTING","temp_bed":60.1,"target_bed":60,"temp_nozzle":214.9,"progress":42}"#,
+                    r#"{"progress":42,"temp_bed":60.1,"target_bed":60,"tools":{"0":{"type":"FFF_PRINT_HEAD","active":true,"nozzle_temp":214.9,"nozzle_target_temp":null,"heatbreak_fan_rpm":0,"print_fan_rpm":0,"consumed_weight":null}},"state":"PRINTING"}"#,
                 ))
                 .unwrap(),
         )

@@ -163,10 +163,9 @@ pub struct Telemetry {
     /// The material loaded ("PETG"), where the machine knows it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub material: Option<String>,
-    /// A Prusa on Connect's tools as Prusa's server holds them on its tool tree: by tool id
-    /// (`"0"`, `"1"`, `"0.0"`), each member's value by its name (`nozzle_temp`, `active`, ...)
-    /// (`reference/prusa-connect` `sdk/connectorapi/tools.go`). The values above (`nozzle_c`,
-    /// `tools`, the fans, `material`) are read off it.
+    /// A Buddy printer's heads as its last Full telemetry frame wrote them: by tool id (`"0"`,
+    /// `"1"`), each member's value by Buddy's name (`nozzle_temp`, `active`, ...) (Buddy 8.0.2
+    /// `render.cpp:219-288`). The values above (`nozzle_c`, `tools`, the fans) are read off it.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub tool_tree: std::collections::BTreeMap<String, serde_json::Map<String, serde_json::Value>>,
     /// The job the machine runs now (its progress is [`Telemetry::job`]).
