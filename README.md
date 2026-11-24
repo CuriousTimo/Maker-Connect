@@ -62,7 +62,9 @@ label printer, a laser, a Marlin printer's M115) is an extension written down pa
 - **A Prusa MINI needs no agent.** Its firmware (Buddy 8.0.2, the current release) connects to the hub over
   Prusa Connect's WebSocket; the hub is the server side of that, after Prusa's own self-hosted
   Prusa Connect. Tried on a real MINI (Buddy 8.0.2): registering, the machine page, moves,
-  heating, printing files sent from the hub. The files on its own USB stick: not yet
+  heating. Files sent from the hub: by Buddy 8.0.2's source the MINI does not take the download
+  command the hub sends, so this is to be fixed and tried again
+  ([#212](https://github.com/CuriousTimo/Maker-Connect/issues/212)). The files on its own USB stick: not yet
   ([#195](https://github.com/CuriousTimo/Maker-Connect/issues/195)); support for Buddy printers is not
   finished ([#87](https://github.com/CuriousTimo/Maker-Connect/issues/87)).
 - **Printers on Marlin** through the agent: a port of **OctoPrint 1.11.8**'s serial layer,
