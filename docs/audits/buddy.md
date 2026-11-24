@@ -197,14 +197,14 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `axis_z` |  |  | UNCHECKED |  |
 | `base_model` | `render.cpp:466` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `buttons` | `render.cpp:826` | `devices/printer_files.rs:781=buttons` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
-| `canceled` |  |  | UNCHECKED |  |
+| `canceled` | `render.cpp:761` |  | **not used by the hub**: the print's objects for cancelling one; Prusa Connect's server reads them (`xbuddy/cancelobjects.go:44-61`). The hub later: #213 (owner, 2026-11-24) |  |
 | `chamber` | `render.cpp:203` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under the Core One and Core One L only. Another Buddy printer: later (#87) |  |
 | `chamber_temperature` | `render.cpp:571` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_CHAMBER_API`, the XL and Core One family only (`ProjectOptions.cmake:595`). Another Buddy printer: later (#87) |  |
 | `children` | `render.cpp:1186` | `devices/printer_files.rs:475=children` | **identical**: read from where `render.cpp` writes it | `the_listing_follows_file_info_and_file_changed` |
-| `chunk` |  |  | UNCHECKED |  |
+| `chunk` | `render.cpp:115` |  | **OPEN**: the WebSocket's download: Buddy 8.0.2 asks for the file in pieces (`render.cpp:103-118`) and Prusa Connect's server answers it (`xbuddy/wire.go:132-135`, `:262`); the hub does not yet (#212) |  |
 | `class` |  |  | UNCHECKED |  |
 | `code` | `render.cpp:787` | `devices/printer_files.rs:768=code` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
-| `color_rgba` |  |  | UNCHECKED |  |
+| `color_rgba` | `render.cpp:537` |  | **not used by the hub**: the spool's material in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tooltree.go:546-600`) (owner, 2026-11-24: later) |  |
 | `command` |  |  | UNCHECKED |  |
 | `command_id` | `render.cpp:294` | `devices/prusa_connect.rs:1032=command_id` | **identical**: read from where `render.cpp` writes it | `the_events_buddy_sends_settle_commands` |
 | `consumed_weight` |  |  | UNCHECKED |  |
@@ -213,7 +213,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `display_name` | `render.cpp:631` | `devices/printer_files.rs:812=display_name` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `enabled` | `render.cpp:589` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
 | `enclosure` | `render.cpp:195` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
-| `end` |  |  | UNCHECKED |  |
+| `end` | `render.cpp:118` |  | **OPEN**: the WebSocket's download: Buddy 8.0.2 asks for the file in pieces (`render.cpp:103-118`) and Prusa Connect's server answers it (`xbuddy/wire.go:132-135`, `:262`); the hub does not yet (#212) |  |
 | `event` | `render.cpp:854` | `devices/prusa_connect.rs:1032=event` | **identical**: read from where `render.cpp` writes it | `the_events_buddy_sends_settle_commands` |
 | `extruder_fs_state` | `render.cpp:184` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
 | `fan_1_rpm` | `render.cpp:206` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under the Core One and Core One L only. Another Buddy printer: later (#87) |  |
@@ -225,7 +225,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `filament_change_in` | `render.cpp:172` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server's top-level telemetry keeps only the keys of `telemetryPaths`: "A key this map does not carry is not emitted" (`xbuddy/inbound.go:142-143`) (read only, OCL) |  |
 | `file` |  |  | UNCHECKED |  |
 | `file_count` |  |  | UNCHECKED |  |
-| `file_id` |  |  | UNCHECKED |  |
+| `file_id` | `render.cpp:116` |  | **OPEN**: the WebSocket's download: Buddy 8.0.2 asks for the file in pieces (`render.cpp:103-118`) and Prusa Connect's server answers it (`xbuddy/wire.go:132-135`, `:262`); the hub does not yet (#212) |  |
 | `filter_lifetime` | `render.cpp:593` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
 | `filtration_filaments` | `render.cpp:594` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
 | `fingerprint` |  |  | UNCHECKED |  |
@@ -236,7 +236,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `heatbreak_fan_rpm` |  |  | UNCHECKED |  |
 | `heatbreak_temperature` | `render.cpp:561` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_FILAMENT_HEATBREAK_PARAM`, the iX only (`ProjectOptions.cmake:490`). Another Buddy printer: later (#87) |  |
 | `hostname` |  |  | UNCHECKED |  |
-| `id` |  |  | UNCHECKED |  |
+| `id` | `render.cpp:762` |  | **not used by the hub**: the print's objects for cancelling one; Prusa Connect's server reads them (`xbuddy/cancelobjects.go:44-61`). The hub later: #213 (owner, 2026-11-24) |  |
 | `is_sfn` | `render.cpp:411` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; of a storage the server reads only `mountpoint`, `type`, `free_space`, `read_only` (`storagePayload`, `xbuddy/files.go:381-386`) (read only, OCL) |  |
 | `job_id` | `render.cpp:163` | `devices/printer_files.rs:817=job_id` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `lan_ipv4` |  |  | UNCHECKED |  |
@@ -245,13 +245,13 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `m_timestamp` |  |  | UNCHECKED |  |
 | `machine_reason` |  |  | UNCHECKED |  |
 | `material` |  |  | UNCHECKED |  |
-| `material_package_instance` |  |  | UNCHECKED |  |
-| `max_bed_temperature` |  |  | UNCHECKED |  |
+| `material_package_instance` | `render.cpp:493` |  | **not used by the hub**: the spool's material in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tooltree.go:546-600`) (owner, 2026-11-24: later) |  |
+| `max_bed_temperature` | `render.cpp:575` |  | **not used by the hub**: a feature or limit of the head in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tools.go:64-67`, `:159-165`) (owner, 2026-11-24: later) |  |
 | `max_chamber_temperature` | `render.cpp:568` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_CHAMBER_API`, the XL and Core One family only (`ProjectOptions.cmake:595`). Another Buddy printer: later (#87) |  |
-| `max_print_temperature` |  |  | UNCHECKED |  |
-| `min_bed_temperature` |  |  | UNCHECKED |  |
+| `max_print_temperature` | `render.cpp:558` |  | **not used by the hub**: a feature or limit of the head in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tools.go:64-67`, `:159-165`) (owner, 2026-11-24: later) |  |
+| `min_bed_temperature` | `render.cpp:574` |  | **not used by the hub**: a feature or limit of the head in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tools.go:64-67`, `:159-165`) (owner, 2026-11-24: later) |  |
 | `min_chamber_temperature` | `render.cpp:565` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_CHAMBER_API`, the XL and Core One family only (`ProjectOptions.cmake:595`). Another Buddy printer: later (#87) |  |
-| `min_print_temperature` |  |  | UNCHECKED |  |
+| `min_print_temperature` | `render.cpp:557` |  | **not used by the hub**: a feature or limit of the head in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tools.go:64-67`, `:159-165`) (owner, 2026-11-24: later) |  |
 | `mmu_command_in_progress` | `render.cpp:248` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `mmu_progress_code` | `render.cpp:244` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `model` | `render.cpp:465` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
@@ -261,26 +261,26 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `new_path` |  |  | UNCHECKED |  |
 | `nominal_netto_full_weight` | `render.cpp:517` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_ANFC`, the Core One and Core One L only (`ProjectOptions.cmake:814`). Another Buddy printer: later (#87) |  |
 | `nozzle_diameter` |  |  | UNCHECKED |  |
-| `nozzle_hardened` |  |  | UNCHECKED |  |
-| `nozzle_high_flow` |  |  | UNCHECKED |  |
+| `nozzle_hardened` | `render.cpp:457` |  | **not used by the hub**: a feature or limit of the head in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tools.go:64-67`, `:159-165`) (owner, 2026-11-24: later) |  |
+| `nozzle_high_flow` | `render.cpp:458` |  | **not used by the hub**: a feature or limit of the head in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tools.go:64-67`, `:159-165`) (owner, 2026-11-24: later) |  |
 | `nozzle_target_temp` |  |  | UNCHECKED |  |
 | `nozzle_temp` |  |  | UNCHECKED |  |
-| `objects` |  |  | UNCHECKED |  |
+| `objects` | `render.cpp:748` |  | **not used by the hub**: the print's objects for cancelling one; Prusa Connect's server reads them (`xbuddy/cancelobjects.go:44-61`). The hub later: #213 (owner, 2026-11-24) |  |
 | `odometer_e` | `render.cpp:286` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_FILAMENT_TRACKER`, not the MINI (`ProjectOptions.cmake:641-648`). Another Buddy printer: later (#87) |  |
 | `odometer_id` | `render.cpp:285` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_FILAMENT_TRACKER`, not the MINI (`ProjectOptions.cmake:641-648`). Another Buddy printer: later (#87) |  |
 | `old_path` | `render.cpp:729` | `devices/printer_files.rs:833=old_path` | **identical**: read from where `render.cpp` writes it | `the_listing_follows_file_info_and_file_changed` |
-| `package` |  |  | UNCHECKED |  |
+| `package` | `render.cpp:508` |  | **not used by the hub**: the spool's material in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tooltree.go:546-600`) (owner, 2026-11-24: later) |  |
 | `path` |  |  | UNCHECKED |  |
 | `post_print` | `render.cpp:591` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
 | `post_print_filtration_time` | `render.cpp:592` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
-| `preheat_temperature` |  |  | UNCHECKED |  |
+| `preheat_temperature` | `render.cpp:559` |  | **not used by the hub**: a feature or limit of the head in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tools.go:64-67`, `:159-165`) (owner, 2026-11-24: later) |  |
 | `preview` |  |  | UNCHECKED |  |
-| `primary_color` |  |  | UNCHECKED |  |
+| `primary_color` | `render.cpp:535` |  | **not used by the hub**: the spool's material in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tooltree.go:546-600`) (owner, 2026-11-24: later) |  |
 | `print_fan_rpm` |  |  | UNCHECKED |  |
 | `printer_type` |  |  | UNCHECKED |  |
 | `printing_filtration` | `render.cpp:590` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
 | `progress` |  |  | UNCHECKED |  |
-| `properties` |  |  | UNCHECKED |  |
+| `properties` | `render.cpp:555` |  | **not used by the hub**: the spool's material in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tooltree.go:546-600`) (owner, 2026-11-24: later) |  |
 | `read_only` |  |  | UNCHECKED |  |
 | `reason` |  |  | UNCHECKED |  |
 | `remote_fs_state` | `render.cpp:187` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
@@ -289,7 +289,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `slot_count` | `render.cpp:467` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `sn` |  |  | UNCHECKED |  |
 | `speed` |  |  | UNCHECKED |  |
-| `start` |  |  | UNCHECKED |  |
+| `start` | `render.cpp:117` |  | **OPEN**: the WebSocket's download: Buddy 8.0.2 asks for the file in pieces (`render.cpp:103-118`) and Prusa Connect's server answers it (`xbuddy/wire.go:132-135`, `:262`); the hub does not yet (#212) |  |
 | `start_cmd_id` | `render.cpp:637` | `devices/printer_files.rs:869=start_cmd_id` | **identical**: read from where `render.cpp` writes it | `transfer_events_name_their_command_in_data` |
 | `state` | `render.cpp:242` | `devices/printer_files.rs:752=state` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub`, `every_state_buddy_sends_is_read` |
 | `storages` |  |  | UNCHECKED |  |
@@ -310,13 +310,13 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `title` | `render.cpp:798` | `devices/printer_files.rs:761=title` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `tool_count` |  |  | UNCHECKED |  |
 | `tools` |  |  | UNCHECKED |  |
-| `transfer` |  |  | UNCHECKED |  |
-| `transfer_id` |  |  | UNCHECKED |  |
+| `transfer` | `render.cpp:108` |  | **OPEN**: the WebSocket's download: Buddy 8.0.2 asks for the file in pieces (`render.cpp:103-118`) and Prusa Connect's server answers it (`xbuddy/wire.go:132-135`, `:262`); the hub does not yet (#212) |  |
+| `transfer_id` | `render.cpp:112` |  | **OPEN**: the WebSocket's download: Buddy 8.0.2 asks for the file in pieces (`render.cpp:103-118`) and Prusa Connect's server answers it (`xbuddy/wire.go:132-135`, `:262`); the hub does not yet (#212) |  |
 | `transfer_paused` | `render.cpp:395` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server names it nowhere in what it reads of INFO (`xbuddy`, `sdk/connectorapi`) (read only, OCL) |  |
 | `transfer_progress` | `render.cpp:158` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server's top-level telemetry keeps only the keys of `telemetryPaths`: "A key this map does not carry is not emitted" (`xbuddy/inbound.go:142-143`) (read only, OCL) |  |
 | `transfer_time_remaining` | `render.cpp:157` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server's top-level telemetry keeps only the keys of `telemetryPaths`: "A key this map does not carry is not emitted" (`xbuddy/inbound.go:142-143`) (read only, OCL) |  |
 | `transfer_transferred` | `render.cpp:156` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server's top-level telemetry keeps only the keys of `telemetryPaths`: "A key this map does not carry is not emitted" (`xbuddy/inbound.go:142-143`) (read only, OCL) |  |
-| `transferred` |  |  | UNCHECKED |  |
+| `transferred` | `render.cpp:694` |  | **OPEN**: a TRANSFER_INFO's bytes so far; Prusa Connect's server reads it (`receivedOf`, `xbuddy/transfer.go:910-925`); the hub does not yet (#212) |  |
 | `type` |  |  | UNCHECKED |  |
 | `uuid` | `render.cpp:500` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_ANFC`, the Core One and Core One L only (`ProjectOptions.cmake:814`). Another Buddy printer: later (#87) |  |
 | `wifi_ipv4` |  |  | UNCHECKED |  |
