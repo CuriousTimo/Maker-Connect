@@ -335,11 +335,11 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `FFF_FEEDER_SLOT` | `render.cpp:264` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `FFF_PRINT_HEAD` |  |  | UNCHECKED |  |
 | `FILE_CHANGED` | `planner.cpp:289` | `devices/printer_files.rs:828=FILE_CHANGED` | **identical**: the command (delete, make folder) is finished by it (`planner.cpp:850`); `old_path` takes the file out of the listing | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
-| `FILE_EXISTS` |  |  | UNCHECKED |  |
+| `FILE_EXISTS` | `planner.cpp:308` |  | **OPEN**: the hub sends the file again under a free name (`devices/printer_files.rs` `send_again`). Prusa Connect's server asks the printer what is at the destination before it sends: the very file it sent there, unchanged, is printed without sending; anything else is refused with `FILE_NAME_TAKEN` unless the user asks to replace it (`app/deviceheld.go`). Owner, 2026-11-24: as the server does; with the WebSocket's download, #212 |  |
 | `FILE_INFO` | `planner.cpp:275` | `devices/printer_files.rs:798=FILE_INFO` | **identical**: the command is finished; a folder's `children` and `path` fill the hub's listing of the stick | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
 | `FINISHED` | `planner.cpp:279` | `devices/prusa_connect.rs:1041=FINISHED` | **identical**: the command becomes finished | `the_events_buddy_sends_settle_commands` |
-| `FIN_OK` |  |  | UNCHECKED |  |
-| `FIN_STOPPED` |  |  | UNCHECKED |  |
+| `FIN_OK` | `render.cpp:61` |  | **not used by the hub**: a JOB_INFO's `state` for an earlier print; Prusa Connect's server writes a JOB_INFO's state as text (`jobFrame`, `xbuddy/inbound.go:330-335`) (owner, 2026-11-24: later) |  |
+| `FIN_STOPPED` | `render.cpp:63` |  | **not used by the hub**: as `FIN_OK` (owner, 2026-11-24: later) |  |
 | `FOLDER` |  |  | UNCHECKED |  |
 | `HAS_FILAMENT` | `render.cpp:76` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
 | `INFO` | `planner.cpp:267` | `devices/prusa_connect.rs:1194=INFO` | **identical**: the command is finished and the details are kept (serial, `printer_type` as the string `2.1.0`, firmware, `nozzle_diameter` at the top level, `tools.<n>.material` with `---` read as none, storages, network); keys only master writes are not read | `the_events_buddy_sends_settle_commands`, `info_says_a_dash_for_no_material`, `printer_type_is_read_as_buddys_string_only`, `info_of_6_3_0_is_read_as_buddy_writes_it` |
@@ -350,7 +350,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `NOT_CALIBRATED` | `render.cpp:74` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
 | `NOT_CONNECTED` | `render.cpp:80` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
 | `NOT_INITIALIZED` | `render.cpp:72` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
-| `NOT_READY` |  |  | UNCHECKED |  |
+| `NOT_READY` | `planner.cpp:312` |  | **not used by the hub**: a refusal's `machine_reason`; Prusa Connect's server passes it on as the refusal's detail (`resultOf`, `xbuddy/session.go:1126-1128`) (owner, 2026-11-24: later) |  |
 | `NO_FILAMENT` | `render.cpp:78` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
 | `NO_TRANSFER` | `render.cpp:711` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; a TRANSFER_INFO's `type`; of a TRANSFER_INFO the server reads only `transferred` (`xbuddy/transfer.go:910-925`) (read only, OCL) |  |
 | `PAUSED` | `render.cpp:622` | `devices/prusa_connect.rs:651=PAUSED` | **identical**: read as a device state (see States) | `every_state_buddy_sends_is_read` |
@@ -361,7 +361,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `TRANSFER_ABORTED` | `planner.cpp:285` | `devices/printer_files.rs:868=TRANSFER_ABORTED` | **OPEN**: as `TRANSFER_STOPPED`; the `machine_reason` (`STORAGE_FAILURE`, `NETWORK_FAILURE`) wording is not run by a test here |  |
 | `TRANSFER_FINISHED` | `planner.cpp:287` | `devices/printer_files.rs:868=TRANSFER_FINISHED` | **identical**: no top-level `command_id` (`render.cpp:537`); the hub settles the download command by `data.start_cmd_id` and marks the transfer finished | `transfer_events_name_their_command_in_data` |
 | `TRANSFER_INFO` | `planner.cpp:277` | `devices/printer_files.rs:849=TRANSFER_INFO` | **identical**: the download command is finished (taken, the file on its way) | `the_events_buddy_sends_settle_commands`, `transfer_events_name_their_command_in_data` |
-| `TRANSFER_IN_PROGRESS` |  |  | UNCHECKED |  |
+| `TRANSFER_IN_PROGRESS` | `planner.cpp:306` |  | **not used by the hub**: as `NOT_READY` (owner, 2026-11-24: later) |  |
 | `TRANSFER_STOPPED` | `planner.cpp:283` | `devices/printer_files.rs:868=TRANSFER_STOPPED` | **OPEN**: no top-level `command_id` (`render.cpp:537`); the hub takes the command from `data.start_cmd_id`; the stopped branch (failed transfer, job failed) is not run by a test here |  |
 | `USB` |  |  | UNCHECKED |  |
 
