@@ -27,6 +27,7 @@ use maker_connect_engine::{
 mod camera;
 mod cameras;
 mod deck;
+mod job;
 mod laser;
 mod marlin;
 mod serial_ports;
@@ -419,6 +420,8 @@ struct Agent {
     media: Mutex<std::collections::HashMap<i64, Media>>,
     /// The state the last `STATE_CHANGED` said.
     last_state: Mutex<Option<State>>,
+    /// A Marlin printer's job number, as PrusaLink keeps it (`job.rs`).
+    job: Mutex<job::Job>,
     /// The label being printed: its job (the download's command) and file. A Marlin's print.
     label: Mutex<Option<(i64, PathBuf)>>,
     /// A Marlin's print that ended, `FINISHED` or `STOPPED`, and when (`marlin::tick`).
@@ -449,6 +452,7 @@ impl Agent {
     }
 
     fn new(kind: Kind, dir: PathBuf, settings: Settings, engine: Arc<Mutex<Engine>>) -> Agent {
+        let job = Mutex::new(job::Job::load(&dir));
         Agent {
             kind,
             dir,
@@ -473,6 +477,7 @@ impl Agent {
             #[cfg(unix)]
             media: Mutex::new(Default::default()),
             last_state: Mutex::new(None),
+            job,
             hub: Mutex::new(HubLink::default()),
             label: Mutex::new(None),
             print_end: Mutex::new(None),
@@ -1244,6 +1249,11 @@ pub(crate) fn run_action(
 /// is ours: the device.
 fn set_state(agent: &Agent, state: State, reason: Option<&str>) {
     *agent.last_state.lock().unwrap() = Some(state);
+    // A Marlin printer's job (PrusaLink's `pre_state_change` → `job.state_changed`, before the state
+    // goes out, `prusa_link.py:1019-1024`).
+    if agent.kind == Kind::Marlin {
+        agent.job.lock().unwrap().state_changed(state);
+    }
     let Some(event_cb) = agent.event_cb.lock().unwrap().clone() else {
         return;
     };
@@ -1252,6 +1262,12 @@ fn set_state(agent: &Agent, state: State, reason: Option<&str>) {
     if let Some(reason) = reason {
         kwargs.insert("reason".into(), reason.into());
     }
+    // The SDK's `event_cb` adds the printer's job while there is one (`__init__.py:322-323`).
+    if agent.kind == Kind::Marlin
+        && let Some(id) = agent.job.lock().unwrap().for_api()
+    {
+        kwargs.insert("job_id".into(), id.into());
+    }
     event_cb(
         consts::Event::StateChanged,
         Source::Firmware,
@@ -1259,6 +1275,10 @@ fn set_state(agent: &Agent, state: State, reason: Option<&str>) {
         None,
         kwargs,
     );
+    // `post_state_change` → `job.tick` (`prusa_link.py:1026-1029`): after the state went out.
+    if agent.kind == Kind::Marlin {
+        agent.job.lock().unwrap().tick();
+    }
 }
 
 fn current_state(agent: &Agent) -> State {
@@ -1447,6 +1467,13 @@ fn link_loop(agent: &Arc<Agent>) {
             && cmd.state().is_some()
         {
             kwargs.insert("command_id".into(), cmd.command_id().into());
+        }
+        // The SDK's `telemetry` adds the printer's job while there is one (`__init__.py:346-347`):
+        // a Marlin printer's, as PrusaLink keeps it (`job.rs`).
+        if agent.kind == Kind::Marlin
+            && let Some(id) = agent.job.lock().unwrap().for_api()
+        {
+            kwargs.insert("job_id".into(), id.into());
         }
         if !telemetry_transfer(agent, &mut kwargs) {
             continue;

@@ -770,6 +770,14 @@ time printed, `:429-440`). The others are left out, `time_remaining` too: the
 port has no estimate (`:440`), OctoPrint's estimator is not in its serial layer. `INFO` leaves out what only a Prusa has (`mbl`, `sheet_settings`, `mmu`);
 serial number and fingerprint are the agent's, as the PnP's (wire.md).
 
+**The job number** (`job_id`, in the telemetry and in `STATE_CHANGED` while there is a job): as the SDK
+adds it (`__init__.py:322-323`, `:346-347`) and as PrusaLink keeps it (`printer_adapter/job.py`: a job
+starts at `PRINTING` or `PAUSED`, ends at `FINISHED` or `STOPPED` after that state went out, or at once at
+`ERROR`, `IDLE`, `BUSY`; `const.py:50-59`; the number only while a job runs, `module_data_classes.py:93-100`).
+**One difference, approved by the owner (2026-11-24, #201, option A):** PrusaLink keeps the number in the
+MK3's EEPROM (`D3 Ax0D05`, `job.py:147-158`); a plain Marlin has no such place, so the agent keeps it in the
+device's folder (`job_id`, `crates/agent/src/job.rs`).
+
 ### States
 
 | OctoPrint (`comm.py:445-460`) | Protocol `state` |
