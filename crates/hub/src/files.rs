@@ -80,17 +80,30 @@ pub fn fit(file: &StoredFile, machine: &Machine) -> Result<Option<String>, Strin
     Ok(warning)
 }
 
+/// Whether a printer takes binary G-code: only Prusa's own firmware on its own Connect (a Buddy
+/// printer), or a virtual one. Not a Marlin printer on the agent, although it is linked as
+/// `prusa-connect` too (owner, 2026-11-24, #153: "the hub accepts no .bgcode for a Marlin or a
+/// MK3 and never sends one to them"): its reference, OctoPrint 1.11.8, prints only
+/// `["gcode", "gco", "g", "gc~"]` (`src/octoprint/filemanager/__init__.py:29-30`), and the
+/// Connect SDK's G-code is `(".gcode", ".gc", ".g", ".gco")` (`prusa/connect/printer/const.py:9`).
+/// A MK3 on the agent (#78) has no type of its own yet; it is to be added here when it has.
+fn takes_bgcode(link: &str, marlin_on_agent: bool, virtual_buddy: bool) -> bool {
+    (link == "prusa-connect" && !marlin_on_agent) || virtual_buddy
+}
+
 /// Whether a file is for this machine at all, whatever it does now (busy, offline, a print
 /// on its bed): then it can wait in the machine's queue (crate::queue).
 pub fn suits(file: &StoredFile, machine: &Machine) -> Result<Option<String>, String> {
     let profile = machine.profile.as_deref().and_then(profiles::find);
-    // Binary G-code is read by Prusa's own firmware only.
     // A virtual Buddy printer (a MINI, an MK4, a CORE One) takes it as the real one would.
     let virtual_buddy = machine.link == "virtual"
         && profile.and_then(|p| p.firmware.as_deref()) == Some("prusa-buddy");
     if file.name.to_ascii_lowercase().ends_with(".bgcode")
-        && machine.link != "prusa-connect"
-        && !virtual_buddy
+        && !takes_bgcode(
+            &machine.link,
+            crate::prusa_connect::marlin_agent(machine),
+            virtual_buddy,
+        )
     {
         return Err("binary G-code (.bgcode) goes to a Prusa on its own Connect".to_owned());
     }
@@ -1204,6 +1217,27 @@ mod tests {
     /// A laser's own settings decide: laser mode off refuses, a file outside its travel is
     /// refused, a file made for a 0 to 255 power range is warned about.
     /// PrusaSlicer writes `MK3S`, OrcaSlicer `Prusa MK3S`: both are the MK3S, not the MINI.
+    /// #153: binary G-code only to a Buddy printer on its own Connect (or a virtual one); never
+    /// to a Marlin printer on the agent, linked as `prusa-connect` too, nor to anything else.
+    #[test]
+    fn bgcode_goes_only_to_a_buddy_printer() {
+        use super::takes_bgcode;
+        assert!(
+            takes_bgcode("prusa-connect", false, false),
+            "a MINI on its own Connect"
+        );
+        assert!(
+            !takes_bgcode("prusa-connect", true, false),
+            "a Marlin on the agent"
+        );
+        assert!(
+            takes_bgcode("virtual", false, true),
+            "a virtual Buddy printer"
+        );
+        assert!(!takes_bgcode("virtual", false, false), "a virtual Marlin");
+        assert!(!takes_bgcode("simplyprint", false, false));
+    }
+
     #[test]
     fn a_printer_model_by_either_slicer() {
         assert!(super::same_model("MK3S", "MK3S"));
