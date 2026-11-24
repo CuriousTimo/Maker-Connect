@@ -591,6 +591,20 @@ fn notices(machine: &Machine) -> String {
             escape(&bed.file_name)
         );
     }
+    // A file by that name on the stick: the file waits until the user replaces it (B5).
+    for taken in &machine.name_taken {
+        out += &format!(
+            r#"<div class="notice taken"><span><b>{}</b> waits: {}. Replace it with this file?</span><form method="post" action="{id}/usb/replace" data-async data-done="Replacing" data-then="reload"><input type="hidden" name="transfer" value="{}"><button>Replace</button></form></div>"#,
+            escape(&taken.file_name),
+            escape(
+                taken
+                    .reason
+                    .as_deref()
+                    .unwrap_or("a file by that name is on the stick")
+            ),
+            escape(&taken.transfer)
+        );
+    }
     // Ready for the next job, until it starts; taken back as PrusaLink's "cancel ready".
     if machine.on_bed.is_none()
         && machine.job.is_none()

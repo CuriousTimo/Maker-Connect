@@ -133,6 +133,7 @@ impl MachineRow {
             loaded: None,
             on_bed: None,
             ready: None,
+            name_taken: Vec::new(),
             queue: Vec::new(),
             queue_held: None,
             asking: None,
@@ -941,6 +942,16 @@ impl Store {
             .lock()
             .unwrap()
             .complete_machines(rows, &jobs, completion);
+        for (machine, transfer, path, file_name, reason) in self.names_taken(space).await? {
+            if let Some(m) = machines.iter_mut().find(|m| m.id == machine) {
+                m.name_taken.push(super::NameTaken {
+                    transfer,
+                    path,
+                    file_name,
+                    reason,
+                });
+            }
+        }
         // What the queued files say of themselves (their time, a picture), by id as before.
         let queued: Vec<String> = machines
             .iter()

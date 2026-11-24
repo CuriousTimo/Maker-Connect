@@ -181,6 +181,9 @@ pub struct Machine {
     /// Ready for the next job: its last print finished and was taken off (PrusaLink's
     /// READY), until a job starts or someone says it is not ready after all.
     pub ready: Option<OnBed>,
+    /// Files waiting to go to its USB stick because a file by that name is there, until the
+    /// user replaces it (owner, 2026-11-24, #212 c, B5).
+    pub name_taken: Vec<NameTaken>,
     /// Files waiting to print here, next first (crate::queue).
     pub queue: Vec<crate::queue::Queued>,
     /// What the printer asks on its screen now, when it wants someone: its title, and the
@@ -266,6 +269,17 @@ pub struct JobStats {
     pub grams: f64,
     /// Parts people confirmed good (the farm's plates).
     pub parts: i64,
+}
+
+/// A file that waits to go to a printer's stick: a file by its name is there
+/// (`printer_files::Store::place`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct NameTaken {
+    /// The transfer, as the Replace form names it.
+    pub transfer: String,
+    pub path: String,
+    pub file_name: String,
+    pub reason: Option<String>,
 }
 
 /// A print on the bed: the job that made it, and when it ended.

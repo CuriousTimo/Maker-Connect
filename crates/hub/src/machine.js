@@ -111,6 +111,10 @@
       const how = warm ? `the bed cools (${t.bed_c.toFixed(0)} °C); take it at ${TAKE_BELOW_C} °C or below` : "the bed is cool: take it off";
       html += `<div class="notice bed"><span><b>${esc(m.on_bed.file_name)}</b> is done and on the bed: ${how}. The next job waits until it is taken.</span><form method="post" action="${esc(m.id)}/taken" data-async data-done="Print taken" data-then="reload"><button>Print taken</button></form></div>`;
     }
+    // A file by that name on the stick: the file waits until the user replaces it (B5).
+    for (const taken of m.name_taken || []) {
+      html += `<div class="notice taken"><span><b>${esc(taken.file_name)}</b> waits: ${esc(taken.reason || "a file by that name is on the stick")}. Replace it with this file?</span><form method="post" action="${esc(m.id)}/usb/replace" data-async data-done="Replacing" data-then="reload"><input type="hidden" name="transfer" value="${esc(taken.transfer)}"><button>Replace</button></form></div>`;
+    }
     // Ready for the next job, until it starts; taken back as PrusaLink's "cancel ready".
     if (!m.on_bed && !m.job && m.ready) {
       html += `<div class="notice ready"><span>Ready for the next job: <b>${esc(m.ready.file_name)}</b> was taken off.</span><form method="post" action="${esc(m.id)}/not-ready" data-async data-done="Not ready" data-then="reload"><button>Not ready after all</button></form></div>`;
@@ -417,7 +421,7 @@
         if (!fileSelect.value) return;
         const r = await post("send", { file: fileSelect.value, folder: path });
         const sent = r.ok ? await r.json() : null;
-        toast(sent ? (sent.already ? `Already on the stick: ${sent.path}` : `Sending to ${sent.path}: it shows here once on the stick`) : `Not sent: ${await r.text()}`, r.ok ? "ok" : "bad");
+        toast(sent ? (sent.already ? `Already on the stick: ${sent.path}` : sent.taken ? `A file named ${sent.path} is on the stick: replace it from the notice above` : sent.looking ? `Looking at the stick first, then sending ${sent.path}` : `Sending to ${sent.path}: it shows here once on the stick`) : `Not sent: ${await r.text()}`, r.ok ? "ok" : "bad");
         if (r.ok) setTimeout(load, 3000);
       });
       usbOpen = async () => {

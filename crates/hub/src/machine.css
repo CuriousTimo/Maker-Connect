@@ -12,6 +12,7 @@
   .notice.ask { border-color: var(--st-warn); }
   .notice .notice-buttons { flex: 0 0 auto; display: flex; gap: 8px; flex-wrap: wrap; }
   .notice a.button { display: inline-block; font-weight: 600; padding: 8px 14px; border-radius: 0; background: var(--accent); color: var(--on-accent); text-decoration: none; }
+  .notice.taken { border-color: var(--st-warn); }
   .notice.bed { border-color: var(--st-warn); background: color-mix(in srgb, var(--st-warn) 10%, var(--surface)); }
 
   /* Tiles (mc.css .tiles, .tile): a label, a number, a line under it; all one height in a row. */

@@ -481,6 +481,12 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Machine(Level::Use),
         Some("sent a file to the storage of"),
     ),
+    (
+        "POST",
+        "/machines/{id}/usb/replace",
+        Need::Machine(Level::Use),
+        Some("replaced a file on the storage of"),
+    ),
     // The farm (crate::farm): projects and parts are work; confirming a plate is using the
     // machine; a machine joins the queue by who manages it; a count corrected by an admin.
     (

@@ -1279,10 +1279,10 @@ async fn a_stick_change_comes_as_file_changed_with_rescan(pool: sqlx::PgPool) {
     assert_eq!(command.kind, "SendFileInfo");
 }
 
-/// D9: the hub sends a file again under a free name only when REJECTED says `machine_reason`
+/// D10: a download waits for the user (Replace) only when REJECTED says `machine_reason`
 /// `FILE_EXISTS` (planner.cpp:814, render.cpp:378), not by the words of `reason`.
 #[test]
-fn a_free_name_is_decided_by_machine_reason() {
+fn a_name_taken_is_decided_by_machine_reason() {
     use super::printer_files::file_exists;
     // planner.cpp:814: "File already exists", FILE_EXISTS.
     assert!(file_exists(
