@@ -1,8 +1,10 @@
-//! Files on a Prusa printer's USB stick, over its built-in Connect (a MINI on firmware 6.3):
-//! looking through it, a file's picture, printing from it, deleting, making a folder, and
-//! sending a file of the space to it (then printing it, for a job).
+//! Files on a Prusa printer's USB stick, over its built-in Connect (a MINI on Buddy 8.0.2), and
+//! on the storage of a Marlin printer on the agent: looking through it, a file's picture,
+//! printing from it, deleting, making a folder, and sending a file of the space to it (then
+//! printing it, for a job).
 //!
-//! What the firmware does (read in Prusa-Firmware-Buddy 6.3.0, GPL; nothing copied):
+//! What the firmware does (read in Prusa-Firmware-Buddy 8.0.2, `reference/buddy-8.0.2`, GPL;
+//! nothing copied):
 //!
 //! - `SEND_FILE_INFO {path}`: it answers with a `FILE_INFO` event. For a folder: `children`
 //!   (`name`, the short 8.3 name to use in paths; `display_name`, the long one; `size`,
@@ -584,7 +586,11 @@ impl Store {
             && let Some(children) = data["children"].as_array_mut()
         {
             let before = children.len();
-            children.retain(|c| c["name"].as_str() != Some(name));
+            // By its short name or its long one: Buddy writes `old_path` as the path the
+            // command carried (`render.cpp:727-729`), the long one for the hub's Replace.
+            children.retain(|c| {
+                c["name"].as_str() != Some(name) && c["display_name"].as_str() != Some(name)
+            });
             if children.len() != before {
                 if let Some(count) = data["file_count"].as_i64() {
                     data["file_count"] = json!(count - 1);
@@ -946,7 +952,8 @@ pub async fn on_event(
         }
         // A file or folder made or deleted (by a command of ours, or on the printer itself).
         // Buddy 6.3 (connect/render.cpp): `old_path` when deleted, `new_path` when made,
-        // `new_path` with `rescan` when several things changed at once; paths in 8.3 form.
+        // `new_path` with `rescan` when several things changed at once; each path as the command
+        // carried it, or as the printer names it for a change of its own (`render.cpp:724-733`).
         "FILE_CHANGED" => {
             if data["rescan"].as_bool() == Some(true) {
                 store.forget_printer_stick(space, &machine).await?;
@@ -3078,8 +3085,15 @@ mod flow {
         // The next command, past the hub's own reading ahead of a listed file (`prefetch`),
         // which is answered as Buddy answers it.
         let next = || async {
+            let mut tries = 0;
             loop {
                 let (_, headers, body) = call(&app, report()).await;
+                // Nothing to give yet: the next report.
+                if body.is_empty() {
+                    tries += 1;
+                    assert!(tries < 10, "no command came");
+                    continue;
+                }
                 let id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
                 let command = serde_json::from_slice::<Value>(&body).unwrap();
                 let path = command["kwargs"]["path"].as_str().unwrap_or("").to_owned();
@@ -3153,6 +3167,14 @@ mod flow {
             ),
         )
         .await;
+        // Gone from the stick's listing too, by its long name.
+        let listed = listed_in(&store, space, &mini, "/usb").await.unwrap();
+        assert!(
+            !listed
+                .iter()
+                .any(|n| n == "cube.gcode" || n == "CUBE~1.GCO"),
+            "{listed:?}"
+        );
         let (download, command) = next().await;
         assert_eq!(command["command"], "START_CONNECT_DOWNLOAD");
         assert_eq!(command["kwargs"]["path"], "/usb/cube.gcode");
@@ -3281,8 +3303,15 @@ mod flow {
         };
         // The next command, past the hub's own reading ahead of a listed file (`prefetch`).
         let next = || async {
+            let mut tries = 0;
             loop {
                 let (_, headers, body) = call(&app, report()).await;
+                // Nothing to give yet: the next report.
+                if body.is_empty() {
+                    tries += 1;
+                    assert!(tries < 10, "no command came");
+                    continue;
+                }
                 let id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
                 let command = serde_json::from_slice::<Value>(&body).unwrap();
                 let path = command["kwargs"]["path"].as_str().unwrap_or("").to_owned();
@@ -3530,7 +3559,7 @@ mod flow {
         use tokio_tungstenite::tungstenite::{Message as Ws, client::IntoClientRequest};
         let store = crate::store::Store::for_test(&pool).await;
         let app = crate::auth::signed_in_app(store.clone()).await;
-        let (_, _, token) = store
+        let (space, mini, token) = store
             .add_test_machine("prusa/mini", Some("prusa-connect"))
             .await;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -3552,7 +3581,25 @@ mod flow {
             tokio_tungstenite::connect_async(request)
         };
         let (mut old, _) = link().await.unwrap();
-        let (_new, _) = link().await.unwrap();
+        let (mut new, _) = link().await.unwrap();
+        // A command for the printer: it goes on the new socket (`G`, its id, the G-code).
+        let path = store.link_of(space, &mini).await.unwrap();
+        let queued =
+            store
+                .lock()
+                .unwrap()
+                .queue_command(path.as_deref(), &mini, "Fan", "M106 S255");
+        assert!(queued.is_some());
+        let got = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                if let Some(Ok(Ws::Text(text))) = new.next().await {
+                    return text.to_string();
+                }
+            }
+        })
+        .await
+        .expect("the command on the new socket");
+        assert!(got.starts_with('G') && got.ends_with("M106 S255"), "{got}");
         // The old socket is closed by the hub: it ends (or says Close), and no command comes.
         let ended = tokio::time::timeout(std::time::Duration::from_secs(10), async {
             loop {

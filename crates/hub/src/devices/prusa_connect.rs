@@ -17,7 +17,10 @@
 //!    `prusa/connect/printer/ws.py`). Up: a text frame is one JSON object, an event when it has an
 //!    `event` key (Buddy writes it on every event, `render.cpp:854`), else telemetry; each is taken
 //!    in exactly as its HTTP twin above. Down: a command as `J` (JSON) or `G` (G-code), its id as 8
-//!    hex digits, then the body (the SDK's `handle_ws_message`, "BuddyEncoder").
+//!    hex digits, then the body (the SDK's `handle_ws_message`, "BuddyEncoder"). A Buddy printer
+//!    fetches a file over it: a text frame `{"transfer":"inline", ...}` asks for a segment, and
+//!    the bytes go back in `T` frames (`inline_download.rs`, `segment`). A printer shows online
+//!    while it is heard (`Legacy::linked`); a newer socket of it ends the older (`Attached`).
 
 use crate::store::{CommandState, Details, Network, Storage};
 use crate::{Store, failed};
@@ -316,6 +319,9 @@ async fn ws(
 ) -> Response {
     let fingerprint = header(&headers, "fingerprint");
     let token = header(&headers, "token").to_owned();
+    // Which socket this is, numbered as the upgrades arrive: the newest of a printer's ends the
+    // older ones (`Attached`).
+    let order = NEXT_SOCKET.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     let refused = || {
         (
             StatusCode::UNAUTHORIZED,
@@ -344,8 +350,11 @@ async fn ws(
     }
     upgrade
         .protocols([SUBPROTOCOL])
-        .on_upgrade(move |socket| link(store, headers, extensions, token, socket))
+        .on_upgrade(move |socket| link(store, headers, extensions, token, order, socket))
 }
+
+/// The number of the last `/p/ws` upgrade ([`ws`]).
+static NEXT_SOCKET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// A command as the SDK reads it: type letter, 8 hex digits of its id, the body.
 fn frame(id: u32, body: &str, json: bool) -> String {
@@ -379,12 +388,17 @@ async fn link(
     headers: HeaderMap,
     extensions: axum::http::Extensions,
     token: String,
+    order: u64,
     mut socket: axum::extract::ws::WebSocket,
 ) {
     use axum::extract::ws::Message;
-    // Connected while the socket is attached (ours: what the page shows as online).
+    // Counted while the socket is open; online while it is heard (`Legacy::linked`, ours: what
+    // the page shows).
     let (attached, machine_id) = match store.caller(&token).await {
-        Ok(Some(caller)) => (Attached::new(&store, caller.id.clone()), Some(caller.id)),
+        Ok(Some(caller)) => (
+            Attached::new(&store, caller.id.clone(), order),
+            Some(caller.id),
+        ),
         _ => return,
     };
     // The downloads asked for on this socket: Buddy's `file_id` for each, and the file it is
@@ -401,6 +415,11 @@ async fn link(
         tokio::select! {
             incoming = socket.recv() => {
                 let Some(Ok(message)) = incoming else { break };
+                // A newer socket of this printer: this one ends; nothing it says is taken and
+                // nothing is answered on it (owner, 2026-11-24, B).
+                if attached.replaced() {
+                    break;
+                }
                 quiet_at = tokio::time::Instant::now() + quiet;
                 if let Some(id) = &machine_id {
                     let mut legacy = store.lock().unwrap();
@@ -457,6 +476,12 @@ async fn link(
                 if attached.replaced() {
                     break;
                 }
+                // Silent for more than `SILENT_SECONDS` (a socket that died without closing):
+                // no command goes into it; it waits for the printer to be heard again, or for its
+                // next socket (owner, 2026-11-24, B).
+                if machine_id.as_ref().is_some_and(|id| !store.lock().unwrap().linked(id)) {
+                    continue;
+                }
                 let caller = match store.caller(&token).await {
                     Ok(Some(caller)) => caller,
                     _ => break,
@@ -474,10 +499,11 @@ async fn link(
 }
 
 /// The `T` frames that answer a segment request (`inline_download.rs`): the segment's bytes, or
-/// one empty frame (audit D9: Buddy fails the download and drops its socket) when the request is
-/// broken, names a `file_id` without a first request on this socket (Buddy starts every download,
-/// also after a reconnect, with one), names no file this printer may have, or the file has no
-/// such bytes. A request without a `file_id` gets no frame.
+/// one empty frame (audit D9: Buddy marks the download failed and drops its socket; it then ends
+/// the download or, after the reconnect, tries it again, a first request with the details again;
+/// which comes first is not checked) when the request is broken, names a `file_id` without a first
+/// request on this socket, names no file this printer may have, or the file has no such bytes. A
+/// request without a `file_id` gets no frame.
 pub(crate) async fn segment(
     store: &Store,
     token: &str,
@@ -529,15 +555,22 @@ struct Attached {
 }
 
 impl Attached {
-    fn new(store: &Store, machine: String) -> Self {
+    fn new(store: &Store, machine: String, order: u64) -> Self {
         let mut legacy = store.lock().unwrap();
         *legacy.attached.entry(machine.clone()).or_default() += 1;
         legacy
             .last_frame
             .insert(machine.clone(), crate::store::now());
-        // The newest socket of this printer; an older one ends when it next wakes (`link`).
-        let link = legacy.newest_link.get(&machine).map_or(1, |n| n + 1);
-        legacy.newest_link.insert(machine.clone(), link);
+        // The newest socket of this printer, by when its upgrade came ([`ws`]); an older one
+        // ends when it next wakes (`link`).
+        let link = order;
+        let newest = legacy
+            .newest_link
+            .get(&machine)
+            .copied()
+            .unwrap_or(0)
+            .max(order);
+        legacy.newest_link.insert(machine.clone(), newest);
         legacy.changed();
         drop(legacy);
         Self {
@@ -1588,7 +1621,7 @@ mod tests {
             .await;
         let online = |m: crate::store::Machine| m.online;
         assert!(!online(store.machine(space, &mini).await.unwrap().unwrap()));
-        let socket = Attached::new(&store, mini.clone());
+        let socket = Attached::new(&store, mini.clone(), 1);
         assert!(online(store.machine(space, &mini).await.unwrap().unwrap()));
         drop(socket);
         assert!(!online(store.machine(space, &mini).await.unwrap().unwrap()));

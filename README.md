@@ -60,11 +60,10 @@ label printer, a laser, a Marlin printer's M115) is an extension written down pa
   agent's page ([#12](https://github.com/CuriousTimo/Maker-Connect/issues/12)). Builds for Linux
   (also a Raspberry Pi), macOS and Windows are offered on the hub's **Add machine** page.
 - **A Prusa MINI needs no agent.** Its firmware (Buddy 8.0.2, the current release) connects to the hub over
-  Prusa Connect's WebSocket; the hub is the server side of that, after Prusa's own self-hosted
-  Prusa Connect. Tried on a real MINI (Buddy 8.0.2): registering, the machine page, moves,
-  heating. Files sent from the hub: by Buddy 8.0.2's source the MINI does not take the download
-  command the hub sends, so this is to be fixed and tried again
-  ([#212](https://github.com/CuriousTimo/Maker-Connect/issues/212)). The files on its own USB stick: not yet
+  Prusa Connect's WebSocket; the hub is the server side of that, as Buddy 8.0.2's source asks
+  for it. Tried on a real MINI (Buddy 8.0.2): registering, the machine page, moves,
+  heating. Files sent from the hub: built as Buddy 8.0.2 fetches them over its WebSocket, not yet
+  tried on the MINI ([#212](https://github.com/CuriousTimo/Maker-Connect/issues/212)). The files on its own USB stick: not yet
   ([#195](https://github.com/CuriousTimo/Maker-Connect/issues/195)); support for Buddy printers is not
   finished ([#87](https://github.com/CuriousTimo/Maker-Connect/issues/87)).
 - **Printers on Marlin** through the agent: a port of **OctoPrint 1.11.8**'s serial layer,
@@ -126,7 +125,7 @@ Per model, with its proof (verified on hardware, same driver but not tested, pla
 
 | Devices | How they connect | The one reference | On real hardware |
 |---|---|---|---|
-| **Prusa MINI** (Buddy 8.0.2) | Its own firmware, Prusa Connect's WebSocket: no agent | Buddy 8.0.2, Prusa's self-hosted Prusa Connect | Yes: a MINI on Buddy 8.0.2 |
+| **Prusa MINI** (Buddy 8.0.2) | Its own firmware, Prusa Connect's WebSocket: no agent | Buddy 8.0.2 | Yes: a MINI on Buddy 8.0.2 |
 | **3D printers on Marlin** | Agent, USB serial (Linux and macOS; Windows later) | OctoPrint 1.11.8; Bed Level Visualizer 1.1.2 for the mesh | Yes: an AtomX MK3 on Marlin 2.1.2.10 |
 | **DYMO LabelManager PnP** (tape) | Agent, USB HID: no driver | labelle | Yes |
 | **DYMO LabelWriter 450** (labels) | Agent, USB: no driver | DYMO's CUPS driver 1.4.0, DYMO Connect's catalogue | Yes |
