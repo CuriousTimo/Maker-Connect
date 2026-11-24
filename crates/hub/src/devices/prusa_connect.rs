@@ -749,6 +749,8 @@ async fn registered(State(store): State<Store>, headers: HeaderMap) -> Response 
 ///   (`render.cpp:212-217`), so X and Y stay as told last, and unknown when never told.
 /// - The tools: a Buddy printer's as Buddy 8.0.2 writes them, a device on the agent's as
 ///   PrusaLink sends them (`crate::devices::connect_tools`).
+/// - A transfer is in every frame, Reduced or Full, while one runs (`render.cpp:146-159`, before
+///   the `Mode::Full` part): a frame without `transfer_id` has none, so none is kept.
 fn take_in(
     report: &Value,
     last: Option<Telemetry>,
@@ -783,6 +785,17 @@ fn take_in(
     if let Some(grbl) = &session.grbl {
         t.grbl = Some(grbl.clone());
     }
+    // A file on its way: `transfer_id`, `transfer_transferred`, `transfer_time_remaining`,
+    // `transfer_progress` (`render.cpp:155-158`).
+    t.transfer =
+        report["transfer_id"]
+            .as_u64()
+            .map(|id| maker_connect_protocol::TransferProgress {
+                id,
+                transferred: report["transfer_transferred"].as_u64().unwrap_or(0),
+                percent: report["transfer_progress"].as_f64().unwrap_or(0.0) as f32,
+                remaining_s: report["transfer_time_remaining"].as_u64().unwrap_or(0),
+            });
     // The state comes in every frame (`render.cpp:303`).
     t.state = match report["state"].as_str().unwrap_or("") {
         "PRINTING" | "BUSY" => MachineState::Busy,
@@ -1135,6 +1148,34 @@ async fn telemetry(
     }
 }
 
+/// A `STATE_CHANGED` as one line for the hub's log: the state, then what Buddy 8.0.2 sends with
+/// it, unchanged and only when it sends it: `reason`, `machine_reason` (`render.cpp:375-379`),
+/// `dialog_id` (`:844-845`) and the dialog in `data`, `code`, `title`, `text`, `buttons`
+/// (`:769-842`). Buddy sends the event when its state or dialog changes, so a frame whose
+/// state stays gives no line. Nothing for another event.
+fn state_line(event: &Value) -> Option<String> {
+    if event["event"] != "STATE_CHANGED" {
+        return None;
+    }
+    let mut line = event["state"].as_str().unwrap_or("?").to_owned();
+    let data = &event["data"];
+    for (key, value) in [
+        ("reason", &event["reason"]),
+        ("machine_reason", &event["machine_reason"]),
+        ("dialog_id", &event["dialog_id"]),
+        ("code", &data["code"]),
+        ("title", &data["title"]),
+        ("text", &data["text"]),
+        ("buttons", &data["buttons"]),
+    ] {
+        if !value.is_null() {
+            line += &format!(" {key}={value}");
+        }
+    }
+    // Each value as JSON: a text's line breaks stay `\n`, so it is one line.
+    Some(line)
+}
+
 async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> Response {
     let event = match parse(&body) {
         Ok(event) => event,
@@ -1150,6 +1191,10 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
         Ok(caller) => caller,
         Err(error) => return failed(error),
     };
+    // A change of its state in the hub's log, with Buddy's reason and dialog (#226).
+    if let (Some(line), Some(caller)) = (state_line(&event), caller.as_ref()) {
+        println!("state of {}: {line}", caller.id);
+    }
     // A label printer, whose `STATE_CHANGED` reason is its problem (part 3).
     let label = matches!(
         shared.machine_by_token(token).await,
@@ -1412,6 +1457,66 @@ mod tests {
     /// A Buddy printer's frame taken in over nothing before it.
     fn first(report: Value) -> Telemetry {
         Printer::new("").frame(report)
+    }
+
+    /// A MINI's `STATE_CHANGED` to ATTENTION with a dialog, as Buddy 8.0.2 writes it
+    /// (`render.cpp:769-848`), is one line with all it sent; one without a dialog only its
+    /// state; any other event none (#226).
+    #[test]
+    fn a_state_change_is_one_line_with_buddys_reason_and_dialog() {
+        // The shape is Buddy's; the code, title, text and buttons are only examples.
+        let attention = json!({"data": {"code": "12345", "title": "A title",
+            "text": "A text,\non two lines", "buttons": ["Continue", "Abort"]},
+            "dialog_id": 3, "state": "ATTENTION", "command_id": 9, "event": "STATE_CHANGED"});
+        assert_eq!(
+            state_line(&attention).as_deref(),
+            Some(
+                r#"ATTENTION dialog_id=3 code="12345" title="A title" text="A text,\non two lines" buttons=["Continue","Abort"]"#
+            )
+        );
+        assert_eq!(
+            state_line(
+                &json!({"data": {}, "state": "IDLE", "reason": "ok", "event": "STATE_CHANGED"})
+            )
+            .as_deref(),
+            Some(r#"IDLE reason="ok""#)
+        );
+        assert_eq!(
+            state_line(&json!({"state": "IDLE", "event": "JOB_INFO"})),
+            None
+        );
+    }
+
+    /// A file on its way to a MINI on Buddy 8.0.2: the four `transfer_*` members of every frame,
+    /// Reduced or Full, while one runs (`render.cpp:146-159`); 0 s left while it has no estimate
+    /// (`monitor.cpp:258-267`); a frame without them (the transfer over) leaves none.
+    #[test]
+    fn a_transfer_is_shown_while_the_printer_reports_it() {
+        let mut mini = Printer::new("MINI");
+        let t = mini.frame(
+            json!({"state": "IDLE", "transfer_id": 5, "transfer_transferred": 0,
+            "transfer_time_remaining": 0, "transfer_progress": 0.0}),
+        );
+        assert_eq!(
+            t.transfer,
+            Some(maker_connect_protocol::TransferProgress {
+                id: 5,
+                transferred: 0,
+                percent: 0.0,
+                remaining_s: 0
+            })
+        );
+        let t = mini.frame(
+            json!({"state": "IDLE", "transfer_id": 5, "transfer_transferred": 590_000,
+            "transfer_time_remaining": 10, "transfer_progress": 41.9}),
+        );
+        let transfer = t.transfer.unwrap();
+        assert_eq!(
+            (transfer.transferred, transfer.percent, transfer.remaining_s),
+            (590_000, 41.9, 10)
+        );
+        let t = mini.frame(json!({"state": "IDLE"}));
+        assert_eq!(t.transfer, None, "over: not kept from the frame before");
     }
 
     fn at(x: f32, y: f32, z: f32) -> Option<[Option<f32>; 3]> {

@@ -87,6 +87,20 @@ pub struct JobProgress {
     pub remaining_s: Option<u64>,
 }
 
+/// A file on its way to the machine, as the machine itself counts it (a Buddy printer's
+/// `transfer_*` telemetry, `render.cpp:155-158` of Buddy 8.0.2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TransferProgress {
+    /// `transfer_id`.
+    pub id: u64,
+    /// `transfer_transferred`: the bytes it has.
+    pub transferred: u64,
+    /// `transfer_progress`: percent, one decimal.
+    pub percent: f32,
+    /// `transfer_time_remaining`, seconds; 0 while it has no estimate (`monitor.cpp:258-267`).
+    pub remaining_s: u64,
+}
+
 /// A question on a printer's screen, with its buttons in order (Marlin's host prompt:
 /// `//action:prompt_begin`, `prompt_button`, `prompt_show`); answered with the button's
 /// index (`M876 S<index>`).
@@ -122,6 +136,9 @@ pub struct Telemetry {
     pub bed_c: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job: Option<JobProgress>,
+    /// A file on its way to it, while one is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transfer: Option<TransferProgress>,
     /// The temperatures it heats to; 0 when off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nozzle_target_c: Option<f32>,

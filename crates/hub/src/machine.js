@@ -8,6 +8,8 @@
   const OLD = { overview: "now", data: "now", control: "controls", jobs: "queue", telemetry: "history", terminal: "advanced", bedmesh: "controls", bedlevel: "controls", usb: "files", camera: "cameras", settings: "machine" };
   // Set below for a Prusa on its own Connect: opens its USB stick when its tab is shown.
   let usbOpen = null;
+  // Set below with it: shows a file on its way to the stick, from the live telemetry.
+  let usbTransfer = null;
   function show() {
     const asked = location.hash.slice(1);
     const id = TABS[asked] ? asked : OLD[asked] || "now";
@@ -425,6 +427,19 @@
         toast(sent ? (sent.already ? `Already on the stick: ${sent.path}` : sent.taken ? `A file named ${sent.path} is on the stick: replace it from the notice above` : sent.looking ? `Looking at the stick first, then sending ${sent.path}` : `Sending to ${sent.path}: it shows here once on the stick`) : `Not sent: ${await r.text()}`, r.ok ? "ok" : "bad");
         if (r.ok) setTimeout(load, 3000);
       });
+      // A file on its way, as the printer counts it (its `transfer_*` telemetry): its bytes, its
+      // percent, and its time left once it has an estimate (0 s while it has none). When it is
+      // over, the folder is read again so the file shows.
+      const transferLine = usb.querySelector("[data-usb-transfer]");
+      let transferring = false;
+      usbTransfer = (x) => {
+        transferLine.hidden = !x;
+        if (x) {
+          const left = x.remaining_s > 0 ? ` · ${x.remaining_s < 60 ? `${x.remaining_s} s` : minutes(x.remaining_s)} left` : "";
+          transferLine.textContent = `A file is on its way to the ${NAME}: ${x.percent.toFixed(1)} % · ${size(x.transferred)}${left}`;
+        } else if (transferring) load();
+        transferring = !!x;
+      };
       usbOpen = async () => {
         load();
         // The space's G-code, to send.
@@ -554,6 +569,7 @@
     if (!m) return;
     showQueue(m);
     const t = (m.online && m.telemetry) || {};
+    usbTransfer?.(t.transfer);
     const p = t.position_mm;
     const values = {
       nozzle_n: fixed(t.nozzle_c),

@@ -509,7 +509,7 @@ fn storage_tab(machine: &Machine) -> String {
 
 const USB_TAB: &str = r#"<section class="tab" id="usb" role="tabpanel" hidden>
   <div class="card usb" data-usb data-usb-root="{root}" data-usb-name="{name}">
-    <div class="card-head"><div><h3 data-usb-crumbs>{Name}</h3><p class="card-sub" data-usb-status></p></div></div>
+    <div class="card-head"><div><h3 data-usb-crumbs>{Name}</h3><p class="card-sub" data-usb-status></p><p class="card-sub" data-usb-transfer role="status" hidden></p></div></div>
     <div class="usb-tools">
       <form data-usb-send class="usb-send"><select data-usb-file aria-label="A file from Files"><option value="">A file from Files…</option></select><button>Send here</button></form>
       <form data-usb-folder class="usb-new"><input name="name" required maxlength="60" pattern="[A-Za-z0-9 _\-]+" placeholder="New folder" aria-label="Name of a new folder"><button class="ghost">Make</button></form>
