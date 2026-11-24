@@ -2536,7 +2536,7 @@ mod flow {
             "Benchy 0.2mm PLA.bgcode"
         );
         // A listed file's time as the printer gave it (render.cpp:1235), for the page to show
-        // (machine.js: `date(c.m_timestamp)`), as Prusa Connect's server keeps it (files.go:443).
+        // (machine.js: `date(c.m_timestamp)`).
         assert_eq!(look["data"]["children"][0]["m_timestamp"], 1730000000);
         assert_eq!(look["asking"], false, "fresh: not asked again");
         // A file's picture.

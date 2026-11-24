@@ -11,13 +11,13 @@
 //!    with that token (its first report spends the code).
 //! 3. `POST /p/telemetry` and `POST /p/events` with `Token` (and `Fingerprint`).
 //! 4. `GET /p/ws` with `Fingerprint`, `Token` and `Sec-WebSocket-Protocol: prusa-connect`: one
-//!    WebSocket for everything after registration, as Prusa's own server serves it
-//!    (`reference/prusa-connect` `internal/connector/xbuddy`, read only: OCL, nothing copied) and
-//!    the Connect SDK dials it (`reference/Prusa-Connect-SDK-Printer` branch
-//!    `feat/ws-connect-local` @ `04c5bd59`, `prusa/connect/printer/ws.py`). Up: a text frame is one
-//!    JSON object, an event when it has an `event` key, else telemetry (`wire.go:237-270`); each is
-//!    taken in exactly as its HTTP twin above. Down: a command as `J` (JSON) or `G` (G-code), its
-//!    id as 8 hex digits, then the body (the SDK's `handle_ws_message`, "BuddyEncoder").
+//!    WebSocket for everything after registration, as Buddy 8.0.2 dials it
+//!    (`reference/buddy-8.0.2` `src/connect/connect.cpp:151-189`) and the Connect SDK dials it
+//!    (`reference/Prusa-Connect-SDK-Printer` branch `feat/ws-connect-local` @ `04c5bd59`,
+//!    `prusa/connect/printer/ws.py`). Up: a text frame is one JSON object, an event when it has an
+//!    `event` key (Buddy writes it on every event, `render.cpp:854`), else telemetry; each is taken
+//!    in exactly as its HTTP twin above. Down: a command as `J` (JSON) or `G` (G-code), its id as 8
+//!    hex digits, then the body (the SDK's `handle_ws_message`, "BuddyEncoder").
 
 use crate::store::{CommandState, Details, Network, Storage};
 use crate::{Store, failed};
@@ -299,16 +299,19 @@ async fn stop_label(
     Ok(())
 }
 
-/// The one subprotocol the server offers (`xbuddy.go:61`, `:388`).
+/// The subprotocol Buddy asks for (`connect.cpp:169`).
 const SUBPROTOCOL: &str = "prusa-connect";
-/// The server pings every 54 s and ends a link after 60 s without a frame
-/// (`internal/connector/xbuddy/inbound.go:25-36`, `link.go:70-85`).
+/// A ping every 54 s, and a link ended after 60 s without a frame: Prusa Connect's server's figures
+/// (`inbound.go:25-36`), not Buddy's. Buddy needs no ping from the server: it pings after 15 s of
+/// sending nothing (`connect.cpp:49-50`, `:828-829`), sends telemetry at least every 15 s
+/// (`planner.cpp:97-99`), and answers a server's ping (`connect.cpp:386-404`). To be decided by the
+/// owner (#202).
 const PING_EVERY: std::time::Duration = std::time::Duration::from_secs(54);
 const READ_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// The upgrade, refused as the reference server refuses it (`xbuddy.go:695-712`): `401` when the
-/// credentials are missing or unknown, `403` when the hub does not take the printer (not paired
-/// into a space).
+/// The upgrade, refused with `401` when the credentials are missing or unknown and `403` when the
+/// hub does not take the printer (not paired into a space): Buddy reads either as an
+/// authentication error (`connect.cpp:625-627`, `:777-779`); which one is ours.
 async fn ws(
     State(store): State<Store>,
     headers: HeaderMap,
@@ -383,15 +386,15 @@ async fn link(
     mut socket: axum::extract::ws::WebSocket,
 ) {
     use axum::extract::ws::Message;
-    // Connected while the socket is attached (`Session.Connected`, `xbuddy/session.go:466-471`).
+    // Connected while the socket is attached (ours: what the page shows as online).
     let _attached = match store.caller(&token).await {
         Ok(Some(caller)) => Attached::new(&store, caller.id),
         _ => return,
     };
     let mut ping = tokio::time::interval(PING_EVERY);
     ping.tick().await;
-    // A command goes out as soon as it is queued, as the reference server sends one when it
-    // arrives: the store's change signal wakes the link.
+    // A command goes out as soon as it is queued (Buddy takes a command over the socket at any
+    // time, `connect.cpp:386-420`): the store's change signal wakes the link.
     let mut changes = store.subscribe();
     let mut last_frame = tokio::time::Instant::now();
     loop {
@@ -594,21 +597,18 @@ async fn registered(State(store): State<Store>, headers: HeaderMap) -> Response 
     }
 }
 
-/// A telemetry frame taken in over the machine's last telemetry: as Prusa's server keeps a
-/// printer's state (`reference/prusa-connect` `internal/connector/xbuddy`, read only: OCL, nothing
-/// copied), a frame writes only the members it carries, a null removes one, and everything it
-/// leaves out stays as it was (`inbound.go:136-159`, `:273-299`). Buddy sends a Reduced frame most
-/// of the time, without the temperatures, targets, speed, flow and position, and a Full one only
-/// when its fingerprint changes or every 5 minutes (v8.0.2 `planner.cpp:111-113`, `:537-557`;
-/// `render.cpp:177`).
+/// A telemetry frame taken in over the machine's last telemetry: a frame writes only the members
+/// it carries, and everything it leaves out stays as it was. Buddy sends a Reduced frame most of
+/// the time, without the temperatures, targets, speed, flow and position, and a Full one only when
+/// its fingerprint changes or every 5 minutes (Buddy 8.0.2 `planner.cpp:111-113`, `:537-557`;
+/// `render.cpp:177`), so the last Full frame's values stand until the next.
 ///
-/// - The job's members (`job_id`, `progress`, `time_printing`, `time_remaining`) land on `/job/*`
-///   when carried and are kept whatever the state, as the server keeps them (`inbound.go:146-159`;
-///   only `/job/state` is the server's to clear, `jobrefresh.go:425-440`). The file never comes
+/// - The job's members (`progress`, `time_printing`, `time_remaining`) are kept when a frame leaves
+///   them out, also after the print (ours: what a page shows of the last print);
+///   [`current_job`] shows a job only while the frame names it (`job_id`). The file never comes
 ///   here (JOB_INFO tells it).
-/// - Each axis lands on `/axis/x|y|z` when carried (`inbound.go:150-152`): while it prints Buddy
-///   tells only `axis_z` (`render.cpp:212-217`), so X and Y stay as told last, and unknown when
-///   never told.
+/// - Each axis is kept as told last: while it prints Buddy tells only `axis_z`
+///   (`render.cpp:212-217`), so X and Y stay as told last, and unknown when never told.
 /// - The tools: a Buddy printer's as Buddy 8.0.2 writes them, a device on the agent's as
 ///   PrusaLink sends them (`crate::devices::connect_tools`).
 fn take_in(
@@ -680,7 +680,8 @@ fn take_in(
     set(&mut t.bed_c, "temp_bed");
     set(&mut t.bed_target_c, "target_bed");
     set(&mut t.speed_percent, "speed");
-    // A flow of 0 is none read, not a flow of nothing (`inbound.go:287-293`).
+    // A flow of 0 is none read: Buddy's `flow_factor` is 0 until a tool is selected and its flow
+    // read (`printer.hpp:175`, `marlin_printer.cpp:339-341`).
     if let Some(flow) = carried("flow") {
         t.flow_percent = flow.filter(|f| *f != 0.0);
     }
@@ -694,21 +695,21 @@ fn take_in(
         }
         t.position_mm = position.iter().any(Option::is_some).then_some(position);
     }
-    // The CORE One's chamber (`chamber.temp`, `target_temp`: 0 is none set), or the XL's
-    // enclosure (`enclosure.temp`), as the server reads them (`telemetrychamber.go:32-124`): only
-    // numbers are members, a reading of 0 is none, and a full frame (it carries `temp_bed`) with
-    // neither block means the enclosure was switched off.
+    // The CORE One's chamber (`chamber.temp`, `target_temp`, every Full frame, `render.cpp:202-210`)
+    // or the XL's enclosure (`enclosure.temp`, only while one is present, `:193-200`), as Buddy
+    // writes them; a Full frame (it carries `temp_bed`) with neither block has none. Not on the
+    // MINI.
     let number = |block: &Value, key: &str| block[key].as_f64().map(|n| n as f32);
     if let Some(chamber) = report.get("chamber") {
         if let Some(temp) = number(chamber, "temp") {
-            t.chamber_c = Some(temp).filter(|c| *c != 0.0);
+            t.chamber_c = Some(temp);
         }
         if let Some(target) = number(chamber, "target_temp") {
             t.chamber_target_c = Some(target);
         }
     } else if let Some(enclosure) = report.get("enclosure") {
         if let Some(temp) = number(enclosure, "temp") {
-            t.chamber_c = Some(temp).filter(|c| *c != 0.0);
+            t.chamber_c = Some(temp);
         }
     } else if report.get("temp_bed").is_some() {
         t.chamber_c = None;
@@ -740,34 +741,23 @@ pub(crate) fn to_details(info: &Value) -> Details {
         // Buddy's `printer_type`; the SDK's `get_info` names it `type` (the agent's devices).
         printer_type: printer_type(&info["printer_type"]).or_else(|| printer_type(&info["type"])),
         firmware: some(&info["firmware"]),
-        // Buddy 8.0.2 writes it per head under `tools.<id>.features` (`render.cpp:455-456`), which
-        // the server reads as the tool's feature (`tools.go:404-408`); firmware before the tools
-        // block wrote it at the top level of INFO (`tools.go:221-229`), still read, as the server
-        // does (owner, 2026-11-24: the fallback stays).
+        // At the top level of INFO as PrusaLink sends it for the agent's printers
+        // (`Prusa-Link` `sdk_augmentation/printer.py:55`; owner, 2026-11-24: the fallback stays),
+        // else per head as Buddy 8.0.2 writes it under `tools.<id>.features` (`render.cpp:455-456`).
         nozzle_mm: info["nozzle_diameter"].as_f64().or_else(|| {
             info["tools"]
                 .as_object()?
                 .values()
                 .find_map(|t| t["features"]["nozzle_diameter"].as_f64())
         }),
-        // Buddy 8.0.2: `tools.<id>.material_package_instance.package.material.abbreviation`
-        // (`render.cpp:493-531`), read by the server's `treeMaterial` (`tools.go:486-535`: the
-        // abbreviation, else the material's `type`; a null instance is no spool). Firmware before
-        // it: a name per tool under `tools.<n>.material`, "---" for nothing loaded; no material,
-        // as the server normalizes it (`tools.go:612-626`).
+        // Buddy 8.0.2: `tools.<id>.material_package_instance.package.material.abbreviation`, written
+        // only when the spool has a name (`render.cpp:493-532`); a null instance is no spool.
         material: info["tools"].as_object().and_then(|tools| {
             tools.values().find_map(|t| {
-                let tree = &t["material_package_instance"]["package"]["material"];
-                let named = [&tree["abbreviation"], &tree["type"]]
-                    .into_iter()
-                    .find_map(|n| n.as_str().filter(|s| !s.is_empty()))
-                    .map(str::to_owned);
-                named.or_else(|| {
-                    t.get("material")
-                        .filter(|m| !m.is_null())
-                        .map(crate::devices::connect_tools::normalize_material)
-                        .and_then(|m| m.as_str().filter(|m| !m.is_empty()).map(str::to_owned))
-                })
+                t["material_package_instance"]["package"]["material"]["abbreviation"]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned)
             })
         }),
         storages: info["storages"]
@@ -1238,7 +1228,7 @@ mod tests {
 
     use tower::ServiceExt;
 
-    use crate::devices::connect_tools::{Session, normalize_material};
+    use crate::devices::connect_tools::Session;
     use serde_json::json;
 
     /// One printer's frames, taken in one after the other in one session, as `telemetry` does;
@@ -1292,7 +1282,7 @@ mod tests {
     /// A MINI's INFO on Buddy 8.0.2 (`render.cpp:385-535`): its one head as tool "0" with the
     /// nozzle under `features` and the spool under `material_package_instance` (no ANFC on the
     /// MINI, so no uuids or weights). The hub keeps the nozzle and the material's abbreviation
-    /// as the server reads them (`tools.go:404-411`, `treeMaterial` `:486-535`); no spool, none.
+    /// as Buddy writes them (`render.cpp:455-456`, `:493-532`); no spool, none.
     #[test]
     fn a_minis_info_on_8_0_2_gives_its_nozzle_and_material() {
         let info = |material: Value| {
@@ -1358,8 +1348,8 @@ mod tests {
     /// (`:178-192`), no X and Y while a job runs (`:212-216`), `axis_z` (`:217`), its one head as
     /// tool "0" (`:219-240`; one virtual tool, `iter_tool_count` `:1373-1387`) with a null
     /// `consumed_weight` (no ANFC on the MINI, `:276-282`), then `state` (`:303`). Each member is
-    /// read where Prusa Connect's server puts it: `telemetryPaths` (`inbound.go:146-159`); the
-    /// head as Buddy writes it (`devices/buddy_tools.rs`); the hub keeps them as
+    /// read as Buddy writes it; the head in the tools block (`devices/buddy_tools.rs`); the hub
+    /// keeps them as
     /// numbers for its pages.
     #[test]
     fn a_mini_on_8_0_2_is_read_as_buddy_writes_it() {
@@ -1395,10 +1385,9 @@ mod tests {
         assert_eq!(head.get("consumed_weight"), None);
     }
 
-    /// The MINI while printing on 6.3.0 (2026-11-08): a full report now and then (Z only), short
-    /// ones every second in between (job, progress, times). Each axis is held as told last
-    /// (`/axis/*`, `inbound.go:150-152`), the time left too, and the job's members stay when the
-    /// print is over (`/job/*`, `inbound.go:155-158`).
+    /// A MINI printing: a Full frame now and then (Z only while it prints, `render.cpp:212-217`),
+    /// Reduced ones in between (job, progress, times). Each axis is held as told last, the time
+    /// left too, and the job's progress stays when the print is over (ours: the page's last print).
     #[test]
     fn a_printing_mini_tells_z_and_keeps_the_rest() {
         let mut mini = Printer::new("MINI");
@@ -1496,8 +1485,8 @@ mod tests {
         }
     }
 
-    /// A printer on Prusa Connect is connected while its socket is attached
-    /// (`xbuddy/session.go:466-471`), not while its last frame is recent: Buddy's websocket
+    /// A printer on Prusa Connect is connected while its socket is attached (ours: what the page
+    /// shows as online), not while its last frame is recent: Buddy's websocket
     /// telemetry comes every 15 s when nothing changes (`planner.cpp:97-99`). Closed: offline.
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
@@ -1581,7 +1570,7 @@ mod tests {
         assert_eq!((cooled.bed_c, cooled.bed_target_c), (Some(58.9), Some(0.0)));
         assert_eq!(cooled.hotend_fan_rpm, Some(7000));
         assert_eq!(cooled.position_mm, at(90.0, 90.0, 10.0));
-        // A flow of 0 is no reading (`inbound.go:287-293`).
+        // A flow of 0 is no reading (`printer.hpp:175`, `marlin_printer.cpp:339-341`).
         assert_eq!(
             mini.frame(json!({"state": "IDLE", "flow": 0})).flow_percent,
             None
@@ -1624,18 +1613,10 @@ mod tests {
         assert_eq!(mmu.nozzle_c, Some(215.0));
     }
 
-    /// INFO's material before Buddy 8.0.2 (the fallback in `to_details`, owner 2026-11-24):
-    /// `"---"` (Buddy 6.3.0 `render.cpp:395`) and an empty name are no material; Buddy 8.0.2's
-    /// spool in INFO is what the page shows with the telemetry.
+    /// Buddy 8.0.2's spool in INFO (`render.cpp:493-532`) is what the page shows with the
+    /// telemetry; no spool, none.
     #[test]
     fn info_names_the_material_the_page_shows() {
-        assert_eq!(normalize_material(&json!("---")), json!(""));
-        assert_eq!(normalize_material(&json!("  ")), json!(""));
-        assert_eq!(normalize_material(&json!(null)), json!(""));
-        assert_eq!(normalize_material(&json!("PLA")), json!("PLA"));
-        let info =
-            to_details(&json!({"tools": {"1": {"material": " "}, "2": {"material": "ASA"}}}));
-        assert_eq!(info.material.as_deref(), Some("ASA"));
         let mut mini = Printer::new("MINI");
         mini.info(json!({"tools": {"0": {"type": "FFF_PRINT_HEAD",
             "material_package_instance": {"class": "FFF", "package": {"class": "FFF",
@@ -1685,8 +1666,7 @@ mod tests {
         assert_eq!(t.job.map(|j| j.done), Some(40));
     }
 
-    /// A CORE One's chamber and an XL's enclosure (render.cpp:178-199), read as the server reads
-    /// them (`telemetrychamber.go:32-124`).
+    /// A CORE One's chamber and an XL's enclosure as Buddy 8.0.2 writes them (`render.cpp:193-210`).
     #[test]
     fn the_chamber_and_the_enclosure() {
         let mut core = Printer::new("CoreOne");
@@ -1696,8 +1676,8 @@ mod tests {
         let xl =
             first(json!({"enclosure":{"temp":28,"fan_rpm":0,"time_in_use":3600},"state":"IDLE"}));
         assert_eq!(xl.chamber_c, Some(28.0));
-        // A Reduced frame keeps the reading; a full one with neither block: switched off
-        // (`telemetrychamber.go:43-45`).
+        // A Reduced frame keeps the reading; a Full one with neither block has none (Buddy writes
+        // the enclosure only while one is present, `render.cpp:194`).
         assert_eq!(core.frame(json!({"state": "IDLE"})).chamber_c, Some(31.5));
         assert_eq!(
             core.frame(json!({"state": "IDLE", "temp_bed": 22.0}))
@@ -1892,9 +1872,9 @@ mod tests {
     }
 
     /// Mesh bed leveling on a MINI over Prusa Connect: shown in its Controls to whoever may operate
-    /// it, and on the wire exactly as Prusa's server sends `core.command.mesh_bed_leveling`
-    /// (`internal/connector/xbuddy/verbs.go:303-308`, `wire_test.go:29`): a G frame, its id as 8
-    /// hex digits, then `G28\r\nG29` (`wire.go:53-58`); over HTTP the same G-code as the answer.
+    /// it, a G frame, its id as 8 hex digits, then `G28\r\nG29`; over HTTP the same G-code as the
+    /// answer. The G-code is what Prusa Connect's server sends for it, not Buddy's own menu code:
+    /// to be taken from Buddy 8.0.2 with the MINI's buttons (#203).
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
         not(feature = "pg-tests"),
@@ -1957,10 +1937,11 @@ mod tests {
     #[test]
     fn info_becomes_details_without_secrets() {
         let info: Value = serde_json::from_str(
-            r#"{"api_key":"secret","firmware":"6.3.0+0.LOCAL","nozzle_diameter":0.4,
-                "printer_type":"2.1.0","sn":"CZPX1234","network_info":{"hostname":"mini","lan_ipv4":"192.168.1.64"},
-                "storages":[{"free_space":30537007104,"mountpoint":"/usb","read_only":false,"type":"USB"}],
-                "tools":{"1":{"material":"PETG","nozzle_diameter":0.4}}}"#,
+            r#"{"firmware":"8.0.2+12345","printer_type":"2.1.0","sn":"CZPX1234","api_key":"secret",
+                "storages":[{"mountpoint":"/usb","type":"USB","read_only":false,"free_space":30537007104,"is_sfn":true}],
+                "network_info":{"lan_ipv4":"192.168.1.64","hostname":"mini"},
+                "tools":{"0":{"type":"FFF_PRINT_HEAD","features":{"nozzle_diameter":0.40},
+                  "material_package_instance":{"class":"FFF","package":{"class":"FFF","material":{"class":"FFF","abbreviation":"PETG"}}}}}}"#,
         )
         .unwrap();
         let details = to_details(&info);
@@ -1975,30 +1956,23 @@ mod tests {
         );
     }
 
-    /// INFO as Buddy 6.3.0 writes it (render.cpp:340-401): the nozzle at the top level, the
-    /// material per tool, `"---"` for none; `printer_type` only as the string. The tools block's
-    /// `features` and `material_package_instance` (Buddy 8.0.2, the one supported since
-    /// 2026-11-24, #201) are read too; a `printer_type` as numbers is not.
+    /// The nozzle at the top level of INFO, as PrusaLink sends it for the agent's printers
+    /// (`sdk_augmentation/printer.py:55`), or per head as Buddy 8.0.2 writes it; `printer_type`
+    /// only as Buddy's string (`render.cpp:390`): as numbers it is no type.
     #[test]
-    fn info_of_6_3_0_is_read_as_buddy_writes_it() {
-        let info: Value = serde_json::from_str(
-            r#"{"firmware":"6.3.0+0.LOCAL","printer_type":"2.1.0","sn":"CZPX1234","appendix":false,
-                "fingerprint":"abc","nozzle_diameter":0.60,"transfer_paused":false,
-                "tools":{"1":{"nozzle_diameter":0.6,"high_flow":false,"hardened":false,"material":"---"},
-                         "2":{"nozzle_diameter":0.6,"high_flow":false,"hardened":false,"material":"PETG"}},"slots":2}"#,
-        )
-        .unwrap();
-        let details = to_details(&info);
-        assert_eq!(details.nozzle_mm, Some(0.6));
-        assert_eq!(details.material.as_deref(), Some("PETG"));
-        assert_eq!(details.printer_type.as_deref(), Some("2.1.0"));
-        let master: Value = serde_json::from_str(
+    fn info_gives_the_nozzle_in_either_references_shape() {
+        let prusalink = to_details(&json!({"nozzle_diameter": 0.6, "printer_type": "2.1.0"}));
+        assert_eq!(
+            (prusalink.nozzle_mm, prusalink.printer_type.as_deref()),
+            (Some(0.6), Some("2.1.0"))
+        );
+        let numbers: Value = serde_json::from_str(
             r##"{"firmware":"8.0.1+12","type":1,"version":3,"subversion":1,
                 "tools":{"0":{"type":"FFF_PRINT_HEAD","features":{"nozzle_diameter":0.60},
                   "material_package_instance":{"package":{"material":{"abbreviation":"PETG"}}}}}}"##,
         )
         .unwrap();
-        let d = to_details(&master);
+        let d = to_details(&numbers);
         assert_eq!(
             (d.nozzle_mm, d.material.as_deref(), d.printer_type),
             (Some(0.6), Some("PETG"), None)

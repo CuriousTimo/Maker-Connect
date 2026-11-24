@@ -1156,16 +1156,6 @@ async fn registration_is_what_registrator_cpp_does(pool: sqlx::PgPool) {
     assert_eq!(send(ask()).await.0, StatusCode::NOT_FOUND);
 }
 
-/// The INFO event's `tools` (render.cpp:395) says `"material": "---"` for a slot with nothing
-/// loaded: the hub reads that as no material.
-#[test]
-fn info_says_a_dash_for_no_material() {
-    let info = json!({"firmware": "6.3.0", "printer_type": "2.1.0", "sn": "X", "nozzle_diameter": 0.4,
-        "tools": {"1": {"nozzle_diameter": 0.4, "high_flow": false, "hardened": false, "material": "---"}}});
-    let details = super::prusa_connect::to_details(&info);
-    assert_eq!(details.material, None);
-}
-
 /// D4: `printer_type` is Buddy's string "%hhu.%hhu.%hhu" (render.cpp:342, registrator.cpp:63);
 /// a registration that names the type as numbers is not a profile.
 #[test]

@@ -40,17 +40,6 @@ impl Session {
     }
 }
 
-/// A tool's material as Buddy before 8.0.2 wrote it in INFO, read only as the fallback in
-/// `to_details` (owner, 2026-11-24): `"---"` for a tool with nothing loaded (Buddy 6.3.0
-/// `render.cpp:395`), an empty name: no material.
-pub(crate) fn normalize_material(raw: &Value) -> Value {
-    match raw {
-        Value::Null => Value::String(String::new()),
-        Value::String(s) if matches!(s.trim(), "" | "---") => Value::String(String::new()),
-        other => other.clone(),
-    }
-}
-
 /// What the page shows of a Buddy printer's tools (ours): the head that is active, or the only
 /// head; its nozzle, target and fans (`heatbreak_fan_rpm` is the hotend's fan); the list of heads
 /// only when there is more than one, head `"n"` numbered `n + 1`; the material from INFO.
