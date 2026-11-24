@@ -10,20 +10,18 @@ re-reading the day's issues and commits. The owner speaks Dutch: answer in Dutch
 - **#212** (files from the hub to the MINI over the WebSocket): built, `scripts/quick-check.sh` green
   with Postgres, CI green on `9d41837`. **Not yet tried on the MINI.** Its to-dos b and c stay unticked
   until that trial.
-- **#200** and **#201**: closed. **#202**: the download's rows closed; 8 rows OPEN (next step).
-- Working on now: **#202**, the 6 rows that stand on their own (below).
+- **#200** and **#201**: closed. **#202**: every row closed but two, which go with #203. The HTTP
+  rows are proved with Buddy's own parser: its generator's tables
+  (`scripts/buddy-http-automaton.py`) on a test-only port of its engine
+  (`crates/hub/src/devices/buddy_http.rs`), reading the hub's real answers.
+- Next: **#203**.
 
 ## Next steps, in the owner's order
 
-1. **#202**: the five HTTP rows (`ConnectionHeader`, `ConnectionKeepAlive`, `ContentLength`,
-   `StatusCode`, `Version`): how Buddy reads the hub's HTTP answers, `src/common/http/resp_parser.cpp`
-   (an automaton generated into `http_resp_automaton.h`). With WEBSOCKET the MINI still registers over
-   HTTP (`/p/register`). Plus `User-Agent-Version`: the value from `src/common/http/httpc.cpp`, not
-   from an old measurement.
-2. **#203** (the MINI's buttons, HS10, from Buddy 8.0.2's menu code), with #202's two G-code rows
+1. **#203** (the MINI's buttons, HS10, from Buddy 8.0.2's menu code), with #202's last two rows
    (a command body over 512 bytes, raw G-code as a command): first a table per button for the
    owner to approve. Open owner decision there: the G-code for mesh bed levelling.
-3. The owner tries #212 on the MINI: send a file from the hub, see what it answers.
+2. The owner tries #212 on the MINI: send a file from the hub, see what it answers.
 
 Later, decided: #213 (cancel objects), #211 (MMU, several tools), a material's colour, properties
 and limits, a tool's type and `tool_count`. Also open: #153 (a job stuck in `stopping`), #214 (a
@@ -47,6 +45,9 @@ move to 8.0.2 only once that code is checked against 8.0.2).
     - a command that was never answered goes again, with the same id, on the new socket.
 - No "Laat maar" button for a file waiting on Replace.
 - `.bgcode` only to a Buddy printer, never to a Marlin printer or a PrusaLink device.
+- No Python in the product. The agent speaks the Prusa Connect protocol through our Rust port of
+  Prusa's Connect SDK (`crates/connect-sdk`, about two thirds of it). The Python scripts in
+  `scripts/` are dev checks only.
 
 ## How the owner wants it done
 
