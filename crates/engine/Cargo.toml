@@ -10,13 +10,11 @@ license.workspace = true
 # (`ports::geometry`, over the 450's pure PPD code), for the hub.
 [features]
 default = ["devices"]
-devices = ["dep:maker-connect-device", "dep:fancy-regex", "dep:serde_json", "dep:md-5", "dep:minijinja", "dep:serialport", "dep:libc", "dep:windows-sys",
+devices = ["dep:fancy-regex", "dep:serde_json", "dep:md-5", "dep:minijinja", "dep:serialport", "dep:libc", "dep:windows-sys",
            "dep:png", "dep:nusb", "dep:maker-connect-grbl", "dep:hidapi"]
 
 [dependencies]
 maker-connect-protocol = { path = "../protocol" }
-# The device contract (hub core v2, step 1): each port behind an adapter (`src/device/`).
-maker-connect-device = { path = "../device", optional = true }
 # Python `re` (lookaheads included) for the ported regexes (owner's approval M5).
 fancy-regex = { version = "0.14", optional = true }
 

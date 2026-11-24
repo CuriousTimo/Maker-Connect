@@ -24,7 +24,7 @@ CREATE MATERIALIZED VIEW sample_1m WITH (timescaledb.continuous) ...  ERROR:  ca
   `gap_in_space`. Without a space in the transaction `app_space()` is NULL and no row comes through,
   as with the policies.
 - Writes stay on the admin pool (allowlist #4, the history writer).
-- `metric` is the registry (crates/device `METRICS`), its ids fixed in the migration; a test checks
+- `metric` is the history's list of metrics (`METRICS` in `crates/hub/src/store/history.rs` since #201), its ids fixed in the migration; a test checks
   both agree. The app role needs no grant on it: the hub maps ids by the registry.
 
 Proven on the dev database: the app role reads 0 rows without a space, only its space's rows with one,

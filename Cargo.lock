@@ -1981,14 +1981,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "maker-connect-device"
-version = "0.2.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "maker-connect-engine"
 version = "0.2.0"
 dependencies = [
@@ -1999,7 +1991,6 @@ dependencies = [
  "laserfoundry-gcode",
  "laserfoundry-geom",
  "libc",
- "maker-connect-device",
  "maker-connect-grbl",
  "maker-connect-protocol",
  "md-5 0.10.6",
@@ -2052,7 +2043,6 @@ dependencies = [
  "include_dir",
  "jpeg-decoder",
  "jpeg-encoder",
- "maker-connect-device",
  "maker-connect-engine",
  "maker-connect-label",
  "maker-connect-protocol",

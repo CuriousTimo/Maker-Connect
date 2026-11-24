@@ -27,4 +27,4 @@ before the authz step can be built, and the presets must translate today's level
 
 ## Where it shows
 
-[authz.md](../authz.md), [api.md](../api.md), `docs/registries/actions.md` once the code follows.
+[authz.md](../authz.md), [api.md](../api.md), the actions registry (removed with the device contract, #201) once the code follows.

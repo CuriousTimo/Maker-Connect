@@ -26,7 +26,7 @@ every route names one or the other.
 - **Keyset paging** on every list: `?limit=` and a cursor; the answer carries the items and the
   next cursor.
 - **Errors:** a stable body `{"code": "domain/REASON", "text": "…"}` ([decision](decisions/20261119-repeated-commands-and-error-body.md)) with the HTTP status of the
-  [fault code](../registries/fault-codes.md); further fields per code in the spec.
+  fault code (the registries were removed with the device contract, #201); further fields per code in the spec.
 - **Idempotency:** a command or transfer carries an idempotency key (plan §2.4); a repeat with the same key returns the first record ([decision](decisions/20261119-repeated-commands-and-error-body.md)).
 - **Times** RFC 3339 UTC; **ids** uuid strings (Spoolman's: integers).
 - A page uses exactly these endpoints; nothing a page can do is missing from the API (plan §2.9).
@@ -81,7 +81,7 @@ every route names one or the other.
 | PATCH | `/api/v1/devices/{id}` | `device.manage` | `{name?, settings?}` (laser: origin, dialect, rotary, M4: #24) | device |
 | DELETE | `/api/v1/devices/{id}` | `device.manage` | `{reason}` | 204 (retired) |
 | POST | `/api/v1/devices/pair` | `devices.manage` | `{code, name}` | 201 device ([flows.md](flows.md#1-pairing-a-device-on-an-agent)) |
-| POST | `/api/v1/devices/{id}/commands` | the verb's action ([registry](../registries/capability-verbs.md)) | `{verb, args, idempotency_key}` | 202 command record, or the fault |
+| POST | `/api/v1/devices/{id}/commands` | the verb's action (registry (the registries were removed with the device contract, #201)) | `{verb, args, idempotency_key}` | 202 command record, or the fault |
 | GET | `/api/v1/devices/{id}/commands` | `device.view` | cursor, `?open=` | command records |
 | GET | `/api/v1/commands/{id}` | `device.view` on its device | — | command record |
 | POST | `/api/v1/devices/{id}/transfers` | `job.start` | `{file_id, path, print_after, idempotency_key}` | 202 transfer record |
@@ -170,7 +170,7 @@ data: {"seq":1201,"type":"command.settled","time":"2026-11-19T17:40:00Z","space_
 | Field | Type | Meaning |
 |---|---|---|
 | `seq` | integer | Global, increasing; the SSE `id`; resume point |
-| `type` | string | From the [event types registry](../registries/event-types.md), which also says who may see it |
+| `type` | string | From the event types registry (the registries were removed with the device contract, #201), which also says who may see it |
 | `time` | string, RFC 3339 | When it happened |
 | `space_id` | uuid | The space it belongs to |
 | `source` | string | The device or resource it is about |

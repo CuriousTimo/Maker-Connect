@@ -1,3 +1,10 @@
+> **Removed (owner, 2026-11-24, #201).** `crates/device` and `crates/engine/src/device` translated the
+> code of Prusa Connect Local's connector contract (`sdk/connectorapi`: `validate.go`, `capability.go`,
+> `set.go`, `driver.go`, `devicestate.go`), which is under the OCL and may not be in ours; nothing used
+> them outside their own tests. The history's metrics moved to `crates/hub/src/store/history.rs`. A
+> device contract of our own is to be designed when it is needed. What follows is kept as the record
+> of that design, not as what the code does.
+
 # The device contract
 
 One contract for every kind of device (plan §2.1), in `crates/device`, written by us after the meaning
@@ -82,9 +89,9 @@ classDiagram
 | Result | ok, refused, failed, or outcome unknown; a fault code and the device's own reason | Never "ok" for something not observed. A refusal by the device is a result, not an error. |
 
 Registries, one Rust table each and generated docs that fail a test on drift (plan §2.10):
-[capability verbs](../registries/capability-verbs.md), [state sets](../registries/state-sets.md),
-[event types](../registries/event-types.md), [actions](../registries/actions.md),
-[fault codes](../registries/fault-codes.md), [metrics](../registries/metrics.md).
+capability verbs (the registries were removed with the device contract, #201), state sets (the registries were removed with the device contract, #201),
+event types (the registries were removed with the device contract, #201), actions (the registries were removed with the device contract, #201),
+fault codes (the registries were removed with the device contract, #201), metrics (the registries were removed with the device contract, #201).
 
 ## Host-side rules
 

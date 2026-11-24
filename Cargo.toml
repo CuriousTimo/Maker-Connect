@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/protocol", "crates/engine", "crates/agent", "crates/label", "crates/import",
-    "crates/grbl", "crates/hub", "crates/update", "crates/device", "crates/connect-sdk",
+    "crates/grbl", "crates/hub", "crates/update", "crates/connect-sdk",
     "crates/gcode-metadata", "crates/inotify-simple", "crates/system", "crates/wireguard"]
 exclude = ["firmware/door-controller"]
 

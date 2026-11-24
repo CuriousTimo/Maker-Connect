@@ -9,7 +9,7 @@ study behind it, with today's findings and the comparable apps, is
 Choices of the UI designer that no ruling or reference made are marked **proposal**. Roles and
 actions are those of [authz.md](authz.md) (the action and preset names decided in
 [decisions/20261119-actions-and-presets.md](decisions/20261119-actions-and-presets.md)); verbs those of the
-[capability verbs registry](../registries/capability-verbs.md). Where an action has no name yet, it
+capability verbs registry (the registries were removed with the device contract, #201). Where an action has no name yet, it
 is written as api.md writes it: `(OQ-4) <area>`. The UX test of the mockups (journal:UI-TEST:0004,
 46 findings) is worked into this page and the mockups; its ids (UT-nn) are named where a rule comes
 from it.

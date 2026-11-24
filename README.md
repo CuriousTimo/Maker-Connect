@@ -214,7 +214,6 @@ roadmap.
 | **connect-sdk** (`crates/connect-sdk`) | A port of Prusa-Connect-SDK-Printer (`websockets` branch, `c0d7d233`): registration, the WebSocket, telemetry, events, commands, downloads |
 | **gcode-metadata**, **inotify-simple** | Ports of what the SDK uses: prusa3d/gcode-metadata (`7d8f25d`), inotify_simple 1.3.5 |
 | **engine** (`crates/engine`) | The ports, one per device, each a translation of its one reference (OctoPrint, labelle, DYMO's CUPS driver, LaserFoundry, usbscale) |
-| **device** (`crates/device`) | The device contract: identity, capabilities, states, commands and results |
 | **system** (`crates/system`) | What the computer a hub or an agent runs on is, for the About pages |
 | **grbl** (`crates/grbl`) | GRBL machines (lasers), on LaserFoundry's `laserfoundry-device` and `laserfoundry-gcode`; used by the agent |
 | **label** (`crates/label`) | Labels as rasters (PNG in, dots out), and the DYMO LabelManager's protocol over USB HID |

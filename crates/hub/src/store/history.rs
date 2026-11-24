@@ -1,12 +1,47 @@
 //! A machine's history in TimescaleDB (design database.md "Events and history", migration
-//! `20261120000000_history.sql`): one narrow `sample` row per value, by the registry's metrics
-//! (maker_connect_device::registry::METRICS, ids in its order from 1). Written by the history writer
+//! `20261120000000_history.sql`): one narrow `sample` row per value, by the metrics below
+//! ([`METRICS`], ids in its order from 1, as the migration's `metric` table). Written by the history writer
 //! on the admin pool (allowlist #4); read in the space's transaction through the `*_in_space` views
 //! (decisions/20261120-history-views-not-rls.md).
 
 use super::*;
 use crate::store::pg::Bypass;
-use maker_connect_device::registry::METRICS;
+
+/// A metric the history keeps: its name and unit, as the migration's `metric` table has them.
+struct Metric {
+    name: &'static str,
+    /// Read by the test that the migration's table holds the same.
+    #[cfg_attr(not(test), allow(dead_code))]
+    unit: &'static str,
+}
+
+/// The history's metrics, ids in this order from 1 (`20261120000000_history.sql`, `metric`).
+const METRICS: &[Metric] = &[
+    Metric {
+        name: "temp_nozzle",
+        unit: "celsius",
+    },
+    Metric {
+        name: "target_nozzle",
+        unit: "celsius",
+    },
+    Metric {
+        name: "temp_bed",
+        unit: "celsius",
+    },
+    Metric {
+        name: "target_bed",
+        unit: "celsius",
+    },
+    Metric {
+        name: "fan_print",
+        unit: "rpm",
+    },
+    Metric {
+        name: "fan_hotend",
+        unit: "rpm",
+    },
+];
 
 /// At most one sample per machine this many seconds apart, as the graphs drew them before.
 const SAMPLE_SECONDS: i64 = 2;
@@ -23,7 +58,7 @@ fn metric_id(name: &str) -> i16 {
         .iter()
         .position(|m| m.name == name)
         .map(|i| i as i16 + 1)
-        .unwrap_or_else(|| panic!("{name} is not in the registry's METRICS"))
+        .unwrap_or_else(|| panic!("{name} is not in METRICS"))
 }
 
 /// The values of a report that the history keeps, by metric id.
@@ -159,7 +194,7 @@ mod tests {
         let registry: Vec<(i16, String, String)> = METRICS
             .iter()
             .enumerate()
-            .map(|(i, m)| (i as i16 + 1, m.name.to_owned(), m.unit.as_str().to_owned()))
+            .map(|(i, m)| (i as i16 + 1, m.name.to_owned(), m.unit.to_owned()))
             .collect();
         assert_eq!(rows, registry);
     }

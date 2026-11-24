@@ -12,8 +12,8 @@ the same pages: its `crates/hub/src/web` differs from main only in the store plu
 `Store`, sqlx tests in `web/router.rs`), so every finding below holds for both.
 
 Roles and actions come from [authz.md](../../design/authz.md) and the
-[actions registry](../../registries/actions.md); verbs from the
-[capability verbs registry](../../registries/capability-verbs.md). Nothing here adds a role or an action.
+actions registry (the registries were removed with the device contract, #201); verbs from the
+capability verbs registry (the registries were removed with the device contract, #201). Nothing here adds a role or an action.
 
 ## Method
 

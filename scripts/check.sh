@@ -52,8 +52,6 @@ fi
 [ -z "$DEV_DB_WAS_UP" ] && scripts/dev-db.sh down
 step "docs (rustdoc -D warnings)" quiet env RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --document-private-items --locked
 step "docs links" python3 -I scripts/docs-links-check.py
-# docs/registries/*.md are generated from crates/device/src/registry.rs (hub-core-v2.md §2.10).
-step "registry docs = registry tables" quiet cargo test -p maker-connect-device --test registry_docs --locked
 
 # Fixtures made by real CPython 3.13 / OctoPrint's own code / real Spoolman: regenerated, and they
 # must not change in this run (compared before and after, so an uncommitted fixture is judged too).

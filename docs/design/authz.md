@@ -5,7 +5,7 @@ Who may do what (plan §2.6). Machine **permissions** are actions granted within
 
 ## Actions
 
-An action is a named right in the [actions registry](../registries/actions.md). Every capability verb
+An action is a named right in the actions registry (the registries were removed with the device contract, #201). Every capability verb
 names the action it needs; every route names the action it needs. Each action has a fixed bit in a
 `bigint`, so an action set is one number. How many actions fit is [OQ-27](risks-and-open.md#oq-27-the-number-of-actions).
 The names below are decided ([decision](decisions/20261119-actions-and-presets.md)); the registry

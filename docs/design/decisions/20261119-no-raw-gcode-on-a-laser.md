@@ -20,4 +20,4 @@ is [OQ-38](../risks-and-open.md#oq-38-a-person-only-laser-console); the recommen
 ## Where it shows
 
 [authz.md](../authz.md#actions), [device-contract.md](../device-contract.md#kinds),
-`docs/registries/capability-verbs.md` once the code follows.
+the capability verbs registry (removed with the device contract, #201) once the code follows.
