@@ -7,8 +7,9 @@
 //!   `target_nozzle` (`:65`), `fan_hotend` and `fan_print` (`:93-98`). Our agent sends the same
 //!   keys for a Marlin printer (`crates/agent/src/marlin.rs` `telemetry`, extension part 9).
 //! - Only keys with a value: the SDK leaves out every null (`Telemetry.to_payload` →
-//!   `filter_null`, `models.py:39-45`, `:190-192`). A key a frame leaves out keeps the value an
-//!   earlier frame gave.
+//!   `filter_null`, `models.py:39-45`, `:190-192`), and PrusaLink sends the temperatures and the
+//!   fans as separate telemetries (`auto_telemetry.py:61-65` and `:93-98`). So a key a frame leaves
+//!   out keeps the value an earlier frame gave.
 
 use maker_connect_protocol::Telemetry;
 use serde_json::Value;

@@ -4,7 +4,8 @@
 //! `state_changed` (`job.py:122-133`), `tick` (`:135-138`, called from `post_state_change`,
 //! `prusa_link.py:1026-1029`), `job_started` (`:85-110`), `job_ended` (`:111-120`) and
 //! `get_job_id_for_api`. What PrusaLink also keeps of a job (the file, its path, the start command)
-//! is not here.
+//! is not here, nor its skip of the next number during a power-panic recovery (`job.py:92-93`): a
+//! plain Marlin has none (`marlin.rs`, part 9: `recovering` never).
 //!
 //! The one difference (owner, 2026-11-24, #201 step 3, option A): PrusaLink keeps the number in
 //! the MK3's EEPROM (`job.py:147-158` writes it with `D3 Ax0D05`, `printer_polling.py:615-620`
@@ -27,7 +28,8 @@ enum JobState {
 /// The job number and its job's state.
 #[derive(Debug)]
 pub(crate) struct Job {
-    job_id: u32,
+    /// PrusaLink's number is a Python int; a u64 does not run out in practice.
+    job_id: u64,
     state: JobState,
     file: PathBuf,
 }
@@ -73,16 +75,18 @@ impl Job {
 
     /// `job_started` (`job.py:85-110`): the next number, written where it is kept (`write`).
     fn job_started(&mut self) {
-        self.job_id = self.job_id.wrapping_add(1);
+        self.job_id += 1;
         self.state = JobState::InProgress;
         // `job_ended` (`:111-120`) only sets the state back; the number stays.
+        // Ours: a number that could not be kept is said in the agent's log (PrusaLink's `write`
+        // cannot tell, `job.py:147-158`).
         if let Err(e) = std::fs::write(&self.file, self.job_id.to_string()) {
             log::warn!("job id {}: not kept ({e})", self.job_id);
         }
     }
 
     /// `get_job_id_for_api` (`module_data_classes.py:93-100`): none while no job runs.
-    pub(crate) fn for_api(&self) -> Option<u32> {
+    pub(crate) fn for_api(&self) -> Option<u64> {
         (self.state != JobState::Idle).then_some(self.job_id)
     }
 }

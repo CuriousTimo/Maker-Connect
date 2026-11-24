@@ -703,9 +703,9 @@ pub struct Legacy {
     pub(crate) connect_tools:
         std::collections::HashMap<String, crate::devices::connect_tools::Session>,
     /// The printers with a `/p/ws` socket attached right now, by machine id, and how many: a
-    /// printer on Prusa Connect is connected while one is (`internal/connector/xbuddy/session.go`
-    /// `Session.Connected`, `:466-471`), whatever it last sent (Buddy's websocket telemetry comes
-    /// every 15 s when nothing changes, `planner.cpp:97-99`).
+    /// printer on Prusa Connect is connected while one is (ours: what the page shows as online),
+    /// whatever it last sent (Buddy's websocket telemetry comes every 15 s when nothing changes,
+    /// `planner.cpp:97-99`).
     pub(crate) attached: std::collections::HashMap<String, usize>,
     /// A label printer's START_CONNECT_DOWNLOAD in flight, by command id, until the label printed
     /// or failed (docs/design/wire.md, "When the hub calls a label printed").
