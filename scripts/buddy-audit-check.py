@@ -124,6 +124,8 @@ no_test = []
 HUB_FILES = [
     "devices/prusa_connect.rs",
     "devices/printer_files.rs",
+    # A Buddy printer's tools, read as Prusa Connect's server reads them.
+    "devices/connect_tools.rs",
     # What was main.rs: the binary, the library root, the agent link, the commands, the router and pages.
     "main.rs",
     "lib.rs",
@@ -172,7 +174,7 @@ for name, text in hub.items():
     for m in re.finditer(r'"kwargs"\s*:\s*\{([^{}]*)\}', text):
         for key in re.findall(r'"([a-z_][a-z0-9_.]*)"\s*:', m.group(1)):
             use("argument", key, name)
-for name in ("devices/prusa_connect.rs", "devices/printer_files.rs"):
+for name in ("devices/prusa_connect.rs", "devices/printer_files.rs", "devices/connect_tools.rs"):
     text = hub[name]
     # Fields read from what the printer sends: .get("key"), ["key"], .pointer("/a/b").
     reads = re.findall(r'\.get\("([a-z_][a-z0-9_]*)"\)', text) + re.findall(r'\["([a-z_][a-z0-9_]*)"\](?!\s*=[^=])', text)

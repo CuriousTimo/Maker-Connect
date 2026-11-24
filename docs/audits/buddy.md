@@ -218,14 +218,10 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `extruder_fs_state` | `render.cpp:184` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
 | `fan_1_rpm` | `render.cpp:206` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under the Core One and Core One L only. Another Buddy printer: later (#87) |  |
 | `fan_2_rpm` | `render.cpp:207` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under the Core One and Core One L only. Another Buddy printer: later (#87) |  |
-| `fan_extruder` |  |  | UNCHECKED |  |
-| `fan_hotend` |  |  | UNCHECKED |  |
-| `fan_print` |  |  | UNCHECKED |  |
 | `fan_pwm_target` | `render.cpp:208` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under the Core One and Core One L only. Another Buddy printer: later (#87) |  |
 | `fan_rpm` | `render.cpp:197` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
 | `features` |  |  | UNCHECKED |  |
 | `feeder` | `render.cpp:243` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
-| `filament` |  |  | UNCHECKED |  |
 | `filament_change_in` |  |  | UNCHECKED |  |
 | `file` |  |  | UNCHECKED |  |
 | `file_count` |  |  | UNCHECKED |  |
@@ -236,11 +232,9 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `firmware` |  |  | UNCHECKED |  |
 | `flow` |  |  | UNCHECKED |  |
 | `free_space` |  |  | UNCHECKED |  |
-| `hardened` |  |  | UNCHECKED |  |
 | `hash` |  |  | UNCHECKED |  |
 | `heatbreak_fan_rpm` |  |  | UNCHECKED |  |
 | `heatbreak_temperature` | `render.cpp:561` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_FILAMENT_HEATBREAK_PARAM`, the iX only (`ProjectOptions.cmake:490`). Another Buddy printer: later (#87) |  |
-| `high_flow` |  |  | UNCHECKED |  |
 | `hostname` |  |  | UNCHECKED |  |
 | `id` |  |  | UNCHECKED |  |
 | `is_sfn` |  |  | UNCHECKED |  |
@@ -258,7 +252,6 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `min_bed_temperature` |  |  | UNCHECKED |  |
 | `min_chamber_temperature` | `render.cpp:565` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_CHAMBER_API`, the XL and Core One family only (`ProjectOptions.cmake:595`). Another Buddy printer: later (#87) |  |
 | `min_print_temperature` |  |  | UNCHECKED |  |
-| `mmu` |  |  | UNCHECKED |  |
 | `mmu_command_in_progress` | `render.cpp:248` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `mmu_progress_code` | `render.cpp:244` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `model` | `render.cpp:465` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
@@ -293,9 +286,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `remote_fs_state` | `render.cpp:187` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
 | `rescan` |  |  | UNCHECKED |  |
 | `size` |  |  | UNCHECKED |  |
-| `slot` |  |  | UNCHECKED |  |
 | `slot_count` | `render.cpp:467` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
-| `slots` |  |  | UNCHECKED |  |
 | `sn` |  |  | UNCHECKED |  |
 | `speed` |  |  | UNCHECKED |  |
 | `start` |  |  | UNCHECKED |  |
@@ -304,14 +295,12 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `storages` |  |  | UNCHECKED |  |
 | `tags` |  |  | UNCHECKED |  |
 | `target_bed` |  |  | UNCHECKED |  |
-| `target_nozzle` |  |  | UNCHECKED |  |
 | `target_temp` | `render.cpp:205` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under the Core One and Core One L only. Another Buddy printer: later (#87) |  |
 | `team_id` |  |  | UNCHECKED |  |
 | `temp` | `render.cpp:196` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under the Core One and Core One L only; `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
 | `temp_ambient` | `render.cpp:182` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
 | `temp_bed` |  |  | UNCHECKED |  |
 | `temp_heatbreak` | `render.cpp:180` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
-| `temp_nozzle` |  |  | UNCHECKED |  |
 | `temp_psu` | `render.cpp:181` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
 | `text` | `render.cpp:808` | `devices/printer_files.rs:761=text` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `time_in_use` | `render.cpp:198` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
@@ -330,7 +319,6 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `transferred` |  |  | UNCHECKED |  |
 | `type` |  |  | UNCHECKED |  |
 | `uuid` | `render.cpp:500` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_ANFC`, the Core One and Core One L only (`ProjectOptions.cmake:814`). Another Buddy printer: later (#87) |  |
-| `version` |  |  | UNCHECKED |  |
 | `wifi_ipv4` |  |  | UNCHECKED |  |
 | `wifi_mac` |  |  | UNCHECKED |  |
 | `wifi_ssid` |  |  | UNCHECKED |  |
@@ -491,6 +479,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `gcode_output`, `firmware_info`, `firmware_capabilities` | `devices/prusa_connect.rs` | Read from a Marlin printer (and `firmware_info` from a laser) on the agent: part 9 (part 4) | not for Buddy: read only from the agent |
 | `agent_id`, `extensions` | `devices/prusa_connect.rs` `to_details` | Read from every device on the agent: part 6 | not for Buddy: a Buddy printer sends neither |
 | `printing`, `/p/teams/<team>/files/<hash>/raw` | `devices/printer_files.rs` `start_transfer`, `devices/prusa_connect.rs` | The Connect SDK's own download (`START_CONNECT_DOWNLOAD`, Prusa-Connect-SDK-Printer `__init__.py:448-473`), sent only to a Marlin printer on the agent; not ours, not Buddy's | not for Buddy: `agent_names_never_go_to_a_buddy` |
+| `slot`, `mmu`, `temp_nozzle`, `target_nozzle`, and a slot's `temp`, `fan_print`, `fan_hotend` | `devices/connect_tools.rs` | Firmware before Buddy 8.0.2 sends its tools this way (a `slot` block, the nozzle at the top of the frame, `mmu` in INFO); 8.0.2 does not. The hub reads them as Prusa Connect's server still does (`reference/prusa-connect` `internal/connector/xbuddy/telemetrytools.go:118`, `:160`, `:188`, `tools.go:98`; read only, OCL) | not sent by Buddy 8.0.2: harmless |
 
 ## Not covered
 
