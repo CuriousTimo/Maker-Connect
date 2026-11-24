@@ -77,8 +77,9 @@ From the 400 (#230):
   - **Watch out:** a grep that hides the `<PaperName>` lines also hides the exclusions.
   - A group lists several `DriverName`s: its exclusions hold for each of them (the 400's group also names the
     400 Turbo, the Twin Turbo and the DUO Label).
-- **The 450's catalogue ignores `ExcludedPapers`**, an old gap: DYMO Connect hides e.g. "30337 Audio
-  Cassette" on the 450. That is a separate issue, not part of a new model.
+- **The 450's rolls do not filter by `ExcludedPapers`, and need not:** none of the 10 papers its group excludes
+  (`Papers.xml:1142-1145`, the group naming the 450) is a paper of `dymo_connect_lw450.rs` `ROLLS`. Found with a grep on
+  that file, not by a checker.
 - **The agent finds the printer by its IEEE-1284 model** (`usb://DYMO/LabelWriter%20<model>`), not by a USB
   product id. Without a unit to read the device ID from, mark the URI NOT CHECKED, as `port.rs` does.
 - **Write a test only for a value you have read from the file**, never one you expect.
