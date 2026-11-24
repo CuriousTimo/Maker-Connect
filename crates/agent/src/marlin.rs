@@ -299,7 +299,8 @@ type Handler = fn(&Agent, &Command) -> Result<Finish, HandlerError>;
 
 /// The handlers PrusaLink sets (`prusa_link.py:203-217`), as far as part 9 has them.
 pub(crate) fn setup(agent: &Arc<Agent>, command: &Command) {
-    let handlers: [(consts::Command, Handler); 6] = [
+    let handlers: [(consts::Command, Handler); 7] = [
+        (consts::Command::SendJobInfo, send_job_info),
         (consts::Command::StartPrint, start_print),
         (consts::Command::PausePrint, pause_print),
         (consts::Command::ResumePrint, resume_print),
@@ -321,6 +322,37 @@ fn current(agent: &Agent) -> State {
         .unwrap()
         .and_then(|id| agent.engine.lock().unwrap().report(id).ok());
     state(agent, report.as_ref())
+}
+
+/// `job_info` (`prusa_link.py:607-612`) → `JobInfo._run_command` (`command_handlers.py:615-644`):
+/// the job, its state and the latest telemetry's times and progress, as a JOB_INFO; a refusal of
+/// `JobInfo` fails the command as `CommandFailed(...)`.
+fn send_job_info(agent: &Agent, _cmd: &Command) -> Result<Finish, HandlerError> {
+    let mut kwargs = agent
+        .job
+        .lock()
+        .unwrap()
+        .info()
+        .map_err(|why| HandlerError::Failed(format!("CommandFailed({})", repr_str(why))))?;
+    kwargs.insert("state".into(), current(agent).value().into());
+    let report = agent
+        .dymo
+        .lock()
+        .unwrap()
+        .and_then(|id| agent.engine.lock().unwrap().report(id).ok());
+    if let Some(r) = report {
+        let latest = telemetry(&r.telemetry);
+        for key in ["time_printing", "time_remaining", "progress"] {
+            if let Some(v) = latest.get(key) {
+                kwargs.insert(key.into(), v.clone());
+            }
+        }
+    }
+    Ok(Finish {
+        source: Source::Connect,
+        event: Some(consts::Event::JobInfo),
+        kwargs,
+    })
 }
 
 /// `start_print` (`prusa_link.py:563-570`): `assert caller.kwargs`, then `StartPrint`.
@@ -367,6 +399,8 @@ pub(crate) fn start(agent: &Agent, path: &str, job: i64) -> Result<(), HandlerEr
     let Some(id) = *agent.dymo.lock().unwrap() else {
         return Err(failed("the Marlin module is off"));
     };
+    // The file's size and time, for SEND_JOB_INFO (`selected_file_size`, `selected_file_m_timestamp`).
+    let meta = std::fs::metadata(&file).ok();
     let order = JobOrder {
         id: job,
         name: path.to_owned(),
@@ -391,6 +425,19 @@ pub(crate) fn start(agent: &Agent, path: &str, job: i64) -> Result<(), HandlerEr
         return Err(failed("the Marlin port has ended"));
     }
     log::info!("print {job}: {path} to the printer");
+    // `job.set_file_path(...)` and the start command (`command_handlers.py:297-303`): what
+    // SEND_JOB_INFO answers with.
+    let m_timestamp = meta
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64);
+    agent.job.lock().unwrap().select(
+        path,
+        meta.as_ref().map_or(0, |m| m.len()),
+        m_timestamp,
+        u32::try_from(job).ok(),
+    );
     // `self.state_manager.printing()`
     set_state(agent, State::Printing, None);
     Ok(())

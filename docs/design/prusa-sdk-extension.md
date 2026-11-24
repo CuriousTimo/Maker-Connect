@@ -709,7 +709,8 @@ plain Marlin has them:
 | `PAUSE_PRINT`, `RESUME_PRINT`, `STOP_PRINT` | none | `JobControl` `Pause`, `Resume`, `Stop` |
 | `GCODE` | `gcode` (`prusa_link.py:545-552`) | `Gcode`, sent as OctoPrint sends a command |
 | `SET_VALUE` | one of `speed`, `flow`, `nozzle_temperature`, `bed_temperature` (`command_handlers.py:395-415`) | `Speed`, `Flow`, `Temperature`; PrusaLink's ranges are the MK3's (`LimitsMK3`) and are not used: the ranges are the server's UI's (ours) |
-| `SEND_JOB_INFO`, `SEND_INFO`, `SEND_FILE_INFO`, `DELETE_FILE` | the SDK's | the SDK's own, over the storages below |
+| `SEND_JOB_INFO` | none | PrusaLink's `job_info` (`prusa_link.py:607-612`, `JobInfo` `command_handlers.py:615-644`): the job, its file and the latest times and progress as a `JOB_INFO`; refused as there while no job runs or its file is not known (`crates/agent/src/job.rs` `info`) |
+| `SEND_INFO`, `SEND_FILE_INFO`, `DELETE_FILE` | the SDK's | the SDK's own, over the storages below |
 | `START_CONNECT_DOWNLOAD` | the SDK's (`__init__.py:457-483`) | the file into the agent's `LOCAL` storage (part 2) |
 | `UPGRADE` | part 6b | the agent |
 

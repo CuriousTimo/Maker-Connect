@@ -32,6 +32,11 @@ pub(crate) struct Job {
     job_id: u64,
     state: JobState,
     file: PathBuf,
+    /// The file being printed (`JobData.selected_file_path`, `selected_file_size`,
+    /// `selected_file_m_timestamp`), set when a print of the agent's storage starts.
+    selected: Option<(String, u64, Option<i64>)>,
+    /// The command that started the job (`JobData.job_start_cmd_id`).
+    start_cmd_id: Option<u32>,
 }
 
 impl Job {
@@ -46,6 +51,8 @@ impl Job {
             job_id,
             state: JobState::Idle,
             file,
+            selected: None,
+            start_cmd_id: None,
         }
     }
 
@@ -62,15 +69,62 @@ impl Job {
         if matches!(to, State::Error | State::Idle | State::Busy)
             && self.state == JobState::InProgress
         {
-            self.state = JobState::Idle;
+            self.job_ended();
         }
     }
 
     /// `tick` (`job.py:135-138`): after the state went out, a job that was ending has ended.
     pub(crate) fn tick(&mut self) {
         if self.state == JobState::Ending {
-            self.state = JobState::Idle;
+            self.job_ended();
         }
+    }
+
+    /// `job_ended` (`job.py:111-120`): the start command forgotten, the state IDLE; the number
+    /// stays.
+    fn job_ended(&mut self) {
+        self.start_cmd_id = None;
+        self.state = JobState::Idle;
+    }
+
+    /// A print of the agent's storage begins (`StartPrint._run_command` →
+    /// `_start_file_print`, `job.set_file_path(path, path_incomplete=False)`,
+    /// `command_handlers.py:257-303`; the size and time as `selected_file_*`), started by
+    /// `command_id` (`job_start_cmd_id`, `job.py:98`).
+    pub(crate) fn select(
+        &mut self,
+        path: &str,
+        size: u64,
+        m_timestamp: Option<i64>,
+        command_id: Option<u32>,
+    ) {
+        self.selected = Some((path.to_owned(), size, m_timestamp));
+        self.start_cmd_id = command_id;
+    }
+
+    /// `JobInfo._run_command` (`command_handlers.py:615-644`) with `get_job_info_data`
+    /// (`job.py:208-230`): the job's members, or the reason it has none. `from_sd` is false (the
+    /// agent prints from its own storage); there is no mesh (`mbl`, a Prusa's) and the path is
+    /// never incomplete.
+    pub(crate) fn info(&self) -> Result<serde_json::Map<String, serde_json::Value>, &'static str> {
+        if self.state == JobState::Idle {
+            return Err("Cannot get job info, when there is no job in progress.");
+        }
+        let Some((path, size, m_timestamp)) = &self.selected else {
+            return Err("Cannot get job info, don't know the file details yet.");
+        };
+        let mut data = serde_json::Map::new();
+        if let Some(id) = self.start_cmd_id {
+            data.insert("start_cmd_id".into(), id.into());
+        }
+        data.insert("path".into(), path.clone().into());
+        if let Some(t) = m_timestamp {
+            data.insert("m_timestamp".into(), (*t).into());
+        }
+        data.insert("size".into(), (*size).into());
+        data.insert("from_sd".into(), false.into());
+        data.insert("job_id".into(), self.job_id.into());
+        Ok(data)
     }
 
     /// `job_started` (`job.py:85-110`): the next number, written where it is kept (`write`).
@@ -117,8 +171,27 @@ mod tests {
         let mut again = Job::load(&dir);
         again.state_changed(State::Printing);
         assert_eq!(again.for_api(), Some(2), "kept across a restart");
+        assert_eq!(
+            again.info(),
+            Err("Cannot get job info, don't know the file details yet."),
+            "a job whose file is not known"
+        );
+        again.select("/gcodes/cube.gcode", 1200, Some(1730000000), Some(42));
+        let info = again.info().unwrap();
+        assert_eq!(
+            (
+                info["job_id"].clone(),
+                info["path"].clone(),
+                info["start_cmd_id"].clone()
+            ),
+            (2.into(), "/gcodes/cube.gcode".into(), 42.into())
+        );
         again.state_changed(State::Error);
         assert_eq!(again.for_api(), None);
+        assert_eq!(
+            again.info(),
+            Err("Cannot get job info, when there is no job in progress.")
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
